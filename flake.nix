@@ -351,14 +351,22 @@
               runHook postInstall
             '';
           };
+
+          dump = pkgs.writeShellApplication {
+            name = "dump";
+            runtimeInputs = [ pkgs.binutils ];
+            text = ''
+              exec objdump -d ${sha3}/bin/sha3
+            '';
+          };
         in
         {
-          inherit sha3 tinfl stats;
+          inherit sha3 tinfl stats dump;
           default = stats;
         });
 
       checks = forAllSystems (system: pkgs: {
-        inherit (self.packages.${system}) sha3 tinfl stats;
+        inherit (self.packages.${system}) sha3 tinfl stats dump;
         default = self.packages.${system}.stats;
       });
 
@@ -377,6 +385,11 @@
           type = "app";
           program = "${self.packages.${system}.stats}/bin/show-stats";
           meta.description = "Print the reproducible SHA-3/miniz binary size stats";
+        };
+        dump = {
+          type = "app";
+          program = "${self.packages.${system}.dump}/bin/dump";
+          meta.description = "Print objdump -d for the native SHA-3 binary";
         };
         default = self.apps.${system}.stats;
       });

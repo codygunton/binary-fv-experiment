@@ -60,8 +60,7 @@ nix build
 For SHA-3 inspection:
 
 ```sh
-nix build .#sha3 -o result-sha3
-nix develop -c sh -c 'objdump -d result-sha3/bin/sha3 > sha3.objdump.txt'
+nix run .#dump > sha3.objdump.txt
 ```
 
 The stats build also writes:
