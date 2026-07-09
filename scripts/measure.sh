@@ -12,6 +12,7 @@ NM="${NM:-nm}"
 OBJDUMP="${OBJDUMP:-objdump}"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 WORK_DIR="${WORK_DIR:-$OUT_DIR/work}"
 BUILD_DIR="$OUT_DIR/build"
 
@@ -41,22 +42,22 @@ chmod -R u+w "$WORK_DIR"
   -o "$BUILD_DIR/sha3.o"
 
 "$CC" "${COMMON_CFLAGS[@]}" \
-  -I"$SCRIPT_DIR" \
+  -I"$REPO_ROOT/include" \
   -I"$WORK_DIR/miniz" \
   -c "$WORK_DIR/miniz/miniz_tinfl.c" \
   -o "$BUILD_DIR/tinfl.o"
 
 "$CC" "${COMMON_CFLAGS[@]}" -no-pie \
   -I"$WORK_DIR/tiny_sha3" \
-  "$SCRIPT_DIR/sha3_harness.c" \
+  "$REPO_ROOT/harness/sha3_harness.c" \
   "$BUILD_DIR/sha3.o" \
   -Wl,--gc-sections \
   -o "$BUILD_DIR/sha3_probe"
 
 "$CC" "${COMMON_CFLAGS[@]}" -no-pie \
-  -I"$SCRIPT_DIR" \
+  -I"$REPO_ROOT/include" \
   -I"$WORK_DIR/miniz" \
-  "$SCRIPT_DIR/tinfl_harness.c" \
+  "$REPO_ROOT/harness/tinfl_harness.c" \
   "$BUILD_DIR/tinfl.o" \
   -Wl,--gc-sections \
   -o "$BUILD_DIR/tinfl_probe"
@@ -67,22 +68,22 @@ chmod -R u+w "$WORK_DIR"
   -o "$BUILD_DIR/sha3.aarch64.o"
 
 "$ZIG" cc -target aarch64-linux-gnu "${COMMON_CFLAGS[@]}" \
-  -I"$SCRIPT_DIR" \
+  -I"$REPO_ROOT/include" \
   -I"$WORK_DIR/miniz" \
   -c "$WORK_DIR/miniz/miniz_tinfl.c" \
   -o "$BUILD_DIR/tinfl.aarch64.o"
 
 "$ZIG" cc -target aarch64-linux-gnu "${COMMON_CFLAGS[@]}" -no-pie \
   -I"$WORK_DIR/tiny_sha3" \
-  "$SCRIPT_DIR/sha3_harness.c" \
+  "$REPO_ROOT/harness/sha3_harness.c" \
   "$BUILD_DIR/sha3.aarch64.o" \
   -Wl,--gc-sections \
   -o "$BUILD_DIR/sha3_probe.aarch64"
 
 "$ZIG" cc -target aarch64-linux-gnu "${COMMON_CFLAGS[@]}" -no-pie \
-  -I"$SCRIPT_DIR" \
+  -I"$REPO_ROOT/include" \
   -I"$WORK_DIR/miniz" \
-  "$SCRIPT_DIR/tinfl_harness.c" \
+  "$REPO_ROOT/harness/tinfl_harness.c" \
   "$BUILD_DIR/tinfl.aarch64.o" \
   -Wl,--gc-sections \
   -o "$BUILD_DIR/tinfl_probe.aarch64"
@@ -104,6 +105,17 @@ selected_instruction_total() {
     total=$((total + count))
   done
   printf '%s\n' "$total"
+}
+
+objdump_line_count() {
+  local file="$1"
+  "$OBJDUMP" -d "$file" | wc -l | awk '{ print $1 }'
+}
+
+objdump_instruction_line_count() {
+  local file="$1"
+  "$OBJDUMP" -d "$file" |
+    awk '/^[[:space:]]+[0-9a-f]+:/ { n++ } END { print n + 0 }'
 }
 
 branchish_total() {
@@ -160,6 +172,11 @@ tinfl_selected_instrs="$(
     tinfl_decompress tinfl_decompress_mem_to_mem main
 )"
 
+sha3_objdump_lines="$(objdump_line_count "$BUILD_DIR/sha3_probe")"
+tinfl_objdump_lines="$(objdump_line_count "$BUILD_DIR/tinfl_probe")"
+sha3_objdump_instr_lines="$(objdump_instruction_line_count "$BUILD_DIR/sha3_probe")"
+tinfl_objdump_instr_lines="$(objdump_instruction_line_count "$BUILD_DIR/tinfl_probe")"
+
 sha3_branchish="$(
   branchish_total \
     "$BUILD_DIR/sha3_probe:sha3_keccakf" \
@@ -195,6 +212,9 @@ tinfl_branchish="$(
   "$BUILD_DIR/sha3.aarch64.o" \
   "$BUILD_DIR/tinfl.aarch64.o" > "$OUT_DIR/symbols.txt"
 
+"$OBJDUMP" -d "$BUILD_DIR/sha3_probe" > "$OUT_DIR/sha3_probe.objdump.txt"
+"$OBJDUMP" -d "$BUILD_DIR/tinfl_probe" > "$OUT_DIR/tinfl_probe.objdump.txt"
+
 {
   echo "tool,value"
   printf 'cc,%s\n' "$("$CC" --version | head -n 1)"
@@ -205,11 +225,11 @@ tinfl_branchish="$(
 } > "$OUT_DIR/toolchain.csv"
 
 cat > "$OUT_DIR/stats.tsv" <<EOF
-target	arch	object_text	linked_text	selected_instructions	branchish	file_size_object	file_size_linked
-sha3	x86_64	$sha3_native_object_text	$sha3_native_linked_text	$sha3_selected_instrs	$sha3_branchish	$(file_size "$BUILD_DIR/sha3.o")	$(file_size "$BUILD_DIR/sha3_probe")
-tinfl	x86_64	$tinfl_native_object_text	$tinfl_native_linked_text	$tinfl_selected_instrs	$tinfl_branchish	$(file_size "$BUILD_DIR/tinfl.o")	$(file_size "$BUILD_DIR/tinfl_probe")
-sha3	aarch64	$sha3_aarch64_object_text	$sha3_aarch64_linked_text			$(file_size "$BUILD_DIR/sha3.aarch64.o")	$(file_size "$BUILD_DIR/sha3_probe.aarch64")
-tinfl	aarch64	$tinfl_aarch64_object_text	$tinfl_aarch64_linked_text			$(file_size "$BUILD_DIR/tinfl.aarch64.o")	$(file_size "$BUILD_DIR/tinfl_probe.aarch64")
+target	arch	object_text	linked_text	selected_symbol_instructions	branchish	linked_objdump_lines	linked_objdump_instruction_lines	file_size_object	file_size_linked
+sha3	x86_64	$sha3_native_object_text	$sha3_native_linked_text	$sha3_selected_instrs	$sha3_branchish	$sha3_objdump_lines	$sha3_objdump_instr_lines	$(file_size "$BUILD_DIR/sha3.o")	$(file_size "$BUILD_DIR/sha3_probe")
+tinfl	x86_64	$tinfl_native_object_text	$tinfl_native_linked_text	$tinfl_selected_instrs	$tinfl_branchish	$tinfl_objdump_lines	$tinfl_objdump_instr_lines	$(file_size "$BUILD_DIR/tinfl.o")	$(file_size "$BUILD_DIR/tinfl_probe")
+sha3	aarch64	$sha3_aarch64_object_text	$sha3_aarch64_linked_text						$(file_size "$BUILD_DIR/sha3.aarch64.o")	$(file_size "$BUILD_DIR/sha3_probe.aarch64")
+tinfl	aarch64	$tinfl_aarch64_object_text	$tinfl_aarch64_linked_text						$(file_size "$BUILD_DIR/tinfl.aarch64.o")	$(file_size "$BUILD_DIR/tinfl_probe.aarch64")
 EOF
 
 cat > "$OUT_DIR/stats.md" <<EOF
@@ -230,10 +250,15 @@ $("$SIZE" --version | head -n 1)
 
 ## Native x86-64
 
-| Target | Object \`.text\` | Linked \`.text\` | Selected implementation instructions | Branch/call/ret-ish |
-|---|---:|---:|---:|---:|
-| \`tiny_sha3/sha3.c\` | ${sha3_native_object_text} B | ${sha3_native_linked_text} B | ${sha3_selected_instrs} | ${sha3_branchish} |
-| \`miniz/miniz_tinfl.c\` | ${tinfl_native_object_text} B | ${tinfl_native_linked_text} B | ${tinfl_selected_instrs} | ${tinfl_branchish} |
+| Target | Object \`.text\` | Linked \`.text\` | Selected symbol instrs | Branch/call/ret-ish | Full \`objdump -d\` lines | Full instr lines |
+|---|---:|---:|---:|---:|---:|---:|
+| \`tiny_sha3/sha3.c\` | ${sha3_native_object_text} B | ${sha3_native_linked_text} B | ${sha3_selected_instrs} | ${sha3_branchish} | ${sha3_objdump_lines} | ${sha3_objdump_instr_lines} |
+| \`miniz/miniz_tinfl.c\` | ${tinfl_native_object_text} B | ${tinfl_native_linked_text} B | ${tinfl_selected_instrs} | ${tinfl_branchish} | ${tinfl_objdump_lines} | ${tinfl_objdump_instr_lines} |
+
+“Selected symbol instrs” counts disassembled instruction lines only in these native symbols:
+\`sha3_keccakf\`, \`sha3_init\`, \`sha3_update\`, \`sha3_final\`, \`sha3\`, and \`main\` for SHA-3;
+\`tinfl_decompress\`, \`tinfl_decompress_mem_to_mem\`, and \`main\` for DEFLATE. The full
+\`objdump -d\` columns count the entire native linked ELF, including startup/runtime sections.
 
 ## AArch64
 
@@ -247,8 +272,9 @@ $("$SIZE" --version | head -n 1)
 The native SHA-3 and \`tinfl\` harness executables both ran successfully. The AArch64 executables
 were cross-compiled but not run.
 
-Raw \`size\` output is in \`size.txt\`, symbol sizes are in \`symbols.txt\`, and machine-readable
-summary data is in \`stats.tsv\`.
+Raw \`size\` output is in \`size.txt\`, symbol sizes are in \`symbols.txt\`, native linked
+\`objdump -d\` output is in \`sha3_probe.objdump.txt\` and \`tinfl_probe.objdump.txt\`, and
+machine-readable summary data is in \`stats.tsv\`.
 EOF
 
 rm -rf "$WORK_DIR"
