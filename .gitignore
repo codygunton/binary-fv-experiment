@@ -1,0 +1,12 @@
+/build/
+/third_party/
+/result
+/result-*
+/STATUS.md
+/docs/ai/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.out
