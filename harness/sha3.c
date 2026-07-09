@@ -1,20 +1,31 @@
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "sha3.h"
 
-volatile uint8_t sha3_sink;
-
-int main(void)
+static void print_hex(const uint8_t *bytes, size_t len)
 {
-    static const uint8_t input[] = {
-        0x66, 0x6f, 0x72, 0x6d, 0x61, 0x6c, 0x2d, 0x62,
-        0x69, 0x6e, 0x61, 0x72, 0x79, 0x2d, 0x70, 0x72,
-        0x6f, 0x62, 0x65
-    };
+    static const char hex[] = "0123456789abcdef";
+
+    for (size_t i = 0; i < len; i++) {
+        putchar(hex[bytes[i] >> 4]);
+        putchar(hex[bytes[i] & 0x0f]);
+    }
+    putchar('\n');
+}
+
+int main(int argc, char **argv)
+{
     uint8_t out[32];
 
-    sha3(input, sizeof(input), out, sizeof(out));
-    sha3_sink = out[0];
+    if (argc != 2) {
+        fprintf(stderr, "usage: %s INPUT\n", argv[0]);
+        return 2;
+    }
+
+    sha3(argv[1], strlen(argv[1]), out, sizeof(out));
+    print_hex(out, sizeof(out));
     return 0;
 }

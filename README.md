@@ -33,13 +33,19 @@ result/obj/sha3.aarch64.o
 Run SHA-3:
 
 ```sh
-nix run .#sha3
+nix run .#sha3 -- formal-binary-probe
 ```
 
 or:
 
 ```sh
 ./scripts/run-sha3.sh
+```
+
+`scripts/run-sha3.sh` defaults to `formal-binary-probe`; pass arguments to override it:
+
+```sh
+./scripts/run-sha3.sh hello
 ```
 
 Build the stats report:
@@ -76,7 +82,7 @@ Current pinned Nix output:
 
 | Target         | x86 object `.text` | x86 linked `.text` | x86 selected symbol instrs | x86 full `objdump -d` lines | x86 full instr lines | AArch64 object `.text` | AArch64 linked `.text` |
 | -------------- | -----------------: | -----------------: | -------------------------: | --------------------------: | -------------------: | ---------------------: | ---------------------: |
-| SHA-3 `sha3.c` |            1,152 B |            2,075 B |                        189 |                         305 |                  268 |                1,348 B |                1,843 B |
+| SHA-3 `sha3.c` |            1,152 B |            2,601 B |                        217 |                         355 |                  308 |                1,348 B |                2,280 B |
 | miniz `tinfl`  |            6,619 B |            7,088 B |                      1,513 |                       1,623 |                1,592 |                6,568 B |                6,813 B |
 
 “Selected symbol instrs” is a symbol-filtered instruction-line count. For SHA-3 it counts

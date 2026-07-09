@@ -42,6 +42,7 @@
             "-fno-pie"
           ];
           cflags = lib.concatStringsSep " " commonCFlags;
+          sha3DemoInput = "formal-binary-probe";
 
           mkBinary =
             { name
@@ -49,6 +50,7 @@
             , sourceFile
             , entrypoint
             , includes ? [ ]
+            , runArgs ? [ ]
             , selectedSymbols
             }:
             pkgs.stdenvNoCC.mkDerivation {
@@ -102,7 +104,7 @@
                     -Wl,--gc-sections \
                     -o "$out/bin/${name}.aarch64"
 
-                  "$out/bin/${name}"
+                  "$out/bin/${name}" ${lib.escapeShellArgs runArgs}
                   printf '%s\n' ${lib.escapeShellArgs selectedSymbols} > "$out/meta/selected-symbols"
 
                   runHook postInstall
@@ -114,6 +116,7 @@
             srcRoot = tiny-sha3;
             sourceFile = "sha3.c";
             entrypoint = ./harness/sha3.c;
+            runArgs = [ sha3DemoInput ];
             selectedSymbols = [
               "sha3_keccakf"
               "sha3_init"
@@ -259,7 +262,7 @@
               sha3_objdump_instr_lines="$(objdump_instruction_line_count "$out/native/bin/sha3")"
               tinfl_objdump_instr_lines="$(objdump_instruction_line_count "$out/native/bin/tinfl")"
 
-              "$out/native/bin/sha3"
+              "$out/native/bin/sha3" ${lib.escapeShellArg sha3DemoInput}
               "$out/native/bin/tinfl"
 
               size \
