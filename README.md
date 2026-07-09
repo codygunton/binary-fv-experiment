@@ -33,7 +33,7 @@ result/obj/sha3.aarch64.o
 Run SHA-3:
 
 ```sh
-nix run .#sha3 -- formal-binary-probe
+nix run .#sha3 -- sha3-sample-message
 ```
 
 or:
@@ -42,7 +42,8 @@ or:
 ./scripts/run-sha3.sh
 ```
 
-`scripts/run-sha3.sh` defaults to `formal-binary-probe`; pass arguments to override it:
+`scripts/run-sha3.sh` supplies `sha3-sample-message` when no message is passed. That value is only
+the default message to hash; pass one argument to hash a different string:
 
 ```sh
 ./scripts/run-sha3.sh hello

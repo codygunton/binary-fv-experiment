@@ -42,7 +42,7 @@
             "-fno-pie"
           ];
           cflags = lib.concatStringsSep " " commonCFlags;
-          sha3DemoInput = "formal-binary-probe";
+          sha3SampleMessage = "sha3-sample-message";
 
           mkBinary =
             { name
@@ -116,7 +116,7 @@
             srcRoot = tiny-sha3;
             sourceFile = "sha3.c";
             entrypoint = ./harness/sha3.c;
-            runArgs = [ sha3DemoInput ];
+            runArgs = [ sha3SampleMessage ];
             selectedSymbols = [
               "sha3_keccakf"
               "sha3_init"
@@ -262,7 +262,7 @@
               sha3_objdump_instr_lines="$(objdump_instruction_line_count "$out/native/bin/sha3")"
               tinfl_objdump_instr_lines="$(objdump_instruction_line_count "$out/native/bin/tinfl")"
 
-              "$out/native/bin/sha3" ${lib.escapeShellArg sha3DemoInput}
+              "$out/native/bin/sha3" ${lib.escapeShellArg sha3SampleMessage}
               "$out/native/bin/tinfl"
 
               size \

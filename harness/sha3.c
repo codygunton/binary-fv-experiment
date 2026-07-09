@@ -21,7 +21,7 @@ int main(int argc, char **argv)
     uint8_t out[32];
 
     if (argc != 2) {
-        fprintf(stderr, "usage: %s INPUT\n", argv[0]);
+        fprintf(stderr, "usage: %s MESSAGE\n", argv[0]);
         return 2;
     }
 
