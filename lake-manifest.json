@@ -16,7 +16,7 @@
    "name": "cryptography",
    "manifestFile": "lake-manifest.json",
    "inherited": false,
-   "dir": "./specs/Cryptography",
+   "dir": "./specs/sha-3",
    "configFile": "lakefile.lean"}],
  "name": "sha_fv_experiment",
  "lakeDir": ".lake"}

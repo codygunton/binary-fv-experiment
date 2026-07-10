@@ -114,7 +114,7 @@ nix develop
 lake build ShaFv
 ```
 
-`kim-em/lean-zip` is vendored under `specs/lean-zip` for the DEFLATE spec, but is not imported by
+`kim-em/lean-zip` is vendored under `specs/deflate` for the DEFLATE spec, but is not imported by
 the root Lake package yet because it currently pins a newer Lean toolchain than `gdncc/Cryptography`.
 
 ## Objdump
