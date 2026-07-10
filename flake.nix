@@ -447,7 +447,7 @@
               riscvBinutils
             ];
             shellHook = ''
-              echo "Run: nix build .#sha3, nix run .#sha3, or nix run .#dump"
+              echo "Run: nix build .#sha3 --out-link build/sha3, nix run .#sha3, or nix run .#dump"
             '';
           };
         });

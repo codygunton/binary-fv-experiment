@@ -14,27 +14,31 @@ target built by this repo is `RV64IM_Zicclsm` with ABI `lp64`; execution goes th
 - `harness/`: local C entry points with one `main` per target.
 - `include/`: local freestanding build shims used by the `miniz_tinfl.c` target.
 - `scripts/`: shell conveniences only.
+- `build/`: ignored local output links and generated inspection files.
 
 ## Build
+
+Use explicit output links under `build/` for local build artifacts.
 
 Build SHA-3:
 
 ```sh
-nix build .#sha3
+mkdir -p build
+nix build .#sha3 --out-link build/sha3
 ```
 
 That produces:
 
 ```text
-result/bin/sha3
-result/obj/sha3.o
-result/obj/sha3-main.o
-result/obj/riscv64_start.o
-result/obj/riscv64_runtime.o
-result/meta/elf-attributes.txt
+build/sha3/bin/sha3
+build/sha3/obj/sha3.o
+build/sha3/obj/sha3-main.o
+build/sha3/obj/riscv64_start.o
+build/sha3/obj/riscv64_runtime.o
+build/sha3/meta/elf-attributes.txt
 ```
 
-`result/bin/sha3` is a RISC-V ELF, not a host executable. Run SHA-3 through the Nix app:
+`build/sha3/bin/sha3` is a RISC-V ELF, not a host executable. Run SHA-3 through the Nix app:
 
 ```sh
 nix run .#sha3 -- sha3-sample-message
@@ -56,7 +60,8 @@ the default message to hash; pass one argument to hash a different string:
 Build and run the DEFLATE target:
 
 ```sh
-nix build .#tinfl
+mkdir -p build
+nix build .#tinfl --out-link build/tinfl
 nix run .#tinfl
 ```
 
@@ -71,14 +76,15 @@ qemu-riscv64 --version
 Build the stats report:
 
 ```sh
-nix build .#stats
-cat result/stats.md
+nix build .#stats --out-link build/stats
+cat build/stats/stats.md
 ```
 
-The default package is `.#stats`, so this is equivalent:
+The default package is `.#stats`, so this is equivalent while still keeping the local link in
+`build/`:
 
 ```sh
-nix build
+nix build --out-link build/stats
 ```
 
 ## Objdump
@@ -86,23 +92,24 @@ nix build
 For SHA-3 inspection:
 
 ```sh
-nix run .#dump > sha3.objdump.txt
+mkdir -p build
+nix run .#dump > build/sha3.objdump.txt
 ```
 
 For direct inspection of either target after a package build:
 
 ```sh
-nix build .#sha3
-nix develop -c riscv64-unknown-linux-gnu-objdump -d result/bin/sha3 > sha3.objdump.txt
-nix build .#tinfl
-nix develop -c riscv64-unknown-linux-gnu-objdump -d result/bin/tinfl > tinfl.objdump.txt
+nix build .#sha3 --out-link build/sha3
+nix develop -c sh -c 'riscv64-unknown-linux-gnu-objdump -d build/sha3/bin/sha3 > build/sha3.objdump.txt'
+nix build .#tinfl --out-link build/tinfl
+nix develop -c sh -c 'riscv64-unknown-linux-gnu-objdump -d build/tinfl/bin/tinfl > build/tinfl.objdump.txt'
 ```
 
 The stats build also writes:
 
 ```text
-result/objdump/sha3.txt
-result/objdump/tinfl.txt
+build/stats/objdump/sha3.txt
+build/stats/objdump/tinfl.txt
 ```
 
 ## Stats
