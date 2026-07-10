@@ -29,20 +29,38 @@
       packages = forAllSystems (system: pkgs:
         let
           lib = pkgs.lib;
+          riscvPkgs = pkgs.pkgsCross.riscv64;
+          riscvBinutils = riscvPkgs.buildPackages.binutils;
+          riscvTargetPrefix = riscvPkgs.stdenv.cc.targetPrefix;
+          riscvCc = "${riscvPkgs.stdenv.cc}/bin/${riscvTargetPrefix}gcc";
+          riscvObjdump = "${riscvBinutils}/bin/${riscvTargetPrefix}objdump";
+          riscvNm = "${riscvBinutils}/bin/${riscvTargetPrefix}nm";
+          riscvReadelf = "${riscvBinutils}/bin/${riscvTargetPrefix}readelf";
+          riscvSize = "${riscvBinutils}/bin/${riscvTargetPrefix}size";
+          qemuRiscv64 = "${pkgs.qemu-user}/bin/qemu-riscv64";
+          riscvTarget = "RV64IM_Zicclsm";
+          riscvArch = "rv64im_zicclsm";
+          riscvAbi = "lp64";
           commonCFlags = [
             "-Os"
             "-g0"
             "-DNDEBUG"
+            "-march=${riscvArch}"
+            "-mabi=${riscvAbi}"
+            "-ffreestanding"
+            "-fno-builtin"
             "-ffunction-sections"
             "-fdata-sections"
             "-fno-asynchronous-unwind-tables"
             "-fno-unwind-tables"
             "-fno-stack-protector"
             "-fomit-frame-pointer"
+            "-fno-pic"
             "-fno-pie"
           ];
           cflags = lib.concatStringsSep " " commonCFlags;
           sha3SampleMessage = "sha3-sample-message";
+          sha3SampleDigest = "f8b2abe65645474af551ae4523f3c5948d9897c9f46c08a390ef88d6777507ba";
 
           mkBinary =
             { name
@@ -50,17 +68,17 @@
             , sourceFile
             , entrypoint
             , includes ? [ ]
-            , runArgs ? [ ]
+            , extraCFlags ? [ ]
             , selectedSymbols
             }:
             pkgs.stdenvNoCC.mkDerivation {
-              pname = "sha-fv-${name}";
+              pname = "sha-fv-${name}-rv64im-zicclsm";
               version = "0.1.0";
               src = self;
 
               nativeBuildInputs = [
-                pkgs.gcc16
-                pkgs.zig
+                riscvPkgs.stdenv.cc
+                riscvBinutils
               ];
 
               hardeningDisable = [ "all" ];
@@ -71,41 +89,45 @@
               installPhase =
                 let
                   includeFlags = lib.concatMapStringsSep " " (include: "-I${include}") includes;
+                  targetCFlags = lib.concatStringsSep " " (commonCFlags ++ extraCFlags);
                 in
                 ''
                   runHook preInstall
 
                   mkdir -p "$out/bin" "$out/obj" "$out/meta"
                   export NIX_HARDENING_ENABLE=""
-                  export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
-                  export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
 
-                  gcc ${cflags} ${includeFlags} \
+                  ${riscvCc} ${targetCFlags} ${includeFlags} \
                     -I${srcRoot} \
                     -c ${srcRoot}/${sourceFile} \
                     -o "$out/obj/${name}.o"
 
-                  gcc ${cflags} -no-pie ${includeFlags} \
+                  ${riscvCc} ${targetCFlags} ${includeFlags} \
                     -I${srcRoot} \
-                    ${entrypoint} \
+                    -c ${entrypoint} \
+                    -o "$out/obj/${name}-main.o"
+
+                  ${riscvCc} ${cflags} \
+                    -c ${./harness/riscv64_runtime.c} \
+                    -o "$out/obj/riscv64_runtime.o"
+
+                  ${riscvCc} ${cflags} \
+                    -c ${./harness/riscv64_start.S} \
+                    -o "$out/obj/riscv64_start.o"
+
+                  ${riscvCc} ${cflags} -nostdlib -static -no-pie \
+                    "$out/obj/riscv64_start.o" \
+                    "$out/obj/${name}-main.o" \
                     "$out/obj/${name}.o" \
+                    "$out/obj/riscv64_runtime.o" \
+                    -lgcc \
                     -Wl,--gc-sections \
+                    -Wl,-e,_start \
                     -o "$out/bin/${name}"
 
-                  zig cc -target aarch64-linux-gnu ${cflags} ${includeFlags} \
-                    -I${srcRoot} \
-                    -c ${srcRoot}/${sourceFile} \
-                    -o "$out/obj/${name}.aarch64.o"
-
-                  zig cc -target aarch64-linux-gnu ${cflags} -no-pie ${includeFlags} \
-                    -I${srcRoot} \
-                    ${entrypoint} \
-                    "$out/obj/${name}.aarch64.o" \
-                    -Wl,--gc-sections \
-                    -o "$out/bin/${name}.aarch64"
-
-                  "$out/bin/${name}" ${lib.escapeShellArgs runArgs}
                   printf '%s\n' ${lib.escapeShellArgs selectedSymbols} > "$out/meta/selected-symbols"
+                  ${riscvReadelf} -h "$out/bin/${name}" > "$out/meta/elf-header.txt"
+                  ${riscvReadelf} -A "$out/bin/${name}" > "$out/meta/elf-attributes.txt"
 
                   runHook postInstall
                 '';
@@ -116,7 +138,6 @@
             srcRoot = tiny-sha3;
             sourceFile = "sha3.c";
             entrypoint = ./harness/sha3.c;
-            runArgs = [ sha3SampleMessage ];
             selectedSymbols = [
               "sha3_keccakf"
               "sha3_init"
@@ -133,6 +154,14 @@
             sourceFile = "miniz_tinfl.c";
             entrypoint = ./harness/tinfl.c;
             includes = [ ./include ];
+            extraCFlags = [
+              "-DMINIZ_NO_TIME"
+              "-DMINIZ_NO_STDIO"
+              "-DMINIZ_NO_MALLOC"
+              "-DMINIZ_NO_ARCHIVE_APIS"
+              "-DMINIZ_NO_DEFLATE_APIS"
+              "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES"
+            ];
             selectedSymbols = [
               "tinfl_decompress"
               "tinfl_decompress_mem_to_mem"
@@ -141,16 +170,15 @@
           };
 
           stats = pkgs.stdenvNoCC.mkDerivation {
-            pname = "sha-fv-binary-stats";
+            pname = "sha-fv-binary-stats-rv64im-zicclsm";
             version = "0.1.0";
 
             nativeBuildInputs = [
-              pkgs.binutils
               pkgs.coreutils
               pkgs.gawk
-              pkgs.gcc16
               pkgs.gnused
-              pkgs.zig
+              pkgs.qemu-user
+              riscvBinutils
             ];
 
             dontUnpack = true;
@@ -161,23 +189,22 @@
             installPhase = ''
               runHook preInstall
 
-              mkdir -p "$out/bin" "$out/native/bin" "$out/native/obj" "$out/aarch64/bin" \
-                "$out/aarch64/obj" "$out/objdump"
+              mkdir -p "$out/bin" "$out/rv64/bin" "$out/rv64/obj" "$out/rv64/meta" "$out/objdump"
 
-              cp ${sha3}/bin/sha3 "$out/native/bin/sha3"
-              cp ${sha3}/obj/sha3.o "$out/native/obj/sha3.o"
-              cp ${sha3}/bin/sha3.aarch64 "$out/aarch64/bin/sha3"
-              cp ${sha3}/obj/sha3.aarch64.o "$out/aarch64/obj/sha3.o"
+              cp ${sha3}/bin/sha3 "$out/rv64/bin/sha3"
+              cp ${sha3}/obj/sha3.o "$out/rv64/obj/sha3.o"
+              cp ${sha3}/obj/sha3-main.o "$out/rv64/obj/sha3-main.o"
+              cp ${sha3}/meta/elf-attributes.txt "$out/rv64/meta/sha3-elf-attributes.txt"
 
-              cp ${tinfl}/bin/tinfl "$out/native/bin/tinfl"
-              cp ${tinfl}/obj/tinfl.o "$out/native/obj/tinfl.o"
-              cp ${tinfl}/bin/tinfl.aarch64 "$out/aarch64/bin/tinfl"
-              cp ${tinfl}/obj/tinfl.aarch64.o "$out/aarch64/obj/tinfl.o"
+              cp ${tinfl}/bin/tinfl "$out/rv64/bin/tinfl"
+              cp ${tinfl}/obj/tinfl.o "$out/rv64/obj/tinfl.o"
+              cp ${tinfl}/obj/tinfl-main.o "$out/rv64/obj/tinfl-main.o"
+              cp ${tinfl}/meta/elf-attributes.txt "$out/rv64/meta/tinfl-elf-attributes.txt"
 
               count_symbol_instructions() {
                 local file="$1"
                 local symbol="$2"
-                objdump -d --disassemble="$symbol" "$file" |
+                ${riscvObjdump} -d --disassemble="$symbol" "$file" |
                   awk '/^[[:space:]]+[0-9a-f]+:/ { n++ } END { print n + 0 }'
               }
 
@@ -201,7 +228,7 @@
                 tmp="$(mktemp)"
                 local symbol
                 while IFS= read -r symbol; do
-                  objdump -d --disassemble="$symbol" "$file" >> "$tmp"
+                  ${riscvObjdump} -d --disassemble="$symbol" "$file" >> "$tmp"
                 done < "$symbols_file"
                 awk '
                   /^[[:space:]]+[0-9a-f]+:/ {
@@ -210,18 +237,18 @@
                     sub(/^[[:space:]]+/, "", instr)
                     split(instr, a, /[[:space:]]+/)
                     m = a[1]
-                    if (m ~ /^j/ && m != "jmp") cond++
-                    else if (m == "jmp") uncond++
-                    else if (m ~ /^call/) call++
-                    else if (m ~ /^ret/) ret++
+                    if (m ~ /^b/) branch++
+                    else if (m == "j" || m == "jr" || m == "jal" || m == "jalr") branch++
+                    else if (m == "call" || m == "tail") call++
+                    else if (m == "ret") ret++
                   }
-                  END { print cond + uncond + call + ret + 0 }
+                  END { print branch + call + ret + 0 }
                 ' "$tmp"
                 rm -f "$tmp"
               }
 
               text_size() {
-                size "$1" | awk 'NR == 2 { print $1 }'
+                ${riscvSize} "$1" | awk 'NR == 2 { print $1 }'
               }
 
               file_size() {
@@ -229,75 +256,70 @@
               }
 
               objdump_line_count() {
-                objdump -d "$1" | wc -l | awk '{ print $1 }'
+                ${riscvObjdump} -d "$1" | wc -l | awk '{ print $1 }'
               }
 
               objdump_instruction_line_count() {
-                objdump -d "$1" |
+                ${riscvObjdump} -d "$1" |
                   awk '/^[[:space:]]+[0-9a-f]+:/ { n++ } END { print n + 0 }'
               }
 
-              objdump -d "$out/native/bin/sha3" > "$out/objdump/sha3.txt"
-              objdump -d "$out/native/bin/tinfl" > "$out/objdump/tinfl.txt"
+              ${riscvObjdump} -d "$out/rv64/bin/sha3" > "$out/objdump/sha3.txt"
+              ${riscvObjdump} -d "$out/rv64/bin/tinfl" > "$out/objdump/tinfl.txt"
 
-              sha3_native_object_text="$(text_size "$out/native/obj/sha3.o")"
-              tinfl_native_object_text="$(text_size "$out/native/obj/tinfl.o")"
-              sha3_native_linked_text="$(text_size "$out/native/bin/sha3")"
-              tinfl_native_linked_text="$(text_size "$out/native/bin/tinfl")"
-              sha3_aarch64_object_text="$(text_size "$out/aarch64/obj/sha3.o")"
-              tinfl_aarch64_object_text="$(text_size "$out/aarch64/obj/tinfl.o")"
-              sha3_aarch64_linked_text="$(text_size "$out/aarch64/bin/sha3")"
-              tinfl_aarch64_linked_text="$(text_size "$out/aarch64/bin/tinfl")"
+              sha3_object_text="$(text_size "$out/rv64/obj/sha3.o")"
+              tinfl_object_text="$(text_size "$out/rv64/obj/tinfl.o")"
+              sha3_linked_text="$(text_size "$out/rv64/bin/sha3")"
+              tinfl_linked_text="$(text_size "$out/rv64/bin/tinfl")"
 
               sha3_selected_instrs="$(
-                selected_instruction_total "$out/native/bin/sha3" ${sha3}/meta/selected-symbols
+                selected_instruction_total "$out/rv64/bin/sha3" ${sha3}/meta/selected-symbols
               )"
               tinfl_selected_instrs="$(
-                selected_instruction_total "$out/native/bin/tinfl" ${tinfl}/meta/selected-symbols
+                selected_instruction_total "$out/rv64/bin/tinfl" ${tinfl}/meta/selected-symbols
               )"
-              sha3_branchish="$(branchish_total "$out/native/bin/sha3" ${sha3}/meta/selected-symbols)"
-              tinfl_branchish="$(branchish_total "$out/native/bin/tinfl" ${tinfl}/meta/selected-symbols)"
-              sha3_objdump_lines="$(objdump_line_count "$out/native/bin/sha3")"
-              tinfl_objdump_lines="$(objdump_line_count "$out/native/bin/tinfl")"
-              sha3_objdump_instr_lines="$(objdump_instruction_line_count "$out/native/bin/sha3")"
-              tinfl_objdump_instr_lines="$(objdump_instruction_line_count "$out/native/bin/tinfl")"
+              sha3_branchish="$(branchish_total "$out/rv64/bin/sha3" ${sha3}/meta/selected-symbols)"
+              tinfl_branchish="$(branchish_total "$out/rv64/bin/tinfl" ${tinfl}/meta/selected-symbols)"
+              sha3_objdump_lines="$(objdump_line_count "$out/rv64/bin/sha3")"
+              tinfl_objdump_lines="$(objdump_line_count "$out/rv64/bin/tinfl")"
+              sha3_objdump_instr_lines="$(objdump_instruction_line_count "$out/rv64/bin/sha3")"
+              tinfl_objdump_instr_lines="$(objdump_instruction_line_count "$out/rv64/bin/tinfl")"
 
-              "$out/native/bin/sha3" ${lib.escapeShellArg sha3SampleMessage}
-              "$out/native/bin/tinfl"
+              sha3_output="$(${qemuRiscv64} "$out/rv64/bin/sha3" ${lib.escapeShellArg sha3SampleMessage})"
+              if [ "$sha3_output" != "${sha3SampleDigest}" ]; then
+                echo "unexpected SHA-3 digest for ${sha3SampleMessage}: $sha3_output" >&2
+                exit 1
+              fi
+              ${qemuRiscv64} "$out/rv64/bin/tinfl"
 
-              size \
-                "$out/native/obj/sha3.o" \
-                "$out/native/obj/tinfl.o" \
-                "$out/native/bin/sha3" \
-                "$out/native/bin/tinfl" \
-                "$out/aarch64/obj/sha3.o" \
-                "$out/aarch64/obj/tinfl.o" \
-                "$out/aarch64/bin/sha3" \
-                "$out/aarch64/bin/tinfl" > "$out/size.txt"
+              ${riscvSize} \
+                "$out/rv64/obj/sha3.o" \
+                "$out/rv64/obj/tinfl.o" \
+                "$out/rv64/bin/sha3" \
+                "$out/rv64/bin/tinfl" > "$out/size.txt"
 
-              nm -S --size-sort --radix=d \
-                "$out/native/obj/sha3.o" \
-                "$out/native/obj/tinfl.o" \
-                "$out/native/bin/sha3" \
-                "$out/native/bin/tinfl" \
-                "$out/aarch64/obj/sha3.o" \
-                "$out/aarch64/obj/tinfl.o" > "$out/symbols.txt"
+              ${riscvNm} -S --size-sort --radix=d \
+                "$out/rv64/obj/sha3.o" \
+                "$out/rv64/obj/tinfl.o" \
+                "$out/rv64/bin/sha3" \
+                "$out/rv64/bin/tinfl" > "$out/symbols.txt"
 
               {
                 echo "tool,value"
-                printf 'cc,%s\n' "$(gcc --version | head -n 1)"
-                printf 'zig,%s\n' "$(zig version)"
-                printf 'size,%s\n' "$(size --version | head -n 1)"
-                printf 'nm,%s\n' "$(nm --version | head -n 1)"
-                printf 'objdump,%s\n' "$(objdump --version | head -n 1)"
+                printf 'target,%s\n' '${riscvTarget}'
+                printf 'march,%s\n' '${riscvArch}'
+                printf 'mabi,%s\n' '${riscvAbi}'
+                printf 'cc,%s\n' "$(${riscvCc} --version | head -n 1)"
+                printf 'size,%s\n' "$(${riscvSize} --version | head -n 1)"
+                printf 'nm,%s\n' "$(${riscvNm} --version | head -n 1)"
+                printf 'objdump,%s\n' "$(${riscvObjdump} --version | head -n 1)"
+                printf 'qemu,%s\n' "$(${qemuRiscv64} --version | head -n 1)"
               } > "$out/toolchain.csv"
 
               cat > "$out/stats.tsv" <<EOF
               target	arch	object_text	linked_text	selected_symbol_instructions	branchish	linked_objdump_lines	linked_objdump_instruction_lines	file_size_object	file_size_linked
-              sha3	x86_64	$sha3_native_object_text	$sha3_native_linked_text	$sha3_selected_instrs	$sha3_branchish	$sha3_objdump_lines	$sha3_objdump_instr_lines	$(file_size "$out/native/obj/sha3.o")	$(file_size "$out/native/bin/sha3")
-              tinfl	x86_64	$tinfl_native_object_text	$tinfl_native_linked_text	$tinfl_selected_instrs	$tinfl_branchish	$tinfl_objdump_lines	$tinfl_objdump_instr_lines	$(file_size "$out/native/obj/tinfl.o")	$(file_size "$out/native/bin/tinfl")
-              sha3	aarch64	$sha3_aarch64_object_text	$sha3_aarch64_linked_text						$(file_size "$out/aarch64/obj/sha3.o")	$(file_size "$out/aarch64/bin/sha3")
-              tinfl	aarch64	$tinfl_aarch64_object_text	$tinfl_aarch64_linked_text						$(file_size "$out/aarch64/obj/tinfl.o")	$(file_size "$out/aarch64/bin/tinfl")
+              sha3	${riscvTarget}	$sha3_object_text	$sha3_linked_text	$sha3_selected_instrs	$sha3_branchish	$sha3_objdump_lines	$sha3_objdump_instr_lines	$(file_size "$out/rv64/obj/sha3.o")	$(file_size "$out/rv64/bin/sha3")
+              tinfl	${riscvTarget}	$tinfl_object_text	$tinfl_linked_text	$tinfl_selected_instrs	$tinfl_branchish	$tinfl_objdump_lines	$tinfl_objdump_instr_lines	$(file_size "$out/rv64/obj/tinfl.o")	$(file_size "$out/rv64/bin/tinfl")
               EOF
 
               cat > "$out/stats.md" <<EOF
@@ -311,38 +333,35 @@
               ## Toolchain
 
               \`\`\`text
-              $(gcc --version | head -n 1)
-              zig $(zig version)
-              $(size --version | head -n 1)
+              target ${riscvTarget}
+              march ${riscvArch}
+              mabi ${riscvAbi}
+              $(${riscvCc} --version | head -n 1)
+              $(${riscvSize} --version | head -n 1)
+              $(${qemuRiscv64} --version | head -n 1)
               \`\`\`
 
-              ## Native x86-64
+              ## ${riscvTarget}
 
               | Target | Object \`.text\` | Linked \`.text\` | Selected symbol instrs | Branch/call/ret-ish | Full \`objdump -d\` lines | Full instr lines |
               |---|---:|---:|---:|---:|---:|---:|
-              | \`tiny_sha3/sha3.c\` | ''${sha3_native_object_text} B | ''${sha3_native_linked_text} B | ''${sha3_selected_instrs} | ''${sha3_branchish} | ''${sha3_objdump_lines} | ''${sha3_objdump_instr_lines} |
-              | \`miniz/miniz_tinfl.c\` | ''${tinfl_native_object_text} B | ''${tinfl_native_linked_text} B | ''${tinfl_selected_instrs} | ''${tinfl_branchish} | ''${tinfl_objdump_lines} | ''${tinfl_objdump_instr_lines} |
+              | \`tiny_sha3/sha3.c\` | $sha3_object_text B | $sha3_linked_text B | $sha3_selected_instrs | $sha3_branchish | $sha3_objdump_lines | $sha3_objdump_instr_lines |
+              | \`miniz/miniz_tinfl.c\` | $tinfl_object_text B | $tinfl_linked_text B | $tinfl_selected_instrs | $tinfl_branchish | $tinfl_objdump_lines | $tinfl_objdump_instr_lines |
 
-              “Selected symbol instrs” counts disassembled instruction lines only in these native symbols:
+              “Selected symbol instrs” counts disassembled instruction lines only in these linked-ELF symbols:
               \`sha3_keccakf\`, \`sha3_init\`, \`sha3_update\`, \`sha3_final\`, \`sha3\`, and \`main\` for SHA-3;
               \`tinfl_decompress\`, \`tinfl_decompress_mem_to_mem\`, and \`main\` for DEFLATE. The full
-              \`objdump -d\` columns count the entire native linked ELF, including startup/runtime sections.
-
-              ## AArch64
-
-              | Target | Object \`.text\` | Linked \`.text\` |
-              |---|---:|---:|
-              | \`tiny_sha3/sha3.c\` | ''${sha3_aarch64_object_text} B | ''${sha3_aarch64_linked_text} B |
-              | \`miniz/miniz_tinfl.c\` | ''${tinfl_aarch64_object_text} B | ''${tinfl_aarch64_linked_text} B |
+              \`objdump -d\` columns count each entire RV64IM_Zicclsm linked ELF, including the local
+              freestanding startup/runtime sections.
 
               ## Sanity
 
-              The native SHA-3 and \`tinfl\` binaries both ran successfully. The AArch64 binaries were
-              cross-compiled but not run.
+              SHA-3 was run under \`qemu-riscv64\` with message \`${sha3SampleMessage}\` and produced
+              \`${sha3SampleDigest}\`. The \`tinfl\` binary also ran successfully under \`qemu-riscv64\`.
 
-              Raw \`size\` output is in \`size.txt\`, symbol sizes are in \`symbols.txt\`, native linked
-              \`objdump -d\` output is in \`objdump/sha3.txt\` and \`objdump/tinfl.txt\`, and
-              machine-readable summary data is in \`stats.tsv\`.
+              Raw \`size\` output is in \`size.txt\`, symbol sizes are in \`symbols.txt\`, RV64 linked
+              \`objdump -d\` output is in \`objdump/sha3.txt\` and \`objdump/tinfl.txt\`, ELF attributes
+              are in \`rv64/meta/\`, and machine-readable summary data is in \`stats.tsv\`.
               EOF
 
               cat > "$out/bin/show-stats" <<EOF
@@ -355,16 +374,31 @@
             '';
           };
 
+          sha3Run = pkgs.writeShellApplication {
+            name = "sha3";
+            runtimeInputs = [ pkgs.qemu-user ];
+            text = ''
+              exec qemu-riscv64 ${sha3}/bin/sha3 "$@"
+            '';
+          };
+
+          tinflRun = pkgs.writeShellApplication {
+            name = "tinfl";
+            runtimeInputs = [ pkgs.qemu-user ];
+            text = ''
+              exec qemu-riscv64 ${tinfl}/bin/tinfl "$@"
+            '';
+          };
+
           dump = pkgs.writeShellApplication {
             name = "dump";
-            runtimeInputs = [ pkgs.binutils ];
             text = ''
-              exec objdump -d ${sha3}/bin/sha3
+              exec ${riscvObjdump} -d ${sha3}/bin/sha3
             '';
           };
         in
         {
-          inherit sha3 tinfl stats dump;
+          inherit sha3 tinfl stats dump sha3Run tinflRun;
           default = stats;
         });
 
@@ -376,42 +410,46 @@
       apps = forAllSystems (system: pkgs: {
         sha3 = {
           type = "app";
-          program = "${self.packages.${system}.sha3}/bin/sha3";
-          meta.description = "Run the native SHA-3 binary";
+          program = "${self.packages.${system}.sha3Run}/bin/sha3";
+          meta.description = "Run the RV64IM_Zicclsm SHA-3 binary under qemu-riscv64";
         };
         tinfl = {
           type = "app";
-          program = "${self.packages.${system}.tinfl}/bin/tinfl";
-          meta.description = "Run the native miniz tinfl binary";
+          program = "${self.packages.${system}.tinflRun}/bin/tinfl";
+          meta.description = "Run the RV64IM_Zicclsm miniz tinfl binary under qemu-riscv64";
         };
         stats = {
           type = "app";
           program = "${self.packages.${system}.stats}/bin/show-stats";
-          meta.description = "Print the reproducible SHA-3/miniz binary size stats";
+          meta.description = "Print the reproducible SHA-3/miniz RV64IM_Zicclsm binary size stats";
         };
         dump = {
           type = "app";
           program = "${self.packages.${system}.dump}/bin/dump";
-          meta.description = "Print objdump -d for the native SHA-3 binary";
+          meta.description = "Print RISC-V objdump -d for the SHA-3 binary";
         };
         default = self.apps.${system}.stats;
       });
 
-      devShells = forAllSystems (system: pkgs: {
-        default = pkgs.mkShell {
-          packages = [
-            pkgs.binutils
-            pkgs.coreutils
-            pkgs.gawk
-            pkgs.gcc16
-            pkgs.gnused
-            pkgs.zig
-          ];
-
-          shellHook = ''
-            echo "Run: nix build .#sha3 or nix run .#sha3"
-          '';
-        };
-      });
+      devShells = forAllSystems (system: pkgs:
+        let
+          riscvPkgs = pkgs.pkgsCross.riscv64;
+          riscvBinutils = riscvPkgs.buildPackages.binutils;
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [
+              pkgs.coreutils
+              pkgs.gawk
+              pkgs.gnused
+              pkgs.qemu-user
+              riscvPkgs.stdenv.cc
+              riscvBinutils
+            ];
+            shellHook = ''
+              echo "Run: nix build .#sha3, nix run .#sha3, or nix run .#dump"
+            '';
+          };
+        });
     };
 }
