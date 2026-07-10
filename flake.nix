@@ -440,14 +440,16 @@
           default = pkgs.mkShell {
             packages = [
               pkgs.coreutils
+              pkgs.elan
               pkgs.gawk
+              pkgs.git
               pkgs.gnused
               pkgs.qemu-user
               riscvPkgs.stdenv.cc
               riscvBinutils
             ];
             shellHook = ''
-              echo "Run: nix build .#sha3 --out-link build/sha3, nix run .#sha3, or nix run .#dump"
+              echo "Run: nix build .#sha3 --out-link build/sha3, nix run .#sha3, or lake build ShaFv"
             '';
           };
         });

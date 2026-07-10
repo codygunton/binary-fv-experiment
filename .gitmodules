@@ -1,0 +1,6 @@
+[submodule "specs/Cryptography"]
+	path = specs/Cryptography
+	url = https://github.com/gdncc/Cryptography.git
+[submodule "specs/lean-zip"]
+	path = specs/lean-zip
+	url = https://github.com/kim-em/lean-zip.git

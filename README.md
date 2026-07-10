@@ -14,6 +14,8 @@ target built by this repo is `RV64IM_Zicclsm` with ABI `lp64`; execution goes th
 - `harness/`: local C entry points with one `main` per target.
 - `include/`: local freestanding build shims used by the `miniz_tinfl.c` target.
 - `scripts/`: shell conveniences only.
+- `specs/`: pinned Lean spec repositories, checked in as git submodules.
+- `ShaFv/`: local Lean proof scaffold.
 - `build/`: ignored local output links and generated inspection files.
 
 ## Build
@@ -86,6 +88,34 @@ The default package is `.#stats`, so this is equivalent while still keeping the 
 ```sh
 nix build --out-link build/stats
 ```
+
+## Lean
+
+Initialize the spec submodules after cloning:
+
+```sh
+git submodule update --init --recursive
+```
+
+The SHA-3 scaffold imports `gdncc/Cryptography` and states:
+
+```lean
+theorem root_compliance :
+    ∀ msg : ByteArray,
+      Binary.sha3_256 sha3Binary msg = Spec.hashData msg
+```
+
+The proof is intentionally stubbed with `sorry`.
+
+Build the local Lean scaffold:
+
+```sh
+nix develop
+lake build ShaFv
+```
+
+`kim-em/lean-zip` is vendored under `specs/lean-zip` for the DEFLATE spec, but is not imported by
+the root Lake package yet because it currently pins a newer Lean toolchain than `gdncc/Cryptography`.
 
 ## Objdump
 
