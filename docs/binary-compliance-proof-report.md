@@ -18,13 +18,13 @@ clean public claim can still be essentially the desired one:
 ```lean
 theorem root_compliance :
     ∀ msg : ByteArray,
-      Bin.sha3_256 msg = Spec.sha3_256 msg
+      RiscvSpec.execute binary msg = .ok (Sha3Spec.hashData msg)
 ```
 
-The complexity belongs in the definition and correctness theorem for `Bin.sha3_256`, not in this
-statement. Internally, the proof must establish binary identity, ELF loading, the RISC-V calling
-convention, memory safety, termination, and the correspondence between final output memory and the
-pure result.
+The complexity belongs in `RiscvSpec.execute`, not in this statement. Internally, the proof must
+establish binary identity, ELF loading, the RISC-V calling convention, memory safety, termination,
+and the correspondence between final output memory and the pure result. The explicit `.ok` makes
+successful execution part of the claim.
 
 This is a credible medium-sized proof-of-concept, but not a short exercise. The current linked
 binary contains 312 instructions in total, with 286 instructions across the selected SHA-3 and
@@ -111,7 +111,7 @@ Pre:
 
 Post:
   execution returns to ra;
-  the 32 bytes at a2 equal Spec.sha3_256 msg;
+  the 32 bytes at a2 equal Sha3Spec.hashData msg;
   callee-saved registers and all framed memory are unchanged;
   only permitted caller-saved registers and owned work memory may differ.
 ```
@@ -146,9 +146,9 @@ Function contracts compose from the permutation through `sha3`, and optionally t
 registers and scratch memory.
 
 If the theorem says the program returns a digest, termination and absence of traps are not optional
-details. They can be hidden behind `Bin.sha3_256`, but they must be proved when that total function
-is constructed. A partial-correctness statement of the form "if it returns, its output is correct"
-is weaker and should not be disguised as total equality.
+details. They can be hidden behind `RiscvSpec.execute`, but the `.ok` equality must prove them. A
+partial-correctness statement of the form "if it returns, its output is correct" is weaker and
+should not be disguised as total equality.
 
 ## 3. Hoare logic and separation logic
 
@@ -341,15 +341,16 @@ the consumed prefix of `msg`. This is where a hand-written Lean mirror of the C 
 It should be introduced only if it gives a substantially simpler invariant than relating directly
 to the imported spec's sponge state.
 
-### Layer E: clean public functions
+### Layer E: clean public execution theorem
 
-Define `Bin.sha3_256` only after proving that the fixed binary execution exists, terminates, and has
-a unique 32-byte output for every `ByteArray`. Then prove:
+Define `binary` as the fixed ELF artifact and define `RiscvSpec.execute` to load it, inject the
+logical input at the internal `sha3` ABI boundary, execute it, and extract the digest or an explicit
+error. Then prove:
 
 ```lean
 theorem root_compliance :
     ∀ msg : ByteArray,
-      Bin.sha3_256 msg = SHA3_256.hashData msg
+      RiscvSpec.execute binary msg = .ok (Sha3Spec.hashData msg)
 ```
 
 Separately prove a wrapper theorem for the current CLI:
@@ -358,8 +359,8 @@ Separately prove a wrapper theorem for the current CLI:
 theorem cli_compliance
     (arg : ByteArray)
     (h_no_nul : 0 ∉ arg.data) :
-    Bin.cli [arg] =
-      { stdout := hex (SHA3_256.hashData arg) ++ "\n",
+    RiscvSpec.executeCli binary [arg] =
+      { stdout := hex (Sha3Spec.hashData arg) ++ "\n",
         stderr := "",
         exitCode := 0 }
 ```

@@ -2,23 +2,32 @@ import «Cryptography».Hashes.SHA3.Basic
 
 namespace ShaFv.SHA3
 
-namespace Spec
+namespace Sha3Spec
 
-def exec (msg : ByteArray) : ByteArray :=
+def hashData (msg : ByteArray) : ByteArray :=
   SHA3_256.hashData msg
 
-end Spec
+end Sha3Spec
 
-namespace Bin
+namespace RiscvSpec
 
-def main (_msg : ByteArray) : ByteArray :=
+abbrev Binary := ByteArray
+
+inductive ExecutionError where
+  | notImplemented
+
+def execute (_binary : Binary) (_msg : ByteArray) : Except ExecutionError ByteArray :=
+  .error .notImplemented
+
+end RiscvSpec
+
+/-- The fixed SHA-3 ELF. Its bytes will be embedded by the artifact-loading layer. -/
+def binary : RiscvSpec.Binary :=
   ByteArray.empty
-
-end Bin
 
 theorem root_compliance :
     ∀ msg : ByteArray,
-      Bin.main msg = Spec.exec msg := by
+      RiscvSpec.execute binary msg = .ok (Sha3Spec.hashData msg) := by
   intro _msg
   sorry
 

@@ -106,13 +106,14 @@ The SHA-3 scaffold imports `gdncc/Cryptography` and states:
 ```lean
 theorem root_compliance :
     ∀ msg : ByteArray,
-      Bin.main msg = Spec.exec msg
+      RiscvSpec.execute binary msg = .ok (Sha3Spec.hashData msg)
 ```
 
-`Bin.main` is the proof boundary intended to denote the behavior of the one fixed SHA-3 ELF built by
-this repository. ELF identity, loading, process setup, and RISC-V execution belong behind that
-definition rather than appearing as arguments to the root theorem. The proof is intentionally
-stubbed with `sorry`.
+`binary` is the theorem term reserved for the one fixed SHA-3 ELF built by this repository.
+`RiscvSpec.execute` owns ELF loading, ABI setup, RISC-V execution, termination, and extraction of
+the 32 digest bytes. The `.ok` result makes successful termination part of the claim instead of
+allowing failure to be hidden behind a default output. Both definitions and the proof remain
+intentionally stubbed.
 
 Generate the pinned executable Lean translation of the Sail RISC-V model first:
 
