@@ -37,7 +37,11 @@ build/sha3/obj/sha3.o
 build/sha3/obj/sha3-main.o
 build/sha3/obj/riscv64_start.o
 build/sha3/obj/riscv64_runtime.o
+build/sha3/meta/elf-sha256.txt
+build/sha3/meta/entrypoint.txt
 build/sha3/meta/elf-attributes.txt
+build/sha3/meta/program-headers.txt
+build/sha3/meta/symbols.txt
 ```
 
 `build/sha3/bin/sha3` is a RISC-V ELF, not a host executable. Run SHA-3 through the Nix app:
@@ -102,17 +106,37 @@ The SHA-3 scaffold imports `gdncc/Cryptography` and states:
 ```lean
 theorem root_compliance :
     ∀ msg : ByteArray,
-      Binary.sha3_256 sha3Binary msg = Spec.hashData msg
+      Bin.main msg = Spec.exec msg
 ```
 
-The proof is intentionally stubbed with `sorry`.
+`Bin.main` is the proof boundary intended to denote the behavior of the one fixed SHA-3 ELF built by
+this repository. ELF identity, loading, process setup, and RISC-V execution belong behind that
+definition rather than appearing as arguments to the root theorem. The proof is intentionally
+stubbed with `sorry`.
 
-Build the local Lean scaffold:
+Generate the pinned executable Lean translation of the Sail RISC-V model first:
+
+```sh
+mkdir -p build
+nix build .#sail-riscv-lean --out-link build/sail-riscv-lean
+```
+
+Then build the local proof scaffold and generated machine semantics:
 
 ```sh
 nix develop
 lake build ShaFv
 ```
+
+This generation target uses `riscv/sail-riscv` 0.12 and the REMS Sail compiler 0.20.1 from the
+locked Nixpkgs revision. It selects the `main`, `I_insts`, and `M_insts` Sail module roots, retains
+the core Zicclsm memory semantics, and disables upstream CMake's configure-time dependency
+downloads. The generated model is compiled into the root project's `.lake/build`.
+
+`ShaFv.RISCV.entryInstructionCorrect_eq_true` is a closed theorem that executes the known first
+instruction at ELF entrypoint `0x101b8` and checks `gp = 0x121b8` and `PC = 0x101bc`. It does not yet
+prove that the manually loaded opcode came from the hashed ELF; that requires the pending ELF loader
+lemma before it can contribute to `root_compliance`.
 
 `kim-em/lean-zip` is vendored under `specs/deflate` for the DEFLATE spec, but is not imported by
 the root Lake package yet because it currently pins a newer Lean toolchain than `gdncc/Cryptography`.

@@ -37,7 +37,25 @@
       "inputs": {
         "miniz": "miniz",
         "nixpkgs": "nixpkgs",
+        "sail-riscv": "sail-riscv",
         "tiny-sha3": "tiny-sha3"
+      }
+    },
+    "sail-riscv": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1780709230,
+        "narHash": "sha256-pi/XP6+NX/wNpBESmnEg2d5cppMpMwFripDPk9vTx9I=",
+        "owner": "riscv",
+        "repo": "sail-riscv",
+        "rev": "65ddde80ee2b131bf46c20e6e748343c336c4071",
+        "type": "github"
+      },
+      "original": {
+        "owner": "riscv",
+        "repo": "sail-riscv",
+        "rev": "65ddde80ee2b131bf46c20e6e748343c336c4071",
+        "type": "github"
       }
     },
     "tiny-sha3": {

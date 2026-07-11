@@ -13,9 +13,14 @@
       url = "github:richgel999/miniz/77d0dce8627735138c51770d1799a1ef48f2117d";
       flake = false;
     };
+
+    sail-riscv = {
+      url = "github:riscv/sail-riscv/65ddde80ee2b131bf46c20e6e748343c336c4071";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, tiny-sha3, miniz }:
+  outputs = { self, nixpkgs, tiny-sha3, miniz, sail-riscv }:
     let
       systems = [ "x86_64-linux" ];
       forAllSystems = f:
@@ -126,8 +131,13 @@
                     -o "$out/bin/${name}"
 
                   printf '%s\n' ${lib.escapeShellArgs selectedSymbols} > "$out/meta/selected-symbols"
+                  sha256sum "$out/bin/${name}" | cut -d ' ' -f 1 > "$out/meta/elf-sha256.txt"
                   ${riscvReadelf} -h "$out/bin/${name}" > "$out/meta/elf-header.txt"
+                  ${riscvReadelf} -h "$out/bin/${name}" |
+                    awk '/Entry point address:/ { print $4 }' > "$out/meta/entrypoint.txt"
                   ${riscvReadelf} -A "$out/bin/${name}" > "$out/meta/elf-attributes.txt"
+                  ${riscvReadelf} -lW "$out/bin/${name}" > "$out/meta/program-headers.txt"
+                  ${riscvNm} -n --defined-only "$out/bin/${name}" > "$out/meta/symbols.txt"
 
                   runHook postInstall
                 '';
@@ -396,14 +406,63 @@
               exec ${riscvObjdump} -d ${sha3}/bin/sha3
             '';
           };
+
+          sailRiscvLean = pkgs.stdenv.mkDerivation {
+            pname = "sail-riscv-lean-rv64";
+            version = "0.12";
+            src = sail-riscv;
+
+            nativeBuildInputs = [
+              pkgs.cmake
+              pkgs.ninja
+              pkgs.ocamlPackages.sail
+              pkgs.pkg-config
+              pkgs.z3
+            ];
+            buildInputs = [ pkgs.gmp ];
+
+            postPatch = ''
+              substituteInPlace handwritten_support/RiscvExtrasExecutable.lean \
+                --replace-fail 'import Sail.Sail' \
+                'import LeanRV64DExecutable.Sail.Sail'
+
+              find model -name '*.sail' -type f -exec sed -i \
+                -e 's/\<Vector\>/VectorPayload/g' \
+                -e 's/"VectorPayload"/"Vector"/g' {} +
+
+              substituteInPlace model/postlude/insts_end.sail \
+                --replace-fail '// End definitions' \
+                $'// Omitted optional modules are disabled in the RV64IM model.\nfunction clause currentlyEnabled(_) = false\n\n// End definitions'
+            '';
+
+            cmakeFlags = [
+              "-DDOWNLOAD_CLI11=OFF"
+              "-DDOWNLOAD_JSONCONS=OFF"
+              "-DSAIL_MODULES=main;I_insts;M_insts"
+            ];
+
+            buildPhase = ''
+              runHook preBuild
+              cmake --build . --target generated_lean_executable_rv64d
+              runHook postBuild
+            '';
+
+            installPhase = ''
+              runHook preInstall
+              cp -r model/Lean_RV64D_executable "$out"
+              runHook postInstall
+            '';
+          };
         in
         {
           inherit sha3 tinfl stats dump sha3Run tinflRun;
+          "sail-riscv-lean" = sailRiscvLean;
           default = stats;
         });
 
       checks = forAllSystems (system: pkgs: {
         inherit (self.packages.${system}) sha3 tinfl stats dump;
+        "sail-riscv-lean" = self.packages.${system}."sail-riscv-lean";
         default = self.packages.${system}.stats;
       });
 
@@ -443,8 +502,14 @@
               pkgs.elan
               pkgs.gawk
               pkgs.git
+              pkgs.gmp
               pkgs.gnused
+              pkgs.pkg-config
               pkgs.qemu-user
+              pkgs.ocamlPackages.sail
+              pkgs.cmake
+              pkgs.ninja
+              pkgs.z3
               riscvPkgs.stdenv.cc
               riscvBinutils
             ];
