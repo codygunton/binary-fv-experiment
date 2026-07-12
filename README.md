@@ -139,6 +139,19 @@ instruction at ELF entrypoint `0x101b8` and checks `gp = 0x121b8` and `PC = 0x10
 prove that the manually loaded opcode came from the hashed ELF; that requires the pending ELF loader
 lemma before it can contribute to `root_compliance`.
 
+Run the concrete Sail execution experiment after building the SHA-3 ELF and generated model:
+
+```sh
+nix build .#sha3 --out-link build/sha3
+nix build .#sail-riscv-lean --out-link build/sail-riscv-lean
+lake env lean experiments/SailSha3Smoke.lean
+```
+
+The experiment loads the ELF `PT_LOAD` bytes into Sail memory, calls the internal `sha3` symbol with
+a 200-byte message, and checks the extracted digest after 70,084 instructions. It is an executable
+smoke test, not a theorem: ELF offsets and the reduced user-mode step are still assumptions to
+formalize.
+
 `kim-em/lean-zip` is vendored under `specs/deflate` for the DEFLATE spec, but is not imported by
 the root Lake package yet because it currently pins a newer Lean toolchain than `gdncc/Cryptography`.
 

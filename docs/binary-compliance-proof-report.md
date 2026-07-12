@@ -416,7 +416,72 @@ better medium target than a decompressor for learning the proof architecture. DE
 adds bitstream parsing, dynamic tables, variable control flow, and error states, so it is a useful
 second validation target after the machinery works.
 
-## 10. Conclusions
+## 10. Derisking status
+
+The plan is not fully derisked. A concrete execution spike substantially improves the evidence, but
+it also exposes proof-engineering and theorem-statement risks that must be resolved before attempting
+the SHA-3 refinement.
+
+### What is now demonstrated
+
+[`experiments/SailSha3Smoke.lean`](../experiments/SailSha3Smoke.lean) reads the actual Nix-built ELF,
+loads its `PT_LOAD` bytes into the generated Sail memory, initializes an RV64 integer ABI call at the
+internal `sha3` symbol, runs to a sentinel return address, and extracts the output buffer. The model
+produced the expected digest for `abc`, the repository sample message, and a 200-byte message that
+crosses the SHA3-256 rate boundary. The checked-in experiment uses the last case and executes 70,084
+instructions.
+
+This answers a narrow but important question: the generated Lean model is executable enough to run
+the concrete integer-only SHA-3 path. The linked ELF uses only RV64I instructions plus `remw` from M;
+it does not reach the floating-point, reservation, randomness, or terminal-operation placeholders in
+the executable Sail support. The experiment must explicitly enable M in `misa`, initialize all
+integer registers, install a writable/executable PMA region, and use bare address translation.
+
+### What remains risky
+
+1. **Artifact binding is not proved.** The experiment reads the ELF through `IO` and uses audited but
+   hard-coded load offset, size, and symbol addresses. `binary` is still empty in the theorem. A Nix
+   generator should emit the exact ELF as Lean data, after which Lean should compute the segment and
+   entry bytes used by execution.
+2. **Parametric proofs are not demonstrated.** Concrete `native_decide` and interpreted execution
+   work. In contrast, exploratory symbolic lemmas for even `writeReg x3 v; readReg x3` and one
+   `auipc` did not close by simplification. The generated dependent hash-map state and instrumentation
+   callbacks remain in the goal. A dedicated monad/register/memory lemma library or a validated small
+   RV64 model is required. The local `evm-asm` comparison contains roughly 3,000 lines in its Sail
+   equivalence layer, which is evidence that this is real work rather than a missing tactic flag.
+3. **The reduced step is not connected to the full model step.** Both the scaffold and smoke test use
+   fetch/decode/execute/tick directly. They bypass interrupt dispatch, privileged trap handling, and
+   other logic in `run_hart_active`/`try_step`. We need a theorem showing equivalence under explicit
+   user-mode/no-interrupt assumptions, or a fully initialized platform execution using the official
+   step.
+4. **The root input domain is too broad.** Lean `ByteArray.size` is an unbounded `Nat`; an RV64 ABI
+   has 64-bit `size_t` and addresses. There are byte arrays that cannot be represented in one RV64
+   execution. The final theorem needs a representability bound, preferably expressed by quantifying
+   over a transparent input subtype, unless `RiscvSpec.execute` is intentionally idealized beyond
+   actual RV64 behavior.
+5. **A total executable runner needs a proved fuel bound.** The smoke test uses a fixed 100,000-step
+   budget. `RiscvSpec.execute` needs a computable bound derived from message length and a proof that it
+   is sufficient, or the root statement must use a relational execution semantics instead of an
+   executable function.
+6. **The SHA-3 abstraction bridge is untested.** The selected Lean implementation exposes
+   `hashData`, while most useful sponge internals are private. We have not yet shown that its
+   definitions are convenient targets for binary loop invariants or whether a public logical mirror
+   and a separate equivalence proof are needed.
+7. **Model specialization needs validation.** The generated model applies source adaptations and an
+   omitted-extension fallback. We must show the binary never depends on changed cases and that the
+   reduced module selection preserves every instruction and memory behavior on the reachable path.
+
+Before starting the full SHA-3 proof, four gates should pass:
+
+1. agree on a representable-input root theorem;
+2. prove one ELF-derived instruction theorem from embedded artifact bytes;
+3. prove one genuinely symbolic basic-block contract, including register and memory framing;
+4. connect the reduced user step to the selected authoritative Sail step.
+
+Passing those gates would derisk the architecture. The 70,084-step concrete run shows that failure
+to execute the binary is no longer the primary concern; scalable symbolic reasoning is.
+
+## 11. Conclusions
 
 The original plan has the right semantic core: execute the actual binary in a formal RISC-V model,
 relate machine states to a pure Lean computation, and compose local results. The missing piece is
