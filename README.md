@@ -1,51 +1,135 @@
 # SHA FV Experiment
 
-This repository reproduces a binary-size comparison for two candidate binary-verification targets:
+This repository compares two candidate binary-verification targets:
 
 - SHA-3 from `mjosaarinen/tiny_sha3`
 - DEFLATE inflate from `richgel999/miniz`, specifically `miniz_tinfl.c`
 
-The upstream source revisions are pinned as non-flake inputs in `flake.lock`. The local harnesses in
-`scripts/` keep the relevant entry points reachable so section garbage collection does not erase the
-code under measurement.
+The upstream source revisions are pinned as non-flake inputs in `flake.lock`. The only binary
+target built by this repo is `RV64IM_Zicclsm` with ABI `lp64`; execution goes through
+`qemu-riscv64`.
 
-## Reproduce
+## Layout
+
+- `harness/`: local C entry points with one `main` per target.
+- `include/`: local freestanding build shims used by the `miniz_tinfl.c` target.
+- `scripts/`: shell conveniences only.
+- `build/`: ignored local output links and generated inspection files.
+
+## Build
+
+Use explicit output links under `build/` for local build artifacts.
+
+Build SHA-3:
 
 ```sh
-nix build .#stats
-cat result/stats.md
+mkdir -p build
+nix build .#sha3 --out-link build/sha3
+```
+
+That produces:
+
+```text
+build/sha3/bin/sha3
+build/sha3/obj/sha3.o
+build/sha3/obj/sha3-main.o
+build/sha3/obj/riscv64_start.o
+build/sha3/obj/riscv64_runtime.o
+build/sha3/meta/elf-attributes.txt
+```
+
+`build/sha3/bin/sha3` is a RISC-V ELF, not a host executable. Run SHA-3 through the Nix app:
+
+```sh
+nix run .#sha3 -- sha3-sample-message
 ```
 
 or:
 
 ```sh
-nix run .#stats
+./scripts/run-sha3.sh
 ```
 
-The same derivation is exposed as a check:
+`scripts/run-sha3.sh` supplies `sha3-sample-message` when no message is passed. That value is only
+the default message to hash; pass one argument to hash a different string:
+
+```sh
+./scripts/run-sha3.sh hello
+```
+
+Build and run the DEFLATE target:
+
+```sh
+mkdir -p build
+nix build .#tinfl --out-link build/tinfl
+nix run .#tinfl
+```
+
+The dev shell contains the RISC-V compiler/binutils and qemu-user:
+
+```sh
+nix develop
+riscv64-unknown-linux-gnu-gcc --version
+qemu-riscv64 --version
+```
+
+Build the stats report:
+
+```sh
+nix build .#stats --out-link build/stats
+cat build/stats/stats.md
+```
+
+The default package is `.#stats`, so this is equivalent while still keeping the local link in
+`build/`:
+
+```sh
+nix build --out-link build/stats
+```
+
+## Objdump
+
+For SHA-3 inspection:
+
+```sh
+mkdir -p build
+nix run .#dump > build/sha3.objdump.txt
+```
+
+For direct inspection of either target after a package build:
+
+```sh
+nix build .#sha3 --out-link build/sha3
+nix develop -c sh -c 'riscv64-unknown-linux-gnu-objdump -d build/sha3/bin/sha3 > build/sha3.objdump.txt'
+nix build .#tinfl --out-link build/tinfl
+nix develop -c sh -c 'riscv64-unknown-linux-gnu-objdump -d build/tinfl/bin/tinfl > build/tinfl.objdump.txt'
+```
+
+The stats build also writes:
+
+```text
+build/stats/objdump/sha3.txt
+build/stats/objdump/tinfl.txt
+```
+
+## Stats
+
+Current pinned Nix output:
+
+| Target         | RV64 object `.text` | RV64 linked `.text` | RV64 selected symbol instrs | RV64 full `objdump -d` lines | RV64 full instr lines |
+| -------------- | ------------------: | ------------------: | --------------------------: | ---------------------------: | --------------------: |
+| SHA-3 `sha3.c` |             1,540 B |             1,680 B |                         286 |                          335 |                   312 |
+| miniz `tinfl`  |             6,418 B |             6,397 B |                       1,457 |                        1,498 |                 1,481 |
+
+“Selected symbol instrs” is a symbol-filtered instruction-line count. For SHA-3 it counts
+`sha3_keccakf`, `sha3_init`, `sha3_update`, `sha3_final`, `sha3`, and `main`. The full
+`objdump -d` columns count each entire linked RISC-V ELF, including the local freestanding
+startup/runtime sections.
+
+## Checks
 
 ```sh
 nix flake check
 ```
 
-The derivation builds native x86-64 objects/executables and cross-compiled AArch64
-objects/executables using `gcc16`, `binutils`, and `zig`, all from pinned Nixpkgs.
-
-Current pinned Nix output:
-
-| Target | x86 object `.text` | x86 linked `.text` | x86 selected instrs | AArch64 object `.text` | AArch64 linked `.text` |
-|---|---:|---:|---:|---:|---:|
-| SHA-3 `sha3.c` | 1,152 B | 2,083 B | 189 | 1,348 B | 1,843 B |
-| miniz `tinfl` | 6,619 B | 7,095 B | 1,513 | 6,568 B | 6,813 B |
-
-The native object sizes, selected implementation instruction counts, and AArch64 sizes match the
-initial host probe. Full native linked `.text` includes the pinned Nix C runtime/linker material, so
-it is slightly larger than the exploratory host-linked ELF.
-
-## Scope
-
-The native executables are run as a sanity check. The AArch64 executables are cross-compiled for
-size comparison but are not run by the derivation.
-
-Generated outputs, cloned exploratory repositories, and local AI coordination files are ignored by
-git.
+The `.#stats` check runs the RISC-V binaries under `qemu-riscv64` as sanity checks.
