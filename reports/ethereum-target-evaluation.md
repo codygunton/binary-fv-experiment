@@ -1,17 +1,29 @@
 # Ethereum target evaluation decision
 
-## Decision
+> **Correction — 2026-07-13.** The original “replace neither” conclusion is withdrawn. It
+> treated an eventual machine-refinement proof as a Reth selection gate, measured a raw Zesu
+> decoder whose result could be eliminated, and compared acceptance rather than decoded values.
+> Reth passes target selection; Zesu is pending a lossless, value-level reevaluation. The old
+> 724-instruction figure and acceptance-only divergences below are historical evidence, not a
+> selection decision.
 
-**Recommend replacing neither current target.**  The Reth-derived Keccak candidate is a
-sounder Ethereum-specific direction than the current FIPS SHA-3 example, but this evaluation
-only establishes a narrow, portable RustCrypto dependency-path wrapper and executable-oracle
-evidence—not binary compliance.  The Zesu raw-SSZ candidate fails both complexity gates and the
-three-way decoder gate.  It must not replace `tinfl` without a separate, reviewed remediation
-plan.
+## Corrected interim decision
 
-This branch is an isolated evaluation from `main` commit
-`65d82dc7e9f56f836e5f31cd94da0f78c28b7a41`; it does not alter or stack on PR #2.  **PR #2
-should resume on its own SHA-proof merits, not be superseded by this evaluation.**  No Zesu
+**Replace the current FIPS SHA-3 target with the Reth-locked portable RustCrypto Keccak path.**
+It passed the relevant target-selection evidence: it is Ethereum Keccak-256, has reproducible
+RV64IM_Zicclsm construction, passes the boundary vectors, and has a meaningful protocol-owned
+reachability measurement. A complete binary-compliance proof is a later proof obligation, not a
+reason to reject a candidate at selection time.
+
+**Do not yet select or reject Zesu SSZ.** The existing raw harness only reports acceptance, its
+discarded decoded value makes the 724-instruction measurement unsound, and the bridge does not
+perform a full SizzLean-backed value comparison. The candidate must be repaired and remeasured
+using a lossless raw schema representation and a strict Python/Lean/Zesu value differential.
+
+This branch is isolated from `main` commit
+`65d82dc7e9f56f836e5f31cd94da0f78c28b7a41`; it does not alter or stack on PR #2. **PR #2 must
+not continue unchanged on the old FIPS SHA-3 target.** Its generic machine-semantics work remains
+reusable, but its eventual cryptographic target should be this Reth-locked Keccak path. No Zesu
 upstream issue or PR was opened.
 
 ## Reproducible inputs and candidate boundaries
