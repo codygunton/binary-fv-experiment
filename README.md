@@ -1,9 +1,12 @@
 # SHA FV Experiment
 
-This repository compares two candidate binary-verification targets:
+This repository compares two preserved baseline binary-verification targets and two Ethereum
+evaluation candidates:
 
-- SHA-3 from `mjosaarinen/tiny_sha3`
-- DEFLATE inflate from `richgel999/miniz`, specifically `miniz_tinfl.c`
+- SHA-3 from `mjosaarinen/tiny_sha3` (baseline)
+- DEFLATE inflate from `richgel999/miniz`, specifically `miniz_tinfl.c` (baseline)
+- a freestanding RustCrypto Ethereum Keccak-256 wrapper traced to the pinned Reth dependency path
+- Zesu's extracted freestanding raw SSZ decoder
 
 The upstream source revisions are pinned as non-flake inputs in `flake.lock`. The only binary
 target built by this repo is `RV64IM_Zicclsm` with ABI `lp64`; execution goes through
@@ -65,6 +68,22 @@ nix build .#tinfl --out-link build/tinfl
 nix run .#tinfl
 ```
 
+Build the Ethereum candidates:
+
+```sh
+nix build .#reth-keccak --out-link build/reth-keccak
+nix run .#reth-keccak -- 616263
+
+nix build .#zesu-ssz --out-link build/zesu-ssz
+```
+
+`reth-keccak` accepts one hexadecimal input argument. `zesu-ssz` accepts raw bytes on standard
+input; its empty-input result is intentionally `invalid` with exit status 1.
+
+The Reth candidate deliberately evaluates the Reth-locked RustCrypto portable `Keccak256` path,
+not Reth's default assembly-accelerated host binary. Its output metadata records the exact Reth
+revision and verified upstream `Cargo.lock` hash.
+
 The dev shell contains the RISC-V compiler/binutils and qemu-user:
 
 ```sh
@@ -89,20 +108,21 @@ nix build --out-link build/stats
 
 ## Objdump
 
-For SHA-3 inspection:
+`dump` accepts any evaluation target (and preserves `sha3` as its default):
 
 ```sh
 mkdir -p build
-nix run .#dump > build/sha3.objdump.txt
+nix run .#dump -- sha3 > build/sha3.objdump.txt
+nix run .#dump -- reth-keccak > build/reth-keccak.objdump.txt
+nix run .#dump -- zesu-ssz > build/zesu-ssz.objdump.txt
 ```
 
-For direct inspection of either target after a package build:
+The four supported names are `sha3`, `tinfl`, `reth-keccak`, and `zesu-ssz`. For direct
+inspection after a package build, substitute any target name below:
 
 ```sh
 nix build .#sha3 --out-link build/sha3
 nix develop -c sh -c 'riscv64-unknown-linux-gnu-objdump -d build/sha3/bin/sha3 > build/sha3.objdump.txt'
-nix build .#tinfl --out-link build/tinfl
-nix develop -c sh -c 'riscv64-unknown-linux-gnu-objdump -d build/tinfl/bin/tinfl > build/tinfl.objdump.txt'
 ```
 
 The stats build also writes:
@@ -110,21 +130,20 @@ The stats build also writes:
 ```text
 build/stats/objdump/sha3.txt
 build/stats/objdump/tinfl.txt
+build/stats/objdump/reth-keccak.txt
+build/stats/objdump/zesu-ssz.txt
+build/stats/analysis/<target>.json
+build/stats/analysis/<target>.md
 ```
 
 ## Stats
 
-Current pinned Nix output:
-
-| Target         | RV64 object `.text` | RV64 linked `.text` | RV64 selected symbol instrs | RV64 full `objdump -d` lines | RV64 full instr lines |
-| -------------- | ------------------: | ------------------: | --------------------------: | ---------------------------: | --------------------: |
-| SHA-3 `sha3.c` |             1,540 B |             1,680 B |                         286 |                          335 |                   312 |
-| miniz `tinfl`  |             6,418 B |             6,397 B |                       1,457 |                        1,498 |                 1,481 |
-
-“Selected symbol instrs” is a symbol-filtered instruction-line count. For SHA-3 it counts
-`sha3_keccakf`, `sha3_init`, `sha3_update`, `sha3_final`, `sha3`, and `main`. The full
-`objdump -d` columns count each entire linked RISC-V ELF, including the local freestanding
-startup/runtime sections.
+`build/stats/stats.md` summarizes all four linked RV64 binaries. `stats.tsv` contains object and
+linked `.text`, legacy selected-symbol counts, full and `_start`-reachable instructions, reachable
+functions, blocks, CFG edges, branches, direct calls, loop SCCs, call depth, opcode classes,
+forbidden-instruction counts, objdump line counts, artifact sizes, and paths to each complete
+analysis report. The individual `analysis/<target>.json` files additionally retain function lists,
+ownership buckets, unresolved indirect calls, and ISA-gate details.
 
 ## Checks
 

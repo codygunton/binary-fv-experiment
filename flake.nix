@@ -1,5 +1,5 @@
 {
-  description = "Reproducible binary size comparison for SHA-3 and miniz DEFLATE inflate";
+  description = "Reproducible RV64 binary evaluation for baseline and Ethereum candidates";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -13,9 +13,35 @@
       url = "github:richgel999/miniz/77d0dce8627735138c51770d1799a1ef48f2117d";
       flake = false;
     };
+
+    # Candidate and audit sources are pinned independently of PR #2.
+    reth = {
+      url = "github:paradigmxyz/reth/9384bc53d8c0c77e59cac83fdaaf3b372c6d2216";
+      flake = false;
+    };
+
+    zesu = {
+      url = "github:Consensys/zesu/aa6c94339987d278acb8b7fa409c864dbd3d05aa";
+      flake = false;
+    };
+
+    scrollFv = {
+      url = "github:trailofbits/scroll-fv/0c3927ba4d6773b4cfd1d949cba342268b104d91";
+      flake = false;
+    };
+
+    etheorem = {
+      url = "github:etheorem/etheorem/032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0";
+      flake = false;
+    };
+
+    executionSpecs = {
+      url = "github:ethereum/execution-specs/bd8c673552d957dbe9c9f3f2656b87201f5ae646";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, tiny-sha3, miniz }:
+  outputs = { self, nixpkgs, tiny-sha3, miniz, reth, zesu, scrollFv, etheorem, executionSpecs }:
     let
       systems = [ "x86_64-linux" ];
       forAllSystems = f:
@@ -37,6 +63,7 @@
           riscvNm = "${riscvBinutils}/bin/${riscvTargetPrefix}nm";
           riscvReadelf = "${riscvBinutils}/bin/${riscvTargetPrefix}readelf";
           riscvSize = "${riscvBinutils}/bin/${riscvTargetPrefix}size";
+          riscvAr = "${riscvBinutils}/bin/${riscvTargetPrefix}ar";
           qemuRiscv64 = "${pkgs.qemu-user}/bin/qemu-riscv64";
           riscvTarget = "RV64IM_Zicclsm";
           riscvArch = "rv64im_zicclsm";
@@ -61,6 +88,98 @@
           cflags = lib.concatStringsSep " " commonCFlags;
           sha3SampleMessage = "sha3-sample-message";
           sha3SampleDigest = "f8b2abe65645474af551ae4523f3c5948d9897c9f46c08a390ef88d6777507ba";
+
+          # Cargo's build-std mode insists that the Rust source and vendored dependency lock live
+          # inside its sysroot. Keep that sysroot derivation separate from the target archive so
+          # both the compiler and its source provenance stay pinned by nixpkgs.
+          rustBuildStdSysroot = pkgs.symlinkJoin {
+            name = "rustc-with-build-std-src";
+            paths = [ pkgs.rustc.unwrapped ];
+            postBuild = ''
+              mkdir -p "$out/lib/rustlib/src"
+              cp -rs ${pkgs.rustPlatform.rustcSrc} "$out/lib/rustlib/src/rust"
+              chmod -R u+w "$out/lib/rustlib/src/rust/.cargo"
+              rm "$out/lib/rustlib/src/rust/.cargo/config.toml"
+              cat > "$out/lib/rustlib/src/rust/.cargo/config.toml" <<EOF
+              [source.crates-io]
+              replace-with = "vendored-sources"
+
+              [source."git+https://github.com/rust-lang/team"]
+              git = "https://github.com/rust-lang/team"
+              replace-with = "vendored-sources"
+
+              [source.vendored-sources]
+              directory = "${pkgs.rustPlatform.rustVendorSrc}"
+              EOF
+            '';
+          };
+          rustcWithBuildStd = pkgs.rustc.override { sysroot = rustBuildStdSysroot; };
+
+          rethProvenance = pkgs.runCommand "reth-v2.3.0-provenance" {
+            nativeBuildInputs = [ pkgs.coreutils ];
+          } ''
+            actual="$(${pkgs.coreutils}/bin/sha256sum ${reth}/Cargo.lock | cut -d ' ' -f 1)"
+            test "$actual" = "39867b4a9bae8c97872ce4f51ae184c13ba3db2c57b9c6772e31e83711866b97"
+            mkdir -p "$out"
+            printf '%s\n' "reth=9384bc53d8c0c77e59cac83fdaaf3b372c6d2216" > "$out/provenance.txt"
+            printf '%s\n' "cargo-lock-sha256=$actual" >> "$out/provenance.txt"
+          '';
+
+          rethKeccakRust = pkgs.rustPlatform.buildRustPackage {
+            pname = "reth-keccak-rustcrypto-rv64im";
+            version = "2.3.0";
+            src = ./reth-keccak;
+            cargoHash = "sha256-MmGOI6g2PWXNbL55+Q+v6+OYIRBtjTbMT7D+OmyLoJQ=";
+            nativeBuildInputs = [ pkgs.cargo rustcWithBuildStd rethProvenance ];
+            RUSTC = "${rustcWithBuildStd}/bin/rustc";
+            RUSTC_BOOTSTRAP = "1";
+            RUSTFLAGS = "-C target-feature=+m,+zicclsm";
+            doCheck = false;
+            buildPhase = ''
+              runHook preBuild
+              test -f ${rethProvenance}/provenance.txt
+              mkdir -p .cargo
+
+              # cargoSetupHook vendors this wrapper's crates beside the source. build-std also
+              # resolves Rust's own workspace crates, so combine the two immutable vendor trees
+              # before replacing Cargo's wrapper-only source configuration.
+              wrapper_vendor="$(find "$NIX_BUILD_TOP" -maxdepth 1 -type d -name '*-vendor' -print -quit)"
+              test -n "$wrapper_vendor"
+              wrapper_vendor="$wrapper_vendor/source-registry-0"
+              test -d "$wrapper_vendor"
+              mkdir -p combined-vendor
+              for vendor in ${pkgs.rustPlatform.rustVendorSrc} "$wrapper_vendor"; do
+                for directory in "$vendor"/*; do
+                  name="$(basename "$directory")"
+                  if [ "$name" != "Cargo.lock" ] && [ "$name" != ".cargo" ] \
+                    && [ ! -e "combined-vendor/$name" ]; then
+                    ln -s "$directory" "combined-vendor/$name"
+                  fi
+                done
+              done
+              cat > .cargo/config.toml <<EOF
+              [source.crates-io]
+              replace-with = "merged-vendor"
+
+              [source."git+https://github.com/rust-lang/team"]
+              git = "https://github.com/rust-lang/team"
+              replace-with = "merged-vendor"
+
+              [source.merged-vendor]
+              directory = "$(pwd)/combined-vendor"
+              EOF
+              cargo build --locked --release -Zbuild-std=core,compiler_builtins \
+                --target riscv64im-unknown-none-elf
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p "$out/lib"
+              cp target/riscv64im-unknown-none-elf/release/libreth_keccak_wrapper.a \
+                "$out/lib/libreth_keccak_wrapper.a"
+              runHook postInstall
+            '';
+          };
 
           mkBinary =
             { name
@@ -169,6 +288,172 @@
             ];
           };
 
+          rethKeccak = pkgs.stdenvNoCC.mkDerivation {
+            pname = "reth-keccak-rv64im-zicclsm";
+            version = "2.3.0";
+            src = self;
+
+            nativeBuildInputs = [
+              pkgs.python3
+              pkgs.qemu-user
+              riscvPkgs.stdenv.cc
+              riscvBinutils
+            ];
+
+            hardeningDisable = [ "all" ];
+            dontConfigure = true;
+            dontBuild = true;
+            dontFixup = true;
+
+            installPhase = ''
+              runHook preInstall
+
+              mkdir -p "$out/bin" "$out/obj" "$out/meta"
+              export NIX_HARDENING_ENABLE=""
+              cp ${rethProvenance}/provenance.txt "$out/meta/provenance.txt"
+
+              ${riscvCc} ${cflags} -c ${./harness/reth_keccak.c} \
+                -o "$out/obj/reth-keccak-main.o"
+              ${riscvCc} ${cflags} -c ${./harness/riscv64_runtime.c} \
+                -o "$out/obj/riscv64_runtime.o"
+              ${riscvCc} ${cflags} -c ${./harness/riscv64_start.S} \
+                -o "$out/obj/riscv64_start.o"
+
+              ${riscvCc} ${cflags} -nostdlib -static -no-pie \
+                "$out/obj/riscv64_start.o" \
+                "$out/obj/reth-keccak-main.o" \
+                "${rethKeccakRust}/lib/libreth_keccak_wrapper.a" \
+                "$out/obj/riscv64_runtime.o" \
+                -lgcc \
+                -Wl,--gc-sections \
+                -Wl,-e,_start \
+                -Wl,-Map,"$out/meta/reth-keccak.map" \
+                -o "$out/bin/reth-keccak"
+
+              printf '%s\n' reth_keccak256 main > "$out/meta/selected-symbols"
+              ${riscvReadelf} -h "$out/bin/reth-keccak" > "$out/meta/elf-header.txt"
+              ${riscvReadelf} -A "$out/bin/reth-keccak" > "$out/meta/elf-attributes.txt"
+              ${riscvNm} -S --size-sort --radix=d "$out/bin/reth-keccak" > "$out/meta/symbols.txt"
+              ${pkgs.python3}/bin/python ${./tools/check_reth_keccak.py} \
+                --qemu ${qemuRiscv64} \
+                --binary "$out/bin/reth-keccak" \
+                --vectors ${./tests/reth-keccak-vectors.json}
+
+              runHook postInstall
+            '';
+          };
+
+          zesuProductionObject = pkgs.stdenvNoCC.mkDerivation {
+            pname = "zesu-production-rv64im-object";
+            version = "aa6c943";
+            src = zesu;
+            nativeBuildInputs = [ pkgs.zig riscvBinutils ];
+            dontConfigure = true;
+            dontFixup = true;
+
+            buildPhase = ''
+              runHook preBuild
+              export HOME="$TMPDIR"
+              export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+              export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+              zig build rv64im-object -Doptimize=ReleaseSmall
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p "$out/obj" "$out/meta"
+              cp zig-out/lib/zesu.o "$out/obj/zesu-production.o"
+              ${riscvReadelf} -h "$out/obj/zesu-production.o" > "$out/meta/elf-header.txt"
+              ${riscvReadelf} -A "$out/obj/zesu-production.o" > "$out/meta/elf-attributes.txt"
+              ${riscvNm} -u "$out/obj/zesu-production.o" > "$out/meta/undefined-symbols.txt"
+              printf '%s\n' "zesu=aa6c94339987d278acb8b7fa409c864dbd3d05aa" > "$out/meta/provenance.txt"
+              printf '%s\n' "zig=$(zig version)" >> "$out/meta/provenance.txt"
+              runHook postInstall
+            '';
+          };
+
+          zesuRawObject = pkgs.stdenvNoCC.mkDerivation {
+            pname = "zesu-raw-ssz-rv64im-object";
+            version = "aa6c943";
+            src = zesu;
+            patches = [ ./patches/zesu-decode-raw.patch ];
+            nativeBuildInputs = [ pkgs.zig riscvBinutils ];
+            dontConfigure = true;
+            dontFixup = true;
+
+            buildPhase = ''
+              runHook preBuild
+              export HOME="$TMPDIR"
+              export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+              export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+              zig build rv64im-raw-ssz-object -Doptimize=ReleaseSmall
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p "$out/obj" "$out/meta"
+              cp zig-out/lib/zesu_raw_ssz.o "$out/obj/zesu-raw-ssz.o"
+              ${riscvReadelf} -h "$out/obj/zesu-raw-ssz.o" > "$out/meta/elf-header.txt"
+              ${riscvReadelf} -A "$out/obj/zesu-raw-ssz.o" > "$out/meta/elf-attributes.txt"
+              ${riscvNm} -u "$out/obj/zesu-raw-ssz.o" > "$out/meta/undefined-symbols.txt"
+              printf '%s\n' "zesu=aa6c94339987d278acb8b7fa409c864dbd3d05aa" > "$out/meta/provenance.txt"
+              printf '%s\n' "zig=$(zig version)" >> "$out/meta/provenance.txt"
+              runHook postInstall
+            '';
+          };
+
+          zesuSsz = pkgs.stdenvNoCC.mkDerivation {
+            pname = "zesu-ssz-rv64im-zicclsm";
+            version = "aa6c943";
+            src = self;
+            nativeBuildInputs = [
+              pkgs.qemu-user
+              riscvPkgs.stdenv.cc
+              riscvBinutils
+            ];
+            hardeningDisable = [ "all" ];
+            dontConfigure = true;
+            dontBuild = true;
+            dontFixup = true;
+
+            installPhase = ''
+              runHook preInstall
+              mkdir -p "$out/bin" "$out/obj" "$out/meta"
+              export NIX_HARDENING_ENABLE=""
+
+              cp ${zesuRawObject}/obj/zesu-raw-ssz.o "$out/obj/zesu-raw-ssz.o"
+              ${riscvCc} ${cflags} -c ${./harness/zesu_ssz.c} \
+                -o "$out/obj/zesu-ssz-main.o"
+              ${riscvCc} ${cflags} -c ${./harness/riscv64_runtime.c} \
+                -o "$out/obj/riscv64_runtime.o"
+              ${riscvCc} ${cflags} -c ${./harness/riscv64_start.S} \
+                -o "$out/obj/riscv64_start.o"
+              ${riscvCc} ${cflags} -nostdlib -static -no-pie \
+                "$out/obj/riscv64_start.o" \
+                "$out/obj/zesu-ssz-main.o" \
+                "$out/obj/zesu-raw-ssz.o" \
+                "$out/obj/riscv64_runtime.o" \
+                -lgcc \
+                -Wl,--gc-sections \
+                -Wl,-e,_start \
+                -Wl,-Map,"$out/meta/zesu-ssz.map" \
+                -o "$out/bin/zesu-ssz"
+
+              printf '%s\n' zesu_decode_raw main > "$out/meta/selected-symbols"
+              ${riscvReadelf} -h "$out/bin/zesu-ssz" > "$out/meta/elf-header.txt"
+              ${riscvReadelf} -A "$out/bin/zesu-ssz" > "$out/meta/elf-attributes.txt"
+              ${riscvNm} -S --size-sort --radix=d "$out/bin/zesu-ssz" > "$out/meta/symbols.txt"
+              set +e
+              result="$(${qemuRiscv64} "$out/bin/zesu-ssz" < /dev/null)"
+              status=$?
+              set -e
+              test "$status" = 1
+              test "$result" = invalid
+
+              runHook postInstall
+            '';
+          };
+
           stats = pkgs.stdenvNoCC.mkDerivation {
             pname = "sha-fv-binary-stats-rv64im-zicclsm";
             version = "0.1.0";
@@ -177,6 +462,7 @@
               pkgs.coreutils
               pkgs.gawk
               pkgs.gnused
+              pkgs.python3
               pkgs.qemu-user
               riscvBinutils
             ];
@@ -189,17 +475,51 @@
             installPhase = ''
               runHook preInstall
 
-              mkdir -p "$out/bin" "$out/rv64/bin" "$out/rv64/obj" "$out/rv64/meta" "$out/objdump"
+              mkdir -p \
+                "$out/analysis" \
+                "$out/bin" \
+                "$out/objdump" \
+                "$out/rv64/bin" \
+                "$out/rv64/meta" \
+                "$out/rv64/obj"
 
               cp ${sha3}/bin/sha3 "$out/rv64/bin/sha3"
               cp ${sha3}/obj/sha3.o "$out/rv64/obj/sha3.o"
               cp ${sha3}/obj/sha3-main.o "$out/rv64/obj/sha3-main.o"
               cp ${sha3}/meta/elf-attributes.txt "$out/rv64/meta/sha3-elf-attributes.txt"
+              cp ${sha3}/meta/selected-symbols "$out/rv64/meta/sha3-selected-symbols.txt"
 
               cp ${tinfl}/bin/tinfl "$out/rv64/bin/tinfl"
               cp ${tinfl}/obj/tinfl.o "$out/rv64/obj/tinfl.o"
               cp ${tinfl}/obj/tinfl-main.o "$out/rv64/obj/tinfl-main.o"
               cp ${tinfl}/meta/elf-attributes.txt "$out/rv64/meta/tinfl-elf-attributes.txt"
+              cp ${tinfl}/meta/selected-symbols "$out/rv64/meta/tinfl-selected-symbols.txt"
+
+              cp ${rethKeccak}/bin/reth-keccak "$out/rv64/bin/reth-keccak"
+              cp ${rethKeccakRust}/lib/libreth_keccak_wrapper.a \
+                "$out/rv64/obj/reth-keccak-rustcrypto.a"
+              cp ${rethKeccak}/obj/reth-keccak-main.o "$out/rv64/obj/reth-keccak-main.o"
+              cp ${rethKeccak}/meta/elf-attributes.txt \
+                "$out/rv64/meta/reth-keccak-elf-attributes.txt"
+              cp ${rethKeccak}/meta/selected-symbols \
+                "$out/rv64/meta/reth-keccak-selected-symbols.txt"
+              cp ${rethKeccak}/meta/reth-keccak.map "$out/rv64/meta/reth-keccak.map"
+              cp ${rethKeccak}/meta/symbols.txt "$out/rv64/meta/reth-keccak-symbols.txt"
+              cp ${rethKeccak}/meta/provenance.txt "$out/rv64/meta/reth-keccak-provenance.txt"
+
+              cp ${zesuSsz}/bin/zesu-ssz "$out/rv64/bin/zesu-ssz"
+              cp ${zesuSsz}/obj/zesu-raw-ssz.o "$out/rv64/obj/zesu-raw-ssz.o"
+              cp ${zesuSsz}/obj/zesu-ssz-main.o "$out/rv64/obj/zesu-ssz-main.o"
+              cp ${zesuSsz}/meta/elf-attributes.txt \
+                "$out/rv64/meta/zesu-ssz-elf-attributes.txt"
+              cp ${zesuSsz}/meta/selected-symbols \
+                "$out/rv64/meta/zesu-ssz-selected-symbols.txt"
+              cp ${zesuSsz}/meta/zesu-ssz.map "$out/rv64/meta/zesu-ssz.map"
+              cp ${zesuSsz}/meta/symbols.txt "$out/rv64/meta/zesu-ssz-symbols.txt"
+              cp ${zesuRawObject}/meta/provenance.txt \
+                "$out/rv64/meta/zesu-raw-ssz-provenance.txt"
+              cp ${zesuRawObject}/meta/undefined-symbols.txt \
+                "$out/rv64/meta/zesu-raw-ssz-undefined-symbols.txt"
 
               count_symbol_instructions() {
                 local file="$1"
@@ -251,6 +571,28 @@
                 ${riscvSize} "$1" | awk 'NR == 2 { print $1 }'
               }
 
+              archive_text_size() {
+                local archive="$1"
+                local unpack
+                unpack="$(mktemp -d)"
+                (
+                  cd "$unpack"
+                  ${riscvAr} x "$archive"
+                  for member in *; do
+                    test -f "$member" || continue
+                    ${riscvSize} "$member" | awk 'NR == 2 { print $1 }'
+                  done
+                ) | awk '{ total += $1 } END { print total + 0 }'
+                rm -rf "$unpack"
+              }
+
+              object_text_size() {
+                case "$1" in
+                  *.a) archive_text_size "$1" ;;
+                  *) text_size "$1" ;;
+                esac
+              }
+
               file_size() {
                 stat -c '%s' "$1"
               }
@@ -264,26 +606,136 @@
                   awk '/^[[:space:]]+[0-9a-f]+:/ { n++ } END { print n + 0 }'
               }
 
+              analyze_target() {
+                local target="$1"
+                local binary="$2"
+                shift 2
+                ${pkgs.python3}/bin/python ${./tools/analyze_rv64.py} "$binary" \
+                  --objdump ${riscvObjdump} \
+                  --entry _start \
+                  --target "$target ${riscvTarget}" \
+                  --json "$out/analysis/$target.json" \
+                  --markdown "$out/analysis/$target.md" \
+                  "$@"
+              }
+
+              json_value() {
+                ${pkgs.python3}/bin/python -c 'import json, sys; value = json.load(open(sys.argv[1]))[sys.argv[2]]; print("" if value is None else value)' "$1" "$2"
+              }
+
+              json_compact() {
+                ${pkgs.python3}/bin/python -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1]))[sys.argv[2]], sort_keys=True, separators=(",", ":")))' "$1" "$2"
+              }
+
+              json_length() {
+                ${pkgs.python3}/bin/python -c 'import json, sys; print(len(json.load(open(sys.argv[1]))[sys.argv[2]]))' "$1" "$2"
+              }
+
+              json_call_depth() {
+                ${pkgs.python3}/bin/python -c 'import json, sys; report = json.load(open(sys.argv[1])); print("recursive" if report["recursive_direct_calls"] else report["maximum_direct_call_depth"])' "$1"
+              }
+
+              append_target() {
+                local target="$1"
+                local source="$2"
+                local object_label="$3"
+                local object="$4"
+                local binary="$5"
+                local selected_symbols="$6"
+                local analysis="$out/analysis/$target.json"
+                local object_text
+                local linked_text
+                local selected_instrs
+                local branchish
+                local full_instrs
+                local reachable_instrs
+                local reachable_functions
+                local basic_blocks
+                local cfg_edges
+                local conditional_branches
+                local direct_calls
+                local loop_sccs
+                local maximum_call_depth
+                local opcode_classes
+                local forbidden_count
+                local objdump_lines
+                local objdump_instr_lines
+
+                object_text="$(object_text_size "$object")"
+                linked_text="$(text_size "$binary")"
+                selected_instrs="$(selected_instruction_total "$binary" "$selected_symbols")"
+                branchish="$(branchish_total "$binary" "$selected_symbols")"
+                full_instrs="$(json_value "$analysis" full_instruction_count)"
+                reachable_instrs="$(json_value "$analysis" reachable_instruction_count)"
+                reachable_functions="$(json_value "$analysis" reachable_function_count)"
+                basic_blocks="$(json_value "$analysis" basic_blocks)"
+                cfg_edges="$(json_value "$analysis" cfg_edges)"
+                conditional_branches="$(json_value "$analysis" conditional_branches)"
+                direct_calls="$(json_value "$analysis" direct_calls)"
+                loop_sccs="$(json_value "$analysis" loop_sccs)"
+                maximum_call_depth="$(json_call_depth "$analysis")"
+                opcode_classes="$(json_compact "$analysis" opcode_classes)"
+                forbidden_count="$(json_length "$analysis" forbidden_reachable_instructions)"
+                objdump_lines="$(objdump_line_count "$binary")"
+                objdump_instr_lines="$(objdump_instruction_line_count "$binary")"
+
+                printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                  "$target" "$source" "${riscvTarget}" "$object_label" "$object_text" \
+                  "$linked_text" "$selected_instrs" "$branchish" "$full_instrs" \
+                  "$reachable_instrs" "$reachable_functions" "$basic_blocks" "$cfg_edges" \
+                  "$conditional_branches" "$direct_calls" "$loop_sccs" "$maximum_call_depth" \
+                  "$opcode_classes" "$forbidden_count" "$objdump_lines" "$objdump_instr_lines" \
+                  "$(file_size "$object")" "$(file_size "$binary")" \
+                  "analysis/$target.json" >> "$out/stats.tsv"
+
+                printf '| `%s` | %s | %s B | %s B | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+                  "$target" "$object_label" "$object_text" "$linked_text" "$full_instrs" \
+                  "$reachable_instrs" "$reachable_functions" "$basic_blocks" "$cfg_edges" \
+                  "$conditional_branches" "$direct_calls" "$loop_sccs" >> "$out/stats.md"
+              }
+
               ${riscvObjdump} -d "$out/rv64/bin/sha3" > "$out/objdump/sha3.txt"
               ${riscvObjdump} -d "$out/rv64/bin/tinfl" > "$out/objdump/tinfl.txt"
+              ${riscvObjdump} -d "$out/rv64/bin/reth-keccak" > "$out/objdump/reth-keccak.txt"
+              ${riscvObjdump} -d "$out/rv64/bin/zesu-ssz" > "$out/objdump/zesu-ssz.txt"
 
-              sha3_object_text="$(text_size "$out/rv64/obj/sha3.o")"
-              tinfl_object_text="$(text_size "$out/rv64/obj/tinfl.o")"
-              sha3_linked_text="$(text_size "$out/rv64/bin/sha3")"
-              tinfl_linked_text="$(text_size "$out/rv64/bin/tinfl")"
-
-              sha3_selected_instrs="$(
-                selected_instruction_total "$out/rv64/bin/sha3" ${sha3}/meta/selected-symbols
-              )"
-              tinfl_selected_instrs="$(
-                selected_instruction_total "$out/rv64/bin/tinfl" ${tinfl}/meta/selected-symbols
-              )"
-              sha3_branchish="$(branchish_total "$out/rv64/bin/sha3" ${sha3}/meta/selected-symbols)"
-              tinfl_branchish="$(branchish_total "$out/rv64/bin/tinfl" ${tinfl}/meta/selected-symbols)"
-              sha3_objdump_lines="$(objdump_line_count "$out/rv64/bin/sha3")"
-              tinfl_objdump_lines="$(objdump_line_count "$out/rv64/bin/tinfl")"
-              sha3_objdump_instr_lines="$(objdump_instruction_line_count "$out/rv64/bin/sha3")"
-              tinfl_objdump_instr_lines="$(objdump_instruction_line_count "$out/rv64/bin/tinfl")"
+              analyze_target sha3 "$out/rv64/bin/sha3" \
+                --owner 'sha3*=protocol' \
+                --owner '*keccak*=protocol' \
+                --owner 'main=harness' \
+                --owner '_start=runtime' \
+                --owner '*mem*=runtime' \
+                --owner '*=runtime'
+              analyze_target tinfl "$out/rv64/bin/tinfl" \
+                --owner 'tinfl*=protocol' \
+                --owner 'main=harness' \
+                --owner '_start=runtime' \
+                --owner '*mem*=runtime' \
+                --owner '*=runtime'
+              analyze_target reth-keccak "$out/rv64/bin/reth-keccak" \
+                --owner 'reth_keccak256=protocol' \
+                --owner '*Keccak*=protocol' \
+                --owner '*keccak*=protocol' \
+                --owner '*sha3*=protocol' \
+                --owner 'main=harness' \
+                --owner '_start=runtime' \
+                --owner '*mem*=runtime' \
+                --owner '_R*=rust-runtime' \
+                --owner '*=rust-runtime'
+              analyze_target zesu-ssz "$out/rv64/bin/zesu-ssz" \
+                --owner 'zesu_decode_raw=protocol' \
+                --owner '*ssz*=protocol' \
+                --owner '*Ssz*=protocol' \
+                --owner '*decode*=protocol' \
+                --owner '*Decode*=protocol' \
+                --owner '*rlp*=rlp' \
+                --owner '*Rlp*=rlp' \
+                --owner 'main=harness' \
+                --owner '_start=runtime' \
+                --owner '*mem*=runtime' \
+                --owner '*alloc*=allocator' \
+                --owner '*Alloc*=allocator' \
+                --owner '*=zig-runtime'
 
               sha3_output="$(${qemuRiscv64} "$out/rv64/bin/sha3" ${lib.escapeShellArg sha3SampleMessage})"
               if [ "$sha3_output" != "${sha3SampleDigest}" ]; then
@@ -292,17 +744,35 @@
               fi
               ${qemuRiscv64} "$out/rv64/bin/tinfl"
 
+              reth_output="$(${qemuRiscv64} "$out/rv64/bin/reth-keccak" 616263)"
+              test "$reth_output" = 4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45
+
+              set +e
+              zesu_output="$(${qemuRiscv64} "$out/rv64/bin/zesu-ssz" < /dev/null)"
+              zesu_status=$?
+              set -e
+              test "$zesu_status" = 1
+              test "$zesu_output" = invalid
+
               ${riscvSize} \
                 "$out/rv64/obj/sha3.o" \
                 "$out/rv64/obj/tinfl.o" \
+                "$out/rv64/obj/reth-keccak-rustcrypto.a" \
+                "$out/rv64/obj/zesu-raw-ssz.o" \
                 "$out/rv64/bin/sha3" \
-                "$out/rv64/bin/tinfl" > "$out/size.txt"
+                "$out/rv64/bin/tinfl" \
+                "$out/rv64/bin/reth-keccak" \
+                "$out/rv64/bin/zesu-ssz" > "$out/size.txt"
 
               ${riscvNm} -S --size-sort --radix=d \
                 "$out/rv64/obj/sha3.o" \
                 "$out/rv64/obj/tinfl.o" \
+                "$out/rv64/obj/reth-keccak-rustcrypto.a" \
+                "$out/rv64/obj/zesu-raw-ssz.o" \
                 "$out/rv64/bin/sha3" \
-                "$out/rv64/bin/tinfl" > "$out/symbols.txt"
+                "$out/rv64/bin/tinfl" \
+                "$out/rv64/bin/reth-keccak" \
+                "$out/rv64/bin/zesu-ssz" > "$out/symbols.txt"
 
               {
                 echo "tool,value"
@@ -317,18 +787,18 @@
               } > "$out/toolchain.csv"
 
               cat > "$out/stats.tsv" <<EOF
-              target	arch	object_text	linked_text	selected_symbol_instructions	branchish	linked_objdump_lines	linked_objdump_instruction_lines	file_size_object	file_size_linked
-              sha3	${riscvTarget}	$sha3_object_text	$sha3_linked_text	$sha3_selected_instrs	$sha3_branchish	$sha3_objdump_lines	$sha3_objdump_instr_lines	$(file_size "$out/rv64/obj/sha3.o")	$(file_size "$out/rv64/bin/sha3")
-              tinfl	${riscvTarget}	$tinfl_object_text	$tinfl_linked_text	$tinfl_selected_instrs	$tinfl_branchish	$tinfl_objdump_lines	$tinfl_objdump_instr_lines	$(file_size "$out/rv64/obj/tinfl.o")	$(file_size "$out/rv64/bin/tinfl")
+              target	source	arch	object_artifact	object_text	linked_text	selected_symbol_instructions	branchish	full_instructions	reachable_instructions	reachable_functions	basic_blocks	cfg_edges	conditional_branches	direct_calls	loop_sccs	maximum_direct_call_depth	opcode_classes	forbidden_reachable_instructions	linked_objdump_lines	linked_objdump_instruction_lines	file_size_object	file_size_linked	analysis_json
               EOF
 
               cat > "$out/stats.md" <<EOF
-              # Binary Size Stats
+              # RV64 Target Evaluation Stats
 
               ## Inputs
 
               - SHA-3: \`mjosaarinen/tiny_sha3\` at \`dcbb3192047c2a721f5f851db591871d428036a9\`
               - DEFLATE: \`richgel999/miniz\` at \`77d0dce8627735138c51770d1799a1ef48f2117d\`
+              - Reth provenance: \`paradigmxyz/reth\` at \`9384bc53d8c0c77e59cac83fdaaf3b372c6d2216\`
+              - Zesu: \`Consensys/zesu\` at \`aa6c94339987d278acb8b7fa409c864dbd3d05aa\`
 
               ## Toolchain
 
@@ -343,25 +813,57 @@
 
               ## ${riscvTarget}
 
-              | Target | Object \`.text\` | Linked \`.text\` | Selected symbol instrs | Branch/call/ret-ish | Full \`objdump -d\` lines | Full instr lines |
-              |---|---:|---:|---:|---:|---:|---:|
-              | \`tiny_sha3/sha3.c\` | $sha3_object_text B | $sha3_linked_text B | $sha3_selected_instrs | $sha3_branchish | $sha3_objdump_lines | $sha3_objdump_instr_lines |
-              | \`miniz/miniz_tinfl.c\` | $tinfl_object_text B | $tinfl_linked_text B | $tinfl_selected_instrs | $tinfl_branchish | $tinfl_objdump_lines | $tinfl_objdump_instr_lines |
+              | Target | Protocol object | Object \`.text\` | Linked \`.text\` | Full instrs | Reachable instrs | Reachable funcs | Blocks | CFG edges | Conditional branches | Calls | Loop SCCs |
+              |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+              EOF
 
-              “Selected symbol instrs” counts disassembled instruction lines only in these linked-ELF symbols:
-              \`sha3_keccakf\`, \`sha3_init\`, \`sha3_update\`, \`sha3_final\`, \`sha3\`, and \`main\` for SHA-3;
-              \`tinfl_decompress\`, \`tinfl_decompress_mem_to_mem\`, and \`main\` for DEFLATE. The full
-              \`objdump -d\` columns count each entire RV64IM_Zicclsm linked ELF, including the local
-              freestanding startup/runtime sections.
+              append_target sha3 \
+                'mjosaarinen/tiny_sha3:sha3.c' \
+                'sha3.o' \
+                "$out/rv64/obj/sha3.o" \
+                "$out/rv64/bin/sha3" \
+                "$out/rv64/meta/sha3-selected-symbols.txt"
+              append_target tinfl \
+                'richgel999/miniz:miniz_tinfl.c' \
+                'tinfl.o' \
+                "$out/rv64/obj/tinfl.o" \
+                "$out/rv64/bin/tinfl" \
+                "$out/rv64/meta/tinfl-selected-symbols.txt"
+              append_target reth-keccak \
+                'Reth RustCrypto Keccak-256 wrapper' \
+                'libreth_keccak_wrapper.a' \
+                "$out/rv64/obj/reth-keccak-rustcrypto.a" \
+                "$out/rv64/bin/reth-keccak" \
+                "$out/rv64/meta/reth-keccak-selected-symbols.txt"
+              append_target zesu-ssz \
+                'Zesu extracted decodeRaw composition' \
+                'zesu-raw-ssz.o' \
+                "$out/rv64/obj/zesu-raw-ssz.o" \
+                "$out/rv64/bin/zesu-ssz" \
+                "$out/rv64/meta/zesu-ssz-selected-symbols.txt"
+
+              cat >> "$out/stats.md" <<EOF
+
+              The object column is the target's protocol object (or the Rust static archive for
+              Reth); linked measurements and structural analysis begin at the freestanding \`_start\`
+              entrypoint. The legacy selected-symbol and branch/call/return counts remain in
+              \`stats.tsv\` for continuity with the original SHA/miniz comparison.
+
+              ## Structural analysis
+
+              Each \`analysis/<target>.json\` records full and reachable instructions, reachable
+              functions, basic blocks, CFG edges, conditional branches, direct calls, loop SCCs,
+              maximum direct-call depth, opcode classes, ISA violations, unresolved indirect calls,
+              and ownership buckets. The matching Markdown files render the core metrics and ISA
+              gate. Complete linked \`objdump -d\` output is in \`objdump/\`; raw size and symbol
+              output is in \`size.txt\` and \`symbols.txt\`.
 
               ## Sanity
 
               SHA-3 was run under \`qemu-riscv64\` with message \`${sha3SampleMessage}\` and produced
-              \`${sha3SampleDigest}\`. The \`tinfl\` binary also ran successfully under \`qemu-riscv64\`.
-
-              Raw \`size\` output is in \`size.txt\`, symbol sizes are in \`symbols.txt\`, RV64 linked
-              \`objdump -d\` output is in \`objdump/sha3.txt\` and \`objdump/tinfl.txt\`, ELF attributes
-              are in \`rv64/meta/\`, and machine-readable summary data is in \`stats.tsv\`.
+              \`${sha3SampleDigest}\`. \`tinfl\` ran successfully, Reth Keccak-256 produced the
+              independent Ethereum Keccak-256 vector for \`abc\`, and the raw Zesu harness rejected
+              empty input with its expected \`invalid\` exit.
               EOF
 
               cat > "$out/bin/show-stats" <<EOF
@@ -390,20 +892,61 @@
             '';
           };
 
+          rethKeccakRun = pkgs.writeShellApplication {
+            name = "reth-keccak";
+            runtimeInputs = [ pkgs.qemu-user ];
+            text = ''
+              exec qemu-riscv64 ${rethKeccak}/bin/reth-keccak "$@"
+            '';
+          };
+
+          zesuSszRun = pkgs.writeShellApplication {
+            name = "zesu-ssz";
+            runtimeInputs = [ pkgs.qemu-user ];
+            text = ''
+              exec qemu-riscv64 ${zesuSsz}/bin/zesu-ssz "$@"
+            '';
+          };
+
           dump = pkgs.writeShellApplication {
             name = "dump";
             text = ''
-              exec ${riscvObjdump} -d ${sha3}/bin/sha3
+              if [ "$#" -eq 0 ]; then
+                target=sha3
+              else
+                target="$1"
+                shift
+              fi
+              if [ "$#" -ne 0 ]; then
+                echo "usage: dump [sha3|tinfl|reth-keccak|zesu-ssz]" >&2
+                exit 64
+              fi
+              case "$target" in
+                sha3) binary=${sha3}/bin/sha3 ;;
+                tinfl) binary=${tinfl}/bin/tinfl ;;
+                reth-keccak) binary=${rethKeccak}/bin/reth-keccak ;;
+                zesu-ssz) binary=${zesuSsz}/bin/zesu-ssz ;;
+                *)
+                  echo "unknown target: $target" >&2
+                  echo "usage: dump [sha3|tinfl|reth-keccak|zesu-ssz]" >&2
+                  exit 64
+                  ;;
+              esac
+              exec ${riscvObjdump} -d "$binary"
             '';
           };
         in
         {
-          inherit sha3 tinfl stats dump sha3Run tinflRun;
+          inherit sha3 tinfl rethKeccak zesuProductionObject zesuRawObject zesuSsz stats dump
+            sha3Run tinflRun rethKeccakRun zesuSszRun;
+          reth-keccak = rethKeccak;
+          zesu-ssz = zesuSsz;
           default = stats;
         });
 
       checks = forAllSystems (system: pkgs: {
-        inherit (self.packages.${system}) sha3 tinfl stats dump;
+        inherit (self.packages.${system}) sha3 tinfl rethKeccak zesuProductionObject zesuRawObject
+          zesuSsz stats dump;
         default = self.packages.${system}.stats;
       });
 
@@ -418,15 +961,25 @@
           program = "${self.packages.${system}.tinflRun}/bin/tinfl";
           meta.description = "Run the RV64IM_Zicclsm miniz tinfl binary under qemu-riscv64";
         };
+        reth-keccak = {
+          type = "app";
+          program = "${self.packages.${system}.rethKeccakRun}/bin/reth-keccak";
+          meta.description = "Run the RV64IM_Zicclsm Reth RustCrypto Keccak-256 candidate";
+        };
+        zesu-ssz = {
+          type = "app";
+          program = "${self.packages.${system}.zesuSszRun}/bin/zesu-ssz";
+          meta.description = "Run the RV64IM_Zicclsm Zesu raw SSZ decoder candidate";
+        };
         stats = {
           type = "app";
           program = "${self.packages.${system}.stats}/bin/show-stats";
-          meta.description = "Print the reproducible SHA-3/miniz RV64IM_Zicclsm binary size stats";
+          meta.description = "Print reproducible RV64IM_Zicclsm stats for all four evaluation targets";
         };
         dump = {
           type = "app";
           program = "${self.packages.${system}.dump}/bin/dump";
-          meta.description = "Print RISC-V objdump -d for the SHA-3 binary";
+          meta.description = "Print RISC-V objdump -d for sha3, tinfl, reth-keccak, or zesu-ssz";
         };
         default = self.apps.${system}.stats;
       });
@@ -447,7 +1000,7 @@
               riscvBinutils
             ];
             shellHook = ''
-              echo "Run: nix build .#sha3 --out-link build/sha3, nix run .#sha3, or nix run .#dump"
+              echo "Run: nix build .#sha3 --out-link build/sha3, nix run .#sha3, or nix run .#dump -- TARGET"
             '';
           };
         });
