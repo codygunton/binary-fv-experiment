@@ -1,4 +1,5 @@
 import LeanRV64DExecutable
+import ShaFv.RISCV.ABI
 
 namespace ShaFv.RISCV
 
@@ -28,15 +29,24 @@ def runSteps : Nat → SailM Unit
       runUserStep
       runSteps fuel
 
-def sha3EntryPoint : Nat := 0x101b8
-
-def prepareEntryInstruction : SailM Unit := do
+/-- Initialize a direct internal-`sha3` call after the loader proves its ELF symbol address. -/
+def prepareSha3Call (sha3Symbol : Word) (messageSize : Nat) (_symbolH : sha3Symbol < addressLimit)
+    (_messageH : messageSize < maxMessageSize) : SailM Unit := do
+  let abi := sha3Abi messageSize
+  let ⟨raH, spH, a0H, a1H, a2H, a3H⟩ := sha3Abi_wellFormed _messageH
+  let ⟨lowBaseH, lowSizeH⟩ := lowPmaRange_wordBounds
+  let ⟨highBaseH, highSizeH⟩ := highPmaRange_wordBounds
   sail_model_init ()
   let some mainMemory := (← readReg pma_regions).getLast?
     | throw Sail.Error.Unreachable
-  writeReg pma_regions [{ mainMemory with
-    base := (0 : BitVec 64)
-    size := (0x20000 : BitVec 64) }]
+  writeReg pma_regions [
+    { mainMemory with
+      base := rv64Word lowPmaRange.start lowBaseH
+      size := rv64Word lowPmaRange.size lowSizeH },
+    { mainMemory with
+      base := rv64Word highPmaRange.start highBaseH
+      size := rv64Word highPmaRange.size highSizeH }
+  ]
   writeReg pmpcfg_n default
   writeReg pmpaddr_n default
   writeReg mcountinhibit (0 : BitVec 32)
@@ -44,9 +54,20 @@ def prepareEntryInstruction : SailM Unit := do
   writeReg minstret (0 : BitVec 64)
   writeReg minstret_increment false
   writeReg satp (0 : BitVec 64)
-  writeReg PC (BitVec.ofNat 64 sha3EntryPoint)
-  writeReg nextPC (BitVec.ofNat 64 sha3EntryPoint)
   writeReg cur_privilege Privilege.Machine
+  writeReg x1 (rv64Word abi.ra raH)
+  writeReg x2 (rv64Word abi.sp spH)
+  writeReg x10 (rv64Word abi.a0 a0H)
+  writeReg x11 (rv64Word abi.a1 a1H)
+  writeReg x12 (rv64Word abi.a2 a2H)
+  writeReg x13 (rv64Word abi.a3 a3H)
+  writeReg PC (rv64Word sha3Symbol _symbolH)
+  writeReg nextPC (rv64Word sha3Symbol _symbolH)
+
+def sha3EntryPoint : Nat := 0x101b8
+
+def prepareEntryInstruction : SailM Unit := do
+  prepareSha3Call sha3EntryPoint 0 (by decide) (by decide)
   let _ ← PreSail.writeBytes (n := 4) sha3EntryPoint (0x00002197 : BitVec 32)
 
 def executeEntryInstruction : SailM (BitVec 64 × BitVec 64) := do

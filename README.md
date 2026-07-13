@@ -106,14 +106,16 @@ The SHA-3 scaffold imports `gdncc/Cryptography` and states:
 ```lean
 theorem root_compliance :
     ∀ msg : ByteArray,
+      msg.size < RiscvSpec.maxMessageSize →
       RiscvSpec.execute binary msg = .ok (Sha3Spec.hashData msg)
 ```
 
 `binary` is the theorem term reserved for the one fixed SHA-3 ELF built by this repository.
 `RiscvSpec.execute` owns ELF loading, ABI setup, RISC-V execution, termination, and extraction of
-the 32 digest bytes. The `.ok` result makes successful termination part of the claim instead of
-allowing failure to be hidden behind a default output. Both definitions and the proof remain
-intentionally stubbed.
+the 32 digest bytes. Inputs of length at least `2^63` return `.unsupportedMessage`; the internal ABI
+is total over the stated bounded domain. The `.ok` result makes successful termination part of the
+claim instead of allowing failure to be hidden behind a default output. ELF loading and the final
+refinement proof remain intentionally stubbed.
 
 Generate the pinned executable Lean translation of the Sail RISC-V model first:
 
