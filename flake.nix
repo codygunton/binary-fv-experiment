@@ -454,6 +454,95 @@
             '';
           };
 
+          # Zesu's host suite assumes a manually populated /usr/local. Preserve decoder behavior
+          # while providing its crypto dependencies from pinned Nix derivations.
+          mcl = pkgs.stdenv.mkDerivation {
+            pname = "mcl";
+            version = "3.06";
+            src = pkgs.fetchFromGitHub {
+              owner = "herumi";
+              repo = "mcl";
+              rev = "0499298adcfad3bbcebf77f17700ebbe97166060";
+              hash = "sha256-Nyd8SyURTpExgvB2B/uEfhEBU7YLQgNY6s1saQ1rS1Y=";
+            };
+            nativeBuildInputs = [ pkgs.gnumake pkgs.python3 pkgs.stdenv.cc pkgs.gmp ];
+            buildPhase = "make -j$NIX_BUILD_CORES MCL_FP_BIT=384 MCL_FR_BIT=256";
+            installPhase = ''
+              mkdir -p "$out/lib" "$out/include"
+              cp lib/libmcl.so lib/libmcl.a "$out/lib/"
+              cp -r include/mcl "$out/include/"
+            '';
+          };
+
+          zesuNativeCrypto = pkgs.symlinkJoin {
+            name = "zesu-native-crypto";
+            paths = [ pkgs.blst mcl pkgs.secp256k1 pkgs.openssl.dev pkgs.openssl.out ];
+          };
+
+          zesuFixtures = pkgs.fetchurl {
+            url = "https://github.com/ethereum/execution-specs/releases/download/tests-zkevm%40v0.5.0/fixtures_zkevm.tar.gz";
+            hash = "sha256-a1/W3qd8xepR39w1sDvcpBh1km4XrSbz6+v5hBA4o2Y=";
+          };
+
+          zesuNativeSuite = pkgs.stdenv.mkDerivation {
+            pname = "zesu-native-suite";
+            version = "aa6c943";
+            src = zesu;
+            nativeBuildInputs = [
+              pkgs.gnumake
+              pkgs.gnutar
+              pkgs.gzip
+              pkgs.gmp
+              pkgs.patch
+              pkgs.pkg-config
+              pkgs.secp256k1
+              pkgs.openssl
+              pkgs.stdenv.cc
+              pkgs.zig
+            ];
+            postPatch = ''
+              substituteInPlace build.zig \
+                --replace-fail 'step.root_module.addLibraryPath(.{ .cwd_relative = "/usr/local/lib" });' \
+                'step.root_module.addLibraryPath(.{ .cwd_relative = std.fs.path.dirname(mcl).? });'
+              # The pinned zkeVM release contains a 264.3 MiB JSON fixture. This changes only the
+              # test runner's input limit, not production decoder behavior.
+              substituteInPlace tools/zkevm_test/main.zig \
+                --replace-fail '.limited(256 * 1024 * 1024)' \
+                '.limited(512 * 1024 * 1024)'
+            '';
+            buildPhase = ":";
+            doCheck = true;
+            checkPhase = ''
+              export LD_LIBRARY_PATH="${zesuNativeCrypto}/lib"
+              export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global"
+
+              mkdir -p spec-tests/fixtures/zkevm
+              tar xzf ${zesuFixtures} --strip-components=1 -C spec-tests/fixtures/zkevm
+
+              run_suite() {
+                label="$1"
+                export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-$label"
+                zig build test -Dcrypto-prefix="${zesuNativeCrypto}"
+                zig build zkevm-tests -Dcrypto-prefix="${zesuNativeCrypto}"
+              }
+
+              run_suite production
+
+              production_source="$PWD"
+              patched_source="$TMPDIR/patched-source"
+              cp -a "$production_source" "$patched_source"
+              cd "$patched_source"
+              patch --batch --fuzz=0 -p1 -i ${./patches/zesu-decode-raw.patch}
+              grep -F 'pub fn decodeRaw(' src/stateless/stateless/ssz.zig
+              grep -F 'pub fn decode(' src/stateless/stateless/ssz.zig
+              run_suite extracted-raw
+            '';
+            installPhase = ''
+              mkdir -p "$out"
+              printf '%s\n' production extracted-raw > "$out/passed"
+            '';
+          };
+
           stats = pkgs.stdenvNoCC.mkDerivation {
             pname = "sha-fv-binary-stats-rv64im-zicclsm";
             version = "0.1.0";
@@ -631,6 +720,10 @@
                 ${pkgs.python3}/bin/python -c 'import json, sys; print(len(json.load(open(sys.argv[1]))[sys.argv[2]]))' "$1" "$2"
               }
 
+              json_owner_instructions() {
+                ${pkgs.python3}/bin/python -c 'import json, sys; report = json.load(open(sys.argv[1])); print(report["ownership"].get(sys.argv[2], {}).get("instructions", 0))' "$1" "$2"
+              }
+
               json_call_depth() {
                 ${pkgs.python3}/bin/python -c 'import json, sys; report = json.load(open(sys.argv[1])); print("recursive" if report["recursive_direct_calls"] else report["maximum_direct_call_depth"])' "$1"
               }
@@ -649,6 +742,7 @@
                 local branchish
                 local full_instrs
                 local reachable_instrs
+                local protocol_owned_instrs
                 local reachable_functions
                 local basic_blocks
                 local cfg_edges
@@ -667,6 +761,7 @@
                 branchish="$(branchish_total "$binary" "$selected_symbols")"
                 full_instrs="$(json_value "$analysis" full_instruction_count)"
                 reachable_instrs="$(json_value "$analysis" reachable_instruction_count)"
+                protocol_owned_instrs="$(json_owner_instructions "$analysis" protocol)"
                 reachable_functions="$(json_value "$analysis" reachable_function_count)"
                 basic_blocks="$(json_value "$analysis" basic_blocks)"
                 cfg_edges="$(json_value "$analysis" cfg_edges)"
@@ -679,18 +774,18 @@
                 objdump_lines="$(objdump_line_count "$binary")"
                 objdump_instr_lines="$(objdump_instruction_line_count "$binary")"
 
-                printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
                   "$target" "$source" "${riscvTarget}" "$object_label" "$object_text" \
                   "$linked_text" "$selected_instrs" "$branchish" "$full_instrs" \
-                  "$reachable_instrs" "$reachable_functions" "$basic_blocks" "$cfg_edges" \
+                  "$reachable_instrs" "$protocol_owned_instrs" "$reachable_functions" "$basic_blocks" "$cfg_edges" \
                   "$conditional_branches" "$direct_calls" "$loop_sccs" "$maximum_call_depth" \
                   "$opcode_classes" "$forbidden_count" "$objdump_lines" "$objdump_instr_lines" \
                   "$(file_size "$object")" "$(file_size "$binary")" \
                   "analysis/$target.json" >> "$out/stats.tsv"
 
-                printf '| `%s` | %s | %s B | %s B | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+                printf '| `%s` | %s | %s B | %s B | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
                   "$target" "$object_label" "$object_text" "$linked_text" "$full_instrs" \
-                  "$reachable_instrs" "$reachable_functions" "$basic_blocks" "$cfg_edges" \
+                  "$reachable_instrs" "$protocol_owned_instrs" "$reachable_functions" "$basic_blocks" "$cfg_edges" \
                   "$conditional_branches" "$direct_calls" "$loop_sccs" >> "$out/stats.md"
               }
 
@@ -787,7 +882,7 @@
               } > "$out/toolchain.csv"
 
               cat > "$out/stats.tsv" <<EOF
-              target	source	arch	object_artifact	object_text	linked_text	selected_symbol_instructions	branchish	full_instructions	reachable_instructions	reachable_functions	basic_blocks	cfg_edges	conditional_branches	direct_calls	loop_sccs	maximum_direct_call_depth	opcode_classes	forbidden_reachable_instructions	linked_objdump_lines	linked_objdump_instruction_lines	file_size_object	file_size_linked	analysis_json
+              target	source	arch	object_artifact	object_text	linked_text	selected_symbol_instructions	branchish	full_instructions	reachable_instructions	protocol_owned_reachable_instructions	reachable_functions	basic_blocks	cfg_edges	conditional_branches	direct_calls	loop_sccs	maximum_direct_call_depth	opcode_classes	forbidden_reachable_instructions	linked_objdump_lines	linked_objdump_instruction_lines	file_size_object	file_size_linked	analysis_json
               EOF
 
               cat > "$out/stats.md" <<EOF
@@ -813,8 +908,8 @@
 
               ## ${riscvTarget}
 
-              | Target | Protocol object | Object \`.text\` | Linked \`.text\` | Full instrs | Reachable instrs | Reachable funcs | Blocks | CFG edges | Conditional branches | Calls | Loop SCCs |
-              |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+              | Target | Protocol object | Object \`.text\` | Linked \`.text\` | Full instrs | Reachable instrs | Protocol reachable | Reachable funcs | Blocks | CFG edges | Conditional branches | Calls | Loop SCCs |
+              |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
               EOF
 
               append_target sha3 \
@@ -937,16 +1032,17 @@
           };
         in
         {
-          inherit sha3 tinfl rethKeccak zesuProductionObject zesuRawObject zesuSsz stats dump
-            sha3Run tinflRun rethKeccakRun zesuSszRun;
+          inherit sha3 tinfl rethKeccak zesuProductionObject zesuRawObject zesuSsz zesuNativeSuite
+            stats dump sha3Run tinflRun rethKeccakRun zesuSszRun;
           reth-keccak = rethKeccak;
           zesu-ssz = zesuSsz;
+          zesu-native-suite = zesuNativeSuite;
           default = stats;
         });
 
       checks = forAllSystems (system: pkgs: {
         inherit (self.packages.${system}) sha3 tinfl rethKeccak zesuProductionObject zesuRawObject
-          zesuSsz stats dump;
+          zesuSsz zesuNativeSuite stats dump;
         default = self.packages.${system}.stats;
       });
 

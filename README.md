@@ -80,6 +80,16 @@ nix build .#zesu-ssz --out-link build/zesu-ssz
 `reth-keccak` accepts one hexadecimal input argument. `zesu-ssz` accepts raw bytes on standard
 input; its empty-input result is intentionally `invalid` with exit status 1.
 
+Run the pinned Zesu native and zkeVM fixture suites (production and the raw-SSZ extraction) with:
+
+```sh
+nix build .#zesu-native-suite --out-link build/zesu-native-suite
+```
+
+This evaluation-only package provides the upstream dependencies through Nix, raises only the
+fixture runner's input cap for a 264.3 MiB fixture, and leaves production decoder behavior
+unchanged.
+
 The Reth candidate deliberately evaluates the Reth-locked RustCrypto portable `Keccak256` path,
 not Reth's default assembly-accelerated host binary. Its output metadata records the exact Reth
 revision and verified upstream `Cargo.lock` hash.
@@ -140,7 +150,7 @@ build/stats/analysis/<target>.md
 
 `build/stats/stats.md` summarizes all four linked RV64 binaries. `stats.tsv` contains object and
 linked `.text`, legacy selected-symbol counts, full and `_start`-reachable instructions, reachable
-functions, blocks, CFG edges, branches, direct calls, loop SCCs, call depth, opcode classes,
+functions, protocol-owned reachable instructions, blocks, CFG edges, branches, direct calls, loop SCCs, call depth, opcode classes,
 forbidden-instruction counts, objdump line counts, artifact sizes, and paths to each complete
 analysis report. The individual `analysis/<target>.json` files additionally retain function lists,
 ownership buckets, unresolved indirect calls, and ISA-gate details.

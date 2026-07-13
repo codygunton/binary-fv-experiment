@@ -1,0 +1,31 @@
+{
+  "reference": {
+    "repo": "ethereum/execution-specs",
+    "revision": "bd8c673552d957dbe9c9f3f2656b87201f5ae646",
+    "schema": "Amsterdam SszStatelessInput (V4 only)"
+  },
+  "cases": {
+    "valid-v4-raw": { "python": true, "lean": true, "zesu": true },
+    "valid-v4-empty-variable-lists": { "python": true, "lean": true, "zesu": true },
+    "valid-v4-ere": { "python": null, "lean": true, "zesu": true },
+    "valid-v3-raw-structural-only": { "python": null, "lean": true, "zesu": true },
+    "valid-v3-ere-structural-only": { "python": null, "lean": true, "zesu": true },
+    "bad-schema-id": { "python": false, "lean": false, "zesu": false },
+    "truncated": { "python": false, "lean": false, "zesu": false },
+    "ere-declared-length-mismatch": { "python": null, "lean": false, "zesu": false },
+    "top-first-offset-inside-fixed": { "python": false, "lean": false, "zesu": false },
+    "top-offset-descending": { "python": false, "lean": false, "zesu": false },
+    "top-offset-out-of-range": { "python": false, "lean": false, "zesu": false },
+    "transaction-table-first-offset": { "python": false, "lean": false, "zesu": false },
+    "transaction-table-overlap-descending": { "python": false, "lean": false, "zesu": false },
+    "fixed-element-divisibility-versioned-hashes": { "python": false, "lean": false, "zesu": false },
+    "oversized-extra-data-33": { "python": false, "lean": false, "zesu": true },
+    "too-many-withdrawals-17": { "python": false, "lean": false, "zesu": true },
+    "too-many-versioned-hashes-4097": { "python": false, "lean": false, "zesu": true },
+    "malformed-deposit-fixed-size": { "python": false, "lean": false, "zesu": true },
+    "unknown-fork-index": { "python": false, "lean": false, "zesu": true },
+    "noncanonical-npr-first-offset": { "python": false, "lean": false, "zesu": true },
+    "ere-heuristic-collision-raw": { "python": true, "lean": true, "zesu": false },
+    "ere-heuristic-collision-prefixed": { "python": null, "lean": true, "zesu": true }
+  }
+}

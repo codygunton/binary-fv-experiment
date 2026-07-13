@@ -1,11 +1,17 @@
 diff --git a/src/stateless/stateless/ssz.zig b/src/stateless/stateless/ssz.zig
-index 2eb9a37..aa8f4f1 100644
 --- a/src/stateless/stateless/ssz.zig
 +++ b/src/stateless/stateless/ssz.zig
-@@ -149,1 +149,1 @@
+@@ -146,7 +146,7 @@
+ ///    [6..10]  offset → witness
+ ///    [10..14] offset → chain_config (SszChainConfig: chain_id + SszForkConfig)
+ ///    [14..18] offset → public_keys (packed ByteVector[65])
 -pub fn decode(alloc: std.mem.Allocator, data: []const u8) !input_mod.StatelessInput {
 +pub fn decodeRaw(alloc: std.mem.Allocator, data: []const u8) !input_mod.StatelessInput {
-@@ -306,7 +306,4 @@ pub fn decodeRaw(alloc: std.mem.Allocator, data: []const u8) !input_mod.Stateles
+     // Strip Ere's 4-byte LE length prefix when present. The first 4 bytes of
+     // raw SSZ are always a small offset value, so matching against data.len-4
+     // is unambiguous for any real payload.
+@@ -305,10 +305,7 @@
+ 
      // transactions: List[ByteList, N] — offset-table format
      const txs_raw = try decodeByteListList(alloc, ep_data[off_transactions..off_withdrawals]);
 -    const transactions = try alloc.alloc(input_mod.Transaction, txs_raw.len);
@@ -15,7 +21,8 @@ index 2eb9a37..aa8f4f1 100644
 +    const transactions: []const input_mod.Transaction = &.{};
  
      // block_access_list: last variable field (V4 only; empty for V3 via sentinel offset).
-@@ -397,3 +394,15 @@ pub fn decodeRaw(alloc: std.mem.Allocator, data: []const u8) !input_mod.Stateles
+     const block_access_list = try alloc.dupe(u8, ep_data[off_block_access_list..]);
+@@ -397,3 +394,15 @@
          .public_keys = public_keys,
      };
  }
@@ -33,7 +40,6 @@ index 2eb9a37..aa8f4f1 100644
 +}
 diff --git a/src/zkvm/raw_ssz_root.zig b/src/zkvm/raw_ssz_root.zig
 new file mode 100644
-index 0000000..b4eca11
 --- /dev/null
 +++ b/src/zkvm/raw_ssz_root.zig
 @@ -0,0 +1,25 @@
@@ -63,12 +69,9 @@ index 0000000..b4eca11
 +    return 1;
 +}
 diff --git a/build.zig b/build.zig
-index 8ad15ef..843c9da 100644
 --- a/build.zig
 +++ b/build.zig
-@@ -612,8 +612,29 @@ pub fn build(b: *std.Build) void {
-         rv64_obj.root_module.code_model = .medium;
- 
+@@ -614,6 +614,27 @@
          const obj_step = b.step("rv64im-object", "Build relocatable rv64im ELF object (zesu.o)");
          const install_obj = b.addInstallFile(rv64_obj.getEmittedBin(), "lib/zesu.o");
          obj_step.dependOn(&install_obj.step);
