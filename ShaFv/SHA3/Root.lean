@@ -1,7 +1,11 @@
 import «Cryptography».Hashes.SHA3.Basic
 import ShaFv.RISCV.ABI
+import ShaFv.RISCV.Elf64
+import Sha3Elf
 
 namespace ShaFv.SHA3
+
+open ShaFv.RISCV
 
 namespace Sha3Spec
 
@@ -12,7 +16,11 @@ end Sha3Spec
 
 namespace RiscvSpec
 
-abbrev Binary := ByteArray
+/-- A fixed executable together with its executable parser result. -/
+structure Binary where
+  bytes : ByteArray
+  parsed : Except ElfError Elf64
+  parsed_eq : Elf64.parse bytes = parsed
 
 def maxMessageSize : Nat := ShaFv.RISCV.maxMessageSize
 
@@ -32,9 +40,13 @@ theorem execute_unsupportedMessage (binary : Binary) (msg : ByteArray)
 
 end RiscvSpec
 
-/-- The fixed SHA-3 ELF. Its bytes will be embedded by the artifact-loading layer. -/
+/-- The fixed SHA-3 ELF, generated directly from the canonical Nix build. -/
 def binary : RiscvSpec.Binary :=
-  ByteArray.empty
+  {
+    bytes := Artifact.bytes
+    parsed := Elf64.parse Artifact.bytes
+    parsed_eq := rfl
+  }
 
 theorem root_compliance :
     ∀ msg : ByteArray,

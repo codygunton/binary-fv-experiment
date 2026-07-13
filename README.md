@@ -124,6 +124,12 @@ mkdir -p build
 nix build .#sail-riscv-lean --out-link build/sail-riscv-lean
 ```
 
+Generate the Lean byte definition for the same canonical SHA-3 ELF:
+
+```sh
+nix build .#sha3-elf-lean --out-link build/sha3-elf-lean
+```
+
 Then build the local proof scaffold and generated machine semantics:
 
 ```sh
@@ -136,10 +142,13 @@ locked Nixpkgs revision. It selects the `main`, `I_insts`, and `M_insts` Sail mo
 the core Zicclsm memory semantics, and disables upstream CMake's configure-time dependency
 downloads. The generated model is compiled into the root project's `.lake/build`.
 
-`ShaFv.RISCV.entryInstructionCorrect_eq_true` is a closed theorem that executes the known first
-instruction at ELF entrypoint `0x101b8` and checks `gp = 0x121b8` and `PC = 0x101bc`. It does not yet
-prove that the manually loaded opcode came from the hashed ELF; that requires the pending ELF loader
-lemma before it can contribute to `root_compliance`.
+`ShaFv.RISCV.Elf64` is a bounded pure ELF64 little-endian parser. The only fixed-artifact input is
+the generated `ByteArray`; it derives the `PT_LOAD` image and `sha3` symbol from program, section,
+symbol, and string tables, and checks the load range against the frozen code window.
+`ShaFv.SHA3.Artifact` validates the concrete parser facts with
+`native_decide`, rejects representative corrupt ELF variants, and proves that Sail fetches the same
+word as the parsed image after loading it byte-by-byte. The proof-facing path has no runtime file IO,
+`readelf` text, handwritten opcode, or generated ELF structure.
 
 Run the concrete Sail execution experiment after building the SHA-3 ELF and generated model:
 
@@ -150,9 +159,8 @@ lake env lean experiments/SailSha3Smoke.lean
 ```
 
 The experiment loads the ELF `PT_LOAD` bytes into Sail memory, calls the internal `sha3` symbol with
-a 200-byte message, and checks the extracted digest after 70,084 instructions. It is an executable
-smoke test, not a theorem: ELF offsets and the reduced user-mode step are still assumptions to
-formalize.
+a 200-byte message, and checks the extracted digest after 70,084 instructions. It is an isolated
+runtime-IO smoke test, not imported by the proof-facing `ShaFv` library.
 
 `kim-em/lean-zip` is vendored under `specs/deflate` for the DEFLATE spec, but is not imported by
 the root Lake package yet because it currently pins a newer Lean toolchain than `gdncc/Cryptography`.

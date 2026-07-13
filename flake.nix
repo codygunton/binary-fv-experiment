@@ -158,6 +158,44 @@
             ];
           };
 
+          sha3ElfLean = pkgs.runCommand "sha-fv-sha3-elf-lean" {
+            nativeBuildInputs = [
+              pkgs.coreutils
+              pkgs.gawk
+            ];
+          } ''
+            mkdir -p "$out"
+            {
+              printf '%s\n' 'namespace ShaFv.SHA3.Artifact'
+              printf '\n'
+              printf '%s\n' '/-- Generated from the canonical Nix-built RV64 SHA-3 ELF. -/'
+              printf '%s\n' 'def bytes : ByteArray := ByteArray.mk #['
+              ${pkgs.coreutils}/bin/od -An -v -tu1 ${sha3}/bin/sha3 |
+                ${pkgs.gawk}/bin/awk '
+                  {
+                    for (i = 1; i <= NF; i++) {
+                      if (count % 12 == 0) {
+                        printf "  "
+                      }
+                      printf "0x%02x, ", $i
+                      count++
+                      if (count % 12 == 0) {
+                        printf "\n"
+                      }
+                    }
+                  }
+                  END {
+                    if (count % 12 != 0) {
+                      printf "\n"
+                    }
+                  }
+                '
+              printf '%s\n' ']'
+              printf '\n'
+              printf '%s\n' 'end ShaFv.SHA3.Artifact'
+            } > "$out/Sha3Elf.lean"
+          '';
+
           tinfl = mkBinary {
             name = "tinfl";
             srcRoot = miniz;
@@ -456,12 +494,14 @@
         in
         {
           inherit sha3 tinfl stats dump sha3Run tinflRun;
+          "sha3-elf-lean" = sha3ElfLean;
           "sail-riscv-lean" = sailRiscvLean;
           default = stats;
         });
 
       checks = forAllSystems (system: pkgs: {
         inherit (self.packages.${system}) sha3 tinfl stats dump;
+        "sha3-elf-lean" = self.packages.${system}."sha3-elf-lean";
         "sail-riscv-lean" = self.packages.${system}."sail-riscv-lean";
         default = self.packages.${system}.stats;
       });

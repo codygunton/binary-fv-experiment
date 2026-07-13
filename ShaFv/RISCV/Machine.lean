@@ -1,5 +1,6 @@
 import LeanRV64DExecutable
 import ShaFv.RISCV.ABI
+import ShaFv.RISCV.ProgramImage
 
 namespace ShaFv.RISCV
 
@@ -64,28 +65,36 @@ def prepareSha3Call (sha3Symbol : Word) (messageSize : Nat) (_symbolH : sha3Symb
   writeReg PC (rv64Word sha3Symbol _symbolH)
   writeReg nextPC (rv64Word sha3Symbol _symbolH)
 
-def sha3EntryPoint : Nat := 0x101b8
+def loadSegmentPrefix (segment : LoadSegment) : Nat → SailM Unit
+  | 0 => pure ()
+  | count + 1 => do
+    let index := count
+    let byte := (segment.initialBytes[index]?).getD 0
+    let _ ← PreSail.writeByte (segment.virtualAddress + index) (BitVec.ofNat 8 byte.toNat)
+    loadSegmentPrefix segment count
 
-def prepareEntryInstruction : SailM Unit := do
-  prepareSha3Call sha3EntryPoint 0 (by decide) (by decide)
-  let _ ← PreSail.writeBytes (n := 4) sha3EntryPoint (0x00002197 : BitVec 32)
+def loadSegment (segment : LoadSegment) : SailM Unit :=
+  loadSegmentPrefix segment segment.memorySize
 
-def executeEntryInstruction : SailM (BitVec 64 × BitVec 64) := do
-  prepareEntryInstruction
-  runUserStep
-  return (← readReg x3, ← readReg PC)
+def loadSegments : List LoadSegment → SailM Unit
+  | [] => pure ()
+  | segment :: remaining => do
+    loadSegment segment
+    loadSegments remaining
 
-def entryInstructionResult : Except (Sail.Error exception) (BitVec 64 × BitVec 64) :=
-  match executeEntryInstruction.run initialState with
-  | .ok value _ => .ok value
-  | .error error _ => .error error
+/-- Load every byte of a parsed image, including zero-fill after a segment's file bytes. -/
+def loadProgramImage (image : ProgramImage) : SailM Unit :=
+  loadSegments image.segments.toList.reverse
 
-def entryInstructionCorrect : Bool :=
-  match entryInstructionResult with
-  | .ok (gp, pc) => gp == (0x121b8 : BitVec 64) && pc == (0x101bc : BitVec 64)
-  | .error _ => false
+def prepareZeroLengthSha3Call (sha3Symbol : Word) : SailM Unit := do
+  if symbolH : sha3Symbol < addressLimit then
+    prepareSha3Call sha3Symbol 0 symbolH (by decide)
+  else
+    throw Sail.Error.Unreachable
 
-theorem entryInstructionCorrect_eq_true : entryInstructionCorrect = true := by
-  native_decide
+def fetchLoadedSha3 (image : ProgramImage) (sha3Symbol : Word) : SailM FetchResult := do
+  prepareZeroLengthSha3Call sha3Symbol
+  loadProgramImage image
+  fetch ()
 
 end ShaFv.RISCV

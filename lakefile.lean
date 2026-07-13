@@ -10,5 +10,8 @@ lean_lib LeanRV64DExecutable where
   srcDir := "build/sail-riscv-lean"
   moreLeanArgs := #["--tstack=400000"]
 
+lean_lib Sha3Elf where
+  srcDir := "build/sha3-elf-lean"
+
 @[default_target]
 lean_lib ShaFv where
