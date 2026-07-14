@@ -45,6 +45,7 @@ import BinaryFv.Keccak.ReachabilityInventory
 import BinaryFv.Keccak.Contracts
 import BinaryFv.Keccak.CoreStepContract
 import BinaryFv.Keccak.CoreFetchMemoryContract
+import BinaryFv.Keccak.CoreTryStepContract
 import BinaryFv.Keccak.Stack
 import BinaryFv.Keccak.CallClosure
 import BinaryFv.Keccak.FrameCoverage
