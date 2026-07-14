@@ -40,4 +40,5 @@ import BinaryFv.Keccak.CoreFetchMemoryContract
 import BinaryFv.Keccak.Stack
 import BinaryFv.Keccak.CallClosure
 import BinaryFv.Keccak.FrameCoverage
+import BinaryFv.Keccak.FrameRuntime
 import BinaryFv.Keccak.StackFlow
