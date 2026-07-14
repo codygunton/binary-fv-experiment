@@ -89,13 +89,22 @@ At the scaffold checkpoint only this theorem may contain `sorry`; it hides ELF l
 setup, authoritative Sail execution, fuel, and output-memory extraction. The complete proof stack
 must remove all proof-scope `sorry`s and custom axioms before it claims root compliance.
 
+### Fixed-artifact trust policy
+
+`native_decide` is permitted only for closed facts computed from pinned Nix inputs, such as parsed
+ELF layout or static-inventory facts. Those facts are convenience evidence, not kernel-only proofs:
+their axiom reports include Lean's native compiler trust boundary. Until a reviewed exception states
+that boundary in the root claim, no theorem used by `root_compliance` may depend on a
+`native_decide` fact; root-facing artifact facts must instead have kernel-checked proofs.
+
 ## Checks and CI
 
 ```sh
 nix flake check
 ```
 
-The default lightweight checks cover the RV64 targets, stats/ISA gates, Reth vectors, Lean bridge,
-strict core SSZ differential, and sink observability. GitHub requires the `RV64 targets, stats, and
-Reth vectors` and `SSZ bridge, core differential, and sink` jobs for `main`; the heavyweight Zesu
-workflow is manually dispatched for release checkpoints.
+The default lightweight checks cover the RV64 targets, stats/ISA gates, Reth vectors, the hermetic
+pinned-Lean root-library build, Lean bridge, strict core SSZ differential, and sink observability.
+GitHub requires the `RV64 targets, root Lean, stats, and Reth vectors` and `SSZ bridge, core
+differential, and sink` jobs for `main`; the heavyweight Zesu workflow is manually dispatched for
+release checkpoints.

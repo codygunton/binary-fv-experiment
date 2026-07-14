@@ -15,13 +15,13 @@ concurrency:
 
 jobs:
   rv64:
-    name: RV64 targets, stats, and Reth vectors
+    name: RV64 targets, root Lean, stats, and Reth vectors
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
       - uses: DeterminateSystems/determinate-nix-action@v3
-      - name: Build RV64 targets and stats/ISA checks
+      - name: Build RV64 targets, root Lean, and stats/ISA checks
         run: |
           nix build --print-build-logs --no-link \
             .#sha3 \
@@ -30,6 +30,7 @@ jobs:
             .#zesuProductionObject \
             .#zesuRawObject \
             .#zesu-ssz \
+            .#binary-fv-lean \
             .#stats
           nix flake check --print-build-logs
 
