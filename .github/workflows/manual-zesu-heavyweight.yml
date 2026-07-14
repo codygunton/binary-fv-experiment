@@ -1,0 +1,72 @@
+name: Manual heavyweight Zesu validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-heavyweight-zesu-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preservation-and-boundaries:
+    name: Zesu preservation suites and extended boundaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Run both 23,822-case native/zkeVM suites
+        run: nix build --print-build-logs --no-link .#zesu-native-suite
+      - name: Build the host SSZ value formatter
+        run: |
+          nix build --print-build-logs \
+            --out-link "$RUNNER_TEMP/zesu-ssz-value" \
+            .#zesu-value
+      - name: Build the Lean bridge and run extended boundaries
+        shell: bash
+        run: |
+          nix shell --inputs-from . \
+            nixpkgs#elan \
+            nixpkgs#uv \
+            nixpkgs#jq \
+            nixpkgs#pkg-config \
+            nixpkgs#openssl.dev \
+            nixpkgs#gcc \
+            -c bash -euo pipefail <<'EOF'
+              export ELAN_HOME="$RUNNER_TEMP/elan"
+              export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
+              elan toolchain install "$(tr -d "\\r\\n" < specs/ssz-bridge/lean-toolchain)"
+
+              openssl_dev="$(nix build --inputs-from . --no-link --print-out-paths nixpkgs#openssl.dev)"
+              export PKG_CONFIG_PATH="$openssl_dev/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+              export LD_LIBRARY_PATH="$openssl_dev/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+              cd specs/ssz-bridge
+              lake update
+              git diff --exit-code -- lake-manifest.json
+              lake build repl
+              lake build ssz_bridge ssz_bridge_test
+              lake exe ssz_bridge_test
+              cd "$GITHUB_WORKSPACE"
+
+              reference_source="$(nix flake archive --json | jq -r ".inputs.executionSpecs.path")"
+              test "$reference_source" != null
+              test -d "$reference_source"
+              reference_root="$RUNNER_TEMP/execution-specs"
+              cp -a "$reference_source" "$reference_root"
+              chmod -R u+w "$reference_root"
+              (
+                cd "$reference_root"
+                uv sync --locked --no-dev
+              )
+              reference_python="$reference_root/.venv/bin/python"
+              test -x "$reference_python"
+
+              "$reference_python" -B tests/ssz_boundary_audit.py --extended \
+                --reference-python "$reference_python" \
+                --zesu-value-binary "$RUNNER_TEMP/zesu-ssz-value/bin/zesu-ssz-value" \
+                --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
+          EOF

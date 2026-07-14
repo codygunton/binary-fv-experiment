@@ -6,12 +6,14 @@ evaluation candidates:
 - SHA-3 from `mjosaarinen/tiny_sha3` (baseline)
 - DEFLATE inflate from `richgel999/miniz`, specifically `miniz_tinfl.c` (baseline)
 - a freestanding RustCrypto Ethereum Keccak-256 wrapper traced to the pinned Reth dependency path
-- Zesu's extracted freestanding raw SSZ decoder
+- the repaired `codygunton/zesu` extracted freestanding Amsterdam V4 raw SSZ decoder
 
-The upstream source revisions are pinned as non-flake inputs in `flake.lock`. The measured binary
-targets are `RV64IM_Zicclsm` with ABI `lp64` and run through `qemu-riscv64`; the separate
-host-native `zesu-ssz-value` formatter exists only for the full-value differential and is excluded
-from RV64 metrics.
+The upstream source revisions and the selected Zesu repair commit are pinned as non-flake inputs
+in `flake.lock`. Original `Consensys/zesu` remains a preservation baseline; the selected decoder
+comes from the personal repair fork, not a locally applied patch. The measured binary targets are
+`RV64IM_Zicclsm` with ABI `lp64` and run through `qemu-riscv64`; the separate host-native
+`zesu-ssz-value` formatter exists only for the full-value differential and is excluded from RV64
+metrics.
 
 ## Layout
 
@@ -81,15 +83,17 @@ nix build .#zesu-ssz --out-link build/zesu-ssz
 `reth-keccak` accepts one hexadecimal input argument. `zesu-ssz` accepts raw bytes on standard
 input; its empty-input result is intentionally `invalid` with exit status 1.
 
-Run the pinned Zesu native and zkeVM fixture suites (production and the raw-SSZ extraction) with:
+Run the pinned Zesu native and zkeVM fixture suites (upstream production and the selected
+raw-SSZ repair) with:
 
 ```sh
 nix build .#zesu-native-suite --out-link build/zesu-native-suite
 ```
 
-This evaluation-only package provides the upstream dependencies through Nix and raises only the
-fixture runner's input cap for a 264.3 MiB fixture. It runs both unmodified Zesu and the explicit
-candidate patch, so the fixture suite verifies preservation rather than claiming the patch is absent.
+This explicit heavyweight package provides the upstream dependencies through Nix and raises only
+the fixture runner's input cap for a 264.3 MiB fixture. It runs both unmodified upstream Zesu and
+the exact selected fork, so the fixture suite verifies preservation rather than claiming the repair
+is absent. It is intentionally not part of default `nix flake check`.
 
 Run the value-producing SSZ evaluation gates after creating a `uv sync --locked` environment for
 the pinned `ethereum/execution-specs` revision:
@@ -187,4 +191,6 @@ function lists, ownership buckets, unresolved indirect calls, and ISA-gate detai
 nix flake check
 ```
 
-The `.#stats` check runs the RISC-V binaries under `qemu-riscv64` as sanity checks.
+Default checks cover the lightweight RV64 targets, stats/ISA gates, Reth vectors, the Lean bridge,
+the strict core SSZ differential, and sink observability. The 23,822-case Zesu suites and extended
+boundary corpus remain explicit heavyweight/release checks.

@@ -1,10 +1,11 @@
 # Ethereum target evaluation decision
 
-> **Corrected decision — 2026-07-13.** Replace the current FIPS SHA-3 example with the
-> Reth-lockfile RustCrypto portable Keccak-256 path. Do **not** select Zesu SSZ under the agreed
-> target-selection gates: its repaired raw decoder passes value-level conformance and preservation,
-> but its parser-only structural measurement meets only one of the required two miniz comparisons.
-> This is a non-selection under the current scope, not a claim that SSZ cannot be formalized.
+> **Foundation decision — 2026-07-14.** Select both the Reth-lockfile RustCrypto portable
+> Keccak-256 path and the repaired Amsterdam V4 Zesu raw-SSZ decoder. The original upstream Zesu
+> revision remains pinned as the production-preservation baseline; the selected decoder is the
+> exact `codygunton/zesu` repair commit. The former two-of-four parser-only structural comparison
+> remains reported, but is retired as a hard selection gate: Zig inlining determines its function
+> count and the CFG-edge result differs from miniz by one.
 
 The former “replace neither” decision is superseded. Its 724-instruction Zesu result measured an
 accept/reject extraction whose decoded result could be dead-code eliminated, and its differential
@@ -19,17 +20,22 @@ assembly-accelerated host path. The six independent Ethereum Keccak vectors at l
 136, 137, and 200 pass; the 136-byte vector distinguishes Ethereum Keccak padding from FIPS
 SHA3-256.
 
-**Zesu SSZ is not selected under this plan.** The local patched candidate now has a lossless
-Amsterdam V4 raw value, a full Python/Lean/Zesu differential, and observable RV64 result
-consumption. Both the unmodified and patched native/zkeVM compositions pass all 23,822 fixtures.
-The patched Amsterdam execution boundary requires one exact recovered SEC1 public key per decoded
-transaction, while raw SSZ decoding remains schema-only. It nevertheless has only 319
-parser-reachable blocks and 510 CFG edges, below entry-root miniz's 338 and 511; it has one
-protocol-owned function versus miniz's two. Its 11 loop SCCs exceed miniz's seven, so it passes
-one—not two—required structural
-comparisons. The retained `_start` full-composition context has larger counts, but it is not
-substituted for the parser-only metric because that would count measurement adapters as semantic
-complexity.
+**Zesu SSZ is selected.** The selected artifact is the lossless Amsterdam V4 repair at
+`codygunton/zesu@96f1621468ba54755d653f19cbc9704e789be001`, based exactly on upstream
+`aa6c94339987d278acb8b7fa409c864dbd3d05aa`. It has a full Python/Lean/Zesu differential and
+observable RV64 result consumption. Both the original upstream baseline and the repaired-fork
+native/zkeVM compositions pass all 23,822 fixtures. The Amsterdam execution boundary requires one
+exact recovered SEC1 public key per decoded transaction, while raw SSZ decoding remains
+schema-only.
+
+The parser-root measurements remain useful evidence: Zesu has 319 blocks, 510 CFG edges, one
+protocol-owned function, and 11 loop SCCs, compared with miniz's 338, 511, two, and seven. They
+are not a hard selection veto. The one-function result is compiler-inlining-sensitive, and the
+one-edge difference does not reliably separate proof difficulty; Zesu also has 3,356
+protocol-owned instructions, heterogeneous nested containers, bounded lists, allocation,
+data-dependent loops, and malformed exits. The retained `_start` full-composition context is still
+not substituted for the parser-only metric, because it would count measurement adapters as
+semantic complexity.
 
 Do not enlarge the candidate to production SSZ+RLP or choose a different protocol without review;
 that would change the agreed scope. This PR remains isolated from `main` commit
@@ -42,7 +48,8 @@ SHA-3 target.
 | Role | Pinned source |
 |---|---|
 | Reth provenance | `paradigmxyz/reth@9384bc53d8c0c77e59cac83fdaaf3b372c6d2216` |
-| Zesu | `Consensys/zesu@aa6c94339987d278acb8b7fa409c864dbd3d05aa` |
+| Zesu preservation baseline | `Consensys/zesu@aa6c94339987d278acb8b7fa409c864dbd3d05aa` |
+| Selected Zesu SSZ artifact | `codygunton/zesu@96f1621468ba54755d653f19cbc9704e789be001` (`sha-fv-amsterdam-v4`) |
 | Keccak Lean oracle | `trailofbits/scroll-fv@0c3927ba4d6773b4cfd1d949cba342268b104d91` |
 | SSZ executable library | `etheorem/etheorem@032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0` |
 | V4 executable reference | `ethereum/execution-specs@bd8c673552d957dbe9c9f3f2656b87201f5ae646` |
@@ -67,6 +74,14 @@ the same raw type but is not linked into the RV64 metric. Its QEMU sink regressi
 independent rich-value fields and observes
 33 distinct checksums; the checksum is anti-DCE evidence only, never value-equivalence evidence.
 
+The selected fork is a source-equivalent promotion of the former local repair: commit
+`96f1621468ba54755d653f19cbc9704e789be001` was created by strict application of that exact
+10-file source diff to the pinned upstream base. The fork regenerates the same parser-root RV64
+measurement (3,356 protocol instructions, 319 blocks, 510 CFG edges, one protocol function, and
+11 loop SCCs), passes the complete value differential, and produces `ok 403514199dfc50e5` for the
+canonical rich QEMU sink fixture. That checksum is recorded only as a behavior-preservation
+checkpoint; the byte-for-byte full-value differential remains the conformance evidence.
+
 The strict V4 differential requires byte-for-byte `ssz-value-v1` agreement on every valid case and
 rejection by all implementations on every malformed case:
 
@@ -74,9 +89,9 @@ rejection by all implementations on every malformed case:
 |---|---|
 | Core raw/Ere, empty/rich, high-`uint256`, nested/optional corpus | 7 valid and 42 malformed cases pass three-way |
 | Practical boundary corpus | 30 extended max/over-bound cases pass three-way, including 8,192 deposits, 32,768 public keys, and 262,144 witness-code entries |
-| Production preservation | Unmodified and patched native/zkeVM compositions each pass 23,822/23,822 fixtures; Amsterdam execution checks exact recovered public keys |
+| Production preservation | Original upstream and repaired-fork native/zkeVM compositions each pass 23,822/23,822 fixtures; Amsterdam execution checks exact recovered public keys |
 | Raw parser focused Zig tests | 5/5 pass |
-| Raw patch application | `git apply --check` passes against pinned Zesu |
+| Repaired source provenance | The exact personal-fork repair commit is based on pinned upstream and builds the selected candidate |
 | V3 | Quarantined and excluded: the audited legacy branch is a hybrid with no matching released full schema |
 
 The boundary corpus deliberately does not materialize a 1 GiB transaction/access-list item or the
@@ -145,17 +160,18 @@ whole-program indirect-call proof.
 |---|---|---|
 | Reth is Ethereum Keccak and exceeds SHA's protocol size | pass | Six vectors; 623 versus 234 protocol instructions |
 | Zesu corpus V4 decoded values agree | pass | Strict core and extended practical-boundary three-way differentials |
-| Zesu preserves production behavior | pass | Unmodified and patched native/zkeVM compositions each pass 23,822/23,822 fixtures |
+| Zesu preserves production behavior | pass | Original upstream and repaired-fork native/zkeVM compositions each pass 23,822/23,822 fixtures |
 | Zesu result is observable without sink pollution | pass | Separate objects, structural checks, and 33-mutation QEMU regression |
 | Zesu raw parser excludes crypto/RLP and uses RV64IM_Zicclsm | pass, direct-boundary scope | Object imports, symbols, direct CFG analysis, and ISA scan |
 | Zesu protocol size is in `[1,008, 4,032]` | pass | 3,356 parser-owned direct-reachable instructions |
-| Zesu meets miniz on two structural dimensions | **fail** | Only loop SCCs pass: 11 ≥ 7; blocks 319 < 338, edges 510 < 511, protocol functions 1 < 2 |
+| Zesu/miniz structural comparison | recorded, not a selection gate | Loop SCCs: 11 ≥ 7; blocks: 319 < 338; edges: 510 < 511; functions: 1 < 2. Inlining and a one-edge delta make this unsuitable as a hard veto. |
 
 ## Reproduction
 
 ```sh
-# Patch and RV64/anti-DCE/metrics gates
-git -C /tmp/zesu-aa6c94339987d278acb8b7fa409c864dbd3d05aa apply --check patches/zesu-decode-raw.patch
+# Selected-fork and RV64/anti-DCE/metrics gates
+git clone https://github.com/codygunton/zesu.git /tmp/zesu
+git -C /tmp/zesu rev-parse sha-fv-amsterdam-v4
 nix build .#zesu-native-suite --out-link build/zesu-native-suite
 nix build .#zesu-sink-observability --out-link build/zesu-sink-observability
 nix build .#stats --out-link build/stats
