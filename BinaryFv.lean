@@ -1,5 +1,6 @@
 import BinaryFv.RISCV.Machine
 import BinaryFv.RISCV.Framing
+import BinaryFv.RISCV.StepContract
 import BinaryFv.RISCV.Decode
 import BinaryFv.RISCV.CFG
 import BinaryFv.RISCV.Stack
