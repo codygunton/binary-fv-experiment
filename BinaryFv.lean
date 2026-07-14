@@ -21,6 +21,7 @@ import BinaryFv.RISCV.RegisterFrame
 import BinaryFv.RISCV.ReadFrame
 import BinaryFv.RISCV.DecodeFrame
 import BinaryFv.RISCV.BTypeFrame
+import BinaryFv.RISCV.EnabledFrame
 import BinaryFv.RISCV.TranslationFrameAudit
 import BinaryFv.RISCV.JalFrame
 import BinaryFv.RISCV.InstructionContracts
