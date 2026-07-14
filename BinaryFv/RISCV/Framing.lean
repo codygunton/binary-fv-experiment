@@ -39,6 +39,49 @@ theorem writeByte_run_memory_get (state : State) (address observed : Nat) (value
   simp only [Std.ExtHashMap.get?_eq_getElem?]
   rw [Std.ExtHashMap.getElem?_insert]
 
+theorem readByte_run (state : State) (address : Nat) (value : BitVec 8)
+    (memory : state.mem.get? address = some value) :
+    (readByte address : SailM (BitVec 8)).run state = .ok value state := by
+  simp only [simp_sail]
+  simp only [EStateM.run, EStateM.instMonad, EStateM.bind, instMonadStateOfMonadStateOf,
+    EStateM.instMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe]
+  unfold EStateM.get
+  simp only
+  rw [memory]
+  rfl
+
+theorem readByte_of_image (image : ProgramImage) (state : State) (address : Nat) (byte : UInt8)
+    (loaded : image.matchesMemory state.mem) (source : image.readByte? address = some byte) :
+    (readByte address : SailM (BitVec 8)).run state =
+      .ok (BitVec.ofNat 8 byte.toNat) state :=
+  readByte_run state address (BitVec.ofNat 8 byte.toNat) (loaded address byte source)
+
+theorem readReg_run (state : State) (register : Register) (value : RegisterType register)
+    (stored : state.regs.get? register = some value) :
+    (readReg register : SailM (RegisterType register)).run state = .ok value state := by
+  simp [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get, EStateM.pure,
+    EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf,
+    EStateM.instMonadExceptOfOfBacktrackable, getThe, stored]
+
+/-- Register-presence and delegation facts sufficient to exclude generated interrupt dispatch. -/
+def InterruptDisabled (state : State) : Prop :=
+  ∃ (misaBits mstatusBits mipBits : BitVec 64) (meip : BitVec 1),
+    state.regs.get? misa = some misaBits ∧
+      state.regs.get? mip = some mipBits ∧
+        state.regs.get? mie = some (0 : BitVec 64) ∧
+          state.regs.get? mideleg = some (0 : BitVec 64) ∧
+            state.regs.get? sig_meip = some meip ∧ state.regs.get? mstatus = some mstatusBits
+
+theorem dispatchInterrupt_disabled (state : State) (priv : Privilege)
+    (disabled : InterruptDisabled state) :
+    (dispatchInterrupt priv).run state = .ok none state := by
+  rcases disabled with ⟨misaBits, mstatusBits, mipBits, meip, misaRead, mipRead, mieRead,
+    midelegRead, meipRead, mstatusRead⟩
+  simp [dispatchInterrupt, getPendingSet, read_mip, external_interrupts_pending, currentlyEnabled,
+    hartSupports, zeros, PreSail.assert, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
+    EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe, misaRead, mipRead,
+    mieRead, midelegRead, meipRead, mstatusRead]
+
 theorem writeByte_preserves_registers (state : State) (address : Nat) (value : BitVec 8) :
     (match (writeByte address value : SailM PUnit).run state with
     | .ok _ state' => state'.regs
