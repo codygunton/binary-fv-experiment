@@ -24,6 +24,7 @@ import BinaryFv.RISCV.FenceFrame
 import BinaryFv.RISCV.BTypeFrame
 import BinaryFv.RISCV.JalFrame
 import BinaryFv.RISCV.ControlDispatchFrame
+import BinaryFv.RISCV.IntegerDispatchFrame
 import BinaryFv.RISCV.InstructionContracts
 import BinaryFv.RISCV.ExecuteContract
 import BinaryFv.Keccak.Root
