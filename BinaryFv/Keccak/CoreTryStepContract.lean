@@ -13,7 +13,7 @@ open BinaryFv.RISCV
 def tryStepCoreXorAfterIncrement (state : State) : State :=
   { state with regs := state.regs.insert minstret_increment true }
 
-/-- The state after the active-hart parser-selected core XOR retirement. -/
+/-- The state after the active-hart fixed XOR instruction slice retires. -/
 def tryStepCoreXorAfterActive (state : State) (pc left right : BitVec 64) : State :=
   coreXorRetiredState (tryStepCoreXorAfterIncrement state) pc left right
 
@@ -30,10 +30,12 @@ def tryStepCoreXorAfterRetired (state : State) (pc left right retired : BitVec 6
       (Sail.BitVec.addInt retired 1) }
 
 /--
-Lift the parser-selected generated core XOR retirement through generated `try_step`.
+Lift a conditionally decoded fixed RV64 XOR instruction slice through generated `try_step`.
 
-The explicit premises describe one runtime state and do not establish that the parser-selected
-instruction is reachable at that state.
+The premises independently assert the fetch bytes and `ext_decode` result. This theorem does not
+relate them to `Contracts.coreXorCandidate?`, an artifact address or word,
+`ArtifactFetchableWord`, parser membership, image preservation, reachability, or a basic-block
+trace.
 -/
 theorem tryStepCoreXorRetiresWithFetchMemory (stepNo : Nat) (state : State)
     (pc left right retired : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64)

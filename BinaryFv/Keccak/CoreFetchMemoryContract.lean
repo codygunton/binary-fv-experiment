@@ -8,7 +8,7 @@ open LeanRV64DExecutable.Functions
 open Register
 open BinaryFv.RISCV
 
-/-- Feed exact Machine sparse-RAM fetch through the parser-selected core XOR retirement slice. -/
+/-- Feed exact Machine sparse-RAM fetch through the fixed XOR instruction-retirement slice. -/
 theorem runHartActiveCoreXorRetiresWithFetchMemory (stepNo : Nat) (state : State)
     (pc left right : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
     (platform : FetchBasePlatform state pc) (noMMIO : FetchMemoryNoMMIO state pc)

@@ -27,6 +27,7 @@ def coreXorCandidate? : Option DecodedWord :=
 def coreXorCandidatePresent : Bool :=
   coreXorCandidate?.isSome
 
+/-- Closed inventory diagnostic only; this `native_decide` fact follows the project trust policy. -/
 theorem core_xor_candidate_present : coreXorCandidatePresent = true := by
   native_decide
 
@@ -61,4 +62,3 @@ theorem execute_core_xor_register_frame (state : State) (left right : BitVec 64)
   writeReg_register_frame state x16 (left ^^^ right)
 
 end BinaryFv.Keccak.Contracts
-

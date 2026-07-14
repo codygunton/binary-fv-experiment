@@ -11,7 +11,7 @@ open BinaryFv.RISCV
 open FetchBytes_Result
 open FetchResult
 
-/-- Lift the parser-selected core XOR through the generated `execute` dispatcher. -/
+/-- Lift a fixed generated XOR instruction slice through the `execute` dispatcher. -/
 theorem executeCoreXorDispatch (state : State) (left right : BitVec 64)
     (leftRead : state.regs.get? x19 = some left)
     (rightRead : state.regs.get? x29 = some right) :
@@ -20,7 +20,7 @@ theorem executeCoreXorDispatch (state : State) (left right : BitVec 64)
   change (execute_RTYPE Contracts.r29 Contracts.r19 Contracts.r16 .XOR).run state = _
   exact Contracts.execute_core_xor state left right leftRead rightRead
 
-/-- Package the core XOR dispatcher lift as a generated Sail action contract. -/
+/-- Package the fixed XOR dispatcher lift as a generated Sail action contract. -/
 theorem executeCoreXorDispatchRuns (state : State) (left right : BitVec 64)
     (leftRead : state.regs.get? x19 = some left)
     (rightRead : state.regs.get? x29 = some right) :
@@ -33,12 +33,12 @@ theorem executeCoreXorDispatchRuns (state : State) (left right : BitVec 64)
 def coreXorNextState (state : State) (pc : BitVec 64) : State :=
   { state with regs := state.regs.insert nextPC (Sail.BitVec.addInt pc 4) }
 
-/-- The state after the parser-selected core XOR retires. -/
+/-- The state after the fixed XOR instruction slice retires. -/
 def coreXorRetiredState (state : State) (pc left right : BitVec 64) : State :=
   { coreXorNextState state pc with
     regs := (coreXorNextState state pc).regs.insert x16 (left ^^^ right) }
 
-/-- Compose explicit base-fetch and decoder premises with the generated core XOR retirement path. -/
+/-- Compose explicit base-fetch and decoder premises with the fixed XOR instruction-slice path. -/
 theorem runHartActiveCoreXorRetires (stepNo : Nat) (state : State) (pc left right : BitVec 64)
     (byte0 byte1 byte2 byte3 : BitVec 8) (platform : FetchBasePlatform state pc)
     (interrupts : InterruptDisabled state) (base : BaseInstructionEncoding byte0)
