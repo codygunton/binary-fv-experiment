@@ -122,6 +122,14 @@ theorem writeReg_register_frame (state : State) (written : Register)
   rw [Std.ExtDHashMap.get?_insert]
   simp [Ne.symm distinct]
 
+/-- A generated register update leaves every distinct register's observed value unchanged. -/
+theorem writeReg_read_unchanged (state : State) (written observed : Register)
+    (value : RegisterType written) (distinct : observed ≠ written) :
+    ({ state with regs := state.regs.insert written value }.regs.get? observed) =
+      state.regs.get? observed := by
+  symm
+  exact writeReg_register_frame state written value observed distinct
+
 theorem writeReg_preserves_memory (state : State) (written : Register)
     (value : RegisterType written) :
     (match (writeReg written value : SailM PUnit).run state with
