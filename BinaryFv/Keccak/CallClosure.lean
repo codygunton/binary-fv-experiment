@@ -108,9 +108,76 @@ def entrySyntacticClosureResolvesOnlyParserFunctions : Bool :=
   | some sets, some closure => syntacticClosureResolvesOnlyParserFunctions sets closure
   | _, _ => false
 
+def SyntacticCallResolution.targetIsCalleeStart : SyntacticCallResolution → Bool
+  | .resolved call callee => call.target == callee.value
+  | .unresolved _ => false
+
+/--
+Checks decoded direct-call targets against the selected static symbol starts. This remains a
+syntactic check: it does not show that any dynamic control path reaches a call or its target.
+-/
+def syntacticClosureTargetsAreFunctionStarts (sets : Array FunctionWordSet) (closure : Array Nat) :
+    Bool :=
+  let functions := sets.map FunctionWordSet.function
+  closure.all fun start =>
+    match functionWordSetAtStart? sets start with
+    | some set =>
+      (syntacticCallResolutions set functions).all SyntacticCallResolution.targetIsCalleeStart
+    | none => false
+
+def syntacticClosureDirectCallLinks (sets : Array FunctionWordSet) (closure : Array Nat) :
+    Array regidx :=
+  let functions := sets.map FunctionWordSet.function
+  closure.foldl (fun links start =>
+    match functionWordSetAtStart? sets start with
+    | some set =>
+      (syntacticCallResolutions set functions).foldl (fun links resolution =>
+        match resolution with
+        | .resolved call _ => links.push call.link
+        | .unresolved _ => links) links
+    | none => links) #[]
+
+def syntacticClosureReturnLinks (sets : Array FunctionWordSet) (closure : Array Nat) :
+    Array regidx :=
+  closure.foldl (fun links start =>
+    match functionWordSetAtStart? sets start with
+    | some set => set.returnCandidates.foldl (fun links candidate => links.push candidate.2) links
+    | none => links) #[]
+
+/--
+Checks only register availability: each static return link occurs in some static direct call in the
+same closure. It deliberately does not pair a return with a caller or establish call/return
+semantics.
+-/
+def syntacticClosureReturnLinksHaveAvailableCallLinks (sets : Array FunctionWordSet)
+    (closure : Array Nat) : Bool :=
+  let callLinks := syntacticClosureDirectCallLinks sets closure
+  (syntacticClosureReturnLinks sets closure).all fun returnLink =>
+    callLinks.any fun callLink => callLink == returnLink
+
+def entrySyntacticClosureTargetsAreFunctionStarts : Bool :=
+  match artifactFunctionWordSets?, entrySyntacticFunctionClosure? with
+  | some sets, some closure => syntacticClosureTargetsAreFunctionStarts sets closure
+  | _, _ => false
+
+def entrySyntacticClosureReturnLinksHaveAvailableCallLinks : Bool :=
+  match artifactFunctionWordSets?, entrySyntacticFunctionClosure? with
+  | some sets, some closure => syntacticClosureReturnLinksHaveAvailableCallLinks sets closure
+  | _, _ => false
+
 /-- Closed artifact fact for static function-level target resolution, not semantic reachability. -/
 theorem entry_syntactic_closure_resolves_only_parser_functions :
     entrySyntacticClosureResolvesOnlyParserFunctions = true := by
+  native_decide
+
+/-- Closed syntactic target-start fact; it is not a dynamic control-flow theorem. -/
+theorem entry_syntactic_closure_targets_are_function_starts :
+    entrySyntacticClosureTargetsAreFunctionStarts = true := by
+  native_decide
+
+/-- Closed link-availability fact; it is not a caller/return-pairing or execution theorem. -/
+theorem entry_syntactic_closure_return_links_have_available_call_links :
+    entrySyntacticClosureReturnLinksHaveAvailableCallLinks = true := by
   native_decide
 
 end BinaryFv.Keccak
