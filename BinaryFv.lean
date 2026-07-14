@@ -29,6 +29,8 @@ import BinaryFv.RISCV.LoadFrame
 import BinaryFv.RISCV.StoreFrame
 import BinaryFv.RISCV.JalFrame
 import BinaryFv.RISCV.RTypeFrame
+import BinaryFv.RISCV.ITypeFrame
+import BinaryFv.RISCV.ShiftIopFrame
 import BinaryFv.RISCV.InstructionContracts
 import BinaryFv.RISCV.ExecuteContract
 import BinaryFv.Keccak.Root
