@@ -93,7 +93,8 @@
         "reth": "reth",
         "scrollFv": "scrollFv",
         "tiny-sha3": "tiny-sha3",
-        "zesu": "zesu"
+        "zesu": "zesu",
+        "zesuRepaired": "zesuRepaired"
       }
     },
     "scrollFv": {
@@ -144,6 +145,23 @@
         "owner": "Consensys",
         "repo": "zesu",
         "rev": "aa6c94339987d278acb8b7fa409c864dbd3d05aa",
+        "type": "github"
+      }
+    },
+    "zesuRepaired": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784003015,
+        "narHash": "sha256-rGSzr98y2iOMzKMpEuTA4scGr7x/e5luKiqhJ7Fv0UA=",
+        "owner": "codygunton",
+        "repo": "zesu",
+        "rev": "96f1621468ba54755d653f19cbc9704e789be001",
+        "type": "github"
+      },
+      "original": {
+        "owner": "codygunton",
+        "repo": "zesu",
+        "rev": "96f1621468ba54755d653f19cbc9704e789be001",
         "type": "github"
       }
     }
