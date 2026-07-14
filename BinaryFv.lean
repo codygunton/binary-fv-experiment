@@ -40,6 +40,7 @@ import BinaryFv.RISCV.ExecuteContract
 import BinaryFv.Keccak.Root
 import BinaryFv.Keccak.Concrete
 import BinaryFv.Keccak.Decode
+import BinaryFv.Keccak.ArtifactFetch
 import BinaryFv.Keccak.ReachabilityInventory
 import BinaryFv.Keccak.Contracts
 import BinaryFv.Keccak.CoreStepContract
