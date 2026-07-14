@@ -26,6 +26,7 @@ import BinaryFv.RISCV.ShiftIopFrame
 import BinaryFv.RISCV.MulDivFrame
 import BinaryFv.RISCV.FenceFrame
 import BinaryFv.RISCV.BTypeFrame
+import BinaryFv.RISCV.TranslationFrameAudit
 import BinaryFv.RISCV.JalFrame
 import BinaryFv.RISCV.ControlDispatchFrame
 import BinaryFv.RISCV.IntegerDispatchFrame
