@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: DeterminateSystems/determinate-nix-action@v3
       - name: Build root Lean library
-        run: nix build --print-build-logs --no-link .#binary-fv-lean
+        run: nix build --max-jobs 1 --print-build-logs --no-link .#binary-fv-lean
 
   ssz:
     name: SSZ bridge, core differential, and sink
