@@ -25,6 +25,7 @@ import BinaryFv.RISCV.EnabledFrame
 import BinaryFv.RISCV.ClintFrame
 import BinaryFv.RISCV.HtifFrame
 import BinaryFv.RISCV.TranslationFrameAudit
+import BinaryFv.RISCV.LoadFrame
 import BinaryFv.RISCV.InstructionContracts
 import BinaryFv.RISCV.ExecuteContract
 import BinaryFv.Keccak.Root
