@@ -30,6 +30,7 @@ import BinaryFv.RISCV.EnabledFrame
 import BinaryFv.RISCV.ClintFrame
 import BinaryFv.RISCV.HtifFrame
 import BinaryFv.RISCV.TranslationFrameAudit
+import BinaryFv.RISCV.LoadFrame
 import BinaryFv.RISCV.JalFrame
 import BinaryFv.RISCV.ControlDispatchFrame
 import BinaryFv.RISCV.IntegerDispatchFrame
