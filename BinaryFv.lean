@@ -9,6 +9,7 @@ import BinaryFv.RISCV.TranslationContract
 import BinaryFv.RISCV.PhysicalAccessContract
 import BinaryFv.RISCV.FetchMemoryContract
 import BinaryFv.RISCV.FetchMmioContract
+import BinaryFv.RISCV.FetchMmioLayout
 import BinaryFv.RISCV.PostludePrimitives
 import BinaryFv.RISCV.StackStepContract
 import BinaryFv.RISCV.TryStepStackAddiContract
