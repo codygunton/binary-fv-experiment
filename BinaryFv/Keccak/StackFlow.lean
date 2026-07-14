@@ -152,6 +152,49 @@ def entryClosureIntraproceduralStackFlowsSucceed : Bool :=
   | some flows => flows.all fun flow => flow.2.isOk
   | none => false
 
+def exploredDownwardDelta (delta : Int) : Nat :=
+  if delta < 0 then (-delta).toNat else 0
+
+def maximumExploredDownwardDelta (flow : IntraproceduralStackFlow) : Nat :=
+  flow.states.foldl (fun demand state => max demand (exploredDownwardDelta state.delta)) 0
+
+/--
+Summary of the finite states explored before the current function-local frontier model stops.
+`maximumExploredDownwardDelta` is not a local, runtime, or global stack bound: calls and other
+frontiers deliberately truncate the explored state set.
+-/
+structure FrontierTruncatedStackStateSummary where
+  functionStart : Nat
+  maximumExploredDownwardDelta : Nat
+  frontierCount : Nat
+deriving Repr
+
+def entryClosureFrontierTruncatedStackStateSummaries? :
+    Option (Array FrontierTruncatedStackStateSummary) :=
+  match entryClosureIntraproceduralStackFlows? with
+  | some flows =>
+    flows.foldl (fun summaries flow =>
+      match summaries, flow.2 with
+      | some summaries, .ok result =>
+        some <| summaries.push {
+          functionStart := flow.1
+          maximumExploredDownwardDelta := maximumExploredDownwardDelta result
+          frontierCount := result.frontiers.size
+        }
+      | _, _ => none) (some #[])
+  | none => none
+
+def entryClosureFrontierTruncatedStackStateSummariesAvailable : Bool :=
+  entryClosureFrontierTruncatedStackStateSummaries?.isSome
+
+/--
+Closed availability fact for static frontier-truncated state summaries. It is not a stack-bound
+theorem; a later proof must discharge the recorded frontiers before drawing that conclusion.
+-/
+theorem entry_closure_frontier_truncated_stack_state_summaries_available :
+    entryClosureFrontierTruncatedStackStateSummariesAvailable = true := by
+  native_decide
+
 /--
 Closed static exploration fact. It does not provide a stack bound or establish that generated Sail
 execution follows the explored edges.
