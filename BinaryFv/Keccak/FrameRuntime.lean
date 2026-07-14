@@ -1,6 +1,8 @@
 import BinaryFv.Keccak.FrameCoverage
 import BinaryFv.RISCV.ControlDispatchFrame
 import BinaryFv.RISCV.IntegerDispatchFrame
+import BinaryFv.RISCV.LoadFrame
+import BinaryFv.RISCV.StoreFrame
 
 namespace BinaryFv.Keccak
 
@@ -144,12 +146,19 @@ theorem runtime_x2_frame_of_static_framed (decoded : instruction)
     intro state
     exact
       executeREMDispatchPreservesStackPointer state source2 source1 destination isUnsigned notStack
-  | .LOAD payload =>
-    by_cases h : nonStackDestination payload.2.2.fst = true
-    · simp [x2FrameStatus, instructionStackDelta?, h] at framed
-    · simp [x2FrameStatus, instructionStackDelta?, h] at framed
-  | .STORE _ =>
-    simp [x2FrameStatus, instructionStackDelta?] at framed
+  | .LOAD (immediate, source, destination, isUnsigned, width) =>
+    have status : frameForDestination .load destination = .framed constructor := by
+      simpa [x2FrameStatus, instructionStackDelta?] using framed
+    have notStack := destination_ne_of_framed .load constructor destination status
+    apply runtime_x2_frame_of_pointwise
+    intro state
+    exact
+      executeLOADDispatchPreservesStackPointer state immediate source destination isUnsigned width
+        notStack
+  | .STORE (immediate, sourceData, sourceAddress, width) =>
+    apply runtime_x2_frame_of_pointwise
+    intro state
+    exact executeSTOREDispatchPreservesStackPointer state immediate sourceData sourceAddress width
   | .ILLEGAL _ | .C_ILLEGAL _ | .LPAD _ | .ADDIW _ | .RTYPEW _ | .SHIFTIWOP _
     | .ECALL _ | .MRET _ | .SRET _ | .EBREAK _ | .WFI _ | .SFENCE_VMA _ | .MULW _
     | .DIVW _ | .REMW _ =>
