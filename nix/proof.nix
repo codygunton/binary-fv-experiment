@@ -25,11 +25,11 @@ let
     '';
   };
 
-  replSource = pkgs.fetchgit {
-    url = "https://github.com/leanprover-community/repl.git";
+  replSource = pkgs.fetchFromGitHub {
+    owner = "leanprover-community";
+    repo = "repl";
     rev = "a9a6f5bac483d65d08f6226e0ed653f03c479fb7";
-    hash = "sha256-6AaH22GzCQXi8DDPxwPoR8EQQPA0VT3yeh/btuPI540=";
-    leaveDotGit = true;
+    hash = "sha256-+8iF01UVXerfvRPUPDGk9L7CpPXUxrZMxvBG2CUC6PE=";
   };
 
   sailRiscvLean = pkgs.stdenv.mkDerivation {
@@ -125,7 +125,7 @@ let
   '';
 
   binaryFvLean = pkgs.runCommand "binary-fv-lean" {
-    nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.git ];
+    nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.git pkgs.jq ];
   } ''
     cp -R ${repo} source
     chmod -R u+w source
@@ -137,6 +137,25 @@ let
     ln -s ${keccakSpecLean} build/keccak-spec-lean
     cp -a ${replSource}/. .lake/packages/repl/
     chmod -R u+w .lake/packages/repl
+    ${pkgs.jq}/bin/jq '
+      .packages |= map(
+        if .name == "repl" then
+          {
+            type: "path",
+            scope: .scope,
+            name: .name,
+            manifestFile: .manifestFile,
+            inherited: .inherited,
+            dir: ".lake/packages/repl",
+            configFile: .configFile
+          }
+        else . end
+      )
+    ' lake-manifest.json > lake-manifest.nix.json
+    mv lake-manifest.nix.json lake-manifest.json
+    substituteInPlace lakefile.lean \
+      --replace-fail 'require repl from git "https://github.com/leanprover-community/repl.git" @ "v4.26.0"' \
+      'require repl from ".lake/packages/repl"'
 
     export HOME="$TMPDIR/home"
     lake build repl BinaryFv
