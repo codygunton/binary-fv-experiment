@@ -144,6 +144,40 @@ def syntacticClosureReturnLinks (sets : Array FunctionWordSet) (closure : Array 
     | some set => set.returnCandidates.foldl (fun links candidate => links.push candidate.2) links
     | none => links) #[]
 
+def SyntacticCallResolution.callsFunctionWithLink (resolution : SyntacticCallResolution)
+    (function : StaticSymbol) (link : regidx) : Bool :=
+  match resolution with
+  | .resolved call callee => callee.value == function.value && call.link == link
+  | .unresolved _ => false
+
+def syntacticClosureHasIncomingResolvedCallWithLink (sets : Array FunctionWordSet)
+    (closure : Array Nat) (function : StaticSymbol) (link : regidx) : Bool :=
+  let functions := sets.map FunctionWordSet.function
+  closure.any fun callerStart =>
+    match functionWordSetAtStart? sets callerStart with
+    | some caller =>
+      (syntacticCallResolutions caller functions).any fun resolution =>
+        resolution.callsFunctionWithLink function link
+    | none => false
+
+/--
+Checks a necessary syntactic association only: every return candidate in a selected non-entry
+function has an incoming resolved direct call in this closure to that function using its link.
+The parser-derived entry is exempt because it returns to the frozen ABI sentinel, not an in-ELF
+direct caller. This does not establish dynamic call/return pairing, reachability, or return values.
+-/
+def syntacticClosureNonEntryReturnCandidatesHaveIncomingResolvedCalls
+    (sets : Array FunctionWordSet) (closure : Array Nat) (entryStart : Nat) : Bool :=
+  closure.all fun start =>
+    match functionWordSetAtStart? sets start with
+    | some set =>
+      if set.function.value == entryStart then
+        true
+      else
+        set.returnCandidates.all fun candidate =>
+          syntacticClosureHasIncomingResolvedCallWithLink sets closure set.function candidate.2
+    | none => false
+
 /--
 Checks only register availability: each static return link occurs in some static direct call in the
 same closure. It deliberately does not pair a return with a caller or establish call/return
@@ -165,6 +199,13 @@ def entrySyntacticClosureReturnLinksHaveAvailableCallLinks : Bool :=
   | some sets, some closure => syntacticClosureReturnLinksHaveAvailableCallLinks sets closure
   | _, _ => false
 
+def entrySyntacticClosureNonEntryReturnCandidatesHaveIncomingResolvedCalls : Bool :=
+  match artifactEntryWordSet?, artifactFunctionWordSets?, entrySyntacticFunctionClosure? with
+  | some entry, some sets, some closure =>
+    syntacticClosureNonEntryReturnCandidatesHaveIncomingResolvedCalls sets closure
+      entry.function.value
+  | _, _, _ => false
+
 /-- Closed artifact fact for static function-level target resolution, not semantic reachability. -/
 theorem entry_syntactic_closure_resolves_only_parser_functions :
     entrySyntacticClosureResolvesOnlyParserFunctions = true := by
@@ -178,6 +219,11 @@ theorem entry_syntactic_closure_targets_are_function_starts :
 /-- Closed link-availability fact; it is not a caller/return-pairing or execution theorem. -/
 theorem entry_syntactic_closure_return_links_have_available_call_links :
     entrySyntacticClosureReturnLinksHaveAvailableCallLinks = true := by
+  native_decide
+
+/-- Closed necessary association for non-entry return candidates, not call/return semantics. -/
+theorem entry_syntactic_closure_non_entry_return_candidates_have_incoming_resolved_calls :
+    entrySyntacticClosureNonEntryReturnCandidatesHaveIncomingResolvedCalls = true := by
   native_decide
 
 end BinaryFv.Keccak
