@@ -8,9 +8,10 @@ evaluation candidates:
 - a freestanding RustCrypto Ethereum Keccak-256 wrapper traced to the pinned Reth dependency path
 - Zesu's extracted freestanding raw SSZ decoder
 
-The upstream source revisions are pinned as non-flake inputs in `flake.lock`. The only binary
-target built by this repo is `RV64IM_Zicclsm` with ABI `lp64`; execution goes through
-`qemu-riscv64`.
+The upstream source revisions are pinned as non-flake inputs in `flake.lock`. The measured binary
+targets are `RV64IM_Zicclsm` with ABI `lp64` and run through `qemu-riscv64`; the separate
+host-native `zesu-ssz-value` formatter exists only for the full-value differential and is excluded
+from RV64 metrics.
 
 ## Layout
 
@@ -86,9 +87,31 @@ Run the pinned Zesu native and zkeVM fixture suites (production and the raw-SSZ 
 nix build .#zesu-native-suite --out-link build/zesu-native-suite
 ```
 
-This evaluation-only package provides the upstream dependencies through Nix, raises only the
-fixture runner's input cap for a 264.3 MiB fixture, and leaves production decoder behavior
-unchanged.
+This evaluation-only package provides the upstream dependencies through Nix and raises only the
+fixture runner's input cap for a 264.3 MiB fixture. It runs both unmodified Zesu and the explicit
+candidate patch, so the fixture suite verifies preservation rather than claiming the patch is absent.
+
+Run the value-producing SSZ evaluation gates after creating a `uv sync --locked` environment for
+the pinned `ethereum/execution-specs` revision:
+
+```sh
+PY=/path/to/execution-specs/.venv/bin/python
+nix build .#zesu-value --out-link build/zesu-ssz-value
+nix build .#zesu-sink-observability --out-link build/zesu-sink-observability
+(cd specs/ssz-bridge && lake build repl && lake build ssz_bridge ssz_bridge_test && lake exe ssz_bridge_test)
+
+"$PY" -B tests/ssz_differential_audit.py \
+  --reference-python "$PY" \
+  --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \
+  --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
+"$PY" -B tests/ssz_boundary_audit.py --extended \
+  --reference-python "$PY" \
+  --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \
+  --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
+```
+
+The strict gate covers Amsterdam V4 only. V3 is an explicitly quarantined legacy Zesu format with
+no matching pinned full-schema oracle.
 
 The Reth candidate deliberately evaluates the Reth-locked RustCrypto portable `Keccak256` path,
 not Reth's default assembly-accelerated host binary. Its output metadata records the exact Reth
@@ -142,18 +165,21 @@ build/stats/objdump/sha3.txt
 build/stats/objdump/tinfl.txt
 build/stats/objdump/reth-keccak.txt
 build/stats/objdump/zesu-ssz.txt
+build/stats/objdump/zesu-ssz-parser.txt
 build/stats/analysis/<target>.json
 build/stats/analysis/<target>.md
 ```
 
 ## Stats
 
-`build/stats/stats.md` summarizes all four linked RV64 binaries. `stats.tsv` contains object and
-linked `.text`, legacy selected-symbol counts, full and `_start`-reachable instructions, reachable
-functions, protocol-owned reachable instructions, blocks, CFG edges, branches, direct calls, loop SCCs, call depth, opcode classes,
-forbidden-instruction counts, objdump line counts, artifact sizes, and paths to each complete
-analysis report. The individual `analysis/<target>.json` files additionally retain function lists,
-ownership buckets, unresolved indirect calls, and ISA-gate details.
+`build/stats/stats.md` summarizes the four linked RV64 binaries plus a separate
+`zesu-ssz-parser` analysis rooted at `zesu_decode_raw`; the latter excludes the CLI and anti-DCE
+sink from the decision metric. `stats.tsv` contains object and linked `.text`, legacy
+selected-symbol counts, full and entry-reachable instructions, reachable functions,
+protocol-owned reachable instructions, blocks, CFG edges, branches, direct calls, loop SCCs, call
+depth, opcode classes, forbidden-instruction counts, objdump line counts, artifact sizes, and paths
+to each complete analysis report. The individual `analysis/<target>.json` files additionally retain
+function lists, ownership buckets, unresolved indirect calls, and ISA-gate details.
 
 ## Checks
 

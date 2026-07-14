@@ -1,155 +1,186 @@
 # Ethereum target evaluation decision
 
-> **Correction — 2026-07-13.** The original “replace neither” conclusion is withdrawn. It
-> treated an eventual machine-refinement proof as a Reth selection gate, measured a raw Zesu
-> decoder whose result could be eliminated, and compared acceptance rather than decoded values.
-> Reth passes target selection; Zesu is pending a lossless, value-level reevaluation. The old
-> 724-instruction figure and acceptance-only divergences below are historical evidence, not a
-> selection decision.
+> **Corrected decision — 2026-07-13.** Replace the current FIPS SHA-3 example with the
+> Reth-lockfile RustCrypto portable Keccak-256 path. Do **not** select Zesu SSZ under the agreed
+> target-selection gates: its repaired raw decoder passes value-level conformance and preservation,
+> but its parser-only structural measurement meets only one of the required two miniz comparisons.
+> This is a non-selection under the current scope, not a claim that SSZ cannot be formalized.
 
-## Corrected interim decision
+The former “replace neither” decision is superseded. Its 724-instruction Zesu result measured an
+accept/reject extraction whose decoded result could be dead-code eliminated, and its differential
+compared acceptance rather than decoded values. Neither is used as decision evidence below.
 
-**Replace the current FIPS SHA-3 target with the Reth-locked portable RustCrypto Keccak path.**
-It passed the relevant target-selection evidence: it is Ethereum Keccak-256, has reproducible
-RV64IM_Zicclsm construction, passes the boundary vectors, and has a meaningful protocol-owned
-reachability measurement. A complete binary-compliance proof is a later proof obligation, not a
-reason to reject a candidate at selection time.
+## Decision
 
-**Do not yet select or reject Zesu SSZ.** The existing raw harness only reports acceptance, its
-discarded decoded value makes the 724-instruction measurement unsound, and the bridge does not
-perform a full SizzLean-backed value comparison. The candidate must be repaired and remeasured
-using a lossless raw schema representation and a strict Python/Lean/Zesu value differential.
+**Reth Keccak is selected.** The artifact is a freestanding RV64IM_Zicclsm C ABI around the
+portable `Keccak256` implementation from the Reth-locked RustCrypto dependency path
+(`sha3 0.11.0`, `keccak 0.2.0`). It is deliberately not a full Reth node or Reth's
+assembly-accelerated host path. The six independent Ethereum Keccak vectors at lengths 0, 1, 135,
+136, 137, and 200 pass; the 136-byte vector distinguishes Ethereum Keccak padding from FIPS
+SHA3-256.
 
-This branch is isolated from `main` commit
-`65d82dc7e9f56f836e5f31cd94da0f78c28b7a41`; it does not alter or stack on PR #2. **PR #2 must
-not continue unchanged on the old FIPS SHA-3 target.** Its generic machine-semantics work remains
-reusable, but its eventual cryptographic target should be this Reth-locked Keccak path. No Zesu
-upstream issue or PR was opened.
+**Zesu SSZ is not selected under this plan.** The local patched candidate now has a lossless
+Amsterdam V4 raw value, a full Python/Lean/Zesu differential, and observable RV64 result
+consumption. Both the unmodified and patched native/zkeVM compositions pass all 23,822 fixtures.
+The patched Amsterdam execution boundary requires one exact recovered SEC1 public key per decoded
+transaction, while raw SSZ decoding remains schema-only. It nevertheless has only 319
+parser-reachable blocks and 510 CFG edges, below entry-root miniz's 338 and 511; it has one
+protocol-owned function versus miniz's two. Its 11 loop SCCs exceed miniz's seven, so it passes
+one—not two—required structural
+comparisons. The retained `_start` full-composition context has larger counts, but it is not
+substituted for the parser-only metric because that would count measurement adapters as semantic
+complexity.
 
-## Reproducible inputs and candidate boundaries
+Do not enlarge the candidate to production SSZ+RLP or choose a different protocol without review;
+that would change the agreed scope. This PR remains isolated from `main` commit
+`65d82dc7e9f56f836e5f31cd94da0f78c28b7a41` and does not alter or stack on PR #2. PR #2's generic
+machine-semantics work remains reusable, but it should not continue unchanged on the old FIPS
+SHA-3 target.
+
+## Pinned inputs
 
 | Role | Pinned source |
 |---|---|
 | Reth provenance | `paradigmxyz/reth@9384bc53d8c0c77e59cac83fdaaf3b372c6d2216` |
 | Zesu | `Consensys/zesu@aa6c94339987d278acb8b7fa409c864dbd3d05aa` |
 | Keccak Lean oracle | `trailofbits/scroll-fv@0c3927ba4d6773b4cfd1d949cba342268b104d91` |
-| SSZ theorem library audit | `etheorem/etheorem@032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0` |
-| V4 execution-spec reference | `ethereum/execution-specs@bd8c673552d957dbe9c9f3f2656b87201f5ae646` |
+| SSZ executable library | `etheorem/etheorem@032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0` |
+| V4 executable reference | `ethereum/execution-specs@bd8c673552d957dbe9c9f3f2656b87201f5ae646` |
 
-All compared ELFs use `RV64IM_Zicclsm` and `lp64`; the checked toolchain is GCC 15.2.0,
-binutils 2.46, and qemu-riscv64 11.0.1.  The Nix build verifies the full Reth lockfile hash
-(`39867b4a9bae8c97872ce4f51ae184c13ba3db2c57b9c6772e31e83711866b97`).
+All compared ELFs use `RV64IM_Zicclsm` and `lp64`; the checked toolchain is GCC 15.2.0, binutils
+2.46, and qemu-riscv64 11.0.1. The Nix construction verifies the complete pinned Reth
+`Cargo.lock` hash `39867b4a9bae8c97872ce4f51ae184c13ba3db2c57b9c6772e31e83711866b97`.
 
-`reth-keccak` is deliberately a freestanding C ABI around the Reth-locked RustCrypto
-`sha3::Keccak256` dependency path (`sha3 0.11.0`, `keccak 0.2.0`) with its portable software
-backend.  It is **not** a complete Reth node or Reth's default assembly-accelerated host binary.
-The six independent Ethereum Keccak vectors at lengths 0, 1, 135, 136, 137, and 200 pass; the
-136-byte boundary distinguishes Ethereum Keccak padding from FIPS SHA3-256.
+## Corrected SSZ candidate and conformance evidence
 
-`zesu-ssz` is a local patch extraction of `decodeRaw`, before the unchanged transaction-RLP
-conversion in Zesu's production `decode`.  It exposes only raw-SSZ accept/reject through a small
-freestanding harness, so it is not value-level equivalence evidence for the production decoder.
-The separately built unmodified Zesu object retains its crypto/precompile dependencies.  The raw
-object has only `ZKVM_HEAP_POS`, `ZKVM_HEAP_TOP`, and `memcpy` unresolved; the linked
-`zesu-ssz` candidate's direct-reachability analysis finds no hash/cryptographic implementation.
+`reports/ssz-field-correspondence.md` freezes the Amsterdam V4 schema and the deterministic,
+complete `ssz-value-v1` record protocol. The raw Zesu type preserves all 256 bits of base fee,
+chain ID zero, activation optionals, blob schedule, typed execution requests, fixed vectors, and
+every variable byte/list value. Its separate production adapter continues to perform RLP
+transaction decoding and rejects an unrepresentable `uint256` base fee rather than truncating it.
 
-## RV64 measurements
+The raw decoder parses V4 before considering exact Ere framing, has canonical offset and bound
+checks, and corrects the earlier raw/Ere-prefix collision. The measurement build keeps a separate
+allocator object, exported `zesu_decode_raw` decoder entry, exported `zesu_raw_result` accessor,
+and sink object with no LTO across those boundaries. The host-only `zesu-ssz-value` formatter uses
+the same raw type but is not linked into the RV64 metric. Its QEMU sink regression changes 33
+independent rich-value fields and observes
+33 distinct checksums; the checksum is anti-DCE evidence only, never value-equivalence evidence.
 
-Measurements come from `nix build .#stats --out-link build/stats`; linked analysis starts at
-`_start`.  “Protocol” is reachable code attributed by documented symbol ownership rules, rather
-than a source-level component boundary.
+The strict V4 differential requires byte-for-byte `ssz-value-v1` agreement on every valid case and
+rejection by all implementations on every malformed case:
 
-| Target | Object / linked `.text` | Full / reachable instr. | Protocol | Funcs | Blocks / CFG edges | Cond. branches | Calls | Loop SCCs | Call depth | Opcode classes | Objdump lines (all / instr.) | ISA |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---:|---|
-| `sha3` | 1,540 / 1,680 B | 312 / 312 | 234 | 9 | 62 / 84 | 18 | 12 | 9 | 6 | I/system 308, M 4 | 335 / 312 | pass |
-| `tinfl` | 6,418 / 6,397 B | 1,481 / 1,387 | 1,344 | 6 | 345 / 520 | 168 | 12 | 8 | 5 | I/system 1,383, M 4 | 1,498 / 1,481 | pass |
-| `reth-keccak` | 128,504 / 3,424 B | 796 / 796 | 623 | 14 | 102 / 159 | 38 | 29 | 15 | 7 | I/system 793, M 3 | 829 / 796 | pass |
-| `zesu-ssz` | 5,444 / 5,744 B | 1,309 / 901 | 724 | 5 | 142 / 235 | 83 | 19 | 8 | recursive | I/system 897, M 4 | 1,324 / 1,309 | pass |
+| Gate | Result |
+|---|---|
+| Core raw/Ere, empty/rich, high-`uint256`, nested/optional corpus | 7 valid and 42 malformed cases pass three-way |
+| Practical boundary corpus | 30 extended max/over-bound cases pass three-way, including 8,192 deposits, 32,768 public keys, and 262,144 witness-code entries |
+| Production preservation | Unmodified and patched native/zkeVM compositions each pass 23,822/23,822 fixtures; Amsterdam execution checks exact recovered public keys |
+| Raw parser focused Zig tests | 5/5 pass |
+| Raw patch application | `git apply --check` passes against pinned Zesu |
+| V3 | Quarantined and excluded: the audited legacy branch is a hybrid with no matching released full schema |
 
-The legacy selected-symbol counts remain 286 for SHA-3 and 1,457 for miniz.  Reth's 228 is its
-legacy selected-symbol count in the linked ELF, not an archive-wide metric; the fairer
-cross-language comparison is its 623 protocol-owned reachable instructions, which exceeds the
-286-instruction SHA baseline.  Zesu's direct-reachable ownership split is protocol 724, harness
-50, runtime 17, and Zig runtime 110 instructions.  Parser and allocator behavior is inlined into
-`zesu_decode_raw`, so the analyzer cannot separately attribute those source components.  Complete
-maps, symbol tables, objdumps, ownership buckets, and analyzer JSON remain reproducible under
-ignored `build/stats/`.  Reth has one unresolved indirect-call block (`0x10cec`), so reachability
-and ISA claims below are scoped to the analyzer's direct control-flow graph.
+The boundary corpus deliberately does not materialize a 1 GiB transaction/access-list item or the
+one/four-million-entry transaction/state lists in a full-value renderer. Those cases would emit
+tens to hundreds of MiB per oracle; the decoder retains their explicit bounds, and the corpus
+documents the limitation rather than treating it as a pass.
+
+The V3 audit found no independently executable full schema to pin. Its fallback requires the
+current 16-byte all-variable prefixed envelope, 44-byte new-payload request, typed request
+container, nested chain/fork configuration, and packed 65-byte keys, but recognizes a 528-byte
+pre-block-access-list payload. It entered Zesu in
+[`1fe4f56`](https://github.com/Consensys/zesu/commit/1fe4f56ddb4c662249c4f7ecd9c5fcbd7c8cad5d).
+The first execution-specs stateless schema
+(`288ea51a49d50194d62a536d922fd8b9b6b61e11`) already has a different unprefixed outer form; the
+v0.3.4 fixture revision (`b1d870f8f06d9eba3d74179c39660cedb98f1f38`) has typed requests but a
+540-byte payload; and v0.4.1 (`b6b764ff21bb754b79e11ef5dc7ad1f79996e923`) has the prefixed outer
+form but still a 540-byte payload. Deneb's consensus-specs `ExecutionPayload` is a useful
+528-byte component comparison, not a `StatelessInput` oracle. V3 is therefore not accepted by the
+measured `decodeRaw` path and is excluded from every strict differential statement.
+
+The Lean bridge is an executable SizzLean-backed V4 oracle, not a proof of this mixed-container
+schema. It uses `SSZType.deserialize` and exact reserialization to reject SizzLean's accepted
+noncanonical empty variable-list alias. The legitimate 1 MiB raw/Ere collision needs an unlimited
+host stack because SizzLean's fixed-element serializer is recursive; the differential runner raises
+only that process limit and retains the exact reserialization check. Focused `#print axioms` reports
+`decodeCanonical` depends on `propext, Quot.sound` and `RawV4.render` on `propext`; existing
+SizzLean `BasicSupported` theorem coverage does not cover this nested mixed-variable schema.
+
+## Comparable RV64 measurements
+
+Every decision-facing row starts at the linked ELF's exported protocol root: `sha3`,
+`tinfl_decompress_mem_to_mem`, `reth_keccak256`, or `zesu_decode_raw`. The object/linked sizes and
+full-instruction column retain linked-ELF context; reachability and control-flow columns use those
+uniform roots. “Protocol” and “protocol funcs” use the shared ownership map, avoiding the former
+comparison of CLI-rooted baseline control flow with a decoder-rooted Zesu analysis.
+
+| Target | Protocol entry | Measured artifact | Object / linked `.text` | Full / reachable instr. | Protocol | Protocol funcs | Blocks / CFG edges | Loop SCCs |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| `sha3` | `sha3` | `sha3.o` | 1,540 / 1,680 B | 312 / 243 | 234 | 5 | 43 / 58 | 5 |
+| `tinfl` | `tinfl_decompress_mem_to_mem` | `tinfl.o` | 6,418 / 6,397 B | 1,481 / 1,360 | 1,344 | 2 | 338 / 511 | 7 |
+| `reth-keccak` | `reth_keccak256` | RustCrypto archive | 128,504 / 3,424 B | 796 / 788 | 623 | 3 | 99 / 155 | 14 |
+| `zesu-ssz-parser` | `zesu_decode_raw` | decoder object | 15,300 / 17,912 B | 3,984 / 3,384 | 3,356 | 1 | 319 / 510 | 11 |
+
+The generated stats also retain `_start` full-composition rows for context. They do not feed the
+decision gates; for example, the Zesu composition has 3,932 reachable instructions, 435 blocks,
+714 edges, and 24 loop SCCs only because it starts at the CLI and includes the allocator and sink.
+Direct reachability is deliberately conservative: the Reth root can include labeled harness or
+runtime code after a noreturn-call fallthrough, while its unchanged ownership map still attributes
+623 instructions and three functions to the portable Keccak path.
+
+The fair SSZ interval is `[0.75, 3] × 1,344 = [1,008, 4,032]` protocol-owned reachable
+instructions. The parser's 3,356 passes that size gate. It is semantically distinct from Keccak:
+it has heterogeneous nested containers, multiple offset tables, bounded lists, allocation,
+data-dependent loops, and malformed exits. Its raw parser object has no RLP or cryptographic
+undefined symbol, and the parser/composition objects pass the RV64IM_Zicclsm ISA scan.
+
+The direct-control-flow analyzer leaves six allocator-vtable `jalr` blocks explicit; it does not
+guess those indirect targets or convert them into a pass. The separate-object symbol checks show
+the decoder imports only `memcpy`, `memmove`, and `zesu_raw_alloc`; the sink imports only
+`memcpy` and `zesu_raw_result`. This supports the raw parser boundary but is not a claim of a
+whole-program indirect-call proof.
+
+## Gate outcome
 
 | Gate | Result | Evidence |
 |---|---|---|
-| RV64IM_Zicclsm only | pass (direct-reachability analysis) | No forbidden instruction in the analyzer's direct-reachability set. |
-| Reth is Ethereum Keccak and no smaller than the SHA target | pass for selection evidence | Portable `Keccak256`, six boundary vectors, 623 protocol-reachable instructions. |
-| Raw SSZ excludes crypto | pass | Raw object/link graph excludes crypto; full production object is retained separately for attribution. |
-| SSZ protocol size in `[0.75, 3] × 1,457` | **fail** | 724 is below the 1,092.75 lower bound. |
-| SSZ reaches/exceeds miniz on two of blocks, edges, SCCs, funcs | **fail** | It only ties loop SCCs (8); 142 < 345 blocks, 235 < 520 edges, and 5 < 6 functions. |
-| SSZ has relevant semantic structure | pass as exercised, not as conformance | Corpus exercises nested containers, offset tables, bounded lists, allocation, loops, and malformed exits. |
+| Reth is Ethereum Keccak and exceeds SHA's protocol size | pass | Six vectors; 623 versus 234 protocol instructions |
+| Zesu corpus V4 decoded values agree | pass | Strict core and extended practical-boundary three-way differentials |
+| Zesu preserves production behavior | pass | Unmodified and patched native/zkeVM compositions each pass 23,822/23,822 fixtures |
+| Zesu result is observable without sink pollution | pass | Separate objects, structural checks, and 33-mutation QEMU regression |
+| Zesu raw parser excludes crypto/RLP and uses RV64IM_Zicclsm | pass, direct-boundary scope | Object imports, symbols, direct CFG analysis, and ISA scan |
+| Zesu protocol size is in `[1,008, 4,032]` | pass | 3,356 parser-owned direct-reachable instructions |
+| Zesu meets miniz on two structural dimensions | **fail** | Only loop SCCs pass: 11 ≥ 7; blocks 319 < 338, edges 510 < 511, protocol functions 1 < 2 |
 
-## Formal and differential audit
+## Reproduction
 
-The pinned Scroll-FV Keccak module built with Lean 4.29.1 (`lake build
-Spec.Keccak.Keccak256`).  It is an executable Ethereum Keccak-256 oracle (rate 136, suffix
-`0x01`, 32-byte digest), and agrees with all six Reth vectors.  For the audited
-`Spec.Keccak.keccak256` dependency footprint, `#print axioms` reports only `propext` and
-`Quot.sound`; this is useful oracle evidence, not a refinement proof from RustCrypto machine code.
+```sh
+# Patch and RV64/anti-DCE/metrics gates
+git -C /tmp/zesu-aa6c94339987d278acb8b7fa409c864dbd3d05aa apply --check patches/zesu-decode-raw.patch
+nix build .#zesu-native-suite --out-link build/zesu-native-suite
+nix build .#zesu-sink-observability --out-link build/zesu-sink-observability
+nix build .#stats --out-link build/stats
+nix build .#reth-keccak --out-link build/reth-keccak
+nix flake check
 
-The pinned SizzLean package and its focused tests built with its own Lean 4.29.1 toolchain
-(`lake build SizzLean SizzLeanTests`).  This focused command did not invoke an external
-`consensus-spec-tests` harness, so this evaluation makes no current consensus-vector claim.
-`#print axioms` reports that `decode_encode` and `serialize_injective` depend on `propext`,
-`Classical.choice`, `Quot.sound`, and the three native axioms
-`SizzLean.Proofs.decode_encode_uintN16._native.bv_decide.ax_1_6`,
-`SizzLean.Proofs.decode_encode_uintN32._native.bv_decide.ax_1_6`, and
-`SizzLean.Proofs.decode_encode_uintN64._native.bv_decide.ax_1_6`; `encode_size_le_max` depends
-only on `propext` and `Quot.sound`.  Its SHA-256 FFI declarations are separate explicit axioms.
-More importantly, its `BasicSupported` proof coverage excludes mixed/nested variable-size offset
-containers needed by `SszStatelessInput`, so its existing theorem coverage cannot establish this
-schema's decoder correctness.
+# Lean/SizzLean bridge
+(cd specs/ssz-bridge && lake build repl && lake build ssz_bridge ssz_bridge_test && lake exe ssz_bridge_test)
 
-`specs/ssz-bridge/` is therefore an axiom-free, executable-only Lean normalization bridge.  It
-checks schema `0x0001`, optional Ere framing, V3/V4 dispatch, nested canonical offsets, relevant
-bounds, witnesses, chain configuration, public keys, and raw transaction lists.  It emits
-normalization metadata rather than a full decoded value; the Zesu raw ABI only returns
-accept/reject.  The pinned Python reference independently checks V4 Amsterdam inputs only;
-V3 cases below are structural-only until a matching historical Python oracle is pinned.
-
-The corpus runner in `tests/ssz_differential_audit.py` compared the Lean bridge, Python V4
-reference, and the RV64 extracted raw-SSZ candidate.  They agree on the two valid raw V4 cases
-and reject eight shared malformed V4 cases (schema ID, truncation, three top-level offset errors,
-two transaction table errors, and fixed-element divisibility).  Lean and the extracted candidate
-also agree on valid V4 Ere and V3 raw/Ere structural cases; Python is intentionally not queried
-for those.
-
-The strict run reports seven divergences, so the decoder gate fails:
-
-| Cases | Lean / Python | Extracted raw-SSZ candidate |
-|---|---|---|
-| `oversized-extra-data-33`; `too-many-withdrawals-17`; `too-many-versioned-hashes-4097`; `malformed-deposit-fixed-size`; `unknown-fork-index`; `noncanonical-npr-first-offset` | reject | accepts |
-| `ere-heuristic-collision-raw` (a valid 1,048,836-byte raw input whose first word equals `size - 4`) | accepts | rejects |
-
-The companion correctly framed collision input is accepted by Lean and the extracted candidate;
-it isolates the raw/Ere framing heuristic rather than a general size limitation.
-
-## Native-suite verification
-
-`nix build .#zesu-native-suite --out-link build/zesu-native-suite` passed.  It runs `zig build
-test` and `zig build zkevm-tests` twice: first on the pinned production decoder, then on a fresh
-copy with the raw-SSZ patch applied by `patch --fuzz=0`.  The latter proves the preserved production
-`decode` wrapper still builds and passes the full native and pinned zkeVM fixture suites after
-`decodeRaw` extraction.
-
-The Nix package supplies upstream's assumed `/usr/local` crypto dependencies from pinned
-derivations, including `herumi/mcl@0499298adcfad3bbcebf77f17700ebbe97166060`
-(`sha256-Nyd8SyURTpExgvB2B/uEfhEBU7YLQgNY6s1saQ1rS1Y=`), and changes only the fixture runner's
-file cap from 256 MiB to 512 MiB; the pinned fixture archive
-(`sha256-a1/W3qd8xepR39w1sDvcpBh1km4XrSbz6+v5hBA4o2Y=`) contains a 264.3 MiB JSON fixture.  These
-adaptations do not change decoder behavior.  The raw RV64 object is separately built by
-`.#zesuRawObject`; its linked harness is the candidate measured and compared above.
+# With a `uv sync --locked` environment for the pinned execution-specs revision:
+PY=/path/to/execution-specs/.venv/bin/python
+nix build .#zesu-value --out-link build/zesu-ssz-value
+"$PY" -B tests/ssz_differential_audit.py \\
+  --reference-python "$PY" \\
+  --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \\
+  --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
+"$PY" -B tests/ssz_boundary_audit.py --extended \\
+  --reference-python "$PY" \\
+  --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \\
+  --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
+```
 
 ## Retained future theorem shape
 
-The following is intentionally a proposed target for a separate proof plan, not a theorem
-established here:
+This evaluation does not establish a binary-compliance theorem. A later reviewed plan may target:
 
 ```lean
 theorem keccak_root_compliance :
@@ -159,10 +190,9 @@ theorem keccak_root_compliance :
 theorem ssz_root_compliance :
     forall input : ByteArray,
       input.size < 2^32 ->
-      ZesuSsz.execute sszBinary input = .ok (SszSpec.decodeStatelessInput input)
+      RiscvSpec.execute zesuSszBinary input = .ok (SszSpec.decodeStatelessInput input)
 ```
 
-`decodeStatelessInput` would return `Except SszError RawStatelessInput`; outer `.ok` would state
-machine execution terminates without trapping.  Neither statement follows from this evaluation:
-the Keccak work lacks the machine-refinement proof, and the SSZ statement is contradicted by the
-observed corpus divergences.
+Here `SszSpec.decodeStatelessInput` returns the complete lossless raw V4 value or a specification
+error; ABI representation remains hidden at the machine boundary. No upstream Zesu issue or pull
+request was opened.
