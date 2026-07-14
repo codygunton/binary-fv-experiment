@@ -1,3 +1,4 @@
+import BinaryFv.RISCV.FenceFrame
 import BinaryFv.RISCV.JalFrame
 
 namespace BinaryFv.RISCV
@@ -44,6 +45,31 @@ theorem executeJALRDispatchPreservesStackPointer (state : State) (immediate : Bi
     | .error _ state' => state'.regs.get? x2) = state.regs.get? x2
   have frame := execute_JALR_preserves_stack_pointer state immediate source destination notStack
   cases hAction : (execute_JALR immediate source destination).run state <;>
+    simpa [hAction] using frame
+
+/-- The generated dispatcher preserves `x2` for the generated TSO fence. -/
+theorem executeFENCE_TSODispatchPreservesStackPointer (state : State) :
+    (match (execute (.FENCE_TSO ())).run state with
+    | .ok _ state' => state'.regs.get? x2
+    | .error _ state' => state'.regs.get? x2) = state.regs.get? x2 := by
+  change (match (execute_FENCE_TSO ()).run state with
+    | .ok _ state' => state'.regs.get? x2
+    | .error _ state' => state'.regs.get? x2) = state.regs.get? x2
+  have frame := execute_FENCE_TSO_preserves_stack_pointer state
+  cases hAction : (execute_FENCE_TSO ()).run state <;>
+    simpa [hAction] using frame
+
+/-- The generated dispatcher preserves `x2` for every generated FENCE outcome. -/
+theorem executeFENCEDispatchPreservesStackPointer (state : State) (fm pred succ : BitVec 4)
+    (source destination : regidx) :
+    (match (execute (.FENCE (fm, pred, succ, source, destination))).run state with
+    | .ok _ state' => state'.regs.get? x2
+    | .error _ state' => state'.regs.get? x2) = state.regs.get? x2 := by
+  change (match (execute_FENCE fm pred succ source destination).run state with
+    | .ok _ state' => state'.regs.get? x2
+    | .error _ state' => state'.regs.get? x2) = state.regs.get? x2
+  have frame := execute_FENCE_preserves_stack_pointer state fm pred succ source destination
+  cases hAction : (execute_FENCE fm pred succ source destination).run state <;>
     simpa [hAction] using frame
 
 end BinaryFv.RISCV
