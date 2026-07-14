@@ -90,7 +90,18 @@ theorem baseInstructionEncoding_notRVC (byte0 byte1 byte2 byte3 : BitVec 8)
     isRVC (Sail.BitVec.extractLsb (fetchWord byte0 byte1 byte2 byte3) 15 0) = false := by
   simp only [BaseInstructionEncoding, fetchWord, isRVC, Sail.BitVec.extractLsb,
     LeanRV64DExecutable.Functions.not] at base ⊢
-  bv_decide
+  have collapse (word : BitVec 32) :
+      BitVec.extractLsb 1 0 (BitVec.extractLsb 15 0 word) = BitVec.extractLsb 1 0 word := by
+    apply BitVec.eq_of_toNat_eq
+    simp
+  rw [collapse]
+  have lowBits : BitVec.extractLsb 1 0 (byte3 ++ byte2 ++ byte1 ++ byte0) =
+      BitVec.extractLsb 1 0 byte0 := by
+    change BitVec.extractLsb' 0 2 (byte3 ++ byte2 ++ byte1 ++ byte0) =
+      BitVec.extractLsb' 0 2 byte0
+    rw [BitVec.extractLsb'_append_eq_of_add_le (by omega)]
+  rw [lowBits, base]
+  rfl
 
 theorem pmaCheck_fetch_allowed (state : State) (pc : BitVec 64)
     (allowed : FetchPmaAllows state pc)
