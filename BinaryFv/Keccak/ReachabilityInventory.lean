@@ -101,19 +101,16 @@ def entryStaticDirectReachabilityInventory? : Option StaticDirectReachabilityInv
   | .ok entry, some nodes => some (staticDirectReachabilityInventory nodes entry)
   | _, _ => none
 
-def entryStaticDirectReachabilityInventoryAvailable : Bool :=
-  entryStaticDirectReachabilityInventory?.isSome
-
-def entryStaticDirectReachabilityDirectEdgesStayWithinInventory : Bool :=
+def entryStaticDirectReachabilityInventoryWellFormed : Bool :=
   match entryStaticDirectReachabilityInventory? with
-  | some inventory => inventory.directEdgesStayWithinInventory
+  | some inventory =>
+    inventory.directEdgesStayWithinInventory && inventory.addressesHaveInventoriedNodes
   | none => false
 
-def entryStaticDirectReachabilityAddressesHaveInventoriedNodes : Bool :=
-  match entryStaticDirectReachabilityInventory? with
-  | some inventory => inventory.addressesHaveInventoriedNodes
-  | none => false
-
+/--
+Diagnostic frontier queries. They deliberately have no artifact-specific existence theorem: a
+frontier's presence is not an invariant needed by the later proof stack.
+-/
 def entryStaticDirectReachabilityHasIndirectTransferBoundary : Bool :=
   match entryStaticDirectReachabilityInventory? with
   | some inventory => inventory.hasBoundary StaticDirectReachabilityBoundary.isIndirectTransfer
@@ -129,34 +126,12 @@ def entryStaticDirectReachabilityHasReturnBoundary : Bool :=
   | some inventory => inventory.hasBoundary StaticDirectReachabilityBoundary.isReturn
   | none => false
 
-/-- Closed parser-owned availability fact, not a generated-Sail execution theorem. -/
-theorem entry_static_direct_reachability_inventory_available :
-    entryStaticDirectReachabilityInventoryAvailable = true := by
-  native_decide
-
-/-- Closed static-edge fact: every inventoried direct successor is another inventoried node. -/
-theorem entry_static_direct_reachability_direct_edges_stay_within_inventory :
-    entryStaticDirectReachabilityDirectEdgesStayWithinInventory = true := by
-  native_decide
-
-/-- Closed static coverage fact: every direct-reachable address retains its decoded node. -/
-theorem entry_static_direct_reachability_addresses_have_inventoried_nodes :
-    entryStaticDirectReachabilityAddressesHaveInventoriedNodes = true := by
-  native_decide
-
-/-- Closed static frontier fact; it does not resolve the runtime target. -/
-theorem entry_static_direct_reachability_has_indirect_transfer_boundary :
-    entryStaticDirectReachabilityHasIndirectTransferBoundary = true := by
-  native_decide
-
-/-- Closed static frontier fact; it does not resolve the runtime target or call result. -/
-theorem entry_static_direct_reachability_has_indirect_call_boundary :
-    entryStaticDirectReachabilityHasIndirectCallBoundary = true := by
-  native_decide
-
-/-- Closed static frontier fact; it does not establish dynamic return pairing or a return value. -/
-theorem entry_static_direct_reachability_has_return_boundary :
-    entryStaticDirectReachabilityHasReturnBoundary = true := by
+/--
+Closed parser-owned inventory fact: the inventory exists, every direct successor remains inside it,
+and every retained address has a decoded node. This is not a generated-Sail execution theorem.
+-/
+theorem entry_static_direct_reachability_inventory_well_formed :
+    entryStaticDirectReachabilityInventoryWellFormed = true := by
   native_decide
 
 end BinaryFv.Keccak
