@@ -392,10 +392,67 @@
             installPhase = ''
               runHook preInstall
               mkdir -p "$out/obj" "$out/meta"
-              cp zig-out/lib/zesu_raw_ssz.o "$out/obj/zesu-raw-ssz.o"
-              ${riscvReadelf} -h "$out/obj/zesu-raw-ssz.o" > "$out/meta/elf-header.txt"
-              ${riscvReadelf} -A "$out/obj/zesu-raw-ssz.o" > "$out/meta/elf-attributes.txt"
-              ${riscvNm} -u "$out/obj/zesu-raw-ssz.o" > "$out/meta/undefined-symbols.txt"
+              cp zig-out/lib/zesu_raw_ssz_allocator.o "$out/obj/zesu-raw-ssz-allocator.o"
+              cp zig-out/lib/zesu_raw_ssz.o "$out/obj/zesu-raw-ssz-decoder.o"
+              cp zig-out/lib/zesu_raw_ssz_sink.o "$out/obj/zesu-raw-ssz-sink.o"
+              ${riscvReadelf} -h "$out/obj/zesu-raw-ssz-allocator.o" \
+                > "$out/meta/allocator-elf-header.txt"
+              ${riscvReadelf} -A "$out/obj/zesu-raw-ssz-allocator.o" \
+                > "$out/meta/allocator-elf-attributes.txt"
+              ${riscvNm} -u "$out/obj/zesu-raw-ssz-allocator.o" \
+                > "$out/meta/allocator-undefined-symbols.txt"
+              ${riscvReadelf} -h "$out/obj/zesu-raw-ssz-decoder.o" \
+                > "$out/meta/decoder-elf-header.txt"
+              ${riscvReadelf} -A "$out/obj/zesu-raw-ssz-decoder.o" \
+                > "$out/meta/decoder-elf-attributes.txt"
+              ${riscvNm} -u "$out/obj/zesu-raw-ssz-decoder.o" \
+                > "$out/meta/decoder-undefined-symbols.txt"
+              ${riscvReadelf} -h "$out/obj/zesu-raw-ssz-sink.o" \
+                > "$out/meta/sink-elf-header.txt"
+              ${riscvReadelf} -A "$out/obj/zesu-raw-ssz-sink.o" \
+                > "$out/meta/sink-elf-attributes.txt"
+              ${riscvNm} -u "$out/obj/zesu-raw-ssz-sink.o" \
+                > "$out/meta/sink-undefined-symbols.txt"
+              ${riscvNm} -g "$out/obj/zesu-raw-ssz-decoder.o" | grep -F zesu_decode_raw
+              ${riscvNm} -g "$out/obj/zesu-raw-ssz-decoder.o" | grep -F zesu_raw_result
+              ${riscvNm} -g "$out/obj/zesu-raw-ssz-allocator.o" | grep -F zesu_raw_alloc
+              grep -E '[[:space:]]U[[:space:]]+zesu_raw_alloc$' \
+                "$out/meta/decoder-undefined-symbols.txt"
+              grep -E '[[:space:]]U[[:space:]]+zesu_raw_result$' \
+                "$out/meta/sink-undefined-symbols.txt"
+              ! ${riscvReadelf} -S "$out/obj/zesu-raw-ssz-allocator.o" | grep -Ei '\\.lto|llvm\\.lto'
+              ! ${riscvReadelf} -S "$out/obj/zesu-raw-ssz-decoder.o" | grep -Ei '\\.lto|llvm\\.lto'
+              ! ${riscvReadelf} -S "$out/obj/zesu-raw-ssz-sink.o" | grep -Ei '\\.lto|llvm\\.lto'
+              printf '%s\n' "zesu=aa6c94339987d278acb8b7fa409c864dbd3d05aa" > "$out/meta/provenance.txt"
+              printf '%s\n' "zig=$(zig version)" >> "$out/meta/provenance.txt"
+              runHook postInstall
+            '';
+          };
+
+          # Host-only full-value formatter used by the strict three-way SSZ gate.
+          # It imports only the lossless raw decoder and is never linked into the
+          # RV64 parser/sink measurement composition.
+          zesuValue = pkgs.stdenvNoCC.mkDerivation {
+            pname = "zesu-ssz-value";
+            version = "aa6c943";
+            src = zesu;
+            patches = [ ./patches/zesu-decode-raw.patch ];
+            nativeBuildInputs = [ pkgs.zig ];
+            dontConfigure = true;
+            dontFixup = true;
+
+            buildPhase = ''
+              runHook preBuild
+              export HOME="$TMPDIR"
+              export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+              export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+              zig build zesu-ssz-value -Doptimize=ReleaseSafe
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p "$out/bin" "$out/meta"
+              cp zig-out/bin/zesu-ssz-value "$out/bin/zesu-ssz-value"
               printf '%s\n' "zesu=aa6c94339987d278acb8b7fa409c864dbd3d05aa" > "$out/meta/provenance.txt"
               printf '%s\n' "zig=$(zig version)" >> "$out/meta/provenance.txt"
               runHook postInstall
@@ -421,7 +478,12 @@
               mkdir -p "$out/bin" "$out/obj" "$out/meta"
               export NIX_HARDENING_ENABLE=""
 
-              cp ${zesuRawObject}/obj/zesu-raw-ssz.o "$out/obj/zesu-raw-ssz.o"
+              cp ${zesuRawObject}/obj/zesu-raw-ssz-allocator.o \
+                "$out/obj/zesu-raw-ssz-allocator.o"
+              cp ${zesuRawObject}/obj/zesu-raw-ssz-decoder.o \
+                "$out/obj/zesu-raw-ssz-decoder.o"
+              cp ${zesuRawObject}/obj/zesu-raw-ssz-sink.o \
+                "$out/obj/zesu-raw-ssz-sink.o"
               ${riscvCc} ${cflags} -c ${./harness/zesu_ssz.c} \
                 -o "$out/obj/zesu-ssz-main.o"
               ${riscvCc} ${cflags} -c ${./harness/riscv64_runtime.c} \
@@ -431,7 +493,9 @@
               ${riscvCc} ${cflags} -nostdlib -static -no-pie \
                 "$out/obj/riscv64_start.o" \
                 "$out/obj/zesu-ssz-main.o" \
-                "$out/obj/zesu-raw-ssz.o" \
+                "$out/obj/zesu-raw-ssz-allocator.o" \
+                "$out/obj/zesu-raw-ssz-decoder.o" \
+                "$out/obj/zesu-raw-ssz-sink.o" \
                 "$out/obj/riscv64_runtime.o" \
                 -lgcc \
                 -Wl,--gc-sections \
@@ -443,6 +507,22 @@
               ${riscvReadelf} -h "$out/bin/zesu-ssz" > "$out/meta/elf-header.txt"
               ${riscvReadelf} -A "$out/bin/zesu-ssz" > "$out/meta/elf-attributes.txt"
               ${riscvNm} -S --size-sort --radix=d "$out/bin/zesu-ssz" > "$out/meta/symbols.txt"
+              ${riscvNm} -u "$out/obj/zesu-ssz-main.o" > "$out/meta/main-undefined-symbols.txt"
+              ${riscvNm} -u "$out/obj/zesu-raw-ssz-decoder.o" \
+                > "$out/meta/decoder-undefined-symbols.txt"
+              ${riscvNm} -u "$out/obj/zesu-raw-ssz-sink.o" \
+                > "$out/meta/sink-undefined-symbols.txt"
+              grep -E '[[:space:]]U[[:space:]]+zesu_decode_raw$' \
+                "$out/meta/main-undefined-symbols.txt"
+              grep -E '[[:space:]]U[[:space:]]+zesu_raw_sink_checksum$' \
+                "$out/meta/main-undefined-symbols.txt"
+              grep -E '[[:space:]]U[[:space:]]+zesu_raw_alloc$' \
+                "$out/meta/decoder-undefined-symbols.txt"
+              grep -E '[[:space:]]U[[:space:]]+zesu_raw_result$' \
+                "$out/meta/sink-undefined-symbols.txt"
+              ! ${riscvReadelf} -S "$out/obj/zesu-raw-ssz-allocator.o" | grep -Ei '\\.lto|llvm\\.lto'
+              ! ${riscvReadelf} -S "$out/obj/zesu-raw-ssz-decoder.o" | grep -Ei '\\.lto|llvm\\.lto'
+              ! ${riscvReadelf} -S "$out/obj/zesu-raw-ssz-sink.o" | grep -Ei '\\.lto|llvm\\.lto'
               set +e
               result="$(${qemuRiscv64} "$out/bin/zesu-ssz" < /dev/null)"
               status=$?
@@ -450,6 +530,35 @@
               test "$status" = 1
               test "$result" = invalid
 
+              runHook postInstall
+            '';
+          };
+
+          # The raw decoder's checksum sink is deliberately separate from the
+          # parser object. Exercise the linked RV64 composition to ensure each
+          # semantic field still reaches that sink and cannot be DCE'd away.
+          zesuSinkObservability = pkgs.stdenvNoCC.mkDerivation {
+            pname = "zesu-ssz-sink-observability";
+            version = "0.1.0";
+            nativeBuildInputs = [ pkgs.python3 pkgs.qemu-user ];
+            dontUnpack = true;
+            dontConfigure = true;
+            dontBuild = true;
+            dontFixup = true;
+            doCheck = true;
+
+            checkPhase = ''
+              runHook preCheck
+              ${pkgs.python3}/bin/python -B \
+                ${./tests}/ssz_sink_observability.py \
+                --qemu ${qemuRiscv64} \
+                --binary ${zesuSsz}/bin/zesu-ssz
+              runHook postCheck
+            '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p "$out"
+              printf '%s\n' passed > "$out/passed"
               runHook postInstall
             '';
           };
@@ -597,7 +706,12 @@
               cp ${rethKeccak}/meta/provenance.txt "$out/rv64/meta/reth-keccak-provenance.txt"
 
               cp ${zesuSsz}/bin/zesu-ssz "$out/rv64/bin/zesu-ssz"
-              cp ${zesuSsz}/obj/zesu-raw-ssz.o "$out/rv64/obj/zesu-raw-ssz.o"
+              cp ${zesuSsz}/obj/zesu-raw-ssz-allocator.o \
+                "$out/rv64/obj/zesu-raw-ssz-allocator.o"
+              cp ${zesuSsz}/obj/zesu-raw-ssz-decoder.o \
+                "$out/rv64/obj/zesu-raw-ssz-decoder.o"
+              cp ${zesuSsz}/obj/zesu-raw-ssz-sink.o \
+                "$out/rv64/obj/zesu-raw-ssz-sink.o"
               cp ${zesuSsz}/obj/zesu-ssz-main.o "$out/rv64/obj/zesu-ssz-main.o"
               cp ${zesuSsz}/meta/elf-attributes.txt \
                 "$out/rv64/meta/zesu-ssz-elf-attributes.txt"
@@ -607,8 +721,20 @@
               cp ${zesuSsz}/meta/symbols.txt "$out/rv64/meta/zesu-ssz-symbols.txt"
               cp ${zesuRawObject}/meta/provenance.txt \
                 "$out/rv64/meta/zesu-raw-ssz-provenance.txt"
-              cp ${zesuRawObject}/meta/undefined-symbols.txt \
-                "$out/rv64/meta/zesu-raw-ssz-undefined-symbols.txt"
+              for raw_object in allocator decoder sink; do
+                cp "${zesuRawObject}/meta/$raw_object-elf-header.txt" \
+                  "$out/rv64/meta/zesu-raw-ssz-$raw_object-elf-header.txt"
+                cp "${zesuRawObject}/meta/$raw_object-elf-attributes.txt" \
+                  "$out/rv64/meta/zesu-raw-ssz-$raw_object-elf-attributes.txt"
+                cp "${zesuRawObject}/meta/$raw_object-undefined-symbols.txt" \
+                  "$out/rv64/meta/zesu-raw-ssz-$raw_object-undefined-symbols.txt"
+              done
+              printf '%s\n' sha3 > "$out/rv64/meta/sha3-protocol-selected-symbols.txt"
+              printf '%s\n' tinfl_decompress_mem_to_mem \
+                > "$out/rv64/meta/tinfl-protocol-selected-symbols.txt"
+              printf '%s\n' reth_keccak256 \
+                > "$out/rv64/meta/reth-keccak-protocol-selected-symbols.txt"
+              printf '%s\n' zesu_decode_raw > "$out/rv64/meta/zesu-ssz-parser-selected-symbols.txt"
 
               count_symbol_instructions() {
                 local file="$1"
@@ -695,13 +821,24 @@
                   awk '/^[[:space:]]+[0-9a-f]+:/ { n++ } END { print n + 0 }'
               }
 
+              {
+                printf 'role\tartifact\ttext_bytes\tfile_bytes\n'
+                for raw_object in allocator decoder sink; do
+                  object="$out/rv64/obj/zesu-raw-ssz-$raw_object.o"
+                  printf '%s\t%s\t%s\t%s\n' \
+                    "$raw_object" "$(basename "$object")" \
+                    "$(text_size "$object")" "$(file_size "$object")"
+                done
+              } > "$out/rv64/meta/zesu-ssz-raw-objects.tsv"
+
               analyze_target() {
                 local target="$1"
                 local binary="$2"
-                shift 2
+                local entry="$3"
+                shift 3
                 ${pkgs.python3}/bin/python ${./tools/analyze_rv64.py} "$binary" \
                   --objdump ${riscvObjdump} \
-                  --entry _start \
+                  --entry "$entry" \
                   --target "$target ${riscvTarget}" \
                   --json "$out/analysis/$target.json" \
                   --markdown "$out/analysis/$target.md" \
@@ -724,6 +861,10 @@
                 ${pkgs.python3}/bin/python -c 'import json, sys; report = json.load(open(sys.argv[1])); print(report["ownership"].get(sys.argv[2], {}).get("instructions", 0))' "$1" "$2"
               }
 
+              json_owner_function_count() {
+                ${pkgs.python3}/bin/python -c 'import json, sys; report = json.load(open(sys.argv[1])); print(report["ownership"].get(sys.argv[2], {}).get("function_count", 0))' "$1" "$2"
+              }
+
               json_call_depth() {
                 ${pkgs.python3}/bin/python -c 'import json, sys; report = json.load(open(sys.argv[1])); print("recursive" if report["recursive_direct_calls"] else report["maximum_direct_call_depth"])' "$1"
               }
@@ -735,6 +876,8 @@
                 local object="$4"
                 local binary="$5"
                 local selected_symbols="$6"
+                local entry_symbol="$7"
+                local analysis_scope="$8"
                 local analysis="$out/analysis/$target.json"
                 local object_text
                 local linked_text
@@ -743,6 +886,7 @@
                 local full_instrs
                 local reachable_instrs
                 local protocol_owned_instrs
+                local protocol_owned_functions
                 local reachable_functions
                 local basic_blocks
                 local cfg_edges
@@ -762,6 +906,7 @@
                 full_instrs="$(json_value "$analysis" full_instruction_count)"
                 reachable_instrs="$(json_value "$analysis" reachable_instruction_count)"
                 protocol_owned_instrs="$(json_owner_instructions "$analysis" protocol)"
+                protocol_owned_functions="$(json_owner_function_count "$analysis" protocol)"
                 reachable_functions="$(json_value "$analysis" reachable_function_count)"
                 basic_blocks="$(json_value "$analysis" basic_blocks)"
                 cfg_edges="$(json_value "$analysis" cfg_edges)"
@@ -774,40 +919,54 @@
                 objdump_lines="$(objdump_line_count "$binary")"
                 objdump_instr_lines="$(objdump_instruction_line_count "$binary")"
 
-                printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-                  "$target" "$source" "${riscvTarget}" "$object_label" "$object_text" \
-                  "$linked_text" "$selected_instrs" "$branchish" "$full_instrs" \
-                  "$reachable_instrs" "$protocol_owned_instrs" "$reachable_functions" "$basic_blocks" "$cfg_edges" \
-                  "$conditional_branches" "$direct_calls" "$loop_sccs" "$maximum_call_depth" \
-                  "$opcode_classes" "$forbidden_count" "$objdump_lines" "$objdump_instr_lines" \
-                  "$(file_size "$object")" "$(file_size "$binary")" \
+                printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                  "$target" "$analysis_scope" "$entry_symbol" "$source" "${riscvTarget}" \
+                  "$object_label" "$object_text" "$linked_text" "$selected_instrs" "$branchish" \
+                  "$full_instrs" "$reachable_instrs" "$protocol_owned_instrs" "$protocol_owned_functions" \
+                  "$reachable_functions" \
+                  "$basic_blocks" "$cfg_edges" "$conditional_branches" "$direct_calls" "$loop_sccs" \
+                  "$maximum_call_depth" "$opcode_classes" "$forbidden_count" "$objdump_lines" \
+                  "$objdump_instr_lines" "$(file_size "$object")" "$(file_size "$binary")" \
                   "analysis/$target.json" >> "$out/stats.tsv"
 
-                printf '| `%s` | %s | %s B | %s B | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
-                  "$target" "$object_label" "$object_text" "$linked_text" "$full_instrs" \
-                  "$reachable_instrs" "$protocol_owned_instrs" "$reachable_functions" "$basic_blocks" "$cfg_edges" \
-                  "$conditional_branches" "$direct_calls" "$loop_sccs" >> "$out/stats.md"
+                printf '| `%s` | `%s` | `%s` | %s | %s B | %s B | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+                  "$target" "$analysis_scope" "$entry_symbol" "$object_label" "$object_text" "$linked_text" \
+                  "$full_instrs" "$reachable_instrs" "$protocol_owned_instrs" "$reachable_functions" \
+                  "$protocol_owned_functions" \
+                  "$basic_blocks" "$cfg_edges" "$conditional_branches" "$direct_calls" "$loop_sccs" \
+                  >> "$out/stats.md"
               }
 
               ${riscvObjdump} -d "$out/rv64/bin/sha3" > "$out/objdump/sha3.txt"
               ${riscvObjdump} -d "$out/rv64/bin/tinfl" > "$out/objdump/tinfl.txt"
               ${riscvObjdump} -d "$out/rv64/bin/reth-keccak" > "$out/objdump/reth-keccak.txt"
               ${riscvObjdump} -d "$out/rv64/bin/zesu-ssz" > "$out/objdump/zesu-ssz.txt"
+              ${riscvObjdump} -d --disassemble=sha3 "$out/rv64/bin/sha3" \
+                > "$out/objdump/sha3-protocol.txt"
+              ${riscvObjdump} -d --disassemble=tinfl_decompress_mem_to_mem "$out/rv64/bin/tinfl" \
+                > "$out/objdump/tinfl-protocol.txt"
+              ${riscvObjdump} -d --disassemble=reth_keccak256 "$out/rv64/bin/reth-keccak" \
+                > "$out/objdump/reth-keccak-protocol.txt"
+              ${riscvObjdump} -d --disassemble=zesu_decode_raw "$out/rv64/bin/zesu-ssz" \
+                > "$out/objdump/zesu-ssz-parser.txt"
 
-              analyze_target sha3 "$out/rv64/bin/sha3" \
+              # Retain each freestanding harness composition for context. The
+              # protocol-entry analyses below are the uniformly rooted metrics
+              # used for target-selection comparisons.
+              analyze_target sha3 "$out/rv64/bin/sha3" _start \
                 --owner 'sha3*=protocol' \
                 --owner '*keccak*=protocol' \
                 --owner 'main=harness' \
                 --owner '_start=runtime' \
                 --owner '*mem*=runtime' \
                 --owner '*=runtime'
-              analyze_target tinfl "$out/rv64/bin/tinfl" \
+              analyze_target tinfl "$out/rv64/bin/tinfl" _start \
                 --owner 'tinfl*=protocol' \
                 --owner 'main=harness' \
                 --owner '_start=runtime' \
                 --owner '*mem*=runtime' \
                 --owner '*=runtime'
-              analyze_target reth-keccak "$out/rv64/bin/reth-keccak" \
+              analyze_target reth-keccak "$out/rv64/bin/reth-keccak" _start \
                 --owner 'reth_keccak256=protocol' \
                 --owner '*Keccak*=protocol' \
                 --owner '*keccak*=protocol' \
@@ -817,7 +976,14 @@
                 --owner '*mem*=runtime' \
                 --owner '_R*=rust-runtime' \
                 --owner '*=rust-runtime'
-              analyze_target zesu-ssz "$out/rv64/bin/zesu-ssz" \
+              # Keep the complete harness/allocator/decoder/sink composition as
+              # a distinct `_start`-rooted analysis. The protocol-entry comparison
+              # below is decision-facing and does not replace this artifact.
+              analyze_target zesu-ssz "$out/rv64/bin/zesu-ssz" _start \
+                --owner 'zesu_raw_sink_checksum=adapter' \
+                --owner 'zesu_raw_result=adapter' \
+                --owner 'zesu_raw_error=adapter' \
+                --owner 'zesu_raw_alloc=allocator' \
                 --owner 'zesu_decode_raw=protocol' \
                 --owner '*ssz*=protocol' \
                 --owner '*Ssz*=protocol' \
@@ -827,6 +993,51 @@
                 --owner '*Rlp*=rlp' \
                 --owner 'main=harness' \
                 --owner '_start=runtime' \
+                --owner '*mem*=runtime' \
+                --owner '*alloc*=allocator' \
+                --owner '*Alloc*=allocator' \
+                --owner '*=zig-runtime'
+
+              # Every decision-facing metric starts at the exported protocol
+              # boundary in its linked ELF and shares the corresponding full
+              # composition ownership map above.
+              analyze_target sha3-protocol "$out/rv64/bin/sha3" sha3 \
+                --owner 'sha3*=protocol' \
+                --owner '*keccak*=protocol' \
+                --owner 'main=harness' \
+                --owner '_start=runtime' \
+                --owner '*mem*=runtime' \
+                --owner '*=runtime'
+              analyze_target tinfl-protocol "$out/rv64/bin/tinfl" tinfl_decompress_mem_to_mem \
+                --owner 'tinfl*=protocol' \
+                --owner 'main=harness' \
+                --owner '_start=runtime' \
+                --owner '*mem*=runtime' \
+                --owner '*=runtime'
+              analyze_target reth-keccak-protocol "$out/rv64/bin/reth-keccak" reth_keccak256 \
+                --owner 'reth_keccak256=protocol' \
+                --owner '*Keccak*=protocol' \
+                --owner '*keccak*=protocol' \
+                --owner '*sha3*=protocol' \
+                --owner 'main=harness' \
+                --owner '_start=runtime' \
+                --owner '*mem*=runtime' \
+                --owner '_R*=rust-runtime' \
+                --owner '*=rust-runtime'
+
+              # Zesu's protocol entry publishes its raw result for a separate
+              # anti-DCE sink. Allocator vtable calls remain explicit unresolved
+              # indirect calls, never protocol instructions.
+              analyze_target zesu-ssz-parser "$out/rv64/bin/zesu-ssz" zesu_decode_raw \
+                --owner 'zesu_raw_sink_checksum=adapter' \
+                --owner 'zesu_raw_result=adapter' \
+                --owner 'zesu_raw_error=adapter' \
+                --owner 'zesu_raw_alloc=allocator' \
+                --owner 'zesu_decode_raw=protocol' \
+                --owner '*ssz*=protocol' \
+                --owner '*Ssz*=protocol' \
+                --owner '*decode*=protocol' \
+                --owner '*Decode*=protocol' \
                 --owner '*mem*=runtime' \
                 --owner '*alloc*=allocator' \
                 --owner '*Alloc*=allocator' \
@@ -853,7 +1064,9 @@
                 "$out/rv64/obj/sha3.o" \
                 "$out/rv64/obj/tinfl.o" \
                 "$out/rv64/obj/reth-keccak-rustcrypto.a" \
-                "$out/rv64/obj/zesu-raw-ssz.o" \
+                "$out/rv64/obj/zesu-raw-ssz-allocator.o" \
+                "$out/rv64/obj/zesu-raw-ssz-decoder.o" \
+                "$out/rv64/obj/zesu-raw-ssz-sink.o" \
                 "$out/rv64/bin/sha3" \
                 "$out/rv64/bin/tinfl" \
                 "$out/rv64/bin/reth-keccak" \
@@ -863,7 +1076,9 @@
                 "$out/rv64/obj/sha3.o" \
                 "$out/rv64/obj/tinfl.o" \
                 "$out/rv64/obj/reth-keccak-rustcrypto.a" \
-                "$out/rv64/obj/zesu-raw-ssz.o" \
+                "$out/rv64/obj/zesu-raw-ssz-allocator.o" \
+                "$out/rv64/obj/zesu-raw-ssz-decoder.o" \
+                "$out/rv64/obj/zesu-raw-ssz-sink.o" \
                 "$out/rv64/bin/sha3" \
                 "$out/rv64/bin/tinfl" \
                 "$out/rv64/bin/reth-keccak" \
@@ -882,7 +1097,7 @@
               } > "$out/toolchain.csv"
 
               cat > "$out/stats.tsv" <<EOF
-              target	source	arch	object_artifact	object_text	linked_text	selected_symbol_instructions	branchish	full_instructions	reachable_instructions	protocol_owned_reachable_instructions	reachable_functions	basic_blocks	cfg_edges	conditional_branches	direct_calls	loop_sccs	maximum_direct_call_depth	opcode_classes	forbidden_reachable_instructions	linked_objdump_lines	linked_objdump_instruction_lines	file_size_object	file_size_linked	analysis_json
+              target	analysis_scope	entry_symbol	source	arch	object_artifact	object_text	linked_text	selected_symbol_instructions	branchish	full_instructions	reachable_instructions	protocol_owned_reachable_instructions	protocol_owned_reachable_functions	reachable_functions	basic_blocks	cfg_edges	conditional_branches	direct_calls	loop_sccs	maximum_direct_call_depth	opcode_classes	forbidden_reachable_instructions	linked_objdump_lines	linked_objdump_instruction_lines	file_size_object	file_size_linked	analysis_json
               EOF
 
               cat > "$out/stats.md" <<EOF
@@ -908,8 +1123,60 @@
 
               ## ${riscvTarget}
 
-              | Target | Protocol object | Object \`.text\` | Linked \`.text\` | Full instrs | Reachable instrs | Protocol reachable | Reachable funcs | Blocks | CFG edges | Conditional branches | Calls | Loop SCCs |
-              |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+              ## Decision-facing protocol-entry comparison
+
+              All selection rows use the exported protocol root in the linked ELF: \`sha3\`,
+              \`tinfl_decompress_mem_to_mem\`, \`reth_keccak256\`, or \`zesu_decode_raw\`.
+              In \`stats.tsv\`, filter \`analysis_scope=protocol-entry\` for the uniformly rooted
+              inputs to the size and structural gates. The selected-symbol columns are retained
+              only for continuity with the original SHA/miniz measurements.
+
+              | Target | Scope | Entry symbol | Measured artifact | Object \`.text\` | Linked \`.text\` | Full instrs | Reachable instrs | Protocol reachable | Reachable funcs | Protocol funcs | Blocks | CFG edges | Conditional branches | Calls | Loop SCCs |
+              |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+              EOF
+
+              append_target sha3-protocol \
+                'mjosaarinen/tiny_sha3:sha3.c (protocol entry)' \
+                'sha3.o' \
+                "$out/rv64/obj/sha3.o" \
+                "$out/rv64/bin/sha3" \
+                "$out/rv64/meta/sha3-protocol-selected-symbols.txt" \
+                sha3 \
+                protocol-entry
+              append_target tinfl-protocol \
+                'richgel999/miniz:miniz_tinfl.c (protocol entry)' \
+                'tinfl.o' \
+                "$out/rv64/obj/tinfl.o" \
+                "$out/rv64/bin/tinfl" \
+                "$out/rv64/meta/tinfl-protocol-selected-symbols.txt" \
+                tinfl_decompress_mem_to_mem \
+                protocol-entry
+              append_target reth-keccak-protocol \
+                'Reth RustCrypto Keccak-256 wrapper (protocol entry)' \
+                'libreth_keccak_wrapper.a' \
+                "$out/rv64/obj/reth-keccak-rustcrypto.a" \
+                "$out/rv64/bin/reth-keccak" \
+                "$out/rv64/meta/reth-keccak-protocol-selected-symbols.txt" \
+                reth_keccak256 \
+                protocol-entry
+              append_target zesu-ssz-parser \
+                'Zesu raw parser rooted at zesu_decode_raw' \
+                'zesu-raw-ssz-decoder.o' \
+                "$out/rv64/obj/zesu-raw-ssz-decoder.o" \
+                "$out/rv64/bin/zesu-ssz" \
+                "$out/rv64/meta/zesu-ssz-parser-selected-symbols.txt" \
+                zesu_decode_raw \
+                protocol-entry
+
+              cat >> "$out/stats.md" <<EOF
+
+              ## Full \`_start\` composition context
+
+              These retained context rows include each freestanding harness composition. They do
+              not feed the decision gates; use the protocol-entry rows above instead.
+
+              | Target | Scope | Entry symbol | Measured artifact | Object \`.text\` | Linked \`.text\` | Full instrs | Reachable instrs | Protocol reachable | Reachable funcs | Protocol funcs | Blocks | CFG edges | Conditional branches | Calls | Loop SCCs |
+              |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
               EOF
 
               append_target sha3 \
@@ -917,32 +1184,43 @@
                 'sha3.o' \
                 "$out/rv64/obj/sha3.o" \
                 "$out/rv64/bin/sha3" \
-                "$out/rv64/meta/sha3-selected-symbols.txt"
+                "$out/rv64/meta/sha3-selected-symbols.txt" \
+                _start \
+                full-composition
               append_target tinfl \
                 'richgel999/miniz:miniz_tinfl.c' \
                 'tinfl.o' \
                 "$out/rv64/obj/tinfl.o" \
                 "$out/rv64/bin/tinfl" \
-                "$out/rv64/meta/tinfl-selected-symbols.txt"
+                "$out/rv64/meta/tinfl-selected-symbols.txt" \
+                _start \
+                full-composition
               append_target reth-keccak \
                 'Reth RustCrypto Keccak-256 wrapper' \
                 'libreth_keccak_wrapper.a' \
                 "$out/rv64/obj/reth-keccak-rustcrypto.a" \
                 "$out/rv64/bin/reth-keccak" \
-                "$out/rv64/meta/reth-keccak-selected-symbols.txt"
+                "$out/rv64/meta/reth-keccak-selected-symbols.txt" \
+                _start \
+                full-composition
               append_target zesu-ssz \
-                'Zesu extracted decodeRaw composition' \
-                'zesu-raw-ssz.o' \
-                "$out/rv64/obj/zesu-raw-ssz.o" \
+                'Zesu full harness + allocator + decoder + sink composition' \
+                'zesu-ssz (full linked ELF)' \
                 "$out/rv64/bin/zesu-ssz" \
-                "$out/rv64/meta/zesu-ssz-selected-symbols.txt"
+                "$out/rv64/bin/zesu-ssz" \
+                "$out/rv64/meta/zesu-ssz-selected-symbols.txt" \
+                _start \
+                full-composition
 
               cat >> "$out/stats.md" <<EOF
 
-              The object column is the target's protocol object (or the Rust static archive for
-              Reth); linked measurements and structural analysis begin at the freestanding \`_start\`
-              entrypoint. The legacy selected-symbol and branch/call/return counts remain in
-              \`stats.tsv\` for continuity with the original SHA/miniz comparison.
+              The measured-artifact column identifies the protocol object (or Rust static archive)
+              for compact targets and the decoder object for Zesu's protocol entry; \`zesu-ssz\`
+              deliberately names the complete linked ELF. Direct reachability is conservative:
+              the analyzer follows direct-call fallthroughs even when a callee is noreturn, so the
+              Reth protocol root can retain explicitly labeled harness or runtime code. Ownership
+              maps are shared with the matching full-composition rows and are never stripped based
+              on inferred behavior.
 
               ## Structural analysis
 
@@ -950,8 +1228,10 @@
               functions, basic blocks, CFG edges, conditional branches, direct calls, loop SCCs,
               maximum direct-call depth, opcode classes, ISA violations, unresolved indirect calls,
               and ownership buckets. The matching Markdown files render the core metrics and ISA
-              gate. Complete linked \`objdump -d\` output is in \`objdump/\`; raw size and symbol
-              output is in \`size.txt\` and \`symbols.txt\`.
+              gate. Complete linked \`objdump -d\` output is in \`objdump/\`; entry-symbol
+              disassemblies are \`objdump/sha3-protocol.txt\`, \`objdump/tinfl-protocol.txt\`,
+              \`objdump/reth-keccak-protocol.txt\`, and \`objdump/zesu-ssz-parser.txt\`. Raw size
+              and symbol output is in \`size.txt\` and \`symbols.txt\`.
 
               ## Sanity
 
@@ -1032,17 +1312,19 @@
           };
         in
         {
-          inherit sha3 tinfl rethKeccak zesuProductionObject zesuRawObject zesuSsz zesuNativeSuite
-            stats dump sha3Run tinflRun rethKeccakRun zesuSszRun;
+          inherit sha3 tinfl rethKeccak zesuProductionObject zesuRawObject zesuValue zesuSsz
+            zesuSinkObservability zesuNativeSuite stats dump sha3Run tinflRun rethKeccakRun zesuSszRun;
           reth-keccak = rethKeccak;
+          zesu-value = zesuValue;
           zesu-ssz = zesuSsz;
+          zesu-sink-observability = zesuSinkObservability;
           zesu-native-suite = zesuNativeSuite;
           default = stats;
         });
 
       checks = forAllSystems (system: pkgs: {
         inherit (self.packages.${system}) sha3 tinfl rethKeccak zesuProductionObject zesuRawObject
-          zesuSsz zesuNativeSuite stats dump;
+          zesuValue zesuSsz zesuSinkObservability zesuNativeSuite stats dump;
         default = self.packages.${system}.stats;
       });
 

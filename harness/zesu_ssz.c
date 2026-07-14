@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 int32_t zesu_decode_raw(const uint8_t *input, size_t input_len);
+uint64_t zesu_raw_sink_checksum(void);
 
 #define INPUT_CAPACITY (2U * 1024U * 1024U)
 #define HEAP_CAPACITY (64U * 1024U * 1024U)
@@ -66,6 +67,19 @@ static int read_all(size_t *out_len)
     return -1;
 }
 
+static void write_checksum(uint64_t checksum)
+{
+    static const char digits[] = "0123456789abcdef";
+    char rendered[16];
+    size_t index;
+
+    for (index = 0; index < sizeof(rendered); ++index) {
+        unsigned int shift = (unsigned int)((sizeof(rendered) - 1U - index) * 4U);
+        rendered[index] = digits[(checksum >> shift) & 0x0fU];
+    }
+    write_all(1, rendered, sizeof(rendered));
+}
+
 int main(void)
 {
     size_t input_len;
@@ -83,8 +97,11 @@ int main(void)
         return 1;
     }
     {
-        static const char ok[] = "ok\n";
+        static const char ok[] = "ok ";
+        static const char newline[] = "\n";
         write_all(1, ok, sizeof(ok) - 1);
+        write_checksum(zesu_raw_sink_checksum());
+        write_all(1, newline, sizeof(newline) - 1);
     }
     return 0;
 }

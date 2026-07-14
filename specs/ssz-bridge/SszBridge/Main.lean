@@ -2,7 +2,7 @@ import SszBridge.Core
 
 namespace SszBridge
 
-/-- Read one raw SSZ fixture and print its normalized acceptance projection. -/
+/-- Read one raw V4 fixture and print the complete `ssz-value-v1` raw value. -/
 def run (args : List String) : IO UInt32 :=
   match args with
   | [path] => do
@@ -21,3 +21,4 @@ def run (args : List String) : IO UInt32 :=
 end SszBridge
 
 def main (args : List String) : IO UInt32 := SszBridge.run args
+

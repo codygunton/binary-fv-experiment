@@ -1,334 +1,595 @@
+import SizzLean.Spec.Deserialize
+import SizzLean.Spec.Serialize
+
 /-!
-# Executable stateless-SSZ bridge
+# Amsterdam V4 SSZ bridge
 
-This is a deliberately small, executable normalization layer for Zesu's raw
-`SszStatelessInput` candidate.  It accepts the schema prefix, optional Ere
-length wrapper, canonical SSZ offset tables and bounds, then projects the
-decoded input to dispatch and collection metadata.  It is designed for a
-three-way acceptance corpus, not as a replacement for an SSZ implementation.
+This executable bridge delegates SSZ decoding to the pinned SizzLean package.
+It owns only the outer schema identifier, raw/Ere framing, a canonical-wire
+wrapper, and a lossless named projection boundary.  V3 is deliberately
+quarantined: no V3 value is emitted because this project has no independently
+pinned V3 oracle.
 
-The V3/V4 split follows the fixed-section offset at byte 436 of an execution
-payload: 528 denotes V3 and 540 denotes V4.  The normalized result retains no
-transaction, witness, or request values; Zesu's raw ABI currently returns only
-success/failure and does not expose a full value-level representation.
+SizzLean's executable decoder accepts one non-canonical variable-list alias
+(`00 00 00 00` for an empty `List[ByteList]`).  `decodeCanonical` closes that
+gap by requiring exact reserialization after decoding.
 
-This file has no claimed refinement theorem.  SizzLean's executable decoder
-has variable-offset support, but its `BasicSupported` theorem coverage excludes
-mixed variable-size containers such as `SszStatelessInput`.
 -/
 
 namespace SszBridge
 
-inductive SszError where
-  | tooShort
-  | badSchema
-  | badOffset
-  | badPayloadVersion
-  | malformedList
-  | outOfRange
-  deriving Repr, DecidableEq
+open SizzLean.Spec
 
-inductive PayloadVersion where
-  | v3
-  | v4
-  deriving Repr, DecidableEq
+abbrev u8 : SSZType := .uintN 8
+abbrev u64 : SSZType := .uintN 64
+abbrev u256 : SSZType := .uintN 256
 
-structure Span where
-  start : Nat
-  finish : Nat
-  deriving Repr, DecidableEq
-
-structure NormalizedInput where
-  erePrefixed : Bool
-  payloadVersion : PayloadVersion
-  chainId : Nat
-  forkIndex : Nat
-  transactions : Span
-  withdrawals : Span
-  blockAccessList : Span
-  transactionCount : Nat
-  witnessNodeCount : Nat
-  witnessCodeCount : Nat
-  witnessHeaderCount : Nat
-  publicKeyCount : Nat
-  deriving Repr, DecidableEq
-
-structure PayloadProjection where
-  version : PayloadVersion
-  transactions : Span
-  withdrawals : Span
-  blockAccessList : Span
-  transactionCount : Nat
-  deriving Repr, DecidableEq
-
-structure NewPayloadProjection where
-  payloadStart : Nat
-  payload : PayloadProjection
-  deriving Repr, DecidableEq
-
-abbrev Result (α : Type) := Except SszError α
+abbrev byteVector (length : Nat) : SSZType := .vector u8 length
+abbrev byteList (capacity : Nat) : SSZType := .list u8 capacity
 
 def maxExtraDataBytes : Nat := 32
 def maxBytesPerTransaction : Nat := 2 ^ 30
 def maxTransactionsPerPayload : Nat := 2 ^ 20
 def maxWithdrawalsPerPayload : Nat := 2 ^ 4
 def maxBlobCommitmentsPerBlock : Nat := 4096
+def maxDepositRequestsPerPayload : Nat := 2 ^ 13
+def maxWithdrawalRequestsPerPayload : Nat := 2 ^ 4
+def maxConsolidationRequestsPerPayload : Nat := 2 ^ 1
 def maxWitnessNodes : Nat := 2 ^ 22
 def maxWitnessCodes : Nat := 2 ^ 18
 def maxWitnessHeaders : Nat := 256
 def maxBytesPerWitnessNode : Nat := 2 ^ 10
 def maxBytesPerCode : Nat := 2 ^ 16
 def maxBytesPerHeader : Nat := 2 ^ 10
+def maxOptionalForkActivationValues : Nat := 1
+def maxBlobSchedulesPerFork : Nat := 1
 def maxPublicKeys : Nat := 2 ^ 15
+def publicKeyBytes : Nat := 65
 
-def readU32LE (input : ByteArray) (offset : Nat) : Result Nat := do
+def withdrawalType : SSZType :=
+  .container [u64, u64, byteVector 20, u64]
+
+def executionPayloadType : SSZType :=
+  .container [
+    byteVector 32,
+    byteVector 20,
+    byteVector 32,
+    byteVector 32,
+    byteVector 256,
+    byteVector 32,
+    u64,
+    u64,
+    u64,
+    u64,
+    byteList maxExtraDataBytes,
+    u256,
+    byteVector 32,
+    .list (byteList maxBytesPerTransaction) maxTransactionsPerPayload,
+    .list withdrawalType maxWithdrawalsPerPayload,
+    u64,
+    u64,
+    byteList maxBytesPerTransaction,
+    u64,
+  ]
+
+def depositRequestType : SSZType :=
+  .container [byteVector 48, byteVector 32, u64, byteVector 96, u64]
+
+def withdrawalRequestType : SSZType :=
+  .container [byteVector 20, byteVector 48, u64]
+
+def consolidationRequestType : SSZType :=
+  .container [byteVector 20, byteVector 48, byteVector 48]
+
+def executionRequestsType : SSZType :=
+  .container [
+    .list depositRequestType maxDepositRequestsPerPayload,
+    .list withdrawalRequestType maxWithdrawalRequestsPerPayload,
+    .list consolidationRequestType maxConsolidationRequestsPerPayload,
+  ]
+
+def newPayloadRequestType : SSZType :=
+  .container [
+    executionPayloadType,
+    .list (byteVector 32) maxBlobCommitmentsPerBlock,
+    byteVector 32,
+    executionRequestsType,
+  ]
+
+def witnessType : SSZType :=
+  .container [
+    .list (byteList maxBytesPerWitnessNode) maxWitnessNodes,
+    .list (byteList maxBytesPerCode) maxWitnessCodes,
+    .list (byteList maxBytesPerHeader) maxWitnessHeaders,
+  ]
+
+def forkActivationType : SSZType :=
+  .container [
+    .list u64 maxOptionalForkActivationValues,
+    .list u64 maxOptionalForkActivationValues,
+  ]
+
+def blobScheduleType : SSZType :=
+  .container [u64, u64, u64]
+
+def forkConfigType : SSZType :=
+  .container [
+    u64,
+    forkActivationType,
+    .list blobScheduleType maxBlobSchedulesPerFork,
+  ]
+
+def chainConfigType : SSZType :=
+  .container [u64, forkConfigType]
+
+/-- The complete pinned Amsterdam V4 `SszStatelessInput` body schema. -/
+def statelessInputV4Type : SSZType :=
+  .container [
+    newPayloadRequestType,
+    witnessType,
+    chainConfigType,
+    .list (byteVector publicKeyBytes) maxPublicKeys,
+  ]
+
+inductive BridgeError where
+  | tooLarge
+  | tooShort
+  | badSchema
+  | unknownFork
+  | v3Quarantined
+  | ssz (error : SSZError)
+  deriving Repr, DecidableEq
+
+abbrev Result (α : Type) := Except BridgeError α
+
+abbrev RawByteVector (length : Nat) := Vector UInt8 length
+abbrev RawBytes := Array UInt8
+
+structure RawWithdrawal where
+  index : UInt64
+  validatorIndex : UInt64
+  address : RawByteVector 20
+  amount : UInt64
+  deriving Repr
+
+structure RawExecutionPayload where
+  parentHash : RawByteVector 32
+  feeRecipient : RawByteVector 20
+  stateRoot : RawByteVector 32
+  receiptsRoot : RawByteVector 32
+  logsBloom : RawByteVector 256
+  prevRandao : RawByteVector 32
+  blockNumber : UInt64
+  gasLimit : UInt64
+  gasUsed : UInt64
+  timestamp : UInt64
+  extraData : RawBytes
+  baseFeePerGas : BitVec 256
+  blockHash : RawByteVector 32
+  transactions : Array RawBytes
+  withdrawals : Array RawWithdrawal
+  blobGasUsed : UInt64
+  excessBlobGas : UInt64
+  blockAccessList : RawBytes
+  slotNumber : UInt64
+  deriving Repr
+
+structure RawDepositRequest where
+  pubkey : RawByteVector 48
+  withdrawalCredentials : RawByteVector 32
+  amount : UInt64
+  signature : RawByteVector 96
+  index : UInt64
+  deriving Repr
+
+structure RawWithdrawalRequest where
+  sourceAddress : RawByteVector 20
+  validatorPubkey : RawByteVector 48
+  amount : UInt64
+  deriving Repr
+
+structure RawConsolidationRequest where
+  sourceAddress : RawByteVector 20
+  sourcePubkey : RawByteVector 48
+  targetPubkey : RawByteVector 48
+  deriving Repr
+
+structure RawExecutionRequests where
+  deposits : Array RawDepositRequest
+  withdrawals : Array RawWithdrawalRequest
+  consolidations : Array RawConsolidationRequest
+  deriving Repr
+
+structure RawNewPayloadRequest where
+  executionPayload : RawExecutionPayload
+  versionedHashes : Array (RawByteVector 32)
+  parentBeaconBlockRoot : RawByteVector 32
+  executionRequests : RawExecutionRequests
+  deriving Repr
+
+structure RawExecutionWitness where
+  state : Array RawBytes
+  codes : Array RawBytes
+  headers : Array RawBytes
+  deriving Repr
+
+structure RawForkActivation where
+  blockNumber : Option UInt64
+  timestamp : Option UInt64
+  deriving Repr
+
+structure RawBlobSchedule where
+  target : UInt64
+  max : UInt64
+  baseFeeUpdateFraction : UInt64
+  deriving Repr
+
+structure RawForkConfig where
+  fork : UInt64
+  activation : RawForkActivation
+  blobSchedule : Option RawBlobSchedule
+  deriving Repr
+
+structure RawChainConfig where
+  chainId : UInt64
+  activeFork : RawForkConfig
+  deriving Repr
+
+/-- A named lossless representation of the complete Amsterdam V4 schema. -/
+structure RawV4 where
+  newPayloadRequest : RawNewPayloadRequest
+  witness : RawExecutionWitness
+  chainConfig : RawChainConfig
+  publicKeys : Array (RawByteVector publicKeyBytes)
+  deriving Repr
+
+def rawWithdrawalOf (value : withdrawalType.interp) : RawWithdrawal :=
+  {
+    index := value.1
+    validatorIndex := value.2.1
+    address := value.2.2.1
+    amount := value.2.2.2.1
+  }
+
+def rawExecutionPayloadOf (value : executionPayloadType.interp) : RawExecutionPayload :=
+  {
+    parentHash := value.1
+    feeRecipient := value.2.1
+    stateRoot := value.2.2.1
+    receiptsRoot := value.2.2.2.1
+    logsBloom := value.2.2.2.2.1
+    prevRandao := value.2.2.2.2.2.1
+    blockNumber := value.2.2.2.2.2.2.1
+    gasLimit := value.2.2.2.2.2.2.2.1
+    gasUsed := value.2.2.2.2.2.2.2.2.1
+    timestamp := value.2.2.2.2.2.2.2.2.2.1
+    extraData := value.2.2.2.2.2.2.2.2.2.2.1
+    baseFeePerGas := value.2.2.2.2.2.2.2.2.2.2.2.1
+    blockHash := value.2.2.2.2.2.2.2.2.2.2.2.2.1
+    transactions := value.2.2.2.2.2.2.2.2.2.2.2.2.2.1.1.map (fun item => item.1)
+    withdrawals := value.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1.1.map rawWithdrawalOf
+    blobGasUsed := value.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+    excessBlobGas := value.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+    blockAccessList := value.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1.1
+    slotNumber := value.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+  }
+
+def rawDepositRequestOf (value : depositRequestType.interp) : RawDepositRequest :=
+  {
+    pubkey := value.1
+    withdrawalCredentials := value.2.1
+    amount := value.2.2.1
+    signature := value.2.2.2.1
+    index := value.2.2.2.2.1
+  }
+
+def rawWithdrawalRequestOf (value : withdrawalRequestType.interp) : RawWithdrawalRequest :=
+  {
+    sourceAddress := value.1
+    validatorPubkey := value.2.1
+    amount := value.2.2.1
+  }
+
+def rawConsolidationRequestOf (value : consolidationRequestType.interp) :
+    RawConsolidationRequest :=
+  {
+    sourceAddress := value.1
+    sourcePubkey := value.2.1
+    targetPubkey := value.2.2.1
+  }
+
+def rawExecutionRequestsOf (value : executionRequestsType.interp) : RawExecutionRequests :=
+  {
+    deposits := value.1.1.map rawDepositRequestOf
+    withdrawals := value.2.1.1.map rawWithdrawalRequestOf
+    consolidations := value.2.2.1.1.map rawConsolidationRequestOf
+  }
+
+def rawNewPayloadRequestOf (value : newPayloadRequestType.interp) : RawNewPayloadRequest :=
+  {
+    executionPayload := rawExecutionPayloadOf value.1
+    versionedHashes := value.2.1.1
+    parentBeaconBlockRoot := value.2.2.1
+    executionRequests := rawExecutionRequestsOf value.2.2.2.1
+  }
+
+def rawWitnessOf (value : witnessType.interp) : RawExecutionWitness :=
+  {
+    state := value.1.1.map (fun item => item.1)
+    codes := value.2.1.1.map (fun item => item.1)
+    headers := value.2.2.1.1.map (fun item => item.1)
+  }
+
+def rawForkActivationOf (value : forkActivationType.interp) : RawForkActivation :=
+  {
+    blockNumber := value.1.1[0]?
+    timestamp := value.2.1.1[0]?
+  }
+
+def rawBlobScheduleOf (value : blobScheduleType.interp) : RawBlobSchedule :=
+  {
+    target := value.1
+    max := value.2.1
+    baseFeeUpdateFraction := value.2.2.1
+  }
+
+def rawForkConfigOf (value : forkConfigType.interp) : RawForkConfig :=
+  {
+    fork := value.1
+    activation := rawForkActivationOf value.2.1
+    blobSchedule := (value.2.2.1.1[0]?).map rawBlobScheduleOf
+  }
+
+def rawChainConfigOf (value : chainConfigType.interp) : RawChainConfig :=
+  {
+    chainId := value.1
+    activeFork := rawForkConfigOf value.2.1
+  }
+
+def rawV4OfInterp (value : statelessInputV4Type.interp) : RawV4 :=
+  {
+    newPayloadRequest := rawNewPayloadRequestOf value.1
+    witness := rawWitnessOf value.2.1
+    chainConfig := rawChainConfigOf value.2.2.1
+    publicKeys := value.2.2.2.1.1
+  }
+
+def readU32LE? (input : ByteArray) (offset : Nat) : Option Nat :=
   if offset + 4 > input.size then
-    throw .tooShort
+    none
   else
-    pure <|
+    some <|
       (input.get! offset).toNat +
       (input.get! (offset + 1)).toNat * 256 +
       (input.get! (offset + 2)).toNat * 256 ^ 2 +
       (input.get! (offset + 3)).toNat * 256 ^ 3
 
-def readU64LE (input : ByteArray) (offset : Nat) : Result Nat := do
-  if offset + 8 > input.size then
-    throw .tooShort
+/--
+Decode a schema body and reject any accepted-but-noncanonical wire alias.
+The serialize equality also catches the known all-zero first-offset alias for
+an empty variable-element list.
+-/
+def decodeCanonical (schema : SSZType) (body : ByteArray) : Except SSZError schema.interp := do
+  let (value, used) ← schema.deserialize body
+  if used != body.size then
+    throw .trailingBytes
+  else if schema.serialize value == body then
+    pure value
   else
-    pure <| (List.range 8).foldl
-      (fun value index => value + (input.get! (offset + index)).toNat * 256 ^ index) 0
+    throw .invalidOffset
 
-def checkedSpan (start finish limit : Nat) : Result Span :=
-  if start ≤ finish ∧ finish ≤ limit then
-    .ok { start, finish }
+def hasSchemaId (input : ByteArray) : Bool :=
+  input.size ≥ 2 && input.get! 0 == 0 && input.get! 1 == 1
+
+/-- A narrow structural V3 classifier; it never produces a V3 semantic value. -/
+def hasV3PayloadShape (input : ByteArray) : Bool :=
+  if !hasSchemaId input then
+    false
   else
-    .error .badOffset
-
-def Span.shift (span : Span) (amount : Nat) : Span :=
-  { start := amount + span.start, finish := amount + span.finish }
-
-def Span.bytes (span : Span) (input : ByteArray) : ByteArray :=
-  input.extract span.start span.finish
-
-def require (condition : Prop) (error : SszError) [Decidable condition] : Result Unit :=
-  if condition then .ok () else .error error
-
-/-- Check the wire form of `List[ByteList[maxBytes], maxCount]`. -/
-def checkByteListOffsets (input : ByteArray) (maxBytes : Nat) :
-    (remaining position previous : Nat) → Result Unit
-  | 0, _, _ => .ok ()
-  | remaining + 1, position, previous => do
-      let current ← readU32LE input position
-      let following ←
-        if remaining = 0 then
-          .ok input.size
+    let body := input.extract 2 input.size
+    match readU32LE? body 0, readU32LE? body 4 with
+    | some requestOffset, some hashesOffset =>
+        if requestOffset != 16 || requestOffset > hashesOffset || hashesOffset > body.size then
+          false
         else
-          readU32LE input (position + 4)
-      let _ ← require (previous ≤ current ∧ current ≤ following ∧ following ≤ input.size)
-        .badOffset
-      let _ ← require (following - current ≤ maxBytes) .outOfRange
-      checkByteListOffsets input maxBytes remaining (position + 4) current
+          let request := body.extract requestOffset hashesOffset
+          match readU32LE? request 0, readU32LE? request 4 with
+          | some payloadOffset, some payloadEnd =>
+              if payloadOffset != 44 || payloadOffset > payloadEnd || payloadEnd > request.size then
+                false
+              else
+                let payload := request.extract payloadOffset payloadEnd
+                readU32LE? payload 436 == some 528
+          | _, _ => false
+    | _, _ => false
 
-def decodeByteListList (input : ByteArray) (maxCount maxBytes : Nat) : Result Nat := do
-  if input.size = 0 then
-    .ok 0
+def decodeRawV4 (input : ByteArray) : Result RawV4 := do
+  if input.size >= 2 ^ 32 then
+    throw .tooLarge
+  else if input.size < 2 then
+    throw .tooShort
+  else if !hasSchemaId input then
+    throw .badSchema
   else
-    let firstOffset ← readU32LE input 0
-    let _ ← require
-      (firstOffset ≠ 0 ∧ firstOffset % 4 = 0 ∧ firstOffset ≤ input.size) .malformedList
-    let count := firstOffset / 4
-    let _ ← require (count ≤ maxCount) .outOfRange
-    let _ ← checkByteListOffsets input maxBytes count 0 firstOffset
-    .ok count
+    match decodeCanonical statelessInputV4Type (input.extract 2 input.size) with
+    | .ok value =>
+        let raw := rawV4OfInterp value
+        if raw.chainConfig.activeFork.fork > 20 then
+          throw .unknownFork
+        else
+          pure raw
+    | .error error => throw (.ssz error)
 
-def decodeFixedList (input : ByteArray) (elementSize maxCount : Nat) : Result Nat := do
-  let _ ← require (elementSize ≠ 0 ∧ input.size % elementSize = 0) .malformedList
-  let count := input.size / elementSize
-  let _ ← require (count ≤ maxCount) .outOfRange
-  .ok count
-
-def decodeExecutionRequests (input : ByteArray) : Result Unit := do
-  let _ ← require (input.size ≥ 12) .tooShort
-  let depositsOffset ← readU32LE input 0
-  let withdrawalsOffset ← readU32LE input 4
-  let consolidationsOffset ← readU32LE input 8
-  let _ ← require
-    (depositsOffset = 12 ∧ depositsOffset ≤ withdrawalsOffset ∧
-      withdrawalsOffset ≤ consolidationsOffset ∧ consolidationsOffset ≤ input.size) .badOffset
-  let deposits := input.extract depositsOffset withdrawalsOffset
-  let withdrawals := input.extract withdrawalsOffset consolidationsOffset
-  let consolidations := input.extract consolidationsOffset input.size
-  let _ ← decodeFixedList deposits 192 (2 ^ 13)
-  let _ ← decodeFixedList withdrawals 76 (2 ^ 4)
-  let _ ← decodeFixedList consolidations 116 (2 ^ 1)
-  .ok ()
-
-def decodeExecutionPayload (input : ByteArray) : Result PayloadProjection := do
-  let _ ← require (input.size ≥ 528) .tooShort
-  let extraDataOffset ← readU32LE input 436
-  let version ←
-    if extraDataOffset = 528 then
-      .ok PayloadVersion.v3
-    else if extraDataOffset = 540 then
-      let _ ← require (input.size ≥ 540) .tooShort
-      .ok PayloadVersion.v4
-    else
-      .error .badPayloadVersion
-  let fixedSize := match version with | .v3 => 528 | .v4 => 540
-  let transactionsOffset ← readU32LE input 504
-  let withdrawalsOffset ← readU32LE input 508
-  let accessListOffset ← match version with
-    | .v3 => .ok input.size
-    | .v4 => readU32LE input 528
-  let _ ← require
-    (extraDataOffset = fixedSize ∧ extraDataOffset ≤ transactionsOffset ∧
-      transactionsOffset ≤ withdrawalsOffset ∧ withdrawalsOffset ≤ accessListOffset ∧
-      accessListOffset ≤ input.size) .badOffset
-  let _ ← require (transactionsOffset - extraDataOffset ≤ maxExtraDataBytes) .outOfRange
-  let transactions ← checkedSpan transactionsOffset withdrawalsOffset input.size
-  let withdrawals ← checkedSpan withdrawalsOffset accessListOffset input.size
-  let blockAccessList ← checkedSpan accessListOffset input.size input.size
-  let transactionCount ← decodeByteListList (transactions.bytes input) maxTransactionsPerPayload
-    maxBytesPerTransaction
-  let _ ← decodeFixedList (withdrawals.bytes input) 44 maxWithdrawalsPerPayload
-  let _ ← require ((blockAccessList.bytes input).size ≤ maxBytesPerTransaction) .outOfRange
-  .ok { version, transactions, withdrawals, blockAccessList, transactionCount }
-
-def decodeNewPayloadRequest (input : ByteArray) : Result NewPayloadProjection := do
-  let _ ← require (input.size ≥ 44) .tooShort
-  let payloadOffset ← readU32LE input 0
-  let versionedHashesOffset ← readU32LE input 4
-  let requestsOffset ← readU32LE input 40
-  let _ ← require
-    (payloadOffset = 44 ∧ payloadOffset ≤ versionedHashesOffset ∧
-      versionedHashesOffset ≤ requestsOffset ∧ requestsOffset ≤ input.size) .badOffset
-  let payload := input.extract payloadOffset versionedHashesOffset
-  let versionedHashes := input.extract versionedHashesOffset requestsOffset
-  let requests := input.extract requestsOffset input.size
-  let _ ← decodeFixedList versionedHashes 32 maxBlobCommitmentsPerBlock
-  let _ ← decodeExecutionRequests requests
-  let payloadProjection ← decodeExecutionPayload payload
-  .ok { payloadStart := payloadOffset, payload := payloadProjection }
-
-def decodeWitness (input : ByteArray) : Result (Nat × Nat × Nat) := do
-  let _ ← require (input.size ≥ 12) .tooShort
-  let stateOffset ← readU32LE input 0
-  let codesOffset ← readU32LE input 4
-  let headersOffset ← readU32LE input 8
-  let _ ← require
-    (stateOffset = 12 ∧ stateOffset ≤ codesOffset ∧ codesOffset ≤ headersOffset ∧
-      headersOffset ≤ input.size) .badOffset
-  let state := input.extract stateOffset codesOffset
-  let codes := input.extract codesOffset headersOffset
-  let headers := input.extract headersOffset input.size
-  let stateCount ← decodeByteListList state maxWitnessNodes maxBytesPerWitnessNode
-  let codeCount ← decodeByteListList codes maxWitnessCodes maxBytesPerCode
-  let headerCount ← decodeByteListList headers maxWitnessHeaders maxBytesPerHeader
-  .ok (stateCount, codeCount, headerCount)
-
-def decodeChainConfig (input : ByteArray) : Result (Nat × Nat) := do
-  let _ ← require (input.size ≥ 12) .tooShort
-  let chainId ← readU64LE input 0
-  let activeForkOffset ← readU32LE input 8
-  let _ ← require (activeForkOffset = 12) .badOffset
-  let activeFork := input.extract activeForkOffset input.size
-  let _ ← require (activeFork.size ≥ 16) .tooShort
-  let forkIndex ← readU64LE activeFork 0
-  let activationOffset ← readU32LE activeFork 8
-  let blobScheduleOffset ← readU32LE activeFork 12
-  let _ ← require
-    (forkIndex ≤ 20 ∧ activationOffset = 16 ∧ activationOffset ≤ blobScheduleOffset ∧
-      blobScheduleOffset ≤ activeFork.size) .badOffset
-  let activation := activeFork.extract activationOffset blobScheduleOffset
-  let _ ← require (activation.size ≥ 8) .tooShort
-  let blockNumberOffset ← readU32LE activation 0
-  let timestampOffset ← readU32LE activation 4
-  let _ ← require
-    (blockNumberOffset = 8 ∧ blockNumberOffset ≤ timestampOffset ∧
-      timestampOffset ≤ activation.size) .badOffset
-  let blockNumber := activation.extract blockNumberOffset timestampOffset
-  let timestamp := activation.extract timestampOffset activation.size
-  let blobSchedule := activeFork.extract blobScheduleOffset activeFork.size
-  let _ ← decodeFixedList blockNumber 8 1
-  let _ ← decodeFixedList timestamp 8 1
-  let _ ← decodeFixedList blobSchedule 24 1
-  .ok (chainId, forkIndex)
-
-/-- Decode a schema-prefix payload with an already-resolved framing choice. -/
-def decodePayload (erePrefixed : Bool) (payload : ByteArray) : Result NormalizedInput := do
-  let _ ← require (payload.size ≥ 2) .tooShort
-  let _ ← require (payload.get! 0 = 0 ∧ payload.get! 1 = 1) .badSchema
-  let body := payload.extract 2 payload.size
-  let _ ← require (body.size ≥ 16) .tooShort
-  let newPayloadOffset ← readU32LE body 0
-  let witnessOffset ← readU32LE body 4
-  let chainConfigOffset ← readU32LE body 8
-  let publicKeysOffset ← readU32LE body 12
-  let _ ← require
-    (newPayloadOffset = 16 ∧ newPayloadOffset ≤ witnessOffset ∧
-      witnessOffset ≤ chainConfigOffset ∧ chainConfigOffset ≤ publicKeysOffset ∧
-      publicKeysOffset ≤ body.size) .badOffset
-  let newPayload ← checkedSpan newPayloadOffset witnessOffset body.size
-  let witness ← checkedSpan witnessOffset chainConfigOffset body.size
-  let chainConfig ← checkedSpan chainConfigOffset publicKeysOffset body.size
-  let publicKeys ← checkedSpan publicKeysOffset body.size body.size
-  let newPayloadProjection ← decodeNewPayloadRequest (newPayload.bytes body)
-  let (witnessNodeCount, witnessCodeCount, witnessHeaderCount) ← decodeWitness (witness.bytes body)
-  let (chainId, forkIndex) ← decodeChainConfig (chainConfig.bytes body)
-  let publicKeyCount ← decodeFixedList (publicKeys.bytes body) 65 maxPublicKeys
-  let executionPayloadStart := 2 + newPayload.start + newPayloadProjection.payloadStart
-  let payloadProjection := newPayloadProjection.payload
-  .ok {
-    erePrefixed,
-    payloadVersion := payloadProjection.version,
-    chainId,
-    forkIndex,
-    transactions := payloadProjection.transactions.shift executionPayloadStart,
-    withdrawals := payloadProjection.withdrawals.shift executionPayloadStart,
-    blockAccessList := payloadProjection.blockAccessList.shift executionPayloadStart,
-    transactionCount := payloadProjection.transactionCount,
-    witnessNodeCount,
-    witnessCodeCount,
-    witnessHeaderCount,
-    publicKeyCount,
-  }
+def decodeRawOrQuarantineV3 (input : ByteArray) : Result RawV4 :=
+  if hasV3PayloadShape input then
+    .error .v3Quarantined
+  else
+    decodeRawV4 input
 
 /--
-Try raw SSZ before an Ere frame.  This makes a genuine raw schema payload win when its first four
-bytes coincidentally equal `input.size - 4`; only a non-schema raw input can be reinterpreted as
-Ere framing.
+Decode V4 raw bytes first.  A length-prefixed Ere interpretation is attempted
+only after raw failure and only when its little-endian declared length is exact.
 -/
-def decodeStatelessInput (input : ByteArray) : Result NormalizedInput :=
-  match decodePayload false input with
-  | .ok normalized => .ok normalized
-  | .error rawError =>
-      if input.size < 4 then
-        .error rawError
-      else
-        match readU32LE input 0 with
-        | .error _ => .error rawError
-        | .ok declaredLength =>
-            if declaredLength = input.size - 4 then
-              decodePayload true (input.extract 4 input.size)
-            else
-              .error rawError
+def decodeStatelessInput (input : ByteArray) : Result RawV4 :=
+  if input.size >= 2 ^ 32 then
+    .error .tooLarge
+  else
+    match decodeRawOrQuarantineV3 input with
+    | .ok value => .ok value
+    | .error rawError =>
+        match rawError with
+        | .v3Quarantined => .error rawError
+        | _ =>
+            match readU32LE? input 0 with
+            | some declaredLength =>
+                if declaredLength == input.size - 4 then
+                  decodeRawOrQuarantineV3 (input.extract 4 input.size)
+                else
+                  .error rawError
+            | none => .error rawError
 
-def PayloadVersion.label : PayloadVersion → String
-  | .v3 => "v3"
-  | .v4 => "v4"
-
-def SszError.label : SszError → String
+def BridgeError.label : BridgeError → String
+  | .tooLarge => "too_large"
   | .tooShort => "too_short"
   | .badSchema => "bad_schema"
-  | .badOffset => "bad_offset"
-  | .badPayloadVersion => "bad_payload_version"
-  | .malformedList => "malformed_list"
-  | .outOfRange => "out_of_range"
+  | .unknownFork => "unknown_fork"
+  | .v3Quarantined => "v3_quarantined"
+  | .ssz error => s!"ssz_{repr error}"
 
-def NormalizedInput.render (input : NormalizedInput) : String :=
-  s!"ok\tere={if input.erePrefixed then 1 else 0}\tversion={input.payloadVersion.label}\t" ++
-    s!"chain_id={input.chainId}\tfork={input.forkIndex}\ttxs={input.transactionCount}\t" ++
-    s!"witness={input.witnessNodeCount},{input.witnessCodeCount},{input.witnessHeaderCount}\t" ++
-    s!"public_keys={input.publicKeyCount}"
+def valueRecord (path kind value : String) : String :=
+  path ++ "\t" ++ kind ++ "\t" ++ value
+
+def hexDigit (value : Nat) : Char :=
+  if value < 10 then
+    Char.ofNat ('0'.toNat + value)
+  else
+    Char.ofNat ('a'.toNat + value - 10)
+
+def renderByte (value : UInt8) : String :=
+  let value := value.toNat
+  String.ofList [hexDigit (value / 16), hexDigit (value % 16)]
+
+def renderBytes (value : RawBytes) : String :=
+  "0x" ++ String.join (value.toList.map renderByte)
+
+def renderU64 (path : String) (value : UInt64) : List String :=
+  [valueRecord path "scalar" (toString value)]
+
+def renderU256 (path : String) (value : BitVec 256) : List String :=
+  [valueRecord path "scalar" (toString value.toNat)]
+
+def renderByteField (path : String) (value : RawBytes) : List String :=
+  [valueRecord path "bytes" (renderBytes value)]
+
+def renderVectorField {length : Nat} (path : String) (value : RawByteVector length) : List String :=
+  renderByteField path value.toArray
+
+def renderIndexed {α : Type} (path : String) (render : String → α → List String) :
+    Nat → List α → List String
+  | _, [] => []
+  | index, value :: values =>
+      render (path ++ "[" ++ toString index ++ "]") value ++
+        renderIndexed path render (index + 1) values
+
+def renderList {α : Type} (path : String) (values : Array α) (render : String → α → List String) :
+    List String :=
+  valueRecord path "count" (toString values.size) :: renderIndexed path render 0 values.toList
+
+def renderOptionU64 (path : String) : Option UInt64 → List String
+  | none => [valueRecord path "option" "none"]
+  | some value => valueRecord path "option" "some" :: renderU64 (path ++ ".value") value
+
+def renderWithdrawal (path : String) (value : RawWithdrawal) : List String :=
+  renderU64 (path ++ ".index") value.index ++
+    renderU64 (path ++ ".validator_index") value.validatorIndex ++
+    renderVectorField (path ++ ".address") value.address ++
+    renderU64 (path ++ ".amount") value.amount
+
+def renderExecutionPayload (path : String) (value : RawExecutionPayload) : List String :=
+  renderVectorField (path ++ ".parent_hash") value.parentHash ++
+    renderVectorField (path ++ ".fee_recipient") value.feeRecipient ++
+    renderVectorField (path ++ ".state_root") value.stateRoot ++
+    renderVectorField (path ++ ".receipts_root") value.receiptsRoot ++
+    renderVectorField (path ++ ".logs_bloom") value.logsBloom ++
+    renderVectorField (path ++ ".prev_randao") value.prevRandao ++
+    renderU64 (path ++ ".block_number") value.blockNumber ++
+    renderU64 (path ++ ".gas_limit") value.gasLimit ++
+    renderU64 (path ++ ".gas_used") value.gasUsed ++
+    renderU64 (path ++ ".timestamp") value.timestamp ++
+    renderByteField (path ++ ".extra_data") value.extraData ++
+    renderU256 (path ++ ".base_fee_per_gas") value.baseFeePerGas ++
+    renderVectorField (path ++ ".block_hash") value.blockHash ++
+    renderList (path ++ ".transactions") value.transactions renderByteField ++
+    renderList (path ++ ".withdrawals") value.withdrawals renderWithdrawal ++
+    renderU64 (path ++ ".blob_gas_used") value.blobGasUsed ++
+    renderU64 (path ++ ".excess_blob_gas") value.excessBlobGas ++
+    renderByteField (path ++ ".block_access_list") value.blockAccessList ++
+    renderU64 (path ++ ".slot_number") value.slotNumber
+
+def renderDepositRequest (path : String) (value : RawDepositRequest) : List String :=
+  renderVectorField (path ++ ".pubkey") value.pubkey ++
+    renderVectorField (path ++ ".withdrawal_credentials") value.withdrawalCredentials ++
+    renderU64 (path ++ ".amount") value.amount ++
+    renderVectorField (path ++ ".signature") value.signature ++
+    renderU64 (path ++ ".index") value.index
+
+def renderWithdrawalRequest (path : String) (value : RawWithdrawalRequest) : List String :=
+  renderVectorField (path ++ ".source_address") value.sourceAddress ++
+    renderVectorField (path ++ ".validator_pubkey") value.validatorPubkey ++
+    renderU64 (path ++ ".amount") value.amount
+
+def renderConsolidationRequest (path : String) (value : RawConsolidationRequest) : List String :=
+  renderVectorField (path ++ ".source_address") value.sourceAddress ++
+    renderVectorField (path ++ ".source_pubkey") value.sourcePubkey ++
+    renderVectorField (path ++ ".target_pubkey") value.targetPubkey
+
+def renderExecutionRequests (path : String) (value : RawExecutionRequests) : List String :=
+  renderList (path ++ ".deposits") value.deposits renderDepositRequest ++
+    renderList (path ++ ".withdrawals") value.withdrawals renderWithdrawalRequest ++
+    renderList (path ++ ".consolidations") value.consolidations renderConsolidationRequest
+
+def renderNewPayloadRequest (path : String) (value : RawNewPayloadRequest) : List String :=
+  renderExecutionPayload (path ++ ".execution_payload") value.executionPayload ++
+    renderList (path ++ ".versioned_hashes") value.versionedHashes renderVectorField ++
+    renderVectorField (path ++ ".parent_beacon_block_root") value.parentBeaconBlockRoot ++
+    renderExecutionRequests (path ++ ".execution_requests") value.executionRequests
+
+def renderWitness (path : String) (value : RawExecutionWitness) : List String :=
+  renderList (path ++ ".state") value.state renderByteField ++
+    renderList (path ++ ".codes") value.codes renderByteField ++
+    renderList (path ++ ".headers") value.headers renderByteField
+
+def renderBlobSchedule (path : String) (value : RawBlobSchedule) : List String :=
+  renderU64 (path ++ ".target") value.target ++
+    renderU64 (path ++ ".max") value.max ++
+    renderU64 (path ++ ".base_fee_update_fraction") value.baseFeeUpdateFraction
+
+def renderOptionBlobSchedule (path : String) : Option RawBlobSchedule → List String
+  | none => [valueRecord path "option" "none"]
+  | some value =>
+      valueRecord path "option" "some" :: renderBlobSchedule (path ++ ".value") value
+
+def renderForkActivation (path : String) (value : RawForkActivation) : List String :=
+  renderOptionU64 (path ++ ".block_number") value.blockNumber ++
+    renderOptionU64 (path ++ ".timestamp") value.timestamp
+
+def renderForkConfig (path : String) (value : RawForkConfig) : List String :=
+  renderU64 (path ++ ".fork") value.fork ++
+    renderForkActivation (path ++ ".activation") value.activation ++
+    renderOptionBlobSchedule (path ++ ".blob_schedule") value.blobSchedule
+
+def renderChainConfig (path : String) (value : RawChainConfig) : List String :=
+  renderU64 (path ++ ".chain_id") value.chainId ++
+    renderForkConfig (path ++ ".active_fork") value.activeFork
+
+def RawV4.renderLines (value : RawV4) : List String :=
+  renderNewPayloadRequest "new_payload_request" value.newPayloadRequest ++
+    renderWitness "witness" value.witness ++
+    renderChainConfig "chain_config" value.chainConfig ++
+    renderList "public_keys" value.publicKeys renderVectorField
+
+/-- Deterministic, complete, versioned raw-value protocol for the V4 schema. -/
+def RawV4.render (value : RawV4) : String :=
+  "\n".intercalate ("version\tssz-value-v1" :: value.renderLines)
 
 end SszBridge
