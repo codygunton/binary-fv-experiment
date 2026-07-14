@@ -6,6 +6,7 @@ import BinaryFv.RISCV.HartPrimitives
 import BinaryFv.RISCV.FetchContract
 import BinaryFv.RISCV.PostludePrimitives
 import BinaryFv.RISCV.StackStepContract
+import BinaryFv.RISCV.TryStepStackAddiContract
 import BinaryFv.RISCV.Decode
 import BinaryFv.RISCV.CFG
 import BinaryFv.RISCV.Stack
