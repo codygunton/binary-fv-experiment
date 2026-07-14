@@ -18,7 +18,7 @@ def executionConstructor : instruction → ExecutionConstructor
   | .REMW _ => .remw
 /-- `framed` has an exported all-outcome `x2` frame; stack adjustment changes `x2` by design. -/
 inductive X2FrameStatus where
-  | framed (constructor : ExecutionConstructor) | stackAdjustment | pendingLoad | pendingStore
+  | framed (constructor : ExecutionConstructor) | stackAdjustment
   | uncovered (constructor : ExecutionConstructor)
   deriving BEq, DecidableEq, Repr
 def nonStackDestination (destination : regidx) : Bool := destination != stackPointer
@@ -27,9 +27,9 @@ def frameForDestination (constructor : ExecutionConstructor) (destination : regi
   if nonStackDestination destination then .framed constructor else .uncovered constructor
 /--
 Map generated constructors to the already exported frame families: UTYPE, RTYPE, ITYPE, SHIFTIOP,
-MUL/DIV/REM, BTYPE, non-`x2` JAL/JALR, and FENCE/FENCE_TSO. LOAD and STORE are kept as explicit
-remaining obligations. All other constructors and unexpected `x2` writes remain uncovered; this is
-not semantic reachability, arbitrary-state execution coverage, or a stack-bound claim.
+MUL/DIV/REM, BTYPE, non-`x2` JAL/JALR, LOAD, STORE, and FENCE/FENCE_TSO. All other constructors
+and unexpected `x2` writes remain uncovered; this is not semantic reachability, arbitrary-state
+execution coverage, or a stack-bound claim.
 -/
 def x2FrameStatus (decoded : instruction) : X2FrameStatus :=
   if (instructionStackDelta? decoded).isSome then .stackAdjustment else
@@ -41,9 +41,8 @@ def x2FrameStatus (decoded : instruction) : X2FrameStatus :=
   | .ITYPE (_, _, destination, _) => frameForDestination .itype destination
   | .SHIFTIOP (_, _, destination, _) => frameForDestination .shiftIop destination
   | .RTYPE (_, _, destination, _) => frameForDestination .rtype destination
-  | .LOAD (_, _, destination, _, _) =>
-    if nonStackDestination destination then .pendingLoad else .uncovered .load
-  | .STORE _ => .pendingStore
+  | .LOAD (_, _, destination, _, _) => frameForDestination .load destination
+  | .STORE _ => .framed .store
   | .FENCE_TSO _ => .framed .fenceTso
   | .FENCE _ => .framed .fence
   | .MUL (_, _, destination, _) => frameForDestination .mul destination
@@ -51,7 +50,7 @@ def x2FrameStatus (decoded : instruction) : X2FrameStatus :=
   | .REM (_, _, destination, _) => frameForDestination .rem destination
   | _ => .uncovered (executionConstructor decoded)
 def X2FrameStatus.isClassified : X2FrameStatus → Bool
-  | .framed _ | .stackAdjustment | .pendingLoad | .pendingStore => true
+  | .framed _ | .stackAdjustment => true
   | .uncovered _ => false
 def closureWordSets? (sets : Array FunctionWordSet) (closure : Array Nat) :
     Option (Array FunctionWordSet) :=
@@ -77,23 +76,12 @@ def entrySyntacticClosureFrameInventory? : Option (Array FrameCoverageEntry) :=
 def entrySyntacticClosureFrameStatuses? : Option (Array X2FrameStatus) :=
   entrySyntacticClosureFrameInventory?.map fun inventory => inventory.map FrameCoverageEntry.status
 /-- No unclassified constructor or unexpected non-adjustment `x2` write occurs in this closure. -/
-def entrySyntacticClosureHasOnlyKnownOrMemoryBuckets : Bool :=
+def entrySyntacticClosureHasOnlyKnownFrameBuckets : Bool :=
   match entrySyntacticClosureFrameStatuses? with
   | some statuses => statuses.all X2FrameStatus.isClassified
   | none => false
-def entrySyntacticClosureHasPendingLoadBucket : Bool :=
-  entrySyntacticClosureFrameStatuses?.any fun statuses => statuses.any (· == .pendingLoad)
-def entrySyntacticClosureHasPendingStoreBucket : Bool :=
-  entrySyntacticClosureFrameStatuses?.any fun statuses => statuses.any (· == .pendingStore)
 /-- Closed parser classification, not a dynamic-reachability claim. -/
-theorem entry_syntactic_closure_has_only_known_or_memory_buckets :
-    entrySyntacticClosureHasOnlyKnownOrMemoryBuckets = true := by
-  native_decide
-theorem entry_syntactic_closure_has_pending_load_bucket :
-    entrySyntacticClosureHasPendingLoadBucket = true := by
-  native_decide
-
-theorem entry_syntactic_closure_has_pending_store_bucket :
-    entrySyntacticClosureHasPendingStoreBucket = true := by
+theorem entry_syntactic_closure_has_only_known_frame_buckets :
+    entrySyntacticClosureHasOnlyKnownFrameBuckets = true := by
   native_decide
 end BinaryFv.Keccak
