@@ -11,6 +11,7 @@ import BinaryFv.RISCV.Decode
 import BinaryFv.RISCV.CFG
 import BinaryFv.RISCV.Stack
 import BinaryFv.RISCV.RegisterFrame
+import BinaryFv.RISCV.RTypeFrame
 import BinaryFv.RISCV.InstructionContracts
 import BinaryFv.RISCV.ExecuteContract
 import BinaryFv.Keccak.Root
