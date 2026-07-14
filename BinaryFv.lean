@@ -41,6 +41,7 @@ import BinaryFv.Keccak.Root
 import BinaryFv.Keccak.Concrete
 import BinaryFv.Keccak.Decode
 import BinaryFv.Keccak.Contracts
+import BinaryFv.Keccak.CoreStepContract
 import BinaryFv.Keccak.ArtifactFetch
 import BinaryFv.Keccak.ArtifactFetchMmio
 import BinaryFv.Keccak.ReachabilityInventory
