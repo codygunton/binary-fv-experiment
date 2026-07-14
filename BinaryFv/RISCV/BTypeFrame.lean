@@ -340,4 +340,3 @@ theorem execute_BTYPE_preserves_stack_pointer (imm : BitVec 13) (rs2 rs1 : regid
     exact bTypeOutcome_preserves_stack_pointer imm taken
 
 end BinaryFv.RISCV
-

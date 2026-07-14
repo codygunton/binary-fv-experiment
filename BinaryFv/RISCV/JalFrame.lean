@@ -429,4 +429,3 @@ theorem execute_JALR_preserves_stack_pointer (state : State) (immediate : BitVec
   exact execute_JALR_with_jump_frame state immediate source destination notStack jump_to_frame
 
 end BinaryFv.RISCV
-
