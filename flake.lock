@@ -1,5 +1,39 @@
 {
   "nodes": {
+    "etheorem": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1783532102,
+        "narHash": "sha256-ipM9VTRNJx5GKSZ2QXMjN1jGVSWTAS+rzSPyMU24paM=",
+        "owner": "etheorem",
+        "repo": "etheorem",
+        "rev": "032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "etheorem",
+        "repo": "etheorem",
+        "rev": "032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0",
+        "type": "github"
+      }
+    },
+    "executionSpecs": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1782749897,
+        "narHash": "sha256-M07KTlSrwaRTTQWT1Q67TJoEarIomvHTTPswHzK2YnQ=",
+        "owner": "ethereum",
+        "repo": "execution-specs",
+        "rev": "bd8c673552d957dbe9c9f3f2656b87201f5ae646",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ethereum",
+        "repo": "execution-specs",
+        "rev": "bd8c673552d957dbe9c9f3f2656b87201f5ae646",
+        "type": "github"
+      }
+    },
     "miniz": {
       "flake": false,
       "locked": {
@@ -33,11 +67,51 @@
         "type": "github"
       }
     },
+    "reth": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1781085323,
+        "narHash": "sha256-Zq3EyaUt7kIpwt9Hp809pss9xwEjV9f7d6VKctACoXg=",
+        "owner": "paradigmxyz",
+        "repo": "reth",
+        "rev": "9384bc53d8c0c77e59cac83fdaaf3b372c6d2216",
+        "type": "github"
+      },
+      "original": {
+        "owner": "paradigmxyz",
+        "repo": "reth",
+        "rev": "9384bc53d8c0c77e59cac83fdaaf3b372c6d2216",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
+        "etheorem": "etheorem",
+        "executionSpecs": "executionSpecs",
         "miniz": "miniz",
         "nixpkgs": "nixpkgs",
-        "tiny-sha3": "tiny-sha3"
+        "reth": "reth",
+        "scrollFv": "scrollFv",
+        "tiny-sha3": "tiny-sha3",
+        "zesu": "zesu",
+        "zesuRepaired": "zesuRepaired"
+      }
+    },
+    "scrollFv": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1778157959,
+        "narHash": "sha256-9GAVAR8B2eNCffr2fY9ccxfKlHiv0NMkO3Y5046Pf3g=",
+        "owner": "trailofbits",
+        "repo": "scroll-fv",
+        "rev": "0c3927ba4d6773b4cfd1d949cba342268b104d91",
+        "type": "github"
+      },
+      "original": {
+        "owner": "trailofbits",
+        "repo": "scroll-fv",
+        "rev": "0c3927ba4d6773b4cfd1d949cba342268b104d91",
+        "type": "github"
       }
     },
     "tiny-sha3": {
@@ -54,6 +128,40 @@
         "owner": "mjosaarinen",
         "repo": "tiny_sha3",
         "rev": "dcbb3192047c2a721f5f851db591871d428036a9",
+        "type": "github"
+      }
+    },
+    "zesu": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1783567548,
+        "narHash": "sha256-oB5np2ZGrCgMEHI7pnJfxDRIYHHrSUKQqHaHHGfWJ6A=",
+        "owner": "Consensys",
+        "repo": "zesu",
+        "rev": "aa6c94339987d278acb8b7fa409c864dbd3d05aa",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Consensys",
+        "repo": "zesu",
+        "rev": "aa6c94339987d278acb8b7fa409c864dbd3d05aa",
+        "type": "github"
+      }
+    },
+    "zesuRepaired": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784003015,
+        "narHash": "sha256-rGSzr98y2iOMzKMpEuTA4scGr7x/e5luKiqhJ7Fv0UA=",
+        "owner": "codygunton",
+        "repo": "zesu",
+        "rev": "96f1621468ba54755d653f19cbc9704e789be001",
+        "type": "github"
+      },
+      "original": {
+        "owner": "codygunton",
+        "repo": "zesu",
+        "rev": "96f1621468ba54755d653f19cbc9704e789be001",
         "type": "github"
       }
     }
