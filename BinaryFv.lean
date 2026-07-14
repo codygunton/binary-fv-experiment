@@ -24,6 +24,7 @@ import BinaryFv.RISCV.RTypeFrame
 import BinaryFv.RISCV.ITypeFrame
 import BinaryFv.RISCV.ShiftIopFrame
 import BinaryFv.RISCV.MulDivFrame
+import BinaryFv.RISCV.FenceFrame
 import BinaryFv.RISCV.ReadFrame
 import BinaryFv.RISCV.DecodeFrame
 import BinaryFv.RISCV.EnabledFrame
