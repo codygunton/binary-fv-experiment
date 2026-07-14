@@ -1,6 +1,4 @@
-import ShaFv.RISCV.ABI
-
-namespace ShaFv.RISCV
+namespace BinaryFv.RISCV
 
 /-- A file-backed memory segment, independent of any executable file format. -/
 structure LoadSegment where
@@ -66,4 +64,4 @@ def readU32LE? (image : ProgramImage) (address : Nat) : Option Nat :=
 
 end ProgramImage
 
-end ShaFv.RISCV
+end BinaryFv.RISCV

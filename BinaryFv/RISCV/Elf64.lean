@@ -1,6 +1,7 @@
-import ShaFv.RISCV.ProgramImage
+import BinaryFv.RISCV.Address
+import BinaryFv.RISCV.ProgramImage
 
-namespace ShaFv.RISCV
+namespace BinaryFv.RISCV
 
 /-- Errors produced by the deliberately bounded ELF64 parser. -/
 inductive ElfError where
@@ -22,7 +23,7 @@ inductive ElfError where
   | invalidEntryPoint
   | tableOutOfBounds
   | invalidLoadSegment (index : Nat)
-  | loadOutsideCodeWindow (index : Nat)
+  | unexpectedLoadSegmentCount (actual : Nat)
   | unsupportedProgramHeader (index kind : Nat)
   | noLoadSegments
   | overlappingLoadSegments
@@ -262,10 +263,6 @@ def validLoadAlignment (header : ProgramHeader) : Bool :=
     (isPowerOfTwo header.alignment &&
       header.virtualAddress % header.alignment == header.fileOffset % header.alignment)
 
-def loadSegmentFitsCodeWindow (header : ProgramHeader) : Bool :=
-  decide (sha3CodeWindow.start ≤ header.virtualAddress) &&
-    decide (header.virtualAddress + header.memorySize ≤ sha3CodeWindow.stop)
-
 def parseProgramHeader (bytes : ByteArray) (offset index : Nat) :
     Except ElfError ProgramHeader := do
   let kind ← readU32LE bytes offset
@@ -292,7 +289,6 @@ def parseProgramHeader (bytes : ByteArray) (offset index : Nat) :
     let _ ← ensure (header.virtualAddress + header.memorySize ≤ addressLimit)
       (.invalidLoadSegment index)
     let _ ← ensure (validLoadAlignment header) (.invalidLoadSegment index)
-    let _ ← ensure (loadSegmentFitsCodeWindow header) (.loadOutsideCodeWindow index)
     pure header
   else if header.kind == programTypeRiscVAttributes || header.kind == programTypeGnuStack then
     pure header
@@ -463,4 +459,4 @@ def readSourceU32LE? (elf : Elf64) (address : Nat) : Option Nat :=
 
 end Elf64
 
-end ShaFv.RISCV
+end BinaryFv.RISCV

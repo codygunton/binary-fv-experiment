@@ -1,6 +1,0 @@
-[submodule "specs/sha-3"]
-	path = specs/sha-3
-	url = https://github.com/gdncc/Cryptography.git
-[submodule "specs/deflate"]
-	path = specs/deflate
-	url = https://github.com/kim-em/lean-zip.git

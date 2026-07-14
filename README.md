@@ -1,213 +1,101 @@
-# SHA FV Experiment
+# Binary FV Experiment
 
-This repository compares two candidate binary-verification targets:
+This repository keeps two RV64 measurement baselines and two selected Ethereum verification
+targets:
 
-- SHA-3 from `mjosaarinen/tiny_sha3`
-- DEFLATE inflate from `richgel999/miniz`, specifically `miniz_tinfl.c`
+- SHA-3 from `mjosaarinen/tiny_sha3` and DEFLATE inflate from `richgel999/miniz` remain baselines.
+- The Keccak target is a freestanding C ABI around the portable RustCrypto `Keccak256` dependency
+  versions locked by Reth, not a full Reth node binary.
+- The SSZ target is the repaired Amsterdam V4 raw decoder at
+  `codygunton/zesu@96f1621468ba54755d653f19cbc9704e789be001`; original
+  `Consensys/zesu@aa6c94339987d278acb8b7fa409c864dbd3d05aa` remains its preservation baseline.
 
-The upstream source revisions are pinned as non-flake inputs in `flake.lock`. The only binary
-target built by this repo is `RV64IM_Zicclsm` with ABI `lp64`; execution goes through
-`qemu-riscv64`.
+All binary artifacts are `RV64IM_Zicclsm` with `lp64` ABI and run through `qemu-riscv64`. Generated
+ELFs, Lean source, traces, CFGs, and reports belong under ignored `build/` links.
 
-## Layout
-
-- `harness/`: local C entry points with one `main` per target.
-- `include/`: local freestanding build shims used by the `miniz_tinfl.c` target.
-- `scripts/`: shell conveniences only.
-- `specs/`: pinned Lean spec repositories, checked in as git submodules.
-- `ShaFv/`: local Lean proof scaffold.
-- `build/`: ignored local output links and generated inspection files.
-
-## Build
-
-Use explicit output links under `build/` for local build artifacts.
-
-Build SHA-3:
+## Build and evaluation
 
 ```sh
 mkdir -p build
-nix build .#sha3 --out-link build/sha3
-```
+nix build .#reth-keccak --out-link build/reth-keccak
+nix run .#reth-keccak -- 616263
 
-That produces:
-
-```text
-build/sha3/bin/sha3
-build/sha3/obj/sha3.o
-build/sha3/obj/sha3-main.o
-build/sha3/obj/riscv64_start.o
-build/sha3/obj/riscv64_runtime.o
-build/sha3/meta/elf-sha256.txt
-build/sha3/meta/entrypoint.txt
-build/sha3/meta/elf-attributes.txt
-build/sha3/meta/program-headers.txt
-build/sha3/meta/symbols.txt
-```
-
-`build/sha3/bin/sha3` is a RISC-V ELF, not a host executable. Run SHA-3 through the Nix app:
-
-```sh
-nix run .#sha3 -- sha3-sample-message
-```
-
-or:
-
-```sh
-./scripts/run-sha3.sh
-```
-
-`scripts/run-sha3.sh` supplies `sha3-sample-message` when no message is passed. That value is only
-the default message to hash; pass one argument to hash a different string:
-
-```sh
-./scripts/run-sha3.sh hello
-```
-
-Build and run the DEFLATE target:
-
-```sh
-mkdir -p build
-nix build .#tinfl --out-link build/tinfl
-nix run .#tinfl
-```
-
-The dev shell contains the RISC-V compiler/binutils and qemu-user:
-
-```sh
-nix develop
-riscv64-unknown-linux-gnu-gcc --version
-qemu-riscv64 --version
-```
-
-Build the stats report:
-
-```sh
+nix build .#zesu-ssz --out-link build/zesu-ssz
 nix build .#stats --out-link build/stats
-cat build/stats/stats.md
 ```
 
-The default package is `.#stats`, so this is equivalent while still keeping the local link in
-`build/`:
+`reth-keccak` takes one hexadecimal message. `zesu-ssz` reads raw bytes from standard input and
+intentionally rejects empty input. `build/stats/stats.md` retains the uniform protocol-entry
+measurements and full-composition context for all four targets.
+
+The strict V4 SSZ gate uses the pinned Python execution-specs reference, SizzLean/Lean bridge, and
+host-only Zesu formatter:
 
 ```sh
-nix build --out-link build/stats
+PY=/path/to/execution-specs/.venv/bin/python
+nix build .#zesu-value --out-link build/zesu-ssz-value
+nix build .#zesu-sink-observability --out-link build/zesu-sink-observability
+(cd specs/ssz-bridge && lake build repl && lake build ssz_bridge ssz_bridge_test && lake exe ssz_bridge_test)
+
+"$PY" -B tests/ssz_differential_audit.py \
+  --reference-python "$PY" \
+  --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \
+  --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
 ```
 
-## Lean
-
-Initialize the spec submodules after cloning:
+`nix build .#zesu-native-suite --out-link build/zesu-native-suite` is an explicit heavyweight
+preservation package. It runs both upstream and repaired-fork native/zkeVM suites; it is deliberately
+not part of default `nix flake check`. The extended boundary corpus is likewise an explicit release
+checkpoint:
 
 ```sh
-git submodule update --init --recursive
+"$PY" -B tests/ssz_boundary_audit.py --extended \
+  --reference-python "$PY" \
+  --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \
+  --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
 ```
 
-The SHA-3 scaffold imports `gdncc/Cryptography` and states:
+## Keccak binary-compliance scaffold
+
+The proof-facing artifact is the canonical `.#reth-keccak` linked ELF. The proof build generates:
+
+```sh
+nix build .#sail-riscv-lean --out-link build/sail-riscv-lean
+nix build .#reth-keccak-elf-lean --out-link build/reth-keccak-elf-lean
+nix build .#keccak-spec-lean --out-link build/keccak-spec-lean
+lake build repl
+lake build BinaryFv
+```
+
+`BinaryFv.RISCV` contains generic bounded ELF parsing, image loading, and generated Sail support.
+`BinaryFv.Keccak` owns target-specific parsed-symbol and ABI facts. No Reth address or opcode is
+proof input: the parser derives `reth_keccak256` from the embedded ELF.
+
+The frozen direct-call ABI enters that symbol with `a0 = message pointer`, `a1 = message length`,
+and `a2 = 32-byte output pointer`; even an empty input has a valid message address. Successful
+return requires `a0 = 0` at the sentinel and reads exactly 32 output bytes. CLI parsing and Linux
+syscalls remain outside the proof-facing path.
+
+The public target theorem is:
 
 ```lean
 theorem root_compliance :
-    ∀ msg : ByteArray,
-      msg.size < RiscvSpec.maxMessageSize →
-      RiscvSpec.execute binary msg = .ok (Sha3Spec.hashData msg)
+    forall msg : ByteArray,
+      msg.size < RiscvSpec.maxMessageSize ->
+      RiscvSpec.execute binary msg = .ok (Spec.Keccak.keccak256 msg)
 ```
 
-`binary` is the theorem term reserved for the one fixed SHA-3 ELF built by this repository.
-`RiscvSpec.execute` owns ELF loading, ABI setup, RISC-V execution, termination, and extraction of
-the 32 digest bytes. Inputs of length at least `2^63` return `.unsupportedMessage`; the internal ABI
-is total over the stated bounded domain. The `.ok` result makes successful termination part of the
-claim instead of allowing failure to be hidden behind a default output. ELF loading and the final
-refinement proof remain intentionally stubbed.
+At the scaffold checkpoint only this theorem may contain `sorry`; it hides ELF loading, direct ABI
+setup, authoritative Sail execution, fuel, and output-memory extraction. The complete proof stack
+must remove all proof-scope `sorry`s and custom axioms before it claims root compliance.
 
-Generate the pinned executable Lean translation of the Sail RISC-V model first:
-
-```sh
-mkdir -p build
-nix build .#sail-riscv-lean --out-link build/sail-riscv-lean
-```
-
-Generate the Lean byte definition for the same canonical SHA-3 ELF:
-
-```sh
-nix build .#sha3-elf-lean --out-link build/sha3-elf-lean
-```
-
-Then build the local proof scaffold and generated machine semantics:
-
-```sh
-nix develop
-lake build ShaFv
-```
-
-This generation target uses `riscv/sail-riscv` 0.12 and the REMS Sail compiler 0.20.1 from the
-locked Nixpkgs revision. It selects the `main`, `I_insts`, and `M_insts` Sail module roots, retains
-the core Zicclsm memory semantics, and disables upstream CMake's configure-time dependency
-downloads. The generated model is compiled into the root project's `.lake/build`.
-
-`ShaFv.RISCV.Elf64` is a bounded pure ELF64 little-endian parser. The only fixed-artifact input is
-the generated `ByteArray`; it derives the `PT_LOAD` image and `sha3` symbol from program, section,
-symbol, and string tables, and checks the load range against the frozen code window.
-`ShaFv.SHA3.Artifact` validates the concrete parser facts with
-`native_decide`, rejects representative corrupt ELF variants, and proves that Sail fetches the same
-word as the parsed image after loading it byte-by-byte. The proof-facing path has no runtime file IO,
-`readelf` text, handwritten opcode, or generated ELF structure.
-
-Run the concrete Sail execution experiment after building the SHA-3 ELF and generated model:
-
-```sh
-nix build .#sha3 --out-link build/sha3
-nix build .#sail-riscv-lean --out-link build/sail-riscv-lean
-lake env lean experiments/SailSha3Smoke.lean
-```
-
-The experiment loads the ELF `PT_LOAD` bytes into Sail memory, calls the internal `sha3` symbol with
-a 200-byte message, and checks the extracted digest after 70,084 instructions. It is an isolated
-runtime-IO smoke test, not imported by the proof-facing `ShaFv` library.
-
-`kim-em/lean-zip` is vendored under `specs/deflate` for the DEFLATE spec, but is not imported by
-the root Lake package yet because it currently pins a newer Lean toolchain than `gdncc/Cryptography`.
-
-## Objdump
-
-For SHA-3 inspection:
-
-```sh
-mkdir -p build
-nix run .#dump > build/sha3.objdump.txt
-```
-
-For direct inspection of either target after a package build:
-
-```sh
-nix build .#sha3 --out-link build/sha3
-nix develop -c sh -c 'riscv64-unknown-linux-gnu-objdump -d build/sha3/bin/sha3 > build/sha3.objdump.txt'
-nix build .#tinfl --out-link build/tinfl
-nix develop -c sh -c 'riscv64-unknown-linux-gnu-objdump -d build/tinfl/bin/tinfl > build/tinfl.objdump.txt'
-```
-
-The stats build also writes:
-
-```text
-build/stats/objdump/sha3.txt
-build/stats/objdump/tinfl.txt
-```
-
-## Stats
-
-Current pinned Nix output:
-
-| Target         | RV64 object `.text` | RV64 linked `.text` | RV64 selected symbol instrs | RV64 full `objdump -d` lines | RV64 full instr lines |
-| -------------- | ------------------: | ------------------: | --------------------------: | ---------------------------: | --------------------: |
-| SHA-3 `sha3.c` |             1,540 B |             1,680 B |                         286 |                          335 |                   312 |
-| miniz `tinfl`  |             6,418 B |             6,397 B |                       1,457 |                        1,498 |                 1,481 |
-
-“Selected symbol instrs” is a symbol-filtered instruction-line count. For SHA-3 it counts
-`sha3_keccakf`, `sha3_init`, `sha3_update`, `sha3_final`, `sha3`, and `main`. The full
-`objdump -d` columns count each entire linked RISC-V ELF, including the local freestanding
-startup/runtime sections.
-
-## Checks
+## Checks and CI
 
 ```sh
 nix flake check
 ```
 
-The `.#stats` check runs the RISC-V binaries under `qemu-riscv64` as sanity checks.
+The default lightweight checks cover the RV64 targets, stats/ISA gates, Reth vectors, Lean bridge,
+strict core SSZ differential, and sink observability. GitHub requires the `RV64 targets, stats, and
+Reth vectors` and `SSZ bridge, core differential, and sink` jobs for `main`; the heavyweight Zesu
+workflow is manually dispatched for release checkpoints.
