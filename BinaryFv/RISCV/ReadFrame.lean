@@ -65,4 +65,14 @@ theorem rX_bits_state_projection (state : State) (source : regidx) :
       | cases hRead : state.regs.get? x30 <;> rfl
       | cases hRead : state.regs.get? x31 <;> rfl
 
+/-- Every generated register read leaves the machine state unchanged. -/
+theorem readReg_state_projection (state : State) (register : Register) :
+    (match (readReg register : SailM (RegisterType register)) state with
+    | .ok _ state' => state'
+    | .error _ state' => state') = state := by
+  cases hRead : state.regs.get? register <;>
+    simp [PreSail.readReg, EStateM.bind, EStateM.get, EStateM.pure,
+      EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable, MonadState.get,
+      MonadStateOf.get, getThe, hRead] <;> rfl
+
 end BinaryFv.RISCV
