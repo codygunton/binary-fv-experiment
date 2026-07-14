@@ -2,6 +2,7 @@ import BinaryFv.RISCV.Machine
 import BinaryFv.RISCV.Framing
 import BinaryFv.RISCV.Decode
 import BinaryFv.RISCV.CFG
+import BinaryFv.RISCV.Stack
 import BinaryFv.Keccak.Root
 import BinaryFv.Keccak.Concrete
 import BinaryFv.Keccak.Decode
