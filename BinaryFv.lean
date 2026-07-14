@@ -6,6 +6,7 @@ import BinaryFv.RISCV.Stack
 import BinaryFv.Keccak.Root
 import BinaryFv.Keccak.Concrete
 import BinaryFv.Keccak.Decode
+import BinaryFv.Keccak.ReachabilityInventory
 import BinaryFv.Keccak.Stack
 import BinaryFv.Keccak.CallClosure
 import BinaryFv.Keccak.StackFlow
