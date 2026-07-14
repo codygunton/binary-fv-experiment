@@ -9,7 +9,7 @@ open extension
 
 /-- An action whose successful and failing outcomes retain the entire machine state. -/
 private def StateProjection (action : SailM α) : Prop :=
-  ∀ state,
+  ∀ (state : State),
     (match action.run state with
     | .ok _ state' => state'
     | .error _ state' => state') = state

@@ -8,7 +8,7 @@ open Register
 
 /-- An action preserves the observed stack-pointer register on normal and error outcomes. -/
 def PreservesStackPointer {α : Type} (action : SailM α) : Prop :=
-  ∀ state,
+  ∀ (state : State),
     (match action.run state with
     | .ok _ state' => state'.regs.get? x2
     | .error _ state' => state'.regs.get? x2) = state.regs.get? x2
