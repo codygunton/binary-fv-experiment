@@ -4,6 +4,7 @@ import BinaryFv.RISCV.StepContract
 import BinaryFv.RISCV.HartContract
 import BinaryFv.RISCV.HartPrimitives
 import BinaryFv.RISCV.FetchContract
+import BinaryFv.RISCV.PmpContract
 import BinaryFv.RISCV.PostludePrimitives
 import BinaryFv.RISCV.StackStepContract
 import BinaryFv.RISCV.TryStepStackAddiContract
@@ -11,6 +12,7 @@ import BinaryFv.RISCV.Decode
 import BinaryFv.RISCV.CFG
 import BinaryFv.RISCV.Stack
 import BinaryFv.RISCV.RegisterFrame
+import BinaryFv.RISCV.ReadFrame
 import BinaryFv.RISCV.InstructionContracts
 import BinaryFv.RISCV.ExecuteContract
 import BinaryFv.Keccak.Root
