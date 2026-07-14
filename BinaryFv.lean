@@ -20,6 +20,7 @@ import BinaryFv.RISCV.Stack
 import BinaryFv.RISCV.BTypeFrame
 import BinaryFv.RISCV.RegisterFrame
 import BinaryFv.RISCV.ReadFrame
+import BinaryFv.RISCV.EnabledFrame
 import BinaryFv.RISCV.TranslationFrameAudit
 import BinaryFv.RISCV.InstructionContracts
 import BinaryFv.RISCV.ExecuteContract
