@@ -18,6 +18,7 @@ import BinaryFv.RISCV.Decode
 import BinaryFv.RISCV.CFG
 import BinaryFv.RISCV.Stack
 import BinaryFv.RISCV.BTypeFrame
+import BinaryFv.RISCV.JalFrame
 import BinaryFv.RISCV.RegisterFrame
 import BinaryFv.RISCV.ReadFrame
 import BinaryFv.RISCV.DecodeFrame
