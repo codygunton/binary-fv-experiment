@@ -43,6 +43,7 @@ import BinaryFv.Keccak.Decode
 import BinaryFv.Keccak.Contracts
 import BinaryFv.Keccak.CoreStepContract
 import BinaryFv.Keccak.CoreFetchMemoryContract
+import BinaryFv.Keccak.CoreTryStepContract
 import BinaryFv.Keccak.ArtifactFetch
 import BinaryFv.Keccak.ArtifactFetchMmio
 import BinaryFv.Keccak.ReachabilityInventory
