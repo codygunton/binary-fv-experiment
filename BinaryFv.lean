@@ -28,6 +28,7 @@ import BinaryFv.RISCV.TranslationFrameAudit
 import BinaryFv.RISCV.LoadFrame
 import BinaryFv.RISCV.StoreFrame
 import BinaryFv.RISCV.JalFrame
+import BinaryFv.RISCV.RTypeFrame
 import BinaryFv.RISCV.InstructionContracts
 import BinaryFv.RISCV.ExecuteContract
 import BinaryFv.Keccak.Root
