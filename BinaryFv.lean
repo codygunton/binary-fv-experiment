@@ -1,5 +1,6 @@
 import BinaryFv.RISCV.Machine
 import BinaryFv.RISCV.Framing
+import BinaryFv.RISCV.SepLogic
 import BinaryFv.RISCV.StepContract
 import BinaryFv.RISCV.HartContract
 import BinaryFv.RISCV.HartPrimitives
