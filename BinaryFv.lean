@@ -18,7 +18,15 @@ import BinaryFv.RISCV.Decode
 import BinaryFv.RISCV.CFG
 import BinaryFv.RISCV.Stack
 import BinaryFv.RISCV.BTypeFrame
+import BinaryFv.RISCV.JalFrame
 import BinaryFv.RISCV.RegisterFrame
+import BinaryFv.RISCV.RTypeFrame
+import BinaryFv.RISCV.ITypeFrame
+import BinaryFv.RISCV.ShiftIopFrame
+import BinaryFv.RISCV.MulDivFrame
+import BinaryFv.RISCV.FenceFrame
+import BinaryFv.RISCV.IntegerDispatchFrame
+import BinaryFv.RISCV.ControlDispatchFrame
 import BinaryFv.RISCV.ReadFrame
 import BinaryFv.RISCV.DecodeFrame
 import BinaryFv.RISCV.EnabledFrame
@@ -37,4 +45,6 @@ import BinaryFv.Keccak.ArtifactFetchMmio
 import BinaryFv.Keccak.ReachabilityInventory
 import BinaryFv.Keccak.Stack
 import BinaryFv.Keccak.CallClosure
+import BinaryFv.Keccak.FrameCoverage
+import BinaryFv.Keccak.FrameRuntime
 import BinaryFv.Keccak.StackFlow
