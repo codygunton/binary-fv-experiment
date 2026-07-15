@@ -2,6 +2,36 @@
 let
   rethKeccak = targets.public.rethKeccak;
 
+  pinnedLean = pkgs.stdenvNoCC.mkDerivation {
+    pname = "lean4";
+    version = "4.26.0-nightly-2025-11-18";
+    src = pkgs.fetchurl {
+      url = "https://github.com/leanprover/lean4-nightly/releases/download/nightly-2025-11-18/lean-4.26.0-nightly-2025-11-18-linux.tar.zst";
+      hash = "sha256-JSY4OYzDiI0CIdyZnw6uRpR9MytV6g7b77f4IQwpEXQ=";
+    };
+
+    nativeBuildInputs = [ pkgs.autoPatchelfHook pkgs.zstd ];
+    buildInputs = [ pkgs.stdenv.cc.cc pkgs.zlib ];
+
+    unpackPhase = ''
+      mkdir source
+      tar --use-compress-program=unzstd -xf "$src" -C source --strip-components=1
+      sourceRoot=source
+    '';
+
+    installPhase = ''
+      mkdir -p "$out"
+      cp -a . "$out"
+    '';
+  };
+
+  replSource = pkgs.fetchFromGitHub {
+    owner = "leanprover-community";
+    repo = "repl";
+    rev = "a9a6f5bac483d65d08f6226e0ed653f03c479fb7";
+    hash = "sha256-+8iF01UVXerfvRPUPDGk9L7CpPXUxrZMxvBG2CUC6PE=";
+  };
+
   sailRiscvLean = pkgs.stdenv.mkDerivation {
     pname = "sail-riscv-lean-rv64";
     version = "0.12";
@@ -94,6 +124,44 @@ let
     cp ${scrollFv}/Spec/Keccak/Keccak256.lean "$out/Spec/Keccak/Keccak256.lean"
   '';
 
+  binaryFvLean = pkgs.runCommand "binary-fv-lean" {
+    nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.git pkgs.jq ];
+  } ''
+    cp -R ${repo} source
+    chmod -R u+w source
+    cd source
+
+    mkdir -p build .lake/packages/repl "$TMPDIR/home"
+    ln -s ${sailRiscvLean} build/sail-riscv-lean
+    ln -s ${rethKeccakElfLean} build/reth-keccak-elf-lean
+    ln -s ${keccakSpecLean} build/keccak-spec-lean
+    cp -a ${replSource}/. .lake/packages/repl/
+    chmod -R u+w .lake/packages/repl
+    ${pkgs.jq}/bin/jq '
+      .packages |= map(
+        if .name == "repl" then
+          {
+            type: "path",
+            scope: .scope,
+            name: .name,
+            manifestFile: .manifestFile,
+            inherited: .inherited,
+            dir: ".lake/packages/repl",
+            configFile: .configFile
+          }
+        else . end
+      )
+    ' lake-manifest.json > lake-manifest.nix.json
+    mv lake-manifest.nix.json lake-manifest.json
+    substituteInPlace lakefile.lean \
+      --replace-fail 'require repl from git "https://github.com/leanprover-community/repl.git" @ "v4.26.0"' \
+      'require repl from ".lake/packages/repl"'
+
+    export HOME="$TMPDIR/home"
+    lake build repl BinaryFv
+    touch "$out"
+  '';
+
   devShell = pkgs.mkShell {
     inputsFrom = [ rv64.devShell ];
     packages = [
@@ -110,8 +178,9 @@ let
 in
 {
   public = {
-    inherit keccakSpecLean rethKeccakElfLean sailRiscvLean;
+    inherit binaryFvLean keccakSpecLean rethKeccakElfLean sailRiscvLean;
 
+    binary-fv-lean = binaryFvLean;
     keccak-spec-lean = keccakSpecLean;
     reth-keccak-elf-lean = rethKeccakElfLean;
     sail-riscv-lean = sailRiscvLean;

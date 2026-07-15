@@ -2,6 +2,7 @@
 let
   checks = {
     inherit (packages)
+      binaryFvLean
       dump
       rethKeccak
       sha3
