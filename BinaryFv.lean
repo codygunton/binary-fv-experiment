@@ -4,9 +4,16 @@ import BinaryFv.RISCV.StepContract
 import BinaryFv.RISCV.HartContract
 import BinaryFv.RISCV.HartPrimitives
 import BinaryFv.RISCV.FetchContract
+import BinaryFv.RISCV.PmpContract
+import BinaryFv.RISCV.TranslationContract
+import BinaryFv.RISCV.PhysicalAccessContract
+import BinaryFv.RISCV.FetchMemoryContract
+import BinaryFv.RISCV.FetchMmioContract
+import BinaryFv.RISCV.FetchMmioLayout
 import BinaryFv.RISCV.PostludePrimitives
 import BinaryFv.RISCV.StackStepContract
 import BinaryFv.RISCV.TryStepStackAddiContract
+import BinaryFv.RISCV.TryStepFetchMemoryContract
 import BinaryFv.RISCV.Decode
 import BinaryFv.RISCV.CFG
 import BinaryFv.RISCV.Stack
@@ -16,6 +23,7 @@ import BinaryFv.Keccak.Root
 import BinaryFv.Keccak.Concrete
 import BinaryFv.Keccak.Decode
 import BinaryFv.Keccak.ArtifactFetch
+import BinaryFv.Keccak.ArtifactFetchMmio
 import BinaryFv.Keccak.ReachabilityInventory
 import BinaryFv.Keccak.Stack
 import BinaryFv.Keccak.CallClosure

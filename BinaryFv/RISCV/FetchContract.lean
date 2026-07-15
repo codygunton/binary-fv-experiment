@@ -37,8 +37,8 @@ def FetchPmaAllows (state : State) (pc : BitVec 64) : Prop :=
 /--
 The direct-machine PMP register state: all configured entries are off.
 
-Deriving `pmpCheck` from this state requires the generated 16-entry `SailME` loop; that lower
-obligation intentionally remains inside `FetchBytesBaseContract`.
+`PmpContract` proves the generated Machine-mode `pmpCheck` loop from this state. The broader
+`FetchBytesBaseContract` remains explicit for the remaining generated translation and memory path.
 -/
 def FetchPmpDisabled (state : State) : Prop :=
   state.regs.get? pmpcfg_n = some (default : Vector (BitVec 8) 64) ∧
