@@ -1,4 +1,5 @@
 import BinaryFv.Keccak.CoreStoreStepContract
+import BinaryFv.Keccak.StoreArtifactFetch
 import BinaryFv.RISCV.SepLogic
 
 /-!
@@ -155,5 +156,84 @@ theorem sd_store_triple (stepNo : Nat) (dstBits : BitVec 64) (dataBits : BitVec 
   -- Assemble the framed triple's existential witness.
   exact ⟨tryStepCoreStoreAfterRetired sw (BitVec.ofNat 64 pcAddr) retired, false, hp', hrun,
     ⟨hPC, hMinstret⟩, ⟨hc, hd, hcd, hp'eq, hbytesC, hwordLE⟩, hdisj', hsplitW⟩
+
+/--
+Every non-memory precondition of `tryStepCoreStoreRetires` (bundled verbatim as `StoreStepPre`),
+plus the *persistent code-image assertion*: the embedded canonical Reth Keccak ELF parses to some
+`image` whose bytes agree with the sparse memory at the pre-step state.  This replaces owning the
+literal code bytes at `0x10cdc`; the fetched instruction bytes are derived from the parser and this
+`matchesMemory` assertion rather than assumed.  Recall `(tryStepCoreStoreAfterIncrement state).mem`
+is definitionally `state.mem`.
+-/
+def StoreStepPreElf (stepNo : Nat) (dstBits dataBits retired mstatusBits mseccfgBits config : BitVec 64)
+    (inhibit : BitVec 32) : StateAssertion := fun state =>
+  StoreStepPre stepNo dstBits dataBits retired mstatusBits mseccfgBits config inhibit state ∧
+    ∃ image, Artifact.programImage = .ok image ∧
+      image.matchesMemory (tryStepCoreStoreAfterIncrement state).mem
+
+/--
+CAPSTONE (ELF-derived).  Same as `sd_store_triple`, but the fetched code bytes are *derived* from
+the embedded canonical ELF and the persistent framed code-image assertion (`matchesMemory`, carried
+in the state precondition `StoreStepPreElf`) rather than owned as a literal `bytes` resource.  The
+owned memory is only the 8-byte destination window; the code image survives in the arbitrary
+disjoint frame, preserved automatically by the `Triple`'s frame guarantee.
+-/
+theorem sd_store_triple_elf (stepNo : Nat) (dstBits : BitVec 64) (dataBits : BitVec (8 * 8))
+    (vs₀ : List (BitVec 8)) (hlen : vs₀.length = 8)
+    (retired mstatusBits mseccfgBits config : BitVec 64) (inhibit : BitVec 32) :
+    Triple (StoreStepPreElf stepNo dstBits dataBits retired mstatusBits mseccfgBits config inhibit)
+      (bytes dstBits.toNat vs₀)
+      (try_step stepNo false)
+      (fun _ s => s.regs.get? PC = some (Sail.BitVec.addInt (BitVec.ofNat 64 pcAddr) 4)
+                  ∧ s.regs.get? minstret = some (Sail.BitVec.addInt retired 1))
+      (fun _ => wordLE dstBits.toNat dataBits) := by
+  intro s hp hf hS hP hdisj hsplit
+  -- Split the precondition into the bundled non-memory facts and the persistent code-image
+  -- assertion (the parsed ELF `image` and its pointwise agreement with the pre-step memory).
+  obtain ⟨hSbase, image, imageEq, loaded⟩ := hS
+  -- Memory bridge: apply the plain framed word-store triple at the pre-write state.  Because that
+  -- state differs from `s` only in registers, the heap split `hsplit` transfers verbatim.
+  have MW := triple_writeWord (fun _ => True) memInsensitive_true dstBits.toNat dataBits vs₀ hlen
+  obtain ⟨sw, rw, hp', hRunW, _hTW, hQW, hdisj', hsplitW⟩ :=
+    MW (coreStoreNextState (tryStepCoreStoreAfterIncrement s) (BitVec.ofNat 64 pcAddr)) hp hf
+      trivial hP hdisj hsplit
+  obtain ⟨hrwTrue, hwordLE⟩ := hQW
+  subst hrwTrue
+  -- Code image: derive the generated four-byte fetch fact from the persistent code-image assertion
+  -- via the embedded ELF parser, rather than from owned literal code bytes.  The `.mem` of
+  -- `tryStepCoreStoreAfterIncrement s` is definitionally `s.mem`, so `loaded` applies directly.
+  have bytesFetch : FetchBytesAt (tryStepCoreStoreAfterIncrement s) (BitVec.ofNat 64 pcAddr)
+      0x23#8 0x30#8 0xd5#8 0x00#8 :=
+    sdStoreWord_fetchBytesAt (tryStepCoreStoreAfterIncrement s) image imageEq loaded
+  -- Unpack every non-memory precondition of the generated rule.
+  obtain ⟨platform, noMMIO, interrupts, mseccfgRead, notExpected, mstatusReadExec, privReadExec,
+    mprvZero, dataReg, addrReg, aligned, physAccess, noMMIOwrite, hartRead, inhibitRead, configRead,
+    notInhibited, machineEnabled, retiredRead⟩ := hSbase
+  -- Run the authoritative generated `try_step`.
+  have hrun := tryStepCoreStoreRetires stepNo s sw (BitVec.ofNat 64 pcAddr) dstBits mstatusBits
+    retired dataBits inhibit config platform noMMIO bytesFetch interrupts mseccfgBits mseccfgRead
+    notExpected mstatusReadExec privReadExec mprvZero dataReg addrReg aligned physAccess noMMIOwrite
+    hRunW hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+  -- Architectural postcondition: PC and `minstret` after the retirement bookkeeping.
+  have hPC : (tryStepCoreStoreAfterRetired sw (BitVec.ofNat 64 pcAddr) retired).regs.get? PC
+      = some (Sail.BitVec.addInt (BitVec.ofNat 64 pcAddr) 4) := by
+    have h1 : (tryStepCoreStoreAfterRetired sw (BitVec.ofNat 64 pcAddr) retired).regs.get? PC
+        = (tryStepCoreStoreAfterTick sw (BitVec.ofNat 64 pcAddr)).regs.get? PC :=
+      writeReg_read_unchanged (tryStepCoreStoreAfterTick sw (BitVec.ofNat 64 pcAddr))
+        minstret PC (Sail.BitVec.addInt retired 1) (by decide)
+    rw [h1]
+    change (sw.regs.insert PC (Sail.BitVec.addInt (BitVec.ofNat 64 pcAddr) 4)).get? PC = _
+    rw [Std.ExtDHashMap.get?_insert]
+    simp
+  have hMinstret : (tryStepCoreStoreAfterRetired sw (BitVec.ofNat 64 pcAddr) retired).regs.get?
+      minstret = some (Sail.BitVec.addInt retired 1) := by
+    change ((tryStepCoreStoreAfterTick sw (BitVec.ofNat 64 pcAddr)).regs.insert minstret
+      (Sail.BitVec.addInt retired 1)).get? minstret = some (Sail.BitVec.addInt retired 1)
+    rw [Std.ExtDHashMap.get?_insert]
+    simp
+  -- Assemble the framed triple's existential witness.  The owned post-heap is exactly the
+  -- little-endian word; the code image lives in the preserved frame.
+  exact ⟨tryStepCoreStoreAfterRetired sw (BitVec.ofNat 64 pcAddr) retired, false, hp', hrun,
+    ⟨hPC, hMinstret⟩, hwordLE, hdisj', hsplitW⟩
 
 end BinaryFv.Keccak
