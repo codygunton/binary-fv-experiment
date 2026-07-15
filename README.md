@@ -1,102 +1,35 @@
-# SHA FV Experiment
+# Binary FV Experiment
 
-This repository compares two preserved baseline binary-verification targets and two Ethereum
-evaluation candidates:
+This repository keeps two RV64 measurement baselines and two selected Ethereum verification
+targets:
 
-- SHA-3 from `mjosaarinen/tiny_sha3` (baseline)
-- DEFLATE inflate from `richgel999/miniz`, specifically `miniz_tinfl.c` (baseline)
-- a freestanding RustCrypto Ethereum Keccak-256 wrapper traced to the pinned Reth dependency path
-- the repaired `codygunton/zesu` extracted freestanding Amsterdam V4 raw SSZ decoder
+- SHA-3 from `mjosaarinen/tiny_sha3` and DEFLATE inflate from `richgel999/miniz` remain baselines.
+- The Keccak target is a freestanding C ABI around the portable RustCrypto `Keccak256` dependency
+  versions locked by Reth, not a full Reth node binary.
+- The SSZ target is the repaired Amsterdam V4 raw decoder at
+  `codygunton/zesu@96f1621468ba54755d653f19cbc9704e789be001`; original
+  `Consensys/zesu@aa6c94339987d278acb8b7fa409c864dbd3d05aa` remains its preservation baseline.
 
-The upstream source revisions and the selected Zesu repair commit are pinned as non-flake inputs
-in `flake.lock`. Original `Consensys/zesu` remains a preservation baseline; the selected decoder
-comes from the personal repair fork, not a locally applied patch. The measured binary targets are
-`RV64IM_Zicclsm` with ABI `lp64` and run through `qemu-riscv64`; the separate host-native
-`zesu-ssz-value` formatter exists only for the full-value differential and is excluded from RV64
-metrics.
+All binary artifacts are `RV64IM_Zicclsm` with `lp64` ABI and run through `qemu-riscv64`. Generated
+ELFs, Lean source, traces, CFGs, and reports belong under ignored `build/` links.
 
-## Layout
-
-- `harness/`: local C entry points with one `main` per target.
-- `include/`: local freestanding build shims used by the `miniz_tinfl.c` target.
-- `scripts/`: shell conveniences only.
-- `build/`: ignored local output links and generated inspection files.
-
-## Build
-
-Use explicit output links under `build/` for local build artifacts.
-
-Build SHA-3:
+## Build and evaluation
 
 ```sh
 mkdir -p build
-nix build .#sha3 --out-link build/sha3
-```
-
-That produces:
-
-```text
-build/sha3/bin/sha3
-build/sha3/obj/sha3.o
-build/sha3/obj/sha3-main.o
-build/sha3/obj/riscv64_start.o
-build/sha3/obj/riscv64_runtime.o
-build/sha3/meta/elf-attributes.txt
-```
-
-`build/sha3/bin/sha3` is a RISC-V ELF, not a host executable. Run SHA-3 through the Nix app:
-
-```sh
-nix run .#sha3 -- sha3-sample-message
-```
-
-or:
-
-```sh
-./scripts/run-sha3.sh
-```
-
-`scripts/run-sha3.sh` supplies `sha3-sample-message` when no message is passed. That value is only
-the default message to hash; pass one argument to hash a different string:
-
-```sh
-./scripts/run-sha3.sh hello
-```
-
-Build and run the DEFLATE target:
-
-```sh
-mkdir -p build
-nix build .#tinfl --out-link build/tinfl
-nix run .#tinfl
-```
-
-Build the Ethereum candidates:
-
-```sh
 nix build .#reth-keccak --out-link build/reth-keccak
 nix run .#reth-keccak -- 616263
 
 nix build .#zesu-ssz --out-link build/zesu-ssz
+nix build .#stats --out-link build/stats
 ```
 
-`reth-keccak` accepts one hexadecimal input argument. `zesu-ssz` accepts raw bytes on standard
-input; its empty-input result is intentionally `invalid` with exit status 1.
+`reth-keccak` takes one hexadecimal message. `zesu-ssz` reads raw bytes from standard input and
+intentionally rejects empty input. `build/stats/stats.md` retains the uniform protocol-entry
+measurements and full-composition context for all four targets.
 
-Run the pinned Zesu native and zkeVM fixture suites (upstream production and the selected
-raw-SSZ repair) with:
-
-```sh
-nix build .#zesu-native-suite --out-link build/zesu-native-suite
-```
-
-This explicit heavyweight package provides the upstream dependencies through Nix and raises only
-the fixture runner's input cap for a 264.3 MiB fixture. It runs both unmodified upstream Zesu and
-the exact selected fork, so the fixture suite verifies preservation rather than claiming the repair
-is absent. It is intentionally not part of default `nix flake check`.
-
-Run the value-producing SSZ evaluation gates after creating a `uv sync --locked` environment for
-the pinned `ethereum/execution-specs` revision:
+The strict V4 SSZ gate uses the pinned Python execution-specs reference, SizzLean/Lean bridge, and
+host-only Zesu formatter:
 
 ```sh
 PY=/path/to/execution-specs/.venv/bin/python
@@ -108,89 +41,61 @@ nix build .#zesu-sink-observability --out-link build/zesu-sink-observability
   --reference-python "$PY" \
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \
   --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
+```
+
+`nix build .#zesu-native-suite --out-link build/zesu-native-suite` is an explicit heavyweight
+preservation package. It runs both upstream and repaired-fork native/zkeVM suites; it is deliberately
+not part of default `nix flake check`. The extended boundary corpus is likewise an explicit release
+checkpoint:
+
+```sh
 "$PY" -B tests/ssz_boundary_audit.py --extended \
   --reference-python "$PY" \
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \
   --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
 ```
 
-The strict gate covers Amsterdam V4 only. V3 is an explicitly quarantined legacy Zesu format with
-no matching pinned full-schema oracle.
+## Keccak binary-compliance scaffold
 
-The Reth candidate deliberately evaluates the Reth-locked RustCrypto portable `Keccak256` path,
-not Reth's default assembly-accelerated host binary. Its output metadata records the exact Reth
-revision and verified upstream `Cargo.lock` hash.
-
-The dev shell contains the RISC-V compiler/binutils and qemu-user:
+The proof-facing artifact is the canonical `.#reth-keccak` linked ELF. The proof build generates:
 
 ```sh
-nix develop
-riscv64-unknown-linux-gnu-gcc --version
-qemu-riscv64 --version
+nix build .#sail-riscv-lean --out-link build/sail-riscv-lean
+nix build .#reth-keccak-elf-lean --out-link build/reth-keccak-elf-lean
+nix build .#keccak-spec-lean --out-link build/keccak-spec-lean
+lake build repl
+lake build BinaryFv
 ```
 
-Build the stats report:
+`BinaryFv.RISCV` contains generic bounded ELF parsing, image loading, and generated Sail support.
+`BinaryFv.Keccak` owns target-specific parsed-symbol and ABI facts. No Reth address or opcode is
+proof input: the parser derives `reth_keccak256` from the embedded ELF.
 
-```sh
-nix build .#stats --out-link build/stats
-cat build/stats/stats.md
+The frozen direct-call ABI enters that symbol with `a0 = message pointer`, `a1 = message length`,
+and `a2 = 32-byte output pointer`; even an empty input has a valid message address. Successful
+return requires `a0 = 0` at the sentinel and reads exactly 32 output bytes. CLI parsing and Linux
+syscalls remain outside the proof-facing path.
+
+The public target theorem is:
+
+```lean
+theorem root_compliance :
+    forall msg : ByteArray,
+      msg.size < RiscvSpec.maxMessageSize ->
+      RiscvSpec.execute binary msg = .ok (Spec.Keccak.keccak256 msg)
 ```
 
-The default package is `.#stats`, so this is equivalent while still keeping the local link in
-`build/`:
+At the scaffold checkpoint only this theorem may contain `sorry`; it hides ELF loading, direct ABI
+setup, authoritative Sail execution, fuel, and output-memory extraction. The complete proof stack
+must remove all proof-scope `sorry`s and custom axioms before it claims root compliance.
 
-```sh
-nix build --out-link build/stats
-```
-
-## Objdump
-
-`dump` accepts any evaluation target (and preserves `sha3` as its default):
-
-```sh
-mkdir -p build
-nix run .#dump -- sha3 > build/sha3.objdump.txt
-nix run .#dump -- reth-keccak > build/reth-keccak.objdump.txt
-nix run .#dump -- zesu-ssz > build/zesu-ssz.objdump.txt
-```
-
-The four supported names are `sha3`, `tinfl`, `reth-keccak`, and `zesu-ssz`. For direct
-inspection after a package build, substitute any target name below:
-
-```sh
-nix build .#sha3 --out-link build/sha3
-nix develop -c sh -c 'riscv64-unknown-linux-gnu-objdump -d build/sha3/bin/sha3 > build/sha3.objdump.txt'
-```
-
-The stats build also writes:
-
-```text
-build/stats/objdump/sha3.txt
-build/stats/objdump/tinfl.txt
-build/stats/objdump/reth-keccak.txt
-build/stats/objdump/zesu-ssz.txt
-build/stats/objdump/zesu-ssz-parser.txt
-build/stats/analysis/<target>.json
-build/stats/analysis/<target>.md
-```
-
-## Stats
-
-`build/stats/stats.md` summarizes the four linked RV64 binaries plus a separate
-`zesu-ssz-parser` analysis rooted at `zesu_decode_raw`; the latter excludes the CLI and anti-DCE
-sink from the decision metric. `stats.tsv` contains object and linked `.text`, legacy
-selected-symbol counts, full and entry-reachable instructions, reachable functions,
-protocol-owned reachable instructions, blocks, CFG edges, branches, direct calls, loop SCCs, call
-depth, opcode classes, forbidden-instruction counts, objdump line counts, artifact sizes, and paths
-to each complete analysis report. The individual `analysis/<target>.json` files additionally retain
-function lists, ownership buckets, unresolved indirect calls, and ISA-gate details.
-
-## Checks
+## Checks and CI
 
 ```sh
 nix flake check
 ```
 
-Default checks cover the lightweight RV64 targets, stats/ISA gates, Reth vectors, the Lean bridge,
-the strict core SSZ differential, and sink observability. The 23,822-case Zesu suites and extended
-boundary corpus remain explicit heavyweight/release checks.
+The default lightweight checks cover the RV64 targets, stats/ISA gates, Reth vectors, Lean bridge,
+strict core SSZ differential, and sink observability. GitHub requires the `RV64 targets, stats, and
+Reth vectors` and `SSZ bridge, core differential, and sink` jobs for `main`; the heavyweight Zesu
+workflow is manually dispatched for release checkpoints.

@@ -1,0 +1,15 @@
+{"version": "1.1.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"url": "https://github.com/leanprover-community/repl.git",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "a9a6f5bac483d65d08f6226e0ed653f03c479fb7",
+   "name": "repl",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "v4.26.0",
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
+ "name": "sha_fv_experiment",
+ "lakeDir": ".lake"}

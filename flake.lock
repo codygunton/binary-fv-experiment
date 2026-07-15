@@ -91,6 +91,7 @@
         "miniz": "miniz",
         "nixpkgs": "nixpkgs",
         "reth": "reth",
+        "sailRiscv": "sail-riscv",
         "scrollFv": "scrollFv",
         "tiny-sha3": "tiny-sha3",
         "zesu": "zesu",
@@ -111,6 +112,23 @@
         "owner": "trailofbits",
         "repo": "scroll-fv",
         "rev": "0c3927ba4d6773b4cfd1d949cba342268b104d91",
+        "type": "github"
+      }
+    },
+    "sail-riscv": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1780709230,
+        "narHash": "sha256-pi/XP6+NX/wNpBESmnEg2d5cppMpMwFripDPk9vTx9I=",
+        "owner": "riscv",
+        "repo": "sail-riscv",
+        "rev": "65ddde80ee2b131bf46c20e6e748343c336c4071",
+        "type": "github"
+      },
+      "original": {
+        "owner": "riscv",
+        "repo": "sail-riscv",
+        "rev": "65ddde80ee2b131bf46c20e6e748343c336c4071",
         "type": "github"
       }
     },

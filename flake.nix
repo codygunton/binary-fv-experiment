@@ -1,5 +1,5 @@
 {
-  description = "Reproducible RV64 binary evaluation for baseline and Ethereum candidates";
+  description = "Reproducible RV64 binary evaluation and Keccak compliance scaffold";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -14,7 +14,7 @@
       flake = false;
     };
 
-    # Candidate and audit sources are pinned independently of PR #2.
+    # Candidate and audit sources are pinned independently of the proof stack.
     reth = {
       url = "github:paradigmxyz/reth/9384bc53d8c0c77e59cac83fdaaf3b372c6d2216";
       flake = false;
@@ -34,6 +34,11 @@
 
     scrollFv = {
       url = "github:trailofbits/scroll-fv/0c3927ba4d6773b4cfd1d949cba342268b104d91";
+      flake = false;
+    };
+
+    sailRiscv = {
+      url = "github:riscv/sail-riscv/65ddde80ee2b131bf46c20e6e748343c336c4071";
       flake = false;
     };
 
@@ -57,6 +62,7 @@
     zesu,
     zesuRepaired,
     scrollFv,
+    sailRiscv,
     etheorem,
     executionSpecs,
   }:
@@ -83,8 +89,11 @@
           analysis = import ./nix/analysis.nix {
             inherit pkgs repo rv64 targets;
           };
+          proof = import ./nix/proof.nix {
+            inherit pkgs repo rv64 sailRiscv scrollFv targets;
+          };
         in
-        targets.public // analysis.public;
+        targets.public // analysis.public // proof.public;
 
       outputsFor = system: pkgs:
         import ./nix/checks.nix {
@@ -106,9 +115,16 @@
             inherit pkgs repo;
             source = self;
           };
+          targets = import ./nix/targets.nix {
+            inherit miniz pkgs repo reth rv64 tiny-sha3 zesu zesuRepaired;
+            source = self;
+          };
+          proof = import ./nix/proof.nix {
+            inherit pkgs repo rv64 sailRiscv scrollFv targets;
+          };
         in
         {
-          default = rv64.devShell;
+          default = proof.devShell;
         });
     };
 }
