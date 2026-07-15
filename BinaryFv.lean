@@ -53,3 +53,10 @@ import BinaryFv.Keccak.CallClosure
 import BinaryFv.Keccak.FrameCoverage
 import BinaryFv.Keccak.FrameRuntime
 import BinaryFv.Keccak.StackFlow
+import BinaryFv.RISCV.StoreTranslationContract
+import BinaryFv.RISCV.StoreMemoryWriteContract
+import BinaryFv.RISCV.StoreExecuteContract
+import BinaryFv.Keccak.StoreDecodeFact
+import BinaryFv.Keccak.StoreArtifactFetch
+import BinaryFv.Keccak.CoreStoreStepContract
+import BinaryFv.Keccak.StoreStepTriple
