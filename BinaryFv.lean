@@ -77,3 +77,5 @@ import BinaryFv.Keccak.FallThroughStepContract
 import BinaryFv.Keccak.HelperArithDispatch
 import BinaryFv.Keccak.LoopInduction
 import BinaryFv.Keccak.CopyFromSliceDispatch
+import BinaryFv.Keccak.XorBlockDecodeFacts
+import BinaryFv.Keccak.XorBlockArtifactFetch
