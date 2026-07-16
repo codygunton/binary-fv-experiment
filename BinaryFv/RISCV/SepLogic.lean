@@ -344,6 +344,23 @@ theorem bytes_get : ∀ (a : Nat) (vs : List (BitVec 8)) (h : Heap),
         · rw [hr] at hget; exact absurd hget (by simp)
       rw [union_apply_of_none hleft]; simpa using hget
 
+/-- Ownership is empty outside the covered window: every address below `a` or at/above
+    `a + vs.length` is undefined in the owning heap. -/
+theorem bytes_none_outside : ∀ (a : Nat) (vs : List (BitVec 8)) (h : Heap),
+    bytes a vs h → ∀ b, (b < a ∨ a + vs.length ≤ b) → h b = none := by
+  intro a vs
+  induction vs generalizing a with
+  | nil => intro h hb b _; exact hb b
+  | cons v vs ih =>
+    intro h hb b hout
+    obtain ⟨h₁, h₂, _, rfl, ⟨_, hpt_other⟩, htail⟩ := hb
+    have hbne : b ≠ a := by rcases hout with h | h <;> simp only [List.length_cons] at * <;> omega
+    have h1none : h₁ b = none := hpt_other b hbne
+    have h2none : h₂ b = none := by
+      refine ih (a + 1) h₂ htail b ?_
+      rcases hout with h | h <;> simp only [List.length_cons] at * <;> omega
+    rw [union_apply_of_none h1none]; exact h2none
+
 /-! ## Little-endian words
 
 `leBytes` decomposes a `BitVec (8 * n)` into its little-endian bytes (lower addresses hold lower
