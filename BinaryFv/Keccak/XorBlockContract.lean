@@ -3,6 +3,7 @@ import BinaryFv.Keccak.XorBlockDecodeFacts
 import BinaryFv.Keccak.XorBlockArtifactFetch
 import BinaryFv.RISCV.ShiftOrExecuteContract
 import BinaryFv.RISCV.RegisterOpExecuteContract
+import Spec.Keccak.Keccak256
 
 /-!
 # The `xor_block` (0x10c6c) Keccak absorb loop, proved through the generated `try_step`
@@ -1498,6 +1499,71 @@ theorem matchesMemory_insertWord (image : ProgramImage) (mem : Std.ExtHashMap Na
     rw [hn] at ha; simp at ha
   · rw [insertWord_get_out mem addr data a (fun i hi => by omega)]; exact hm a byte ha
 
+/-! ### Deliverable 4a (cont.): the rate-window memory frame
+
+`xor_block` writes exactly the 136-byte rate window `[state0, state0+136)`: every store lands at
+`state0 + 8k + i` with `k < 17` and `i < 8`.  We therefore track the *exact memory delta* relative to
+a fixed reference state with the same `MemFramed` idiom the `memcpy` / `memset` / `copy_from_slice`
+capstones export (`BinaryFv.Keccak.HelperFraming`), instantiated at `dst := state0`, `n := 136`.
+
+The frame is the general conclusion: the capacity lanes (`17 ≤ m < 25`), the input block and the code
+image all sit *outside* the rate window, so their preservation is derived from it rather than tracked
+as independent ad-hoc conclusions.  The three lemmas below are the `xor_block` instances of
+`HelperFraming`'s `frame_insert_step` / `MemFramed.mem_unchanged_outside` reading idiom, plus the
+`toNat` plumbing for the concrete width `136`. -/
+
+/-- The rate window is 136 bytes wide. -/
+theorem rateWidth_toNat : (BitVec.ofNat 64 136).toNat = 136 := by decide
+
+/-- Read the rate-window frame at an address outside `[state0, state0+136)`. -/
+theorem memFramed_rate_apply {state0 : BitVec 64} {sref s : State}
+    (h : MemFramed state0 (BitVec.ofNat 64 136) sref s) (addr : Nat)
+    (haddr : ∀ j : Nat, j < 136 → addr ≠ (state0 + BitVec.ofNat 64 j).toNat) :
+    s.mem.get? addr = sref.mem.get? addr :=
+  h addr (fun j hj => haddr j (by rw [rateWidth_toNat] at hj; exact hj))
+
+/-- Package a pointwise outside-the-rate-window agreement as a `MemFramed`. -/
+theorem memFramed_rate_intro {state0 : BitVec 64} {sref s : State}
+    (h : ∀ addr : Nat, (∀ j : Nat, j < 136 → addr ≠ (state0 + BitVec.ofNat 64 j).toNat) →
+      s.mem.get? addr = sref.mem.get? addr) :
+    MemFramed state0 (BitVec.ofNat 64 136) sref s :=
+  fun addr haddr => h addr (fun j hj => haddr j (by rw [rateWidth_toNat]; exact hj))
+
+/-- The lane store at `state0 + 8k` (`k < 17`) lands inside the rate window, so it never disturbs the
+already-framed complement.  This is the `xor_block` (8 bytes at a time) analogue of
+`HelperFraming.frame_insert_step`, and is the per-iteration step the loop invariant re-establishes. -/
+theorem frame_rate_store {state0 : BitVec 64} {sref : State}
+    {mem : Std.ExtHashMap Nat (BitVec 8)} {k : Nat} {v : BitVec (8 * 8)}
+    (hstateFits : state0.toNat + 200 ≤ 2 ^ 64) (hk : k < 17)
+    (hframe : ∀ addr : Nat, (∀ j : Nat, j < 136 → addr ≠ (state0 + BitVec.ofNat 64 j).toNat) →
+      mem.get? addr = sref.mem.get? addr) :
+    ∀ addr : Nat, (∀ j : Nat, j < 136 → addr ≠ (state0 + BitVec.ofNat 64 j).toNat) →
+      (insertWord mem (state0 + BitVec.ofNat 64 (8 * k)).toNat v).get? addr
+        = sref.mem.get? addr := by
+  intro addr haddr
+  rw [insertWord_get_out _ _ _ _ (fun i hi => by
+    have h' := haddr (8 * k + i) (by omega)
+    rw [dstAddr_toNat state0 (8 * k + i) (by omega)] at h'
+    rw [dstAddr_toNat state0 (8 * k) (by omega)]
+    omega)]
+  exact hframe addr haddr
+
+/-- Code-image preservation *derived from the frame*: the image backs no byte of the 200-byte state
+region (`hstateImg`), hence none of the rate window either, and every address outside that window is
+left untouched by a framed run. -/
+theorem matchesMemory_of_rate_frame {state0 : BitVec 64} {sref s : State} {image : ProgramImage}
+    (hframe : MemFramed state0 (BitVec.ofNat 64 136) sref s)
+    (hstateImg : ∀ j : Nat, j < 200 → image.readByte? (state0 + BitVec.ofNat 64 j).toNat = none)
+    (hm : image.matchesMemory sref.mem) :
+    image.matchesMemory s.mem := by
+  intro addr byte hread
+  by_cases hin : ∃ j : Nat, j < 136 ∧ addr = (state0 + BitVec.ofNat 64 j).toNat
+  · obtain ⟨j, hj, rfl⟩ := hin
+    rw [hstateImg j (by omega)] at hread
+    exact absurd hread (by simp)
+  · rw [memFramed_rate_apply hframe addr (fun j hj heq => hin ⟨j, hj, heq⟩)]
+    exact hm addr byte hread
+
 /-! ## Deliverable 4b: loop invariant and abstract configured-machine premises
 
 Mirrors `MemcpyContract`'s `MemcpyInv` / `AbstractPlatform` / `AbstractDataAccess` for `xor_block`.
@@ -1654,10 +1720,15 @@ theorem stableAgree_store (base s' : State) (pc ret : BitVec 64)
 
 /-! ### The loop invariant at the loop head `0x10c74` -/
 
-/-- The `xor_block` loop invariant: about to run iteration `k` at the loop head `0x10c74`. -/
+/-- The `xor_block` loop invariant: about to run iteration `k` at the loop head `0x10c74`.
+
+`sref` is the fixed reference state the compositional frame is measured against (the caller's entry
+state): `hstable` and `hframe` say the run so far has touched no register outside `W` and no memory
+outside the 136-byte rate window. -/
 structure XorBlockInv (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
-    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (k : Nat) (s : State) : Prop where
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (sref : State) (k : Nat) (s : State) :
+    Prop where
   hPC : s.regs.get? PC = some (BitVec.ofNat 64 0x10c74)
   ha0 : s.regs.get? x10 = some (state0 + BitVec.ofNat 64 (8 * k))
   ha1 : s.regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k))
@@ -1690,6 +1761,10 @@ structure XorBlockInv (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
   hplat : AbstractPlatform s
   hdata : AbstractDataAccess state0 input0 s
   hElp : AbstractElp s
+  /-- Register frame: nothing outside `W` has been written since `sref`. -/
+  hstable : StableAgree sref s
+  /-- Memory frame: nothing outside the 136-byte rate window has been written since `sref`. -/
+  hframe : MemFramed state0 (BitVec.ofNat 64 136) sref s
 
 /-! ### Arithmetic and register-tracking helpers for the advance -/
 
@@ -1746,7 +1821,8 @@ theorem a2_eq_zero : BitVec.ofNat 64 (136 - 8 * 17) = zero_reg := by decide
 
 structure AtBnez (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
-    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (k' : Nat) (s : State) : Prop where
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (sref : State) (k' : Nat) (s : State) :
+    Prop where
   hPC : s.regs.get? PC = some (BitVec.ofNat 64 0x10ce4)
   ha0 : s.regs.get? x10 = some (state0 + BitVec.ofNat 64 (8 * k'))
   ha1 : s.regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k'))
@@ -1779,6 +1855,10 @@ structure AtBnez (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
   hplat : AbstractPlatform s
   hdata : AbstractDataAccess state0 input0 s
   hElp : AbstractElp s
+  /-- Register frame: nothing outside `W` has been written since `sref`. -/
+  hstable : StableAgree sref s
+  /-- Memory frame: nothing outside the 136-byte rate window has been written since `sref`. -/
+  hframe : MemFramed state0 (BitVec.ofNat 64 136) sref s
 
 /-! ## Deliverable 4c (cont.): the 28-instruction body core proof -/
 
@@ -1787,12 +1867,12 @@ set_option maxHeartbeats 8000000 in
 into state lane `k` and advances `a0`/`a1`/`a2`, landing in `AtBnez (k+1)`. -/
 theorem xorblock_body_core (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
-    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (start k : Nat) (s : State)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (sref : State) (start k : Nat) (s : State)
     (hk : k < 17)
     (hInv : XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
-      origLane inByte k s) :
+      origLane inByte sref k s) :
     ∃ s28, Trace (start + k * 29) 28 s s28 ∧
-      AtBnez state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg origLane inByte
+      AtBnez state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg origLane inByte sref
         (k + 1) s28 := by
   obtain ⟨retired0, hret0⟩ := hInv.hminstret
   have hsf := hInv.hstateFits
@@ -2729,7 +2809,7 @@ theorem xorblock_body_core (state0 input0 retAddr : BitVec 64) (image : ProgramI
     hInv.hmachineEnabled, ⟨_, hmin28⟩, hInv.himageEq, ?_, ?_, ?_, ?_,
     (by omega), hInv.hstateFits, hInv.hinputFits, hInv.hstateImg, hInv.hdisj,
     AbstractPlatform.mono hSt28 hInv.hplat, AbstractDataAccess.mono hSt28 hInv.hdata,
-    AbstractElp.mono hSt28 hInv.hElp⟩
+    AbstractElp.mono hSt28 hInv.hElp, hInv.hstable.trans hSt28, ?_⟩
   · -- hPC
     exact (afterIncGet s28 PC (by decide)).symm.trans
       ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10ce0) 4 = BitVec.ofNat 64 0x10ce4 from by decide)
@@ -2766,6 +2846,11 @@ theorem xorblock_body_core (state0 input0 retAddr : BitVec 64) (image : ProgramI
           omega]
       exact (hInv.hdisj (8 * k + i') j (by omega) hj).symm)]
     exact hInv.hinput j hj
+  · -- hframe (the lane store stays inside the rate window)
+    refine memFramed_rate_intro (fun addr haddr => ?_)
+    rw [hmem28]
+    exact frame_rate_store hInv.hstateFits hk
+      (fun a ha => memFramed_rate_apply hInv.hframe a ha) addr haddr
 
 /-! ## Deliverable 4d: one taken loop iteration `xorblock_adv` -/
 
@@ -2774,15 +2859,15 @@ set_option maxHeartbeats 2000000 in
 loop head `0x10c74` back to itself, re-establishing `XorBlockInv (k+1)`. -/
 theorem xorblock_adv (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
-    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (start k : Nat) (s : State)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (sref : State) (start k : Nat) (s : State)
     (hk16 : k < 16)
     (hInv : XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
-      origLane inByte k s) :
+      origLane inByte sref k s) :
     ∃ s', Trace (start + k * 29) 29 s s' ∧
       XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
-        origLane inByte (k + 1) s' := by
+        origLane inByte sref (k + 1) s' := by
   obtain ⟨s28, htr, hAt⟩ := xorblock_body_core state0 input0 retAddr image mseccfgBits mstatusBits
-    inhibit cfg origLane inByte start k s (by omega) hInv
+    inhibit cfg origLane inByte sref start k s (by omega) hInv
   obtain ⟨retired28, hret28⟩ := hAt.hminstret
   have hbytes28 : FetchBytesAt (tryStepControlFlowAfterIncrement s28) (BitVec.ofNat 64 0x10ce4)
       0xe3#8 0x18#8 0x06#8 0xf8#8 :=
@@ -2829,29 +2914,32 @@ theorem xorblock_adv (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
     hAt.hmachineEnabled, ⟨_, retiredMinstret _ _ _⟩, hAt.himageEq, ?_, ?_, ?_, ?_,
     (by omega), hAt.hstateFits, hAt.hinputFits, hAt.hstateImg, hAt.hdisj,
     AbstractPlatform.mono hSj hAt.hplat, AbstractDataAccess.mono hSj hAt.hdata,
-    AbstractElp.mono hSj hAt.hElp⟩
+    AbstractElp.mono hSj hAt.hElp, hAt.hstable.trans hSj, ?_⟩
   · rw [retiredGetPC _ _ _, hsum]
   · rw [hmemj]; exact hAt.hmatches
   · intro m i hm hm2 hi; rw [hmemj]; exact hAt.hunproc m i hm hm2 hi
   · intro m i hm hi; rw [hmemj]; exact hAt.hproc m i hm hi
   · intro j hj; rw [hmemj]; exact hAt.hinput j hj
+  · -- hframe (the taken back-edge writes no memory)
+    exact memFramed_rate_intro (fun addr haddr => by
+      rw [hmemj]; exact memFramed_rate_apply hAt.hframe addr haddr)
 
 /-! ## Deliverable 5a: the whole 16-iteration taken loop `xorblock_loop` -/
 
 /-- The 16 taken back-edge iterations from `XorBlockInv 0` to `XorBlockInv 16`. -/
 theorem xorblock_loop (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
-    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (start : Nat) (s0 : State)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (sref : State) (start : Nat) (s0 : State)
     (hInv0 : XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
-      origLane inByte 0 s0) :
+      origLane inByte sref 0 s0) :
     ∃ sN, Trace start (16 * 29) s0 sN ∧
       XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
-        origLane inByte 16 sN :=
+        origLane inByte sref 16 sN :=
   Trace.invariantIterate (L := 29) (start := start)
     (Inv := fun k s => XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
-      origLane inByte k s) 16
+      origLane inByte sref k s) 16
     (fun k s hk hInv => xorblock_adv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
-      origLane inByte start k s hk hInv)
+      origLane inByte sref start k s hk hInv)
     hInv0
 
 /-! ## Deliverable 5b: the final iteration and return `xorblock_exit` -/
@@ -2860,13 +2948,14 @@ set_option maxHeartbeats 2000000 in
 /-- The 17th (last) iteration and return: run the body once more from `XorBlockInv 16` (`bnez` now
 NOT taken, since `a2` reaches `0`), then `ret`.  The framed conclusion exposes the exact memory
 delta: the 17 rate lanes are XORed, the 8 capacity lanes and the input block are preserved, the code
-image (`matchesMemory`) is preserved, and `PC = ra`. -/
+image (`matchesMemory`) is preserved, `PC = ra`, and — the general frame — every register outside `W`
+and every byte outside the rate window still agrees with the reference state `sref`. -/
 theorem xorblock_exit (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
-    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (start : Nat) (s : State)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (sref : State) (start : Nat) (s : State)
     (hretAlign : Sail.BitVec.access retAddr 1 = 0#1)
     (hInv : XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
-      origLane inByte 16 s) :
+      origLane inByte sref 16 s) :
     ∃ s'', Trace (start + 16 * 29) 30 s s'' ∧
       s''.regs.get? PC = some (Sail.BitVec.update retAddr 0 0#1) ∧
       s''.regs.get? x10 = some (state0 + BitVec.ofNat 64 136) ∧
@@ -2877,9 +2966,11 @@ theorem xorblock_exit (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
       (∀ m i : Nat, 17 ≤ m → m < 25 → i < 8 → s''.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat
         = some ((origLane m).extractLsb' (8 * i) 8)) ∧
       (∀ j : Nat, j < 136 → s''.mem.get? (input0 + BitVec.ofNat 64 j).toNat = some (inByte j)) ∧
-      image.matchesMemory s''.mem := by
+      image.matchesMemory s''.mem ∧
+      StableAgree sref s'' ∧
+      MemFramed state0 (BitVec.ofNat 64 136) sref s'' := by
   obtain ⟨s28, htr, hAt⟩ := xorblock_body_core state0 input0 retAddr image mseccfgBits mstatusBits
-    inhibit cfg origLane inByte start 16 s (by omega) hInv
+    inhibit cfg origLane inByte sref start 16 s (by omega) hInv
   obtain ⟨retired28, hret28⟩ := hAt.hminstret
   -- bnez NOT taken (a2 = 0)
   have hbytes28 : FetchBytesAt (tryStepControlFlowAfterIncrement s28) (BitVec.ofNat 64 0x10ce4)
@@ -2959,21 +3050,35 @@ theorem xorblock_exit (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
       hx11_1,
     (jumpRetiredGet s29 (BitVec.ofNat 64 0x10ce8) (Sail.BitVec.update retAddr 0 0#1)
       (Sail.BitVec.addInt retired28 1) x1 (by decide) (by decide) (by decide) (by decide)).trans
-      hx1_1, ?_, ?_, ?_, ?_⟩
+      hx1_1, ?_, ?_, ?_, ?_, hAt.hstable.trans hSt2, ?_⟩
   · exact by simpa using Trace.append htr (Trace.step _ _ _ _ _ hbnez (Trace.one _ _ _ hret))
   · intro m i hm hi; rw [hmem2]; exact hAt.hproc m i (by omega) hi
   · intro m i hm hm2 hi; rw [hmem2]; exact hAt.hunproc m i hm hm2 hi
   · intro j hj; rw [hmem2]; exact hAt.hinput j hj
   · rw [hmem2]; exact hAt.hmatches
+  · -- the general memory frame (the two exit steps write no memory)
+    exact memFramed_rate_intro (fun addr haddr => by
+      rw [hmem2]; exact memFramed_rate_apply hAt.hframe addr haddr)
 
 /-! ## Deliverable 5c: the capstone `xor_block_contract`
 
 DESIGN NOTE (fetch-fact transparency).  This contract depends on the parser-derived fetch facts
 (`XorBlockArtifactFetch`) ONLY through their `FetchBytesAt` conclusions — routed through the step
-lemmas and `mkStepPlatform` — never through their `native_decide` internals.  Consequently, replacing
-those fetch facts by kernel-checked (non-`native_decide`) versions drops `Lean.ofReduceBool` /
-`Lean.trustCompiler` from the axiom footprint of this theorem with NO change to its statement or
-proof beyond the fetch-fact swap. -/
+lemmas and `mkStepPlatform` — never through their `native_decide` internals.  That part of the trust
+story stands: the fetch facts are closed statements about the pinned Nix-built ELF, and nothing about
+the execution semantics, framing or spec correspondence below is decided natively.
+
+CORRECTION (2026-07-16).  An earlier version of this note went on to claim that swapping the fetch
+facts for kernel-checked versions would drop `Lean.ofReduceBool` / `Lean.trustCompiler` from this
+theorem's axiom footprint.  That claim is FALSE and has been removed.  `bv_decide` discharges its
+goals by checking an LRAT certificate whose evaluation goes through `Lean.reduceBool`, so *every*
+`bv_decide` call that actually reaches the SAT backend contributes those two axioms on its own,
+independently of any artifact fact.  `assemble_leWord` above is a pure `BitVec` identity with no
+artifact dependency at all, and already carries them; so do the `Spec` bridges in deliverable 6.
+(`bv_decide` calls closed by `bv_normalize` preprocessing alone — `slli_amount`, `li_val`, `sext8` —
+do not.)  The honest statement is: this theorem's `Lean.ofReduceBool` / `Lean.trustCompiler`
+footprint has two independent sources, the artifact fetch facts and the `bv_decide` LRAT checker, and
+removing the former alone would not drop them. -/
 
 /-- The entry `li a2, 136` value equals `136`. -/
 theorem li_val : zero_reg + sign_extend (m := 64) 136#12 = BitVec.ofNat 64 136 := by
@@ -2986,9 +3091,23 @@ set_option maxHeartbeats 2000000 in
 /-- CAPSTONE.  `xor_block(state, input, 136)` at `0x10c6c`, run through the authoritative generated
 `try_step` from a configured machine: a single `2 + 16*29 + 30 = 496`-step trace to the caller
 (`PC = ra`), after which the 17 rate state lanes at `state0 + 8m` (`m < 17`) each hold
-`origLane m ^^^ inputLane inByte m`, and — as explicit framed conclusions — the 8 capacity lanes
-(`17 ≤ m < 25`), the 136-byte input block, and the code image (`matchesMemory`) are preserved.  All
-memory outside the 17 written rate lanes is unchanged. -/
+`origLane m ^^^ inputLane inByte m`.
+
+The compositional side of the contract is exported as the *general* frame, not as a list of selected
+observations:
+
+* `MemFramed state0 136 s s''` — the exact memory delta.  `s''` agrees with the entry state `s` at
+  every address the 136-byte rate window `[state0, state0+136)` does not cover, for an **arbitrary**
+  address; the immediately following conjunct is the no-wraparound reading of that
+  (`addr < state0` or `state0 + 136 ≤ addr` implies `s''.mem addr = s.mem addr`).
+* `StableAgree s s''` — the register frame.  Every register outside `xor_block`'s written set
+  `W = {PC, nextPC, minstret, minstret_increment, x5, x10..x17}` still holds its entry value.  This
+  is honest about `W`: `a0`/`a1` are advanced by 136 and `a2`/`t0`/`a3..a7` are clobbered, so no
+  preservation is claimed for them.
+
+The capacity-lane (`17 ≤ m < 25`), input-block and code-image conclusions are kept, but are now
+*derived from* the memory frame (all three regions lie outside the rate window) rather than tracked
+as independent ad-hoc conclusions. -/
 theorem xor_block_contract (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
     (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (start : Nat) (s : State)
@@ -3023,7 +3142,11 @@ theorem xor_block_contract (state0 input0 retAddr : BitVec 64) (image : ProgramI
       (∀ m i : Nat, 17 ≤ m → m < 25 → i < 8 → s''.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat
         = some ((origLane m).extractLsb' (8 * i) 8)) ∧
       (∀ j : Nat, j < 136 → s''.mem.get? (input0 + BitVec.ofNat 64 j).toNat = some (inByte j)) ∧
-      image.matchesMemory s''.mem := by
+      image.matchesMemory s''.mem ∧
+      MemFramed state0 (BitVec.ofNat 64 136) s s'' ∧
+      (∀ addr : Nat, addr < state0.toNat ∨ state0.toNat + 136 ≤ addr →
+        s''.mem.get? addr = s.mem.get? addr) ∧
+      StableAgree s s'' := by
   obtain ⟨retired0, hret0⟩ := hminstret
   -- Entry step 0: li a2, 136 at 0x10c6c.
   have hbytesE : FetchBytesAt (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c6c)
@@ -3121,8 +3244,9 @@ theorem xor_block_contract (state0 input0 retAddr : BitVec 64) (image : ProgramI
       (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c70) 4) (Sail.BitVec.addInt retired0 1) = s2
     at hbeqz hSt1 hmem1 hPC1 hmin1 hx12_1 hx10_1 hx11_1 hx1_1 hPCval1
   -- Establish `XorBlockInv 0` at `s2` (PC = 0x10c74).
+  -- The two entry steps write no memory, so the frame relative to `s` starts trivially.
   have hInv0 : XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
-      origLane inByte 0 s2 := by
+      origLane inByte s 0 s2 := by
     refine ⟨?_, by simpa using hx10_1, by simpa using hx11_1, hx12_1, hx1_1,
       (hSt1 cur_privilege (by decide)).trans hcur,
       (hSt1 mstatus (by decide)).trans hmstatus, hmprv, (hSt1 mseccfg (by decide)).trans hmseccfg,
@@ -3130,22 +3254,202 @@ theorem xor_block_contract (state0 input0 retAddr : BitVec 64) (image : ProgramI
       hnotInhibited, (hSt1 minstretcfg (by decide)).trans hcfg, hmachineEnabled, ⟨_, hmin1⟩,
       himageEq, ?_, ?_, ?_, ?_, (by omega), hstateFits, hinputFits, hstateImg, hdisj,
       AbstractPlatform.mono hSt1 hplat, AbstractDataAccess.mono hSt1 hdata,
-      AbstractElp.mono hSt1 hElp⟩
+      AbstractElp.mono hSt1 hElp, hSt1, ?_⟩
     · exact hPCval1
     · rw [hmem1]; exact hmatches
     · intro m i _ hm2 hi; rw [hmem1]; exact hstate m i hm2 hi
     · intro m i hm _; exact absurd hm (Nat.not_lt_zero m)
     · intro j hj; rw [hmem1]; exact hinput j hj
+    · exact memFramed_rate_intro (fun addr _ => by rw [hmem1])
   -- Loop (16 taken iterations) then exit (final iteration + ret).
   obtain ⟨sN, htrLoop, hInvN⟩ := xorblock_loop state0 input0 retAddr image mseccfgBits mstatusBits
-    inhibit cfg origLane inByte (start + 2) s2 hInv0
-  obtain ⟨s'', htrExit, hPCret, hx10N, hx11N, hx1N, hrate, hcap, hinp, hcode⟩ :=
+    inhibit cfg origLane inByte s (start + 2) s2 hInv0
+  obtain ⟨s'', htrExit, hPCret, hx10N, hx11N, hx1N, hrate, _hcap, _hinp, _hcode, hstableN,
+      hframeN⟩ :=
     xorblock_exit state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg origLane inByte
-      (start + 2) sN hretAlign hInvN
-  refine ⟨s'', ?_, hPCret, hx10N, hx11N, hx1N, hrate, hcap, hinp, hcode⟩
+      s (start + 2) sN hretAlign hInvN
+  -- The no-wraparound reading of the general frame.
+  have hfitsRate : state0.toNat + (BitVec.ofNat 64 136).toNat ≤ 2 ^ 64 := by
+    rw [rateWidth_toNat]; omega
+  have houtside : ∀ addr : Nat, addr < state0.toNat ∨ state0.toNat + 136 ≤ addr →
+      s''.mem.get? addr = s.mem.get? addr := fun addr hout =>
+    MemFramed.mem_unchanged_outside hframeN hfitsRate addr (by rw [rateWidth_toNat]; exact hout)
+  -- Capacity lanes: `8m + i ∈ [136, 200)` lies above the rate window.
+  have hcap : ∀ m i : Nat, 17 ≤ m → m < 25 → i < 8 →
+      s''.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat
+        = some ((origLane m).extractLsb' (8 * i) 8) := by
+    intro m i hm hm2 hi
+    rw [houtside _ (Or.inr (by rw [dstAddr_toNat state0 (8 * m + i) (by omega)]; omega))]
+    exact hstate m i hm2 hi
+  -- Input block: disjoint from the state region by `hdisj`, hence outside the rate window.
+  have hinp : ∀ j : Nat, j < 136 →
+      s''.mem.get? (input0 + BitVec.ofNat 64 j).toNat = some (inByte j) := by
+    intro j hj
+    refine (MemFramed.source_preserved (src := input0) hframeN ?_ j ?_).trans (hinput j hj)
+    · intro a b ha hb
+      rw [rateWidth_toNat] at ha hb
+      exact hdisj a b (by omega) hb
+    · rw [rateWidth_toNat]; exact hj
+  -- Code image: the image backs no byte of the state region, so the frame carries it.
+  have hcode : image.matchesMemory s''.mem :=
+    matchesMemory_of_rate_frame hframeN hstateImg hmatches
+  refine ⟨s'', ?_, hPCret, hx10N, hx11N, hx1N, hrate, hcap, hinp, hcode, hframeN, houtside,
+    hstableN⟩
   have htrEntry : Trace start 2 s s2 :=
     Trace.step _ _ _ _ _ hli (Trace.one _ _ _ hbeqz)
   have hcomb := Trace.append (Trace.append htrEntry htrLoop) htrExit
   simpa using hcomb
+
+/-! ## Deliverable 6: correspondence with the executable Keccak-256 specification
+
+`Spec.Keccak.xorBytesIntoState st input 136` (`Spec/Keccak/Keccak256.lean`) is the specification's
+rate-block absorb: the 25-lane `Array UInt64` whose lane `i` is `st[i]! ^^^ Spec.Keccak.inputLane
+input i` for `i < 136 / 8 = 17`, and `st[i]!` otherwise.  The machine, by contrast, works on a flat
+byte memory, so the correspondence needs an explicit memory ↔ `Array UInt64` relation.  We do not
+invent one: `StateImage` / `InputImage` below say the machine's memory at `state0` / `input0` *is*
+the specification's own serialization (`Spec.Keccak.stateByte`, `ByteArray.data`).  They are stated
+as definitions and appear as an explicit hypothesis (on the entry state) and an explicit conclusion
+(on the exit state) of `xor_block_matches_spec` — the honest framing, since nothing in the machine
+semantics privileges any particular lane encoding.
+
+The two load-bearing bridges are pure, kernel-checked `bv_decide` identities:
+
+* `specInputLane_toBitVec` — the machine's little-endian `leWord` of the 8 input bytes at
+  `input0 + 8k` (produced by the body's 8 `lbu` + 6 `slli` + 6 `or`, cf. `assemble_leWord`) equals
+  `Spec.Keccak.inputLane input k`.  This is the `UInt64 ↔ BitVec 64` bridge over the spec's
+  `|||` / `<<<` / `toUInt64` fold.
+* `specStateByte_toBitVec` — the machine's per-lane byte extraction `lane.extractLsb' (8i) 8` equals
+  the spec's `stateByte` at flat index `8m + i`. -/
+
+/-- Extracting byte `r` of a 64-bit lane the way `Spec.Keccak.stateByte` does (`>>> 8r`, `&&& 0xFF`,
+`toUInt8`) is `BitVec.extractLsb' (8r) 8`. -/
+theorem uint64_byte (x : UInt64) (r : Nat) (hr : r < 8) :
+    (((x >>> (8 * r).toUInt64) &&& 255).toUInt8).toBitVec = x.toBitVec.extractLsb' (8 * r) 8 := by
+  match r, hr with
+  | 0, _ => simp only [show Nat.toUInt64 (8 * 0) = (0 : UInt64) from rfl]; bv_decide
+  | 1, _ => simp only [show Nat.toUInt64 (8 * 1) = (8 : UInt64) from rfl]; bv_decide
+  | 2, _ => simp only [show Nat.toUInt64 (8 * 2) = (16 : UInt64) from rfl]; bv_decide
+  | 3, _ => simp only [show Nat.toUInt64 (8 * 3) = (24 : UInt64) from rfl]; bv_decide
+  | 4, _ => simp only [show Nat.toUInt64 (8 * 4) = (32 : UInt64) from rfl]; bv_decide
+  | 5, _ => simp only [show Nat.toUInt64 (8 * 5) = (40 : UInt64) from rfl]; bv_decide
+  | 6, _ => simp only [show Nat.toUInt64 (8 * 6) = (48 : UInt64) from rfl]; bv_decide
+  | 7, _ => simp only [show Nat.toUInt64 (8 * 7) = (56 : UInt64) from rfl]; bv_decide
+
+/-- BRIDGE (state serialization).  The spec's flat state byte `8m + r` is the machine's `r`-th
+little-endian byte of lane `m`. -/
+theorem specStateByte_toBitVec (st : Array UInt64) (m r : Nat) (hr : r < 8) :
+    (Spec.Keccak.stateByte st (8 * m + r)).toBitVec = (st[m]!.toBitVec).extractLsb' (8 * r) 8 := by
+  unfold Spec.Keccak.stateByte
+  rw [show (8 * m + r) / 8 = m by omega, show (8 * m + r) % 8 = r by omega]
+  exact uint64_byte st[m]! r hr
+
+/-- BRIDGE (input lane).  The spec's `inputLane` fold over `List.range 8` — `acc ||| b <<< 8j` on
+`UInt64` — is the machine's little-endian `leWord` of the same 8 bytes. -/
+theorem specInputLane_toBitVec (input : ByteArray) (inByte : Nat → BitVec 8) (k : Nat)
+    (hsize : input.size = 136) (hk : k < 17)
+    (hb : ∀ j : Nat, j < 8 → (input.data[8 * k + j]!).toBitVec = inByte (8 * k + j)) :
+    (Spec.Keccak.inputLane input k).toBitVec = inputLane inByte k := by
+  unfold Spec.Keccak.inputLane inputLane
+  simp only [List.range_succ, List.range_zero, List.foldl_cons, List.foldl_nil, List.foldl_append,
+    hsize,
+    if_pos (show 8 * k + 0 < 136 by omega), if_pos (show 8 * k + 1 < 136 by omega),
+    if_pos (show 8 * k + 2 < 136 by omega), if_pos (show 8 * k + 3 < 136 by omega),
+    if_pos (show 8 * k + 4 < 136 by omega), if_pos (show 8 * k + 5 < 136 by omega),
+    if_pos (show 8 * k + 6 < 136 by omega), if_pos (show 8 * k + 7 < 136 by omega)]
+  rw [← hb 0 (by omega), ← hb 1 (by omega), ← hb 2 (by omega), ← hb 3 (by omega),
+    ← hb 4 (by omega), ← hb 5 (by omega), ← hb 6 (by omega), ← hb 7 (by omega)]
+  simp only [leWord, List.length_cons, List.length_nil,
+    show Nat.toUInt64 0 = (0 : UInt64) from rfl,
+    show Nat.toUInt64 (8 * 1) = (8 : UInt64) from rfl,
+    show Nat.toUInt64 (8 * 2) = (16 : UInt64) from rfl,
+    show Nat.toUInt64 (8 * 3) = (24 : UInt64) from rfl,
+    show Nat.toUInt64 (8 * 4) = (32 : UInt64) from rfl,
+    show Nat.toUInt64 (8 * 5) = (40 : UInt64) from rfl,
+    show Nat.toUInt64 (8 * 6) = (48 : UInt64) from rfl,
+    show Nat.toUInt64 (8 * 7) = (56 : UInt64) from rfl]
+  bv_decide
+
+/-- Lane `m` of `xorBytesIntoState st input 136`: XORed for the 17 rate lanes, untouched otherwise
+(`136 / 8 = 17`). -/
+theorem xorBytesIntoState_lane (st : Array UInt64) (input : ByteArray) (m : Nat) (hm : m < 25) :
+    (Spec.Keccak.xorBytesIntoState st input 136)[m]!
+      = if m < 17 then st[m]! ^^^ Spec.Keccak.inputLane input m else st[m]! := by
+  unfold Spec.Keccak.xorBytesIntoState
+  rw [getElem!_pos _ _ (by simp; omega)]
+  simp
+
+/-- The machine memory at `[state0, state0+200)` *is* the spec's 200-byte little-endian serialization
+of the 25-lane state `st` (`Spec.Keccak.stateByte`). -/
+def StateImage (state0 : BitVec 64) (st : Array UInt64) (s : State) : Prop :=
+  ∀ i : Nat, i < 200 →
+    s.mem.get? (state0 + BitVec.ofNat 64 i).toNat = some (Spec.Keccak.stateByte st i).toBitVec
+
+/-- The machine memory at `[input0, input0+136)` *is* the spec's 136-byte rate block. -/
+def InputImage (input0 : BitVec 64) (input : ByteArray) (s : State) : Prop :=
+  ∀ j : Nat, j < 136 →
+    s.mem.get? (input0 + BitVec.ofNat 64 j).toNat = some (input.data[j]!).toBitVec
+
+set_option maxHeartbeats 1000000 in
+/-- SPEC CORRESPONDENCE.  Run from a configured machine whose memory holds the serialized spec state
+`st` at `state0` and the spec's 136-byte rate block `input` at `input0`, the operational `xor_block`
+(the same 496-step generated-`try_step` trace as `xor_block_contract`) returns to the caller with
+memory holding *exactly the serialization of* `Spec.Keccak.xorBytesIntoState st input 136` — all 25
+lanes, so this pins the XORed 17 rate lanes and the 8 untouched capacity lanes simultaneously.  The
+input block, the code image, and the register/memory frames are carried over from the capstone. -/
+theorem xor_block_matches_spec (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
+    (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
+    (st : Array UInt64) (input : ByteArray) (start : Nat) (s : State)
+    (hsize : input.size = 136)
+    (hPC : s.regs.get? PC = some (BitVec.ofNat 64 0x10c6c))
+    (ha0 : s.regs.get? x10 = some state0) (ha1 : s.regs.get? x11 = some input0)
+    (hra : s.regs.get? x1 = some retAddr)
+    (hcur : s.regs.get? cur_privilege = some Privilege.Machine)
+    (hmstatus : s.regs.get? mstatus = some mstatusBits) (hmprv : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (hmseccfg : s.regs.get? mseccfg = some mseccfgBits)
+    (hhart : s.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (hinhibit : s.regs.get? mcountinhibit = some inhibit)
+    (hnotInhibited : _get_Counterin_IR inhibit = 0#1)
+    (hcfg : s.regs.get? minstretcfg = some cfg) (hmachineEnabled : _get_CountSmcntrpmf_MINH cfg = 0#1)
+    (hminstret : ∃ v, s.regs.get? minstret = some v)
+    (himageEq : Artifact.programImage = .ok image) (hmatches : image.matchesMemory s.mem)
+    (hstateImage : StateImage state0 st s) (hinputImage : InputImage input0 input s)
+    (hstateFits : state0.toNat + 200 ≤ 2 ^ 64) (hinputFits : input0.toNat + 136 ≤ 2 ^ 64)
+    (hstateImg : ∀ j : Nat, j < 200 → image.readByte? (state0 + BitVec.ofNat 64 j).toNat = none)
+    (hdisj : ∀ j j' : Nat, j < 200 → j' < 136 →
+      (state0 + BitVec.ofNat 64 j).toNat ≠ (input0 + BitVec.ofNat 64 j').toNat)
+    (hretAlign : Sail.BitVec.access retAddr 1 = 0#1)
+    (hplat : AbstractPlatform s) (hdata : AbstractDataAccess state0 input0 s) (hElp : AbstractElp s) :
+    ∃ s'', Trace start (2 + 16 * 29 + 30) s s'' ∧
+      s''.regs.get? PC = some (Sail.BitVec.update retAddr 0 0#1) ∧
+      StateImage state0 (Spec.Keccak.xorBytesIntoState st input 136) s'' ∧
+      InputImage input0 input s'' ∧
+      image.matchesMemory s''.mem ∧
+      MemFramed state0 (BitVec.ofNat 64 136) s s'' ∧
+      StableAgree s s'' := by
+  obtain ⟨s'', htr, hPCret, _hx10, _hx11, _hx1, hrate, hcap, hinp, hcode, hframe, _houtside,
+      hstable⟩ :=
+    xor_block_contract state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
+      (fun m => (st[m]!).toBitVec) (fun j => (input.data[j]!).toBitVec) start s
+      hPC ha0 ha1 hra hcur hmstatus hmprv hmseccfg hhart hinhibit hnotInhibited hcfg hmachineEnabled
+      hminstret himageEq hmatches
+      (fun m i _hm hi =>
+        (hstateImage (8 * m + i) (by omega)).trans (congrArg some (specStateByte_toBitVec st m i hi)))
+      hinputImage hstateFits hinputFits hstateImg hdisj hretAlign hplat hdata hElp
+  refine ⟨s'', htr, hPCret, ?_, hinp, hcode, hframe, hstable⟩
+  intro i hi
+  obtain ⟨m, r, hr, rfl⟩ : ∃ m r, r < 8 ∧ i = 8 * m + r := ⟨i / 8, i % 8, by omega, by omega⟩
+  rw [specStateByte_toBitVec _ m r hr, xorBytesIntoState_lane st input m (by omega)]
+  rcases Nat.lt_or_ge m 17 with hm17 | hm17
+  · -- rate lane: the machine's XOR is the spec's `st[m]! ^^^ inputLane input m`
+    have hlane : (st[m]! ^^^ Spec.Keccak.inputLane input m).toBitVec
+        = (st[m]!).toBitVec ^^^ inputLane (fun j => (input.data[j]!).toBitVec) m := by
+      rw [show ((st[m]! ^^^ Spec.Keccak.inputLane input m).toBitVec)
+            = st[m]!.toBitVec ^^^ (Spec.Keccak.inputLane input m).toBitVec from rfl,
+        specInputLane_toBitVec input (fun j => (input.data[j]!).toBitVec) m hsize hm17
+          (fun j _ => rfl)]
+    rw [if_pos hm17, hrate m r hm17 hr, hlane]
+  · -- capacity lane: untouched by both
+    rw [if_neg (by omega)]
+    exact hcap m r hm17 (by omega) hr
 
 end BinaryFv.Keccak.XorBlock
