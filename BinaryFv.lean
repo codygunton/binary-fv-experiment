@@ -63,3 +63,6 @@ import BinaryFv.Keccak.StoreStepTriple
 import BinaryFv.RISCV.Trace
 import BinaryFv.RISCV.ControlFlowStep
 import BinaryFv.Keccak.TraceRunner
+import BinaryFv.RISCV.BlockStep
+import BinaryFv.Keccak.StackFrames
+import BinaryFv.Keccak.CoreBranchStepContract
