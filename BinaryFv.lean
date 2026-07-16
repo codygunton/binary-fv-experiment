@@ -60,3 +60,6 @@ import BinaryFv.Keccak.StoreDecodeFact
 import BinaryFv.Keccak.StoreArtifactFetch
 import BinaryFv.Keccak.CoreStoreStepContract
 import BinaryFv.Keccak.StoreStepTriple
+import BinaryFv.RISCV.Trace
+import BinaryFv.RISCV.ControlFlowStep
+import BinaryFv.Keccak.TraceRunner
