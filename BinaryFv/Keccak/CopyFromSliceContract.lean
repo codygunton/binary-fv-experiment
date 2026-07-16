@@ -405,6 +405,13 @@ theorem cfsAgree_jump (s base : State) (pc target ret : BitVec 64) (h : CfsStabl
   exact (jumpRetiredGet base pc target ret r hr.1 hr.2.2.1 hr.2.1 hr.2.2.2.1).trans
     (h r hr hr6 hr11 hr12)
 
+/-- Compose the setup's `CfsStableAgree` with `memcpy`'s (stronger) `StableAgree`: `memcpy` only
+writes registers in `W`, so their composition still agrees off `W ∪ {x6, x11, x12}` — the honest
+whole-`copy_from_slice` register postcondition (the setup does clobber `x6`, `x11`, `x12`). -/
+theorem cfsAgree_compose {s s6 s' : State} (h1 : CfsStableAgree s s6) (h2 : StableAgree s6 s') :
+    CfsStableAgree s s' :=
+  fun r hr hr6 hr11 hr12 => (h2 r hr).trans (h1 r hr hr6 hr11 hr12)
+
 /-! ## The six setup step lemmas -/
 
 /-- Step 1: `mv a4, a1` at `0x10c44` (`a4 = dst_len`).  Fetch bytes `13 87 05 00` (`00058713`);
@@ -711,7 +718,16 @@ theorem copy_from_slice_contract (dstPtr srcPtr n retAddr : BitVec 64) (image : 
         s''.mem.get? (dstPtr + BitVec.ofNat 64 j).toNat = some (srcByte j)) ∧
       s''.regs.get? x10 = some dstPtr ∧ s''.regs.get? x11 = some srcPtr ∧
       s''.regs.get? x12 = some n ∧ s''.regs.get? x1 = some retAddr ∧
-      image.matchesMemory s''.mem := by
+      image.matchesMemory s''.mem ∧
+      -- Compositional framing (Deliverables 1–4), inherited through the `memcpy` tail-call:
+      -- every register outside `W ∪ {x6, x11, x12}` is preserved (in particular `x2`/`sp`); the
+      -- setup does rename via `x6`/`x11`/`x12`, so this is the honest register postcondition,
+      CfsStableAgree s s'' ∧ s''.regs.get? x2 = s.regs.get? x2 ∧
+      -- memory changes only inside the destination window `[dst_ptr, dst_ptr+n)`,
+      MemFramed dstPtr n s s'' ∧
+      -- and the source region is preserved.
+      (∀ k : Nat, k < n.toNat →
+        s''.mem.get? (srcPtr + BitVec.ofNat 64 k).toNat = s.mem.get? (srcPtr + BitVec.ofNat 64 k).toNat) := by
   obtain ⟨retired0, hret0⟩ := hminstret
   have hsum44 : Sail.BitVec.addInt (BitVec.ofNat 64 0x10c44) 4 = BitVec.ofNat 64 0x10c48 := by decide
   have hsum48 : Sail.BitVec.addInt (BitVec.ofNat 64 0x10c48) 4 = BitVec.ofNat 64 0x10c4c := by decide
@@ -1088,7 +1104,8 @@ theorem copy_from_slice_contract (dstPtr srcPtr n retAddr : BitVec 64) (image : 
       = BitVec.ofNat 64 0x10d18 := by rw [hsumJr]; decide
   have hn2 : (n + sign_extend (m := 64) 0#12) + sign_extend (m := 64) 0#12 = n := by
     rw [add_sext_zero, add_sext_zero]
-  obtain ⟨s'', htrMemcpy, hPCret, hcopy, hx10'', hx11'', hx12'', hx1'', hmatches''⟩ :=
+  obtain ⟨s'', htrMemcpy, hPCret, hcopy, hx10'', hx11'', hx12'', hx1'', hmatches'',
+      hStable6, _hx2eq6, hFrame6, hsrcPres6⟩ :=
     memcpy_contract dstPtr srcPtr n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte
       (start + 6) s6
       (hPC6.trans (congrArg some htargetPc))
@@ -1107,7 +1124,17 @@ theorem copy_from_slice_contract (dstPtr srcPtr n retAddr : BitVec 64) (image : 
       (fun j hj => by rw [hmem6]; exact hsrc j hj)
       hnLt hsrcFits hdstFits hdstImg hdisj hretAlign
       (cfsPlatformTransport hCfs6 hplat) (cfsDataTransport hCfs6 hdata) (cfsElpTransport hCfs6 hElp)
+  -- Transport `memcpy`'s framing (about the post-setup state `s6`) back to the entry state `s`:
+  -- the setup leaves memory untouched (`hmem6 : s6.mem = s.mem`) and `CfsStableAgree s s6` composes
+  -- with `memcpy`'s `StableAgree s6 s''`.
+  have hCfsFinal : CfsStableAgree s s'' := cfsAgree_compose hCfs6 hStable6
+  have hMemFramedFinal : MemFramed dstPtr n s s'' := by
+    intro addr h; rw [hFrame6 addr h, hmem6]
+  have hSrcFinal : ∀ k : Nat, k < n.toNat →
+      s''.mem.get? (srcPtr + BitVec.ofNat 64 k).toNat = s.mem.get? (srcPtr + BitVec.ofNat 64 k).toNat := by
+    intro k hk; rw [hsrcPres6 k hk, hmem6]
   exact ⟨s'', Trace.append htrSetup htrMemcpy, hPCret, hcopy, hx10'', hx11'', hx12'', hx1'',
-    hmatches''⟩
+    hmatches'', hCfsFinal, hCfsFinal x2 (by decide) (by decide) (by decide) (by decide),
+    hMemFramedFinal, hSrcFinal⟩
 
 end BinaryFv.Keccak
