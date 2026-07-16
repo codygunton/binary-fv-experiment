@@ -66,3 +66,6 @@ import BinaryFv.Keccak.TraceRunner
 import BinaryFv.RISCV.BlockStep
 import BinaryFv.Keccak.StackFrames
 import BinaryFv.Keccak.CoreBranchStepContract
+import BinaryFv.Keccak.CallArtifactFetch
+import BinaryFv.Keccak.CallStepContract
+import BinaryFv.Keccak.StackBound
