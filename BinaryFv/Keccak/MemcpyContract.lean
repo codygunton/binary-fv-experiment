@@ -1,5 +1,6 @@
 import BinaryFv.Keccak.FallThroughStepContract
 import BinaryFv.Keccak.CoreStoreStepContract
+import BinaryFv.Keccak.HelperFraming
 import BinaryFv.Keccak.HelperDecodeFacts
 import BinaryFv.Keccak.HelperArtifactFetch
 import BinaryFv.Keccak.HelperArithDispatch
@@ -684,10 +685,12 @@ theorem ofNat_add_one (i : Nat) :
 theorem zero_extend_setWidth (v : BitVec 8) : zero_extend (m := 64) v = BitVec.setWidth 64 v := by
   simp only [zero_extend, Sail.BitVec.zeroExtend]
 
-/-- The memcpy loop invariant at the loop head `L = 0x10d1c` about to run iteration `i`. -/
+/-- The memcpy loop invariant at the loop head `L = 0x10d1c` about to run iteration `i`.  `sInit` is
+the fixed reference state (the caller's entry state) against which the compositional framing —
+`hstable` (registers) and `hframe` (memory) — is tracked. -/
 structure MemcpyInv (dst src n retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
-    (srcByte : Nat → BitVec 8) (i : Nat) (s : State) : Prop where
+    (srcByte : Nat → BitVec 8) (sInit : State) (i : Nat) (s : State) : Prop where
   hPC : s.regs.get? PC = some (BitVec.ofNat 64 0x10d1c)
   ha5 : s.regs.get? x15 = some (BitVec.ofNat 64 i)
   ha0 : s.regs.get? x10 = some dst
@@ -718,6 +721,12 @@ structure MemcpyInv (dst src n retAddr : BitVec 64) (image : ProgramImage)
   hplat : AbstractPlatform s
   hdata : AbstractDataAccess n dst src s
   hElp : AbstractElp s
+  /-- Every register outside the loop's write set `W` still agrees with the reference state. -/
+  hstable : StableAgree sInit s
+  /-- The exact memory delta so far: every address not among the copied window `[dst, dst+i)` still
+  reads its reference-state value. -/
+  hframe : ∀ addr : Nat, (∀ j : Nat, j < i → addr ≠ (dst + BitVec.ofNat 64 j).toNat) →
+    s.mem.get? addr = sInit.mem.get? addr
 
 /-! ### `StableAgree` algebra and per-step preservation -/
 
@@ -978,11 +987,11 @@ set_option maxHeartbeats 1000000 in
 invariant at `i + 1`. -/
 theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
-    (srcByte : Nat → BitVec 8) (start i : Nat) (s : State)
+    (srcByte : Nat → BitVec 8) (sInit : State) (start i : Nat) (s : State)
     (hi : i < n.toNat)
-    (hInv : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte i s) :
+    (hInv : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte sInit i s) :
     ∃ s', Trace (start + i * 7) 7 s s' ∧
-      MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte (i + 1) s' := by
+      MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte sInit (i + 1) s' := by
   obtain ⟨retired0, hret0⟩ := hInv.hminstret
   have hi2 : i < 2 ^ 64 := Nat.lt_trans hi hInv.hnLt
   -- Step 0: bne a5,a2 (taken, i ≠ n), pc = 0x10d1c.
@@ -1433,7 +1442,8 @@ theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
   refine ⟨_, htr, ?_⟩
   refine ⟨?hPC, ?ha5, ?ha0, ?ha1, ?ha2, ?hra, ?hcur, ?hmstatus, ?hmprv, ?hmseccfg, ?hhart,
       ?hinhibit, ?hnotInhibited, ?hcfg, ?hmachineEnabled, ?hminstret, ?himageEq, ?hmatches, ?hsrc,
-      ?hcopy, ?hle, ?hnLt, ?hsrcFits, ?hdstFits, ?hdstImg, ?hdisj, ?hplat, ?hdata, ?hElp⟩
+      ?hcopy, ?hle, ?hnLt, ?hsrcFits, ?hdstFits, ?hdstImg, ?hdisj, ?hplat, ?hdata, ?hElp,
+      ?hstable, ?hframe⟩
   case hPC =>
     rw [retiredGetPC _ _ _, hsumJ]
   case ha5 =>
@@ -1492,6 +1502,8 @@ theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
   case hplat => exact AbstractPlatform.mono hSt7 hInv.hplat
   case hdata => exact AbstractDataAccess.mono hSt7 hInv.hdata
   case hElp => exact AbstractElp.mono hSt7 hInv.hElp
+  case hstable => exact hInv.hstable.trans hSt7
+  case hframe => rw [hmemS7]; exact frame_insert_step hInv.hframe
 
 /-! ## Deliverable 3: whole-loop trace `memcpy_loop` -/
 
@@ -1499,15 +1511,15 @@ theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
 length-`n * 7` trace establishing the invariant at `n` (all `n` bytes copied). -/
 theorem memcpy_loop (dst src n retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
-    (srcByte : Nat → BitVec 8) (start : Nat) (s0 : State)
-    (hInv0 : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte 0 s0) :
+    (srcByte : Nat → BitVec 8) (sInit : State) (start : Nat) (s0 : State)
+    (hInv0 : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte sInit 0 s0) :
     ∃ sN, Trace start (n.toNat * 7) s0 sN ∧
-      MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte n.toNat sN :=
+      MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte sInit n.toNat sN :=
   Trace.invariantIterate (L := 7) (start := start)
-    (Inv := fun i s => MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte i s)
+    (Inv := fun i s => MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte sInit i s)
     n.toNat
     (fun i s hi hInv => memcpy_adv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte
-      start i s hi hInv)
+      sInit start i s hi hInv)
     hInv0
 
 /-! ## Exit step lemmas: `bne` not taken, then `ret` -/
@@ -1687,16 +1699,17 @@ returns: a 2-step trace to the caller with `PC = ra` (bit 0 cleared), all `n` by
 destination, and the arguments and code image preserved. -/
 theorem memcpy_exit (dst src n retAddr : BitVec 64) (image : ProgramImage)
     (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
-    (srcByte : Nat → BitVec 8) (start : Nat) (s : State)
+    (srcByte : Nat → BitVec 8) (sInit : State) (start : Nat) (s : State)
     (hretAlign : Sail.BitVec.access retAddr 1 = 0#1)
-    (hInv : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte n.toNat s) :
+    (hInv : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte sInit n.toNat s) :
     ∃ s'', Trace start 2 s s'' ∧
       s''.regs.get? PC = some (Sail.BitVec.update retAddr 0 0#1) ∧
       (∀ j : Nat, j < n.toNat →
         s''.mem.get? (dst + BitVec.ofNat 64 j).toNat = some (srcByte j)) ∧
       s''.regs.get? x10 = some dst ∧ s''.regs.get? x11 = some src ∧
       s''.regs.get? x12 = some n ∧ s''.regs.get? x1 = some retAddr ∧
-      image.matchesMemory s''.mem := by
+      image.matchesMemory s''.mem ∧
+      StableAgree sInit s'' ∧ MemFramed dst n sInit s'' := by
   obtain ⟨retired0, hret0⟩ := hInv.hminstret
   -- Step 0: bne a5,a2 NOT taken (a5 = n).
   have hbytes0 : FetchBytesAt (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10d1c)
@@ -1775,7 +1788,7 @@ theorem memcpy_exit (dst src n retAddr : BitVec 64) (image : ProgramImage)
           (Sail.BitVec.update retAddr 0 0#1))
         (Sail.BitVec.update retAddr 0 0#1) (Sail.BitVec.addInt retired0 1)) :=
     Trace.step _ _ _ _ _ hb (Trace.one _ _ _ hr)
-  refine ⟨_, htr, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨_, htr, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · exact retiredGetPC _ _ _
   · intro j hj; rw [hmem2]; exact hInv.hcopy j hj
   · exact (hSt2 x10 (by decide)).trans hInv.ha0
@@ -1783,6 +1796,8 @@ theorem memcpy_exit (dst src n retAddr : BitVec 64) (image : ProgramImage)
   · exact (hSt2 x12 (by decide)).trans hInv.ha2
   · exact (hSt2 x1 (by decide)).trans hInv.hra
   · rw [hmem2]; exact hInv.hmatches
+  · exact hInv.hstable.trans hSt2
+  · intro addr h; rw [hmem2]; exact hInv.hframe addr h
 
 /-! ## Deliverable 5: capstone contract `memcpy_contract` -/
 
@@ -1820,7 +1835,15 @@ theorem memcpy_contract (dst src n retAddr : BitVec 64) (image : ProgramImage)
         s''.mem.get? (dst + BitVec.ofNat 64 j).toNat = some (srcByte j)) ∧
       s''.regs.get? x10 = some dst ∧ s''.regs.get? x11 = some src ∧
       s''.regs.get? x12 = some n ∧ s''.regs.get? x1 = some retAddr ∧
-      image.matchesMemory s''.mem := by
+      image.matchesMemory s''.mem ∧
+      -- Compositional framing (Deliverables 1–4):
+      -- every register outside `W` is preserved (in particular `x2`/`sp`, a leaf function),
+      StableAgree s s'' ∧ s''.regs.get? x2 = s.regs.get? x2 ∧
+      -- memory changes only inside the destination window `[dst, dst+n)`,
+      MemFramed dst n s s'' ∧
+      -- and the source region is preserved (from the frame plus the non-overlap premise).
+      (∀ k : Nat, k < n.toNat →
+        s''.mem.get? (src + BitVec.ofNat 64 k).toNat = s.mem.get? (src + BitVec.ofNat 64 k).toNat) := by
   obtain ⟨retired0, hret0⟩ := hminstret
   -- Entry: li a5, 0 at 0x10d18.
   have hbytesE : FetchBytesAt (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10d18)
@@ -1838,7 +1861,7 @@ theorem memcpy_contract (dst src n retAddr : BitVec 64) (image : ProgramImage)
       (Or.inr (Or.inr rfl))
   have hsum18 : Sail.BitVec.addInt (BitVec.ofNat 64 0x10d18) 4 = BitVec.ofNat 64 0x10d1c := by decide
   -- The i = 0 loop-head invariant at the post-entry state.
-  have hInv0 : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte 0
+  have hInv0 : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte s 0
       (tryStepControlFlowAfterRetired
         { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10d18) with
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
@@ -1851,7 +1874,8 @@ theorem memcpy_contract (dst src n retAddr : BitVec 64) (image : ProgramImage)
       (hSt0 mcountinhibit (by decide)).trans hinhibit, hnotInhibited,
       (hSt0 minstretcfg (by decide)).trans hcfg, hmachineEnabled, ⟨_, retiredMinstret _ _ _⟩,
       himageEq, ?_, ?_, ?_, Nat.zero_le _, hnLt, hsrcFits, hdstFits, hdstImg, hdisj,
-      AbstractPlatform.mono hSt0 hplat, AbstractDataAccess.mono hSt0 hdata, AbstractElp.mono hSt0 hElp⟩
+      AbstractPlatform.mono hSt0 hplat, AbstractDataAccess.mono hSt0 hdata, AbstractElp.mono hSt0 hElp,
+      hSt0, ?_⟩
     · rw [retiredGetPC _ _ _, hsum18]
     · exact (fallThroughRetiredRd s (BitVec.ofNat 64 0x10d18) retired0 x15 (BitVec.ofNat 64 0)
         (by decide) (by decide))
@@ -1871,14 +1895,24 @@ theorem memcpy_contract (dst src n retAddr : BitVec 64) (image : ProgramImage)
         (retiredMem _ _ _).trans (fallThroughMem s (BitVec.ofNat 64 0x10d18) x15 (BitVec.ofNat 64 0))
       rw [hmemE]; exact hsrc j hj
     · intro j hj; exact absurd hj (Nat.not_lt_zero j)
+    · intro addr _
+      have hmemE : (tryStepControlFlowAfterRetired
+          { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10d18) with
+            regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
+              (BitVec.ofNat 64 0x10d18)).regs.insert x15 (BitVec.ofNat 64 0) }
+          (Sail.BitVec.addInt (BitVec.ofNat 64 0x10d18) 4) retired0).mem = s.mem :=
+        (retiredMem _ _ _).trans (fallThroughMem s (BitVec.ofNat 64 0x10d18) x15 (BitVec.ofNat 64 0))
+      rw [hmemE]
   -- Loop.
   obtain ⟨sN, htrLoop, hInvN⟩ := memcpy_loop dst src n retAddr image mseccfgBits mstatusBits inhibit
-    cfg srcByte (start + 1) _ hInv0
+    cfg srcByte s (start + 1) _ hInv0
   -- Exit.
-  obtain ⟨s'', htrExit, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN⟩ :=
-    memcpy_exit dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte
+  obtain ⟨s'', htrExit, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN, hStableExit, hFrameExit⟩ :=
+    memcpy_exit dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte s
       (start + (1 + n.toNat * 7)) sN hretAlign hInvN
-  refine ⟨s'', ?_, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN⟩
+  refine ⟨s'', ?_, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN,
+    hStableExit, hStableExit x2 (by decide), hFrameExit,
+    fun k hk => MemFramed.source_preserved hFrameExit hdisj k hk⟩
   have htrLi := Trace.one _ _ _ hli
   have hcomb := Trace.append (Trace.append htrLi htrLoop) htrExit
   simpa using hcomb
