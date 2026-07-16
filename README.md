@@ -111,13 +111,25 @@ correspondence (`Spec.Keccak.*`). Those must be kernel-checked, so the only axio
 `propext`, `Classical.choice`, and `Quot.sound`.
 
 **Resulting axiom boundary.** Compliance capstones report
-`[propext, Classical.choice, Lean.ofReduceBool, Lean.trustCompiler, Quot.sound]`, where
-`ofReduceBool`/`trustCompiler` enter *solely* through closed artifact facts (in practice the
-per-address fetch-byte facts). Contracts are structured so those facts are consumed only through
-their kernel-checked conclusions (e.g. `FetchBytesAt`), so replacing them with kernel-checked proofs
-would drop the two native axioms without changing any statement or proof. Theorems with no artifact
-dependency (e.g. the pure framing and stack-window lemmas) remain at `[propext, Quot.sound]` or
-`[propext, Classical.choice, Quot.sound]`.
+`[propext, Classical.choice, Lean.ofReduceBool, Lean.trustCompiler, Quot.sound]`. There are **two
+independent sources** of the two native axioms, and both must be understood:
+
+1. **Closed artifact facts** — the `native_decide` fetch/inventory facts covered by the exception
+   above.
+2. **`bv_decide`** — its LRAT certificate is checked through `Lean.reduceBool`, so *any* `bv_decide`
+   call that reaches the SAT backend contributes `ofReduceBool`/`trustCompiler` on its own, with no
+   artifact dependency whatsoever. For example `assemble_leWord` is a pure `BitVec` identity about
+   eight bytes and still carries both. (`bv_decide` goals closed by `bv_normalize` preprocessing
+   alone do not.)
+
+So removing the artifact `native_decide` facts alone would **not** clear the two native axioms from
+the capstones; the `bv_decide` uses would still contribute them. Any earlier claim to the contrary in
+this repo was incorrect. Whether to also constrain `bv_decide` (e.g. by restricting it to
+preprocessing-only goals, or accepting its checker in the trust base) is a **separate, still-open
+decision** — the exception recorded above is only about closed artifact facts.
+
+Theorems that use neither source (e.g. the conditional stack-window and `*_of_budget` lemmas, and the
+pure framing lemmas) remain at `[propext, Quot.sound]` or `[propext, Classical.choice, Quot.sound]`.
 
 **The mathematical claim is unchanged.** `root_compliance`'s statement — the interface quoted above —
 is not weakened by this exception; only the trust footprint of its artifact inputs is stated
