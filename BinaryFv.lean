@@ -82,3 +82,4 @@ import BinaryFv.Keccak.XorBlockArtifactFetch
 import BinaryFv.Keccak.MemcpyContract
 import BinaryFv.Keccak.CopyFromSliceContract
 import BinaryFv.Keccak.MemsetContract
+import BinaryFv.Keccak.XorBlockContract
