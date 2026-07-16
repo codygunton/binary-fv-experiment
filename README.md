@@ -91,11 +91,42 @@ must remove all proof-scope `sorry`s and custom axioms before it claims root com
 
 ### Fixed-artifact trust policy
 
-`native_decide` is permitted only for closed facts computed from pinned Nix inputs, such as parsed
-ELF layout or static-inventory facts. Those facts are convenience evidence, not kernel-only proofs:
-their axiom reports include Lean's native compiler trust boundary. Until a reviewed exception states
-that boundary in the root claim, no theorem used by `root_compliance` may depend on a
-`native_decide` fact; root-facing artifact facts must instead have kernel-checked proofs.
+A narrow, reviewed exception is in force for this spike. **Closed facts extracted from the pinned,
+Nix-built Reth Keccak ELF may be discharged with `native_decide`, and therefore trust Lean's native
+compiler.** Such facts appear in the axiom reports of the theorems that use them as
+`Lean.ofReduceBool` and `Lean.trustCompiler`, including transitively in theorems reachable from
+`root_compliance`. This is deliberate and approved: the ELF parser is not formalized or
+kernel-evaluated in this spike.
+
+**Scope of the exception — closed artifact facts only.** It covers exactly: artifact *identity*
+(the pinned bytes are the Nix-built ELF), *layout* (parsed headers/segments/section bounds), *byte*
+facts (the value at a fixed file/virtual address), and *static inventory* (symbol tables, decoded
+instruction words at fixed addresses, call/stack-flow summaries). These are all decidable statements
+about one fixed, immutable input.
+
+**Outside the exception — kernel-checked only.** `native_decide`, new axioms, and `sorry` are *not*
+permitted for: execution semantics (anything about the generated Sail `try_step`/`execute`), functional
+correctness, control flow, arithmetic and bitvector reasoning, framing/separation, or specification
+correspondence (`Spec.Keccak.*`). Those must be kernel-checked, so the only axioms they may add are
+`propext`, `Classical.choice`, and `Quot.sound`.
+
+**Resulting axiom boundary.** Compliance capstones report
+`[propext, Classical.choice, Lean.ofReduceBool, Lean.trustCompiler, Quot.sound]`, where
+`ofReduceBool`/`trustCompiler` enter *solely* through closed artifact facts (in practice the
+per-address fetch-byte facts). Contracts are structured so those facts are consumed only through
+their kernel-checked conclusions (e.g. `FetchBytesAt`), so replacing them with kernel-checked proofs
+would drop the two native axioms without changing any statement or proof. Theorems with no artifact
+dependency (e.g. the pure framing and stack-window lemmas) remain at `[propext, Quot.sound]` or
+`[propext, Classical.choice, Quot.sound]`.
+
+**The mathematical claim is unchanged.** `root_compliance`'s statement — the interface quoted above —
+is not weakened by this exception; only the trust footprint of its artifact inputs is stated
+explicitly.
+
+Why the exception: kernel-evaluating the bounded ELF parser over the embedded image was measured at
+>5 minutes and >100 GB RSS (OOM) on the pinned toolchain, because the parser's `Array.mapM` uses
+well-founded recursion that does not reduce definitionally. Formalizing the parser is out of scope
+for this spike.
 
 ## Checks and CI
 

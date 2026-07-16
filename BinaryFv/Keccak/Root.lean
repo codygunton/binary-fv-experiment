@@ -56,6 +56,28 @@ def binary : RiscvSpec.Binary :=
     layout_valid := Artifact.layout_is_valid
   }
 
+/--
+The root compliance claim: executing the pinned Reth Keccak ELF on any in-range message yields
+exactly `Spec.Keccak.keccak256` of that message.
+
+**Trust boundary.** This statement — the mathematical interface — is exactly the intended claim and is
+not weakened by the fixed-artifact exception described in `README.md`. That exception is narrow and
+approved: *closed facts extracted from the pinned, Nix-built ELF* (artifact identity, parsed layout,
+byte values at fixed addresses, static inventory) may be discharged with `native_decide`, and so trust
+Lean's native compiler. Consequently this theorem's axiom report is expected to include
+`Lean.ofReduceBool` and `Lean.trustCompiler` alongside `propext`, `Classical.choice`, and
+`Quot.sound`; those two enter *solely* through closed artifact facts.
+
+Everything else in the proof stack is kernel-checked. `native_decide`, new axioms, and `sorry` are
+**not** permitted for execution semantics (the generated Sail `try_step`/`execute`), functional
+correctness, control flow, arithmetic, framing/separation, or specification correspondence. The
+contracts consume artifact facts only through their kernel-checked conclusions (e.g. `FetchBytesAt`),
+so substituting kernel-checked artifact proofs would remove the two native axioms without changing any
+statement or proof.
+
+The `sorry` below is the authorized scaffold placeholder: `RiscvSpec.execute` is still a stub, and is
+replaced by the Sail-execution layer (ELF loading, ABI setup, stepping, fuel, output extraction).
+-/
 theorem root_compliance :
     forall msg : ByteArray,
       msg.size < RiscvSpec.maxMessageSize ->
