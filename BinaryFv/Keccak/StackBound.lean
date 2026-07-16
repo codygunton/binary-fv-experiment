@@ -3,31 +3,41 @@ import BinaryFv.Keccak.StackFlow
 import BinaryFv.RISCV.TryStepStackAddiContract
 
 /-!
-# Deriving runtime stack bounds from the static stack-flow analysis
+# Conditional stack-window machinery, and diagnostic static stack-flow summaries
 
-`BinaryFv.Keccak.StackFrames` supplies the semantic stack-frame model but *assumes* the critical
-window inequalities (`stackRange.start ≤ spLow`, `spLow ≤ spHigh`, `spHigh ≤ stackTop`, nested
-`eHigh ≤ cLow`) as hypotheses.  This module *derives* those inequalities.
+## Scope: what this module does *not* prove
 
-The runtime bridge is a *depth-budget* invariant `SpDepthInWindow sp used`:  the stack pointer sits
-exactly `used` bytes below the initial top and `used` stays within the 4 KiB page.  The generated
-`addi sp, sp, -delta` prologue (whose retirement is packaged by
-`BinaryFv.RISCV.tryStepStackAddiRetires`) turns `SpDepthInWindow sp used` into
-`SpDepthInWindow (sp - delta) (used + delta)` *whenever* `used + delta ≤ stackPageSize`.  That
-side-condition is exactly what the parser-derived static flow facts of
-`BinaryFv.Keccak.StackFlow` provide: the sum of per-function downward deltas across the entry call
-closure (`entryClosureTotalDownwardDelta = 1664`) is bounded by the 4 KiB page, so the budget is
-never exhausted along any (simple) call chain.  Hence `stackRange.start ≤ sp'` is *derived* from the
-static bound, not supplied by the caller.
+**This module does not establish a stack bound for the binary.**  The concrete, binary-wide
+stack-safety proof is explicitly **deferred to the sponge/caller trace stage**
+(`keccak-sponge-contract`), which is where the actual call paths and their prologues exist and where
+each budget premise can be discharged per call site against a real trace.
 
-The `funcFrame_*` / `nestedFuncFrames_*` exports below give later callers frame containment and
-pairwise disjointness taking only the budget invariant plus the static bound, never the raw
-inequalities.
+Two independent kinds of content live here, and they must not be confused:
 
-None of this is a semantic-reachability claim: as everywhere in this development, the static flow
-facts summarise decoded edges; turning the depth budget into runtime overflow-freedom for a concrete
-run remains the caller's separate obligation (discharged via the depth accumulator this module
-threads).
+1. **Conditional runtime machinery** — `SpDepthInWindow` with `.alloc` / `.toWindow` / `.delta_le` /
+   `.entry`, `prologue_toNat`, `tryStepStackAddiWindow`, `tryStepStackAddiRetiresInWindow`, and the
+   `*_of_budget` frame exports.  These are genuine theorems about the generated semantics, but the
+   budget is always an **input**: it is either carried inside the `SpDepthInWindow` invariant
+   (`used ≤ stackPageSize`) or taken as an explicit premise `used + delta ≤ stackPageSize` for each
+   allocation.  Either way the caller supplies it.  Given it, an actual generated
+   `addi sp, sp, -delta` prologue step provably preserves the window, and the raw inequalities that
+   `BinaryFv.Keccak.StackFrames` merely *assumes* (`stackRange.start ≤ spLow`, `spLow ≤ spHigh`,
+   `spHigh ≤ stackTop`, nested `eHigh ≤ cLow`) are discharged *from that input*.  Nothing in this
+   module establishes the budget for this binary.  (`SpDepthInWindow.entry` is the one unconditional
+   lemma — it merely seeds `used = 0` at the stack top, which asserts nothing about any call chain.)
+
+2. **Diagnostic evidence** — `frontierSummaryTotalDownwardDelta`,
+   `frontierSummaryMaxSingleDownwardDelta`, and the `diagnostic_*` facts about them.  These are
+   closed parser facts about the **frontier-truncated** closure summaries of
+   `BinaryFv.Keccak.StackFlow`.  As that module states, `maximumExploredDownwardDelta` is not a
+   local, runtime, or global stack bound: calls and other frontiers deliberately truncate the
+   explored state set.  Summing truncated per-function summaries is therefore **evidence about a
+   truncated exploration, not a theorem about all call paths**.  Accordingly these facts are named
+   `diagnostic_*`, and none of them is used to discharge a budget premise anywhere.
+
+The gap between (2) and (1) — showing that some concrete, reachable call chain's accumulated depth
+actually satisfies the budget — is exactly the deferred obligation.  Closing it requires discharging
+the recorded frontiers and following the reachable call paths, neither of which is done here.
 -/
 
 namespace BinaryFv.Keccak
@@ -37,7 +47,11 @@ open PreSail
 open LeanRV64DExecutable.Functions
 open Register
 
-/-! ## The depth-budget window invariant -/
+/-! ## The depth-budget window invariant (conditional infrastructure)
+
+Everything in this section is conditional: the budget `used ≤ stackPageSize` is carried in the
+invariant and the budget for each further allocation is taken as a hypothesis.  These lemmas say
+what follows *given* a budget; they do not establish one. -/
 
 /-- The runtime stack pointer sits exactly `used` bytes below the initial top, and the consumed
     depth stays within the canonical 4 KiB stack page. -/
@@ -120,10 +134,14 @@ theorem tryStepStackAddiAfterRetired_stackPointer (state : State) (pc : BitVec 6
           rw [Std.ExtDHashMap.get?_insert]
           simp
 
-/-- **Deliverable 1 (state form).**  From a depth-budget window whose stack pointer is `stackValue`,
+/-- **Conditional (state form).**  From a depth-budget window whose stack pointer is `stackValue`,
     the packaged prologue `addi sp, sp, -delta` retirement lands in a depth-budget window that has
-    consumed `delta` more bytes — provided the static bound `used + delta ≤ stackPageSize` holds.
-    The new `stackRange.start ≤ sp'` bound is *derived* from the budget, not assumed. -/
+    consumed `delta` more bytes.
+
+    Conditional on the caller-supplied budget premise `hbudget : used + delta ≤ stackPageSize`: the
+    new `stackRange.start ≤ sp'` bound is derived *from that premise*, not established here.  No
+    static fact of this module discharges `hbudget`; supplying it per call site is the deferred
+    sponge/caller-trace obligation. -/
 theorem tryStepStackAddiWindow (state : State) (pc : BitVec 64) (immediate : BitVec 12)
     (stackValue retired : BitVec 64) (delta used : Nat)
     (himm : immediate.toInt = -(delta : Int))
@@ -141,9 +159,13 @@ theorem tryStepStackAddiWindow (state : State) (pc : BitVec 64) (immediate : Bit
   exact ⟨tryStepStackAddiAfterRetired_stackPointer state pc immediate stackValue retired, hwin',
     hwin'.toWindow⟩
 
-/-- **Deliverable 1 (execution form).**  The full generated `try_step` prologue contract *runs*, and
+/-- **Conditional (execution form).**  The full generated `try_step` prologue contract *runs*, and
     its resulting state satisfies the depth-budget window invariant with `delta` more bytes consumed.
-    This is `BinaryFv.RISCV.tryStepStackAddiRetires` composed with `tryStepStackAddiWindow`. -/
+    This is `BinaryFv.RISCV.tryStepStackAddiRetires` composed with `tryStepStackAddiWindow`.
+
+    Conditional on the caller-supplied budget premise `hbudget : used + delta ≤ stackPageSize`.  The
+    execution content (an actual generated prologue step preserves the window) is unconditional; the
+    window content is not. -/
 theorem tryStepStackAddiRetiresInWindow (stepNo : Nat) (state : State) (pc : BitVec 64)
     (immediate : BitVec 12) (stackValue retired : BitVec 64) (inhibit : BitVec 32)
     (config : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
@@ -179,61 +201,99 @@ theorem tryStepStackAddiRetiresInWindow (stepNo : Nat) (state : State) (pc : Bit
     hartRead inhibitRead configRead notInhibited machineEnabled retiredRead, ?_⟩
   exact tryStepStackAddiWindow state pc immediate stackValue retired delta used himm hwin hbudget
 
-/-! ## Concrete 4 KiB bound from the parser-derived static flow -/
+/-! ## Diagnostic summaries of the frontier-truncated static flow
 
-/-- Sum of the per-function maximum explored downward deltas across the parser-derived entry call
-    closure.  Each function contributes once, so this over-approximates the downward-delta sum of
-    any simple call chain through the closure.  The `none` default deliberately exceeds the page, so
-    proving the bound below also certifies that the static summaries are available. -/
-def entryClosureTotalDownwardDelta : Nat :=
+**Nothing in this section is a stack bound.**  These are closed parser facts about the
+frontier-truncated closure summaries of `BinaryFv.Keccak.StackFlow`, recorded as evidence and as a
+regression tripwire on the static analysis.  They are deliberately *not* used to discharge any
+budget premise, because they cannot: the underlying exploration is truncated at calls and other
+frontiers, so a per-function `maximumExploredDownwardDelta` is not a per-function stack bound and
+summing them is not an over-approximation of any call chain's demand.
+
+Being closed facts about the fixed parsed artifact, these carry `native_decide`'s compiler-trust
+axioms (`Lean.ofReduceBool`, `Lean.trustCompiler`).  Nothing else in this module depends on this
+section: the window machinery and the `*_of_budget` frame exports are kernel-clean
+(`propext` / `Quot.sound` / `Classical.choice`).
+
+One honest caveat: `tryStepStackAddiRetiresInWindow` *does* also report those two axioms, but it
+inherits them from the upstream generated `try_step` contract
+(`BinaryFv.RISCV.tryStepStackAddiRetires`), not from this diagnostic section — that is the separate,
+pre-existing artifact-trust question tracked against the README policy, not a stack claim. -/
+
+/-- **Diagnostic, not a bound.**  Sum of the per-function `maximumExploredDownwardDelta` over the
+    parser-derived entry call closure.
+
+    Each function contributes its truncated maximum once.  This is *evidence*, not an
+    over-approximation of any call chain: the summaries are frontier-truncated, so the summands are
+    not themselves per-function bounds, and no call-path structure has been established.
+
+    The `none` default deliberately exceeds the page, so the comparisons below also certify that the
+    static summaries are available. -/
+def frontierSummaryTotalDownwardDelta : Nat :=
   match entryClosureFrontierTruncatedStackStateSummaries? with
   | some summaries =>
     summaries.foldl (fun acc s => acc + s.maximumExploredDownwardDelta) 0
   | none => stackPageSize + 1
 
-/-- The single largest per-function explored downward delta across the entry call closure. -/
-def entryClosureMaxSingleDownwardDelta : Nat :=
+/-- **Diagnostic, not a bound.**  The single largest per-function truncated explored downward delta
+    across the entry call closure.  Frontier-truncated, so this is not a bound on any function's
+    actual frame. -/
+def frontierSummaryMaxSingleDownwardDelta : Nat :=
   match entryClosureFrontierTruncatedStackStateSummaries? with
   | some summaries =>
     summaries.foldl (fun acc s => max acc s.maximumExploredDownwardDelta) 0
   | none => stackPageSize + 1
 
-/-- Closed parser fact: the concrete summed downward-delta demand of the entry closure. -/
-theorem entryClosureTotalDownwardDelta_eq : entryClosureTotalDownwardDelta = 1664 := by
+/-- **Diagnostic.**  Closed parser fact: the summed truncated downward-delta figure of the entry
+    closure summary.  Evidence about a truncated exploration; not a claim about any call chain. -/
+theorem diagnostic_frontierSummaryTotalDownwardDelta_eq :
+    frontierSummaryTotalDownwardDelta = 1664 := by
   native_decide
 
-/-- Closed parser fact: the concrete largest single-function downward delta. -/
-theorem entryClosureMaxSingleDownwardDelta_eq : entryClosureMaxSingleDownwardDelta = 912 := by
+/-- **Diagnostic.**  Closed parser fact: the largest single-function truncated downward-delta
+    figure. -/
+theorem diagnostic_frontierSummaryMaxSingleDownwardDelta_eq :
+    frontierSummaryMaxSingleDownwardDelta = 912 := by
   native_decide
 
-/-- **Deliverable 2 (concrete bound).**  The total downward-delta demand of the entry call closure
-    fits within the canonical 4 KiB stack page.  Because each function contributes once, the sum of
-    deltas along *any* simple call chain is bounded by this total, hence by `stackPageSize`. -/
-theorem entryClosureTotalDownwardDelta_le_stackPageSize :
-    entryClosureTotalDownwardDelta ≤ stackPageSize := by
+/-- **Diagnostic.**  The summed truncated figure happens to fit within the canonical 4 KiB page.
+
+    This is a comparison of two numbers, and it also certifies that the static summaries parsed
+    (the `none` default exceeds the page).  It is **not** the statement that the binary's stack use
+    fits in a page, and it does **not** bound the deltas along any call chain: the summands come
+    from a truncated exploration.  Proving the real bound is deferred to the sponge/caller trace
+    stage. -/
+theorem diagnostic_frontierSummaryTotalDownwardDelta_le_stackPageSize :
+    frontierSummaryTotalDownwardDelta ≤ stackPageSize := by
   native_decide
 
-theorem entryClosureMaxSingleDownwardDelta_le_stackPageSize :
-    entryClosureMaxSingleDownwardDelta ≤ stackPageSize := by
+/-- **Diagnostic.**  The largest single truncated figure fits within the canonical 4 KiB page.  Same
+    caveats as above. -/
+theorem diagnostic_frontierSummaryMaxSingleDownwardDelta_le_stackPageSize :
+    frontierSummaryMaxSingleDownwardDelta ≤ stackPageSize := by
   native_decide
 
-/-! ## Frame containment and disjointness exports (Deliverable 3)
+/-! ## Conditional frame containment and disjointness exports
 
-These are the lemmas the sponge/runner stage needs.  They take only the depth-budget invariant and
-the static bound `used + delta ≤ stackPageSize`; the raw window inequalities that `StackFrames`
-assumes are all discharged here. -/
+These are the lemmas the sponge/runner stage needs, and they are **conditional**: each takes the
+depth-budget invariant plus a caller-supplied budget premise `used + delta ≤ stackPageSize`.  Given
+those, the raw window inequalities that `StackFrames` assumes are discharged here.  The budget
+premise itself is *not* established here for this binary — the caller must supply it per call site,
+which is the deferred sponge/caller-trace obligation.  The `_of_budget` suffix marks this. -/
 
-/-- A function frame `[sp - delta, sp)` (bytes between the post- and pre-prologue stack pointers)
-    lies inside the canonical stack window — inequalities derived from the depth budget. -/
-theorem funcFrame_containedIn_stackRange {sp used delta : Nat}
+/-- **Conditional on the caller-supplied budget premise.**  A function frame `[sp - delta, sp)`
+    (bytes between the post- and pre-prologue stack pointers) lies inside the canonical stack window.
+    The inequalities are derived *from* `hwin` and `hbudget`; this does not establish `hbudget`. -/
+theorem funcFrame_containedIn_stackRange_of_budget {sp used delta : Nat}
     (hwin : SpDepthInWindow sp used) (hbudget : used + delta ≤ stackPageSize) :
     (stackFrame (sp - delta) sp).containedIn stackRange :=
   stackFrame_containedIn_stackRange (hwin.alloc hbudget).toWindow.1 (Nat.sub_le sp delta)
     hwin.toWindow.2
 
-/-- A function frame is disjoint from every non-stack region of a well-formed Keccak layout —
-    inequalities derived from the depth budget. -/
-theorem funcFrame_disjoint_of_layout {layout : KeccakLayout} (hwf : layout.wellFormed)
+/-- **Conditional on the caller-supplied budget premise.**  A function frame is disjoint from every
+    non-stack region of a well-formed Keccak layout.  The inequalities are derived *from* `hwin` and
+    `hbudget`; this does not establish `hbudget`. -/
+theorem funcFrame_disjoint_of_layout_of_budget {layout : KeccakLayout} (hwf : layout.wellFormed)
     (hstack : layout.stack = stackRange) {sp used delta : Nat}
     (hwin : SpDepthInWindow sp used) (hbudget : used + delta ≤ stackPageSize) :
     (stackFrame (sp - delta) sp).disjoint layout.code ∧
@@ -243,11 +303,17 @@ theorem funcFrame_disjoint_of_layout {layout : KeccakLayout} (hwf : layout.wellF
   stackFrame_disjoint_of_layout hwf hstack (hwin.alloc hbudget).toWindow.1 (Nat.sub_le sp delta)
     hwin.toWindow.2
 
-/-- **Deliverable 3 (nested frames).**  A callee frame allocated directly below its caller's frame
-    (the callee is entered with `sp = parentSp - parentDelta`, then allocates `childDelta`) is
-    contained in the stack window, as is the caller's frame, and the two are disjoint.  Every
-    inequality is derived from the caller's depth budget plus the combined static bound. -/
-theorem nestedFuncFrames_containedIn_and_disjoint {parentSp parentUsed parentDelta childDelta : Nat}
+/-- **Conditional on the caller-supplied budget premise (nested frames).**  A callee frame allocated
+    directly below its caller's frame (the callee is entered with `sp = parentSp - parentDelta`, then
+    allocates `childDelta`) is contained in the stack window, as is the caller's frame, and the two
+    are disjoint.
+
+    Every inequality is derived *from* the caller's depth-budget invariant plus the combined budget
+    premise `hbudget`.  This is the two-level shape a real call site needs, but the premise for an
+    actual nesting in this binary is not established here — supplying it is the deferred
+    sponge/caller-trace obligation. -/
+theorem nestedFuncFrames_containedIn_and_disjoint_of_budget
+    {parentSp parentUsed parentDelta childDelta : Nat}
     (hwin : SpDepthInWindow parentSp parentUsed)
     (hbudget : parentUsed + parentDelta + childDelta ≤ stackPageSize) :
     (stackFrame (parentSp - parentDelta - childDelta) (parentSp - parentDelta)).containedIn
@@ -257,7 +323,7 @@ theorem nestedFuncFrames_containedIn_and_disjoint {parentSp parentUsed parentDel
         (stackFrame (parentSp - parentDelta) parentSp) := by
   -- the caller's own frame is in-window from the caller budget
   have hParentFrame : (stackFrame (parentSp - parentDelta) parentSp).containedIn stackRange :=
-    funcFrame_containedIn_stackRange hwin (by omega)
+    funcFrame_containedIn_stackRange_of_budget hwin (by omega)
   -- after the caller's prologue we are at depth `parentUsed + parentDelta`
   have hchildWin : SpDepthInWindow (parentSp - parentDelta) (parentUsed + parentDelta) :=
     hwin.alloc (by omega)
@@ -265,19 +331,25 @@ theorem nestedFuncFrames_containedIn_and_disjoint {parentSp parentUsed parentDel
   have hChildFrame :
       (stackFrame ((parentSp - parentDelta) - childDelta) (parentSp - parentDelta)).containedIn
         stackRange :=
-    funcFrame_containedIn_stackRange hchildWin (by omega)
+    funcFrame_containedIn_stackRange_of_budget hchildWin (by omega)
   refine ⟨by simpa [Nat.sub_sub] using hChildFrame, hParentFrame, ?_⟩
   exact stackFrame_nested_disjoint (Nat.sub_le _ _) (Nat.le_refl _)
 
-/-- **Deliverable 2 (capstone).**  Any allocation whose depth is within the entry closure's total
-    downward-delta demand, taken from the seeded stack top, produces a frame inside `stackRange`.
-    This threads the concrete parser-derived bound (`entryClosureTotalDownwardDelta ≤ stackPageSize`)
-    through the seeded window (`SpDepthInWindow.entry`), so every frame reachable within the closure's
-    static budget stays in the canonical 4 KiB window. -/
-theorem entryClosureFrame_containedIn_stackRange {delta : Nat}
-    (hdelta : delta ≤ entryClosureTotalDownwardDelta) :
+/-- **Diagnostic corollary — not a capstone, and not a stack bound.**  If an allocation from the
+    seeded stack top *happens* to have depth within the diagnostic summary figure, then its frame
+    lies in `stackRange`.  This is the arithmetic consequence of `1664 ≤ 4096` threaded through the
+    seeded window (`SpDepthInWindow.entry`).
+
+    It is retained only as a sanity check tying the diagnostic figure to the window machinery.  It
+    says **nothing** about whether any actual run's depth is within that figure: the figure is a
+    frontier-truncated summary, and no reachable call chain has been shown to respect it.  In
+    particular the hypothesis `hdelta` is an assumption about `delta`, not a fact proved of this
+    binary.  Any binary-wide reading would be unsound; the real result is deferred to the
+    sponge/caller trace stage. -/
+theorem diagnostic_frameWithinFrontierSummaryTotal_containedIn_stackRange {delta : Nat}
+    (hdelta : delta ≤ frontierSummaryTotalDownwardDelta) :
     (stackFrame (stackTop - delta) stackTop).containedIn stackRange :=
-  funcFrame_containedIn_stackRange SpDepthInWindow.entry
-    (by have := entryClosureTotalDownwardDelta_le_stackPageSize; omega)
+  funcFrame_containedIn_stackRange_of_budget SpDepthInWindow.entry
+    (by have := diagnostic_frontierSummaryTotalDownwardDelta_le_stackPageSize; omega)
 
 end BinaryFv.Keccak
