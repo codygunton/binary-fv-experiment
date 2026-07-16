@@ -1392,4 +1392,1760 @@ theorem step_beqz_not_taken (stepNo : Nat) (state : State) (a2v retired mseccfgB
     platform noMMIO bytes interrupts base decode notExpected hcond hartRead inhibitRead configRead
     notInhibited machineEnabled retiredRead
 
+/-! ## Deliverable 4a: the 8-byte store's concrete memory effect
+
+`writeBytes a v` (width 8) inserts the little-endian bytes of `v` at `a, a+1, …, a+7`.  `insertWord`
+names that post-state; the two `get?` lemmas read the stored window and the disjoint complement. -/
+
+/-- The byte-map after an 8-byte little-endian store of `v` at `a`. -/
+def insertWord (mem : Std.ExtHashMap Nat (BitVec 8)) (a : Nat) (v : BitVec (8 * 8)) :
+    Std.ExtHashMap Nat (BitVec 8) :=
+  ((((((((mem.insert a (v.extractLsb' 0 8)).insert (a + 1) (v.extractLsb' 8 8)).insert
+    (a + 2) (v.extractLsb' 16 8)).insert (a + 3) (v.extractLsb' 24 8)).insert
+    (a + 4) (v.extractLsb' 32 8)).insert (a + 5) (v.extractLsb' 40 8)).insert
+    (a + 6) (v.extractLsb' 48 8)).insert (a + 7) (v.extractLsb' 56 8))
+
+/-- The generated fixed-width store of a 64-bit word inserts its 8 little-endian bytes. -/
+theorem writeBytes_word_run (s : State) (a : Nat) (v : BitVec (8 * 8)) :
+    Runs (PreSail.writeBytes a v) s { s with mem := insertWord s.mem a v } true := by
+  rw [writeBytes_eq]
+  have hlist : (List.ofFn (fun i : Fin 8 => (a + i.val, v.extractLsb' (8 * i.val) 8)))
+      = [(a, v.extractLsb' 0 8), (a + 1, v.extractLsb' 8 8), (a + 2, v.extractLsb' 16 8),
+         (a + 3, v.extractLsb' 24 8), (a + 4, v.extractLsb' 32 8), (a + 5, v.extractLsb' 40 8),
+         (a + 6, v.extractLsb' 48 8), (a + 7, v.extractLsb' 56 8)] := by
+    simp [List.ofFn_succ, List.ofFn_zero]
+  rw [hlist]
+  simp only [List.forM]
+  have hinner : Runs
+      (do
+        writeByte a (v.extractLsb' 0 8); writeByte (a + 1) (v.extractLsb' 8 8)
+        writeByte (a + 2) (v.extractLsb' 16 8); writeByte (a + 3) (v.extractLsb' 24 8)
+        writeByte (a + 4) (v.extractLsb' 32 8); writeByte (a + 5) (v.extractLsb' 40 8)
+        writeByte (a + 6) (v.extractLsb' 48 8); writeByte (a + 7) (v.extractLsb' 56 8)
+        pure PUnit.unit)
+      s { s with mem := insertWord s.mem a v } PUnit.unit := by
+    refine Runs.bind (writeByte_run s a _) ?_
+    refine Runs.bind (writeByte_run _ (a + 1) _) ?_
+    refine Runs.bind (writeByte_run _ (a + 2) _) ?_
+    refine Runs.bind (writeByte_run _ (a + 3) _) ?_
+    refine Runs.bind (writeByte_run _ (a + 4) _) ?_
+    refine Runs.bind (writeByte_run _ (a + 5) _) ?_
+    refine Runs.bind (writeByte_run _ (a + 6) _) ?_
+    refine Runs.bind (writeByte_run _ (a + 7) _) ?_
+    rfl
+  exact Runs.bind hinner rfl
+
+/-- The `i`-th little-endian byte of a 64-bit word. -/
+theorem leBytes_extractLsb (v : BitVec (8 * 8)) (i : Nat) (hi : i < 8) :
+    (leBytes 8 v)[i]'(by rw [leBytes_length]; exact hi) = v.extractLsb' (8 * i) 8 := by
+  simp only [leBytes, List.getElem_ofFn]
+
+/-- Reading a byte inside the stored 8-byte window. -/
+theorem insertWord_get_in (mem : Std.ExtHashMap Nat (BitVec 8)) (a : Nat) (v : BitVec (8 * 8))
+    (i : Nat) (hi : i < 8) :
+    (insertWord mem a v).get? (a + i) = some (v.extractLsb' (8 * i) 8) := by
+  unfold insertWord
+  match i, hi with
+  | 0, _ =>
+    rw [getInsertNe _ (a + 7) (a + 0) _ (by omega), getInsertNe _ (a + 6) (a + 0) _ (by omega), getInsertNe _ (a + 5) (a + 0) _ (by omega), getInsertNe _ (a + 4) (a + 0) _ (by omega), getInsertNe _ (a + 3) (a + 0) _ (by omega), getInsertNe _ (a + 2) (a + 0) _ (by omega), getInsertNe _ (a + 1) (a + 0) _ (by omega)]
+    exact getInsertEq _ _ _
+  | 1, _ =>
+    rw [getInsertNe _ (a + 7) (a + 1) _ (by omega), getInsertNe _ (a + 6) (a + 1) _ (by omega), getInsertNe _ (a + 5) (a + 1) _ (by omega), getInsertNe _ (a + 4) (a + 1) _ (by omega), getInsertNe _ (a + 3) (a + 1) _ (by omega), getInsertNe _ (a + 2) (a + 1) _ (by omega)]
+    exact getInsertEq _ _ _
+  | 2, _ =>
+    rw [getInsertNe _ (a + 7) (a + 2) _ (by omega), getInsertNe _ (a + 6) (a + 2) _ (by omega), getInsertNe _ (a + 5) (a + 2) _ (by omega), getInsertNe _ (a + 4) (a + 2) _ (by omega), getInsertNe _ (a + 3) (a + 2) _ (by omega)]
+    exact getInsertEq _ _ _
+  | 3, _ =>
+    rw [getInsertNe _ (a + 7) (a + 3) _ (by omega), getInsertNe _ (a + 6) (a + 3) _ (by omega), getInsertNe _ (a + 5) (a + 3) _ (by omega), getInsertNe _ (a + 4) (a + 3) _ (by omega)]
+    exact getInsertEq _ _ _
+  | 4, _ =>
+    rw [getInsertNe _ (a + 7) (a + 4) _ (by omega), getInsertNe _ (a + 6) (a + 4) _ (by omega), getInsertNe _ (a + 5) (a + 4) _ (by omega)]
+    exact getInsertEq _ _ _
+  | 5, _ =>
+    rw [getInsertNe _ (a + 7) (a + 5) _ (by omega), getInsertNe _ (a + 6) (a + 5) _ (by omega)]
+    exact getInsertEq _ _ _
+  | 6, _ =>
+    rw [getInsertNe _ (a + 7) (a + 6) _ (by omega)]
+    exact getInsertEq _ _ _
+  | 7, _ =>
+    exact getInsertEq _ _ _
+
+/-- Reading a byte outside the stored 8-byte window is unchanged. -/
+theorem insertWord_get_out (mem : Std.ExtHashMap Nat (BitVec 8)) (a : Nat) (v : BitVec (8 * 8))
+    (b : Nat) (h : ∀ i : Nat, i < 8 → b ≠ a + i) :
+    (insertWord mem a v).get? b = mem.get? b := by
+  unfold insertWord
+  rw [getInsertNe _ (a + 7) b _ (Ne.symm (h 7 (by omega))),
+    getInsertNe _ (a + 6) b _ (Ne.symm (h 6 (by omega))),
+    getInsertNe _ (a + 5) b _ (Ne.symm (h 5 (by omega))),
+    getInsertNe _ (a + 4) b _ (Ne.symm (h 4 (by omega))),
+    getInsertNe _ (a + 3) b _ (Ne.symm (h 3 (by omega))),
+    getInsertNe _ (a + 2) b _ (Ne.symm (h 2 (by omega))),
+    getInsertNe _ (a + 1) b _ (Ne.symm (h 1 (by omega))),
+    getInsertNe _ a b _ (Ne.symm (h 0 (by omega)))]
+
+/-- Storing an 8-byte word at addresses the image does not back preserves `matchesMemory`. -/
+theorem matchesMemory_insertWord (image : ProgramImage) (mem : Std.ExtHashMap Nat (BitVec 8))
+    (addr : Nat) (data : BitVec (8 * 8)) (hm : image.matchesMemory mem)
+    (hnone : ∀ i : Nat, i < 8 → image.readByte? (addr + i) = none) :
+    image.matchesMemory (insertWord mem addr data) := by
+  intro a byte ha
+  by_cases hin : addr ≤ a ∧ a < addr + 8
+  · obtain ⟨h1, h2⟩ := hin
+    have hn : image.readByte? a = none := by
+      have := hnone (a - addr) (by omega)
+      rwa [show addr + (a - addr) = a by omega] at this
+    rw [hn] at ha; simp at ha
+  · rw [insertWord_get_out mem addr data a (fun i hi => by omega)]; exact hm a byte ha
+
+/-! ## Deliverable 4b: loop invariant and abstract configured-machine premises
+
+Mirrors `MemcpyContract`'s `MemcpyInv` / `AbstractPlatform` / `AbstractDataAccess` for `xor_block`.
+`origLane m` is the original 64-bit state word of lane `m`; `inByte j` the input byte at
+`input0 + j`; `inputLane k` the little-endian input lane (matching `assemble_leWord`). -/
+
+/-- The little-endian 64-bit input lane assembled from the 8 input bytes at `input0 + 8k`. -/
+def inputLane (inByte : Nat → BitVec 8) (k : Nat) : BitVec 64 :=
+  BitVec.cast (by rfl) (leWord [inByte (8 * k + 0), inByte (8 * k + 1), inByte (8 * k + 2),
+    inByte (8 * k + 3), inByte (8 * k + 4), inByte (8 * k + 5), inByte (8 * k + 6),
+    inByte (8 * k + 7)])
+
+/-- Instruction fetch addresses of `xor_block` (entry, 29 body instructions, exit). -/
+@[reducible] def IsBodyPc (pc : BitVec 64) : Prop :=
+  pc = BitVec.ofNat 64 0x10c6c ∨ pc = BitVec.ofNat 64 0x10c70 ∨ pc = BitVec.ofNat 64 0x10c74 ∨
+  pc = BitVec.ofNat 64 0x10c78 ∨ pc = BitVec.ofNat 64 0x10c7c ∨ pc = BitVec.ofNat 64 0x10c80 ∨
+  pc = BitVec.ofNat 64 0x10c84 ∨ pc = BitVec.ofNat 64 0x10c88 ∨ pc = BitVec.ofNat 64 0x10c8c ∨
+  pc = BitVec.ofNat 64 0x10c90 ∨ pc = BitVec.ofNat 64 0x10c94 ∨ pc = BitVec.ofNat 64 0x10c98 ∨
+  pc = BitVec.ofNat 64 0x10c9c ∨ pc = BitVec.ofNat 64 0x10ca0 ∨ pc = BitVec.ofNat 64 0x10ca4 ∨
+  pc = BitVec.ofNat 64 0x10ca8 ∨ pc = BitVec.ofNat 64 0x10cac ∨ pc = BitVec.ofNat 64 0x10cb0 ∨
+  pc = BitVec.ofNat 64 0x10cb4 ∨ pc = BitVec.ofNat 64 0x10cb8 ∨ pc = BitVec.ofNat 64 0x10cbc ∨
+  pc = BitVec.ofNat 64 0x10cc0 ∨ pc = BitVec.ofNat 64 0x10cc4 ∨ pc = BitVec.ofNat 64 0x10cc8 ∨
+  pc = BitVec.ofNat 64 0x10ccc ∨ pc = BitVec.ofNat 64 0x10cd0 ∨ pc = BitVec.ofNat 64 0x10cd4 ∨
+  pc = BitVec.ofNat 64 0x10cd8 ∨ pc = BitVec.ofNat 64 0x10cdc ∨ pc = BitVec.ofNat 64 0x10ce0 ∨
+  pc = BitVec.ofNat 64 0x10ce4 ∨ pc = BitVec.ofNat 64 0x10ce8
+
+/-- Abstract configured-machine fetch/decode platform (stage-2 trust boundary). -/
+def AbstractPlatform (base : State) : Prop :=
+  ∀ (t : State) (pc : BitVec 64), StableAgree base t → t.regs.get? PC = some pc → IsBodyPc pc →
+    FetchBasePlatform t pc ∧ FetchMemoryNoMMIO t pc ∧ InterruptDisabled t ∧ LandingPadNotExpected t
+
+/-- Abstract Zicfilp landing-pad update for the leaf `ret` (stage-2 trust boundary). -/
+def AbstractElp (base : State) : Prop :=
+  ∀ (t : State), StableAgree base t → Runs (update_elp_state (.Regidx 1#5)) t t ()
+
+/-- Abstract load/store data-access preconditions for lane `k`: the 8 single-byte input loads (via
+`a1 = input0 + 8k`), the 8-byte state-lane load and store (via `a0 = state0 + 8k`).  Never discharged
+here (the stage-2 trust boundary). -/
+def AbstractDataAccess (state0 input0 : BitVec 64) (base : State) : Prop :=
+  ∀ (k : Nat) (t : State), k < 17 → StableAgree base t →
+    (t.regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k)) →
+      ∀ j : Nat, j < 8 →
+        Runs (get_transformed_data_addr (.Regidx 11#5) (sign_extend (m := 64) (BitVec.ofNat 12 j))
+          (Load Data) 1) t t
+          (.Ext_DataAddr_OK (virtaddr.Virtaddr (input0 + BitVec.ofNat 64 (8 * k + j)))) ∧
+        Runs (phys_access_check (Load Data) PBMT_PMA .Machine
+          (physaddr.Physaddr (input0 + BitVec.ofNat 64 (8 * k + j))) 1 false) t t none ∧
+        Runs (within_mmio_readable (physaddr.Physaddr (input0 + BitVec.ofNat 64 (8 * k + j))) 1)
+          t t false) ∧
+    (t.regs.get? x10 = some (state0 + BitVec.ofNat 64 (8 * k)) →
+      (Runs (get_transformed_data_addr (.Regidx 10#5) (sign_extend (m := 64) 0#12) (Load Data) 8)
+          t t (.Ext_DataAddr_OK (virtaddr.Virtaddr (state0 + BitVec.ofNat 64 (8 * k)))) ∧
+        is_aligned_vaddr (virtaddr.Virtaddr (state0 + BitVec.ofNat 64 (8 * k))) 8 = true ∧
+        Runs (phys_access_check (Load Data) PBMT_PMA .Machine
+          (physaddr.Physaddr (state0 + BitVec.ofNat 64 (8 * k))) 8 false) t t none ∧
+        Runs (within_mmio_readable (physaddr.Physaddr (state0 + BitVec.ofNat 64 (8 * k))) 8)
+          t t false) ∧
+      (Runs (get_transformed_data_addr (.Regidx 10#5) (sign_extend (m := 64) 0#12) (Store Data) 8)
+          t t (.Ext_DataAddr_OK (virtaddr.Virtaddr (state0 + BitVec.ofNat 64 (8 * k)))) ∧
+        is_aligned_vaddr (virtaddr.Virtaddr (state0 + BitVec.ofNat 64 (8 * k))) 8 = true ∧
+        Runs (phys_access_check (Store Data) PBMT_PMA .Machine
+          (physaddr.Physaddr (state0 + BitVec.ofNat 64 (8 * k))) 8 false) t t none ∧
+        Runs (within_mmio_writable (physaddr.Physaddr (state0 + BitVec.ofNat 64 (8 * k))) 8)
+          t t false))
+
+theorem AbstractPlatform.mono {s s' : State} (h : StableAgree s s') (hp : AbstractPlatform s) :
+    AbstractPlatform s' :=
+  fun t pc hst hPC hbody => hp t pc (fun r hr => (hst r hr).trans (h r hr)) hPC hbody
+
+theorem AbstractElp.mono {s s' : State} (h : StableAgree s s') (he : AbstractElp s) :
+    AbstractElp s' :=
+  fun t hst => he t (fun r hr => (hst r hr).trans (h r hr))
+
+theorem AbstractDataAccess.mono {state0 input0 : BitVec 64} {s s' : State} (h : StableAgree s s')
+    (hd : AbstractDataAccess state0 input0 s) : AbstractDataAccess state0 input0 s' :=
+  fun k t hk hst => hd k t hk (fun r hr => (hst r hr).trans (h r hr))
+
+theorem StableAgree.afterInc {base t : State} (h : StableAgree base t) :
+    StableAgree base (tryStepControlFlowAfterIncrement t) :=
+  fun r hr => (afterIncGet t r hr.2.2.2.1).trans (h r hr)
+
+/-- Assemble a `StepPlatform` bundle from the abstract platform field. -/
+theorem mkStepPlatform {s : State} (s_k : State) (mseccfgBits pc : BitVec 64)
+    (b0 b1 b2 b3 : BitVec 8)
+    (hplat : AbstractPlatform s) (hcur : s.regs.get? cur_privilege = some Privilege.Machine)
+    (hmseccfg : s.regs.get? mseccfg = some mseccfgBits)
+    (hSt : StableAgree s s_k)
+    (hPCafter : (tryStepControlFlowAfterIncrement s_k).regs.get? PC = some pc)
+    (hbody : IsBodyPc pc)
+    (hbytes : FetchBytesAt (tryStepControlFlowAfterIncrement s_k) pc b0 b1 b2 b3) :
+    StepPlatform s_k pc b0 b1 b2 b3 mseccfgBits := by
+  have hStA : StableAgree s (tryStepControlFlowAfterIncrement s_k) := hSt.afterInc
+  obtain ⟨hfbp, hmmio, hint, hlp⟩ := hplat _ pc hStA hPCafter hbody
+  exact ⟨hfbp, hmmio, hbytes, hint, hlp, (hStA cur_privilege (by decide)).trans hcur,
+    (hStA mseccfg (by decide)).trans hmseccfg⟩
+
+/-! ### `StableAgree` per-transition preservation -/
+
+/-- A GP-writing fall-through retirement only writes registers in `W`. -/
+theorem stableAgree_gp (base : State) (pc ret : BitVec 64) (rd : Register) (v : RegisterType rd)
+    (hrdW : rd = x5 ∨ rd = x10 ∨ rd = x11 ∨ rd = x12 ∨ rd = x13 ∨ rd = x14 ∨ rd = x15 ∨
+      rd = x16 ∨ rd = x17) :
+    StableAgree base (tryStepControlFlowAfterRetired
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs.insert
+          rd v }
+      (Sail.BitVec.addInt pc 4) ret) := by
+  intro r hr
+  have hrd : r ≠ rd := by rcases hrdW with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    first
+      | exact hr.2.2.2.2.1 | exact hr.2.2.2.2.2.1 | exact hr.2.2.2.2.2.2.1
+      | exact hr.2.2.2.2.2.2.2.1 | exact hr.2.2.2.2.2.2.2.2.1 | exact hr.2.2.2.2.2.2.2.2.2.1
+      | exact hr.2.2.2.2.2.2.2.2.2.2.1 | exact hr.2.2.2.2.2.2.2.2.2.2.2.1 | exact hr.2.2.2.2.2.2.2.2.2.2.2.2
+  rw [retiredFrameGet _ _ _ r hr.1 hr.2.2.1]
+  show ((coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs.insert rd v).get? r
+      = base.regs.get? r
+  rw [gpFrameGet (tryStepControlFlowAfterIncrement base) pc rd v r hrd hr.2.1]
+  exact afterIncGet base r hr.2.2.2.1
+
+/-- A taken-branch / jump retirement only writes registers in `W`. -/
+theorem stableAgree_jump (base : State) (pc tgt ret : BitVec 64) :
+    StableAgree base (tryStepControlFlowAfterRetired
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement base) pc tgt) tgt ret) := by
+  intro r hr
+  rw [jumpRetiredGet base pc tgt ret r hr.1 hr.2.2.1 hr.2.1 hr.2.2.2.1]
+
+/-- A not-taken branch retirement only writes registers in `W`. -/
+theorem stableAgree_notTaken (base : State) (pc ret : BitVec 64) :
+    StableAgree base (tryStepControlFlowAfterRetired
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc)
+      (Sail.BitVec.addInt pc 4) ret) := by
+  intro r hr
+  rw [retiredFrameGet _ _ _ r hr.1 hr.2.2.1, coreGetInc _ pc r hr.2.1]
+  exact afterIncGet base r hr.2.2.2.1
+
+/-- Read a register untouched by a not-taken branch retirement (works for `W` registers too, as long
+as it is not one of the four control registers). -/
+theorem notTakenGet (base : State) (pc ret : BitVec 64) (r : Register)
+    (hPC : r ≠ PC) (hmr : r ≠ minstret) (hnpc : r ≠ nextPC) (hmi : r ≠ minstret_increment) :
+    (tryStepControlFlowAfterRetired
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc)
+      (Sail.BitVec.addInt pc 4) ret).regs.get? r = base.regs.get? r := by
+  rw [retiredFrameGet _ _ _ r hPC hmr, coreGetInc _ pc r hnpc]
+  exact afterIncGet base r hmi
+
+/-- A memory-writing (`sd`) retirement only writes registers in `W`. -/
+theorem stableAgree_store (base s' : State) (pc ret : BitVec 64)
+    (regsEq : s'.regs = (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs) :
+    StableAgree base (tryStepControlFlowAfterRetired s' (Sail.BitVec.addInt pc 4) ret) := by
+  intro r hr
+  rw [retiredFrameGet _ _ _ r hr.1 hr.2.2.1, regsEq,
+    coreGetInc (tryStepControlFlowAfterIncrement base) pc r hr.2.1]
+  exact afterIncGet base r hr.2.2.2.1
+
+/-! ### The loop invariant at the loop head `0x10c74` -/
+
+/-- The `xor_block` loop invariant: about to run iteration `k` at the loop head `0x10c74`. -/
+structure XorBlockInv (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
+    (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (k : Nat) (s : State) : Prop where
+  hPC : s.regs.get? PC = some (BitVec.ofNat 64 0x10c74)
+  ha0 : s.regs.get? x10 = some (state0 + BitVec.ofNat 64 (8 * k))
+  ha1 : s.regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k))
+  ha2 : s.regs.get? x12 = some (BitVec.ofNat 64 (136 - 8 * k))
+  hra : s.regs.get? x1 = some retAddr
+  hcur : s.regs.get? cur_privilege = some Privilege.Machine
+  hmstatus : s.regs.get? mstatus = some mstatusBits
+  hmprv : _get_Mstatus_MPRV mstatusBits = 0#1
+  hmseccfg : s.regs.get? mseccfg = some mseccfgBits
+  hhart : s.regs.get? hart_state = some (.HART_ACTIVE ())
+  hinhibit : s.regs.get? mcountinhibit = some inhibit
+  hnotInhibited : _get_Counterin_IR inhibit = 0#1
+  hcfg : s.regs.get? minstretcfg = some cfg
+  hmachineEnabled : _get_CountSmcntrpmf_MINH cfg = 0#1
+  hminstret : ∃ v, s.regs.get? minstret = some v
+  himageEq : Artifact.programImage = .ok image
+  hmatches : image.matchesMemory s.mem
+  hunproc : ∀ m i : Nat, k ≤ m → m < 25 → i < 8 →
+    s.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat = some ((origLane m).extractLsb' (8 * i) 8)
+  hproc : ∀ m i : Nat, m < k → i < 8 →
+    s.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat =
+      some ((origLane m ^^^ inputLane inByte m).extractLsb' (8 * i) 8)
+  hinput : ∀ j : Nat, j < 136 → s.mem.get? (input0 + BitVec.ofNat 64 j).toNat = some (inByte j)
+  hk : k ≤ 17
+  hstateFits : state0.toNat + 200 ≤ 2 ^ 64
+  hinputFits : input0.toNat + 136 ≤ 2 ^ 64
+  hstateImg : ∀ j : Nat, j < 200 → image.readByte? (state0 + BitVec.ofNat 64 j).toNat = none
+  hdisj : ∀ j j' : Nat, j < 200 → j' < 136 →
+    (state0 + BitVec.ofNat 64 j).toNat ≠ (input0 + BitVec.ofNat 64 j').toNat
+  hplat : AbstractPlatform s
+  hdata : AbstractDataAccess state0 input0 s
+  hElp : AbstractElp s
+
+/-! ### Arithmetic and register-tracking helpers for the advance -/
+
+/-- Read a GP register through the counter-increment / `nextPC` writes back to the pre-step state. -/
+theorem coreGetGP (sN : State) (pc : BitVec 64) (r : Register) (hnp : r ≠ nextPC)
+    (hmi : r ≠ minstret_increment) :
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement sN) pc).regs.get? r =
+      sN.regs.get? r :=
+  (coreGetInc (tryStepControlFlowAfterIncrement sN) pc r hnp).trans (afterIncGet sN r hmi)
+
+/-- `sign_extend` of the 12-bit `8`. -/
+theorem sext8 : sign_extend (m := 64) (8#12) = BitVec.ofNat 64 8 := by
+  simp only [sign_extend, Sail.BitVec.signExtend]; bv_decide
+
+/-- `sign_extend` of the 12-bit `-8` (`0xff8`). -/
+theorem sextm8 : sign_extend (m := 64) (0xff8#12) = BitVec.ofNat 64 (2 ^ 64 - 8) := by
+  simp only [sign_extend, Sail.BitVec.signExtend]; bv_decide
+
+/-- Advancing a base pointer by 8 (`a0 += 8`, `a1 += 8`). -/
+theorem incBy8 (X : BitVec 64) (k : Nat) :
+    X + BitVec.ofNat 64 (8 * k) + sign_extend (m := 64) 8#12 = X + BitVec.ofNat 64 (8 * (k + 1)) := by
+  rw [sext8, BitVec.add_assoc]
+  congr 1
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_add, BitVec.toNat_ofNat, BitVec.toNat_ofNat, BitVec.toNat_ofNat]
+  omega
+
+/-- Decrementing the counter by 8 (`a2 -= 8`). -/
+theorem decBy8 (k : Nat) (hk : k ≤ 16) :
+    BitVec.ofNat 64 (136 - 8 * k) + sign_extend (m := 64) (0xff8#12)
+      = BitVec.ofNat 64 (136 - 8 * (k + 1)) := by
+  rw [sextm8]
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_add, BitVec.toNat_ofNat, BitVec.toNat_ofNat, BitVec.toNat_ofNat]
+  omega
+
+/-- The counter `136 - 8k` is nonzero as a bit-vector for `k < 17`. -/
+theorem a2_ne_zero (k : Nat) (hk : k < 17) : BitVec.ofNat 64 (136 - 8 * k) ≠ zero_reg := by
+  intro heq
+  have h1 : (BitVec.ofNat 64 (136 - 8 * k)).toNat = (zero_reg : BitVec 64).toNat := by rw [heq]
+  rw [BitVec.toNat_ofNat] at h1
+  have hz : (zero_reg : BitVec 64).toNat = 0 := by decide
+  rw [hz] at h1
+  have hbound : 8 * k < 136 := by omega
+  omega
+
+/-- The counter `136 - 8k` is zero as a bit-vector when `k = 17`. -/
+theorem a2_eq_zero : BitVec.ofNat 64 (136 - 8 * 17) = zero_reg := by decide
+
+/-! ## Deliverable 4c: the 28-instruction body core (0x10c74 → 0x10ce4)
+
+`AtBnez k' s` is the machine positioned at the loop-test `0x10ce4` after `k'` lanes have been XORed
+(`a0=state0+8k'`, `a1=input0+8k'`, `a2=136-8k'`).  It is `XorBlockInv k'` with `PC = 0x10ce4`. -/
+
+structure AtBnez (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
+    (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (k' : Nat) (s : State) : Prop where
+  hPC : s.regs.get? PC = some (BitVec.ofNat 64 0x10ce4)
+  ha0 : s.regs.get? x10 = some (state0 + BitVec.ofNat 64 (8 * k'))
+  ha1 : s.regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k'))
+  ha2 : s.regs.get? x12 = some (BitVec.ofNat 64 (136 - 8 * k'))
+  hra : s.regs.get? x1 = some retAddr
+  hcur : s.regs.get? cur_privilege = some Privilege.Machine
+  hmstatus : s.regs.get? mstatus = some mstatusBits
+  hmprv : _get_Mstatus_MPRV mstatusBits = 0#1
+  hmseccfg : s.regs.get? mseccfg = some mseccfgBits
+  hhart : s.regs.get? hart_state = some (.HART_ACTIVE ())
+  hinhibit : s.regs.get? mcountinhibit = some inhibit
+  hnotInhibited : _get_Counterin_IR inhibit = 0#1
+  hcfg : s.regs.get? minstretcfg = some cfg
+  hmachineEnabled : _get_CountSmcntrpmf_MINH cfg = 0#1
+  hminstret : ∃ v, s.regs.get? minstret = some v
+  himageEq : Artifact.programImage = .ok image
+  hmatches : image.matchesMemory s.mem
+  hunproc : ∀ m i : Nat, k' ≤ m → m < 25 → i < 8 →
+    s.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat = some ((origLane m).extractLsb' (8 * i) 8)
+  hproc : ∀ m i : Nat, m < k' → i < 8 →
+    s.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat =
+      some ((origLane m ^^^ inputLane inByte m).extractLsb' (8 * i) 8)
+  hinput : ∀ j : Nat, j < 136 → s.mem.get? (input0 + BitVec.ofNat 64 j).toNat = some (inByte j)
+  hk : k' ≤ 17
+  hstateFits : state0.toNat + 200 ≤ 2 ^ 64
+  hinputFits : input0.toNat + 136 ≤ 2 ^ 64
+  hstateImg : ∀ j : Nat, j < 200 → image.readByte? (state0 + BitVec.ofNat 64 j).toNat = none
+  hdisj : ∀ j j' : Nat, j < 200 → j' < 136 →
+    (state0 + BitVec.ofNat 64 j).toNat ≠ (input0 + BitVec.ofNat 64 j').toNat
+  hplat : AbstractPlatform s
+  hdata : AbstractDataAccess state0 input0 s
+  hElp : AbstractElp s
+
+/-! ## Deliverable 4c (cont.): the 28-instruction body core proof -/
+
+set_option maxHeartbeats 8000000 in
+/-- One 28-instruction body pass (loop head `0x10c74` → loop test `0x10ce4`): XORs input lane `k`
+into state lane `k` and advances `a0`/`a1`/`a2`, landing in `AtBnez (k+1)`. -/
+theorem xorblock_body_core (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
+    (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (start k : Nat) (s : State)
+    (hk : k < 17)
+    (hInv : XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
+      origLane inByte k s) :
+    ∃ s28, Trace (start + k * 29) 28 s s28 ∧
+      AtBnez state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg origLane inByte
+        (k + 1) s28 := by
+  obtain ⟨retired0, hret0⟩ := hInv.hminstret
+  have hsf := hInv.hstateFits
+  have hSt0 : StableAgree s s := StableAgree.refl s
+  -- Step 0: lbu at 0x10c74
+  have hbytes0 : FetchBytesAt (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74) 0x83#8 0xc6#8 0x15#8 0x00#8 :=
+    fetchBytesAt_10c74 (tryStepControlFlowAfterIncrement s) image hInv.himageEq hInv.hmatches
+  have hplat0 : StepPlatform s (BitVec.ofNat 64 0x10c74) 0x83#8 0xc6#8 0x15#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s mseccfgBits (BitVec.ofNat 64 0x10c74) 0x83#8 0xc6#8 0x15#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg (StableAgree.refl s) ((afterIncGet s PC (by decide)).trans hInv.hPC) (by decide) hbytes0
+  have hcnt0 : StepCounters s retired0 inhibit cfg := ⟨hInv.hhart, hInv.hinhibit, hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hret0⟩
+  have hx11c0 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)).regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s (BitVec.ofNat 64 0x10c74) x11 (by decide) (by decide)).trans hInv.ha1)
+  obtain ⟨addr0, phys0, mmio0⟩ :=
+    (hInv.hdata k (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)) hk (coreStableAgree s (BitVec.ofNat 64 0x10c74) (StableAgree.refl s))).1 hx11c0 1 (by decide)
+  have hbyte0 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)).mem.get? (input0 + BitVec.ofNat 64 (8 * k + 1)).toNat = some (inByte (8 * k + 1)) :=
+    hInv.hinput (8 * k + 1) (by omega)
+  have h0 := step_lbu_10c74 (start + k * 29 + 0) s (input0 + BitVec.ofNat 64 (8 * k + 1)) mstatusBits retired0 mseccfgBits
+    (inByte (8 * k + 1)) inhibit cfg hplat0 hcnt0 ((coreGetStable s (BitVec.ofNat 64 0x10c74) mstatus (by decide) (StableAgree.refl s)).trans hInv.hmstatus) ((coreGetStable s (BitVec.ofNat 64 0x10c74) cur_privilege (by decide) (StableAgree.refl s)).trans hInv.hcur) hInv.hmprv
+    addr0 phys0 mmio0 (leBytes_one_mem _ _ (inByte (8 * k + 1)) hbyte0)
+  have hSt1 : StableAgree s _ := hSt0.trans (stableAgree_gp s (BitVec.ofNat 64 0x10c74) retired0 x13 (zero_extend (m := 64) (inByte (8 * k + 1))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
+  have hPC1 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)).regs.insert x13 (zero_extend (m := 64) (inByte (8 * k + 1))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c74) 4) retired0
+  have hmin1 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)).regs.insert x13 (zero_extend (m := 64) (inByte (8 * k + 1))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c74) 4) retired0
+  have hmem1 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)).regs.insert x13 (zero_extend (m := 64) (inByte (8 * k + 1))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c74) 4) retired0).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s (BitVec.ofNat 64 0x10c74) x13 (zero_extend (m := 64) (inByte (8 * k + 1)))).trans rfl)
+  have hw13s1 : _ = some (zero_extend (m := 64) (inByte (8 * k + 1))) :=
+    (fallThroughRetiredRd s (BitVec.ofNat 64 0x10c74) retired0 x13 (zero_extend (m := 64) (inByte (8 * k + 1))) (by decide) (by decide))
+  have hw10s1 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s (BitVec.ofNat 64 0x10c74) retired0 x13 (zero_extend (m := 64) (inByte (8 * k + 1))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hInv.ha0
+  have hw11s1 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s (BitVec.ofNat 64 0x10c74) retired0 x13 (zero_extend (m := 64) (inByte (8 * k + 1))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hInv.ha1
+  have hw12s1 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s (BitVec.ofNat 64 0x10c74) retired0 x13 (zero_extend (m := 64) (inByte (8 * k + 1))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hInv.ha2
+  generalize hgen0 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c74)).regs.insert x13 (zero_extend (m := 64) (inByte (8 * k + 1))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c74) 4) retired0 = s1 at h0 hSt1 hPC1 hmin1 hmem1 hw13s1 hw10s1 hw11s1 hw12s1
+
+  -- Step 1: lbu at 0x10c78
+  have hbytes1 : FetchBytesAt (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78) 0x03#8 0xc7#8 0x25#8 0x00#8 :=
+    fetchBytesAt_10c78 (tryStepControlFlowAfterIncrement s1) image hInv.himageEq (hmem1.symm ▸ hInv.hmatches)
+  have hplat1 : StepPlatform s1 (BitVec.ofNat 64 0x10c78) 0x03#8 0xc7#8 0x25#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s1 mseccfgBits (BitVec.ofNat 64 0x10c78) 0x03#8 0xc7#8 0x25#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt1 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c74) 4 = BitVec.ofNat 64 0x10c78 from by decide) ▸ hPC1) (by decide) hbytes1
+  have hcnt1 : StepCounters s1 (Sail.BitVec.addInt retired0 1) inhibit cfg := ⟨(hSt1 hart_state (by decide)).trans hInv.hhart, (hSt1 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt1 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin1⟩
+  have hx11c1 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)).regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s1 (BitVec.ofNat 64 0x10c78) x11 (by decide) (by decide)).trans hw11s1)
+  obtain ⟨addr1, phys1, mmio1⟩ :=
+    (hInv.hdata k (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)) hk (coreStableAgree s1 (BitVec.ofNat 64 0x10c78) hSt1)).1 hx11c1 2 (by decide)
+  have hbyte1 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)).mem.get? (input0 + BitVec.ofNat 64 (8 * k + 2)).toNat = some (inByte (8 * k + 2)) :=
+    hmem1.symm ▸ hInv.hinput (8 * k + 2) (by omega)
+  have h1 := step_lbu_10c78 (start + k * 29 + 1) s1 (input0 + BitVec.ofNat 64 (8 * k + 2)) mstatusBits (Sail.BitVec.addInt retired0 1) mseccfgBits
+    (inByte (8 * k + 2)) inhibit cfg hplat1 hcnt1 ((coreGetStable s1 (BitVec.ofNat 64 0x10c78) mstatus (by decide) hSt1).trans hInv.hmstatus) ((coreGetStable s1 (BitVec.ofNat 64 0x10c78) cur_privilege (by decide) hSt1).trans hInv.hcur) hInv.hmprv
+    addr1 phys1 mmio1 (leBytes_one_mem _ _ (inByte (8 * k + 2)) hbyte1)
+  have hSt2 : StableAgree s _ := hSt1.trans (stableAgree_gp s1 (BitVec.ofNat 64 0x10c78) (Sail.BitVec.addInt retired0 1) x14 (zero_extend (m := 64) (inByte (8 * k + 2))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))
+  have hPC2 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)).regs.insert x14 (zero_extend (m := 64) (inByte (8 * k + 2))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c78) 4) (Sail.BitVec.addInt retired0 1)
+  have hmin2 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)).regs.insert x14 (zero_extend (m := 64) (inByte (8 * k + 2))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c78) 4) (Sail.BitVec.addInt retired0 1)
+  have hmem2 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)).regs.insert x14 (zero_extend (m := 64) (inByte (8 * k + 2))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c78) 4) (Sail.BitVec.addInt retired0 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s1 (BitVec.ofNat 64 0x10c78) x14 (zero_extend (m := 64) (inByte (8 * k + 2)))).trans hmem1)
+  have hw14s2 : _ = some (zero_extend (m := 64) (inByte (8 * k + 2))) :=
+    (fallThroughRetiredRd s1 (BitVec.ofNat 64 0x10c78) (Sail.BitVec.addInt retired0 1) x14 (zero_extend (m := 64) (inByte (8 * k + 2))) (by decide) (by decide))
+  have hw10s2 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s1 (BitVec.ofNat 64 0x10c78) (Sail.BitVec.addInt retired0 1) x14 (zero_extend (m := 64) (inByte (8 * k + 2))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s1
+  have hw11s2 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s1 (BitVec.ofNat 64 0x10c78) (Sail.BitVec.addInt retired0 1) x14 (zero_extend (m := 64) (inByte (8 * k + 2))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s1
+  have hw12s2 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s1 (BitVec.ofNat 64 0x10c78) (Sail.BitVec.addInt retired0 1) x14 (zero_extend (m := 64) (inByte (8 * k + 2))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s1
+  have hw13s2 : _ = some (zero_extend (m := 64) (inByte (8 * k + 1))) :=
+    (fallThroughRetiredGet s1 (BitVec.ofNat 64 0x10c78) (Sail.BitVec.addInt retired0 1) x14 (zero_extend (m := 64) (inByte (8 * k + 2))) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s1
+  generalize hgen1 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c78)).regs.insert x14 (zero_extend (m := 64) (inByte (8 * k + 2))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c78) 4) (Sail.BitVec.addInt retired0 1) = s2 at h1 hSt2 hPC2 hmin2 hmem2 hw14s2 hw10s2 hw11s2 hw12s2 hw13s2
+
+  -- Step 2: lbu at 0x10c7c
+  have hbytes2 : FetchBytesAt (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c) 0x83#8 0xc7#8 0x35#8 0x00#8 :=
+    fetchBytesAt_10c7c (tryStepControlFlowAfterIncrement s2) image hInv.himageEq (hmem2.symm ▸ hInv.hmatches)
+  have hplat2 : StepPlatform s2 (BitVec.ofNat 64 0x10c7c) 0x83#8 0xc7#8 0x35#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s2 mseccfgBits (BitVec.ofNat 64 0x10c7c) 0x83#8 0xc7#8 0x35#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt2 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c78) 4 = BitVec.ofNat 64 0x10c7c from by decide) ▸ hPC2) (by decide) hbytes2
+  have hcnt2 : StepCounters s2 (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) inhibit cfg := ⟨(hSt2 hart_state (by decide)).trans hInv.hhart, (hSt2 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt2 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin2⟩
+  have hx11c2 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)).regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s2 (BitVec.ofNat 64 0x10c7c) x11 (by decide) (by decide)).trans hw11s2)
+  obtain ⟨addr2, phys2, mmio2⟩ :=
+    (hInv.hdata k (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)) hk (coreStableAgree s2 (BitVec.ofNat 64 0x10c7c) hSt2)).1 hx11c2 3 (by decide)
+  have hbyte2 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)).mem.get? (input0 + BitVec.ofNat 64 (8 * k + 3)).toNat = some (inByte (8 * k + 3)) :=
+    hmem2.symm ▸ hInv.hinput (8 * k + 3) (by omega)
+  have h2 := step_lbu_10c7c (start + k * 29 + 2) s2 (input0 + BitVec.ofNat 64 (8 * k + 3)) mstatusBits (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) mseccfgBits
+    (inByte (8 * k + 3)) inhibit cfg hplat2 hcnt2 ((coreGetStable s2 (BitVec.ofNat 64 0x10c7c) mstatus (by decide) hSt2).trans hInv.hmstatus) ((coreGetStable s2 (BitVec.ofNat 64 0x10c7c) cur_privilege (by decide) hSt2).trans hInv.hcur) hInv.hmprv
+    addr2 phys2 mmio2 (leBytes_one_mem _ _ (inByte (8 * k + 3)) hbyte2)
+  have hSt3 : StableAgree s _ := hSt2.trans (stableAgree_gp s2 (BitVec.ofNat 64 0x10c7c) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 3))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))))
+  have hPC3 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)).regs.insert x15 (zero_extend (m := 64) (inByte (8 * k + 3))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c7c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
+  have hmin3 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)).regs.insert x15 (zero_extend (m := 64) (inByte (8 * k + 3))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c7c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
+  have hmem3 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)).regs.insert x15 (zero_extend (m := 64) (inByte (8 * k + 3))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c7c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s2 (BitVec.ofNat 64 0x10c7c) x15 (zero_extend (m := 64) (inByte (8 * k + 3)))).trans hmem2)
+  have hw15s3 : _ = some (zero_extend (m := 64) (inByte (8 * k + 3))) :=
+    (fallThroughRetiredRd s2 (BitVec.ofNat 64 0x10c7c) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 3))) (by decide) (by decide))
+  have hw10s3 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s2 (BitVec.ofNat 64 0x10c7c) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 3))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s2
+  have hw11s3 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s2 (BitVec.ofNat 64 0x10c7c) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 3))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s2
+  have hw12s3 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s2 (BitVec.ofNat 64 0x10c7c) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 3))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s2
+  have hw13s3 : _ = some (zero_extend (m := 64) (inByte (8 * k + 1))) :=
+    (fallThroughRetiredGet s2 (BitVec.ofNat 64 0x10c7c) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 3))) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s2
+  have hw14s3 : _ = some (zero_extend (m := 64) (inByte (8 * k + 2))) :=
+    (fallThroughRetiredGet s2 (BitVec.ofNat 64 0x10c7c) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 3))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s2
+  generalize hgen2 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x10c7c)).regs.insert x15 (zero_extend (m := 64) (inByte (8 * k + 3))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c7c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) = s3 at h2 hSt3 hPC3 hmin3 hmem3 hw15s3 hw10s3 hw11s3 hw12s3 hw13s3 hw14s3
+
+  -- Step 3: lbu at 0x10c80
+  have hbytes3 : FetchBytesAt (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80) 0x03#8 0xc8#8 0x05#8 0x00#8 :=
+    fetchBytesAt_10c80 (tryStepControlFlowAfterIncrement s3) image hInv.himageEq (hmem3.symm ▸ hInv.hmatches)
+  have hplat3 : StepPlatform s3 (BitVec.ofNat 64 0x10c80) 0x03#8 0xc8#8 0x05#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s3 mseccfgBits (BitVec.ofNat 64 0x10c80) 0x03#8 0xc8#8 0x05#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt3 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c7c) 4 = BitVec.ofNat 64 0x10c80 from by decide) ▸ hPC3) (by decide) hbytes3
+  have hcnt3 : StepCounters s3 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) inhibit cfg := ⟨(hSt3 hart_state (by decide)).trans hInv.hhart, (hSt3 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt3 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin3⟩
+  have hx11c3 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)).regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s3 (BitVec.ofNat 64 0x10c80) x11 (by decide) (by decide)).trans hw11s3)
+  obtain ⟨addr3, phys3, mmio3⟩ :=
+    (hInv.hdata k (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)) hk (coreStableAgree s3 (BitVec.ofNat 64 0x10c80) hSt3)).1 hx11c3 0 (by decide)
+  have hbyte3 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)).mem.get? (input0 + BitVec.ofNat 64 (8 * k + 0)).toNat = some (inByte (8 * k + 0)) :=
+    hmem3.symm ▸ hInv.hinput (8 * k + 0) (by omega)
+  have h3 := step_lbu_10c80 (start + k * 29 + 3) s3 (input0 + BitVec.ofNat 64 (8 * k + 0)) mstatusBits (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) mseccfgBits
+    (inByte (8 * k + 0)) inhibit cfg hplat3 hcnt3 ((coreGetStable s3 (BitVec.ofNat 64 0x10c80) mstatus (by decide) hSt3).trans hInv.hmstatus) ((coreGetStable s3 (BitVec.ofNat 64 0x10c80) cur_privilege (by decide) hSt3).trans hInv.hcur) hInv.hmprv
+    addr3 phys3 mmio3 (leBytes_one_mem _ _ (inByte (8 * k + 0)) hbyte3)
+  have hSt4 : StableAgree s _ := hSt3.trans (stableAgree_gp s3 (BitVec.ofNat 64 0x10c80) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 0))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))))
+  have hPC4 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)).regs.insert x16 (zero_extend (m := 64) (inByte (8 * k + 0))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c80) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1)
+  have hmin4 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)).regs.insert x16 (zero_extend (m := 64) (inByte (8 * k + 0))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c80) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1)
+  have hmem4 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)).regs.insert x16 (zero_extend (m := 64) (inByte (8 * k + 0))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c80) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s3 (BitVec.ofNat 64 0x10c80) x16 (zero_extend (m := 64) (inByte (8 * k + 0)))).trans hmem3)
+  have hw16s4 : _ = some (zero_extend (m := 64) (inByte (8 * k + 0))) :=
+    (fallThroughRetiredRd s3 (BitVec.ofNat 64 0x10c80) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 0))) (by decide) (by decide))
+  have hw10s4 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s3 (BitVec.ofNat 64 0x10c80) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 0))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s3
+  have hw11s4 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s3 (BitVec.ofNat 64 0x10c80) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 0))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s3
+  have hw12s4 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s3 (BitVec.ofNat 64 0x10c80) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 0))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s3
+  have hw13s4 : _ = some (zero_extend (m := 64) (inByte (8 * k + 1))) :=
+    (fallThroughRetiredGet s3 (BitVec.ofNat 64 0x10c80) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 0))) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s3
+  have hw14s4 : _ = some (zero_extend (m := 64) (inByte (8 * k + 2))) :=
+    (fallThroughRetiredGet s3 (BitVec.ofNat 64 0x10c80) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 0))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s3
+  have hw15s4 : _ = some (zero_extend (m := 64) (inByte (8 * k + 3))) :=
+    (fallThroughRetiredGet s3 (BitVec.ofNat 64 0x10c80) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 0))) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s3
+  generalize hgen3 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10c80)).regs.insert x16 (zero_extend (m := 64) (inByte (8 * k + 0))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c80) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) = s4 at h3 hSt4 hPC4 hmin4 hmem4 hw16s4 hw10s4 hw11s4 hw12s4 hw13s4 hw14s4 hw15s4
+
+  -- Step 4: slli at 0x10c84
+  have hbytes4 : FetchBytesAt (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x10c84) 0x93#8 0x96#8 0x86#8 0x00#8 :=
+    fetchBytesAt_10c84 (tryStepControlFlowAfterIncrement s4) image hInv.himageEq (hmem4.symm ▸ hInv.hmatches)
+  have hplat4 : StepPlatform s4 (BitVec.ofNat 64 0x10c84) 0x93#8 0x96#8 0x86#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s4 mseccfgBits (BitVec.ofNat 64 0x10c84) 0x93#8 0x96#8 0x86#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt4 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c80) 4 = BitVec.ofNat 64 0x10c84 from by decide) ▸ hPC4) (by decide) hbytes4
+  have hcnt4 : StepCounters s4 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) inhibit cfg := ⟨(hSt4 hart_state (by decide)).trans hInv.hhart, (hSt4 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt4 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin4⟩
+  have hr13s4 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x10c84)).regs.get? x13 = some (zero_extend (m := 64) (inByte (8 * k + 1))) := ((coreGetGP s4 (BitVec.ofNat 64 0x10c84) x13 (by decide) (by decide)).trans hw13s4)
+  have h4 := step_slli_10c84 (start + k * 29 + 4) s4 (zero_extend (m := 64) (inByte (8 * k + 1))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat4 hcnt4 hr13s4
+  have hSt5 : StableAgree s _ := hSt4.trans (stableAgree_gp s4 (BitVec.ofNat 64 0x10c84) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
+  have hPC5 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x10c84)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x10c84)).regs.insert x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c84) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1)
+  have hmin5 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x10c84)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x10c84)).regs.insert x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c84) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1)
+  have hmem5 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x10c84)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x10c84)).regs.insert x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c84) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s4 (BitVec.ofNat 64 0x10c84) x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8)).trans hmem4)
+  have hw13s5 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) :=
+    (fallThroughRetiredRd s4 (BitVec.ofNat 64 0x10c84) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) (by decide) (by decide))
+  have hw10s5 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s4 (BitVec.ofNat 64 0x10c84) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s4
+  have hw11s5 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s4 (BitVec.ofNat 64 0x10c84) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s4
+  have hw12s5 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s4 (BitVec.ofNat 64 0x10c84) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s4
+  have hw14s5 : _ = some (zero_extend (m := 64) (inByte (8 * k + 2))) :=
+    (fallThroughRetiredGet s4 (BitVec.ofNat 64 0x10c84) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s4
+  have hw15s5 : _ = some (zero_extend (m := 64) (inByte (8 * k + 3))) :=
+    (fallThroughRetiredGet s4 (BitVec.ofNat 64 0x10c84) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s4
+  have hw16s5 : _ = some (zero_extend (m := 64) (inByte (8 * k + 0))) :=
+    (fallThroughRetiredGet s4 (BitVec.ofNat 64 0x10c84) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s4
+  generalize hgen4 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x10c84)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x10c84)).regs.insert x13 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c84) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) = s5 at h4 hSt5 hPC5 hmin5 hmem5 hw13s5 hw10s5 hw11s5 hw12s5 hw14s5 hw15s5 hw16s5
+
+  -- Step 5: slli at 0x10c88
+  have hbytes5 : FetchBytesAt (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10c88) 0x13#8 0x17#8 0x07#8 0x01#8 :=
+    fetchBytesAt_10c88 (tryStepControlFlowAfterIncrement s5) image hInv.himageEq (hmem5.symm ▸ hInv.hmatches)
+  have hplat5 : StepPlatform s5 (BitVec.ofNat 64 0x10c88) 0x13#8 0x17#8 0x07#8 0x01#8 mseccfgBits :=
+    mkStepPlatform s5 mseccfgBits (BitVec.ofNat 64 0x10c88) 0x13#8 0x17#8 0x07#8 0x01#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt5 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c84) 4 = BitVec.ofNat 64 0x10c88 from by decide) ▸ hPC5) (by decide) hbytes5
+  have hcnt5 : StepCounters s5 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt5 hart_state (by decide)).trans hInv.hhart, (hSt5 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt5 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin5⟩
+  have hr14s5 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10c88)).regs.get? x14 = some (zero_extend (m := 64) (inByte (8 * k + 2))) := ((coreGetGP s5 (BitVec.ofNat 64 0x10c88) x14 (by decide) (by decide)).trans hw14s5)
+  have h5 := step_slli_10c88 (start + k * 29 + 5) s5 (zero_extend (m := 64) (inByte (8 * k + 2))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat5 hcnt5 hr14s5
+  have hSt6 : StableAgree s _ := hSt5.trans (stableAgree_gp s5 (BitVec.ofNat 64 0x10c88) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))
+  have hPC6 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10c88)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10c88)).regs.insert x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c88) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1)
+  have hmin6 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10c88)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10c88)).regs.insert x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c88) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1)
+  have hmem6 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10c88)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10c88)).regs.insert x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c88) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s5 (BitVec.ofNat 64 0x10c88) x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)).trans hmem5)
+  have hw14s6 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) :=
+    (fallThroughRetiredRd s5 (BitVec.ofNat 64 0x10c88) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) (by decide) (by decide))
+  have hw10s6 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s5 (BitVec.ofNat 64 0x10c88) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s5
+  have hw11s6 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s5 (BitVec.ofNat 64 0x10c88) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s5
+  have hw12s6 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s5 (BitVec.ofNat 64 0x10c88) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s5
+  have hw13s6 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) :=
+    (fallThroughRetiredGet s5 (BitVec.ofNat 64 0x10c88) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s5
+  have hw15s6 : _ = some (zero_extend (m := 64) (inByte (8 * k + 3))) :=
+    (fallThroughRetiredGet s5 (BitVec.ofNat 64 0x10c88) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s5
+  have hw16s6 : _ = some (zero_extend (m := 64) (inByte (8 * k + 0))) :=
+    (fallThroughRetiredGet s5 (BitVec.ofNat 64 0x10c88) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s5
+  generalize hgen5 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10c88)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10c88)).regs.insert x14 ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c88) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) = s6 at h5 hSt6 hPC6 hmin6 hmem6 hw14s6 hw10s6 hw11s6 hw12s6 hw13s6 hw15s6 hw16s6
+
+  -- Step 6: slli at 0x10c8c
+  have hbytes6 : FetchBytesAt (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10c8c) 0x93#8 0x97#8 0x87#8 0x01#8 :=
+    fetchBytesAt_10c8c (tryStepControlFlowAfterIncrement s6) image hInv.himageEq (hmem6.symm ▸ hInv.hmatches)
+  have hplat6 : StepPlatform s6 (BitVec.ofNat 64 0x10c8c) 0x93#8 0x97#8 0x87#8 0x01#8 mseccfgBits :=
+    mkStepPlatform s6 mseccfgBits (BitVec.ofNat 64 0x10c8c) 0x93#8 0x97#8 0x87#8 0x01#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt6 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c88) 4 = BitVec.ofNat 64 0x10c8c from by decide) ▸ hPC6) (by decide) hbytes6
+  have hcnt6 : StepCounters s6 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt6 hart_state (by decide)).trans hInv.hhart, (hSt6 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt6 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin6⟩
+  have hr15s6 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10c8c)).regs.get? x15 = some (zero_extend (m := 64) (inByte (8 * k + 3))) := ((coreGetGP s6 (BitVec.ofNat 64 0x10c8c) x15 (by decide) (by decide)).trans hw15s6)
+  have h6 := step_slli_10c8c (start + k * 29 + 6) s6 (zero_extend (m := 64) (inByte (8 * k + 3))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat6 hcnt6 hr15s6
+  have hSt7 : StableAgree s _ := hSt6.trans (stableAgree_gp s6 (BitVec.ofNat 64 0x10c8c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))))
+  have hPC7 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10c8c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10c8c)).regs.insert x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c8c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1)
+  have hmin7 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10c8c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10c8c)).regs.insert x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c8c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1)
+  have hmem7 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10c8c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10c8c)).regs.insert x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c8c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s6 (BitVec.ofNat 64 0x10c8c) x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24)).trans hmem6)
+  have hw15s7 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) :=
+    (fallThroughRetiredRd s6 (BitVec.ofNat 64 0x10c8c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) (by decide) (by decide))
+  have hw10s7 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s6 (BitVec.ofNat 64 0x10c8c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s6
+  have hw11s7 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s6 (BitVec.ofNat 64 0x10c8c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s6
+  have hw12s7 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s6 (BitVec.ofNat 64 0x10c8c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s6
+  have hw13s7 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) :=
+    (fallThroughRetiredGet s6 (BitVec.ofNat 64 0x10c8c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s6
+  have hw14s7 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) :=
+    (fallThroughRetiredGet s6 (BitVec.ofNat 64 0x10c8c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s6
+  have hw16s7 : _ = some (zero_extend (m := 64) (inByte (8 * k + 0))) :=
+    (fallThroughRetiredGet s6 (BitVec.ofNat 64 0x10c8c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s6
+  generalize hgen6 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10c8c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10c8c)).regs.insert x15 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c8c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) = s7 at h6 hSt7 hPC7 hmin7 hmem7 hw15s7 hw10s7 hw11s7 hw12s7 hw13s7 hw14s7 hw16s7
+
+  -- Step 7: or at 0x10c90
+  have hbytes7 : FetchBytesAt (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90) 0xb3#8 0xe6#8 0x06#8 0x01#8 :=
+    fetchBytesAt_10c90 (tryStepControlFlowAfterIncrement s7) image hInv.himageEq (hmem7.symm ▸ hInv.hmatches)
+  have hplat7 : StepPlatform s7 (BitVec.ofNat 64 0x10c90) 0xb3#8 0xe6#8 0x06#8 0x01#8 mseccfgBits :=
+    mkStepPlatform s7 mseccfgBits (BitVec.ofNat 64 0x10c90) 0xb3#8 0xe6#8 0x06#8 0x01#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt7 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c8c) 4 = BitVec.ofNat 64 0x10c90 from by decide) ▸ hPC7) (by decide) hbytes7
+  have hcnt7 : StepCounters s7 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt7 hart_state (by decide)).trans hInv.hhart, (hSt7 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt7 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin7⟩
+  have hra7 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90)).regs.get? x13 = some ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) := ((coreGetGP s7 (BitVec.ofNat 64 0x10c90) x13 (by decide) (by decide)).trans hw13s7)
+  have hrb7 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90)).regs.get? x16 = some (zero_extend (m := 64) (inByte (8 * k + 0))) := ((coreGetGP s7 (BitVec.ofNat 64 0x10c90) x16 (by decide) (by decide)).trans hw16s7)
+  have h7 := step_or_10c90 (start + k * 29 + 7) s7 ((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) (zero_extend (m := 64) (inByte (8 * k + 0))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat7 hcnt7 hra7 hrb7
+  have hSt8 : StableAgree s _ := hSt7.trans (stableAgree_gp s7 (BitVec.ofNat 64 0x10c90) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
+  have hPC8 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90)).regs.insert x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c90) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1)
+  have hmin8 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90)).regs.insert x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c90) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1)
+  have hmem8 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90)).regs.insert x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c90) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s7 (BitVec.ofNat 64 0x10c90) x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))).trans hmem7)
+  have hw13s8 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredRd s7 (BitVec.ofNat 64 0x10c90) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) (by decide) (by decide))
+  have hw10s8 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s7 (BitVec.ofNat 64 0x10c90) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s7
+  have hw11s8 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s7 (BitVec.ofNat 64 0x10c90) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s7
+  have hw12s8 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s7 (BitVec.ofNat 64 0x10c90) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s7
+  have hw14s8 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) :=
+    (fallThroughRetiredGet s7 (BitVec.ofNat 64 0x10c90) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s7
+  have hw15s8 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) :=
+    (fallThroughRetiredGet s7 (BitVec.ofNat 64 0x10c90) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s7
+  have hw16s8 : _ = some (zero_extend (m := 64) (inByte (8 * k + 0))) :=
+    (fallThroughRetiredGet s7 (BitVec.ofNat 64 0x10c90) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s7
+  generalize hgen7 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s7) (BitVec.ofNat 64 0x10c90)).regs.insert x13 (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c90) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) = s8 at h7 hSt8 hPC8 hmin8 hmem8 hw13s8 hw10s8 hw11s8 hw12s8 hw14s8 hw15s8 hw16s8
+
+  -- Step 8: or at 0x10c94
+  have hbytes8 : FetchBytesAt (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94) 0x33#8 0xe7#8 0xe7#8 0x00#8 :=
+    fetchBytesAt_10c94 (tryStepControlFlowAfterIncrement s8) image hInv.himageEq (hmem8.symm ▸ hInv.hmatches)
+  have hplat8 : StepPlatform s8 (BitVec.ofNat 64 0x10c94) 0x33#8 0xe7#8 0xe7#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s8 mseccfgBits (BitVec.ofNat 64 0x10c94) 0x33#8 0xe7#8 0xe7#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt8 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c90) 4 = BitVec.ofNat 64 0x10c94 from by decide) ▸ hPC8) (by decide) hbytes8
+  have hcnt8 : StepCounters s8 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt8 hart_state (by decide)).trans hInv.hhart, (hSt8 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt8 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin8⟩
+  have hra8 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94)).regs.get? x15 = some ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) := ((coreGetGP s8 (BitVec.ofNat 64 0x10c94) x15 (by decide) (by decide)).trans hw15s8)
+  have hrb8 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94)).regs.get? x14 = some ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) := ((coreGetGP s8 (BitVec.ofNat 64 0x10c94) x14 (by decide) (by decide)).trans hw14s8)
+  have h8 := step_or_10c94 (start + k * 29 + 8) s8 ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat8 hcnt8 hra8 hrb8
+  have hSt9 : StableAgree s _ := hSt8.trans (stableAgree_gp s8 (BitVec.ofNat 64 0x10c94) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))
+  have hPC9 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94)).regs.insert x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c94) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin9 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94)).regs.insert x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c94) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem9 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94)).regs.insert x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c94) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s8 (BitVec.ofNat 64 0x10c94) x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16))).trans hmem8)
+  have hw14s9 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredRd s8 (BitVec.ofNat 64 0x10c94) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) (by decide) (by decide))
+  have hw10s9 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s8 (BitVec.ofNat 64 0x10c94) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s8
+  have hw11s9 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s8 (BitVec.ofNat 64 0x10c94) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s8
+  have hw12s9 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s8 (BitVec.ofNat 64 0x10c94) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s8
+  have hw13s9 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s8 (BitVec.ofNat 64 0x10c94) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s8
+  have hw15s9 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) :=
+    (fallThroughRetiredGet s8 (BitVec.ofNat 64 0x10c94) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s8
+  have hw16s9 : _ = some (zero_extend (m := 64) (inByte (8 * k + 0))) :=
+    (fallThroughRetiredGet s8 (BitVec.ofNat 64 0x10c94) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s8
+  generalize hgen8 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x10c94)).regs.insert x14 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c94) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) = s9 at h8 hSt9 hPC9 hmin9 hmem9 hw14s9 hw10s9 hw11s9 hw12s9 hw13s9 hw15s9 hw16s9
+
+  -- Step 9: lbu at 0x10c98
+  have hbytes9 : FetchBytesAt (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98) 0x83#8 0xc7#8 0x55#8 0x00#8 :=
+    fetchBytesAt_10c98 (tryStepControlFlowAfterIncrement s9) image hInv.himageEq (hmem9.symm ▸ hInv.hmatches)
+  have hplat9 : StepPlatform s9 (BitVec.ofNat 64 0x10c98) 0x83#8 0xc7#8 0x55#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s9 mseccfgBits (BitVec.ofNat 64 0x10c98) 0x83#8 0xc7#8 0x55#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt9 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c94) 4 = BitVec.ofNat 64 0x10c98 from by decide) ▸ hPC9) (by decide) hbytes9
+  have hcnt9 : StepCounters s9 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt9 hart_state (by decide)).trans hInv.hhart, (hSt9 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt9 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin9⟩
+  have hx11c9 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)).regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s9 (BitVec.ofNat 64 0x10c98) x11 (by decide) (by decide)).trans hw11s9)
+  obtain ⟨addr9, phys9, mmio9⟩ :=
+    (hInv.hdata k (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)) hk (coreStableAgree s9 (BitVec.ofNat 64 0x10c98) hSt9)).1 hx11c9 5 (by decide)
+  have hbyte9 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)).mem.get? (input0 + BitVec.ofNat 64 (8 * k + 5)).toNat = some (inByte (8 * k + 5)) :=
+    hmem9.symm ▸ hInv.hinput (8 * k + 5) (by omega)
+  have h9 := step_lbu_10c98 (start + k * 29 + 9) s9 (input0 + BitVec.ofNat 64 (8 * k + 5)) mstatusBits (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    (inByte (8 * k + 5)) inhibit cfg hplat9 hcnt9 ((coreGetStable s9 (BitVec.ofNat 64 0x10c98) mstatus (by decide) hSt9).trans hInv.hmstatus) ((coreGetStable s9 (BitVec.ofNat 64 0x10c98) cur_privilege (by decide) hSt9).trans hInv.hcur) hInv.hmprv
+    addr9 phys9 mmio9 (leBytes_one_mem _ _ (inByte (8 * k + 5)) hbyte9)
+  have hSt10 : StableAgree s _ := hSt9.trans (stableAgree_gp s9 (BitVec.ofNat 64 0x10c98) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 5))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))))
+  have hPC10 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)).regs.insert x15 (zero_extend (m := 64) (inByte (8 * k + 5))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c98) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin10 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)).regs.insert x15 (zero_extend (m := 64) (inByte (8 * k + 5))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c98) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem10 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)).regs.insert x15 (zero_extend (m := 64) (inByte (8 * k + 5))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c98) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s9 (BitVec.ofNat 64 0x10c98) x15 (zero_extend (m := 64) (inByte (8 * k + 5)))).trans hmem9)
+  have hw15s10 : _ = some (zero_extend (m := 64) (inByte (8 * k + 5))) :=
+    (fallThroughRetiredRd s9 (BitVec.ofNat 64 0x10c98) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 5))) (by decide) (by decide))
+  have hw10s10 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s9 (BitVec.ofNat 64 0x10c98) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 5))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s9
+  have hw11s10 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s9 (BitVec.ofNat 64 0x10c98) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 5))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s9
+  have hw12s10 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s9 (BitVec.ofNat 64 0x10c98) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 5))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s9
+  have hw13s10 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s9 (BitVec.ofNat 64 0x10c98) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 5))) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s9
+  have hw14s10 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s9 (BitVec.ofNat 64 0x10c98) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 5))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s9
+  have hw16s10 : _ = some (zero_extend (m := 64) (inByte (8 * k + 0))) :=
+    (fallThroughRetiredGet s9 (BitVec.ofNat 64 0x10c98) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (zero_extend (m := 64) (inByte (8 * k + 5))) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s9
+  generalize hgen9 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s9) (BitVec.ofNat 64 0x10c98)).regs.insert x15 (zero_extend (m := 64) (inByte (8 * k + 5))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c98) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) = s10 at h9 hSt10 hPC10 hmin10 hmem10 hw15s10 hw10s10 hw11s10 hw12s10 hw13s10 hw14s10 hw16s10
+
+  -- Step 10: lbu at 0x10c9c
+  have hbytes10 : FetchBytesAt (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c) 0x03#8 0xc8#8 0x45#8 0x00#8 :=
+    fetchBytesAt_10c9c (tryStepControlFlowAfterIncrement s10) image hInv.himageEq (hmem10.symm ▸ hInv.hmatches)
+  have hplat10 : StepPlatform s10 (BitVec.ofNat 64 0x10c9c) 0x03#8 0xc8#8 0x45#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s10 mseccfgBits (BitVec.ofNat 64 0x10c9c) 0x03#8 0xc8#8 0x45#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt10 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c98) 4 = BitVec.ofNat 64 0x10c9c from by decide) ▸ hPC10) (by decide) hbytes10
+  have hcnt10 : StepCounters s10 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt10 hart_state (by decide)).trans hInv.hhart, (hSt10 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt10 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin10⟩
+  have hx11c10 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)).regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s10 (BitVec.ofNat 64 0x10c9c) x11 (by decide) (by decide)).trans hw11s10)
+  obtain ⟨addr10, phys10, mmio10⟩ :=
+    (hInv.hdata k (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)) hk (coreStableAgree s10 (BitVec.ofNat 64 0x10c9c) hSt10)).1 hx11c10 4 (by decide)
+  have hbyte10 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)).mem.get? (input0 + BitVec.ofNat 64 (8 * k + 4)).toNat = some (inByte (8 * k + 4)) :=
+    hmem10.symm ▸ hInv.hinput (8 * k + 4) (by omega)
+  have h10 := step_lbu_10c9c (start + k * 29 + 10) s10 (input0 + BitVec.ofNat 64 (8 * k + 4)) mstatusBits (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    (inByte (8 * k + 4)) inhibit cfg hplat10 hcnt10 ((coreGetStable s10 (BitVec.ofNat 64 0x10c9c) mstatus (by decide) hSt10).trans hInv.hmstatus) ((coreGetStable s10 (BitVec.ofNat 64 0x10c9c) cur_privilege (by decide) hSt10).trans hInv.hcur) hInv.hmprv
+    addr10 phys10 mmio10 (leBytes_one_mem _ _ (inByte (8 * k + 4)) hbyte10)
+  have hSt11 : StableAgree s _ := hSt10.trans (stableAgree_gp s10 (BitVec.ofNat 64 0x10c9c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 4))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))))
+  have hPC11 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)).regs.insert x16 (zero_extend (m := 64) (inByte (8 * k + 4))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c9c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin11 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)).regs.insert x16 (zero_extend (m := 64) (inByte (8 * k + 4))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c9c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem11 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)).regs.insert x16 (zero_extend (m := 64) (inByte (8 * k + 4))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c9c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s10 (BitVec.ofNat 64 0x10c9c) x16 (zero_extend (m := 64) (inByte (8 * k + 4)))).trans hmem10)
+  have hw16s11 : _ = some (zero_extend (m := 64) (inByte (8 * k + 4))) :=
+    (fallThroughRetiredRd s10 (BitVec.ofNat 64 0x10c9c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 4))) (by decide) (by decide))
+  have hw10s11 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s10 (BitVec.ofNat 64 0x10c9c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 4))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s10
+  have hw11s11 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s10 (BitVec.ofNat 64 0x10c9c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 4))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s10
+  have hw12s11 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s10 (BitVec.ofNat 64 0x10c9c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 4))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s10
+  have hw13s11 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s10 (BitVec.ofNat 64 0x10c9c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 4))) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s10
+  have hw14s11 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s10 (BitVec.ofNat 64 0x10c9c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 4))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s10
+  have hw15s11 : _ = some (zero_extend (m := 64) (inByte (8 * k + 5))) :=
+    (fallThroughRetiredGet s10 (BitVec.ofNat 64 0x10c9c) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (zero_extend (m := 64) (inByte (8 * k + 4))) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s10
+  generalize hgen10 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s10) (BitVec.ofNat 64 0x10c9c)).regs.insert x16 (zero_extend (m := 64) (inByte (8 * k + 4))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c9c) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s11 at h10 hSt11 hPC11 hmin11 hmem11 hw16s11 hw10s11 hw11s11 hw12s11 hw13s11 hw14s11 hw15s11
+
+  -- Step 11: lbu at 0x10ca0
+  have hbytes11 : FetchBytesAt (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0) 0x83#8 0xc8#8 0x65#8 0x00#8 :=
+    fetchBytesAt_10ca0 (tryStepControlFlowAfterIncrement s11) image hInv.himageEq (hmem11.symm ▸ hInv.hmatches)
+  have hplat11 : StepPlatform s11 (BitVec.ofNat 64 0x10ca0) 0x83#8 0xc8#8 0x65#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s11 mseccfgBits (BitVec.ofNat 64 0x10ca0) 0x83#8 0xc8#8 0x65#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt11 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c9c) 4 = BitVec.ofNat 64 0x10ca0 from by decide) ▸ hPC11) (by decide) hbytes11
+  have hcnt11 : StepCounters s11 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt11 hart_state (by decide)).trans hInv.hhart, (hSt11 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt11 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin11⟩
+  have hx11c11 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)).regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s11 (BitVec.ofNat 64 0x10ca0) x11 (by decide) (by decide)).trans hw11s11)
+  obtain ⟨addr11, phys11, mmio11⟩ :=
+    (hInv.hdata k (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)) hk (coreStableAgree s11 (BitVec.ofNat 64 0x10ca0) hSt11)).1 hx11c11 6 (by decide)
+  have hbyte11 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)).mem.get? (input0 + BitVec.ofNat 64 (8 * k + 6)).toNat = some (inByte (8 * k + 6)) :=
+    hmem11.symm ▸ hInv.hinput (8 * k + 6) (by omega)
+  have h11 := step_lbu_10ca0 (start + k * 29 + 11) s11 (input0 + BitVec.ofNat 64 (8 * k + 6)) mstatusBits (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    (inByte (8 * k + 6)) inhibit cfg hplat11 hcnt11 ((coreGetStable s11 (BitVec.ofNat 64 0x10ca0) mstatus (by decide) hSt11).trans hInv.hmstatus) ((coreGetStable s11 (BitVec.ofNat 64 0x10ca0) cur_privilege (by decide) hSt11).trans hInv.hcur) hInv.hmprv
+    addr11 phys11 mmio11 (leBytes_one_mem _ _ (inByte (8 * k + 6)) hbyte11)
+  have hSt12 : StableAgree s _ := hSt11.trans (stableAgree_gp s11 (BitVec.ofNat 64 0x10ca0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 (zero_extend (m := 64) (inByte (8 * k + 6))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (rfl))))))))))
+  have hPC12 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)).regs.insert x17 (zero_extend (m := 64) (inByte (8 * k + 6))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin12 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)).regs.insert x17 (zero_extend (m := 64) (inByte (8 * k + 6))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem12 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)).regs.insert x17 (zero_extend (m := 64) (inByte (8 * k + 6))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s11 (BitVec.ofNat 64 0x10ca0) x17 (zero_extend (m := 64) (inByte (8 * k + 6)))).trans hmem11)
+  have hw17s12 : _ = some (zero_extend (m := 64) (inByte (8 * k + 6))) :=
+    (fallThroughRetiredRd s11 (BitVec.ofNat 64 0x10ca0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 (zero_extend (m := 64) (inByte (8 * k + 6))) (by decide) (by decide))
+  have hw10s12 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s11 (BitVec.ofNat 64 0x10ca0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 (zero_extend (m := 64) (inByte (8 * k + 6))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s11
+  have hw11s12 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s11 (BitVec.ofNat 64 0x10ca0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 (zero_extend (m := 64) (inByte (8 * k + 6))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s11
+  have hw12s12 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s11 (BitVec.ofNat 64 0x10ca0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 (zero_extend (m := 64) (inByte (8 * k + 6))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s11
+  have hw13s12 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s11 (BitVec.ofNat 64 0x10ca0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 (zero_extend (m := 64) (inByte (8 * k + 6))) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s11
+  have hw14s12 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s11 (BitVec.ofNat 64 0x10ca0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 (zero_extend (m := 64) (inByte (8 * k + 6))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s11
+  have hw15s12 : _ = some (zero_extend (m := 64) (inByte (8 * k + 5))) :=
+    (fallThroughRetiredGet s11 (BitVec.ofNat 64 0x10ca0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 (zero_extend (m := 64) (inByte (8 * k + 6))) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s11
+  have hw16s12 : _ = some (zero_extend (m := 64) (inByte (8 * k + 4))) :=
+    (fallThroughRetiredGet s11 (BitVec.ofNat 64 0x10ca0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 (zero_extend (m := 64) (inByte (8 * k + 6))) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s11
+  generalize hgen11 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s11) (BitVec.ofNat 64 0x10ca0)).regs.insert x17 (zero_extend (m := 64) (inByte (8 * k + 6))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s12 at h11 hSt12 hPC12 hmin12 hmem12 hw17s12 hw10s12 hw11s12 hw12s12 hw13s12 hw14s12 hw15s12 hw16s12
+
+  -- Step 12: lbu at 0x10ca4
+  have hbytes12 : FetchBytesAt (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4) 0x83#8 0xc2#8 0x75#8 0x00#8 :=
+    fetchBytesAt_10ca4 (tryStepControlFlowAfterIncrement s12) image hInv.himageEq (hmem12.symm ▸ hInv.hmatches)
+  have hplat12 : StepPlatform s12 (BitVec.ofNat 64 0x10ca4) 0x83#8 0xc2#8 0x75#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s12 mseccfgBits (BitVec.ofNat 64 0x10ca4) 0x83#8 0xc2#8 0x75#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt12 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca0) 4 = BitVec.ofNat 64 0x10ca4 from by decide) ▸ hPC12) (by decide) hbytes12
+  have hcnt12 : StepCounters s12 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt12 hart_state (by decide)).trans hInv.hhart, (hSt12 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt12 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin12⟩
+  have hx11c12 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)).regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s12 (BitVec.ofNat 64 0x10ca4) x11 (by decide) (by decide)).trans hw11s12)
+  obtain ⟨addr12, phys12, mmio12⟩ :=
+    (hInv.hdata k (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)) hk (coreStableAgree s12 (BitVec.ofNat 64 0x10ca4) hSt12)).1 hx11c12 7 (by decide)
+  have hbyte12 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)).mem.get? (input0 + BitVec.ofNat 64 (8 * k + 7)).toNat = some (inByte (8 * k + 7)) :=
+    hmem12.symm ▸ hInv.hinput (8 * k + 7) (by omega)
+  have h12 := step_lbu_10ca4 (start + k * 29 + 12) s12 (input0 + BitVec.ofNat 64 (8 * k + 7)) mstatusBits (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    (inByte (8 * k + 7)) inhibit cfg hplat12 hcnt12 ((coreGetStable s12 (BitVec.ofNat 64 0x10ca4) mstatus (by decide) hSt12).trans hInv.hmstatus) ((coreGetStable s12 (BitVec.ofNat 64 0x10ca4) cur_privilege (by decide) hSt12).trans hInv.hcur) hInv.hmprv
+    addr12 phys12 mmio12 (leBytes_one_mem _ _ (inByte (8 * k + 7)) hbyte12)
+  have hSt13 : StableAgree s _ := hSt12.trans (stableAgree_gp s12 (BitVec.ofNat 64 0x10ca4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 (zero_extend (m := 64) (inByte (8 * k + 7))) (Or.inl rfl))
+  have hPC13 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)).regs.insert x5 (zero_extend (m := 64) (inByte (8 * k + 7))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin13 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)).regs.insert x5 (zero_extend (m := 64) (inByte (8 * k + 7))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem13 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)).regs.insert x5 (zero_extend (m := 64) (inByte (8 * k + 7))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s12 (BitVec.ofNat 64 0x10ca4) x5 (zero_extend (m := 64) (inByte (8 * k + 7)))).trans hmem12)
+  have hw5s13 : _ = some (zero_extend (m := 64) (inByte (8 * k + 7))) :=
+    (fallThroughRetiredRd s12 (BitVec.ofNat 64 0x10ca4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 (zero_extend (m := 64) (inByte (8 * k + 7))) (by decide) (by decide))
+  have hw10s13 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s12 (BitVec.ofNat 64 0x10ca4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 (zero_extend (m := 64) (inByte (8 * k + 7))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s12
+  have hw11s13 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s12 (BitVec.ofNat 64 0x10ca4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 (zero_extend (m := 64) (inByte (8 * k + 7))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s12
+  have hw12s13 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s12 (BitVec.ofNat 64 0x10ca4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 (zero_extend (m := 64) (inByte (8 * k + 7))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s12
+  have hw13s13 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s12 (BitVec.ofNat 64 0x10ca4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 (zero_extend (m := 64) (inByte (8 * k + 7))) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s12
+  have hw14s13 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s12 (BitVec.ofNat 64 0x10ca4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 (zero_extend (m := 64) (inByte (8 * k + 7))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s12
+  have hw15s13 : _ = some (zero_extend (m := 64) (inByte (8 * k + 5))) :=
+    (fallThroughRetiredGet s12 (BitVec.ofNat 64 0x10ca4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 (zero_extend (m := 64) (inByte (8 * k + 7))) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s12
+  have hw16s13 : _ = some (zero_extend (m := 64) (inByte (8 * k + 4))) :=
+    (fallThroughRetiredGet s12 (BitVec.ofNat 64 0x10ca4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 (zero_extend (m := 64) (inByte (8 * k + 7))) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s12
+  have hw17s13 : _ = some (zero_extend (m := 64) (inByte (8 * k + 6))) :=
+    (fallThroughRetiredGet s12 (BitVec.ofNat 64 0x10ca4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 (zero_extend (m := 64) (inByte (8 * k + 7))) x17 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw17s12
+  generalize hgen12 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s12) (BitVec.ofNat 64 0x10ca4)).regs.insert x5 (zero_extend (m := 64) (inByte (8 * k + 7))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s13 at h12 hSt13 hPC13 hmin13 hmem13 hw5s13 hw10s13 hw11s13 hw12s13 hw13s13 hw14s13 hw15s13 hw16s13 hw17s13
+
+  -- Step 13: slli at 0x10ca8
+  have hbytes13 : FetchBytesAt (tryStepControlFlowAfterIncrement s13) (BitVec.ofNat 64 0x10ca8) 0x93#8 0x97#8 0x87#8 0x00#8 :=
+    fetchBytesAt_10ca8 (tryStepControlFlowAfterIncrement s13) image hInv.himageEq (hmem13.symm ▸ hInv.hmatches)
+  have hplat13 : StepPlatform s13 (BitVec.ofNat 64 0x10ca8) 0x93#8 0x97#8 0x87#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s13 mseccfgBits (BitVec.ofNat 64 0x10ca8) 0x93#8 0x97#8 0x87#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt13 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca4) 4 = BitVec.ofNat 64 0x10ca8 from by decide) ▸ hPC13) (by decide) hbytes13
+  have hcnt13 : StepCounters s13 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt13 hart_state (by decide)).trans hInv.hhart, (hSt13 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt13 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin13⟩
+  have hr15s13 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s13) (BitVec.ofNat 64 0x10ca8)).regs.get? x15 = some (zero_extend (m := 64) (inByte (8 * k + 5))) := ((coreGetGP s13 (BitVec.ofNat 64 0x10ca8) x15 (by decide) (by decide)).trans hw15s13)
+  have h13 := step_slli_10ca8 (start + k * 29 + 13) s13 (zero_extend (m := 64) (inByte (8 * k + 5))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat13 hcnt13 hr15s13
+  have hSt14 : StableAgree s _ := hSt13.trans (stableAgree_gp s13 (BitVec.ofNat 64 0x10ca8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))))
+  have hPC14 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s13) (BitVec.ofNat 64 0x10ca8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s13) (BitVec.ofNat 64 0x10ca8)).regs.insert x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin14 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s13) (BitVec.ofNat 64 0x10ca8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s13) (BitVec.ofNat 64 0x10ca8)).regs.insert x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem14 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s13) (BitVec.ofNat 64 0x10ca8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s13) (BitVec.ofNat 64 0x10ca8)).regs.insert x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s13 (BitVec.ofNat 64 0x10ca8) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8)).trans hmem13)
+  have hw15s14 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) :=
+    (fallThroughRetiredRd s13 (BitVec.ofNat 64 0x10ca8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) (by decide) (by decide))
+  have hw5s14 : _ = some (zero_extend (m := 64) (inByte (8 * k + 7))) :=
+    (fallThroughRetiredGet s13 (BitVec.ofNat 64 0x10ca8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) x5 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw5s13
+  have hw10s14 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s13 (BitVec.ofNat 64 0x10ca8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s13
+  have hw11s14 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s13 (BitVec.ofNat 64 0x10ca8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s13
+  have hw12s14 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s13 (BitVec.ofNat 64 0x10ca8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s13
+  have hw13s14 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s13 (BitVec.ofNat 64 0x10ca8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s13
+  have hw14s14 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s13 (BitVec.ofNat 64 0x10ca8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s13
+  have hw16s14 : _ = some (zero_extend (m := 64) (inByte (8 * k + 4))) :=
+    (fallThroughRetiredGet s13 (BitVec.ofNat 64 0x10ca8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s13
+  have hw17s14 : _ = some (zero_extend (m := 64) (inByte (8 * k + 6))) :=
+    (fallThroughRetiredGet s13 (BitVec.ofNat 64 0x10ca8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) x17 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw17s13
+  generalize hgen13 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s13) (BitVec.ofNat 64 0x10ca8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s13) (BitVec.ofNat 64 0x10ca8)).regs.insert x15 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s14 at h13 hSt14 hPC14 hmin14 hmem14 hw15s14 hw5s14 hw10s14 hw11s14 hw12s14 hw13s14 hw14s14 hw16s14 hw17s14
+
+  -- Step 14: or at 0x10cac
+  have hbytes14 : FetchBytesAt (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac) 0xb3#8 0xe7#8 0x07#8 0x01#8 :=
+    fetchBytesAt_10cac (tryStepControlFlowAfterIncrement s14) image hInv.himageEq (hmem14.symm ▸ hInv.hmatches)
+  have hplat14 : StepPlatform s14 (BitVec.ofNat 64 0x10cac) 0xb3#8 0xe7#8 0x07#8 0x01#8 mseccfgBits :=
+    mkStepPlatform s14 mseccfgBits (BitVec.ofNat 64 0x10cac) 0xb3#8 0xe7#8 0x07#8 0x01#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt14 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10ca8) 4 = BitVec.ofNat 64 0x10cac from by decide) ▸ hPC14) (by decide) hbytes14
+  have hcnt14 : StepCounters s14 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt14 hart_state (by decide)).trans hInv.hhart, (hSt14 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt14 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin14⟩
+  have hra14 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac)).regs.get? x15 = some ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) := ((coreGetGP s14 (BitVec.ofNat 64 0x10cac) x15 (by decide) (by decide)).trans hw15s14)
+  have hrb14 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac)).regs.get? x16 = some (zero_extend (m := 64) (inByte (8 * k + 4))) := ((coreGetGP s14 (BitVec.ofNat 64 0x10cac) x16 (by decide) (by decide)).trans hw16s14)
+  have h14 := step_or_10cac (start + k * 29 + 14) s14 ((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) (zero_extend (m := 64) (inByte (8 * k + 4))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat14 hcnt14 hra14 hrb14
+  have hSt15 : StableAgree s _ := hSt14.trans (stableAgree_gp s14 (BitVec.ofNat 64 0x10cac) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))))
+  have hPC15 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac)).regs.insert x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cac) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin15 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac)).regs.insert x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cac) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem15 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac)).regs.insert x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cac) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s14 (BitVec.ofNat 64 0x10cac) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))).trans hmem14)
+  have hw15s15 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) :=
+    (fallThroughRetiredRd s14 (BitVec.ofNat 64 0x10cac) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) (by decide) (by decide))
+  have hw5s15 : _ = some (zero_extend (m := 64) (inByte (8 * k + 7))) :=
+    (fallThroughRetiredGet s14 (BitVec.ofNat 64 0x10cac) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) x5 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw5s14
+  have hw10s15 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s14 (BitVec.ofNat 64 0x10cac) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s14
+  have hw11s15 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s14 (BitVec.ofNat 64 0x10cac) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s14
+  have hw12s15 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s14 (BitVec.ofNat 64 0x10cac) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s14
+  have hw13s15 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s14 (BitVec.ofNat 64 0x10cac) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s14
+  have hw14s15 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s14 (BitVec.ofNat 64 0x10cac) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s14
+  have hw16s15 : _ = some (zero_extend (m := 64) (inByte (8 * k + 4))) :=
+    (fallThroughRetiredGet s14 (BitVec.ofNat 64 0x10cac) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s14
+  have hw17s15 : _ = some (zero_extend (m := 64) (inByte (8 * k + 6))) :=
+    (fallThroughRetiredGet s14 (BitVec.ofNat 64 0x10cac) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) x17 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw17s14
+  generalize hgen14 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s14) (BitVec.ofNat 64 0x10cac)).regs.insert x15 (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cac) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s15 at h14 hSt15 hPC15 hmin15 hmem15 hw15s15 hw5s15 hw10s15 hw11s15 hw12s15 hw13s15 hw14s15 hw16s15 hw17s15
+
+  -- Step 15: slli at 0x10cb0
+  have hbytes15 : FetchBytesAt (tryStepControlFlowAfterIncrement s15) (BitVec.ofNat 64 0x10cb0) 0x93#8 0x98#8 0x08#8 0x01#8 :=
+    fetchBytesAt_10cb0 (tryStepControlFlowAfterIncrement s15) image hInv.himageEq (hmem15.symm ▸ hInv.hmatches)
+  have hplat15 : StepPlatform s15 (BitVec.ofNat 64 0x10cb0) 0x93#8 0x98#8 0x08#8 0x01#8 mseccfgBits :=
+    mkStepPlatform s15 mseccfgBits (BitVec.ofNat 64 0x10cb0) 0x93#8 0x98#8 0x08#8 0x01#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt15 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cac) 4 = BitVec.ofNat 64 0x10cb0 from by decide) ▸ hPC15) (by decide) hbytes15
+  have hcnt15 : StepCounters s15 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt15 hart_state (by decide)).trans hInv.hhart, (hSt15 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt15 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin15⟩
+  have hr17s15 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s15) (BitVec.ofNat 64 0x10cb0)).regs.get? x17 = some (zero_extend (m := 64) (inByte (8 * k + 6))) := ((coreGetGP s15 (BitVec.ofNat 64 0x10cb0) x17 (by decide) (by decide)).trans hw17s15)
+  have h15 := step_slli_10cb0 (start + k * 29 + 15) s15 (zero_extend (m := 64) (inByte (8 * k + 6))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat15 hcnt15 hr17s15
+  have hSt16 : StableAgree s _ := hSt15.trans (stableAgree_gp s15 (BitVec.ofNat 64 0x10cb0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (rfl))))))))))
+  have hPC16 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s15) (BitVec.ofNat 64 0x10cb0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s15) (BitVec.ofNat 64 0x10cb0)).regs.insert x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin16 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s15) (BitVec.ofNat 64 0x10cb0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s15) (BitVec.ofNat 64 0x10cb0)).regs.insert x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem16 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s15) (BitVec.ofNat 64 0x10cb0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s15) (BitVec.ofNat 64 0x10cb0)).regs.insert x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s15 (BitVec.ofNat 64 0x10cb0) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)).trans hmem15)
+  have hw17s16 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) :=
+    (fallThroughRetiredRd s15 (BitVec.ofNat 64 0x10cb0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) (by decide) (by decide))
+  have hw5s16 : _ = some (zero_extend (m := 64) (inByte (8 * k + 7))) :=
+    (fallThroughRetiredGet s15 (BitVec.ofNat 64 0x10cb0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) x5 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw5s15
+  have hw10s16 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s15 (BitVec.ofNat 64 0x10cb0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s15
+  have hw11s16 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s15 (BitVec.ofNat 64 0x10cb0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s15
+  have hw12s16 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s15 (BitVec.ofNat 64 0x10cb0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s15
+  have hw13s16 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s15 (BitVec.ofNat 64 0x10cb0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s15
+  have hw14s16 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s15 (BitVec.ofNat 64 0x10cb0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s15
+  have hw15s16 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) :=
+    (fallThroughRetiredGet s15 (BitVec.ofNat 64 0x10cb0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s15
+  have hw16s16 : _ = some (zero_extend (m := 64) (inByte (8 * k + 4))) :=
+    (fallThroughRetiredGet s15 (BitVec.ofNat 64 0x10cb0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s15
+  generalize hgen15 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s15) (BitVec.ofNat 64 0x10cb0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s15) (BitVec.ofNat 64 0x10cb0)).regs.insert x17 ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s16 at h15 hSt16 hPC16 hmin16 hmem16 hw17s16 hw5s16 hw10s16 hw11s16 hw12s16 hw13s16 hw14s16 hw15s16 hw16s16
+
+  -- Step 16: slli at 0x10cb4
+  have hbytes16 : FetchBytesAt (tryStepControlFlowAfterIncrement s16) (BitVec.ofNat 64 0x10cb4) 0x93#8 0x92#8 0x82#8 0x01#8 :=
+    fetchBytesAt_10cb4 (tryStepControlFlowAfterIncrement s16) image hInv.himageEq (hmem16.symm ▸ hInv.hmatches)
+  have hplat16 : StepPlatform s16 (BitVec.ofNat 64 0x10cb4) 0x93#8 0x92#8 0x82#8 0x01#8 mseccfgBits :=
+    mkStepPlatform s16 mseccfgBits (BitVec.ofNat 64 0x10cb4) 0x93#8 0x92#8 0x82#8 0x01#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt16 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb0) 4 = BitVec.ofNat 64 0x10cb4 from by decide) ▸ hPC16) (by decide) hbytes16
+  have hcnt16 : StepCounters s16 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt16 hart_state (by decide)).trans hInv.hhart, (hSt16 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt16 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin16⟩
+  have hr5s16 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s16) (BitVec.ofNat 64 0x10cb4)).regs.get? x5 = some (zero_extend (m := 64) (inByte (8 * k + 7))) := ((coreGetGP s16 (BitVec.ofNat 64 0x10cb4) x5 (by decide) (by decide)).trans hw5s16)
+  have h16 := step_slli_10cb4 (start + k * 29 + 16) s16 (zero_extend (m := 64) (inByte (8 * k + 7))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat16 hcnt16 hr5s16
+  have hSt17 : StableAgree s _ := hSt16.trans (stableAgree_gp s16 (BitVec.ofNat 64 0x10cb4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) (Or.inl rfl))
+  have hPC17 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s16) (BitVec.ofNat 64 0x10cb4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s16) (BitVec.ofNat 64 0x10cb4)).regs.insert x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin17 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s16) (BitVec.ofNat 64 0x10cb4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s16) (BitVec.ofNat 64 0x10cb4)).regs.insert x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem17 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s16) (BitVec.ofNat 64 0x10cb4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s16) (BitVec.ofNat 64 0x10cb4)).regs.insert x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s16 (BitVec.ofNat 64 0x10cb4) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24)).trans hmem16)
+  have hw5s17 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) :=
+    (fallThroughRetiredRd s16 (BitVec.ofNat 64 0x10cb4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) (by decide) (by decide))
+  have hw10s17 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s16 (BitVec.ofNat 64 0x10cb4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s16
+  have hw11s17 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s16 (BitVec.ofNat 64 0x10cb4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s16
+  have hw12s17 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s16 (BitVec.ofNat 64 0x10cb4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s16
+  have hw13s17 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s16 (BitVec.ofNat 64 0x10cb4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s16
+  have hw14s17 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s16 (BitVec.ofNat 64 0x10cb4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s16
+  have hw15s17 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) :=
+    (fallThroughRetiredGet s16 (BitVec.ofNat 64 0x10cb4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s16
+  have hw16s17 : _ = some (zero_extend (m := 64) (inByte (8 * k + 4))) :=
+    (fallThroughRetiredGet s16 (BitVec.ofNat 64 0x10cb4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s16
+  have hw17s17 : _ = some ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) :=
+    (fallThroughRetiredGet s16 (BitVec.ofNat 64 0x10cb4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) x17 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw17s16
+  generalize hgen16 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s16) (BitVec.ofNat 64 0x10cb4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s16) (BitVec.ofNat 64 0x10cb4)).regs.insert x5 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s17 at h16 hSt17 hPC17 hmin17 hmem17 hw5s17 hw10s17 hw11s17 hw12s17 hw13s17 hw14s17 hw15s17 hw16s17 hw17s17
+
+  -- Step 17: or at 0x10cb8
+  have hbytes17 : FetchBytesAt (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8) 0x33#8 0xe8#8 0x12#8 0x01#8 :=
+    fetchBytesAt_10cb8 (tryStepControlFlowAfterIncrement s17) image hInv.himageEq (hmem17.symm ▸ hInv.hmatches)
+  have hplat17 : StepPlatform s17 (BitVec.ofNat 64 0x10cb8) 0x33#8 0xe8#8 0x12#8 0x01#8 mseccfgBits :=
+    mkStepPlatform s17 mseccfgBits (BitVec.ofNat 64 0x10cb8) 0x33#8 0xe8#8 0x12#8 0x01#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt17 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb4) 4 = BitVec.ofNat 64 0x10cb8 from by decide) ▸ hPC17) (by decide) hbytes17
+  have hcnt17 : StepCounters s17 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt17 hart_state (by decide)).trans hInv.hhart, (hSt17 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt17 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin17⟩
+  have hra17 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8)).regs.get? x5 = some ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) := ((coreGetGP s17 (BitVec.ofNat 64 0x10cb8) x5 (by decide) (by decide)).trans hw5s17)
+  have hrb17 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8)).regs.get? x17 = some ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) := ((coreGetGP s17 (BitVec.ofNat 64 0x10cb8) x17 (by decide) (by decide)).trans hw17s17)
+  have h17 := step_or_10cb8 (start + k * 29 + 17) s17 ((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat17 hcnt17 hra17 hrb17
+  have hSt18 : StableAgree s _ := hSt17.trans (stableAgree_gp s17 (BitVec.ofNat 64 0x10cb8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))))
+  have hPC18 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8)).regs.insert x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin18 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8)).regs.insert x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem18 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8)).regs.insert x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s17 (BitVec.ofNat 64 0x10cb8) x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16))).trans hmem17)
+  have hw16s18 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) :=
+    (fallThroughRetiredRd s17 (BitVec.ofNat 64 0x10cb8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) (by decide) (by decide))
+  have hw10s18 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s17 (BitVec.ofNat 64 0x10cb8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s17
+  have hw11s18 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s17 (BitVec.ofNat 64 0x10cb8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s17
+  have hw12s18 : _ = some (BitVec.ofNat 64 (136 - 8 * k)) :=
+    (fallThroughRetiredGet s17 (BitVec.ofNat 64 0x10cb8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s17
+  have hw13s18 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s17 (BitVec.ofNat 64 0x10cb8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s17
+  have hw14s18 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s17 (BitVec.ofNat 64 0x10cb8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s17
+  have hw15s18 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) :=
+    (fallThroughRetiredGet s17 (BitVec.ofNat 64 0x10cb8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s17
+  generalize hgen17 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s17) (BitVec.ofNat 64 0x10cb8)).regs.insert x16 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s18 at h17 hSt18 hPC18 hmin18 hmem18 hw16s18 hw10s18 hw11s18 hw12s18 hw13s18 hw14s18 hw15s18
+
+  -- Step 18: addia2 at 0x10cbc
+  have hbytes18 : FetchBytesAt (tryStepControlFlowAfterIncrement s18) (BitVec.ofNat 64 0x10cbc) 0x13#8 0x06#8 0x86#8 0xff#8 :=
+    fetchBytesAt_10cbc (tryStepControlFlowAfterIncrement s18) image hInv.himageEq (hmem18.symm ▸ hInv.hmatches)
+  have hplat18 : StepPlatform s18 (BitVec.ofNat 64 0x10cbc) 0x13#8 0x06#8 0x86#8 0xff#8 mseccfgBits :=
+    mkStepPlatform s18 mseccfgBits (BitVec.ofNat 64 0x10cbc) 0x13#8 0x06#8 0x86#8 0xff#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt18 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cb8) 4 = BitVec.ofNat 64 0x10cbc from by decide) ▸ hPC18) (by decide) hbytes18
+  have hcnt18 : StepCounters s18 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt18 hart_state (by decide)).trans hInv.hhart, (hSt18 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt18 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin18⟩
+  have hr12s18 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s18) (BitVec.ofNat 64 0x10cbc)).regs.get? x12 = some (BitVec.ofNat 64 (136 - 8 * k)) := ((coreGetGP s18 (BitVec.ofNat 64 0x10cbc) x12 (by decide) (by decide)).trans hw12s18)
+  have h18 := step_addi_10cbc (start + k * 29 + 18) s18 (BitVec.ofNat 64 (136 - 8 * k)) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat18 hcnt18 hr12s18
+  have hSt19 : StableAgree s _ := hSt18.trans (stableAgree_gp s18 (BitVec.ofNat 64 0x10cbc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))
+  have hPC19 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s18) (BitVec.ofNat 64 0x10cbc)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s18) (BitVec.ofNat 64 0x10cbc)).regs.insert x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cbc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin19 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s18) (BitVec.ofNat 64 0x10cbc)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s18) (BitVec.ofNat 64 0x10cbc)).regs.insert x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cbc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem19 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s18) (BitVec.ofNat 64 0x10cbc)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s18) (BitVec.ofNat 64 0x10cbc)).regs.insert x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cbc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s18 (BitVec.ofNat 64 0x10cbc) x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12)).trans hmem18)
+  have hw12s19 : _ = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) :=
+    (fallThroughRetiredRd s18 (BitVec.ofNat 64 0x10cbc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) (by decide) (by decide)).trans (congrArg some (decBy8 k (by omega)))
+  have hw10s19 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s18 (BitVec.ofNat 64 0x10cbc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s18
+  have hw11s19 : _ = some (input0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s18 (BitVec.ofNat 64 0x10cbc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s18
+  have hw13s19 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s18 (BitVec.ofNat 64 0x10cbc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s18
+  have hw14s19 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s18 (BitVec.ofNat 64 0x10cbc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s18
+  have hw15s19 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) :=
+    (fallThroughRetiredGet s18 (BitVec.ofNat 64 0x10cbc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s18
+  have hw16s19 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) :=
+    (fallThroughRetiredGet s18 (BitVec.ofNat 64 0x10cbc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s18
+  generalize hgen18 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s18) (BitVec.ofNat 64 0x10cbc)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s18) (BitVec.ofNat 64 0x10cbc)).regs.insert x12 ((BitVec.ofNat 64 (136 - 8 * k)) + sign_extend (m := 64) 0xff8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cbc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s19 at h18 hSt19 hPC19 hmin19 hmem19 hw12s19 hw10s19 hw11s19 hw13s19 hw14s19 hw15s19 hw16s19
+
+  -- Step 19: addia1 at 0x10cc0
+  have hbytes19 : FetchBytesAt (tryStepControlFlowAfterIncrement s19) (BitVec.ofNat 64 0x10cc0) 0x93#8 0x85#8 0x85#8 0x00#8 :=
+    fetchBytesAt_10cc0 (tryStepControlFlowAfterIncrement s19) image hInv.himageEq (hmem19.symm ▸ hInv.hmatches)
+  have hplat19 : StepPlatform s19 (BitVec.ofNat 64 0x10cc0) 0x93#8 0x85#8 0x85#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s19 mseccfgBits (BitVec.ofNat 64 0x10cc0) 0x93#8 0x85#8 0x85#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt19 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cbc) 4 = BitVec.ofNat 64 0x10cc0 from by decide) ▸ hPC19) (by decide) hbytes19
+  have hcnt19 : StepCounters s19 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt19 hart_state (by decide)).trans hInv.hhart, (hSt19 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt19 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin19⟩
+  have hr11s19 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s19) (BitVec.ofNat 64 0x10cc0)).regs.get? x11 = some (input0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s19 (BitVec.ofNat 64 0x10cc0) x11 (by decide) (by decide)).trans hw11s19)
+  have h19 := step_addi_10cc0 (start + k * 29 + 19) s19 (input0 + BitVec.ofNat 64 (8 * k)) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat19 hcnt19 hr11s19
+  have hSt20 : StableAgree s _ := hSt19.trans (stableAgree_gp s19 (BitVec.ofNat 64 0x10cc0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) (Or.inr (Or.inr (Or.inl rfl))))
+  have hPC20 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s19) (BitVec.ofNat 64 0x10cc0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s19) (BitVec.ofNat 64 0x10cc0)).regs.insert x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin20 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s19) (BitVec.ofNat 64 0x10cc0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s19) (BitVec.ofNat 64 0x10cc0)).regs.insert x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem20 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s19) (BitVec.ofNat 64 0x10cc0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s19) (BitVec.ofNat 64 0x10cc0)).regs.insert x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s19 (BitVec.ofNat 64 0x10cc0) x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12)).trans hmem19)
+  have hw11s20 : _ = some (input0 + BitVec.ofNat 64 (8 * (k + 1))) :=
+    (fallThroughRetiredRd s19 (BitVec.ofNat 64 0x10cc0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) (by decide) (by decide)).trans (congrArg some (incBy8 input0 k))
+  have hw10s20 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s19 (BitVec.ofNat 64 0x10cc0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s19
+  have hw12s20 : _ = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) :=
+    (fallThroughRetiredGet s19 (BitVec.ofNat 64 0x10cc0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s19
+  have hw13s20 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) :=
+    (fallThroughRetiredGet s19 (BitVec.ofNat 64 0x10cc0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s19
+  have hw14s20 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s19 (BitVec.ofNat 64 0x10cc0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s19
+  have hw15s20 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) :=
+    (fallThroughRetiredGet s19 (BitVec.ofNat 64 0x10cc0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s19
+  have hw16s20 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) :=
+    (fallThroughRetiredGet s19 (BitVec.ofNat 64 0x10cc0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s19
+  generalize hgen19 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s19) (BitVec.ofNat 64 0x10cc0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s19) (BitVec.ofNat 64 0x10cc0)).regs.insert x11 ((input0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s20 at h19 hSt20 hPC20 hmin20 hmem20 hw11s20 hw10s20 hw12s20 hw13s20 hw14s20 hw15s20 hw16s20
+
+  -- Step 20: or at 0x10cc4
+  have hbytes20 : FetchBytesAt (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4) 0xb3#8 0x66#8 0xd7#8 0x00#8 :=
+    fetchBytesAt_10cc4 (tryStepControlFlowAfterIncrement s20) image hInv.himageEq (hmem20.symm ▸ hInv.hmatches)
+  have hplat20 : StepPlatform s20 (BitVec.ofNat 64 0x10cc4) 0xb3#8 0x66#8 0xd7#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s20 mseccfgBits (BitVec.ofNat 64 0x10cc4) 0xb3#8 0x66#8 0xd7#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt20 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc0) 4 = BitVec.ofNat 64 0x10cc4 from by decide) ▸ hPC20) (by decide) hbytes20
+  have hcnt20 : StepCounters s20 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt20 hart_state (by decide)).trans hInv.hhart, (hSt20 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt20 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin20⟩
+  have hra20 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4)).regs.get? x14 = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) := ((coreGetGP s20 (BitVec.ofNat 64 0x10cc4) x14 (by decide) (by decide)).trans hw14s20)
+  have hrb20 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4)).regs.get? x13 = some (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) := ((coreGetGP s20 (BitVec.ofNat 64 0x10cc4) x13 (by decide) (by decide)).trans hw13s20)
+  have h20 := step_or_10cc4 (start + k * 29 + 20) s20 (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat20 hcnt20 hra20 hrb20
+  have hSt21 : StableAgree s _ := hSt20.trans (stableAgree_gp s20 (BitVec.ofNat 64 0x10cc4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
+  have hPC21 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4)).regs.insert x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin21 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4)).regs.insert x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem21 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4)).regs.insert x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s20 (BitVec.ofNat 64 0x10cc4) x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))).trans hmem20)
+  have hw13s21 : _ = some ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) :=
+    (fallThroughRetiredRd s20 (BitVec.ofNat 64 0x10cc4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) (by decide) (by decide))
+  have hw10s21 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s20 (BitVec.ofNat 64 0x10cc4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s20
+  have hw11s21 : _ = some (input0 + BitVec.ofNat 64 (8 * (k + 1))) :=
+    (fallThroughRetiredGet s20 (BitVec.ofNat 64 0x10cc4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s20
+  have hw12s21 : _ = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) :=
+    (fallThroughRetiredGet s20 (BitVec.ofNat 64 0x10cc4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s20
+  have hw14s21 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) :=
+    (fallThroughRetiredGet s20 (BitVec.ofNat 64 0x10cc4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s20
+  have hw15s21 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) :=
+    (fallThroughRetiredGet s20 (BitVec.ofNat 64 0x10cc4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s20
+  have hw16s21 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) :=
+    (fallThroughRetiredGet s20 (BitVec.ofNat 64 0x10cc4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s20
+  generalize hgen20 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s20) (BitVec.ofNat 64 0x10cc4)).regs.insert x13 ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s21 at h20 hSt21 hPC21 hmin21 hmem21 hw13s21 hw10s21 hw11s21 hw12s21 hw14s21 hw15s21 hw16s21
+
+  -- Step 21: ld at 0x10cc8
+  have hbytes21 : FetchBytesAt (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8) 0x03#8 0x37#8 0x05#8 0x00#8 :=
+    fetchBytesAt_10cc8 (tryStepControlFlowAfterIncrement s21) image hInv.himageEq (hmem21.symm ▸ hInv.hmatches)
+  have hplat21 : StepPlatform s21 (BitVec.ofNat 64 0x10cc8) 0x03#8 0x37#8 0x05#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s21 mseccfgBits (BitVec.ofNat 64 0x10cc8) 0x03#8 0x37#8 0x05#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt21 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc4) 4 = BitVec.ofNat 64 0x10cc8 from by decide) ▸ hPC21) (by decide) hbytes21
+  have hcnt21 : StepCounters s21 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt21 hart_state (by decide)).trans hInv.hhart, (hSt21 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt21 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin21⟩
+  have hx10c21 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)).regs.get? x10 = some (state0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s21 (BitVec.ofNat 64 0x10cc8) x10 (by decide) (by decide)).trans hw10s21)
+  obtain ⟨ldaddr21, ldalign21, ldphys21, ldmmio21⟩ :=
+    ((hInv.hdata k (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)) hk (coreStableAgree s21 (BitVec.ofNat 64 0x10cc8) hSt21)).2 hx10c21).1
+  have hldmem21 : ∀ (i : Nat) (h : i < (leBytes 8 (origLane k)).length),
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)).mem.get? ((state0 + BitVec.ofNat 64 (8 * k)).toNat + i) = some (leBytes 8 (origLane k))[i] := by
+    intro i hi; rw [leBytes_length] at hi
+    rw [leBytes_extractLsb (origLane k) i hi]
+    have haddr : (state0 + BitVec.ofNat 64 (8 * k)).toNat + i = (state0 + BitVec.ofNat 64 (8 * k + i)).toNat := by
+      rw [dstAddr_toNat state0 (8 * k) (by omega), dstAddr_toNat state0 (8 * k + i) (by omega)]; omega
+    rw [haddr]
+    exact hmem21.symm ▸ hInv.hunproc k i (Nat.le_refl k) (by omega) hi
+  have h21 := ldStep (start + k * 29 + 21) s21 (BitVec.ofNat 64 0x10cc8) (state0 + BitVec.ofNat 64 (8 * k)) mstatusBits (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    (origLane k) inhibit cfg 0x03#8 0x37#8 0x05#8 0x00#8 hplat21 hcnt21 (by unfold BaseInstructionEncoding; decide)
+    (by rw [show fetchWord 0x03#8 0x37#8 0x05#8 0x00#8 = (0x00053703 : BitVec 32) by decide]; exact ext_decode_ld_a4_a0_run _ hplat21.2.2.2.2.2.1 mseccfgBits hplat21.2.2.2.2.2.2)
+    ((coreGetStable s21 (BitVec.ofNat 64 0x10cc8) mstatus (by decide) hSt21).trans hInv.hmstatus) ((coreGetStable s21 (BitVec.ofNat 64 0x10cc8) cur_privilege (by decide) hSt21).trans hInv.hcur) hInv.hmprv ldaddr21 ldalign21 ldphys21 ldmmio21 hldmem21
+  have hSt22 : StableAgree s _ := hSt21.trans (stableAgree_gp s21 (BitVec.ofNat 64 0x10cc8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x14 (origLane k) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))
+  have hPC22 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)).regs.insert x14 (origLane k) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin22 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)).regs.insert x14 (origLane k) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem22 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)).regs.insert x14 (origLane k) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s21 (BitVec.ofNat 64 0x10cc8) x14 (origLane k)).trans hmem21)
+  have hw14s22 : _ = some (origLane k) :=
+    (fallThroughRetiredRd s21 (BitVec.ofNat 64 0x10cc8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x14 (origLane k) (by decide) (by decide))
+  have hw10s22 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s21 (BitVec.ofNat 64 0x10cc8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x14 (origLane k) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s21
+  have hw11s22 : _ = some (input0 + BitVec.ofNat 64 (8 * (k + 1))) :=
+    (fallThroughRetiredGet s21 (BitVec.ofNat 64 0x10cc8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x14 (origLane k) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s21
+  have hw12s22 : _ = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) :=
+    (fallThroughRetiredGet s21 (BitVec.ofNat 64 0x10cc8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x14 (origLane k) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s21
+  have hw13s22 : _ = some ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) :=
+    (fallThroughRetiredGet s21 (BitVec.ofNat 64 0x10cc8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x14 (origLane k) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s21
+  have hw15s22 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) :=
+    (fallThroughRetiredGet s21 (BitVec.ofNat 64 0x10cc8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x14 (origLane k) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw15s21
+  have hw16s22 : _ = some (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) :=
+    (fallThroughRetiredGet s21 (BitVec.ofNat 64 0x10cc8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x14 (origLane k) x16 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw16s21
+  generalize hgen21 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s21) (BitVec.ofNat 64 0x10cc8)).regs.insert x14 (origLane k) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s22 at h21 hSt22 hPC22 hmin22 hmem22 hw14s22 hw10s22 hw11s22 hw12s22 hw13s22 hw15s22 hw16s22
+
+  -- Step 22: or at 0x10ccc
+  have hbytes22 : FetchBytesAt (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc) 0xb3#8 0x67#8 0xf8#8 0x00#8 :=
+    fetchBytesAt_10ccc (tryStepControlFlowAfterIncrement s22) image hInv.himageEq (hmem22.symm ▸ hInv.hmatches)
+  have hplat22 : StepPlatform s22 (BitVec.ofNat 64 0x10ccc) 0xb3#8 0x67#8 0xf8#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s22 mseccfgBits (BitVec.ofNat 64 0x10ccc) 0xb3#8 0x67#8 0xf8#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt22 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cc8) 4 = BitVec.ofNat 64 0x10ccc from by decide) ▸ hPC22) (by decide) hbytes22
+  have hcnt22 : StepCounters s22 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt22 hart_state (by decide)).trans hInv.hhart, (hSt22 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt22 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin22⟩
+  have hra22 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc)).regs.get? x16 = some (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) := ((coreGetGP s22 (BitVec.ofNat 64 0x10ccc) x16 (by decide) (by decide)).trans hw16s22)
+  have hrb22 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc)).regs.get? x15 = some (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) := ((coreGetGP s22 (BitVec.ofNat 64 0x10ccc) x15 (by decide) (by decide)).trans hw15s22)
+  have h22 := step_or_10ccc (start + k * 29 + 22) s22 (((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat22 hcnt22 hra22 hrb22
+  have hSt23 : StableAgree s _ := hSt22.trans (stableAgree_gp s22 (BitVec.ofNat 64 0x10ccc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))))
+  have hPC23 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc)).regs.insert x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ccc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin23 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc)).regs.insert x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ccc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem23 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc)).regs.insert x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ccc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s22 (BitVec.ofNat 64 0x10ccc) x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4)))))).trans hmem22)
+  have hw15s23 : _ = some ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) :=
+    (fallThroughRetiredRd s22 (BitVec.ofNat 64 0x10ccc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) (by decide) (by decide))
+  have hw10s23 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s22 (BitVec.ofNat 64 0x10ccc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s22
+  have hw11s23 : _ = some (input0 + BitVec.ofNat 64 (8 * (k + 1))) :=
+    (fallThroughRetiredGet s22 (BitVec.ofNat 64 0x10ccc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s22
+  have hw12s23 : _ = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) :=
+    (fallThroughRetiredGet s22 (BitVec.ofNat 64 0x10ccc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s22
+  have hw13s23 : _ = some ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) :=
+    (fallThroughRetiredGet s22 (BitVec.ofNat 64 0x10ccc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s22
+  have hw14s23 : _ = some (origLane k) :=
+    (fallThroughRetiredGet s22 (BitVec.ofNat 64 0x10ccc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s22
+  generalize hgen22 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s22) (BitVec.ofNat 64 0x10ccc)).regs.insert x15 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ccc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s23 at h22 hSt23 hPC23 hmin23 hmem23 hw15s23 hw10s23 hw11s23 hw12s23 hw13s23 hw14s23
+
+  -- Step 23: slli at 0x10cd0
+  have hbytes23 : FetchBytesAt (tryStepControlFlowAfterIncrement s23) (BitVec.ofNat 64 0x10cd0) 0x93#8 0x97#8 0x07#8 0x02#8 :=
+    fetchBytesAt_10cd0 (tryStepControlFlowAfterIncrement s23) image hInv.himageEq (hmem23.symm ▸ hInv.hmatches)
+  have hplat23 : StepPlatform s23 (BitVec.ofNat 64 0x10cd0) 0x93#8 0x97#8 0x07#8 0x02#8 mseccfgBits :=
+    mkStepPlatform s23 mseccfgBits (BitVec.ofNat 64 0x10cd0) 0x93#8 0x97#8 0x07#8 0x02#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt23 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10ccc) 4 = BitVec.ofNat 64 0x10cd0 from by decide) ▸ hPC23) (by decide) hbytes23
+  have hcnt23 : StepCounters s23 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt23 hart_state (by decide)).trans hInv.hhart, (hSt23 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt23 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin23⟩
+  have hr15s23 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s23) (BitVec.ofNat 64 0x10cd0)).regs.get? x15 = some ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) := ((coreGetGP s23 (BitVec.ofNat 64 0x10cd0) x15 (by decide) (by decide)).trans hw15s23)
+  have h23 := step_slli_10cd0 (start + k * 29 + 23) s23 ((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat23 hcnt23 hr15s23
+  have hSt24 : StableAgree s _ := hSt23.trans (stableAgree_gp s23 (BitVec.ofNat 64 0x10cd0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))))
+  have hPC24 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s23) (BitVec.ofNat 64 0x10cd0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s23) (BitVec.ofNat 64 0x10cd0)).regs.insert x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin24 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s23) (BitVec.ofNat 64 0x10cd0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s23) (BitVec.ofNat 64 0x10cd0)).regs.insert x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem24 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s23) (BitVec.ofNat 64 0x10cd0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s23) (BitVec.ofNat 64 0x10cd0)).regs.insert x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s23 (BitVec.ofNat 64 0x10cd0) x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32)).trans hmem23)
+  have hw15s24 : _ = some (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) :=
+    (fallThroughRetiredRd s23 (BitVec.ofNat 64 0x10cd0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) (by decide) (by decide))
+  have hw10s24 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s23 (BitVec.ofNat 64 0x10cd0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s23
+  have hw11s24 : _ = some (input0 + BitVec.ofNat 64 (8 * (k + 1))) :=
+    (fallThroughRetiredGet s23 (BitVec.ofNat 64 0x10cd0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s23
+  have hw12s24 : _ = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) :=
+    (fallThroughRetiredGet s23 (BitVec.ofNat 64 0x10cd0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s23
+  have hw13s24 : _ = some ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) :=
+    (fallThroughRetiredGet s23 (BitVec.ofNat 64 0x10cd0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw13s23
+  have hw14s24 : _ = some (origLane k) :=
+    (fallThroughRetiredGet s23 (BitVec.ofNat 64 0x10cd0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s23
+  generalize hgen23 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s23) (BitVec.ofNat 64 0x10cd0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s23) (BitVec.ofNat 64 0x10cd0)).regs.insert x15 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s24 at h23 hSt24 hPC24 hmin24 hmem24 hw15s24 hw10s24 hw11s24 hw12s24 hw13s24 hw14s24
+
+  -- Step 24: or at 0x10cd4
+  have hbytes24 : FetchBytesAt (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4) 0xb3#8 0xe6#8 0xd7#8 0x00#8 :=
+    fetchBytesAt_10cd4 (tryStepControlFlowAfterIncrement s24) image hInv.himageEq (hmem24.symm ▸ hInv.hmatches)
+  have hplat24 : StepPlatform s24 (BitVec.ofNat 64 0x10cd4) 0xb3#8 0xe6#8 0xd7#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s24 mseccfgBits (BitVec.ofNat 64 0x10cd4) 0xb3#8 0xe6#8 0xd7#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt24 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd0) 4 = BitVec.ofNat 64 0x10cd4 from by decide) ▸ hPC24) (by decide) hbytes24
+  have hcnt24 : StepCounters s24 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt24 hart_state (by decide)).trans hInv.hhart, (hSt24 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt24 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin24⟩
+  have hra24 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4)).regs.get? x15 = some (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) := ((coreGetGP s24 (BitVec.ofNat 64 0x10cd4) x15 (by decide) (by decide)).trans hw15s24)
+  have hrb24 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4)).regs.get? x13 = some ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) := ((coreGetGP s24 (BitVec.ofNat 64 0x10cd4) x13 (by decide) (by decide)).trans hw13s24)
+  have h24 := step_or_10cd4 (start + k * 29 + 24) s24 (((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat24 hcnt24 hra24 hrb24
+  have hSt25 : StableAgree s _ := hSt24.trans (stableAgree_gp s24 (BitVec.ofNat 64 0x10cd4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
+  have hPC25 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4)).regs.insert x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin25 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4)).regs.insert x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem25 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4)).regs.insert x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s24 (BitVec.ofNat 64 0x10cd4) x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))).trans hmem24)
+  have hw13s25 : _ = some ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) :=
+    (fallThroughRetiredRd s24 (BitVec.ofNat 64 0x10cd4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) (by decide) (by decide))
+  have hw10s25 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s24 (BitVec.ofNat 64 0x10cd4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s24
+  have hw11s25 : _ = some (input0 + BitVec.ofNat 64 (8 * (k + 1))) :=
+    (fallThroughRetiredGet s24 (BitVec.ofNat 64 0x10cd4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s24
+  have hw12s25 : _ = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) :=
+    (fallThroughRetiredGet s24 (BitVec.ofNat 64 0x10cd4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s24
+  have hw14s25 : _ = some (origLane k) :=
+    (fallThroughRetiredGet s24 (BitVec.ofNat 64 0x10cd4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) x14 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw14s24
+  generalize hgen24 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s24) (BitVec.ofNat 64 0x10cd4)).regs.insert x13 ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd4) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s25 at h24 hSt25 hPC25 hmin25 hmem25 hw13s25 hw10s25 hw11s25 hw12s25 hw14s25
+
+  -- Step 25: xor at 0x10cd8
+  have hbytes25 : FetchBytesAt (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8) 0xb3#8 0x46#8 0xd7#8 0x00#8 :=
+    fetchBytesAt_10cd8 (tryStepControlFlowAfterIncrement s25) image hInv.himageEq (hmem25.symm ▸ hInv.hmatches)
+  have hplat25 : StepPlatform s25 (BitVec.ofNat 64 0x10cd8) 0xb3#8 0x46#8 0xd7#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s25 mseccfgBits (BitVec.ofNat 64 0x10cd8) 0xb3#8 0x46#8 0xd7#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt25 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd4) 4 = BitVec.ofNat 64 0x10cd8 from by decide) ▸ hPC25) (by decide) hbytes25
+  have hcnt25 : StepCounters s25 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt25 hart_state (by decide)).trans hInv.hhart, (hSt25 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt25 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin25⟩
+  have hra25 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8)).regs.get? x14 = some (origLane k) := ((coreGetGP s25 (BitVec.ofNat 64 0x10cd8) x14 (by decide) (by decide)).trans hw14s25)
+  have hrb25 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8)).regs.get? x13 = some ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) := ((coreGetGP s25 (BitVec.ofNat 64 0x10cd8) x13 (by decide) (by decide)).trans hw13s25)
+  have h25 := step_xor_10cd8 (start + k * 29 + 25) s25 (origLane k) ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat25 hcnt25 hra25 hrb25
+  have hSt26 : StableAgree s _ := hSt25.trans (stableAgree_gp s25 (BitVec.ofNat 64 0x10cd8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
+  have hPC26 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8)).regs.insert x13 ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin26 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8)).regs.insert x13 ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem26 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8)).regs.insert x13 ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = s.mem :=
+    (retiredMem _ _ _).trans ((fallThroughMem s25 (BitVec.ofNat 64 0x10cd8) x13 ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0)))))))).trans hmem25)
+  have hw13s26 : _ = some ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))) :=
+    (fallThroughRetiredRd s25 (BitVec.ofNat 64 0x10cd8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))) (by decide) (by decide))
+  have hw10s26 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) :=
+    (fallThroughRetiredGet s25 (BitVec.ofNat 64 0x10cd8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))) x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw10s25
+  have hw11s26 : _ = some (input0 + BitVec.ofNat 64 (8 * (k + 1))) :=
+    (fallThroughRetiredGet s25 (BitVec.ofNat 64 0x10cd8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s25
+  have hw12s26 : _ = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) :=
+    (fallThroughRetiredGet s25 (BitVec.ofNat 64 0x10cd8) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x13 ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s25
+  generalize hgen25 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s25) (BitVec.ofNat 64 0x10cd8)).regs.insert x13 ((origLane k) ^^^ ((((((zero_extend (m := 64) (inByte (8 * k + 7))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 6))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 5))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 4))))) <<< 32) ||| ((((zero_extend (m := 64) (inByte (8 * k + 3))) <<< 24) ||| ((zero_extend (m := 64) (inByte (8 * k + 2))) <<< 16)) ||| (((zero_extend (m := 64) (inByte (8 * k + 1))) <<< 8) ||| (zero_extend (m := 64) (inByte (8 * k + 0))))))) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd8) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s26 at h25 hSt26 hPC26 hmin26 hmem26 hw13s26 hw10s26 hw11s26 hw12s26
+
+  -- Step 26: sd at 0x10cdc
+  have hbytes26 : FetchBytesAt (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc) 0x23#8 0x30#8 0xd5#8 0x00#8 :=
+    fetchBytesAt_10cdc (tryStepControlFlowAfterIncrement s26) image hInv.himageEq (hmem26.symm ▸ hInv.hmatches)
+  have hplat26 : StepPlatform s26 (BitVec.ofNat 64 0x10cdc) 0x23#8 0x30#8 0xd5#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s26 mseccfgBits (BitVec.ofNat 64 0x10cdc) 0x23#8 0x30#8 0xd5#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt26 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cd8) 4 = BitVec.ofNat 64 0x10cdc from by decide) ▸ hPC26) (by decide) hbytes26
+  have hcnt26 : StepCounters s26 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt26 hart_state (by decide)).trans hInv.hhart, (hSt26 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt26 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin26⟩
+  have hx13c26 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)).regs.get? x13 = some (origLane k ^^^ inputLane inByte k) := by
+    have h := ((coreGetGP s26 (BitVec.ofNat 64 0x10cdc) x13 (by decide) (by decide)).trans hw13s26)
+    rwa [assemble_leWord (inByte (8 * k + 0)) (inByte (8 * k + 1)) (inByte (8 * k + 2)) (inByte (8 * k + 3)) (inByte (8 * k + 4)) (inByte (8 * k + 5)) (inByte (8 * k + 6)) (inByte (8 * k + 7))] at h
+  have hx10c26 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)).regs.get? x10 = some (state0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s26 (BitVec.ofNat 64 0x10cdc) x10 (by decide) (by decide)).trans hw10s26)
+  obtain ⟨sdaddr26, sdalign26, sdphys26, sdmmio26⟩ :=
+    ((hInv.hdata k (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)) hk (coreStableAgree s26 (BitVec.ofNat 64 0x10cdc) hSt26)).2 hx10c26).2
+  have hwrite26 := writeBytes_word_run (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)) (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k)
+  have h26 := sdStep (start + k * 29 + 26) s26 _ (BitVec.ofNat 64 0x10cdc) (state0 + BitVec.ofNat 64 (8 * k)) mstatusBits (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    (origLane k ^^^ inputLane inByte k) inhibit cfg 0x23#8 0x30#8 0xd5#8 0x00#8 hplat26 hcnt26 (by unfold BaseInstructionEncoding; decide)
+    (by rw [show fetchWord 0x23#8 0x30#8 0xd5#8 0x00#8 = (0x00d53023 : BitVec 32) by decide]; exact ext_decode_sd_a3_a0_run _ hplat26.2.2.2.2.2.1 mseccfgBits hplat26.2.2.2.2.2.2)
+    ((coreGetStable s26 (BitVec.ofNat 64 0x10cdc) mstatus (by decide) hSt26).trans hInv.hmstatus) ((coreGetStable s26 (BitVec.ofNat 64 0x10cdc) cur_privilege (by decide) hSt26).trans hInv.hcur) hInv.hmprv hx13c26 sdaddr26 sdalign26 sdphys26 sdmmio26 hwrite26
+  have hSt27 : StableAgree s _ := hSt26.trans (stableAgree_store s26 { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)) with mem := insertWord (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)).mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) } (BitVec.ofNat 64 0x10cdc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) rfl)
+  have hPC27 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)) with mem := insertWord (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)).mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cdc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin27 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)) with mem := insertWord (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)).mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cdc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem27 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)) with mem := insertWord (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)).mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cdc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = insertWord s.mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) := by
+    exact congrArg (fun mm => insertWord mm (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k)) hmem26
+  have hw10s27 : _ = some (state0 + BitVec.ofNat 64 (8 * k)) := (sbRetiredGet s26 { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)) with mem := insertWord (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)).mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) } (BitVec.ofNat 64 0x10cdc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) rfl x10 (by decide) (by decide) (by decide) (by decide)).trans hw10s26
+  have hw11s27 : _ = some (input0 + BitVec.ofNat 64 (8 * (k + 1))) := (sbRetiredGet s26 { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)) with mem := insertWord (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)).mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) } (BitVec.ofNat 64 0x10cdc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) rfl x11 (by decide) (by decide) (by decide) (by decide)).trans hw11s26
+  have hw12s27 : _ = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) := (sbRetiredGet s26 { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)) with mem := insertWord (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)).mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) } (BitVec.ofNat 64 0x10cdc) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) rfl x12 (by decide) (by decide) (by decide) (by decide)).trans hw12s26
+  generalize hgen26 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)) with mem := insertWord (coreControlFlowNextState (tryStepControlFlowAfterIncrement s26) (BitVec.ofNat 64 0x10cdc)).mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10cdc) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s27 at h26 hSt27 hPC27 hmin27 hmem27 hw10s27 hw11s27 hw12s27
+  have hmatchesW : image.matchesMemory (insertWord s.mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k)) :=
+    matchesMemory_insertWord image s.mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) hInv.hmatches
+      (fun i hi => by
+        have h := hInv.hstateImg (8 * k + i) (by omega)
+        rwa [show (state0 + BitVec.ofNat 64 (8 * k)).toNat + i = (state0 + BitVec.ofNat 64 (8 * k + i)).toNat by
+          rw [dstAddr_toNat state0 (8 * k) (by omega), dstAddr_toNat state0 (8 * k + i) (by omega)]; omega] )
+
+  -- Step 27: addia0 at 0x10ce0
+  have hbytes27 : FetchBytesAt (tryStepControlFlowAfterIncrement s27) (BitVec.ofNat 64 0x10ce0) 0x13#8 0x05#8 0x85#8 0x00#8 :=
+    fetchBytesAt_10ce0 (tryStepControlFlowAfterIncrement s27) image hInv.himageEq (hmem27.symm ▸ hmatchesW)
+  have hplat27 : StepPlatform s27 (BitVec.ofNat 64 0x10ce0) 0x13#8 0x05#8 0x85#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s27 mseccfgBits (BitVec.ofNat 64 0x10ce0) 0x13#8 0x05#8 0x85#8 0x00#8
+      hInv.hplat hInv.hcur hInv.hmseccfg hSt27 ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10cdc) 4 = BitVec.ofNat 64 0x10ce0 from by decide) ▸ hPC27) (by decide) hbytes27
+  have hcnt27 : StepCounters s27 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) inhibit cfg := ⟨(hSt27 hart_state (by decide)).trans hInv.hhart, (hSt27 mcountinhibit (by decide)).trans hInv.hinhibit, (hSt27 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin27⟩
+  have hr10s27 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s27) (BitVec.ofNat 64 0x10ce0)).regs.get? x10 = some (state0 + BitVec.ofNat 64 (8 * k)) := ((coreGetGP s27 (BitVec.ofNat 64 0x10ce0) x10 (by decide) (by decide)).trans hw10s27)
+  have h27 := step_addi_10ce0 (start + k * 29 + 27) s27 (state0 + BitVec.ofNat 64 (8 * k)) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) mseccfgBits
+    inhibit cfg hplat27 hcnt27 hr10s27
+  have hSt28 : StableAgree s _ := hSt27.trans (stableAgree_gp s27 (BitVec.ofNat 64 0x10ce0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x10 ((state0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) (Or.inr (Or.inl rfl)))
+  have hPC28 := afterIncRetiredPC { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s27) (BitVec.ofNat 64 0x10ce0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s27) (BitVec.ofNat 64 0x10ce0)).regs.insert x10 ((state0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ce0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmin28 := retiredMinstret { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s27) (BitVec.ofNat 64 0x10ce0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s27) (BitVec.ofNat 64 0x10ce0)).regs.insert x10 ((state0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ce0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+  have hmem28 : (tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s27) (BitVec.ofNat 64 0x10ce0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s27) (BitVec.ofNat 64 0x10ce0)).regs.insert x10 ((state0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ce0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)).mem = insertWord s.mem (state0 + BitVec.ofNat 64 (8 * k)).toNat (origLane k ^^^ inputLane inByte k) :=
+    (retiredMem _ _ _).trans ((fallThroughMem s27 (BitVec.ofNat 64 0x10ce0) x10 ((state0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12)).trans hmem27)
+  have hw10s28 : _ = some (state0 + BitVec.ofNat 64 (8 * (k + 1))) :=
+    (fallThroughRetiredRd s27 (BitVec.ofNat 64 0x10ce0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x10 ((state0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) (by decide) (by decide)).trans (congrArg some (incBy8 state0 k))
+  have hw11s28 : _ = some (input0 + BitVec.ofNat 64 (8 * (k + 1))) :=
+    (fallThroughRetiredGet s27 (BitVec.ofNat 64 0x10ce0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x10 ((state0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw11s27
+  have hw12s28 : _ = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) :=
+    (fallThroughRetiredGet s27 (BitVec.ofNat 64 0x10ce0) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) x10 ((state0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hw12s27
+  generalize hgen27 : tryStepControlFlowAfterRetired { (coreControlFlowNextState (tryStepControlFlowAfterIncrement s27) (BitVec.ofNat 64 0x10ce0)) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s27) (BitVec.ofNat 64 0x10ce0)).regs.insert x10 ((state0 + BitVec.ofNat 64 (8 * k)) + sign_extend (m := 64) 8#12) } (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ce0) 4) (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) = s28 at h27 hSt28 hPC28 hmin28 hmem28 hw10s28 hw11s28 hw12s28
+  refine ⟨s28, ?_, ?_⟩
+  · trace_steps [h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15, h16, h17,
+      h18, h19, h20, h21, h22, h23, h24, h25, h26, h27]
+  refine ⟨?_, hw10s28, hw11s28, hw12s28,
+    (hSt28 x1 (by decide)).trans hInv.hra,
+    (hSt28 cur_privilege (by decide)).trans hInv.hcur,
+    (hSt28 mstatus (by decide)).trans hInv.hmstatus,
+    hInv.hmprv, (hSt28 mseccfg (by decide)).trans hInv.hmseccfg,
+    (hSt28 hart_state (by decide)).trans hInv.hhart,
+    (hSt28 mcountinhibit (by decide)).trans hInv.hinhibit,
+    hInv.hnotInhibited, (hSt28 minstretcfg (by decide)).trans hInv.hcfg,
+    hInv.hmachineEnabled, ⟨_, hmin28⟩, hInv.himageEq, ?_, ?_, ?_, ?_,
+    (by omega), hInv.hstateFits, hInv.hinputFits, hInv.hstateImg, hInv.hdisj,
+    AbstractPlatform.mono hSt28 hInv.hplat, AbstractDataAccess.mono hSt28 hInv.hdata,
+    AbstractElp.mono hSt28 hInv.hElp⟩
+  · -- hPC
+    exact (afterIncGet s28 PC (by decide)).symm.trans
+      ((show Sail.BitVec.addInt (BitVec.ofNat 64 0x10ce0) 4 = BitVec.ofNat 64 0x10ce4 from by decide)
+        ▸ hPC28)
+  · -- hmatches
+    exact hmem28.symm ▸ hmatchesW
+  · -- hunproc (lanes ≥ k+1 unchanged)
+    intro m i hm hm2 hi
+    rw [hmem28, insertWord_get_out _ _ _ _ (fun i' hi' => by
+      rw [dstAddr_toNat state0 (8 * k) (by omega), dstAddr_toNat state0 (8 * m + i) (by omega)]
+      omega)]
+    exact hInv.hunproc m i (by omega) hm2 hi
+  · -- hproc (lanes < k unchanged; lane k newly stored)
+    intro m i hm hi
+    rw [hmem28]
+    rcases Nat.lt_or_ge m k with hlt | hge
+    · rw [insertWord_get_out _ _ _ _ (fun i' hi' => by
+        rw [dstAddr_toNat state0 (8 * k) (by omega), dstAddr_toNat state0 (8 * m + i) (by omega)]
+        omega)]
+      exact hInv.hproc m i hlt hi
+    · have hmk : m = k := by omega
+      subst hmk
+      rw [show (state0 + BitVec.ofNat 64 (8 * m + i)).toNat
+            = (state0 + BitVec.ofNat 64 (8 * m)).toNat + i from by
+          rw [dstAddr_toNat state0 (8 * m) (by omega), dstAddr_toNat state0 (8 * m + i) (by omega)]
+          omega]
+      rw [insertWord_get_in _ _ _ i hi]
+  · -- hinput (input region preserved)
+    intro j hj
+    rw [hmem28, insertWord_get_out _ _ _ _ (fun i' hi' => by
+      rw [show (state0 + BitVec.ofNat 64 (8 * k)).toNat + i'
+            = (state0 + BitVec.ofNat 64 (8 * k + i')).toNat from by
+          rw [dstAddr_toNat state0 (8 * k) (by omega), dstAddr_toNat state0 (8 * k + i') (by omega)]
+          omega]
+      exact (hInv.hdisj (8 * k + i') j (by omega) hj).symm)]
+    exact hInv.hinput j hj
+
+/-! ## Deliverable 4d: one taken loop iteration `xorblock_adv` -/
+
+set_option maxHeartbeats 2000000 in
+/-- One taken loop iteration (`k < 16`, so the back-edge `bnez` is taken): a length-29 trace from the
+loop head `0x10c74` back to itself, re-establishing `XorBlockInv (k+1)`. -/
+theorem xorblock_adv (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
+    (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (start k : Nat) (s : State)
+    (hk16 : k < 16)
+    (hInv : XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
+      origLane inByte k s) :
+    ∃ s', Trace (start + k * 29) 29 s s' ∧
+      XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
+        origLane inByte (k + 1) s' := by
+  obtain ⟨s28, htr, hAt⟩ := xorblock_body_core state0 input0 retAddr image mseccfgBits mstatusBits
+    inhibit cfg origLane inByte start k s (by omega) hInv
+  obtain ⟨retired28, hret28⟩ := hAt.hminstret
+  have hbytes28 : FetchBytesAt (tryStepControlFlowAfterIncrement s28) (BitVec.ofNat 64 0x10ce4)
+      0xe3#8 0x18#8 0x06#8 0xf8#8 :=
+    fetchBytesAt_10ce4 _ image hAt.himageEq hAt.hmatches
+  have hplat28 : StepPlatform s28 (BitVec.ofNat 64 0x10ce4) 0xe3#8 0x18#8 0x06#8 0xf8#8 mseccfgBits :=
+    mkStepPlatform s28 mseccfgBits (BitVec.ofNat 64 0x10ce4) 0xe3#8 0x18#8 0x06#8 0xf8#8
+      hAt.hplat hAt.hcur hAt.hmseccfg (StableAgree.refl s28)
+      ((afterIncGet s28 PC (by decide)).trans hAt.hPC) (by decide) hbytes28
+  have hcnt28 : StepCounters s28 retired28 inhibit cfg :=
+    ⟨hAt.hhart, hAt.hinhibit, hAt.hcfg, hAt.hnotInhibited, hAt.hmachineEnabled, hret28⟩
+  have h12 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s28)
+      (BitVec.ofNat 64 0x10ce4)).regs.get? x12 = some (BitVec.ofNat 64 (136 - 8 * (k + 1))) :=
+    (coreGetGP s28 (BitVec.ofNat 64 0x10ce4) x12 (by decide) (by decide)).trans hAt.ha2
+  have hpcread : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s28)
+      (BitVec.ofNat 64 0x10ce4)).regs.get? PC = some (BitVec.ofNat 64 0x10ce4) :=
+    (coreGetGP s28 (BitVec.ofNat 64 0x10ce4) PC (by decide) (by decide)).trans hAt.hPC
+  obtain ⟨misaBits, _, _, hmisaA, _⟩ := hplat28.1
+  have hmisa : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s28)
+      (BitVec.ofNat 64 0x10ce4)).regs.get? misa = some misaBits :=
+    (coreGetInc (tryStepControlFlowAfterIncrement s28) _ misa (by decide)).trans hmisaA
+  have hsum : BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)
+      = BitVec.ofNat 64 0x10c74 := by
+    simp only [sign_extend, Sail.BitVec.signExtend]; bv_decide
+  have halign : Sail.BitVec.access (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) 0 = 0#1 := by rw [hsum]; decide
+  have hbit1 : Sail.BitVec.access (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) 1 = 0#1 := by rw [hsum]; decide
+  have hbnez := step_bnez_taken (start + k * 29 + 28) s28 (BitVec.ofNat 64 0x10ce4)
+    (BitVec.ofNat 64 (136 - 8 * (k + 1))) retired28 mseccfgBits inhibit cfg hplat28 hcnt28 h12
+    (a2_ne_zero (k + 1) (by omega)) hpcread misaBits hmisa halign hbit1
+  have hSj : StableAgree s28 (tryStepControlFlowAfterRetired (controlFlowJumpState (tryStepControlFlowAfterIncrement s28) (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13))) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28) :=
+    stableAgree_jump s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28
+  have hmemj : (tryStepControlFlowAfterRetired (controlFlowJumpState (tryStepControlFlowAfterIncrement s28) (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13))) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28).mem = s28.mem :=
+    (retiredMem _ _ _).trans (jumpMem s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)))
+  refine ⟨(tryStepControlFlowAfterRetired (controlFlowJumpState (tryStepControlFlowAfterIncrement s28) (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13))) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28), by simpa using Trace.append htr (Trace.one _ _ _ hbnez), ?_⟩
+  refine ⟨?_, (jumpRetiredGet s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28 x10 (by decide) (by decide) (by decide) (by decide)).trans hAt.ha0,
+    (jumpRetiredGet s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28 x11 (by decide) (by decide) (by decide) (by decide)).trans hAt.ha1,
+    (jumpRetiredGet s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28 x12 (by decide) (by decide) (by decide) (by decide)).trans hAt.ha2,
+    (jumpRetiredGet s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28 x1 (by decide) (by decide) (by decide) (by decide)).trans hAt.hra,
+    (jumpRetiredGet s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28 cur_privilege (by decide) (by decide) (by decide) (by decide)).trans hAt.hcur,
+    (jumpRetiredGet s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28 mstatus (by decide) (by decide) (by decide) (by decide)).trans hAt.hmstatus,
+    hAt.hmprv, (jumpRetiredGet s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28 mseccfg (by decide) (by decide) (by decide) (by decide)).trans hAt.hmseccfg,
+    (jumpRetiredGet s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28 hart_state (by decide) (by decide) (by decide) (by decide)).trans hAt.hhart,
+    (jumpRetiredGet s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28 mcountinhibit (by decide) (by decide) (by decide) (by decide)).trans hAt.hinhibit,
+    hAt.hnotInhibited, (jumpRetiredGet s28 (BitVec.ofNat 64 0x10ce4) (BitVec.ofNat 64 0x10ce4 + sign_extend (m := 64) (0x1f90#13)) retired28 minstretcfg (by decide) (by decide) (by decide) (by decide)).trans hAt.hcfg,
+    hAt.hmachineEnabled, ⟨_, retiredMinstret _ _ _⟩, hAt.himageEq, ?_, ?_, ?_, ?_,
+    (by omega), hAt.hstateFits, hAt.hinputFits, hAt.hstateImg, hAt.hdisj,
+    AbstractPlatform.mono hSj hAt.hplat, AbstractDataAccess.mono hSj hAt.hdata,
+    AbstractElp.mono hSj hAt.hElp⟩
+  · rw [retiredGetPC _ _ _, hsum]
+  · rw [hmemj]; exact hAt.hmatches
+  · intro m i hm hm2 hi; rw [hmemj]; exact hAt.hunproc m i hm hm2 hi
+  · intro m i hm hi; rw [hmemj]; exact hAt.hproc m i hm hi
+  · intro j hj; rw [hmemj]; exact hAt.hinput j hj
+
+/-! ## Deliverable 5a: the whole 16-iteration taken loop `xorblock_loop` -/
+
+/-- The 16 taken back-edge iterations from `XorBlockInv 0` to `XorBlockInv 16`. -/
+theorem xorblock_loop (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
+    (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (start : Nat) (s0 : State)
+    (hInv0 : XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
+      origLane inByte 0 s0) :
+    ∃ sN, Trace start (16 * 29) s0 sN ∧
+      XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
+        origLane inByte 16 sN :=
+  Trace.invariantIterate (L := 29) (start := start)
+    (Inv := fun k s => XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
+      origLane inByte k s) 16
+    (fun k s hk hInv => xorblock_adv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
+      origLane inByte start k s hk hInv)
+    hInv0
+
+/-! ## Deliverable 5b: the final iteration and return `xorblock_exit` -/
+
+set_option maxHeartbeats 2000000 in
+/-- The 17th (last) iteration and return: run the body once more from `XorBlockInv 16` (`bnez` now
+NOT taken, since `a2` reaches `0`), then `ret`.  The framed conclusion exposes the exact memory
+delta: the 17 rate lanes are XORed, the 8 capacity lanes and the input block are preserved, the code
+image (`matchesMemory`) is preserved, and `PC = ra`. -/
+theorem xorblock_exit (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
+    (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (start : Nat) (s : State)
+    (hretAlign : Sail.BitVec.access retAddr 1 = 0#1)
+    (hInv : XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
+      origLane inByte 16 s) :
+    ∃ s'', Trace (start + 16 * 29) 30 s s'' ∧
+      s''.regs.get? PC = some (Sail.BitVec.update retAddr 0 0#1) ∧
+      s''.regs.get? x10 = some (state0 + BitVec.ofNat 64 136) ∧
+      s''.regs.get? x11 = some (input0 + BitVec.ofNat 64 136) ∧
+      s''.regs.get? x1 = some retAddr ∧
+      (∀ m i : Nat, m < 17 → i < 8 → s''.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat
+        = some ((origLane m ^^^ inputLane inByte m).extractLsb' (8 * i) 8)) ∧
+      (∀ m i : Nat, 17 ≤ m → m < 25 → i < 8 → s''.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat
+        = some ((origLane m).extractLsb' (8 * i) 8)) ∧
+      (∀ j : Nat, j < 136 → s''.mem.get? (input0 + BitVec.ofNat 64 j).toNat = some (inByte j)) ∧
+      image.matchesMemory s''.mem := by
+  obtain ⟨s28, htr, hAt⟩ := xorblock_body_core state0 input0 retAddr image mseccfgBits mstatusBits
+    inhibit cfg origLane inByte start 16 s (by omega) hInv
+  obtain ⟨retired28, hret28⟩ := hAt.hminstret
+  -- bnez NOT taken (a2 = 0)
+  have hbytes28 : FetchBytesAt (tryStepControlFlowAfterIncrement s28) (BitVec.ofNat 64 0x10ce4)
+      0xe3#8 0x18#8 0x06#8 0xf8#8 := fetchBytesAt_10ce4 _ image hAt.himageEq hAt.hmatches
+  have hplat28 : StepPlatform s28 (BitVec.ofNat 64 0x10ce4) 0xe3#8 0x18#8 0x06#8 0xf8#8 mseccfgBits :=
+    mkStepPlatform s28 mseccfgBits (BitVec.ofNat 64 0x10ce4) 0xe3#8 0x18#8 0x06#8 0xf8#8
+      hAt.hplat hAt.hcur hAt.hmseccfg (StableAgree.refl s28)
+      ((afterIncGet s28 PC (by decide)).trans hAt.hPC) (by decide) hbytes28
+  have hcnt28 : StepCounters s28 retired28 inhibit cfg :=
+    ⟨hAt.hhart, hAt.hinhibit, hAt.hcfg, hAt.hnotInhibited, hAt.hmachineEnabled, hret28⟩
+  have h12 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s28)
+      (BitVec.ofNat 64 0x10ce4)).regs.get? x12 = some (BitVec.ofNat 64 (136 - 8 * 17)) :=
+    (coreGetGP s28 (BitVec.ofNat 64 0x10ce4) x12 (by decide) (by decide)).trans hAt.ha2
+  have hbnez := step_bnez_not_taken (start + 16 * 29 + 28) s28 (BitVec.ofNat 64 (136 - 8 * 17))
+    retired28 mseccfgBits inhibit cfg hplat28 hcnt28 h12 a2_eq_zero
+  have hSt1 : StableAgree s28 _ := stableAgree_notTaken s28 (BitVec.ofNat 64 0x10ce4) retired28
+  have hmem1 : _ = s28.mem := notTakenMem s28 (BitVec.ofNat 64 0x10ce4) retired28
+  have hPC1 := afterIncRetiredPC
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement s28) (BitVec.ofNat 64 0x10ce4))
+    (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ce4) 4) retired28
+  have hmin1 := retiredMinstret
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement s28) (BitVec.ofNat 64 0x10ce4))
+    (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ce4) 4) retired28
+  have hx10_1 : _ = some (state0 + BitVec.ofNat 64 (8 * 17)) :=
+    (notTakenGet s28 (BitVec.ofNat 64 0x10ce4) retired28 x10 (by decide) (by decide) (by decide)
+      (by decide)).trans hAt.ha0
+  have hx11_1 : _ = some (input0 + BitVec.ofNat 64 (8 * 17)) :=
+    (notTakenGet s28 (BitVec.ofNat 64 0x10ce4) retired28 x11 (by decide) (by decide) (by decide)
+      (by decide)).trans hAt.ha1
+  have hx1_1 : _ = some retAddr :=
+    (notTakenGet s28 (BitVec.ofNat 64 0x10ce4) retired28 x1 (by decide) (by decide) (by decide)
+      (by decide)).trans hAt.hra
+  generalize hgen1 : tryStepControlFlowAfterRetired
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s28) (BitVec.ofNat 64 0x10ce4))
+      (Sail.BitVec.addInt (BitVec.ofNat 64 0x10ce4) 4) retired28 = s29
+    at hbnez hSt1 hmem1 hPC1 hmin1 hx10_1 hx11_1 hx1_1
+  -- ret at 0x10ce8
+  have hsum : Sail.BitVec.addInt (BitVec.ofNat 64 0x10ce4) 4 = BitVec.ofNat 64 0x10ce8 := by decide
+  have hbytes2 : FetchBytesAt (tryStepControlFlowAfterIncrement s29) (BitVec.ofNat 64 0x10ce8)
+      0x67#8 0x80#8 0x00#8 0x00#8 :=
+    fetchBytesAt_10ce8 _ image hAt.himageEq (hmem1.symm ▸ hAt.hmatches)
+  have hplat2 : StepPlatform s29 (BitVec.ofNat 64 0x10ce8) 0x67#8 0x80#8 0x00#8 0x00#8 mseccfgBits :=
+    mkStepPlatform s29 mseccfgBits (BitVec.ofNat 64 0x10ce8) 0x67#8 0x80#8 0x00#8 0x00#8
+      hAt.hplat hAt.hcur hAt.hmseccfg hSt1 (hsum ▸ hPC1) (by decide) hbytes2
+  have hcnt2 : StepCounters s29 (Sail.BitVec.addInt retired28 1) inhibit cfg :=
+    ⟨(hSt1 hart_state (by decide)).trans hAt.hhart, (hSt1 mcountinhibit (by decide)).trans hAt.hinhibit,
+      (hSt1 minstretcfg (by decide)).trans hAt.hcfg, hAt.hnotInhibited, hAt.hmachineEnabled, hmin1⟩
+  have hrs1 : Runs (rX_bits (.Regidx 1#5))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s29) (BitVec.ofNat 64 0x10ce8))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s29) (BitVec.ofNat 64 0x10ce8))
+      retAddr :=
+    rX_bits_x1_run _ retAddr ((coreGetStable s29 _ x1 (by decide) hSt1).trans hAt.hra)
+  obtain ⟨misaBits, _, _, hmisaA, _⟩ := hplat2.1
+  have hmisa : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s29)
+      (BitVec.ofNat 64 0x10ce8)).regs.get? misa = some misaBits :=
+    (coreGetInc (tryStepControlFlowAfterIncrement s29) _ misa (by decide)).trans hmisaA
+  have hElp1 : Runs (update_elp_state (.Regidx 1#5))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s29) (BitVec.ofNat 64 0x10ce8))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s29) (BitVec.ofNat 64 0x10ce8)) () :=
+    hAt.hElp _ (coreStableAgree s29 (BitVec.ofNat 64 0x10ce8) hSt1)
+  have hret := step_ret (start + 16 * 29 + 29) s29 retAddr (Sail.BitVec.addInt retired28 1)
+    mseccfgBits misaBits inhibit cfg hplat2 hcnt2 hrs1 hretAlign hElp1 hmisa
+  have hSt2 : StableAgree s28 _ :=
+    hSt1.trans (stableAgree_jump s29 (BitVec.ofNat 64 0x10ce8)
+      (Sail.BitVec.update retAddr 0 0#1) (Sail.BitVec.addInt retired28 1))
+  have hmem2 : _ = s28.mem :=
+    (retiredMem (controlFlowJumpState (tryStepControlFlowAfterIncrement s29) (BitVec.ofNat 64 0x10ce8)
+      (Sail.BitVec.update retAddr 0 0#1)) (Sail.BitVec.update retAddr 0 0#1)
+      (Sail.BitVec.addInt retired28 1)).trans
+      ((jumpMem s29 (BitVec.ofNat 64 0x10ce8) (Sail.BitVec.update retAddr 0 0#1)).trans hmem1)
+  refine ⟨_, ?_, retiredGetPC _ _ _,
+    (jumpRetiredGet s29 (BitVec.ofNat 64 0x10ce8) (Sail.BitVec.update retAddr 0 0#1)
+      (Sail.BitVec.addInt retired28 1) x10 (by decide) (by decide) (by decide) (by decide)).trans
+      hx10_1,
+    (jumpRetiredGet s29 (BitVec.ofNat 64 0x10ce8) (Sail.BitVec.update retAddr 0 0#1)
+      (Sail.BitVec.addInt retired28 1) x11 (by decide) (by decide) (by decide) (by decide)).trans
+      hx11_1,
+    (jumpRetiredGet s29 (BitVec.ofNat 64 0x10ce8) (Sail.BitVec.update retAddr 0 0#1)
+      (Sail.BitVec.addInt retired28 1) x1 (by decide) (by decide) (by decide) (by decide)).trans
+      hx1_1, ?_, ?_, ?_, ?_⟩
+  · exact by simpa using Trace.append htr (Trace.step _ _ _ _ _ hbnez (Trace.one _ _ _ hret))
+  · intro m i hm hi; rw [hmem2]; exact hAt.hproc m i (by omega) hi
+  · intro m i hm hm2 hi; rw [hmem2]; exact hAt.hunproc m i hm hm2 hi
+  · intro j hj; rw [hmem2]; exact hAt.hinput j hj
+  · rw [hmem2]; exact hAt.hmatches
+
+/-! ## Deliverable 5c: the capstone `xor_block_contract`
+
+DESIGN NOTE (fetch-fact transparency).  This contract depends on the parser-derived fetch facts
+(`XorBlockArtifactFetch`) ONLY through their `FetchBytesAt` conclusions — routed through the step
+lemmas and `mkStepPlatform` — never through their `native_decide` internals.  Consequently, replacing
+those fetch facts by kernel-checked (non-`native_decide`) versions drops `Lean.ofReduceBool` /
+`Lean.trustCompiler` from the axiom footprint of this theorem with NO change to its statement or
+proof beyond the fetch-fact swap. -/
+
+/-- The entry `li a2, 136` value equals `136`. -/
+theorem li_val : zero_reg + sign_extend (m := 64) 136#12 = BitVec.ofNat 64 136 := by
+  have hz : (zero_reg : BitVec 64) = 0#64 := rfl
+  rw [hz]
+  simp only [sign_extend, Sail.BitVec.signExtend]
+  bv_decide
+
+set_option maxHeartbeats 2000000 in
+/-- CAPSTONE.  `xor_block(state, input, 136)` at `0x10c6c`, run through the authoritative generated
+`try_step` from a configured machine: a single `2 + 16*29 + 30 = 496`-step trace to the caller
+(`PC = ra`), after which the 17 rate state lanes at `state0 + 8m` (`m < 17`) each hold
+`origLane m ^^^ inputLane inByte m`, and — as explicit framed conclusions — the 8 capacity lanes
+(`17 ≤ m < 25`), the 136-byte input block, and the code image (`matchesMemory`) are preserved.  All
+memory outside the 17 written rate lanes is unchanged. -/
+theorem xor_block_contract (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
+    (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
+    (origLane : Nat → BitVec 64) (inByte : Nat → BitVec 8) (start : Nat) (s : State)
+    (hPC : s.regs.get? PC = some (BitVec.ofNat 64 0x10c6c))
+    (ha0 : s.regs.get? x10 = some state0) (ha1 : s.regs.get? x11 = some input0)
+    (hra : s.regs.get? x1 = some retAddr)
+    (hcur : s.regs.get? cur_privilege = some Privilege.Machine)
+    (hmstatus : s.regs.get? mstatus = some mstatusBits) (hmprv : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (hmseccfg : s.regs.get? mseccfg = some mseccfgBits)
+    (hhart : s.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (hinhibit : s.regs.get? mcountinhibit = some inhibit)
+    (hnotInhibited : _get_Counterin_IR inhibit = 0#1)
+    (hcfg : s.regs.get? minstretcfg = some cfg) (hmachineEnabled : _get_CountSmcntrpmf_MINH cfg = 0#1)
+    (hminstret : ∃ v, s.regs.get? minstret = some v)
+    (himageEq : Artifact.programImage = .ok image) (hmatches : image.matchesMemory s.mem)
+    (hstate : ∀ m i : Nat, m < 25 → i < 8 →
+      s.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat = some ((origLane m).extractLsb' (8 * i) 8))
+    (hinput : ∀ j : Nat, j < 136 → s.mem.get? (input0 + BitVec.ofNat 64 j).toNat = some (inByte j))
+    (hstateFits : state0.toNat + 200 ≤ 2 ^ 64) (hinputFits : input0.toNat + 136 ≤ 2 ^ 64)
+    (hstateImg : ∀ j : Nat, j < 200 → image.readByte? (state0 + BitVec.ofNat 64 j).toNat = none)
+    (hdisj : ∀ j j' : Nat, j < 200 → j' < 136 →
+      (state0 + BitVec.ofNat 64 j).toNat ≠ (input0 + BitVec.ofNat 64 j').toNat)
+    (hretAlign : Sail.BitVec.access retAddr 1 = 0#1)
+    (hplat : AbstractPlatform s) (hdata : AbstractDataAccess state0 input0 s) (hElp : AbstractElp s) :
+    ∃ s'', Trace start (2 + 16 * 29 + 30) s s'' ∧
+      s''.regs.get? PC = some (Sail.BitVec.update retAddr 0 0#1) ∧
+      s''.regs.get? x10 = some (state0 + BitVec.ofNat 64 136) ∧
+      s''.regs.get? x11 = some (input0 + BitVec.ofNat 64 136) ∧
+      s''.regs.get? x1 = some retAddr ∧
+      (∀ m i : Nat, m < 17 → i < 8 → s''.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat
+        = some ((origLane m ^^^ inputLane inByte m).extractLsb' (8 * i) 8)) ∧
+      (∀ m i : Nat, 17 ≤ m → m < 25 → i < 8 → s''.mem.get? (state0 + BitVec.ofNat 64 (8 * m + i)).toNat
+        = some ((origLane m).extractLsb' (8 * i) 8)) ∧
+      (∀ j : Nat, j < 136 → s''.mem.get? (input0 + BitVec.ofNat 64 j).toNat = some (inByte j)) ∧
+      image.matchesMemory s''.mem := by
+  obtain ⟨retired0, hret0⟩ := hminstret
+  -- Entry step 0: li a2, 136 at 0x10c6c.
+  have hbytesE : FetchBytesAt (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c6c)
+      0x13#8 0x06#8 0x80#8 0x08#8 := fetchBytesAt_10c6c _ image himageEq hmatches
+  have hplatE : StepPlatform s (BitVec.ofNat 64 0x10c6c) 0x13#8 0x06#8 0x80#8 0x08#8 mseccfgBits :=
+    mkStepPlatform s mseccfgBits (BitVec.ofNat 64 0x10c6c) 0x13#8 0x06#8 0x80#8 0x08#8
+      hplat hcur hmseccfg (StableAgree.refl s) ((afterIncGet s PC (by decide)).trans hPC)
+      (by decide) hbytesE
+  have hcntE : StepCounters s retired0 inhibit cfg :=
+    ⟨hhart, hinhibit, hcfg, hnotInhibited, hmachineEnabled, hret0⟩
+  have hli := step_li_a2 start s retired0 mseccfgBits inhibit cfg hplatE hcntE
+  have hStE : StableAgree s _ :=
+    stableAgree_gp s (BitVec.ofNat 64 0x10c6c) retired0 x12 (zero_reg + sign_extend (m := 64) 136#12)
+      (Or.inr (Or.inr (Or.inr (Or.inl rfl))))
+  have hmemE : _ = s.mem :=
+    (retiredMem { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c6c) with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c6c)).regs.insert x12 (zero_reg + sign_extend (m := 64) 136#12) }
+      (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c6c) 4) retired0).trans
+      (fallThroughMem s (BitVec.ofNat 64 0x10c6c) x12 (zero_reg + sign_extend (m := 64) 136#12))
+  have hPCE := afterIncRetiredPC
+    { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c6c) with
+      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
+        (BitVec.ofNat 64 0x10c6c)).regs.insert x12 (zero_reg + sign_extend (m := 64) 136#12) }
+    (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c6c) 4) retired0
+  have hminE := retiredMinstret
+    { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c6c) with
+      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
+        (BitVec.ofNat 64 0x10c6c)).regs.insert x12 (zero_reg + sign_extend (m := 64) 136#12) }
+    (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c6c) 4) retired0
+  have hx12E : _ = some (BitVec.ofNat 64 136) :=
+    (fallThroughRetiredRd s (BitVec.ofNat 64 0x10c6c) retired0 x12
+      (zero_reg + sign_extend (m := 64) 136#12) (by decide) (by decide)).trans (congrArg some li_val)
+  have hx10E : _ = some state0 :=
+    (fallThroughRetiredGet s (BitVec.ofNat 64 0x10c6c) retired0 x12
+      (zero_reg + sign_extend (m := 64) 136#12) x10 (by decide) (by decide) (by decide) (by decide)
+      (by decide)).trans ha0
+  have hx11E : _ = some input0 :=
+    (fallThroughRetiredGet s (BitVec.ofNat 64 0x10c6c) retired0 x12
+      (zero_reg + sign_extend (m := 64) 136#12) x11 (by decide) (by decide) (by decide) (by decide)
+      (by decide)).trans ha1
+  have hx1E : _ = some retAddr :=
+    (fallThroughRetiredGet s (BitVec.ofNat 64 0x10c6c) retired0 x12
+      (zero_reg + sign_extend (m := 64) 136#12) x1 (by decide) (by decide) (by decide) (by decide)
+      (by decide)).trans hra
+  generalize hgenE : tryStepControlFlowAfterRetired
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x10c6c) with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
+          (BitVec.ofNat 64 0x10c6c)).regs.insert x12 (zero_reg + sign_extend (m := 64) 136#12) }
+      (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c6c) 4) retired0 = s1
+    at hli hStE hmemE hPCE hminE hx12E hx10E hx11E hx1E
+  -- Entry step 1: beqz a2 at 0x10c70 (NOT taken, a2 = 136).
+  have hsumE : Sail.BitVec.addInt (BitVec.ofNat 64 0x10c6c) 4 = BitVec.ofNat 64 0x10c70 := by decide
+  have hbytes1 : FetchBytesAt (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c70)
+      0x63#8 0x0c#8 0x06#8 0x06#8 := fetchBytesAt_10c70 _ image himageEq (hmemE.symm ▸ hmatches)
+  have hplat1 : StepPlatform s1 (BitVec.ofNat 64 0x10c70) 0x63#8 0x0c#8 0x06#8 0x06#8 mseccfgBits :=
+    mkStepPlatform s1 mseccfgBits (BitVec.ofNat 64 0x10c70) 0x63#8 0x0c#8 0x06#8 0x06#8
+      hplat hcur hmseccfg hStE (hsumE ▸ hPCE) (by decide) hbytes1
+  have hcnt1 : StepCounters s1 (Sail.BitVec.addInt retired0 1) inhibit cfg :=
+    ⟨(hStE hart_state (by decide)).trans hhart, (hStE mcountinhibit (by decide)).trans hinhibit,
+      (hStE minstretcfg (by decide)).trans hcfg, hnotInhibited, hmachineEnabled, hminE⟩
+  have h12_1 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1)
+      (BitVec.ofNat 64 0x10c70)).regs.get? x12 = some (BitVec.ofNat 64 136) :=
+    (coreGetGP s1 (BitVec.ofNat 64 0x10c70) x12 (by decide) (by decide)).trans hx12E
+  have hbeqz := step_beqz_not_taken (start + 1) s1 (BitVec.ofNat 64 136) (Sail.BitVec.addInt retired0 1)
+    mseccfgBits inhibit cfg hplat1 hcnt1 h12_1 (a2_ne_zero 0 (by omega))
+  have hSt1 : StableAgree s _ :=
+    hStE.trans (stableAgree_notTaken s1 (BitVec.ofNat 64 0x10c70) (Sail.BitVec.addInt retired0 1))
+  have hmem1 : _ = s.mem :=
+    (notTakenMem s1 (BitVec.ofNat 64 0x10c70) (Sail.BitVec.addInt retired0 1)).trans hmemE
+  have hPC1 := afterIncRetiredPC
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c70))
+    (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c70) 4) (Sail.BitVec.addInt retired0 1)
+  have hmin1 := retiredMinstret
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c70))
+    (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c70) 4) (Sail.BitVec.addInt retired0 1)
+  have hx12_1 : _ = some (BitVec.ofNat 64 (136 - 8 * 0)) :=
+    (notTakenGet s1 (BitVec.ofNat 64 0x10c70) (Sail.BitVec.addInt retired0 1) x12 (by decide)
+      (by decide) (by decide) (by decide)).trans hx12E
+  have hx10_1 : _ = some state0 :=
+    (notTakenGet s1 (BitVec.ofNat 64 0x10c70) (Sail.BitVec.addInt retired0 1) x10 (by decide)
+      (by decide) (by decide) (by decide)).trans hx10E
+  have hx11_1 : _ = some input0 :=
+    (notTakenGet s1 (BitVec.ofNat 64 0x10c70) (Sail.BitVec.addInt retired0 1) x11 (by decide)
+      (by decide) (by decide) (by decide)).trans hx11E
+  have hx1_1 : _ = some retAddr :=
+    (notTakenGet s1 (BitVec.ofNat 64 0x10c70) (Sail.BitVec.addInt retired0 1) x1 (by decide)
+      (by decide) (by decide) (by decide)).trans hx1E
+  have hPCval1 : (tryStepControlFlowAfterRetired
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c70))
+      (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c70) 4) (Sail.BitVec.addInt retired0 1)).regs.get? PC
+      = some (BitVec.ofNat 64 0x10c74) := by
+    rw [retiredGetPC, show Sail.BitVec.addInt (BitVec.ofNat 64 0x10c70) 4
+      = BitVec.ofNat 64 0x10c74 from by decide]
+  generalize hgen1 : tryStepControlFlowAfterRetired
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10c70))
+      (Sail.BitVec.addInt (BitVec.ofNat 64 0x10c70) 4) (Sail.BitVec.addInt retired0 1) = s2
+    at hbeqz hSt1 hmem1 hPC1 hmin1 hx12_1 hx10_1 hx11_1 hx1_1 hPCval1
+  -- Establish `XorBlockInv 0` at `s2` (PC = 0x10c74).
+  have hInv0 : XorBlockInv state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg
+      origLane inByte 0 s2 := by
+    refine ⟨?_, by simpa using hx10_1, by simpa using hx11_1, hx12_1, hx1_1,
+      (hSt1 cur_privilege (by decide)).trans hcur,
+      (hSt1 mstatus (by decide)).trans hmstatus, hmprv, (hSt1 mseccfg (by decide)).trans hmseccfg,
+      (hSt1 hart_state (by decide)).trans hhart, (hSt1 mcountinhibit (by decide)).trans hinhibit,
+      hnotInhibited, (hSt1 minstretcfg (by decide)).trans hcfg, hmachineEnabled, ⟨_, hmin1⟩,
+      himageEq, ?_, ?_, ?_, ?_, (by omega), hstateFits, hinputFits, hstateImg, hdisj,
+      AbstractPlatform.mono hSt1 hplat, AbstractDataAccess.mono hSt1 hdata,
+      AbstractElp.mono hSt1 hElp⟩
+    · exact hPCval1
+    · rw [hmem1]; exact hmatches
+    · intro m i _ hm2 hi; rw [hmem1]; exact hstate m i hm2 hi
+    · intro m i hm _; exact absurd hm (Nat.not_lt_zero m)
+    · intro j hj; rw [hmem1]; exact hinput j hj
+  -- Loop (16 taken iterations) then exit (final iteration + ret).
+  obtain ⟨sN, htrLoop, hInvN⟩ := xorblock_loop state0 input0 retAddr image mseccfgBits mstatusBits
+    inhibit cfg origLane inByte (start + 2) s2 hInv0
+  obtain ⟨s'', htrExit, hPCret, hx10N, hx11N, hx1N, hrate, hcap, hinp, hcode⟩ :=
+    xorblock_exit state0 input0 retAddr image mseccfgBits mstatusBits inhibit cfg origLane inByte
+      (start + 2) sN hretAlign hInvN
+  refine ⟨s'', ?_, hPCret, hx10N, hx11N, hx1N, hrate, hcap, hinp, hcode⟩
+  have htrEntry : Trace start 2 s s2 :=
+    Trace.step _ _ _ _ _ hli (Trace.one _ _ _ hbeqz)
+  have hcomb := Trace.append (Trace.append htrEntry htrLoop) htrExit
+  simpa using hcomb
+
 end BinaryFv.Keccak.XorBlock
