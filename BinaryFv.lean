@@ -70,3 +70,4 @@ import BinaryFv.RISCV.StoreByteExecuteContract
 import BinaryFv.RISCV.LoadExecuteContract
 import BinaryFv.RISCV.RegisterOpExecuteContract
 import BinaryFv.Keccak.GenericStepContract
+import BinaryFv.Keccak.HelperDecodeFacts
