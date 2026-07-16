@@ -69,6 +69,7 @@ import BinaryFv.Keccak.CoreBranchStepContract
 import BinaryFv.RISCV.StoreByteExecuteContract
 import BinaryFv.RISCV.LoadExecuteContract
 import BinaryFv.RISCV.RegisterOpExecuteContract
+import BinaryFv.RISCV.ShiftOrExecuteContract
 import BinaryFv.Keccak.GenericStepContract
 import BinaryFv.Keccak.HelperDecodeFacts
 import BinaryFv.Keccak.HelperArtifactFetch
