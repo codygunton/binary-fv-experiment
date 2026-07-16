@@ -73,3 +73,4 @@ import BinaryFv.Keccak.GenericStepContract
 import BinaryFv.Keccak.HelperDecodeFacts
 import BinaryFv.Keccak.HelperArtifactFetch
 import BinaryFv.Keccak.FallThroughStepContract
+import BinaryFv.Keccak.HelperArithDispatch
