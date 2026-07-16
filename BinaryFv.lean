@@ -79,3 +79,4 @@ import BinaryFv.Keccak.LoopInduction
 import BinaryFv.Keccak.CopyFromSliceDispatch
 import BinaryFv.Keccak.XorBlockDecodeFacts
 import BinaryFv.Keccak.XorBlockArtifactFetch
+import BinaryFv.Keccak.MemcpyContract
