@@ -70,4 +70,16 @@ private example (s0 s1 s2 s3 : State)
     Trace 7 3 s0 s3 := by
   trace_assumptions
 
+/--
+Compose a representative memory/branch/indirect-call block without manually nesting `Trace.step`.
+The three supplied contracts are the exact generated `try_step` facts established by the instruction
+and platform layers; `trace_assumptions` selects and chains them in program order.
+-/
+theorem traceRepresentativeMemoryBranchIndirectBlock (s0 s1 s2 s3 : State)
+    (memory : Runs (try_step 7 false) s0 s1 false)
+    (branch : Runs (try_step 8 false) s1 s2 false)
+    (indirectCall : Runs (try_step 9 false) s2 s3 false) :
+    Trace 7 3 s0 s3 := by
+  trace_assumptions
+
 end BinaryFv.RiscV
