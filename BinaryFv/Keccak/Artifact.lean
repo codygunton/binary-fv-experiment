@@ -1,10 +1,10 @@
 import BinaryFv.Keccak.ABI
-import BinaryFv.RISCV.Elf64
+import BinaryFv.RiscV.Elf64
 import RethKeccakElf
 
 namespace BinaryFv.Keccak.Artifact
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 def parsed : Except ElfError Elf64 :=
   Elf64.parse RethKeccakElf.bytes

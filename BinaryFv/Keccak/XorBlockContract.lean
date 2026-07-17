@@ -1,8 +1,8 @@
 import BinaryFv.Keccak.MemcpyContract
 import BinaryFv.Keccak.XorBlockDecodeFacts
 import BinaryFv.Keccak.XorBlockArtifactFetch
-import BinaryFv.RISCV.ShiftOrExecuteContract
-import BinaryFv.RISCV.RegisterOpExecuteContract
+import BinaryFv.RiscV.ShiftOrExecuteContract
+import BinaryFv.RiscV.RegisterOpExecuteContract
 import Spec.Keccak.Keccak256
 
 /-!
@@ -40,8 +40,8 @@ namespace BinaryFv.Keccak.XorBlock
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
-open BinaryFv.RISCV.Sep
+open BinaryFv.RiscV
+open BinaryFv.RiscV.Sep
 open BinaryFv.Keccak
 open MemoryAccessType
 open mem_payload

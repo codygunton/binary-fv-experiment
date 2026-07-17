@@ -18,7 +18,7 @@ Quot.sound`), which is expected and correct for these fetch facts.
 
 namespace BinaryFv.Keccak
 
-open PreSail LeanRV64DExecutable.Functions Register BinaryFv.RISCV
+open PreSail LeanRV64DExecutable.Functions Register BinaryFv.RiscV
 
 /-- Closed parser byte fact: the parsed image's byte read at `address` is `value`.  This is a
     decidable fact about the embedded ELF, discharged by `native_decide` per address below. -/

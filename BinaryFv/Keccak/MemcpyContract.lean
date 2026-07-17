@@ -5,9 +5,9 @@ import BinaryFv.Keccak.HelperDecodeFacts
 import BinaryFv.Keccak.HelperArtifactFetch
 import BinaryFv.Keccak.HelperArithDispatch
 import BinaryFv.Keccak.LoopInduction
-import BinaryFv.RISCV.LoadExecuteContract
-import BinaryFv.RISCV.StoreByteExecuteContract
-import BinaryFv.RISCV.BlockStep
+import BinaryFv.RiscV.LoadExecuteContract
+import BinaryFv.RiscV.StoreByteExecuteContract
+import BinaryFv.RiscV.BlockStep
 
 /-!
 # The `memcpy` (0x10d18) byte-copy loop, proved through the authoritative generated `try_step`
@@ -39,8 +39,8 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
-open BinaryFv.RISCV.Sep
+open BinaryFv.RiscV
+open BinaryFv.RiscV.Sep
 open MemoryAccessType
 open mem_payload
 open page_based_mem_type

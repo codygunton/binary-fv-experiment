@@ -1,6 +1,6 @@
 import BinaryFv.Keccak.CoreTryStepContract
-import BinaryFv.RISCV.ControlFlowStep
-import BinaryFv.RISCV.SailEnumAux
+import BinaryFv.RiscV.ControlFlowStep
+import BinaryFv.RiscV.SailEnumAux
 
 /-!
 # Normal-execution `try_step` rules for control-flow instructions
@@ -32,7 +32,7 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-! ## Post-states of the generated base path -/
 

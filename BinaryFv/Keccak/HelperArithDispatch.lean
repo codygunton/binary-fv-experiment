@@ -1,4 +1,4 @@
-import BinaryFv.RISCV.ExecuteContract
+import BinaryFv.RiscV.ExecuteContract
 
 /-!
 # Concrete-register `execute` reductions for the helper arithmetic / move instructions
@@ -19,7 +19,7 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-! ## `addi a5, a5, 1` (memcpy 0x10d30, memset 0x10d50) — `i++` -/
 

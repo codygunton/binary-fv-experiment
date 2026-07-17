@@ -4,7 +4,7 @@ import Spec.Keccak.Keccak256
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 namespace RiscvSpec
 
@@ -16,7 +16,7 @@ structure Binary where
   layoutValid : Bool
   layout_valid : layoutValid = true
 
-def maxMessageSize : Nat := BinaryFv.RISCV.maxMessageSize
+def maxMessageSize : Nat := BinaryFv.RiscV.maxMessageSize
 
 inductive ExecutionError where
   | unsupportedMessage

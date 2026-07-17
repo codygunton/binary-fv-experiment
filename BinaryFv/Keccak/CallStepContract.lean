@@ -1,6 +1,6 @@
 import BinaryFv.Keccak.CallArtifactFetch
 import BinaryFv.Keccak.CoreBranchStepContract
-import BinaryFv.RISCV.RegisterFrame
+import BinaryFv.RiscV.RegisterFrame
 
 /-!
 # Artifact-backed CALL step contracts
@@ -43,7 +43,7 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-! ## Decode facts for the representative CALL words
 

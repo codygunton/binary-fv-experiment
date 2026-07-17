@@ -1,9 +1,9 @@
 import BinaryFv.Keccak.ArtifactFetch
-import BinaryFv.RISCV.FetchMmioLayout
+import BinaryFv.RiscV.FetchMmioLayout
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 open Register
 
 /--

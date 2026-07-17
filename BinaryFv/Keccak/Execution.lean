@@ -1,12 +1,12 @@
 import BinaryFv.Keccak.Artifact
-import BinaryFv.RISCV.Machine
+import BinaryFv.RiscV.Machine
 
 namespace BinaryFv.Keccak
 
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 def loadBytes (base : Nat) (bytes : ByteArray) : SailM Unit := do
   for h : index in [:bytes.size] do

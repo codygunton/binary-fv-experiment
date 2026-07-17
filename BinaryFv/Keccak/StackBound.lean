@@ -1,6 +1,6 @@
 import BinaryFv.Keccak.StackFrames
 import BinaryFv.Keccak.StackFlow
-import BinaryFv.RISCV.TryStepStackAddiContract
+import BinaryFv.RiscV.TryStepStackAddiContract
 
 /-!
 # Conditional stack-window machinery, and diagnostic static stack-flow summaries
@@ -42,7 +42,7 @@ the recorded frontiers and following the reachable call paths, neither of which 
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
@@ -161,7 +161,7 @@ theorem tryStepStackAddiWindow (state : State) (pc : BitVec 64) (immediate : Bit
 
 /-- **Conditional (execution form).**  The full generated `try_step` prologue contract *runs*, and
     its resulting state satisfies the depth-budget window invariant with `delta` more bytes consumed.
-    This is `BinaryFv.RISCV.tryStepStackAddiRetires` composed with `tryStepStackAddiWindow`.
+    This is `BinaryFv.RiscV.tryStepStackAddiRetires` composed with `tryStepStackAddiWindow`.
 
     Conditional on the caller-supplied budget premise `hbudget : used + delta ≤ stackPageSize`.  The
     execution content (an actual generated prologue step preserves the window) is unconditional; the
@@ -217,7 +217,7 @@ section: the window machinery and the `*_of_budget` frame exports are kernel-cle
 
 One honest caveat: `tryStepStackAddiRetiresInWindow` *does* also report those two axioms, but it
 inherits them from the upstream generated `try_step` contract
-(`BinaryFv.RISCV.tryStepStackAddiRetires`), not from this diagnostic section — that is the separate,
+(`BinaryFv.RiscV.tryStepStackAddiRetires`), not from this diagnostic section — that is the separate,
 pre-existing artifact-trust question tracked against the README policy, not a stack claim. -/
 
 /-- **Diagnostic, not a bound.**  Sum of the per-function `maximumExploredDownwardDelta` over the

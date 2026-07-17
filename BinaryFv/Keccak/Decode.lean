@@ -1,9 +1,9 @@
 import BinaryFv.Keccak.Execution
-import BinaryFv.RISCV.CFG
+import BinaryFv.RiscV.CFG
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register

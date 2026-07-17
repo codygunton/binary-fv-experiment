@@ -3,7 +3,7 @@ import Spec.Keccak.Keccak256
 
 namespace BinaryFv.Keccak.Concrete
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 def concreteFuel : Nat := 2_000_000
 

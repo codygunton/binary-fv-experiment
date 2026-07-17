@@ -39,8 +39,8 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
-open BinaryFv.RISCV.Sep
+open BinaryFv.RiscV
+open BinaryFv.RiscV.Sep
 open MemoryAccessType
 open mem_payload
 open page_based_mem_type

@@ -1,9 +1,9 @@
 import BinaryFv.Keccak.Artifact
-import BinaryFv.RISCV.Decode
-import BinaryFv.RISCV.FetchContract
+import BinaryFv.RiscV.Decode
+import BinaryFv.RiscV.FetchContract
 import Lean.Elab.Tactic.Omega
 
-namespace BinaryFv.RISCV
+namespace BinaryFv.RiscV
 
 private theorem fetchWord_of_image_bytes (byte0 byte1 byte2 byte3 : UInt8) :
     fetchWord (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
@@ -106,11 +106,11 @@ theorem fetchBytesAt_of_ownedEncodedWord (image : ProgramImage) (state : State)
 
 end ProgramImage
 
-end BinaryFv.RISCV
+end BinaryFv.RiscV
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /--
 Conditional parser-image facts sufficient for one generated fetch. This reconstructs bytes only;

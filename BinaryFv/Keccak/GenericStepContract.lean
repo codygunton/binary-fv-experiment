@@ -27,7 +27,7 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /--
 Generic `try_step` postlude, parameterized by the opaque post-execute state `afterExec`.

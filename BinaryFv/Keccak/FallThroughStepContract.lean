@@ -24,7 +24,7 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-! ## Fall-through: any retiring instruction that leaves `nextPC = pc + 4` -/
 

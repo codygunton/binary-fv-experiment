@@ -1,6 +1,6 @@
 import BinaryFv.Keccak.MemcpyContract
 import BinaryFv.Keccak.CopyFromSliceDispatch
-import BinaryFv.RISCV.RegisterOpExecuteContract
+import BinaryFv.RiscV.RegisterOpExecuteContract
 
 /-!
 # The equal-length `copy_from_slice_impl` (0x10c44) contract, through the authoritative `try_step`
@@ -39,7 +39,7 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 open MemoryAccessType
 open mem_payload
 open page_based_mem_type

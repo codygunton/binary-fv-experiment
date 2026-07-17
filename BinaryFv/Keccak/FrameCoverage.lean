@@ -1,6 +1,6 @@
 import BinaryFv.Keccak.CallClosure
 namespace BinaryFv.Keccak
-open BinaryFv.RISCV LeanRV64DExecutable.Functions
+open BinaryFv.RiscV LeanRV64DExecutable.Functions
 /-- Generated instruction constructors retained by the closed static inventory. -/
 inductive ExecutionConstructor where
   | illegal | compressedIllegal | landingPad | utype | jal | jalr | btype | itype | shiftIop

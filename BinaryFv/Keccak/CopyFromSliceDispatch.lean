@@ -1,4 +1,4 @@
-import BinaryFv.RISCV.ExecuteContract
+import BinaryFv.RiscV.ExecuteContract
 
 /-!
 # Concrete-register `execute` reductions for the `copy_from_slice_impl` live path
@@ -18,7 +18,7 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-- `mv a4, a1` = `addi a4, a1, 0` at `0x10c44` (save `dst_len` into `a4`). -/
 theorem execute_mv_a4_a1 (state : State) (a1Val : BitVec 64)

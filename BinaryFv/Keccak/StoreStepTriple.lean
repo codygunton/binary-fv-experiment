@@ -1,6 +1,6 @@
 import BinaryFv.Keccak.CoreStoreStepContract
 import BinaryFv.Keccak.StoreArtifactFetch
-import BinaryFv.RISCV.SepLogic
+import BinaryFv.RiscV.SepLogic
 
 /-!
 # CAPSTONE: a separation-logic `Triple` for the real ELF store `sd a3, 0(a0)`
@@ -8,7 +8,7 @@ import BinaryFv.RISCV.SepLogic
 This module states and proves the capstone theorem for the fixed real-ELF store
 `10cdc: 00d53023  sd a3, 0(a0)` (little-endian instruction bytes `23 30 d5 00`).  It composes the
 authoritative generated `try_step` rule delivered by `tryStepCoreStoreRetires` with the bespoke
-memory-only separation logic of `BinaryFv.RISCV.Sep`.
+memory-only separation logic of `BinaryFv.RiscV.Sep`.
 
 The theorem asserts, through the landed `Sep.Triple` API, that running the store through the
 generated `try_step`:
@@ -30,8 +30,8 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
-open BinaryFv.RISCV.Sep
+open BinaryFv.RiscV
+open BinaryFv.RiscV.Sep
 open MemoryAccessType
 open mem_payload
 open page_based_mem_type

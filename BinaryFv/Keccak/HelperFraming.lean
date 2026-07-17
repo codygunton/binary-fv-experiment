@@ -1,4 +1,4 @@
-import BinaryFv.RISCV.SepLogic
+import BinaryFv.RiscV.SepLogic
 
 /-!
 # Shared compositional framing for the memory helpers
@@ -13,7 +13,7 @@ separate pointwise `Std.ExtHashMap` induction, we thread one extra invariant fie
 memory delta relative to a fixed reference state — and lift it here to a clean frame statement.
 `MemFramed dst n s0 s` says `s` and `s0` agree at every address the `n`-byte destination fill does
 *not* write; combined with the destination-content postcondition it pins `s.mem` exactly.  This is
-the byte-memory analogue of the separation-logic frame (`BinaryFv.RISCV.Sep.bytes_none_outside`,
+the byte-memory analogue of the separation-logic frame (`BinaryFv.RiscV.Sep.bytes_none_outside`,
 `Triple.frame_preserved`): the owned window is `[dst, dst+n)` and the framed complement is
 everything else.
 
@@ -25,7 +25,7 @@ non-overlap premise.
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-- No-wraparound address arithmetic for an in-range destination offset: `(base + j)` as a machine
 word has `toNat` exactly `base.toNat + j` when that sum does not overflow.  (Self-contained twin of

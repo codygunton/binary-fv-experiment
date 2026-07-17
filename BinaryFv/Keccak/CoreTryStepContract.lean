@@ -1,13 +1,13 @@
 import BinaryFv.Keccak.CoreFetchMemoryContract
-import BinaryFv.RISCV.PostludePrimitives
-import BinaryFv.RISCV.StepContract
+import BinaryFv.RiscV.PostludePrimitives
+import BinaryFv.RiscV.StepContract
 
 namespace BinaryFv.Keccak
 
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-- The state after the generated `try_step` counter-increment write. -/
 def tryStepCoreXorAfterIncrement (state : State) : State :=

@@ -1,12 +1,12 @@
 import BinaryFv.Keccak.CoreStepContract
-import BinaryFv.RISCV.FetchMemoryContract
+import BinaryFv.RiscV.FetchMemoryContract
 
 namespace BinaryFv.Keccak
 
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-- Feed exact Machine sparse-RAM fetch through the fixed XOR instruction-retirement slice. -/
 theorem runHartActiveCoreXorRetiresWithFetchMemory (stepNo : Nat) (state : State)

@@ -1,5 +1,5 @@
 import BinaryFv.Keccak.CoreTryStepContract
-import BinaryFv.RISCV.StoreExecuteContract
+import BinaryFv.RiscV.StoreExecuteContract
 import BinaryFv.Keccak.StoreDecodeFact
 
 /-!
@@ -26,7 +26,7 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 open MemoryAccessType
 open mem_payload
 open page_based_mem_type

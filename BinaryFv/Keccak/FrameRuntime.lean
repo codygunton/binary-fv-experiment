@@ -1,12 +1,12 @@
 import BinaryFv.Keccak.FrameCoverage
-import BinaryFv.RISCV.ControlDispatchFrame
-import BinaryFv.RISCV.IntegerDispatchFrame
-import BinaryFv.RISCV.LoadFrame
-import BinaryFv.RISCV.StoreFrame
+import BinaryFv.RiscV.ControlDispatchFrame
+import BinaryFv.RiscV.IntegerDispatchFrame
+import BinaryFv.RiscV.LoadFrame
+import BinaryFv.RiscV.StoreFrame
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 open LeanRV64DExecutable.Functions
 open Register
 
@@ -15,7 +15,7 @@ def RuntimeX2Frame (decoded : instruction) : Prop :=
   PreservesStackPointer (execute decoded)
 
 private theorem runtime_x2_frame_of_pointwise (decoded : instruction)
-    (frame : ∀ (state : BinaryFv.RISCV.State),
+    (frame : ∀ (state : BinaryFv.RiscV.State),
       (match (execute decoded).run state with
       | .ok _ state' => state'.regs.get? x2
       | .error _ state' => state'.regs.get? x2) = state.regs.get? x2) :

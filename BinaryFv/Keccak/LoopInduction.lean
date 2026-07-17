@@ -1,4 +1,4 @@
-import BinaryFv.RISCV.Trace
+import BinaryFv.RiscV.Trace
 
 /-!
 # Invariant-carrying loop induction over `try_step` traces
@@ -14,7 +14,7 @@ This is the loop combinator used by every helper/permutation loop in the Keccak 
 proof.
 -/
 
-namespace BinaryFv.RISCV
+namespace BinaryFv.RiscV
 
 open PreSail
 open LeanRV64DExecutable.Functions
@@ -49,4 +49,4 @@ theorem Trace.invariantIterate_then {L start exitLen : Nat} {Inv : Nat → State
   obtain ⟨sExit, hexit, hpost⟩ := exit sN hInvN
   exact ⟨sExit, Trace.append htr hexit, hpost⟩
 
-end BinaryFv.RISCV
+end BinaryFv.RiscV

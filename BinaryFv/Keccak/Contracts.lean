@@ -1,12 +1,12 @@
 import BinaryFv.Keccak.Decode
-import BinaryFv.RISCV.Framing
+import BinaryFv.RiscV.Framing
 
 namespace BinaryFv.Keccak.Contracts
 
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 abbrev r16 : regidx := .Regidx 16#5
 abbrev r19 : regidx := .Regidx 19#5

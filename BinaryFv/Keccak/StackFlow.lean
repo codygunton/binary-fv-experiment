@@ -2,7 +2,7 @@ import BinaryFv.Keccak.CallClosure
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 def syntacticClosureStackWritesClassified (sets : Array FunctionWordSet) (closure : Array Nat) :
     Bool :=

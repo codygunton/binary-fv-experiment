@@ -1,9 +1,9 @@
 import BinaryFv.Keccak.Decode
-import BinaryFv.RISCV.Stack
+import BinaryFv.RiscV.Stack
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-- Parser-owned executable function symbols, without target names or addresses. -/
 def artifactFunctions : Except ArtifactDecodeError (Array StaticSymbol) := do

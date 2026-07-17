@@ -2,7 +2,7 @@ import BinaryFv.Keccak.Decode
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 open LeanRV64DExecutable.Functions
 
 /--

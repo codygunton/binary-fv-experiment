@@ -1,12 +1,12 @@
-import BinaryFv.RISCV.HartPrimitives
-import BinaryFv.RISCV.Framing
+import BinaryFv.RiscV.HartPrimitives
+import BinaryFv.RiscV.Framing
 
 namespace BinaryFv.Keccak
 
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /--
 The generated Sail decoder maps the concrete `sd a3, 0(a0)` instruction word `0x00d53023` to the

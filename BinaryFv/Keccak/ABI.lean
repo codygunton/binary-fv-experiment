@@ -1,8 +1,8 @@
-import BinaryFv.RISCV.Address
+import BinaryFv.RiscV.Address
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 def digestSize : Nat := 32
 

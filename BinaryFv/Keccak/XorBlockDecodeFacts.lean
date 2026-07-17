@@ -22,7 +22,7 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-- The shared decode-run tactic: unfold the run, rewrite to the backwards decoder, evaluate the
 `Ext_Zicfilp` gate against the two register-presence facts, and close by reflexivity. -/

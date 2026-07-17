@@ -2,7 +2,7 @@ import BinaryFv.Keccak.Stack
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 def parserFunctionAtAddress? (functions : Array StaticSymbol) (address : Nat) :
     Option StaticSymbol :=

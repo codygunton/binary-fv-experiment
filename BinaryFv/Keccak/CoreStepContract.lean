@@ -1,13 +1,13 @@
 import BinaryFv.Keccak.Contracts
-import BinaryFv.RISCV.FetchContract
-import BinaryFv.RISCV.HartPrimitives
+import BinaryFv.RiscV.FetchContract
+import BinaryFv.RiscV.HartPrimitives
 
 namespace BinaryFv.Keccak
 
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 open FetchBytes_Result
 open FetchResult
 

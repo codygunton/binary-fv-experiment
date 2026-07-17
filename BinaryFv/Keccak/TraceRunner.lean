@@ -1,5 +1,5 @@
 import BinaryFv.Keccak.Execution
-import BinaryFv.RISCV.Trace
+import BinaryFv.RiscV.Trace
 
 /-!
 # Sentinel trace runner correspondence
@@ -14,7 +14,7 @@ namespace BinaryFv.Keccak
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-- A bundled trace that runs `try_step`s until the machine's PC equals `sentinel`, carrying the
 invariant that PC is defined and not the sentinel at every non-final state. -/

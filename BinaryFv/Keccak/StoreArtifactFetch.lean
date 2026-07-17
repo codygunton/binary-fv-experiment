@@ -12,7 +12,7 @@ trust policy used by the existing artifact regressions.
 
 namespace BinaryFv.Keccak
 
-open BinaryFv.RISCV
+open BinaryFv.RiscV
 
 /-- The `xor_block` store, as a parser-level encoded word: `sd a3, 0(a0)` at `0x10cdc`. -/
 def sdStoreWord : EncodedWord := { address := 0x10cdc, bits := 0x00d53023 }

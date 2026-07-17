@@ -67,7 +67,7 @@ lake build repl
 lake build BinaryFv
 ```
 
-`BinaryFv.RISCV` contains generic bounded ELF parsing, image loading, and generated Sail support.
+`BinaryFv.RiscV` contains generic bounded ELF parsing, image loading, and generated Sail support.
 `BinaryFv.Keccak` owns target-specific parsed-symbol and ABI facts. No Reth address or opcode is
 proof input: the parser derives `reth_keccak256` from the embedded ELF.
 

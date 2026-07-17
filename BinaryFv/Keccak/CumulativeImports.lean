@@ -14,9 +14,9 @@ import BinaryFv.Keccak.StoreStepTriple
 import BinaryFv.Keccak.TraceRunner
 import BinaryFv.Keccak.XorBlockDecodeFacts
 import BinaryFv.Keccak.XorBlockArtifactFetch
-import BinaryFv.RISCV.TryStepFetchMemoryContract
-import BinaryFv.RISCV.DecodeFrame
-import BinaryFv.RISCV.ShiftOrExecuteContract
+import BinaryFv.RiscV.TryStepFetchMemoryContract
+import BinaryFv.RiscV.DecodeFrame
+import BinaryFv.RiscV.ShiftOrExecuteContract
 
 /-!
 # Cumulative import / co-elaboration check
@@ -50,7 +50,7 @@ That is precisely what happened here: `bv_decide`'s enum preprocessing pass inde
 `Register.enumToBitVec` / `Register.eq_iff_enumToBitVec_eq` (and the same pair for `Privilege`) in
 both `MemcpyContract` and `CallStepContract`, which made the inherited call imports un-restorable in
 `BinaryFv.lean` until the auxiliaries were hoisted into the shared ancestor
-`BinaryFv.RISCV.SailEnumAux`.
+`BinaryFv.RiscV.SailEnumAux`.
 
 Because per-module builds cannot detect this class of breakage, and a root manifest can be made to
 "pass" simply by dropping the offending import, this module pins the property down explicitly: the
