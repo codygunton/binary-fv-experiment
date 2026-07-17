@@ -60,7 +60,7 @@ All compared ELFs use `RV64IM_Zicclsm` and `lp64`; the checked toolchain is GCC 
 
 ## Corrected SSZ candidate and conformance evidence
 
-`reports/ssz-field-correspondence.md` freezes the Amsterdam V4 schema and the deterministic,
+`targets/ssz/zesu/docs/field-correspondence.md` freezes the Amsterdam V4 schema and the deterministic,
 complete `ssz-value-v1` record protocol. The raw Zesu type preserves all 256 bits of base fee,
 chain ID zero, activation optionals, blob schedule, typed execution requests, fixed vectors, and
 every variable byte/list value. Its separate production adapter continues to perform RLP
@@ -179,19 +179,19 @@ nix build .#reth-keccak --out-link build/reth-keccak
 nix flake check
 
 # Lean/SizzLean bridge
-(cd specs/ssz-bridge && lake build repl && lake build ssz_bridge ssz_bridge_test && lake exe ssz_bridge_test)
+(cd targets/ssz/zesu/spec && lake build repl && lake build ssz_bridge ssz_bridge_test && lake exe ssz_bridge_test)
 
 # With a `uv sync --locked` environment for the pinned execution-specs revision:
 PY=/path/to/execution-specs/.venv/bin/python
 nix build .#zesu-value --out-link build/zesu-ssz-value
-"$PY" -B tests/ssz_differential_audit.py \\
+"$PY" -B targets/ssz/zesu/tests/ssz_differential_audit.py \\
   --reference-python "$PY" \\
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \\
-  --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
-"$PY" -B tests/ssz_boundary_audit.py --extended \\
+  --lean-binary targets/ssz/zesu/spec/.lake/build/bin/ssz_bridge
+"$PY" -B targets/ssz/zesu/tests/ssz_boundary_audit.py --extended \\
   --reference-python "$PY" \\
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \\
-  --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
+  --lean-binary targets/ssz/zesu/spec/.lake/build/bin/ssz_bridge
 ```
 
 ## Retained future theorem shape

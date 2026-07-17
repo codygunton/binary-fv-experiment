@@ -1,20 +1,10 @@
 {
-  description = "Reproducible RV64 binary evaluation and Keccak compliance scaffold";
+  description = "Reproducible RV64 binary compliance proofs for Keccak and SSZ";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    tiny-sha3 = {
-      url = "github:mjosaarinen/tiny_sha3/dcbb3192047c2a721f5f851db591871d428036a9";
-      flake = false;
-    };
-
-    miniz = {
-      url = "github:richgel999/miniz/77d0dce8627735138c51770d1799a1ef48f2117d";
-      flake = false;
-    };
-
-    # Candidate and audit sources are pinned independently of the proof stack.
+    # Target and audit sources are pinned independently of the proof stack.
     reth = {
       url = "github:paradigmxyz/reth/9384bc53d8c0c77e59cac83fdaaf3b372c6d2216";
       flake = false;
@@ -56,8 +46,6 @@
   outputs = {
     self,
     nixpkgs,
-    tiny-sha3,
-    miniz,
     reth,
     zesu,
     zesuRepaired,
@@ -79,11 +67,10 @@
       packagesFor = system: pkgs:
         let
           rv64 = import ./nix/riscv.nix {
-            inherit pkgs repo;
-            source = self;
+            inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit miniz pkgs repo reth rv64 tiny-sha3 zesu zesuRepaired;
+            inherit pkgs repo reth rv64 zesu zesuRepaired;
             source = self;
           };
           analysis = import ./nix/analysis.nix {
@@ -112,11 +99,10 @@
       devShells = forAllSystems (system: pkgs:
         let
           rv64 = import ./nix/riscv.nix {
-            inherit pkgs repo;
-            source = self;
+            inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit miniz pkgs repo reth rv64 tiny-sha3 zesu zesuRepaired;
+            inherit pkgs repo reth rv64 zesu zesuRepaired;
             source = self;
           };
           proof = import ./nix/proof.nix {

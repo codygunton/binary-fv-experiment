@@ -1,8 +1,6 @@
 { pkgs
 , source
 , repo
-, tiny-sha3
-, miniz
 , reth
 , zesu
 , zesuRepaired
@@ -12,7 +10,6 @@ let
   inherit (rv64)
     cflags
     lib
-    mkBinary
     qemuRiscv64
     riscvBinutils
     riscvCc
@@ -62,7 +59,7 @@ let
   rethKeccakRust = pkgs.rustPlatform.buildRustPackage {
     pname = "reth-keccak-rustcrypto-rv64im";
     version = "2.3.0";
-    src = repo + "/reth-keccak";
+    src = repo + "/targets/keccak/reth-rustcrypto/wrapper";
     cargoHash = "sha256-MmGOI6g2PWXNbL55+Q+v6+OYIRBtjTbMT7D+OmyLoJQ=";
     nativeBuildInputs = [ pkgs.cargo rustcWithBuildStd rethProvenance ];
     RUSTC = "${rustcWithBuildStd}/bin/rustc";
@@ -115,42 +112,6 @@ let
     '';
   };
 
-  sha3 = mkBinary {
-    name = "sha3";
-    srcRoot = tiny-sha3;
-    sourceFile = "sha3.c";
-    entrypoint = repo + "/harness/sha3.c";
-    selectedSymbols = [
-      "sha3_keccakf"
-      "sha3_init"
-      "sha3_update"
-      "sha3_final"
-      "sha3"
-      "main"
-    ];
-  };
-
-  tinfl = mkBinary {
-    name = "tinfl";
-    srcRoot = miniz;
-    sourceFile = "miniz_tinfl.c";
-    entrypoint = repo + "/harness/tinfl.c";
-    includes = [ (repo + "/include") ];
-    extraCFlags = [
-      "-DMINIZ_NO_TIME"
-      "-DMINIZ_NO_STDIO"
-      "-DMINIZ_NO_MALLOC"
-      "-DMINIZ_NO_ARCHIVE_APIS"
-      "-DMINIZ_NO_DEFLATE_APIS"
-      "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES"
-    ];
-    selectedSymbols = [
-      "tinfl_decompress"
-      "tinfl_decompress_mem_to_mem"
-      "main"
-    ];
-  };
-
   rethKeccak = pkgs.stdenvNoCC.mkDerivation {
     pname = "reth-keccak-rv64im-zicclsm";
     version = "2.3.0";
@@ -175,11 +136,11 @@ let
       export NIX_HARDENING_ENABLE=""
       cp ${rethProvenance}/provenance.txt "$out/meta/provenance.txt"
 
-      ${riscvCc} ${cflags} -c ${repo}/harness/reth_keccak.c \
+      ${riscvCc} ${cflags} -c ${repo}/targets/keccak/reth-rustcrypto/adapter/main.c \
         -o "$out/obj/reth-keccak-main.o"
-      ${riscvCc} ${cflags} -c ${repo}/harness/riscv64_runtime.c \
+      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_runtime.c \
         -o "$out/obj/riscv64_runtime.o"
-      ${riscvCc} ${cflags} -c ${repo}/harness/riscv64_start.S \
+      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_start.S \
         -o "$out/obj/riscv64_start.o"
 
       ${riscvCc} ${cflags} -nostdlib -static -no-pie \
@@ -197,10 +158,10 @@ let
       ${riscvReadelf} -h "$out/bin/reth-keccak" > "$out/meta/elf-header.txt"
       ${riscvReadelf} -A "$out/bin/reth-keccak" > "$out/meta/elf-attributes.txt"
       ${riscvNm} -S --size-sort --radix=d "$out/bin/reth-keccak" > "$out/meta/symbols.txt"
-      ${pkgs.python3}/bin/python ${repo}/tools/check_reth_keccak.py \
+      ${pkgs.python3}/bin/python ${repo}/targets/keccak/reth-rustcrypto/tests/check_vectors.py \
         --qemu ${qemuRiscv64} \
         --binary "$out/bin/reth-keccak" \
-        --vectors ${repo}/tests/reth-keccak-vectors.json
+        --vectors ${repo}/targets/keccak/reth-rustcrypto/tests/vectors.json
 
       runHook postInstall
     '';
@@ -345,11 +306,11 @@ let
         "$out/obj/zesu-raw-ssz-decoder.o"
       cp ${zesuRawObject}/obj/zesu-raw-ssz-sink.o \
         "$out/obj/zesu-raw-ssz-sink.o"
-      ${riscvCc} ${cflags} -c ${repo}/harness/zesu_ssz.c \
+      ${riscvCc} ${cflags} -c ${repo}/targets/ssz/zesu/adapter/main.c \
         -o "$out/obj/zesu-ssz-main.o"
-      ${riscvCc} ${cflags} -c ${repo}/harness/riscv64_runtime.c \
+      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_runtime.c \
         -o "$out/obj/riscv64_runtime.o"
-      ${riscvCc} ${cflags} -c ${repo}/harness/riscv64_start.S \
+      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_start.S \
         -o "$out/obj/riscv64_start.o"
       ${riscvCc} ${cflags} -nostdlib -static -no-pie \
         "$out/obj/riscv64_start.o" \
@@ -411,7 +372,7 @@ let
     checkPhase = ''
       runHook preCheck
       ${pkgs.python3}/bin/python -B \
-        ${repo}/tests/ssz_sink_observability.py \
+        ${repo}/targets/ssz/zesu/tests/ssz_sink_observability.py \
         --qemu ${qemuRiscv64} \
         --binary ${zesuSsz}/bin/zesu-ssz
       runHook postCheck
@@ -518,22 +479,6 @@ let
     '';
   };
 
-  sha3Run = pkgs.writeShellApplication {
-    name = "sha3";
-    runtimeInputs = [ pkgs.qemu-user ];
-    text = ''
-      exec qemu-riscv64 ${sha3}/bin/sha3 "$@"
-    '';
-  };
-
-  tinflRun = pkgs.writeShellApplication {
-    name = "tinfl";
-    runtimeInputs = [ pkgs.qemu-user ];
-    text = ''
-      exec qemu-riscv64 ${tinfl}/bin/tinfl "$@"
-    '';
-  };
-
   rethKeccakRun = pkgs.writeShellApplication {
     name = "reth-keccak";
     runtimeInputs = [ pkgs.qemu-user ];
@@ -555,10 +500,6 @@ in
     inherit
       rethKeccak
       rethKeccakRun
-      sha3
-      sha3Run
-      tinfl
-      tinflRun
       zesuNativeSuite
       zesuProductionObject
       zesuRawObject

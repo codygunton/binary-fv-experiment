@@ -1,4 +1,5 @@
 /build/
+/.worktrees/
 /third_party/
 /result
 /result-*
