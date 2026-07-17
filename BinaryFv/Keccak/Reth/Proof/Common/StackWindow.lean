@@ -1,6 +1,6 @@
-import BinaryFv.Keccak.Reth.Artifact.Analysis.StackFlowDiagnostics
+import BinaryFv.Keccak.Reth.Analysis.StackFlowDiagnostics
 import BinaryFv.Keccak.Reth.Proof.Common.StackFrames
-import BinaryFv.Keccak.Reth.Artifact.Analysis.StackFlow
+import BinaryFv.Keccak.Reth.Analysis.StackFlow
 import BinaryFv.RiscV.Step.TryStepStackAddi
 
 /-!
@@ -30,7 +30,7 @@ Two independent kinds of content live here, and they must not be confused:
 2. **Diagnostic evidence** — `frontierSummaryTotalDownwardDelta`,
    `frontierSummaryMaxSingleDownwardDelta`, and the `diagnostic_*` facts about them.  These are
    closed parser facts about the **frontier-truncated** closure summaries of
-   `BinaryFv.Keccak.Reth.Artifact.Analysis.StackFlow`.  As that module states, `maximumExploredDownwardDelta` is not a
+   `BinaryFv.Keccak.Reth.Analysis.StackFlow`.  As that module states, `maximumExploredDownwardDelta` is not a
    local, runtime, or global stack bound: calls and other frontiers deliberately truncate the
    explored state set.  Summing truncated per-function summaries is therefore **evidence about a
    truncated exploration, not a theorem about all call paths**.  Accordingly these facts are named
@@ -170,7 +170,7 @@ theorem tryStepStackAddiRetiresInWindow (stepNo : Nat) (state : State) (pc : Bit
 /-! ## Diagnostic summaries of the frontier-truncated static flow
 
 **Nothing in this section is a stack bound.**  These are closed parser facts about the
-frontier-truncated closure summaries of `BinaryFv.Keccak.Reth.Artifact.Analysis.StackFlow`, recorded as evidence and as a
+frontier-truncated closure summaries of `BinaryFv.Keccak.Reth.Analysis.StackFlow`, recorded as evidence and as a
 regression tripwire on the static analysis.  They are deliberately *not* used to discharge any
 budget premise, because they cannot: the underlying exploration is truncated at calls and other
 frontiers, so a per-function `maximumExploredDownwardDelta` is not a per-function stack bound and

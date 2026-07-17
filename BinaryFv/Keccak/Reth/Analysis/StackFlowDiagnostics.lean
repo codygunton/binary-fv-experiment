@@ -1,4 +1,4 @@
-import BinaryFv.Keccak.Reth.Artifact.Analysis.StackFlow
+import BinaryFv.Keccak.Reth.Analysis.StackFlow
 import BinaryFv.Keccak.Reth.Artifact.Layout
 
 /-!

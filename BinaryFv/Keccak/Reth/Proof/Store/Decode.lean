@@ -21,7 +21,7 @@ The decoder is not fully state independent: before any opcode matching it evalua
 throws `Unreachable` when they are absent, so the two register-presence hypotheses below are
 required (they hold on any configured machine, e.g. after `configureDirectCallMachine`).  This is a
 `Runs` fact directly usable to discharge the `decode` hypothesis of the `try_step` packaging
-(`CoreStepContract`, `CoreTryStepContract`, ...).
+(`BinaryFv.RiscV.Step.TryStep` and the per-instruction step contracts built on it).
 -/
 theorem ext_decode_sd_run (state : State)
     (privRead : state.regs.get? cur_privilege = some Privilege.Machine)

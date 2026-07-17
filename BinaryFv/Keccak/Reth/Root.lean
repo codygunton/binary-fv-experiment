@@ -77,8 +77,11 @@ Note, however, that the artifact exception is **not** the only source of the two
 `bv_decide` checks its LRAT certificate via `Lean.reduceBool`, so any `bv_decide` call reaching the
 SAT backend contributes `ofReduceBool`/`trustCompiler` independently of any artifact (e.g.
 `assemble_leWord`, a pure `BitVec` identity, carries both). Removing the artifact `native_decide`
-facts alone would therefore not clear these axioms from the capstones. Whether to additionally
-constrain `bv_decide` is a separate, still-open decision; see README "Fixed-artifact trust policy".
+facts alone would therefore not clear these axioms from the capstones. The maintainer accepts the
+native `bv_decide` certificate checker in the trusted base for this proof-of-concept; issue #26
+tracks the audit and the decision whether to retain or remove that trust in the final project. That
+approval is separate from the closed-artifact exception above; see README "Fixed-artifact trust
+policy".
 
 The `sorry` below is the authorized scaffold placeholder: `RiscvSpec.execute` is still a stub, and is
 replaced by the Sail-execution layer (ELF loading, ABI setup, stepping, fuel, output extraction).

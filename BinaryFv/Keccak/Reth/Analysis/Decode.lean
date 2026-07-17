@@ -1,3 +1,4 @@
+import BinaryFv.Keccak.Reth.Artifact.Facts.Words
 import BinaryFv.Keccak.Reth.Execution.DirectCall
 import BinaryFv.RiscV.ELF.CFG
 
@@ -7,29 +8,6 @@ open BinaryFv.RiscV
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-
-inductive ArtifactDecodeError where
-  | elf (error : ElfError)
-  | decode (error : DecodeError)
-  | noUniqueLargestFunction
-deriving DecidableEq
-
-/-- The complete executable instruction stream, derived solely from the embedded ELF parser. -/
-def artifactWords : Except ArtifactDecodeError (Array EncodedWord) := do
-  let elf ← Artifact.parsed.mapError .elf
-  elf.executableWords.mapError .decode
-
-/-- The portable core is selected structurally from parser-retained executable function symbols. -/
-def portableCore : Except ArtifactDecodeError StaticSymbol := do
-  let elf ← Artifact.parsed.mapError .elf
-  let some core := elf.uniqueLargestExecutableFunction? | throw .noUniqueLargestFunction
-  pure core
-
-def portableCoreWords : Except ArtifactDecodeError (Array EncodedWord) := do
-  let core ← portableCore
-  let words ← artifactWords
-  pure (words.filter fun word =>
-    core.value ≤ word.address && word.address + 4 ≤ core.value + core.size)
 
 def decodeWithCanonicalConfiguration (words : Array EncodedWord) : Option (Array DecodedWord) :=
   match (do

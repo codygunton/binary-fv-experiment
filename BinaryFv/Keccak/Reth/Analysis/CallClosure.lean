@@ -1,4 +1,4 @@
-import BinaryFv.Keccak.Reth.Artifact.Analysis.FunctionWordSets
+import BinaryFv.Keccak.Reth.Analysis.FunctionWordSets
 import BinaryFv.RiscV.Analysis.CallGraph
 
 /-!
