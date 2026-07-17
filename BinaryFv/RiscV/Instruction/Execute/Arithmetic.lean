@@ -104,4 +104,209 @@ theorem execute_UTYPE_lui_run (state sFinal : State) (imm : BitVec 20) (rd : reg
   refine Runs.bind hwrite ?_
   rfl
 
+/-- The generated full-width M-extension multiplication result. -/
+def mulResult (op : mul_op) (rs1Val rs2Val : BitVec 64) : BitVec 64 :=
+  mult_to_bits_half (l := LeanRV64DExecutable.Functions.xlen) op.signed_rs1 op.signed_rs2
+    rs1Val rs2Val op.result_part
+
+/-- Every generated full-width M-extension multiply variant shares one contract. -/
+theorem execute_MUL_run (state sFinal : State) (rs2 rs1 rd : regidx) (op : mul_op)
+    (rs1Val rs2Val : BitVec 64)
+    (hrs1 : Runs (rX_bits rs1) state state rs1Val)
+    (hrs2 : Runs (rX_bits rs2) state state rs2Val)
+    (hwrite : Runs (wX_bits rd (mulResult op rs1Val rs2Val)) state sFinal ()) :
+    Runs (execute_MUL rs2 rs1 rd op) state sFinal (.Retire_Success ()) := by
+  have calculated : Runs
+      (rX_bits rs1 >>= fun rs1Value =>
+        rX_bits rs2 >>= fun rs2Value =>
+          wX_bits rd (mulResult op rs1Value rs2Value) >>= fun _ => pure RETIRE_SUCCESS)
+      state sFinal (.Retire_Success ()) :=
+    Runs.bind hrs1 (Runs.bind hrs2 (Runs.bind hwrite rfl))
+  simpa only [execute_MUL, mulResult] using calculated
+
+/-- The generated full-width division result, including the RISC-V divide-by-zero and overflow rules. -/
+def divResult (isUnsigned : Bool) (rs1Bits rs2Bits : BitVec 64) : BitVec 64 :=
+  let rs1Int := if isUnsigned then Sail.BitVec.toNatInt rs1Bits else BitVec.toInt rs1Bits
+  let rs2Int := if isUnsigned then Sail.BitVec.toNatInt rs2Bits else BitVec.toInt rs2Bits
+  let quotient := if rs2Int == 0 then -1 else Int.tdiv rs1Int rs2Int
+  let quotient := if (LeanRV64DExecutable.Functions.not isUnsigned) && (quotient ≥b (2 ^i
+      (LeanRV64DExecutable.Functions.xlen -i 1)))
+    then -(2 ^i (LeanRV64DExecutable.Functions.xlen -i 1)) else quotient
+  to_bits_truncate (l := 64) quotient
+
+/-- Both generated full-width division variants share one contract. -/
+theorem execute_DIV_run (state sFinal : State) (rs2 rs1 rd : regidx) (isUnsigned : Bool)
+    (rs1Val rs2Val : BitVec 64)
+    (hrs1 : Runs (rX_bits rs1) state state rs1Val)
+    (hrs2 : Runs (rX_bits rs2) state state rs2Val)
+    (hwrite : Runs (wX_bits rd (divResult isUnsigned rs1Val rs2Val)) state sFinal ()) :
+    Runs (execute_DIV rs2 rs1 rd isUnsigned) state sFinal (.Retire_Success ()) := by
+  have calculated : Runs
+      (rX_bits rs1 >>= fun rs1Value =>
+        rX_bits rs2 >>= fun rs2Value =>
+          wX_bits rd (divResult isUnsigned rs1Value rs2Value) >>= fun _ => pure RETIRE_SUCCESS)
+      state sFinal (.Retire_Success ()) :=
+    Runs.bind hrs1 (Runs.bind hrs2 (Runs.bind hwrite rfl))
+  simpa only [execute_DIV, divResult] using calculated
+
+/-- The generated full-width remainder result, including the RISC-V divide-by-zero rule. -/
+def remResult (isUnsigned : Bool) (rs1Bits rs2Bits : BitVec 64) : BitVec 64 :=
+  let rs1Int := if isUnsigned then Sail.BitVec.toNatInt rs1Bits else BitVec.toInt rs1Bits
+  let rs2Int := if isUnsigned then Sail.BitVec.toNatInt rs2Bits else BitVec.toInt rs2Bits
+  let remainder := if rs2Int == 0 then rs1Int else Int.tmod rs1Int rs2Int
+  to_bits_truncate (l := 64) remainder
+
+/-- Both generated full-width remainder variants share one contract. -/
+theorem execute_REM_run (state sFinal : State) (rs2 rs1 rd : regidx) (isUnsigned : Bool)
+    (rs1Val rs2Val : BitVec 64)
+    (hrs1 : Runs (rX_bits rs1) state state rs1Val)
+    (hrs2 : Runs (rX_bits rs2) state state rs2Val)
+    (hwrite : Runs (wX_bits rd (remResult isUnsigned rs1Val rs2Val)) state sFinal ()) :
+    Runs (execute_REM rs2 rs1 rd isUnsigned) state sFinal (.Retire_Success ()) := by
+  have calculated : Runs
+      (rX_bits rs1 >>= fun rs1Value =>
+        rX_bits rs2 >>= fun rs2Value =>
+          wX_bits rd (remResult isUnsigned rs1Value rs2Value) >>= fun _ => pure RETIRE_SUCCESS)
+      state sFinal (.Retire_Success ()) :=
+    Runs.bind hrs1 (Runs.bind hrs2 (Runs.bind hwrite rfl))
+  simpa only [execute_REM, remResult] using calculated
+
+/-- The generated `addiw` result: add at XLEN, retain its low word, then sign-extend it. -/
+def addiwResult (imm : BitVec 12) (rs1Val : BitVec 64) : BitVec 64 :=
+  sign_extend (m := 64)
+    (Sail.BitVec.extractLsb (rs1Val + sign_extend (m := 64) imm) 31 0)
+
+/-- `addiw` has the generated word-truncation adapter between its register read and write. -/
+theorem execute_ADDIW_run (state sFinal : State) (imm : BitVec 12) (rs1 rd : regidx)
+    (rs1Val : BitVec 64)
+    (hrs1 : Runs (rX_bits rs1) state state rs1Val)
+    (hwrite : Runs (wX_bits rd (addiwResult imm rs1Val)) state sFinal ()) :
+    Runs (execute_ADDIW imm rs1 rd) state sFinal (.Retire_Success ()) := by
+  simp only [addiwResult] at hwrite
+  have calculated : Runs
+      (rX_bits rs1 >>= fun rs1Val =>
+        pure (rs1Val + sign_extend (m := 64) imm) >>= fun result =>
+          wX_bits rd (sign_extend (m := 64) (Sail.BitVec.extractLsb result 31 0)) >>= fun _ =>
+            pure RETIRE_SUCCESS)
+      state sFinal (.Retire_Success ()) :=
+    Runs.bind hrs1 (Runs.bind rfl (Runs.bind hwrite rfl))
+  simpa only [execute_ADDIW] using calculated
+
+/-- The generated RV64 word-register result, sign-extended back to XLEN. -/
+def rTypeWResult (op : ropw) (rs1Val rs2Val : BitVec 64) : BitVec 64 :=
+  let rs1Word := Sail.BitVec.extractLsb rs1Val 31 0
+  let rs2Word := Sail.BitVec.extractLsb rs2Val 31 0
+  let result :=
+    match op with
+    | .ADDW => rs1Word + rs2Word
+    | .SUBW => rs1Word - rs2Word
+    | .SLLW => Sail.shift_bits_left rs1Word (Sail.BitVec.extractLsb rs2Word 4 0)
+    | .SRLW => Sail.shift_bits_right rs1Word (Sail.BitVec.extractLsb rs2Word 4 0)
+    | .SRAW => shift_bits_right_arith rs1Word (Sail.BitVec.extractLsb rs2Word 4 0)
+  sign_extend (m := 64) result
+
+/- All generated RV64 word-register arithmetic variants share one contract. -/
+theorem execute_RTYPEW_run (state sFinal : State) (rs2 rs1 rd : regidx) (op : ropw)
+    (rs1Val rs2Val : BitVec 64)
+    (hrs1 : Runs (rX_bits rs1) state state rs1Val)
+    (hrs2 : Runs (rX_bits rs2) state state rs2Val)
+    (hwrite : Runs (wX_bits rd (rTypeWResult op rs1Val rs2Val)) state sFinal ()) :
+    Runs (execute_RTYPEW rs2 rs1 rd op) state sFinal (.Retire_Success ()) := by
+  cases op <;> simp only [rTypeWResult] at hwrite
+  · have calculated : Runs
+        (rX_bits rs1 >>= fun rs1Value =>
+          pure (Sail.BitVec.extractLsb rs1Value 31 0) >>= fun rs1Word =>
+            rX_bits rs2 >>= fun rs2Value =>
+              pure (Sail.BitVec.extractLsb rs2Value 31 0) >>= fun rs2Word =>
+                wX_bits rd (sign_extend (m := 64) (rs1Word + rs2Word)) >>= fun _ =>
+                  pure RETIRE_SUCCESS)
+        state sFinal (.Retire_Success ()) :=
+      Runs.bind hrs1 (Runs.bind rfl (Runs.bind hrs2 (Runs.bind rfl (Runs.bind hwrite rfl))))
+    simpa only [execute_RTYPEW] using calculated
+  · have calculated : Runs
+        (rX_bits rs1 >>= fun rs1Value =>
+          pure (Sail.BitVec.extractLsb rs1Value 31 0) >>= fun rs1Word =>
+            rX_bits rs2 >>= fun rs2Value =>
+              pure (Sail.BitVec.extractLsb rs2Value 31 0) >>= fun rs2Word =>
+                wX_bits rd (sign_extend (m := 64) (rs1Word - rs2Word)) >>= fun _ =>
+                  pure RETIRE_SUCCESS)
+        state sFinal (.Retire_Success ()) :=
+      Runs.bind hrs1 (Runs.bind rfl (Runs.bind hrs2 (Runs.bind rfl (Runs.bind hwrite rfl))))
+    simpa only [execute_RTYPEW] using calculated
+  · have calculated : Runs
+        (rX_bits rs1 >>= fun rs1Value =>
+          pure (Sail.BitVec.extractLsb rs1Value 31 0) >>= fun rs1Word =>
+            rX_bits rs2 >>= fun rs2Value =>
+              pure (Sail.BitVec.extractLsb rs2Value 31 0) >>= fun rs2Word =>
+                wX_bits rd (sign_extend (m := 64)
+                  (Sail.shift_bits_left rs1Word (Sail.BitVec.extractLsb rs2Word 4 0))) >>= fun _ =>
+                    pure RETIRE_SUCCESS)
+        state sFinal (.Retire_Success ()) :=
+      Runs.bind hrs1 (Runs.bind rfl (Runs.bind hrs2 (Runs.bind rfl (Runs.bind hwrite rfl))))
+    simpa only [execute_RTYPEW] using calculated
+  · have calculated : Runs
+        (rX_bits rs1 >>= fun rs1Value =>
+          pure (Sail.BitVec.extractLsb rs1Value 31 0) >>= fun rs1Word =>
+            rX_bits rs2 >>= fun rs2Value =>
+              pure (Sail.BitVec.extractLsb rs2Value 31 0) >>= fun rs2Word =>
+                wX_bits rd (sign_extend (m := 64)
+                  (Sail.shift_bits_right rs1Word (Sail.BitVec.extractLsb rs2Word 4 0))) >>= fun _ =>
+                    pure RETIRE_SUCCESS)
+        state sFinal (.Retire_Success ()) :=
+      Runs.bind hrs1 (Runs.bind rfl (Runs.bind hrs2 (Runs.bind rfl (Runs.bind hwrite rfl))))
+    simpa only [execute_RTYPEW] using calculated
+  · have calculated : Runs
+        (rX_bits rs1 >>= fun rs1Value =>
+          pure (Sail.BitVec.extractLsb rs1Value 31 0) >>= fun rs1Word =>
+            rX_bits rs2 >>= fun rs2Value =>
+              pure (Sail.BitVec.extractLsb rs2Value 31 0) >>= fun rs2Word =>
+                wX_bits rd (sign_extend (m := 64)
+                  (shift_bits_right_arith rs1Word (Sail.BitVec.extractLsb rs2Word 4 0))) >>= fun _ =>
+                    pure RETIRE_SUCCESS)
+        state sFinal (.Retire_Success ()) :=
+      Runs.bind hrs1 (Runs.bind rfl (Runs.bind hrs2 (Runs.bind rfl (Runs.bind hwrite rfl))))
+    simpa only [execute_RTYPEW] using calculated
+
+/-- The generated RV64 word immediate-shift result, sign-extended back to XLEN. -/
+def shiftIWopResult (op : sopw) (shamt : BitVec 5) (rs1Val : BitVec 64) : BitVec 64 :=
+  let rs1Word := Sail.BitVec.extractLsb rs1Val 31 0
+  let result :=
+    match op with
+    | .SLLIW => Sail.shift_bits_left rs1Word shamt
+    | .SRLIW => Sail.shift_bits_right rs1Word shamt
+    | .SRAIW => shift_bits_right_arith rs1Word shamt
+  sign_extend (m := 64) result
+
+/- All generated RV64 word immediate-shift variants share one contract. -/
+theorem execute_SHIFTIWOP_run (state sFinal : State) (shamt : BitVec 5) (rs1 rd : regidx)
+    (op : sopw) (rs1Val : BitVec 64)
+    (hrs1 : Runs (rX_bits rs1) state state rs1Val)
+    (hwrite : Runs (wX_bits rd (shiftIWopResult op shamt rs1Val)) state sFinal ()) :
+    Runs (execute_SHIFTIWOP shamt rs1 rd op) state sFinal (.Retire_Success ()) := by
+  cases op <;> simp only [shiftIWopResult] at hwrite
+  · have calculated : Runs
+        (rX_bits rs1 >>= fun rs1Value =>
+          pure (Sail.BitVec.extractLsb rs1Value 31 0) >>= fun rs1Word =>
+            wX_bits rd (sign_extend (m := 64) (Sail.shift_bits_left rs1Word shamt)) >>= fun _ =>
+              pure RETIRE_SUCCESS)
+        state sFinal (.Retire_Success ()) :=
+      Runs.bind hrs1 (Runs.bind rfl (Runs.bind hwrite rfl))
+    simpa only [execute_SHIFTIWOP] using calculated
+  · have calculated : Runs
+        (rX_bits rs1 >>= fun rs1Value =>
+          pure (Sail.BitVec.extractLsb rs1Value 31 0) >>= fun rs1Word =>
+            wX_bits rd (sign_extend (m := 64) (Sail.shift_bits_right rs1Word shamt)) >>= fun _ =>
+              pure RETIRE_SUCCESS)
+        state sFinal (.Retire_Success ()) :=
+      Runs.bind hrs1 (Runs.bind rfl (Runs.bind hwrite rfl))
+    simpa only [execute_SHIFTIWOP] using calculated
+  · have calculated : Runs
+        (rX_bits rs1 >>= fun rs1Value =>
+          pure (Sail.BitVec.extractLsb rs1Value 31 0) >>= fun rs1Word =>
+            wX_bits rd (sign_extend (m := 64) (shift_bits_right_arith rs1Word shamt)) >>= fun _ =>
+              pure RETIRE_SUCCESS)
+        state sFinal (.Retire_Success ()) :=
+      Runs.bind hrs1 (Runs.bind rfl (Runs.bind hwrite rfl))
+    simpa only [execute_SHIFTIWOP] using calculated
+
 end BinaryFv.RiscV
