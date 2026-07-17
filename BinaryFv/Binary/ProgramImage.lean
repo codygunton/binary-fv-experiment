@@ -1,3 +1,5 @@
+import BinaryFv.Binary.Address
+
 namespace BinaryFv.Binary
 
 /-- A file-backed memory segment, independent of any executable file format. -/
@@ -36,6 +38,21 @@ def readByte? (segment : LoadSegment) (address : Nat) : Option UInt8 :=
   else
     none
 
+/-- Read only a byte present in the ELF file, never the logical zero-fill tail. -/
+def readFileByte? (segment : LoadSegment) (address : Nat) : Option UInt8 :=
+  if segment.containsInitialByte address then
+    segment.initialBytes[address - segment.virtualAddress]?
+  else
+    none
+
+/-- The zero-filled part of a load segment, excluding all file-backed bytes. -/
+def zeroFillRange (segment : LoadSegment) : AddressRange :=
+  { start := segment.initialEndAddress, size := segment.memorySize - segment.fileSize }
+
+/-- Whether a requested range lies wholly in this segment's zero-filled tail. -/
+def containsZeroFillRange (segment : LoadSegment) (range : AddressRange) : Bool :=
+  decide (segment.zeroFillRange.start ≤ range.start ∧ range.stop ≤ segment.zeroFillRange.stop)
+
 end LoadSegment
 
 /-- The loadable memory image supplied to the ISA model. -/
@@ -52,6 +69,15 @@ def readByte? (image : ProgramImage) (address : Nat) : Option UInt8 :=
   | some segment => segment.readByte? address
   | none => none
 
+def fileSegmentAt? (image : ProgramImage) (address : Nat) : Option LoadSegment :=
+  image.segments.toList.find? fun segment => segment.containsInitialByte address
+
+/-- Read a byte backed by the ELF file, distinguishing it from logical BSS zero-fill. -/
+def readFileByte? (image : ProgramImage) (address : Nat) : Option UInt8 :=
+  match image.fileSegmentAt? address with
+  | some segment => segment.readFileByte? address
+  | none => none
+
 def readNatLE? (image : ProgramImage) (address : Nat) : Nat → Option Nat
   | 0 => some 0
   | width + 1 => do
@@ -61,6 +87,40 @@ def readNatLE? (image : ProgramImage) (address : Nat) : Nat → Option Nat
 
 def readU32LE? (image : ProgramImage) (address : Nat) : Option Nat :=
   image.readNatLE? address 4
+
+def readFileNatLE? (image : ProgramImage) (address : Nat) : Nat → Option Nat
+  | 0 => some 0
+  | width + 1 => do
+    let byte ← image.readFileByte? address
+    let rest ← image.readFileNatLE? (address + 1) width
+    pure (byte.toNat + 256 * rest)
+
+def readFileU32LE? (image : ProgramImage) (address : Nat) : Option Nat :=
+  image.readFileNatLE? address 4
+
+/-- Whether a range can be safely materialized as zero-filled BSS for this image. -/
+def containsZeroFillRange (image : ProgramImage) (range : AddressRange) : Bool :=
+  image.segments.any fun segment => segment.containsZeroFillRange range
+
+inductive SparseLoadError where
+  | requestedRangeOutsideZeroFill
+  deriving DecidableEq, Repr
+
+/--
+A file-backed image together with exactly the BSS ranges that execution is allowed to materialize.
+The proof field rules out accidentally writing over file bytes or unowned memory in the sparse loader.
+-/
+structure SparseLoadPlan where
+  image : ProgramImage
+  zeroFillRanges : Array AddressRange
+  zeroFillRangesValid : zeroFillRanges.all image.containsZeroFillRange = true
+
+def sparseLoadPlan? (image : ProgramImage) (zeroFillRanges : Array AddressRange) :
+    Except SparseLoadError SparseLoadPlan :=
+  if valid : zeroFillRanges.all image.containsZeroFillRange then
+    .ok { image, zeroFillRanges, zeroFillRangesValid := valid }
+  else
+    .error .requestedRangeOutsideZeroFill
 
 end ProgramImage
 
