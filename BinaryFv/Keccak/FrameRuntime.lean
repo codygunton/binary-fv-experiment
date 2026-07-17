@@ -1,8 +1,8 @@
 import BinaryFv.Keccak.FrameCoverage
-import BinaryFv.RiscV.ControlDispatchFrame
-import BinaryFv.RiscV.IntegerDispatchFrame
-import BinaryFv.RiscV.LoadFrame
-import BinaryFv.RiscV.StoreFrame
+import BinaryFv.RiscV.Instruction.Frame.ControlDispatch
+import BinaryFv.RiscV.Instruction.Frame.IntegerDispatch
+import BinaryFv.RiscV.Instruction.Frame.Load
+import BinaryFv.RiscV.Instruction.Frame.Store
 
 namespace BinaryFv.Keccak
 

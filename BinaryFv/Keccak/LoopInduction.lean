@@ -1,4 +1,4 @@
-import BinaryFv.RiscV.Trace
+import BinaryFv.RiscV.Logic.Trace
 
 /-!
 # Invariant-carrying loop induction over `try_step` traces

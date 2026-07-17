@@ -1,5 +1,5 @@
 import BinaryFv.Keccak.ArtifactFetch
-import BinaryFv.RiscV.FetchMmioLayout
+import BinaryFv.Keccak.ArtifactCodeRange
 
 namespace BinaryFv.Keccak
 

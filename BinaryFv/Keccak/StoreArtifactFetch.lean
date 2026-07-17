@@ -12,6 +12,8 @@ trust policy used by the existing artifact regressions.
 
 namespace BinaryFv.Keccak
 
+open BinaryFv.Binary
+
 open BinaryFv.RiscV
 
 /-- The `xor_block` store, as a parser-level encoded word: `sd a3, 0(a0)` at `0x10cdc`. -/

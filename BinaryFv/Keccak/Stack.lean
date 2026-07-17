@@ -1,5 +1,5 @@
 import BinaryFv.Keccak.Decode
-import BinaryFv.RiscV.Stack
+import BinaryFv.RiscV.Analysis.StackFlow
 
 namespace BinaryFv.Keccak
 

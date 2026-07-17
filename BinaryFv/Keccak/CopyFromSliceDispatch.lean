@@ -1,4 +1,4 @@
-import BinaryFv.RiscV.ExecuteContract
+import BinaryFv.RiscV.Instruction.Execute.StackAddiDispatch
 
 /-!
 # Concrete-register `execute` reductions for the `copy_from_slice_impl` live path

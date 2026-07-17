@@ -1,5 +1,6 @@
-import BinaryFv.RiscV.HartPrimitives
-import BinaryFv.RiscV.Framing
+import BinaryFv.RiscV.Instruction.Decode
+import BinaryFv.RiscV.Step.LandingPad
+import BinaryFv.RiscV.Logic.Framing
 
 /-!
 # Generated-decoder facts for the memory-helper instruction words

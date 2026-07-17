@@ -18,6 +18,8 @@ Quot.sound`), which is expected and correct for these fetch facts.
 
 namespace BinaryFv.Keccak
 
+open BinaryFv.Binary
+
 open PreSail LeanRV64DExecutable.Functions Register BinaryFv.RiscV
 
 /-- Closed parser byte fact: the parsed image's byte read at `address` is `value`.  This is a

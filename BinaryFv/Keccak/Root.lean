@@ -16,7 +16,7 @@ structure Binary where
   layoutValid : Bool
   layout_valid : layoutValid = true
 
-def maxMessageSize : Nat := BinaryFv.RiscV.maxMessageSize
+def maxMessageSize : Nat := BinaryFv.Keccak.maxMessageSize
 
 inductive ExecutionError where
   | unsupportedMessage

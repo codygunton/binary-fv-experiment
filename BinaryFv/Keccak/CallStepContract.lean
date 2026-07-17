@@ -1,6 +1,7 @@
+import BinaryFv.RiscV.Instruction.Decode
 import BinaryFv.Keccak.CallArtifactFetch
 import BinaryFv.Keccak.CoreBranchStepContract
-import BinaryFv.RiscV.RegisterFrame
+import BinaryFv.RiscV.Instruction.Frame.Register
 
 /-!
 # Artifact-backed CALL step contracts
@@ -39,6 +40,8 @@ link-register write (`rd := old nextPC = return address = pc+4`).
 -/
 
 namespace BinaryFv.Keccak
+
+open BinaryFv.Binary
 
 open PreSail
 open LeanRV64DExecutable.Functions

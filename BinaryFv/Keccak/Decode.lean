@@ -1,5 +1,5 @@
 import BinaryFv.Keccak.Execution
-import BinaryFv.RiscV.CFG
+import BinaryFv.RiscV.ELF.CFG
 
 namespace BinaryFv.Keccak
 

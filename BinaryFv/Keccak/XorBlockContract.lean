@@ -1,8 +1,8 @@
 import BinaryFv.Keccak.MemcpyContract
 import BinaryFv.Keccak.XorBlockDecodeFacts
 import BinaryFv.Keccak.XorBlockArtifactFetch
-import BinaryFv.RiscV.ShiftOrExecuteContract
-import BinaryFv.RiscV.RegisterOpExecuteContract
+import BinaryFv.RiscV.Instruction.Execute.ShiftOr
+import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import Spec.Keccak.Keccak256
 
 /-!
@@ -36,6 +36,8 @@ file reuses the register-agnostic framing helpers proved in `MemcpyContract`.
 -/
 
 namespace BinaryFv.Keccak.XorBlock
+
+open BinaryFv.Binary
 
 open PreSail
 open LeanRV64DExecutable.Functions

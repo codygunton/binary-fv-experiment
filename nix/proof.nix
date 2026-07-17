@@ -158,6 +158,30 @@ let
       'require repl from ".lake/packages/repl"'
 
     export HOME="$TMPDIR/home"
+
+    # Layer audit. The RISC-V and Binary layers are generic over the binary under analysis; a
+    # dependency on the Keccak target would make them a lie. A docstring cannot enforce this, and an
+    # ^import-only check misses dangling prose references to deleted Keccak constants, so match the
+    # bare strings. The two exemptions are the docstrings that state the rule itself.
+    layerViolations=$(grep -rn "Keccak\|Reth" BinaryFv/RiscV/ BinaryFv/Binary/ \
+      BinaryFv/RiscV.lean BinaryFv/Binary.lean 2>/dev/null \
+      | grep -v "^BinaryFv/RiscV.lean:[0-9]*:Nothing in this layer may depend on" \
+      | grep -v "^BinaryFv/Binary.lean:[0-9]*:may depend on" || true)
+    if [ -n "$layerViolations" ]; then
+      echo "Layer violation: the RISC-V/Binary layers must not mention the Keccak target." >&2
+      echo "$layerViolations" >&2
+      exit 1
+    fi
+
+    # The approved fixed-artifact native_decide exception covers closed facts about the pinned ELF.
+    # Those are Keccak-target facts by construction, so no generic module may use native_decide.
+    nativeInGeneric=$(grep -rn "native_decide" BinaryFv/RiscV/ BinaryFv/Binary/ 2>/dev/null || true)
+    if [ -n "$nativeInGeneric" ]; then
+      echo "native_decide is not permitted in the generic RISC-V/Binary layers." >&2
+      echo "$nativeInGeneric" >&2
+      exit 1
+    fi
+
     lake build repl BinaryFv
     touch "$out"
   '';

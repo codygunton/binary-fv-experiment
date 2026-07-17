@@ -1,5 +1,6 @@
 import BinaryFv.Keccak.ABI
 import BinaryFv.Keccak.Artifact
+import BinaryFv.Keccak.ArtifactCodeRange
 import BinaryFv.Keccak.ArtifactFetch
 import BinaryFv.Keccak.ArtifactFetchMmio
 import BinaryFv.Keccak.CallArtifactFetch

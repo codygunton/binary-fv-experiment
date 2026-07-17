@@ -1,10 +1,14 @@
-import BinaryFv.RiscV.Address
+import BinaryFv.RiscV.Model.Address
 
 namespace BinaryFv.Keccak
 
+open BinaryFv.Binary
 open BinaryFv.RiscV
 
 def digestSize : Nat := 32
+
+/-- The largest message the direct-call ABI accepts; it bounds the low PMA region. -/
+def maxMessageSize : Nat := 2 ^ 63
 
 /-- Keep the sentinel and caller-owned buffers outside the parsed load image. -/
 def returnGap : Nat := 0x10

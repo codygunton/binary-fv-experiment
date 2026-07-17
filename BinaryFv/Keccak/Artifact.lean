@@ -1,8 +1,10 @@
 import BinaryFv.Keccak.ABI
-import BinaryFv.RiscV.Elf64
+import BinaryFv.RiscV.ELF.Elf64
 import RethKeccakElf
 
 namespace BinaryFv.Keccak.Artifact
+
+open BinaryFv.Binary
 
 open BinaryFv.RiscV
 

@@ -1,5 +1,5 @@
 import BinaryFv.Keccak.Decode
-import BinaryFv.RiscV.Framing
+import BinaryFv.RiscV.Logic.Framing
 
 namespace BinaryFv.Keccak.Contracts
 

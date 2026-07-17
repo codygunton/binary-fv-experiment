@@ -1,6 +1,6 @@
 import BinaryFv.Keccak.MemcpyContract
 import BinaryFv.Keccak.CopyFromSliceDispatch
-import BinaryFv.RiscV.RegisterOpExecuteContract
+import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 
 /-!
 # The equal-length `copy_from_slice_impl` (0x10c44) contract, through the authoritative `try_step`
@@ -35,6 +35,8 @@ is discharged here, so the axiom footprint stays the XOR/fetch baseline.
 -/
 
 namespace BinaryFv.Keccak
+
+open BinaryFv.Binary
 
 open PreSail
 open LeanRV64DExecutable.Functions

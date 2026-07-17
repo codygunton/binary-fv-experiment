@@ -1,6 +1,7 @@
+import BinaryFv.RiscV.Step.Hart
 import BinaryFv.Keccak.Contracts
-import BinaryFv.RiscV.FetchContract
-import BinaryFv.RiscV.HartPrimitives
+import BinaryFv.RiscV.Platform.Fetch
+import BinaryFv.RiscV.Step.LandingPad
 
 namespace BinaryFv.Keccak
 

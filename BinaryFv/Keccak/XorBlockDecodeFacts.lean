@@ -1,3 +1,4 @@
+import BinaryFv.RiscV.Instruction.Decode
 import BinaryFv.Keccak.StoreDecodeFact
 
 /-!

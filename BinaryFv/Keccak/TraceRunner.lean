@@ -1,5 +1,5 @@
 import BinaryFv.Keccak.Execution
-import BinaryFv.RiscV.Trace
+import BinaryFv.RiscV.Logic.Trace
 
 /-!
 # Sentinel trace runner correspondence

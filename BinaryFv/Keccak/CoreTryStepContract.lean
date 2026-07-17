@@ -1,6 +1,6 @@
 import BinaryFv.Keccak.CoreFetchMemoryContract
-import BinaryFv.RiscV.PostludePrimitives
-import BinaryFv.RiscV.StepContract
+import BinaryFv.RiscV.Step.Postlude
+import BinaryFv.RiscV.Step.TryStep
 
 namespace BinaryFv.Keccak
 

@@ -1,5 +1,5 @@
 import BinaryFv.Keccak.CoreStepContract
-import BinaryFv.RiscV.FetchMemoryContract
+import BinaryFv.RiscV.Platform.FetchMemory
 
 namespace BinaryFv.Keccak
 

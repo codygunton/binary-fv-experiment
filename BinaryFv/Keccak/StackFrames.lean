@@ -17,6 +17,8 @@ The lemmas are stated at the `Nat` address level; the runtime bridge is the SP v
 
 namespace BinaryFv.Keccak
 
+open BinaryFv.Binary
+
 open BinaryFv.RiscV
 
 /-- The runtime stack pointer (as a `Nat` address) lies within the canonical 4 KiB stack window:

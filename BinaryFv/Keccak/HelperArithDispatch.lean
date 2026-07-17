@@ -1,4 +1,4 @@
-import BinaryFv.RiscV.ExecuteContract
+import BinaryFv.RiscV.Instruction.Execute.StackAddiDispatch
 
 /-!
 # Concrete-register `execute` reductions for the helper arithmetic / move instructions

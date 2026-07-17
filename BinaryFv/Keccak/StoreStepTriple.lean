@@ -1,6 +1,6 @@
 import BinaryFv.Keccak.CoreStoreStepContract
 import BinaryFv.Keccak.StoreArtifactFetch
-import BinaryFv.RiscV.SepLogic
+import BinaryFv.RiscV.Logic.SepLogic
 
 /-!
 # CAPSTONE: a separation-logic `Triple` for the real ELF store `sd a3, 0(a0)`

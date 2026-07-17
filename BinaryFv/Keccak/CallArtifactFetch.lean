@@ -26,6 +26,8 @@ Representative sites (all inside / reached from `reth_keccak256` at `0x10a2c`):
 
 namespace BinaryFv.Keccak
 
+open BinaryFv.Binary
+
 open BinaryFv.RiscV
 
 /-- Closed parser fact: the image's four consecutive little-endian bytes at `address` are

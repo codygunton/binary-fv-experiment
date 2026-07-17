@@ -1,6 +1,7 @@
+import BinaryFv.RiscV.Step.Hart
 import BinaryFv.Keccak.CoreTryStepContract
-import BinaryFv.RiscV.ControlFlowStep
-import BinaryFv.RiscV.SailEnumAux
+import BinaryFv.RiscV.Instruction.Execute.ControlFlow
+import BinaryFv.RiscV.Model.SailEnumAux
 
 /-!
 # Normal-execution `try_step` rules for control-flow instructions

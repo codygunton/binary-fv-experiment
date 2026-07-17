@@ -1,9 +1,11 @@
 import BinaryFv.Keccak.Artifact
-import BinaryFv.RiscV.Decode
-import BinaryFv.RiscV.FetchContract
+import BinaryFv.RiscV.ELF.Decode
+import BinaryFv.RiscV.Platform.Fetch
 import Lean.Elab.Tactic.Omega
 
 namespace BinaryFv.RiscV
+
+open BinaryFv.Binary
 
 private theorem fetchWord_of_image_bytes (byte0 byte1 byte2 byte3 : UInt8) :
     fetchWord (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
@@ -32,7 +34,13 @@ private theorem fetchWord_of_image_bytes (byte0 byte1 byte2 byte3 : UInt8) :
   rw [pow8]
   omega
 
-namespace ProgramImage
+end BinaryFv.RiscV
+
+/-! Image-word ownership and its lift to the generated fetch. Declared in the image's own
+namespace so that `image.ownsEncodedWord` dot-notation resolves. -/
+namespace BinaryFv.Binary.ProgramImage
+
+open BinaryFv.RiscV
 
 /-- An encoded word is backed by this image's little-endian four-byte read. -/
 def ownsEncodedWord (image : ProgramImage) (word : EncodedWord) : Prop :=
@@ -104,7 +112,9 @@ theorem fetchBytesAt_of_ownedEncodedWord (image : ProgramImage) (state : State)
   exact fetchBytesAt_of_image_bytes image state word.address addressFits loaded byte0 byte1 byte2
     byte3 read0 read1 read2 read3
 
-end ProgramImage
+end BinaryFv.Binary.ProgramImage
+
+namespace BinaryFv.RiscV
 
 end BinaryFv.RiscV
 

@@ -1,7 +1,10 @@
+import BinaryFv.RiscV.Execution.ImageLoad
 import BinaryFv.Keccak.Artifact
-import BinaryFv.RiscV.Machine
+import BinaryFv.RiscV.Model.State
 
 namespace BinaryFv.Keccak
+
+open BinaryFv.Binary
 
 open PreSail
 open LeanRV64DExecutable.Functions

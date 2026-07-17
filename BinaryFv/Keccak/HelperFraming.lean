@@ -1,4 +1,4 @@
-import BinaryFv.RiscV.SepLogic
+import BinaryFv.RiscV.Logic.SepLogic
 
 /-!
 # Shared compositional framing for the memory helpers

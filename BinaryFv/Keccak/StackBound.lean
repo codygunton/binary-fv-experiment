@@ -1,6 +1,6 @@
 import BinaryFv.Keccak.StackFrames
 import BinaryFv.Keccak.StackFlow
-import BinaryFv.RiscV.TryStepStackAddiContract
+import BinaryFv.RiscV.Step.TryStepStackAddi
 
 /-!
 # Conditional stack-window machinery, and diagnostic static stack-flow summaries

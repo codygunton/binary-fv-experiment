@@ -36,6 +36,8 @@ here, so the final axiom footprint is the XOR/fetch baseline.
 
 namespace BinaryFv.Keccak
 
+open BinaryFv.Binary
+
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
