@@ -77,7 +77,7 @@
             inherit pkgs repo rv64 targets;
           };
           proof = import ./nix/proof.nix {
-            inherit pkgs repo rv64 sailRiscv scrollFv targets;
+            inherit etheorem pkgs repo rv64 sailRiscv scrollFv targets;
           };
         in
         targets.public // analysis.public // proof.public;
@@ -106,7 +106,7 @@
             source = self;
           };
           proof = import ./nix/proof.nix {
-            inherit pkgs repo rv64 sailRiscv scrollFv targets;
+            inherit etheorem pkgs repo rv64 sailRiscv scrollFv targets;
           };
         in
         {

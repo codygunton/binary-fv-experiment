@@ -1,4 +1,4 @@
-{ pkgs, repo, rv64, sailRiscv, scrollFv, targets }:
+{ etheorem, pkgs, repo, rv64, sailRiscv, scrollFv, targets }:
 let
   rethKeccak = targets.public.rethKeccak;
 
@@ -124,6 +124,57 @@ let
     cp ${scrollFv}/Spec/Keccak/Keccak256.lean "$out/Spec/Keccak/Keccak256.lean"
   '';
 
+  # The SSZ proof imports the executable SizzLean decoder, but only its pure wire-format closure.
+  # Keep the source-level pins here: `SizzLean`'s normal Lake package also pulls its SHA/OpenSSL
+  # packages, which the decoder does not need and the BinaryFv proof must not link.
+  sszSpecLean = pkgs.runCommand "binary-fv-ssz-spec-lean" {
+    nativeBuildInputs = [ pkgs.coreutils ];
+  } ''
+    copy_checked() {
+      source="$1"
+      expected="$2"
+      destination="$3"
+      actual="$(${pkgs.coreutils}/bin/sha256sum "$source" | cut -d ' ' -f 1)"
+      test "$actual" = "$expected"
+      cp "$source" "$destination"
+    }
+
+    mkdir -p "$out/SizzLean/Spec" "$out/SszBridge"
+    spec_root=${etheorem}/packages/SizzLean/SizzLean/Spec
+    copy_checked "$spec_root/Type.lean" \
+      ef7fd929a536cf157808cb4ace0255e3992dda566f93b77737166c3fb9139711 \
+      "$out/SizzLean/Spec/Type.lean"
+    copy_checked "$spec_root/Interp.lean" \
+      f23160310811f477fb7c367e6c4c5186d302fe027447a414c25cde9486dfc52b \
+      "$out/SizzLean/Spec/Interp.lean"
+    copy_checked "$spec_root/Constants.lean" \
+      8042328b192f32697ce2f9fbda5bd91cb15c746601c4c9c946f96d7e5fb78b96 \
+      "$out/SizzLean/Spec/Constants.lean"
+    copy_checked "$spec_root/SSZError.lean" \
+      0e8ddfb73dc7ac7d6a56a2943e950051abd9310b25465e2f415c8a64327c4448 \
+      "$out/SizzLean/Spec/SSZError.lean"
+    copy_checked "$spec_root/Serialize.lean" \
+      d830cb74ded4cddbba87e4400ebaef71060f527317c5783d9a4fe9d02e7c0ae2 \
+      "$out/SizzLean/Spec/Serialize.lean"
+    copy_checked "$spec_root/Deserialize.lean" \
+      db05b7d663445dc79e563ef0095482544ff950a7b51fd89e14fcb301b4830ef5 \
+      "$out/SizzLean/Spec/Deserialize.lean"
+    copy_checked ${repo}/targets/ssz/zesu/spec/SszBridge/Core.lean \
+      0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
+      "$out/SszBridge/Core.lean"
+
+    ${pkgs.coreutils}/bin/printf '%s\n' \
+      etheorem=032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0 \
+      SizzLean/Spec/Type.lean=ef7fd929a536cf157808cb4ace0255e3992dda566f93b77737166c3fb9139711 \
+      SizzLean/Spec/Interp.lean=f23160310811f477fb7c367e6c4c5186d302fe027447a414c25cde9486dfc52b \
+      SizzLean/Spec/Constants.lean=8042328b192f32697ce2f9fbda5bd91cb15c746601c4c9c946f96d7e5fb78b96 \
+      SizzLean/Spec/SSZError.lean=0e8ddfb73dc7ac7d6a56a2943e950051abd9310b25465e2f415c8a64327c4448 \
+      SizzLean/Spec/Serialize.lean=d830cb74ded4cddbba87e4400ebaef71060f527317c5783d9a4fe9d02e7c0ae2 \
+      SizzLean/Spec/Deserialize.lean=db05b7d663445dc79e563ef0095482544ff950a7b51fd89e14fcb301b4830ef5 \
+      SszBridge/Core.lean=0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
+      > "$out/provenance.txt"
+  '';
+
   binaryFvLean = pkgs.runCommand "binary-fv-lean" {
     nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.git pkgs.jq ];
   } ''
@@ -135,6 +186,7 @@ let
     ln -s ${sailRiscvLean} build/sail-riscv-lean
     ln -s ${rethKeccakElfLean} build/reth-keccak-elf-lean
     ln -s ${keccakSpecLean} build/keccak-spec-lean
+    ln -s ${sszSpecLean} build/ssz-spec-lean
     cp -a ${replSource}/. .lake/packages/repl/
     chmod -R u+w .lake/packages/repl
     ${pkgs.jq}/bin/jq '
@@ -214,12 +266,13 @@ let
 in
 {
   public = {
-    inherit binaryFvLean keccakSpecLean rethKeccakElfLean sailRiscvLean;
+    inherit binaryFvLean keccakSpecLean rethKeccakElfLean sailRiscvLean sszSpecLean;
 
     binary-fv-lean = binaryFvLean;
     keccak-spec-lean = keccakSpecLean;
     reth-keccak-elf-lean = rethKeccakElfLean;
     sail-riscv-lean = sailRiscvLean;
+    ssz-spec-lean = sszSpecLean;
   };
 
   inherit devShell;
