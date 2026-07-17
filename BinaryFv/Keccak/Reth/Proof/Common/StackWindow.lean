@@ -1,3 +1,4 @@
+import BinaryFv.Keccak.Reth.Artifact.Analysis.StackFlowDiagnostics
 import BinaryFv.Keccak.Reth.Proof.Common.StackFrames
 import BinaryFv.Keccak.Reth.Artifact.Analysis.StackFlow
 import BinaryFv.RiscV.Step.TryStepStackAddi
@@ -184,59 +185,6 @@ One honest caveat: `tryStepStackAddiRetiresInWindow` *does* also report those tw
 inherits them from the upstream generated `try_step` contract
 (`BinaryFv.RiscV.tryStepStackAddiRetires`), not from this diagnostic section — that is the separate,
 pre-existing artifact-trust question tracked against the README policy, not a stack claim. -/
-
-/-- **Diagnostic, not a bound.**  Sum of the per-function `maximumExploredDownwardDelta` over the
-    parser-derived entry call closure.
-
-    Each function contributes its truncated maximum once.  This is *evidence*, not an
-    over-approximation of any call chain: the summaries are frontier-truncated, so the summands are
-    not themselves per-function bounds, and no call-path structure has been established.
-
-    The `none` default deliberately exceeds the page, so the comparisons below also certify that the
-    static summaries are available. -/
-def frontierSummaryTotalDownwardDelta : Nat :=
-  match entryClosureFrontierTruncatedStackStateSummaries? with
-  | some summaries =>
-    summaries.foldl (fun acc s => acc + s.maximumExploredDownwardDelta) 0
-  | none => stackPageSize + 1
-
-/-- **Diagnostic, not a bound.**  The single largest per-function truncated explored downward delta
-    across the entry call closure.  Frontier-truncated, so this is not a bound on any function's
-    actual frame. -/
-def frontierSummaryMaxSingleDownwardDelta : Nat :=
-  match entryClosureFrontierTruncatedStackStateSummaries? with
-  | some summaries =>
-    summaries.foldl (fun acc s => max acc s.maximumExploredDownwardDelta) 0
-  | none => stackPageSize + 1
-
-/-- **Diagnostic.**  Closed parser fact: the summed truncated downward-delta figure of the entry
-    closure summary.  Evidence about a truncated exploration; not a claim about any call chain. -/
-theorem diagnostic_frontierSummaryTotalDownwardDelta_eq :
-    frontierSummaryTotalDownwardDelta = 1664 := by
-  native_decide
-
-/-- **Diagnostic.**  Closed parser fact: the largest single-function truncated downward-delta
-    figure. -/
-theorem diagnostic_frontierSummaryMaxSingleDownwardDelta_eq :
-    frontierSummaryMaxSingleDownwardDelta = 912 := by
-  native_decide
-
-/-- **Diagnostic.**  The summed truncated figure happens to fit within the canonical 4 KiB page.
-
-    This is a comparison of two numbers, and it also certifies that the static summaries parsed
-    (the `none` default exceeds the page).  It is **not** the statement that the binary's stack use
-    fits in a page, and it does **not** bound the deltas along any call chain: the summands come
-    from a truncated exploration.  Proving the real bound is deferred to the sponge/caller trace
-    stage. -/
-theorem diagnostic_frontierSummaryTotalDownwardDelta_le_stackPageSize :
-    frontierSummaryTotalDownwardDelta ≤ stackPageSize := by
-  native_decide
-
-/-- **Diagnostic.**  The largest single truncated figure fits within the canonical 4 KiB page.  Same
-    caveats as above. -/
-theorem diagnostic_frontierSummaryMaxSingleDownwardDelta_le_stackPageSize :
-    frontierSummaryMaxSingleDownwardDelta ≤ stackPageSize := by
-  native_decide
 
 /-! ## Conditional frame containment and disjointness exports
 

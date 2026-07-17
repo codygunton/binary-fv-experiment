@@ -5,6 +5,7 @@ import BinaryFv.Keccak.Reth.Artifact.Analysis.FrameCoverage
 import BinaryFv.Keccak.Reth.Artifact.Analysis.FunctionWordSets
 import BinaryFv.Keccak.Reth.Artifact.Analysis.Reachability
 import BinaryFv.Keccak.Reth.Artifact.Analysis.StackFlow
+import BinaryFv.Keccak.Reth.Artifact.Analysis.StackFlowDiagnostics
 import BinaryFv.Keccak.Reth.Artifact.Facts.CallWords
 import BinaryFv.Keccak.Reth.Artifact.Facts.CodeRange
 import BinaryFv.Keccak.Reth.Artifact.Facts.HelperBytes
