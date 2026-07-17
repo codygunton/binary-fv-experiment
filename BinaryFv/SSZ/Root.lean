@@ -39,4 +39,11 @@ def rootComplianceClaim (binary : RiscvSpec.ValidatedElf) : Prop :=
     input.size < 2 * 1024 * 1024 ->
       RiscvSpec.execute binary input = .ok (SszSpec.decode input)
 
+/--
+Temporary, user-authorized review scaffold for the final theorem. This `sorry` is intentionally
+isolated in its own stacked PR and must be replaced by the Stage 8 proof before this branch merges.
+-/
+theorem root_compliance (binary : RiscvSpec.ValidatedElf) : rootComplianceClaim binary := by
+  sorry
+
 end BinaryFv.SSZ
