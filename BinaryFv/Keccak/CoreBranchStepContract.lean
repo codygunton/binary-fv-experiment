@@ -1,5 +1,6 @@
 import BinaryFv.Keccak.CoreTryStepContract
 import BinaryFv.RISCV.ControlFlowStep
+import BinaryFv.RISCV.SailEnumAux
 
 /-!
 # Normal-execution `try_step` rules for control-flow instructions
