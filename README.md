@@ -91,11 +91,55 @@ must remove all proof-scope `sorry`s and custom axioms before it claims root com
 
 ### Fixed-artifact trust policy
 
-`native_decide` is permitted only for closed facts computed from pinned Nix inputs, such as parsed
-ELF layout or static-inventory facts. Those facts are convenience evidence, not kernel-only proofs:
-their axiom reports include Lean's native compiler trust boundary. Until a reviewed exception states
-that boundary in the root claim, no theorem used by `root_compliance` may depend on a
-`native_decide` fact; root-facing artifact facts must instead have kernel-checked proofs.
+A narrow, reviewed exception is in force for this spike. **Closed facts extracted from the pinned,
+Nix-built Reth Keccak ELF may be discharged with `native_decide`, and therefore trust Lean's native
+compiler.** Such facts appear in the axiom reports of the theorems that use them as
+`Lean.ofReduceBool` and `Lean.trustCompiler`, including transitively in theorems reachable from
+`root_compliance`. This is deliberate and approved: the ELF parser is not formalized or
+kernel-evaluated in this spike.
+
+**Scope of the exception — closed artifact facts only.** It covers exactly: artifact *identity*
+(the pinned bytes are the Nix-built ELF), *layout* (parsed headers/segments/section bounds), *byte*
+facts (the value at a fixed file/virtual address), and *static inventory* (symbol tables, decoded
+instruction words at fixed addresses, call/stack-flow summaries). These are all decidable statements
+about one fixed, immutable input.
+
+**Outside the artifact exception.** Direct `native_decide`, new axioms, and `sorry` are *not*
+permitted for: execution semantics (anything about the generated Sail `try_step`/`execute`), functional
+correctness, control flow, arithmetic and bitvector reasoning, framing/separation, or specification
+correspondence (`Spec.Keccak.*`). Those proofs must be checked by Lean, subject only to the separately
+approved `bv_decide` certificate-checker boundary described below.
+
+**Resulting axiom boundary.** Compliance capstones report
+`[propext, Classical.choice, Lean.ofReduceBool, Lean.trustCompiler, Quot.sound]`. There are **two
+independent sources** of the two native axioms, and both must be understood:
+
+1. **Closed artifact facts** — the `native_decide` fetch/inventory facts covered by the exception
+   above.
+2. **`bv_decide`** — its LRAT certificate is checked through `Lean.reduceBool`, so *any* `bv_decide`
+   call that reaches the SAT backend contributes `ofReduceBool`/`trustCompiler` on its own, with no
+   artifact dependency whatsoever. For example `assemble_leWord` is a pure `BitVec` identity about
+   eight bytes and still carries both. (`bv_decide` goals closed by `bv_normalize` preprocessing
+   alone do not.)
+
+So removing the artifact `native_decide` facts alone would **not** clear the two native axioms from
+the capstones; the `bv_decide` uses would still contribute them. Any earlier claim to the contrary in
+this repo was incorrect. The maintainer accepts the native `bv_decide` certificate checker in the
+trusted base for this proof-of-concept; issue #26 tracks the audit and the decision whether to retain
+or remove that trust in the final project. This approval remains separate from the closed-artifact
+exception above.
+
+Theorems that use neither source (e.g. the conditional stack-window and `*_of_budget` lemmas, and the
+pure framing lemmas) remain at `[propext, Quot.sound]` or `[propext, Classical.choice, Quot.sound]`.
+
+**The mathematical claim is unchanged.** `root_compliance`'s statement — the interface quoted above —
+is not weakened by this exception; only the trust footprint of its artifact inputs is stated
+explicitly.
+
+Why the exception: kernel-evaluating the bounded ELF parser over the embedded image was measured at
+>5 minutes and >100 GB RSS (OOM) on the pinned toolchain, because the parser's `Array.mapM` uses
+well-founded recursion that does not reduce definitionally. Formalizing the parser is out of scope
+for this spike.
 
 ## Checks and CI
 
