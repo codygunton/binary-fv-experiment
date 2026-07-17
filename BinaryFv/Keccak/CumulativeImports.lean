@@ -8,7 +8,7 @@ import BinaryFv.RiscV.Logic.MemFrame
 import BinaryFv.Keccak.Reth.Root
 import BinaryFv.Keccak.Reth.Execution.Concrete
 import BinaryFv.Keccak.Reth.Proof.Common.FetchMmio
-import BinaryFv.Keccak.Reth.Artifact.Analysis.Reachability
+import BinaryFv.Keccak.Reth.Analysis.Reachability
 import BinaryFv.RiscV.Instruction.Frame.StackPointer
 import BinaryFv.Keccak.Reth.Proof.Store.Triple
 import BinaryFv.RiscV.Proof.RunnerCorrespondence

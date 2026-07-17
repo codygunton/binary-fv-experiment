@@ -1,4 +1,4 @@
-import BinaryFv.Keccak.Reth.Artifact.Analysis.Decode
+import BinaryFv.Keccak.Reth.Analysis.Decode
 import BinaryFv.RiscV.Analysis.FunctionWords
 
 namespace BinaryFv.Keccak

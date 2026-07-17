@@ -1,4 +1,4 @@
-import BinaryFv.Keccak.Reth.Artifact.Analysis.CallClosure
+import BinaryFv.Keccak.Reth.Analysis.CallClosure
 import BinaryFv.RiscV.Analysis.StackDataFlow
 
 /-!

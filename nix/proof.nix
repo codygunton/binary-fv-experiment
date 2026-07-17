@@ -182,6 +182,18 @@ let
       exit 1
     fi
 
+    # Artifact boundary. `Reth/Artifact/` is immutable binary data and closed static facts about
+    # the pinned ELF: parsing, symbols, ranges, encoded words, image bytes. Decoding those words
+    # needs a configured machine, so anything decode-dependent belongs in `Reth/Analysis/`, not here.
+    # Grep the import graph, not the word "State": the violation is the dependency, not the spelling.
+    artifactLeaks=$(grep -rn "^import BinaryFv.Keccak.Reth.\(Execution\|Proof\|Analysis\)" \
+      BinaryFv/Keccak/Reth/Artifact/ 2>/dev/null || true)
+    if [ -n "$artifactLeaks" ]; then
+      echo "Artifact boundary violation: Reth/Artifact/ must not depend on Execution, Proof, or Analysis." >&2
+      echo "$artifactLeaks" >&2
+      exit 1
+    fi
+
     lake build repl BinaryFv
     touch "$out"
   '';
