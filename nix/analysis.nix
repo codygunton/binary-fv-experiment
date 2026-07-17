@@ -14,10 +14,7 @@ let
     riscvSize
     riscvTarget;
   inherit (targets.internal) rethKeccakRust;
-  inherit (targets.public) sha3 tinfl rethKeccak zesuRawObject zesuSsz;
-
-  sha3SampleMessage = "sha3-sample-message";
-  sha3SampleDigest = "f8b2abe65645474af551ae4523f3c5948d9897c9f46c08a390ef88d6777507ba";
+  inherit (targets.public) rethKeccak zesuRawObject zesuSsz;
 
   stats = pkgs.stdenvNoCC.mkDerivation {
     pname = "sha-fv-binary-stats-rv64im-zicclsm";
@@ -47,18 +44,6 @@ let
         "$out/rv64/bin" \
         "$out/rv64/meta" \
         "$out/rv64/obj"
-
-      cp ${sha3}/bin/sha3 "$out/rv64/bin/sha3"
-      cp ${sha3}/obj/sha3.o "$out/rv64/obj/sha3.o"
-      cp ${sha3}/obj/sha3-main.o "$out/rv64/obj/sha3-main.o"
-      cp ${sha3}/meta/elf-attributes.txt "$out/rv64/meta/sha3-elf-attributes.txt"
-      cp ${sha3}/meta/selected-symbols "$out/rv64/meta/sha3-selected-symbols.txt"
-
-      cp ${tinfl}/bin/tinfl "$out/rv64/bin/tinfl"
-      cp ${tinfl}/obj/tinfl.o "$out/rv64/obj/tinfl.o"
-      cp ${tinfl}/obj/tinfl-main.o "$out/rv64/obj/tinfl-main.o"
-      cp ${tinfl}/meta/elf-attributes.txt "$out/rv64/meta/tinfl-elf-attributes.txt"
-      cp ${tinfl}/meta/selected-symbols "$out/rv64/meta/tinfl-selected-symbols.txt"
 
       cp ${rethKeccak}/bin/reth-keccak "$out/rv64/bin/reth-keccak"
       cp ${rethKeccakRust}/lib/libreth_keccak_wrapper.a \
@@ -96,9 +81,6 @@ let
         cp "${zesuRawObject}/meta/$raw_object-undefined-symbols.txt" \
           "$out/rv64/meta/zesu-raw-ssz-$raw_object-undefined-symbols.txt"
       done
-      printf '%s\n' sha3 > "$out/rv64/meta/sha3-protocol-selected-symbols.txt"
-      printf '%s\n' tinfl_decompress_mem_to_mem \
-        > "$out/rv64/meta/tinfl-protocol-selected-symbols.txt"
       printf '%s\n' reth_keccak256 \
         > "$out/rv64/meta/reth-keccak-protocol-selected-symbols.txt"
       printf '%s\n' zesu_decode_raw > "$out/rv64/meta/zesu-ssz-parser-selected-symbols.txt"
@@ -304,46 +286,27 @@ let
           >> "$out/stats.md"
       }
 
-      ${riscvObjdump} -d "$out/rv64/bin/sha3" > "$out/objdump/sha3.txt"
-      ${riscvObjdump} -d "$out/rv64/bin/tinfl" > "$out/objdump/tinfl.txt"
       ${riscvObjdump} -d "$out/rv64/bin/reth-keccak" > "$out/objdump/reth-keccak.txt"
       ${riscvObjdump} -d "$out/rv64/bin/zesu-ssz" > "$out/objdump/zesu-ssz.txt"
-      ${riscvObjdump} -d --disassemble=sha3 "$out/rv64/bin/sha3" \
-        > "$out/objdump/sha3-protocol.txt"
-      ${riscvObjdump} -d --disassemble=tinfl_decompress_mem_to_mem "$out/rv64/bin/tinfl" \
-        > "$out/objdump/tinfl-protocol.txt"
       ${riscvObjdump} -d --disassemble=reth_keccak256 "$out/rv64/bin/reth-keccak" \
         > "$out/objdump/reth-keccak-protocol.txt"
       ${riscvObjdump} -d --disassemble=zesu_decode_raw "$out/rv64/bin/zesu-ssz" \
         > "$out/objdump/zesu-ssz-parser.txt"
 
-      # Retain each freestanding harness composition for context. The
+      # Retain each freestanding adapter composition for context. The
       # protocol-entry analyses below are the uniformly rooted metrics
       # used for target-selection comparisons.
-      analyze_target sha3 "$out/rv64/bin/sha3" _start \
-        --owner 'sha3*=protocol' \
-        --owner '*keccak*=protocol' \
-        --owner 'main=harness' \
-        --owner '_start=runtime' \
-        --owner '*mem*=runtime' \
-        --owner '*=runtime'
-      analyze_target tinfl "$out/rv64/bin/tinfl" _start \
-        --owner 'tinfl*=protocol' \
-        --owner 'main=harness' \
-        --owner '_start=runtime' \
-        --owner '*mem*=runtime' \
-        --owner '*=runtime'
       analyze_target reth-keccak "$out/rv64/bin/reth-keccak" _start \
         --owner 'reth_keccak256=protocol' \
         --owner '*Keccak*=protocol' \
         --owner '*keccak*=protocol' \
         --owner '*sha3*=protocol' \
-        --owner 'main=harness' \
+        --owner 'main=adapter' \
         --owner '_start=runtime' \
         --owner '*mem*=runtime' \
         --owner '_R*=rust-runtime' \
         --owner '*=rust-runtime'
-      # Keep the complete harness/allocator/decoder/sink composition as
+      # Keep the complete adapter/allocator/decoder/sink composition as
       # a distinct `_start`-rooted analysis. The protocol-entry comparison
       # below is decision-facing and does not replace this artifact.
       analyze_target zesu-ssz "$out/rv64/bin/zesu-ssz" _start \
@@ -358,7 +321,7 @@ let
         --owner '*Decode*=protocol' \
         --owner '*rlp*=rlp' \
         --owner '*Rlp*=rlp' \
-        --owner 'main=harness' \
+        --owner 'main=adapter' \
         --owner '_start=runtime' \
         --owner '*mem*=runtime' \
         --owner '*alloc*=allocator' \
@@ -368,25 +331,12 @@ let
       # Every decision-facing metric starts at the exported protocol
       # boundary in its linked ELF and shares the corresponding full
       # composition ownership map above.
-      analyze_target sha3-protocol "$out/rv64/bin/sha3" sha3 \
-        --owner 'sha3*=protocol' \
-        --owner '*keccak*=protocol' \
-        --owner 'main=harness' \
-        --owner '_start=runtime' \
-        --owner '*mem*=runtime' \
-        --owner '*=runtime'
-      analyze_target tinfl-protocol "$out/rv64/bin/tinfl" tinfl_decompress_mem_to_mem \
-        --owner 'tinfl*=protocol' \
-        --owner 'main=harness' \
-        --owner '_start=runtime' \
-        --owner '*mem*=runtime' \
-        --owner '*=runtime'
       analyze_target reth-keccak-protocol "$out/rv64/bin/reth-keccak" reth_keccak256 \
         --owner 'reth_keccak256=protocol' \
         --owner '*Keccak*=protocol' \
         --owner '*keccak*=protocol' \
         --owner '*sha3*=protocol' \
-        --owner 'main=harness' \
+        --owner 'main=adapter' \
         --owner '_start=runtime' \
         --owner '*mem*=runtime' \
         --owner '_R*=rust-runtime' \
@@ -410,13 +360,6 @@ let
         --owner '*Alloc*=allocator' \
         --owner '*=zig-runtime'
 
-      sha3_output="$(${qemuRiscv64} "$out/rv64/bin/sha3" ${lib.escapeShellArg sha3SampleMessage})"
-      if [ "$sha3_output" != "${sha3SampleDigest}" ]; then
-        echo "unexpected SHA-3 digest for ${sha3SampleMessage}: $sha3_output" >&2
-        exit 1
-      fi
-      ${qemuRiscv64} "$out/rv64/bin/tinfl"
-
       reth_output="$(${qemuRiscv64} "$out/rv64/bin/reth-keccak" 616263)"
       test "$reth_output" = 4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45
 
@@ -428,26 +371,18 @@ let
       test "$zesu_output" = invalid
 
       ${riscvSize} \
-        "$out/rv64/obj/sha3.o" \
-        "$out/rv64/obj/tinfl.o" \
         "$out/rv64/obj/reth-keccak-rustcrypto.a" \
         "$out/rv64/obj/zesu-raw-ssz-allocator.o" \
         "$out/rv64/obj/zesu-raw-ssz-decoder.o" \
         "$out/rv64/obj/zesu-raw-ssz-sink.o" \
-        "$out/rv64/bin/sha3" \
-        "$out/rv64/bin/tinfl" \
         "$out/rv64/bin/reth-keccak" \
         "$out/rv64/bin/zesu-ssz" > "$out/size.txt"
 
       ${riscvNm} -S --size-sort --radix=d \
-        "$out/rv64/obj/sha3.o" \
-        "$out/rv64/obj/tinfl.o" \
         "$out/rv64/obj/reth-keccak-rustcrypto.a" \
         "$out/rv64/obj/zesu-raw-ssz-allocator.o" \
         "$out/rv64/obj/zesu-raw-ssz-decoder.o" \
         "$out/rv64/obj/zesu-raw-ssz-sink.o" \
-        "$out/rv64/bin/sha3" \
-        "$out/rv64/bin/tinfl" \
         "$out/rv64/bin/reth-keccak" \
         "$out/rv64/bin/zesu-ssz" > "$out/symbols.txt"
 
@@ -472,8 +407,6 @@ let
 
       ## Inputs
 
-      - SHA-3: \`mjosaarinen/tiny_sha3\` at \`dcbb3192047c2a721f5f851db591871d428036a9\`
-      - DEFLATE: \`richgel999/miniz\` at \`77d0dce8627735138c51770d1799a1ef48f2117d\`
       - Reth provenance: \`paradigmxyz/reth\` at \`9384bc53d8c0c77e59cac83fdaaf3b372c6d2216\`
       - Zesu preservation baseline: \`Consensys/zesu\` at \`aa6c94339987d278acb8b7fa409c864dbd3d05aa\`
       - Zesu selected raw decoder: \`codygunton/zesu\` at \`96f1621468ba54755d653f19cbc9704e789be001\`
@@ -493,32 +426,15 @@ let
 
       ## Decision-facing protocol-entry comparison
 
-      All selection rows use the exported protocol root in the linked ELF: \`sha3\`,
-      \`tinfl_decompress_mem_to_mem\`, \`reth_keccak256\`, or \`zesu_decode_raw\`.
+      Selection rows use the exported protocol root in the linked ELF:
+      \`reth_keccak256\` or \`zesu_decode_raw\`.
       In \`stats.tsv\`, filter \`analysis_scope=protocol-entry\` for the uniformly rooted
-      inputs to the size and structural gates. The selected-symbol columns are retained
-      only for continuity with the original SHA/miniz measurements.
+      inputs to the size and structural comparison.
 
       | Target | Scope | Entry symbol | Measured artifact | Object \`.text\` | Linked \`.text\` | Full instrs | Reachable instrs | Protocol reachable | Reachable funcs | Protocol funcs | Blocks | CFG edges | Conditional branches | Calls | Loop SCCs |
       |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
       EOF
 
-      append_target sha3-protocol \
-        'mjosaarinen/tiny_sha3:sha3.c (protocol entry)' \
-        'sha3.o' \
-        "$out/rv64/obj/sha3.o" \
-        "$out/rv64/bin/sha3" \
-        "$out/rv64/meta/sha3-protocol-selected-symbols.txt" \
-        sha3 \
-        protocol-entry
-      append_target tinfl-protocol \
-        'richgel999/miniz:miniz_tinfl.c (protocol entry)' \
-        'tinfl.o' \
-        "$out/rv64/obj/tinfl.o" \
-        "$out/rv64/bin/tinfl" \
-        "$out/rv64/meta/tinfl-protocol-selected-symbols.txt" \
-        tinfl_decompress_mem_to_mem \
-        protocol-entry
       append_target reth-keccak-protocol \
         'Reth RustCrypto Keccak-256 wrapper (protocol entry)' \
         'libreth_keccak_wrapper.a' \
@@ -540,29 +456,13 @@ let
 
       ## Full \`_start\` composition context
 
-      These retained context rows include each freestanding harness composition. They do
+      These retained context rows include each freestanding adapter composition. They do
       not feed the decision gates; use the protocol-entry rows above instead.
 
       | Target | Scope | Entry symbol | Measured artifact | Object \`.text\` | Linked \`.text\` | Full instrs | Reachable instrs | Protocol reachable | Reachable funcs | Protocol funcs | Blocks | CFG edges | Conditional branches | Calls | Loop SCCs |
       |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
       EOF
 
-      append_target sha3 \
-        'mjosaarinen/tiny_sha3:sha3.c' \
-        'sha3.o' \
-        "$out/rv64/obj/sha3.o" \
-        "$out/rv64/bin/sha3" \
-        "$out/rv64/meta/sha3-selected-symbols.txt" \
-        _start \
-        full-composition
-      append_target tinfl \
-        'richgel999/miniz:miniz_tinfl.c' \
-        'tinfl.o' \
-        "$out/rv64/obj/tinfl.o" \
-        "$out/rv64/bin/tinfl" \
-        "$out/rv64/meta/tinfl-selected-symbols.txt" \
-        _start \
-        full-composition
       append_target reth-keccak \
         'Reth RustCrypto Keccak-256 wrapper' \
         'libreth_keccak_wrapper.a' \
@@ -572,7 +472,7 @@ let
         _start \
         full-composition
       append_target zesu-ssz \
-        'Zesu full harness + allocator + decoder + sink composition' \
+        'Zesu full adapter + allocator + decoder + sink composition' \
         'zesu-ssz (full linked ELF)' \
         "$out/rv64/bin/zesu-ssz" \
         "$out/rv64/bin/zesu-ssz" \
@@ -586,7 +486,7 @@ let
       for compact targets and the decoder object for Zesu's protocol entry; \`zesu-ssz\`
       deliberately names the complete linked ELF. Direct reachability is conservative:
       the analyzer follows direct-call fallthroughs even when a callee is noreturn, so the
-      Reth protocol root can retain explicitly labeled harness or runtime code. Ownership
+      Reth protocol root can retain explicitly labeled adapter or runtime code. Ownership
       maps are shared with the matching full-composition rows and are never stripped based
       on inferred behavior.
 
@@ -597,16 +497,14 @@ let
       maximum direct-call depth, opcode classes, ISA violations, unresolved indirect calls,
       and ownership buckets. The matching Markdown files render the core metrics and ISA
       gate. Complete linked \`objdump -d\` output is in \`objdump/\`; entry-symbol
-      disassemblies are \`objdump/sha3-protocol.txt\`, \`objdump/tinfl-protocol.txt\`,
-      \`objdump/reth-keccak-protocol.txt\`, and \`objdump/zesu-ssz-parser.txt\`. Raw size
-      and symbol output is in \`size.txt\` and \`symbols.txt\`.
+      disassemblies are \`objdump/reth-keccak-protocol.txt\` and
+      \`objdump/zesu-ssz-parser.txt\`. Raw size and symbol output is in \`size.txt\` and
+      \`symbols.txt\`.
 
       ## Sanity
 
-      SHA-3 was run under \`qemu-riscv64\` with message \`${sha3SampleMessage}\` and produced
-      \`${sha3SampleDigest}\`. \`tinfl\` ran successfully, Reth Keccak-256 produced the
-      independent Ethereum Keccak-256 vector for \`abc\`, and the raw Zesu harness rejected
-      empty input with its expected \`invalid\` exit.
+      Reth Keccak-256 produced the independent Ethereum Keccak-256 vector for \`abc\`, and
+      the raw Zesu adapter rejected empty input with its expected \`invalid\` exit.
       EOF
 
       cat > "$out/bin/show-stats" <<EOF
@@ -623,23 +521,21 @@ let
     name = "dump";
     text = ''
       if [ "$#" -eq 0 ]; then
-        target=sha3
+        target=reth-keccak
       else
         target="$1"
         shift
       fi
       if [ "$#" -ne 0 ]; then
-        echo "usage: dump [sha3|tinfl|reth-keccak|zesu-ssz]" >&2
+        echo "usage: dump [reth-keccak|zesu-ssz]" >&2
         exit 64
       fi
       case "$target" in
-        sha3) binary=${sha3}/bin/sha3 ;;
-        tinfl) binary=${tinfl}/bin/tinfl ;;
         reth-keccak) binary=${rethKeccak}/bin/reth-keccak ;;
         zesu-ssz) binary=${zesuSsz}/bin/zesu-ssz ;;
         *)
           echo "unknown target: $target" >&2
-          echo "usage: dump [sha3|tinfl|reth-keccak|zesu-ssz]" >&2
+          echo "usage: dump [reth-keccak|zesu-ssz]" >&2
           exit 64
           ;;
       esac

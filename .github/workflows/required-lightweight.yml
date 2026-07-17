@@ -1,7 +1,6 @@
 name: Required lightweight validation
 
 on:
-  pull_request:
   push:
     branches:
       - main
@@ -24,8 +23,6 @@ jobs:
       - name: Build RV64 targets and stats
         run: |
           nix build --print-build-logs --no-link \
-            .#sha3 \
-            .#tinfl \
             .#reth-keccak \
             .#zesuProductionObject \
             .#zesuRawObject \
@@ -71,13 +68,13 @@ jobs:
             -c bash -euo pipefail <<'EOF'
               export ELAN_HOME="$RUNNER_TEMP/elan"
               export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
-              elan toolchain install "$(tr -d "\\r\\n" < specs/ssz-bridge/lean-toolchain)"
+              elan toolchain install "$(tr -d "\\r\\n" < targets/ssz/zesu/spec/lean-toolchain)"
 
               openssl_dev="$(nix build --inputs-from . --no-link --print-out-paths nixpkgs#openssl.dev)"
               export PKG_CONFIG_PATH="$openssl_dev/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
               export LD_LIBRARY_PATH="$openssl_dev/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-              cd specs/ssz-bridge
+              cd targets/ssz/zesu/spec
               lake update
               git diff --exit-code -- lake-manifest.json
               lake build repl
@@ -98,8 +95,8 @@ jobs:
               reference_python="$reference_root/.venv/bin/python"
               test -x "$reference_python"
 
-              "$reference_python" -B tests/ssz_differential_audit.py \
+              "$reference_python" -B targets/ssz/zesu/tests/ssz_differential_audit.py \
                 --reference-python "$reference_python" \
                 --zesu-value-binary "$RUNNER_TEMP/zesu-ssz-value/bin/zesu-ssz-value" \
-                --lean-binary specs/ssz-bridge/.lake/build/bin/ssz_bridge
+                --lean-binary targets/ssz/zesu/spec/.lake/build/bin/ssz_bridge
           EOF
