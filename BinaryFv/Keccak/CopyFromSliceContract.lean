@@ -355,7 +355,8 @@ theorem cfsDataTransport {n dst src : BitVec 64} {s s6 : State} (hpres : CfsStab
 /-- Transport the setup landing-pad premise into `memcpy`'s `AbstractElp` about `s6` (for `ra`). -/
 theorem cfsElpTransport {s s6 : State} (hpres : CfsStableAgree s s6)
     (h : CfsAbstractElp s) : AbstractElp s6 := by
-  intro t hSt
+  intro t r hr hSt
+  subst hr
   exact h t (.Regidx 1#5) (fun r hr hr6 hr11 hr12 => (hSt r hr).trans (hpres r hr hr6 hr11 hr12))
 
 /-- Assemble a `StepPlatform` bundle for a setup fetch address from the abstract setup platform. -/

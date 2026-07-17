@@ -23,9 +23,8 @@ helpers (`MemFramed.source_preserved`), which follows from the frame plus the co
 non-overlap premise.
 -/
 
-namespace BinaryFv.Keccak
+namespace BinaryFv.RiscV
 
-open BinaryFv.RiscV
 
 /-- No-wraparound address arithmetic for an in-range destination offset: `(base + j)` as a machine
 word has `toNat` exactly `base.toNat + j` when that sum does not overflow.  (Self-contained twin of
@@ -83,4 +82,4 @@ theorem MemFramed.source_preserved {dst src n : BitVec 64} {s0 s : State}
     s.mem.get? (src + BitVec.ofNat 64 k).toNat = s0.mem.get? (src + BitVec.ofNat 64 k).toNat :=
   hfr _ (fun j hj => (hdisj j k hj hk).symm)
 
-end BinaryFv.Keccak
+end BinaryFv.RiscV

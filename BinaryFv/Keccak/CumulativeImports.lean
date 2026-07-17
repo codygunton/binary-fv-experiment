@@ -4,14 +4,14 @@ import BinaryFv.Keccak.StackBound
 import BinaryFv.Keccak.MemcpyContract
 import BinaryFv.Keccak.MemsetContract
 import BinaryFv.Keccak.CopyFromSliceContract
-import BinaryFv.Keccak.HelperFraming
+import BinaryFv.RiscV.Logic.MemFrame
 import BinaryFv.Keccak.Root
 import BinaryFv.Keccak.Concrete
 import BinaryFv.Keccak.ArtifactFetchMmio
 import BinaryFv.Keccak.ReachabilityInventory
-import BinaryFv.Keccak.FrameRuntime
+import BinaryFv.RiscV.Instruction.Frame.StackPointer
 import BinaryFv.Keccak.StoreStepTriple
-import BinaryFv.Keccak.TraceRunner
+import BinaryFv.RiscV.Proof.RunnerCorrespondence
 import BinaryFv.Keccak.XorBlockDecodeFacts
 import BinaryFv.Keccak.XorBlockArtifactFetch
 import BinaryFv.RiscV.Step.TryStepStackAddiMemory
@@ -67,6 +67,7 @@ existing theorem at its existing type.
 namespace BinaryFv.Keccak.CumulativeImports
 
 open BinaryFv.Keccak
+open BinaryFv.RiscV
 
 /-- The three helper capstones and the inherited call/stack surface all resolve in one environment. -/
 example := @memcpy_contract

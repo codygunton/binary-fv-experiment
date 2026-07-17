@@ -1,14 +1,66 @@
-import BinaryFv.Keccak.FrameCoverage
 import BinaryFv.RiscV.Instruction.Frame.ControlDispatch
 import BinaryFv.RiscV.Instruction.Frame.IntegerDispatch
 import BinaryFv.RiscV.Instruction.Frame.Load
 import BinaryFv.RiscV.Instruction.Frame.Store
 
-namespace BinaryFv.Keccak
+namespace BinaryFv.RiscV
 
-open BinaryFv.RiscV
 open LeanRV64DExecutable.Functions
 open Register
+
+/-! ## Static x2-frame classification of decoded instructions -/
+
+/-- Generated instruction constructors retained by the closed static inventory. -/
+inductive ExecutionConstructor where
+  | illegal | compressedIllegal | landingPad | utype | jal | jalr | btype | itype | shiftIop
+  | rtype | load | store | addiw | rtypew | shiftiwop | fenceTso | fence | ecall | mret | sret
+  | ebreak | wfi | sfenceVma | mul | div | rem | mulw | divw | remw
+  deriving BEq, DecidableEq, Repr
+def executionConstructor : instruction → ExecutionConstructor
+  | .ILLEGAL _ => .illegal | .C_ILLEGAL _ => .compressedIllegal | .LPAD _ => .landingPad
+  | .UTYPE _ => .utype | .JAL _ => .jal | .JALR _ => .jalr | .BTYPE _ => .btype
+  | .ITYPE _ => .itype | .SHIFTIOP _ => .shiftIop | .RTYPE _ => .rtype | .LOAD _ => .load
+  | .STORE _ => .store | .ADDIW _ => .addiw | .RTYPEW _ => .rtypew | .SHIFTIWOP _ => .shiftiwop
+  | .FENCE_TSO _ => .fenceTso | .FENCE _ => .fence | .ECALL _ => .ecall | .MRET _ => .mret
+  | .SRET _ => .sret | .EBREAK _ => .ebreak | .WFI _ => .wfi | .SFENCE_VMA _ => .sfenceVma
+  | .MUL _ => .mul | .DIV _ => .div | .REM _ => .rem | .MULW _ => .mulw | .DIVW _ => .divw
+  | .REMW _ => .remw
+/-- `framed` has an exported all-outcome `x2` frame; stack adjustment changes `x2` by design. -/
+inductive X2FrameStatus where
+  | framed (constructor : ExecutionConstructor) | stackAdjustment
+  | uncovered (constructor : ExecutionConstructor)
+  deriving BEq, DecidableEq, Repr
+def nonStackDestination (destination : regidx) : Bool := destination != stackPointer
+def frameForDestination (constructor : ExecutionConstructor) (destination : regidx) :
+    X2FrameStatus :=
+  if nonStackDestination destination then .framed constructor else .uncovered constructor
+/--
+Map generated constructors to the already exported frame families: UTYPE, RTYPE, ITYPE, SHIFTIOP,
+MUL/DIV/REM, BTYPE, non-`x2` JAL/JALR, LOAD, STORE, and FENCE/FENCE_TSO. All other constructors
+and unexpected `x2` writes remain uncovered; this is not semantic reachability, arbitrary-state
+execution coverage, or a stack-bound claim.
+-/
+def x2FrameStatus (decoded : instruction) : X2FrameStatus :=
+  if (instructionStackDelta? decoded).isSome then .stackAdjustment else
+  match decoded with
+  | .UTYPE (_, destination, _) => frameForDestination .utype destination
+  | .JAL (_, destination) => frameForDestination .jal destination
+  | .JALR (_, _, destination) => frameForDestination .jalr destination
+  | .BTYPE _ => .framed .btype
+  | .ITYPE (_, _, destination, _) => frameForDestination .itype destination
+  | .SHIFTIOP (_, _, destination, _) => frameForDestination .shiftIop destination
+  | .RTYPE (_, _, destination, _) => frameForDestination .rtype destination
+  | .LOAD (_, _, destination, _, _) => frameForDestination .load destination
+  | .STORE _ => .framed .store
+  | .FENCE_TSO _ => .framed .fenceTso
+  | .FENCE _ => .framed .fence
+  | .MUL (_, _, destination, _) => frameForDestination .mul destination
+  | .DIV (_, _, destination, _) => frameForDestination .div destination
+  | .REM (_, _, destination, _) => frameForDestination .rem destination
+  | _ => .uncovered (executionConstructor decoded)
+def X2FrameStatus.isClassified : X2FrameStatus → Bool
+  | .framed _ | .stackAdjustment => true
+  | .uncovered _ => false
 
 /-- A generated instruction preserves the observed stack-pointer register on every outcome. -/
 def RuntimeX2Frame (decoded : instruction) : Prop :=
@@ -164,4 +216,4 @@ theorem runtime_x2_frame_of_static_framed (decoded : instruction)
     | .DIVW _ | .REMW _ =>
     simp [x2FrameStatus, instructionStackDelta?, executionConstructor] at framed
 
-end BinaryFv.Keccak
+end BinaryFv.RiscV

@@ -1,5 +1,10 @@
 import BinaryFv.RiscV.Step.Hart
-import BinaryFv.Keccak.CoreTryStepContract
+import BinaryFv.RiscV.Step.TryStep
+import BinaryFv.RiscV.Step.Postlude
+import BinaryFv.RiscV.Step.LandingPad
+import BinaryFv.RiscV.Platform.Fetch
+import BinaryFv.RiscV.Platform.FetchMemory
+import BinaryFv.RiscV.Logic.Framing
 import BinaryFv.RiscV.Instruction.Execute.ControlFlow
 import BinaryFv.RiscV.Model.SailEnumAux
 
@@ -8,8 +13,7 @@ import BinaryFv.RiscV.Model.SailEnumAux
 
 This module packages the delivered control-flow execute contracts (`execute_BTYPE_taken_run`,
 `execute_BTYPE_notTaken_run`, `ret_run` from `ControlFlowStep`) through the authoritative generated
-`try_step`, exactly mirroring how the fixed XOR slice (`CoreTryStepContract`) and the real-ELF store
-(`CoreStoreStepContract`) are packaged.
+`try_step`, exactly mirroring how the real-ELF store (`CoreStoreStepContract`) is packaged.
 
 These are the control-flow analogue of `tryStepCoreStoreRetires`: a conditional `BTYPE` (both taken
 and not-taken) and the `ret` pseudo-instruction (`jalr x0, 0(rs1)`), lifted through the generated
@@ -28,12 +32,11 @@ Unlike the store contract these lemmas are kept fully generic over `pc`/`word`: 
 the `ext_decode` result are explicit premises, so the same rule applies at any control-flow site.
 -/
 
-namespace BinaryFv.Keccak
+namespace BinaryFv.RiscV
 
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RiscV
 
 /-! ## Post-states of the generated base path -/
 
@@ -89,7 +92,7 @@ theorem executeRetDispatchRuns (s : State) (rs1 : regidx) (linkVal rs1Val : BitV
 
 /-- Compose explicit base-fetch/decoder premises with an arbitrary control-flow execute contract.
 
-This is the control-flow analogue of `runHartActiveCoreXorRetiresWithFetchMemory`: the fetch,
+This is the control-flow analogue of the base retire packaging: the fetch,
 interrupt-dispatch, landing-pad and `nextPC`-write bookkeeping is identical; only the `execute`
 premise (and the decoded `instruction`/post-execute state it produces) is instruction-specific. -/
 theorem runHartActiveControlFlow (stepNo : Nat) (state afterExec : State) (pc : BitVec 64)
@@ -474,4 +477,4 @@ theorem tryStepRetRetires (stepNo : Nat) (state : State)
     (zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3)) privilegeAfterInc active
     nextPcAfterExec agree hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
 
-end BinaryFv.Keccak
+end BinaryFv.RiscV

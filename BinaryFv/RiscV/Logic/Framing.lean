@@ -140,4 +140,78 @@ theorem writeReg_preserves_memory (state : State) (written : Register)
     | .error _ state' => state'.mem) = state.mem := by
   rfl
 
+/-! ## Inverting binds, and `writeBytes` register preservation -/
+
+/-- Inverting a deterministic first action out of a `Runs` bind. -/
+theorem runs_bind_inv {α β : Type} {first : SailM α} {next : α → SailM β}
+    {s smid s' : State} {v : α} {r : β}
+    (hfirst : Runs first s smid v) (hbind : Runs (first >>= next) s s' r) :
+    Runs (next v) smid s' r := by
+  have key : (first >>= next).run s = (next v).run smid := by
+    show EStateM.bind first next s = (next v).run smid
+    unfold EStateM.bind
+    rw [show first s = EStateM.Result.ok v smid from hfirst]; rfl
+  unfold Runs at hbind ⊢
+  rw [← key]; exact hbind
+
+/-- A `Runs` bind whose continuation is a state-preserving `pure` inverts to the first action,
+running to the same final state. -/
+theorem runs_bind_pure_inv {α β : Type} {first : SailM α} {b : β} {s s' : State}
+    (hbind : Runs (first >>= fun _ => (pure b : SailM β)) s s' b) :
+    ∃ v, Runs first s s' v := by
+  cases hf : first.run s with
+  | error e smid =>
+    exfalso
+    have hbad : (first >>= fun _ => (pure b : SailM β)).run s = EStateM.Result.error e smid := by
+      show EStateM.bind first _ s = _
+      unfold EStateM.bind
+      rw [show first s = EStateM.Result.error e smid from hf]
+    unfold Runs at hbind; rw [hbad] at hbind
+    exact EStateM.Result.noConfusion hbind
+  | ok val smid =>
+    refine ⟨val, ?_⟩
+    have hok : (first >>= fun _ => (pure b : SailM β)).run s = EStateM.Result.ok b smid := by
+      show EStateM.bind first _ s = _
+      unfold EStateM.bind
+      rw [show first s = EStateM.Result.ok val smid from hf]; rfl
+    unfold Runs at hbind; rw [hok] at hbind
+    injection hbind with _ hss
+    unfold Runs; rw [hf, hss]
+
+/-- The generated `writeBytes` only mutates `.mem`, so it leaves the register file unchanged. -/
+theorem writeBytes_preserves_regs {n : Nat} (addr : Nat) (data : BitVec (8 * n))
+    (s s' : State) (h : Runs (PreSail.writeBytes addr data) s s' true) :
+    s'.regs = s.regs := by
+  have hforM : ∀ (list : List (Nat × BitVec 8)) (s s' : State),
+      Runs (List.forM list (fun p => PreSail.writeByte p.1 p.2) : SailM PUnit) s s' () →
+      s'.regs = s.regs := by
+    intro list
+    induction list with
+    | nil =>
+      intro s s' h
+      have hh : EStateM.run (pure () : SailM PUnit) s = .ok () s' := by
+        simpa only [List.forM, Runs] using h
+      simp only [EStateM.run] at hh
+      injection hh with _ hs2
+      rw [hs2]
+    | cons p rest ih =>
+      intro s s' h
+      have hstep : Runs
+          (PreSail.writeByte p.1 p.2 >>= fun _ =>
+            List.forM rest (fun p => PreSail.writeByte p.1 p.2)) s s' () := by
+        simpa only [List.forM] using h
+      have hfirst : Runs (PreSail.writeByte p.1 p.2) s
+          { s with mem := s.mem.insert p.1 p.2 } () := by
+        unfold Runs; exact writeByte_run s p.1 p.2
+      have hcont := runs_bind_inv hfirst hstep
+      have := ih { s with mem := s.mem.insert p.1 p.2 } s' hcont
+      rw [this]
+  have hstep : Runs
+      (List.forM (List.ofFn (fun i : Fin n => (addr + i.val, data.extractLsb' (8 * i.val) 8)))
+        (fun p => PreSail.writeByte p.1 p.2) >>= fun _ => (pure true : SailM Bool)) s s' true := by
+    unfold PreSail.writeBytes at h; exact h
+  obtain ⟨v, hforMrun⟩ := runs_bind_pure_inv hstep
+  cases v
+  exact hforM _ s s' hforMrun
+
 end BinaryFv.RiscV

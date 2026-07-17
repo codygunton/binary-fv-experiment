@@ -57,18 +57,6 @@ theorem stackFrame_containedIn_stackRange {spLow spHigh : Nat}
   · simpa [stackFrame_start] using hlow
   · rw [stackFrame_stop hle, stackRange_stop]; exact hhigh
 
-/-- Half-open disjointness is symmetric. -/
-theorem AddressRange.disjoint_symm {a b : AddressRange} (h : a.disjoint b) : b.disjoint a :=
-  h.symm
-
-/-- Containment refines disjointness: a range inside a region disjoint from `other` is itself
-    disjoint from `other`. -/
-theorem AddressRange.disjoint_of_containedIn {inner region other : AddressRange}
-    (hin : inner.containedIn region) (hdis : region.disjoint other) : inner.disjoint other := by
-  rcases hdis with h | h
-  · exact Or.inl (Nat.le_trans hin.2 h)
-  · exact Or.inr (Nat.le_trans h hin.1)
-
 /-- Any frame inside the stack window is disjoint from every non-stack region of a well-formed
     Keccak layout (code, return sentinel, output, message). -/
 theorem stackFrame_disjoint_of_layout {layout : KeccakLayout} (hwf : layout.wellFormed)

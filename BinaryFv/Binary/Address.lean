@@ -27,6 +27,17 @@ theorem containedIn_trans {first second third : AddressRange}
     first.containedIn third :=
   ⟨Nat.le_trans secondH.1 firstH.1, Nat.le_trans firstH.2 secondH.2⟩
 
+/-- Half-open disjointness is symmetric. -/
+theorem disjoint_symm {a b : AddressRange} (h : a.disjoint b) : b.disjoint a :=
+  h.symm
+/-- Containment refines disjointness: a range inside a region disjoint from `other` is itself
+    disjoint from `other`. -/
+theorem disjoint_of_containedIn {inner region other : AddressRange}
+    (hin : inner.containedIn region) (hdis : region.disjoint other) : inner.disjoint other := by
+  rcases hdis with h | h
+  · exact Or.inl (Nat.le_trans hin.2 h)
+  · exact Or.inr (Nat.le_trans h hin.1)
+
 end AddressRange
 
 end BinaryFv.Binary

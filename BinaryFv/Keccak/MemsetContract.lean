@@ -1096,7 +1096,7 @@ theorem memset_exit (dst n retAddr byteval : BitVec 64) (image : ProgramImage)
   have hElp1 : Runs (update_elp_state (.Regidx 1#5))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10d44))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10d44)) () :=
-    hInv.hElp _ (coreStableAgree s1 (BitVec.ofNat 64 0x10d44) hSt1)
+    hInv.hElp _ (.Regidx 1#5) rfl (coreStableAgree s1 (BitVec.ofNat 64 0x10d44) hSt1)
   have hr := memset_step_ret (start + 1) s1 retAddr (Sail.BitVec.addInt retired0 1) mseccfgBits
     misaBits1 inhibit cfg hplat1 hcnt1 hrs1 hretAlign hElp1 hmisa1
   have hSt2 : StableAgree s _ :=

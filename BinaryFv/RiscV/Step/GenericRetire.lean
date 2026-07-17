@@ -1,4 +1,4 @@
-import BinaryFv.Keccak.CoreBranchStepContract
+import BinaryFv.RiscV.Step.ControlFlow
 
 /-!
 # A generic normal-execution `try_step` postlude for any retiring instruction
@@ -22,12 +22,11 @@ The definitions `tryStepControlFlowAfterIncrement / …Tick / …Retired` and `c
 are reused verbatim from `CoreBranchStepContract`; only the packaging premise shape changes.
 -/
 
-namespace BinaryFv.Keccak
+namespace BinaryFv.RiscV
 
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RiscV
 
 /--
 Generic `try_step` postlude, parameterized by the opaque post-execute state `afterExec`.
@@ -148,4 +147,4 @@ theorem tryStepControlFlowRetires_of_generic (stepNo : Nat) (state afterExec : S
     (agree minstret_increment (by decide)) (agree minstret (by decide)) hartRead inhibitRead
     configRead notInhibited machineEnabled retiredRead
 
-end BinaryFv.Keccak
+end BinaryFv.RiscV

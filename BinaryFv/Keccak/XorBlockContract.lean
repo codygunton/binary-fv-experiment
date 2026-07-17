@@ -171,10 +171,9 @@ states carry the abstract platform / data-access premises across the body's regi
     r ≠ x5 ∧ r ≠ x10 ∧ r ≠ x11 ∧ r ≠ x12 ∧ r ≠ x13 ∧ r ≠ x14 ∧ r ≠ x15 ∧ r ≠ x16 ∧ r ≠ x17
 
 /-- Two states agree on every register the loop body does not write. -/
-def StableAgree (base t : State) : Prop :=
-  ∀ r : Register, NonW r → t.regs.get? r = base.regs.get? r
+def StableAgree (base t : State) : Prop := Agree NonW base t
 
-theorem StableAgree.refl (s : State) : StableAgree s s := fun _ _ => rfl
+theorem StableAgree.refl (s : State) : StableAgree s s := Agree.refl s
 
 theorem StableAgree.trans {a b c : State} (h1 : StableAgree a b) (h2 : StableAgree b c) :
     StableAgree a c := fun r hr => (h2 r hr).trans (h1 r hr)
@@ -1594,12 +1593,11 @@ def inputLane (inByte : Nat → BitVec 8) (k : Nat) : BitVec 64 :=
 
 /-- Abstract configured-machine fetch/decode platform (stage-2 trust boundary). -/
 def AbstractPlatform (base : State) : Prop :=
-  ∀ (t : State) (pc : BitVec 64), StableAgree base t → t.regs.get? PC = some pc → IsBodyPc pc →
-    FetchBasePlatform t pc ∧ FetchMemoryNoMMIO t pc ∧ InterruptDisabled t ∧ LandingPadNotExpected t
+  BinaryFv.RiscV.AbstractPlatform NonW IsBodyPc base
 
 /-- Abstract Zicfilp landing-pad update for the leaf `ret` (stage-2 trust boundary). -/
 def AbstractElp (base : State) : Prop :=
-  ∀ (t : State), StableAgree base t → Runs (update_elp_state (.Regidx 1#5)) t t ()
+  BinaryFv.RiscV.AbstractElp NonW (fun r => r = .Regidx 1#5) base
 
 /-- Abstract load/store data-access preconditions for lane `k`: the 8 single-byte input loads (via
 `a1 = input0 + 8k`), the 8-byte state-lane load and store (via `a0 = state0 + 8k`).  Never discharged
@@ -1633,11 +1631,11 @@ def AbstractDataAccess (state0 input0 : BitVec 64) (base : State) : Prop :=
 
 theorem AbstractPlatform.mono {s s' : State} (h : StableAgree s s') (hp : AbstractPlatform s) :
     AbstractPlatform s' :=
-  fun t pc hst hPC hbody => hp t pc (fun r hr => (hst r hr).trans (h r hr)) hPC hbody
+  BinaryFv.RiscV.AbstractPlatform.mono h hp
 
 theorem AbstractElp.mono {s s' : State} (h : StableAgree s s') (he : AbstractElp s) :
     AbstractElp s' :=
-  fun t hst => he t (fun r hr => (hst r hr).trans (h r hr))
+  BinaryFv.RiscV.AbstractElp.mono h he
 
 theorem AbstractDataAccess.mono {state0 input0 : BitVec 64} {s s' : State} (h : StableAgree s s')
     (hd : AbstractDataAccess state0 input0 s) : AbstractDataAccess state0 input0 s' :=
@@ -3032,7 +3030,7 @@ theorem xorblock_exit (state0 input0 retAddr : BitVec 64) (image : ProgramImage)
   have hElp1 : Runs (update_elp_state (.Regidx 1#5))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement s29) (BitVec.ofNat 64 0x10ce8))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement s29) (BitVec.ofNat 64 0x10ce8)) () :=
-    hAt.hElp _ (coreStableAgree s29 (BitVec.ofNat 64 0x10ce8) hSt1)
+    hAt.hElp _ (.Regidx 1#5) rfl (coreStableAgree s29 (BitVec.ofNat 64 0x10ce8) hSt1)
   have hret := step_ret (start + 16 * 29 + 29) s29 retAddr (Sail.BitVec.addInt retired28 1)
     mseccfgBits misaBits inhibit cfg hplat2 hcnt2 hrs1 hretAlign hElp1 hmisa
   have hSt2 : StableAgree s28 _ :=

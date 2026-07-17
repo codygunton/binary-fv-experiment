@@ -1,10 +1,12 @@
-import BinaryFv.Keccak.FallThroughStepContract
+import BinaryFv.RiscV.Step.AbstractPremise
+import BinaryFv.RiscV.Step.Context
+import BinaryFv.RiscV.Step.FallThrough
 import BinaryFv.Keccak.CoreStoreStepContract
-import BinaryFv.Keccak.HelperFraming
+import BinaryFv.RiscV.Logic.MemFrame
 import BinaryFv.Keccak.HelperDecodeFacts
 import BinaryFv.Keccak.HelperArtifactFetch
 import BinaryFv.Keccak.HelperArithDispatch
-import BinaryFv.Keccak.LoopInduction
+import BinaryFv.RiscV.Logic.LoopInduction
 import BinaryFv.RiscV.Instruction.Execute.Load
 import BinaryFv.RiscV.Instruction.Execute.StoreByte
 import BinaryFv.RiscV.Logic.BlockStep
@@ -106,29 +108,6 @@ The genuine platform preconditions (`FetchBasePlatform`, MMIO decision, interrup
 landing-pad, decode CSRs) about the post-increment fetch state, and the retirement counter reads
 about the pre-step state, are bundled once so each body-instruction step lemma consumes them
 uniformly.  They are exactly the abstract configured-machine facts carried by the stage-2 store. -/
-
-/-- The generated fetch/decode platform bundle for the body instruction at `pc`, stated about the
-post-increment state `tryStepControlFlowAfterIncrement state` the generated `try_step` fetches from. -/
-def StepPlatform (state : State) (pc : BitVec 64) (b0 b1 b2 b3 : BitVec 8)
-    (mseccfgBits : BitVec 64) : Prop :=
-  FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc ∧
-  FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc ∧
-  FetchBytesAt (tryStepControlFlowAfterIncrement state) pc b0 b1 b2 b3 ∧
-  InterruptDisabled (tryStepControlFlowAfterIncrement state) ∧
-  LandingPadNotExpected (tryStepControlFlowAfterIncrement state) ∧
-  (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege = some Privilege.Machine ∧
-  (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits
-
-/-- The retirement-counter reads about the pre-step state (`minstret` present, `mcountinhibit` /
-`minstretcfg` configured so `should_inc_minstret` fires, hart active). -/
-def StepCounters (state : State) (retired : BitVec 64) (inhibit : BitVec 32)
-    (config : BitVec 64) : Prop :=
-  state.regs.get? hart_state = some (.HART_ACTIVE ()) ∧
-  state.regs.get? mcountinhibit = some inhibit ∧
-  state.regs.get? minstretcfg = some config ∧
-  _get_Counterin_IR inhibit = 0#1 ∧
-  _get_CountSmcntrpmf_MINH config = 0#1 ∧
-  state.regs.get? minstret = some retired
 
 /-! ## Step 1: `bne a5, a2, 0x10d24` at the loop head `L = 0x10d1c` (taken while `i ≠ n`) -/
 
@@ -616,8 +595,7 @@ by composing with `StableAgree` — exactly the stage-2 trust boundary. -/
     r ≠ x13 ∧ r ≠ x14 ∧ r ≠ x15
 
 /-- Two states agree on every register the loop body does not write. -/
-def StableAgree (base t : State) : Prop :=
-  ∀ r : Register, NonW r → t.regs.get? r = base.regs.get? r
+def StableAgree (base t : State) : Prop := Agree NonW base t
 
 /-- The instruction fetch addresses of the memcpy function (entry, loop head, ret, and body). -/
 @[reducible] def IsBodyPc (pc : BitVec 64) : Prop :=
@@ -630,8 +608,7 @@ positioned at a memcpy fetch address, the generated base-fetch path is enabled. 
 here (the stage-2 trust boundary); satisfiable because it holds of the actual configured machine at
 these aligned, executable code addresses. -/
 def AbstractPlatform (base : State) : Prop :=
-  ∀ (t : State) (pc : BitVec 64), StableAgree base t → t.regs.get? PC = some pc → IsBodyPc pc →
-    FetchBasePlatform t pc ∧ FetchMemoryNoMMIO t pc ∧ InterruptDisabled t ∧ LandingPadNotExpected t
+  BinaryFv.RiscV.AbstractPlatform NonW IsBodyPc base
 
 /-- Abstract load/store data-access preconditions at every in-range offset, quantified over
 `StableAgree`-equal states holding the resolved effective address in `a3`/`a4`.  Never discharged
@@ -654,7 +631,7 @@ def AbstractDataAccess (n dst src : BitVec 64) (base : State) : Prop :=
 /-- The abstract platform survives to a `StableAgree`-equal state. -/
 theorem AbstractPlatform.mono {s s' : State} (h : StableAgree s s') (hp : AbstractPlatform s) :
     AbstractPlatform s' :=
-  fun t pc hst hPC hbody => hp t pc (fun r hr => (hst r hr).trans (h r hr)) hPC hbody
+  BinaryFv.RiscV.AbstractPlatform.mono h hp
 
 /-- The abstract data access survives to a `StableAgree`-equal state. -/
 theorem AbstractDataAccess.mono {n dst src : BitVec 64} {s s' : State} (h : StableAgree s s')
@@ -665,12 +642,12 @@ theorem AbstractDataAccess.mono {n dst src : BitVec 64} {s s' : State} (h : Stab
 configured machine (Zicfilp expects no landing pad here).  Never discharged here (stage-2 trust
 boundary). -/
 def AbstractElp (base : State) : Prop :=
-  ∀ (t : State), StableAgree base t → Runs (update_elp_state (.Regidx 1#5)) t t ()
+  BinaryFv.RiscV.AbstractElp NonW (fun r => r = .Regidx 1#5) base
 
 /-- The abstract Zicfilp update survives to a `StableAgree`-equal state. -/
 theorem AbstractElp.mono {s s' : State} (h : StableAgree s s') (he : AbstractElp s) :
     AbstractElp s' :=
-  fun t hst => he t (fun r hr => (hst r hr).trans (h r hr))
+  BinaryFv.RiscV.AbstractElp.mono h he
 
 /-- `a5 + 1` at the loop index. -/
 theorem ofNat_add_one (i : Nat) :
@@ -1773,7 +1750,7 @@ theorem memcpy_exit (dst src n retAddr : BitVec 64) (image : ProgramImage)
   have hElp1 : Runs (update_elp_state (.Regidx 1#5))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10d20))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10d20)) () :=
-    hInv.hElp _ (coreStableAgree s1 (BitVec.ofNat 64 0x10d20) hSt1)
+    hInv.hElp _ (.Regidx 1#5) rfl (coreStableAgree s1 (BitVec.ofNat 64 0x10d20) hSt1)
   have hr := memcpy_step_ret (start + 1) s1 retAddr (Sail.BitVec.addInt retired0 1) mseccfgBits
     misaBits1 inhibit cfg hplat1 hcnt1 hrs1 hretAlign hElp1 hmisa1
   have hSt2 : StableAgree s _ :=

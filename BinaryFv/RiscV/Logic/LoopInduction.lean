@@ -10,7 +10,7 @@ this module adds the invariant-carrying variant `Trace.invariantIterate`: from a
 each iteration advances by one length-`L` trace, it produces the whole length-`N * L` trace together
 with the invariant at the end, choosing the intermediate states existentially.
 
-This is the loop combinator used by every helper/permutation loop in the Keccak binary-compliance
+This is the loop combinator used by every machine loop in a binary-compliance
 proof.
 -/
 

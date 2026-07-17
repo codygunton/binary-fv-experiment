@@ -1,5 +1,5 @@
 import BinaryFv.Keccak.Decode
-import BinaryFv.RiscV.Analysis.StackFlow
+import BinaryFv.RiscV.Analysis.FunctionWords
 
 namespace BinaryFv.Keccak
 
@@ -10,25 +10,10 @@ def artifactFunctions : Except ArtifactDecodeError (Array StaticSymbol) := do
   let elf ← Artifact.parsed.mapError .elf
   pure elf.executableFunctions
 
-def functionContainsDecodedWord (function : StaticSymbol) (word : DecodedWord) : Bool :=
-  function.value ≤ word.encoded.address && word.encoded.address + 4 ≤ function.value + function.size
-
-/-- A parser-selected function together with its decoded fixed-width executable words. -/
-structure FunctionWordSet where
-  function : StaticSymbol
-  words : Array DecodedWord
-
-def functionWordSet (function : StaticSymbol) (words : Array DecodedWord) : FunctionWordSet where
-  function
-  words := words.filter (functionContainsDecodedWord function)
-
 def artifactFunctionWordSets? : Option (Array FunctionWordSet) :=
   match artifactFunctions, artifactDecodedWords? with
   | .ok functions, some words => some (functions.map fun function => functionWordSet function words)
   | _, _ => none
-
-def functionContainsAddress (function : StaticSymbol) (address : Nat) : Bool :=
-  function.value ≤ address && address < function.value + function.size
 
 def artifactEntryFunction? : Option StaticSymbol :=
   match Artifact.entryAddress, artifactFunctions with
@@ -47,9 +32,6 @@ def portableCoreWordSet? : Option FunctionWordSet :=
   match portableCore, artifactDecodedWords? with
   | .ok function, some words => some (functionWordSet function words)
   | _, _ => none
-
-def FunctionWordSet.stackWritesClassified (set : FunctionWordSet) : Bool :=
-  set.words.all DecodedWord.stackWriteClassified
 
 def allArtifactFunctionStackWritesClassified : Bool :=
   match artifactFunctionWordSets? with
@@ -80,17 +62,6 @@ theorem entry_and_portable_core_stack_writes_classified :
 /-- Closed fixed-artifact inspection for the structurally selected portable Keccak core. -/
 theorem portable_core_stack_writes_classified : portableCoreStackWritesClassified = true := by
   native_decide
-
-/-- Direct call candidates retain the generated decoder's resolved target and link register. -/
-def FunctionWordSet.directCallCandidates (set : FunctionWordSet) : Array DirectCallEdge :=
-  directCallEdges (controlFlowNodes set.words)
-
-/-- Return candidates retain their link register, including non-`ra` outlined-helper returns. -/
-def FunctionWordSet.returnCandidates (set : FunctionWordSet) : Array (Nat × regidx) :=
-  (controlFlowNodes set.words).foldl (fun candidates node =>
-    match node.returnLink? with
-    | some link => candidates.push (node.word.encoded.address, link)
-    | none => candidates) #[]
 
 def artifactFunctionDirectCallCandidates? : Option (Array (StaticSymbol × DirectCallEdge)) :=
   artifactFunctionWordSets?.map fun sets =>

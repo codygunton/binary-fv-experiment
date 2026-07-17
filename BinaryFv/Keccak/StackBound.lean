@@ -97,42 +97,7 @@ The generated `addi sp, sp, immediate` retirement writes `x2 := stackValue + sig
 (a `BitVec 64`).  For a prologue `addi sp, sp, -delta` (`immediate.toInt = -delta`) that stays above
 the stack limit, the register's `.toNat` is exactly `stackValue.toNat - delta`. -/
 
-theorem prologue_toNat (stackValue : BitVec 64) (immediate : BitVec 12) (delta : Nat)
-    (himm : immediate.toInt = -(delta : Int)) (hle : delta ≤ stackValue.toNat) :
-    (stackValue + sign_extend (m := 64) immediate).toNat = stackValue.toNat - delta := by
-  show (stackValue + immediate.signExtend 64).toNat = stackValue.toNat - delta
-  have hext : (immediate.signExtend 64).toInt = -(delta : Int) := by
-    rw [BitVec.toInt_signExtend_of_le (by omega)]; exact himm
-  have hcond := BitVec.toInt_eq_toNat_cond (immediate.signExtend 64)
-  rw [hext] at hcond
-  have hlt : (immediate.signExtend 64).toNat < 2 ^ 64 := (immediate.signExtend 64).isLt
-  have hs : stackValue.toNat < 2 ^ 64 := stackValue.isLt
-  rw [BitVec.toNat_add]
-  split at hcond <;> omega
-
 /-! ## Connecting the generated `try_step` prologue contract to the window invariant -/
-
-/-- The stack pointer held by the state after the packaged `try_step` prologue retirement. -/
-theorem tryStepStackAddiAfterRetired_stackPointer (state : State) (pc : BitVec 64)
-    (immediate : BitVec 12) (stackValue retired : BitVec 64) :
-    (tryStepStackAddiAfterRetired state pc immediate stackValue retired).regs.get? x2
-      = some (stackValue + sign_extend (m := 64) immediate) := by
-  calc
-    (tryStepStackAddiAfterRetired state pc immediate stackValue retired).regs.get? x2
-        = (tryStepStackAddiAfterTick state pc immediate stackValue).regs.get? x2 := by
-          simpa [tryStepStackAddiAfterRetired] using
-            writeReg_read_unchanged (tryStepStackAddiAfterTick state pc immediate stackValue)
-              minstret x2 (Sail.BitVec.addInt retired 1) (by decide)
-    _ = (tryStepStackAddiAfterActive state pc immediate stackValue).regs.get? x2 := by
-          simpa [tryStepStackAddiAfterTick] using
-            writeReg_read_unchanged (tryStepStackAddiAfterActive state pc immediate stackValue)
-              PC x2 (Sail.BitVec.addInt pc 4) (by decide)
-    _ = some (stackValue + sign_extend (m := 64) immediate) := by
-          change
-            ((stackAddiNextState (tryStepStackAddiAfterIncrement state) pc).regs.insert x2
-              (stackValue + sign_extend (m := 64) immediate)).get? x2 = _
-          rw [Std.ExtDHashMap.get?_insert]
-          simp
 
 /-- **Conditional (state form).**  From a depth-budget window whose stack pointer is `stackValue`,
     the packaged prologue `addi sp, sp, -delta` retirement lands in a depth-budget window that has

@@ -1,3 +1,7 @@
+import BinaryFv.RiscV.Execution.MemoryIo
+import BinaryFv.RiscV.Execution.Machine
+import BinaryFv.RiscV.Execution.Runner
+import BinaryFv.RiscV.Platform.NormalState
 import BinaryFv.RiscV.Execution.ImageLoad
 import BinaryFv.Keccak.Artifact
 import BinaryFv.RiscV.Model.State
@@ -10,25 +14,6 @@ open PreSail
 open LeanRV64DExecutable.Functions
 open Register
 open BinaryFv.RiscV
-
-def loadBytes (base : Nat) (bytes : ByteArray) : SailM Unit := do
-  for h : index in [:bytes.size] do
-    writeByte (base + index) (BitVec.ofNat 8 bytes[index].toNat)
-
-def readByteArray (base length : Nat) : SailM ByteArray := do
-  let mut result := ByteArray.emptyWithCapacity length
-  for index in [:length] do
-    result := result.push (UInt8.ofNat (← readByte (base + index)).toNat)
-  pure result
-
-/-- Materialize a sparse Sail memory range with a known byte value. -/
-def loadFilledBytes (base count : Nat) (value : UInt8) : SailM Unit := do
-  for index in [:count] do
-    writeByte (base + index) (BitVec.ofNat 8 value.toNat)
-
-/-- Materialize zeroed sparse memory required by the generated Sail memory model. -/
-def loadZeroBytes (base count : Nat) : SailM Unit :=
-  loadFilledBytes base count 0
 
 /-- Keep a valid mapped input pointer even for an empty direct call. -/
 def messageStorageSize (message : ByteArray) : Nat :=
@@ -56,55 +41,6 @@ def messagePrefixAddress (code : AddressRange) : Word :=
 def messageSuffixAddress (code : AddressRange) (message : ByteArray) : Word :=
   messageAddress code + messageStorageSize message
 
-/-- Inert platform state for normal direct execution; ABI and memory predicates remain separate. -/
-def NormalExecutionState (state : State) : Prop :=
-  state.regs.get? hart_state = some (HartState.HART_ACTIVE ()) ∧
-    state.regs.get? cur_privilege = some Privilege.Machine ∧
-      state.regs.get? satp = some (0 : BitVec 64) ∧
-        state.regs.get? mideleg = some (0 : BitVec 64) ∧
-          state.regs.get? mie = some (0 : BitVec 64) ∧
-            state.regs.get? mip = some (0 : BitVec 64) ∧
-              state.regs.get? pmpcfg_n = some (default : Vector (BitVec 8) 64) ∧
-                state.regs.get? pmpaddr_n = some (default : Vector (BitVec 64) 64) ∧
-                  state.regs.get? mcountinhibit = some (0 : BitVec 32) ∧
-                    state.regs.get? minstretcfg = some (0 : BitVec 64) ∧
-                      state.regs.get? elp = some
-                        (landing_pad_bits_backwards landing_pad_expectation.NO_LP_EXPECTED) ∧
-                        match state.regs.get? misa with
-                        | some misaBits => Sail.BitVec.access misaBits 12 = 1#1
-                        | none => False
-
-def initializeIntegerRegisters : SailM Unit := do
-  writeReg x3 (0 : BitVec 64)
-  writeReg x4 (0 : BitVec 64)
-  writeReg x5 (0 : BitVec 64)
-  writeReg x6 (0 : BitVec 64)
-  writeReg x7 (0 : BitVec 64)
-  writeReg x8 (0 : BitVec 64)
-  writeReg x9 (0 : BitVec 64)
-  writeReg x10 (0 : BitVec 64)
-  writeReg x11 (0 : BitVec 64)
-  writeReg x12 (0 : BitVec 64)
-  writeReg x13 (0 : BitVec 64)
-  writeReg x14 (0 : BitVec 64)
-  writeReg x15 (0 : BitVec 64)
-  writeReg x16 (0 : BitVec 64)
-  writeReg x17 (0 : BitVec 64)
-  writeReg x18 (0 : BitVec 64)
-  writeReg x19 (0 : BitVec 64)
-  writeReg x20 (0 : BitVec 64)
-  writeReg x21 (0 : BitVec 64)
-  writeReg x22 (0 : BitVec 64)
-  writeReg x23 (0 : BitVec 64)
-  writeReg x24 (0 : BitVec 64)
-  writeReg x25 (0 : BitVec 64)
-  writeReg x26 (0 : BitVec 64)
-  writeReg x27 (0 : BitVec 64)
-  writeReg x28 (0 : BitVec 64)
-  writeReg x29 (0 : BitVec 64)
-  writeReg x30 (0 : BitVec 64)
-  writeReg x31 (0 : BitVec 64)
-
 def configureDirectCallMachine : SailM Unit := do
   initializeModel
   enableMExtension
@@ -130,17 +66,6 @@ def configureDirectCallMachine : SailM Unit := do
   writeReg cur_privilege Privilege.Machine
   reset_elp ()
   initializeIntegerRegisters
-
-/-- Run only generated Sail `try_step` calls until the direct-call return sentinel is reached. -/
-def runToSentinel (sentinel : BitVec 64) : Nat → Nat → SailM Nat
-  | 0, _ => throw Sail.Error.Unreachable
-  | fuel + 1, steps => do
-    if (← readReg PC) == sentinel then
-      pure steps
-    else
-      let waiting ← try_step steps false
-      if waiting then throw Sail.Error.Unreachable
-      else runToSentinel sentinel fuel (steps + 1)
 
 structure DirectCallResult where
   digest : ByteArray

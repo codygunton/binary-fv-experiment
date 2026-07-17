@@ -1,32 +1,21 @@
-import BinaryFv.Keccak.Execution
-import BinaryFv.RiscV.Logic.Trace
+import BinaryFv.RiscV.Logic.SentinelTrace
+import BinaryFv.RiscV.Execution.Runner
 
 /-!
-# Sentinel trace runner correspondence
+# Runner correspondence
 
 A bundled step-trace that reaches a sentinel PC corresponds exactly to the generated
-`runToSentinel` fuel-runner: the "sentinel runner that checks the sentinel before fuel
-exhaustion" correspondence.
+`runToSentinel` fuel-runner: the sentinel runner checks the sentinel *before* fuel exhaustion, so a
+trace shorter than the fuel always runs.
+
+The sentinel is a parameter, so this holds for any target.
 -/
 
-namespace BinaryFv.Keccak
+namespace BinaryFv.RiscV
 
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RiscV
-
-/-- A bundled trace that runs `try_step`s until the machine's PC equals `sentinel`, carrying the
-invariant that PC is defined and not the sentinel at every non-final state. -/
-inductive TraceToSentinel (sentinel : BitVec 64) : Nat → Nat → State → State → Prop where
-  | done (fromStep : Nat) (s : State) (h : s.regs.get? PC = some sentinel) :
-      TraceToSentinel sentinel fromStep 0 s s
-  | step (fromStep count : Nat) (v : BitVec 64) (s s' s'' : State)
-      (hpc : s.regs.get? PC = some v)
-      (hne : v ≠ sentinel)
-      (hstep : Runs (try_step fromStep false) s s' false)
-      (hrest : TraceToSentinel sentinel (fromStep + 1) count s' s'') :
-      TraceToSentinel sentinel fromStep (count + 1) s s''
 
 theorem runToSentinel_of_traceToSentinel (sentinel : BitVec 64) :
     ∀ (count fuel steps : Nat) (s s' : State),
@@ -56,4 +45,4 @@ theorem runToSentinel_of_traceToSentinel (sentinel : BitVec 64) :
     rw [harith]
     exact ih f (by omega)
 
-end BinaryFv.Keccak
+end BinaryFv.RiscV

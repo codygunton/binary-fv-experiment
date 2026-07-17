@@ -1,4 +1,4 @@
-import BinaryFv.Keccak.GenericStepContract
+import BinaryFv.RiscV.Step.GenericRetire
 
 /-!
 # `try_step` packagings for the straight-line body and back-edge of the helper loops
@@ -19,12 +19,11 @@ runs from `coreControlFlowNextState`).  These two theorems, together with stage 
 instruction class appearing in `memcpy` and `memset`.
 -/
 
-namespace BinaryFv.Keccak
+namespace BinaryFv.RiscV
 
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-open BinaryFv.RiscV
 
 /-! ## Fall-through: any retiring instruction that leaves `nextPC = pc + 4` -/
 
@@ -192,4 +191,4 @@ theorem tryStepJRetires (stepNo : Nat) (state : State)
     (agree minstret (by decide)) hartRead inhibitRead configRead notInhibited machineEnabled
     retiredRead
 
-end BinaryFv.Keccak
+end BinaryFv.RiscV
