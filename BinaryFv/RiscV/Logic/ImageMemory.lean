@@ -25,6 +25,13 @@ def ProgramImage.matchesMemory (image : ProgramImage) (memory : Std.ExtHashMap N
   ∀ address byte,
     image.readByte? address = some byte → memory.get? address = some (BitVec.ofNat 8 byte.toNat)
 
+/-- Sparse-memory agreement for bytes actually present in the executable file. -/
+def ProgramImage.fileBytesMatchMemory (image : ProgramImage)
+    (memory : Std.ExtHashMap Nat (BitVec 8)) : Prop :=
+  ∀ address byte,
+    image.readFileByte? address = some byte →
+      memory.get? address = some (BitVec.ofNat 8 byte.toNat)
+
 end BinaryFv.Binary
 
 namespace BinaryFv.RiscV
