@@ -103,7 +103,7 @@ Three invariants are enforced by `nix flake check`, not by convention:
   words needs a configured machine. Decoded words are therefore not static facts, and everything
   derived from them lives in `Reth/Analysis/`, a peer of `Artifact/` rather than a child.
 
-That last point departs from `PLAN_BINARYFV_REFACTOR.md`, which files `Analysis/` under `Artifact/`.
+That last point departs from the original refactor plan, which files `Analysis/` under `Artifact/`.
 The plan also requires `Artifact/` to hold no machine contract, and the two cannot both hold once the
 decoder turns out to read CSRs; the boundary won, since it is the property the layering exists for.
 
