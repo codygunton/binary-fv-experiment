@@ -20,8 +20,7 @@ return address into a link register `rd`.  Because the generated integer-registe
 `rd`, so the branch postlude `tryStepControlFlowRetires` (whose `agree` hypothesis fixes every
 register but `nextPC`) does not apply directly.  We instead package through the same underlying
 primitive it uses (`tryStepRetires`), via the generalized postlude `tryStepCallRetires`, which takes
-the three counter/hart facts about `afterExec` as direct premises — exactly the shape the XOR
-register-writer (`tryStepCoreXorRetiresWithFetchMemory`) already uses.
+the three counter/hart facts about `afterExec` as direct premises.
 
 The nonstandard link-register cases the binary exercises are all covered:
 
