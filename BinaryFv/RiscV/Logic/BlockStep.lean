@@ -29,6 +29,21 @@ macro_rules
   | `(tactic| trace_steps [$h:term, $hs:term,*]) =>
       `(tactic| refine Trace.step _ _ _ _ _ $h ?_; trace_steps [$hs,*])
 
+/--
+Close a `Trace` goal using the retiring `try_step` contracts already in the local context. At each
+nonempty trace position, unification fixes the next step number and intermediate state, so
+`assumption` selects the corresponding generated instruction contract. This constructs only
+`Trace.step` and `Trace.refl` proof terms; it never evaluates or trusts a separate executor.
+-/
+syntax "trace_assumptions" : tactic
+macro_rules
+  | `(tactic| trace_assumptions) =>
+      `(tactic|
+        first
+        | exact Trace.refl _ _
+        | refine Trace.step _ _ _ _ _ (by assumption) ?_
+          trace_assumptions)
+
 end BinaryFv.RiscV
 
 /-! ### Sanity checks (private) -/
@@ -46,5 +61,13 @@ private example (s0 s1 : State) (h0 : Runs (try_step 0 false) s0 s1 false) :
     Trace 0 1 s0 s1 := by
   trace_step h0
   exact Trace.refl _ _
+
+/-- The automatic form composes representative memory, branch, and indirect-call contracts. -/
+private example (s0 s1 s2 s3 : State)
+    (memory : Runs (try_step 7 false) s0 s1 false)
+    (branch : Runs (try_step 8 false) s1 s2 false)
+    (indirectCall : Runs (try_step 9 false) s2 s3 false) :
+    Trace 7 3 s0 s3 := by
+  trace_assumptions
 
 end BinaryFv.RiscV
