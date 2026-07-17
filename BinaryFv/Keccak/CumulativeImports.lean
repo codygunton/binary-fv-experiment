@@ -1,19 +1,19 @@
-import BinaryFv.Keccak.CallStepContract
-import BinaryFv.Keccak.CallArtifactFetch
-import BinaryFv.Keccak.StackBound
-import BinaryFv.Keccak.MemcpyContract
-import BinaryFv.Keccak.MemsetContract
-import BinaryFv.Keccak.CopyFromSliceContract
+import BinaryFv.Keccak.Reth.Proof.Common.CallSites
+import BinaryFv.Keccak.Reth.Proof.Common.CallFetch
+import BinaryFv.Keccak.Reth.Proof.Common.StackWindow
+import BinaryFv.Keccak.Reth.Proof.Helpers.Memcpy
+import BinaryFv.Keccak.Reth.Proof.Helpers.Memset
+import BinaryFv.Keccak.Reth.Proof.Helpers.CopyFromSlice
 import BinaryFv.RiscV.Logic.MemFrame
-import BinaryFv.Keccak.Root
-import BinaryFv.Keccak.Concrete
-import BinaryFv.Keccak.ArtifactFetchMmio
-import BinaryFv.Keccak.ReachabilityInventory
+import BinaryFv.Keccak.Reth.Root
+import BinaryFv.Keccak.Reth.Execution.Concrete
+import BinaryFv.Keccak.Reth.Proof.Common.FetchMmio
+import BinaryFv.Keccak.Reth.Artifact.Analysis.Reachability
 import BinaryFv.RiscV.Instruction.Frame.StackPointer
-import BinaryFv.Keccak.StoreStepTriple
+import BinaryFv.Keccak.Reth.Proof.Store.Triple
 import BinaryFv.RiscV.Proof.RunnerCorrespondence
-import BinaryFv.Keccak.XorBlockDecodeFacts
-import BinaryFv.Keccak.XorBlockArtifactFetch
+import BinaryFv.Keccak.Reth.Proof.XorBlock.Decode
+import BinaryFv.Keccak.Reth.Proof.XorBlock.Fetch
 import BinaryFv.RiscV.Step.TryStepStackAddiMemory
 import BinaryFv.RiscV.Instruction.Frame.Decode
 import BinaryFv.RiscV.Instruction.Execute.ShiftOr
@@ -42,8 +42,8 @@ it first.  Two sibling modules can then each realize their own copy, and each mo
 perfectly well on its own -- the failure only appears when something imports both:
 
 ```
-import BinaryFv.Keccak.CallStepContract failed, environment already contains
-'Register.enumToBitVec' from BinaryFv.Keccak.MemcpyContract
+import BinaryFv.Keccak.Reth.Proof.Common.CallSites failed, environment already contains
+'Register.enumToBitVec' from BinaryFv.Keccak.Reth.Proof.Helpers.Memcpy
 ```
 
 That is precisely what happened here: `bv_decide`'s enum preprocessing pass independently realized
