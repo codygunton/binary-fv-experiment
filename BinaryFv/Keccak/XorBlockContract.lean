@@ -3312,7 +3312,8 @@ as definitions and appear as an explicit hypothesis (on the entry state) and an 
 (on the exit state) of `xor_block_matches_spec` — the honest framing, since nothing in the machine
 semantics privileges any particular lane encoding.
 
-The two load-bearing bridges are pure, kernel-checked `bv_decide` identities:
+The two load-bearing bridges are pure `bv_decide` identities. Their LRAT certificates are checked
+through native evaluation under the proof-of-concept trust policy recorded in the repository README:
 
 * `specInputLane_toBitVec` — the machine's little-endian `leWord` of the 8 input bytes at
   `input0 + 8k` (produced by the body's 8 `lbu` + 6 `slli` + 6 `or`, cf. `assemble_leWord`) equals
