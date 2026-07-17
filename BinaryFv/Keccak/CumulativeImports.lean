@@ -1,22 +1,22 @@
-import BinaryFv.Keccak.CallStepContract
-import BinaryFv.Keccak.CallArtifactFetch
-import BinaryFv.Keccak.StackBound
-import BinaryFv.Keccak.MemcpyContract
-import BinaryFv.Keccak.MemsetContract
-import BinaryFv.Keccak.CopyFromSliceContract
-import BinaryFv.Keccak.HelperFraming
-import BinaryFv.Keccak.Root
-import BinaryFv.Keccak.Concrete
-import BinaryFv.Keccak.ArtifactFetchMmio
-import BinaryFv.Keccak.ReachabilityInventory
-import BinaryFv.Keccak.FrameRuntime
-import BinaryFv.Keccak.StoreStepTriple
-import BinaryFv.Keccak.TraceRunner
-import BinaryFv.Keccak.XorBlockDecodeFacts
-import BinaryFv.Keccak.XorBlockArtifactFetch
-import BinaryFv.RISCV.TryStepFetchMemoryContract
-import BinaryFv.RISCV.DecodeFrame
-import BinaryFv.RISCV.ShiftOrExecuteContract
+import BinaryFv.Keccak.Reth.Proof.Common.CallSites
+import BinaryFv.Keccak.Reth.Proof.Common.CallFetch
+import BinaryFv.Keccak.Reth.Proof.Common.StackWindow
+import BinaryFv.Keccak.Reth.Proof.Helpers.Memcpy
+import BinaryFv.Keccak.Reth.Proof.Helpers.Memset
+import BinaryFv.Keccak.Reth.Proof.Helpers.CopyFromSlice
+import BinaryFv.RiscV.Logic.MemFrame
+import BinaryFv.Keccak.Reth.Root
+import BinaryFv.Keccak.Reth.Execution.Concrete
+import BinaryFv.Keccak.Reth.Proof.Common.FetchMmio
+import BinaryFv.Keccak.Reth.Analysis.Reachability
+import BinaryFv.RiscV.Instruction.Frame.StackPointer
+import BinaryFv.Keccak.Reth.Proof.Store.Triple
+import BinaryFv.RiscV.Proof.RunnerCorrespondence
+import BinaryFv.Keccak.Reth.Proof.XorBlock.Decode
+import BinaryFv.Keccak.Reth.Proof.XorBlock.Fetch
+import BinaryFv.RiscV.Step.TryStepStackAddiMemory
+import BinaryFv.RiscV.Instruction.Frame.Decode
+import BinaryFv.RiscV.Instruction.Execute.ShiftOr
 
 /-!
 # Cumulative import / co-elaboration check
@@ -42,15 +42,15 @@ it first.  Two sibling modules can then each realize their own copy, and each mo
 perfectly well on its own -- the failure only appears when something imports both:
 
 ```
-import BinaryFv.Keccak.CallStepContract failed, environment already contains
-'Register.enumToBitVec' from BinaryFv.Keccak.MemcpyContract
+import BinaryFv.Keccak.Reth.Proof.Common.CallSites failed, environment already contains
+'Register.enumToBitVec' from BinaryFv.Keccak.Reth.Proof.Helpers.Memcpy
 ```
 
 That is precisely what happened here: `bv_decide`'s enum preprocessing pass independently realized
 `Register.enumToBitVec` / `Register.eq_iff_enumToBitVec_eq` (and the same pair for `Privilege`) in
 both `MemcpyContract` and `CallStepContract`, which made the inherited call imports un-restorable in
 `BinaryFv.lean` until the auxiliaries were hoisted into the shared ancestor
-`BinaryFv.RISCV.SailEnumAux`.
+`BinaryFv.RiscV.Model.SailEnumAux`.
 
 Because per-module builds cannot detect this class of breakage, and a root manifest can be made to
 "pass" simply by dropping the offending import, this module pins the property down explicitly: the
@@ -67,6 +67,7 @@ existing theorem at its existing type.
 namespace BinaryFv.Keccak.CumulativeImports
 
 open BinaryFv.Keccak
+open BinaryFv.RiscV
 
 /-- The three helper capstones and the inherited call/stack surface all resolve in one environment. -/
 example := @memcpy_contract

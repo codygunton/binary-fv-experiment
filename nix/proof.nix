@@ -158,6 +158,42 @@ let
       'require repl from ".lake/packages/repl"'
 
     export HOME="$TMPDIR/home"
+
+    # Layer audit. The RISC-V and Binary layers are generic over the binary under analysis; a
+    # dependency on the Keccak target would make them a lie. A docstring cannot enforce this, and an
+    # ^import-only check misses dangling prose references to deleted Keccak constants, so match the
+    # bare strings. The two exemptions are the docstrings that state the rule itself.
+    layerViolations=$(grep -rn "Keccak\|Reth" BinaryFv/RiscV/ BinaryFv/Binary/ \
+      BinaryFv/RiscV.lean BinaryFv/Binary.lean 2>/dev/null \
+      | grep -v "^BinaryFv/RiscV.lean:[0-9]*:Nothing in this layer may depend on" \
+      | grep -v "^BinaryFv/Binary.lean:[0-9]*:may depend on" || true)
+    if [ -n "$layerViolations" ]; then
+      echo "Layer violation: the RISC-V/Binary layers must not mention the Keccak target." >&2
+      echo "$layerViolations" >&2
+      exit 1
+    fi
+
+    # The approved fixed-artifact native_decide exception covers closed facts about the pinned ELF.
+    # Those are Keccak-target facts by construction, so no generic module may use native_decide.
+    nativeInGeneric=$(grep -rn "native_decide" BinaryFv/RiscV/ BinaryFv/Binary/ 2>/dev/null || true)
+    if [ -n "$nativeInGeneric" ]; then
+      echo "native_decide is not permitted in the generic RISC-V/Binary layers." >&2
+      echo "$nativeInGeneric" >&2
+      exit 1
+    fi
+
+    # Artifact boundary. `Reth/Artifact/` is immutable binary data and closed static facts about
+    # the pinned ELF: parsing, symbols, ranges, encoded words, image bytes. Decoding those words
+    # needs a configured machine, so anything decode-dependent belongs in `Reth/Analysis/`, not here.
+    # Grep the import graph, not the word "State": the violation is the dependency, not the spelling.
+    artifactLeaks=$(grep -rn "^import BinaryFv.Keccak.Reth.\(Execution\|Proof\|Analysis\)" \
+      BinaryFv/Keccak/Reth/Artifact/ 2>/dev/null || true)
+    if [ -n "$artifactLeaks" ]; then
+      echo "Artifact boundary violation: Reth/Artifact/ must not depend on Execution, Proof, or Analysis." >&2
+      echo "$artifactLeaks" >&2
+      exit 1
+    fi
+
     lake build repl BinaryFv
     touch "$out"
   '';
