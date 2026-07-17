@@ -63,9 +63,14 @@ The proof-facing artifact is the canonical `.#reth-keccak` linked ELF. The proof
 nix build .#sail-riscv-lean --out-link build/sail-riscv-lean
 nix build .#reth-keccak-elf-lean --out-link build/reth-keccak-elf-lean
 nix build .#keccak-spec-lean --out-link build/keccak-spec-lean
+nix build .#ssz-spec-lean --out-link build/ssz-spec-lean
 lake build repl
-lake build BinaryFv
+lake build SszSpec BinaryFv.SSZ
 ```
+
+`ssz-spec-lean` is a hash-checked source closure, not a Lake dependency: it contains just the six
+pure SizzLean SSZ modules and `SszBridge/Core.lean`. The executable bridge remains a separate Lean
+4.29 project and continues to own its OpenSSL-backed hash dependencies and integration tests.
 
 ### Proof-tree layers
 
@@ -76,6 +81,7 @@ is one-way:
 Binary  ->  RiscV  ->  Keccak.Reth
 Binary  +  Spec.Keccak  ->  Keccak.SpecBridge
 RiscV  +  Reth.Artifact  +  SpecBridge  ->  Reth spec-correlation proofs
+RiscV  +  SszBridge  ->  SSZ
 everything  ->  Keccak.Reth.Root
 ```
 
@@ -85,9 +91,10 @@ everything  ->  Keccak.Reth.Root
 | `BinaryFv/RiscV/` | `BinaryFv.RiscV` | Everything generic over the binary under analysis: `Model` (generated-Sail state/monad, ISA init, RV64 constants), `ELF`, `Logic` (framing, separation logic, traces, loop induction), `Platform` (PMP/PMA, translation, MMIO, fetch/store environment), `Instruction/{Frame,Execute}`, `Step` (`try_step` packaging), `Execution` (loaders, sentinel runner), `Analysis` (reachability, call graph, stack flow), `Proof` (image-fetch lifting, runner correspondence). |
 | `BinaryFv/Keccak/SpecBridge/` | — | Pure correspondence with `Spec.Keccak`: lane/byte serialization. No ELF address, artifact, runner, or machine state. |
 | `BinaryFv/Keccak/Reth/` | `BinaryFv.Keccak` | The target. `Artifact/` is immutable data and closed static facts only — parsing, symbols, ranges, encoded words, image bytes — and depends on nothing above it; `Analysis/` holds the artifact's decoded-instruction inventory and the reachability, call-graph, and stack-flow results built on it; `Execution/` is machine configuration and executable runners; `Proof/` connects those objects to Sail semantics; `Root.lean` states `root_compliance`. |
+| `BinaryFv/SSZ/` | `BinaryFv.SSZ` | Amsterdam V4 SSZ target. `SpecBridge/` normalizes the pinned SizzLean bridge to complete acceptance or rejection; Zesu artifact, analysis, execution, and proof layers follow under the same target without changing the generic RISC-V layer. |
 
-Import the umbrellas (`BinaryFv.Binary`, `BinaryFv.RiscV`, `BinaryFv.Keccak`) rather than leaf
-modules; `BinaryFv.lean` imports exactly those three.
+Import the umbrellas (`BinaryFv.Binary`, `BinaryFv.RiscV`, `BinaryFv.Keccak`, `BinaryFv.SSZ`) rather
+than leaf modules; `BinaryFv.lean` imports exactly those four.
 
 Three invariants are enforced by `nix flake check`, not by convention:
 
