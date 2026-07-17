@@ -104,11 +104,11 @@ facts (the value at a fixed file/virtual address), and *static inventory* (symbo
 instruction words at fixed addresses, call/stack-flow summaries). These are all decidable statements
 about one fixed, immutable input.
 
-**Outside the exception — kernel-checked only.** `native_decide`, new axioms, and `sorry` are *not*
+**Outside the artifact exception.** Direct `native_decide`, new axioms, and `sorry` are *not*
 permitted for: execution semantics (anything about the generated Sail `try_step`/`execute`), functional
 correctness, control flow, arithmetic and bitvector reasoning, framing/separation, or specification
-correspondence (`Spec.Keccak.*`). Those must be kernel-checked, so the only axioms they may add are
-`propext`, `Classical.choice`, and `Quot.sound`.
+correspondence (`Spec.Keccak.*`). Those proofs must be checked by Lean, subject only to the separately
+approved `bv_decide` certificate-checker boundary described below.
 
 **Resulting axiom boundary.** Compliance capstones report
 `[propext, Classical.choice, Lean.ofReduceBool, Lean.trustCompiler, Quot.sound]`. There are **two
@@ -124,9 +124,10 @@ independent sources** of the two native axioms, and both must be understood:
 
 So removing the artifact `native_decide` facts alone would **not** clear the two native axioms from
 the capstones; the `bv_decide` uses would still contribute them. Any earlier claim to the contrary in
-this repo was incorrect. Whether to also constrain `bv_decide` (e.g. by restricting it to
-preprocessing-only goals, or accepting its checker in the trust base) is a **separate, still-open
-decision** — the exception recorded above is only about closed artifact facts.
+this repo was incorrect. The maintainer accepts the native `bv_decide` certificate checker in the
+trusted base for this proof-of-concept; issue #26 tracks the audit and the decision whether to retain
+or remove that trust in the final project. This approval remains separate from the closed-artifact
+exception above.
 
 Theorems that use neither source (e.g. the conditional stack-window and `*_of_budget` lemmas, and the
 pure framing lemmas) remain at `[propext, Quot.sound]` or `[propext, Classical.choice, Quot.sound]`.
