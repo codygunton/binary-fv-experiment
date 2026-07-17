@@ -84,18 +84,28 @@ everything  ->  Keccak.Reth.Root
 | `BinaryFv/Binary/` | `BinaryFv.Binary` | Architecture-independent address ranges and the loadable program image. |
 | `BinaryFv/RiscV/` | `BinaryFv.RiscV` | Everything generic over the binary under analysis: `Model` (generated-Sail state/monad, ISA init, RV64 constants), `ELF`, `Logic` (framing, separation logic, traces, loop induction), `Platform` (PMP/PMA, translation, MMIO, fetch/store environment), `Instruction/{Frame,Execute}`, `Step` (`try_step` packaging), `Execution` (loaders, sentinel runner), `Analysis` (reachability, call graph, stack flow), `Proof` (image-fetch lifting, runner correspondence). |
 | `BinaryFv/Keccak/SpecBridge/` | — | Pure correspondence with `Spec.Keccak`: lane/byte serialization. No ELF address, artifact, runner, or machine state. |
-| `BinaryFv/Keccak/Reth/` | `BinaryFv.Keccak` | The target. `Artifact/` is immutable data and closed static facts (parsing, symbols, ranges, encoded words) and mentions no machine state; `Execution/` is machine configuration and executable runners; `Proof/` connects those objects to Sail semantics; `Root.lean` states `root_compliance`. |
+| `BinaryFv/Keccak/Reth/` | `BinaryFv.Keccak` | The target. `Artifact/` is immutable data and closed static facts only — parsing, symbols, ranges, encoded words, image bytes — and depends on nothing above it; `Analysis/` holds the artifact's decoded-instruction inventory and the reachability, call-graph, and stack-flow results built on it; `Execution/` is machine configuration and executable runners; `Proof/` connects those objects to Sail semantics; `Root.lean` states `root_compliance`. |
 
 Import the umbrellas (`BinaryFv.Binary`, `BinaryFv.RiscV`, `BinaryFv.Keccak`) rather than leaf
 modules; `BinaryFv.lean` imports exactly those three.
 
-Two invariants are enforced by `nix flake check`, not by convention:
+Three invariants are enforced by `nix flake check`, not by convention:
 
 * **No RISC-V module may mention Keccak or Reth** — by name, by import, or in prose. The generic
   layer is generic over the binary under analysis, and a dangling docstring reference to a deleted
   Keccak constant is as much a defect as an import, so the audit matches the bare string.
 * **No RISC-V or Binary module may use `native_decide`.** The fixed-artifact exception below covers
   closed facts about the pinned ELF, which are target facts by construction.
+* **Nothing under `Reth/Artifact/` may import `Execution`, `Proof`, or `Analysis`.** `Artifact/` is
+  static data about the pinned image, so it must depend on nothing above it. This one greps the
+  import graph rather than a keyword: the generated Sail decoder reads `cur_privilege`/`mseccfg`
+  (via `currentlyEnabled Ext_Zicfilp`) before it matches an opcode, so *decoding* the artifact's
+  words needs a configured machine. Decoded words are therefore not static facts, and everything
+  derived from them lives in `Reth/Analysis/`, a peer of `Artifact/` rather than a child.
+
+That last point departs from `PLAN_BINARYFV_REFACTOR.md`, which files `Analysis/` under `Artifact/`.
+The plan also requires `Artifact/` to hold no machine contract, and the two cannot both hold once the
+decoder turns out to read CSRs; the boundary won, since it is the property the layering exists for.
 
 No Reth address or opcode is proof input: the parser derives `reth_keccak256` from the embedded ELF.
 
