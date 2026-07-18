@@ -36,6 +36,16 @@ def rawV4DescriptorOffsetsValid : Bool :=
 theorem raw_v4_descriptor_offsets_valid : rawV4DescriptorOffsetsValid = true := by
   native_decide
 
+/-- Compiler-reflected element sizes for every heap-backed fixed-record collection in `RawV4`. -/
+def rawV4HeapElementSizesValid : Bool :=
+  abiDatum "ssz_raw.RawWithdrawal|size" == some 48 &&
+    abiDatum "ssz_raw.RawDepositRequest|size" == some 192 &&
+    abiDatum "ssz_raw.RawWithdrawalRequest|size" == some 80 &&
+    abiDatum "ssz_raw.RawConsolidationRequest|size" == some 116
+
+theorem raw_v4_heap_element_sizes_valid : rawV4HeapElementSizesValid = true := by
+  native_decide
+
 /-- Every queried member is produced by Zig reflection over every field of each raw result type. -/
 def completeRawV4AbiManifest : Bool :=
   ZesuSszAbi.manifest.size == 84 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024
