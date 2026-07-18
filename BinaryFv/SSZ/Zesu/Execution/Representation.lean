@@ -20,8 +20,9 @@ def InputSliceRep (state : State) (inputBase inputOffset length sliceBase : Nat)
 
 /-- A bridge byte array is exactly a bounded subrange of the caller-provided input. -/
 def InputBytesAt (input : ByteArray) (inputOffset : Nat) (bytes : Array UInt8) : Prop :=
-  inputOffset + bytes.size ≤ input.size ∧
-    ∀ index (h : index < bytes.size), bytes[index] = input[inputOffset + index]'(by omega)
+  ∀ index (h : index < bytes.size),
+    ∃ hinput : inputOffset + index < input.size,
+      bytes[index] = input[inputOffset + index]'hinput
 
 /-- A heap array is a disjoint materialized sequence of fixed-width records. -/
 def HeapArrayRep (state : State) (base count elementSize : Nat) : Prop :=
