@@ -31,4 +31,5 @@ comptime {
         raw.RawConsolidationRequest,
     }) |T| logLayout(T);
     logScalarLayout(?u64);
+    logScalarLayout(?raw.RawBlobSchedule);
 }

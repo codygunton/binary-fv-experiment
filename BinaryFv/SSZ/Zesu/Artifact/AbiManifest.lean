@@ -15,6 +15,8 @@ def rawStatelessInputChainConfigOffset : Option Nat := abiDatum "ssz_raw.RawStat
 def rawStatelessInputPublicKeysOffset : Option Nat := abiDatum "ssz_raw.RawStatelessInput|public_keys"
 def optionalU64Size : Option Nat := abiDatum "?u64|size"
 def optionalU64Align : Option Nat := abiDatum "?u64|align"
+def optionalBlobScheduleSize : Option Nat := abiDatum "?ssz_raw.RawBlobSchedule|size"
+def optionalBlobScheduleAlign : Option Nat := abiDatum "?ssz_raw.RawBlobSchedule|align"
 
 theorem raw_stateless_input_layout :
     rawStatelessInputSize = some 832 ∧ rawStatelessInputAlign = some 16 ∧
@@ -23,6 +25,10 @@ theorem raw_stateless_input_layout :
   native_decide
 
 theorem optional_u64_layout : optionalU64Size = some 16 ∧ optionalU64Align = some 8 := by
+  native_decide
+
+theorem optional_blob_schedule_layout :
+    optionalBlobScheduleSize = some 32 ∧ optionalBlobScheduleAlign = some 8 := by
   native_decide
 
 /-- Nested descriptor offsets used by the guarded native `RawV4` observer. -/
@@ -70,7 +76,7 @@ theorem raw_v4_fixed_field_offsets_valid : rawV4FixedFieldOffsetsValid = true :=
 
 /-- Every queried member is produced by Zig reflection over every field of each raw result type. -/
 def completeRawV4AbiManifest : Bool :=
-  ZesuSszAbi.manifest.size == 86 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024
+  ZesuSszAbi.manifest.size == 88 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024
 
 theorem complete_raw_v4_abi_manifest : completeRawV4AbiManifest = true := by
   native_decide
