@@ -121,6 +121,7 @@ define_adjacent_lbu_execute raw_parser_u32_adjacent_first_lbu_execute 504 14 ↦
 define_adjacent_lbu_execute raw_parser_u32_adjacent_second_lbu_execute 505 15 ↦ x15, wX_x15_run
 define_adjacent_lbu_execute raw_parser_u32_adjacent_third_lbu_execute 506 16 ↦ x16, wX_x16_run
 define_adjacent_lbu_execute raw_parser_u32_adjacent_fourth_lbu_execute 507 17 ↦ x17, wX_x17_run
+define_adjacent_lbu_execute raw_parser_u32_next_word_first_lbu_execute 508 11 ↦ x11, wX_x11_run
 
 /-- The first of the parser's four native-word byte loads executes with its concrete `s8 + 436`
 address and writes the zero-extended byte to `t0`; the physical read itself remains an explicit
