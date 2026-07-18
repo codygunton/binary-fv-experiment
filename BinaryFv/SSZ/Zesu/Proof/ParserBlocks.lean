@@ -1058,6 +1058,20 @@ theorem raw_parser_u32_second_byte_shift_execute (state : State) (value : BitVec
       (Sail.shift_bits_left value
         (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
 
+/-- The adjacent word's `a5` byte shift has the same generated execution shape. -/
+theorem raw_parser_u32_next_word_second_byte_shift_execute (state : State) (value : BitVec 64)
+    (stored : state.regs.get? x15 = some value) :
+    Runs (execute_SHIFTIOP 8#6 (.Regidx 15#5) (.Regidx 15#5) .SLLI) state
+      { state with regs := state.regs.insert x15
+        (Sail.shift_bits_left value
+          (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)) }
+      (.Retire_Success ()) := by
+  exact execute_SHIFTIOP_slli_run state _ 8#6 (.Regidx 15#5) (.Regidx 15#5) value
+    (rX_x15_run state value stored)
+    (wX_x15_run state
+      (Sail.shift_bits_left value
+        (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+
 theorem raw_parser_u32_second_byte_shift_image_bytes :
     Artifact.programImage.readByte? 0x10784 = some 0x93 ∧
       Artifact.programImage.readByte? 0x10785 = some 0x95 ∧
