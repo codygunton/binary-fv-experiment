@@ -1,5 +1,7 @@
 import BinaryFv.RiscV.Execution.MemoryIo
+import BinaryFv.RiscV.Logic.ImageMemory
 import BinaryFv.SSZ.Zesu.Artifact.AbiManifest
+import BinaryFv.SSZ.Zesu.Analysis.AllocatorCalls
 
 namespace BinaryFv.SSZ.Zesu.Execution
 
@@ -29,7 +31,7 @@ def Word64LERep (state : State) (base value : Nat) : Prop :=
 def AllocatorObjectRep (state : State) (base context vtable : Nat) : Prop :=
   Word64LERep state base context ∧ Word64LERep state (base + 8) vtable
 
-/-- The four-entry allocator vtable, including the allocation slot dispatched by the parser. -/
+/-- The four-entry Zig allocator vtable in its compiler-reflected order. -/
 def AllocatorVtableRep (state : State) (base alloc resize remap free : Nat) : Prop :=
   Word64LERep state base alloc ∧ Word64LERep state (base + 8) resize ∧
     Word64LERep state (base + 16) remap ∧ Word64LERep state (base + 24) free
@@ -43,6 +45,15 @@ theorem allocator_dispatch_target (state : State) (allocatorBase context vtable 
     (representation : AllocatorDispatchRep state allocatorBase context vtable target) :
     Word64LERep state (allocatorBase + 8) vtable ∧ Word64LERep state (vtable + 24) target := by
   exact ⟨representation.1.2, representation.2⟩
+
+/-- Loading the immutable ELF vtable makes every slot-24 cleanup dispatch target its pinned stub. -/
+theorem loaded_vtable_free_target (state : State)
+    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    Word64LERep state (Analysis.allocatorVtableAddress + Analysis.allocatorVtableCallSlotOffset)
+      0x10440 := by
+  intro index indexBound
+  interval_cases index <;>
+    exact loaded _ _ (by native_decide)
 
 /-- The decoded root object occupies precisely the compiler-reflected RV64 ABI size. -/
 def RawStatelessInputRep (state : State) (base : Nat) : Prop :=

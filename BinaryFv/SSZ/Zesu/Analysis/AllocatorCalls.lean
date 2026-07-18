@@ -37,6 +37,12 @@ def allocatorVtableFreeTarget : Option Nat :=
 theorem allocator_vtable_free_target : allocatorVtableFreeTarget = some 0x10440 := by
   native_decide
 
+/-- The actual target of the six cleanup transfers is a one-instruction `ret` stub. -/
+def allocatorFreeStubWord : Option Nat := wordAt 0x10440
+
+theorem allocator_free_stub_word : allocatorFreeStubWord = some 0x00008067 := by
+  native_decide
+
 /-- The wrapper ends with an ELF-pinned AUIPC/JALR tail transfer to `zesu_raw_alloc`. -/
 def allocatorWrapperTailWords : Bool :=
   wordAt 0x13778 == some 0xffffd317 && wordAt 0x1377c == some 0xad430067
