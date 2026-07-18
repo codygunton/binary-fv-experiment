@@ -242,7 +242,7 @@ theorem raw_v4_extra_data_observes (state : State) (inputBase : Nat) (input : By
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.newPayloadRequest.executionPayload.extraData.size =
         some value.newPayloadRequest.executionPayload.extraData.toList := by
-  rcases representation.descriptorSlices with ⟨_, _, inputSlices⟩
+  rcases representation.layout with ⟨_, _, _, inputSlices⟩
   rcases inputSlices.extraData with
     ⟨inputOffset, sliceBase, sliceRepresentation⟩
   exact ⟨inputOffset, sliceBase,
@@ -255,7 +255,7 @@ theorem raw_v4_block_access_list_observes (state : State) (inputBase : Nat) (inp
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.newPayloadRequest.executionPayload.blockAccessList.size =
         some value.newPayloadRequest.executionPayload.blockAccessList.toList := by
-  rcases representation.descriptorSlices with ⟨_, _, inputSlices⟩
+  rcases representation.layout with ⟨_, _, _, inputSlices⟩
   rcases inputSlices.blockAccessList with
     ⟨inputOffset, sliceBase, sliceRepresentation⟩
   exact ⟨inputOffset, sliceBase,
@@ -269,7 +269,7 @@ theorem raw_v4_transaction_observes (state : State) (inputBase : Nat) (input : B
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.newPayloadRequest.executionPayload.transactions[index].size =
         some value.newPayloadRequest.executionPayload.transactions[index].toList := by
-  rcases representation.descriptorSlices with ⟨bases, _, inputSlices⟩
+  rcases representation.layout with ⟨bases, _, _, inputSlices⟩
   rcases inputSlices.transactions index indexBound with
     ⟨inputOffset, sliceBase, sliceRepresentation⟩
   exact ⟨inputOffset, sliceBase,
@@ -284,7 +284,7 @@ theorem raw_v4_witness_state_observes (state : State) (inputBase : Nat) (input :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.witness.state[index].size =
         some value.witness.state[index].toList := by
-  rcases representation.descriptorSlices with ⟨bases, _, inputSlices⟩
+  rcases representation.layout with ⟨bases, _, _, inputSlices⟩
   rcases inputSlices.witnessState index indexBound with
     ⟨inputOffset, sliceBase, sliceRepresentation⟩
   exact ⟨inputOffset, sliceBase,
@@ -299,7 +299,7 @@ theorem raw_v4_witness_codes_observes (state : State) (inputBase : Nat) (input :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.witness.codes[index].size =
         some value.witness.codes[index].toList := by
-  rcases representation.descriptorSlices with ⟨bases, _, inputSlices⟩
+  rcases representation.layout with ⟨bases, _, _, inputSlices⟩
   rcases inputSlices.witnessCodes index indexBound with
     ⟨inputOffset, sliceBase, sliceRepresentation⟩
   exact ⟨inputOffset, sliceBase,
@@ -314,12 +314,23 @@ theorem raw_v4_witness_headers_observes (state : State) (inputBase : Nat) (input
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.witness.headers[index].size =
         some value.witness.headers[index].toList := by
-  rcases representation.descriptorSlices with ⟨bases, _, inputSlices⟩
+  rcases representation.layout with ⟨bases, _, _, inputSlices⟩
   rcases inputSlices.witnessHeaders index indexBound with
     ⟨inputOffset, sliceBase, sliceRepresentation⟩
   exact ⟨inputOffset, sliceBase,
     observe_input_slice_descriptor_of_rep state inputBase input
       (bases.witnessHeadersBase + 16 * index) inputOffset sliceBase
       value.witness.headers[index] inputMemory sliceRepresentation⟩
+
+theorem raw_v4_public_key_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4)
+    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+    (indexBound : index < value.publicKeys.size) :
+    ∃ base,
+      observeBytes? state (base + 65 * index) 65 = some value.publicKeys[index].toArray.toList := by
+  rcases representation.layout with ⟨bases, allocations, _, _⟩
+  exact ⟨bases.publicKeysBase,
+    observe_fixed_byte_vector_of_rep state (bases.publicKeysBase + 65 * index)
+      value.publicKeys[index] (allocations.publicKeyContents index indexBound)⟩
 
 end BinaryFv.SSZ.Zesu.Execution

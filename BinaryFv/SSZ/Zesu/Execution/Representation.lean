@@ -39,6 +39,12 @@ def HeapArrayRep (state : State) (base count elementSize : Nat) : Prop :=
   base + count * elementSize ≤ 2 ^ 64 ∧
     ∀ index, index < count * elementSize → (state.mem.get? (base + index)).isSome
 
+/-- A heap array whose elements are inline fixed-width bridge byte vectors. -/
+def HeapFixedVectorArrayRep {length : Nat} (state : State) (base : Nat)
+    (values : Array (SszBridge.RawByteVector length)) : Prop :=
+  ∀ index (h : index < values.size),
+    FixedByteVectorRep state (base + length * index) values[index]
+
 /-- A concrete little-endian RV64 word in Sail sparse memory. -/
 def Word64LERep (state : State) (base value : Nat) : Prop :=
   ∀ index, index < 8 →
@@ -136,32 +142,6 @@ theorem raw_stateless_input_rep_size (state : State) (base : Nat)
   subst size
   exact representation
 
-/-- Heap-allocation portion of the native representation of a complete bridge `RawV4` value.
-
-Fixed records are sized from the pinned RV64 ABI manifest. The eventual observer additionally
-connects these bases to the corresponding slice descriptors stored in the root object. -/
-structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4) : Prop where
-  root : RawStatelessInputRep state rootBase
-  versionedHashes : ∃ base, HeapArrayRep state base value.newPayloadRequest.versionedHashes.size 32
-  transactions : ∃ base,
-    HeapArrayRep state base value.newPayloadRequest.executionPayload.transactions.size 16
-  withdrawals : ∃ base,
-    HeapArrayRep state base value.newPayloadRequest.executionPayload.withdrawals.size 48
-  deposits : ∃ base,
-    HeapArrayRep state base value.newPayloadRequest.executionRequests.deposits.size 192
-  withdrawalRequests : ∃ base,
-    HeapArrayRep state base value.newPayloadRequest.executionRequests.withdrawals.size 80
-  consolidationRequests : ∃ base,
-    HeapArrayRep state base value.newPayloadRequest.executionRequests.consolidations.size 116
-  witnessState : ∃ base, HeapArrayRep state base value.witness.state.size 16
-  witnessCodes : ∃ base, HeapArrayRep state base value.witness.codes.size 16
-  witnessHeaders : ∃ base, HeapArrayRep state base value.witness.headers.size 16
-  publicKeys : ∃ base, HeapArrayRep state base value.publicKeys.size 65
-
-theorem raw_v4_allocation_root_size (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
-    (representation : RawV4AllocationRep state rootBase value) : HeapArrayRep state rootBase 1 832 :=
-  raw_stateless_input_rep_size state rootBase representation.root
-
 /-- Heap bases carried by the root's ten slice descriptors. -/
 structure RawV4DescriptorBases where
   versionedHashesBase : Nat
@@ -174,6 +154,36 @@ structure RawV4DescriptorBases where
   witnessCodesBase : Nat
   witnessHeadersBase : Nat
   publicKeysBase : Nat
+
+/-- Heap-allocation portion of the native representation of a complete bridge `RawV4` value.
+
+Fixed records are sized from the pinned RV64 ABI manifest. The eventual observer additionally
+connects these bases to the corresponding slice descriptors stored in the root object. -/
+structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
+    (bases : RawV4DescriptorBases) : Prop where
+  root : RawStatelessInputRep state rootBase
+  versionedHashes : HeapArrayRep state bases.versionedHashesBase
+    value.newPayloadRequest.versionedHashes.size 32
+  transactions : HeapArrayRep state bases.transactionsBase
+    value.newPayloadRequest.executionPayload.transactions.size 16
+  withdrawals : HeapArrayRep state bases.withdrawalsBase
+    value.newPayloadRequest.executionPayload.withdrawals.size 48
+  deposits : HeapArrayRep state bases.depositsBase
+    value.newPayloadRequest.executionRequests.deposits.size 192
+  withdrawalRequests : HeapArrayRep state bases.withdrawalRequestsBase
+    value.newPayloadRequest.executionRequests.withdrawals.size 80
+  consolidationRequests : HeapArrayRep state bases.consolidationRequestsBase
+    value.newPayloadRequest.executionRequests.consolidations.size 116
+  witnessState : HeapArrayRep state bases.witnessStateBase value.witness.state.size 16
+  witnessCodes : HeapArrayRep state bases.witnessCodesBase value.witness.codes.size 16
+  witnessHeaders : HeapArrayRep state bases.witnessHeadersBase value.witness.headers.size 16
+  publicKeys : HeapArrayRep state bases.publicKeysBase value.publicKeys.size 65
+  publicKeyContents : HeapFixedVectorArrayRep state bases.publicKeysBase value.publicKeys
+
+theorem raw_v4_allocation_root_size (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
+    (bases : RawV4DescriptorBases)
+    (representation : RawV4AllocationRep state rootBase value bases) : HeapArrayRep state rootBase 1 832 :=
+  raw_stateless_input_rep_size state rootBase representation.root
 
 /-- Descriptor-level portion of the root layout, with every collection count tied to `RawV4`. -/
 structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
@@ -243,10 +253,10 @@ Scalar and fixed-vector byte contents are added by the later field observer; thi
 the ownership and aliasing boundary used by all parser and runtime contracts. -/
 structure RawV4Rep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
     (value : SszBridge.RawV4) : Prop where
-  allocations : RawV4AllocationRep state rootBase value
-  descriptorSlices : ∃ bases : RawV4DescriptorBases,
-    ∃ descriptors : RawV4DescriptorRep state rootBase value bases,
-      RawV4InputSlicesRep state inputBase input rootBase value bases descriptors
+  layout : ∃ bases : RawV4DescriptorBases,
+    RawV4AllocationRep state rootBase value bases ∧
+      ∃ descriptors : RawV4DescriptorRep state rootBase value bases,
+        RawV4InputSlicesRep state inputBase input rootBase value bases descriptors
   fixedFields : RawV4FixedFieldsRep state rootBase value
 
 /-- The executable descriptor-only observation of the native root object. -/
