@@ -152,6 +152,25 @@ theorem raw_parser_u32_fourth_lbu_execute (state : State)
       (is_aligned_vaddr_one _) hread
   · exact wX_x13_run state (zero_extend (m := 64) data)
 
+theorem raw_parser_u32_first_lbu_image_bytes :
+    Artifact.programImage.readByte? 0x10764 = some 0x83 ∧
+      Artifact.programImage.readByte? 0x10765 = some 0x42 ∧
+        Artifact.programImage.readByte? 0x10766 = some 0x4c ∧
+          Artifact.programImage.readByte? 0x10767 = some 0x1b := by
+  native_decide
+
+theorem raw_parser_u32_first_lbu_fetch (state : State)
+    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10764)
+      0x83#8 0x42#8 0x4c#8 0x1b := by
+  rcases raw_parser_u32_first_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  exact fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x10764 (by omega)
+    afterIncrement 0x83 0x42 0x4c 0x1b read0 read1 read2 read3
+
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
     Artifact.programImage.readByte? 0x104bc = some 0x03 ∧
