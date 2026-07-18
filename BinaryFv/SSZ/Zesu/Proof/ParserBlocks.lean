@@ -6,6 +6,17 @@ namespace BinaryFv.SSZ.Zesu.Proof
 
 open BinaryFv BinaryFv.RiscV
 open BinaryFv.Binary.ProgramImage
+open PreSail LeanRV64DExecutable.Functions Register
+
+private macro "decode_run" : tactic =>
+  `(tactic|
+    (unfold Runs
+     rw [extDecode_eq]
+     simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
+       PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get, EStateM.pure,
+       EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+       MonadState.get, MonadStateOf.get, *]
+     rfl))
 
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
@@ -30,5 +41,13 @@ theorem raw_header_first_lbu_fetch (state : State)
   exact fetchBytesAt_of_image_bytes Artifact.programImage
     (tryStepControlFlowAfterIncrement state) 0x104bc (by omega)
     (image_loaded_after_increment state loaded) 0x03 0x45 0x0a 0x00 read0 read1 read2 read3
+
+/-- Generated Sail decodes the fetched word at `0x104bc` as `lbu a0, 0(s4)`. -/
+theorem raw_header_first_lbu_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x03#8 0x45#8 0x0a#8 0x00#8)) state state
+      (.LOAD (0#12, .Regidx 20#5, .Regidx 10#5, true, 1)) := by
+  decode_run
 
 end BinaryFv.SSZ.Zesu.Proof
