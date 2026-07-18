@@ -20,6 +20,30 @@ def HeapArrayRep (state : State) (base count elementSize : Nat) : Prop :=
   base + count * elementSize ≤ 2 ^ 64 ∧
     ∀ index, index < count * elementSize → (state.mem.get? (base + index)).isSome
 
+/-- A concrete little-endian RV64 word in Sail sparse memory. -/
+def Word64LERep (state : State) (base value : Nat) : Prop :=
+  ∀ index, index < 8 →
+    state.mem.get? (base + index) = some (BitVec.ofNat 8 ((value / 256 ^ index) % 256))
+
+/-- The two-word Zig `std.mem.Allocator` object: context followed by its vtable pointer. -/
+def AllocatorObjectRep (state : State) (base context vtable : Nat) : Prop :=
+  Word64LERep state base context ∧ Word64LERep state (base + 8) vtable
+
+/-- The four-entry allocator vtable, including the allocation slot dispatched by the parser. -/
+def AllocatorVtableRep (state : State) (base alloc resize remap free : Nat) : Prop :=
+  Word64LERep state base alloc ∧ Word64LERep state (base + 8) resize ∧
+    Word64LERep state (base + 16) remap ∧ Word64LERep state (base + 24) free
+
+/-- The six parser-owned indirect tail transfers read Zig's `free` slot at offset 24. -/
+def AllocatorDispatchRep (state : State) (allocatorBase context vtable target : Nat) : Prop :=
+  AllocatorObjectRep state allocatorBase context vtable ∧
+    Word64LERep state (vtable + 24) target
+
+theorem allocator_dispatch_target (state : State) (allocatorBase context vtable target : Nat)
+    (representation : AllocatorDispatchRep state allocatorBase context vtable target) :
+    Word64LERep state (allocatorBase + 8) vtable ∧ Word64LERep state (vtable + 24) target := by
+  exact ⟨representation.1.2, representation.2⟩
+
 /-- The decoded root object occupies precisely the compiler-reflected RV64 ABI size. -/
 def RawStatelessInputRep (state : State) (base : Nat) : Prop :=
   ∃ size, Artifact.rawStatelessInputSize = some size ∧ HeapArrayRep state base 1 size
