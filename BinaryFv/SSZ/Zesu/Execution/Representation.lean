@@ -18,6 +18,11 @@ def InputSliceRep (state : State) (inputBase inputOffset length sliceBase : Nat)
   sliceBase = inputBase + inputOffset ∧
     ∀ index, index < length → state.mem.get? (sliceBase + index) = state.mem.get? (inputBase + inputOffset + index)
 
+/-- A bridge byte array is exactly a bounded subrange of the caller-provided input. -/
+def InputBytesAt (input : ByteArray) (inputOffset : Nat) (bytes : Array UInt8) : Prop :=
+  inputOffset + bytes.size ≤ input.size ∧
+    ∀ index (h : index < bytes.size), bytes[index] = input[inputOffset + index]'(by omega)
+
 /-- A heap array is a disjoint materialized sequence of fixed-width records. -/
 def HeapArrayRep (state : State) (base count elementSize : Nat) : Prop :=
   base + count * elementSize ≤ 2 ^ 64 ∧
@@ -74,6 +79,19 @@ theorem allocator_dispatch_target (state : State) (allocatorBase context vtable 
 def SliceDescriptorRep (state : State) (base data count : Nat) : Prop :=
   data < 2 ^ 64 ∧ count < 2 ^ 64 ∧
     Word64LERep state base data ∧ Word64LERep state (base + 8) count
+
+/-- A slice descriptor aliases an exact bridge byte array in the caller's input memory. -/
+def InputSliceDescriptorRep (state : State) (inputBase : Nat) (input : ByteArray) (descriptorBase : Nat)
+    (inputOffset sliceBase : Nat) (bytes : Array UInt8) : Prop :=
+  SliceDescriptorRep state descriptorBase sliceBase bytes.size ∧
+    InputSliceRep state inputBase inputOffset bytes.size sliceBase ∧ InputBytesAt input inputOffset bytes
+
+def InputSliceDescriptorArrayRep (state : State) (inputBase : Nat) (input : ByteArray)
+    (descriptorBase : Nat) (slices : Array (Array UInt8)) : Prop :=
+  ∀ index (h : index < slices.size),
+    ∃ inputOffset sliceBase,
+      InputSliceDescriptorRep state inputBase input (descriptorBase + 16 * index) inputOffset sliceBase
+        slices[index]
 
 /-- Guarded observer for the pointer/count pair in a Zig slice descriptor. -/
 def observeSliceDescriptor? (state : State) (base : Nat) : Option (Nat × Nat) := do
@@ -164,6 +182,32 @@ structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : SszBridge
   witnessCodes : SliceDescriptorRep state (rootBase + 704) witnessCodesBase value.witness.codes.size
   witnessHeaders : SliceDescriptorRep state (rootBase + 720) witnessHeadersBase value.witness.headers.size
   publicKeys : SliceDescriptorRep state (rootBase + 816) publicKeysBase value.publicKeys.size
+
+/-- Borrowed byte slices in `RawV4`, including every transaction and witness element. -/
+structure RawV4InputSlicesRep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    (value : SszBridge.RawV4) (descriptors : RawV4DescriptorRep state rootBase value) : Prop where
+  extraData : ∃ inputOffset sliceBase,
+    InputSliceDescriptorRep state inputBase input (rootBase + 64) inputOffset sliceBase
+      value.newPayloadRequest.executionPayload.extraData
+  blockAccessList : ∃ inputOffset sliceBase,
+    InputSliceDescriptorRep state inputBase input (rootBase + 128) inputOffset sliceBase
+      value.newPayloadRequest.executionPayload.blockAccessList
+  transactions : InputSliceDescriptorArrayRep state inputBase input descriptors.transactionsBase
+    value.newPayloadRequest.executionPayload.transactions
+  witnessState : InputSliceDescriptorArrayRep state inputBase input descriptors.witnessStateBase value.witness.state
+  witnessCodes : InputSliceDescriptorArrayRep state inputBase input descriptors.witnessCodesBase value.witness.codes
+  witnessHeaders : InputSliceDescriptorArrayRep state inputBase input descriptors.witnessHeadersBase
+    value.witness.headers
+
+/-- Native `RawV4` ownership representation: root allocation, all heap arrays, and borrowed slices.
+
+Scalar and fixed-vector byte contents are added by the later field observer; this layer establishes
+the ownership and aliasing boundary used by all parser and runtime contracts. -/
+structure RawV4Rep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    (value : SszBridge.RawV4) : Prop where
+  allocations : RawV4AllocationRep state rootBase value
+  descriptors : RawV4DescriptorRep state rootBase value
+  inputSlices : RawV4InputSlicesRep state inputBase input rootBase value descriptors
 
 /-- The executable descriptor-only observation of the native root object. -/
 structure RawV4DescriptorObservation where
