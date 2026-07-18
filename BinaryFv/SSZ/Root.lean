@@ -10,9 +10,7 @@ noncomputable def binary : RiscvSpec.ValidatedElf := {
   bytes := Zesu.Artifact.bytes
   elf := Zesu.Artifact.elf
   parsed_ok := by exact Zesu.Artifact.parsed_ok
-  layout := by
-    change Zesu.Artifact.layoutIsValid = true
-    exact Zesu.Artifact.layout_is_valid
+  layout := Zesu.Artifact.elf_layout
 }
 
 /-- The final Amsterdam V4 compliance statement, scaffolded until Stages 5–7. -/

@@ -17,12 +17,16 @@ def parsed : Except ElfError Elf64 :=
 theorem parsed_is_ok : parsed.isOk = true := by
   native_decide
 
-theorem exists_parsed : ∃ elf, parsed = .ok elf := by
-  match h : parsed with
-  | .ok elf => exact ⟨elf, h⟩
-  | .error error =>
-    rw [h] at parsed_is_ok
-    simp at parsed_is_ok
+private theorem exists_ok_of_isOk {ε α : Type} (value : Except ε α)
+    (h : value.isOk = true) : ∃ result, value = .ok result := by
+  cases value with
+  | ok result => exact ⟨result, rfl⟩
+  | error _ =>
+    simp only [Except.isOk, Except.toBool] at h
+    contradiction
+
+theorem exists_parsed : ∃ elf, parsed = .ok elf :=
+  exists_ok_of_isOk parsed parsed_is_ok
 
 noncomputable def elf : Elf64 :=
   exists_parsed.choose

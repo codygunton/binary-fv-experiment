@@ -5,10 +5,10 @@ namespace BinaryFv.SSZ.Zesu.Artifact
 open BinaryFv.Binary
 open BinaryFv.RiscV
 
-def programImage : ProgramImage := elf.programImage
+noncomputable def programImage : ProgramImage := elf.programImage
 
 def symbol (name : String) : Except ElfError StaticSymbol :=
-  elf.findUniqueExecutableFunction name.toUTF8
+  parsed.bind fun parsedElf => parsedElf.findUniqueExecutableFunction name.toUTF8
 
 def zesuRawAlloc : Except ElfError StaticSymbol := symbol "zesu_raw_alloc"
 def zesuRawResult : Except ElfError StaticSymbol := symbol "zesu_raw_result"
