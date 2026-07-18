@@ -43,6 +43,8 @@ private macro "gen_rx_run" idx:num " ↦ " reg:ident ", " name:ident : command =
 gen_rx_run 11 ↦ x11, rX_x11_run
 gen_rx_run 12 ↦ x12, rX_x12_run
 gen_rx_run 13 ↦ x13, rX_x13_run
+gen_rx_run 5 ↦ x5, rX_x5_run
+gen_rx_run 28 ↦ x28, rX_x28_run
 
 private macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(theorem $name (state : State) (value : BitVec 64) :
@@ -60,6 +62,8 @@ gen_wx_run 5 ↦ x5, wX_x5_run
 gen_wx_run 11 ↦ x11, wX_x11_run
 gen_wx_run 12 ↦ x12, wX_x12_run
 gen_wx_run 13 ↦ x13, wX_x13_run
+gen_wx_run 18 ↦ x18, wX_x18_run
+gen_wx_run 28 ↦ x28, wX_x28_run
 
 /-- Each byte of the parser's native 32-bit assembly is addressed directly from `s8`: under the
 configured Machine/Bare/PMM-disabled platform, the generated address action returns `s8 + imm`. -/
@@ -604,6 +608,53 @@ theorem raw_parser_u32_second_byte_shift_execute (state : State) (value : BitVec
     (wX_x11_run state
       (Sail.shift_bits_left value
         (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+
+theorem raw_parser_u32_third_byte_shift_execute (state : State) (value : BitVec 64)
+    (stored : state.regs.get? x12 = some value) :
+    Runs (execute_SHIFTIOP 16#6 (.Regidx 12#5) (.Regidx 12#5) .SLLI) state
+      { state with regs := state.regs.insert x12
+        (Sail.shift_bits_left value
+          (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)) }
+      (.Retire_Success ()) := by
+  exact execute_SHIFTIOP_slli_run state _ 16#6 (.Regidx 12#5) (.Regidx 12#5) value
+    (rX_x12_run state value stored)
+    (wX_x12_run state
+      (Sail.shift_bits_left value
+        (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+
+theorem raw_parser_u32_fourth_byte_shift_execute (state : State) (value : BitVec 64)
+    (stored : state.regs.get? x13 = some value) :
+    Runs (execute_SHIFTIOP 24#6 (.Regidx 13#5) (.Regidx 13#5) .SLLI) state
+      { state with regs := state.regs.insert x13
+        (Sail.shift_bits_left value
+          (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)) }
+      (.Retire_Success ()) := by
+  exact execute_SHIFTIOP_slli_run state _ 24#6 (.Regidx 13#5) (.Regidx 13#5) value
+    (rX_x13_run state value stored)
+    (wX_x13_run state
+      (Sail.shift_bits_left value
+        (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+
+theorem raw_parser_u32_low_half_or_execute (state : State) (low high : BitVec 64)
+    (lowStored : state.regs.get? x5 = some low) (highStored : state.regs.get? x11 = some high) :
+    Runs (execute_RTYPE (.Regidx 5#5) (.Regidx 11#5) (.Regidx 28#5) .OR) state
+      { state with regs := state.regs.insert x28 (high ||| low) } (.Retire_Success ()) := by
+  exact execute_RTYPE_or_run state _ (.Regidx 5#5) (.Regidx 11#5) (.Regidx 28#5) high low
+    (rX_x11_run state high highStored) (rX_x5_run state low lowStored) (wX_x28_run state (high ||| low))
+
+theorem raw_parser_u32_high_half_or_execute (state : State) (mid high : BitVec 64)
+    (midStored : state.regs.get? x12 = some mid) (highStored : state.regs.get? x13 = some high) :
+    Runs (execute_RTYPE (.Regidx 12#5) (.Regidx 13#5) (.Regidx 12#5) .OR) state
+      { state with regs := state.regs.insert x12 (high ||| mid) } (.Retire_Success ()) := by
+  exact execute_RTYPE_or_run state _ (.Regidx 12#5) (.Regidx 13#5) (.Regidx 12#5) high mid
+    (rX_x13_run state high highStored) (rX_x12_run state mid midStored) (wX_x12_run state (high ||| mid))
+
+theorem raw_parser_u32_word_or_execute (state : State) (low high : BitVec 64)
+    (lowStored : state.regs.get? x28 = some low) (highStored : state.regs.get? x12 = some high) :
+    Runs (execute_RTYPE (.Regidx 28#5) (.Regidx 12#5) (.Regidx 18#5) .OR) state
+      { state with regs := state.regs.insert x18 (high ||| low) } (.Retire_Success ()) := by
+  exact execute_RTYPE_or_run state _ (.Regidx 28#5) (.Regidx 12#5) (.Regidx 18#5) high low
+    (rX_x12_run state high highStored) (rX_x28_run state low lowStored) (wX_x18_run state (high ||| low))
 
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
