@@ -50,6 +50,69 @@ theorem raw_header_first_lbu_decode (state : State)
       (.LOAD (0#12, .Regidx 20#5, .Regidx 10#5, true, 1)) := by
   decode_run
 
+/-- The first parser `lbu` retires from its canonical PC once its dynamic machine premises hold.
+Its fetch bytes and generated-Sail decode are derived here from the immutable Zesu ELF. -/
+theorem raw_header_first_lbu_retire (stepNo : Nat) (state afterExec : State)
+    (srcBits mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
+    (inhibit : BitVec 32) (config : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x104bc))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits)
+    (mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x104bc)).regs.get? mstatus = some mstatusBits)
+    (privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x104bc)).regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (addrReg : Runs (get_transformed_data_addr (.Regidx 20#5) (sign_extend (m := 64) 0#12)
+      (MemoryAccessType.Load mem_payload.Data) 1)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc))
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)))
+    (physAccess : Runs (phys_access_check (MemoryAccessType.Load mem_payload.Data)
+      page_based_mem_type.PBMT_PMA .Machine (physaddr.Physaddr srcBits) 1 false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc)) none)
+    (loadNoMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) 1)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc)) false)
+    (hmem : ∀ index (h : index < (BinaryFv.RiscV.Sep.leBytes 1 data).length),
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc)).mem.get?
+        (srcBits.toNat + index) = some (BinaryFv.RiscV.Sep.leBytes 1 data)[index])
+    (hwrite : Runs (wX_bits (.Regidx 10#5) (zero_extend (m := 64) data))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc)) afterExec ())
+    (nextPcAfterExec : afterExec.regs.get? nextPC = some (BitVec.ofNat 64 0x104c0))
+    (hartAgree : afterExec.regs.get? hart_state =
+      (tryStepControlFlowAfterIncrement state).regs.get? hart_state)
+    (incrementAgree : afterExec.regs.get? minstret_increment =
+      (tryStepControlFlowAfterIncrement state).regs.get? minstret_increment)
+    (retiredAgree : afterExec.regs.get? minstret =
+      (tryStepControlFlowAfterIncrement state).regs.get? minstret)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired afterExec (BitVec.ofNat 64 0x104c0) retired) false := by
+  have bytes := raw_header_first_lbu_fetch state loaded
+  have decode := raw_header_first_lbu_decode (tryStepControlFlowAfterIncrement state)
+    privilege mseccfgBits mseccfg
+  exact tryStepFallThroughRetires stepNo state afterExec (BitVec.ofNat 64 0x104bc) retired inhibit
+    config 0x03#8 0x45#8 0x0a#8 0x00#8 (.LOAD (0#12, .Regidx 20#5, .Regidx 10#5, true, 1))
+    platform fetchNoMMIO bytes interrupts (by native_decide) decode notExpected
+    (execute_LOAD_lbu_run _ _ 0#12 (.Regidx 20#5) (.Regidx 10#5) srcBits mstatusBits data
+      mstatusRead privilegeRead mprvZero addrReg (is_aligned_vaddr_one _) physAccess loadNoMMIO hmem
+      hwrite)
+    nextPcAfterExec hartAgree incrementAgree retiredAgree hartRead inhibitRead configRead
+    notInhibited machineEnabled retiredRead
+
 /-- The parser's result-status read at `0x11f5c` is an unsigned half-word load. -/
 theorem raw_parser_lhu_image_bytes :
     Artifact.programImage.readByte? 0x11f5c = some 0x83 ∧
