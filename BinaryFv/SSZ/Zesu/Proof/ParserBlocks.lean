@@ -1072,6 +1072,19 @@ theorem raw_parser_u32_next_word_second_byte_shift_execute (state : State) (valu
       (Sail.shift_bits_left value
         (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
 
+theorem raw_parser_u32_next_word_third_byte_shift_execute (state : State) (value : BitVec 64)
+    (stored : state.regs.get? x16 = some value) :
+    Runs (execute_SHIFTIOP 16#6 (.Regidx 16#5) (.Regidx 16#5) .SLLI) state
+      { state with regs := state.regs.insert x16
+        (Sail.shift_bits_left value
+          (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)) }
+      (.Retire_Success ()) := by
+  exact execute_SHIFTIOP_slli_run state _ 16#6 (.Regidx 16#5) (.Regidx 16#5) value
+    (rX_x16_run state value stored)
+    (wX_x16_run state
+      (Sail.shift_bits_left value
+        (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+
 theorem raw_parser_u32_next_word_second_byte_shift_retire_exact (stepNo : Nat) (state : State)
     (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
     (loaded : Artifact.programImage.matchesMemory state.mem)
