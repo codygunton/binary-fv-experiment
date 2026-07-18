@@ -60,7 +60,10 @@ def rawV4FixedFieldOffsetsValid : Bool :=
     abiDatum "ssz_raw.RawExecutionPayload|logs_bloom" == some 268 &&
     abiDatum "ssz_raw.RawExecutionPayload|prev_randao" == some 524 &&
     abiDatum "ssz_raw.RawExecutionPayload|block_hash" == some 556 &&
-    abiDatum "ssz_raw.RawNewPayloadRequest|parent_beacon_block_root" == some 656
+    abiDatum "ssz_raw.RawNewPayloadRequest|parent_beacon_block_root" == some 656 &&
+    abiDatum "ssz_raw.RawChainConfig|chain_id" == some 0 &&
+    abiDatum "ssz_raw.RawChainConfig|active_fork" == some 8 &&
+    abiDatum "ssz_raw.RawForkConfig|fork" == some 0
 
 theorem raw_v4_fixed_field_offsets_valid : rawV4FixedFieldOffsetsValid = true := by
   native_decide

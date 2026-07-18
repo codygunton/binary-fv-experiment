@@ -9,6 +9,7 @@ import BinaryFv.SSZ.Zesu.Analysis.Reachability
 import BinaryFv.SSZ.Zesu.Analysis.AllocatorCalls
 import BinaryFv.SSZ.Zesu.Analysis.Primitives
 import BinaryFv.SSZ.Zesu.Execution.Representation
+import BinaryFv.SSZ.Zesu.Execution.AllocatorVtable
 import BinaryFv.SSZ.Zesu.Execution.Observer
 import BinaryFv.SSZ.Zesu.Proof.Runtime.BumpAllocator
 import BinaryFv.SSZ.Zesu.Proof.Runtime.AllocationBound

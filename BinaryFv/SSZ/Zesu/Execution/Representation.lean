@@ -1,7 +1,6 @@
 import BinaryFv.RiscV.Execution.MemoryIo
 import BinaryFv.RiscV.Logic.ImageMemory
 import BinaryFv.SSZ.Zesu.Artifact.AbiManifest
-import BinaryFv.SSZ.Zesu.Analysis.AllocatorCalls
 import SszBridge.Core
 
 namespace BinaryFv.SSZ.Zesu.Execution
@@ -61,10 +60,16 @@ def observeWord64? (state : State) (base : Nat) : Option Nat := do
 theorem observe_word64_of_rep (state : State) (base value : Nat)
     (bound : value < 2 ^ 64) (representation : Word64LERep state base value) :
     observeWord64? state base = some value := by
-  simp only [observeWord64?, Option.bind_eq_bind, Option.pure_eq_some]
-  rw [representation 0 (by omega), representation 1 (by omega), representation 2 (by omega),
-    representation 3 (by omega), representation 4 (by omega), representation 5 (by omega),
-    representation 6 (by omega), representation 7 (by omega)]
+  have byte0 : state.mem.get? base = some (BitVec.ofNat 8 (value % 256)) := by
+    simpa using representation 0 (by omega)
+  have byte1 := representation 1 (by omega)
+  have byte2 := representation 2 (by omega)
+  have byte3 := representation 3 (by omega)
+  have byte4 := representation 4 (by omega)
+  have byte5 := representation 5 (by omega)
+  have byte6 := representation 6 (by omega)
+  have byte7 := representation 7 (by omega)
+  simp only [observeWord64?, byte0, byte1, byte2, byte3, byte4, byte5, byte6, byte7]
   simp
   omega
 
@@ -119,15 +124,6 @@ theorem observe_slice_descriptor_of_rep (state : State) (base data count : Nat)
     observe_word64_of_rep state (base + 8) count representation.2.1 representation.2.2.2]
   rfl
 
-/-- Loading the immutable ELF vtable makes every slot-24 cleanup dispatch target its pinned stub. -/
-theorem loaded_vtable_free_target (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
-    Word64LERep state (Analysis.allocatorVtableAddress + Analysis.allocatorVtableCallSlotOffset)
-      0x10440 := by
-  intro index indexBound
-  interval_cases index <;>
-    exact loaded _ _ (by native_decide)
-
 /-- The decoded root object occupies precisely the compiler-reflected RV64 ABI size. -/
 def RawStatelessInputRep (state : State) (base : Nat) : Prop :=
   ∃ size, Artifact.rawStatelessInputSize = some size ∧ HeapArrayRep state base 1 size
@@ -166,8 +162,8 @@ theorem raw_v4_allocation_root_size (state : State) (rootBase : Nat) (value : Ss
     (representation : RawV4AllocationRep state rootBase value) : HeapArrayRep state rootBase 1 832 :=
   raw_stateless_input_rep_size state rootBase representation.root
 
-/-- Descriptor-level portion of the root layout, with every collection count tied to `RawV4`. -/
-structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4) : Prop where
+/-- Heap bases carried by the root's ten slice descriptors. -/
+structure RawV4DescriptorBases where
   versionedHashesBase : Nat
   transactionsBase : Nat
   withdrawalsBase : Nat
@@ -178,37 +174,42 @@ structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : SszBridge
   witnessCodesBase : Nat
   witnessHeadersBase : Nat
   publicKeysBase : Nat
-  versionedHashes : SliceDescriptorRep state (rootBase + 592) versionedHashesBase
+
+/-- Descriptor-level portion of the root layout, with every collection count tied to `RawV4`. -/
+structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
+    (bases : RawV4DescriptorBases) : Prop where
+  versionedHashes : SliceDescriptorRep state (rootBase + 592) bases.versionedHashesBase
     value.newPayloadRequest.versionedHashes.size
-  transactions : SliceDescriptorRep state (rootBase + 80) transactionsBase
+  transactions : SliceDescriptorRep state (rootBase + 80) bases.transactionsBase
     value.newPayloadRequest.executionPayload.transactions.size
-  withdrawals : SliceDescriptorRep state (rootBase + 96) withdrawalsBase
+  withdrawals : SliceDescriptorRep state (rootBase + 96) bases.withdrawalsBase
     value.newPayloadRequest.executionPayload.withdrawals.size
-  deposits : SliceDescriptorRep state (rootBase + 608) depositsBase
+  deposits : SliceDescriptorRep state (rootBase + 608) bases.depositsBase
     value.newPayloadRequest.executionRequests.deposits.size
-  withdrawalRequests : SliceDescriptorRep state (rootBase + 624) withdrawalRequestsBase
+  withdrawalRequests : SliceDescriptorRep state (rootBase + 624) bases.withdrawalRequestsBase
     value.newPayloadRequest.executionRequests.withdrawals.size
-  consolidationRequests : SliceDescriptorRep state (rootBase + 640) consolidationRequestsBase
+  consolidationRequests : SliceDescriptorRep state (rootBase + 640) bases.consolidationRequestsBase
     value.newPayloadRequest.executionRequests.consolidations.size
-  witnessState : SliceDescriptorRep state (rootBase + 688) witnessStateBase value.witness.state.size
-  witnessCodes : SliceDescriptorRep state (rootBase + 704) witnessCodesBase value.witness.codes.size
-  witnessHeaders : SliceDescriptorRep state (rootBase + 720) witnessHeadersBase value.witness.headers.size
-  publicKeys : SliceDescriptorRep state (rootBase + 816) publicKeysBase value.publicKeys.size
+  witnessState : SliceDescriptorRep state (rootBase + 688) bases.witnessStateBase value.witness.state.size
+  witnessCodes : SliceDescriptorRep state (rootBase + 704) bases.witnessCodesBase value.witness.codes.size
+  witnessHeaders : SliceDescriptorRep state (rootBase + 720) bases.witnessHeadersBase value.witness.headers.size
+  publicKeys : SliceDescriptorRep state (rootBase + 816) bases.publicKeysBase value.publicKeys.size
 
 /-- Borrowed byte slices in `RawV4`, including every transaction and witness element. -/
 structure RawV4InputSlicesRep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
-    (value : SszBridge.RawV4) (descriptors : RawV4DescriptorRep state rootBase value) : Prop where
+    (value : SszBridge.RawV4) (bases : RawV4DescriptorBases)
+    (descriptors : RawV4DescriptorRep state rootBase value bases) : Prop where
   extraData : ∃ inputOffset sliceBase,
     InputSliceDescriptorRep state inputBase input (rootBase + 64) inputOffset sliceBase
       value.newPayloadRequest.executionPayload.extraData
   blockAccessList : ∃ inputOffset sliceBase,
     InputSliceDescriptorRep state inputBase input (rootBase + 128) inputOffset sliceBase
       value.newPayloadRequest.executionPayload.blockAccessList
-  transactions : InputSliceDescriptorArrayRep state inputBase input descriptors.transactionsBase
+  transactions : InputSliceDescriptorArrayRep state inputBase input bases.transactionsBase
     value.newPayloadRequest.executionPayload.transactions
-  witnessState : InputSliceDescriptorArrayRep state inputBase input descriptors.witnessStateBase value.witness.state
-  witnessCodes : InputSliceDescriptorArrayRep state inputBase input descriptors.witnessCodesBase value.witness.codes
-  witnessHeaders : InputSliceDescriptorArrayRep state inputBase input descriptors.witnessHeadersBase
+  witnessState : InputSliceDescriptorArrayRep state inputBase input bases.witnessStateBase value.witness.state
+  witnessCodes : InputSliceDescriptorArrayRep state inputBase input bases.witnessCodesBase value.witness.codes
+  witnessHeaders : InputSliceDescriptorArrayRep state inputBase input bases.witnessHeadersBase
     value.witness.headers
 
 /-- Inline fixed vectors and scalar fields in the root's nested execution payload. -/
@@ -233,6 +234,8 @@ structure RawV4FixedFieldsRep (state : State) (rootBase : Nat) (value : SszBridg
   excessBlobGas : Word64LERep state (rootBase + 120)
     value.newPayloadRequest.executionPayload.excessBlobGas.toNat
   slotNumber : Word64LERep state (rootBase + 144) value.newPayloadRequest.executionPayload.slotNumber.toNat
+  chainId : Word64LERep state (rootBase + 736) value.chainConfig.chainId.toNat
+  activeFork : Word64LERep state (rootBase + 744) value.chainConfig.activeFork.fork.toNat
 
 /-- Native `RawV4` ownership representation: root allocation, all heap arrays, and borrowed slices.
 
@@ -241,8 +244,9 @@ the ownership and aliasing boundary used by all parser and runtime contracts. -/
 structure RawV4Rep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
     (value : SszBridge.RawV4) : Prop where
   allocations : RawV4AllocationRep state rootBase value
-  descriptors : RawV4DescriptorRep state rootBase value
-  inputSlices : RawV4InputSlicesRep state inputBase input rootBase value descriptors
+  descriptorSlices : ∃ bases : RawV4DescriptorBases,
+    ∃ descriptors : RawV4DescriptorRep state rootBase value bases,
+      RawV4InputSlicesRep state inputBase input rootBase value bases descriptors
   fixedFields : RawV4FixedFieldsRep state rootBase value
 
 /-- The executable descriptor-only observation of the native root object. -/
@@ -269,37 +273,48 @@ def observeRawV4Descriptors? (state : State) (rootBase : Nat) : Option RawV4Desc
   let witnessCodes ← observeSliceDescriptor? state (rootBase + 704)
   let witnessHeaders ← observeSliceDescriptor? state (rootBase + 720)
   let publicKeys ← observeSliceDescriptor? state (rootBase + 816)
-  pure { versionedHashes, transactions, withdrawals, deposits, withdrawalRequests,
-    consolidationRequests, witnessState, witnessCodes, witnessHeaders, publicKeys }
+  pure ⟨versionedHashes, transactions, withdrawals, deposits, withdrawalRequests,
+    consolidationRequests, witnessState, witnessCodes, witnessHeaders, publicKeys⟩
 
 theorem observe_raw_v4_descriptors_of_rep (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
-    (representation : RawV4DescriptorRep state rootBase value) :
+    (bases : RawV4DescriptorBases)
+    (representation : RawV4DescriptorRep state rootBase value bases) :
     observeRawV4Descriptors? state rootBase = some
-      { versionedHashes := (representation.versionedHashesBase, value.newPayloadRequest.versionedHashes.size),
-        transactions := (representation.transactionsBase,
+      { versionedHashes := (bases.versionedHashesBase, value.newPayloadRequest.versionedHashes.size),
+        transactions := (bases.transactionsBase,
           value.newPayloadRequest.executionPayload.transactions.size),
-        withdrawals := (representation.withdrawalsBase,
+        withdrawals := (bases.withdrawalsBase,
           value.newPayloadRequest.executionPayload.withdrawals.size),
-        deposits := (representation.depositsBase, value.newPayloadRequest.executionRequests.deposits.size),
-        withdrawalRequests := (representation.withdrawalRequestsBase,
+        deposits := (bases.depositsBase, value.newPayloadRequest.executionRequests.deposits.size),
+        withdrawalRequests := (bases.withdrawalRequestsBase,
           value.newPayloadRequest.executionRequests.withdrawals.size),
-        consolidationRequests := (representation.consolidationRequestsBase,
+        consolidationRequests := (bases.consolidationRequestsBase,
           value.newPayloadRequest.executionRequests.consolidations.size),
-        witnessState := (representation.witnessStateBase, value.witness.state.size),
-        witnessCodes := (representation.witnessCodesBase, value.witness.codes.size),
-        witnessHeaders := (representation.witnessHeadersBase, value.witness.headers.size),
-        publicKeys := (representation.publicKeysBase, value.publicKeys.size) } := by
+        witnessState := (bases.witnessStateBase, value.witness.state.size),
+        witnessCodes := (bases.witnessCodesBase, value.witness.codes.size),
+        witnessHeaders := (bases.witnessHeadersBase, value.witness.headers.size),
+        publicKeys := (bases.publicKeysBase, value.publicKeys.size) } := by
   unfold observeRawV4Descriptors?
-  rw [observe_slice_descriptor_of_rep state (rootBase + 592) representation.versionedHashes,
-    observe_slice_descriptor_of_rep state (rootBase + 80) representation.transactions,
-    observe_slice_descriptor_of_rep state (rootBase + 96) representation.withdrawals,
-    observe_slice_descriptor_of_rep state (rootBase + 608) representation.deposits,
-    observe_slice_descriptor_of_rep state (rootBase + 624) representation.withdrawalRequests,
-    observe_slice_descriptor_of_rep state (rootBase + 640) representation.consolidationRequests,
-    observe_slice_descriptor_of_rep state (rootBase + 688) representation.witnessState,
-    observe_slice_descriptor_of_rep state (rootBase + 704) representation.witnessCodes,
-    observe_slice_descriptor_of_rep state (rootBase + 720) representation.witnessHeaders,
-    observe_slice_descriptor_of_rep state (rootBase + 816) representation.publicKeys]
+  rw [observe_slice_descriptor_of_rep state (rootBase + 592) bases.versionedHashesBase
+      value.newPayloadRequest.versionedHashes.size representation.versionedHashes,
+    observe_slice_descriptor_of_rep state (rootBase + 80) bases.transactionsBase
+      value.newPayloadRequest.executionPayload.transactions.size representation.transactions,
+    observe_slice_descriptor_of_rep state (rootBase + 96) bases.withdrawalsBase
+      value.newPayloadRequest.executionPayload.withdrawals.size representation.withdrawals,
+    observe_slice_descriptor_of_rep state (rootBase + 608) bases.depositsBase
+      value.newPayloadRequest.executionRequests.deposits.size representation.deposits,
+    observe_slice_descriptor_of_rep state (rootBase + 624) bases.withdrawalRequestsBase
+      value.newPayloadRequest.executionRequests.withdrawals.size representation.withdrawalRequests,
+    observe_slice_descriptor_of_rep state (rootBase + 640) bases.consolidationRequestsBase
+      value.newPayloadRequest.executionRequests.consolidations.size representation.consolidationRequests,
+    observe_slice_descriptor_of_rep state (rootBase + 688) bases.witnessStateBase value.witness.state.size
+      representation.witnessState,
+    observe_slice_descriptor_of_rep state (rootBase + 704) bases.witnessCodesBase value.witness.codes.size
+      representation.witnessCodes,
+    observe_slice_descriptor_of_rep state (rootBase + 720) bases.witnessHeadersBase
+      value.witness.headers.size representation.witnessHeaders,
+    observe_slice_descriptor_of_rep state (rootBase + 816) bases.publicKeysBase value.publicKeys.size
+      representation.publicKeys]
   rfl
 
 end BinaryFv.SSZ.Zesu.Execution
