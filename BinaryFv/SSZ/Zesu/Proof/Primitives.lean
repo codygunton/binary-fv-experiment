@@ -34,4 +34,37 @@ def observeUInt64LE? (state : BinaryFv.RiscV.State) (base length offset : Nat) :
   let bytes ← observeByteArray? state base length
   SizzLean.Spec.readUInt64LE bytes offset
 
+/-- Each guarded integer observation is the corresponding pinned SizzLean operation on the same bytes. -/
+theorem observe_uint8_at_of_memory (state : BinaryFv.RiscV.State) (base offset : Nat)
+    (bytes : List UInt8) (memory : MemoryListBytes state base bytes) :
+    observeUInt8At? state base bytes.length offset =
+      SizzLean.Spec.readUInt8At (ByteArray.mk bytes.toArray) offset := by
+  unfold observeUInt8At?
+  rw [observe_byte_array_of_memory state base bytes memory]
+  rfl
+
+theorem observe_uint16_le_of_memory (state : BinaryFv.RiscV.State) (base offset : Nat)
+    (bytes : List UInt8) (memory : MemoryListBytes state base bytes) :
+    observeUInt16LE? state base bytes.length offset =
+      SizzLean.Spec.readUInt16LE (ByteArray.mk bytes.toArray) offset := by
+  unfold observeUInt16LE?
+  rw [observe_byte_array_of_memory state base bytes memory]
+  rfl
+
+theorem observe_uint32_le_of_memory (state : BinaryFv.RiscV.State) (base offset : Nat)
+    (bytes : List UInt8) (memory : MemoryListBytes state base bytes) :
+    observeUInt32LE? state base bytes.length offset =
+      SizzLean.Spec.readUInt32LE (ByteArray.mk bytes.toArray) offset := by
+  unfold observeUInt32LE?
+  rw [observe_byte_array_of_memory state base bytes memory]
+  rfl
+
+theorem observe_uint64_le_of_memory (state : BinaryFv.RiscV.State) (base offset : Nat)
+    (bytes : List UInt8) (memory : MemoryListBytes state base bytes) :
+    observeUInt64LE? state base bytes.length offset =
+      SizzLean.Spec.readUInt64LE (ByteArray.mk bytes.toArray) offset := by
+  unfold observeUInt64LE?
+  rw [observe_byte_array_of_memory state base bytes memory]
+  rfl
+
 end BinaryFv.SSZ.Zesu.Proof
