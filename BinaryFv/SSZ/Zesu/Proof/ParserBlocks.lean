@@ -29,6 +29,23 @@ private theorem rX_x24_run (state : State) (base : BitVec 64)
     EStateM.get, EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe,
     regval_from_reg]
 
+private macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
+  `(theorem $name (state : State) (value : BitVec 64) :
+      Runs (wX_bits (.Regidx (BitVec.ofNat 5 $idx)) value) state
+        { state with regs := state.regs.insert $reg value } () := by
+    have index : (Sail.BitVec.toNatInt (BitVec.ofNat 5 $idx)).toNat = $idx := by decide
+    unfold Runs
+    simp [wX_bits, wX, PreSail.writeReg, index, EStateM.run, EStateM.bind, EStateM.modifyGet,
+      EStateM.pure, EStateM.instMonad, MonadState.modifyGet, MonadStateOf.modifyGet, modify,
+      xreg_write_callback, xreg_full_write_callback, reg_name_forwards, get_config_use_abi_names,
+      encdec_reg_forwards, encdec_reg_forwards_matches, reg_arch_name_raw_forwards,
+      LeanRV64DExecutable.Functions.not, zero_extend, regval_into_reg])
+
+gen_wx_run 5 ↦ x5, wX_x5_run
+gen_wx_run 11 ↦ x11, wX_x11_run
+gen_wx_run 12 ↦ x12, wX_x12_run
+gen_wx_run 13 ↦ x13, wX_x13_run
+
 /-- Each byte of the parser's native 32-bit assembly is addressed directly from `s8`: under the
 configured Machine/Bare/PMM-disabled platform, the generated address action returns `s8 + imm`. -/
 theorem raw_parser_u32_lbu_address (state : State) (imm base mstatusBits mseccfgBits : BitVec 64)
