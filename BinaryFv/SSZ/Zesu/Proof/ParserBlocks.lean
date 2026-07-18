@@ -1069,6 +1069,22 @@ theorem raw_parser_u32_shift_or_prefix_trace
     Trace stepNo 5 state0 state5 := by
   trace_steps [shift8, shift16, shift24, lowOr, highOr]
 
+/-- Compose the first native word's four reads, the four intervening reads for the next field,
+and the five contiguous shifts/ORs.  The middle fragment is deliberately an explicit live trace:
+its load values and memory premises must come from the decoder run, rather than being hidden by
+an instruction-shape argument. -/
+theorem raw_parser_u32_live_prefix_trace
+    (stepNo : Nat) (state0 state4 state8 state13 : State)
+    (firstWord : Trace stepNo 4 state0 state4)
+    (intervening : Trace (stepNo + 4) 4 state4 state8)
+    (assembly : Trace (stepNo + 8) 5 state8 state13) :
+    Trace stepNo 13 state0 state13 := by
+  have reads : Trace stepNo 8 state0 state8 := by
+    simpa only [Nat.add_assoc] using Trace.append firstWord intervening
+  have combined := Trace.append reads assembly
+  norm_num at combined ⊢
+  exact combined
+
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
     Artifact.programImage.readByte? 0x104bc = some 0x03 ∧
@@ -1307,6 +1323,32 @@ theorem raw_parser_u32_byte_assembly_image_words :
         Artifact.programImage.readU32LE? 0x1076c = some 0x1b6c4603 ∧
           Artifact.programImage.readU32LE? 0x10770 = some 0x1b7c4683 := by
   native_decide
+
+/-- The four instructions between the first word's byte reads and its shifts are real parser
+byte reads for the adjacent field; they are not a control-flow gap. -/
+theorem raw_parser_u32_intervening_byte_load_image_words :
+    Artifact.programImage.readU32LE? 0x10774 = some 0x1f8c4703 ∧
+      Artifact.programImage.readU32LE? 0x10778 = some 0x1f9c4783 ∧
+        Artifact.programImage.readU32LE? 0x1077c = some 0x1fac4803 ∧
+          Artifact.programImage.readU32LE? 0x10780 = some 0x1fbc4883 := by
+  native_decide
+
+theorem raw_parser_u32_intervening_byte_load_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (0x1f8c4703 : BitVec 32)) state state
+        (.LOAD (504#12, .Regidx 24#5, .Regidx 14#5, true, 1)) ∧
+      Runs (ext_decode (0x1f9c4783 : BitVec 32)) state state
+        (.LOAD (505#12, .Regidx 24#5, .Regidx 15#5, true, 1)) ∧
+      Runs (ext_decode (0x1fac4803 : BitVec 32)) state state
+        (.LOAD (506#12, .Regidx 24#5, .Regidx 16#5, true, 1)) ∧
+      Runs (ext_decode (0x1fbc4883 : BitVec 32)) state state
+        (.LOAD (507#12, .Regidx 24#5, .Regidx 17#5, true, 1)) := by
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor <;> decode_run
 
 theorem raw_parser_u32_byte_assembly_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
