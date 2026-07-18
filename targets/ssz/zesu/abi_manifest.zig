@@ -9,6 +9,11 @@ fn logLayout(comptime T: type) void {
     }
 }
 
+fn logScalarLayout(comptime T: type) void {
+    @compileLog(@typeName(T) ++ "|size", @sizeOf(T));
+    @compileLog(@typeName(T) ++ "|align", @alignOf(T));
+}
+
 comptime {
     inline for (.{
         raw.RawStatelessInput,
@@ -25,4 +30,5 @@ comptime {
         raw.RawWithdrawalRequest,
         raw.RawConsolidationRequest,
     }) |T| logLayout(T);
+    logScalarLayout(?u64);
 }
