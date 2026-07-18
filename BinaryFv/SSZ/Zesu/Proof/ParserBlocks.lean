@@ -19,6 +19,31 @@ private macro "decode_run" : tactic =>
        MonadState.get, MonadStateOf.get, *]
      rfl))
 
+/-- The parser's `s8` base register read is the generated `rX_bits x24` action. -/
+private theorem rX_x24_run (state : State) (base : BitVec 64)
+    (stored : state.regs.get? x24 = some base) :
+    Runs (rX_bits (.Regidx 24#5)) state state base := by
+  have index : (Sail.BitVec.toNatInt (24#5)).toNat = 24 := by decide
+  unfold Runs
+  simp [rX_bits, rX, index, stored, PreSail.readReg, EStateM.run, EStateM.bind,
+    EStateM.get, EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe,
+    regval_from_reg]
+
+/-- Each byte of the parser's native 32-bit assembly is addressed directly from `s8`: under the
+configured Machine/Bare/PMM-disabled platform, the generated address action returns `s8 + imm`. -/
+theorem raw_parser_u32_lbu_address (state : State) (imm base mstatusBits mseccfgBits : BitVec 64)
+    (baseRead : state.regs.get? x24 = some base)
+    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
+    (privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled) :
+    Runs (get_transformed_data_addr (.Regidx 24#5) imm (MemoryAccessType.Load mem_payload.Data) 1)
+      state state (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + imm))) := by
+  exact get_transformed_data_addr_machine_load_run state (.Regidx 24#5) base imm mstatusBits
+    mseccfgBits (rX_x24_run state base baseRead) mstatusRead privilegeRead mprvZero mseccfgRead
+    pmmDisabled
+
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
     Artifact.programImage.readByte? 0x104bc = some 0x03 ∧
