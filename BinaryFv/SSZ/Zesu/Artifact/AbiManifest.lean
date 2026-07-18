@@ -20,6 +20,22 @@ theorem raw_stateless_input_layout :
         rawStatelessInputChainConfigOffset = some 736 ∧ rawStatelessInputPublicKeysOffset = some 816 := by
   native_decide
 
+/-- Nested descriptor offsets used by the guarded native `RawV4` observer. -/
+def rawV4DescriptorOffsetsValid : Bool :=
+  abiDatum "ssz_raw.RawNewPayloadRequest|versioned_hashes" == some 592 &&
+    abiDatum "ssz_raw.RawNewPayloadRequest|execution_requests" == some 608 &&
+    abiDatum "ssz_raw.RawExecutionPayload|transactions" == some 80 &&
+    abiDatum "ssz_raw.RawExecutionPayload|withdrawals" == some 96 &&
+    abiDatum "ssz_raw.RawExecutionRequests|deposits" == some 0 &&
+    abiDatum "ssz_raw.RawExecutionRequests|withdrawals" == some 16 &&
+    abiDatum "ssz_raw.RawExecutionRequests|consolidations" == some 32 &&
+    abiDatum "ssz_raw.RawExecutionWitness|state" == some 0 &&
+    abiDatum "ssz_raw.RawExecutionWitness|codes" == some 16 &&
+    abiDatum "ssz_raw.RawExecutionWitness|headers" == some 32
+
+theorem raw_v4_descriptor_offsets_valid : rawV4DescriptorOffsetsValid = true := by
+  native_decide
+
 /-- Every queried member is produced by Zig reflection over every field of each raw result type. -/
 def completeRawV4AbiManifest : Bool :=
   ZesuSszAbi.manifest.size == 84 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024

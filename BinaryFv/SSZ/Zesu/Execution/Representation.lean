@@ -47,6 +47,10 @@ theorem allocator_dispatch_target (state : State) (allocatorBase context vtable 
     Word64LERep state (allocatorBase + 8) vtable ∧ Word64LERep state (vtable + 24) target := by
   exact ⟨representation.1.2, representation.2⟩
 
+/-- RV64 Zig slice descriptor: a data pointer followed by a `usize` element count. -/
+def SliceDescriptorRep (state : State) (base data count : Nat) : Prop :=
+  Word64LERep state base data ∧ Word64LERep state (base + 8) count
+
 /-- Loading the immutable ELF vtable makes every slot-24 cleanup dispatch target its pinned stub. -/
 theorem loaded_vtable_free_target (state : State)
     (loaded : Artifact.programImage.matchesMemory state.mem) :
@@ -93,5 +97,34 @@ structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : SszBridge
 theorem raw_v4_allocation_root_size (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
     (representation : RawV4AllocationRep state rootBase value) : HeapArrayRep state rootBase 1 832 :=
   raw_stateless_input_rep_size state rootBase representation.root
+
+/-- Descriptor-level portion of the root layout, with every collection count tied to `RawV4`. -/
+structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4) : Prop where
+  versionedHashesBase : Nat
+  transactionsBase : Nat
+  withdrawalsBase : Nat
+  depositsBase : Nat
+  withdrawalRequestsBase : Nat
+  consolidationRequestsBase : Nat
+  witnessStateBase : Nat
+  witnessCodesBase : Nat
+  witnessHeadersBase : Nat
+  publicKeysBase : Nat
+  versionedHashes : SliceDescriptorRep state (rootBase + 592) versionedHashesBase
+    value.newPayloadRequest.versionedHashes.size
+  transactions : SliceDescriptorRep state (rootBase + 80) transactionsBase
+    value.newPayloadRequest.executionPayload.transactions.size
+  withdrawals : SliceDescriptorRep state (rootBase + 96) withdrawalsBase
+    value.newPayloadRequest.executionPayload.withdrawals.size
+  deposits : SliceDescriptorRep state (rootBase + 608) depositsBase
+    value.newPayloadRequest.executionRequests.deposits.size
+  withdrawalRequests : SliceDescriptorRep state (rootBase + 624) withdrawalRequestsBase
+    value.newPayloadRequest.executionRequests.withdrawals.size
+  consolidationRequests : SliceDescriptorRep state (rootBase + 640) consolidationRequestsBase
+    value.newPayloadRequest.executionRequests.consolidations.size
+  witnessState : SliceDescriptorRep state (rootBase + 688) witnessStateBase value.witness.state.size
+  witnessCodes : SliceDescriptorRep state (rootBase + 704) witnessCodesBase value.witness.codes.size
+  witnessHeaders : SliceDescriptorRep state (rootBase + 720) witnessHeadersBase value.witness.headers.size
+  publicKeys : SliceDescriptorRep state (rootBase + 816) publicKeysBase value.publicKeys.size
 
 end BinaryFv.SSZ.Zesu.Execution
