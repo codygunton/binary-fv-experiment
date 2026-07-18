@@ -1058,6 +1058,17 @@ theorem raw_parser_u32_word_or_retire_exact (stepNo : Nat) (state : State)
     (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
     machineEnabled retiredRead
 
+/-- The three shifts and two half-word ORs occupy five contiguous retiring parser instructions. -/
+theorem raw_parser_u32_shift_or_prefix_trace
+    (stepNo : Nat) (state0 state1 state2 state3 state4 state5 : State)
+    (shift8 : Runs (try_step stepNo false) state0 state1 false)
+    (shift16 : Runs (try_step (stepNo + 1) false) state1 state2 false)
+    (shift24 : Runs (try_step (stepNo + 2) false) state2 state3 false)
+    (lowOr : Runs (try_step (stepNo + 3) false) state3 state4 false)
+    (highOr : Runs (try_step (stepNo + 4) false) state4 state5 false) :
+    Trace stepNo 5 state0 state5 := by
+  trace_steps [shift8, shift16, shift24, lowOr, highOr]
+
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
     Artifact.programImage.readByte? 0x104bc = some 0x03 ∧
