@@ -206,6 +206,67 @@ theorem traceByteReadBlock (stepNo : Nat) (state : State)
     Trace stepNo 2 state second.afterRetired := by
   trace_steps [first.retire, second.retire]
 
+/-- Concrete premises for an unsigned half-word primitive read retired through `try_step`. -/
+structure LoadHalfStepContract (stepNo : Nat) (state : State) where
+  afterExec : State
+  pc : BitVec 64
+  retired : BitVec 64
+  imm : BitVec 12
+  rs1 : regidx
+  rd : regidx
+  data : BitVec 16
+  inhibit : BitVec 32
+  config : BitVec 64
+  byte0 : BitVec 8
+  byte1 : BitVec 8
+  byte2 : BitVec 8
+  byte3 : BitVec 8
+  platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc
+  fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc
+  bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3
+  interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state)
+  base : BaseInstructionEncoding byte0
+  decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
+    (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+    (.LOAD (imm, rs1, rd, true, 2))
+  notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state)
+  hread : Runs (vmem_read rs1 (sign_extend (m := 64) imm) 2
+    (MemoryAccessType.Load mem_payload.Data) false false false)
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) (.Ok data)
+  hwrite : Runs (wX_bits rd (extend_value true data))
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) afterExec ()
+  nextPcAfterExec : afterExec.regs.get? nextPC = some (Sail.BitVec.addInt pc 4)
+  hartAgree : afterExec.regs.get? hart_state =
+    (tryStepControlFlowAfterIncrement state).regs.get? hart_state
+  incrementAgree : afterExec.regs.get? minstret_increment =
+    (tryStepControlFlowAfterIncrement state).regs.get? minstret_increment
+  retiredAgree : afterExec.regs.get? minstret =
+    (tryStepControlFlowAfterIncrement state).regs.get? minstret
+  hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ())
+  inhibitRead : state.regs.get? mcountinhibit = some inhibit
+  configRead : state.regs.get? minstretcfg = some config
+  notInhibited : _get_Counterin_IR inhibit = 0#1
+  machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1
+  retiredRead : state.regs.get? minstret = some retired
+
+def LoadHalfStepContract.afterRetired {stepNo : Nat} {state : State}
+    (contract : LoadHalfStepContract stepNo state) : State :=
+  tryStepControlFlowAfterRetired contract.afterExec (Sail.BitVec.addInt contract.pc 4) contract.retired
+
+theorem LoadHalfStepContract.retire {stepNo : Nat} {state : State}
+    (contract : LoadHalfStepContract stepNo state) :
+    Runs (try_step stepNo false) state contract.afterRetired false := by
+  exact tryStepFallThroughRetires stepNo state contract.afterExec contract.pc contract.retired
+    contract.inhibit contract.config contract.byte0 contract.byte1 contract.byte2 contract.byte3
+    (.LOAD (contract.imm, contract.rs1, contract.rd, true, 2)) contract.platform contract.fetchNoMMIO
+    contract.bytes contract.interrupts contract.base contract.decode contract.notExpected
+    (execute_LOAD_lhu_run _ _ contract.imm contract.rs1 contract.rd contract.data contract.hread
+      contract.hwrite)
+    contract.nextPcAfterExec contract.hartAgree contract.incrementAgree contract.retiredAgree
+    contract.hartRead contract.inhibitRead contract.configRead contract.notInhibited
+    contract.machineEnabled contract.retiredRead
+
 /-- The concrete premises for a decoded, not-taken conditional branch. -/
 structure NotTakenBranchStepContract (stepNo : Nat) (state : State) where
   pc : BitVec 64
