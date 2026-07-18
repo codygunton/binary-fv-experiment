@@ -49,4 +49,16 @@ def primitiveReadWidthsInventoryValid : Bool :=
 theorem primitive_read_widths_inventory_valid : primitiveReadWidthsInventoryValid = true := by
   native_decide
 
+/-- The first parser-owned raw-header byte-read run, recorded solely from canonical ELF words. -/
+def rawHeaderByteReadSites : Array Nat := #[0x104bc, 0x104c4, 0x10534, 0x10538]
+
+def rawHeaderByteReadWords : Array Nat := #[0x000a4503, 0x001a4503, 0x002a4503, 0x003a4583]
+
+def rawHeaderByteReadBlockValid : Bool :=
+  rawHeaderByteReadSites.zip rawHeaderByteReadWords |>.all fun entry =>
+    Artifact.programImage.readU32LE? entry.1 == some entry.2
+
+theorem raw_header_byte_read_block_valid : rawHeaderByteReadBlockValid = true := by
+  native_decide
+
 end BinaryFv.SSZ.Zesu.Analysis
