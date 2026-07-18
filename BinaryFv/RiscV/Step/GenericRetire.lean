@@ -123,6 +123,24 @@ theorem tryStepGenericRetires (stepNo : Nat) (state afterExec : State)
     privilege shouldIncrement increment hartAfterIncrement active hartAfterActive tick
     incrementAfterTick retiredAfterTick writeRetired
 
+/-- The generated fall-through postlude changes only `PC` and `minstret`.  Any other register
+value already present after execution is therefore carried into the final retired state. -/
+theorem tryStepControlFlowAfterRetired_preserves_register (afterExec : State)
+    (targetPC retired : BitVec 64) (register : Register) (value : RegisterType register)
+    (stored : afterExec.regs.get? register = some value)
+    (notPc : register ≠ PC) (notRetired : register ≠ minstret) :
+    (tryStepControlFlowAfterRetired afterExec targetPC retired).regs.get? register = some value := by
+  calc
+    (tryStepControlFlowAfterRetired afterExec targetPC retired).regs.get? register =
+        (tryStepControlFlowAfterTick afterExec targetPC).regs.get? register := by
+          simpa [tryStepControlFlowAfterRetired] using
+            writeReg_read_unchanged (tryStepControlFlowAfterTick afterExec targetPC) minstret register
+              (Sail.BitVec.addInt retired 1) notRetired
+    _ = afterExec.regs.get? register := by
+          simpa [tryStepControlFlowAfterTick] using
+            writeReg_read_unchanged afterExec PC register targetPC notPc
+    _ = some value := stored
+
 /-- `tryStepControlFlowRetires` is the special case where `execute` leaves *every* register but
 `nextPC` unchanged; the three targeted preservation premises follow from the blanket `agree`. -/
 theorem tryStepControlFlowRetires_of_generic (stepNo : Nat) (state afterExec : State)
