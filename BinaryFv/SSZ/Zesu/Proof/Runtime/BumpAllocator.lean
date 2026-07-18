@@ -35,6 +35,7 @@ theorem allocate_success_shape {heap : BumpHeap} {bytes alignment pointer heap'}
       heap'.position = pointer + bytes ∧ heap'.limit = heap.limit := by
   unfold allocate at success
   split at success <;> try contradiction
+  dsimp at success
   split at success <;> try contradiction
   split at success <;> try contradiction
   injection success with result
