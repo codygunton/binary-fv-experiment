@@ -389,6 +389,15 @@ theorem LoadDoubleStepContract.retire {stepNo : Nat} {state : State}
     contract.hartRead contract.inhibitRead contract.configRead contract.notInhibited
     contract.machineEnabled contract.retiredRead
 
+/-- Compose one generated-Sail retirement at each unsigned primitive read width. -/
+theorem traceUnsignedPrimitiveReadWidths (stepNo : Nat) (state : State)
+    (byte : LoadByteStepContract stepNo state)
+    (half : LoadHalfStepContract (stepNo + 1) byte.afterRetired)
+    (word : LoadUnsignedWordStepContract ((stepNo + 1) + 1) half.afterRetired)
+    (double : LoadDoubleStepContract (((stepNo + 1) + 1) + 1) word.afterRetired) :
+    Trace stepNo 4 state double.afterRetired := by
+  trace_steps [byte.retire, half.retire, word.retire, double.retire]
+
 /-- The concrete premises for a decoded, not-taken conditional branch. -/
 structure NotTakenBranchStepContract (stepNo : Nat) (state : State) where
   pc : BitVec 64
