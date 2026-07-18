@@ -56,6 +56,10 @@ open BinaryFv.RiscV
 def ownsEncodedWord (image : ProgramImage) (word : EncodedWord) : Prop :=
   image.readU32LE? word.address = some word.bits.toNat
 
+/-- An encoded word whose four bytes are present in the executable file, never merely BSS zero-fill. -/
+def ownsFileEncodedWord (image : ProgramImage) (word : EncodedWord) : Prop :=
+  image.readFileU32LE? word.address = some word.bits.toNat
+
 /-- Decompose an image-backed word into its four source bytes and generated fetch word. -/
 theorem ownsEncodedWord_bytes (image : ProgramImage) (word : EncodedWord)
     (owned : image.ownsEncodedWord word) :
@@ -121,6 +125,58 @@ theorem fetchBytesAt_of_ownedEncodedWord (image : ProgramImage) (state : State)
   refine ⟨byte0, byte1, byte2, byte3, ?_, wordBits⟩
   exact fetchBytesAt_of_image_bytes image state word.address addressFits loaded byte0 byte1 byte2
     byte3 read0 read1 read2 read3
+
+/-- Sparse file-backed memory provides generated fetch bytes for a file-owned instruction word. -/
+theorem fetchBytesAt_of_file_bytes (image : ProgramImage) (state : State) (address : Nat)
+    (addressFits : address < 2 ^ 64) (loaded : image.fileBytesMatchMemory state.mem)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (read0 : image.readFileByte? address = some byte0)
+    (read1 : image.readFileByte? (address + 1) = some byte1)
+    (read2 : image.readFileByte? (address + 2) = some byte2)
+    (read3 : image.readFileByte? (address + 3) = some byte3) :
+    FetchBytesAt state (BitVec.ofNat 64 address)
+      (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
+      (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat) := by
+  unfold FetchBytesAt
+  rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt addressFits]
+  exact ⟨loaded address byte0 read0, loaded (address + 1) byte1 read1,
+    loaded (address + 2) byte2 read2, loaded (address + 3) byte3 read3⟩
+
+/-- Assemble generated fetch bytes directly from a file-owned encoded word. -/
+theorem fetchBytesAt_of_ownedFileEncodedWord (image : ProgramImage) (state : State)
+    (word : EncodedWord) (addressFits : word.address < 2 ^ 64)
+    (loaded : image.fileBytesMatchMemory state.mem) (owned : image.ownsFileEncodedWord word) :
+    ∃ (byte0 byte1 byte2 byte3 : UInt8),
+      FetchBytesAt state (BitVec.ofNat 64 word.address)
+        (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
+        (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat) ∧
+          fetchWord (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
+            (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat) = word.bits := by
+  simp only [ownsFileEncodedWord, readFileU32LE?, readFileNatLE?] at owned
+  cases h0 : image.readFileByte? word.address with
+  | none => simp [h0] at owned
+  | some byte0 =>
+    cases h1 : image.readFileByte? (word.address + 1) with
+    | none => simp [h0, h1] at owned
+    | some byte1 =>
+      cases h2 : image.readFileByte? (word.address + 1 + 1) with
+      | none => simp [h0, h1, h2] at owned
+      | some byte2 =>
+        cases h3 : image.readFileByte? (word.address + 1 + 1 + 1) with
+        | none => simp [h0, h1, h2, h3] at owned
+        | some byte3 =>
+          simp [h0, h1, h2, h3] at owned
+          refine ⟨byte0, byte1, byte2, byte3, ?_, ?_⟩
+          · exact fetchBytesAt_of_file_bytes image state word.address addressFits loaded byte0 byte1
+              byte2 byte3 h0 h1 h2 h3
+          · calc
+              fetchWord (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
+                  (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat) =
+                  BitVec.ofNat 32 (byte0.toNat + 256 *
+                    (byte1.toNat + 256 * (byte2.toNat + 256 * byte3.toNat))) :=
+                fetchWord_of_image_bytes byte0 byte1 byte2 byte3
+              _ = BitVec.ofNat 32 word.bits.toNat := by rw [owned]
+              _ = word.bits := by simp
 
 end BinaryFv.Binary.ProgramImage
 

@@ -13,7 +13,9 @@ import BinaryFv.RiscV.Execution.MemoryIo
 import BinaryFv.RiscV.Execution.Runner
 import BinaryFv.RiscV.Instruction.Decode
 import BinaryFv.RiscV.Instruction.Execute.ControlFlow
+import BinaryFv.RiscV.Instruction.Execute.Arithmetic
 import BinaryFv.RiscV.Instruction.Execute.Load
+import BinaryFv.RiscV.Instruction.Execute.Memory
 import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Instruction.Execute.ShiftOr
 import BinaryFv.RiscV.Instruction.Execute.StackAddi
