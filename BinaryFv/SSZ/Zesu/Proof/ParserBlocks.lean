@@ -1,6 +1,7 @@
 import BinaryFv.RiscV.Logic.BlockStep
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.SSZ.Zesu.Analysis.Primitives
+import SizzLean.Spec.Deserialize
 
 namespace BinaryFv.SSZ.Zesu.Proof
 
@@ -308,5 +309,14 @@ theorem raw_parser_u32_assembly_decode (state : State)
   constructor
   · decode_run
   constructor <;> decode_run
+
+/-- The pinned SizzLean `UInt32` reader is the same little-endian byte expression used by the
+parser's four-byte assembly block. -/
+theorem read_uint32_le_four_bytes (b0 b1 b2 b3 : UInt8) :
+    SizzLean.Spec.readUInt32LE (ByteArray.mk #[b0, b1, b2, b3]) 0 =
+      some (b0.toUInt32 ||| (b1.toUInt32 <<< 8) ||| (b2.toUInt32 <<< 16) |||
+        (b3.toUInt32 <<< 24)) := by
+  unfold SizzLean.Spec.readUInt32LE
+  simp
 
 end BinaryFv.SSZ.Zesu.Proof
