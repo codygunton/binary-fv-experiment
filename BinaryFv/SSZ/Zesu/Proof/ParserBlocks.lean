@@ -171,6 +171,13 @@ theorem raw_parser_u32_first_lbu_fetch (state : State)
     (tryStepControlFlowAfterIncrement state) 0x10764 (by omega)
     afterIncrement 0x83 0x42 0x4c 0x1b read0 read1 read2 read3
 
+theorem raw_parser_u32_first_lbu_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x83#8 0x42#8 0x4c#8 0x1b)) state state
+      (.LOAD (436#12, .Regidx 24#5, .Regidx 5#5, true, 1)) := by
+  decode_run
+
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
     Artifact.programImage.readByte? 0x104bc = some 0x03 ∧
