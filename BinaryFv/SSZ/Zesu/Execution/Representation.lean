@@ -90,6 +90,18 @@ def HeapWithdrawalArrayRep (state : State) (base : Nat)
     (values : Array SszBridge.RawWithdrawal) : Prop :=
   ∀ index (h : index < values.size), RawWithdrawalRep state (base + 48 * index) values[index]
 
+/-- Native RV64 layout of one bridge withdrawal-request record. -/
+def RawWithdrawalRequestRep (state : State) (base : Nat)
+    (value : SszBridge.RawWithdrawalRequest) : Prop :=
+  Word64LERep state base value.amount.toNat ∧
+    FixedByteVectorRep state (base + 8) value.sourceAddress ∧
+      FixedByteVectorRep state (base + 28) value.validatorPubkey
+
+def HeapWithdrawalRequestArrayRep (state : State) (base : Nat)
+    (values : Array SszBridge.RawWithdrawalRequest) : Prop :=
+  ∀ index (h : index < values.size),
+    RawWithdrawalRequestRep state (base + 80 * index) values[index]
+
 /-- The two-word Zig `std.mem.Allocator` object: context followed by its vtable pointer. -/
 def AllocatorObjectRep (state : State) (base context vtable : Nat) : Prop :=
   Word64LERep state base context ∧ Word64LERep state (base + 8) vtable
@@ -187,6 +199,8 @@ structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : SszBridge
     value.newPayloadRequest.executionRequests.deposits.size 192
   withdrawalRequests : HeapArrayRep state bases.withdrawalRequestsBase
     value.newPayloadRequest.executionRequests.withdrawals.size 80
+  withdrawalRequestContents : HeapWithdrawalRequestArrayRep state bases.withdrawalRequestsBase
+    value.newPayloadRequest.executionRequests.withdrawals
   consolidationRequests : HeapArrayRep state bases.consolidationRequestsBase
     value.newPayloadRequest.executionRequests.consolidations.size 116
   witnessState : HeapArrayRep state bases.witnessStateBase value.witness.state.size 16
