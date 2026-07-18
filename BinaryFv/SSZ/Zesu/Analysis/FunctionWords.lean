@@ -6,7 +6,10 @@ namespace BinaryFv.SSZ.Zesu.Analysis
 open BinaryFv.RiscV
 
 /-- All executable function symbols selected by the parser from the immutable ELF. -/
-def executableFunctions : Array StaticSymbol := Artifact.elf.executableFunctions
+def executableFunctions : Array StaticSymbol :=
+  match Artifact.parsed with
+  | .ok parsedElf => parsedElf.executableFunctions
+  | .error _ => #[]
 
 def functionWordSets? : Option (Array FunctionWordSet) :=
   decodedWords?.map fun words => executableFunctions.map fun function => functionWordSet function words

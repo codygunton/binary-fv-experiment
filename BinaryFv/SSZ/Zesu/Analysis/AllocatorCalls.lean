@@ -4,6 +4,17 @@ namespace BinaryFv.SSZ.Zesu.Analysis
 
 open BinaryFv.RiscV
 
+private instance : DecidableEq (Except ElfError StaticSymbol) := fun left right =>
+  match left, right with
+  | .ok left, .ok right =>
+    if h : left = right then isTrue (by simp [h])
+    else isFalse fun equal => h (by simpa using equal)
+  | .error left, .error right =>
+    if h : left = right then isTrue (by simp [h])
+    else isFalse fun equal => h (by simpa using equal)
+  | .ok _, .error _ => isFalse fun equal => by cases equal
+  | .error _, .ok _ => isFalse fun equal => by cases equal
+
 /-- The six compiler-emitted allocator-vtable tail-call instructions in the pinned decoder. -/
 def allocatorIndirectCallSites : Array Nat := #[0x130c8, 0x13510, 0x135d8, 0x1366c, 0x13690, 0x13718]
 

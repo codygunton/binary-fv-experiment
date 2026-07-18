@@ -5,7 +5,10 @@ namespace BinaryFv.SSZ.Zesu.Artifact
 open BinaryFv.Binary
 open BinaryFv.RiscV
 
-noncomputable def programImage : ProgramImage := elf.programImage
+def programImage : ProgramImage :=
+  match parsed with
+  | .ok parsedElf => parsedElf.programImage
+  | .error _ => { segments := #[] }
 
 def symbol (name : String) : Except ElfError StaticSymbol :=
   parsed.bind fun parsedElf => parsedElf.findUniqueExecutableFunction name.toUTF8

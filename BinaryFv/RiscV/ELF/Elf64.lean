@@ -84,6 +84,7 @@ structure StaticSymbol where
   sectionIndex : Nat
   value : Nat
   size : Nat
+  deriving DecidableEq
 
 structure ParsedStaticSymbols where
   symbols : Array StaticSymbol

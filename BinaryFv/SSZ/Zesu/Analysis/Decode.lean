@@ -9,11 +9,14 @@ open PreSail
 open LeanRV64DExecutable.Functions
 
 def decodedWords? : Option (Array DecodedWord) :=
-  match Artifact.elf.executableWords with
-  | .ok words =>
-    match (decodeWords words).run initialState with
-    | .ok decoded _ => some decoded
-    | .error _ _ => none
+  match Artifact.parsed with
+  | .ok parsedElf =>
+    match parsedElf.executableWords with
+    | .ok words =>
+      match (decodeWords words).run initialState with
+      | .ok decoded _ => some decoded
+      | .error _ _ => none
+    | .error _ => none
   | .error _ => none
 
 def controlFlow? : Option (Array ControlFlowNode) := decodedWords?.map controlFlowNodes
