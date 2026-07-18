@@ -86,4 +86,84 @@ theorem observe_input_slice_descriptor_of_rep (state : State) (inputBase : Nat) 
     sliceBase bytes inputMemory representation
   simpa using observe_bytes_of_memory state sliceBase bytes.toList owned
 
+theorem raw_v4_extra_data_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (representation : RawV4Rep state inputBase input rootBase value) :
+    ∃ inputOffset sliceBase,
+      observeBytes? state sliceBase value.newPayloadRequest.executionPayload.extraData.size =
+        some value.newPayloadRequest.executionPayload.extraData.toList := by
+  rcases representation.inputSlices.extraData with
+    ⟨inputOffset, sliceBase, sliceRepresentation⟩
+  exact ⟨inputOffset, sliceBase,
+    observe_input_slice_descriptor_of_rep state inputBase input (rootBase + 64) inputOffset sliceBase
+      value.newPayloadRequest.executionPayload.extraData inputMemory sliceRepresentation⟩
+
+theorem raw_v4_block_access_list_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (representation : RawV4Rep state inputBase input rootBase value) :
+    ∃ inputOffset sliceBase,
+      observeBytes? state sliceBase value.newPayloadRequest.executionPayload.blockAccessList.size =
+        some value.newPayloadRequest.executionPayload.blockAccessList.toList := by
+  rcases representation.inputSlices.blockAccessList with
+    ⟨inputOffset, sliceBase, sliceRepresentation⟩
+  exact ⟨inputOffset, sliceBase,
+    observe_input_slice_descriptor_of_rep state inputBase input (rootBase + 128) inputOffset sliceBase
+      value.newPayloadRequest.executionPayload.blockAccessList inputMemory sliceRepresentation⟩
+
+theorem raw_v4_transaction_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+    (indexBound : index < value.newPayloadRequest.executionPayload.transactions.size) :
+    ∃ inputOffset sliceBase,
+      observeBytes? state sliceBase value.newPayloadRequest.executionPayload.transactions[index].size =
+        some value.newPayloadRequest.executionPayload.transactions[index].toList := by
+  rcases representation.inputSlices.transactions index indexBound with
+    ⟨inputOffset, sliceBase, sliceRepresentation⟩
+  exact ⟨inputOffset, sliceBase,
+    observe_input_slice_descriptor_of_rep state inputBase input
+      (representation.descriptors.transactionsBase + 16 * index) inputOffset sliceBase
+      value.newPayloadRequest.executionPayload.transactions[index] inputMemory sliceRepresentation⟩
+
+theorem raw_v4_witness_state_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+    (indexBound : index < value.witness.state.size) :
+    ∃ inputOffset sliceBase,
+      observeBytes? state sliceBase value.witness.state[index].size =
+        some value.witness.state[index].toList := by
+  rcases representation.inputSlices.witnessState index indexBound with
+    ⟨inputOffset, sliceBase, sliceRepresentation⟩
+  exact ⟨inputOffset, sliceBase,
+    observe_input_slice_descriptor_of_rep state inputBase input
+      (representation.descriptors.witnessStateBase + 16 * index) inputOffset sliceBase
+      value.witness.state[index] inputMemory sliceRepresentation⟩
+
+theorem raw_v4_witness_codes_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+    (indexBound : index < value.witness.codes.size) :
+    ∃ inputOffset sliceBase,
+      observeBytes? state sliceBase value.witness.codes[index].size =
+        some value.witness.codes[index].toList := by
+  rcases representation.inputSlices.witnessCodes index indexBound with
+    ⟨inputOffset, sliceBase, sliceRepresentation⟩
+  exact ⟨inputOffset, sliceBase,
+    observe_input_slice_descriptor_of_rep state inputBase input
+      (representation.descriptors.witnessCodesBase + 16 * index) inputOffset sliceBase
+      value.witness.codes[index] inputMemory sliceRepresentation⟩
+
+theorem raw_v4_witness_headers_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+    (indexBound : index < value.witness.headers.size) :
+    ∃ inputOffset sliceBase,
+      observeBytes? state sliceBase value.witness.headers[index].size =
+        some value.witness.headers[index].toList := by
+  rcases representation.inputSlices.witnessHeaders index indexBound with
+    ⟨inputOffset, sliceBase, sliceRepresentation⟩
+  exact ⟨inputOffset, sliceBase,
+    observe_input_slice_descriptor_of_rep state inputBase input
+      (representation.descriptors.witnessHeadersBase + 16 * index) inputOffset sliceBase
+      value.witness.headers[index] inputMemory sliceRepresentation⟩
+
 end BinaryFv.SSZ.Zesu.Execution
