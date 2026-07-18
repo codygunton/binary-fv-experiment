@@ -5,19 +5,24 @@ namespace BinaryFv.SSZ.Zesu.Artifact
 
 open BinaryFv.RiscV
 
+set_option maxRecDepth 100000
+set_option maxHeartbeats 20000000
+
 /-- The full linked ELF produced by the pinned Nix Zesu derivation. -/
 def bytes : ByteArray := ZesuSszElf.bytes
 
 def parsed : Except ElfError Elf64 :=
   Elf64.parse bytes
 
-theorem parses : parsed.isOk = true := by
+theorem parsed_is_ok : parsed.isOk = true := by
   native_decide
 
 theorem exists_parsed : ∃ elf, parsed = .ok elf := by
-  cases parsed with
-  | ok elf => exact ⟨elf, rfl⟩
-  | error error => simp at parses
+  match h : parsed with
+  | .ok elf => exact ⟨elf, h⟩
+  | .error error =>
+    rw [h] at parsed_is_ok
+    simp at parsed_is_ok
 
 noncomputable def elf : Elf64 :=
   exists_parsed.choose

@@ -7,7 +7,7 @@ require repl from git "https://github.com/leanprover-community/repl.git" @ "v4.2
 
 lean_lib LeanRV64DExecutable where
   srcDir := "build/sail-riscv-lean"
-  moreLeanArgs := #["--tstack=400000"]
+  moreLeanArgs := #["--tstack=2000000"]
 
 lean_lib RethKeccakElf where
   srcDir := "build/reth-keccak-elf-lean"
@@ -37,8 +37,13 @@ lean_lib SszSpec where
 lean_lib ZesuSszElf where
   srcDir := "build/zesu-ssz-elf-lean"
   roots := #[`ZesuSszElf]
-  moreLeanArgs := #["--tstack=400000"]
+  moreLeanArgs := #["--tstack=2000000"]
+
+lean_lib ZesuSszAbi where
+  srcDir := "build/zesu-abi-lean"
+  roots := #[`ZesuSszAbi]
 
 @[default_target]
 lean_lib BinaryFv where
   roots := #[`BinaryFv]
+  moreLeanArgs := #["--tstack=2000000"]

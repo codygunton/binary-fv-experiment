@@ -1,17 +1,17 @@
 // This module is evaluated by the Nix ABI-manifest derivation for the pinned RV64 target.
 const raw = @import("ssz_raw");
 
+fn logLayout(comptime T: type) void {
+    @compileLog(@typeName(T) ++ "|size", @sizeOf(T));
+    @compileLog(@typeName(T) ++ "|align", @alignOf(T));
+    inline for (@typeInfo(T).@"struct".fields) |field| {
+        @compileLog(@typeName(T) ++ "|" ++ field.name, @offsetOf(T, field.name));
+    }
+}
+
 comptime {
-    @compileLog(
-        "RawStatelessInput",
-        @sizeOf(raw.RawStatelessInput),
-        @alignOf(raw.RawStatelessInput),
-        @offsetOf(raw.RawStatelessInput, "new_payload_request"),
-        @offsetOf(raw.RawStatelessInput, "witness"),
-        @offsetOf(raw.RawStatelessInput, "chain_config"),
-        @offsetOf(raw.RawStatelessInput, "public_keys"),
-    );
     inline for (.{
+        raw.RawStatelessInput,
         raw.RawNewPayloadRequest,
         raw.RawExecutionPayload,
         raw.RawExecutionRequests,
@@ -24,7 +24,5 @@ comptime {
         raw.RawDepositRequest,
         raw.RawWithdrawalRequest,
         raw.RawConsolidationRequest,
-    }) |T| {
-        @compileLog(@typeName(T), @sizeOf(T), @alignOf(T));
-    }
+    }) |T| logLayout(T);
 }

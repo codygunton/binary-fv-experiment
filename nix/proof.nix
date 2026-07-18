@@ -2,6 +2,7 @@
 let
   rethKeccak = targets.public.rethKeccak;
   zesuSsz = targets.public.zesuSsz;
+  zesuAbiManifest = targets.public.zesuAbiManifest;
 
   pinnedLean = pkgs.stdenvNoCC.mkDerivation {
     pname = "lean4";
@@ -134,20 +135,31 @@ let
       printf '\n'
       printf '%s\n' 'set_option maxRecDepth 100000'
       printf '%s\n' '/-- Generated from the canonical Nix-built Zesu SSZ ELF. -/'
-      printf '%s\n' 'def bytes : ByteArray := ByteArray.mk #['
       ${pkgs.coreutils}/bin/od -An -v -tu1 ${zesuSsz}/bin/zesu-ssz |
         ${pkgs.gawk}/bin/awk '
           {
             for (i = 1; i <= NF; i++) {
+              if (count % 512 == 0) {
+                if (count != 0) printf "]\n\n"
+                printf "def bytes_chunk_%d : ByteArray := ByteArray.mk #[\n", count / 512
+              }
               if (count % 12 == 0) printf "  "
               printf "0x%02x, ", $i
               count++
               if (count % 12 == 0) printf "\n"
             }
           }
-          END { if (count % 12 != 0) printf "\n" }
+          END {
+            if (count % 12 != 0) printf "\n"
+            printf "]\n\n"
+            printf "def bytes : ByteArray := "
+            for (i = 0; i <= (count - 1) / 512; i++) {
+              if (i != 0) printf " ++ "
+              printf "bytes_chunk_%d", i
+            }
+            printf "\n"
+          }
         '
-      printf '%s\n' ']'
       printf '\n'
       printf '%s\n' 'end ZesuSszElf'
     } > "$out/ZesuSszElf.lean"
@@ -217,6 +229,7 @@ let
     ln -s ${keccakSpecLean} build/keccak-spec-lean
     ln -s ${sszSpecLean} build/ssz-spec-lean
     ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
+    ln -s ${zesuAbiManifest} build/zesu-abi-lean
     cp -a ${replSource}/. .lake/packages/repl/
     chmod -R u+w .lake/packages/repl
     ${pkgs.jq}/bin/jq '
