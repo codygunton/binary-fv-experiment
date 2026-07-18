@@ -206,7 +206,7 @@ theorem get_transformed_data_addr_machine_load_run (state : State) (rs : regidx)
           (Load Data != Load PageTableEntry) = true ∧
             (Load Data != Store PageTableEntry) = true ∧
               LeanRV64DExecutable.Functions.xlen = 64 :=
-      ⟨by native_decide, by native_decide, by native_decide, rfl⟩
+      ⟨by decide, by decide, by decide, rfl⟩
     unfold Runs transform_effective_address get_pmlen is_pmm_applicable get_pmm translationMode
     simp [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get, EStateM.pure,
       EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable, MonadState.get,
