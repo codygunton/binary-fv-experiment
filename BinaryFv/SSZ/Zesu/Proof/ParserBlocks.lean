@@ -231,6 +231,32 @@ theorem raw_parser_u32_third_lbu_decode (state : State)
       (.LOAD (438#12, .Regidx 24#5, .Regidx 12#5, true, 1)) := by
   decode_run
 
+theorem raw_parser_u32_fourth_lbu_image_bytes :
+    Artifact.programImage.readByte? 0x10770 = some 0x83 ∧
+      Artifact.programImage.readByte? 0x10771 = some 0x46 ∧
+        Artifact.programImage.readByte? 0x10772 = some 0x7c ∧
+          Artifact.programImage.readByte? 0x10773 = some 0x1b := by
+  native_decide
+
+theorem raw_parser_u32_fourth_lbu_fetch (state : State)
+    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10770)
+      0x83#8 0x46#8 0x7c#8 0x1b := by
+  rcases raw_parser_u32_fourth_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  exact fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x10770 (by omega)
+    afterIncrement 0x83 0x46 0x7c 0x1b read0 read1 read2 read3
+
+theorem raw_parser_u32_fourth_lbu_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x83#8 0x46#8 0x7c#8 0x1b)) state state
+      (.LOAD (439#12, .Regidx 24#5, .Regidx 13#5, true, 1)) := by
+  decode_run
+
 /-- The first byte of the parser's native 32-bit assembly retires from its canonical PC.
 Its fetch and decode are immutable-ELF facts, while its execute premise is derived from the
 concrete `s8 + 436` byte load rather than an assumed register write. -/
