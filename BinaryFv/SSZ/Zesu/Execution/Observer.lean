@@ -346,4 +346,46 @@ theorem raw_v4_versioned_hash_observes (state : State) (inputBase : Nat) (input 
       value.newPayloadRequest.versionedHashes[index]
       (allocations.versionedHashContents index indexBound)⟩
 
+/-- Observable fields of one native withdrawal record. -/
+structure RawWithdrawalObservation where
+  index : Nat
+  validatorIndex : Nat
+  amount : Nat
+  address : List UInt8
+
+def observeRawWithdrawal? (state : State) (base : Nat) : Option RawWithdrawalObservation := do
+  let index ← observeWord64? state base
+  let validatorIndex ← observeWord64? state (base + 8)
+  let amount ← observeWord64? state (base + 16)
+  let address ← observeBytes? state (base + 24) 20
+  pure ⟨index, validatorIndex, amount, address⟩
+
+theorem observe_raw_withdrawal_of_rep (state : State) (base : Nat) (value : SszBridge.RawWithdrawal)
+    (representation : RawWithdrawalRep state base value) :
+    observeRawWithdrawal? state base = some
+      ⟨value.index.toNat, value.validatorIndex.toNat, value.amount.toNat, value.address.toArray.toList⟩ := by
+  unfold observeRawWithdrawal?
+  rw [observe_word64_of_rep state base _ (UInt64.toNat_lt value.index) representation.1,
+    observe_word64_of_rep state (base + 8) _ (UInt64.toNat_lt value.validatorIndex)
+      representation.2.1,
+    observe_word64_of_rep state (base + 16) _ (UInt64.toNat_lt value.amount) representation.2.2.1,
+    observe_fixed_byte_vector_of_rep state (base + 24) value.address representation.2.2.2]
+  rfl
+
+theorem raw_v4_withdrawal_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4)
+    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+    (indexBound : index < value.newPayloadRequest.executionPayload.withdrawals.size) :
+    ∃ base,
+      observeRawWithdrawal? state (base + 48 * index) = some
+        ⟨value.newPayloadRequest.executionPayload.withdrawals[index].index.toNat,
+          value.newPayloadRequest.executionPayload.withdrawals[index].validatorIndex.toNat,
+          value.newPayloadRequest.executionPayload.withdrawals[index].amount.toNat,
+          value.newPayloadRequest.executionPayload.withdrawals[index].address.toArray.toList⟩ := by
+  rcases representation.layout with ⟨bases, allocations, _, _⟩
+  exact ⟨bases.withdrawalsBase,
+    observe_raw_withdrawal_of_rep state (bases.withdrawalsBase + 48 * index)
+      value.newPayloadRequest.executionPayload.withdrawals[index]
+      (allocations.withdrawalContents index indexBound)⟩
+
 end BinaryFv.SSZ.Zesu.Execution

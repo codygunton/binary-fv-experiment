@@ -79,6 +79,17 @@ theorem observe_word64_of_rep (state : State) (base value : Nat)
   simp
   omega
 
+/-- Native RV64 layout of one bridge withdrawal record. -/
+def RawWithdrawalRep (state : State) (base : Nat) (value : SszBridge.RawWithdrawal) : Prop :=
+  Word64LERep state base value.index.toNat ∧
+    Word64LERep state (base + 8) value.validatorIndex.toNat ∧
+      Word64LERep state (base + 16) value.amount.toNat ∧
+        FixedByteVectorRep state (base + 24) value.address
+
+def HeapWithdrawalArrayRep (state : State) (base : Nat)
+    (values : Array SszBridge.RawWithdrawal) : Prop :=
+  ∀ index (h : index < values.size), RawWithdrawalRep state (base + 48 * index) values[index]
+
 /-- The two-word Zig `std.mem.Allocator` object: context followed by its vtable pointer. -/
 def AllocatorObjectRep (state : State) (base context vtable : Nat) : Prop :=
   Word64LERep state base context ∧ Word64LERep state (base + 8) vtable
@@ -170,6 +181,8 @@ structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : SszBridge
     value.newPayloadRequest.executionPayload.transactions.size 16
   withdrawals : HeapArrayRep state bases.withdrawalsBase
     value.newPayloadRequest.executionPayload.withdrawals.size 48
+  withdrawalContents : HeapWithdrawalArrayRep state bases.withdrawalsBase
+    value.newPayloadRequest.executionPayload.withdrawals
   deposits : HeapArrayRep state bases.depositsBase
     value.newPayloadRequest.executionRequests.deposits.size 192
   withdrawalRequests : HeapArrayRep state bases.withdrawalRequestsBase
