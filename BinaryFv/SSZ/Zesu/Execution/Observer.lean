@@ -55,6 +55,26 @@ theorem observe_fixed_byte_vector_of_rep {length : Nat} (state : State) (base : 
     simpa [FixedByteVectorRep] using representation index vectorBound
   simpa using observe_bytes_of_memory state base value.toArray.toList memory
 
+/-- The little-endian bytes of a bridge bit vector, least-significant byte first. -/
+def bitVectorLEBytes {width : Nat} (value : BitVec width) : List UInt8 :=
+  (List.range (width / 8)).map fun index =>
+    UInt8.ofNat ((value.toNat / 256 ^ index) % 256)
+
+theorem bit_vector_le_memory_list {width : Nat} (state : State) (base : Nat)
+    (value : BitVec width) (representation : BitVectorLERep state base value) :
+    MemoryListBytes state base (bitVectorLEBytes value) := by
+  intro index indexBound
+  have byteBound : index < width / 8 := by
+    simpa [bitVectorLEBytes] using indexBound
+  simpa [bitVectorLEBytes] using representation index byteBound
+
+theorem observe_bit_vector_le_of_rep {width : Nat} (state : State) (base : Nat)
+    (value : BitVec width) (representation : BitVectorLERep state base value) :
+    observeBytes? state base (width / 8) = some (bitVectorLEBytes value) := by
+  simpa [bitVectorLEBytes] using
+    observe_bytes_of_memory state base (bitVectorLEBytes value)
+      (bit_vector_le_memory_list state base value representation)
+
 /-- The fixed byte vectors embedded in the root's execution-payload portion. -/
 structure RawV4FixedVectorObservation where
   parentHash : List UInt8
@@ -101,6 +121,18 @@ theorem observe_raw_v4_fixed_vectors_of_rep (state : State) (rootBase : Nat)
     observe_fixed_byte_vector_of_rep state (rootBase + 556) _ representation.blockHash,
     observe_fixed_byte_vector_of_rep state (rootBase + 656) _ representation.parentBeaconBlockRoot]
   rfl
+
+/-- Observe the exact 32-byte little-endian representation of the V4 base fee. -/
+def observeRawV4BaseFee? (state : State) (rootBase : Nat) : Option (List UInt8) :=
+  observeBytes? state rootBase 32
+
+theorem observe_raw_v4_base_fee_of_rep (state : State) (rootBase : Nat)
+    (value : SszBridge.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
+    observeRawV4BaseFee? state rootBase = some
+      (bitVectorLEBytes value.newPayloadRequest.executionPayload.baseFeePerGas) := by
+  unfold observeRawV4BaseFee?
+  simpa using observe_bit_vector_le_of_rep state rootBase
+    value.newPayloadRequest.executionPayload.baseFeePerGas representation.baseFeePerGas
 
 /-- The inline 64-bit scalar fields embedded in the root's execution payload. -/
 structure RawV4ScalarObservation where
