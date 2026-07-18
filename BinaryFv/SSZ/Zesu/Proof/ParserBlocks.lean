@@ -1927,6 +1927,13 @@ theorem raw_parser_u32_intervening_byte_load_image_words :
           Artifact.programImage.readU32LE? 0x10780 = some 0x1fbc4883 := by
   native_decide
 
+/-- The next adjacent word's byte assembly begins with three shifts at fixed ELF PCs. -/
+theorem raw_parser_u32_next_word_shift_image_words :
+    Artifact.programImage.readU32LE? 0x107a8 = some 0x00879793 ∧
+      Artifact.programImage.readU32LE? 0x107ac = some 0x01081813 ∧
+        Artifact.programImage.readU32LE? 0x107b0 = some 0x01889893 := by
+  native_decide
+
 theorem raw_parser_u32_intervening_byte_load_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
     (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
