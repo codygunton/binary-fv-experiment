@@ -46,6 +46,20 @@ def rawV4HeapElementSizesValid : Bool :=
 theorem raw_v4_heap_element_sizes_valid : rawV4HeapElementSizesValid = true := by
   native_decide
 
+/-- Compiler-reflected offsets for the inline fixed fields represented by `RawV4FixedFieldsRep`. -/
+def rawV4FixedFieldOffsetsValid : Bool :=
+  abiDatum "ssz_raw.RawExecutionPayload|parent_hash" == some 152 &&
+    abiDatum "ssz_raw.RawExecutionPayload|fee_recipient" == some 184 &&
+    abiDatum "ssz_raw.RawExecutionPayload|state_root" == some 204 &&
+    abiDatum "ssz_raw.RawExecutionPayload|receipts_root" == some 236 &&
+    abiDatum "ssz_raw.RawExecutionPayload|logs_bloom" == some 268 &&
+    abiDatum "ssz_raw.RawExecutionPayload|prev_randao" == some 524 &&
+    abiDatum "ssz_raw.RawExecutionPayload|block_hash" == some 556 &&
+    abiDatum "ssz_raw.RawNewPayloadRequest|parent_beacon_block_root" == some 656
+
+theorem raw_v4_fixed_field_offsets_valid : rawV4FixedFieldOffsetsValid = true := by
+  native_decide
+
 /-- Every queried member is produced by Zig reflection over every field of each raw result type. -/
 def completeRawV4AbiManifest : Bool :=
   ZesuSszAbi.manifest.size == 84 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024

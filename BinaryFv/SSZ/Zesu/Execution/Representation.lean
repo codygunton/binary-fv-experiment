@@ -13,6 +13,12 @@ def MemoryBytes (state : State) (base : Nat) (bytes : ByteArray) : Prop :=
   ∀ index (h : index < bytes.size),
     state.mem.get? (base + index) = some (BitVec.ofNat 8 (bytes[index]'h).toNat)
 
+/-- An inline fixed-size bridge byte vector in native sparse memory. -/
+def FixedByteVectorRep {length : Nat} (state : State) (base : Nat)
+    (value : SszBridge.RawByteVector length) : Prop :=
+  ∀ index (h : index < length),
+    state.mem.get? (base + index) = some (BitVec.ofNat 8 (value[index].toNat))
+
 /-- A decoder slice that aliases caller-owned input rather than copying it into the heap. -/
 def InputSliceRep (state : State) (inputBase inputOffset length sliceBase : Nat) : Prop :=
   sliceBase = inputBase + inputOffset ∧
@@ -200,6 +206,28 @@ structure RawV4InputSlicesRep (state : State) (inputBase : Nat) (input : ByteArr
   witnessHeaders : InputSliceDescriptorArrayRep state inputBase input descriptors.witnessHeadersBase
     value.witness.headers
 
+/-- Inline fixed vectors and scalar fields in the root's nested execution payload. -/
+structure RawV4FixedFieldsRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4) : Prop where
+  parentHash : FixedByteVectorRep state (rootBase + 152) value.newPayloadRequest.executionPayload.parentHash
+  feeRecipient : FixedByteVectorRep state (rootBase + 184)
+    value.newPayloadRequest.executionPayload.feeRecipient
+  stateRoot : FixedByteVectorRep state (rootBase + 204) value.newPayloadRequest.executionPayload.stateRoot
+  receiptsRoot : FixedByteVectorRep state (rootBase + 236)
+    value.newPayloadRequest.executionPayload.receiptsRoot
+  logsBloom : FixedByteVectorRep state (rootBase + 268) value.newPayloadRequest.executionPayload.logsBloom
+  prevRandao : FixedByteVectorRep state (rootBase + 524) value.newPayloadRequest.executionPayload.prevRandao
+  blockHash : FixedByteVectorRep state (rootBase + 556) value.newPayloadRequest.executionPayload.blockHash
+  parentBeaconBlockRoot : FixedByteVectorRep state (rootBase + 656)
+    value.newPayloadRequest.parentBeaconBlockRoot
+  blockNumber : Word64LERep state (rootBase + 32) value.newPayloadRequest.executionPayload.blockNumber.toNat
+  gasLimit : Word64LERep state (rootBase + 40) value.newPayloadRequest.executionPayload.gasLimit.toNat
+  gasUsed : Word64LERep state (rootBase + 48) value.newPayloadRequest.executionPayload.gasUsed.toNat
+  timestamp : Word64LERep state (rootBase + 56) value.newPayloadRequest.executionPayload.timestamp.toNat
+  blobGasUsed : Word64LERep state (rootBase + 112) value.newPayloadRequest.executionPayload.blobGasUsed.toNat
+  excessBlobGas : Word64LERep state (rootBase + 120)
+    value.newPayloadRequest.executionPayload.excessBlobGas.toNat
+  slotNumber : Word64LERep state (rootBase + 144) value.newPayloadRequest.executionPayload.slotNumber.toNat
+
 /-- Native `RawV4` ownership representation: root allocation, all heap arrays, and borrowed slices.
 
 Scalar and fixed-vector byte contents are added by the later field observer; this layer establishes
@@ -209,6 +237,7 @@ structure RawV4Rep (state : State) (inputBase : Nat) (input : ByteArray) (rootBa
   allocations : RawV4AllocationRep state rootBase value
   descriptors : RawV4DescriptorRep state rootBase value
   inputSlices : RawV4InputSlicesRep state inputBase input rootBase value descriptors
+  fixedFields : RawV4FixedFieldsRep state rootBase value
 
 /-- The executable descriptor-only observation of the native root object. -/
 structure RawV4DescriptorObservation where
