@@ -581,6 +581,82 @@ theorem raw_parser_u32_adjacent_third_lbu_retire_exact (stepNo : Nat) (state : S
     (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
     machineEnabled retiredRead
 
+/-- The fourth adjacent-field byte read retires at its actual ELF PC. -/
+theorem raw_parser_u32_adjacent_fourth_lbu_retire_exact (stepNo : Nat) (state : State)
+    (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
+    (inhibit : BitVec 32) (config : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10780))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10780))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits)
+    (baseRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10780)).regs.get? x24 = some base)
+    (mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10780)).regs.get? mstatus = some mstatusBits)
+    (privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10780)).regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10780)).regs.get? mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr (base + sign_extend (m := 64) 507#12)) 1 false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10780))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10780))
+      (.Ok data))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10780)
+          with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x10780)).regs.insert x17 (zero_extend (m := 64) data) }
+        (BitVec.ofNat 64 0x10784) retired) false := by
+  have image : Artifact.programImage.readByte? 0x10780 = some 0x83 ∧
+      Artifact.programImage.readByte? 0x10781 = some 0x48 ∧
+        Artifact.programImage.readByte? 0x10782 = some 0xbc ∧
+          Artifact.programImage.readByte? 0x10783 = some 0x1f := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x10780 (by omega) afterIncrement
+    0x83 0x48 0xbc 0x1f read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x83#8 0x48#8 0xbc#8 0x1f))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (507#12, .Regidx 24#5, .Regidx 17#5, true, 1)) := by decode_run
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x10780)
+    retired inhibit config 0x83#8 0x48#8 0xbc#8 0x1f
+    (.LOAD (507#12, .Regidx 24#5, .Regidx 17#5, true, 1)) x17 (zero_extend (m := 64) data)
+    platform fetchNoMMIO bytes interrupts (by native_decide) decode notExpected
+    (raw_parser_u32_adjacent_fourth_lbu_execute
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10780))
+      base mstatusBits mseccfgBits data baseRead mstatusRead privilegeRead mprvZero mseccfgRead
+      pmmDisabled hread)
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+/-- Kernel-checked composition of the four real parser reads between the first word and its
+shift/OR assembly.  Each premise can now be supplied by its exact-PC retirement theorem. -/
+theorem raw_parser_u32_adjacent_four_lbu_trace (stepNo : Nat)
+    (state0 state1 state2 state3 state4 : State)
+    (first : Runs (try_step stepNo false) state0 state1 false)
+    (second : Runs (try_step (stepNo + 1) false) state1 state2 false)
+    (third : Runs (try_step (stepNo + 2) false) state2 state3 false)
+    (fourth : Runs (try_step (stepNo + 3) false) state3 state4 false) :
+    Trace stepNo 4 state0 state4 := by
+  trace_steps [first, second, third, fourth]
+
 /-- The third native-word byte load retires with its generated `a2` write and no assumed
 postlude agreements. -/
 theorem raw_parser_u32_third_lbu_retire_exact (stepNo : Nat) (state : State)
