@@ -465,4 +465,50 @@ theorem raw_v4_consolidation_request_observes (state : State) (inputBase : Nat) 
       value.newPayloadRequest.executionRequests.consolidations[index]
       (allocations.consolidationRequestContents index indexBound)⟩
 
+structure RawDepositRequestObservation where
+  amount : Nat
+  index : Nat
+  pubkey : List UInt8
+  withdrawalCredentials : List UInt8
+  signature : List UInt8
+
+def observeRawDepositRequest? (state : State) (base : Nat) : Option RawDepositRequestObservation := do
+  let amount ← observeWord64? state base
+  let index ← observeWord64? state (base + 8)
+  let pubkey ← observeBytes? state (base + 16) 48
+  let withdrawalCredentials ← observeBytes? state (base + 64) 32
+  let signature ← observeBytes? state (base + 96) 96
+  pure ⟨amount, index, pubkey, withdrawalCredentials, signature⟩
+
+theorem observe_raw_deposit_request_of_rep (state : State) (base : Nat)
+    (value : SszBridge.RawDepositRequest) (representation : RawDepositRequestRep state base value) :
+    observeRawDepositRequest? state base = some
+      ⟨value.amount.toNat, value.index.toNat, value.pubkey.toArray.toList,
+        value.withdrawalCredentials.toArray.toList, value.signature.toArray.toList⟩ := by
+  unfold observeRawDepositRequest?
+  rw [observe_word64_of_rep state base _ (UInt64.toNat_lt value.amount) representation.1,
+    observe_word64_of_rep state (base + 8) _ (UInt64.toNat_lt value.index) representation.2.1,
+    observe_fixed_byte_vector_of_rep state (base + 16) value.pubkey representation.2.2.1,
+    observe_fixed_byte_vector_of_rep state (base + 64) value.withdrawalCredentials
+      representation.2.2.2.1,
+    observe_fixed_byte_vector_of_rep state (base + 96) value.signature representation.2.2.2.2]
+  rfl
+
+theorem raw_v4_deposit_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4)
+    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+    (indexBound : index < value.newPayloadRequest.executionRequests.deposits.size) :
+    ∃ base,
+      observeRawDepositRequest? state (base + 192 * index) = some
+        ⟨value.newPayloadRequest.executionRequests.deposits[index].amount.toNat,
+          value.newPayloadRequest.executionRequests.deposits[index].index.toNat,
+          value.newPayloadRequest.executionRequests.deposits[index].pubkey.toArray.toList,
+          value.newPayloadRequest.executionRequests.deposits[index].withdrawalCredentials.toArray.toList,
+          value.newPayloadRequest.executionRequests.deposits[index].signature.toArray.toList⟩ := by
+  rcases representation.layout with ⟨bases, allocations, _, _⟩
+  exact ⟨bases.depositsBase,
+    observe_raw_deposit_request_of_rep state (bases.depositsBase + 192 * index)
+      value.newPayloadRequest.executionRequests.deposits[index]
+      (allocations.depositContents index indexBound)⟩
+
 end BinaryFv.SSZ.Zesu.Execution
