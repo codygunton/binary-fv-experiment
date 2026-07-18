@@ -61,6 +61,31 @@ theorem raw_parser_u32_lbu_address (state : State) (imm base mstatusBits mseccfg
     mseccfgBits (rX_x24_run state base baseRead) mstatusRead privilegeRead mprvZero mseccfgRead
     pmmDisabled
 
+/-- The first of the parser's four native-word byte loads executes with its concrete `s8 + 436`
+address and writes the zero-extended byte to `t0`; the physical read itself remains an explicit
+runtime premise. -/
+theorem raw_parser_u32_first_lbu_execute (state : State)
+    (base mstatusBits mseccfgBits : BitVec 64) (data : BitVec 8)
+    (baseRead : state.regs.get? x24 = some base)
+    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
+    (privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr (base + sign_extend (m := 64) 436#12)) 1 false false false)
+      state state (.Ok data)) :
+    Runs (execute_LOAD 436#12 (.Regidx 24#5) (.Regidx 5#5) true 1) state
+      { state with regs := state.regs.insert x5 (zero_extend (m := 64) data) }
+      (.Retire_Success ()) := by
+  apply execute_LOAD_run state _ 436#12 (.Regidx 24#5) (.Regidx 5#5) true 1 data (by decide)
+  · exact vmem_read_byte_run state (.Regidx 24#5) (sign_extend (m := 64) 436#12)
+      (base + sign_extend (m := 64) 436#12) mstatusBits data mstatusRead privilegeRead mprvZero
+      (raw_parser_u32_lbu_address state (sign_extend (m := 64) 436#12) base mstatusBits mseccfgBits
+        baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled)
+      (is_aligned_vaddr_one _) hread
+  · exact wX_x5_run state (zero_extend (m := 64) data)
+
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
     Artifact.programImage.readByte? 0x104bc = some 0x03 ∧
