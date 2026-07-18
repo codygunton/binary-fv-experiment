@@ -50,4 +50,34 @@ theorem raw_header_first_lbu_decode (state : State)
       (.LOAD (0#12, .Regidx 20#5, .Regidx 10#5, true, 1)) := by
   decode_run
 
+/-- The parser's result-status read at `0x11f5c` is an unsigned half-word load. -/
+theorem raw_parser_lhu_image_bytes :
+    Artifact.programImage.readByte? 0x11f5c = some 0x83 ∧
+      Artifact.programImage.readByte? 0x11f5d = some 0xdb ∧
+        Artifact.programImage.readByte? 0x11f5e = some 0x4c ∧
+          Artifact.programImage.readByte? 0x11f5f = some 0x0e := by
+  native_decide
+
+theorem raw_parser_lhu_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x83#8 0xdb#8 0x4c#8 0x0e#8)) state state
+      (.LOAD (228#12, .Regidx 25#5, .Regidx 23#5, true, 2)) := by
+  decode_run
+
+/-- The parser's slice-descriptor read at `0x1060c` is a native double-word load. -/
+theorem raw_parser_ld_image_bytes :
+    Artifact.programImage.readByte? 0x1060c = some 0x83 ∧
+      Artifact.programImage.readByte? 0x1060d = some 0x36 ∧
+        Artifact.programImage.readByte? 0x1060e = some 0x04 ∧
+          Artifact.programImage.readByte? 0x1060f = some 0x00 := by
+  native_decide
+
+theorem raw_parser_ld_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x83#8 0x36#8 0x04#8 0x00#8)) state state
+      (.LOAD (0#12, .Regidx 8#5, .Regidx 13#5, false, 8)) := by
+  decode_run
+
 end BinaryFv.SSZ.Zesu.Proof
