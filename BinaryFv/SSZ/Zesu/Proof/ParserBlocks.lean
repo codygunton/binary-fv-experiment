@@ -105,4 +105,39 @@ theorem raw_parser_u32_byte_assembly_decode (state : State)
   · decode_run
   constructor <;> decode_run
 
+/-- The same ELF block shifts and combines those bytes into its little-endian word in `s2`. -/
+theorem raw_parser_u32_assembly_image_words :
+    Artifact.programImage.readU32LE? 0x10784 = some 0x00859593 ∧
+      Artifact.programImage.readU32LE? 0x10788 = some 0x01061613 ∧
+        Artifact.programImage.readU32LE? 0x1078c = some 0x01869693 ∧
+          Artifact.programImage.readU32LE? 0x10790 = some 0x0055ee33 ∧
+            Artifact.programImage.readU32LE? 0x10794 = some 0x00c6e633 ∧
+              Artifact.programImage.readU32LE? 0x107f4 = some 0x01c66933 := by
+  native_decide
+
+theorem raw_parser_u32_assembly_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (0x00859593 : BitVec 32)) state state
+        (.SHIFTIOP (8#6, .Regidx 11#5, .Regidx 11#5, .SLLI)) ∧
+      Runs (ext_decode (0x01061613 : BitVec 32)) state state
+        (.SHIFTIOP (16#6, .Regidx 12#5, .Regidx 12#5, .SLLI)) ∧
+      Runs (ext_decode (0x01869693 : BitVec 32)) state state
+        (.SHIFTIOP (24#6, .Regidx 13#5, .Regidx 13#5, .SLLI)) ∧
+      Runs (ext_decode (0x0055ee33 : BitVec 32)) state state
+        (.RTYPE (.Regidx 5#5, .Regidx 11#5, .Regidx 28#5, .OR)) ∧
+      Runs (ext_decode (0x00c6e633 : BitVec 32)) state state
+        (.RTYPE (.Regidx 12#5, .Regidx 13#5, .Regidx 12#5, .OR)) ∧
+      Runs (ext_decode (0x01c66933 : BitVec 32)) state state
+        (.RTYPE (.Regidx 28#5, .Regidx 12#5, .Regidx 18#5, .OR)) := by
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor <;> decode_run
+
 end BinaryFv.SSZ.Zesu.Proof
