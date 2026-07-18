@@ -246,7 +246,7 @@ let
       exit 1
     fi
 
-    lake build repl BinaryFv
+    lake build repl BinaryFv BinaryFv.Binary.ProgramImageTest
     touch "$out"
   '';
 

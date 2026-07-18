@@ -20,6 +20,10 @@ def initialEndAddress (segment : LoadSegment) : Nat :=
 def endAddress (segment : LoadSegment) : Nat :=
   segment.virtualAddress + segment.memorySize
 
+/-- The half-open range `[virtualAddress, virtualAddress + fileSize)` backed by ELF file bytes. -/
+def fileBackedRange (segment : LoadSegment) : AddressRange :=
+  { start := segment.virtualAddress, size := segment.fileSize }
+
 def containsInitialByte (segment : LoadSegment) (address : Nat) : Bool :=
   decide (segment.virtualAddress ≤ address ∧ address < segment.initialEndAddress)
 
@@ -98,9 +102,20 @@ def readFileNatLE? (image : ProgramImage) (address : Nat) : Nat → Option Nat
 def readFileU32LE? (image : ProgramImage) (address : Nat) : Option Nat :=
   image.readFileNatLE? address 4
 
-/-- Whether a range can be safely materialized as zero-filled BSS for this image. -/
+/-- Whether a range is disjoint from every segment's half-open file-backed range. -/
+def disjointFromFileBackedRanges (image : ProgramImage) (range : AddressRange) : Bool :=
+  image.segments.all fun segment =>
+    decide (range.stop ≤ segment.fileBackedRange.start ∨
+      segment.fileBackedRange.stop ≤ range.start)
+
+/--
+Whether a range can be safely materialized as zero-filled BSS for this image. It must be contained
+in one segment's BSS tail and disjoint from every segment's file-backed range. This deliberately
+does not rely on an ELF parser having established that segments are pairwise disjoint.
+-/
 def containsZeroFillRange (image : ProgramImage) (range : AddressRange) : Bool :=
-  image.segments.any fun segment => segment.containsZeroFillRange range
+  image.segments.any (fun segment => segment.containsZeroFillRange range) &&
+    image.disjointFromFileBackedRanges range
 
 inductive SparseLoadError where
   | requestedRangeOutsideZeroFill
@@ -108,13 +123,17 @@ inductive SparseLoadError where
 
 /--
 A file-backed image together with exactly the BSS ranges that execution is allowed to materialize.
-The proof field rules out accidentally writing over file bytes or unowned memory in the sparse loader.
+The proof field requires each range to be in a BSS tail and disjoint from every segment's file
+bytes, without depending on a parser-specific segment-disjointness invariant.
 -/
 structure SparseLoadPlan where
   image : ProgramImage
   zeroFillRanges : Array AddressRange
   zeroFillRangesValid : zeroFillRanges.all image.containsZeroFillRange = true
 
+/--
+Construct a sparse plan only when every requested range passes the generic BSS/file-range check.
+-/
 def sparseLoadPlan? (image : ProgramImage) (zeroFillRanges : Array AddressRange) :
     Except SparseLoadError SparseLoadPlan :=
   if valid : zeroFillRanges.all image.containsZeroFillRange then
