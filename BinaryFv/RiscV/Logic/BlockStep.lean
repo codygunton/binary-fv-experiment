@@ -199,6 +199,13 @@ theorem LoadByteStepContract.retire {stepNo : Nat} {state : State}
     contract.hartRead contract.inhibitRead contract.configRead contract.notInhibited
     contract.machineEnabled contract.retiredRead
 
+/-- Compose two concrete primitive byte-load retirements into a checked trace fragment. -/
+theorem traceByteReadBlock (stepNo : Nat) (state : State)
+    (first : LoadByteStepContract stepNo state)
+    (second : LoadByteStepContract (stepNo + 1) first.afterRetired) :
+    Trace stepNo 2 state second.afterRetired := by
+  trace_steps [first.retire, second.retire]
+
 /-- The concrete premises for a decoded, not-taken conditional branch. -/
 structure NotTakenBranchStepContract (stepNo : Nat) (state : State) where
   pc : BitVec 64
