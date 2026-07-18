@@ -1,53 +1,26 @@
-import BinaryFv.RiscV.ELF.Elf64
-import BinaryFv.SSZ.SpecBridge.Decode
+import BinaryFv.SSZ.Zesu.Artifact.Layout
+import BinaryFv.SSZ.Zesu.Interface
 
 namespace BinaryFv.SSZ
 
-namespace RiscvSpec
+open BinaryFv.RiscV
 
-/--
-The parsed ELF describes a nonempty, pairwise-disjoint load layout whose entry point lies in an
-executable load segment. This predicate is stated over the parsed image rather than an unrelated
-caller-supplied flag.
--/
-def IsExecutableLoadLayout (bytes : ByteArray) (elf : BinaryFv.RiscV.Elf64) : Prop :=
-  elf.bytes = bytes ∧
-  elf.loadSegments.size > 0 ∧
-  BinaryFv.RiscV.Elf64.loadSegmentsAreDisjoint elf.loadSegments.toList = true ∧
-  (elf.loadSegments.toList.any fun segment =>
-    segment.executable && segment.containsMemoryRange elf.header.entry 1) = true
+/-- The one canonical, Nix-built Zesu executable covered by the SSZ proof. -/
+noncomputable def binary : RiscvSpec.ValidatedElf := {
+  bytes := Zesu.Artifact.bytes
+  elf := Zesu.Artifact.elf
+  parsed_ok := by exact Zesu.Artifact.parsed_ok
+  layout := by
+    change Zesu.Artifact.layoutIsValid = true
+    exact Zesu.Artifact.layout_is_valid
+}
 
-/-- A fixed ELF whose bytes parse successfully and satisfy the required executable load layout. -/
-structure ValidatedElf where
-  bytes : ByteArray
-  elf : BinaryFv.RiscV.Elf64
-  parsed_ok : BinaryFv.RiscV.Elf64.parse bytes = .ok elf
-  layout : IsExecutableLoadLayout bytes elf
-
-/-- Failures that are not observable SSZ rejections and must be ruled out by the final proof. -/
-inductive ExecutionError where
-  | invalidArtifact
-  | fuelExhausted
-  | trapped
-  | badReturn
-  | malformedResult
-  | outOfMemory
-  | notImplemented
-  deriving DecidableEq, Repr
-
-/--
-The Stage-1 execution boundary. Later layers replace this body with full linked-ELF Sail execution
-starting at `zesu_decode_raw`, while preserving this error-aware observable interface.
--/
-def execute (_binary : ValidatedElf) (_input : ByteArray) : Except ExecutionError DecodeOutcome :=
-  .error .notImplemented
-
-end RiscvSpec
-
-/-- Every byte array in the fixed two-MiB input domain must have the same observable outcome. -/
-def rootComplianceClaim (binary : RiscvSpec.ValidatedElf) : Prop :=
-  forall input : ByteArray,
-    input.size < 2 * 1024 * 1024 ->
-      RiscvSpec.execute binary input = .ok (SszSpec.decode input)
+/-- The final Amsterdam V4 compliance statement, scaffolded until Stages 5–7. -/
+theorem root_compliance :
+    forall input : ByteArray,
+      input.size < 2 * 1024 * 1024 ->
+        RiscvSpec.execute binary input = .ok (SszSpec.decode input) := by
+  intro _input _inputBound
+  sorry
 
 end BinaryFv.SSZ

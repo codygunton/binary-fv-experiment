@@ -34,6 +34,11 @@ lean_lib SszSpec where
     `SszBridge.Core,
   ]
 
+lean_lib ZesuSszElf where
+  srcDir := "build/zesu-ssz-elf-lean"
+  roots := #[`ZesuSszElf]
+  moreLeanArgs := #["--tstack=400000"]
+
 @[default_target]
 lean_lib BinaryFv where
   roots := #[`BinaryFv]

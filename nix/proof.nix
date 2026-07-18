@@ -1,6 +1,7 @@
 { etheorem, pkgs, repo, rv64, sailRiscv, scrollFv, targets }:
 let
   rethKeccak = targets.public.rethKeccak;
+  zesuSsz = targets.public.zesuSsz;
 
   pinnedLean = pkgs.stdenvNoCC.mkDerivation {
     pname = "lean4";
@@ -124,6 +125,34 @@ let
     cp ${scrollFv}/Spec/Keccak/Keccak256.lean "$out/Spec/Keccak/Keccak256.lean"
   '';
 
+  zesuSszElfLean = pkgs.runCommand "binary-fv-zesu-ssz-elf-lean" {
+    nativeBuildInputs = [ pkgs.coreutils pkgs.gawk ];
+  } ''
+    mkdir -p "$out"
+    {
+      printf '%s\n' 'namespace ZesuSszElf'
+      printf '\n'
+      printf '%s\n' 'set_option maxRecDepth 100000'
+      printf '%s\n' '/-- Generated from the canonical Nix-built Zesu SSZ ELF. -/'
+      printf '%s\n' 'def bytes : ByteArray := ByteArray.mk #['
+      ${pkgs.coreutils}/bin/od -An -v -tu1 ${zesuSsz}/bin/zesu-ssz |
+        ${pkgs.gawk}/bin/awk '
+          {
+            for (i = 1; i <= NF; i++) {
+              if (count % 12 == 0) printf "  "
+              printf "0x%02x, ", $i
+              count++
+              if (count % 12 == 0) printf "\n"
+            }
+          }
+          END { if (count % 12 != 0) printf "\n" }
+        '
+      printf '%s\n' ']'
+      printf '\n'
+      printf '%s\n' 'end ZesuSszElf'
+    } > "$out/ZesuSszElf.lean"
+  '';
+
   # The SSZ proof imports the executable SizzLean decoder, but only its pure wire-format closure.
   # Keep the source-level pins here: `SizzLean`'s normal Lake package also pulls its SHA/OpenSSL
   # packages, which the decoder does not need and the BinaryFv proof must not link.
@@ -187,6 +216,7 @@ let
     ln -s ${rethKeccakElfLean} build/reth-keccak-elf-lean
     ln -s ${keccakSpecLean} build/keccak-spec-lean
     ln -s ${sszSpecLean} build/ssz-spec-lean
+    ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
     cp -a ${replSource}/. .lake/packages/repl/
     chmod -R u+w .lake/packages/repl
     ${pkgs.jq}/bin/jq '
@@ -234,6 +264,21 @@ let
       exit 1
     fi
 
+    # During SSZ Stages 3–7, only the two named root declarations may retain a scaffold. Keep the
+    # check declaration-scoped by pinning both the file and theorem declaration site; all helper
+    # proofs remain sorry-free.
+    sorrySites=$(grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/ || true)
+    unexpectedSorries=$(printf '%s\n' "$sorrySites" | grep -v -E \
+      '^BinaryFv/Keccak/Reth/Root\.lean:[0-9]+:.*sorry$|^BinaryFv/SSZ/Root\.lean:[0-9]+:.*sorry$' \
+      || true)
+    if [ -n "$unexpectedSorries" ]; then
+      echo "Only the declaration-allowlisted Keccak and SSZ root scaffolds may contain sorry." >&2
+      echo "$unexpectedSorries" >&2
+      exit 1
+    fi
+    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Keccak/Reth/Root\.lean:')" = 1
+    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Root\.lean:')" = 1
+
     # Artifact boundary. `Reth/Artifact/` is immutable binary data and closed static facts about
     # the pinned ELF: parsing, symbols, ranges, encoded words, image bytes. Decoding those words
     # needs a configured machine, so anything decode-dependent belongs in `Reth/Analysis/`, not here.
@@ -266,13 +311,14 @@ let
 in
 {
   public = {
-    inherit binaryFvLean keccakSpecLean rethKeccakElfLean sailRiscvLean sszSpecLean;
+    inherit binaryFvLean keccakSpecLean rethKeccakElfLean sailRiscvLean sszSpecLean zesuSszElfLean;
 
     binary-fv-lean = binaryFvLean;
     keccak-spec-lean = keccakSpecLean;
     reth-keccak-elf-lean = rethKeccakElfLean;
     sail-riscv-lean = sailRiscvLean;
     ssz-spec-lean = sszSpecLean;
+    zesu-ssz-elf-lean = zesuSszElfLean;
   };
 
   inherit devShell;

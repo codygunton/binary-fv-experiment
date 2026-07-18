@@ -1,5 +1,8 @@
-import BinaryFv.SSZ.Root
 import BinaryFv.SSZ.SpecBridge.Decode
+import BinaryFv.SSZ.Zesu.Artifact.Image
+import BinaryFv.SSZ.Zesu.Artifact.Layout
+import BinaryFv.SSZ.Zesu.Interface
+import BinaryFv.SSZ.Root
 
 /-!
 # `BinaryFv.SSZ`
