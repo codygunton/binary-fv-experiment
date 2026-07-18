@@ -319,4 +319,22 @@ theorem read_uint32_le_four_bytes (b0 b1 b2 b3 : UInt8) :
   unfold SizzLean.Spec.readUInt32LE
   simp
 
+/-- The 64-bit register value assembled by the parser's byte loads, shifts, and ORs. -/
+def parserU32Assembly (b0 b1 b2 b3 : BitVec 8) : BitVec 64 :=
+  zero_extend b0 ||| (zero_extend b1 <<< 8) ||| (zero_extend b2 <<< 16) |||
+    (zero_extend b3 <<< 24)
+
+theorem parser_u32_assembly_value (b0 b1 b2 b3 : BitVec 8) :
+    parserU32Assembly b0 b1 b2 b3 = BitVec.ofNat 64
+      (b0.toNat + 256 * b1.toNat + 256 ^ 2 * b2.toNat + 256 ^ 3 * b3.toNat) := by
+  bv_decide
+
+/-- The parser's zero-extended register result is the pinned SizzLean `UInt32` value. -/
+theorem parser_u32_assembly_matches_sizzlean (b0 b1 b2 b3 : UInt8) :
+    parserU32Assembly (BitVec.ofNat 8 b0.toNat) (BitVec.ofNat 8 b1.toNat)
+      (BitVec.ofNat 8 b2.toNat) (BitVec.ofNat 8 b3.toNat) =
+      BitVec.ofNat 64 (b0.toUInt32 ||| (b1.toUInt32 <<< 8) ||| (b2.toUInt32 <<< 16) |||
+        (b3.toUInt32 <<< 24)).toNat := by
+  bv_decide
+
 end BinaryFv.SSZ.Zesu.Proof
