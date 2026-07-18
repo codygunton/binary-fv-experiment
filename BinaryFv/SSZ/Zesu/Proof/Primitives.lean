@@ -9,6 +9,14 @@ open BinaryFv.SSZ.Zesu.Execution
 def observeByteArray? (state : BinaryFv.RiscV.State) (base length : Nat) : Option ByteArray :=
   (observeBytes? state base length).map fun bytes => ByteArray.mk bytes.toArray
 
+/-- A guarded Sail-memory range materializes exactly the byte array supplied to SizzLean. -/
+theorem observe_byte_array_of_memory (state : BinaryFv.RiscV.State) (base : Nat)
+    (bytes : List UInt8) (memory : MemoryListBytes state base bytes) :
+    observeByteArray? state base bytes.length = some (ByteArray.mk bytes.toArray) := by
+  unfold observeByteArray?
+  rw [observe_bytes_of_memory state base bytes memory]
+  rfl
+
 /-- Primitive little-endian observations call the pinned SizzLean readers directly. -/
 def observeUInt8At? (state : BinaryFv.RiscV.State) (base length offset : Nat) : Option UInt8 := do
   let bytes ← observeByteArray? state base length
