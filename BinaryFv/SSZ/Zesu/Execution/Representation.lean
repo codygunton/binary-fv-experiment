@@ -19,6 +19,11 @@ def FixedByteVectorRep {length : Nat} (state : State) (base : Nat)
   ∀ index (h : index < length),
     state.mem.get? (base + index) = some (BitVec.ofNat 8 (value[index].toNat))
 
+/-- Inline little-endian bytes for an SSZ integer represented as a Lean bit vector. -/
+def BitVectorLERep {width : Nat} (state : State) (base : Nat) (value : BitVec width) : Prop :=
+  ∀ index (h : index < width / 8),
+    state.mem.get? (base + index) = some (BitVec.ofNat 8 ((value.toNat / 256 ^ index) % 256))
+
 /-- A decoder slice that aliases caller-owned input rather than copying it into the heap. -/
 def InputSliceRep (state : State) (inputBase inputOffset length sliceBase : Nat) : Prop :=
   sliceBase = inputBase + inputOffset ∧
@@ -208,6 +213,7 @@ structure RawV4InputSlicesRep (state : State) (inputBase : Nat) (input : ByteArr
 
 /-- Inline fixed vectors and scalar fields in the root's nested execution payload. -/
 structure RawV4FixedFieldsRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4) : Prop where
+  baseFeePerGas : BitVectorLERep state rootBase value.newPayloadRequest.executionPayload.baseFeePerGas
   parentHash : FixedByteVectorRep state (rootBase + 152) value.newPayloadRequest.executionPayload.parentHash
   feeRecipient : FixedByteVectorRep state (rootBase + 184)
     value.newPayloadRequest.executionPayload.feeRecipient
