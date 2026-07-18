@@ -32,4 +32,18 @@ def zesuDecodeRawCodeRange : Except ElfError AddressRange := do
 theorem zesu_decode_raw_code_range_resolves : zesuDecodeRawCodeRange.isOk = true := by
   native_decide
 
+def memcpyCodeRange : Except ElfError AddressRange := do
+  let entry ← memcpy
+  pure ⟨entry.value, entry.size⟩
+
+def memmoveCodeRange : Except ElfError AddressRange := do
+  let entry ← memmove
+  pure ⟨entry.value, entry.size⟩
+
+theorem memcpy_code_range_resolves : memcpyCodeRange.isOk = true := by
+  native_decide
+
+theorem memmove_code_range_resolves : memmoveCodeRange.isOk = true := by
+  native_decide
+
 end BinaryFv.SSZ.Zesu.Artifact
