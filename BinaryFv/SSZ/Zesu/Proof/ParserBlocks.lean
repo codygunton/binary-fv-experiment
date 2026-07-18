@@ -919,6 +919,72 @@ theorem raw_parser_u32_high_half_or_execute (state : State) (mid high : BitVec 6
   exact execute_RTYPE_or_run state _ (.Regidx 12#5) (.Regidx 13#5) (.Regidx 12#5) high mid
     (rX_x13_run state high highStored) (rX_x12_run state mid midStored) (wX_x12_run state (high ||| mid))
 
+theorem raw_parser_u32_high_half_or_image_bytes :
+    Artifact.programImage.readByte? 0x10794 = some 0x33 ∧
+      Artifact.programImage.readByte? 0x10795 = some 0xe6 ∧
+        Artifact.programImage.readByte? 0x10796 = some 0xc6 ∧
+          Artifact.programImage.readByte? 0x10797 = some 0x00 := by
+  native_decide
+
+theorem raw_parser_u32_high_half_or_fetch (state : State)
+    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10794)
+      0x33#8 0xe6#8 0xc6#8 0x00#8 := by
+  rcases raw_parser_u32_high_half_or_image_bytes with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  exact fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x10794 (by omega)
+    afterIncrement 0x33 0xe6 0xc6 0x00 read0 read1 read2 read3
+
+theorem raw_parser_u32_high_half_or_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x33#8 0xe6#8 0xc6#8 0x00#8)) state state
+      (.RTYPE (.Regidx 12#5, .Regidx 13#5, .Regidx 12#5, .OR)) := by
+  decode_run
+
+theorem raw_parser_u32_high_half_or_retire_exact (stepNo : Nat) (state : State)
+    (mid high retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10794))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10794))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits)
+    (midStored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10794)).regs.get? x12 = some mid)
+    (highStored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10794)).regs.get? x13 = some high)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10794)
+          with regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x10794)).regs.insert x12 (high ||| mid) }
+        (BitVec.ofNat 64 0x10798) retired) false := by
+  have bytes := raw_parser_u32_high_half_or_fetch state loaded
+  have decode := raw_parser_u32_high_half_or_decode (tryStepControlFlowAfterIncrement state)
+    privilege mseccfgBits mseccfg
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x10794)
+    retired inhibit config 0x33#8 0xe6#8 0xc6#8 0x00#8
+    (.RTYPE (.Regidx 12#5, .Regidx 13#5, .Regidx 12#5, .OR)) x12 (high ||| mid)
+    platform fetchNoMMIO bytes interrupts (by native_decide) decode notExpected
+    (raw_parser_u32_high_half_or_execute
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10794))
+      mid high midStored highStored)
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
 theorem raw_parser_u32_word_or_execute (state : State) (low high : BitVec 64)
     (lowStored : state.regs.get? x28 = some low) (highStored : state.regs.get? x12 = some high) :
     Runs (execute_RTYPE (.Regidx 28#5) (.Regidx 12#5) (.Regidx 18#5) .OR) state
