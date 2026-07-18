@@ -565,6 +565,17 @@ theorem raw_parser_u32_fourth_lbu_retire_exact (stepNo : Nat) (state : State)
     (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
     machineEnabled retiredRead
 
+/-- Kernel-checked composition of the four consecutive native-word byte-load retirements.  The
+four concrete `raw_parser_u32_*_lbu_retire_exact` theorems provide the hypotheses; their dynamic
+machine premises are intentionally kept at the individual states of this trace. -/
+theorem raw_parser_u32_four_lbu_trace (stepNo : Nat) (state0 state1 state2 state3 state4 : State)
+    (first : Runs (try_step stepNo false) state0 state1 false)
+    (second : Runs (try_step (stepNo + 1) false) state1 state2 false)
+    (third : Runs (try_step (stepNo + 2) false) state2 state3 false)
+    (fourth : Runs (try_step (stepNo + 3) false) state3 state4 false) :
+    Trace stepNo 4 state0 state4 := by
+  trace_steps [first, second, third, fourth]
+
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
     Artifact.programImage.readByte? 0x104bc = some 0x03 ∧
