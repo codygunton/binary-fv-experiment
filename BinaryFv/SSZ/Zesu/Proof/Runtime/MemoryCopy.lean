@@ -66,4 +66,16 @@ theorem success_result_epilogue_status_high (memory : Nat → UInt8) (resultBase
   · right
     omega
 
+/-- Every root byte is copied from its pre-status-write stack source when that source is disjoint
+from the two result-status bytes. -/
+theorem success_result_epilogue_root_byte (memory : Nat → UInt8) (resultBase stackRootBase index : Nat)
+    (indexBound : index < 832)
+    (notStatusLow : stackRootBase + index ≠ resultBase + 832)
+    (notStatusHigh : stackRootBase + index ≠ resultBase + 833) :
+    successResultEpilogue memory resultBase stackRootBase (resultBase + index) =
+      memory (stackRootBase + index) := by
+  unfold successResultEpilogue
+  rw [memcpy_destination _ _ _ _ index indexBound]
+  simp [writeByte, notStatusLow, notStatusHigh]
+
 end BinaryFv.SSZ.Zesu.Proof.Runtime
