@@ -1,5 +1,6 @@
 import BinaryFv.RiscV.Logic.BlockStep
 import BinaryFv.RiscV.Proof.ImageFetch
+import BinaryFv.RiscV.Instruction.Execute.ShiftOr
 import BinaryFv.SSZ.Zesu.Analysis.Primitives
 import SizzLean.Spec.Deserialize
 
@@ -28,6 +29,20 @@ private theorem rX_x24_run (state : State) (base : BitVec 64)
   simp [rX_bits, rX, index, stored, PreSail.readReg, EStateM.run, EStateM.bind,
     EStateM.get, EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe,
     regval_from_reg]
+
+private macro "gen_rx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
+  `(theorem $name (state : State) (value : BitVec 64)
+      (stored : state.regs.get? $reg = some value) :
+      Runs (rX_bits (.Regidx (BitVec.ofNat 5 $idx))) state state value := by
+    have index : (Sail.BitVec.toNatInt (BitVec.ofNat 5 $idx)).toNat = $idx := by decide
+    unfold Runs
+    simp [rX_bits, rX, index, stored, PreSail.readReg, EStateM.run, EStateM.bind,
+      EStateM.get, EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe,
+      regval_from_reg])
+
+gen_rx_run 11 ↦ x11, rX_x11_run
+gen_rx_run 12 ↦ x12, rX_x12_run
+gen_rx_run 13 ↦ x13, rX_x13_run
 
 private macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(theorem $name (state : State) (value : BitVec 64) :
@@ -575,6 +590,20 @@ theorem raw_parser_u32_four_lbu_trace (stepNo : Nat) (state0 state1 state2 state
     (fourth : Runs (try_step (stepNo + 3) false) state3 state4 false) :
     Trace stepNo 4 state0 state4 := by
   trace_steps [first, second, third, fourth]
+
+/-- The first byte-assembly shift is the generated `slli a1, a1, 8` action. -/
+theorem raw_parser_u32_second_byte_shift_execute (state : State) (value : BitVec 64)
+    (stored : state.regs.get? x11 = some value) :
+    Runs (execute_SHIFTIOP 8#6 (.Regidx 11#5) (.Regidx 11#5) .SLLI) state
+      { state with regs := state.regs.insert x11
+        (Sail.shift_bits_left value
+          (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)) }
+      (.Retire_Success ()) := by
+  exact execute_SHIFTIOP_slli_run state _ 8#6 (.Regidx 11#5) (.Regidx 11#5) value
+    (rX_x11_run state value stored)
+    (wX_x11_run state
+      (Sail.shift_bits_left value
+        (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
 
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
