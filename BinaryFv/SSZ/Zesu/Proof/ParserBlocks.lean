@@ -45,6 +45,10 @@ gen_rx_run 12 ↦ x12, rX_x12_run
 gen_rx_run 13 ↦ x13, rX_x13_run
 gen_rx_run 5 ↦ x5, rX_x5_run
 gen_rx_run 28 ↦ x28, rX_x28_run
+gen_rx_run 14 ↦ x14, rX_x14_run
+gen_rx_run 15 ↦ x15, rX_x15_run
+gen_rx_run 16 ↦ x16, rX_x16_run
+gen_rx_run 17 ↦ x17, rX_x17_run
 
 private macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(theorem $name (state : State) (value : BitVec 64) :
@@ -64,6 +68,10 @@ gen_wx_run 12 ↦ x12, wX_x12_run
 gen_wx_run 13 ↦ x13, wX_x13_run
 gen_wx_run 18 ↦ x18, wX_x18_run
 gen_wx_run 28 ↦ x28, wX_x28_run
+gen_wx_run 14 ↦ x14, wX_x14_run
+gen_wx_run 15 ↦ x15, wX_x15_run
+gen_wx_run 16 ↦ x16, wX_x16_run
+gen_wx_run 17 ↦ x17, wX_x17_run
 
 /-- Each byte of the parser's native 32-bit assembly is addressed directly from `s8`: under the
 configured Machine/Bare/PMM-disabled platform, the generated address action returns `s8 + imm`. -/
@@ -79,6 +87,40 @@ theorem raw_parser_u32_lbu_address (state : State) (imm base mstatusBits mseccfg
   exact get_transformed_data_addr_machine_load_run state (.Regidx 24#5) base imm mstatusBits
     mseccfgBits (rX_x24_run state base baseRead) mstatusRead privilegeRead mprvZero mseccfgRead
     pmmDisabled
+
+/-- Shared generated-Sail execution shape for the adjacent `s8`-based byte reads. -/
+private macro "define_adjacent_lbu_execute " name:ident " " imm:num " " rdidx:num " ↦ " rd:ident ", " write:ident : command =>
+  `(theorem $name (state : State)
+      (base mstatusBits mseccfgBits : BitVec 64) (data : BitVec 8)
+      (baseRead : state.regs.get? x24 = some base)
+      (mstatusRead : state.regs.get? mstatus = some mstatusBits)
+      (privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine)
+      (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+      (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits)
+      (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+      (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+        (physaddr.Physaddr (base + sign_extend (m := 64) (BitVec.ofNat 12 $imm))) 1 false false false)
+        state state (.Ok data)) :
+      Runs (execute_LOAD (BitVec.ofNat 12 $imm) (.Regidx 24#5)
+        (.Regidx (BitVec.ofNat 5 $rdidx)) true 1) state
+        { state with regs := state.regs.insert $rd (zero_extend (m := 64) data) }
+        (.Retire_Success ()) := by
+    apply execute_LOAD_run state _ (BitVec.ofNat 12 $imm) (.Regidx 24#5)
+      (.Regidx (BitVec.ofNat 5 $rdidx)) true 1 data (by decide)
+    · exact vmem_read_byte_run state (.Regidx 24#5)
+        (sign_extend (m := 64) (BitVec.ofNat 12 $imm))
+        (base + sign_extend (m := 64) (BitVec.ofNat 12 $imm)) mstatusBits data mstatusRead
+        privilegeRead mprvZero
+        (raw_parser_u32_lbu_address state (sign_extend (m := 64) (BitVec.ofNat 12 $imm)) base
+          mstatusBits mseccfgBits baseRead mstatusRead privilegeRead mprvZero mseccfgRead
+          pmmDisabled)
+        (is_aligned_vaddr_one _) hread
+    · exact $write state (zero_extend (m := 64) data))
+
+define_adjacent_lbu_execute raw_parser_u32_adjacent_first_lbu_execute 504 14 ↦ x14, wX_x14_run
+define_adjacent_lbu_execute raw_parser_u32_adjacent_second_lbu_execute 505 15 ↦ x15, wX_x15_run
+define_adjacent_lbu_execute raw_parser_u32_adjacent_third_lbu_execute 506 16 ↦ x16, wX_x16_run
+define_adjacent_lbu_execute raw_parser_u32_adjacent_fourth_lbu_execute 507 17 ↦ x17, wX_x17_run
 
 /-- The first of the parser's four native-word byte loads executes with its concrete `s8 + 436`
 address and writes the zero-extended byte to `t0`; the physical read itself remains an explicit
