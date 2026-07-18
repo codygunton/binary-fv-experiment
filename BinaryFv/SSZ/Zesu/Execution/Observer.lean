@@ -426,4 +426,43 @@ theorem raw_v4_withdrawal_request_observes (state : State) (inputBase : Nat) (in
       value.newPayloadRequest.executionRequests.withdrawals[index]
       (allocations.withdrawalRequestContents index indexBound)⟩
 
+structure RawConsolidationRequestObservation where
+  sourceAddress : List UInt8
+  sourcePubkey : List UInt8
+  targetPubkey : List UInt8
+
+def observeRawConsolidationRequest? (state : State) (base : Nat) :
+    Option RawConsolidationRequestObservation := do
+  let sourceAddress ← observeBytes? state base 20
+  let sourcePubkey ← observeBytes? state (base + 20) 48
+  let targetPubkey ← observeBytes? state (base + 68) 48
+  pure ⟨sourceAddress, sourcePubkey, targetPubkey⟩
+
+theorem observe_raw_consolidation_request_of_rep (state : State) (base : Nat)
+    (value : SszBridge.RawConsolidationRequest)
+    (representation : RawConsolidationRequestRep state base value) :
+    observeRawConsolidationRequest? state base = some
+      ⟨value.sourceAddress.toArray.toList, value.sourcePubkey.toArray.toList,
+        value.targetPubkey.toArray.toList⟩ := by
+  unfold observeRawConsolidationRequest?
+  rw [observe_fixed_byte_vector_of_rep state base value.sourceAddress representation.1,
+    observe_fixed_byte_vector_of_rep state (base + 20) value.sourcePubkey representation.2.1,
+    observe_fixed_byte_vector_of_rep state (base + 68) value.targetPubkey representation.2.2]
+  rfl
+
+theorem raw_v4_consolidation_request_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4)
+    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+    (indexBound : index < value.newPayloadRequest.executionRequests.consolidations.size) :
+    ∃ base,
+      observeRawConsolidationRequest? state (base + 116 * index) = some
+        ⟨value.newPayloadRequest.executionRequests.consolidations[index].sourceAddress.toArray.toList,
+          value.newPayloadRequest.executionRequests.consolidations[index].sourcePubkey.toArray.toList,
+          value.newPayloadRequest.executionRequests.consolidations[index].targetPubkey.toArray.toList⟩ := by
+  rcases representation.layout with ⟨bases, allocations, _, _⟩
+  exact ⟨bases.consolidationRequestsBase,
+    observe_raw_consolidation_request_of_rep state (bases.consolidationRequestsBase + 116 * index)
+      value.newPayloadRequest.executionRequests.consolidations[index]
+      (allocations.consolidationRequestContents index indexBound)⟩
+
 end BinaryFv.SSZ.Zesu.Execution

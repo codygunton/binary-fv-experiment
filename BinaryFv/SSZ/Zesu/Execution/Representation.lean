@@ -102,6 +102,18 @@ def HeapWithdrawalRequestArrayRep (state : State) (base : Nat)
   ∀ index (h : index < values.size),
     RawWithdrawalRequestRep state (base + 80 * index) values[index]
 
+/-- Native RV64 layout of one bridge consolidation-request record. -/
+def RawConsolidationRequestRep (state : State) (base : Nat)
+    (value : SszBridge.RawConsolidationRequest) : Prop :=
+  FixedByteVectorRep state base value.sourceAddress ∧
+    FixedByteVectorRep state (base + 20) value.sourcePubkey ∧
+      FixedByteVectorRep state (base + 68) value.targetPubkey
+
+def HeapConsolidationRequestArrayRep (state : State) (base : Nat)
+    (values : Array SszBridge.RawConsolidationRequest) : Prop :=
+  ∀ index (h : index < values.size),
+    RawConsolidationRequestRep state (base + 116 * index) values[index]
+
 /-- The two-word Zig `std.mem.Allocator` object: context followed by its vtable pointer. -/
 def AllocatorObjectRep (state : State) (base context vtable : Nat) : Prop :=
   Word64LERep state base context ∧ Word64LERep state (base + 8) vtable
@@ -203,6 +215,8 @@ structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : SszBridge
     value.newPayloadRequest.executionRequests.withdrawals
   consolidationRequests : HeapArrayRep state bases.consolidationRequestsBase
     value.newPayloadRequest.executionRequests.consolidations.size 116
+  consolidationRequestContents : HeapConsolidationRequestArrayRep state bases.consolidationRequestsBase
+    value.newPayloadRequest.executionRequests.consolidations
   witnessState : HeapArrayRep state bases.witnessStateBase value.witness.state.size 16
   witnessCodes : HeapArrayRep state bases.witnessCodesBase value.witness.codes.size 16
   witnessHeaders : HeapArrayRep state bases.witnessHeadersBase value.witness.headers.size 16
