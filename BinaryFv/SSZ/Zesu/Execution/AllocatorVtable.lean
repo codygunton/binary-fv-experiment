@@ -11,7 +11,17 @@ theorem loaded_vtable_free_target (state : State)
     Word64LERep state (Analysis.allocatorVtableAddress + Analysis.allocatorVtableCallSlotOffset)
       0x10440 := by
   intro index indexBound
-  interval_cases index <;>
-    exact loaded _ _ (by native_decide)
+  have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨ index = 5 ∨
+      index = 6 ∨ index = 7 := by
+    omega
+  rcases cases with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact loaded 0x13f88 0x40 (by native_decide)
+  · exact loaded 0x13f89 0x04 (by native_decide)
+  · exact loaded 0x13f8a 0x01 (by native_decide)
+  · exact loaded 0x13f8b 0x00 (by native_decide)
+  · exact loaded 0x13f8c 0x00 (by native_decide)
+  · exact loaded 0x13f8d 0x00 (by native_decide)
+  · exact loaded 0x13f8e 0x00 (by native_decide)
+  · exact loaded 0x13f8f 0x00 (by native_decide)
 
 end BinaryFv.SSZ.Zesu.Execution
