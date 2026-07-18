@@ -2,6 +2,7 @@ import BinaryFv.RiscV.Execution.MemoryIo
 import BinaryFv.RiscV.Logic.ImageMemory
 import BinaryFv.SSZ.Zesu.Artifact.AbiManifest
 import BinaryFv.SSZ.Zesu.Analysis.AllocatorCalls
+import SszBridge.Core
 
 namespace BinaryFv.SSZ.Zesu.Execution
 
@@ -66,5 +67,31 @@ theorem raw_stateless_input_rep_size (state : State) (base : Nat)
   injection sizeH with sizeH
   subst size
   exact representation
+
+/-- Heap-allocation portion of the native representation of a complete bridge `RawV4` value.
+
+Fixed records are sized from the pinned RV64 ABI manifest. The eventual observer additionally
+connects these bases to the corresponding slice descriptors stored in the root object. -/
+structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4) : Prop where
+  root : RawStatelessInputRep state rootBase
+  versionedHashes : ∃ base, HeapArrayRep state base value.newPayloadRequest.versionedHashes.size 32
+  transactions : ∃ base,
+    HeapArrayRep state base value.newPayloadRequest.executionPayload.transactions.size 16
+  withdrawals : ∃ base,
+    HeapArrayRep state base value.newPayloadRequest.executionPayload.withdrawals.size 48
+  deposits : ∃ base,
+    HeapArrayRep state base value.newPayloadRequest.executionRequests.deposits.size 192
+  withdrawalRequests : ∃ base,
+    HeapArrayRep state base value.newPayloadRequest.executionRequests.withdrawals.size 80
+  consolidationRequests : ∃ base,
+    HeapArrayRep state base value.newPayloadRequest.executionRequests.consolidations.size 116
+  witnessState : ∃ base, HeapArrayRep state base value.witness.state.size 16
+  witnessCodes : ∃ base, HeapArrayRep state base value.witness.codes.size 16
+  witnessHeaders : ∃ base, HeapArrayRep state base value.witness.headers.size 16
+  publicKeys : ∃ base, HeapArrayRep state base value.publicKeys.size 65
+
+theorem raw_v4_allocation_root_size (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
+    (representation : RawV4AllocationRep state rootBase value) : HeapArrayRep state rootBase 1 832 :=
+  raw_stateless_input_rep_size state rootBase representation.root
 
 end BinaryFv.SSZ.Zesu.Execution
