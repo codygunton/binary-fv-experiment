@@ -35,4 +35,35 @@ theorem memcpy_destination (memory : Nat → UInt8) (destination source length i
     memcpy memory destination source length (destination + index) = memory (source + index) :=
   memmove_destination memory destination source length index indexBound
 
+/-- `memcpy` frames every address outside its destination range. -/
+theorem memcpy_outside_destination (memory : Nat → UInt8) (destination source length address : Nat)
+    (outside : address < destination ∨ destination + length ≤ address) :
+    memcpy memory destination source length address = memory address :=
+  memmove_outside_destination memory destination source length address outside
+
+/-- One byte write in the pure result-memory model. -/
+def writeByte (memory : Nat → UInt8) (address : Nat) (value : UInt8) : Nat → UInt8 :=
+  fun current => if current == address then value else memory current
+
+/-- The successful `zesu_decode_raw` epilogue: zero the 16-bit status, then copy the 832-byte root. -/
+def successResultEpilogue (memory : Nat → UInt8) (resultBase stackRootBase : Nat) : Nat → UInt8 :=
+  memcpy (writeByte (writeByte memory (resultBase + 832) 0) (resultBase + 833) 0)
+    resultBase stackRootBase 832
+
+theorem success_result_epilogue_status_low (memory : Nat → UInt8) (resultBase stackRootBase : Nat) :
+    successResultEpilogue memory resultBase stackRootBase (resultBase + 832) = 0 := by
+  unfold successResultEpilogue
+  rw [memcpy_outside_destination]
+  · simp [writeByte]
+  · right
+    omega
+
+theorem success_result_epilogue_status_high (memory : Nat → UInt8) (resultBase stackRootBase : Nat) :
+    successResultEpilogue memory resultBase stackRootBase (resultBase + 833) = 0 := by
+  unfold successResultEpilogue
+  rw [memcpy_outside_destination]
+  · simp [writeByte]
+  · right
+    omega
+
 end BinaryFv.SSZ.Zesu.Proof.Runtime
