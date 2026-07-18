@@ -333,4 +333,17 @@ theorem raw_v4_public_key_observes (state : State) (inputBase : Nat) (input : By
     observe_fixed_byte_vector_of_rep state (bases.publicKeysBase + 65 * index)
       value.publicKeys[index] (allocations.publicKeyContents index indexBound)⟩
 
+theorem raw_v4_versioned_hash_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4)
+    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+    (indexBound : index < value.newPayloadRequest.versionedHashes.size) :
+    ∃ base,
+      observeBytes? state (base + 32 * index) 32 =
+        some value.newPayloadRequest.versionedHashes[index].toArray.toList := by
+  rcases representation.layout with ⟨bases, allocations, _, _⟩
+  exact ⟨bases.versionedHashesBase,
+    observe_fixed_byte_vector_of_rep state (bases.versionedHashesBase + 32 * index)
+      value.newPayloadRequest.versionedHashes[index]
+      (allocations.versionedHashContents index indexBound)⟩
+
 end BinaryFv.SSZ.Zesu.Execution

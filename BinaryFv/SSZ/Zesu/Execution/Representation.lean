@@ -164,6 +164,8 @@ structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : SszBridge
   root : RawStatelessInputRep state rootBase
   versionedHashes : HeapArrayRep state bases.versionedHashesBase
     value.newPayloadRequest.versionedHashes.size 32
+  versionedHashContents : HeapFixedVectorArrayRep state bases.versionedHashesBase
+    value.newPayloadRequest.versionedHashes
   transactions : HeapArrayRep state bases.transactionsBase
     value.newPayloadRequest.executionPayload.transactions.size 16
   withdrawals : HeapArrayRep state bases.withdrawalsBase
