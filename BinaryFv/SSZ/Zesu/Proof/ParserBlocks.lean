@@ -49,6 +49,7 @@ gen_rx_run 14 ↦ x14, rX_x14_run
 gen_rx_run 15 ↦ x15, rX_x15_run
 gen_rx_run 16 ↦ x16, rX_x16_run
 gen_rx_run 17 ↦ x17, rX_x17_run
+gen_rx_run 6 ↦ x6, rX_x6_run
 
 private macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(theorem $name (state : State) (value : BitVec 64) :
@@ -72,6 +73,7 @@ gen_wx_run 14 ↦ x14, wX_x14_run
 gen_wx_run 15 ↦ x15, wX_x15_run
 gen_wx_run 16 ↦ x16, wX_x16_run
 gen_wx_run 17 ↦ x17, wX_x17_run
+gen_wx_run 6 ↦ x6, wX_x6_run
 
 /-- Each byte of the parser's native 32-bit assembly is addressed directly from `s8`: under the
 configured Machine/Bare/PMM-disabled platform, the generated address action returns `s8 + imm`. -/
@@ -124,6 +126,7 @@ define_adjacent_lbu_execute raw_parser_u32_adjacent_fourth_lbu_execute 507 17 �
 define_adjacent_lbu_execute raw_parser_u32_next_word_first_lbu_execute 508 11 ↦ x11, wX_x11_run
 define_adjacent_lbu_execute raw_parser_u32_next_word_second_lbu_execute 509 13 ↦ x13, wX_x13_run
 define_adjacent_lbu_execute raw_parser_u32_next_word_third_lbu_execute 510 5 ↦ x5, wX_x5_run
+define_adjacent_lbu_execute raw_parser_u32_next_word_fourth_lbu_execute 511 6 ↦ x6, wX_x6_run
 
 /-- The first of the parser's four native-word byte loads executes with its concrete `s8 + 436`
 address and writes the zero-extended byte to `t0`; the physical read itself remains an explicit
