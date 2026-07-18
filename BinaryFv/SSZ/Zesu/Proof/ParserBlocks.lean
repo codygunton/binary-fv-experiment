@@ -80,4 +80,29 @@ theorem raw_parser_ld_decode (state : State)
       (.LOAD (0#12, .Regidx 8#5, .Regidx 13#5, false, 8)) := by
   decode_run
 
+/-- A contiguous parser byte-read sequence feeding a native little-endian 32-bit assembly. -/
+theorem raw_parser_u32_byte_assembly_image_words :
+    Artifact.programImage.readU32LE? 0x10764 = some 0x1b4c4283 ∧
+      Artifact.programImage.readU32LE? 0x10768 = some 0x1b5c4583 ∧
+        Artifact.programImage.readU32LE? 0x1076c = some 0x1b6c4603 ∧
+          Artifact.programImage.readU32LE? 0x10770 = some 0x1b7c4683 := by
+  native_decide
+
+theorem raw_parser_u32_byte_assembly_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (0x1b4c4283 : BitVec 32)) state state
+        (.LOAD (436#12, .Regidx 24#5, .Regidx 5#5, true, 1)) ∧
+      Runs (ext_decode (0x1b5c4583 : BitVec 32)) state state
+        (.LOAD (437#12, .Regidx 24#5, .Regidx 11#5, true, 1)) ∧
+      Runs (ext_decode (0x1b6c4603 : BitVec 32)) state state
+        (.LOAD (438#12, .Regidx 24#5, .Regidx 12#5, true, 1)) ∧
+      Runs (ext_decode (0x1b7c4683 : BitVec 32)) state state
+        (.LOAD (439#12, .Regidx 24#5, .Regidx 13#5, true, 1)) := by
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor <;> decode_run
+
 end BinaryFv.SSZ.Zesu.Proof
