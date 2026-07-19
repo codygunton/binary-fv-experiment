@@ -1,3 +1,4 @@
+import BinaryFv.RiscV.Logic.BlockStep
 import BinaryFv.SSZ.Zesu.Analysis.Decode
 
 namespace BinaryFv.SSZ.Zesu.Analysis
@@ -5,7 +6,7 @@ namespace BinaryFv.SSZ.Zesu.Analysis
 open BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
 
-private macro "decode_run" : tactic =>
+macro "decode_run" : tactic =>
   `(tactic|
     (unfold Runs
      rw [extDecode_eq]
@@ -74,15 +75,24 @@ theorem raw_chain_config_result_stores_decode (state : State)
         (.STORE (1520#12, .Regidx 19#5, .Regidx 2#5, 8)) ∧
       Runs (ext_decode (0x5f210c23 : BitVec 32)) state state
         (.STORE (1528#12, .Regidx 18#5, .Regidx 2#5, 1)) := by
-  constructor <;> decode_run
-  constructor <;> decode_run
-  constructor <;> decode_run
-  constructor <;> decode_run
-  constructor <;> decode_run
-  constructor <;> decode_run
-  constructor <;> decode_run
-  constructor <;> decode_run
-  constructor <;> decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
   decode_run
 
 end BinaryFv.SSZ.Zesu.Analysis
