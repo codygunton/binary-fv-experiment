@@ -1,9 +1,11 @@
 import BinaryFv.RiscV.Logic.BlockStep
+import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.SSZ.Zesu.Analysis.Decode
 
 namespace BinaryFv.SSZ.Zesu.Analysis
 
 open BinaryFv.RiscV
+open BinaryFv.Binary.ProgramImage
 open PreSail LeanRV64DExecutable.Functions Register
 
 macro "decode_run" : tactic =>
@@ -93,6 +95,35 @@ theorem raw_chain_config_result_stores_decode (state : State)
   · decode_run
   constructor
   · decode_run
+  decode_run
+
+/-- The present-blob-schedule branch begins by loading byte zero of its checked 24-byte span. -/
+theorem raw_blob_schedule_first_lbu_image_bytes :
+    Artifact.programImage.readByte? 0x12cbc = some 0x03 ∧
+      Artifact.programImage.readByte? 0x12cbd = some 0xc5 ∧
+        Artifact.programImage.readByte? 0x12cbe = some 0x0b ∧
+          Artifact.programImage.readByte? 0x12cbf = some 0x00 := by
+  native_decide
+
+/-- The first present-blob-schedule read is fetched from the immutable canonical ELF image. -/
+theorem raw_blob_schedule_first_lbu_fetch (state : State)
+    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12cbc)
+      0x03#8 0xc5#8 0x0b#8 0x00#8 := by
+  rcases raw_blob_schedule_first_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  exact fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12cbc (by omega)
+    afterIncrement 0x03 0xc5 0x0b 0x00 read0 read1 read2 read3
+
+/-- Generated Sail decodes the ELF-pinned first byte load of the present schedule payload. -/
+theorem raw_blob_schedule_first_lbu_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? Register.mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x03#8 0xc5#8 0x0b#8 0x00#8)) state state
+      (.LOAD (0#12, .Regidx 23#5, .Regidx 10#5, true, 1)) := by
   decode_run
 
 end BinaryFv.SSZ.Zesu.Analysis
