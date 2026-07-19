@@ -151,6 +151,22 @@ theorem raw_blob_schedule_second_assembly_valid :
     rawBlobScheduleSecondAssemblyValid = true := by
   native_decide
 
+/-- Schedule bytes 14--19 are assembled by a third fragment of five shifts and three ORs between
+the third and fourth contiguous load groups. -/
+def rawBlobScheduleThirdAssemblySites : Array Nat :=
+  #[0x12d50, 0x12d54, 0x12d58, 0x12d5c, 0x12d60, 0x12d64, 0x12d68, 0x12d6c]
+
+def rawBlobScheduleThirdAssemblyWords : Array Nat :=
+  #[0x01079793, 0x018e9e93, 0x00831313, 0x01039393, 0x018e1e13, 0x00fee7b3, 0x00d366b3, 0x007e6333]
+
+def rawBlobScheduleThirdAssemblyValid : Bool :=
+  rawBlobScheduleThirdAssemblySites.zip rawBlobScheduleThirdAssemblyWords |>.all fun entry =>
+    Artifact.programImage.readU32LE? entry.1 == some entry.2
+
+theorem raw_blob_schedule_third_assembly_valid :
+    rawBlobScheduleThirdAssemblyValid = true := by
+  native_decide
+
 /-- Generated Sail decodes the immutable first endian-assembly fragment without consulting source
 or debug metadata. -/
 theorem raw_blob_schedule_present_assembly_decode (state : State)
@@ -242,6 +258,8 @@ gen_rx_run 15 ↦ x15, rX_x15_run
 gen_rx_run 16 ↦ x16, rX_x16_run
 gen_rx_run 17 ↦ x17, rX_x17_run
 gen_rx_run 28 ↦ x28, rX_x28_run
+gen_rx_run 29 ↦ x29, rX_x29_run
+gen_rx_run 30 ↦ x30, rX_x30_run
 
 macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(private theorem $name (state : State) (value : BitVec 64) :
@@ -268,6 +286,7 @@ gen_wx_run 16 ↦ x16, wX_x16_run
 gen_wx_run 17 ↦ x17, wX_x17_run
 gen_wx_run 28 ↦ x28, wX_x28_run
 gen_wx_run 29 ↦ x29, wX_x29_run
+gen_wx_run 30 ↦ x30, wX_x30_run
 
 /-- The first six present-schedule bytes are assembled little-endian by these four shifts and
 three ORs before the decoder continues with bytes 12--23.  These contracts retain the generated
@@ -2420,6 +2439,950 @@ theorem raw_blob_schedule_second_assembly_a1_or_retire_exact (stepNo : Nat) (sta
     (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
     machineEnabled retiredRead
 
+theorem raw_blob_schedule_seventeenth_lbu_retire_exact (stepNo : Nat) (state : State)
+    (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
+    (inhibit : BitVec 32) (config : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d40))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d40))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (baseRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d40)).regs.get? x23 = some base)
+    (mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d40)).regs.get? mstatus = some mstatusBits)
+    (privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d40)).regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d40)).regs.get? Register.mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr (base + 16#64)) 1 false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d40))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d40))
+      (.Ok data))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d40)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d40)).regs.insert x13 (zero_extend (m := 64) data)) }
+        (BitVec.ofNat 64 0x12d44) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d40 = some 0x83 ∧
+      Artifact.programImage.readByte? 0x12d41 = some 0xc6 ∧
+        Artifact.programImage.readByte? 0x12d42 = some 0x0b ∧
+          Artifact.programImage.readByte? 0x12d43 = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d40 (by omega)
+    afterIncrement 0x83 0xc6 0x0b 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x83#8 0xc6#8 0x0b#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (16#12, .Regidx 23#5, .Regidx 13#5, true, 1)) := by decode_run
+  have execute := raw_blob_schedule_lbu_execute_general
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d40))
+    _ 16#12 16#64 base mstatusBits mseccfgBits data (.Regidx 13#5) (by decide)
+    baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled hread
+    (wX_x13_run _ (zero_extend (m := 64) data))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d40)
+    retired inhibit config 0x83#8 0xc6#8 0x0b#8 0x01
+    (.LOAD (16#12, .Regidx 23#5, .Regidx 13#5, true, 1)) x13 (zero_extend (m := 64) data)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_eighteenth_lbu_retire_exact (stepNo : Nat) (state : State)
+    (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
+    (inhibit : BitVec 32) (config : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d44))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d44))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (baseRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d44)).regs.get? x23 = some base)
+    (mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d44)).regs.get? mstatus = some mstatusBits)
+    (privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d44)).regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d44)).regs.get? Register.mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr (base + 17#64)) 1 false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d44))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d44))
+      (.Ok data))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d44)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d44)).regs.insert x6 (zero_extend (m := 64) data)) }
+        (BitVec.ofNat 64 0x12d48) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d44 = some 0x03 ∧
+      Artifact.programImage.readByte? 0x12d45 = some 0xc3 ∧
+        Artifact.programImage.readByte? 0x12d46 = some 0x1b ∧
+          Artifact.programImage.readByte? 0x12d47 = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d44 (by omega)
+    afterIncrement 0x03 0xc3 0x1b 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x03#8 0xc3#8 0x1b#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (17#12, .Regidx 23#5, .Regidx 6#5, true, 1)) := by decode_run
+  have execute := raw_blob_schedule_lbu_execute_general
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d44))
+    _ 17#12 17#64 base mstatusBits mseccfgBits data (.Regidx 6#5) (by decide)
+    baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled hread
+    (wX_x6_run _ (zero_extend (m := 64) data))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d44)
+    retired inhibit config 0x03#8 0xc3#8 0x1b#8 0x01
+    (.LOAD (17#12, .Regidx 23#5, .Regidx 6#5, true, 1)) x6 (zero_extend (m := 64) data)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_nineteenth_lbu_retire_exact (stepNo : Nat) (state : State)
+    (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
+    (inhibit : BitVec 32) (config : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d48))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d48))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (baseRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d48)).regs.get? x23 = some base)
+    (mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d48)).regs.get? mstatus = some mstatusBits)
+    (privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d48)).regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d48)).regs.get? Register.mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr (base + 18#64)) 1 false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d48))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d48))
+      (.Ok data))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d48)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d48)).regs.insert x7 (zero_extend (m := 64) data)) }
+        (BitVec.ofNat 64 0x12d4c) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d48 = some 0x83 ∧
+      Artifact.programImage.readByte? 0x12d49 = some 0xc3 ∧
+        Artifact.programImage.readByte? 0x12d4a = some 0x2b ∧
+          Artifact.programImage.readByte? 0x12d4b = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d48 (by omega)
+    afterIncrement 0x83 0xc3 0x2b 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x83#8 0xc3#8 0x2b#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (18#12, .Regidx 23#5, .Regidx 7#5, true, 1)) := by decode_run
+  have execute := raw_blob_schedule_lbu_execute_general
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d48))
+    _ 18#12 18#64 base mstatusBits mseccfgBits data (.Regidx 7#5) (by decide)
+    baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled hread
+    (wX_x7_run _ (zero_extend (m := 64) data))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d48)
+    retired inhibit config 0x83#8 0xc3#8 0x2b#8 0x01
+    (.LOAD (18#12, .Regidx 23#5, .Regidx 7#5, true, 1)) x7 (zero_extend (m := 64) data)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_twentieth_lbu_retire_exact (stepNo : Nat) (state : State)
+    (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
+    (inhibit : BitVec 32) (config : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d4c))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d4c))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (baseRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d4c)).regs.get? x23 = some base)
+    (mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d4c)).regs.get? mstatus = some mstatusBits)
+    (privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d4c)).regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d4c)).regs.get? Register.mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr (base + 19#64)) 1 false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d4c))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d4c))
+      (.Ok data))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d4c)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d4c)).regs.insert x28 (zero_extend (m := 64) data)) }
+        (BitVec.ofNat 64 0x12d50) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d4c = some 0x03 ∧
+      Artifact.programImage.readByte? 0x12d4d = some 0xce ∧
+        Artifact.programImage.readByte? 0x12d4e = some 0x3b ∧
+          Artifact.programImage.readByte? 0x12d4f = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d4c (by omega)
+    afterIncrement 0x03 0xce 0x3b 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x03#8 0xce#8 0x3b#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (19#12, .Regidx 23#5, .Regidx 28#5, true, 1)) := by decode_run
+  have execute := raw_blob_schedule_lbu_execute_general
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d4c))
+    _ 19#12 19#64 base mstatusBits mseccfgBits data (.Regidx 28#5) (by decide)
+    baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled hread
+    (wX_x28_run _ (zero_extend (m := 64) data))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d4c)
+    retired inhibit config 0x03#8 0xce#8 0x3b#8 0x01
+    (.LOAD (19#12, .Regidx 23#5, .Regidx 28#5, true, 1)) x28 (zero_extend (m := 64) data)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_third_assembly_a5_shift_retire_exact (stepNo : Nat) (state : State)
+    (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d50))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d50))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (stored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d50)).regs.get? x15 = some value)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d50)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d50)).regs.insert x15 (Sail.shift_bits_left value
+              (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
+        (BitVec.ofNat 64 0x12d54) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d50 = some 0x93 ∧
+      Artifact.programImage.readByte? 0x12d51 = some 0x97 ∧
+        Artifact.programImage.readByte? 0x12d52 = some 0x07 ∧
+          Artifact.programImage.readByte? 0x12d53 = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d50 (by omega)
+    afterIncrement 0x93 0x97 0x07 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x93#8 0x97#8 0x07#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.SHIFTIOP (16#6, .Regidx 15#5, .Regidx 15#5, .SLLI)) := by decode_run
+  have execute := execute_SHIFTIOP_slli_run
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d50))
+    _ 16#6 (.Regidx 15#5) (.Regidx 15#5) value (rX_x15_run _ value stored)
+    (wX_x15_run _ (Sail.shift_bits_left value
+      (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d50)
+    retired inhibit config 0x93#8 0x97#8 0x07#8 0x01
+    (.SHIFTIOP (16#6, .Regidx 15#5, .Regidx 15#5, .SLLI)) x15 (Sail.shift_bits_left value
+              (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_third_assembly_t4_shift_retire_exact (stepNo : Nat) (state : State)
+    (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d54))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d54))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (stored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d54)).regs.get? x29 = some value)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d54)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d54)).regs.insert x29 (Sail.shift_bits_left value
+              (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
+        (BitVec.ofNat 64 0x12d58) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d54 = some 0x93 ∧
+      Artifact.programImage.readByte? 0x12d55 = some 0x9e ∧
+        Artifact.programImage.readByte? 0x12d56 = some 0x8e ∧
+          Artifact.programImage.readByte? 0x12d57 = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d54 (by omega)
+    afterIncrement 0x93 0x9e 0x8e 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x93#8 0x9e#8 0x8e#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.SHIFTIOP (24#6, .Regidx 29#5, .Regidx 29#5, .SLLI)) := by decode_run
+  have execute := execute_SHIFTIOP_slli_run
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d54))
+    _ 24#6 (.Regidx 29#5) (.Regidx 29#5) value (rX_x29_run _ value stored)
+    (wX_x29_run _ (Sail.shift_bits_left value
+      (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d54)
+    retired inhibit config 0x93#8 0x9e#8 0x8e#8 0x01
+    (.SHIFTIOP (24#6, .Regidx 29#5, .Regidx 29#5, .SLLI)) x29 (Sail.shift_bits_left value
+              (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_third_assembly_t1_shift_retire_exact (stepNo : Nat) (state : State)
+    (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d58))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d58))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (stored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d58)).regs.get? x6 = some value)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d58)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d58)).regs.insert x6 (Sail.shift_bits_left value
+              (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
+        (BitVec.ofNat 64 0x12d5c) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d58 = some 0x13 ∧
+      Artifact.programImage.readByte? 0x12d59 = some 0x13 ∧
+        Artifact.programImage.readByte? 0x12d5a = some 0x83 ∧
+          Artifact.programImage.readByte? 0x12d5b = some 0x00 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d58 (by omega)
+    afterIncrement 0x13 0x13 0x83 0x00 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x13#8 0x13#8 0x83#8 0x00))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.SHIFTIOP (8#6, .Regidx 6#5, .Regidx 6#5, .SLLI)) := by decode_run
+  have execute := execute_SHIFTIOP_slli_run
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d58))
+    _ 8#6 (.Regidx 6#5) (.Regidx 6#5) value (rX_x6_run _ value stored)
+    (wX_x6_run _ (Sail.shift_bits_left value
+      (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d58)
+    retired inhibit config 0x13#8 0x13#8 0x83#8 0x00
+    (.SHIFTIOP (8#6, .Regidx 6#5, .Regidx 6#5, .SLLI)) x6 (Sail.shift_bits_left value
+              (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_third_assembly_t2_shift_retire_exact (stepNo : Nat) (state : State)
+    (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d5c))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d5c))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (stored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d5c)).regs.get? x7 = some value)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d5c)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d5c)).regs.insert x7 (Sail.shift_bits_left value
+              (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
+        (BitVec.ofNat 64 0x12d60) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d5c = some 0x93 ∧
+      Artifact.programImage.readByte? 0x12d5d = some 0x93 ∧
+        Artifact.programImage.readByte? 0x12d5e = some 0x03 ∧
+          Artifact.programImage.readByte? 0x12d5f = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d5c (by omega)
+    afterIncrement 0x93 0x93 0x03 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x93#8 0x93#8 0x03#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.SHIFTIOP (16#6, .Regidx 7#5, .Regidx 7#5, .SLLI)) := by decode_run
+  have execute := execute_SHIFTIOP_slli_run
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d5c))
+    _ 16#6 (.Regidx 7#5) (.Regidx 7#5) value (rX_x7_run _ value stored)
+    (wX_x7_run _ (Sail.shift_bits_left value
+      (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d5c)
+    retired inhibit config 0x93#8 0x93#8 0x03#8 0x01
+    (.SHIFTIOP (16#6, .Regidx 7#5, .Regidx 7#5, .SLLI)) x7 (Sail.shift_bits_left value
+              (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_third_assembly_t3_shift_retire_exact (stepNo : Nat) (state : State)
+    (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d60))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d60))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (stored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d60)).regs.get? x28 = some value)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d60)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d60)).regs.insert x28 (Sail.shift_bits_left value
+              (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
+        (BitVec.ofNat 64 0x12d64) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d60 = some 0x13 ∧
+      Artifact.programImage.readByte? 0x12d61 = some 0x1e ∧
+        Artifact.programImage.readByte? 0x12d62 = some 0x8e ∧
+          Artifact.programImage.readByte? 0x12d63 = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d60 (by omega)
+    afterIncrement 0x13 0x1e 0x8e 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x13#8 0x1e#8 0x8e#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.SHIFTIOP (24#6, .Regidx 28#5, .Regidx 28#5, .SLLI)) := by decode_run
+  have execute := execute_SHIFTIOP_slli_run
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d60))
+    _ 24#6 (.Regidx 28#5) (.Regidx 28#5) value (rX_x28_run _ value stored)
+    (wX_x28_run _ (Sail.shift_bits_left value
+      (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d60)
+    retired inhibit config 0x13#8 0x1e#8 0x8e#8 0x01
+    (.SHIFTIOP (24#6, .Regidx 28#5, .Regidx 28#5, .SLLI)) x28 (Sail.shift_bits_left value
+              (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_third_assembly_a5_or_retire_exact (stepNo : Nat) (state : State)
+    (high low retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d64))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d64))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (highStored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d64)).regs.get? x29 = some high)
+    (lowStored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d64)).regs.get? x15 = some low)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d64)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d64)).regs.insert x15 (high ||| low)) }
+        (BitVec.ofNat 64 0x12d68) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d64 = some 0xb3 ∧
+      Artifact.programImage.readByte? 0x12d65 = some 0xe7 ∧
+        Artifact.programImage.readByte? 0x12d66 = some 0xfe ∧
+          Artifact.programImage.readByte? 0x12d67 = some 0x00 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d64 (by omega)
+    afterIncrement 0xb3 0xe7 0xfe 0x00 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0xb3#8 0xe7#8 0xfe#8 0x00))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.RTYPE (.Regidx 15#5, .Regidx 29#5, .Regidx 15#5, .OR)) := by decode_run
+  have execute := execute_RTYPE_or_run
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d64))
+    _ (.Regidx 15#5) (.Regidx 29#5) (.Regidx 15#5) high low
+    (rX_x29_run _ high highStored) (rX_x15_run _ low lowStored)
+    (wX_x15_run _ (high ||| low))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d64)
+    retired inhibit config 0xb3#8 0xe7#8 0xfe#8 0x00
+    (.RTYPE (.Regidx 15#5, .Regidx 29#5, .Regidx 15#5, .OR)) x15 (high ||| low)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_third_assembly_a3_or_retire_exact (stepNo : Nat) (state : State)
+    (high low retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d68))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d68))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (highStored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d68)).regs.get? x6 = some high)
+    (lowStored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d68)).regs.get? x13 = some low)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d68)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d68)).regs.insert x13 (high ||| low)) }
+        (BitVec.ofNat 64 0x12d6c) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d68 = some 0xb3 ∧
+      Artifact.programImage.readByte? 0x12d69 = some 0x66 ∧
+        Artifact.programImage.readByte? 0x12d6a = some 0xd3 ∧
+          Artifact.programImage.readByte? 0x12d6b = some 0x00 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d68 (by omega)
+    afterIncrement 0xb3 0x66 0xd3 0x00 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0xb3#8 0x66#8 0xd3#8 0x00))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.RTYPE (.Regidx 13#5, .Regidx 6#5, .Regidx 13#5, .OR)) := by decode_run
+  have execute := execute_RTYPE_or_run
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d68))
+    _ (.Regidx 13#5) (.Regidx 6#5) (.Regidx 13#5) high low
+    (rX_x6_run _ high highStored) (rX_x13_run _ low lowStored)
+    (wX_x13_run _ (high ||| low))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d68)
+    retired inhibit config 0xb3#8 0x66#8 0xd3#8 0x00
+    (.RTYPE (.Regidx 13#5, .Regidx 6#5, .Regidx 13#5, .OR)) x13 (high ||| low)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_third_assembly_t1_or_retire_exact (stepNo : Nat) (state : State)
+    (high low retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d6c))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d6c))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (highStored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d6c)).regs.get? x28 = some high)
+    (lowStored : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d6c)).regs.get? x7 = some low)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d6c)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d6c)).regs.insert x6 (high ||| low)) }
+        (BitVec.ofNat 64 0x12d70) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d6c = some 0x33 ∧
+      Artifact.programImage.readByte? 0x12d6d = some 0x63 ∧
+        Artifact.programImage.readByte? 0x12d6e = some 0x7e ∧
+          Artifact.programImage.readByte? 0x12d6f = some 0x00 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d6c (by omega)
+    afterIncrement 0x33 0x63 0x7e 0x00 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x33#8 0x63#8 0x7e#8 0x00))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.RTYPE (.Regidx 7#5, .Regidx 28#5, .Regidx 6#5, .OR)) := by decode_run
+  have execute := execute_RTYPE_or_run
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d6c))
+    _ (.Regidx 7#5) (.Regidx 28#5) (.Regidx 6#5) high low
+    (rX_x28_run _ high highStored) (rX_x7_run _ low lowStored)
+    (wX_x6_run _ (high ||| low))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d6c)
+    retired inhibit config 0x33#8 0x63#8 0x7e#8 0x00
+    (.RTYPE (.Regidx 7#5, .Regidx 28#5, .Regidx 6#5, .OR)) x6 (high ||| low)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_twenty_first_lbu_retire_exact (stepNo : Nat) (state : State)
+    (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
+    (inhibit : BitVec 32) (config : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d70))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d70))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (baseRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d70)).regs.get? x23 = some base)
+    (mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d70)).regs.get? mstatus = some mstatusBits)
+    (privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d70)).regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d70)).regs.get? Register.mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr (base + 21#64)) 1 false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d70))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d70))
+      (.Ok data))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d70)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d70)).regs.insert x7 (zero_extend (m := 64) data)) }
+        (BitVec.ofNat 64 0x12d74) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d70 = some 0x83 ∧
+      Artifact.programImage.readByte? 0x12d71 = some 0xc3 ∧
+        Artifact.programImage.readByte? 0x12d72 = some 0x5b ∧
+          Artifact.programImage.readByte? 0x12d73 = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d70 (by omega)
+    afterIncrement 0x83 0xc3 0x5b 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x83#8 0xc3#8 0x5b#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (21#12, .Regidx 23#5, .Regidx 7#5, true, 1)) := by decode_run
+  have execute := raw_blob_schedule_lbu_execute_general
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d70))
+    _ 21#12 21#64 base mstatusBits mseccfgBits data (.Regidx 7#5) (by decide)
+    baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled hread
+    (wX_x7_run _ (zero_extend (m := 64) data))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d70)
+    retired inhibit config 0x83#8 0xc3#8 0x5b#8 0x01
+    (.LOAD (21#12, .Regidx 23#5, .Regidx 7#5, true, 1)) x7 (zero_extend (m := 64) data)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_twenty_second_lbu_retire_exact (stepNo : Nat) (state : State)
+    (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
+    (inhibit : BitVec 32) (config : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d74))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d74))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (baseRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d74)).regs.get? x23 = some base)
+    (mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d74)).regs.get? mstatus = some mstatusBits)
+    (privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d74)).regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d74)).regs.get? Register.mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr (base + 20#64)) 1 false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d74))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d74))
+      (.Ok data))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d74)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d74)).regs.insert x28 (zero_extend (m := 64) data)) }
+        (BitVec.ofNat 64 0x12d78) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d74 = some 0x03 ∧
+      Artifact.programImage.readByte? 0x12d75 = some 0xce ∧
+        Artifact.programImage.readByte? 0x12d76 = some 0x4b ∧
+          Artifact.programImage.readByte? 0x12d77 = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d74 (by omega)
+    afterIncrement 0x03 0xce 0x4b 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x03#8 0xce#8 0x4b#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (20#12, .Regidx 23#5, .Regidx 28#5, true, 1)) := by decode_run
+  have execute := raw_blob_schedule_lbu_execute_general
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d74))
+    _ 20#12 20#64 base mstatusBits mseccfgBits data (.Regidx 28#5) (by decide)
+    baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled hread
+    (wX_x28_run _ (zero_extend (m := 64) data))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d74)
+    retired inhibit config 0x03#8 0xce#8 0x4b#8 0x01
+    (.LOAD (20#12, .Regidx 23#5, .Regidx 28#5, true, 1)) x28 (zero_extend (m := 64) data)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_twenty_third_lbu_retire_exact (stepNo : Nat) (state : State)
+    (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
+    (inhibit : BitVec 32) (config : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d78))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d78))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (baseRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d78)).regs.get? x23 = some base)
+    (mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d78)).regs.get? mstatus = some mstatusBits)
+    (privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d78)).regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d78)).regs.get? Register.mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr (base + 22#64)) 1 false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d78))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d78))
+      (.Ok data))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d78)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d78)).regs.insert x29 (zero_extend (m := 64) data)) }
+        (BitVec.ofNat 64 0x12d7c) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d78 = some 0x83 ∧
+      Artifact.programImage.readByte? 0x12d79 = some 0xce ∧
+        Artifact.programImage.readByte? 0x12d7a = some 0x6b ∧
+          Artifact.programImage.readByte? 0x12d7b = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d78 (by omega)
+    afterIncrement 0x83 0xce 0x6b 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x83#8 0xce#8 0x6b#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (22#12, .Regidx 23#5, .Regidx 29#5, true, 1)) := by decode_run
+  have execute := raw_blob_schedule_lbu_execute_general
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d78))
+    _ 22#12 22#64 base mstatusBits mseccfgBits data (.Regidx 29#5) (by decide)
+    baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled hread
+    (wX_x29_run _ (zero_extend (m := 64) data))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d78)
+    retired inhibit config 0x83#8 0xce#8 0x6b#8 0x01
+    (.LOAD (22#12, .Regidx 23#5, .Regidx 29#5, true, 1)) x29 (zero_extend (m := 64) data)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_blob_schedule_twenty_fourth_lbu_retire_exact (stepNo : Nat) (state : State)
+    (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
+    (inhibit : BitVec 32) (config : BitVec 64)
+    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d7c))
+    (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d7c))
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine)
+    (mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some mseccfgBits)
+    (baseRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d7c)).regs.get? x23 = some base)
+    (mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d7c)).regs.get? mstatus = some mstatusBits)
+    (privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d7c)).regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x12d7c)).regs.get? Register.mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr (base + 23#64)) 1 false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d7c))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d7c))
+      (.Ok data))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d7c)
+          with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 0x12d7c)).regs.insert x30 (zero_extend (m := 64) data)) }
+        (BitVec.ofNat 64 0x12d80) retired) false := by
+  have image : Artifact.programImage.readByte? 0x12d7c = some 0x03 ∧
+      Artifact.programImage.readByte? 0x12d7d = some 0xcf ∧
+        Artifact.programImage.readByte? 0x12d7e = some 0x7b ∧
+          Artifact.programImage.readByte? 0x12d7f = some 0x01 := by native_decide
+  rcases image with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifact.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+    (tryStepControlFlowAfterIncrement state) 0x12d7c (by omega)
+    afterIncrement 0x03 0xcf 0x7b 0x01 read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x03#8 0xcf#8 0x7b#8 0x01))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (23#12, .Regidx 23#5, .Regidx 30#5, true, 1)) := by decode_run
+  have execute := raw_blob_schedule_lbu_execute_general
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12d7c))
+    _ 23#12 23#64 base mstatusBits mseccfgBits data (.Regidx 30#5) (by decide)
+    baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled hread
+    (wX_x30_run _ (zero_extend (m := 64) data))
+  simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12d7c)
+    retired inhibit config 0x03#8 0xcf#8 0x7b#8 0x01
+    (.LOAD (23#12, .Regidx 23#5, .Regidx 30#5, true, 1)) x30 (zero_extend (m := 64) data)
+    platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected execute
+    (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
 /-- The second contiguous read group at `0x12d08–0x12d14` covers schedule bytes 12--15. -/
 theorem raw_blob_schedule_second_group_lbu_trace (stepNo : Nat)
     (state0 state1 state2 state3 state4 : State)
@@ -2492,5 +3455,59 @@ theorem raw_blob_schedule_present_extended_trace (stepNo : Nat)
     simpa only [Nat.add_assoc] using Trace.append prefix19 secondGroup
   have combined := Trace.append throughReads secondAssembly
   simpa only [Nat.reduceAdd] using combined
+
+/-- The third contiguous read group at `0x12d40–0x12d4c` covers schedule bytes 16--19. -/
+theorem raw_blob_schedule_third_group_lbu_trace (stepNo : Nat)
+    (state0 state1 state2 state3 state4 : State)
+    (seventeenth : Runs (try_step stepNo false) state0 state1 false)
+    (eighteenth : Runs (try_step (stepNo + 1) false) state1 state2 false)
+    (nineteenth : Runs (try_step (stepNo + 2) false) state2 state3 false)
+    (twentieth : Runs (try_step (stepNo + 3) false) state3 state4 false) :
+    Trace stepNo 4 state0 state4 := by
+  trace_steps [seventeenth, eighteenth, nineteenth, twentieth]
+
+/-- The third assembly fragment at `0x12d50–0x12d6c` is eight contiguous retiring instructions. -/
+theorem raw_blob_schedule_third_assembly_trace (stepNo : Nat)
+    (state0 state1 state2 state3 state4 state5 state6 state7 state8 : State)
+    (a5Shift : Runs (try_step stepNo false) state0 state1 false)
+    (t4Shift : Runs (try_step (stepNo + 1) false) state1 state2 false)
+    (t1Shift : Runs (try_step (stepNo + 2) false) state2 state3 false)
+    (t2Shift : Runs (try_step (stepNo + 3) false) state3 state4 false)
+    (t3Shift : Runs (try_step (stepNo + 4) false) state4 state5 false)
+    (a5Or : Runs (try_step (stepNo + 5) false) state5 state6 false)
+    (a3Or : Runs (try_step (stepNo + 6) false) state6 state7 false)
+    (t1Or : Runs (try_step (stepNo + 7) false) state7 state8 false) :
+    Trace stepNo 8 state0 state8 := by
+  trace_steps [a5Shift, t4Shift, t1Shift, t2Shift, t3Shift, a5Or, a3Or, t1Or]
+
+/-- The fourth contiguous read group at `0x12d70–0x12d7c` covers the branch's final schedule bytes.
+The decoder reads offset 21 before 20, so the group is not offset-ordered. -/
+theorem raw_blob_schedule_fourth_group_lbu_trace (stepNo : Nat)
+    (state0 state1 state2 state3 state4 : State)
+    (twentyFirst : Runs (try_step stepNo false) state0 state1 false)
+    (twentySecond : Runs (try_step (stepNo + 1) false) state1 state2 false)
+    (twentyThird : Runs (try_step (stepNo + 2) false) state2 state3 false)
+    (twentyFourth : Runs (try_step (stepNo + 3) false) state3 state4 false) :
+    Trace stepNo 4 state0 state4 := by
+  trace_steps [twentyFirst, twentySecond, twentyThird, twentyFourth]
+
+/-- Every instruction from `0x12cbc` through `0x12d7c` -- all twenty-four schedule-byte reads and
+the three intervening endian-assembly fragments -- now has an exact actual-PC retirement theorem,
+and they compose into one forty-nine step trace.  This fixes the branch's complete instruction
+sequence; instantiating it still requires the live decoder run's dynamic data, namely each read's
+physical byte together with the successive fetch, platform, and counter premises. -/
+theorem raw_blob_schedule_present_branch_trace (stepNo : Nat)
+    (state0 state33 state37 state45 state49 : State)
+    (through33 : Trace stepNo 33 state0 state33)
+    (thirdGroup : Trace (stepNo + 33) 4 state33 state37)
+    (thirdAssembly : Trace (stepNo + 37) 8 state37 state45)
+    (fourthGroup : Trace (stepNo + 45) 4 state45 state49) :
+    Trace stepNo 49 state0 state49 := by
+  have a : Trace stepNo 37 state0 state37 := by
+    simpa only [Nat.add_assoc] using Trace.append through33 thirdGroup
+  have b : Trace stepNo 45 state0 state45 := by
+    simpa only [Nat.add_assoc] using Trace.append a thirdAssembly
+  have c := Trace.append b fourthGroup
+  simpa only [Nat.reduceAdd] using c
 
 end BinaryFv.SSZ.Zesu.Analysis
