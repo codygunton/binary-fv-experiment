@@ -119,6 +119,21 @@ def rawBlobSchedulePresentLoadsValid : Bool :=
 theorem raw_blob_schedule_present_loads_valid : rawBlobSchedulePresentLoadsValid = true := by
   native_decide
 
+/-- The first six schedule bytes are assembled by four shifts and three ORs at the immutable
+ELF PCs between the two contiguous load groups. -/
+def rawBlobSchedulePresentAssemblySites : Array Nat :=
+  #[0x12cec, 0x12cf0, 0x12cf4, 0x12cf8, 0x12cfc, 0x12d00, 0x12d04]
+
+def rawBlobSchedulePresentAssemblyWords : Array Nat :=
+  #[0x00859593, 0x01061613, 0x01869693, 0x00879793, 0x00a5e533, 0x00c6e633, 0x00e7e733]
+
+def rawBlobSchedulePresentAssemblyValid : Bool :=
+  rawBlobSchedulePresentAssemblySites.zip rawBlobSchedulePresentAssemblyWords |>.all fun entry =>
+    Artifact.programImage.readU32LE? entry.1 == some entry.2
+
+theorem raw_blob_schedule_present_assembly_valid : rawBlobSchedulePresentAssemblyValid = true := by
+  native_decide
+
 /-- The present-blob-schedule branch begins by loading byte zero of its checked 24-byte span. -/
 theorem raw_blob_schedule_first_lbu_image_bytes :
     Artifact.programImage.readByte? 0x12cbc = some 0x03 ∧
