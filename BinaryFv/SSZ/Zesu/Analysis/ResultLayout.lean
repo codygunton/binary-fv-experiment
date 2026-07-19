@@ -134,6 +134,39 @@ def rawBlobSchedulePresentAssemblyValid : Bool :=
 theorem raw_blob_schedule_present_assembly_valid : rawBlobSchedulePresentAssemblyValid = true := by
   native_decide
 
+/-- Generated Sail decodes the immutable first endian-assembly fragment without consulting source
+or debug metadata. -/
+theorem raw_blob_schedule_present_assembly_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? Register.mseccfg = some mseccfgBits) :
+    Runs (ext_decode (0x00859593 : BitVec 32)) state state
+        (.SHIFTIOP (8#6, .Regidx 11#5, .Regidx 11#5, .SLLI)) ∧
+      Runs (ext_decode (0x01061613 : BitVec 32)) state state
+        (.SHIFTIOP (16#6, .Regidx 12#5, .Regidx 12#5, .SLLI)) ∧
+      Runs (ext_decode (0x01869693 : BitVec 32)) state state
+        (.SHIFTIOP (24#6, .Regidx 13#5, .Regidx 13#5, .SLLI)) ∧
+      Runs (ext_decode (0x00879793 : BitVec 32)) state state
+        (.SHIFTIOP (8#6, .Regidx 15#5, .Regidx 15#5, .SLLI)) ∧
+      Runs (ext_decode (0x00a5e533 : BitVec 32)) state state
+        (.RTYPE (.Regidx 10#5, .Regidx 11#5, .Regidx 10#5, .OR)) ∧
+      Runs (ext_decode (0x00c6e633 : BitVec 32)) state state
+        (.RTYPE (.Regidx 12#5, .Regidx 13#5, .Regidx 12#5, .OR)) ∧
+      Runs (ext_decode (0x00e7e733 : BitVec 32)) state state
+        (.RTYPE (.Regidx 14#5, .Regidx 15#5, .Regidx 14#5, .OR)) := by
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  constructor
+  · decode_run
+  decode_run
+
 /-- The present-blob-schedule branch begins by loading byte zero of its checked 24-byte span. -/
 theorem raw_blob_schedule_first_lbu_image_bytes :
     Artifact.programImage.readByte? 0x12cbc = some 0x03 ∧
