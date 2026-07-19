@@ -1,4 +1,5 @@
 import BinaryFv.RiscV.Logic.BlockStep
+import BinaryFv.RiscV.Instruction.Execute.ShiftOr
 import BinaryFv.RiscV.Instruction.Execute.StoreByte
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.SSZ.Zesu.Analysis.Decode
@@ -155,6 +156,22 @@ private theorem rX_x23_run (state : State) (value : BitVec 64)
   simp [rX_bits, rX, index, stored, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
     EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe, regval_from_reg]
 
+macro "gen_rx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
+  `(private theorem $name (state : State) (value : BitVec 64)
+      (stored : state.regs.get? $reg = some value) :
+      Runs (rX_bits (.Regidx (BitVec.ofNat 5 $idx))) state state value := by
+    have index : (Sail.BitVec.toNatInt (BitVec.ofNat 5 $idx)).toNat = $idx := by decide
+    unfold Runs
+    simp [rX_bits, rX, index, stored, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
+      EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe, regval_from_reg])
+
+gen_rx_run 10 ↦ x10, rX_x10_run
+gen_rx_run 11 ↦ x11, rX_x11_run
+gen_rx_run 12 ↦ x12, rX_x12_run
+gen_rx_run 13 ↦ x13, rX_x13_run
+gen_rx_run 14 ↦ x14, rX_x14_run
+gen_rx_run 15 ↦ x15, rX_x15_run
+
 private theorem wX_x10_run (state : State) (value : BitVec 64) :
     Runs (wX_bits (.Regidx 10#5) value) state { state with regs := state.regs.insert x10 value } () := by
   have index : (Sail.BitVec.toNatInt (10#5)).toNat = 10 := by decide
@@ -214,6 +231,81 @@ private theorem wX_x15_run (state : State) (value : BitVec 64) :
     xreg_write_callback, xreg_full_write_callback, reg_name_forwards, get_config_use_abi_names,
     encdec_reg_forwards, encdec_reg_forwards_matches, reg_arch_name_raw_forwards,
     LeanRV64DExecutable.Functions.not, zero_extend, regval_into_reg]
+
+/-- The first six present-schedule bytes are assembled little-endian by these four shifts and
+three ORs before the decoder continues with bytes 12--23.  These contracts retain the generated
+Sail bit-vector expressions so a later live trace can connect them to the actual byte reads. -/
+theorem raw_blob_schedule_second_byte_shift_execute (state : State) (value : BitVec 64)
+    (stored : state.regs.get? x11 = some value) :
+    Runs (execute_SHIFTIOP 8#6 (.Regidx 11#5) (.Regidx 11#5) .SLLI) state
+      { state with regs := (state.regs.insert x11
+        (Sail.shift_bits_left value
+          (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
+      (.Retire_Success ()) := by
+  exact execute_SHIFTIOP_slli_run state _ 8#6 (.Regidx 11#5) (.Regidx 11#5) value
+    (rX_x11_run state value stored)
+    (wX_x11_run state (Sail.shift_bits_left value
+      (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+
+theorem raw_blob_schedule_third_byte_shift_execute (state : State) (value : BitVec 64)
+    (stored : state.regs.get? x12 = some value) :
+    Runs (execute_SHIFTIOP 16#6 (.Regidx 12#5) (.Regidx 12#5) .SLLI) state
+      { state with regs := (state.regs.insert x12
+        (Sail.shift_bits_left value
+          (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
+      (.Retire_Success ()) := by
+  exact execute_SHIFTIOP_slli_run state _ 16#6 (.Regidx 12#5) (.Regidx 12#5) value
+    (rX_x12_run state value stored)
+    (wX_x12_run state (Sail.shift_bits_left value
+      (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+
+theorem raw_blob_schedule_fourth_byte_shift_execute (state : State) (value : BitVec 64)
+    (stored : state.regs.get? x13 = some value) :
+    Runs (execute_SHIFTIOP 24#6 (.Regidx 13#5) (.Regidx 13#5) .SLLI) state
+      { state with regs := (state.regs.insert x13
+        (Sail.shift_bits_left value
+          (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
+      (.Retire_Success ()) := by
+  exact execute_SHIFTIOP_slli_run state _ 24#6 (.Regidx 13#5) (.Regidx 13#5) value
+    (rX_x13_run state value stored)
+    (wX_x13_run state (Sail.shift_bits_left value
+      (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+
+theorem raw_blob_schedule_sixth_byte_shift_execute (state : State) (value : BitVec 64)
+    (stored : state.regs.get? x15 = some value) :
+    Runs (execute_SHIFTIOP 8#6 (.Regidx 15#5) (.Regidx 15#5) .SLLI) state
+      { state with regs := (state.regs.insert x15
+        (Sail.shift_bits_left value
+          (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
+      (.Retire_Success ()) := by
+  exact execute_SHIFTIOP_slli_run state _ 8#6 (.Regidx 15#5) (.Regidx 15#5) value
+    (rX_x15_run state value stored)
+    (wX_x15_run state (Sail.shift_bits_left value
+      (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
+
+theorem raw_blob_schedule_first_word_low_or_execute (state : State) (high low : BitVec 64)
+    (highStored : state.regs.get? x11 = some high) (lowStored : state.regs.get? x10 = some low) :
+    Runs (execute_RTYPE (.Regidx 10#5) (.Regidx 11#5) (.Regidx 10#5) .OR) state
+      { state with regs := state.regs.insert x10 (high ||| low) } (.Retire_Success ()) := by
+  exact execute_RTYPE_or_run state _ (.Regidx 10#5) (.Regidx 11#5) (.Regidx 10#5) high low
+    (rX_x11_run state high highStored) (rX_x10_run state low lowStored)
+    (wX_x10_run state (high ||| low))
+
+theorem raw_blob_schedule_first_word_high_or_execute (state : State) (high low : BitVec 64)
+    (highStored : state.regs.get? x13 = some high) (lowStored : state.regs.get? x12 = some low) :
+    Runs (execute_RTYPE (.Regidx 12#5) (.Regidx 13#5) (.Regidx 12#5) .OR) state
+      { state with regs := state.regs.insert x12 (high ||| low) } (.Retire_Success ()) := by
+  exact execute_RTYPE_or_run state _ (.Regidx 12#5) (.Regidx 13#5) (.Regidx 12#5) high low
+    (rX_x13_run state high highStored) (rX_x12_run state low lowStored)
+    (wX_x12_run state (high ||| low))
+
+theorem raw_blob_schedule_second_word_low_or_execute (state : State) (high low : BitVec 64)
+    (highStored : state.regs.get? x15 = some high) (lowStored : state.regs.get? x14 = some low) :
+    Runs (execute_RTYPE (.Regidx 14#5) (.Regidx 15#5) (.Regidx 14#5) .OR) state
+      { state with regs := state.regs.insert x14 (high ||| low) } (.Retire_Success ()) := by
+  exact execute_RTYPE_or_run state _ (.Regidx 14#5) (.Regidx 15#5) (.Regidx 14#5) high low
+    (rX_x15_run state high highStored) (rX_x14_run state low lowStored)
+    (wX_x14_run state (high ||| low))
 
 private theorem raw_blob_schedule_lbu_address (state : State)
     (imm base mstatusBits mseccfgBits : BitVec 64)
