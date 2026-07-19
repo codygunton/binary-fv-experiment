@@ -98,6 +98,26 @@ theorem raw_chain_config_result_stores_decode (state : State)
   · decode_run
   decode_run
 
+/-- Every byte-load instruction used by the present 24-byte blob-schedule branch is pinned to the
+immutable decoder image.  The non-contiguous groups reflect the intervening endian assembly. -/
+def rawBlobSchedulePresentLoadSites : Array Nat := #[
+  0x12cbc, 0x12cc0, 0x12cc4, 0x12cc8, 0x12ccc, 0x12cd0, 0x12cd4, 0x12cd8,
+  0x12cdc, 0x12ce0, 0x12ce4, 0x12ce8, 0x12d08, 0x12d0c, 0x12d10, 0x12d14,
+  0x12d40, 0x12d44, 0x12d48, 0x12d4c, 0x12d70, 0x12d74, 0x12d78, 0x12d7c]
+
+def rawBlobSchedulePresentLoadWords : Array Nat := #[
+  0x000bc503, 0x001bc583, 0x002bc603, 0x003bc683, 0x004bc703, 0x005bc783,
+  0x006bc803, 0x007bc883, 0x008bc283, 0x009bc303, 0x00abc383, 0x00bbce03,
+  0x00cbc583, 0x00dbc683, 0x00ebc783, 0x00fbce83, 0x010bc683, 0x011bc303,
+  0x012bc383, 0x013bce03, 0x015bc383, 0x014bce03, 0x016bce83, 0x017bcf03]
+
+def rawBlobSchedulePresentLoadsValid : Bool :=
+  rawBlobSchedulePresentLoadSites.zip rawBlobSchedulePresentLoadWords |>.all fun entry =>
+    Artifact.programImage.readU32LE? entry.1 == some entry.2
+
+theorem raw_blob_schedule_present_loads_valid : rawBlobSchedulePresentLoadsValid = true := by
+  native_decide
+
 /-- The present-blob-schedule branch begins by loading byte zero of its checked 24-byte span. -/
 theorem raw_blob_schedule_first_lbu_image_bytes :
     Artifact.programImage.readByte? 0x12cbc = some 0x03 ∧
