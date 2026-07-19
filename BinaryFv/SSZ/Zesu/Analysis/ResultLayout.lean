@@ -536,4 +536,15 @@ theorem raw_blob_schedule_fourth_lbu_retire_exact (stepNo : Nat) (state : State)
     (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
     machineEnabled retiredRead
 
+/-- Kernel-checked composition of the first four concrete schedule-byte retirements.  Instantiating
+this trace requires the corresponding successive runtime fetch/platform/read premises. -/
+theorem raw_blob_schedule_first_four_lbu_trace (stepNo : Nat)
+    (state0 state1 state2 state3 state4 : State)
+    (first : Runs (try_step stepNo false) state0 state1 false)
+    (second : Runs (try_step (stepNo + 1) false) state1 state2 false)
+    (third : Runs (try_step (stepNo + 2) false) state2 state3 false)
+    (fourth : Runs (try_step (stepNo + 3) false) state3 state4 false) :
+    Trace stepNo 4 state0 state4 := by
+  trace_steps [first, second, third, fourth]
+
 end BinaryFv.SSZ.Zesu.Analysis
