@@ -1,4 +1,5 @@
 import BinaryFv.RiscV.Logic.BlockStep
+import BinaryFv.RiscV.Instruction.Execute.StoreByte
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.SSZ.Zesu.Analysis.Decode
 
@@ -125,5 +126,63 @@ theorem raw_blob_schedule_first_lbu_decode (state : State)
     Runs (ext_decode (fetchWord 0x03#8 0xc5#8 0x0b#8 0x00#8)) state state
       (.LOAD (0#12, .Regidx 23#5, .Regidx 10#5, true, 1)) := by
   decode_run
+
+private theorem rX_x23_run (state : State) (value : BitVec 64)
+    (stored : state.regs.get? x23 = some value) :
+    Runs (rX_bits (.Regidx 23#5)) state state value := by
+  have index : (Sail.BitVec.toNatInt (23#5)).toNat = 23 := by decide
+  unfold Runs
+  simp [rX_bits, rX, index, stored, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
+    EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe, regval_from_reg]
+
+private theorem wX_x10_run (state : State) (value : BitVec 64) :
+    Runs (wX_bits (.Regidx 10#5) value) state { state with regs := state.regs.insert x10 value } () := by
+  have index : (Sail.BitVec.toNatInt (10#5)).toNat = 10 := by decide
+  unfold Runs
+  simp [wX_bits, wX, PreSail.writeReg, index, EStateM.run, EStateM.bind, EStateM.modifyGet,
+    EStateM.pure, EStateM.instMonad, MonadState.modifyGet, MonadStateOf.modifyGet, modify,
+    xreg_write_callback, xreg_full_write_callback, reg_name_forwards, get_config_use_abi_names,
+    encdec_reg_forwards, encdec_reg_forwards_matches, reg_arch_name_raw_forwards,
+    LeanRV64DExecutable.Functions.not, zero_extend, regval_into_reg]
+
+private theorem raw_blob_schedule_first_lbu_address (state : State)
+    (base mstatusBits mseccfgBits : BitVec 64)
+    (baseRead : state.regs.get? x23 = some base)
+    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
+    (privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : state.regs.get? Register.mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled) :
+    Runs (get_transformed_data_addr (.Regidx 23#5) 0#64
+      (MemoryAccessType.Load mem_payload.Data) 1) state state
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + 0#64))) := by
+  exact get_transformed_data_addr_machine_load_run state (.Regidx 23#5) base 0#64 mstatusBits
+    mseccfgBits (rX_x23_run state base baseRead) mstatusRead privilegeRead mprvZero mseccfgRead
+    pmmDisabled
+
+/-- The first schedule-payload byte read executes from `s7` and writes zero-extended `a0`. -/
+theorem raw_blob_schedule_first_lbu_execute (state : State)
+    (base mstatusBits mseccfgBits : BitVec 64) (data : BitVec 8)
+    (baseRead : state.regs.get? x23 = some base)
+    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
+    (privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : state.regs.get? Register.mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled)
+    (hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA
+      (physaddr.Physaddr base) 1 false false false) state state (.Ok data)) :
+    Runs (execute_LOAD 0#12 (.Regidx 23#5) (.Regidx 10#5) true 1) state
+      { state with regs := state.regs.insert x10 (zero_extend (m := 64) data) }
+      (.Retire_Success ()) := by
+  apply execute_LOAD_run state _ 0#12 (.Regidx 23#5) (.Regidx 10#5) true 1 data (by decide)
+  · have address : Runs (get_transformed_data_addr (.Regidx 23#5) (sign_extend (m := 64) 0#12)
+        (MemoryAccessType.Load mem_payload.Data) 1) state state
+        (.Ext_DataAddr_OK (virtaddr.Virtaddr base)) := by
+      simpa using raw_blob_schedule_first_lbu_address state base mstatusBits mseccfgBits baseRead
+        mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled
+    exact vmem_read_byte_run state (.Regidx 23#5) (sign_extend (m := 64) 0#12) base mstatusBits
+      data mstatusRead privilegeRead mprvZero address (BinaryFv.RiscV.is_aligned_vaddr_one _)
+      (by simpa using hread)
+  · exact wX_x10_run state (zero_extend (m := 64) data)
 
 end BinaryFv.SSZ.Zesu.Analysis
