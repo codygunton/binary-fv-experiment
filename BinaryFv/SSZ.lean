@@ -8,6 +8,7 @@ import BinaryFv.SSZ.Zesu.Artifact.PrimitiveReadInventory
 import BinaryFv.SSZ.Zesu.ControlFlow.Decode
 import BinaryFv.SSZ.Zesu.ControlFlow.FunctionWords
 import BinaryFv.SSZ.Zesu.ControlFlow.Reachability
+import BinaryFv.SSZ.Zesu.MachineExecution.DecodeTactic
 import BinaryFv.SSZ.Zesu.MachineExecution.BlobScheduleAndResultStores
 import BinaryFv.SSZ.Zesu.MachineExecution.ParserBlocks
 import BinaryFv.SSZ.Zesu.MemoryRepresentation.RawV4
