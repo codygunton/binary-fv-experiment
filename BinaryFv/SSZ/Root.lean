@@ -29,9 +29,13 @@ theorem execute_rejects_of_rejected_trace (input : ByteArray)
     RiscvSpec.execute binary input = .ok .rejected := by
   sorry
 
-/-- Successful and rejected execution paths together refine the complete observable SSZ spec. -/
-theorem execute_matches_spec (input : ByteArray) (inputBound : input.size < 2 * 1024 * 1024) :
-    RiscvSpec.execute binary input = .ok (SszSpec.decode input) := by
+/-- The final Amsterdam V4 compliance statement.  Its dependency spine is intentionally visible:
+spec classification, live Sail traces, runner/result observation, and the public execution API. -/
+theorem root_compliance :
+    forall input : ByteArray,
+      input.size < 2 * 1024 * 1024 ->
+        RiscvSpec.execute binary input = .ok (SszSpec.decode input) := by
+  intro input inputBound
   cases specResult : SszSpec.decode input with
   | accepted value =>
       obtain ⟨execution⟩ :=
@@ -41,14 +45,5 @@ theorem execute_matches_spec (input : ByteArray) (inputBound : input.size < 2 * 
       obtain ⟨execution⟩ :=
         Zesu.Proof.rejected_trace_of_spec_rejects input inputBound specResult
       exact execute_rejects_of_rejected_trace input execution
-
-/-- The final Amsterdam V4 compliance statement.  Its dependency spine is intentionally visible:
-spec classification, live Sail traces, runner/result observation, and the public execution API. -/
-theorem root_compliance :
-    forall input : ByteArray,
-      input.size < 2 * 1024 * 1024 ->
-        RiscvSpec.execute binary input = .ok (SszSpec.decode input) := by
-  intro input inputBound
-  exact execute_matches_spec input inputBound
 
 end BinaryFv.SSZ
