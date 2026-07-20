@@ -1,6 +1,6 @@
 import BinaryFv.SSZ.Zesu.Artifact.Layout
-import BinaryFv.SSZ.Zesu.Artifact.AbiManifest
 import BinaryFv.SSZ.Zesu.Interface
+import BinaryFv.SSZ.Zesu.Proof.Compliance
 
 namespace BinaryFv.SSZ
 
@@ -14,54 +14,36 @@ noncomputable def binary : RiscvSpec.ValidatedElf := {
   layout := Zesu.Artifact.elf_layout
 }
 
-/-- Closed artifact facts needed before the semantic execution proof starts.  Instruction
-inventories and block-specific ELF facts remain in their owning analysis files and will be consumed
-by the accepted/rejected execution proofs below. -/
-structure StaticEvidence : Prop where
-  rawResultLayout :
-    Zesu.Artifact.rawStatelessInputSize = some 832 ∧
-      Zesu.Artifact.rawStatelessInputChainConfigOffset = some 736
-
-/-- The pinned ELF and compiler-reflected result ABI satisfy the static prerequisites for execution
-refinement. -/
-theorem static_evidence : StaticEvidence where
-  rawResultLayout := by
-    exact ⟨Zesu.Artifact.raw_stateless_input_layout.1,
-      Zesu.Artifact.raw_stateless_input_layout.2.2.2.2.1⟩
-
-/-- Authorized north-star obligation for the successful decoder path.
-
-The eventual proof starts from the public ABI state, composes the live Sail trace through
-`zesu_decode_raw`, constructs `RawV4SuccessResultRep` for `value`, and connects every decoded field
-to the corresponding SizzLean operation on `input`. -/
-theorem execute_accepts_of_spec_accepts (evidence : StaticEvidence) (input : ByteArray)
-    (inputBound : input.size < 2 * 1024 * 1024) (value : SszBridge.RawV4)
-    (specAccepts : SszSpec.decode input = .accepted value) :
+/-- Authorized navigation scaffold connecting the executable runner/result observer to a successful
+live Sail trace.  `runToSentinel_of_traceToSentinel` supplies the runner correspondence and
+`RawV4SuccessResultRep` supplies the result observation. -/
+theorem execute_accepts_of_successful_trace (input : ByteArray) (value : SszBridge.RawV4)
+    (execution : Zesu.Proof.SuccessfulTraceWitness input value) :
     RiscvSpec.execute binary input = .ok (.accepted value) := by
   sorry
 
-/-- Authorized north-star obligation for every normalized decoder rejection path.
-
-The eventual proof classifies the reachable failure returns of `zesu_decode_raw` and shows that
-each corresponds to the single observable SizzLean outcome `DecodeOutcome.rejected`. -/
-theorem execute_rejects_of_spec_rejects (evidence : StaticEvidence) (input : ByteArray)
-    (inputBound : input.size < 2 * 1024 * 1024)
-    (specRejects : SszSpec.decode input = .rejected) :
+/-- Authorized navigation scaffold connecting a classified nonzero-status trace to the executable
+runner's normalized rejection result. -/
+theorem execute_rejects_of_rejected_trace (input : ByteArray)
+    (execution : Zesu.Proof.RejectedTraceWitness input) :
     RiscvSpec.execute binary input = .ok .rejected := by
   sorry
 
 /-- Successful and rejected execution paths together refine the complete observable SSZ spec. -/
 theorem execute_matches_spec (input : ByteArray) (inputBound : input.size < 2 * 1024 * 1024) :
     RiscvSpec.execute binary input = .ok (SszSpec.decode input) := by
-  have evidence := static_evidence
   cases specResult : SszSpec.decode input with
   | accepted value =>
-      exact execute_accepts_of_spec_accepts evidence input inputBound value specResult
+      obtain ⟨execution⟩ :=
+        Zesu.Proof.successful_trace_of_spec_accepts input inputBound value specResult
+      exact execute_accepts_of_successful_trace input value execution
   | rejected =>
-      exact execute_rejects_of_spec_rejects evidence input inputBound specResult
+      obtain ⟨execution⟩ :=
+        Zesu.Proof.rejected_trace_of_spec_rejects input inputBound specResult
+      exact execute_rejects_of_rejected_trace input execution
 
 /-- The final Amsterdam V4 compliance statement.  Its dependency spine is intentionally visible:
-static artifact evidence, successful execution refinement, and rejection refinement. -/
+spec classification, live Sail traces, runner/result observation, and the public execution API. -/
 theorem root_compliance :
     forall input : ByteArray,
       input.size < 2 * 1024 * 1024 ->
