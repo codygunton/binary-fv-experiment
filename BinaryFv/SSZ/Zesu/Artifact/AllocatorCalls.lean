@@ -1,6 +1,6 @@
 import BinaryFv.SSZ.Zesu.Artifact.Symbols
 
-namespace BinaryFv.SSZ.Zesu.Analysis
+namespace BinaryFv.SSZ.Zesu.Artifact
 
 open BinaryFv.RiscV
 
@@ -18,9 +18,9 @@ private instance : DecidableEq (Except ElfError StaticSymbol) := fun left right 
 /-- The six compiler-emitted allocator-vtable tail-call instructions in the pinned decoder. -/
 def allocatorIndirectCallSites : Array Nat := #[0x130c8, 0x13510, 0x135d8, 0x1366c, 0x13690, 0x13718]
 
-def wordAt (address : Nat) : Option Nat := Artifact.programImage.readU32LE? address
+def wordAt (address : Nat) : Option Nat := programImage.readU32LE? address
 
-def doublewordAt (address : Nat) : Option Nat := Artifact.programImage.readU64LE? address
+def doublewordAt (address : Nat) : Option Nat := programImage.readU64LE? address
 
 /-- Each recorded site is the `jr t1` tail transfer reached after loading vtable slot 24. -/
 def allocatorIndirectCallSitesAreJrT1 : Bool :=
@@ -62,9 +62,9 @@ theorem allocator_wrapper_tail_words : allocatorWrapperTailWords = true := by
   native_decide
 
 theorem allocator_wrapper_address_is_raw_alloc_target :
-    Artifact.zesuRawAlloc = .ok
+    zesuRawAlloc = .ok
       { name := "zesu_raw_alloc".toUTF8, info := 18, other := 0, sectionIndex := 1,
         value := 0x1024c, size := 100 } := by
   native_decide
 
-end BinaryFv.SSZ.Zesu.Analysis
+end BinaryFv.SSZ.Zesu.Artifact

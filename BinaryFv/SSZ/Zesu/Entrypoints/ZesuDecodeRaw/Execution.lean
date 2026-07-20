@@ -1,12 +1,12 @@
 import BinaryFv.RiscV.Proof.RunnerCorrespondence
 import BinaryFv.SSZ.SpecBridge.Decode
 import BinaryFv.SSZ.Zesu.Artifact.Symbols
-import BinaryFv.SSZ.Zesu.Execution.Result
+import BinaryFv.SSZ.Zesu.MemoryRepresentation.Result
 
-namespace BinaryFv.SSZ.Zesu.Proof
+namespace BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
 
 open BinaryFv.RiscV
-open BinaryFv.SSZ.Zesu.Execution
+open BinaryFv.SSZ.Zesu.MemoryRepresentation
 open LeanRV64DExecutable.Functions Register
 
 set_option maxRecDepth 10000
@@ -74,4 +74,4 @@ theorem rejected_trace_of_spec_rejects (input : ByteArray)
     Nonempty (RejectedTraceWitness input) := by
   sorry
 
-end BinaryFv.SSZ.Zesu.Proof
+end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw

@@ -2,10 +2,10 @@ import BinaryFv.RiscV.Logic.BlockStep
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.RiscV.Instruction.Execute.ShiftOr
 import BinaryFv.RiscV.Instruction.Execute.StoreByte
-import BinaryFv.SSZ.Zesu.Analysis.Primitives
+import BinaryFv.SSZ.Zesu.Artifact.PrimitiveReadInventory
 import SizzLean.Spec.Deserialize
 
-namespace BinaryFv.SSZ.Zesu.Proof
+namespace BinaryFv.SSZ.Zesu.MachineExecution
 
 open BinaryFv BinaryFv.RiscV
 open BinaryFv.Binary.ProgramImage
@@ -2199,4 +2199,4 @@ theorem parser_u32_assembly_matches_sizzlean (b0 b1 b2 b3 : UInt8) :
     parser_u32_ofNat_shift_twentyfour]
   simp
 
-end BinaryFv.SSZ.Zesu.Proof
+end BinaryFv.SSZ.Zesu.MachineExecution

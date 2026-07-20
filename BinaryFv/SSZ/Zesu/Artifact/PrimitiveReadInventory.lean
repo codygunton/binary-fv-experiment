@@ -1,8 +1,9 @@
-import BinaryFv.SSZ.Zesu.Analysis.Decode
+import BinaryFv.SSZ.Zesu.ControlFlow.Decode
 
-namespace BinaryFv.SSZ.Zesu.Analysis
+namespace BinaryFv.SSZ.Zesu.Artifact
 
 open BinaryFv.RiscV
+open BinaryFv.SSZ.Zesu.ControlFlow
 
 /-- ELF-decoded primitive memory-read candidates; source names and debug mappings are not inputs. -/
 def primitiveReadAddresses? : Option (Array Nat) :=
@@ -56,9 +57,9 @@ def rawHeaderByteReadWords : Array Nat := #[0x000a4503, 0x001a4503, 0x002a4503, 
 
 def rawHeaderByteReadBlockValid : Bool :=
   rawHeaderByteReadSites.zip rawHeaderByteReadWords |>.all fun entry =>
-    Artifact.programImage.readU32LE? entry.1 == some entry.2
+    programImage.readU32LE? entry.1 == some entry.2
 
 theorem raw_header_byte_read_block_valid : rawHeaderByteReadBlockValid = true := by
   native_decide
 
-end BinaryFv.SSZ.Zesu.Analysis
+end BinaryFv.SSZ.Zesu.Artifact

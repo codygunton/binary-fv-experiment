@@ -1,4 +1,4 @@
-namespace BinaryFv.SSZ.Zesu.Proof.Runtime
+namespace BinaryFv.SSZ.Zesu.Runtime
 
 /-- Snapshot semantics for the `memmove` contract: reads are all from the pre-state. -/
 def memmove (memory : Nat → UInt8) (destination source length : Nat) : Nat → UInt8 :=
@@ -78,4 +78,4 @@ theorem success_result_epilogue_root_byte (memory : Nat → UInt8) (resultBase s
   rw [memcpy_destination _ _ _ _ index indexBound]
   simp [writeByte, notStatusLow, notStatusHigh]
 
-end BinaryFv.SSZ.Zesu.Proof.Runtime
+end BinaryFv.SSZ.Zesu.Runtime

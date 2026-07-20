@@ -1,7 +1,7 @@
-import BinaryFv.SSZ.Zesu.Analysis.Decode
+import BinaryFv.SSZ.Zesu.ControlFlow.Decode
 import BinaryFv.RiscV.Analysis.FunctionWords
 
-namespace BinaryFv.SSZ.Zesu.Analysis
+namespace BinaryFv.SSZ.Zesu.ControlFlow
 
 open BinaryFv.RiscV
 
@@ -32,4 +32,4 @@ def entryStackWritesClassified : Bool :=
 theorem entry_stack_writes_classified : entryStackWritesClassified = true := by
   native_decide
 
-end BinaryFv.SSZ.Zesu.Analysis
+end BinaryFv.SSZ.Zesu.ControlFlow

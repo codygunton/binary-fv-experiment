@@ -2,7 +2,7 @@ import BinaryFv.SSZ.Zesu.Artifact.Symbols
 import BinaryFv.RiscV.ELF.CFG
 import BinaryFv.RiscV.Model.State
 
-namespace BinaryFv.SSZ.Zesu.Analysis
+namespace BinaryFv.SSZ.Zesu.ControlFlow
 
 open BinaryFv.RiscV
 open PreSail
@@ -36,4 +36,4 @@ def wordsLegal : Bool :=
 theorem words_legal : wordsLegal = true := by
   native_decide
 
-end BinaryFv.SSZ.Zesu.Analysis
+end BinaryFv.SSZ.Zesu.ControlFlow

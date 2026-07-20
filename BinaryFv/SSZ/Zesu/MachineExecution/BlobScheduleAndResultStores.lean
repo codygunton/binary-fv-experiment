@@ -2,9 +2,9 @@ import BinaryFv.RiscV.Logic.BlockStep
 import BinaryFv.RiscV.Instruction.Execute.ShiftOr
 import BinaryFv.RiscV.Instruction.Execute.StoreByte
 import BinaryFv.RiscV.Proof.ImageFetch
-import BinaryFv.SSZ.Zesu.Analysis.Decode
+import BinaryFv.SSZ.Zesu.ControlFlow.Decode
 
-namespace BinaryFv.SSZ.Zesu.Analysis
+namespace BinaryFv.SSZ.Zesu.MachineExecution
 
 open BinaryFv.RiscV
 open BinaryFv.Binary.ProgramImage
@@ -4472,4 +4472,4 @@ theorem raw_blob_schedule_present_assembly_complete_trace (stepNo : Nat)
     Trace stepNo 66 state0 state66 := by
   simpa only [Nat.reduceAdd] using Trace.append through49 fourthAssembly
 
-end BinaryFv.SSZ.Zesu.Analysis
+end BinaryFv.SSZ.Zesu.MachineExecution

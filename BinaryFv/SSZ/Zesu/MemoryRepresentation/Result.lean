@@ -1,6 +1,6 @@
-import BinaryFv.SSZ.Zesu.Execution.Representation
+import BinaryFv.SSZ.Zesu.MemoryRepresentation.RawV4
 
-namespace BinaryFv.SSZ.Zesu.Execution
+namespace BinaryFv.SSZ.Zesu.MemoryRepresentation
 
 open BinaryFv.RiscV
 
@@ -41,4 +41,4 @@ theorem observe_raw_v4_success_status (state : State) (inputBase : Nat) (input :
     observeResultStatus? state resultBase = some 0 :=
   observe_result_status_of_rep state resultBase 0 representation.status
 
-end BinaryFv.SSZ.Zesu.Execution
+end BinaryFv.SSZ.Zesu.MemoryRepresentation

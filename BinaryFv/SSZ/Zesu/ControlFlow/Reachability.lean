@@ -1,7 +1,7 @@
-import BinaryFv.SSZ.Zesu.Analysis.FunctionWords
+import BinaryFv.SSZ.Zesu.ControlFlow.FunctionWords
 import BinaryFv.RiscV.Analysis.Reachability
 
-namespace BinaryFv.SSZ.Zesu.Analysis
+namespace BinaryFv.SSZ.Zesu.ControlFlow
 
 open BinaryFv.RiscV
 
@@ -19,4 +19,4 @@ theorem entry_static_direct_reachability_inventory_well_formed :
     entryStaticDirectReachabilityInventoryWellFormed = true := by
   native_decide
 
-end BinaryFv.SSZ.Zesu.Analysis
+end BinaryFv.SSZ.Zesu.ControlFlow
