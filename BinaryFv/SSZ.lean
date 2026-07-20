@@ -21,6 +21,13 @@ import BinaryFv.SSZ.Zesu.Runtime.MemoryCopy
 import BinaryFv.SSZ.Zesu.Contracts.Error
 import BinaryFv.SSZ.Zesu.Contracts.Environment
 import BinaryFv.SSZ.Zesu.Contracts.Options
+import BinaryFv.SSZ.Zesu.Contracts.Catalog
+import BinaryFv.SSZ.Zesu.Contracts.Runtime
+import BinaryFv.SSZ.Zesu.Contracts.Entry
+import BinaryFv.SSZ.Zesu.Contracts.Containers
+import BinaryFv.SSZ.Zesu.Contracts.Collections
+import BinaryFv.SSZ.Zesu.Contracts.Canonicality
+import BinaryFv.SSZ.Zesu.Contracts.Leaves
 import BinaryFv.SSZ.Zesu.SpecCorrespondence.PrimitiveReads
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
 import BinaryFv.SSZ.Zesu.Interface

@@ -1,6 +1,7 @@
 import BinaryFv.SSZ.Zesu.Artifact.Layout
 import BinaryFv.SSZ.Zesu.Interface
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
+import BinaryFv.SSZ.Zesu.Contracts.Catalog
 
 namespace BinaryFv.SSZ
 
@@ -28,6 +29,43 @@ theorem execute_rejects_of_rejected_trace (input : ByteArray)
     (execution : Zesu.Entrypoints.ZesuDecodeRaw.RejectedTraceWitness input) :
     RiscvSpec.execute binary input = .ok .rejected := by
   sorry
+
+/-!
+## Navigation from the root theorem to the source-oriented catalog
+
+The obligations below are the visible dependency spine between `root_compliance` and the handwritten
+contracts. None of them is a `sorry`: they are named `Prop`s, which is what lets an unfinished
+obligation be stated exactly without weakening the `nix/proof.nix` hole audit.
+
+Read the spine outward from the root:
+
+* `root_compliance` — the public claim.
+* `sszProgramCorrectness` — the generated Elfling program covers the binary and every occurrence
+  implements its handwritten contract.
+* `Zesu.Contracts.catalogSemanticObligations` — the catalog's meanings agree with the pinned oracle.
+* `Zesu.Contracts.knownDivergences` — the two places the binary and the oracle genuinely differ,
+  surfaced rather than omitted.
+* `Zesu.Contracts.catalog` — the 33 routines, address-free.
+* the generated Elfling program — canonical-ELF ranges, checked against the pinned bytes.
+-/
+
+/-- The generated Elfling program covers the reachable binary and every occurrence implements the
+handwritten contract for the routine it was extracted from.
+
+This is the local-to-global obligation. `Zesu.Contracts.coverage` supplies the two coverage
+directions and the defect-free extraction requirement; the per-occurrence `correctnessClaim`s in the
+`Contracts` modules supply the rest. -/
+def sszProgramCorrectness (program : BinaryFv.Binary.Elfling.Program) : Prop :=
+  Zesu.Contracts.coverage program ∧ Zesu.Contracts.catalogSemanticObligations
+
+/-- Everything the root theorem depends on, in one name.
+
+`knownDivergences` is conjoined deliberately: both members are *true* statements that the binary and
+the oracle differ, and stating them here keeps them from reading as oversights. One is masked by
+`retryTailNeverSchemaValid`; the other is excluded by the input bound, which is why
+`Zesu.Contracts.rootComplianceScope` exists as a name rather than an inline literal. -/
+def sszComplianceObligations (program : BinaryFv.Binary.Elfling.Program) : Prop :=
+  sszProgramCorrectness program ∧ Zesu.Contracts.knownDivergences
 
 /-- The final Amsterdam V4 compliance statement.  Its dependency spine is intentionally visible:
 spec classification, live Sail traces, runner/result observation, and the public execution API. -/
