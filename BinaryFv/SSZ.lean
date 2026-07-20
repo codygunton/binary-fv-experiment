@@ -18,6 +18,9 @@ import BinaryFv.SSZ.Zesu.Runtime.AllocatorVtable
 import BinaryFv.SSZ.Zesu.Runtime.BumpAllocator
 import BinaryFv.SSZ.Zesu.Runtime.AllocationBound
 import BinaryFv.SSZ.Zesu.Runtime.MemoryCopy
+import BinaryFv.SSZ.Zesu.Contracts.Error
+import BinaryFv.SSZ.Zesu.Contracts.Environment
+import BinaryFv.SSZ.Zesu.Contracts.Options
 import BinaryFv.SSZ.Zesu.SpecCorrespondence.PrimitiveReads
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
 import BinaryFv.SSZ.Zesu.Interface
