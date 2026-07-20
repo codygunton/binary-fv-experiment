@@ -17,8 +17,8 @@ Neither allocates, so their postconditions assert the *absence* of allocation ra
 silent about it — a `post` that only constrained the success arm would be satisfied by an
 implementation that scribbled over caller memory on the way to an error.
 
-`decodeOptionalBlobSchedule` is the first migration exemplar. The existing 66-step trace over
-`0x12cbc..0x12dc0` is a fragment of its inline instance; nothing in this module names that range,
+`decodeOptionalBlobSchedule` is the first migration exemplar. The existing 66-step trace is a
+fragment of its inline instance; deliberately, no program counter appears anywhere in this module,
 because the binding lives in generated Elfling data and `ImplementsInstance` is the seam.
 -/
 
