@@ -137,14 +137,21 @@ def expandDirectReachability (nodes : Array ControlFlowNode) (known : Array Nat)
   known.foldl (fun accumulated address =>
     appendKnownAddresses nodes accumulated (directSuccessorsAt nodes address)) known
 
+/--
+One bounded fixpoint-search pass of `directReachable`, hoisted to top level (rather than a nested
+`let rec`) so the reachability over-approximation lemma `directReachable_subset` can induct on the
+fuel. `expanded` is still computed once per step, matching the previous nested definition.
+-/
+def directReachableLoop (nodes : Array ControlFlowNode) : Nat → Array Nat → Array Nat
+  | 0, known => known
+  | fuel + 1, known =>
+    let expanded := expandDirectReachability nodes known
+    if expanded.size == known.size then known else directReachableLoop nodes fuel expanded
+
 /-- Finite reachability over decoded direct/conditional/call-summary edges only. -/
 def directReachable (nodes : Array ControlFlowNode) (entry : Nat) : Array Nat :=
-  let rec loop : Nat → Array Nat → Array Nat
-    | 0, known => known
-    | fuel + 1, known =>
-      let expanded := expandDirectReachability nodes known
-      if expanded.size == known.size then known else loop fuel expanded
-  if hasControlFlowAddress nodes entry then loop (nodes.size + 1) #[entry] else #[]
+  if hasControlFlowAddress nodes entry then directReachableLoop nodes (nodes.size + 1) #[entry]
+  else #[]
 
 def ControlFlowNode.indirectTarget (node : ControlFlowNode) : Bool :=
   match node.transfer with

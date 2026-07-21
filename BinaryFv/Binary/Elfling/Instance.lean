@@ -42,6 +42,32 @@ structure SymbolAnnotation where
 deriving DecidableEq, Repr
 
 /--
+A basic block: a maximal straight-line run of decoded instructions, as a single contiguous address
+range that stays inside one of the owning occurrence's fragments.
+
+Generated, address-bearing, and therefore *untrusted*: the validation checks that an occurrence's
+blocks exactly partition its regions and that every block byte is a decoded instruction in the
+canonical CFG. It carries no classification — which edges leave a block, and what kind they are, is a
+separate concern proved against the decoded control-flow graph.
+-/
+structure BasicBlock where
+  range : AddressRange
+deriving DecidableEq, Repr, Inhabited
+
+/--
+A direct control-flow edge between two decoded instruction addresses, as proposed by the extractor.
+
+Generated and *untrusted*: the validation checks each edge is a real decoded direct successor in the
+canonical CFG (`target ∈ directSuccessorsAt nodes source`). It is deliberately unlabelled — whether an
+edge is internal, an inline child entry, a resolved call, a return, or an occurrence exit is a
+classification proved separately, not asserted by the generator.
+-/
+structure DirectEdge where
+  source : Nat
+  target : Nat
+deriving DecidableEq, Repr, Inhabited
+
+/--
 One emitted or inlined occurrence of a source function, as located in the canonical ELF.
 
 `regions` may hold several disjoint ranges: an optimizer routinely splits one source function into
@@ -68,6 +94,14 @@ structure FunctionInstance where
   /-- Resolved calls that leave this occurrence to another occurrence. The local-to-global
   composition walks these edges. -/
   externalCalls : Array InstanceId
+  /-- Basic blocks partitioning this occurrence's regions: a maximal straight-line run per block,
+  contiguous and confined to one fragment. Emitted by the generator; the validation checks they tile
+  the regions exactly and every block byte decodes. Defaults to `#[]` for hand-written occurrences
+  that do not carry a block partition. -/
+  blocks : Array BasicBlock := #[]
+  /-- Direct control-flow edges out of this occurrence's instructions, as proposed by the extractor.
+  The validation checks each is a real decoded direct successor. Defaults to `#[]`. -/
+  edges : Array DirectEdge := #[]
   /-- Validated source provenance: the pinned source file's content hash and the declaration's
   location. The generator fills this from debug information; the extraction row validates it against
   the pinned source. It is separate from `id` (stable identity) so a wrong hash fails validation

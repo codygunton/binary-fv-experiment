@@ -8,6 +8,13 @@ let
       stats
       zesuProductionObject
       zesuRawObject
+      zesuRawSidecar
+      zesuRuntimeSidecar
+      elflingProgram
+      blobScheduleInstance
+      elflingDecoderLlvmIr
+      elflingRelocationCheck
+      elflingGeneratorDefectsCheck
       zesuSinkObservability
       zesuSsz
       zesuValue;

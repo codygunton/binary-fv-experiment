@@ -90,12 +90,21 @@ inductive RoutineTag where
   | allocatorAlloc | allocatorResize | allocatorRemap | allocatorFree | allocatorCtor
 deriving DecidableEq, Repr, Inhabited
 
-/-- Why a source routine has no live occurrence in the canonical binary. -/
+/-- Why a source routine is excluded from the cataloged semantic proof — either it has no live
+occurrence in the canonical binary, or it is reachable emitted glue whose net effect is captured
+elsewhere. The last two are the row-2 reachable-but-excluded categories, shared with the generated
+Elfling reachable-partition taxonomy (stack-integration point). -/
 inductive ExclusionReason where
   /-- Not compiled into the `ReleaseSmall` object (a test-only helper). -/
   | testOnly
   /-- Present in source but not reachable from `zesu_decode_raw`. -/
   | unreachable
+  /-- Reachable `std`/`mem`/`math` implementation emitted as its own routine (allocator vtable), whose
+  net behavior is captured by the cataloged allocator contracts. -/
+  | reachableStdlib
+  /-- Reachable `*.deinit` error-path cleanup; the freestanding zkVM's allocator free is a no-op, so it
+  never changes the accept/reject outcome. -/
+  | reachableCleanupNoOp
 deriving DecidableEq, Repr, Inhabited
 
 /-- Whether a cataloged routine is expected to occur in the canonical program. -/

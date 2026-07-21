@@ -14,6 +14,7 @@ let
     riscvBinutils
     riscvCc
     riscvNm
+    riscvObjdump
     riscvPkgs
     riscvReadelf;
 
@@ -251,6 +252,325 @@ let
       runHook postInstall
     '';
   };
+
+  # DWARF sidecar for the raw-SSZ objects. Identical to `zesuRawObject` in pinned source, Zig
+  # compiler, target, code model, and optimization, changing only `.strip = false` on the three
+  # object root modules so debug information is retained (`ReleaseSmall` strips by default). The
+  # equivalence gate below proves the sidecar is the *same compilation* as the canonical object —
+  # every allocatable section byte-identical, matching RISC-V ISA attributes, relocations, and
+  # symbols, and the decoder `.text` pinned to its SHA-256 — so the sidecar's DWARF validly
+  # describes the canonical bytes. A wrong sidecar can only fail this build, never establish a false
+  # source mapping. The DWARF is untrusted until this derivation succeeds.
+  zesuRawSidecar = pkgs.stdenvNoCC.mkDerivation {
+    pname = "zesu-raw-ssz-rv64im-sidecar";
+    version = "96f1621";
+    src = zesuRepaired;
+    nativeBuildInputs = [
+      pkgs.zig
+      riscvBinutils
+      pkgs.coreutils
+      pkgs.diffutils
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.gnugrep
+    ];
+    dontConfigure = true;
+    dontFixup = true;
+
+    buildPhase = ''
+      runHook preBuild
+      export HOME="$TMPDIR"
+      export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+      export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+
+      # Retain DWARF by disabling strip on exactly the three raw-SSZ object root modules; nothing
+      # else changes. `--replace-fail` makes source drift a build error rather than a silent no-op.
+      substituteInPlace build.zig \
+        --replace-fail '.root_source_file = b.path("src/zkvm/raw_allocator.zig"),' \
+          '.root_source_file = b.path("src/zkvm/raw_allocator.zig"), .strip = false,'
+      substituteInPlace build.zig \
+        --replace-fail '.root_source_file = b.path("src/zkvm/raw_decoder_root.zig"),' \
+          '.root_source_file = b.path("src/zkvm/raw_decoder_root.zig"), .strip = false,'
+      substituteInPlace build.zig \
+        --replace-fail '.root_source_file = b.path("src/zkvm/raw_sink.zig"),' \
+          '.root_source_file = b.path("src/zkvm/raw_sink.zig"), .strip = false,'
+
+      zig build rv64im-raw-ssz-object -Doptimize=ReleaseSmall
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/obj" "$out/meta"
+      cp zig-out/lib/zesu_raw_ssz_allocator.o "$out/obj/zesu-raw-ssz-allocator.o"
+      cp zig-out/lib/zesu_raw_ssz.o           "$out/obj/zesu-raw-ssz-decoder.o"
+      cp zig-out/lib/zesu_raw_ssz_sink.o      "$out/obj/zesu-raw-ssz-sink.o"
+
+      export READELF=${riscvReadelf}
+      export EXPECT_TEXT_SHA=f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b
+      bash ${repo}/targets/ssz/zesu/tests/sidecar_equivalence.sh \
+        ${zesuRawObject}/obj "$out/obj" | tee "$out/meta/equivalence.txt"
+
+      printf '%s\n' "zesu=codygunton/zesu@${zesuRepairedRevision}" > "$out/meta/provenance.txt"
+      printf '%s\n' "zig=$(zig version)" >> "$out/meta/provenance.txt"
+      printf '%s\n' "decoder-text-sha256=f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b" \
+        >> "$out/meta/provenance.txt"
+      ${riscvReadelf} -SW "$out/obj/zesu-raw-ssz-decoder.o" > "$out/meta/decoder-sections.txt"
+      runHook postInstall
+    '';
+  };
+
+  # DWARF sidecar for the C runtime object (`memcpy`/`memmove`, plus `memset`/`memcmp`). The canonical
+  # runtime is compiled `-g0` (stripped); this compiles the SAME source with the SAME `riscvCc` and
+  # cflags, only appending `-g` (which overrides the earlier `-g0`), and enforces that every emitted
+  # `.text.*` function-section is byte-identical to the stripped compile — so `-g` added only DWARF
+  # and changed no codegen. Symbols must never define a proof region: the runtime routines' regions
+  # come from these DWARF subprogram ranges, not from the symbols' (value,size). If `-g` ever changes
+  # the runtime `.text`, this derivation FAILS rather than silently substituting a symbol-boundary
+  # region — a documented exception would then be a deliberate, reviewed decision.
+  zesuRuntimeSidecar = pkgs.stdenvNoCC.mkDerivation {
+    pname = "zesu-ssz-runtime-sidecar";
+    version = "96f1621";
+    dontUnpack = true;
+    dontConfigure = true;
+    dontFixup = true;
+    hardeningDisable = [ "all" ];
+    nativeBuildInputs = [
+      riscvPkgs.stdenv.cc
+      riscvBinutils
+      pkgs.zig
+      pkgs.coreutils
+      pkgs.diffutils
+      pkgs.gnugrep
+    ];
+
+    buildPhase = ''
+      runHook preBuild
+      export NIX_HARDENING_ENABLE=""
+      export HOME="$TMPDIR"
+      export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+      export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_runtime.c -o canonical.o
+      ${riscvCc} ${cflags} -g -c ${repo}/targets/common/riscv64_runtime.c -o sidecar.o
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/obj" "$out/meta"
+
+      ${riscvReadelf} -SW sidecar.o | grep -q '\.debug_info' \
+        || { echo "RUNTIME SIDECAR FAILURE: no DWARF in -g runtime object" >&2; exit 1; }
+      if ${riscvReadelf} -SW canonical.o | grep -q '\.debug_info'; then
+        echo "RUNTIME SIDECAR FAILURE: canonical (-g0) runtime unexpectedly carries DWARF" >&2; exit 1
+      fi
+
+      for S in .text.memcpy .text.memmove .text.memset .text.memcmp; do
+        zig objcopy -O binary --only-section="$S" canonical.o "c$S.bin"
+        zig objcopy -O binary --only-section="$S" sidecar.o  "s$S.bin"
+        cmp -s "c$S.bin" "s$S.bin" \
+          || { echo "RUNTIME SIDECAR FAILURE: $S bytes differ — -g changed codegen; STOP (do not fall back to symbol-boundary regions)" >&2; exit 1; }
+        # The sidecar must describe the EXACT runtime object linked into the canonical ELF, not merely
+        # another fresh compile: compare against ${zesuSsz}/obj/riscv64_runtime.o, the actual link
+        # input, closing the "compared only with a fresh compile" gap (review blocker #5).
+        zig objcopy -O binary --only-section="$S" ${zesuSsz}/obj/riscv64_runtime.o "l$S.bin"
+        cmp -s "s$S.bin" "l$S.bin" \
+          || { echo "RUNTIME SIDECAR FAILURE: $S differs from the canonical link input (zesuSsz runtime object); STOP" >&2; exit 1; }
+      done
+
+      cp sidecar.o "$out/obj/riscv64_runtime.o"
+      ${riscvReadelf} -SW  "$out/obj/riscv64_runtime.o" > "$out/meta/runtime-sections.txt"
+      ${riscvReadelf} -sW  "$out/obj/riscv64_runtime.o" | grep -E 'memcpy|memmove' > "$out/meta/runtime-symbols.txt"
+      printf 'runtime=targets/common/riscv64_runtime.c\n' > "$out/meta/provenance.txt"
+      printf 'gcc=%s\n' "$(${riscvCc} --version | head -1)" >> "$out/meta/provenance.txt"
+      echo "OK: -g runtime .text.{memcpy,memmove,memset,memcmp} byte-identical to canonical AND to the zesuSsz link input; DWARF retained" \
+        | tee "$out/meta/equivalence.txt"
+      runHook postInstall
+    '';
+  };
+
+  # Deterministic ELF/DWARF/CFG -> Elfling Program generator (milestone 4). Reads the validated DWARF
+  # sidecars, maps to canonical PCs, resolves readArray widths from DWARF call_line -> pinned source,
+  # matches occurrences to the live catalog, folds glue into the nearest cataloged ancestor, and emits
+  # deterministic JSON, a generated Lean `Program`, and a Markdown source/function/CFG index.
+  #
+  # Filtered inputs: only the generator script (via builtins.path, not the whole repo), the validated
+  # sidecars, and the pinned source — so editing handwritten proofs never rebuilds it. Determinism is
+  # an acceptance criterion: it runs twice and FAILS unless every artifact is byte-identical.
+  elflingGeneratorScript = builtins.path {
+    path = repo + "/tools/generate_elfling_program.py";
+    name = "generate_elfling_program.py";
+  };
+  elflingProgram = pkgs.runCommand "elfling-program" {
+    nativeBuildInputs = [ pkgs.python3 pkgs.coreutils pkgs.diffutils ];
+  } ''
+    gen() {
+      python3 ${elflingGeneratorScript} \
+        --readelf ${riscvReadelf} \
+        --decoder ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
+        --allocator ${zesuRawSidecar}/obj/zesu-raw-ssz-allocator.o \
+        --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
+        --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
+        --source ${zesuRepaired} \
+        --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+        --map ${zesuSsz}/meta/zesu-ssz.map \
+        --elf ${zesuSsz}/bin/zesu-ssz \
+        --objdump ${riscvObjdump} \
+        --out-json "$1/program.json" \
+        --out-lean "$1/GeneratedProgram.lean" \
+        --out-md "$1/program.md"
+    }
+    mkdir -p run1 run2 "$out"
+    gen run1
+    gen run2
+    for f in program.json GeneratedProgram.lean program.md; do
+      cmp -s "run1/$f" "run2/$f" \
+        || { echo "GENERATOR NON-DETERMINISTIC: $f differs between two runs" >&2; exit 1; }
+    done
+    cp run1/program.json run1/GeneratedProgram.lean run1/program.md "$out/"
+    printf '%s\n' "two independent runs produced byte-identical program.json/GeneratedProgram.lean/program.md" \
+      > "$out/determinism.txt"
+  '';
+
+  # Deterministic DWARF -> Lean extractor for the `decodeOptionalBlobSchedule` vertical slice
+  # (milestone 3). Reads the validated decoder DWARF sidecar with the pinned LLVM 21.1.8
+  # `llvm-dwarfdump`, finds the single inline instance, its inline call stack and nested `readU64`
+  # field reads, maps object-relative DWARF ranges to canonical-ELF PCs, and emits the committed
+  # `BlobScheduleInstance.lean` verbatim.
+  #
+  # Filtered inputs: only the extractor script (via builtins.path, not the whole repo) and the
+  # validated sidecar — so editing handwritten proofs never rebuilds it. Determinism is an
+  # acceptance criterion: it runs twice and FAILS unless byte-identical, then a drift guard FAILS
+  # unless the regenerated file equals the committed `BlobScheduleInstance.lean` (the analog of how
+  # the decoder `.text` sha256 is reproduced AND enforced).
+  blobScheduleExtractorScript = builtins.path {
+    path = repo + "/tools/extract_blob_schedule_instance.py";
+    name = "extract_blob_schedule_instance.py";
+  };
+  blobScheduleCommitted = builtins.path {
+    path = repo + "/BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean";
+    name = "BlobScheduleInstance.lean";
+  };
+  blobScheduleInstance = pkgs.runCommand "blob-schedule-instance" {
+    nativeBuildInputs = [ pkgs.python3 pkgs.coreutils pkgs.diffutils ];
+  } ''
+    gen() {
+      python3 ${blobScheduleExtractorScript} \
+        ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
+        --dwarfdump ${pkgs.llvm}/bin/llvm-dwarfdump \
+        --lean --out-lean "$1/BlobScheduleInstance.lean"
+    }
+    mkdir -p run1 run2 "$out"
+    gen run1
+    gen run2
+    cmp -s run1/BlobScheduleInstance.lean run2/BlobScheduleInstance.lean \
+      || { echo "BLOB-SCHEDULE EXTRACTOR NON-DETERMINISTIC: BlobScheduleInstance.lean differs between two runs" >&2; exit 1; }
+    cmp -s run1/BlobScheduleInstance.lean ${blobScheduleCommitted} \
+      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleInstance.lean differs from committed BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean" >&2; exit 1; }
+    cp run1/BlobScheduleInstance.lean "$out/"
+    printf '%s\n' "two independent runs produced byte-identical BlobScheduleInstance.lean; regenerated == committed" \
+      > "$out/determinism.txt"
+  '';
+
+  # Audit-only optimized LLVM IR for the decoder (plan: "optimized LLVM IR for inspection only, never
+  # as proof input"). Emitted through the pinned build.zig module graph (so imports resolve) by adding
+  # `getEmittedLlvmIr()` to the raw-ssz-object step, at the SAME target/optimize as the canonical
+  # object. Built twice and required byte-identical. It is never consumed by any Lean module.
+  elflingDecoderLlvmIr = pkgs.stdenvNoCC.mkDerivation {
+    pname = "elfling-decoder-llvm-ir";
+    version = "96f1621";
+    src = zesuRepaired;
+    nativeBuildInputs = [ pkgs.zig pkgs.coreutils pkgs.diffutils ];
+    dontConfigure = true;
+    dontFixup = true;
+    buildPhase = ''
+      runHook preBuild
+      export HOME="$TMPDIR"
+      export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+      export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+      substituteInPlace build.zig \
+        --replace-fail 'raw_objects_step.dependOn(&install_decoder.step);' \
+          'raw_objects_step.dependOn(&install_decoder.step); raw_objects_step.dependOn(&b.addInstallFile(raw_decoder_object.getEmittedLlvmIr(), "lib/zesu_raw_ssz.ll").step);'
+      zig build rv64im-raw-ssz-object -Doptimize=ReleaseSmall
+      cp zig-out/lib/zesu_raw_ssz.ll run1.ll
+      rm -rf zig-out "$ZIG_LOCAL_CACHE_DIR"
+      zig build rv64im-raw-ssz-object -Doptimize=ReleaseSmall
+      cp zig-out/lib/zesu_raw_ssz.ll run2.ll
+      cmp -s run1.ll run2.ll \
+        || { echo "DECODER LLVM IR NON-DETERMINISTIC between two builds" >&2; exit 1; }
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out"
+      cp run1.ll "$out/decoder.ll"
+      printf '%s\n' "audit-only optimized LLVM IR for src/zkvm/raw_decoder_root.zig (rv64im_zicclsm, ReleaseSmall); never a proof input; two builds byte-identical" > "$out/README.txt"
+      runHook postInstall
+    '';
+  };
+
+  # Relocation acceptance test (plan "Verification and Acceptance"): relink the SAME pinned objects at
+  # a DIFFERENT text base, regenerate the Elfling program from the SAME sidecars/source but the new
+  # linker map, and require that every address-free identity (FunctionId, inline stack, nesting,
+  # validated source hash, DWARF entry offset, catalog/excluded class) is byte-stable while every
+  # generated address shifts by one constant nonzero delta. This is what proves the extractor holds no
+  # hardcoded linked address and folds none into an identity — the handwritten contracts, keyed by
+  # `FunctionId`, need no edit when the binary is relinked.
+  elflingRelocationCheck = pkgs.runCommand "elfling-relocation-check" {
+    nativeBuildInputs = [ pkgs.python3 riscvBinutils riscvPkgs.stdenv.cc pkgs.coreutils ];
+  } ''
+    mkdir -p reloc "$out"
+    # Relink at text-segment base 0x400000 (canonical is 0x10000); the whole text segment shifts.
+    ${riscvCc} ${cflags} -nostdlib -static -no-pie \
+      ${zesuSsz}/obj/riscv64_start.o \
+      ${zesuSsz}/obj/zesu-ssz-main.o \
+      ${zesuSsz}/obj/zesu-raw-ssz-allocator.o \
+      ${zesuSsz}/obj/zesu-raw-ssz-decoder.o \
+      ${zesuSsz}/obj/zesu-raw-ssz-sink.o \
+      ${zesuSsz}/obj/riscv64_runtime.o \
+      -lgcc -Wl,--gc-sections -Wl,-e,_start \
+      -Wl,-Ttext-segment=0x400000 \
+      -Wl,-Map,reloc/zesu-ssz.map \
+      -o reloc/zesu-ssz.elf
+
+    python3 ${elflingGeneratorScript} \
+      --readelf ${riscvReadelf} \
+      --decoder ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
+      --allocator ${zesuRawSidecar}/obj/zesu-raw-ssz-allocator.o \
+      --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
+      --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
+      --source ${zesuRepaired} \
+      --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+      --map reloc/zesu-ssz.map \
+      --elf reloc/zesu-ssz.elf \
+      --objdump ${riscvObjdump} \
+      --out-json reloc/program.json
+
+    python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/relocation_stability.py"; name = "relocation_stability.py"; }} \
+      --canonical ${elflingProgram}/program.json \
+      --relocated reloc/program.json | tee "$out/relocation.txt"
+  '';
+
+  # Negative tests for the generator's defect surfacing (review blocker #1): each shows a defect is
+  # surfaced and FAILS generation, never silently dropped (unmapped region, ambiguous readArray width,
+  # sibling PC overlap), and that the real program is defect-free. Runs against the real sidecars.
+  elflingGeneratorDefectsCheck = pkgs.runCommand "elfling-generator-defects-check" {
+    nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
+  } ''
+    mkdir -p "$out"
+    python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/generator_defects_test.py"; name = "generator_defects_test.py"; }} \
+      --generator ${elflingGeneratorScript} \
+      --readelf ${riscvReadelf} \
+      --decoder ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
+      --allocator ${zesuRawSidecar}/obj/zesu-raw-ssz-allocator.o \
+      --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
+      --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
+      --source ${zesuRepaired} \
+      --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+      --map ${zesuSsz}/meta/zesu-ssz.map \
+      --elf ${zesuSsz}/bin/zesu-ssz \
+      --objdump ${riscvObjdump} | tee "$out/defects.txt"
+  '';
 
   # Evaluate the exact pinned Zig compiler's RV64 layout query. `@compileLog` deliberately fails
   # compilation after reporting the values, so this derivation turns that compiler output into the
@@ -557,6 +877,13 @@ in
       zesuNativeSuite
       zesuProductionObject
       zesuRawObject
+      zesuRawSidecar
+      zesuRuntimeSidecar
+      elflingProgram
+      blobScheduleInstance
+      elflingDecoderLlvmIr
+      elflingRelocationCheck
+      elflingGeneratorDefectsCheck
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -566,6 +893,13 @@ in
     reth-keccak = rethKeccak;
     zesu-value = zesuValue;
     zesu-ssz = zesuSsz;
+    zesu-raw-ssz-sidecar = zesuRawSidecar;
+    zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
+    elfling-program = elflingProgram;
+    blob-schedule-instance = blobScheduleInstance;
+    elfling-decoder-llvm-ir = elflingDecoderLlvmIr;
+    elfling-relocation-check = elflingRelocationCheck;
+    elfling-generator-defects-check = elflingGeneratorDefectsCheck;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;
