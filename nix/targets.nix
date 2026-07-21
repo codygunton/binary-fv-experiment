@@ -14,6 +14,7 @@ let
     riscvBinutils
     riscvCc
     riscvNm
+    riscvObjdump
     riscvPkgs
     riscvReadelf;
 
@@ -413,6 +414,8 @@ let
         --source ${zesuRepaired} \
         --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
         --map ${zesuSsz}/meta/zesu-ssz.map \
+        --elf ${zesuSsz}/bin/zesu-ssz \
+        --objdump ${riscvObjdump} \
         --out-json "$1/program.json" \
         --out-lean "$1/GeneratedProgram.lean" \
         --out-md "$1/program.md"
@@ -462,6 +465,8 @@ let
       --source ${zesuRepaired} \
       --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
       --map reloc/zesu-ssz.map \
+      --elf reloc/zesu-ssz.elf \
+      --objdump ${riscvObjdump} \
       --out-json reloc/program.json
 
     python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/relocation_stability.py"; name = "relocation_stability.py"; }} \
@@ -485,7 +490,9 @@ let
       --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
       --source ${zesuRepaired} \
       --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
-      --map ${zesuSsz}/meta/zesu-ssz.map | tee "$out/defects.txt"
+      --map ${zesuSsz}/meta/zesu-ssz.map \
+      --elf ${zesuSsz}/bin/zesu-ssz \
+      --objdump ${riscvObjdump} | tee "$out/defects.txt"
   '';
 
   # Evaluate the exact pinned Zig compiler's RV64 layout query. `@compileLog` deliberately fails

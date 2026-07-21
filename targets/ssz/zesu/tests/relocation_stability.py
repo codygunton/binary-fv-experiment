@@ -18,8 +18,10 @@ stale/hardcoded base, cannot pass both halves.
 """
 import argparse, json, sys
 
-# Identity-bearing occurrence fields: everything EXCEPT the address-bearing ones.
-ADDRESS_FIELDS = {"regions", "entryPc", "exitPc"}
+# Identity-bearing occurrence fields: everything EXCEPT the address-bearing ones. `externalCalls` is
+# emitted as callee (kind, index) references, which are relocation-stable, so it stays an identity
+# field; blocks/edges/exits carry addresses that shift and are checked separately below.
+ADDRESS_FIELDS = {"regions", "entryPc", "exitPc", "exits", "blocks", "edges"}
 
 
 def load(path):
@@ -86,6 +88,15 @@ def main():
         if r["exitPc"] - c["exitPc"] != delta:
             fail(f"occurrence[{i}] exitPc shifted by {r['exitPc']-c['exitPc']}, expected {delta}")
         check_regions("occurrence", i, c["regions"], r["regions"], delta)
+        if [e - delta for e in r.get("exits", [])] != c.get("exits", []):
+            fail(f"occurrence[{i}] exits did not shift uniformly by {delta}")
+        check_regions("occurrence", i, [b["range"] if "range" in b else b for b in c.get("blocks", [])],
+                      [b["range"] if "range" in b else b for b in r.get("blocks", [])], delta)
+        cedges, redges = c.get("edges", []), r.get("edges", [])
+        if len(cedges) != len(redges) or any(
+                re_["source"] - ce["source"] != delta or re_["target"] - ce["target"] != delta
+                for ce, re_ in zip(cedges, redges)):
+            fail(f"occurrence[{i}] edges did not shift uniformly by {delta}")
 
     ce, re = canon["excludedRoutines"], reloc["excludedRoutines"]
     if len(ce) != len(re):

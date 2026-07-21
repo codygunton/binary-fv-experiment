@@ -42,7 +42,7 @@ def run_generator(args, extra):
     cmd = [sys.executable, args.generator,
            "--readelf", args.readelf, "--decoder", args.decoder, "--allocator", args.allocator,
            "--sink", args.sink, "--runtime", args.runtime, "--source", args.source,
-           "--runtime-c", args.runtime_c] + extra
+           "--runtime-c", args.runtime_c, "--elf", args.elf, "--objdump", args.objdump] + extra
     p = subprocess.run(cmd, capture_output=True, text=True)
     return p.returncode, p.stdout + p.stderr
 
@@ -98,7 +98,8 @@ def test_sibling_overlap(gen, args, tmp):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--generator", required=True)
-    for k in ["readelf", "decoder", "allocator", "sink", "runtime", "source", "runtime-c", "map"]:
+    for k in ["readelf", "decoder", "allocator", "sink", "runtime", "source", "runtime-c", "map",
+              "elf", "objdump"]:
         ap.add_argument("--" + k, required=True)
     args = ap.parse_args()
     args.runtime_c = args.runtime_c  # argparse stores --runtime-c as runtime_c

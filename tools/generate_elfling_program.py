@@ -191,6 +191,145 @@ def norm_identity(name, d, srclines, consts):
         return None if w is None else ("ssz_raw.readArray", (str(w),))
     return (name, ())
 
+# ---- CFG analysis (control-flow interface, area #2) --------------------------------------------
+# The generator PROPOSES entries/exits/external-calls/basic-blocks/direct-edges from an objdump of the
+# canonical linked ELF; the Lean validation checks every one against the Sail-decoded
+# `controlFlowNodes` (the trusted source of truth). Classification mirrors `DecodedWord.controlTransfer`
+# / `ControlTransfer.directTargets` exactly so the Lean completeness checks hold. RV64IM_Zicclsm has no
+# compressed instructions, so every instruction is 4 bytes and the previous word is always at addr-4.
+BRANCH_MNEMONICS = {'beq','bne','blt','bge','bltu','bgeu','bgt','ble','bgtu','bleu',
+                    'beqz','bnez','bltz','bgez','blez','bgtz'}
+
+def disassemble(objdump, elf):
+    """addr -> (mnemonic, operands, comment_addr?) over every disassembled instruction."""
+    txt = subprocess.run([objdump, "-d", "--no-show-raw-insn", elf], capture_output=True, text=True).stdout
+    insns = {}
+    for ln in txt.splitlines():
+        m = re.match(r'^\s*([0-9a-f]+):\s+(\S+)\s*(.*)$', ln)
+        if not m: continue
+        addr, mnem, rest = int(m.group(1), 16), m.group(2), m.group(3)
+        comment = None
+        if '#' in rest:
+            body, cmt = rest.split('#', 1)
+            cm = re.search(r'([0-9a-f]+)', cmt); comment = int(cm.group(1), 16) if cm else None
+            rest = body
+        insns[addr] = (mnem, rest.strip(), comment)
+    return insns
+
+def _operand_target(ops):
+    m = re.search(r'\b([0-9a-f]+)\s+<[^>]+>', ops)
+    return int(m.group(1), 16) if m else None
+
+def classify(addr, insns):
+    """(kind, directTargets, callTarget?) mirroring the Lean control-transfer model. `directTargets`
+    is exactly `ControlTransfer.directTargets`, so a resolved call yields [target, addr+4], an
+    indirect/return/terminal yields [], a conditional yields [taken, addr+4]."""
+    mnem, ops, comment = insns[addr]; nxt = addr + 4
+    if mnem in BRANCH_MNEMONICS:
+        t = _operand_target(ops); return ('conditional', [t, nxt] if t is not None else [nxt], None)
+    if mnem == 'j':                                  # jal zero, target
+        t = _operand_target(ops); return ('jump', [t] if t is not None else [], None)
+    if mnem == 'jal':                                # jal ra, target  (rd = ra -> call)
+        t = _operand_target(ops); return ('call', [t, nxt] if t is not None else [nxt], t)
+    if mnem == 'ret':                                # jalr zero, 0(ra)
+        return ('return', [], None)
+    if mnem in ('jr', 'jalr'):
+        # Decode rd/rs/imm and mirror `DecodedWord.controlTransfer` exactly:
+        #   rd = zero: resolved -> jump [target]; imm==0 -> return []; else indirect [].
+        #   rd != zero: resolved -> call [target, addr+4]; else indirectCall [].
+        # (`jr rs` is `jalr zero, 0(rs)`, which Sail models as `.return_` — a transfer-out, not a
+        # fall-through — so it MUST be classified as `return`, else exits are under-reported.)
+        if mnem == 'jr':
+            rd, imm = 'zero', 0
+            sm = re.search(r'\b([a-z][a-z0-9]*)\b', ops); src = sm.group(1) if sm else None
+        else:
+            m = re.match(r'\s*(?:([a-z][a-z0-9]*)\s*,\s*)?(-?\d+)?\(([a-z][a-z0-9]*)\)', ops)
+            if m:
+                rd = m.group(1) or 'ra'; imm = int(m.group(2) or '0'); src = m.group(3)
+            else:
+                m2 = re.match(r'\s*([a-z][a-z0-9]*)\s*,\s*([a-z][a-z0-9]*)\s*$', ops)  # jalr rd,rs
+                if m2:
+                    rd, imm, src = m2.group(1), 0, m2.group(2)
+                else:
+                    rd, imm, src = 'ra', 0, ops.strip()                                 # jalr rs
+        prev = insns.get(addr - 4)
+        resolved = (prev is not None and prev[0] == 'auipc'
+                    and prev[1].split(',')[0].strip() == src and comment is not None)
+        if rd in ('zero', 'x0'):
+            if resolved: return ('jump', [comment], None)
+            if imm == 0:  return ('return', [], None)
+            return ('indirect', [], None)
+        if resolved: return ('call', [comment, nxt], comment)
+        return ('indirectCall', [], None)            # unresolved indirect call: no direct targets
+    if mnem in ('ecall', 'ebreak', 'mret', 'sret', 'wfi', 'unimp'):
+        return ('terminal', [], None)
+    return ('fallthrough', [nxt], None)
+
+def region_pcs(regions):
+    """Every 4-byte instruction PC in a list of {start,size} regions."""
+    out = []
+    for r in regions:
+        out += list(range(r["start"], r["start"] + r["size"], 4))
+    return out
+
+def compute_occurrence_cfg(occ_sorted, insns):
+    """Fill each occurrence with generated CFG data proposed from the disassembly:
+      exits          — PCs whose control leaves the occurrence's regions (return/terminal or a target
+                       outside the regions); the real exits, never `max(endpoints)`;
+      blocks         — an exact basic-block partition of the occurrence's regions, split at fragment
+                       starts, branch/jump/call/terminal successors, and in-region branch targets;
+      edges          — every direct successor edge from a DEEPEST-owned PC (each edge attributed once);
+      externalCalls  — resolved call sites DEEPEST-owned by the occurrence, each -> the entry PC of the
+                       emitted/excluded occurrence it targets (Q1: deepest-inline owner, emitted callee).
+    Returns entry_to_callee so unresolved call targets can be surfaced as defects."""
+    region_pc_sets = [set(region_pcs(o["regions"])) for o in occ_sorted]
+    for i, o in enumerate(occ_sorted):
+        children_pcs = set()
+        for c in o["children"]:
+            children_pcs |= region_pc_sets[c]
+        R = region_pc_sets[i]
+        owned = R - children_pcs
+
+        exits = []
+        for pc in sorted(R):
+            if pc not in insns: continue
+            kind, tgts, _ = classify(pc, insns)
+            if kind in ('return', 'terminal') or any(t not in R for t in tgts):
+                exits.append(pc)
+        o["exits"] = exits
+
+        edges = []
+        for pc in sorted(owned):
+            if pc not in insns: continue
+            _, tgts, _ = classify(pc, insns)
+            for t in tgts:
+                edges.append({"source": pc, "target": t})
+        o["edges"] = edges
+
+    return region_pc_sets
+
+def occurrence_blocks(o, insns):
+    """Exact basic-block partition of the occurrence's regions (Q2): every region PC in exactly one
+    block, blocks contiguous within a single fragment, no gaps/overlaps."""
+    blocks = []
+    for r in o["regions"]:
+        lo, hi = r["start"], r["start"] + r["size"]
+        leaders = {lo}
+        for pc in range(lo, hi, 4):
+            if pc not in insns: continue
+            kind, tgts, _ = classify(pc, insns)
+            if kind == 'fallthrough':
+                continue                                 # a fall-through never starts a new block
+            if pc + 4 < hi:
+                leaders.add(pc + 4)                      # instruction after a transfer starts a block
+            for t in tgts:
+                if t != pc + 4 and lo <= t < hi:
+                    leaders.add(t)                       # an in-fragment branch/jump/call target
+        cuts = sorted(leaders) + [hi]
+        for a, b in zip(cuts, cuts[1:]):
+            blocks.append({"start": a, "size": b - a})
+    return blocks
+
 def sibling_overlap_defects(occ_sorted):
     """Attribution defects decidable from the inline tree: two occurrences claiming a common PC without
     one being inlined within the other. Inline nesting legitimately overlaps (a child's PCs lie inside
@@ -226,6 +365,10 @@ def main():
     ap.add_argument("--runtime-c", required=True)
     # canonical placement comes from the pinned linked ELF's linker map, never hardcoded bases.
     ap.add_argument("--map", required=True)
+    # the canonical linked ELF + its objdump drive the control-flow interface (entries/exits/calls/
+    # blocks/edges), proposed here and validated in Lean against the Sail-decoded CFG.
+    ap.add_argument("--elf", required=True)
+    ap.add_argument("--objdump", required=True)
     for k in ["out-json","out-lean","out-md"]: ap.add_argument("--"+k)
     a = ap.parse_args()
 
@@ -381,7 +524,42 @@ def main():
 
     # Reachable-but-excluded emitted glue, sorted for determinism (entry PC, then name, then DIE).
     excluded_sorted = sorted(excluded_occ, key=lambda x:(x["entryPc"], x["qualified"], x["dieOffset"]))
-    for x in excluded_sorted: del x["dieOffset"]
+    for x in excluded_sorted:
+        del x["dieOffset"]
+        # excluded routines are genuine call targets (allocator vtable / cleanup), so they carry an
+        # emitted identity the externalCalls can reference.
+        x["sourceFile"] = source_file_of(x["qualified"]) or "<zig-std>"
+
+    # --- Control-flow interface (area #2): propose entries/exits/blocks/edges/external-calls from the
+    # canonical ELF's disassembly; Lean validates every one against the Sail-decoded `controlFlowNodes`.
+    insns = disassemble(a.objdump, a.elf)
+    region_pc_sets = compute_occurrence_cfg(occ_sorted, insns)   # fills o["exits"], o["edges"]
+    for o in occ_sorted:
+        o["blocks"] = occurrence_blocks(o, insns)
+    # entry PC -> callee: only EMITTED occurrences and excluded routines are call targets (inlined
+    # callees are not "called"). Resolve each deepest-owned call site to the callee's emitted identity.
+    entry_to_callee = {}
+    for i, o in enumerate(occ_sorted):
+        if o["kind"] == "emitted": entry_to_callee.setdefault(o["entryPc"], ("occ", i))
+    for j, x in enumerate(excluded_sorted):
+        entry_to_callee.setdefault(x["entryPc"], ("excl", j))
+    for i, o in enumerate(occ_sorted):
+        children_pcs = set()
+        for c in o["children"]:
+            children_pcs |= region_pc_sets[c]
+        owned = region_pc_sets[i] - children_pcs
+        callees, seen = [], set()
+        for pc in sorted(owned):
+            if pc not in insns: continue
+            kind, _, ct = classify(pc, insns)
+            if kind == 'call' and ct is not None:
+                callee = entry_to_callee.get(ct)
+                if callee is None:
+                    defects.append({"kind":"unmappedRegion", "range":{"start":ct, "size":0},
+                                    "name":f"unresolved call target from {o['qualified']}", "obj":"call"})
+                elif callee not in seen:
+                    seen.add(callee); callees.append(callee)
+        o["externalCalls"] = callees   # list of ("occ"|"excl", idx)
 
     # Independently generated pinned-source manifest: each cataloged source file mapped to the SHA-256
     # of its pinned content, computed here from the exact source the extractor read. The handwritten
@@ -437,6 +615,24 @@ def lean_id(o):
         f' callSite := {{ line := {s["line"]}, column := {s["column"]} }} }}' for s in o["inlineStack"]) + "]"
     return f'{{ function := {{ declaration := {decl}, specialization := {spec} }}, inlineStack := {stack} }}'
 
+def excl_id_lean(x):
+    """The emitted (non-inlined) InstanceId of an excluded routine — it is a genuine call target, so
+    externalCalls can reference it and the validation can resolve calls to it."""
+    decl = f'{{ file := {{ path := {lean_str(x["sourceFile"])} }}, qualifiedName := {lean_str(x["qualified"])} }}'
+    return f'{{ function := {{ declaration := {decl}, specialization := #[] }}, inlineStack := [] }}'
+
+def callee_ref(c):
+    kind, idx = c
+    return f'occ{idx}Id' if kind == "occ" else f'excl{idx}Id'
+
+def blocks_lean(o):
+    return "#[" + ", ".join(f'{{ range := {{ start := {b["start"]}, size := {b["size"]} }} }}'
+                            for b in o["blocks"]) + "]"
+
+def edges_lean(o):
+    return "#[" + ", ".join(f'{{ source := {e["source"]}, target := {e["target"]} }}'
+                            for e in o["edges"]) + "]"
+
 def emit_lean(p):
     L = ["import BinaryFv.Binary.Elfling.Instance", "",
          "/-!", "# Generated Elfling program (milestone 4)", "",
@@ -456,16 +652,23 @@ def emit_lean(p):
     for i, o in enumerate(p["occurrences"]):
         L.append(f'def occ{i}Id : InstanceId := {lean_id(o)}')
     L.append("")
+    L.append("/-! ### Excluded-routine identities (address-free call targets). -/")
+    for j, x in enumerate(p["excludedRoutines"]):
+        L.append(f'def excl{j}Id : InstanceId := {excl_id_lean(x)}')
+    L.append("")
     L.append("/-! ### Occurrence instances (address-bearing). -/")
     for i, o in enumerate(p["occurrences"]):
         regions = "#[" + ", ".join(f'{{ start := {r["start"]}, size := {r["size"]} }}' for r in o["regions"]) + "]"
         parent = "none" if o["parentIdx"] is None else f'some occ{o["parentIdx"]}Id'
         children = "#[" + ", ".join(f'occ{c}Id' for c in o["children"]) + "]"
+        exits = "#[" + ", ".join(str(e) for e in o["exits"]) + "]"
+        extcalls = "#[" + ", ".join(callee_ref(c) for c in o["externalCalls"]) + "]"
         L.append(f'/-- occ {i}: {o["qualified"]}{("["+",".join(o["specialization"])+"]") if o["specialization"] else ""}'
                  f' ({o["kind"]}, entry 0x{o["entryPc"]:x}). -/')
         L.append(f'def occ{i} : FunctionInstance :=')
-        L.append(f'  {{ id := occ{i}Id, regions := {regions}, entryPc := {o["entryPc"]}, exitPcs := #[{o["exitPc"]}],')
-        L.append(f'    parent? := {parent}, children := {children}, externalCalls := #[],')
+        L.append(f'  {{ id := occ{i}Id, regions := {regions}, entryPc := {o["entryPc"]}, exitPcs := {exits},')
+        L.append(f'    parent? := {parent}, children := {children}, externalCalls := {extcalls},')
+        L.append(f'    blocks := {blocks_lean(o)}, edges := {edges_lean(o)},')
         L.append(f'    declProvenance := {{ sourceFileHash := {lean_str(o["sourceFileHash"])}, declSpan := {{ line := {o["declLine"]}, column := 1 }} }},')
         L.append(f'    provenance := {prov(o)}, symbol? := none }}')
         L.append("")
@@ -491,19 +694,21 @@ def emit_lean(p):
     L.append("did not fold into a cataloged ancestor. Address-bearing, untrusted auditable data; the Lean")
     L.append("reachable-partition validation checks these regions exactly tile `reachable \\ covered`. -/")
     L.append("structure ExcludedOccurrence where")
+    L.append("  id : InstanceId")
     L.append("  qualifiedName : String")
     L.append("  category : String")
     L.append("  regions : Array AddressRange")
     L.append("deriving Repr, Inhabited, DecidableEq")
     L.append("")
-    L.append("/-- Every reachable-but-excluded emitted routine: DWARF name, category, canonical regions. -/")
+    L.append("/-- Every reachable-but-excluded emitted routine: emitted identity, DWARF name, category,")
+    L.append("canonical regions. The identity lets a resolved external call target an excluded routine. -/")
     L.append("def generatedExcludedOccurrences : Array ExcludedOccurrence :=")
     if p["excludedRoutines"]:
         items = []
-        for x in p["excludedRoutines"]:
+        for j, x in enumerate(p["excludedRoutines"]):
             regions = "#[" + ", ".join(f'{{ start := {r["start"]}, size := {r["size"]} }}' for r in x["regions"]) + "]"
-            items.append(f'  {{ qualifiedName := {lean_str(x["qualified"])}, category := {lean_str(x["category"])},'
-                         f' regions := {regions} }}')
+            items.append(f'  {{ id := excl{j}Id, qualifiedName := {lean_str(x["qualified"])}, '
+                         f'category := {lean_str(x["category"])}, regions := {regions} }}')
         L.append("  #[" + ",\n   ".join(items) + "]")
     else:
         L.append("  #[]")
