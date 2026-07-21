@@ -93,10 +93,41 @@ theorem blobSchedule_children_disjoint :
      instancesDisjoint readU64Field1Instance readU64Field2Instance) = true := by
   native_decide
 
-/-- The attribution defects the extraction surfaced for this occurrence: **none**. Justified — not
-assumed — by `blobSchedule_children_nested` (proper nesting, no overlap) and
-`blobSchedule_children_disjoint` (disjoint siblings, no ambiguity). -/
-def blobScheduleAttributionDefects : Array AttributionDefect := #[]
+/-- A child region not contained in any of `parent`'s regions: the child claims a PC its parent does
+not own. Surfaced as `uncovered` at the region start. -/
+def nestingDefects (parent : FunctionInstance) (children : Array FunctionInstance) :
+    Array AttributionDefect :=
+  children.flatMap fun c =>
+    c.regions.filterMap fun r =>
+      if parent.regions.any (fun q => decide (q.start ≤ r.start ∧ r.stop ≤ q.stop)) then none
+      else some (AttributionDefect.uncovered r.start)
+
+/-- The first PC (if any) at which two occurrences' regions overlap. -/
+def firstSharedAddress (a b : FunctionInstance) : Option Nat :=
+  a.regions.foldl (init := none) fun acc r =>
+    acc.orElse fun _ => b.regions.foldl (init := none) fun acc' q =>
+      acc'.orElse fun _ =>
+        if r.start < q.stop ∧ q.start < r.stop then some (max r.start q.start) else none
+
+/-- Two sibling children sharing a PC (neither inlined within the other): `overlappingOwnership`. -/
+def siblingOverlapDefects (children : Array FunctionInstance) : Array AttributionDefect :=
+  (List.range children.size).foldl (init := #[]) fun acc i =>
+    (List.range children.size).foldl (init := acc) fun acc j =>
+      if i < j then
+        match firstSharedAddress children[i]! children[j]! with
+        | some addr =>
+            acc.push (AttributionDefect.overlappingOwnership addr children[i]!.id children[j]!.id)
+        | none => acc
+      else acc
+
+/-- The attribution defects for the blob-schedule occurrence, **computed** from its extracted data:
+child regions not contained in the parent (`uncovered`) and sibling children sharing a PC
+(`overlappingOwnership`). This is the ownership/coverage scan itself — not a defined `#[]` — so the
+emptiness proved below is a *consequence* of `blobSchedule_children_nested`/`_disjoint` holding on the
+real regions; a drifted extraction with a stray region or an overlap would make it nonempty. -/
+def blobScheduleAttributionDefects : Array AttributionDefect :=
+  nestingDefects blobScheduleInstance blobScheduleChildren ++
+    siblingOverlapDefects blobScheduleChildren
 
 theorem blobSchedule_defect_free : blobScheduleAttributionDefects.isEmpty = true := by native_decide
 
@@ -114,10 +145,40 @@ theorem blobSchedule_trace_is_field_reads :
     blobScheduleTraceOwnedByChild.size = blobScheduleTraceSites.size := by
   native_decide
 
-/-- The occurrence fragments this exemplar trace does not touch, surfaced as data rather than
-dropped: the two small leading fragments (present-check / length handling before the field reads). -/
-def blobScheduleFragmentsUnexercisedByTrace : Array AddressRange :=
-  #[{ start := 0x12c58, size := 0x8 }, { start := 0x12c88, size := 0x30 }]
+/-- Every instruction PC (4-byte stride) the occurrence's three fragments claim. -/
+def blobScheduleOccurrencePCs : Array Nat :=
+  blobScheduleInstance.regions.flatMap fun r =>
+    (List.range (r.size / 4)).toArray.map (fun k => r.start + 4 * k)
+
+/-- **Every** occurrence PC the 66-step exemplar trace does not exercise, at instruction granularity —
+computed by set difference against the trace, not a hand-listed pair of ranges. This surfaces not only
+the two wholly-unexercised leading fragments but also the gap the trace leaves INSIDE the large third
+fragment (`0x12dc4`, the `readU64` tail the trace stops one instruction short of) — exactly the
+omission the review flagged. -/
+def blobScheduleUnexercisedPCs : Array Nat :=
+  blobScheduleOccurrencePCs.filter (fun pc => !blobScheduleTraceSites.contains pc)
+
+/-- Nothing is dropped: every occurrence PC is either exercised by the trace or surfaced as
+unexercised. -/
+theorem blobSchedule_pc_partition :
+    blobScheduleOccurrencePCs.all
+      (fun pc => blobScheduleTraceSites.contains pc || blobScheduleUnexercisedPCs.contains pc) = true := by
+  native_decide
+
+/-- The unexercised set is genuinely disjoint from the trace. -/
+theorem blobSchedule_unexercised_untraced :
+    blobScheduleUnexercisedPCs.all (fun pc => !blobScheduleTraceSites.contains pc) = true := by
+  native_decide
+
+/-- The unexercised set includes the gap INSIDE the third fragment (`0x12dc4`), not only the two
+leading fragments (`0x12c58`, `0x12c88`). -/
+theorem blobSchedule_unexercised_covers_third_fragment_gap :
+    blobScheduleUnexercisedPCs.contains 0x12c58 = true ∧
+    blobScheduleUnexercisedPCs.contains 0x12c88 = true ∧
+    blobScheduleUnexercisedPCs.contains 0x12dc4 = true := by native_decide
+
+/-- 14 leading-fragment PCs plus the single third-fragment gap. -/
+theorem blobSchedule_unexercised_count : blobScheduleUnexercisedPCs.size = 15 := by native_decide
 
 /-! ## 5. Contract binding — the generated occurrence implements the handwritten contract -/
 
