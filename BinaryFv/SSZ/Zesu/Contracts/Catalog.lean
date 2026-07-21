@@ -1,4 +1,5 @@
 import BinaryFv.SSZ.Zesu.Contracts.Runtime
+import BinaryFv.SSZ.Zesu.Contracts.ExportedDecoder
 
 namespace BinaryFv.SSZ.Zesu.Contracts
 
@@ -261,7 +262,12 @@ result layout. -/
 structure ContractParams where
   env : DecoderEnvironment
   heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap
-  statusBase : Nat
+  /-- The pinned addresses of the three private decoder globals (`attempted`, 32-bit `last_status`,
+  optional `stored_result` pointer), read back through the exported accessors. This replaces the
+  previous free public 64-bit `statusBase` slot, which the wrapper never writes. -/
+  globals : DecoderGlobalsLayout
+  /-- The canonical buffer the exported `stored_result` pointer points at on success. -/
+  resultBuffer : Nat
   repForkActivation : ContainerRepresentation SszBridge.RawForkActivation
   repForkConfig : ContainerRepresentation SszBridge.RawForkConfig
   repChainConfig : ContainerRepresentation SszBridge.RawChainConfig
@@ -282,7 +288,8 @@ def routineObligation (p : ContractParams) (instance_ : FunctionInstance) (tag :
   let entry : BitVec 64 := BitVec.ofNat 64 instance_.entryPc
   let exit : BitVec 64 → Prop := fun pc => instance_.isExit pc.toNat
   match tag with
-  | .zesuDecodeRaw => correctnessClaimZesuDecodeRaw p.env p.statusBase instance_ entry exit
+  | .zesuDecodeRaw =>
+      correctnessClaimZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4 instance_ entry exit
   | .decode => correctnessClaimDecode p.env p.repRawV4 instance_ entry exit
   | .decodeRaw => correctnessClaimDecodeRaw p.env p.repRawV4 instance_ entry exit
   | .newPayloadRequest =>
@@ -333,7 +340,7 @@ contract must have a satisfiable precondition under a valid environment, stated 
 parameter level. -/
 def routineSatisfiable (p : ContractParams) (function : FunctionId) (tag : RoutineTag) : Prop :=
   match tag with
-  | .zesuDecodeRaw => satisfiableZesuDecodeRaw p.env p.statusBase
+  | .zesuDecodeRaw => satisfiableZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4
   | .decode => satisfiableDecode p.env p.repRawV4
   | .decodeRaw => satisfiableDecodeRaw p.env p.repRawV4
   | .newPayloadRequest => satisfiableNewPayloadRequest p.env p.repNewPayloadRequest

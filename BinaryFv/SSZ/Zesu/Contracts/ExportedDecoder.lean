@@ -149,13 +149,14 @@ def DecoderGlobalsScalarRep (layout : DecoderGlobalsLayout) (model : DecoderGlob
 /-- The stored-result pointer at `layout.storedResult` and the buffer it points at.
 
 `zesu_raw_result` returns this pointer: the canonical `resultBase` when a value is stored, or null
-otherwise. When a value is stored, canonical memory at `resultBase` represents it as a full `RawV4`. -/
-def StoredResultRep (layout : DecoderGlobalsLayout) (resultBase inputBase : Nat) (input : ByteArray)
-    (model : DecoderGlobalsModel) (state : State) : Prop :=
+otherwise. When a value is stored, canonical memory at `resultBase` represents it under the same
+`RawV4` container representation the internal `decodeRaw` contract uses, so the exported and internal
+views of a successful result agree by construction. -/
+def StoredResultRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation SszBridge.RawV4)
+    (resultBase : Nat) (model : DecoderGlobalsModel) (state : State) : Prop :=
   match model.stored with
   | some value =>
-      Word64LERep state layout.storedResult resultBase ∧
-      RawV4Rep state inputBase input resultBase value
+      Word64LERep state layout.storedResult resultBase ∧ rep value state resultBase
   | none =>
       Word64LERep state layout.storedResult 0
 
@@ -199,5 +200,77 @@ theorem fresh_rejection_stores_nothing (incoming : DecoderGlobalsModel) (error :
   refine ⟨?_, ?_, ?_⟩ <;>
     simp [callOutcome, resultingGlobals, DecodeCallOutcome.returnCode, DecodeCallOutcome.stored,
       hfresh]
+
+/-- The fresh decoder-global model the root theorem's runner starts from: nothing attempted, no
+status, no stored result. -/
+def DecoderGlobalsModel.fresh : DecoderGlobalsModel :=
+  { attempted := false, status := .notRun, stored := none }
+
+/-!
+## The exported wrapper contract
+
+The wrapper's shared meaning is the internal `decodeRaw`-then-`decode` composition, the same spec the
+internal contracts use. Its binding is the real one: the C ABI on entry, and the three private
+globals plus the return code on exit, read against an incoming ghost globals model. The catalog
+instantiates it at `DecoderGlobalsModel.fresh`; a second call is the same binding at an already
+`attempted` model.
+-/
+
+/-- The shared specification of `zesu_decode_raw`: the pure `decode` outcome. Shared by every
+occurrence; it names no register, global, or address. -/
+def specZesuDecodeRaw : RoutineSpec ZesuDecodeRawArgs (Except SszDecodeError SszBridge.RawV4) where
+  meaning := fun args => meaningDecode args.bytes
+
+/-- The wrapper entry binding: the real C ABI `zesu_decode_raw(input, len)` — the input pointer in
+`a0`, the length in `a1` — over valid code and input, with the decoder globals representing the
+incoming ghost model. -/
+def preZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+    (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs) (state : State) : Prop :=
+  MemoryBytes state args.inputBase args.bytes ∧
+  env.CodeIntact state ∧
+  state.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) ∧
+  state.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) ∧
+  DecoderGlobalsScalarRep globals incoming state
+
+/-- The wrapper exit binding, after retiring the return: the exact `a0` return code, the updated
+decoder globals (`attempted`, 32-bit status, stored-result pointer and buffer), and the preserved
+input and code. Allocation effects and preserved frames are added when the runner is proved (Row D);
+this fixes the observable interface. -/
+def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
+    (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
+    (result : Except SszDecodeError SszBridge.RawV4) (before after : State) : Prop :=
+  MemoryBytes after args.inputBase args.bytes ∧
+  env.CodeIntact after ∧
+  after.regs.get? x10 = some (BitVec.ofNat 64 (callOutcome incoming result).returnCode) ∧
+  DecoderGlobalsScalarRep globals (resultingGlobals incoming result) after ∧
+  StoredResultRep globals rep resultBuffer (resultingGlobals incoming result) after
+
+/-- The wrapper as a full occurrence contract: the shared spec paired with the real exported binding
+at a given incoming globals model. -/
+def occurrenceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
+    (incoming : DecoderGlobalsModel) :
+    OccurrenceContract ZesuDecodeRawArgs (Except SszDecodeError SszBridge.RawV4) where
+  spec := specZesuDecodeRaw
+  binding :=
+    { entry := preZesuDecodeRaw env globals incoming
+      exit := postZesuDecodeRaw env globals resultBuffer rep incoming
+      stepBound := fun args => 2 * (16384 + 512 * args.bytes.size) + 1024 }
+
+/-- The exported wrapper's correctness claim, at the fresh incoming model the root theorem uses. -/
+def correctnessClaimZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  OccurrenceContract.ImplementsInstance instance_ entry exit
+    (occurrenceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
+
+/-- The exported wrapper's entry binding is satisfiable under a valid environment. -/
+def satisfiableZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4) : Prop :=
+  ValidEnvironment env →
+    OccurrenceContract.PreSatisfiable
+      (occurrenceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
 
 end BinaryFv.SSZ.Zesu.Contracts
