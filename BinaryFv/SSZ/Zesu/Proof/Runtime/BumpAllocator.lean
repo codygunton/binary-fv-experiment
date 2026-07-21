@@ -21,6 +21,27 @@ def allocate (heap : BumpHeap) (bytes alignment : Nat) : Option (Nat × BumpHeap
   if bytes > heap.limit - aligned then none else
   some (aligned, { position := aligned + bytes, limit := heap.limit })
 
+theorem allocate_invalid_alignment (heap : BumpHeap) (bytes alignment : Nat)
+    (invalid : powerOfTwo alignment = false) : allocate heap bytes alignment = none := by
+  simp [allocate, invalid]
+
+theorem allocate_after_limit (heap : BumpHeap) (bytes alignment : Nat)
+    (pastLimit : heap.limit < heap.position) : allocate heap bytes alignment = none := by
+  simp [allocate, Nat.not_le_of_gt pastLimit]
+
+theorem allocate_success_shape {heap : BumpHeap} {bytes alignment pointer heap'}
+    (success : allocate heap bytes alignment = some (pointer, heap')) :
+    pointer = heap.position + allocationPadding heap.position alignment ∧
+      heap'.position = pointer + bytes ∧ heap'.limit = heap.limit := by
+  unfold allocate at success
+  split at success <;> try contradiction
+  dsimp at success
+  split at success <;> try contradiction
+  split at success <;> try contradiction
+  injection success with result
+  rcases result with ⟨rfl, rfl⟩
+  simp
+
 theorem allocate_success_within_limit {heap : BumpHeap} {bytes alignment pointer heap'}
     (heapFits : heap.position ≤ heap.limit)
     (success : allocate heap bytes alignment = some (pointer, heap')) :
