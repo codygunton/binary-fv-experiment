@@ -14,6 +14,7 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramValidation
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramInstructions
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramNesting
+import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramReachablePartition
 import BinaryFv.SSZ.Zesu.MachineExecution.DecodeTactic
 import BinaryFv.SSZ.Zesu.MachineExecution.BlobScheduleAndResultStores
 import BinaryFv.SSZ.Zesu.MachineExecution.ParserBlocks

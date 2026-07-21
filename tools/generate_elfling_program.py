@@ -31,6 +31,23 @@ def source_file_of(qual):
     if qual in ("memcpy", "memmove"): return FILES["runtime"]
     return None
 
+def excluded_category(qual):
+    """Category for a reachable-but-uncovered emitted glue routine, or None to skip it.
+
+    The two categories carry DIFFERENT soundness reasons (see the Lean reachable-partition module):
+      reachableCleanupNoOp: a `*.deinit` error-path cleanup routine; the freestanding zkVM's allocator
+        free is a no-op, so deinit never changes the accept/reject outcome.
+      reachableStdlib: std/mem/math implementation reachable through the allocator vtable, whose net
+        behavior is captured by the cataloged allocator contracts.
+    Anything else (e.g. the unreachable `raw_sink.*` object) is not part of the reachable-excluded
+    taxonomy and is skipped; the Lean partition proof is the guardrail that catches an over-narrow
+    filter (a reachable PC that is neither covered nor emitted here fails the partition)."""
+    if ".deinit" in qual:
+        return "reachableCleanupNoOp"
+    if qual.startswith("mem.") or qual.startswith("std.") or qual.startswith("math."):
+        return "reachableStdlib"
+    return None
+
 def build_catalog():
     dec, root, alloc, rt = FILES["decoder"], FILES["root"], FILES["allocator"], FILES["runtime"]
     C, decl = set(), {}
@@ -160,6 +177,7 @@ def main():
     objects = [("decoder", a.decoder), ("allocator", a.allocator), ("sink", a.sink), ("runtime", a.runtime)]
     occ = []            # occurrence records
     die_to_idx = {}     # id(DIE) -> occ index (cataloged occurrences only)
+    excluded_occ = []   # reachable-but-uncovered emitted glue (auditable exclusion taxonomy)
     defects = []
 
     for objkind, obj in objects:
@@ -175,7 +193,19 @@ def main():
                 defects.append({"kind":"ambiguousAttribution","name":name,"reason":"readArray width unresolved"}); continue
             qual, spec = ident
             sf = source_file_of(qual)
-            if (sf, qual, spec) not in CATALOG: continue    # glue: folded into cataloged ancestor's ranges
+            if (sf, qual, spec) not in CATALOG:
+                # Non-cataloged. Emitted subprograms matching the exclusion patterns are the
+                # reachable-but-uncovered glue the optimizer emitted as its own function (rather than
+                # inlining it into a cataloged ancestor, which would already cover its PCs). Surface
+                # them as auditable exclusion data; inlined glue and the unreachable sink are skipped.
+                if d.tag == "DW_TAG_subprogram":
+                    cat = excluded_category(qual)
+                    if cat is not None:
+                        ecr = canon(objkind, name, rs)
+                        if ecr is not None:
+                            excluded_occ.append({"qualified": qual, "category": cat, "regions": ecr,
+                                                 "entryPc": min(r["start"] for r in ecr), "dieOffset": d.off})
+                continue    # glue: folded into cataloged ancestor's ranges
             cr = canon(objkind, name, rs)
             if cr is None:
                 defects.append({"kind":"unmappedRegion","name":name,"obj":objkind}); continue
@@ -247,14 +277,20 @@ def main():
         r["children"] = sorted(reindex[c] for c in r["children"]); occ_sorted.append(r)
     entry_idx = reindex[entry_idx] if entry_idx is not None else None
 
+    # Reachable-but-excluded emitted glue, sorted for determinism (entry PC, then name, then DIE).
+    excluded_sorted = sorted(excluded_occ, key=lambda x:(x["entryPc"], x["qualified"], x["dieOffset"]))
+    for x in excluded_sorted: del x["dieOffset"]
+
     program = {"decoderTextSha256":DECODER_TEXT_SHA, "extractorVersion":EXTRACTOR_VERSION,
                "textBases":TEXT_BASE, "runtimeFuncBase":RUNTIME_FUNC_BASE,
-               "entryIndex":entry_idx, "occurrences":occ_sorted, "defects":sorted(defects, key=lambda x:json.dumps(x,sort_keys=True))}
+               "entryIndex":entry_idx, "occurrences":occ_sorted, "excludedRoutines":excluded_sorted,
+               "defects":sorted(defects, key=lambda x:json.dumps(x,sort_keys=True))}
     if a.out_json: open(a.out_json,"w").write(json.dumps(program, indent=2, sort_keys=True) + "\n")
     if a.out_lean: open(a.out_lean,"w").write(emit_lean(program))
     if a.out_md: open(a.out_md,"w").write(emit_md(program))
     routines = {(o["qualified"], tuple(o["specialization"])) for o in occ_sorted}
-    print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(defects)} entry={entry_idx}")
+    print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(defects)} "
+          f"entry={entry_idx} excluded={len(excluded_sorted)}")
 
 # ---- Lean emission -----------------------------------------------------------------------------
 def lean_str(s): return '"' + s.replace('\\','\\\\').replace('"','\\"') + '"'
@@ -275,7 +311,8 @@ def emit_lean(p):
          "`coverage` / `sourceProvenanceRecorded` / `IsCanonicalGeneratedProgram`. Object `.text` bases,",
          "readArray widths (from `DW_AT_call_line` -> pinned source), and glue-folding are recorded in the",
          "companion JSON. Regenerating is byte-deterministic (checked twice in the derivation).", "-/", "",
-         "namespace BinaryFv.SSZ.Zesu.Elfling.Generated", "", "open BinaryFv.Binary.Elfling", ""]
+         "namespace BinaryFv.SSZ.Zesu.Elfling.Generated", "",
+         "open BinaryFv.Binary (AddressRange)", "open BinaryFv.Binary.Elfling", ""]
     prov = lambda o: (f'{{ sidecarHash := {lean_str(p["decoderTextSha256"])}, entryOffset := {o["dieOffset"]},'
                       f' extractorVersion := {lean_str(p["extractorVersion"])} }}')
     # All address-free identities first (they reference nothing), so the FunctionInstances below can
@@ -309,6 +346,30 @@ def emit_lean(p):
     L.append(f'  {{ entry := occ{ei}Id, instances := generatedInstances, defects := {defects},')
     L.append(f'    provenance := {prov(p["occurrences"][ei])} }}')
     L.append("")
+    # Reachable-but-excluded taxonomy (auditable data the reachable-partition proof consumes).
+    L.append("/-! ### Reachable-but-excluded emitted routines (auditable exclusion taxonomy). -/")
+    L.append("")
+    L.append("/-- A reachable code routine carrying no cataloged occurrence: emitted glue the optimizer")
+    L.append("did not fold into a cataloged ancestor. Address-bearing, untrusted auditable data; the Lean")
+    L.append("reachable-partition validation checks these regions exactly tile `reachable \\ covered`. -/")
+    L.append("structure ExcludedOccurrence where")
+    L.append("  qualifiedName : String")
+    L.append("  category : String")
+    L.append("  regions : Array AddressRange")
+    L.append("deriving Repr, Inhabited, DecidableEq")
+    L.append("")
+    L.append("/-- Every reachable-but-excluded emitted routine: DWARF name, category, canonical regions. -/")
+    L.append("def generatedExcludedOccurrences : Array ExcludedOccurrence :=")
+    if p["excludedRoutines"]:
+        items = []
+        for x in p["excludedRoutines"]:
+            regions = "#[" + ", ".join(f'{{ start := {r["start"]}, size := {r["size"]} }}' for r in x["regions"]) + "]"
+            items.append(f'  {{ qualifiedName := {lean_str(x["qualified"])}, category := {lean_str(x["category"])},'
+                         f' regions := {regions} }}')
+        L.append("  #[" + ",\n   ".join(items) + "]")
+    else:
+        L.append("  #[]")
+    L.append("")
     L.append("end BinaryFv.SSZ.Zesu.Elfling.Generated")
     L.append("")
     return "\n".join(L)
@@ -325,6 +386,18 @@ def emit_md(p):
         par = "—" if o["parentIdx"] is None else str(o["parentIdx"])
         M.append(f"| {i} | `{o['qualified']}` | {spec} | {o['kind']} | 0x{o['entryPc']:x} | "
                  f"{len(o['regions'])} | {par} | {len(o['inlineStack'])} |")
+    ex = p.get("excludedRoutines", [])
+    if ex:
+        total = sum((r["size"] // 4) for x in ex for r in x["regions"])
+        M += ["", f"## Reachable-but-excluded routines ({len(ex)} routines, {total} region words)", "",
+              "Emitted glue reachable from `zesu_decode_raw` that carries no cataloged occurrence. "
+              "The Lean reachable-partition validation proves these exactly account for the reachable "
+              "PCs no cataloged occurrence covers.", "",
+              "| # | routine | category | regions | words |",
+              "|--:|---------|----------|--------:|------:|"]
+        for i, x in enumerate(ex):
+            w = sum(r["size"] // 4 for r in x["regions"])
+            M.append(f"| {i} | `{x['qualified']}` | {x['category']} | {len(x['regions'])} | {w} |")
     if p["defects"]:
         M += ["", "## Attribution defects", ""] + [f"- `{json.dumps(d)}`" for d in p["defects"]]
     M.append("")
