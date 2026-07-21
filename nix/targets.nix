@@ -252,6 +252,73 @@ let
     '';
   };
 
+  # DWARF sidecar for the raw-SSZ objects. Identical to `zesuRawObject` in pinned source, Zig
+  # compiler, target, code model, and optimization, changing only `.strip = false` on the three
+  # object root modules so debug information is retained (`ReleaseSmall` strips by default). The
+  # equivalence gate below proves the sidecar is the *same compilation* as the canonical object —
+  # every allocatable section byte-identical, matching RISC-V ISA attributes, relocations, and
+  # symbols, and the decoder `.text` pinned to its SHA-256 — so the sidecar's DWARF validly
+  # describes the canonical bytes. A wrong sidecar can only fail this build, never establish a false
+  # source mapping. The DWARF is untrusted until this derivation succeeds.
+  zesuRawSidecar = pkgs.stdenvNoCC.mkDerivation {
+    pname = "zesu-raw-ssz-rv64im-sidecar";
+    version = "96f1621";
+    src = zesuRepaired;
+    nativeBuildInputs = [
+      pkgs.zig
+      riscvBinutils
+      pkgs.coreutils
+      pkgs.diffutils
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.gnugrep
+    ];
+    dontConfigure = true;
+    dontFixup = true;
+
+    buildPhase = ''
+      runHook preBuild
+      export HOME="$TMPDIR"
+      export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+      export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+
+      # Retain DWARF by disabling strip on exactly the three raw-SSZ object root modules; nothing
+      # else changes. `--replace-fail` makes source drift a build error rather than a silent no-op.
+      substituteInPlace build.zig \
+        --replace-fail '.root_source_file = b.path("src/zkvm/raw_allocator.zig"),' \
+          '.root_source_file = b.path("src/zkvm/raw_allocator.zig"), .strip = false,'
+      substituteInPlace build.zig \
+        --replace-fail '.root_source_file = b.path("src/zkvm/raw_decoder_root.zig"),' \
+          '.root_source_file = b.path("src/zkvm/raw_decoder_root.zig"), .strip = false,'
+      substituteInPlace build.zig \
+        --replace-fail '.root_source_file = b.path("src/zkvm/raw_sink.zig"),' \
+          '.root_source_file = b.path("src/zkvm/raw_sink.zig"), .strip = false,'
+
+      zig build rv64im-raw-ssz-object -Doptimize=ReleaseSmall
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/obj" "$out/meta"
+      cp zig-out/lib/zesu_raw_ssz_allocator.o "$out/obj/zesu-raw-ssz-allocator.o"
+      cp zig-out/lib/zesu_raw_ssz.o           "$out/obj/zesu-raw-ssz-decoder.o"
+      cp zig-out/lib/zesu_raw_ssz_sink.o      "$out/obj/zesu-raw-ssz-sink.o"
+
+      export READELF=${riscvReadelf}
+      export EXPECT_TEXT_SHA=f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b
+      bash ${repo}/targets/ssz/zesu/tests/sidecar_equivalence.sh \
+        ${zesuRawObject}/obj "$out/obj" | tee "$out/meta/equivalence.txt"
+
+      printf '%s\n' "zesu=codygunton/zesu@${zesuRepairedRevision}" > "$out/meta/provenance.txt"
+      printf '%s\n' "zig=$(zig version)" >> "$out/meta/provenance.txt"
+      printf '%s\n' "decoder-text-sha256=f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b" \
+        >> "$out/meta/provenance.txt"
+      ${riscvReadelf} -SW "$out/obj/zesu-raw-ssz-decoder.o" > "$out/meta/decoder-sections.txt"
+      runHook postInstall
+    '';
+  };
+
   # Evaluate the exact pinned Zig compiler's RV64 layout query. `@compileLog` deliberately fails
   # compilation after reporting the values, so this derivation turns that compiler output into the
   # Lean data module consumed by the proof while preserving the raw compiler transcript as evidence.
@@ -557,6 +624,7 @@ in
       zesuNativeSuite
       zesuProductionObject
       zesuRawObject
+      zesuRawSidecar
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -566,6 +634,7 @@ in
     reth-keccak = rethKeccak;
     zesu-value = zesuValue;
     zesu-ssz = zesuSsz;
+    zesu-raw-ssz-sidecar = zesuRawSidecar;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;

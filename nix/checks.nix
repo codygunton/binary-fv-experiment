@@ -8,6 +8,7 @@ let
       stats
       zesuProductionObject
       zesuRawObject
+      zesuRawSidecar
       zesuSinkObservability
       zesuSsz
       zesuValue;
