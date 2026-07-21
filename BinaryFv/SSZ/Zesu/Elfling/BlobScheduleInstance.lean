@@ -5,7 +5,7 @@ import BinaryFv.Binary.Elfling.Instance
 
 Deterministically extracted from the validated DWARF sidecar
 (`zesu-raw-ssz-decoder.o`, decoder `.text` sha256 f946b25e…, DIE 0x00004039) by
-`docs/ai/plan/artifacts/extract_blob_schedule_instance.py`. Object-relative DWARF ranges are
+`tools/extract_blob_schedule_instance.py`. Object-relative DWARF ranges are
 mapped to canonical-ELF PCs by `+0x102b0` (the decoder object `.text` base, Amendment A).
 This is address-bearing generated data (untrusted); `BlobScheduleMapping.lean` validates it
 against the canonical trace and binds it to the address-free catalog identity and contract.

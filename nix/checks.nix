@@ -11,6 +11,7 @@ let
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
+      blobScheduleInstance
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
