@@ -1,6 +1,6 @@
-import BinaryFv.SSZ.Zesu.Execution.Representation
+import BinaryFv.SSZ.Zesu.MemoryRepresentation.RawV4
 
-namespace BinaryFv.SSZ.Zesu.Execution
+namespace BinaryFv.SSZ.Zesu.MemoryRepresentation
 
 open BinaryFv.RiscV
 
@@ -511,4 +511,4 @@ theorem raw_v4_deposit_observes (state : State) (inputBase : Nat) (input : ByteA
       value.newPayloadRequest.executionRequests.deposits[index]
       (allocations.depositContents index indexBound)⟩
 
-end BinaryFv.SSZ.Zesu.Execution
+end BinaryFv.SSZ.Zesu.MemoryRepresentation

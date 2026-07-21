@@ -77,6 +77,96 @@ theorem tryStepFallThroughRetires (stepNo : Nat) (state afterExec : State)
     nextPcAfterExec hartAgree incAgree retAgree hartRead inhibitRead configRead notInhibited
     machineEnabled retiredRead
 
+/-- A register-writing fall-through instruction has a fully determined post-execute state.  This
+specialization derives the four bookkeeping premises of `tryStepFallThroughRetires` from the two
+register-map writes, leaving only the instruction's generated execute contract to establish. -/
+theorem tryStepFallThroughWriteRegRetires (stepNo : Nat) (state : State)
+    (pc retired : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64)
+    (byte0 byte1 byte2 byte3 : BitVec 8) (inst : instruction) (rd : Register)
+    (value : RegisterType rd)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
+    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
+    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (base : BaseInstructionEncoding byte0)
+    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state) inst)
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (exec : Runs (execute inst) (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert rd value }
+      (.Retire_Success ()))
+    (rdNotNextPC : rd ≠ nextPC)
+    (rdNotHart : rd ≠ hart_state)
+    (rdNotIncrement : rd ≠ minstret_increment)
+    (rdNotRetired : rd ≠ minstret)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+          regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert rd value }
+        (Sail.BitVec.addInt pc 4) retired) false := by
+  apply tryStepFallThroughRetires stepNo state
+    { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert rd value }
+    pc retired inhibit config byte0 byte1 byte2 byte3 inst platform noMMIO bytes interrupts base decode
+    notExpected exec
+  · calc
+      ({ coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert rd value
+        }).regs.get? nextPC =
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? nextPC := by
+            simpa using writeReg_read_unchanged
+              (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) rd nextPC value
+              rdNotNextPC.symm
+      _ = some (Sail.BitVec.addInt pc 4) := by simp [coreControlFlowNextState]
+  · calc
+      ({ coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert rd value
+        }).regs.get? hart_state =
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? hart_state := by
+            simpa using writeReg_read_unchanged
+              (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) rd hart_state value
+              rdNotHart.symm
+      _ = (tryStepControlFlowAfterIncrement state).regs.get? hart_state := by
+        simpa [coreControlFlowNextState] using writeReg_read_unchanged
+          (tryStepControlFlowAfterIncrement state) nextPC hart_state (Sail.BitVec.addInt pc 4) (by decide)
+  · calc
+      ({ coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert rd value
+        }).regs.get? minstret_increment =
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get?
+            minstret_increment := by
+            simpa using writeReg_read_unchanged
+              (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) rd minstret_increment
+              value rdNotIncrement.symm
+      _ = (tryStepControlFlowAfterIncrement state).regs.get? minstret_increment := by
+        simpa [coreControlFlowNextState] using writeReg_read_unchanged
+          (tryStepControlFlowAfterIncrement state) nextPC minstret_increment (Sail.BitVec.addInt pc 4)
+          (by decide)
+  · calc
+      ({ coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert rd value
+        }).regs.get? minstret =
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? minstret := by
+            simpa using writeReg_read_unchanged
+              (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) rd minstret value
+              rdNotRetired.symm
+      _ = (tryStepControlFlowAfterIncrement state).regs.get? minstret := by
+        simpa [coreControlFlowNextState] using writeReg_read_unchanged
+          (tryStepControlFlowAfterIncrement state) nextPC minstret (Sail.BitVec.addInt pc 4) (by decide)
+  · exact hartRead
+  · exact inhibitRead
+  · exact configRead
+  · exact notInhibited
+  · exact machineEnabled
+  · exact retiredRead
+
 /-! ## Back-edge: `j target` (`JAL` with `rd = x0`) -/
 
 /-- Writing register `x0` (`zreg`) is a no-op (local copy of the stage-3 private lemma). -/

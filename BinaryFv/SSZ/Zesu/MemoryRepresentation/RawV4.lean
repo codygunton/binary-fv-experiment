@@ -3,7 +3,7 @@ import BinaryFv.RiscV.Logic.ImageMemory
 import BinaryFv.SSZ.Zesu.Artifact.AbiManifest
 import SszBridge.Core
 
-namespace BinaryFv.SSZ.Zesu.Execution
+namespace BinaryFv.SSZ.Zesu.MemoryRepresentation
 
 open BinaryFv.RiscV
 
@@ -384,4 +384,4 @@ theorem observe_raw_v4_descriptors_of_rep (state : State) (rootBase : Nat) (valu
       representation.publicKeys]
   rfl
 
-end BinaryFv.SSZ.Zesu.Execution
+end BinaryFv.SSZ.Zesu.MemoryRepresentation

@@ -1,4 +1,4 @@
-namespace BinaryFv.SSZ.Zesu.Proof.Runtime
+namespace BinaryFv.SSZ.Zesu.Runtime
 
 def maximumInputBytes : Nat := 2 * 1024 * 1024
 def rawAllocationBound (inputSize : Nat) : Nat := 8 * inputSize + 65536
@@ -12,4 +12,4 @@ theorem raw_allocation_bound_fits_arena (inputSize allocatedBytes : Nat)
   unfold maximumInputBytes rawAllocationBound zkvmArenaBytes at *
   omega
 
-end BinaryFv.SSZ.Zesu.Proof.Runtime
+end BinaryFv.SSZ.Zesu.Runtime

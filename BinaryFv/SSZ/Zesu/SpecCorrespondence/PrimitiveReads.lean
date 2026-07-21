@@ -1,9 +1,9 @@
-import BinaryFv.SSZ.Zesu.Execution.Observer
+import BinaryFv.SSZ.Zesu.MemoryRepresentation.Observers
 import SizzLean.Spec.Deserialize
 
-namespace BinaryFv.SSZ.Zesu.Proof
+namespace BinaryFv.SSZ.Zesu.SpecCorrespondence
 
-open BinaryFv.SSZ.Zesu.Execution
+open BinaryFv.SSZ.Zesu.MemoryRepresentation
 
 /-- Materialize one guarded Sail-memory range as the byte array consumed by the pinned spec. -/
 def observeByteArray? (state : BinaryFv.RiscV.State) (base length : Nat) : Option ByteArray :=
@@ -67,4 +67,53 @@ theorem observe_uint64_le_of_memory (state : BinaryFv.RiscV.State) (base offset 
   rw [observe_byte_array_of_memory state base bytes memory]
   rfl
 
-end BinaryFv.SSZ.Zesu.Proof
+/-- The guarded primitive observers inherit the pinned readers' exact bounds failures. -/
+theorem observe_uint8_at_out_of_bounds (state : BinaryFv.RiscV.State) (base offset : Nat)
+    (bytes : List UInt8) (memory : MemoryListBytes state base bytes)
+    (outOfBounds : bytes.length ≤ offset) :
+    observeUInt8At? state base bytes.length offset = none := by
+  rw [observe_uint8_at_of_memory state base offset bytes memory]
+  have size : (ByteArray.mk bytes.toArray).size = bytes.length := by
+    change bytes.toArray.size = bytes.length
+    simp
+  have guard : ¬offset < (ByteArray.mk bytes.toArray).size := by omega
+  unfold SizzLean.Spec.readUInt8At
+  simp [guard]
+
+theorem observe_uint16_le_out_of_bounds (state : BinaryFv.RiscV.State) (base offset : Nat)
+    (bytes : List UInt8) (memory : MemoryListBytes state base bytes)
+    (outOfBounds : bytes.length < offset + 2) :
+    observeUInt16LE? state base bytes.length offset = none := by
+  rw [observe_uint16_le_of_memory state base offset bytes memory]
+  have size : (ByteArray.mk bytes.toArray).size = bytes.length := by
+    change bytes.toArray.size = bytes.length
+    simp
+  have guard : ¬offset + 2 ≤ (ByteArray.mk bytes.toArray).size := by omega
+  unfold SizzLean.Spec.readUInt16LE
+  simp [guard]
+
+theorem observe_uint32_le_out_of_bounds (state : BinaryFv.RiscV.State) (base offset : Nat)
+    (bytes : List UInt8) (memory : MemoryListBytes state base bytes)
+    (outOfBounds : bytes.length < offset + 4) :
+    observeUInt32LE? state base bytes.length offset = none := by
+  rw [observe_uint32_le_of_memory state base offset bytes memory]
+  have size : (ByteArray.mk bytes.toArray).size = bytes.length := by
+    change bytes.toArray.size = bytes.length
+    simp
+  have guard : ¬offset + 4 ≤ (ByteArray.mk bytes.toArray).size := by omega
+  unfold SizzLean.Spec.readUInt32LE
+  simp [guard]
+
+theorem observe_uint64_le_out_of_bounds (state : BinaryFv.RiscV.State) (base offset : Nat)
+    (bytes : List UInt8) (memory : MemoryListBytes state base bytes)
+    (outOfBounds : bytes.length < offset + 8) :
+    observeUInt64LE? state base bytes.length offset = none := by
+  rw [observe_uint64_le_of_memory state base offset bytes memory]
+  have size : (ByteArray.mk bytes.toArray).size = bytes.length := by
+    change bytes.toArray.size = bytes.length
+    simp
+  have guard : ¬offset + 8 ≤ (ByteArray.mk bytes.toArray).size := by omega
+  unfold SizzLean.Spec.readUInt64LE
+  simp [guard]
+
+end BinaryFv.SSZ.Zesu.SpecCorrespondence

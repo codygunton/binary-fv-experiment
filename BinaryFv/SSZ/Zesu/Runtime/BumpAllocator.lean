@@ -1,6 +1,6 @@
-import BinaryFv.SSZ.Zesu.Execution.Representation
+import BinaryFv.SSZ.Zesu.MemoryRepresentation.RawV4
 
-namespace BinaryFv.SSZ.Zesu.Proof.Runtime
+namespace BinaryFv.SSZ.Zesu.Runtime
 
 /-- Pure RV64 model of the checked bump-allocation arithmetic used by `zesu_raw_alloc`. -/
 structure BumpHeap where
@@ -73,4 +73,4 @@ theorem allocate_success_within_limit {heap : BumpHeap} {bytes alignment pointer
   · exact Nat.le_add_right _ _
   · omega
 
-end BinaryFv.SSZ.Zesu.Proof.Runtime
+end BinaryFv.SSZ.Zesu.Runtime
