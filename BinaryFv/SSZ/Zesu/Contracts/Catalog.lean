@@ -9,18 +9,21 @@ open BinaryFv.RiscV.Elfling
 # The semantic-routine catalog
 
 The complete enumeration of routines the proof must cover, each carrying a stable, address-free
-`FunctionId` (pinned source file, declaration line, qualified name, and concrete specialization), the
-`RoutineTag` that selects its handwritten contract, and a `Presence` classification.
+`FunctionId` (pinned source file, qualified name, and concrete specialization — **no** declaration
+line or content hash: those are validated provenance, not identity), the `RoutineTag` that selects
+its handwritten contract, and a `Presence` classification.
 
 Membership is pinned to source: every catalog `FunctionId` names a routine in
-`src/stateless/stateless/ssz_raw.zig`, `src/zkvm/raw_decoder_root.zig`, or the freestanding RV64
-runtime, and every excluded routine carries a machine-checkable reason. Nothing here carries an
-address, an instruction word, or a symbol — an entry is identity plus its contract selector, and the
-generated Elfling program is what binds each identity to canonical-ELF ranges.
+`src/stateless/stateless/ssz_raw.zig`, `src/zkvm/raw_decoder_root.zig`, `src/zkvm/raw_allocator.zig`,
+or the freestanding RV64 runtime, and every excluded routine carries a machine-checkable reason.
+Nothing here carries an address, an instruction word, or a symbol — an entry is identity plus its
+contract selector, and the generated Elfling program is what binds each identity to canonical-ELF
+ranges.
 
-Two conventions the extraction row validates against DWARF and must reconcile if they differ:
-qualified names use the Zig module-qualified form, and the declaration column is normalized to `1`
-(the declaration *line* is the routine's `fn` line and is authoritative here).
+The qualified-name convention is the Zig module-qualified form, which the extraction row reconciles
+against DWARF. The declaration line and the source content hash are **not** part of the identity;
+they are provenance carried by generated occurrences and checked — the hash for equality against
+`pinnedSourceManifest`, the line for `> 0` — by `sourceProvenanceRecorded`.
 -/
 
 /-! ## Source files
@@ -44,6 +47,25 @@ def allocatorSourceFile : SourceFile :=
 /-- The freestanding RV64 C runtime that supplies `memcpy`/`memmove`. Not a Zig decoder source. -/
 def runtimeSourceFile : SourceFile :=
   { path := "targets/common/riscv64_runtime.c" }
+
+/-- The authoritative pinned-source manifest: each catalog source file mapped to the SHA-256 of its
+pinned content — the Zesu source at `github:codygunton/zesu@96f1621` and the repo's freestanding RV64
+runtime.
+
+`sourceProvenanceRecorded` checks every occurrence's recorded `declProvenance.sourceFileHash` for
+*equality* with the manifest entry for its file, so provenance is validated against the pin rather
+than merely being non-empty. If the pinned revision (or the runtime source) changes, this manifest
+must change with it — that coupling is exactly what provenance is for. -/
+def pinnedSourceManifest : List (SourceFile × String) :=
+  [ (decoderSourceFile, "ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0f6783a1d131"),
+    (rootSourceFile, "53afe7a5c7c70122a3e2a9f9673a3415a50579a2ed11a21d9dd1c839e0c18a5e"),
+    (allocatorSourceFile, "c9e9457e45a3827729adb1921e07ba31997a536dc8f719e04d2d0d6f4c742591"),
+    (runtimeSourceFile, "5f80e272e96ccb30ca109bb77c9a78c9769bfd6b54ac2d7f712d3c2deb9b8235") ]
+
+/-- The pinned content hash for a source file, if it is one of the manifest files; `none` otherwise
+(which makes `sourceProvenanceRecorded` reject an occurrence attributed to an off-manifest file). -/
+def pinnedSourceHash (file : SourceFile) : Option String :=
+  (pinnedSourceManifest.find? (fun entry => decide (entry.1 = file))).map (·.2)
 
 /-! ## Identity and dispatch -/
 

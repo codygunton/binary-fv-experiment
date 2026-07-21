@@ -29,16 +29,20 @@ convenient environment that trivializes framing. -/
 def IsCanonicalEnvironment (env : DecoderEnvironment) : Prop :=
   env.image = Artifact.programImage ∧ ValidEnvironment env
 
-/-- Validated source provenance is present on every occurrence: a non-empty pinned-source content
-hash and a real (`> 0`) declaration line.
+/-- Validated source provenance on every occurrence: the recorded content hash **equals the pinned
+source manifest** entry for the occurrence's declaring file, and the declaration line is real
+(`> 0`).
 
 This is what preserves source pinning after moving the hash and line out of the stable `FunctionId`.
-The extraction row strengthens it to a byte-exact check that the recorded hash equals the pinned
-source file's hash and the line is the routine's actual `fn` line; here it forbids exactly the empty
-hash / line-0 placeholders that a name-only identity would otherwise smuggle in. -/
+The hash clause is now an equality against `pinnedSourceManifest`, not merely non-emptiness — so a
+recorded hash that does not match the pinned source (a wrong, stale, or placeholder hash), or an
+occurrence attributed to a file not in the manifest, fails the obligation. `pinnedSourceHash` returns
+`none` off-manifest, and `none = some _` is false, so off-manifest attribution is rejected. -/
 def sourceProvenanceRecorded (program : Program) : Prop :=
   ∀ instance_ ∈ program.instances,
-    instance_.declProvenance.sourceFileHash ≠ "" ∧ instance_.declProvenance.declSpan.line > 0
+    pinnedSourceHash instance_.id.function.declaration.file
+        = some instance_.declProvenance.sourceFileHash ∧
+      instance_.declProvenance.declSpan.line > 0
 
 /-- The program is the one generated from the canonical ELF: its entry is the `zesu_decode_raw`
 occurrence, that entry is emitted (not inlined), every claimed region lies inside the canonical
