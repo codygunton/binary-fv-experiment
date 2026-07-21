@@ -183,6 +183,17 @@ theorem reachable_coverage_partition :
   ⟨reachable_no_silent_drop, reachable_covered_excluded_disjoint, reachable_count,
     covered_reachable_count, excluded_reachable_count⟩
 
+/-- **Every reachable node is decoded and owned.** For the canonical decode, every address in the exact
+reachable set is a decoded CFG node AND is owned by a cataloged occurrence or a surfaced excluded
+routine — the node-level counterpart of the total edge classification (`edges_all_classified`). -/
+theorem reachable_node_decoded_and_owned :
+    ∃ nodes : Array RiscV.ControlFlowNode, controlFlow? = some nodes ∧
+      ∀ a ∈ reachableAddresses,
+        RiscV.hasControlFlowAddress nodes a = true ∧
+        (isCoveredPC a = true ∨ isExcludedPC a = true) := by
+  obtain ⟨nodes, hn⟩ := controlFlow_isSome'
+  exact ⟨nodes, hn, fun a ha => ⟨reachable_decoded hn a ha, reachable_no_silent_drop a ha⟩⟩
+
 /-! ## Named soundness obligation (discharged in a later row) -/
 
 /-- **Named soundness obligation** that the reachable-but-excluded routines do not change the
