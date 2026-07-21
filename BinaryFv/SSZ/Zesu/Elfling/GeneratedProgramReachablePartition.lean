@@ -1,6 +1,8 @@
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedReachabilityExact
+import BinaryFv.SSZ.Zesu.Contracts.Catalog
 import BinaryFv.SSZ.Zesu.Interface
+import BinaryFv.RiscV.Elfling.FunctionTrace
 import GeneratedProgram
 
 /-!
@@ -100,52 +102,52 @@ theorem covered_reachable_count : (reachableAddresses.filter isCoveredPC).size =
 theorem excluded_reachable_count : (reachableAddresses.filter isExcludedPC).size = 234 := by
   native_decide
 
-/-! ## Excluded taxonomy -/
+/-! ## Excluded taxonomy — typed via the shared `ExclusionReason` -/
 
-/-- The two reachable-but-excluded categories, each with its own soundness reason. -/
-inductive ExcludedCategory
-  | reachableStdlib
-  | reachableCleanupNoOp
-deriving DecidableEq, Repr
+open BinaryFv.SSZ.Zesu.Contracts (ExclusionReason)
 
-/-- Parse a generated category string into the typed category. -/
-def excludedCategoryOf (s : String) : Option ExcludedCategory :=
+/-- Map a generated category string to the SHARED `ExclusionReason` (stack-integrated taxonomy), rather
+than a disconnected local inductive. The row-1 `ExclusionReason` was extended with `reachableStdlib` /
+`reachableCleanupNoOp` for exactly this. -/
+def exclusionReasonOfCategory (s : String) : Option ExclusionReason :=
   if s = "reachableStdlib" then some .reachableStdlib
   else if s = "reachableCleanupNoOp" then some .reachableCleanupNoOp
   else none
 
-/-- Every excluded routine carries one of the two known categories, and its category matches its name
-shape (`*.deinit` for cleanup-no-op; a `std`/`mem`/`math` prefix for stdlib). This is what keeps the
-taxonomy honest rather than a free-form label. -/
+/-- Every excluded routine carries one of the two reachable-but-excluded reasons, and its reason matches
+its name shape (`*.deinit` for cleanup-no-op; a `std`/`mem`/`math` prefix for stdlib). This is what
+keeps the taxonomy honest rather than a free-form label. -/
 def excludedTaxonomyConsistentB : Bool :=
   generatedExcludedOccurrences.all fun x =>
-    match excludedCategoryOf x.category with
+    match exclusionReasonOfCategory x.category with
     | some .reachableCleanupNoOp => x.qualifiedName.endsWith ".deinit"
     | some .reachableStdlib =>
         x.qualifiedName.startsWith "mem." || x.qualifiedName.startsWith "std." ||
           x.qualifiedName.startsWith "math."
-    | none => false
+    | _ => false
 
 theorem excludedTaxonomyConsistentB_true : excludedTaxonomyConsistentB = true := by native_decide
 
 /-- Every excluded routine is categorized as `reachableStdlib` (a `mem`/`std`/`math` implementation)
-or `reachableCleanupNoOp` (a `*.deinit`), with the name shape matching the category. -/
+or `reachableCleanupNoOp` (a `*.deinit`), with the name shape matching the reason. -/
 theorem excluded_taxonomy_consistent :
     ∀ x ∈ generatedExcludedOccurrences,
-      (excludedCategoryOf x.category = some .reachableStdlib ∧
+      (exclusionReasonOfCategory x.category = some .reachableStdlib ∧
         (x.qualifiedName.startsWith "mem." || x.qualifiedName.startsWith "std." ||
           x.qualifiedName.startsWith "math.") = true) ∨
-      (excludedCategoryOf x.category = some .reachableCleanupNoOp ∧
+      (exclusionReasonOfCategory x.category = some .reachableCleanupNoOp ∧
         x.qualifiedName.endsWith ".deinit" = true) := by
   intro x hx
   have h := forall_mem_of_all excludedTaxonomyConsistentB_true x hx
   revert h
-  cases hcat : excludedCategoryOf x.category with
+  cases hcat : exclusionReasonOfCategory x.category with
   | none => intro h; simp at h
   | some c =>
     cases c with
     | reachableStdlib => intro h; exact Or.inl ⟨rfl, h⟩
     | reachableCleanupNoOp => intro h; exact Or.inr ⟨rfl, h⟩
+    | testOnly => intro h; simp at h
+    | unreachable => intro h; simp at h
 
 /-- Every reachable-but-excluded PC is attributed to a categorized excluded routine: the surfaced
 data genuinely accounts for the 234 uncovered reachable PCs. -/
@@ -153,7 +155,7 @@ theorem excluded_reachable_pc_attributed :
     ∀ a ∈ reachableAddresses, isExcludedPC a = true →
       ∃ x ∈ generatedExcludedOccurrences,
         (x.regions.any fun r => decide (r.start ≤ a ∧ a < r.stop)) = true ∧
-        (excludedCategoryOf x.category).isSome = true := by
+        (exclusionReasonOfCategory x.category).isSome = true := by
   intro a _ha hexc
   obtain ⟨x, hx, hr⟩ := exists_mem_of_any hexc
   refine ⟨x, hx, hr, ?_⟩
@@ -194,20 +196,51 @@ theorem reachable_node_decoded_and_owned :
   obtain ⟨nodes, hn⟩ := controlFlow_isSome'
   exact ⟨nodes, hn, fun a ha => ⟨reachable_decoded hn a ha, reachable_no_silent_drop a ha⟩⟩
 
-/-! ## Named soundness obligation (discharged in a later row) -/
+/-! ## Per-routine execution obligations (modular; discharged in later rows)
 
-/-- **Named soundness obligation** that the reachable-but-excluded routines do not change the
-observable outcome `root_compliance` covers. Given the canonical binary and the proved excluded
-taxonomy (every excluded routine is `reachableStdlib` — captured by the cataloged allocator contracts
-— or `reachableCleanupNoOp` — a `*.deinit` whose freestanding allocator free is a no-op), the executed
-result equals the specification's for every bounded input. Stated as a `Prop`, to be discharged in the
-allocator/entry rows; it is not asserted true here. -/
-def excludedRoutinesOutcomeIrrelevant : Prop :=
-  ∀ (binary : BinaryFv.SSZ.RiscvSpec.ValidatedElf), binary.bytes = BinaryFv.SSZ.Zesu.Artifact.bytes →
-    (∀ x ∈ generatedExcludedOccurrences,
-        excludedCategoryOf x.category = some ExcludedCategory.reachableStdlib ∨
-        excludedCategoryOf x.category = some ExcludedCategory.reachableCleanupNoOp) →
-      ∀ input : ByteArray, input.size < 2 * 1024 * 1024 →
-        BinaryFv.SSZ.RiscvSpec.execute binary input = .ok (BinaryFv.SSZ.SszSpec.decode input)
+Replacing the removed `excludedRoutinesOutcomeIrrelevant`, which merely restated the whole
+`root_compliance` under a taxonomy premise and was not a useful modular obligation. Here each excluded
+routine gets its OWN execution obligation about ITS execution, typed by its `ExclusionReason` — the
+building block the allocator/entry rows discharge. We do NOT prove semantic irrelevance in this row. -/
+
+open BinaryFv.RiscV.Elfling (RegionPcs EnteredFunctionTrace)
+open BinaryFv.RiscV (State)
+open Register
+
+/-- Confinement predicate of an excluded routine: PCs inside its canonical regions. -/
+def excludedRegionPred (x : Generated.ExcludedOccurrence) : BitVec 64 → Prop :=
+  RegionPcs x.regions
+
+/-- An excluded routine's exit: control leaves its regions. -/
+def excludedExitPred (x : Generated.ExcludedOccurrence) : BitVec 64 → Prop :=
+  fun pc => ¬ RegionPcs x.regions pc
+
+/-- The routine's entry PC (its lowest region start) as a machine word. -/
+def excludedEntryWord (x : Generated.ExcludedOccurrence) : BitVec 64 :=
+  BitVec.ofNat 64 (x.regions.foldl (fun m r => Nat.min m r.start) ((x.regions[0]?.map (·.start)).getD 0))
+
+/-- **Per-routine EXECUTION obligation.** From any machine state sitting on the routine's entry, the
+routine executes CONFINED to its own regions and reaches a generated exit — i.e. once entered it
+terminates and never strays outside its code. This is modular (about ONE routine's execution) and is
+the base obligation the category-specific memory effect strengthens in later rows: for a
+`reachableCleanupNoOp` (`*.deinit`) the additional fact is that the confined run leaves the accept/
+reject-determining state unchanged (its allocator free is a no-op); for a `reachableStdlib` it is that
+the run realizes the corresponding cataloged allocator-vtable contract. -/
+def excludedRoutineExecObligation (x : Generated.ExcludedOccurrence) : Prop :=
+  ∀ (fromStep : Nat) (s : State), s.regs.get? PC = some (excludedEntryWord x) →
+    ∃ (count : Nat) (s' : State),
+      EnteredFunctionTrace (excludedRegionPred x) (excludedExitPred x) (excludedEntryWord x)
+        fromStep count s s'
+
+/-- The per-routine execution obligations for every reachable-but-excluded routine, dispatched by its
+shared `ExclusionReason`. Each is a MODULAR statement about one routine's execution — the replacement
+for the removed global `excludedRoutinesOutcomeIrrelevant`. Stated as a `Prop`, discharged in the
+allocator/entry rows; not asserted true here. -/
+def excludedRoutineObligations : Prop :=
+  ∀ x ∈ generatedExcludedOccurrences,
+    match exclusionReasonOfCategory x.category with
+    | some .reachableStdlib => excludedRoutineExecObligation x
+    | some .reachableCleanupNoOp => excludedRoutineExecObligation x
+    | _ => True
 
 end BinaryFv.SSZ.Zesu.Elfling.Validation
