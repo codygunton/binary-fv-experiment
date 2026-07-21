@@ -12,6 +12,7 @@ let
       zesuRuntimeSidecar
       elflingProgram
       elflingRelocationCheck
+      elflingGeneratorDefectsCheck
       zesuSinkObservability
       zesuSsz
       zesuValue;

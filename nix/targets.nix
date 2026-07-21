@@ -463,6 +463,25 @@ let
       --relocated reloc/program.json | tee "$out/relocation.txt"
   '';
 
+  # Negative tests for the generator's defect surfacing (review blocker #1): each shows a defect is
+  # surfaced and FAILS generation, never silently dropped (unmapped region, ambiguous readArray width,
+  # sibling PC overlap), and that the real program is defect-free. Runs against the real sidecars.
+  elflingGeneratorDefectsCheck = pkgs.runCommand "elfling-generator-defects-check" {
+    nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
+  } ''
+    mkdir -p "$out"
+    python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/generator_defects_test.py"; name = "generator_defects_test.py"; }} \
+      --generator ${elflingGeneratorScript} \
+      --readelf ${riscvReadelf} \
+      --decoder ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
+      --allocator ${zesuRawSidecar}/obj/zesu-raw-ssz-allocator.o \
+      --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
+      --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
+      --source ${zesuRepaired} \
+      --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+      --map ${zesuSsz}/meta/zesu-ssz.map | tee "$out/defects.txt"
+  '';
+
   # Evaluate the exact pinned Zig compiler's RV64 layout query. `@compileLog` deliberately fails
   # compilation after reporting the values, so this derivation turns that compiler output into the
   # Lean data module consumed by the proof while preserving the raw compiler transcript as evidence.
@@ -772,6 +791,7 @@ in
       zesuRuntimeSidecar
       elflingProgram
       elflingRelocationCheck
+      elflingGeneratorDefectsCheck
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -785,6 +805,7 @@ in
     zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
     elfling-program = elflingProgram;
     elfling-relocation-check = elflingRelocationCheck;
+    elfling-generator-defects-check = elflingGeneratorDefectsCheck;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;

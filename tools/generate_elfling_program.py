@@ -191,6 +191,33 @@ def norm_identity(name, d, srclines, consts):
         return None if w is None else ("ssz_raw.readArray", (str(w),))
     return (name, ())
 
+def sibling_overlap_defects(occ_sorted):
+    """Attribution defects decidable from the inline tree: two occurrences claiming a common PC without
+    one being inlined within the other. Inline nesting legitimately overlaps (a child's PCs lie inside
+    its parent's), so ancestor/descendant pairs are excluded; anything else sharing a PC is ambiguous
+    ownership the deepest-inline rule cannot resolve, surfaced as `overlappingOwnership` rather than
+    dropped. Pure over the occurrence list (no ELF/DWARF access) so it is directly unit-testable."""
+    ancestors = [set() for _ in occ_sorted]
+    for i, r in enumerate(occ_sorted):
+        k = r["parentIdx"]
+        while k is not None:
+            ancestors[i].add(k); k = occ_sorted[k]["parentIdx"]
+    def overlap_addr(a, b):
+        for r in a["regions"]:
+            for q in b["regions"]:
+                if r["start"] < q["start"]+q["size"] and q["start"] < r["start"]+r["size"]:
+                    return max(r["start"], q["start"])
+        return None
+    out = []
+    for i in range(len(occ_sorted)):
+        for j in range(i+1, len(occ_sorted)):
+            if j in ancestors[i] or i in ancestors[j]: continue
+            o = overlap_addr(occ_sorted[i], occ_sorted[j])
+            if o is not None:
+                out.append({"kind":"overlappingOwnership", "address":o, "firstIdx":i, "secondIdx":j,
+                            "first":occ_sorted[i]["qualified"], "second":occ_sorted[j]["qualified"]})
+    return out
+
 def main():
     ap = argparse.ArgumentParser()
     for k in ["readelf","decoder","allocator","sink","runtime","source"]: ap.add_argument("--"+k, required=True)
@@ -226,7 +253,10 @@ def main():
             if not rs: continue
             ident = norm_identity(name, d, srclines, consts)
             if ident is None:
-                defects.append({"kind":"ambiguousAttribution","name":name,"reason":"readArray width unresolved"}); continue
+                base = runtime_func_base.get(name) if objkind == "runtime" else text_bases.get(objkind)
+                addr = (base + rs[0][0]) if base is not None else rs[0][0]
+                defects.append({"kind":"ambiguousAttribution", "address":addr, "candidates":[],
+                                "name":name, "reason":"readArray width unresolved"}); continue
             qual, spec = ident
             sf = source_file_of(qual)
             if (sf, qual, spec) not in CATALOG:
@@ -244,7 +274,8 @@ def main():
                 continue    # glue: folded into cataloged ancestor's ranges
             cr = canon(objkind, name, rs, text_bases, runtime_func_base)
             if cr is None:
-                defects.append({"kind":"unmappedRegion","name":name,"obj":objkind}); continue
+                defects.append({"kind":"unmappedRegion", "range":{"start":rs[0][0], "size":rs[0][1]-rs[0][0]},
+                                "name":name, "obj":objkind}); continue
             rec = {"objkind":objkind, "qualified":qual, "specialization":list(spec), "sourceFile":sf,
                    "sourceFileHash":file_hash.get(sf,""), "declLine":decl_line_of(d, declline_of_off),
                    "kind":("emitted" if d.tag=="DW_TAG_subprogram" else "inlined"),
@@ -311,9 +342,11 @@ def main():
         raise SystemExit(f"REGRESSION: generated decodeOptionalBlobSchedule != milestone-3 slice.\n"
                          f"  expected {ORACLE}\n  got      {got}")
 
-    # entry occurrence
+    # entry occurrence — the program cannot be emitted without one (Lean references occ<entry>Id), so a
+    # missing entry is a hard failure, not a surfaced defect.
     entry_idx = next((i for i,r in enumerate(occ) if r["qualified"]=="raw_decoder_root.zesu_decode_raw" and r["kind"]=="emitted"), None)
-    if entry_idx is None: defects.append({"kind":"unmappedRegion","name":"zesu_decode_raw","reason":"no emitted entry occurrence"})
+    if entry_idx is None:
+        raise SystemExit("GENERATION FAILURE: no emitted zesu_decode_raw entry occurrence")
 
     for r in occ: del r["_die"]
     # stable order (does not affect identity; makes output deterministic + reviewable)
@@ -323,7 +356,11 @@ def main():
     for old in order:
         r = dict(occ[old]); r["parentIdx"] = reindex[r["parentIdx"]] if r["parentIdx"] is not None else None
         r["children"] = sorted(reindex[c] for c in r["children"]); occ_sorted.append(r)
-    entry_idx = reindex[entry_idx] if entry_idx is not None else None
+    entry_idx = reindex[entry_idx]
+
+    # Attribution defects decidable from the inline tree alone (uncovered-reachable PCs are a CFG
+    # property proved in the Lean reachable partition, not decidable here).
+    defects.extend(sibling_overlap_defects(occ_sorted))
 
     # Reachable-but-excluded emitted glue, sorted for determinism (entry PC, then name, then DIE).
     excluded_sorted = sorted(excluded_occ, key=lambda x:(x["entryPc"], x["qualified"], x["dieOffset"]))
@@ -337,11 +374,37 @@ def main():
     if a.out_lean: open(a.out_lean,"w").write(emit_lean(program))
     if a.out_md: open(a.out_md,"w").write(emit_md(program))
     routines = {(o["qualified"], tuple(o["specialization"])) for o in occ_sorted}
-    print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(defects)} "
+    print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(program['defects'])} "
           f"entry={entry_idx} excluded={len(excluded_sorted)}")
+    # Generation FAILS when unresolved defects remain (review blocker #1): the outputs above are still
+    # written (the emitted Lean carries the authoritative defect list — never a hardcoded `#[]`), but the
+    # nonzero exit fails the Nix derivation so an incomplete extraction can never reach the proof. The
+    # Lean `coverage` obligation independently re-checks `defects = #[]`, so both generation and
+    # validation reject a defective program.
+    if program["defects"]:
+        summary = ", ".join(d["kind"] for d in program["defects"])
+        raise SystemExit(f"GENERATION FAILURE: {len(program['defects'])} unresolved attribution "
+                         f"defect(s): {summary}")
 
 # ---- Lean emission -----------------------------------------------------------------------------
 def lean_str(s): return '"' + s.replace('\\','\\\\').replace('"','\\"') + '"'
+
+def defect_lean(d):
+    """Render one generator defect as its `BinaryFv.Binary.Elfling.AttributionDefect` term. Overlap
+    defects reference the emitted `occ<i>Id` identities, which are defined above the program."""
+    k = d["kind"]
+    if k == "ambiguousAttribution":
+        cands = "[" + ", ".join(str(c) for c in d.get("candidates", [])) + "]"
+        return f'AttributionDefect.ambiguousAttribution {d["address"]} {cands}'
+    if k == "unmappedRegion":
+        r = d["range"]
+        return f'AttributionDefect.unmappedRegion {{ start := {r["start"]}, size := {r["size"]} }}'
+    if k == "overlappingOwnership":
+        return (f'AttributionDefect.overlappingOwnership {d["address"]} '
+                f'occ{d["firstIdx"]}Id occ{d["secondIdx"]}Id')
+    if k == "uncovered":
+        return f'AttributionDefect.uncovered {d["address"]}'
+    raise SystemExit(f"defect_lean: unknown defect kind {k!r}")
 def lean_id(o):
     decl = f'{{ file := {{ path := {lean_str(o["sourceFile"])} }}, qualifiedName := {lean_str(o["qualified"])} }}'
     spec = "#[" + ", ".join(lean_str(s) for s in o["specialization"]) + "]"
@@ -389,7 +452,10 @@ def emit_lean(p):
     ei = p["entryIndex"]
     L.append(f'/-- The complete generated program: entry `zesu_decode_raw` (occ {ei}), all reachable')
     L.append("    occurrences, and the surfaced attribution defects. -/")
-    defects = "#[]"  # first cut: defect list surfaced in JSON; Lean AttributionDefect wiring in the validation chunk
+    # Authoritative: the emitted defect list is exactly the generator's, never a hardcoded `#[]`. The
+    # derivation additionally FAILS when this list is nonempty, so in a released program it is `#[]`
+    # because there were no defects — not because emission discarded them.
+    defects = "#[" + ", ".join(defect_lean(d) for d in p["defects"]) + "]"
     L.append("def generatedProgram : Program :=")
     L.append(f'  {{ entry := occ{ei}Id, instances := generatedInstances, defects := {defects},')
     L.append(f'    provenance := {prov(p["occurrences"][ei])} }}')
