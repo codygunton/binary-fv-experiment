@@ -1,4 +1,5 @@
 import BinaryFv.SSZ.Zesu.Contracts.Entry
+import BinaryFv.SSZ.Zesu.Contracts.ExportedDecoder
 import BinaryFv.SSZ.Zesu.Runtime.BumpAllocator
 
 namespace BinaryFv.SSZ.Zesu.Contracts
@@ -158,64 +159,65 @@ def satisfiableMemmove (env : DecoderEnvironment) : Prop :=
 ## Exported accessors as contracts
 
 `zesu_raw_result` and `zesu_raw_error` are exported symbols, so they get full contracts like every
-other cataloged routine rather than bare predicates. Neither takes the borrowed input, neither
-allocates, and neither can fail: their `meaning` is total.
+other cataloged routine rather than bare predicates. Both read the private decoder globals rather
+than taking arguments: their `Args` is the ghost `DecoderGlobalsModel` those globals represent, and
+their entry binding *requires canonical global memory to represent it*. Neither takes the borrowed
+input, neither allocates, and neither can fail: their `meaning` is total. These ghost values are not
+ABI arguments — they name what the shared globals already hold.
 -/
 
-/-- Arguments of `zesu_raw_error`: the recorded decode status. -/
-structure RawErrorArgs where
-  status : DecodeStatus
-
-/-- Arguments of `zesu_raw_result`: where the stored result lives and whether a decode succeeded. -/
-structure RawResultArgs where
-  resultBase : Nat
-  decoded : Bool
-
-def postRawError (env : DecoderEnvironment) (args : RawErrorArgs)
+/-- `zesu_raw_error` returns the recorded 32-bit status held in the decoder globals. -/
+def postRawError (env : DecoderEnvironment) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
   match result with
-  | .ok code => code = args.status.code ∧ after.regs.get? x10 = some (BitVec.ofNat 64 code)
+  | .ok code => code = model.status.code ∧ after.regs.get? x10 = some (BitVec.ofNat 64 code)
   | .error _ => False
 
-def contractRawError (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError RawErrorArgs Nat where
-  meaning := fun args => .ok args.status.code
-  pre := fun _ state => env.CodeIntact state
+def contractRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout) :
+    FunctionContract SszDecodeError DecoderGlobalsModel Nat where
+  meaning := fun model => .ok model.status.code
+  pre := fun model state => env.CodeIntact state ∧ DecoderGlobalsScalarRep globals model state
   post := postRawError env
   stepBound := fun _ => 16
 
-def postRawResult (env : DecoderEnvironment) (args : RawResultArgs)
+/-- `zesu_raw_result` returns the stored-result pointer: the canonical `resultBuffer` when a value is
+stored, or null otherwise. -/
+def postRawResult (env : DecoderEnvironment) (resultBuffer : Nat) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
   match result with
   | .ok pointer =>
-      pointer = (if args.decoded then args.resultBase else 0) ∧
+      pointer = (if model.stored.isSome then resultBuffer else 0) ∧
       after.regs.get? x10 = some (BitVec.ofNat 64 pointer)
   | .error _ => False
 
-def contractRawResult (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError RawResultArgs Nat where
-  meaning := fun args => .ok (if args.decoded then args.resultBase else 0)
-  pre := fun _ state => env.CodeIntact state
-  post := postRawResult env
+def contractRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout) (resultBuffer : Nat)
+    (rep : ContainerRepresentation SszBridge.RawV4) :
+    FunctionContract SszDecodeError DecoderGlobalsModel Nat where
+  meaning := fun model => .ok (if model.stored.isSome then resultBuffer else 0)
+  pre := fun model state =>
+    env.CodeIntact state ∧ StoredResultRep globals rep resultBuffer model state
+  post := postRawResult env resultBuffer
   stepBound := fun _ => 32
 
-def correctnessClaimRawError (env : DecoderEnvironment)
+def correctnessClaimRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractRawError env)
+  ImplementsInstance instance_ entry exit (contractRawError env globals)
 
-def correctnessClaimRawResult (env : DecoderEnvironment)
+def correctnessClaimRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractRawResult env)
+  ImplementsInstance instance_ entry exit (contractRawResult env globals resultBuffer rep)
 
-def satisfiableRawError (env : DecoderEnvironment) : Prop :=
-  ValidEnvironment env → PreSatisfiable (contractRawError env)
+def satisfiableRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractRawError env globals)
 
-def satisfiableRawResult (env : DecoderEnvironment) : Prop :=
-  ValidEnvironment env → PreSatisfiable (contractRawResult env)
+def satisfiableRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractRawResult env globals resultBuffer rep)
 
 /-!
 ## Allocator vtable routines
