@@ -23,7 +23,8 @@ This is a curated `tree -L 2`: comments describe ownership rather than every gen
 ├── BinaryFv/
 │   ├── Binary/             # architecture-independent addresses and program images
 │   ├── RiscV/              # reusable Sail model, ELF, execution, logic, and proof layers
-│   └── Keccak/             # Keccak spec bridge and the Reth-specific compliance proof
+│   ├── Keccak/             # Keccak spec bridge and the Reth-specific compliance proof
+│   └── SSZ/                # Zesu SSZ decoder proof: contracts, deterministic Elfling scaffold, root
 ├── docs/
 │   └── evaluations/        # durable design/evaluation records; docs/ai is local and ignored
 ├── nix/
@@ -35,7 +36,8 @@ This is a curated `tree -L 2`: comments describe ownership rather than every gen
 │   ├── keccak/             # exact Reth wrapper, ABI adapter, and adjacent vector tests
 │   └── ssz/                # exact Zesu adapter, Lean bridge, audits, and correspondence
 ├── tools/
-│   └── analyze_rv64.py     # target-independent static RV64 analysis
+│   ├── analyze_rv64.py              # target-independent static RV64 analysis
+│   └── generate_elfling_program.py  # deterministic ELF/DWARF/CFG -> Elfling scaffold generator
 ├── flake.nix               # public packages, apps, checks, and pinned inputs
 ├── lakefile.lean           # root Lean library and generated-source inputs
 └── README.md
@@ -123,15 +125,58 @@ theorem root_compliance :
       RiscvSpec.execute binary msg = .ok (Spec.Keccak.keccak256 msg)
 ```
 
-The canonical proof inputs are generated with:
+The Zesu SSZ target has a parallel structure under `BinaryFv/SSZ/`: handwritten, address-free
+per-routine contracts (`Zesu/Contracts/`), the deterministically generated address-bearing Elfling
+scaffold validated against the canonical ELF and Sail-decoded control flow (`Zesu/Elfling/`),
+composed into `BinaryFv/SSZ/Root.lean`.
+
+The canonical proof inputs for both targets are regenerated with pinned Nix derivations — see
+[Regenerating deterministic artifacts](#regenerating-deterministic-artifacts).
+
+## Regenerating deterministic artifacts
+
+Every generated input is a pinned, hermetic Nix derivation: the same inputs produce byte-identical
+output, and `nix build .#<name> --out-link build/<name>` reproduces any of them. The Elfling scaffold
+and the audit LLVM IR additionally require byte-identical output across two independent runs.
+
+Lean proof inputs (consumed by `.#binary-fv-lean`):
 
 ```sh
-nix build .#sail-riscv-lean --out-link build/sail-riscv-lean
-nix build .#reth-keccak-elf-lean --out-link build/reth-keccak-elf-lean
-nix build .#keccak-spec-lean --out-link build/keccak-spec-lean
-lake build repl
-lake build BinaryFv
+nix build .#sail-riscv-lean          # Sail RV64 model as Lean (shared by both targets)
+nix build .#reth-keccak-elf-lean     # Reth Keccak ELF image as Lean
+nix build .#keccak-spec-lean         # Keccak specification as Lean
+nix build .#zesu-ssz-elf-lean        # Zesu SSZ decoder ELF image as Lean
+nix build .#ssz-spec-lean            # SizzLean SSZ bridge specification as Lean
+nix build .#zesu-abi-manifest        # compiler-reflected Zesu ABI layout
 ```
+
+SSZ Elfling scaffold — deterministic ELF/DWARF/CFG -> Elfling code generation via
+`tools/generate_elfling_program.py`:
+
+```sh
+nix build .#zesu-raw-ssz-sidecar     # byte-identical DWARF sidecar for the decoder .text
+nix build .#zesu-ssz-runtime-sidecar # DWARF sidecar for the linked runtime
+nix build .#elfling-program          # -> GeneratedProgram.lean, program.json, program.md, determinism.txt
+nix build .#elfling-decoder-llvm-ir  # audit-only optimized LLVM IR (never a proof input)
+```
+
+Build the root library hermetically end to end, or incrementally during development:
+
+```sh
+nix build .#binary-fv-lean
+# or:
+lake build repl
+lake build BinaryFv GeneratedProgram
+```
+
+Determinism, relocation, and fault-injection gates (also run by `nix flake check`):
+
+```sh
+nix build .#elfling-relocation-check         # relink at a different base; identities stay stable
+nix build .#elfling-generator-defects-check  # fault-injection negative tests
+```
+
+`GeneratedProgram.lean` is not committed — `.#elfling-program` regenerates it on every build.
 
 ## Trust boundary
 
