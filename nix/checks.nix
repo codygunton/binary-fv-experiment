@@ -9,6 +9,7 @@ let
       zesuProductionObject
       zesuRawObject
       zesuRawSidecar
+      zesuRuntimeSidecar
       zesuSinkObservability
       zesuSsz
       zesuValue;

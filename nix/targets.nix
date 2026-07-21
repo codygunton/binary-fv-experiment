@@ -319,6 +319,69 @@ let
     '';
   };
 
+  # DWARF sidecar for the C runtime object (`memcpy`/`memmove`, plus `memset`/`memcmp`). The canonical
+  # runtime is compiled `-g0` (stripped); this compiles the SAME source with the SAME `riscvCc` and
+  # cflags, only appending `-g` (which overrides the earlier `-g0`), and enforces that every emitted
+  # `.text.*` function-section is byte-identical to the stripped compile — so `-g` added only DWARF
+  # and changed no codegen. Symbols must never define a proof region: the runtime routines' regions
+  # come from these DWARF subprogram ranges, not from the symbols' (value,size). If `-g` ever changes
+  # the runtime `.text`, this derivation FAILS rather than silently substituting a symbol-boundary
+  # region — a documented exception would then be a deliberate, reviewed decision.
+  zesuRuntimeSidecar = pkgs.stdenvNoCC.mkDerivation {
+    pname = "zesu-ssz-runtime-sidecar";
+    version = "96f1621";
+    dontUnpack = true;
+    dontConfigure = true;
+    dontFixup = true;
+    hardeningDisable = [ "all" ];
+    nativeBuildInputs = [
+      riscvPkgs.stdenv.cc
+      riscvBinutils
+      pkgs.zig
+      pkgs.coreutils
+      pkgs.diffutils
+      pkgs.gnugrep
+    ];
+
+    buildPhase = ''
+      runHook preBuild
+      export NIX_HARDENING_ENABLE=""
+      export HOME="$TMPDIR"
+      export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+      export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_runtime.c -o canonical.o
+      ${riscvCc} ${cflags} -g -c ${repo}/targets/common/riscv64_runtime.c -o sidecar.o
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/obj" "$out/meta"
+
+      ${riscvReadelf} -SW sidecar.o | grep -q '\.debug_info' \
+        || { echo "RUNTIME SIDECAR FAILURE: no DWARF in -g runtime object" >&2; exit 1; }
+      if ${riscvReadelf} -SW canonical.o | grep -q '\.debug_info'; then
+        echo "RUNTIME SIDECAR FAILURE: canonical (-g0) runtime unexpectedly carries DWARF" >&2; exit 1
+      fi
+
+      for S in .text.memcpy .text.memmove .text.memset .text.memcmp; do
+        zig objcopy -O binary --only-section="$S" canonical.o "c$S.bin"
+        zig objcopy -O binary --only-section="$S" sidecar.o  "s$S.bin"
+        cmp -s "c$S.bin" "s$S.bin" \
+          || { echo "RUNTIME SIDECAR FAILURE: $S bytes differ — -g changed codegen; STOP (do not fall back to symbol-boundary regions)" >&2; exit 1; }
+      done
+
+      cp sidecar.o "$out/obj/riscv64_runtime.o"
+      ${riscvReadelf} -SW  "$out/obj/riscv64_runtime.o" > "$out/meta/runtime-sections.txt"
+      ${riscvReadelf} -sW  "$out/obj/riscv64_runtime.o" | grep -E 'memcpy|memmove' > "$out/meta/runtime-symbols.txt"
+      printf 'runtime=targets/common/riscv64_runtime.c\n' > "$out/meta/provenance.txt"
+      printf 'gcc=%s\n' "$(${riscvCc} --version | head -1)" >> "$out/meta/provenance.txt"
+      echo "OK: -g runtime .text.{memcpy,memmove,memset,memcmp} byte-identical to canonical; DWARF retained" \
+        | tee "$out/meta/equivalence.txt"
+      runHook postInstall
+    '';
+  };
+
   # Evaluate the exact pinned Zig compiler's RV64 layout query. `@compileLog` deliberately fails
   # compilation after reporting the values, so this derivation turns that compiler output into the
   # Lean data module consumed by the proof while preserving the raw compiler transcript as evidence.
@@ -625,6 +688,7 @@ in
       zesuProductionObject
       zesuRawObject
       zesuRawSidecar
+      zesuRuntimeSidecar
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -635,6 +699,7 @@ in
     zesu-value = zesuValue;
     zesu-ssz = zesuSsz;
     zesu-raw-ssz-sidecar = zesuRawSidecar;
+    zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;
