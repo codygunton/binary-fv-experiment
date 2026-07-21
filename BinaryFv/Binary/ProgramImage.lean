@@ -92,6 +92,10 @@ def readNatLE? (image : ProgramImage) (address : Nat) : Nat → Option Nat
 def readU32LE? (image : ProgramImage) (address : Nat) : Option Nat :=
   image.readNatLE? address 4
 
+/-- Read one file-or-zero-fill-backed 64-bit little-endian word from the image. -/
+def readU64LE? (image : ProgramImage) (address : Nat) : Option Nat :=
+  image.readNatLE? address 8
+
 def readFileNatLE? (image : ProgramImage) (address : Nat) : Nat → Option Nat
   | 0 => some 0
   | width + 1 => do

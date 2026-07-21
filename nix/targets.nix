@@ -252,6 +252,60 @@ let
     '';
   };
 
+  # Evaluate the exact pinned Zig compiler's RV64 layout query. `@compileLog` deliberately fails
+  # compilation after reporting the values, so this derivation turns that compiler output into the
+  # Lean data module consumed by the proof while preserving the raw compiler transcript as evidence.
+  zesuAbiManifest = pkgs.stdenvNoCC.mkDerivation {
+    pname = "zesu-raw-ssz-rv64-abi-manifest";
+    version = "96f1621";
+    src = zesuRepaired;
+    nativeBuildInputs = [ pkgs.gawk pkgs.zig ];
+    dontConfigure = true;
+    dontFixup = true;
+
+    buildPhase = ''
+      runHook preBuild
+      export HOME="$TMPDIR"
+      export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+      export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+      set +e
+      zig build-obj -target riscv64-linux-musl --dep ssz_raw \
+        -Mroot=${repo}/targets/ssz/zesu/abi_manifest.zig \
+        -Mssz_raw=$PWD/src/stateless/stateless/ssz_raw.zig > abi.log 2>&1
+      status=$?
+      set -e
+      test "$status" != 0
+      grep -F 'Compile Log Output:' abi.log
+      grep -F '@as(*const' abi.log
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out"
+      cp abi.log "$out/abi-manifest.log"
+      {
+        printf '%s\n' 'namespace ZesuSszAbi'
+        printf '%s\n' '/-- Generated from the pinned Zig compiler targeting riscv64-linux-musl. -/'
+        printf '%s\n' 'def manifest : Array (String × Nat) := #['
+        ${pkgs.gawk}/bin/awk '
+          /@as\(\*const/ {
+            if (match($0, /"[^"]+"/)) {
+              key = substr($0, RSTART + 1, RLENGTH - 2)
+              if (match($0, /comptime_int, [0-9]+/)) {
+                value = substr($0, RSTART + 14, RLENGTH - 14)
+                printf "  (\"%s\", %s),\n", key, value
+              }
+            }
+          }
+        ' abi.log
+        printf '%s\n' ']'
+        printf '%s\n' 'end ZesuSszAbi'
+      } > "$out/ZesuSszAbi.lean"
+      runHook postInstall
+    '';
+  };
+
   # Host-only full-value formatter used by the strict three-way SSZ gate.
   # It imports only the lossless raw decoder and is never linked into the
   # RV64 parser/sink measurement composition.
@@ -503,6 +557,7 @@ in
       zesuNativeSuite
       zesuProductionObject
       zesuRawObject
+      zesuAbiManifest
       zesuSinkObservability
       zesuSsz
       zesuSszRun
@@ -511,6 +566,7 @@ in
     reth-keccak = rethKeccak;
     zesu-value = zesuValue;
     zesu-ssz = zesuSsz;
+    zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;
   };
