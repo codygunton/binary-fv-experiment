@@ -105,4 +105,87 @@ def StaticDirectReachabilityBoundary.isReturn : StaticDirectReachabilityBoundary
   | { kind := .return_ _, .. } => true
   | _ => false
 
+/-!
+## Reachability over-approximation
+
+`directReachable` is a least-fixpoint search: it seeds with the entry and repeatedly adds decoded
+direct successors until closure. These lemmas certify the *forward* direction — any address the
+search returns is contained in any set that holds the entry and is closed under
+`directSuccessorsAt`. A materialized candidate set can therefore be validated cheaply (entry ∈ set,
+set closed) and this lemma turns that into a sound over-approximation of `directReachable` itself,
+without ever running the (expensive) fixpoint. The reverse direction (minimality) needs per-address
+reachability witnesses and is supplied by the generated certificate instead.
+-/
+
+/-- Every element of `appendKnownAddresses` came from `known` or from the appended `candidates`. -/
+theorem mem_appendKnownAddresses (nodes : Array ControlFlowNode) (known candidates : Array Nat) :
+    ∀ x, x ∈ appendKnownAddresses nodes known candidates → x ∈ known ∨ x ∈ candidates := by
+  unfold appendKnownAddresses
+  refine Array.foldl_induction
+    (motive := fun _ acc => ∀ x, x ∈ acc → x ∈ known ∨ x ∈ candidates) ?base ?step
+  · intro x hx; exact Or.inl hx
+  · intro i acc ih x hx
+    split at hx
+    · rcases Array.mem_push.mp hx with h | h
+      · exact ih x h
+      · exact Or.inr (h ▸ Array.getElem_mem i.isLt)
+    · exact ih x hx
+
+/-- Every element of one expansion pass is old, or a decoded direct successor of an old address. -/
+theorem mem_expandDirectReachability (nodes : Array ControlFlowNode) (known : Array Nat) :
+    ∀ x, x ∈ expandDirectReachability nodes known →
+      x ∈ known ∨ ∃ a, a ∈ known ∧ x ∈ directSuccessorsAt nodes a := by
+  unfold expandDirectReachability
+  refine Array.foldl_induction
+    (motive := fun _ acc => ∀ x, x ∈ acc →
+      x ∈ known ∨ ∃ a, a ∈ known ∧ x ∈ directSuccessorsAt nodes a) ?base ?step
+  · intro x hx; exact Or.inl hx
+  · intro i acc ih x hx
+    rcases mem_appendKnownAddresses nodes acc (directSuccessorsAt nodes known[i]) x hx with h | h
+    · exact ih x h
+    · exact Or.inr ⟨known[i], Array.getElem_mem i.isLt, h⟩
+
+/-- A closed superset of `known` stays a superset after one expansion pass. -/
+theorem expandDirectReachability_subset (nodes : Array ControlFlowNode) (R : Nat → Prop)
+    (hClosed : ∀ a, R a → ∀ t, t ∈ directSuccessorsAt nodes a → R t) (known : Array Nat)
+    (hknown : ∀ x, x ∈ known → R x) :
+    ∀ x, x ∈ expandDirectReachability nodes known → R x := by
+  intro x hx
+  rcases mem_expandDirectReachability nodes known x hx with h | ⟨a, ha, ht⟩
+  · exact hknown x h
+  · exact hClosed a (hknown a ha) x ht
+
+/-- The bounded fixpoint search never leaves a closed superset of its seed. -/
+theorem directReachableLoop_subset (nodes : Array ControlFlowNode) (R : Nat → Prop)
+    (hClosed : ∀ a, R a → ∀ t, t ∈ directSuccessorsAt nodes a → R t) :
+    ∀ fuel known, (∀ x, x ∈ known → R x) →
+      ∀ x, x ∈ directReachableLoop nodes fuel known → R x := by
+  intro fuel
+  induction fuel with
+  | zero => intro known hknown x hx; simpa [directReachableLoop] using hknown x hx
+  | succ f ih =>
+    intro known hknown x hx
+    rw [directReachableLoop] at hx
+    split at hx
+    · exact hknown x hx
+    · exact ih _ (expandDirectReachability_subset nodes R hClosed known hknown) x hx
+
+/--
+Forward reachability over-approximation: if `R` holds the entry (when the entry is decoded) and is
+closed under `directSuccessorsAt`, then `R` contains every address `directReachable` returns.
+-/
+theorem directReachable_subset (nodes : Array ControlFlowNode) (entry : Nat) (R : Nat → Prop)
+    (hClosed : ∀ a, R a → ∀ t, t ∈ directSuccessorsAt nodes a → R t)
+    (hEntry : hasControlFlowAddress nodes entry = true → R entry) :
+    ∀ x, x ∈ directReachable nodes entry → R x := by
+  intro x hx
+  unfold directReachable at hx
+  split at hx
+  · rename_i hcond
+    refine directReachableLoop_subset nodes R hClosed (nodes.size + 1) #[entry] ?_ x hx
+    intro y hy
+    rw [Array.mem_singleton] at hy
+    exact hy ▸ hEntry hcond
+  · exact absurd hx (Array.not_mem_empty x)
+
 end BinaryFv.RiscV
