@@ -137,20 +137,12 @@ def contractDecode (env : DecoderEnvironment) (rep : ContainerRepresentation Ssz
   stepBound := fun args => 2 * (16384 + 512 * args.bytes.size)
   post := fun args => postEntry env args rep
 
-/-- The exported entry writes a status word and returns `1` on success, `0` otherwise. -/
-def postZesuDecodeRaw (env : DecoderEnvironment) (args : EntryArgs) (statusBase : Nat)
-    (result : Except SszDecodeError SszBridge.RawV4) (before after : State) : Prop :=
-  MemoryBytes after args.base args.bytes ∧
-  env.CodeIntact after ∧
-  Word64LERep after statusBase (statusOfResult result).code ∧
-  after.regs.get? x10 = some (BitVec.ofNat 64 (if isAccepted result then 1 else 0))
-
-def contractZesuDecodeRaw (env : DecoderEnvironment) (statusBase : Nat) :
-    FunctionContract SszDecodeError EntryArgs SszBridge.RawV4 where
-  meaning := fun args => meaningDecode args.bytes
-  pre := preEntry env
-  post := fun args => postZesuDecodeRaw env args statusBase
-  stepBound := fun args => 2 * (16384 + 512 * args.bytes.size) + 1024
+/-!
+The exported `zesu_decode_raw` wrapper is **not** modelled here: its real interface is the C ABI plus
+the three private decoder globals, and it lives in `Contracts.ExportedDecoder`. The `EntryArgs`
+contracts below are the *internal* `decodeRaw`/`decode`, whose hidden result/error union genuinely
+uses the `resultBase + 832` layout.
+-/
 
 /-!
 ## Correctness claims
@@ -168,11 +160,6 @@ def correctnessClaimDecode (env : DecoderEnvironment)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractDecode env rep)
 
-def correctnessClaimZesuDecodeRaw (env : DecoderEnvironment) (statusBase : Nat)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
-    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractZesuDecodeRaw env statusBase)
-
 /-!
 ## Satisfiability
 -/
@@ -184,9 +171,6 @@ def satisfiableDecodeRaw (env : DecoderEnvironment)
 def satisfiableDecode (env : DecoderEnvironment)
     (rep : ContainerRepresentation SszBridge.RawV4) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractDecode env rep)
-
-def satisfiableZesuDecodeRaw (env : DecoderEnvironment) (statusBase : Nat) : Prop :=
-  ValidEnvironment env → PreSatisfiable (contractZesuDecodeRaw env statusBase)
 
 /-!
 ## The equivalence obligations
