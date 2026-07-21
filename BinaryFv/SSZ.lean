@@ -39,6 +39,7 @@ import BinaryFv.SSZ.Zesu.Contracts.Entry
 import BinaryFv.SSZ.Zesu.Contracts.ExportedDecoder
 import BinaryFv.SSZ.Zesu.Contracts.Containers
 import BinaryFv.SSZ.Zesu.Contracts.Collections
+import BinaryFv.SSZ.Zesu.Contracts.ExportedDecoderAudit
 import BinaryFv.SSZ.Zesu.Contracts.Canonicality
 import BinaryFv.SSZ.Zesu.Contracts.Leaves
 import BinaryFv.SSZ.Zesu.SpecCorrespondence.PrimitiveReads
