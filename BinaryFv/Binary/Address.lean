@@ -9,7 +9,7 @@ Architecture-independent: nothing here knows the width of an address. The RV64 b
 structure AddressRange where
   start : Nat
   size : Nat
-deriving DecidableEq, Repr
+deriving DecidableEq, Repr, Inhabited
 
 namespace AddressRange
 
