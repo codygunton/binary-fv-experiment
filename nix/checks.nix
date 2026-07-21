@@ -11,6 +11,7 @@ let
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
+      elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
       zesuSinkObservability

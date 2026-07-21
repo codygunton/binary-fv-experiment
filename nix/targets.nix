@@ -432,6 +432,43 @@ let
       > "$out/determinism.txt"
   '';
 
+  # Audit-only optimized LLVM IR for the decoder (plan: "optimized LLVM IR for inspection only, never
+  # as proof input"). Emitted through the pinned build.zig module graph (so imports resolve) by adding
+  # `getEmittedLlvmIr()` to the raw-ssz-object step, at the SAME target/optimize as the canonical
+  # object. Built twice and required byte-identical. It is never consumed by any Lean module.
+  elflingDecoderLlvmIr = pkgs.stdenvNoCC.mkDerivation {
+    pname = "elfling-decoder-llvm-ir";
+    version = "96f1621";
+    src = zesuRepaired;
+    nativeBuildInputs = [ pkgs.zig pkgs.coreutils pkgs.diffutils ];
+    dontConfigure = true;
+    dontFixup = true;
+    buildPhase = ''
+      runHook preBuild
+      export HOME="$TMPDIR"
+      export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+      export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+      substituteInPlace build.zig \
+        --replace-fail 'raw_objects_step.dependOn(&install_decoder.step);' \
+          'raw_objects_step.dependOn(&install_decoder.step); raw_objects_step.dependOn(&b.addInstallFile(raw_decoder_object.getEmittedLlvmIr(), "lib/zesu_raw_ssz.ll").step);'
+      zig build rv64im-raw-ssz-object -Doptimize=ReleaseSmall
+      cp zig-out/lib/zesu_raw_ssz.ll run1.ll
+      rm -rf zig-out "$ZIG_LOCAL_CACHE_DIR"
+      zig build rv64im-raw-ssz-object -Doptimize=ReleaseSmall
+      cp zig-out/lib/zesu_raw_ssz.ll run2.ll
+      cmp -s run1.ll run2.ll \
+        || { echo "DECODER LLVM IR NON-DETERMINISTIC between two builds" >&2; exit 1; }
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out"
+      cp run1.ll "$out/decoder.ll"
+      printf '%s\n' "audit-only optimized LLVM IR for src/zkvm/raw_decoder_root.zig (rv64im_zicclsm, ReleaseSmall); never a proof input; two builds byte-identical" > "$out/README.txt"
+      runHook postInstall
+    '';
+  };
+
   # Relocation acceptance test (plan "Verification and Acceptance"): relink the SAME pinned objects at
   # a DIFFERENT text base, regenerate the Elfling program from the SAME sidecars/source but the new
   # linker map, and require that every address-free identity (FunctionId, inline stack, nesting,
@@ -803,6 +840,7 @@ in
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
+      elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
       zesuAbiManifest
@@ -817,6 +855,7 @@ in
     zesu-raw-ssz-sidecar = zesuRawSidecar;
     zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
     elfling-program = elflingProgram;
+    elfling-decoder-llvm-ir = elflingDecoderLlvmIr;
     elfling-relocation-check = elflingRelocationCheck;
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;
     zesu-abi-manifest = zesuAbiManifest;

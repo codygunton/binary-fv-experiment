@@ -802,14 +802,32 @@ def emit_md(p):
     M = ["# Generated Elfling program — source/function/CFG index", "",
          f"Deterministically generated from the DWARF sidecars. {len(p['occurrences'])} occurrences over "
          f"{len({(o['qualified'],tuple(o['specialization'])) for o in p['occurrences']})}/43 catalog routines; "
-         f"{len(p['defects'])} attribution defect(s).", "",
-         "| # | routine | spec | kind | entry PC | regions | parent | inline depth |",
-         "|--:|---------|------|------|---------:|--------:|-------:|-------------:|"]
-    for i, o in enumerate(p["occurrences"]):
+         f"{len(p['defects'])} attribution defect(s).", ""]
+    occ = p["occurrences"]
+    tot = lambda k: sum(len(o.get(k, [])) for o in occ)
+    overlaps = [d for d in p["defects"] if d.get("kind") == "overlappingOwnership"]
+    M += [f"Totals: {sum(len(o['regions']) for o in occ)} regions, {tot('blocks')} basic blocks, "
+          f"{tot('edges')} direct edges, {tot('exits')} exit PCs, {tot('externalCalls')} external-call "
+          f"edges, {len(overlaps)} overlaps; {len(p.get('reachable', []))} reachable PCs "
+          f"(gaps between cataloged occurrences are the excluded routines below). "
+          f"Every field is validated against the Sail-decoded CFG in Lean.", "",
+          "## Functions (occurrences)", "",
+          "| # | routine | spec | src line | kind | entry | exits | regions | blocks | edges | calls | parent | inline |",
+          "|--:|---------|------|--------:|------|------:|-----:|-------:|------:|-----:|----:|-------:|------:|"]
+    for i, o in enumerate(occ):
         spec = ",".join(o["specialization"]) or "—"
         par = "—" if o["parentIdx"] is None else str(o["parentIdx"])
-        M.append(f"| {i} | `{o['qualified']}` | {spec} | {o['kind']} | 0x{o['entryPc']:x} | "
-                 f"{len(o['regions'])} | {par} | {len(o['inlineStack'])} |")
+        exits = ",".join(f"0x{e:x}" for e in o.get("exits", [])) or "—"
+        M.append(f"| {i} | `{o['qualified']}` | {spec} | {o['declLine']} | {o['kind']} | "
+                 f"0x{o['entryPc']:x} | {exits} | {len(o['regions'])} | {len(o.get('blocks', []))} | "
+                 f"{len(o.get('edges', []))} | {len(o.get('externalCalls', []))} | {par} | {len(o['inlineStack'])} |")
+    # Inline call stacks (deepest attribution provenance) for the inlined occurrences.
+    inlined = [(i, o) for i, o in enumerate(occ) if o["inlineStack"]]
+    if inlined:
+        M += ["", "## Inline call stacks", ""]
+        for i, o in inlined:
+            stack = " → ".join(f"{s['callerQualified']}@{s['line']}:{s['column']}" for s in o["inlineStack"])
+            M.append(f"- occ {i} `{o['qualified']}`: {stack} → **{o['qualified'].split('.')[-1]}**")
     ex = p.get("excludedRoutines", [])
     if ex:
         total = sum((r["size"] // 4) for x in ex for r in x["regions"])
