@@ -23,18 +23,27 @@ qualified names use the Zig module-qualified form, and the declaration column is
 (the declaration *line* is the routine's `fn` line and is authoritative here).
 -/
 
-/-! ## Source files -/
+/-! ## Source files
 
+Each routine's declaring source file, by path only. Content hashes and declaration lines are
+validated *provenance* (`DeclarationProvenance`), carried by generated occurrences and checked
+against the pinned source in the extraction row — they are not part of these identities. -/
+
+/-- The SSZ decoder body: `src/stateless/stateless/ssz_raw.zig`. -/
 def decoderSourceFile : SourceFile :=
-  { path := "src/stateless/stateless/ssz_raw.zig", contentHash := "" }
+  { path := "src/stateless/stateless/ssz_raw.zig" }
 
+/-- The freestanding decoder root: the exported wrapper and the allocator vtable thunks. -/
 def rootSourceFile : SourceFile :=
-  { path := "src/zkvm/raw_decoder_root.zig", contentHash := "" }
+  { path := "src/zkvm/raw_decoder_root.zig" }
 
-/-- The freestanding RV64 runtime that supplies `memcpy`/`memmove`. Not a Zig decoder source, so it
-is named separately; the extraction row pins its exact path and hash. -/
+/-- The bump-allocator object that defines the exported `zesu_raw_alloc`. -/
+def allocatorSourceFile : SourceFile :=
+  { path := "src/zkvm/raw_allocator.zig" }
+
+/-- The freestanding RV64 C runtime that supplies `memcpy`/`memmove`. Not a Zig decoder source. -/
 def runtimeSourceFile : SourceFile :=
-  { path := "targets/common/riscv64_runtime", contentHash := "" }
+  { path := "targets/common/riscv64_runtime.c" }
 
 /-! ## Identity and dispatch -/
 
@@ -96,27 +105,23 @@ end CatalogEntry
 
 /-! ## Builders -/
 
-private def decl (file : SourceFile) (name : String) (line : Nat) : SourceDeclaration :=
-  { file := file, qualifiedName := name, span := { line := line, column := 1 } }
-
-private def fid (file : SourceFile) (name : String) (line : Nat)
-    (spec : Array String := #[]) : FunctionId :=
-  { declaration := decl file name line, specialization := spec }
+private def fid (file : SourceFile) (name : String) (spec : Array String := #[]) : FunctionId :=
+  { declaration := { file := file, qualifiedName := name }, specialization := spec }
 
 /-- A live decoder-source routine with no specialization. -/
-private def dec (name : String) (line : Nat) (group : RoutineGroup) (tag : RoutineTag)
+private def dec (name : String) (group : RoutineGroup) (tag : RoutineTag)
     (allocates : Bool) : CatalogEntry :=
-  { functionId := fid decoderSourceFile ("ssz_raw." ++ name) line
+  { functionId := fid decoderSourceFile ("ssz_raw." ++ name)
     group := group, tag := tag, allocates := allocates, hasSymbol := false, presence := .live }
 
 /-- A live `readArray` specialization: same routine, distinct concrete width. -/
 private def readArrayEntry (width : Nat) : CatalogEntry :=
-  { functionId := fid decoderSourceFile "ssz_raw.readArray" 575 #[toString width]
+  { functionId := fid decoderSourceFile "ssz_raw.readArray" #[toString width]
     group := .leaf, tag := .readArray, allocates := false, hasSymbol := false, presence := .live }
 
 /-- The canonical entry routine's identity: the exported `zesu_decode_raw` wrapper. -/
 def zesuDecodeRawFunctionId : FunctionId :=
-  fid rootSourceFile "raw_decoder_root.zesu_decode_raw" 104
+  fid rootSourceFile "raw_decoder_root.zesu_decode_raw"
 
 /-! ## The catalog -/
 
@@ -133,77 +138,77 @@ def catalog : Array CatalogEntry :=
      { functionId := zesuDecodeRawFunctionId
        group := .entry, tag := .zesuDecodeRaw, allocates := true, hasSymbol := true
        presence := .live }
-   , dec "decode" 220 .entry .decode true
-   , dec "decodeRaw" 190 .entry .decodeRaw true
+   , dec "decode" .entry .decode true
+   , dec "decodeRaw" .entry .decodeRaw true
      -- Containers
-   , dec "decodeNewPayloadRequest" 230 .container .newPayloadRequest true
-   , dec "decodeExecutionPayload" 250 .container .executionPayload true
-   , dec "decodeExecutionRequests" 296 .container .executionRequests true
-   , dec "decodeExecutionWitness" 315 .container .executionWitness true
-   , dec "decodeChainConfig" 349 .container .chainConfig false
-   , dec "decodeForkConfig" 359 .container .forkConfig false
-   , dec "decodeForkActivation" 375 .container .forkActivation false
+   , dec "decodeNewPayloadRequest" .container .newPayloadRequest true
+   , dec "decodeExecutionPayload" .container .executionPayload true
+   , dec "decodeExecutionRequests" .container .executionRequests true
+   , dec "decodeExecutionWitness" .container .executionWitness true
+   , dec "decodeChainConfig" .container .chainConfig false
+   , dec "decodeForkConfig" .container .forkConfig false
+   , dec "decodeForkActivation" .container .forkActivation false
      -- Options
-   , dec "decodeOptionalU64" 388 .option .optionalU64 false
-   , dec "decodeOptionalBlobSchedule" 396 .option .optionalBlobSchedule false
+   , dec "decodeOptionalU64" .option .optionalU64 false
+   , dec "decodeOptionalBlobSchedule" .option .optionalBlobSchedule false
      -- Collections
-   , dec "decodeVersionedHashes" 408 .collection .versionedHashes true
-   , dec "decodeWithdrawals" 420 .collection .withdrawals true
-   , dec "decodeDepositRequests" 438 .collection .depositRequests true
-   , dec "decodeWithdrawalRequests" 457 .collection .withdrawalRequests true
-   , dec "decodeConsolidationRequests" 474 .collection .consolidationRequests true
-   , dec "decodePublicKeys" 491 .collection .publicKeys true
-   , dec "decodeByteListList" 506 .collection .byteListList true
+   , dec "decodeVersionedHashes" .collection .versionedHashes true
+   , dec "decodeWithdrawals" .collection .withdrawals true
+   , dec "decodeDepositRequests" .collection .depositRequests true
+   , dec "decodeWithdrawalRequests" .collection .withdrawalRequests true
+   , dec "decodeConsolidationRequests" .collection .consolidationRequests true
+   , dec "decodePublicKeys" .collection .publicKeys true
+   , dec "decodeByteListList" .collection .byteListList true
      -- Leaves (non-readArray)
-   , dec "requireCanonicalOffsets" 538 .leaf .requireCanonicalOffsets false
-   , dec "requireU32Length" 549 .leaf .requireU32Length false
-   , dec "readOffset" 553 .leaf .readOffset false
-   , dec "readU32" 557 .leaf .readU32 false
-   , dec "readU64" 563 .leaf .readU64 false
-   , dec "readU256" 569 .leaf .readU256 false
-   , dec "bytesAt" 581 .leaf .bytesAt false
-   , dec "hasExactErePrefix" 586 .leaf .hasExactErePrefix false
+   , dec "requireCanonicalOffsets" .leaf .requireCanonicalOffsets false
+   , dec "requireU32Length" .leaf .requireU32Length false
+   , dec "readOffset" .leaf .readOffset false
+   , dec "readU32" .leaf .readU32 false
+   , dec "readU64" .leaf .readU64 false
+   , dec "readU256" .leaf .readU256 false
+   , dec "bytesAt" .leaf .bytesAt false
+   , dec "hasExactErePrefix" .leaf .hasExactErePrefix false
      -- readArray specializations
    , readArrayEntry 20, readArrayEntry 32, readArrayEntry 48
    , readArrayEntry 65, readArrayEntry 96, readArrayEntry 256
      -- Runtime and accessors
-   , { functionId := fid rootSourceFile "raw_decoder_root.zesu_raw_alloc" 0
+   , { functionId := fid allocatorSourceFile "raw_allocator.zesu_raw_alloc"
        group := .runtime, tag := .rawAlloc, allocates := true, hasSymbol := true, presence := .live }
-   , { functionId := fid rootSourceFile "raw_decoder_root.zesu_raw_result" 128
+   , { functionId := fid rootSourceFile "raw_decoder_root.zesu_raw_result"
        group := .runtime, tag := .rawResult, allocates := false, hasSymbol := true, presence := .live }
-   , { functionId := fid rootSourceFile "raw_decoder_root.zesu_raw_error" 134
+   , { functionId := fid rootSourceFile "raw_decoder_root.zesu_raw_error"
        group := .runtime, tag := .rawError, allocates := false, hasSymbol := true, presence := .live }
-   , { functionId := fid runtimeSourceFile "memcpy" 0
+   , { functionId := fid runtimeSourceFile "memcpy"
        group := .runtime, tag := .memcpy, allocates := false, hasSymbol := true, presence := .live }
-   , { functionId := fid runtimeSourceFile "memmove" 0
+   , { functionId := fid runtimeSourceFile "memmove"
        group := .runtime, tag := .memmove, allocates := false, hasSymbol := true, presence := .live }
      -- Allocator wrapper / vtable thunks
-   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorAlloc" 38
+   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorAlloc"
        group := .runtime, tag := .allocatorAlloc, allocates := true, hasSymbol := false
        presence := .live }
-   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorResize" 50
+   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorResize"
        group := .runtime, tag := .allocatorResize, allocates := false, hasSymbol := false
        presence := .live }
-   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorRemap" 64
+   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorRemap"
        group := .runtime, tag := .allocatorRemap, allocates := false, hasSymbol := false
        presence := .live }
-   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorFree" 80
+   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorFree"
        group := .runtime, tag := .allocatorFree, allocates := false, hasSymbol := false
        presence := .live }
-   , { functionId := fid rootSourceFile "raw_decoder_root.allocator" 97
+   , { functionId := fid rootSourceFile "raw_decoder_root.allocator"
        group := .runtime, tag := .allocatorCtor, allocates := false, hasSymbol := false
        presence := .live } ]
 
 /-- Routines present in source but with no live occurrence in the canonical program, each with a
 machine-checkable reason. Coverage requires that none of these is matched by a generated instance. -/
 def excludedRoutines : Array CatalogEntry :=
-  #[ { functionId := fid decoderSourceFile "ssz_raw.putU32" 594
+  #[ { functionId := fid decoderSourceFile "ssz_raw.putU32"
        group := .leaf, tag := .requireU32Length, allocates := false, hasSymbol := false
        presence := .absent .testOnly }
-   , { functionId := fid decoderSourceFile "ssz_raw.putU64" 598
+   , { functionId := fid decoderSourceFile "ssz_raw.putU64"
        group := .leaf, tag := .requireU32Length, allocates := false, hasSymbol := false
        presence := .absent .testOnly }
-   , { functionId := fid decoderSourceFile "ssz_raw.makeMinimalV4" 605
+   , { functionId := fid decoderSourceFile "ssz_raw.makeMinimalV4"
        group := .leaf, tag := .requireU32Length, allocates := false, hasSymbol := false
        presence := .absent .testOnly } ]
 

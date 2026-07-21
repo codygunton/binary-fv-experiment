@@ -12,11 +12,13 @@ emitted by the generator. Nothing in this module may mention an instruction word
 or a symbol.
 -/
 
-/-- A pinned source file: its path as recorded in debug information, plus the content hash the
-generator checked it against. Two builds that disagree on `contentHash` are different programs. -/
+/-- A pinned source file, identified by its path as recorded in debug information.
+
+This is a *stable identity* component: it carries no content hash. The content hash is validated
+source *provenance* (`DeclarationProvenance`), kept separate so a generated identity can match the
+catalog by name without depending on a hash the handwritten catalog cannot compute. -/
 structure SourceFile where
   path : String
-  contentHash : String
 deriving DecidableEq, Repr, Hashable, Inhabited
 
 /-- A one-based line/column position within a `SourceFile`. -/
@@ -25,15 +27,29 @@ structure SourceSpan where
   column : Nat
 deriving DecidableEq, Repr, Hashable, Inhabited
 
-/-- A declaration in pinned source: where it is written and what it is called.
+/-- A declaration in pinned source: which file it lives in and what it is called.
 
 `qualifiedName` is the fully qualified name as the compiler records it, so two same-named routines
-in different modules stay distinct. -/
+in different modules stay distinct. This is *stable identity* — it deliberately omits the
+declaration's line/column, which is validated provenance (`DeclarationProvenance`), not a matching
+key: a source edit that shifts the declaration must not change what the routine *is*. -/
 structure SourceDeclaration where
   file : SourceFile
   qualifiedName : String
-  span : SourceSpan
 deriving DecidableEq, Repr, Hashable, Inhabited
+
+/-- Validated source provenance for a declaration: the pinned source file's content hash and the
+declaration's one-based location.
+
+This is checked against the pinned source during extraction. It is deliberately **not** part of
+`FunctionId`: matching a generated occurrence to a catalog entry uses stable identity (file path,
+qualified name, specialization) only, so a wrong or absent hash makes provenance validation fail
+rather than silently breaking identity matching. Source pinning is thereby preserved as a separate
+validated obligation, not smuggled into the matching key. -/
+structure DeclarationProvenance where
+  sourceFileHash : String
+  declSpan : SourceSpan
+deriving DecidableEq, Repr, Inhabited
 
 /--
 A stable, source-derived function identifier.

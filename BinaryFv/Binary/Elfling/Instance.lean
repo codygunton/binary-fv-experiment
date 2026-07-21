@@ -68,6 +68,11 @@ structure FunctionInstance where
   /-- Resolved calls that leave this occurrence to another occurrence. The local-to-global
   composition walks these edges. -/
   externalCalls : Array InstanceId
+  /-- Validated source provenance: the pinned source file's content hash and the declaration's
+  location. The generator fills this from debug information; the extraction row validates it against
+  the pinned source. It is separate from `id` (stable identity) so a wrong hash fails validation
+  rather than breaking identity matching. -/
+  declProvenance : DeclarationProvenance
   provenance : ExtractionProvenance
   symbol? : Option SymbolAnnotation
 deriving Repr, Inhabited
