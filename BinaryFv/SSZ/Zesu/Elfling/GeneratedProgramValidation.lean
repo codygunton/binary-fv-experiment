@@ -12,8 +12,8 @@ proves the three row-1 obligations for it against the canonical ELF:
   cataloged, the exclusions stay absent, dispatch is unique (instance ids and catalog identities are
   duplicate-free, and every identity resolves), the required `readArray` widths are present, and the
   extraction is defect-free.
-* `sourceProvenanceRecorded generatedProgram` — every occurrence carries a non-empty pinned-source
-  content hash and a real (`> 0`) declaration line.
+* `sourceProvenanceRecorded generatedProgram` — every occurrence's recorded content hash equals the
+  pinned-source manifest entry for its file, and its declaration line is real (`> 0`).
 * `IsCanonicalGeneratedProgram generatedProgram` — the entry is the emitted `zesu_decode_raw`
   occurrence, **every byte of every claimed region reads back from the canonical `Artifact.programImage`**,
   provenance is recorded, and no attribution defect remains.
@@ -136,10 +136,13 @@ theorem coverage_holds : coverage generatedProgram :=
 
 /-! ## Source provenance recorded -/
 
-/-- Every occurrence has a non-empty source-content hash and a real declaration line. -/
+/-- Every occurrence's recorded source-content hash **equals the pinned-source manifest** entry for
+its declaring file, and its declaration line is real. This is the strengthened provenance check: the
+generated hash must match the pinned source, not merely be non-empty. -/
 def sourceProvenanceRecordedB : Bool :=
   generatedProgram.instances.all fun i =>
-    decide (i.declProvenance.sourceFileHash ≠ "") && decide (0 < i.declProvenance.declSpan.line)
+    decide (pinnedSourceHash i.id.function.declaration.file = some i.declProvenance.sourceFileHash) &&
+      decide (0 < i.declProvenance.declSpan.line)
 
 theorem sourceProvenanceRecordedB_true : sourceProvenanceRecordedB = true := by native_decide
 
