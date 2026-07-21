@@ -325,8 +325,9 @@ def routineObligation (p : ContractParams) (instance_ : FunctionInstance) (tag :
   | .rawAlloc => correctnessClaimAlloc p.env p.heap instance_ entry exit
   | .memcpy => correctnessClaimMemcpy p.env instance_ entry exit
   | .memmove => correctnessClaimMemmove p.env instance_ entry exit
-  | .rawResult => correctnessClaimRawResult p.env instance_ entry exit
-  | .rawError => correctnessClaimRawError p.env instance_ entry exit
+  | .rawResult =>
+      correctnessClaimRawResult p.env p.globals p.resultBuffer p.repRawV4 instance_ entry exit
+  | .rawError => correctnessClaimRawError p.env p.globals instance_ entry exit
   | .allocatorAlloc => correctnessClaimAllocatorAlloc p.env p.heap instance_ entry exit
   | .allocatorResize => correctnessClaimAllocatorResize p.env instance_ entry exit
   | .allocatorRemap => correctnessClaimAllocatorRemap p.env instance_ entry exit
@@ -371,8 +372,8 @@ def routineSatisfiable (p : ContractParams) (function : FunctionId) (tag : Routi
   | .rawAlloc => satisfiableAlloc p.env p.heap
   | .memcpy => satisfiableMemcpy p.env
   | .memmove => satisfiableMemmove p.env
-  | .rawResult => satisfiableRawResult p.env
-  | .rawError => satisfiableRawError p.env
+  | .rawResult => satisfiableRawResult p.env p.globals p.resultBuffer p.repRawV4
+  | .rawError => satisfiableRawError p.env p.globals
   | .allocatorAlloc => satisfiableAllocatorAlloc p.env p.heap
   | .allocatorResize => satisfiableAllocatorResize p.env
   | .allocatorRemap => satisfiableAllocatorRemap p.env
