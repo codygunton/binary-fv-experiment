@@ -10,6 +10,7 @@ let
       zesuRawObject
       zesuRawSidecar
       zesuRuntimeSidecar
+      elflingProgram
       zesuSinkObservability
       zesuSsz
       zesuValue;
