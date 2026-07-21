@@ -405,6 +405,7 @@ let
         --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
         --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
         --source ${zesuRepaired} \
+        --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
         --out-json "$1/program.json" \
         --out-lean "$1/GeneratedProgram.lean" \
         --out-md "$1/program.md"

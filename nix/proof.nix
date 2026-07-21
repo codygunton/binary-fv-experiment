@@ -3,6 +3,7 @@ let
   rethKeccak = targets.public.rethKeccak;
   zesuSsz = targets.public.zesuSsz;
   zesuAbiManifest = targets.public.zesuAbiManifest;
+  elflingProgram = targets.public.elflingProgram;
 
   pinnedLean = pkgs.stdenvNoCC.mkDerivation {
     pname = "lean4";
@@ -230,6 +231,7 @@ let
     ln -s ${sszSpecLean} build/ssz-spec-lean
     ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
     ln -s ${zesuAbiManifest} build/zesu-abi-lean
+    ln -s ${elflingProgram} build/elfling-program-lean
     cp -a ${replSource}/. .lake/packages/repl/
     chmod -R u+w .lake/packages/repl
     ${pkgs.jq}/bin/jq '
@@ -311,7 +313,7 @@ let
       exit 1
     fi
 
-    lake build repl BinaryFv BinaryFv.Binary.ProgramImageTest
+    lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
     touch "$out"
   '';
 

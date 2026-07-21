@@ -145,6 +145,9 @@ def norm_identity(name, d, srclines, consts):
 def main():
     ap = argparse.ArgumentParser()
     for k in ["readelf","decoder","allocator","sink","runtime","source"]: ap.add_argument("--"+k, required=True)
+    # the runtime C source lives in the proof repo (targets/common/riscv64_runtime.c), not the zesu
+    # source tree, so its content hash is supplied separately.
+    ap.add_argument("--runtime-c", required=True)
     for k in ["out-json","out-lean","out-md"]: ap.add_argument("--"+k)
     a = ap.parse_args()
 
@@ -152,6 +155,7 @@ def main():
     consts = {m.group(1): int(m.group(2)) for m in re.finditer(r'(?:pub\s+)?const\s+(\w+)\s*(?::[^=]+)?=\s*(\d+)\s*;', srctext)}
     file_hash = {p: hashlib.sha256(open(os.path.join(a.source, p),"rb").read()).hexdigest()
                  for p in FILES.values() if os.path.exists(os.path.join(a.source, p))}
+    file_hash[FILES["runtime"]] = hashlib.sha256(open(a.runtime_c, "rb").read()).hexdigest()
 
     objects = [("decoder", a.decoder), ("allocator", a.allocator), ("sink", a.sink), ("runtime", a.runtime)]
     occ = []            # occurrence records
