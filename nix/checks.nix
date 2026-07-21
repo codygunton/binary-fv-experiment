@@ -11,6 +11,7 @@ let
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
+      elflingRelocationCheck
       zesuSinkObservability
       zesuSsz
       zesuValue;

@@ -406,6 +406,7 @@ let
         --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
         --source ${zesuRepaired} \
         --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+        --map ${zesuSsz}/meta/zesu-ssz.map \
         --out-json "$1/program.json" \
         --out-lean "$1/GeneratedProgram.lean" \
         --out-md "$1/program.md"
@@ -420,6 +421,46 @@ let
     cp run1/program.json run1/GeneratedProgram.lean run1/program.md "$out/"
     printf '%s\n' "two independent runs produced byte-identical program.json/GeneratedProgram.lean/program.md" \
       > "$out/determinism.txt"
+  '';
+
+  # Relocation acceptance test (plan "Verification and Acceptance"): relink the SAME pinned objects at
+  # a DIFFERENT text base, regenerate the Elfling program from the SAME sidecars/source but the new
+  # linker map, and require that every address-free identity (FunctionId, inline stack, nesting,
+  # validated source hash, DWARF entry offset, catalog/excluded class) is byte-stable while every
+  # generated address shifts by one constant nonzero delta. This is what proves the extractor holds no
+  # hardcoded linked address and folds none into an identity — the handwritten contracts, keyed by
+  # `FunctionId`, need no edit when the binary is relinked.
+  elflingRelocationCheck = pkgs.runCommand "elfling-relocation-check" {
+    nativeBuildInputs = [ pkgs.python3 riscvBinutils riscvPkgs.stdenv.cc pkgs.coreutils ];
+  } ''
+    mkdir -p reloc "$out"
+    # Relink at text-segment base 0x400000 (canonical is 0x10000); the whole text segment shifts.
+    ${riscvCc} ${cflags} -nostdlib -static -no-pie \
+      ${zesuSsz}/obj/riscv64_start.o \
+      ${zesuSsz}/obj/zesu-ssz-main.o \
+      ${zesuSsz}/obj/zesu-raw-ssz-allocator.o \
+      ${zesuSsz}/obj/zesu-raw-ssz-decoder.o \
+      ${zesuSsz}/obj/zesu-raw-ssz-sink.o \
+      ${zesuSsz}/obj/riscv64_runtime.o \
+      -lgcc -Wl,--gc-sections -Wl,-e,_start \
+      -Wl,-Ttext-segment=0x400000 \
+      -Wl,-Map,reloc/zesu-ssz.map \
+      -o reloc/zesu-ssz.elf
+
+    python3 ${elflingGeneratorScript} \
+      --readelf ${riscvReadelf} \
+      --decoder ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
+      --allocator ${zesuRawSidecar}/obj/zesu-raw-ssz-allocator.o \
+      --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
+      --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
+      --source ${zesuRepaired} \
+      --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+      --map reloc/zesu-ssz.map \
+      --out-json reloc/program.json
+
+    python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/relocation_stability.py"; name = "relocation_stability.py"; }} \
+      --canonical ${elflingProgram}/program.json \
+      --relocated reloc/program.json | tee "$out/relocation.txt"
   '';
 
   # Evaluate the exact pinned Zig compiler's RV64 layout query. `@compileLog` deliberately fails
@@ -730,6 +771,7 @@ in
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
+      elflingRelocationCheck
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -742,6 +784,7 @@ in
     zesu-raw-ssz-sidecar = zesuRawSidecar;
     zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
     elfling-program = elflingProgram;
+    elfling-relocation-check = elflingRelocationCheck;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;

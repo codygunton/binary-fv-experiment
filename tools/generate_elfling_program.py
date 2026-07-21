@@ -16,8 +16,40 @@ requires byte-identical output.
 """
 import argparse, hashlib, json, re, subprocess, os
 
-TEXT_BASE = {"decoder": 0x102b0, "allocator": 0x1024c, "sink": 0x137ac}
-RUNTIME_FUNC_BASE = {"memcpy": 0x13eb8, "memmove": 0x13edc}
+# The object -> objkind mapping used both to place `.text` from the canonical linker map and to key
+# the sidecars. Basenames are the linked input objects as they appear in the pinned map.
+MAP_OBJKIND = {"zesu-raw-ssz-allocator.o": "allocator",
+               "zesu-raw-ssz-decoder.o": "decoder",
+               "zesu-raw-ssz-sink.o": "sink"}
+RUNTIME_MAP_OBJ = "riscv64_runtime.o"
+
+def parse_linker_map(path):
+    """Canonical object placement, parsed from the pinned linked ELF's linker map — never hardcoded.
+
+    Returns (text_bases, runtime_func_base):
+      * text_bases[objkind]         = the linked address of that object's `.text` section;
+      * runtime_func_base[funcname] = the linked address of the runtime object's `.text.<funcname>`
+                                      per-function section (each runtime routine is its own section).
+    Only the placed sections under `Linker script and memory map` are read, so the discarded-input
+    block (address 0, e.g. gc-sectioned `.text.memset`/`.text.memcmp`) is ignored. Relinking at a
+    different text base changes only these numbers; the identities the generator emits do not depend
+    on them, which is what the relocation acceptance test checks."""
+    text_bases, runtime_func_base = {}, {}
+    line_re = re.compile(r'^\s+(\.text(?:\.[\w.]+)?)\s+0x([0-9a-f]+)\s+0x[0-9a-f]+\s+(\S+\.o)\s*$')
+    started = False
+    for ln in open(path):
+        if not started:
+            if ln.startswith("Linker script and memory map"): started = True
+            continue
+        m = line_re.match(ln)
+        if not m: continue
+        sect, addr, obj = m.group(1), int(m.group(2), 16), os.path.basename(m.group(3))
+        if sect == ".text" and obj in MAP_OBJKIND:
+            text_bases[MAP_OBJKIND[obj]] = addr
+        elif sect.startswith(".text.") and obj == RUNTIME_MAP_OBJ:
+            runtime_func_base[sect[len(".text."):]] = addr
+    return text_bases, runtime_func_base
+
 SRC_PREFIX = "/build/source/"
 FILES = {"decoder": "src/stateless/stateless/ssz_raw.zig", "root": "src/zkvm/raw_decoder_root.zig",
          "allocator": "src/zkvm/raw_allocator.zig", "runtime": "targets/common/riscv64_runtime.c"}
@@ -138,12 +170,12 @@ def die_ranges(d, ranges_map):
         return [(lo, lo + hi)] if lo is not None and hi is not None else []
     return []
 
-def canon(objkind, name, rs):
+def canon(objkind, name, rs, text_bases, runtime_func_base):
     if objkind == "runtime":
-        base = RUNTIME_FUNC_BASE.get(name)
+        base = runtime_func_base.get(name)
         return None if base is None else [{"start": base+a, "size": b-a} for a,b in rs]
-    base = TEXT_BASE[objkind]
-    return [{"start": base+a, "size": b-a} for a,b in rs]
+    base = text_bases.get(objkind)
+    return None if base is None else [{"start": base+a, "size": b-a} for a,b in rs]
 
 def readarray_width(d, srclines, consts):
     cl = intof(d.attrs.get("DW_AT_call_line"))
@@ -165,8 +197,12 @@ def main():
     # the runtime C source lives in the proof repo (targets/common/riscv64_runtime.c), not the zesu
     # source tree, so its content hash is supplied separately.
     ap.add_argument("--runtime-c", required=True)
+    # canonical placement comes from the pinned linked ELF's linker map, never hardcoded bases.
+    ap.add_argument("--map", required=True)
     for k in ["out-json","out-lean","out-md"]: ap.add_argument("--"+k)
     a = ap.parse_args()
+
+    text_bases, runtime_func_base = parse_linker_map(a.map)
 
     ssz = os.path.join(a.source, FILES["decoder"]); srctext = open(ssz).read(); srclines = srctext.splitlines()
     consts = {m.group(1): int(m.group(2)) for m in re.finditer(r'(?:pub\s+)?const\s+(\w+)\s*(?::[^=]+)?=\s*(\d+)\s*;', srctext)}
@@ -201,12 +237,12 @@ def main():
                 if d.tag == "DW_TAG_subprogram":
                     cat = excluded_category(qual)
                     if cat is not None:
-                        ecr = canon(objkind, name, rs)
+                        ecr = canon(objkind, name, rs, text_bases, runtime_func_base)
                         if ecr is not None:
                             excluded_occ.append({"qualified": qual, "category": cat, "regions": ecr,
                                                  "entryPc": min(r["start"] for r in ecr), "dieOffset": d.off})
                 continue    # glue: folded into cataloged ancestor's ranges
-            cr = canon(objkind, name, rs)
+            cr = canon(objkind, name, rs, text_bases, runtime_func_base)
             if cr is None:
                 defects.append({"kind":"unmappedRegion","name":name,"obj":objkind}); continue
             rec = {"objkind":objkind, "qualified":qual, "specialization":list(spec), "sourceFile":sf,
@@ -247,17 +283,29 @@ def main():
     # Regression oracle: the independently hand-verified milestone-3 `decodeOptionalBlobSchedule`
     # slice (BlobScheduleInstance.lean). The generator must reproduce it exactly, so a silent drift
     # in ranges/entry/exit/decl-line/inline-stack/nesting fails generation rather than the proof.
+    #
+    # Stated in RELOCATION-INVARIANT form: the object-relative entry (offset into the decoder `.text`),
+    # each region's offset from the entry and its size, the exit's offset from the entry, and the
+    # DWARF facts (decl line, child count, inline stack). Absolute PCs shift with the text base, so
+    # pinning them would spuriously fail the relocation acceptance test; the relative layout is exactly
+    # what must stay fixed under relinking.
     bs = next((o for o in occ if o["qualified"] == "ssz_raw.decodeOptionalBlobSchedule"), None)
+    dbase = text_bases.get("decoder")
     ORACLE = {
-        "regions": [{"start": 76888, "size": 8}, {"start": 76936, "size": 48}, {"start": 76988, "size": 268}],
-        "entryPc": 76888, "exitPc": 77256, "declLine": 396, "nchildren": 3,
+        "entryOffset": 0x29a8,
+        "regionsRel": [(0, 8), (48, 48), (100, 268)],
+        "exitRel": 368, "declLine": 396, "nchildren": 3,
         "inlineStack": [("ssz_raw.decodeRaw", 211, 48), ("ssz_raw.decodeChainConfig", 355, 44),
                         ("ssz_raw.decodeForkConfig", 371, 56)],
     }
     if bs is None:
         raise SystemExit("REGRESSION: no decodeOptionalBlobSchedule occurrence generated")
-    got = {"regions": bs["regions"], "entryPc": bs["entryPc"], "exitPc": bs["exitPc"],
-           "declLine": bs["declLine"], "nchildren": len(bs["children"]),
+    if dbase is None:
+        raise SystemExit("REGRESSION: decoder .text base absent from linker map")
+    got = {"entryOffset": bs["entryPc"] - dbase,
+           "regionsRel": [(r["start"] - bs["entryPc"], r["size"]) for r in bs["regions"]],
+           "exitRel": bs["exitPc"] - bs["entryPc"], "declLine": bs["declLine"],
+           "nchildren": len(bs["children"]),
            "inlineStack": [(s["callerQualified"], s["line"], s["column"]) for s in bs["inlineStack"]]}
     if got != ORACLE:
         raise SystemExit(f"REGRESSION: generated decodeOptionalBlobSchedule != milestone-3 slice.\n"
@@ -282,7 +330,7 @@ def main():
     for x in excluded_sorted: del x["dieOffset"]
 
     program = {"decoderTextSha256":DECODER_TEXT_SHA, "extractorVersion":EXTRACTOR_VERSION,
-               "textBases":TEXT_BASE, "runtimeFuncBase":RUNTIME_FUNC_BASE,
+               "textBases":text_bases, "runtimeFuncBase":runtime_func_base,
                "entryIndex":entry_idx, "occurrences":occ_sorted, "excludedRoutines":excluded_sorted,
                "defects":sorted(defects, key=lambda x:json.dumps(x,sort_keys=True))}
     if a.out_json: open(a.out_json,"w").write(json.dumps(program, indent=2, sort_keys=True) + "\n")
