@@ -81,10 +81,11 @@ def parse_readelf(readelf, obj):
         elif cur is not None:
             am = re.match(r'\s*<[0-9a-f]+>\s+(DW_AT_\w+)\s*:\s*(.*)$', ln)
             if am: cur.attrs[am.group(1)] = am.group(2)
-    name_of_off = {}
+    name_of_off, declline_of_off = {}, {}
     for d in dies:
         nm = d.attrs.get("DW_AT_linkage_name") or d.attrs.get("DW_AT_name")
         if nm is not None: name_of_off[d.off] = attr_name(nm)
+        if "DW_AT_decl_line" in d.attrs: declline_of_off[d.off] = intof(d.attrs["DW_AT_decl_line"])
     # range lists: `<offset> <lo> <hi>` grouped by the leading list offset
     ranges_map = {}
     rng = subprocess.run([readelf, "--debug-dump=Ranges", obj], capture_output=True, text=True).stdout
@@ -92,7 +93,15 @@ def parse_readelf(readelf, obj):
         m = re.match(r'\s*([0-9a-f]{8})\s+([0-9a-f]{16})\s+([0-9a-f]{16})\s*$', ln)
         if m:
             ranges_map.setdefault(int(m.group(1), 16), []).append((int(m.group(2), 16), int(m.group(3), 16)))
-    return dies, name_of_off, ranges_map
+    return dies, name_of_off, ranges_map, declline_of_off
+
+def decl_line_of(d, declline_of_off):
+    """Real declaration line: an inlined_subroutine has none of its own, so read the concrete/abstract
+    subprogram it originates from (via DW_AT_abstract_origin) — never a placeholder."""
+    if "DW_AT_decl_line" in d.attrs: return intof(d.attrs["DW_AT_decl_line"])
+    if "DW_AT_abstract_origin" in d.attrs:
+        return declline_of_off.get(attr_ref(d.attrs["DW_AT_abstract_origin"]), 0)
+    return 0
 
 def occ_name(d, name_of_off):
     if d.tag == "DW_TAG_subprogram":
@@ -150,7 +159,7 @@ def main():
     defects = []
 
     for objkind, obj in objects:
-        dies, name_of_off, ranges_map = parse_readelf(a.readelf, obj)
+        dies, name_of_off, ranges_map, declline_of_off = parse_readelf(a.readelf, obj)
         for d in dies:
             name = occ_name(d, name_of_off)
             if name is None: continue
@@ -167,7 +176,7 @@ def main():
             if cr is None:
                 defects.append({"kind":"unmappedRegion","name":name,"obj":objkind}); continue
             rec = {"objkind":objkind, "qualified":qual, "specialization":list(spec), "sourceFile":sf,
-                   "sourceFileHash":file_hash.get(sf,""), "declLine":intof(d.attrs.get("DW_AT_decl_line")),
+                   "sourceFileHash":file_hash.get(sf,""), "declLine":decl_line_of(d, declline_of_off),
                    "kind":("emitted" if d.tag=="DW_TAG_subprogram" else "inlined"),
                    "regions":cr, "entryPc":min(r["start"] for r in cr),
                    "exitPc":max(r["start"]+r["size"] for r in cr), "dieOffset":d.off,
@@ -200,6 +209,25 @@ def main():
     for rec in occ: rec["children"] = []
     for i, rec in enumerate(occ):
         if rec["parentIdx"] is not None: occ[rec["parentIdx"]]["children"].append(i)
+
+    # Regression oracle: the independently hand-verified milestone-3 `decodeOptionalBlobSchedule`
+    # slice (BlobScheduleInstance.lean). The generator must reproduce it exactly, so a silent drift
+    # in ranges/entry/exit/decl-line/inline-stack/nesting fails generation rather than the proof.
+    bs = next((o for o in occ if o["qualified"] == "ssz_raw.decodeOptionalBlobSchedule"), None)
+    ORACLE = {
+        "regions": [{"start": 76888, "size": 8}, {"start": 76936, "size": 48}, {"start": 76988, "size": 268}],
+        "entryPc": 76888, "exitPc": 77256, "declLine": 396, "nchildren": 3,
+        "inlineStack": [("ssz_raw.decodeRaw", 211, 48), ("ssz_raw.decodeChainConfig", 355, 44),
+                        ("ssz_raw.decodeForkConfig", 371, 56)],
+    }
+    if bs is None:
+        raise SystemExit("REGRESSION: no decodeOptionalBlobSchedule occurrence generated")
+    got = {"regions": bs["regions"], "entryPc": bs["entryPc"], "exitPc": bs["exitPc"],
+           "declLine": bs["declLine"], "nchildren": len(bs["children"]),
+           "inlineStack": [(s["callerQualified"], s["line"], s["column"]) for s in bs["inlineStack"]]}
+    if got != ORACLE:
+        raise SystemExit(f"REGRESSION: generated decodeOptionalBlobSchedule != milestone-3 slice.\n"
+                         f"  expected {ORACLE}\n  got      {got}")
 
     # entry occurrence
     entry_idx = next((i for i,r in enumerate(occ) if r["qualified"]=="raw_decoder_root.zesu_decode_raw" and r["kind"]=="emitted"), None)
