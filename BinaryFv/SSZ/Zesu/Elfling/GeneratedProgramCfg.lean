@@ -20,7 +20,12 @@ source of truth), so nothing is a `min(regions)`/`max(endpoint)` guess and no ca
   every decoded direct call the occurrence *makes* is listed (no call dropped);
 * **basic blocks** — the blocks exactly partition each occurrence's regions (contained, pairwise
   disjoint, total size = region size, over disjoint regions), and every region PC is a decoded node;
-* **edges** — every emitted direct edge is a real decoded direct successor.
+* **edges** — the emitted direct edges are EXACTLY the decoded direct successors of the PCs each
+  occurrence DEEPEST-owns: every emitted edge is a real decoded successor (`edgesValid`, soundness —
+  no invented edge) AND every decoded successor of every deepest-owned PC is an emitted edge
+  (`edgesComplete`, completeness — no dropped edge). Because the generated artifact is an untrusted
+  certificate, both directions are checked here; a tampered artifact that silently omits a real
+  non-call edge fails `edgesComplete` (see the negative test at the end of this module).
 
 Classification of each edge/node (internal / inline-child / call / return / excluded transition) and
 the "nothing unclassified" completeness proof are area #5; this module establishes that the emitted
@@ -122,11 +127,25 @@ def exitsValid (nodes : Array ControlFlowNode) (program : Program) : Bool :=
       let pc := r.start + 4 * k
       !leavesOccurrence nodes o pc || o.exitPcs.contains pc
 
-/-- Every emitted direct edge is a real decoded direct successor of an in-region source. -/
+/-- Every emitted direct edge is a real decoded direct successor of an in-region source
+(soundness: no invented edge). -/
 def edgesValid (nodes : Array ControlFlowNode) (program : Program) : Bool :=
   program.instances.all fun o =>
     o.edges.all fun e =>
       inRegions o e.source && (directSuccessorsAt nodes e.source).contains e.target
+
+/-- The REVERSE inclusion of `edgesValid` (completeness: no dropped edge). For every occurrence, every
+region PC it DEEPEST-owns, and every decoded direct successor `t` of that PC, the edge
+`{ source := pc, target := t }` occurs in the occurrence's emitted edge list. Together with `edgesValid`
+this pins `o.edges` to EXACTLY the decoded direct-successor edges out of the PCs `o` owns, so the
+untrusted artifact cannot silently drop a real edge and still validate. -/
+def edgesComplete (nodes : Array ControlFlowNode) (program : Program) : Bool :=
+  program.instances.all fun o =>
+    o.regions.all fun r => (List.range (r.size / 4)).all fun k =>
+      let pc := r.start + 4 * k
+      !ownedBy program o pc ||
+        (directSuccessorsAt nodes pc).all fun t =>
+          o.edges.any fun e => e.source == pc && e.target == t
 
 /-- External calls correspond to the decoded direct calls: every emitted callee resolves to a
 generated occurrence and is the target of a real decoded direct call out of `o`, and every decoded
@@ -160,22 +179,28 @@ def blocksPartition (program : Program) : Bool :=
 
 /-! ## The dispatched checks (through the canonical decode) -/
 
-/-- All CFG-interface checks, dispatched through `controlFlow?` (so a parse/decode failure is `false`).
-Uses `Option.map`/`getD` rather than a `match`, so the kernel bridge never reduces the ~3984-word decode
-(same reason as the reachability certificate). -/
-def cfgInterfaceValidC : Bool :=
+/-- All CFG-interface checks for an arbitrary `program`, dispatched through `controlFlow?` (so a
+parse/decode failure is `false`). Uses `Option.map`/`getD` rather than a `match`, so the kernel bridge
+never reduces the ~3984-word decode (same reason as the reachability certificate). Parameterising over
+`program` lets the negative test run the SAME validation against a tampered program. -/
+def cfgInterfaceValidFor (program : Program) : Bool :=
   (controlFlow?.map fun nodes =>
-    regionsDecoded nodes generatedProgram &&
-    entriesValid nodes generatedProgram &&
-    exitsValid nodes generatedProgram &&
-    edgesValid nodes generatedProgram &&
-    externalCallsValid nodes generatedProgram &&
-    blocksPartition generatedProgram).getD false
+    regionsDecoded nodes program &&
+    entriesValid nodes program &&
+    exitsValid nodes program &&
+    edgesValid nodes program &&
+    edgesComplete nodes program &&
+    externalCallsValid nodes program &&
+    blocksPartition program).getD false
+
+/-- The CFG-interface validation applied to the actual generated program. -/
+def cfgInterfaceValidC : Bool := cfgInterfaceValidFor generatedProgram
 
 /-- **The generated control-flow interface corresponds to the canonical decoded CFG.** Every entry is a
 real entered-from-outside decoded node, every exit is exactly a decoded transfer-out point, every
 external call resolves to a generated occurrence and matches a decoded direct call (with none dropped),
-the blocks exactly partition the regions, and every edge is a real decoded successor. -/
+the blocks exactly partition the regions, and the emitted edges are EXACTLY the decoded direct
+successors of every deepest-owned PC (sound and complete). -/
 theorem cfgInterfaceValidC_true : cfgInterfaceValidC = true := by native_decide
 
 /-! ## Kernel bridge: tie the checks to explicit decoded nodes -/
@@ -187,18 +212,21 @@ theorem cfgInterfaceValid_some {nodes : Array ControlFlowNode}
     entriesValid nodes generatedProgram = true ∧
     exitsValid nodes generatedProgram = true ∧
     edgesValid nodes generatedProgram = true ∧
+    edgesComplete nodes generatedProgram = true ∧
     externalCallsValid nodes generatedProgram = true ∧
     blocksPartition generatedProgram = true := by
   have h := cfgInterfaceValidC_true
-  unfold cfgInterfaceValidC at h
+  unfold cfgInterfaceValidC cfgInterfaceValidFor at h
   rw [hn] at h
   simp only [Option.map_some, Option.getD_some] at h
-  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true] at h
-  exact ⟨h.1.1.1.1.1, h.1.1.1.1.2, h.1.1.1.2, h.1.1.2, h.1.2, h.2⟩
+  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true,
+    Bool.and_eq_true] at h
+  exact ⟨h.1.1.1.1.1.1, h.1.1.1.1.1.2, h.1.1.1.1.2, h.1.1.1.2, h.1.1.2, h.1.2, h.2⟩
 
 /-- **The exposed CFG-interface certificate.** The canonical ELF decodes to `nodes`, and against those
 nodes the generated program's entries, exits, external calls, basic-block partition, and direct edges
-are all validated. This is the area-#2 correspondence the later edge-classification (area #5) builds on. -/
+are all validated — the edges both sound (`edgesValid`) and complete (`edgesComplete`). This is the
+area-#2 correspondence the later edge-classification (area #5) builds on. -/
 theorem generatedCfgInterfaceCertificate :
     ∃ nodes : Array ControlFlowNode,
       controlFlow? = some nodes ∧
@@ -206,9 +234,65 @@ theorem generatedCfgInterfaceCertificate :
       entriesValid nodes generatedProgram = true ∧
       exitsValid nodes generatedProgram = true ∧
       edgesValid nodes generatedProgram = true ∧
+      edgesComplete nodes generatedProgram = true ∧
       externalCallsValid nodes generatedProgram = true ∧
       blocksPartition generatedProgram = true := by
   obtain ⟨nodes, hn⟩ := controlFlow_isSome
   exact ⟨nodes, hn, cfgInterfaceValid_some hn⟩
+
+/-! ## Reverse edge inclusion as a proposition, and its negative test -/
+
+/-- **Every decoded direct successor of every deepest-owned PC is an emitted edge** (the reverse
+inclusion, in proposition form). For every occurrence `o`, every region PC `pc := r.start + 4 * k` it
+deepest-owns, and every decoded direct successor `t` of `pc`, the edge `{ source := pc, target := t }`
+is present in `o.edges`. This is the `Prop` companion of the `edgesComplete` clause of the certificate:
+the generated edge inventory is a COMPLETE certificate of the decoded successor relation, not merely a
+sound one. -/
+theorem edgesComplete_holds {nodes : Array ControlFlowNode}
+    (hn : controlFlow? = some nodes) :
+    ∀ o ∈ generatedProgram.instances, ∀ r ∈ o.regions, ∀ k, k < r.size / 4 →
+      ownedBy generatedProgram o (r.start + 4 * k) = true →
+        ∀ t ∈ directSuccessorsAt nodes (r.start + 4 * k),
+          (o.edges.any fun e => e.source == r.start + 4 * k && e.target == t) = true := by
+  have hcomplete := (cfgInterfaceValid_some hn).2.2.2.2.1
+  intro o ho r hr k hk hown t ht
+  have h1 := forall_mem_of_all hcomplete o ho
+  have h2 := forall_mem_of_all h1 r hr
+  have h3 := forall_mem_of_all_list h2 k (List.mem_range.mpr hk)
+  simp only [hown, Bool.not_true, Bool.false_or] at h3
+  exact forall_mem_of_all h3 t ht
+
+/-! ### Negative test: dropping one real non-call edge breaks completeness
+
+The reverse inclusion has teeth only if omitting a real edge is actually rejected. `0x10250 → 0x10254`
+(decimal `66128 → 66132`) is a straight-line fall-through step inside a single basic block of the
+`zesu_raw_alloc` occurrence (occ 0) — a single decoded successor, so it is NOT a call. Deleting it from
+the generated artifact must make `edgesComplete` (and hence the whole CFG-interface validation) fail. -/
+
+/-- The concrete non-call edge the negative test deletes. -/
+def droppedEdge : DirectEdge := { source := 66128, target := 66132 }
+
+/-- The dropped edge really is one the generator emitted, so the tamper removes something real. -/
+theorem droppedEdge_present :
+    (generatedProgram.instances.any fun o => o.edges.any fun e => decide (e = droppedEdge)) = true := by
+  native_decide
+
+/-- `generatedProgram` with `droppedEdge` deleted from wherever it was emitted: a hand-tampered
+artifact that silently drops one real non-call edge. -/
+def edgeDroppedProgram : Program :=
+  { generatedProgram with
+    instances := generatedProgram.instances.map fun o =>
+      { o with edges := o.edges.filter fun e => decide (e ≠ droppedEdge) } }
+
+/-- **Completeness is not vacuous.** With one real non-call edge dropped, the reverse-inclusion check
+fails: the omitted decoded successor is detected. -/
+theorem edgeDropped_incomplete :
+    (controlFlow?.map fun nodes => edgesComplete nodes edgeDroppedProgram).getD true = false := by
+  native_decide
+
+/-- **The whole CFG-interface validation rejects the tampered program** — dropping a single generated
+non-call edge is caught, so the emitted edge list is enforced as a complete certificate. -/
+theorem edgeDropped_cfgInterface_invalid : cfgInterfaceValidFor edgeDroppedProgram = false := by
+  native_decide
 
 end BinaryFv.SSZ.Zesu.Elfling.Validation

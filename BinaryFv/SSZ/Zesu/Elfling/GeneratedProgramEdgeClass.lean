@@ -28,6 +28,8 @@ namespace BinaryFv.SSZ.Zesu.Elfling.Validation
 set_option maxRecDepth 8000
 
 open BinaryFv.Binary.Elfling
+open BinaryFv.RiscV
+open BinaryFv.SSZ.Zesu.ControlFlow (controlFlow?)
 open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram generatedExcludedOccurrences)
 
 /-! ## Ownership and inline-nesting over the generated occurrences -/
@@ -132,5 +134,26 @@ theorem classification_sound :
     ∀ o ∈ generatedProgram.instances, ∀ e ∈ o.edges, edgeCategoryJustified o e = true := by
   intro o ho e he
   exact forall_mem_of_all (forall_mem_of_all classificationSoundB_true o ho) e he
+
+/-! ## Classification is complete over the decoded successor relation
+
+`edges_all_classified` classifies every EMITTED edge; on its own that would be satisfied even if the
+generator had dropped a real edge. Composing it with `edgesComplete_holds` (every decoded direct
+successor of every deepest-owned PC is emitted) closes that gap: every decoded direct successor edge
+out of a deepest-owned PC is both present in the artifact AND classified into one of the five
+categories. There is no decoded edge the classification silently omits. -/
+
+/-- Every decoded direct successor of every deepest-owned PC is an emitted edge that is classified. -/
+theorem decoded_successor_edges_classified {nodes : Array ControlFlowNode}
+    (hn : controlFlow? = some nodes) :
+    ∀ o ∈ generatedProgram.instances, ∀ r ∈ o.regions, ∀ k, k < r.size / 4 →
+      ownedBy generatedProgram o (r.start + 4 * k) = true →
+        ∀ t ∈ directSuccessorsAt nodes (r.start + 4 * k),
+          ∃ e ∈ o.edges,
+            e.source = r.start + 4 * k ∧ e.target = t ∧ (classifyEdge o e).isSome = true := by
+  intro o ho r hr k hk hown t ht
+  obtain ⟨e, he, hbe⟩ := exists_mem_of_any (edgesComplete_holds hn o ho r hr k hk hown t ht)
+  rw [Bool.and_eq_true] at hbe
+  exact ⟨e, he, eq_of_beq hbe.1, eq_of_beq hbe.2, edges_all_classified o ho e he⟩
 
 end BinaryFv.SSZ.Zesu.Elfling.Validation
