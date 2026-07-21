@@ -272,6 +272,23 @@ def region_pcs(regions):
         out += list(range(r["start"], r["start"] + r["size"], 4))
     return out
 
+def reachable_witnesses(entry, insns):
+    """BFS the decoded direct-edge graph from `entry`, mirroring `directReachable`. Returns a list of
+    {addr, distance, predecessor} rows (entry's predecessor is itself), sorted by address. Each row's
+    `distance` strictly exceeds its predecessor's, so the predecessor chain is an acyclic path back to
+    the entry — the witness that every reachable address is ACTUALLY reachable (the minimality that,
+    with closure, makes the reachable set EXACT, not an over-approximation)."""
+    from collections import deque
+    dist = {entry: 0}; pred = {entry: entry}; q = deque([entry])
+    while q:
+        a = q.popleft()
+        if a not in insns: continue
+        _, tgts, _ = classify(a, insns)
+        for t in tgts:
+            if t not in dist:
+                dist[t] = dist[a] + 1; pred[t] = a; q.append(t)
+    return [{"addr": a, "distance": dist[a], "predecessor": pred[a]} for a in sorted(dist)]
+
 def compute_occurrence_cfg(occ_sorted, insns):
     """Fill each occurrence with generated CFG data proposed from the disassembly:
       exits          — PCs whose control leaves the occurrence's regions (return/terminal or a target
@@ -561,6 +578,10 @@ def main():
                     seen.add(callee); callees.append(callee)
         o["externalCalls"] = callees   # list of ("occ"|"excl", idx)
 
+    # Reachability witnesses (area #5): the reachable set from the entry with a BFS distance and
+    # predecessor per address, so Lean can prove R = directReachable in BOTH directions.
+    reachable = reachable_witnesses(occ_sorted[entry_idx]["entryPc"], insns)
+
     # Independently generated pinned-source manifest: each cataloged source file mapped to the SHA-256
     # of its pinned content, computed here from the exact source the extractor read. The handwritten
     # row-1 `pinnedSourceManifest` is CHECKED against this (review blocker #5) rather than trusted.
@@ -571,6 +592,7 @@ def main():
                "textBases":text_bases, "runtimeFuncBase":runtime_func_base, "objectSha256":object_sha,
                "sourceManifest":source_manifest, "declLines":decl_lines,
                "entryIndex":entry_idx, "occurrences":occ_sorted, "excludedRoutines":excluded_sorted,
+               "reachable":reachable, "reachableEntry":occ_sorted[entry_idx]["entryPc"],
                "defects":sorted(defects, key=lambda x:json.dumps(x,sort_keys=True))}
     if a.out_json: open(a.out_json,"w").write(json.dumps(program, indent=2, sort_keys=True) + "\n")
     if a.out_lean: open(a.out_lean,"w").write(emit_lean(program))
@@ -642,6 +664,9 @@ def emit_lean(p):
          "`coverage` / `sourceProvenanceRecorded` / `IsCanonicalGeneratedProgram`. Object `.text` bases,",
          "readArray widths (from `DW_AT_call_line` -> pinned source), and glue-folding are recorded in the",
          "companion JSON. Regenerating is byte-deterministic (checked twice in the derivation).", "-/", "",
+         "-- the chunked reachability witness table is assembled by a many-fold `++`; elaborating it",
+         "-- exceeds the default recursion depth.",
+         "set_option maxRecDepth 8000", "",
          "namespace BinaryFv.SSZ.Zesu.Elfling.Generated", "",
          "open BinaryFv.Binary (AddressRange)", "open BinaryFv.Binary.Elfling", ""]
     prov = lambda o: (f'{{ sidecarHash := {lean_str(p["objectSha256"][o["objkind"]])}, entryOffset := {o["dieOffset"]},'
@@ -730,6 +755,44 @@ def emit_lean(p):
     L.append("def generatedDeclLines : List (String × Nat) :=")
     dl = ", ".join(f'({lean_str(e["qualified"])}, {e["declLine"]})' for e in p["declLines"])
     L.append("  [" + dl + "]")
+    L.append("")
+    # Reachability set + BFS distance/predecessor witnesses (area #5): the exact reachable set from the
+    # entry with, per address, the BFS distance and a predecessor whose distance is one less and which
+    # has a real decoded edge to it. Lean validates these against the decoded CFG and proves
+    # R = directReachable in BOTH directions (closure forward; witness path induction reverse).
+    L.append("/-! ### Reachability witnesses (area #5). -/")
+    L.append("")
+    L.append("/-- One reachable address with its BFS distance from the entry and its predecessor on a")
+    L.append("shortest path (the entry's predecessor is itself). -/")
+    L.append("structure ReachStep where")
+    L.append("  addr : Nat")
+    L.append("  distance : Nat")
+    L.append("  predecessor : Nat")
+    L.append("deriving Repr, Inhabited, DecidableEq")
+    L.append("")
+    L.append(f'/-- The entry address reachability is computed from (the emitted `zesu_decode_raw`). -/')
+    L.append(f'def reachableEntry : Nat := {p["reachableEntry"]}')
+    L.append("")
+    # Chunk the witness table into <=128-row pieces: a single 3369-element array literal exceeds the
+    # elaborator's recursion depth (the same reason the reachability certificate is chunked), and the
+    # bounded pieces are exactly the "<=128 shape" the plan wants so the monolith cannot return.
+    reach = p["reachable"]
+    CHUNK = 128
+    nchunks = (len(reach) + CHUNK - 1) // CHUNK
+    L.append(f"/-- Reachability witness table, chunked into {nchunks} bounded (<={CHUNK}-row) pieces. -/")
+    for c in range(nchunks):
+        body = ",\n   ".join(
+            f'{{ addr := {e["addr"]}, distance := {e["distance"]}, predecessor := {e["predecessor"]} }}'
+            for e in reach[c*CHUNK:(c+1)*CHUNK])
+        L.append(f'def reachWitnessChunk{c} : Array ReachStep :=')
+        L.append("  #[" + body + "]")
+        L.append("")
+    L.append("/-- Every reachable address with its distance/predecessor witness, sorted by address. -/")
+    L.append("def reachableWitness : Array ReachStep :=")
+    L.append("  " + " ++ ".join(f'reachWitnessChunk{c}' for c in range(nchunks)))
+    L.append("")
+    L.append("/-- The reachable set (addresses only). -/")
+    L.append("def reachableAddresses : Array Nat := reachableWitness.map (·.addr)")
     L.append("")
     L.append("end BinaryFv.SSZ.Zesu.Elfling.Generated")
     L.append("")

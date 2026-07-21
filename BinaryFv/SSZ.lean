@@ -14,6 +14,8 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramValidation
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProvenanceCheck
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramCfg
+import BinaryFv.SSZ.Zesu.Elfling.GeneratedReachabilityExact
+import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramEdgeClass
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramInstructions
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramNesting
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramReachablePartition
