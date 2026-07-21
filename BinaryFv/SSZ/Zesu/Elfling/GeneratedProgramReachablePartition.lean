@@ -1,5 +1,5 @@
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
-import BinaryFv.SSZ.Zesu.ControlFlow.Reachability
+import BinaryFv.SSZ.Zesu.Elfling.GeneratedReachabilityExact
 import BinaryFv.SSZ.Zesu.Interface
 import GeneratedProgram
 
@@ -43,9 +43,9 @@ set_option maxRecDepth 8000
 
 open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
-open BinaryFv.SSZ.Zesu.ControlFlow (entryReachableInventoryCertificate)
-open BinaryFv.SSZ.Zesu.ControlFlow.ReachabilityCert (reachableAddresses)
-open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram generatedExcludedOccurrences)
+open BinaryFv.SSZ.Zesu.ControlFlow (controlFlow?)
+open BinaryFv.SSZ.Zesu.Elfling.Generated
+  (generatedProgram generatedExcludedOccurrences reachableAddresses reachableEntry)
 
 /-! ## Covered / excluded membership -/
 
@@ -161,19 +161,15 @@ theorem excluded_reachable_pc_attributed :
 
 /-! ## The certified partition, tied to the reachability certificate -/
 
-/-- Re-exposes the reachability certificate in this namespace: the materialized `reachableAddresses`
-partitioned below is exactly the genuine static reachable set of the canonical decoder (entry inside
-it, closed under decoded direct successors, and over-approximating `directReachable`). So the
-partition is over the real reachable set, not an arbitrary array. -/
+/-- Re-exposes the EXACT reachability certificate in this namespace: the materialized
+`reachableAddresses` partitioned below equals `directReachable` from the entry in BOTH directions, so
+the partition is over the genuine static reachable set of the canonical decoder — not an
+over-approximation and not an arbitrary array. -/
 theorem reachable_set_is_certified :
-    ∃ (nodes : Array RiscV.ControlFlowNode) (entry : RiscV.StaticSymbol),
-      ControlFlow.controlFlow? = some nodes ∧ ControlFlow.entryFunction? = some entry ∧
-      reachableAddresses.contains entry.value = true ∧
-      (∀ a, a ∈ reachableAddresses → RiscV.hasControlFlowAddress nodes a = true) ∧
-      (∀ a, a ∈ reachableAddresses →
-        ∀ t, t ∈ RiscV.directSuccessorsAt nodes a → t ∈ reachableAddresses) ∧
-      (∀ a, a ∈ RiscV.directReachable nodes entry.value → a ∈ reachableAddresses) :=
-  entryReachableInventoryCertificate
+    ∃ nodes : Array RiscV.ControlFlowNode,
+      controlFlow? = some nodes ∧
+      ∀ a, a ∈ reachableAddresses ↔ a ∈ RiscV.directReachable nodes reachableEntry :=
+  reachableAddresses_eq_directReachable
 
 /-- **The complete exhaustive-partition certificate.** The materialized reachable set (certified by
 `reachable_set_is_certified`) is exhaustively partitioned into the cataloged-covered PCs and the

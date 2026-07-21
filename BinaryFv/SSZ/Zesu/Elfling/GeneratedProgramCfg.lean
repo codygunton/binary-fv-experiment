@@ -1,5 +1,5 @@
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
-import BinaryFv.SSZ.Zesu.ControlFlow.Reachability
+import BinaryFv.SSZ.Zesu.ControlFlow.Decode
 import GeneratedProgram
 
 /-!
@@ -37,6 +37,10 @@ open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV
 open BinaryFv.SSZ.Zesu.ControlFlow (controlFlow?)
+
+/-- The canonical ELF decodes to some node array. -/
+theorem controlFlow_isSome : ∃ nodes, controlFlow? = some nodes :=
+  Option.isSome_iff_exists.mp (by native_decide)
 open BinaryFv.SSZ.Zesu.Elfling.Generated
   (generatedProgram generatedExcludedOccurrences ExcludedOccurrence)
 
@@ -204,7 +208,7 @@ theorem generatedCfgInterfaceCertificate :
       edgesValid nodes generatedProgram = true ∧
       externalCallsValid nodes generatedProgram = true ∧
       blocksPartition generatedProgram = true := by
-  obtain ⟨nodes, hn⟩ := ControlFlow.controlFlow_isSome
+  obtain ⟨nodes, hn⟩ := controlFlow_isSome
   exact ⟨nodes, hn, cfgInterfaceValid_some hn⟩
 
 end BinaryFv.SSZ.Zesu.Elfling.Validation
