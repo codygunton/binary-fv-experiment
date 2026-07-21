@@ -10,6 +10,8 @@ import BinaryFv.SSZ.Zesu.ControlFlow.FunctionWords
 import BinaryFv.SSZ.Zesu.ControlFlow.Reachability
 import BinaryFv.SSZ.Zesu.Elfling.BlobScheduleInstance
 import BinaryFv.SSZ.Zesu.Elfling.BlobScheduleMapping
+import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
+import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramValidation
 import BinaryFv.SSZ.Zesu.MachineExecution.DecodeTactic
 import BinaryFv.SSZ.Zesu.MachineExecution.BlobScheduleAndResultStores
 import BinaryFv.SSZ.Zesu.MachineExecution.ParserBlocks
