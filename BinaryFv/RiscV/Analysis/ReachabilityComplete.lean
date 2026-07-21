@@ -16,8 +16,8 @@ the accumulator stays duplicate-free and decoded, hence bounded by `nodes.size`,
 pass strictly grows it. A fixpoint is closed under decoded successors, and closure plus containing the
 entry lets an ordinary induction over a reachability path place every reachable address in the result.
 
-Everything here is an ordinary kernel proof — no `native_decide`, no axiom — as required of the generic
-`BinaryFv.RiscV` layer.
+Everything here is an ordinary kernel proof — no compiled decision procedures, no axiom — as required
+of the generic `BinaryFv.RiscV` layer.
 -/
 
 namespace BinaryFv.RiscV
