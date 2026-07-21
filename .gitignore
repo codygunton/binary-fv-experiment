@@ -6,6 +6,7 @@
 /.lake/
 /STATUS.md
 /docs/ai/
+/.ai-coord/
 *.o
 *.a
 *.so
