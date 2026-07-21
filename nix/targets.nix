@@ -369,6 +369,12 @@ let
         zig objcopy -O binary --only-section="$S" sidecar.o  "s$S.bin"
         cmp -s "c$S.bin" "s$S.bin" \
           || { echo "RUNTIME SIDECAR FAILURE: $S bytes differ — -g changed codegen; STOP (do not fall back to symbol-boundary regions)" >&2; exit 1; }
+        # The sidecar must describe the EXACT runtime object linked into the canonical ELF, not merely
+        # another fresh compile: compare against ${zesuSsz}/obj/riscv64_runtime.o, the actual link
+        # input, closing the "compared only with a fresh compile" gap (review blocker #5).
+        zig objcopy -O binary --only-section="$S" ${zesuSsz}/obj/riscv64_runtime.o "l$S.bin"
+        cmp -s "s$S.bin" "l$S.bin" \
+          || { echo "RUNTIME SIDECAR FAILURE: $S differs from the canonical link input (zesuSsz runtime object); STOP" >&2; exit 1; }
       done
 
       cp sidecar.o "$out/obj/riscv64_runtime.o"
@@ -376,7 +382,7 @@ let
       ${riscvReadelf} -sW  "$out/obj/riscv64_runtime.o" | grep -E 'memcpy|memmove' > "$out/meta/runtime-symbols.txt"
       printf 'runtime=targets/common/riscv64_runtime.c\n' > "$out/meta/provenance.txt"
       printf 'gcc=%s\n' "$(${riscvCc} --version | head -1)" >> "$out/meta/provenance.txt"
-      echo "OK: -g runtime .text.{memcpy,memmove,memset,memcmp} byte-identical to canonical; DWARF retained" \
+      echo "OK: -g runtime .text.{memcpy,memmove,memset,memcmp} byte-identical to canonical AND to the zesuSsz link input; DWARF retained" \
         | tee "$out/meta/equivalence.txt"
       runHook postInstall
     '';

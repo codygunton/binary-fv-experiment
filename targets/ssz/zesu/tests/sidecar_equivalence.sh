@@ -90,7 +90,26 @@ cmp_object() {
     fail "$name" "$missing canonical symbols absent from sidecar"
   fi
 
-  echo "  OK: allocatable bytes, size/align, .riscv.attributes, relocations, symbols agree"
+  # (5) The sidecar introduces NO allocatable section beyond the canonical object's. `strip = false`
+  #     must add only non-allocatable debug sections and grow the symbol tables — never a new ALLOC
+  #     section (which could carry code or data the canonical bytes do not, silently invalidating the
+  #     DWARF-to-canonical mapping). Allocatable = the section's `Flg` column contains `A`.
+  alloc_secs() {
+    "$READELF" -SW "$1" | awk '
+      /^[[:space:]]*\[[[:space:]]*[0-9]+\]/ {
+        sub(/^[[:space:]]*\[[[:space:]]*[0-9]+\][[:space:]]*/, "")
+        if (NF >= 10 && index($7, "A") > 0) print $1
+      }' | sort -u
+  }
+  alloc_secs "$canon" > "$wd/c.alloc"
+  alloc_secs "$side"  > "$wd/s.alloc"
+  local extra; extra="$(comm -13 "$wd/c.alloc" "$wd/s.alloc")"
+  if [ -n "$extra" ]; then
+    printf '%s\n' "$extra" >&2
+    fail "$name" "sidecar has unexpected allocatable section(s) absent from canonical"
+  fi
+
+  echo "  OK: allocatable bytes, size/align, .riscv.attributes, relocations, symbols, no extra ALLOC sections"
   rm -rf "$wd"
 }
 

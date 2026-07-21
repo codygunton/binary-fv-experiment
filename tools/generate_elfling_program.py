@@ -238,6 +238,10 @@ def main():
     file_hash[FILES["runtime"]] = hashlib.sha256(open(a.runtime_c, "rb").read()).hexdigest()
 
     objects = [("decoder", a.decoder), ("allocator", a.allocator), ("sink", a.sink), ("runtime", a.runtime)]
+    # The ACTUAL SHA-256 of each sidecar object the extractor read, so an occurrence's `sidecarHash`
+    # pins the exact debug-bearing object it came from — never a single decoder `.text` hash reused for
+    # every occurrence (review blocker #5).
+    object_sha = {objkind: hashlib.sha256(open(obj, "rb").read()).hexdigest() for objkind, obj in objects}
     occ = []            # occurrence records
     die_to_idx = {}     # id(DIE) -> occ index (cataloged occurrences only)
     excluded_occ = []   # reachable-but-uncovered emitted glue (auditable exclusion taxonomy)
@@ -362,12 +366,32 @@ def main():
     # property proved in the Lean reachable partition, not decidable here).
     defects.extend(sibling_overlap_defects(occ_sorted))
 
+    # Per-routine resolved declaration line (from DWARF `DW_AT_decl_line` via abstract origin). Every
+    # occurrence of a routine must resolve to the SAME declaration; a disagreement is an ambiguous
+    # attribution. The Lean provenance check proves each occurrence's declSpan equals this resolved
+    # line, so declSpan is validated against the routine's resolved declaration, not merely `> 0`.
+    decl_by_q = {}
+    for o in occ_sorted:
+        decl_by_q.setdefault(o["qualified"], set()).add(o["declLine"])
+    for q, lines in sorted(decl_by_q.items()):
+        if len(lines) != 1:
+            defects.append({"kind":"ambiguousAttribution", "address":0, "candidates":[], "name":q,
+                            "reason":f"inconsistent decl lines {sorted(lines)}"})
+    decl_lines = [{"qualified":q, "declLine":sorted(lines)[0]} for q, lines in sorted(decl_by_q.items())]
+
     # Reachable-but-excluded emitted glue, sorted for determinism (entry PC, then name, then DIE).
     excluded_sorted = sorted(excluded_occ, key=lambda x:(x["entryPc"], x["qualified"], x["dieOffset"]))
     for x in excluded_sorted: del x["dieOffset"]
 
+    # Independently generated pinned-source manifest: each cataloged source file mapped to the SHA-256
+    # of its pinned content, computed here from the exact source the extractor read. The handwritten
+    # row-1 `pinnedSourceManifest` is CHECKED against this (review blocker #5) rather than trusted.
+    source_manifest = sorted(({"path": pth, "sha256": file_hash[pth]} for pth in set(file_hash)),
+                             key=lambda e: e["path"])
+
     program = {"decoderTextSha256":DECODER_TEXT_SHA, "extractorVersion":EXTRACTOR_VERSION,
-               "textBases":text_bases, "runtimeFuncBase":runtime_func_base,
+               "textBases":text_bases, "runtimeFuncBase":runtime_func_base, "objectSha256":object_sha,
+               "sourceManifest":source_manifest, "declLines":decl_lines,
                "entryIndex":entry_idx, "occurrences":occ_sorted, "excludedRoutines":excluded_sorted,
                "defects":sorted(defects, key=lambda x:json.dumps(x,sort_keys=True))}
     if a.out_json: open(a.out_json,"w").write(json.dumps(program, indent=2, sort_keys=True) + "\n")
@@ -424,7 +448,7 @@ def emit_lean(p):
          "companion JSON. Regenerating is byte-deterministic (checked twice in the derivation).", "-/", "",
          "namespace BinaryFv.SSZ.Zesu.Elfling.Generated", "",
          "open BinaryFv.Binary (AddressRange)", "open BinaryFv.Binary.Elfling", ""]
-    prov = lambda o: (f'{{ sidecarHash := {lean_str(p["decoderTextSha256"])}, entryOffset := {o["dieOffset"]},'
+    prov = lambda o: (f'{{ sidecarHash := {lean_str(p["objectSha256"][o["objkind"]])}, entryOffset := {o["dieOffset"]},'
                       f' extractorVersion := {lean_str(p["extractorVersion"])} }}')
     # All address-free identities first (they reference nothing), so the FunctionInstances below can
     # forward-reference each other's ids for parent?/children (which form a mutual parent/child graph).
@@ -442,7 +466,7 @@ def emit_lean(p):
         L.append(f'def occ{i} : FunctionInstance :=')
         L.append(f'  {{ id := occ{i}Id, regions := {regions}, entryPc := {o["entryPc"]}, exitPcs := #[{o["exitPc"]}],')
         L.append(f'    parent? := {parent}, children := {children}, externalCalls := #[],')
-        L.append(f'    declProvenance := {{ sourceFileHash := {lean_str(o["sourceFileHash"])}, declSpan := {{ line := {o["declLine"] or 1}, column := 1 }} }},')
+        L.append(f'    declProvenance := {{ sourceFileHash := {lean_str(o["sourceFileHash"])}, declSpan := {{ line := {o["declLine"]}, column := 1 }} }},')
         L.append(f'    provenance := {prov(o)}, symbol? := none }}')
         L.append("")
     L.append("/-- Every generated occurrence. -/")
@@ -483,6 +507,24 @@ def emit_lean(p):
         L.append("  #[" + ",\n   ".join(items) + "]")
     else:
         L.append("  #[]")
+    L.append("")
+    # Independently generated pinned-source manifest (path -> content SHA-256), for cross-checking the
+    # handwritten row-1 `pinnedSourceManifest` rather than trusting it.
+    L.append("/-! ### Independently generated pinned-source manifest. -/")
+    L.append("")
+    L.append("/-- Each cataloged source file's path mapped to the SHA-256 of its pinned content, computed")
+    L.append("by the generator from the exact source it read. `GeneratedProvenanceCheck` proves the")
+    L.append("handwritten `pinnedSourceManifest` equals this, so the row-1 hashes are validated. -/")
+    L.append("def generatedSourceManifest : List (String × String) :=")
+    sm = ", ".join(f'({lean_str(e["path"])}, {lean_str(e["sha256"])})' for e in p["sourceManifest"])
+    L.append("  [" + sm + "]")
+    L.append("")
+    L.append("/-- Each routine's resolved declaration line (DWARF `DW_AT_decl_line`), one entry per routine")
+    L.append("qualified name. `GeneratedProvenanceCheck` proves every occurrence's declSpan line equals its")
+    L.append("routine's resolved line here, so declSpan is checked against the resolved declaration. -/")
+    L.append("def generatedDeclLines : List (String × Nat) :=")
+    dl = ", ".join(f'({lean_str(e["qualified"])}, {e["declLine"]})' for e in p["declLines"])
+    L.append("  [" + dl + "]")
     L.append("")
     L.append("end BinaryFv.SSZ.Zesu.Elfling.Generated")
     L.append("")
