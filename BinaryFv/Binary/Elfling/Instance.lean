@@ -55,8 +55,19 @@ identities, so the nesting survives relinking.
 structure FunctionInstance where
   id : InstanceId
   regions : Array AddressRange
+  /-- The address at which this occurrence is entered. A per-instance contract obligation reads its
+  entry PC from here rather than guessing it from a region boundary, so the obligation is fully
+  determined by the generated data and never existentially quantified. -/
+  entryPc : Nat
+  /-- The generated exit addresses: returns and tail-calls that leave this occurrence. The
+  confinement predicate a `FunctionTrace` runs against is derived from these, so a proof cannot pick
+  a convenient exit. -/
+  exitPcs : Array Nat
   parent? : Option InstanceId
   children : Array InstanceId
+  /-- Resolved calls that leave this occurrence to another occurrence. The local-to-global
+  composition walks these edges. -/
+  externalCalls : Array InstanceId
   provenance : ExtractionProvenance
   symbol? : Option SymbolAnnotation
 deriving Repr, Inhabited
@@ -74,6 +85,19 @@ def containsAddress (instance_ : FunctionInstance) (address : Nat) : Bool :=
 /-- Whether this occurrence was split into discontiguous fragments. -/
 def isFragmented (instance_ : FunctionInstance) : Bool :=
   instance_.regions.size > 1
+
+/-- The entry address as a machine word. -/
+def entryWord (instance_ : FunctionInstance) : Nat := instance_.entryPc
+
+/-- The exit predicate a `FunctionTrace` for this occurrence runs against: exactly the generated
+exit addresses, so it is determined by the data rather than chosen. -/
+def isExit (instance_ : FunctionInstance) (address : Nat) : Prop :=
+  address ∈ instance_.exitPcs
+
+/-- The entry address lies inside one of the occurrence's regions. A well-formed occurrence
+satisfies this; it is what lets the entered-trace obligation start in region. -/
+def entryInRegions (instance_ : FunctionInstance) : Prop :=
+  ∃ range ∈ instance_.regions, range.start ≤ instance_.entryPc ∧ instance_.entryPc < range.stop
 
 end FunctionInstance
 
@@ -123,6 +147,15 @@ def instancesAt (program : Program) (address : Nat) : Array FunctionInstance :=
 /-- The extraction reported no unresolved attributions. -/
 def defectFree (program : Program) : Bool :=
   program.defects.isEmpty
+
+/-- No two distinct occurrences share an identity.
+
+An `InstanceId` is a routine plus its inline call stack, so this forbids the extractor emitting the
+same occurrence twice — the failure mode that would let a duplicated instance pass unnoticed and be
+double-counted by any per-instance obligation. -/
+def instanceIdsDistinct (program : Program) : Prop :=
+  ∀ i j, (hi : i < program.instances.size) → (hj : j < program.instances.size) →
+    (program.instances[i]).id = (program.instances[j]).id → i = j
 
 end Program
 

@@ -98,8 +98,10 @@ def meaningPublicKeys (bytes : ByteArray) :
 
 /-- `decodeByteListList(data, maxItems, maxItemBytes)`: the SSZ `List[ByteList[b], n]` schema.
 
-The bounds are parameters because the routine is called at four different instantiations
-(transactions, witness state, witness codes, witness headers). -/
+`maxItems` and `maxItemBytes` are **runtime arguments** of the one `decodeByteListList` function —
+it is a single routine called at four sites (transactions, witness state, codes, headers), not four
+functions — so they belong in `ByteListListArgs`, not in the contract's parameters. Collapsing them
+into the contract would have implied four separate catalog identities for one source routine. -/
 def byteListListType (maxItems maxItemBytes : Nat) : SSZType :=
   .list (SszBridge.byteList maxItemBytes) maxItems
 
@@ -108,6 +110,11 @@ def meaningByteListList (maxItems maxItemBytes : Nat) (bytes : ByteArray) :
   match SszBridge.decodeCanonical (byteListListType maxItems maxItemBytes) bytes with
   | .ok value => .ok (value.1.map fun item => item.1)
   | .error error => .error (sszToDecodeError error)
+
+/-- Arguments of `decodeByteListList`: a collection call plus its two runtime bounds. -/
+structure ByteListListArgs extends CollectionArgs where
+  maxItems : Nat
+  maxItemBytes : Nat
 
 /-!
 ## Allocation effects
@@ -199,12 +206,13 @@ def contractPublicKeys (env : DecoderEnvironment) :
   post := fun args => postCollection env args SszBridge.publicKeyBytes Array.size
   stepBound := fun args => 128 + 128 * (args.bytes.size / SszBridge.publicKeyBytes + 1)
 
-/-- `decodeByteListList` produces 16-byte slice descriptors, one per item. -/
-def contractByteListList (env : DecoderEnvironment) (maxItems maxItemBytes : Nat) :
-    FunctionContract SszDecodeError CollectionArgs (Array SszBridge.RawBytes) where
-  meaning := fun args => meaningByteListList maxItems maxItemBytes args.bytes
-  pre := preCollection env
-  post := fun args => postCollection env args 16 Array.size
+/-- `decodeByteListList` produces 16-byte slice descriptors, one per item. One contract, one
+identity; the bounds ride in `ByteListListArgs`. -/
+def contractByteListList (env : DecoderEnvironment) :
+    FunctionContract SszDecodeError ByteListListArgs (Array SszBridge.RawBytes) where
+  meaning := fun args => meaningByteListList args.maxItems args.maxItemBytes args.bytes
+  pre := fun args => preCollection env args.toCollectionArgs
+  post := fun args => postCollection env args.toCollectionArgs 16 Array.size
   stepBound := fun args => 256 + 256 * (args.bytes.size / 4 + 1)
 
 /-!
@@ -241,10 +249,35 @@ def correctnessClaimPublicKeys (env : DecoderEnvironment)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractPublicKeys env)
 
-def correctnessClaimByteListList (env : DecoderEnvironment) (maxItems maxItemBytes : Nat)
+def correctnessClaimByteListList (env : DecoderEnvironment)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractByteListList env maxItems maxItemBytes)
+  ImplementsInstance instance_ entry exit (contractByteListList env)
+
+/-!
+## Satisfiability
+-/
+
+def satisfiableVersionedHashes (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractVersionedHashes env)
+
+def satisfiableWithdrawals (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractWithdrawals env)
+
+def satisfiableDepositRequests (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractDepositRequests env)
+
+def satisfiableWithdrawalRequests (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractWithdrawalRequests env)
+
+def satisfiableConsolidationRequests (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractConsolidationRequests env)
+
+def satisfiablePublicKeys (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractPublicKeys env)
+
+def satisfiableByteListList (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractByteListList env)
 
 /-!
 ## Loop invariant and characterizations

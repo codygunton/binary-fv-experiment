@@ -8,162 +8,408 @@ open BinaryFv.RiscV.Elfling
 /-!
 # The semantic-routine catalog
 
-The complete enumeration of routines the proof must cover, and the coverage obligations that make
-"complete" checkable rather than asserted.
+The complete enumeration of routines the proof must cover, each carrying a stable, address-free
+`FunctionId` (pinned source file, declaration line, qualified name, and concrete specialization), the
+`RoutineTag` that selects its handwritten contract, and a `Presence` classification.
 
-Membership is pinned to the pinned source: every entry below names a routine in
-`src/stateless/stateless/ssz_raw.zig` or `src/zkvm/raw_decoder_root.zig`, at the revision recorded
-in `sourceFile`. The five test-only helpers (`putU32`, `putU64`, `makeMinimalV4`, and the two
-`test` blocks' bodies) are excluded because they are not present in the `ReleaseSmall` object.
+Membership is pinned to source: every catalog `FunctionId` names a routine in
+`src/stateless/stateless/ssz_raw.zig`, `src/zkvm/raw_decoder_root.zig`, or the freestanding RV64
+runtime, and every excluded routine carries a machine-checkable reason. Nothing here carries an
+address, an instruction word, or a symbol — an entry is identity plus its contract selector, and the
+generated Elfling program is what binds each identity to canonical-ELF ranges.
 
-The catalog is *identity* only. It carries no address, no instruction word, and no symbol — an entry
-is an `InstanceId`, and the generated Elfling program is what binds each one to canonical-ELF ranges.
-That separation is what `coverage` below checks.
+Two conventions the extraction row validates against DWARF and must reconcile if they differ:
+qualified names use the Zig module-qualified form, and the declaration column is normalized to `1`
+(the declaration *line* is the routine's `fn` line and is authoritative here).
 -/
 
-/-- The pinned decoder source file.
+/-! ## Source files -/
 
-`contentHash` is left as the empty string here and supplied by the generator: this module is
-handwritten and must not embed a build-dependent digest, or editing a proof would require editing a
-hash. The extraction row fills it in and Lean checks it. -/
 def decoderSourceFile : SourceFile :=
   { path := "src/stateless/stateless/ssz_raw.zig", contentHash := "" }
 
 def rootSourceFile : SourceFile :=
   { path := "src/zkvm/raw_decoder_root.zig", contentHash := "" }
 
-/-- A cataloged routine: its source identity and which semantic group it belongs to. -/
+/-- The freestanding RV64 runtime that supplies `memcpy`/`memmove`. Not a Zig decoder source, so it
+is named separately; the extraction row pins its exact path and hash. -/
+def runtimeSourceFile : SourceFile :=
+  { path := "targets/common/riscv64_runtime", contentHash := "" }
+
+/-! ## Identity and dispatch -/
+
+/-- The handwritten routine groups. -/
 inductive RoutineGroup where
-  | entry
-  | container
-  | collection
-  | option
-  | leaf
-  | runtime
+  | entry | container | collection | option | leaf | runtime
 deriving DecidableEq, Repr, Inhabited
 
+/-- The dispatch key: one constructor per handwritten contract. This is what turns "this instance's
+identity" into "this instance's `correctnessClaim`", so the per-instance obligation is a total
+function of the catalog rather than a hand-maintained list of unrelated propositions. -/
+inductive RoutineTag where
+  | zesuDecodeRaw | decode | decodeRaw
+  | newPayloadRequest | executionPayload | executionRequests | executionWitness
+  | chainConfig | forkConfig | forkActivation
+  | optionalU64 | optionalBlobSchedule
+  | versionedHashes | withdrawals | depositRequests | withdrawalRequests
+  | consolidationRequests | publicKeys | byteListList
+  | requireCanonicalOffsets | requireU32Length | readOffset | readU32 | readU64 | readU256
+  | readArray | bytesAt | hasExactErePrefix
+  | rawAlloc | memcpy | memmove | rawResult | rawError
+  | allocatorAlloc | allocatorResize | allocatorRemap | allocatorFree | allocatorCtor
+deriving DecidableEq, Repr, Inhabited
+
+/-- Why a source routine has no live occurrence in the canonical binary. -/
+inductive ExclusionReason where
+  /-- Not compiled into the `ReleaseSmall` object (a test-only helper). -/
+  | testOnly
+  /-- Present in source but not reachable from `zesu_decode_raw`. -/
+  | unreachable
+deriving DecidableEq, Repr, Inhabited
+
+/-- Whether a cataloged routine is expected to occur in the canonical program. -/
+inductive Presence where
+  /-- Appears as one or more generated occurrences (emitted or inlined). -/
+  | live
+  /-- Has no occurrence, for the given reason. -/
+  | absent (reason : ExclusionReason)
+deriving DecidableEq, Repr, Inhabited
+
+/-- A cataloged routine: full address-free identity, its contract selector, and its expected
+presence. -/
 structure CatalogEntry where
-  name : String
-  file : SourceFile
+  functionId : FunctionId
   group : RoutineGroup
-  /-- Compile-time specialization, for routines emitted once per `comptime` instantiation. -/
-  specialization : Array String := #[]
-  /-- Whether the routine allocates. Recorded here so a contract that denies allocation can be
-  cross-checked against the catalog rather than only against its own prose. -/
+  tag : RoutineTag
   allocates : Bool
-  /-- Whether the routine carries a symbol in the canonical ELF. Annotation only: 97% of the decoder
-  object is symbol-less, so this must never be used to define a proof region. -/
   hasSymbol : Bool
+  presence : Presence
 deriving Repr, Inhabited
 
-private def d (name : String) (group : RoutineGroup) (allocates : Bool)
-    (specialization : Array String := #[]) : CatalogEntry :=
-  { name := name, file := decoderSourceFile, group := group
-    specialization := specialization, allocates := allocates, hasSymbol := false }
+namespace CatalogEntry
+
+/-- The catalog entry is expected to have live occurrences. -/
+def isLive (entry : CatalogEntry) : Bool :=
+  match entry.presence with | .live => true | .absent _ => false
+
+end CatalogEntry
+
+/-! ## Builders -/
+
+private def decl (file : SourceFile) (name : String) (line : Nat) : SourceDeclaration :=
+  { file := file, qualifiedName := name, span := { line := line, column := 1 } }
+
+private def fid (file : SourceFile) (name : String) (line : Nat)
+    (spec : Array String := #[]) : FunctionId :=
+  { declaration := decl file name line, specialization := spec }
+
+/-- A live decoder-source routine with no specialization. -/
+private def dec (name : String) (line : Nat) (group : RoutineGroup) (tag : RoutineTag)
+    (allocates : Bool) : CatalogEntry :=
+  { functionId := fid decoderSourceFile ("ssz_raw." ++ name) line
+    group := group, tag := tag, allocates := allocates, hasSymbol := false, presence := .live }
+
+/-- A live `readArray` specialization: same routine, distinct concrete width. -/
+private def readArrayEntry (width : Nat) : CatalogEntry :=
+  { functionId := fid decoderSourceFile "ssz_raw.readArray" 575 #[toString width]
+    group := .leaf, tag := .readArray, allocates := false, hasSymbol := false, presence := .live }
+
+/-- The canonical entry routine's identity: the exported `zesu_decode_raw` wrapper. -/
+def zesuDecodeRawFunctionId : FunctionId :=
+  fid rootSourceFile "raw_decoder_root.zesu_decode_raw" 104
+
+/-! ## The catalog -/
 
 /--
-The complete catalog: 33 entries.
+The complete catalog of live routines.
 
-Every entry has handwritten `meaning`, `pre`, `post`, `contract`, and `correctnessClaim` definitions
-in the corresponding `Contracts/` module.
+Every entry has handwritten `meaning`, `pre`, `post`, `contract`, `correctnessClaim`, and
+`satisfiable` definitions, and its `tag` selects them in `instanceObligation`. `readArray` appears
+once per concrete width the decoder instantiates (20, 32, 48, 65, 96, 256), so a generated
+occurrence is matched by full identity, not by the bare name.
 -/
-def catalog : Array CatalogEntry := #[
-  -- Entry / top level
-  { name := "zesu_decode_raw", file := rootSourceFile, group := .entry
-    allocates := true, hasSymbol := true },
-  d "decode" .entry true,
-  d "decodeRaw" .entry true,
-  -- Containers
-  d "decodeNewPayloadRequest" .container true,
-  d "decodeExecutionPayload" .container true,
-  d "decodeExecutionRequests" .container true,
-  d "decodeExecutionWitness" .container true,
-  d "decodeChainConfig" .container false,
-  d "decodeForkConfig" .container false,
-  d "decodeForkActivation" .container false,
-  -- Options
-  d "decodeOptionalU64" .option false,
-  d "decodeOptionalBlobSchedule" .option false,
-  -- Collections
-  d "decodeVersionedHashes" .collection true,
-  d "decodeWithdrawals" .collection true,
-  d "decodeDepositRequests" .collection true,
-  d "decodeWithdrawalRequests" .collection true,
-  d "decodeConsolidationRequests" .collection true,
-  d "decodePublicKeys" .collection true,
-  d "decodeByteListList" .collection true,
-  -- Leaves
-  d "requireCanonicalOffsets" .leaf false,
-  d "requireU32Length" .leaf false,
-  d "readOffset" .leaf false,
-  d "readU32" .leaf false,
-  d "readU64" .leaf false,
-  d "readU256" .leaf false,
-  d "readArray" .leaf false #["N"],
-  d "bytesAt" .leaf false,
-  d "hasExactErePrefix" .leaf false,
-  -- Runtime
-  { name := "zesu_raw_alloc", file := rootSourceFile, group := .runtime
-    allocates := true, hasSymbol := true },
-  { name := "memcpy", file := rootSourceFile, group := .runtime
-    allocates := false, hasSymbol := true },
-  { name := "memmove", file := rootSourceFile, group := .runtime
-    allocates := false, hasSymbol := true },
-  { name := "zesu_raw_result", file := rootSourceFile, group := .runtime
-    allocates := false, hasSymbol := true },
-  { name := "zesu_raw_error", file := rootSourceFile, group := .runtime
-    allocates := false, hasSymbol := true }
-]
+def catalog : Array CatalogEntry :=
+  #[ -- Entry / top level
+     { functionId := zesuDecodeRawFunctionId
+       group := .entry, tag := .zesuDecodeRaw, allocates := true, hasSymbol := true
+       presence := .live }
+   , dec "decode" 220 .entry .decode true
+   , dec "decodeRaw" 190 .entry .decodeRaw true
+     -- Containers
+   , dec "decodeNewPayloadRequest" 230 .container .newPayloadRequest true
+   , dec "decodeExecutionPayload" 250 .container .executionPayload true
+   , dec "decodeExecutionRequests" 296 .container .executionRequests true
+   , dec "decodeExecutionWitness" 315 .container .executionWitness true
+   , dec "decodeChainConfig" 349 .container .chainConfig false
+   , dec "decodeForkConfig" 359 .container .forkConfig false
+   , dec "decodeForkActivation" 375 .container .forkActivation false
+     -- Options
+   , dec "decodeOptionalU64" 388 .option .optionalU64 false
+   , dec "decodeOptionalBlobSchedule" 396 .option .optionalBlobSchedule false
+     -- Collections
+   , dec "decodeVersionedHashes" 408 .collection .versionedHashes true
+   , dec "decodeWithdrawals" 420 .collection .withdrawals true
+   , dec "decodeDepositRequests" 438 .collection .depositRequests true
+   , dec "decodeWithdrawalRequests" 457 .collection .withdrawalRequests true
+   , dec "decodeConsolidationRequests" 474 .collection .consolidationRequests true
+   , dec "decodePublicKeys" 491 .collection .publicKeys true
+   , dec "decodeByteListList" 506 .collection .byteListList true
+     -- Leaves (non-readArray)
+   , dec "requireCanonicalOffsets" 538 .leaf .requireCanonicalOffsets false
+   , dec "requireU32Length" 549 .leaf .requireU32Length false
+   , dec "readOffset" 553 .leaf .readOffset false
+   , dec "readU32" 557 .leaf .readU32 false
+   , dec "readU64" 563 .leaf .readU64 false
+   , dec "readU256" 569 .leaf .readU256 false
+   , dec "bytesAt" 581 .leaf .bytesAt false
+   , dec "hasExactErePrefix" 586 .leaf .hasExactErePrefix false
+     -- readArray specializations
+   , readArrayEntry 20, readArrayEntry 32, readArrayEntry 48
+   , readArrayEntry 65, readArrayEntry 96, readArrayEntry 256
+     -- Runtime and accessors
+   , { functionId := fid rootSourceFile "raw_decoder_root.zesu_raw_alloc" 0
+       group := .runtime, tag := .rawAlloc, allocates := true, hasSymbol := true, presence := .live }
+   , { functionId := fid rootSourceFile "raw_decoder_root.zesu_raw_result" 128
+       group := .runtime, tag := .rawResult, allocates := false, hasSymbol := true, presence := .live }
+   , { functionId := fid rootSourceFile "raw_decoder_root.zesu_raw_error" 134
+       group := .runtime, tag := .rawError, allocates := false, hasSymbol := true, presence := .live }
+   , { functionId := fid runtimeSourceFile "memcpy" 0
+       group := .runtime, tag := .memcpy, allocates := false, hasSymbol := true, presence := .live }
+   , { functionId := fid runtimeSourceFile "memmove" 0
+       group := .runtime, tag := .memmove, allocates := false, hasSymbol := true, presence := .live }
+     -- Allocator wrapper / vtable thunks
+   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorAlloc" 38
+       group := .runtime, tag := .allocatorAlloc, allocates := true, hasSymbol := false
+       presence := .live }
+   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorResize" 50
+       group := .runtime, tag := .allocatorResize, allocates := false, hasSymbol := false
+       presence := .live }
+   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorRemap" 64
+       group := .runtime, tag := .allocatorRemap, allocates := false, hasSymbol := false
+       presence := .live }
+   , { functionId := fid rootSourceFile "raw_decoder_root.allocatorFree" 80
+       group := .runtime, tag := .allocatorFree, allocates := false, hasSymbol := false
+       presence := .live }
+   , { functionId := fid rootSourceFile "raw_decoder_root.allocator" 97
+       group := .runtime, tag := .allocatorCtor, allocates := false, hasSymbol := false
+       presence := .live } ]
 
-/-- Routines deliberately excluded, with the reason, so an omission cannot pass for an oversight. -/
-def excludedTestOnly : Array String :=
-  #["putU32", "putU64", "makeMinimalV4"]
+/-- Routines present in source but with no live occurrence in the canonical program, each with a
+machine-checkable reason. Coverage requires that none of these is matched by a generated instance. -/
+def excludedRoutines : Array CatalogEntry :=
+  #[ { functionId := fid decoderSourceFile "ssz_raw.putU32" 594
+       group := .leaf, tag := .requireU32Length, allocates := false, hasSymbol := false
+       presence := .absent .testOnly }
+   , { functionId := fid decoderSourceFile "ssz_raw.putU64" 598
+       group := .leaf, tag := .requireU32Length, allocates := false, hasSymbol := false
+       presence := .absent .testOnly }
+   , { functionId := fid decoderSourceFile "ssz_raw.makeMinimalV4" 605
+       group := .leaf, tag := .requireU32Length, allocates := false, hasSymbol := false
+       presence := .absent .testOnly } ]
 
-/-!
-## Coverage obligations
--/
+/-- The concrete `readArray` widths the pinned decoder instantiates, as source-derived facts. -/
+def requiredReadArrayWidths : List Nat := [20, 32, 48, 65, 96, 256]
 
-/-- Every cataloged routine is matched by at least one generated occurrence in the Elfling program.
+/-- The width a generated `readArray` occurrence carries, parsed from its specialization. -/
+def readArrayWidthOf (function : FunctionId) : Nat :=
+  ((function.specialization[0]?).bind String.toNat?).getD 0
 
-This is the direction that catches a routine the generator failed to find. -/
+/-! ## Typed per-instance dispatch -/
+
+/--
+Everything a per-instance obligation needs beyond the instance itself: the pinned environment, the
+allocator heap, the status slot, and the container/RawV4 result representations.
+
+Bundling these keeps `instanceObligation` a total function while letting each container assert its own
+result layout. -/
+structure ContractParams where
+  env : DecoderEnvironment
+  heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap
+  statusBase : Nat
+  repForkActivation : ContainerRepresentation SszBridge.RawForkActivation
+  repForkConfig : ContainerRepresentation SszBridge.RawForkConfig
+  repChainConfig : ContainerRepresentation SszBridge.RawChainConfig
+  repExecutionWitness : ContainerRepresentation SszBridge.RawExecutionWitness
+  repExecutionRequests : ContainerRepresentation SszBridge.RawExecutionRequests
+  repExecutionPayload : ContainerRepresentation SszBridge.RawExecutionPayload
+  repNewPayloadRequest : ContainerRepresentation SszBridge.RawNewPayloadRequest
+  repRawV4 : ContainerRepresentation SszBridge.RawV4
+
+/--
+The correctness obligation a single generated occurrence owes, selected by its routine `tag`.
+
+The entry PC and exit predicate come from the occurrence's generated data, never from an existential,
+so a proof cannot pick a convenient entry or exit. Every branch returns the `correctnessClaim` for
+exactly the routine the identity names; heterogeneous `Args`/`Result` types are erased to `Prop`
+here, which is why one typed dispatch can cover the whole catalog. -/
+def routineObligation (p : ContractParams) (instance_ : FunctionInstance) (tag : RoutineTag) : Prop :=
+  let entry : BitVec 64 := BitVec.ofNat 64 instance_.entryPc
+  let exit : BitVec 64 → Prop := fun pc => instance_.isExit pc.toNat
+  match tag with
+  | .zesuDecodeRaw => correctnessClaimZesuDecodeRaw p.env p.statusBase instance_ entry exit
+  | .decode => correctnessClaimDecode p.env p.repRawV4 instance_ entry exit
+  | .decodeRaw => correctnessClaimDecodeRaw p.env p.repRawV4 instance_ entry exit
+  | .newPayloadRequest =>
+      correctnessClaimNewPayloadRequest p.env p.repNewPayloadRequest instance_ entry exit
+  | .executionPayload =>
+      correctnessClaimExecutionPayload p.env p.repExecutionPayload instance_ entry exit
+  | .executionRequests =>
+      correctnessClaimExecutionRequests p.env p.repExecutionRequests instance_ entry exit
+  | .executionWitness =>
+      correctnessClaimExecutionWitness p.env p.repExecutionWitness instance_ entry exit
+  | .chainConfig => correctnessClaimChainConfig p.env p.repChainConfig instance_ entry exit
+  | .forkConfig => correctnessClaimForkConfig p.env p.repForkConfig instance_ entry exit
+  | .forkActivation => correctnessClaimForkActivation p.env p.repForkActivation instance_ entry exit
+  | .optionalU64 => correctnessClaimOptionalU64 p.env instance_ entry exit
+  | .optionalBlobSchedule => correctnessClaimOptionalBlobSchedule p.env instance_ entry exit
+  | .versionedHashes => correctnessClaimVersionedHashes p.env instance_ entry exit
+  | .withdrawals => correctnessClaimWithdrawals p.env instance_ entry exit
+  | .depositRequests => correctnessClaimDepositRequests p.env instance_ entry exit
+  | .withdrawalRequests => correctnessClaimWithdrawalRequests p.env instance_ entry exit
+  | .consolidationRequests => correctnessClaimConsolidationRequests p.env instance_ entry exit
+  | .publicKeys => correctnessClaimPublicKeys p.env instance_ entry exit
+  | .byteListList => correctnessClaimByteListList p.env instance_ entry exit
+  | .requireCanonicalOffsets => correctnessClaimRequireCanonicalOffsets p.env instance_ entry exit
+  | .requireU32Length => correctnessClaimRequireU32Length p.env instance_ entry exit
+  | .readOffset => correctnessClaimReadOffset p.env instance_ entry exit
+  | .readU32 => correctnessClaimReadU32 p.env instance_ entry exit
+  | .readU64 => correctnessClaimReadU64 p.env instance_ entry exit
+  | .readU256 => correctnessClaimReadU256 p.env instance_ entry exit
+  | .readArray =>
+      correctnessClaimReadArray p.env (readArrayWidthOf instance_.id.function) instance_ entry exit
+  | .bytesAt => correctnessClaimBytesAt p.env instance_ entry exit
+  | .hasExactErePrefix => correctnessClaimHasExactErePrefix p.env instance_ entry exit
+  | .rawAlloc => correctnessClaimAlloc p.env p.heap instance_ entry exit
+  | .memcpy => correctnessClaimMemcpy p.env instance_ entry exit
+  | .memmove => correctnessClaimMemmove p.env instance_ entry exit
+  | .rawResult => correctnessClaimRawResult p.env instance_ entry exit
+  | .rawError => correctnessClaimRawError p.env instance_ entry exit
+  | .allocatorAlloc => correctnessClaimAllocatorAlloc p.env p.heap instance_ entry exit
+  | .allocatorResize => correctnessClaimAllocatorResize p.env instance_ entry exit
+  | .allocatorRemap => correctnessClaimAllocatorRemap p.env instance_ entry exit
+  | .allocatorFree => correctnessClaimAllocatorFree p.env instance_ entry exit
+  | .allocatorCtor => correctnessClaimAllocatorCtor p.env instance_ entry exit
+
+/-- The satisfiability obligation for a routine's contract, selected by the same `tag`.
+
+Aggregating these through the dispatch is what makes anti-vacuity uniform: every live instance's
+contract must have a satisfiable precondition under a valid environment, stated at the routine's own
+parameter level. -/
+def routineSatisfiable (p : ContractParams) (function : FunctionId) (tag : RoutineTag) : Prop :=
+  match tag with
+  | .zesuDecodeRaw => satisfiableZesuDecodeRaw p.env p.statusBase
+  | .decode => satisfiableDecode p.env p.repRawV4
+  | .decodeRaw => satisfiableDecodeRaw p.env p.repRawV4
+  | .newPayloadRequest => satisfiableNewPayloadRequest p.env p.repNewPayloadRequest
+  | .executionPayload => satisfiableExecutionPayload p.env p.repExecutionPayload
+  | .executionRequests => satisfiableExecutionRequests p.env p.repExecutionRequests
+  | .executionWitness => satisfiableExecutionWitness p.env p.repExecutionWitness
+  | .chainConfig => satisfiableChainConfig p.env p.repChainConfig
+  | .forkConfig => satisfiableForkConfig p.env p.repForkConfig
+  | .forkActivation => satisfiableForkActivation p.env p.repForkActivation
+  | .optionalU64 => satisfiableOptionalU64 p.env
+  | .optionalBlobSchedule => satisfiableOptionalBlobSchedule p.env
+  | .versionedHashes => satisfiableVersionedHashes p.env
+  | .withdrawals => satisfiableWithdrawals p.env
+  | .depositRequests => satisfiableDepositRequests p.env
+  | .withdrawalRequests => satisfiableWithdrawalRequests p.env
+  | .consolidationRequests => satisfiableConsolidationRequests p.env
+  | .publicKeys => satisfiablePublicKeys p.env
+  | .byteListList => satisfiableByteListList p.env
+  | .requireCanonicalOffsets => satisfiableRequireCanonicalOffsets p.env
+  | .requireU32Length => satisfiableRequireU32Length p.env
+  | .readOffset => satisfiableReadOffset p.env
+  | .readU32 => satisfiableReadU32 p.env
+  | .readU64 => satisfiableReadU64 p.env
+  | .readU256 => satisfiableReadU256 p.env
+  | .readArray => satisfiableReadArray p.env (readArrayWidthOf function)
+  | .bytesAt => satisfiableBytesAt p.env
+  | .hasExactErePrefix => satisfiableHasExactErePrefix p.env
+  | .rawAlloc => satisfiableAlloc p.env p.heap
+  | .memcpy => satisfiableMemcpy p.env
+  | .memmove => satisfiableMemmove p.env
+  | .rawResult => satisfiableRawResult p.env
+  | .rawError => satisfiableRawError p.env
+  | .allocatorAlloc => satisfiableAllocatorAlloc p.env p.heap
+  | .allocatorResize => satisfiableAllocatorResize p.env
+  | .allocatorRemap => satisfiableAllocatorRemap p.env
+  | .allocatorFree => satisfiableAllocatorFree p.env
+  | .allocatorCtor => satisfiableAllocatorCtor p.env
+
+/-! ## Full-identity matching -/
+
+/-- The catalog entry whose full `FunctionId` equals `function`, if any. Matching is by the whole
+identity — file, qualified name, and specialization — so a `readArray[32]` occurrence cannot be
+satisfied by the `readArray[20]` contract. -/
+def catalogEntryFor (function : FunctionId) : Option CatalogEntry :=
+  catalog.find? fun entry => decide (entry.functionId = function)
+
+/-- An excluded routine matching `function`, if any. -/
+def excludedEntryFor (function : FunctionId) : Option CatalogEntry :=
+  excludedRoutines.find? fun entry => decide (entry.functionId = function)
+
+/-! ## Coverage and uniqueness obligations -/
+
+/-- Every live catalog entry has at least one generated occurrence carrying its exact identity. -/
 def everyRoutineHasInstance (program : Program) : Prop :=
-  ∀ entry ∈ catalog,
-    ∃ instance_ ∈ program.instances,
-      instance_.id.function.declaration.qualifiedName = entry.name
+  ∀ entry ∈ catalog, entry.isLive = true →
+    ∃ instance_ ∈ program.instances, instance_.id.function = entry.functionId
 
-/-- Every generated occurrence corresponds to a cataloged routine.
-
-This is the direction that catches a region of the binary nobody wrote a contract for — the failure
-mode that would otherwise let an unproved code path hide inside a "complete" proof. -/
+/-- Every generated occurrence carries the identity of exactly one live catalog entry. This is the
+direction that forbids an unproved region — including an un-accounted compiler/runtime routine —
+hiding inside a "complete" proof. -/
 def everyInstanceIsCataloged (program : Program) : Prop :=
   ∀ instance_ ∈ program.instances,
-    ∃ entry ∈ catalog,
-      instance_.id.function.declaration.qualifiedName = entry.name
+    ∃ entry ∈ catalog, entry.isLive = true ∧ instance_.id.function = entry.functionId
 
-/-- The extraction reported no unresolved attribution.
+/-- No excluded routine has any generated occurrence: the exclusions are honest. -/
+def excludedRoutinesAbsent (program : Program) : Prop :=
+  ∀ instance_ ∈ program.instances, ∀ excluded ∈ excludedRoutines,
+    instance_.id.function ≠ excluded.functionId
 
-`AttributionDefect` values are uncovered addresses, overlapping ownership, ambiguous DWARF
-attribution, and unmapped regions. Requiring the array to be empty is what stops any of them being
-silently discarded. -/
-def extractionDefectFree (program : Program) : Prop :=
-  program.defects = #[]
+/-- Each catalog identity is unique, so one occurrence cannot be counted against two entries. -/
+def catalogIdentitiesDistinct : Prop :=
+  ∀ i j, (hi : i < catalog.size) → (hj : j < catalog.size) →
+    (catalog[i]).functionId = (catalog[j]).functionId → i = j
 
-/-- Full coverage: both directions plus a defect-free extraction. -/
+/-- Every generated occurrence is matched by exactly one live catalog entry, and every occurrence
+identity is distinct: one convenient occurrence cannot satisfy several entries, and a duplicated
+occurrence cannot slip through.
+
+Uniqueness of the matched entry is `catalogEntryFor` returning `some` (a single entry from
+`Array.find?`) together with `catalogIdentitiesDistinct`, which rules out a second entry with the
+same identity. -/
+def instancesDispatchUniquely (program : Program) : Prop :=
+  program.instanceIdsDistinct ∧
+  catalogIdentitiesDistinct ∧
+  ∀ instance_ ∈ program.instances,
+    ∃ entry, catalogEntryFor instance_.id.function = some entry
+
+/-- Every required `readArray` width is present as a live catalog entry. -/
+def readArrayWidthsPresent : Prop :=
+  ∀ width ∈ requiredReadArrayWidths,
+    ∃ entry ∈ catalog, entry.tag = .readArray ∧ readArrayWidthOf entry.functionId = width
+
+/-- The full coverage obligation: both matching directions, honest exclusions, unique dispatch, the
+required specializations, and a defect-free extraction. -/
 def coverage (program : Program) : Prop :=
   everyRoutineHasInstance program ∧
   everyInstanceIsCataloged program ∧
+  excludedRoutinesAbsent program ∧
+  instancesDispatchUniquely program ∧
+  catalogIdentitiesDistinct ∧
+  readArrayWidthsPresent ∧
   extractionDefectFree program
+where
+  /-- The extraction reported no unresolved attribution. -/
+  extractionDefectFree (program : Program) : Prop := program.defects = #[]
 
-/-!
-## The catalog's semantic obligations
-
-Gathered in one place so the root navigation can point at a single name.
--/
+/-! ## The catalog's semantic obligations -/
 
 /-- Every claim the catalog makes about the decoder's meaning, as one conjunction.
 
-`sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` are the two that carry the root
-theorem; the rest bound which errors each group can produce and record the two known asymmetries. -/
+`sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` carry the root theorem; the rest
+bound which errors each group can produce and record the known asymmetries. -/
 def catalogSemanticObligations : Prop :=
   sourceShapedDecodeAgreesWithOracle ∧
   catalogGroundsInSpec ∧
@@ -186,11 +432,8 @@ def catalogSemanticObligations : Prop :=
   meaningOtherLengthIsInvalid ∧
   meaningNeverForkOrMemory
 
-/-- The two known asymmetries between the binary and the oracle.
-
-Both are *true* statements of divergence, not obligations to discharge. They are conjoined here so
-that the navigation scaffold surfaces them rather than letting them read as oversights: the first is
-masked by `retryTailNeverSchemaValid`, and the second is excluded by `rootComplianceScope`. -/
+/-- The two known asymmetries between the binary and the oracle, conjoined so the navigation surfaces
+them rather than letting them read as oversights. -/
 def knownDivergences : Prop :=
   forkErrorOrderingDiffers ∧ ereGateDivergesAboveU32
 

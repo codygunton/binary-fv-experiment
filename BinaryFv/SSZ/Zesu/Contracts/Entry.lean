@@ -174,6 +174,21 @@ def correctnessClaimZesuDecodeRaw (env : DecoderEnvironment) (statusBase : Nat)
   ImplementsInstance instance_ entry exit (contractZesuDecodeRaw env statusBase)
 
 /-!
+## Satisfiability
+-/
+
+def satisfiableDecodeRaw (env : DecoderEnvironment)
+    (rep : ContainerRepresentation SszBridge.RawV4) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractDecodeRaw env rep)
+
+def satisfiableDecode (env : DecoderEnvironment)
+    (rep : ContainerRepresentation SszBridge.RawV4) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractDecode env rep)
+
+def satisfiableZesuDecodeRaw (env : DecoderEnvironment) (statusBase : Nat) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractZesuDecodeRaw env statusBase)
+
+/-!
 ## The equivalence obligations
 
 These are the statements the whole root theorem rests on, recorded as named `Prop`s so none of them

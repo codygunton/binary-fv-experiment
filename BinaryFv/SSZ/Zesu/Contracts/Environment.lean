@@ -58,6 +58,21 @@ def CodeIntact (env : DecoderEnvironment) (state : State) : Prop :=
 
 end DecoderEnvironment
 
+/--
+The internal consistency an environment needs for its contracts' preconditions to be satisfiable.
+
+This is the antecedent every satisfiability obligation shares. It is deliberately about the *layout*
+record, not about any particular state: it says the Zig `?T` field offsets the environment claims are
+self-consistent (a discriminant and payload that fit inside the option and do not collide). Without
+it, a satisfiability claim could be asserting the existence of a state for a nonsensical layout, and
+"impossible unconditional satisfiability" is exactly what the review asked us not to assert.
+-/
+def ValidEnvironment (env : DecoderEnvironment) : Prop :=
+  env.optionalBlobSchedule.discriminantOffset < env.optionalBlobSchedule.size ∧
+  env.optionalBlobSchedule.payloadOffset + 24 ≤ env.optionalBlobSchedule.size ∧
+  env.optionalU64.discriminantOffset < env.optionalU64.size ∧
+  env.optionalU64.payloadOffset + 8 ≤ env.optionalU64.size
+
 /-- An absent option: the discriminant reads zero. -/
 def OptionNoneRep (layout : OptionLayout) (state : State) (base : Nat) : Prop :=
   state.mem.get? (base + layout.discriminantOffset) = some (BitVec.ofNat 8 0)

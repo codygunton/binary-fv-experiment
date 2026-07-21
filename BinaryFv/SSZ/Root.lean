@@ -1,11 +1,12 @@
 import BinaryFv.SSZ.Zesu.Artifact.Layout
 import BinaryFv.SSZ.Zesu.Interface
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
-import BinaryFv.SSZ.Zesu.Contracts.Catalog
+import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
 
 namespace BinaryFv.SSZ
 
 open BinaryFv.RiscV
+open BinaryFv.Binary.Elfling
 
 /-- The one canonical, Nix-built Zesu executable covered by the SSZ proof. -/
 noncomputable def binary : RiscvSpec.ValidatedElf := {
@@ -15,60 +16,55 @@ noncomputable def binary : RiscvSpec.ValidatedElf := {
   layout := Zesu.Artifact.elf_layout
 }
 
+/-!
+## Navigation from the root theorem to the source-oriented catalog
+
+`root_compliance` descends through the generated Elfling program's correctness rather than around it.
+The two authorized trace-construction theorems each *produce* a canonical generated program together
+with `Zesu.Contracts.sszComplianceObligations program`, and the two runner/result theorems below
+*consume* that program and obligation. So the spine is literal: no witness exists without program
+correctness, and the root claim is built only from witnesses.
+
+Read the spine outward from the root:
+
+* `root_compliance` — the public claim.
+* `Zesu.Contracts.sszComplianceObligations` — some canonical contract parameters make
+  `sszProgramCorrectness` hold, plus the two recorded divergences.
+* `Zesu.Contracts.sszProgramCorrectness` — canonical coverage, semantic correspondence, the
+  per-instance dispatch asserting each occurrence's `correctnessClaim`, precondition satisfiability,
+  and the explicit local-to-global composition.
+* `Zesu.Contracts.catalog` — the 43 live routines, address-free, matched by full identity.
+* the generated Elfling program — canonical-ELF ranges, checked against the pinned bytes.
+
+None of these is a `sorry`; they are named `Prop`s, so an unfinished obligation is stated exactly
+without changing the `nix/proof.nix` hole count.
+-/
+
 /-- Authorized navigation scaffold connecting the executable runner/result observer to a successful
-live Sail trace.  `runToSentinel_of_traceToSentinel` supplies the runner correspondence and
-`RawV4SuccessResultRep` supplies the result observation. -/
+live Sail trace, *given* the canonical generated program and its compliance obligation.
+
+`program` and `obligations` are genuine premises, not manufactured by the root: they are produced by
+`successful_trace_of_spec_accepts` and threaded in here, so the eventual proof of this theorem may —
+and must — use program correctness to establish the runner result. -/
 theorem execute_accepts_of_successful_trace (input : ByteArray) (value : SszBridge.RawV4)
+    (program : Program) (canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
+    (obligations : Zesu.Contracts.sszComplianceObligations program)
     (execution : Zesu.Entrypoints.ZesuDecodeRaw.SuccessfulTraceWitness input value) :
     RiscvSpec.execute binary input = .ok (.accepted value) := by
   sorry
 
 /-- Authorized navigation scaffold connecting a classified nonzero-status trace to the executable
-runner's normalized rejection result. -/
+runner's normalized rejection result, given the same canonical program and obligation. -/
 theorem execute_rejects_of_rejected_trace (input : ByteArray)
+    (program : Program) (canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
+    (obligations : Zesu.Contracts.sszComplianceObligations program)
     (execution : Zesu.Entrypoints.ZesuDecodeRaw.RejectedTraceWitness input) :
     RiscvSpec.execute binary input = .ok .rejected := by
   sorry
 
-/-!
-## Navigation from the root theorem to the source-oriented catalog
-
-The obligations below are the visible dependency spine between `root_compliance` and the handwritten
-contracts. None of them is a `sorry`: they are named `Prop`s, which is what lets an unfinished
-obligation be stated exactly without weakening the `nix/proof.nix` hole audit.
-
-Read the spine outward from the root:
-
-* `root_compliance` — the public claim.
-* `sszProgramCorrectness` — the generated Elfling program covers the binary and every occurrence
-  implements its handwritten contract.
-* `Zesu.Contracts.catalogSemanticObligations` — the catalog's meanings agree with the pinned oracle.
-* `Zesu.Contracts.knownDivergences` — the two places the binary and the oracle genuinely differ,
-  surfaced rather than omitted.
-* `Zesu.Contracts.catalog` — the 33 routines, address-free.
-* the generated Elfling program — canonical-ELF ranges, checked against the pinned bytes.
--/
-
-/-- The generated Elfling program covers the reachable binary and every occurrence implements the
-handwritten contract for the routine it was extracted from.
-
-This is the local-to-global obligation. `Zesu.Contracts.coverage` supplies the two coverage
-directions and the defect-free extraction requirement; the per-occurrence `correctnessClaim`s in the
-`Contracts` modules supply the rest. -/
-def sszProgramCorrectness (program : BinaryFv.Binary.Elfling.Program) : Prop :=
-  Zesu.Contracts.coverage program ∧ Zesu.Contracts.catalogSemanticObligations
-
-/-- Everything the root theorem depends on, in one name.
-
-`knownDivergences` is conjoined deliberately: both members are *true* statements that the binary and
-the oracle differ, and stating them here keeps them from reading as oversights. One is masked by
-`retryTailNeverSchemaValid`; the other is excluded by the input bound, which is why
-`Zesu.Contracts.rootComplianceScope` exists as a name rather than an inline literal. -/
-def sszComplianceObligations (program : BinaryFv.Binary.Elfling.Program) : Prop :=
-  sszProgramCorrectness program ∧ Zesu.Contracts.knownDivergences
-
 /-- The final Amsterdam V4 compliance statement.  Its dependency spine is intentionally visible:
-spec classification, live Sail traces, runner/result observation, and the public execution API. -/
+spec classification, the canonical Elfling program and its compliance obligation, live Sail traces,
+runner/result observation, and the public execution API. -/
 theorem root_compliance :
     forall input : ByteArray,
       input.size < 2 * 1024 * 1024 ->
@@ -76,14 +72,14 @@ theorem root_compliance :
   intro input inputBound
   cases specResult : SszSpec.decode input with
   | accepted value =>
-      obtain ⟨execution⟩ :=
+      obtain ⟨program, canonical, obligations, ⟨execution⟩⟩ :=
         Zesu.Entrypoints.ZesuDecodeRaw.successful_trace_of_spec_accepts
           input inputBound value specResult
-      exact execute_accepts_of_successful_trace input value execution
+      exact execute_accepts_of_successful_trace input value program canonical obligations execution
   | rejected =>
-      obtain ⟨execution⟩ :=
+      obtain ⟨program, canonical, obligations, ⟨execution⟩⟩ :=
         Zesu.Entrypoints.ZesuDecodeRaw.rejected_trace_of_spec_rejects
           input inputBound specResult
-      exact execute_rejects_of_rejected_trace input execution
+      exact execute_rejects_of_rejected_trace input program canonical obligations execution
 
 end BinaryFv.SSZ

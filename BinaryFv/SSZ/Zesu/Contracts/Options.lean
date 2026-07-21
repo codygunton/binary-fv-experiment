@@ -162,12 +162,14 @@ def correctnessClaimOptionalU64 (env : DecoderEnvironment)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractOptionalU64 env)
 
-/-- The blob-schedule precondition is satisfiable, so its contract is not vacuous. -/
+/-- The blob-schedule precondition is satisfiable for a well-formed environment, so its contract is
+not vacuous. Conditioned on `ValidEnvironment` rather than asserted unconditionally: the
+postcondition reads the layout offsets, and an inconsistent layout has no representative state. -/
 def satisfiableOptionalBlobSchedule (env : DecoderEnvironment) : Prop :=
-  PreSatisfiable (contractOptionalBlobSchedule env)
+  ValidEnvironment env → PreSatisfiable (contractOptionalBlobSchedule env)
 
 def satisfiableOptionalU64 (env : DecoderEnvironment) : Prop :=
-  PreSatisfiable (contractOptionalU64 env)
+  ValidEnvironment env → PreSatisfiable (contractOptionalU64 env)
 
 /-!
 ## Characterization of the meaning

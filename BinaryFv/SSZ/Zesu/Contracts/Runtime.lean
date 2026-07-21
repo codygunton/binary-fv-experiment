@@ -145,17 +145,181 @@ def correctnessClaimMemmove (env : DecoderEnvironment)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractMemmove env)
 
+def satisfiableAlloc (env : DecoderEnvironment) (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractAlloc env heap)
+
+def satisfiableMemcpy (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractMemcpy env)
+
+def satisfiableMemmove (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractMemmove env)
+
 /-!
-## Accessors and global bounds
+## Exported accessors as contracts
+
+`zesu_raw_result` and `zesu_raw_error` are exported symbols, so they get full contracts like every
+other cataloged routine rather than bare predicates. Neither takes the borrowed input, neither
+allocates, and neither can fail: their `meaning` is total.
 -/
 
-/-- `zesu_raw_error()` returns the recorded status code. -/
-def rawErrorReturnsStatus (status : DecodeStatus) (state : State) : Prop :=
-  state.regs.get? x10 = some (BitVec.ofNat 64 status.code)
+/-- Arguments of `zesu_raw_error`: the recorded decode status. -/
+structure RawErrorArgs where
+  status : DecodeStatus
 
-/-- `zesu_raw_result()` returns the stored result pointer, or null when nothing was decoded. -/
-def rawResultReturnsPointer (resultBase : Nat) (decoded : Bool) (state : State) : Prop :=
-  state.regs.get? x10 = some (BitVec.ofNat 64 (if decoded then resultBase else 0))
+/-- Arguments of `zesu_raw_result`: where the stored result lives and whether a decode succeeded. -/
+structure RawResultArgs where
+  resultBase : Nat
+  decoded : Bool
+
+def postRawError (env : DecoderEnvironment) (args : RawErrorArgs)
+    (result : Except SszDecodeError Nat) (before after : State) : Prop :=
+  env.CodeIntact after ∧ env.NoAllocation before after ∧
+  match result with
+  | .ok code => code = args.status.code ∧ after.regs.get? x10 = some (BitVec.ofNat 64 code)
+  | .error _ => False
+
+def contractRawError (env : DecoderEnvironment) :
+    FunctionContract SszDecodeError RawErrorArgs Nat where
+  meaning := fun args => .ok args.status.code
+  pre := fun _ state => env.CodeIntact state
+  post := postRawError env
+  stepBound := fun _ => 16
+
+def postRawResult (env : DecoderEnvironment) (args : RawResultArgs)
+    (result : Except SszDecodeError Nat) (before after : State) : Prop :=
+  env.CodeIntact after ∧ env.NoAllocation before after ∧
+  match result with
+  | .ok pointer =>
+      pointer = (if args.decoded then args.resultBase else 0) ∧
+      after.regs.get? x10 = some (BitVec.ofNat 64 pointer)
+  | .error _ => False
+
+def contractRawResult (env : DecoderEnvironment) :
+    FunctionContract SszDecodeError RawResultArgs Nat where
+  meaning := fun args => .ok (if args.decoded then args.resultBase else 0)
+  pre := fun _ state => env.CodeIntact state
+  post := postRawResult env
+  stepBound := fun _ => 32
+
+def correctnessClaimRawError (env : DecoderEnvironment)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractRawError env)
+
+def correctnessClaimRawResult (env : DecoderEnvironment)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractRawResult env)
+
+def satisfiableRawError (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractRawError env)
+
+def satisfiableRawResult (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractRawResult env)
+
+/-!
+## Allocator vtable routines
+
+`allocatorAlloc` forwards to `zesu_raw_alloc`; the other three vtable thunks are constant
+(`allocatorResize` fails, `allocatorRemap` fails, `allocatorFree` is a no-op), and `allocator`
+constructs the `std.mem.Allocator` value. Each is cataloged with a contract so the coverage proof
+can account for every reachable runtime routine rather than leaving the allocator closure implicit.
+-/
+
+/-- `allocatorResize` unconditionally returns `false`; it neither reads nor writes memory. -/
+def contractAllocatorResize (env : DecoderEnvironment) :
+    FunctionContract SszDecodeError Unit Bool where
+  meaning := fun _ => .ok meaningAllocatorResize
+  pre := fun _ state => env.CodeIntact state
+  post := fun _ result before after =>
+    env.CodeIntact after ∧ env.NoAllocation before after ∧
+      result = .ok false ∧ after.regs.get? x10 = some (BitVec.ofNat 64 0)
+  stepBound := fun _ => 8
+
+/-- `allocatorRemap` unconditionally returns `null`. -/
+def contractAllocatorRemap (env : DecoderEnvironment) :
+    FunctionContract SszDecodeError Unit Nat where
+  meaning := fun _ => .ok 0
+  pre := fun _ state => env.CodeIntact state
+  post := fun _ result before after =>
+    env.CodeIntact after ∧ env.NoAllocation before after ∧
+      result = .ok 0 ∧ after.regs.get? x10 = some (BitVec.ofNat 64 0)
+  stepBound := fun _ => 8
+
+/-- `allocatorFree` is a no-op: it returns nothing and leaves all memory, including the allocator
+state, exactly as it was. -/
+def contractAllocatorFree (env : DecoderEnvironment) :
+    FunctionContract SszDecodeError Unit Unit where
+  meaning := fun _ => .ok ()
+  pre := fun _ state => env.CodeIntact state
+  post := fun _ result before after =>
+    env.CodeIntact after ∧ (∀ address, after.mem.get? address = before.mem.get? address) ∧
+      result = .ok ()
+  stepBound := fun _ => 8
+
+/-- `allocatorAlloc(len, alignment)` is the vtable thunk that forwards to `zesu_raw_alloc`, so its
+contract is the allocation contract under the same `heap`. -/
+def contractAllocatorAlloc (env : DecoderEnvironment) (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap) :
+    FunctionContract SszDecodeError AllocArgs Nat :=
+  contractAlloc env heap
+
+/-- `allocator()` constructs the `std.mem.Allocator` value: a context pointer and the static vtable
+address. It performs no allocation. -/
+structure AllocatorCtorArgs where
+  contextBase : Nat
+  vtableBase : Nat
+  resultBase : Nat
+
+def contractAllocatorCtor (env : DecoderEnvironment) :
+    FunctionContract SszDecodeError AllocatorCtorArgs Unit where
+  meaning := fun _ => .ok ()
+  pre := fun _ state => env.CodeIntact state
+  post := fun args result before after =>
+    env.CodeIntact after ∧ env.NoAllocation before after ∧ result = .ok () ∧
+      AllocatorObjectRep after args.resultBase args.contextBase args.vtableBase
+  stepBound := fun _ => 16
+
+def correctnessClaimAllocatorResize (env : DecoderEnvironment)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractAllocatorResize env)
+
+def correctnessClaimAllocatorRemap (env : DecoderEnvironment)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractAllocatorRemap env)
+
+def correctnessClaimAllocatorFree (env : DecoderEnvironment)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractAllocatorFree env)
+
+def correctnessClaimAllocatorAlloc (env : DecoderEnvironment)
+    (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractAllocatorAlloc env heap)
+
+def correctnessClaimAllocatorCtor (env : DecoderEnvironment)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractAllocatorCtor env)
+
+def satisfiableAllocatorResize (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractAllocatorResize env)
+
+def satisfiableAllocatorRemap (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractAllocatorRemap env)
+
+def satisfiableAllocatorFree (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractAllocatorFree env)
+
+def satisfiableAllocatorAlloc (env : DecoderEnvironment)
+    (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractAllocatorAlloc env heap)
+
+def satisfiableAllocatorCtor (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractAllocatorCtor env)
 
 /-- The three non-`alloc` vtable entries are constant, so the decoder never reuses or frees memory
 and the global allocation bound is a plain sum over allocation sites. -/

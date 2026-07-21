@@ -2,11 +2,13 @@ import BinaryFv.RiscV.Proof.RunnerCorrespondence
 import BinaryFv.SSZ.SpecBridge.Decode
 import BinaryFv.SSZ.Zesu.Artifact.Symbols
 import BinaryFv.SSZ.Zesu.MemoryRepresentation.Result
+import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
 
 namespace BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
 
 open BinaryFv.RiscV
 open BinaryFv.SSZ.Zesu.MemoryRepresentation
+open BinaryFv.Binary.Elfling
 open LeanRV64DExecutable.Functions Register
 
 set_option maxRecDepth 10000
@@ -58,20 +60,31 @@ structure RejectedTraceWitness (input : ByteArray) where
   statusNonzero : status ≠ 0
   resultStatus : observeResultStatus? finalState resultBase = some status
 
-/-- Authorized navigation scaffold: accepted SizzLean inputs have a complete live Sail execution
-whose final state represents the same value. -/
+/-- Authorized navigation scaffold: an accepted SizzLean input has a canonical generated Elfling
+program that satisfies the whole compliance obligation, together with a complete live Sail execution
+whose final state represents the same value.
+
+Bundling the program obligation into the witness of this theorem is what makes the root theorem
+descend through Elfling program correctness rather than bypass it: the successful trace cannot be
+produced without also producing `sszComplianceObligations`, so the eventual proof owes it. -/
 theorem successful_trace_of_spec_accepts (input : ByteArray)
     (inputBound : input.size < 2 * 1024 * 1024) (value : SszBridge.RawV4)
     (specAccepts : SszSpec.decode input = .accepted value) :
-    Nonempty (SuccessfulTraceWitness input value) := by
+    ∃ program : Program,
+      Contracts.IsCanonicalGeneratedProgram program ∧
+      Contracts.sszComplianceObligations program ∧
+      Nonempty (SuccessfulTraceWitness input value) := by
   sorry
 
-/-- Authorized navigation scaffold: rejected SizzLean inputs follow a classified live Sail path to
-a nonzero Zesu result status. -/
+/-- Authorized navigation scaffold: a rejected SizzLean input likewise has the canonical program
+obligation and a classified live Sail path to a nonzero Zesu result status. -/
 theorem rejected_trace_of_spec_rejects (input : ByteArray)
     (inputBound : input.size < 2 * 1024 * 1024)
     (specRejects : SszSpec.decode input = .rejected) :
-    Nonempty (RejectedTraceWitness input) := by
+    ∃ program : Program,
+      Contracts.IsCanonicalGeneratedProgram program ∧
+      Contracts.sszComplianceObligations program ∧
+      Nonempty (RejectedTraceWitness input) := by
   sorry
 
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw

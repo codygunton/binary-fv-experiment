@@ -172,6 +172,89 @@ def contractHasExactErePrefix (env : DecoderEnvironment) :
   post := postHasExactErePrefix env
   stepBound := fun _ => 64
 
+/-- `requireU32Length(data)`: returns a zero status on success. -/
+def postRequireU32Length (env : DecoderEnvironment) (args : SliceArgs)
+    (result : Except SszDecodeError Unit) (before after : State) : Prop :=
+  LeafFrame env args.base args.bytes before after ∧
+  match result with
+  | .ok () => after.regs.get? x10 = some (BitVec.ofNat 64 0)
+  | .error error => error = SszDecodeError.invalidSsz
+
+def contractRequireU32Length (env : DecoderEnvironment) :
+    FunctionContract SszDecodeError SliceArgs Unit where
+  meaning := fun args => meaningRequireU32Length args.bytes
+  pre := preSlice env
+  post := postRequireU32Length env
+  stepBound := fun _ => 32
+
+/-- Arguments of `bytesAt`: the `len` is a **runtime** argument (unlike `readArray`'s comptime `N`),
+so it belongs in the args, keeping `bytesAt` a single routine with a single identity. -/
+structure BytesAtArgs extends ReadAtArgs where
+  length : Nat
+
+/-- `bytesAt(data, offset, len)` returns a borrowed sub-slice; on success `a0`/`a1` carry its
+pointer and length, and the bytes are those of the caller's input at `[offset, offset+len)`. -/
+def postBytesAt (env : DecoderEnvironment) (args : BytesAtArgs)
+    (result : Except SszDecodeError ByteArray) (before after : State) : Prop :=
+  LeafFrame env args.base args.bytes before after ∧
+  match result with
+  | .ok _ =>
+      after.regs.get? x10 = some (BitVec.ofNat 64 (args.base + args.offset)) ∧
+      after.regs.get? x11 = some (BitVec.ofNat 64 args.length)
+  | .error error => error = SszDecodeError.invalidSsz
+
+def contractBytesAt (env : DecoderEnvironment) :
+    FunctionContract SszDecodeError BytesAtArgs ByteArray where
+  meaning := fun args => meaningBytesAt args.bytes args.offset args.length
+  pre := fun args => preReadAt env args.toReadAtArgs
+  post := postBytesAt env
+  stepBound := fun _ => 32
+
+/-- `readU256(data, offset)`: the 256-bit little-endian value is written to a caller result slot,
+because a `u256` does not fit in a single return register. -/
+def postReadU256 (env : DecoderEnvironment) (args : ReadAtArgs) (resultBase : Nat)
+    (result : Except SszDecodeError (BitVec 256)) (before after : State) : Prop :=
+  LeafFrame env args.base args.bytes before after ∧
+  match result with
+  | .ok value => BitVectorLERep after resultBase value
+  | .error error => error = SszDecodeError.invalidSsz
+
+/-- Arguments of `readU256`: like a read-at, plus the result slot the wide value is written to. -/
+structure ReadU256Args extends ReadAtArgs where
+  resultBase : Nat
+
+def contractReadU256 (env : DecoderEnvironment) :
+    FunctionContract SszDecodeError ReadU256Args (BitVec 256) where
+  meaning := fun args => meaningReadU256 args.bytes args.offset
+  pre := fun args => preReadAt env args.toReadAtArgs
+  post := fun args => postReadU256 env args.toReadAtArgs args.resultBase
+  stepBound := fun _ => 128
+
+/-- `readArray(N, data, offset)`: `N` bytes copied to a caller result slot.
+
+Each `N` is a separately emitted `comptime` instantiation, so the contract is parameterized by `N`
+and the catalog records one entry per concrete width (20, 32, 48, 65, 96, 256). -/
+def postReadArray (env : DecoderEnvironment) (args : ReadAtArgs) (length resultBase : Nat)
+    (result : Except SszDecodeError ByteArray) (before after : State) : Prop :=
+  LeafFrame env args.base args.bytes before after ∧
+  match result with
+  | .ok copied => MemoryBytes after resultBase copied
+  | .error error => error = SszDecodeError.invalidSsz
+
+/-- Arguments of `readArray`: a read-at plus the destination the `N` bytes are copied to. -/
+structure ReadArrayArgs extends ReadAtArgs where
+  resultBase : Nat
+
+def contractReadArray (env : DecoderEnvironment) (length : Nat) :
+    FunctionContract SszDecodeError ReadArrayArgs ByteArray where
+  meaning := fun args => meaningReadArray length args.bytes args.offset
+  pre := fun args => preReadAt env args.toReadAtArgs
+  post := fun args => postReadArray env args.toReadAtArgs length args.resultBase
+  stepBound := fun _ => 32 + 4 * length
+
+/-- The concrete `readArray` widths the pinned decoder instantiates. -/
+def readArrayWidths : List Nat := [20, 32, 48, 65, 96, 256]
+
 /-!
 ## Correctness claims
 -/
@@ -195,6 +278,58 @@ def correctnessClaimHasExactErePrefix (env : DecoderEnvironment)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractHasExactErePrefix env)
+
+def correctnessClaimRequireU32Length (env : DecoderEnvironment)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractRequireU32Length env)
+
+def correctnessClaimBytesAt (env : DecoderEnvironment)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractBytesAt env)
+
+def correctnessClaimReadU256 (env : DecoderEnvironment)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractReadU256 env)
+
+/-- One correctness claim per concrete `readArray` width. -/
+def correctnessClaimReadArray (env : DecoderEnvironment) (length : Nat)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
+  ImplementsInstance instance_ entry exit (contractReadArray env length)
+
+/-!
+## Satisfiability
+
+Each leaf precondition is satisfiable because its base pointer is a free argument: place the borrowed
+slice at an address the image does not occupy and the state exists. Stated under `ValidEnvironment`
+for uniformity with the parameterized families, even where a leaf does not consult the layout. -/
+
+def satisfiableReadU32 (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractReadU32 env)
+
+def satisfiableReadU64 (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractReadU64 env)
+
+def satisfiableReadOffset (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractReadOffset env)
+
+def satisfiableReadU256 (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractReadU256 env)
+
+def satisfiableReadArray (env : DecoderEnvironment) (length : Nat) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractReadArray env length)
+
+def satisfiableBytesAt (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractBytesAt env)
+
+def satisfiableRequireU32Length (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractRequireU32Length env)
+
+def satisfiableHasExactErePrefix (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractHasExactErePrefix env)
 
 /-!
 ## Characterizations

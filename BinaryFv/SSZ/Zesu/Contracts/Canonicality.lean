@@ -77,6 +77,9 @@ def correctnessClaimRequireCanonicalOffsets (env : DecoderEnvironment)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractRequireCanonicalOffsets env)
 
+def satisfiableRequireCanonicalOffsets (env : DecoderEnvironment) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractRequireCanonicalOffsets env)
+
 /-!
 ## Characterization
 

@@ -275,6 +275,41 @@ def correctnessClaimNewPayloadRequest (env : DecoderEnvironment)
   ImplementsInstance instance_ entry exit (contractNewPayloadRequest env rep)
 
 /-!
+## Satisfiability
+
+Container satisfiability is stated per representation: a representation whose field layout is
+inconsistent has no witnessing state, so an unconditional claim would be exactly the impossible
+assertion the review warned against. -/
+
+def satisfiableForkActivation (env : DecoderEnvironment)
+    (rep : ContainerRepresentation SszBridge.RawForkActivation) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractForkActivation env rep)
+
+def satisfiableForkConfig (env : DecoderEnvironment)
+    (rep : ContainerRepresentation SszBridge.RawForkConfig) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractForkConfig env rep)
+
+def satisfiableChainConfig (env : DecoderEnvironment)
+    (rep : ContainerRepresentation SszBridge.RawChainConfig) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractChainConfig env rep)
+
+def satisfiableExecutionWitness (env : DecoderEnvironment)
+    (rep : ContainerRepresentation SszBridge.RawExecutionWitness) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractExecutionWitness env rep)
+
+def satisfiableExecutionRequests (env : DecoderEnvironment)
+    (rep : ContainerRepresentation SszBridge.RawExecutionRequests) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractExecutionRequests env rep)
+
+def satisfiableExecutionPayload (env : DecoderEnvironment)
+    (rep : ContainerRepresentation SszBridge.RawExecutionPayload) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractExecutionPayload env rep)
+
+def satisfiableNewPayloadRequest (env : DecoderEnvironment)
+    (rep : ContainerRepresentation SszBridge.RawNewPayloadRequest) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractNewPayloadRequest env rep)
+
+/-!
 ## Characterizations
 -/
 
