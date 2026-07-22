@@ -15,6 +15,7 @@ let
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
+      sszContractCorpus
       zesuSinkObservability
       zesuSsz
       zesuValue;

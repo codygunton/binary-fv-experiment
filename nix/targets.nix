@@ -575,6 +575,26 @@ let
       --objdump ${riscvObjdump} | tee "$out/defects.txt"
   '';
 
+  # Row B: the `ssz-contract-corpus-v1` contract-validation corpus is deterministic. Two independent
+  # generator runs over the pinned strict-V4 fixtures must be byte-identical. This is
+  # falsification/regression evidence, never a proof input.
+  sszContractCorpus = pkgs.runCommand "ssz-contract-corpus" {
+    nativeBuildInputs = [ pkgs.python3 pkgs.coreutils pkgs.diffutils ];
+  } ''
+    mkdir -p "$out"
+    gen() {
+      python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; }} \
+        --fixtures ${builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; }} \
+        --out "$1"
+    }
+    gen run1.jsonl
+    gen run2.jsonl
+    cmp -s run1.jsonl run2.jsonl \
+      || { echo "CORPUS NON-DETERMINISTIC: contract corpus differs between two runs" >&2; exit 1; }
+    cp run1.jsonl "$out/corpus.jsonl"
+    printf 'cases=%s (byte-identical across two runs)\n' "$(wc -l < run1.jsonl)" | tee "$out/summary.txt"
+  '';
+
   # Evaluate the exact pinned Zig compiler's RV64 layout query. `@compileLog` deliberately fails
   # compilation after reporting the values, so this derivation turns that compiler output into the
   # Lean data module consumed by the proof while preserving the raw compiler transcript as evidence.
@@ -887,6 +907,7 @@ in
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
+      sszContractCorpus
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -903,6 +924,7 @@ in
     elfling-decoder-llvm-ir = elflingDecoderLlvmIr;
     elfling-relocation-check = elflingRelocationCheck;
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;
+    ssz-contract-corpus = sszContractCorpus;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;
