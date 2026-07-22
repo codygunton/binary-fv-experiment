@@ -528,11 +528,13 @@ let
     '';
   };
 
-  # Row B host contract probe: a ReleaseSafe host executable that imports only the pinned `ssz_raw`
-  # module and drives the *real private* `raw.decode` over the shared contract corpus. The probe root
-  # lives in this repo (like `zesuAbiManifest`) and pulls `ssz_raw` from the pinned source, so no
-  # source patching is needed to reach the private routine. It emits the canonical decision plus an
-  # allocation ledger and validates out-of-memory safety. Host-only; never linked into the RV64 graph.
+  # Row B host contract probe: a ReleaseSafe host executable that imports the pinned `ssz_raw` module
+  # and tests the decoder over the shared contract corpus. Item 1: it reaches the *file-private*
+  # catalog routines through a VALIDATION-ONLY OVERLAY — `overlay_exports.zig` is appended to a
+  # sha256-verified copy of the pinned `ssz_raw.zig` (verified BEFORE the append; the copy lives only
+  # inside this derivation's build tree, so no production object derivation is affected). It emits the
+  # canonical decision plus an allocation ledger and validates out-of-memory safety. Host-only; never
+  # linked into the RV64 graph.
   zesuContractProbe = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-contract-probe";
     version = "96f1621";
@@ -541,15 +543,36 @@ let
     dontConfigure = true;
     dontFixup = true;
 
+    # The exact pinned sha256 of `src/stateless/stateless/ssz_raw.zig` (source manifest entry). The
+    # overlay is applied only after this matches, so a drifted source fails the build rather than
+    # silently exposing a different routine set.
+    ssz_raw_sha256 = "ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0f6783a1d131";
+
     buildPhase = ''
       runHook preBuild
       export HOME="$TMPDIR"
       export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
       export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+
+      # --- validation-only overlay: verify the pinned source, then append private-routine re-exports.
+      overlay=src/stateless/stateless/ssz_raw.zig
+      echo "$ssz_raw_sha256  $overlay" | sha256sum -c - \
+        || { echo "OVERLAY: pinned ssz_raw.zig sha256 mismatch (source drifted)" >&2; exit 1; }
+      for fn in decodeNewPayloadRequest decodeExecutionPayload decodeExecutionRequests \
+                decodeExecutionWitness decodeChainConfig decodeForkConfig decodeForkActivation \
+                decodeOptionalU64 decodeOptionalBlobSchedule decodeVersionedHashes decodeWithdrawals \
+                decodeDepositRequests decodeWithdrawalRequests decodeConsolidationRequests \
+                decodePublicKeys decodeByteListList requireCanonicalOffsets requireU32Length \
+                readOffset readU32 readU64 readU256 readArray bytesAt hasExactErePrefix; do
+        grep -qE "^fn $fn\b" "$overlay" \
+          || { echo "OVERLAY: private catalog routine 'fn $fn' not found in pinned source" >&2; exit 1; }
+      done
+      cat ${builtins.path { path = repo + "/targets/ssz/zesu/probe/overlay_exports.zig"; name = "overlay_exports.zig"; }} >> "$overlay"
+
       zig build-exe -O ReleaseSafe \
         --dep ssz_raw \
         -Mroot=${builtins.path { path = repo + "/targets/ssz/zesu/probe/ssz_contract_probe.zig"; name = "ssz_contract_probe.zig"; }} \
-        -Mssz_raw=$PWD/src/stateless/stateless/ssz_raw.zig \
+        -Mssz_raw=$PWD/$overlay \
         -femit-bin=ssz-contract-probe
       runHook postBuild
     '';

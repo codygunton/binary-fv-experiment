@@ -12,13 +12,14 @@
 //!     robustness sweep (inject a failure at each allocation index and require the decoder to
 //!     surface a clean `error.OutOfMemory` with no leak).
 //!
-//! Scope decision (see DECISIONS.md): only `ssz_raw.decode`/`decodeRaw` are `pub`; the ~43 internal
-//! routines are file-private `fn` and are NOT exposed by patching the pinned source. The probe
-//! therefore validates the composed public entrypoint's *decision* + *allocation* behavior;
-//! occurrence-level granularity lives in the Lean layer (Row A `BindingInventory`). *Value* fidelity
-//! of `raw.decode` is certified independently by the preserved three-way `ssz-value-v1` audit
-//! (`raw.decode`.render ≡ `decodeStatelessInput`.render ≡ python), so the probe deliberately does not
-//! re-render values — a second copy of the renderer would only add drift risk.
+//! Item 1 (Row B): the file-private catalog routines ARE now reachable for direct per-routine testing
+//! through the validation-only overlay (`overlay_exports.zig`), which the `zesuContractProbe`
+//! derivation appends to a sha256-verified copy of the pinned source (production object derivations
+//! are untouched). The `comptime` block below references every `raw.probe_*` re-export, so this exe
+//! fails to build unless all are exposed; `--list-routines` prints the reachable routine identities.
+//! The whole-input `raw.decode` decision + allocation lane below is preserved; the per-routine typed
+//! vectors and Zig-vs-Lean-meaning value/error comparison build on this exposure. *Value* fidelity of
+//! `raw.decode` itself remains additionally certified by the three-way `ssz-value-v1` audit.
 //!
 //! Exit status is nonzero if any case leaks or is out-of-memory-unsafe (both real defects).
 
@@ -26,6 +27,57 @@ const std = @import("std");
 const raw = @import("ssz_raw");
 
 const Writer = std.Io.Writer;
+
+/// Item 1 (Row B): the file-private catalog routines the validation-only overlay
+/// (`overlay_exports.zig`, appended inside the `zesuContractProbe` derivation) exposes for direct
+/// testing. `readArray` is listed once per concrete width the decoder instantiates.
+const exposed_routines = [_][]const u8{
+    "ssz_raw.decodeNewPayloadRequest", "ssz_raw.decodeExecutionPayload",
+    "ssz_raw.decodeExecutionRequests", "ssz_raw.decodeExecutionWitness",
+    "ssz_raw.decodeChainConfig",       "ssz_raw.decodeForkConfig",
+    "ssz_raw.decodeForkActivation",    "ssz_raw.decodeOptionalU64",
+    "ssz_raw.decodeOptionalBlobSchedule", "ssz_raw.decodeVersionedHashes",
+    "ssz_raw.decodeWithdrawals",       "ssz_raw.decodeDepositRequests",
+    "ssz_raw.decodeWithdrawalRequests", "ssz_raw.decodeConsolidationRequests",
+    "ssz_raw.decodePublicKeys",        "ssz_raw.decodeByteListList",
+    "ssz_raw.requireCanonicalOffsets", "ssz_raw.requireU32Length",
+    "ssz_raw.readOffset",              "ssz_raw.readU32",
+    "ssz_raw.readU64",                 "ssz_raw.readU256",
+    "ssz_raw.bytesAt",                 "ssz_raw.hasExactErePrefix",
+    "ssz_raw.readArray[20]", "ssz_raw.readArray[32]", "ssz_raw.readArray[48]",
+    "ssz_raw.readArray[65]", "ssz_raw.readArray[96]", "ssz_raw.readArray[256]",
+};
+
+// Compile-time proof that the overlay exposes every private catalog routine: referencing each
+// `probe_*` re-export forces the compiler to resolve it against the private `fn` in the overlaid
+// pinned source. If the overlay were missing (or a routine renamed) this executable would not build.
+comptime {
+    _ = raw.probe_decodeNewPayloadRequest;
+    _ = raw.probe_decodeExecutionPayload;
+    _ = raw.probe_decodeExecutionRequests;
+    _ = raw.probe_decodeExecutionWitness;
+    _ = raw.probe_decodeChainConfig;
+    _ = raw.probe_decodeForkConfig;
+    _ = raw.probe_decodeForkActivation;
+    _ = raw.probe_decodeOptionalU64;
+    _ = raw.probe_decodeOptionalBlobSchedule;
+    _ = raw.probe_decodeVersionedHashes;
+    _ = raw.probe_decodeWithdrawals;
+    _ = raw.probe_decodeDepositRequests;
+    _ = raw.probe_decodeWithdrawalRequests;
+    _ = raw.probe_decodeConsolidationRequests;
+    _ = raw.probe_decodePublicKeys;
+    _ = raw.probe_decodeByteListList;
+    _ = raw.probe_requireCanonicalOffsets;
+    _ = raw.probe_requireU32Length;
+    _ = raw.probe_readOffset;
+    _ = raw.probe_readU32;
+    _ = raw.probe_readU64;
+    _ = raw.probe_readU256;
+    _ = raw.probe_readArray;
+    _ = raw.probe_bytesAt;
+    _ = raw.probe_hasExactErePrefix;
+}
 
 /// The generous read limit for the corpus file itself (not a single decode input).
 const max_corpus_bytes: usize = 1 << 30;
@@ -190,10 +242,13 @@ pub fn main(init: std.process.Init) !void {
     var corpus_path: ?[]const u8 = null;
     var ledger_path: ?[]const u8 = null;
     var max_inject: usize = default_max_inject;
+    var list_routines = false;
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const a = args[i];
-        if (std.mem.eql(u8, a, "--ledger")) {
+        if (std.mem.eql(u8, a, "--list-routines")) {
+            list_routines = true;
+        } else if (std.mem.eql(u8, a, "--ledger")) {
             i += 1;
             if (i >= args.len) fatal("--ledger needs a path");
             ledger_path = args[i];
@@ -209,7 +264,16 @@ pub fn main(init: std.process.Init) !void {
             fatal("unexpected extra argument");
         }
     }
-    const path = corpus_path orelse fatal("usage: ssz-contract-probe <corpus.jsonl> [--ledger <path>] [--max-inject N]");
+    if (list_routines) {
+        var lr_buf: [64 * 1024]u8 = undefined;
+        var lr_file = std.Io.File.stdout().writer(init.io, &lr_buf);
+        const lr = &lr_file.interface;
+        for (exposed_routines) |name| try lr.print("{s}\n", .{name});
+        try lr.flush();
+        return;
+    }
+
+    const path = corpus_path orelse fatal("usage: ssz-contract-probe <corpus.jsonl> [--ledger <path>] [--max-inject N] | --list-routines");
 
     const content = try std.Io.Dir.cwd().readFileAlloc(init.io, path, gpa, .limited(max_corpus_bytes));
     defer gpa.free(content);
