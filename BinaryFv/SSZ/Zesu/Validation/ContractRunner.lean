@@ -81,4 +81,3 @@ def main (args : List String) : IO UInt32 := do
   match args with
   | [corpusPath] => BinaryFv.SSZ.Zesu.Validation.runCorpus corpusPath
   | _ => do IO.eprintln "usage: ssz_contract_runner <corpus.jsonl>"; pure 64
-

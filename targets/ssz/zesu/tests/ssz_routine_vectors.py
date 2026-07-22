@@ -37,7 +37,7 @@ INVALID = {"kind": "error", "value": None, "error": "invalidSsz"}
 
 
 def val_nat(n):
-    # Decimal STRING so values above i64 (e.g. readU64 of all-0xff = 2^64-1, and readU256 later) survive
+    # Decimal STRING so values above i64 (e.g. readU64 of all-0xff = 2^64-1, readU256 = 2^256-1) survive
     # JSON parsing in every runner.
     return {"kind": "value", "value": {"nat": str(n)}, "error": None}
 
@@ -116,6 +116,16 @@ def rows():
     add("ssz_raw.readU64", {"data": (b"\x01" * 7).hex(), "offset": 0}, INVALID, "offset-failure")   # 7 < 8
     add("ssz_raw.readU64", {"data": pat8.hex(), "offset": 1}, INVALID, "offset-failure")            # 1+8>8
 
+    # readU256 (32-byte little-endian; the value encoding's `nat` carries the full u256 range).
+    pat256 = bytes((i * 7 + 3) & 0xFF for i in range(32))
+    add("ssz_raw.readU256", {"data": pat256.hex(), "offset": 0}, ref_read_uint_le(pat256, 0, 32), "endian-pattern")
+    add("ssz_raw.readU256", {"data": (b"XY" + pat256).hex(), "offset": 2},
+        ref_read_uint_le(b"XY" + pat256, 2, 32), "endian-pattern")                       # exact fit at offset 2
+    add("ssz_raw.readU256", {"data": (b"\x00" * 32).hex(), "offset": 0}, val_nat(0), "boundary-length")
+    add("ssz_raw.readU256", {"data": (b"\xff" * 32).hex(), "offset": 0}, val_nat((1 << 256) - 1), "boundary-length")
+    add("ssz_raw.readU256", {"data": (b"\x00" * 31).hex(), "offset": 0}, INVALID, "offset-failure")   # 31 < 32
+    add("ssz_raw.readU256", {"data": (b"\x11" * 33).hex(), "offset": 2}, INVALID, "offset-failure")    # 2+32>33
+
     # readArray[N] for each concrete width.
     for n in (20, 32, 48, 65, 96, 256):
         routine = f"ssz_raw.readArray[{n}]"
@@ -169,7 +179,7 @@ def emit_lean(all_rows) -> str:
         if r["expect"]["kind"] == "gap":
             continue
         rt, a, e = r["routine"], r["args"], r["expect"]
-        if rt in ("ssz_raw.readU32", "ssz_raw.readOffset", "ssz_raw.readU64"):
+        if rt in ("ssz_raw.readU32", "ssz_raw.readOffset", "ssz_raw.readU64", "ssz_raw.readU256"):
             v = f'some {e["value"]["nat"]}' if e["kind"] == "value" else "none"
             scalar.append(f'({_lean_str(rt)}, {_lean_str(r["id"])}, {_lean_str(a["data"])}, {a["offset"]}, {v})')
         elif rt == "ssz_raw.bytesAt":

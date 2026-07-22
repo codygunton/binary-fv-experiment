@@ -282,6 +282,8 @@ fn runRoutine(routine: []const u8, args: std.json.ObjectMap, input: []const u8, 
         if (raw.probe_readOffset(input, off)) |v| return .{ .nat = v } else |e| return .{ .err = errLabel(@errorName(e)) };
     } else if (std.mem.eql(u8, routine, "ssz_raw.readU64")) {
         if (raw.probe_readU64(input, off)) |v| return .{ .nat = v } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.readU256")) {
+        if (raw.probe_readU256(input, off)) |v| return .{ .nat = v } else |e| return .{ .err = errLabel(@errorName(e)) };
     } else if (std.mem.eql(u8, routine, "ssz_raw.bytesAt")) {
         const len: usize = @intCast(jsonInt(args, "len") orelse 0);
         if (raw.probe_bytesAt(input, off, len)) |s| return .{ .bytes = s } else |e| return .{ .err = errLabel(@errorName(e)) };
