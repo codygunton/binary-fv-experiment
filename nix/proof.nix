@@ -252,6 +252,14 @@ let
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
 
     lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
+
+    # Row B validation, co-located ONLY to reuse this derivation's fully-built toolchain (the module
+    # imports the Sail-entangled contracts chain, so a standalone check would rebuild the whole tree).
+    # It is NOT part of the theorem graph — the audits above enforce that the root theorems never
+    # import `Validation`. Building it forces the kernel-checked (`native_decide`) agreement of the
+    # handwritten `meaningDecode` with both the pinned oracle and the corpus expectation; any
+    # disagreement fails the build. This is falsification evidence, never a proof premise.
+    lake build BinaryFv.SSZ.Zesu.Validation.MeaningAgreement
     touch "$out"
   '';
 

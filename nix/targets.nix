@@ -572,6 +572,7 @@ let
       probe = "${zesuContractProbe}/bin/ssz-contract-probe";
       agreement = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_agreement.py"; name = "ssz_contract_agreement.py"; };
       mutation = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_mutation.py"; name = "ssz_contract_mutation.py"; };
+      report = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_report.py"; name = "ssz_contract_report.py"; };
       corpusGen = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; };
       fixtures = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
     in
@@ -594,9 +595,15 @@ let
       python3 ${mutation} --fixtures ${fixtures} --lean-runner ${probe} > "$out/mutation.txt" \
         || { echo "MUTATION SMOKE FAILED" >&2; cat "$out/mutation.txt" >&2; exit 1; }
 
+      # Consolidated evidence report (deterministic; a report over already-checked evidence).
+      python3 ${report} --corpus "$out/corpus.jsonl" --outcomes "$out/outcomes.jsonl" \
+        --ledger "$out/ledger.jsonl" --out-json "$out/report.json" --out-md "$out/report.md" \
+        > "$out/report.txt"
+
       {
         cat "$out/agreement.txt"
         cat "$out/mutation.txt"
+        cat "$out/report.txt"
         printf 'cases=%s leaked=%s oom_unsafe=%s\n' \
           "$(wc -l < "$out/outcomes.jsonl")" \
           "$(grep -c '"leaked":true' "$out/ledger.jsonl" || true)" \
