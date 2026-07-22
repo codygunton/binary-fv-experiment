@@ -87,40 +87,163 @@ const default_max_inject: usize = 256;
 
 const Outcome = enum { accept, reject };
 
-/// The result of decoding one case (optionally with a single injected allocation failure).
-const Decoded = struct {
-    outcome: Outcome,
-    error_name: []const u8, // "" on accept
-    allocations: usize,
-    allocated_bytes: usize,
-    freed_bytes: usize,
-    leaked: bool,
+// ============================================================================================
+// Recording allocator — shared Row B item-5 infrastructure.
+//
+// A `std.mem.Allocator` that records ONE event per allocation with the final required event format:
+// ordinal, requested size, alignment, a normalized returned-block id, whether the block aliased a
+// live block, and whether it was freed before teardown. It supports single-point failure injection
+// (fail the allocation at a chosen ordinal) and detects leaks (any block still live at teardown).
+//
+// Host addresses are NEVER emitted: the "returned block" is a stable ordinal-derived id, and
+// `aliases` is computed from real addresses at record time but only the boolean survives — so the
+// ledger is byte-identical across runs. Backed by a `DebugAllocator` for real memory + double-free
+// detection; bookkeeping arrays use a separate `meta` allocator so they are not self-counted.
+//
+// This one allocator is used by BOTH the whole-input `raw.decode` ledger and the per-routine
+// allocating vectors (collections / containers / entry), so every allocating routine shares one
+// event format. It is NOT a temporary aggregate to be replaced later.
+// ============================================================================================
+
+const AllocEvent = struct {
+    ordinal: usize, // 0-based allocation sequence number
+    size: usize, // requested byte length
+    alignment: usize, // requested alignment in bytes
+    block: usize, // stable returned-block id (== ordinal); host address never emitted
+    aliases: bool, // whether [addr, addr+size) overlapped a live block at allocation time
+    freed: bool, // whether this block was freed before teardown (false at teardown => leak)
 };
 
-/// Decode `input` with a fresh leak-checked allocator, optionally failing the `fail_index`-th
-/// allocation. Every case gets its own `DebugAllocator` so the leak check is per-case and the error
-/// path's `errdefer` cleanup discipline is validated in isolation.
-fn decodeCase(input: []const u8, fail_index: usize) Decoded {
-    var debug: std.heap.DebugAllocator(.{}) = .init;
-    var failing = std.testing.FailingAllocator.init(debug.allocator(), .{ .fail_index = fail_index });
-    const alloc = failing.allocator();
+const Recording = struct {
+    backing: std.mem.Allocator,
+    meta: std.mem.Allocator,
+    events: std.ArrayListUnmanaged(AllocEvent) = .empty,
+    live: std.ArrayListUnmanaged(LiveBlock) = .empty,
+    fail_at: usize, // inject an allocation failure at this ordinal (maxInt = never)
+    injected_fired: bool = false,
 
-    var out: Decoded = undefined;
-    if (raw.decode(alloc, input)) |value| {
-        var v = value;
-        v.deinit(alloc);
-        out = .{ .outcome = .accept, .error_name = "", .allocations = 0, .allocated_bytes = 0, .freed_bytes = 0, .leaked = false };
-    } else |err| {
-        out = .{ .outcome = .reject, .error_name = @errorName(err), .allocations = 0, .allocated_bytes = 0, .freed_bytes = 0, .leaked = false };
+    const LiveBlock = struct { addr: usize, len: usize, ordinal: usize };
+
+    fn init(backing: std.mem.Allocator, meta: std.mem.Allocator, fail_at: usize) Recording {
+        return .{ .backing = backing, .meta = meta, .fail_at = fail_at };
     }
-    out.allocations = failing.alloc_index;
-    out.allocated_bytes = failing.allocated_bytes;
-    out.freed_bytes = failing.freed_bytes;
-    out.leaked = debug.deinit() == .leak;
-    return out;
+
+    fn deinit(self: *Recording) void {
+        self.events.deinit(self.meta);
+        self.live.deinit(self.meta);
+    }
+
+    fn allocator(self: *Recording) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+
+    /// A block is leaked iff it was allocated and never freed by teardown.
+    fn leaked(self: *const Recording) bool {
+        return self.live.items.len != 0;
+    }
+
+    fn overlapsLive(self: *const Recording, addr: usize, len: usize) bool {
+        for (self.live.items) |b| {
+            if (addr < b.addr + b.len and b.addr < addr + len) return true;
+        }
+        return false;
+    }
+
+    const vtable: std.mem.Allocator.VTable = .{
+        .alloc = allocFn,
+        .resize = resizeFn,
+        .remap = remapFn,
+        .free = freeFn,
+    };
+
+    fn allocFn(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *Recording = @ptrCast(@alignCast(ctx));
+        const ordinal = self.events.items.len;
+        if (ordinal == self.fail_at) {
+            self.injected_fired = true;
+            return null; // injected out-of-memory at this ordinal
+        }
+        const ptr = self.backing.rawAlloc(len, alignment, ret_addr) orelse return null;
+        const addr = @intFromPtr(ptr);
+        const aliases = self.overlapsLive(addr, len);
+        self.events.append(self.meta, .{
+            .ordinal = ordinal,
+            .size = len,
+            .alignment = alignment.toByteUnits(),
+            .block = ordinal,
+            .aliases = aliases,
+            .freed = false,
+        }) catch {
+            self.backing.rawFree(ptr[0..len], alignment, ret_addr);
+            return null;
+        };
+        self.live.append(self.meta, .{ .addr = addr, .len = len, .ordinal = ordinal }) catch {};
+        return ptr;
+    }
+
+    fn resizeFn(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *Recording = @ptrCast(@alignCast(ctx));
+        if (!self.backing.rawResize(memory, alignment, new_len, ret_addr)) return false;
+        const addr = @intFromPtr(memory.ptr);
+        for (self.live.items) |*b| {
+            if (b.addr == addr) {
+                b.len = new_len;
+                break;
+            }
+        }
+        return true;
+    }
+
+    fn remapFn(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *Recording = @ptrCast(@alignCast(ctx));
+        const np = self.backing.rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
+        const old_addr = @intFromPtr(memory.ptr);
+        const new_addr = @intFromPtr(np);
+        for (self.live.items) |*b| {
+            if (b.addr == old_addr) {
+                b.addr = new_addr;
+                b.len = new_len;
+                break;
+            }
+        }
+        return np;
+    }
+
+    fn freeFn(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *Recording = @ptrCast(@alignCast(ctx));
+        const addr = @intFromPtr(memory.ptr);
+        for (self.live.items, 0..) |b, i| {
+            if (b.addr == addr) {
+                self.events.items[b.ordinal].freed = true;
+                _ = self.live.swapRemove(i);
+                break;
+            }
+        }
+        self.backing.rawFree(memory, alignment, ret_addr);
+    }
+};
+
+/// Run `raw.decode` once under a recording allocator that fails at `fail_at` (maxInt = never), and
+/// classify the outcome for the OOM sweep: `""` = clean (rejected with OutOfMemory, no leak), else a
+/// reason. Each call gets its own `DebugAllocator` so the leak / cleanup discipline is per-injection.
+fn oomInjectOnce(gpa: std.mem.Allocator, input: []const u8, fail_at: usize) []const u8 {
+    var debug: std.heap.DebugAllocator(.{}) = .init;
+    var rec = Recording.init(debug.allocator(), gpa, fail_at);
+    var reason: []const u8 = "";
+    if (raw.decode(rec.allocator(), input)) |value| {
+        var v = value;
+        v.deinit(rec.allocator());
+        reason = "accepted-under-oom";
+    } else |err| {
+        if (!std.mem.eql(u8, @errorName(err), "OutOfMemory")) reason = "non-oom-error-under-oom";
+    }
+    if (rec.leaked() and reason.len == 0) reason = "leak-under-oom";
+    rec.deinit();
+    if (debug.deinit() == .leak and reason.len == 0) reason = "backing-leak-under-oom";
+    return reason;
 }
 
-/// Result of the OOM-robustness sweep over one case's allocations.
+/// Result of the OOM-robustness sweep over one case's recorded allocations.
 const OomSweep = struct {
     safe: bool,
     injected: usize,
@@ -128,23 +251,19 @@ const OomSweep = struct {
     reason: []const u8, // "" when safe
 };
 
-/// Inject a single allocation failure at each (sampled) index in `[0, allocations)` and require the
-/// decoder to fail cleanly with `error.OutOfMemory` and no leak. This validates that the whole
-/// `try`/`errdefer` chain of the composed decoder is out-of-memory-safe, which is exactly the
-/// allocator precondition the occurrence contracts assume.
-fn oomSweep(input: []const u8, allocations: usize, max_inject: usize) OomSweep {
+/// Inject a single allocation failure at each (sampled) recorded ordinal in `[0, allocations)` and
+/// require the decoder to fail cleanly with `error.OutOfMemory` and no leak — the allocator
+/// precondition the occurrence contracts assume.
+fn oomSweep(gpa: std.mem.Allocator, input: []const u8, allocations: usize, max_inject: usize) OomSweep {
     if (allocations == 0) return .{ .safe = true, .injected = 0, .sampled = false, .reason = "" };
     const sampled = allocations > max_inject;
     const stride = if (sampled) (allocations + max_inject - 1) / max_inject else 1;
     var injected: usize = 0;
     var k: usize = 0;
     while (k < allocations) : (k += stride) {
-        const d = decodeCase(input, k);
+        const reason = oomInjectOnce(gpa, input, k);
         injected += 1;
-        if (d.leaked) return .{ .safe = false, .injected = injected, .sampled = sampled, .reason = "leak-under-oom" };
-        if (d.outcome != .reject) return .{ .safe = false, .injected = injected, .sampled = sampled, .reason = "accepted-under-oom" };
-        if (!std.mem.eql(u8, d.error_name, "OutOfMemory"))
-            return .{ .safe = false, .injected = injected, .sampled = sampled, .reason = "non-oom-error-under-oom" };
+        if (reason.len != 0) return .{ .safe = false, .injected = injected, .sampled = sampled, .reason = reason };
     }
     return .{ .safe = true, .injected = injected, .sampled = sampled, .reason = "" };
 }
@@ -163,27 +282,39 @@ fn writeJsonString(w: *Writer, s: []const u8) !void {
 }
 
 /// The canonical outcome line, matching the Lean runner's field set minus `value` (see module doc).
-fn emitOutcome(w: *Writer, id: []const u8, d: Decoded) !void {
+fn emitOutcome(w: *Writer, id: []const u8, outcome: Outcome, error_name: []const u8) !void {
     try w.writeAll("{\"id\":");
     try writeJsonString(w, id);
     try w.writeAll(",\"routine\":\"ssz_raw.decode\",\"outcome\":");
-    try writeJsonString(w, if (d.outcome == .accept) "accept" else "reject");
-    if (d.outcome == .reject) {
+    try writeJsonString(w, if (outcome == .accept) "accept" else "reject");
+    if (outcome == .reject) {
         try w.writeAll(",\"error\":");
-        try writeJsonString(w, d.error_name);
+        try writeJsonString(w, error_name);
     }
     try w.writeAll("}\n");
 }
 
-fn emitLedger(w: *Writer, id: []const u8, d: Decoded, sweep: OomSweep) !void {
+/// The per-allocation event array in the final ledger format. Reused by the per-routine allocating
+/// vectors so every allocating routine emits the same event shape.
+fn emitEvents(w: *Writer, events: []const AllocEvent) !void {
+    try w.writeByte('[');
+    for (events, 0..) |e, i| {
+        if (i != 0) try w.writeByte(',');
+        try w.print("{{\"ordinal\":{d},\"size\":{d},\"alignment\":{d},\"block\":{d}," ++
+            "\"aliases\":{},\"freed\":{}}}", .{ e.ordinal, e.size, e.alignment, e.block, e.aliases, e.freed });
+    }
+    try w.writeByte(']');
+}
+
+fn emitLedger(w: *Writer, id: []const u8, outcome: Outcome, events: []const AllocEvent, leaked: bool, sweep: OomSweep) !void {
     try w.writeAll("{\"id\":");
     try writeJsonString(w, id);
     try w.print(",\"routine\":\"ssz_raw.decode\",\"outcome\":\"{s}\",\"allocations\":{d}," ++
-        "\"allocated_bytes\":{d},\"freed_bytes\":{d},\"leaked\":{},\"oom_safe\":{}," ++
-        "\"oom_injected\":{d},\"oom_sampled\":{}", .{
-        if (d.outcome == .accept) "accept" else "reject",
-        d.allocations, d.allocated_bytes, d.freed_bytes, d.leaked, sweep.safe, sweep.injected, sweep.sampled,
+        "\"leaked\":{},\"oom_safe\":{},\"oom_injected\":{d},\"oom_sampled\":{},\"events\":", .{
+        if (outcome == .accept) "accept" else "reject",
+        events.len, leaked, sweep.safe, sweep.injected, sweep.sampled,
     });
+    try emitEvents(w, events);
     if (!sweep.safe) {
         try w.writeAll(",\"oom_reason\":");
         try writeJsonString(w, sweep.reason);
@@ -228,11 +359,28 @@ fn processLine(
     defer gpa.free(input);
     _ = std.fmt.hexToBytes(input, input_hex) catch return false;
 
-    const d = decodeCase(input, std.math.maxInt(usize));
-    const sweep = oomSweep(input, d.allocations, max_inject);
-    try emitOutcome(out, id, d);
-    try emitLedger(ledger, id, d, sweep);
-    return d.leaked or !sweep.safe;
+    // Main run under the recording allocator (no injection): capture the per-event ledger and leak.
+    var debug: std.heap.DebugAllocator(.{}) = .init;
+    var rec = Recording.init(debug.allocator(), gpa, std.math.maxInt(usize));
+    defer rec.deinit();
+    var outcome: Outcome = undefined;
+    var error_name: []const u8 = "";
+    if (raw.decode(rec.allocator(), input)) |value| {
+        var v = value;
+        v.deinit(rec.allocator());
+        outcome = .accept;
+    } else |err| {
+        outcome = .reject;
+        error_name = @errorName(err);
+    }
+    const self_leak = rec.leaked();
+    const backing_leak = debug.deinit() == .leak;
+    const leaked = self_leak or backing_leak;
+
+    const sweep = oomSweep(gpa, input, rec.events.items.len, max_inject);
+    try emitOutcome(out, id, outcome, error_name);
+    try emitLedger(ledger, id, outcome, rec.events.items, leaked, sweep);
+    return leaked or !sweep.safe;
 }
 
 // ============================================================================================
