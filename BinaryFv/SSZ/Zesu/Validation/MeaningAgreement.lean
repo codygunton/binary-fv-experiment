@@ -30,7 +30,7 @@ def hexToBytes (s : String) : ByteArray := Id.run do
   let cs := s.toList.toArray
   let mut out := ByteArray.empty
   let mut i := 0
-  while h : i + 1 < cs.size do
+  while _h : i + 1 < cs.size do
     out := out.push (UInt8.ofNat (hexVal cs[i]! * 16 + hexVal cs[i + 1]!))
     i := i + 2
   return out
