@@ -57,9 +57,8 @@ theorem raw_error_reads_model_status (env : DecoderEnvironment) (globals : Decod
 /-- The accessor `zesu_raw_result` means the canonical buffer pointer exactly when the ghost globals
 model has a stored value, and null otherwise. -/
 theorem raw_result_reads_model_pointer (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
-    (model : DecoderGlobalsModel) :
-    (contractRawResult env globals resultBuffer rep).meaning model
+    (resultBuffer : Nat) (model : DecoderGlobalsModel) :
+    (contractRawResult env globals resultBuffer).meaning model
       = .ok (if model.stored.isSome then resultBuffer else 0) :=
   rfl
 
@@ -67,8 +66,8 @@ theorem raw_result_reads_model_pointer (env : DecoderEnvironment) (globals : Dec
 wrapper stores a decoded value, `zesu_raw_result` yields the canonical buffer and `zesu_raw_error`
 yields `ok`. -/
 theorem accessors_after_fresh_success (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4) (value : SszBridge.RawV4) :
-    (contractRawResult env globals resultBuffer rep).meaning
+    (resultBuffer : Nat) (value : SszBridge.RawV4) :
+    (contractRawResult env globals resultBuffer).meaning
         (resultingGlobals DecoderGlobalsModel.fresh (.ok value)) = .ok resultBuffer ∧
     (contractRawError env globals).meaning
         (resultingGlobals DecoderGlobalsModel.fresh (.ok value)) = .ok DecodeStatus.ok.code := by
@@ -79,8 +78,8 @@ theorem accessors_after_fresh_success (env : DecoderEnvironment) (globals : Deco
 /-- **A fresh rejected call feeds the accessors a null result.** After the wrapper rejects,
 `zesu_raw_result` yields null. -/
 theorem accessors_after_fresh_rejection (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4) (error : SszDecodeError) :
-    (contractRawResult env globals resultBuffer rep).meaning
+    (resultBuffer : Nat) (error : SszDecodeError) :
+    (contractRawResult env globals resultBuffer).meaning
         (resultingGlobals DecoderGlobalsModel.fresh (.error error)) = .ok 0 := by
   simp [contractRawResult, resultingGlobals, callOutcome, DecodeCallOutcome.stored,
     DecoderGlobalsModel.fresh]
