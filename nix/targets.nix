@@ -645,12 +645,15 @@ let
       ${probe} "$out/corpus.jsonl" --ledger "$out/ledger.jsonl" > "$out/outcomes.jsonl" \
         || { echo "PROBE LEAK/OOM DEFECT (see ledger)" >&2; cat "$out/ledger.jsonl" >&2; exit 1; }
 
-      # (d) per-routine typed vectors: the real private routines match the exact expected value/error.
-      # The probe exits nonzero on any mismatched or unhandled routine vector.
-      python3 ${routineVectors} --out "$out/routine-vectors.jsonl"
+      # (d) per-routine typed vectors: the real private routines match the exact expected value/error
+      # AND — for the allocating routines — the observed per-event allocation ledger matches the
+      # independent expected ledger the generator computes from the host ABI (`--dump-abi`) and each
+      # routine's allocation structure. The probe exits nonzero on any value or ledger mismatch.
+      ${probe} --dump-abi > "$out/abi.json"
+      python3 ${routineVectors} --abi "$out/abi.json" --out "$out/routine-vectors.jsonl"
       ${probe} --routine-vectors "$out/routine-vectors.jsonl" > "$out/routine-outcomes.jsonl" \
         || { echo "ROUTINE VECTOR MISMATCH (see routine-outcomes.jsonl)" >&2; \
-             grep '"match":false' "$out/routine-outcomes.jsonl" >&2 || true; exit 1; }
+             grep -E '"match":false|"ledger_match":false' "$out/routine-outcomes.jsonl" >&2 || true; exit 1; }
 
       # Drift guard: the committed GeneratedRoutineVectors.lean (native_decide-checked by the proof.nix
       # meaning lane) must equal what the generator emits now, so the Zig-vector lane and the Lean lane
@@ -664,7 +667,7 @@ let
       # allocation-ledger, and removed-routine-case checks are all discriminating.
       python3 ${mutation} --fixtures ${fixtures} --lean-runner ${probe} \
         --probe ${probe} --routine-vectors-gen ${routineVectors} --report ${report} \
-        --program-json ${elflingProgram}/program.json \
+        --program-json ${elflingProgram}/program.json --abi "$out/abi.json" \
         --corpus "$out/corpus.jsonl" --outcomes "$out/outcomes.jsonl" --ledger "$out/ledger.jsonl" \
         > "$out/mutation.txt" \
         || { echo "MUTATION SMOKE FAILED" >&2; cat "$out/mutation.txt" >&2; exit 1; }
