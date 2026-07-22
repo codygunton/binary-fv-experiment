@@ -83,13 +83,43 @@ def referencesValid : Bool :=
   accessorRefs.all (fun r =>
     (programImage.readU32LE? r.2.1 == some r.2.2.1) && globalAddrs.contains r.2.2.2)
 
-/-- The conjunction of every decoder-global check. -/
-def decoderGlobalsChecksPass : Bool :=
-  identityValid && sizesValid && alignmentValid && containmentValid && referencesValid
+/-! ## Allocator/heap runtime globals
 
-/-- **The generated decoder globals are valid.** Kernel-checked against the pinned canonical image;
-this is what licenses `canonicalDecoderGlobalsLayout` to be read off the generated artifact. -/
+`runtimeGlobals` are the allocator's mutable cursor `ZKVM_HEAP_POS`, its limit `ZKVM_HEAP_TOP`, and the
+64 MiB `heap` region, read from the pinned ELF symbol table. The heap runner (Row D) initializes the
+cursor and runs allocations inside this region. -/
+
+/-- The canonical linked address of a runtime global by symbol name. -/
+def runtimeGlobalAddr? (name : String) : Option Nat :=
+  (runtimeGlobals.find? (fun g => g.1 == name)).map (fun g => g.2.1)
+
+/-- The size in bytes of a runtime global by symbol name. -/
+def runtimeGlobalSize? (name : String) : Option Nat :=
+  (runtimeGlobals.find? (fun g => g.1 == name)).map (fun g => g.2.2)
+
+/-- (5) Exactly the three runtime globals, in declaration order (limit, cursor, heap). -/
+def runtimeIdentityValid : Bool :=
+  runtimeGlobals.map (fun g => g.1) == ["ZKVM_HEAP_TOP", "ZKVM_HEAP_POS", "heap"]
+
+/-- (6) The cursor/limit are 8-byte words, the heap is the pinned 64 MiB region, and the three sit
+consecutively: `ZKVM_HEAP_TOP`, then `ZKVM_HEAP_POS` 8 bytes later, then `heap` 8 bytes after that. -/
+def runtimeLayoutValid : Bool :=
+  runtimeGlobalSize? "ZKVM_HEAP_TOP" == some 8 &&
+  runtimeGlobalSize? "ZKVM_HEAP_POS" == some 8 &&
+  runtimeGlobalSize? "heap" == some (64 * 1024 * 1024) &&
+  decide ((runtimeGlobalAddr? "ZKVM_HEAP_TOP").getD 0 + 8 = (runtimeGlobalAddr? "ZKVM_HEAP_POS").getD 1) &&
+  decide ((runtimeGlobalAddr? "ZKVM_HEAP_POS").getD 0 + 8 = (runtimeGlobalAddr? "heap").getD 1)
+
+/-- The conjunction of every decoder- and runtime-global check. -/
+def decoderGlobalsChecksPass : Bool :=
+  identityValid && sizesValid && alignmentValid && containmentValid && referencesValid &&
+  runtimeIdentityValid && runtimeLayoutValid
+
+/-- **The generated globals are valid.** Kernel-checked against the pinned canonical image; this is
+what licenses the canonical layouts below to be read off the generated artifact. -/
 theorem decoderGlobalsValidated : decoderGlobalsChecksPass = true := by native_decide
+
+/-! ## The checked layouts -/
 
 /-- The canonical decoder-globals layout, taken **only** from the validated generated artifact — no
 address is handwritten. `zesu_raw_error` reads `status`; `zesu_raw_result` returns `storedResult`
@@ -103,5 +133,19 @@ def canonicalDecoderGlobalsLayout : DecoderGlobalsLayout :=
 itself (not a separate pointer). -/
 def canonicalResultBuffer : Nat :=
   (decoderGlobalAddr? "raw_decoder_root.stored_result").getD 0
+
+/-- The canonical heap base and limit, from the validated `heap` region. -/
+def canonicalHeapBase : Nat := (runtimeGlobalAddr? "heap").getD 0
+def canonicalHeapLimit : Nat := canonicalHeapBase + (runtimeGlobalSize? "heap").getD 0
+
+/-- The canonical addresses of the allocator's mutable cursor and limit words. -/
+def canonicalHeapPosAddr : Nat := (runtimeGlobalAddr? "ZKVM_HEAP_POS").getD 0
+def canonicalHeapTopAddr : Nat := (runtimeGlobalAddr? "ZKVM_HEAP_TOP").getD 0
+
+/-- The allocator's mutable state: the 8 bytes of the cursor and the 8 bytes of the limit. A
+non-allocating routine must leave every one of these unchanged. -/
+def canonicalAllocatorState (address : Nat) : Prop :=
+  (canonicalHeapPosAddr ≤ address ∧ address < canonicalHeapPosAddr + 8) ∨
+  (canonicalHeapTopAddr ≤ address ∧ address < canonicalHeapTopAddr + 8)
 
 end BinaryFv.SSZ.Zesu.Elfling
