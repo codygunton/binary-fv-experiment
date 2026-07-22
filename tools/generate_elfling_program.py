@@ -26,29 +26,43 @@ RUNTIME_MAP_OBJ = "riscv64_runtime.o"
 def parse_linker_map(path):
     """Canonical object placement, parsed from the pinned linked ELF's linker map — never hardcoded.
 
-    Returns (text_bases, runtime_func_base):
+    Returns (text_bases, runtime_func_base, bss_bases, symbol_addrs):
       * text_bases[objkind]         = the linked address of that object's `.text` section;
       * runtime_func_base[funcname] = the linked address of the runtime object's `.text.<funcname>`
-                                      per-function section (each runtime routine is its own section).
+                                      per-function section (each runtime routine is its own section);
+      * bss_bases[objkind]          = the linked address of that object's `.bss` section (where its
+                                      private statics — the decoder globals — are placed);
+      * symbol_addrs[name]          = the linked address of a defined global symbol (e.g. the exported
+                                      `zesu_raw_result`/`zesu_raw_error` accessors), used to locate the
+                                      accessor instructions whose global references are Lean-checked.
     Only the placed sections under `Linker script and memory map` are read, so the discarded-input
     block (address 0, e.g. gc-sectioned `.text.memset`/`.text.memcmp`) is ignored. Relinking at a
     different text base changes only these numbers; the identities the generator emits do not depend
     on them, which is what the relocation acceptance test checks."""
-    text_bases, runtime_func_base = {}, {}
-    line_re = re.compile(r'^\s+(\.text(?:\.[\w.]+)?)\s+0x([0-9a-f]+)\s+0x[0-9a-f]+\s+(\S+\.o)\s*$')
+    text_bases, runtime_func_base, bss_bases, symbol_addrs = {}, {}, {}, {}
+    sect_re = re.compile(r'^\s+(\.(?:text|bss)(?:\.[\w.]+)?)\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)\s+(\S+\.o)\s*$')
+    # A defined symbol row: address then bare name, no size and no object path (the placement rows
+    # for symbols the linker resolved, e.g. `                0x...13780                zesu_raw_error`).
+    sym_re = re.compile(r'^\s+0x([0-9a-f]+)\s+([A-Za-z_]\w*)\s*$')
     started = False
     for ln in open(path):
         if not started:
             if ln.startswith("Linker script and memory map"): started = True
             continue
-        m = line_re.match(ln)
-        if not m: continue
-        sect, addr, obj = m.group(1), int(m.group(2), 16), os.path.basename(m.group(3))
-        if sect == ".text" and obj in MAP_OBJKIND:
-            text_bases[MAP_OBJKIND[obj]] = addr
-        elif sect.startswith(".text.") and obj == RUNTIME_MAP_OBJ:
-            runtime_func_base[sect[len(".text."):]] = addr
-    return text_bases, runtime_func_base
+        m = sect_re.match(ln)
+        if m:
+            sect, addr, size, obj = m.group(1), int(m.group(2), 16), int(m.group(3), 16), os.path.basename(m.group(4))
+            if sect == ".text" and obj in MAP_OBJKIND:
+                text_bases[MAP_OBJKIND[obj]] = addr
+            elif sect == ".bss" and obj in MAP_OBJKIND:
+                bss_bases[MAP_OBJKIND[obj]] = (addr, size)
+            elif sect.startswith(".text.") and obj == RUNTIME_MAP_OBJ:
+                runtime_func_base[sect[len(".text."):]] = addr
+            continue
+        s = sym_re.match(ln)
+        if s:
+            symbol_addrs[s.group(2)] = int(s.group(1), 16)
+    return text_bases, runtime_func_base, bss_bases, symbol_addrs
 
 SRC_PREFIX = "/build/source/"
 FILES = {"decoder": "src/stateless/stateless/ssz_raw.zig", "root": "src/zkvm/raw_decoder_root.zig",
@@ -374,6 +388,94 @@ def sibling_overlap_defects(occ_sorted):
                             "first":occ_sorted[i]["qualified"], "second":occ_sorted[j]["qualified"]})
     return out
 
+# ---- Decoder-global extraction -----------------------------------------------------------------
+# The decoder keeps three observable private globals plus one internal flag in its `.bss`:
+#   raw_decoder_root.attempted        (1 byte)  — set once a decode has been attempted
+#   raw_decoder_root.allocator_state  (1 byte)  — internal allocator flag
+#   raw_decoder_root.last_status      (4 bytes) — the 32-bit status `zesu_raw_error` returns
+#   raw_decoder_root.stored_result  (848 bytes) — the result buffer `zesu_raw_result` points at
+# Their offsets come from the sidecar decoder object's symbol table; their canonical linked addresses
+# come from the pinned `.bss` base in the linker map. Nothing is hardcoded.
+DECODER_GLOBAL_NAMES = ["raw_decoder_root.attempted", "raw_decoder_root.allocator_state",
+                        "raw_decoder_root.last_status", "raw_decoder_root.stored_result"]
+ACCESSOR_SYMBOLS = ["zesu_raw_error", "zesu_raw_result"]
+
+def bss_section_index(readelf, obj):
+    txt = subprocess.run([readelf, "-SW", obj], capture_output=True, text=True).stdout
+    for ln in txt.splitlines():
+        m = re.match(r'^\s*\[\s*(\d+)\]\s+(\.\S+)\s', ln)
+        if m and m.group(2) == ".bss": return m.group(1)
+    return None
+
+def read_decoder_globals(readelf, decoder_obj, bss_base):
+    """(name, canonical linked address, size) for each decoder global, offset from the sidecar symbol
+    table and placed at the pinned `.bss` base. Emitted in the fixed `DECODER_GLOBAL_NAMES` order."""
+    bss_idx = bss_section_index(readelf, decoder_obj)
+    txt = subprocess.run([readelf, "-sW", decoder_obj], capture_output=True, text=True).stdout
+    found = {}
+    for ln in txt.splitlines():
+        p = ln.split()
+        if len(p) < 8 or p[3] != "OBJECT": continue
+        if p[7] not in DECODER_GLOBAL_NAMES: continue
+        if bss_idx is not None and p[6] != bss_idx: continue
+        found[p[7]] = (int(p[1], 16), int(p[2]))     # (offset-in-.bss, size)
+    missing = [n for n in DECODER_GLOBAL_NAMES if n not in found]
+    if missing: raise SystemExit(f"decoder globals missing from sidecar symbol table: {missing}")
+    return [(n, bss_base + found[n][0], found[n][1]) for n in DECODER_GLOBAL_NAMES]
+
+def read_words(objdump, elf, lo, hi):
+    """(pc -> (word, resolved-target?)) over a disassembled range of the pinned linked ELF."""
+    txt = subprocess.run([objdump, "-d", f"--start-address={lo}", f"--stop-address={hi}", elf],
+                         capture_output=True, text=True).stdout
+    words = {}
+    for ln in txt.splitlines():
+        m = re.match(r'^\s*([0-9a-f]+):\s+([0-9a-f]{8})\s+\S+\s*(.*)$', ln)
+        if not m: continue
+        rest, tgt = m.group(3), None
+        cm = re.search(r'#\s*([0-9a-f]+)', rest)
+        if cm: tgt = int(cm.group(1), 16)
+        words[int(m.group(1), 16)] = (int(m.group(2), 16), tgt)
+    return words
+
+RISCV_RET = 0x00008067   # `ret` = `jalr x0, 0(x1)`, the terminating instruction of each accessor.
+
+def read_accessor_refs(objdump, elf, symbol_addrs, bss_lo, bss_hi):
+    """The exported accessors' instructions that reference the decoder `.bss`, as
+    (accessor, pc, 32-bit word, resolved global target), from the pinned linked ELF. Each accessor is
+    scanned from its symbol address up to and including its terminating `ret`, so one accessor's scan
+    never bleeds into the next function. The Lean check re-reads each word from the canonical image
+    and ties its resolved target to a generated global."""
+    refs = []
+    for sym in ACCESSOR_SYMBOLS:
+        base = symbol_addrs.get(sym)
+        if base is None: raise SystemExit(f"accessor symbol {sym} absent from linker map")
+        words = read_words(objdump, elf, base, base + 0x40)
+        for pc in sorted(words):
+            word, tgt = words[pc]
+            if tgt is not None and bss_lo <= tgt < bss_hi:
+                refs.append((sym, pc, word, tgt))
+            if word == RISCV_RET: break
+    refs.sort(key=lambda r: (r[0], r[1]))
+    return refs
+
+def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, decoder_sha):
+    L = ["-- Generated by tools/generate_elfling_program.py (--out-globals). DO NOT EDIT.",
+         "-- Untrusted extracted data: the decoder's private globals (canonical linked addresses and",
+         "-- sizes) and the accessor instructions that reference them. Validated in Lean by",
+         "-- BinaryFv/SSZ/Zesu/Elfling/GeneratedDecoderGlobals.lean against the pinned canonical image.",
+         "namespace BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals",
+         f"def decoderTextSha : String := {lean_str(decoder_sha)}",
+         f"def bssBase : Nat := {bss_base}",
+         f"def bssSize : Nat := {bss_size}",
+         "/-- (symbol name, canonical linked address, size in bytes), in declaration order. -/",
+         "def globals : List (String × Nat × Nat) :="]
+    L.append("  [" + ", ".join(f'({lean_str(n)}, {a}, {s})' for (n, a, s) in globals_) + "]")
+    L.append("/-- (accessor symbol, instruction pc, 32-bit little-endian word, resolved global target). -/")
+    L.append("def accessorRefs : List (String × Nat × Nat × Nat) :=")
+    L.append("  [" + ", ".join(f'({lean_str(acc)}, {pc}, {w}, {t})' for (acc, pc, w, t) in accessor_refs) + "]")
+    L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals")
+    return "\n".join(L) + "\n"
+
 def main():
     ap = argparse.ArgumentParser()
     for k in ["readelf","decoder","allocator","sink","runtime","source"]: ap.add_argument("--"+k, required=True)
@@ -386,10 +488,10 @@ def main():
     # blocks/edges), proposed here and validated in Lean against the Sail-decoded CFG.
     ap.add_argument("--elf", required=True)
     ap.add_argument("--objdump", required=True)
-    for k in ["out-json","out-lean","out-md"]: ap.add_argument("--"+k)
+    for k in ["out-json","out-lean","out-md","out-globals"]: ap.add_argument("--"+k)
     a = ap.parse_args()
 
-    text_bases, runtime_func_base = parse_linker_map(a.map)
+    text_bases, runtime_func_base, bss_bases, symbol_addrs = parse_linker_map(a.map)
 
     ssz = os.path.join(a.source, FILES["decoder"]); srctext = open(ssz).read(); srclines = srctext.splitlines()
     consts = {m.group(1): int(m.group(2)) for m in re.finditer(r'(?:pub\s+)?const\s+(\w+)\s*(?::[^=]+)?=\s*(\d+)\s*;', srctext)}
@@ -597,6 +699,13 @@ def main():
     if a.out_json: open(a.out_json,"w").write(json.dumps(program, indent=2, sort_keys=True) + "\n")
     if a.out_lean: open(a.out_lean,"w").write(emit_lean(program))
     if a.out_md: open(a.out_md,"w").write(emit_md(program))
+    if a.out_globals:
+        if "decoder" not in bss_bases: raise SystemExit("decoder .bss placement absent from linker map")
+        dec_bss_base, dec_bss_size = bss_bases["decoder"]
+        globs = read_decoder_globals(a.readelf, a.decoder, dec_bss_base)
+        refs = read_accessor_refs(a.objdump, a.elf, symbol_addrs, dec_bss_base, dec_bss_base + dec_bss_size)
+        open(a.out_globals, "w").write(
+            emit_globals_lean(dec_bss_base, dec_bss_size, globs, refs, object_sha["decoder"]))
     routines = {(o["qualified"], tuple(o["specialization"])) for o in occ_sorted}
     print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(program['defects'])} "
           f"entry={entry_idx} excluded={len(excluded_sorted)}")
