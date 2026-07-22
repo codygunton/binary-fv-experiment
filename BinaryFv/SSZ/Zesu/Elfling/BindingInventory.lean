@@ -72,4 +72,29 @@ with an explicit classification (the `filterMap` above never drops a row). Recor
 theorem every_binding_has_kind :
     bindings.all (fun r => r.2.2.1 != "") = true := by native_decide
 
+/-! ## Vertical test: an inlined blob-schedule occurrence binds values outside argument registers
+
+The inlined `decodeOptionalBlobSchedule` occurrence (occ116) is arg-less — its input is a memory
+slice, not an argument register — and its three nested reads (occ117..occ119) receive their `offset`
+as a caller-provided or constant-folded value, never in an argument register `a0..a7`. -/
+
+/-- **The blob-schedule occurrence and its nested reads bind values held outside the ordinary
+argument registers.** -/
+def blobScheduleBindsOutsideArgRegisters : Bool :=
+  occurrenceParams 116 == [] &&
+  occurrenceParams 117 == [("offset", "callerProvided", -1, 0)] &&
+  occurrenceParams 118 == [("offset", "const", -1, 0)] &&
+  occurrenceParams 119 == [("offset", "const", -1, 0)]
+
+theorem blob_schedule_binds_outside_arg_registers :
+    blobScheduleBindsOutsideArgRegisters = true := by native_decide
+
+/-- A concrete inlined occurrence whose argument is held in memory relative to a callee-saved
+register (`s11` = x27), not in an argument register: occ73's `offset` is `[s11 + 48]` (its `len`
+flows from the caller). -/
+def inlinedArgHeldInMemory : Bool :=
+  occurrenceParams 73 == [("offset", "breg", 27, 48), ("len", "callerProvided", -1, 0)]
+
+theorem inlined_arg_held_in_memory : inlinedArgHeldInMemory = true := by native_decide
+
 end BinaryFv.SSZ.Zesu.Elfling
