@@ -235,12 +235,235 @@ fn processLine(
     return d.leaked or !sweep.safe;
 }
 
+// ============================================================================================
+// Item 2/3: per-routine typed vectors. Call each private catalog routine (via the overlay) with the
+// vector's typed args and check the exact value / exact local error against the vector's expectation.
+// ============================================================================================
+
+/// Map a Zig error name to the handwritten-meaning error label the vectors use.
+fn errLabel(zig_name: []const u8) []const u8 {
+    if (std.mem.eql(u8, zig_name, "InvalidSsz")) return "invalidSsz";
+    if (std.mem.eql(u8, zig_name, "UnknownFork")) return "unknownFork";
+    if (std.mem.eql(u8, zig_name, "OutOfMemory")) return "outOfMemory";
+    return zig_name;
+}
+
+fn jsonInt(obj: std.json.ObjectMap, key: []const u8) ?i64 {
+    const v = obj.get(key) orelse return null;
+    return switch (v) {
+        .integer => |n| n,
+        else => null,
+    };
+}
+
+/// The actual outcome of a routine call, in the vector's value encoding (no host pointers).
+const Actual = union(enum) {
+    nat: u256, // scalar reads (u32/u64/offset; u256 headroom for readU256)
+    bytes: []const u8, // slice reads, input-relative
+    boolean: bool,
+    ok: void,
+    err: []const u8, // local error label
+};
+
+/// `readArray(N)` copies its result into `buf` so the returned slice outlives the stack array.
+fn runReadArray(comptime N: usize, input: []const u8, offset: usize, buf: *[256]u8) Actual {
+    if (raw.probe_readArray(N, input, offset)) |arr| {
+        @memcpy(buf[0..N], arr[0..N]);
+        return .{ .bytes = buf[0..N] };
+    } else |e| return .{ .err = errLabel(@errorName(e)) };
+}
+
+/// Dispatch one vector to its routine. `input` is the decoded `args.data`; `arrbuf` backs readArray.
+fn runRoutine(routine: []const u8, args: std.json.ObjectMap, input: []const u8, arrbuf: *[256]u8) ?Actual {
+    const off: usize = @intCast(jsonInt(args, "offset") orelse 0);
+    if (std.mem.eql(u8, routine, "ssz_raw.readU32")) {
+        if (raw.probe_readU32(input, off)) |v| return .{ .nat = v } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.readOffset")) {
+        if (raw.probe_readOffset(input, off)) |v| return .{ .nat = v } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.readU64")) {
+        if (raw.probe_readU64(input, off)) |v| return .{ .nat = v } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.bytesAt")) {
+        const len: usize = @intCast(jsonInt(args, "len") orelse 0);
+        if (raw.probe_bytesAt(input, off, len)) |s| return .{ .bytes = s } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.requireU32Length")) {
+        if (raw.probe_requireU32Length(input)) |_| return .{ .ok = {} } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.hasExactErePrefix")) {
+        return .{ .boolean = raw.probe_hasExactErePrefix(input) };
+    } else if (std.mem.startsWith(u8, routine, "ssz_raw.readArray[")) {
+        const width: usize = @intCast(jsonInt(args, "width") orelse 0);
+        inline for (.{ 20, 32, 48, 65, 96, 256 }) |N| {
+            if (width == N) return runReadArray(N, input, off, arrbuf);
+        }
+        return null; // unknown width
+    }
+    return null; // routine not handled by this probe group
+}
+
+/// Whether `actual` equals the vector's `expect` object exactly.
+fn actualMatches(actual: Actual, expect: std.json.ObjectMap) bool {
+    const kind = jsonStr(expect, "kind") orelse return false;
+    switch (actual) {
+        .err => |label| {
+            if (!std.mem.eql(u8, kind, "error")) return false;
+            const want = jsonStr(expect, "error") orelse return false;
+            return std.mem.eql(u8, label, want);
+        },
+        .nat => |n| {
+            if (!std.mem.eql(u8, kind, "value")) return false;
+            const vobj = switch (expect.get("value") orelse return false) {
+                .object => |o| o,
+                else => return false,
+            };
+            const want_s = jsonStr(vobj, "nat") orelse return false;
+            const want = std.fmt.parseInt(u256, want_s, 10) catch return false;
+            return n == want;
+        },
+        .bytes => |b| {
+            if (!std.mem.eql(u8, kind, "value")) return false;
+            const vobj = switch (expect.get("value") orelse return false) {
+                .object => |o| o,
+                else => return false,
+            };
+            const want_hex = jsonStr(vobj, "bytes") orelse return false;
+            if (want_hex.len != b.len * 2) return false;
+            var tmp: [256]u8 = undefined;
+            const decoded = std.fmt.hexToBytes(tmp[0..b.len], want_hex) catch return false;
+            return std.mem.eql(u8, decoded, b);
+        },
+        .boolean => |x| {
+            if (!std.mem.eql(u8, kind, "value")) return false;
+            const vobj = switch (expect.get("value") orelse return false) {
+                .object => |o| o,
+                else => return false,
+            };
+            const want = switch (vobj.get("bool") orelse return false) {
+                .bool => |bb| bb,
+                else => return false,
+            };
+            return x == want;
+        },
+        .ok => {
+            if (!std.mem.eql(u8, kind, "value")) return false;
+            const vobj = switch (expect.get("value") orelse return false) {
+                .object => |o| o,
+                else => return false,
+            };
+            return switch (vobj.get("ok") orelse return false) {
+                .bool => |bb| bb,
+                else => false,
+            };
+        },
+    }
+}
+
+fn emitRoutineOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: Actual, matched: bool) !void {
+    try w.writeAll("{\"id\":");
+    try writeJsonString(w, id);
+    try w.writeAll(",\"routine\":");
+    try writeJsonString(w, routine);
+    switch (actual) {
+        .nat => |n| try w.print(",\"kind\":\"value\",\"nat\":\"{d}\"", .{n}),
+        .bytes => |b| {
+            try w.writeAll(",\"kind\":\"value\",\"bytes\":\"");
+            for (b) |c| try w.print("{x:0>2}", .{c});
+            try w.writeByte('"');
+        },
+        .boolean => |x| try w.print(",\"kind\":\"value\",\"bool\":{}", .{x}),
+        .ok => try w.writeAll(",\"kind\":\"value\",\"ok\":true"),
+        .err => |label| {
+            try w.writeAll(",\"kind\":\"error\",\"error\":");
+            try writeJsonString(w, label);
+        },
+    }
+    try w.print(",\"match\":{}}}\n", .{matched});
+}
+
+/// Process one routine-vector line; returns true if it was a defect (mismatch or unhandled routine).
+fn processRoutineLine(gpa: std.mem.Allocator, out: *Writer, line: []const u8) !bool {
+    var parsed = std.json.parseFromSlice(std.json.Value, gpa, line, .{}) catch return false;
+    defer parsed.deinit();
+    const obj = switch (parsed.value) {
+        .object => |o| o,
+        else => return false,
+    };
+    const routine = jsonStr(obj, "routine") orelse return false;
+    const id = jsonStr(obj, "id") orelse return false;
+    const expect = switch (obj.get("expect") orelse return false) {
+        .object => |o| o,
+        else => return false,
+    };
+    const kind = jsonStr(expect, "kind") orelse return false;
+    if (std.mem.eql(u8, kind, "gap")) {
+        try out.writeAll("{\"id\":");
+        try writeJsonString(out, id);
+        try out.writeAll(",\"routine\":");
+        try writeJsonString(out, routine);
+        try out.writeAll(",\"kind\":\"gap\",\"match\":true}\n");
+        return false;
+    }
+
+    const args = switch (obj.get("args") orelse return false) {
+        .object => |o| o,
+        else => return false,
+    };
+    var input: []const u8 = &[_]u8{};
+    var owned = false;
+    if (jsonStr(args, "data")) |hex| {
+        if (hex.len % 2 != 0) return false;
+        const buf = try gpa.alloc(u8, hex.len / 2);
+        _ = std.fmt.hexToBytes(buf, hex) catch {
+            gpa.free(buf);
+            return false;
+        };
+        input = buf;
+        owned = true;
+    }
+    defer if (owned) gpa.free(input);
+
+    var arrbuf: [256]u8 = undefined;
+    const actual = runRoutine(routine, args, input, &arrbuf) orelse {
+        // A vector naming a routine this probe cannot reach/dispatch is a real gap in coverage.
+        try out.writeAll("{\"id\":");
+        try writeJsonString(out, id);
+        try out.writeAll(",\"routine\":");
+        try writeJsonString(out, routine);
+        try out.writeAll(",\"kind\":\"unhandled\",\"match\":false}\n");
+        return true;
+    };
+    const matched = actualMatches(actual, expect);
+    try emitRoutineOutcome(out, id, routine, actual, matched);
+    return !matched;
+}
+
+fn runRoutineVectors(init: std.process.Init, gpa: std.mem.Allocator, path: []const u8) !void {
+    const content = try std.Io.Dir.cwd().readFileAlloc(init.io, path, gpa, .limited(max_corpus_bytes));
+    defer gpa.free(content);
+    var out_buf: [64 * 1024]u8 = undefined;
+    var out_file = std.Io.File.stdout().writer(init.io, &out_buf);
+    const out = &out_file.interface;
+    var defects: usize = 0;
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (trimmed.len == 0) continue;
+        if (try processRoutineLine(gpa, out, trimmed)) defects += 1;
+    }
+    try out.flush();
+    if (defects != 0) {
+        var msg_buf: [128]u8 = undefined;
+        const msg = std.fmt.bufPrint(&msg_buf, "probe: {d} routine vector(s) mismatched/unhandled\n", .{defects}) catch "probe: vector defects\n";
+        stderrRaw(init.io, msg);
+        std.process.exit(1);
+    }
+}
+
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     var corpus_path: ?[]const u8 = null;
     var ledger_path: ?[]const u8 = null;
+    var routine_vectors_path: ?[]const u8 = null;
     var max_inject: usize = default_max_inject;
     var list_routines = false;
     var i: usize = 1;
@@ -248,6 +471,10 @@ pub fn main(init: std.process.Init) !void {
         const a = args[i];
         if (std.mem.eql(u8, a, "--list-routines")) {
             list_routines = true;
+        } else if (std.mem.eql(u8, a, "--routine-vectors")) {
+            i += 1;
+            if (i >= args.len) fatal("--routine-vectors needs a path");
+            routine_vectors_path = args[i];
         } else if (std.mem.eql(u8, a, "--ledger")) {
             i += 1;
             if (i >= args.len) fatal("--ledger needs a path");
@@ -270,6 +497,11 @@ pub fn main(init: std.process.Init) !void {
         const lr = &lr_file.interface;
         for (exposed_routines) |name| try lr.print("{s}\n", .{name});
         try lr.flush();
+        return;
+    }
+
+    if (routine_vectors_path) |rvp| {
+        try runRoutineVectors(init, gpa, rvp);
         return;
     }
 
