@@ -729,6 +729,62 @@ let
     printf 'all 3 shipped raw-SSZ objects byte-identical to their pinned hashes\n' | tee "$out/summary.txt"
   '';
 
+  # Row C: deterministically capture the decodeOptionalBlobSchedule occurrence evidence from the
+  # UNCHANGED production ELF (pinned qemu-riscv64 plugin trace + batch GDB), reduce it to the compact
+  # form, and regenerate the Lean evidence module. The ELF is never rebuilt/patched. `setarch -R` +
+  # the fixed nix-sandbox process image make every recorded address deterministic, so the emitted
+  # module is reproducible; `sszBinaryEvidenceCheck` compares it to the committed one for drift.
+  sszBinaryEvidence =
+    let
+      trace = builtins.path { path = repo + "/targets/ssz/zesu/trace"; name = "ssz-trace-tools"; };
+      fixtures = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
+      committedEvidence = builtins.path { path = repo + "/BinaryFv/SSZ/Zesu/Validation/GeneratedBinaryEvidence.lean"; name = "GeneratedBinaryEvidence.lean"; };
+    in
+    pkgs.runCommand "ssz-binary-occurrence-evidence" {
+      nativeBuildInputs = [
+        pkgs.python3 pkgs.gcc pkgs.gdb pkgs.util-linux pkgs.qemu-user pkgs.glib pkgs.pkg-config
+        pkgs.coreutils
+      ];
+    } ''
+      set -euo pipefail
+      export HOME="$TMPDIR"
+      cp -R ${trace} trace && chmod -R u+w trace
+      cp ${fixtures} ssz_differential_audit.py
+
+      # Build the observe-only plugin against the pinned qemu headers + glib.
+      gcc -shared -fPIC -O2 -o trace/qemu_trace_plugin.so trace/qemu_trace_plugin.c \
+        -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0)
+
+      # Deterministic present / absent / malformed blob-schedule inputs.
+      python3 - <<'PY'
+      import importlib.util, sys
+      spec = importlib.util.spec_from_file_location('fx', 'ssz_differential_audit.py')
+      fx = importlib.util.module_from_spec(spec); sys.modules['fx'] = fx; spec.loader.exec_module(fx)
+      open('present.bin', 'wb').write(fx.make_rich_v4())
+      open('absent.bin', 'wb').write(fx.make_v4(chain_bytes=fx.chain_config(blob_schedule=None)))
+      u64, u32, fa = fx.u64, fx.u32, fx.fork_activation
+      act = fa(None, 0); blob = u64(22) + u64(23)                 # 16-byte (invalid) blob region
+      fc = u64(20) + u32(16) + u32(16 + len(act)) + act + blob
+      open('malformed.bin', 'wb').write(fx.make_v4(chain_bytes=u64(1) + u32(12) + fc))
+      PY
+
+      mkdir -p "$out"
+      python3 trace/generate_evidence.py \
+        --qemu ${qemuRiscv64} --gdb ${pkgs.gdb}/bin/gdb --plugin trace/qemu_trace_plugin.so \
+        --elf ${zesuSsz}/bin/zesu-ssz --program-json ${elflingProgram}/program.json \
+        --present present.bin --absent absent.bin --malformed malformed.bin --scratch scratch \
+        --out-json "$out/evidence.json" --out-lean "$out/GeneratedBinaryEvidence.lean"
+
+      # Drift: the committed generated evidence module (native_decide-checked by the proof.nix Row C
+      # lane) must byte-equal what a fresh capture of the unchanged ELF produces, so the Lean checker
+      # can never certify stale or hand-edited evidence.
+      cmp -s "$out/GeneratedBinaryEvidence.lean" ${committedEvidence} \
+        || { echo "DRIFT: committed GeneratedBinaryEvidence.lean differs from a fresh production capture" >&2; \
+             diff "$out/GeneratedBinaryEvidence.lean" ${committedEvidence} | head -40 >&2; exit 1; }
+      printf 'captured decodeOptionalBlobSchedule evidence for 3 arms; matches committed module\n' \
+        | tee "$out/summary.txt"
+    '';
+
   zesuSsz = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-rv64im-zicclsm";
     version = "96f1621";
@@ -952,6 +1008,7 @@ in
       zesuContractProbe
       sszContractProbeCheck
       sszProductionUnchanged
+      sszBinaryEvidence
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -971,6 +1028,7 @@ in
     zesu-contract-probe = zesuContractProbe;
     ssz-contract-probe-check = sszContractProbeCheck;
     ssz-production-object-unchanged = sszProductionUnchanged;
+    ssz-binary-evidence = sszBinaryEvidence;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;
