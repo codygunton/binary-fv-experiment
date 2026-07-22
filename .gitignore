@@ -7,6 +7,8 @@
 /STATUS.md
 /docs/ai/
 /.ai-coord/
+/.claude/
+__pycache__/
 *.o
 *.a
 *.so
