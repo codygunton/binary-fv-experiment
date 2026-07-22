@@ -2,6 +2,7 @@ import BinaryFv.SSZ.Zesu.Contracts.Leaves
 import BinaryFv.SSZ.Zesu.Contracts.Options
 import BinaryFv.SSZ.Zesu.Contracts.Canonicality
 import BinaryFv.SSZ.Zesu.Contracts.Containers
+import BinaryFv.SSZ.Zesu.Contracts.Collections
 import BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors
 
 /-!
@@ -38,6 +39,28 @@ def hexToBytes (s : String) : ByteArray := Id.run do
     out := out.push (UInt8.ofNat (hexVal cs[i]! * 16 + hexVal cs[i + 1]!))
     i := i + 2
   return out
+
+/-- One hex nibble as a lowercase char. -/
+def nibbleHex (n : Nat) : Char :=
+  if n < 10 then Char.ofNat ('0'.toNat + n) else Char.ofNat ('a'.toNat + (n - 10))
+
+/-- A byte as two lowercase hex chars. -/
+def byteHex (b : UInt8) : String :=
+  String.mk [nibbleHex (b.toNat / 16), nibbleHex (b.toNat % 16)]
+
+/-- A byte list as a lowercase hex string (matches the probe's rendering). -/
+def bytesToHex (bs : List UInt8) : String :=
+  String.join (bs.map byteHex)
+
+/-- A `UInt64` as 8-byte little-endian hex — the probe's `tb.u64le` token. -/
+def u64ToHexLE (v : UInt64) : String :=
+  bytesToHex ((List.range 8).map (fun i => UInt8.ofNat ((v.toNat >>> (8 * i)) % 256)))
+
+/-- A fixed byte-vector field as hex. -/
+def bvHex {n : Nat} (v : SszBridge.RawByteVector n) : String := bytesToHex v.toArray.toList
+
+/-- A variable byte-list field as hex. -/
+def rbHex (a : SszBridge.RawBytes) : String := bytesToHex a.toList
 
 /-- The scalar-read meaning selected by routine name, as an `Option Nat` (`none` = `invalidSsz`). -/
 def scalarMeaning (routine : String) (bytes : ByteArray) (offset : Nat) : Option Nat :=
@@ -166,5 +189,61 @@ theorem chain_config_meaning_agrees :
       (fun v => containerEnc flatChainConfig (meaningChainConfig (hexToBytes v.2.1)) == v.2.2)
       = true := by
   native_decide
+
+/-!
+## Collections (allocating)
+
+Each element is rendered to the same list of hex field tokens the probe emits (`u64` fields as
+8-byte little-endian hex, byte-vector fields as raw hex), and the collection value is the list of
+elements. Expected is `(Option (List (List String)) × String)`: `(some elements, "")` on success,
+`(none, label)` on error.
+-/
+
+/-- Normalize a collection meaning to the vectors' `(Option (List (List String)) × String)` form. -/
+def collEnc {α} (render : α → List String) (r : Except SszDecodeError (Array α)) :
+    Option (List (List String)) × String :=
+  match r with
+  | .ok arr => (some (arr.toList.map render), "")
+  | .error e => (none, errLabelOf e)
+
+theorem versioned_hashes_meaning_agrees :
+    versionedHashesVectors.all
+      (fun v => collEnc (fun h => [bvHex h]) (meaningVersionedHashes (hexToBytes v.2.1)) == v.2.2)
+      = true := by native_decide
+
+theorem public_keys_meaning_agrees :
+    publicKeysVectors.all
+      (fun v => collEnc (fun k => [bvHex k]) (meaningPublicKeys (hexToBytes v.2.1)) == v.2.2)
+      = true := by native_decide
+
+theorem withdrawals_meaning_agrees :
+    withdrawalsVectors.all
+      (fun v => collEnc (fun w => [u64ToHexLE w.index, u64ToHexLE w.validatorIndex,
+        bvHex w.address, u64ToHexLE w.amount]) (meaningWithdrawals (hexToBytes v.2.1)) == v.2.2)
+      = true := by native_decide
+
+theorem deposit_requests_meaning_agrees :
+    depositRequestsVectors.all
+      (fun v => collEnc (fun d => [bvHex d.pubkey, bvHex d.withdrawalCredentials, u64ToHexLE d.amount,
+        bvHex d.signature, u64ToHexLE d.index]) (meaningDepositRequests (hexToBytes v.2.1)) == v.2.2)
+      = true := by native_decide
+
+theorem withdrawal_requests_meaning_agrees :
+    withdrawalRequestsVectors.all
+      (fun v => collEnc (fun wr => [bvHex wr.sourceAddress, bvHex wr.validatorPubkey,
+        u64ToHexLE wr.amount]) (meaningWithdrawalRequests (hexToBytes v.2.1)) == v.2.2)
+      = true := by native_decide
+
+theorem consolidation_requests_meaning_agrees :
+    consolidationRequestsVectors.all
+      (fun v => collEnc (fun c => [bvHex c.sourceAddress, bvHex c.sourcePubkey, bvHex c.targetPubkey])
+        (meaningConsolidationRequests (hexToBytes v.2.1)) == v.2.2)
+      = true := by native_decide
+
+theorem byte_list_list_meaning_agrees :
+    byteListListVectors.all
+      (fun v => collEnc (fun it => [rbHex it])
+        (meaningByteListList v.2.2.1 v.2.2.2.1 (hexToBytes v.2.1)) == v.2.2.2.2)
+      = true := by native_decide
 
 end BinaryFv.SSZ.Zesu.Validation

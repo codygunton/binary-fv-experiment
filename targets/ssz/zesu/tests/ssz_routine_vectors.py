@@ -128,6 +128,71 @@ def flat_cc(chain_id, fork, block_number, timestamp, blob):  # ChainConfig -> 10
     return [chain_id] + flat_fc(fork, block_number, timestamp, blob)
 
 
+# --- Collections: each decoded element is a list of hex "field tokens"; a u64 field is 8-byte
+# little-endian hex, a byte-vector field is its raw hex. The collection value is the ordered list of
+# elements. Inputs are built from the same field values, so the expected tokens are unambiguous. ------
+
+def hexle_u64(v):
+    return v.to_bytes(8, "little").hex()
+
+
+def val_items(elements):
+    """elements: a list of elements, each a list of hex field tokens."""
+    return {"kind": "value", "value": {"items": elements}, "error": None}
+
+
+def bvec(seed, n):
+    """A deterministic n-byte vector (distinct per seed) for byte-vector fields / hashes."""
+    return bytes((seed + i) % 256 for i in range(n))
+
+
+# Element builders return (body_bytes, [hex_tokens]) so a collection input is the concatenation of
+# bodies and its expected value is the list of token lists. Field order matches the pinned source.
+def hash_elem(seed):                                   # versionedHashes: one 32-byte vector
+    b = bvec(seed, 32)
+    return b, [b.hex()]
+
+
+def pubkey_elem(seed):                                 # decodePublicKeys: one 65-byte vector
+    b = bvec(seed, 65)
+    return b, [b.hex()]
+
+
+def withdrawal_elem(index, validx, addr_seed, amount):  # stride 44
+    addr = bvec(addr_seed, 20)
+    return _u64(index) + _u64(validx) + addr + _u64(amount), \
+        [hexle_u64(index), hexle_u64(validx), addr.hex(), hexle_u64(amount)]
+
+
+def deposit_elem(pk_seed, wc_seed, amount, sig_seed, index):  # stride 192
+    pk, wc, sig = bvec(pk_seed, 48), bvec(wc_seed, 32), bvec(sig_seed, 96)
+    return pk + wc + _u64(amount) + sig + _u64(index), \
+        [pk.hex(), wc.hex(), hexle_u64(amount), sig.hex(), hexle_u64(index)]
+
+
+def withdrawal_req_elem(addr_seed, pk_seed, amount):   # stride 76
+    addr, pk = bvec(addr_seed, 20), bvec(pk_seed, 48)
+    return addr + pk + _u64(amount), [addr.hex(), pk.hex(), hexle_u64(amount)]
+
+
+def consolidation_elem(addr_seed, src_seed, tgt_seed):  # stride 116
+    addr, src, tgt = bvec(addr_seed, 20), bvec(src_seed, 48), bvec(tgt_seed, 48)
+    return addr + src + tgt, [addr.hex(), src.hex(), tgt.hex()]
+
+
+def byte_list_list_bytes(items):
+    """SSZ List[ByteList[b], n] layout: a u32 offset table then the item bytes (mirrors
+    ssz_differential_audit.byte_list_list)."""
+    if not items:
+        return b""
+    offset = 4 * len(items)
+    table = b""
+    for it in items:
+        table += _u32(offset)
+        offset += len(it)
+    return table + b"".join(items)
+
+
 # --- deterministic SSZ reference (matches both the Zig routine and the handwritten Lean meaning) -----
 
 def ref_read_uint_le(data: bytes, offset: int, width: int):
@@ -352,6 +417,70 @@ def rows():
         UNKNOWN_FORK, "fork-unknown")                                                                          # child fork 21
     add("ssz_raw.decodeChainConfig", {"data": (b"\x00" * 8).hex()}, INVALID, "container-malformed")            # < 12 bytes
 
+    # --- Collections (allocating): zero / one / many elements, plus malformed (non-multiple of the
+    # fixed stride) and count > max. Element order and stride match the pinned source. -------------
+    def add_coll(routine, elems, coverage, extra=None):
+        body = b"".join(e[0] for e in elems)
+        args = {"data": body.hex()}
+        if extra:
+            args.update(extra)
+        add(routine, args, val_items([e[1] for e in elems]), coverage)
+
+    # decodeVersionedHashes (stride 32, max 4096)
+    add_coll("ssz_raw.decodeVersionedHashes", [], "collection-zero")
+    add_coll("ssz_raw.decodeVersionedHashes", [hash_elem(1)], "collection-one")
+    add_coll("ssz_raw.decodeVersionedHashes", [hash_elem(1), hash_elem(40), hash_elem(200)], "collection-many")
+    add("ssz_raw.decodeVersionedHashes", {"data": (b"\x00" * 31).hex()}, INVALID, "collection-malformed")  # 31 % 32
+
+    # decodePublicKeys (stride 65, max 2^15)
+    add_coll("ssz_raw.decodePublicKeys", [], "collection-zero")
+    add_coll("ssz_raw.decodePublicKeys", [pubkey_elem(3)], "collection-one")
+    add_coll("ssz_raw.decodePublicKeys", [pubkey_elem(3), pubkey_elem(70)], "collection-many")
+    add("ssz_raw.decodePublicKeys", {"data": (b"\x00" * 64).hex()}, INVALID, "collection-malformed")  # 64 % 65
+
+    # decodeWithdrawals (stride 44, max 16)
+    add_coll("ssz_raw.decodeWithdrawals", [], "collection-zero")
+    add_coll("ssz_raw.decodeWithdrawals", [withdrawal_elem(1, 2, 5, 999)], "collection-one")
+    add_coll("ssz_raw.decodeWithdrawals",
+             [withdrawal_elem(1, 2, 5, 999), withdrawal_elem(0xffffffffffffffff, 0, 9, 1)], "collection-many")
+    add("ssz_raw.decodeWithdrawals", {"data": (b"\x00" * 43).hex()}, INVALID, "collection-malformed")  # 43 % 44
+    add("ssz_raw.decodeWithdrawals", {"data": (b"\x00" * (44 * 17)).hex()}, INVALID, "collection-max-plus-one")  # >16
+
+    # decodeDepositRequests (stride 192)
+    add_coll("ssz_raw.decodeDepositRequests", [], "collection-zero")
+    add_coll("ssz_raw.decodeDepositRequests", [deposit_elem(1, 2, 32, 3, 7)], "collection-one")
+    add_coll("ssz_raw.decodeDepositRequests",
+             [deposit_elem(1, 2, 32, 3, 7), deposit_elem(9, 8, 0, 4, 0xdeadbeef)], "collection-many")
+    add("ssz_raw.decodeDepositRequests", {"data": (b"\x00" * 191).hex()}, INVALID, "collection-malformed")
+
+    # decodeWithdrawalRequests (stride 76)
+    add_coll("ssz_raw.decodeWithdrawalRequests", [], "collection-zero")
+    add_coll("ssz_raw.decodeWithdrawalRequests", [withdrawal_req_elem(1, 2, 55)], "collection-one")
+    add_coll("ssz_raw.decodeWithdrawalRequests",
+             [withdrawal_req_elem(1, 2, 55), withdrawal_req_elem(3, 4, 0)], "collection-many")
+    add("ssz_raw.decodeWithdrawalRequests", {"data": (b"\x00" * 75).hex()}, INVALID, "collection-malformed")
+
+    # decodeConsolidationRequests (stride 116)
+    add_coll("ssz_raw.decodeConsolidationRequests", [], "collection-zero")
+    add_coll("ssz_raw.decodeConsolidationRequests", [consolidation_elem(1, 2, 3)], "collection-one")
+    add_coll("ssz_raw.decodeConsolidationRequests",
+             [consolidation_elem(1, 2, 3), consolidation_elem(4, 5, 6)], "collection-many")
+    add("ssz_raw.decodeConsolidationRequests", {"data": (b"\x00" * 115).hex()}, INVALID, "collection-malformed")
+
+    # decodeByteListList (offset-table list of byte lists; runtime max_items / max_item_bytes args).
+    bll_extra = {"max_items": 8, "max_item_bytes": 1024}
+    add("ssz_raw.decodeByteListList", {"data": byte_list_list_bytes([]).hex(), **bll_extra},
+        val_items([]), "collection-zero")
+    add("ssz_raw.decodeByteListList", {"data": byte_list_list_bytes([b"hello"]).hex(), **bll_extra},
+        val_items([[b"hello".hex()]]), "collection-one")
+    add("ssz_raw.decodeByteListList",
+        {"data": byte_list_list_bytes([b"ab", b"", b"cdef"]).hex(), **bll_extra},
+        val_items([[b"ab".hex()], [b"".hex()], [b"cdef".hex()]]), "collection-many")
+    add("ssz_raw.decodeByteListList", {"data": (b"\x01\x02\x03").hex(), **bll_extra},
+        INVALID, "collection-malformed")  # len 3 < 4, nonzero
+    add("ssz_raw.decodeByteListList", {"data": byte_list_list_bytes([b"toolong"]).hex(),
+        "max_items": 8, "max_item_bytes": 2}, INVALID, "collection-malformed")  # item exceeds max_item_bytes
+
     return out
 
 
@@ -365,6 +494,17 @@ def emit_lean(all_rows) -> str:
     predicates — matching the handwritten meaning families."""
     scalar, slice_, requ, ere, optu64, optblob, canon = [], [], [], [], [], [], []
     fa_c, fc_c, cc_c = [], [], []
+    coll_groups = {name: [] for name in (
+        "versionedHashesVectors", "publicKeysVectors", "withdrawalsVectors", "depositRequestsVectors",
+        "withdrawalRequestsVectors", "consolidationRequestsVectors")}
+    coll_route = {
+        "ssz_raw.decodeVersionedHashes": "versionedHashesVectors",
+        "ssz_raw.decodePublicKeys": "publicKeysVectors",
+        "ssz_raw.decodeWithdrawals": "withdrawalsVectors",
+        "ssz_raw.decodeDepositRequests": "depositRequestsVectors",
+        "ssz_raw.decodeWithdrawalRequests": "withdrawalRequestsVectors",
+        "ssz_raw.decodeConsolidationRequests": "consolidationRequestsVectors"}
+    bll = []
 
     def container_row(r, a, e):
         # expected : Option (List Nat) × String -- (some scalars, "") on success; (none, label) on error.
@@ -373,6 +513,14 @@ def emit_lean(all_rows) -> str:
         else:
             exp = f'(none, {_lean_str(e["error"])})'
         return f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {exp})'
+
+    def coll_exp(e):
+        # expected : Option (List (List String)) × String -- items are lists of hex field tokens.
+        if e["kind"] == "value":
+            items = "[" + ", ".join(
+                "[" + ", ".join(_lean_str(t) for t in el) + "]" for el in e["value"]["items"]) + "]"
+            return f'(some {items}, "")'
+        return f'(none, {_lean_str(e["error"])})'
 
     for r in all_rows:
         if r["expect"]["kind"] == "gap":
@@ -417,6 +565,12 @@ def emit_lean(all_rows) -> str:
             fc_c.append(container_row(r, a, e))
         elif rt == "ssz_raw.decodeChainConfig":
             cc_c.append(container_row(r, a, e))
+        elif rt in coll_route:
+            coll_groups[coll_route[rt]].append(
+                f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {coll_exp(e)})')
+        elif rt == "ssz_raw.decodeByteListList":
+            bll.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {a["max_items"]}, '
+                       f'{a["max_item_bytes"]}, {coll_exp(e)})')
 
     def block(name, ty, items):
         body = ",\n   ".join(items) if items else ""
@@ -437,6 +591,20 @@ def emit_lean(all_rows) -> str:
         block("forkActivationVectors", "String × String × (Option (List Nat) × String)", fa_c),
         block("forkConfigVectors", "String × String × (Option (List Nat) × String)", fc_c),
         block("chainConfigVectors", "String × String × (Option (List Nat) × String)", cc_c),
+        block("versionedHashesVectors", "String × String × (Option (List (List String)) × String)",
+              coll_groups["versionedHashesVectors"]),
+        block("publicKeysVectors", "String × String × (Option (List (List String)) × String)",
+              coll_groups["publicKeysVectors"]),
+        block("withdrawalsVectors", "String × String × (Option (List (List String)) × String)",
+              coll_groups["withdrawalsVectors"]),
+        block("depositRequestsVectors", "String × String × (Option (List (List String)) × String)",
+              coll_groups["depositRequestsVectors"]),
+        block("withdrawalRequestsVectors", "String × String × (Option (List (List String)) × String)",
+              coll_groups["withdrawalRequestsVectors"]),
+        block("consolidationRequestsVectors", "String × String × (Option (List (List String)) × String)",
+              coll_groups["consolidationRequestsVectors"]),
+        block("byteListListVectors",
+              "String × String × Nat × Nat × (Option (List (List String)) × String)", bll),
         "end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
     ]
     return "\n".join(L) + "\n"
