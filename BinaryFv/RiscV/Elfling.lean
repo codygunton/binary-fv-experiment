@@ -1,5 +1,6 @@
 import BinaryFv.RiscV.Elfling.FunctionTrace
 import BinaryFv.RiscV.Elfling.Contract
+import BinaryFv.RiscV.Elfling.Boundary
 
 /-!
 # `BinaryFv.RiscV.Elfling`
