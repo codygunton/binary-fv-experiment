@@ -89,6 +89,20 @@ def ref_require_u32_length(data: bytes):
     return val_ok() if len(data) <= 0xFFFFFFFF else INVALID
 
 
+def ref_canonical_offsets(data_len: int, fixed_size: int, offsets: list):
+    """requireCanonicalOffsets, transcribed from the source in its exact order: the slice must be at
+    least `fixed_size`, the table must be non-empty, its first entry must *equal* `fixed_size`, and
+    entries must be nondecreasing from there while staying within the slice."""
+    if data_len < fixed_size or len(offsets) == 0 or offsets[0] != fixed_size:
+        return INVALID
+    previous = fixed_size
+    for off in offsets:
+        if off < previous or off > data_len:
+            return INVALID
+        previous = off
+    return val_ok()
+
+
 def ref_has_exact_ere_prefix(data: bytes):
     """hasExactErePrefix: true iff the leading u32 equals len-4 (never errors)."""
     if len(data) < 4:
@@ -200,6 +214,23 @@ def rows():
     ]:
         add("ssz_raw.hasExactErePrefix", {"data": body.hex()}, ref_has_exact_ere_prefix(body), "raw-ere")
 
+    # requireCanonicalOffsets: canonical prefix table (accept), wrong first offset, descending /
+    # non-monotone, out-of-range, short slice, and empty table (all reject). Data content is
+    # irrelevant (only its length matters), so a zero-filled slice of the right length is used.
+    def canon(data_len, fixed_size, offsets, coverage):
+        add("ssz_raw.requireCanonicalOffsets",
+            {"data": (b"\x00" * data_len).hex(), "fixed_size": fixed_size, "offsets": offsets},
+            ref_canonical_offsets(data_len, fixed_size, offsets), coverage)
+
+    canon(16, 8, [8], "offset-canonical")             # first == fixed, within bounds
+    canon(16, 8, [8, 12, 16], "offset-canonical")     # nondecreasing, last == len
+    canon(16, 8, [8, 8], "offset-canonical")          # equal offsets are allowed (>= previous)
+    canon(16, 8, [12], "offset-wrong-first")          # first (12) != fixed (8)
+    canon(16, 8, [8, 12, 10], "offset-descending")    # 10 < previous 12
+    canon(16, 8, [8, 20], "offset-out-of-range")      # 20 > len 16
+    canon(4, 8, [8], "offset-short-slice")            # len 4 < fixed 8
+    canon(16, 8, [], "offset-empty-table")            # empty table
+
     # decodeOptionalU64: absent (0 bytes), present (exactly 8), malformed (any other length).
     add("ssz_raw.decodeOptionalU64", {"data": b"".hex()}, ref_optional_u64(b""), "option-absent")
     add("ssz_raw.decodeOptionalU64", {"data": pat8.hex()}, ref_optional_u64(pat8), "option-present")
@@ -229,7 +260,7 @@ def emit_lean(all_rows) -> str:
     """Bake the leaf vectors into a Lean data module for the `native_decide` meaning check. Gaps are
     omitted (their arm is not value-checkable). Groups: scalar reads, slice reads, unit checks,
     predicates — matching the handwritten meaning families."""
-    scalar, slice_, requ, ere, optu64, optblob = [], [], [], [], [], []
+    scalar, slice_, requ, ere, optu64, optblob, canon = [], [], [], [], [], [], []
     for r in all_rows:
         if r["expect"]["kind"] == "gap":
             continue
@@ -245,6 +276,10 @@ def emit_lean(all_rows) -> str:
             slice_.append(f'({_lean_str(rt)}, {_lean_str(r["id"])}, {_lean_str(a["data"])}, {a["offset"]}, {a["width"]}, {v})')
         elif rt == "ssz_raw.requireU32Length":
             requ.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {"true" if e["kind"] == "value" else "false"})')
+        elif rt == "ssz_raw.requireCanonicalOffsets":
+            offs = "[" + ", ".join(str(o) for o in a["offsets"]) + "]"
+            canon.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {a["fixed_size"]}, {offs}, '
+                         f'{"true" if e["kind"] == "value" else "false"})')
         elif rt == "ssz_raw.hasExactErePrefix":
             ere.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {"true" if e["value"]["bool"] else "false"})')
         elif rt == "ssz_raw.decodeOptionalU64":
@@ -276,6 +311,7 @@ def emit_lean(all_rows) -> str:
         block("scalarVectors", "String × String × String × Nat × Option Nat", scalar),
         block("sliceVectors", "String × String × String × Nat × Nat × Option String", slice_),
         block("requireU32Vectors", "String × String × Bool", requ),
+        block("canonicalOffsetsVectors", "String × String × Nat × List Nat × Bool", canon),
         block("erePrefixVectors", "String × String × Bool", ere),
         block("optionalU64Vectors", "String × String × Option (Option Nat)", optu64),
         block("optionalBlobVectors", "String × String × Option (Option (Nat × Nat × Nat))", optblob),

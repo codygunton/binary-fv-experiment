@@ -1,5 +1,6 @@
 import BinaryFv.SSZ.Zesu.Contracts.Leaves
 import BinaryFv.SSZ.Zesu.Contracts.Options
+import BinaryFv.SSZ.Zesu.Contracts.Canonicality
 import BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors
 
 /-!
@@ -66,6 +67,14 @@ theorem slice_meaning_agrees :
 theorem require_u32_meaning_agrees :
     requireU32Vectors.all
       (fun v => isAccepted (meaningRequireU32Length (hexToBytes v.2.1)) == v.2.2) = true := by
+  native_decide
+
+/-- **`requireCanonicalOffsets`:** the offset-table check accepts exactly when the vector expects it
+(canonical prefix table), rejecting wrong-first, descending, out-of-range, short-slice, and empty. -/
+theorem canonical_offsets_meaning_agrees :
+    canonicalOffsetsVectors.all
+      (fun v => isAccepted (meaningRequireCanonicalOffsets (hexToBytes v.2.1) v.2.2.1 v.2.2.2.1)
+        == v.2.2.2.2) = true := by
   native_decide
 
 /-- **`hasExactErePrefix`:** the total predicate meaning matches the expected boolean. -/
