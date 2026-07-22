@@ -11,6 +11,8 @@ Every one of these shows a defect is SURFACED and FAILS generation, never silent
   * sibling overlap       — two occurrences claiming a common PC without an inline ancestor relationship
                             are `overlappingOwnership` (unit test of the pure detector); the real,
                             correctly-nested program produces none.
+  * binding gap           — source/parent recovery produces concrete values, preserves the DWARF
+                            stack-value distinction, and refuses a new unresolved expression.
 
 `uncovered reachable instructions` are not decidable from DWARF alone (they need the decoded CFG); that
 guard is the Lean reachable-partition proof, whose mutation test lives with the generator-backed
@@ -95,6 +97,41 @@ def test_sibling_overlap(gen, args, tmp):
         check("overlap: detector finds none on the real occurrences", real == [], str(real))
 
 
+def test_binding_recovery(gen):
+    lines = ["const x = readU64(data, 16);", "const bytes = bytesAt(data, offset, 8);"]
+    occ = [
+        {"qualified": "ssz_raw.readU64", "kind": "inlined", "callLine": 1,
+         "callColumn": 11, "parentIdx": None, "specialization": [],
+         "bindings": [("offset", "callerProvided", -1, 0)]},
+        {"qualified": "ssz_raw.bytesAt", "kind": "inlined", "callLine": 2,
+         "callColumn": 15, "parentIdx": 0, "specialization": [],
+         "bindings": [("offset", "callerProvided", -1, 0),
+                      ("len", "callerProvided", -1, 0)]},
+    ]
+    effective, recovered = gen.recover_missing_bindings(occ, lines)
+    check("binding: source literal is concrete", effective[0] == [("offset", "const", -1, 16)],
+          repr(effective[0]))
+    check("binding: parent forwarding and literal length are concrete",
+          effective[1] == [("offset", "const", -1, 16), ("len", "const", -1, 8)],
+          repr(effective[1]))
+    check("binding: all three recoveries are audited", len(recovered) == 3, repr(recovered))
+    check("binding: breg stack_value is a value, not a memory location",
+          gen.decode_loc_expr("DW_OP_breg27 (s11): 48; DW_OP_stack_value") ==
+          ("bregValue", 27, 48))
+    check("binding: DWARF constant value is preserved",
+          gen.decode_loc_expr("DW_OP_constu: 504; DW_OP_stack_value") == ("const", -1, 504))
+
+    broken = [{"qualified": "ssz_raw.readU64", "kind": "inlined", "callLine": 1,
+               "callColumn": 11, "parentIdx": None, "specialization": [],
+               "bindings": [("different_name", "callerProvided", -1, 0)]}]
+    try:
+        gen.recover_missing_bindings(broken, lines)
+        refused = False
+    except SystemExit as err:
+        refused = "BINDING RECOVERY FAILURE" in str(err)
+    check("binding: a new unresolved shape fails generation", refused)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--generator", required=True)
@@ -109,6 +146,7 @@ def main():
         print("unmapped region:");       test_unmapped_region(args, tmp)
         print("ambiguous attribution:"); test_ambiguous_width(gen)
         print("sibling overlap:");       test_sibling_overlap(gen, args, tmp)
+        print("binding recovery:");      test_binding_recovery(gen)
 
     if FAILURES:
         print(f"\nGENERATOR DEFECT TESTS FAILED: {FAILURES}", file=sys.stderr)
