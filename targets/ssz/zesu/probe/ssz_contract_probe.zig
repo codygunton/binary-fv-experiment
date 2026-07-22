@@ -268,7 +268,51 @@ const Actual = union(enum) {
     err: []const u8, // local error label
     opt_u64: ?u64, // decodeOptionalU64
     opt_blob: ?BlobFields, // decodeOptionalBlobSchedule
+    scalars: []const u64, // a container value flattened to a fixed-order u64 list (see flatten* below)
 };
+
+// A decoded container's value is flattened to a fixed-order list of u64 scalars, each option preceded
+// by a 0/1 presence bit. The order MUST match ssz_routine_vectors.py's flat_fa/flat_fc/flat_cc and the
+// Lean flatForkActivation/flatForkConfig/flatChainConfig, so all three encode the same struct value.
+fn flatOptU64(v: ?u64, buf: []u64, at: usize) usize {
+    if (v) |x| {
+        buf[at] = 1;
+        buf[at + 1] = x;
+    } else {
+        buf[at] = 0;
+        buf[at + 1] = 0;
+    }
+    return at + 2;
+}
+
+fn flattenForkActivation(fa: raw.RawForkActivation, buf: []u64, at: usize) usize {
+    return flatOptU64(fa.timestamp, buf, flatOptU64(fa.block_number, buf, at));
+}
+
+fn flattenBlob(bs: ?raw.RawBlobSchedule, buf: []u64, at: usize) usize {
+    if (bs) |s| {
+        buf[at] = 1;
+        buf[at + 1] = s.target;
+        buf[at + 2] = s.max;
+        buf[at + 3] = s.base_fee_update_fraction;
+    } else {
+        buf[at] = 0;
+        buf[at + 1] = 0;
+        buf[at + 2] = 0;
+        buf[at + 3] = 0;
+    }
+    return at + 4;
+}
+
+fn flattenForkConfig(fc: raw.RawForkConfig, buf: []u64, at: usize) usize {
+    buf[at] = fc.fork;
+    return flattenBlob(fc.blob_schedule, buf, flattenForkActivation(fc.activation, buf, at + 1));
+}
+
+fn flattenChainConfig(cc: raw.RawChainConfig, buf: []u64) usize {
+    buf[0] = cc.chain_id;
+    return flattenForkConfig(cc.active_fork, buf, 1);
+}
 
 /// `readArray(N)` copies its result into `buf` so the returned slice outlives the stack array.
 fn runReadArray(comptime N: usize, input: []const u8, offset: usize, buf: *[256]u8) Actual {
@@ -278,8 +322,9 @@ fn runReadArray(comptime N: usize, input: []const u8, offset: usize, buf: *[256]
     } else |e| return .{ .err = errLabel(@errorName(e)) };
 }
 
-/// Dispatch one vector to its routine. `input` is the decoded `args.data`; `arrbuf` backs readArray.
-fn runRoutine(routine: []const u8, args: std.json.ObjectMap, input: []const u8, arrbuf: *[256]u8) ?Actual {
+/// Dispatch one vector to its routine. `input` is the decoded `args.data`; `arrbuf` backs readArray
+/// slices and `scalarbuf` backs flattened container values (both must outlive this call).
+fn runRoutine(routine: []const u8, args: std.json.ObjectMap, input: []const u8, arrbuf: *[256]u8, scalarbuf: *[16]u64) ?Actual {
     const off: usize = @intCast(jsonInt(args, "offset") orelse 0);
     if (std.mem.eql(u8, routine, "ssz_raw.readU32")) {
         if (raw.probe_readU32(input, off)) |v| return .{ .nat = v } else |e| return .{ .err = errLabel(@errorName(e)) };
@@ -321,6 +366,12 @@ fn runRoutine(routine: []const u8, args: std.json.ObjectMap, input: []const u8, 
             if (v) |s| return .{ .opt_blob = .{ .target = s.target, .max = s.max, .bfuf = s.base_fee_update_fraction } };
             return .{ .opt_blob = null };
         } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeForkActivation")) {
+        if (raw.probe_decodeForkActivation(input)) |fa| return .{ .scalars = scalarbuf[0..flattenForkActivation(fa, scalarbuf, 0)] } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeForkConfig")) {
+        if (raw.probe_decodeForkConfig(input)) |fc| return .{ .scalars = scalarbuf[0..flattenForkConfig(fc, scalarbuf, 0)] } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeChainConfig")) {
+        if (raw.probe_decodeChainConfig(input)) |cc| return .{ .scalars = scalarbuf[0..flattenChainConfig(cc, scalarbuf)] } else |e| return .{ .err = errLabel(@errorName(e)) };
     } else if (std.mem.startsWith(u8, routine, "ssz_raw.readArray[")) {
         const width: usize = @intCast(jsonInt(args, "width") orelse 0);
         inline for (.{ 20, 32, 48, 65, 96, 256 }) |N| {
@@ -420,6 +471,27 @@ fn actualMatches(actual: Actual, expect: std.json.ObjectMap) bool {
                 else => return false,
             }
         },
+        .scalars => |xs| {
+            if (!std.mem.eql(u8, kind, "value")) return false;
+            const vobj = switch (expect.get("value") orelse return false) {
+                .object => |o| o,
+                else => return false,
+            };
+            const arr = switch (vobj.get("scalars") orelse return false) {
+                .array => |a| a,
+                else => return false,
+            };
+            if (arr.items.len != xs.len) return false;
+            for (arr.items, xs) |it, x| {
+                const s = switch (it) {
+                    .string => |ss| ss,
+                    else => return false,
+                };
+                const want = std.fmt.parseInt(u64, s, 10) catch return false;
+                if (want != x) return false;
+            }
+            return true;
+        },
     }
 }
 
@@ -442,6 +514,14 @@ fn emitRoutineOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: A
         },
         .opt_blob => |ob| {
             if (ob) |s| try w.print(",\"kind\":\"value\",\"opt\":{{\"target\":\"{d}\",\"max\":\"{d}\",\"bfuf\":\"{d}\"}}", .{ s.target, s.max, s.bfuf }) else try w.writeAll(",\"kind\":\"value\",\"opt\":null");
+        },
+        .scalars => |xs| {
+            try w.writeAll(",\"kind\":\"value\",\"scalars\":[");
+            for (xs, 0..) |x, i| {
+                if (i != 0) try w.writeByte(',');
+                try w.print("\"{d}\"", .{x});
+            }
+            try w.writeByte(']');
         },
         .err => |label| {
             try w.writeAll(",\"kind\":\"error\",\"error\":");
@@ -494,7 +574,8 @@ fn processRoutineLine(gpa: std.mem.Allocator, out: *Writer, line: []const u8) !b
     defer if (owned) gpa.free(input);
 
     var arrbuf: [256]u8 = undefined;
-    const actual = runRoutine(routine, args, input, &arrbuf) orelse {
+    var scalarbuf: [16]u64 = undefined;
+    const actual = runRoutine(routine, args, input, &arrbuf, &scalarbuf) orelse {
         // A vector naming a routine this probe cannot reach/dispatch is a real gap in coverage.
         try out.writeAll("{\"id\":");
         try writeJsonString(out, id);

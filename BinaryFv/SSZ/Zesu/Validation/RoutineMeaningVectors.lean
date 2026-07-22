@@ -1,6 +1,7 @@
 import BinaryFv.SSZ.Zesu.Contracts.Leaves
 import BinaryFv.SSZ.Zesu.Contracts.Options
 import BinaryFv.SSZ.Zesu.Contracts.Canonicality
+import BinaryFv.SSZ.Zesu.Contracts.Containers
 import BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors
 
 /-!
@@ -104,6 +105,66 @@ outcome, with exact `(target, max, baseFeeUpdateFraction)` fields on the present
 theorem optional_blob_meaning_agrees :
     optionalBlobVectors.all
       (fun v => optionBlobMeaning (hexToBytes v.2.1) == v.2.2) = true := by
+  native_decide
+
+/-!
+## Non-allocating containers
+
+`decodeForkActivation` / `decodeForkConfig` / `decodeChainConfig` return nested structs. Each is
+flattened to a fixed-order list of `Nat` scalars (every `UInt64` field, each `Option` preceded by a
+0/1 presence bit) — the SAME order the Zig probe and `ssz_routine_vectors.py` use, so all three encode
+the same struct value. The expected outcome is `(Option (List Nat) × String)`: `(some scalars, "")` on
+success, `(none, label)` on error, so `unknownFork` is pinned distinctly from `invalidSsz`.
+-/
+
+/-- The local error label, matching the probe's `errLabel` and the vectors' error strings. -/
+def errLabelOf : SszDecodeError → String
+  | .invalidSsz => "invalidSsz"
+  | .unknownFork => "unknownFork"
+  | .outOfMemory => "outOfMemory"
+
+/-- One option field: presence bit then value (0 when absent). -/
+def flatOptU64 (v : Option UInt64) : List Nat :=
+  match v with | some x => [1, x.toNat] | none => [0, 0]
+
+def flatForkActivation (fa : SszBridge.RawForkActivation) : List Nat :=
+  flatOptU64 fa.blockNumber ++ flatOptU64 fa.timestamp
+
+def flatBlob : Option SszBridge.RawBlobSchedule → List Nat
+  | some s => [1, s.target.toNat, s.max.toNat, s.baseFeeUpdateFraction.toNat]
+  | none => [0, 0, 0, 0]
+
+def flatForkConfig (fc : SszBridge.RawForkConfig) : List Nat :=
+  fc.fork.toNat :: (flatForkActivation fc.activation ++ flatBlob fc.blobSchedule)
+
+def flatChainConfig (cc : SszBridge.RawChainConfig) : List Nat :=
+  cc.chainId.toNat :: flatForkConfig cc.activeFork
+
+/-- Normalize a container meaning to the vectors' `(Option (List Nat) × String)` encoding. -/
+def containerEnc {α} (flat : α → List Nat) (r : Except SszDecodeError α) : Option (List Nat) × String :=
+  match r with
+  | .ok v => (some (flat v), "")
+  | .error e => (none, errLabelOf e)
+
+/-- **`decodeForkActivation`:** the flattened meaning matches the expected value/error. -/
+theorem fork_activation_meaning_agrees :
+    forkActivationVectors.all
+      (fun v => containerEnc flatForkActivation (meaningForkActivation (hexToBytes v.2.1)) == v.2.2)
+      = true := by
+  native_decide
+
+/-- **`decodeForkConfig`:** value + exact `unknownFork`/`invalidSsz`, including fork-bound ordering. -/
+theorem fork_config_meaning_agrees :
+    forkConfigVectors.all
+      (fun v => containerEnc flatForkConfig (meaningForkConfig (hexToBytes v.2.1)) == v.2.2)
+      = true := by
+  native_decide
+
+/-- **`decodeChainConfig`:** value + propagated `unknownFork` from the nested fork config. -/
+theorem chain_config_meaning_agrees :
+    chainConfigVectors.all
+      (fun v => containerEnc flatChainConfig (meaningChainConfig (hexToBytes v.2.1)) == v.2.2)
+      = true := by
   native_decide
 
 end BinaryFv.SSZ.Zesu.Validation

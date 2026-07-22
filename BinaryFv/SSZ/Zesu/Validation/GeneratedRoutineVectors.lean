@@ -93,4 +93,29 @@ def optionalBlobVectors : List (String × String × Option (Option (Nat × Nat �
    ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/76", "22222222222222222222222222222222222222222222222222", none),
    ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/77", "22222222222222222222222222222222", none)]
 
+def forkActivationVectors : List (String × String × (Option (List Nat) × String)) :=
+  [("ssz_raw.decodeForkActivation/container-forkactivation/78", "0800000008000000", (some [0, 0, 0, 0], "")),
+   ("ssz_raw.decodeForkActivation/container-forkactivation/79", "08000000100000000500000000000000", (some [1, 5, 0, 0], "")),
+   ("ssz_raw.decodeForkActivation/container-forkactivation/80", "08000000080000000700000000000000", (some [0, 0, 1, 7], "")),
+   ("ssz_raw.decodeForkActivation/container-forkactivation/81", "08000000100000000b000000000000001600000000000000", (some [1, 11, 1, 22], "")),
+   ("ssz_raw.decodeForkActivation/container-malformed/82", "00000000", (none, "invalidSsz")),
+   ("ssz_raw.decodeForkActivation/container-malformed/83", "0900000009000000", (none, "invalidSsz")),
+   ("ssz_raw.decodeForkActivation/container-malformed/84", "080000000f00000000000000000000", (none, "invalidSsz"))]
+
+def forkConfigVectors : List (String × String × (Option (List Nat) × String)) :=
+  [("ssz_raw.decodeForkConfig/container-forkconfig/85", "140000000000000010000000180000000800000008000000010000000000000002000000000000000300000000000000", (some [20, 0, 0, 0, 0, 1, 1, 2, 3], "")),
+   ("ssz_raw.decodeForkConfig/container-forkconfig/86", "00000000000000001000000028000000080000001000000004000000000000000800000000000000", (some [0, 1, 4, 1, 8, 0, 0, 0, 0], "")),
+   ("ssz_raw.decodeForkConfig/container-forkconfig/87", "14000000000000001000000028000000080000001000000001000000000000000200000000000000090000000000000009000000000000000900000000000000", (some [20, 1, 1, 1, 2, 1, 9, 9, 9], "")),
+   ("ssz_raw.decodeForkConfig/fork-unknown/88", "150000000000000010000000180000000800000008000000010000000000000002000000000000000300000000000000", (none, "unknownFork")),
+   ("ssz_raw.decodeForkConfig/fork-unknown/89", "ff000000000000001000000028000000080000001000000001000000000000000200000000000000", (none, "unknownFork")),
+   ("ssz_raw.decodeForkConfig/fork-ordering/90", "1500000000000000100000001f000000080000000f00000000000000000000010000000000000002000000000000000300000000000000", (none, "unknownFork")),
+   ("ssz_raw.decodeForkConfig/fork-ordering/91", "15000000000000001100000011000000", (none, "invalidSsz")),
+   ("ssz_raw.decodeForkConfig/container-malformed/92", "0000000000000000", (none, "invalidSsz"))]
+
+def chainConfigVectors : List (String × String × (Option (List Nat) × String)) :=
+  [("ssz_raw.decodeChainConfig/container-chainconfig/93", "01000000000000000c000000140000000000000010000000180000000800000008000000010000000000000002000000000000000300000000000000", (some [1, 20, 0, 0, 0, 0, 1, 1, 2, 3], "")),
+   ("ssz_raw.decodeChainConfig/container-chainconfig/94", "07000000000000000c00000000000000000000001000000028000000080000001000000004000000000000000800000000000000", (some [7, 0, 1, 4, 1, 8, 0, 0, 0, 0], "")),
+   ("ssz_raw.decodeChainConfig/fork-unknown/95", "01000000000000000c000000150000000000000010000000180000000800000008000000010000000000000002000000000000000300000000000000", (none, "unknownFork")),
+   ("ssz_raw.decodeChainConfig/container-malformed/96", "0000000000000000", (none, "invalidSsz"))]
+
 end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors
