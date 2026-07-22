@@ -75,10 +75,11 @@ theorem program_correctness_references_per_instance
   instance_implements_its_contract correct mem found
 
 /-- (6) The runner/result theorems `root_compliance` is built from depend on
-`sszComplianceObligations program`: it entails program correctness for some parameters. Ordinary
+`sszComplianceObligations program`: it entails program correctness for the concrete
+`canonicalContractParams` (which in particular witnesses the `∃ p` the old statement used). Ordinary
 kernel proof. -/
 theorem root_dependency_is_real :
     ∀ program : Program, sszComplianceObligations program → (∃ p, sszProgramCorrectness program p) :=
-  fun _ obligations => obligations.1
+  fun _ obligations => ⟨canonicalContractParams, obligations.1⟩
 
 end BinaryFv.SSZ.Zesu.Contracts
