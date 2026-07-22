@@ -1,3 +1,4 @@
+-- GENERATED FILE: produced by tools/extract_blob_schedule_instance.py. DO NOT EDIT.
 import BinaryFv.Binary.Elfling.Instance
 
 /-!

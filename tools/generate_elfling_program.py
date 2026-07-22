@@ -765,10 +765,11 @@ def edges_lean(o):
                             for e in o["edges"]) + "]"
 
 def emit_lean(p):
-    L = ["import BinaryFv.Binary.Elfling.Instance", "",
+    L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py. DO NOT EDIT.",
+         "import BinaryFv.Binary.Elfling.Instance", "",
          "/-!", "# Generated Elfling program (milestone 4)", "",
          "Deterministically generated from the validated DWARF sidecars by",
-         "`docs/ai/plan/artifacts/generate_program.py`. Address-bearing, UNTRUSTED: the Lean validation",
+         "`tools/generate_elfling_program.py`. Address-bearing, UNTRUSTED: the Lean validation",
          "(`ProgramValidation.lean`) checks every range/word against the canonical ELF and discharges",
          "`coverage` / `sourceProvenanceRecorded` / `IsCanonicalGeneratedProgram`. Object `.text` bases,",
          "readArray widths (from `DW_AT_call_line` -> pinned source), and glue-folding are recorded in the",

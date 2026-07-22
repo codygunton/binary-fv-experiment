@@ -146,6 +146,7 @@ def emit_lean(d, src_hash="ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0
             f'{{ caller := {sdecl(s["callerQualified"])}, callSite := {{ line := {s["callLine"]}, column := {s["callColumn"]} }} }}'
             for s in sites) + "]"
     L = []
+    L.append("-- GENERATED FILE: produced by tools/extract_blob_schedule_instance.py. DO NOT EDIT.")
     L.append("import BinaryFv.Binary.Elfling.Instance")
     L.append("")
     L.append("/-!")
