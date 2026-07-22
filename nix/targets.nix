@@ -624,6 +624,7 @@ let
       probe = "${zesuContractProbe}/bin/ssz-contract-probe";
       agreement = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_agreement.py"; name = "ssz_contract_agreement.py"; };
       routineVectors = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_routine_vectors.py"; name = "ssz_routine_vectors.py"; };
+      generatedRoutineVectorsLean = builtins.path { path = repo + "/BinaryFv/SSZ/Zesu/Validation/GeneratedRoutineVectors.lean"; name = "GeneratedRoutineVectors.lean"; };
       mutation = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_mutation.py"; name = "ssz_contract_mutation.py"; };
       report = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_report.py"; name = "ssz_contract_report.py"; };
       corpusGen = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; };
@@ -651,6 +652,14 @@ let
         || { echo "ROUTINE VECTOR MISMATCH (see routine-outcomes.jsonl)" >&2; \
              grep '"match":false' "$out/routine-outcomes.jsonl" >&2 || true; exit 1; }
 
+      # Drift guard: the committed GeneratedRoutineVectors.lean (native_decide-checked by the proof.nix
+      # meaning lane) must equal what the generator emits now, so the Zig-vector lane and the Lean lane
+      # can never silently check different vectors.
+      python3 ${routineVectors} --out-lean "$out/GeneratedRoutineVectors.lean"
+      cmp -s "$out/GeneratedRoutineVectors.lean" ${generatedRoutineVectorsLean} \
+        || { echo "DRIFT: committed GeneratedRoutineVectors.lean differs from --out-lean; regenerate it" >&2; \
+             diff "$out/GeneratedRoutineVectors.lean" ${generatedRoutineVectorsLean} | head -40 >&2; exit 1; }
+
       # the real source rejects every targeted mutation class, and the per-routine value/error,
       # allocation-ledger, and removed-routine-case checks are all discriminating.
       python3 ${mutation} --fixtures ${fixtures} --lean-runner ${probe} \
@@ -675,6 +684,38 @@ let
           "$(grep -c '"oom_safe":false' "$out/ledger.jsonl" || true)"
       } | tee "$out/summary.txt"
     '';
+
+  # Production-object-unchanged guard (Row B). The shipped RV64 raw-SSZ objects are built by
+  # `zesuRawObject` from the sha256-pinned Zesu source with NO validation overlay — the overlays are
+  # appended only inside the host-only `zesuContractProbe`. Pinning the exact byte content of every
+  # shipped object proves the Row B validation work cannot have changed production: an accidental
+  # overlay leak, or any other drift, flips one of these hashes and fails the gate. (Rebuilds are
+  # byte-deterministic: pinned source + pinned zig + ReleaseSmall.)
+  sszProductionUnchanged = pkgs.runCommand "ssz-production-object-unchanged" {
+    nativeBuildInputs = [ pkgs.coreutils ];
+    decoderSha = "0acc871ac1ed37a70469d4240c4e3fba981d860b5102631da2044d74d5627817";
+    allocatorSha = "d5c72b7ef88a470076f26286d5e39e030bc7f02991ef0bbad077007e28a4d152";
+    sinkSha = "06225483b6dfc955a0a2141168cdbcf281a202bb1d2b0b5fdac8eb8df740b7fe";
+  } ''
+    set -euo pipefail
+    obj=${zesuRawObject}/obj
+    check() {
+      got=$(sha256sum "$obj/$1" | cut -d' ' -f1)
+      if [ "$got" != "$2" ]; then
+        echo "PRODUCTION OBJECT CHANGED: $1 is $got, pinned $2. Row B validation is host-only and" \
+             "must not affect production." >&2
+        exit 1
+      fi
+      printf '%s  %s\n' "$got" "$1"
+    }
+    mkdir -p "$out"
+    {
+      check zesu-raw-ssz-decoder.o "$decoderSha"
+      check zesu-raw-ssz-allocator.o "$allocatorSha"
+      check zesu-raw-ssz-sink.o "$sinkSha"
+    } > "$out/pinned-object-hashes.txt"
+    printf 'all 3 shipped raw-SSZ objects byte-identical to their pinned hashes\n' | tee "$out/summary.txt"
+  '';
 
   zesuSsz = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-rv64im-zicclsm";
@@ -898,6 +939,7 @@ in
       sszContractCorpus
       zesuContractProbe
       sszContractProbeCheck
+      sszProductionUnchanged
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -916,6 +958,7 @@ in
     ssz-contract-corpus = sszContractCorpus;
     zesu-contract-probe = zesuContractProbe;
     ssz-contract-probe-check = sszContractProbeCheck;
+    ssz-production-object-unchanged = sszProductionUnchanged;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;

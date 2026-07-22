@@ -251,6 +251,18 @@ let
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Root\.lean:')" = 2
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
 
+    # Validation-import guard. The Row B `Validation/` modules are falsification evidence, never proof
+    # premises: no file OUTSIDE `Validation/` may import one, so no root theorem (nor the `BinaryFv`
+    # umbrella) can transitively depend on the probe's meaning-agreement checks. The Validation modules
+    # still build below (reusing this toolchain), but nothing in the theorem graph imports them.
+    validationLeaks=$(grep -rn --include='*.lean' "^import BinaryFv\..*\.Validation\." BinaryFv/ 2>/dev/null \
+      | grep -v "^BinaryFv/SSZ/Zesu/Validation/" || true)
+    if [ -n "$validationLeaks" ]; then
+      echo "Validation-import guard: no proof module may import a Validation module." >&2
+      echo "$validationLeaks" >&2
+      exit 1
+    fi
+
     lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
 
     # Row B validation, co-located ONLY to reuse this derivation's fully-built toolchain (the module
