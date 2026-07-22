@@ -293,6 +293,36 @@ def npr_case(payload, versioned_hash_seeds, parent_beacon_block_root, requests, 
     return body, tree
 
 
+SCHEMA_ID = b"\x00\x01"  # the pinned Amsterdam V4 schema id (ssz_raw.schema_id)
+
+
+def chain_config_case(chain_id=1, fork=20, block_number=None, timestamp=0, blob=(1, 2, 3)):
+    """RawChainConfig -> tree [chain_id, [fork, [opt block, opt timestamp], opt blob]]. An option is a
+    node: empty for none, or [value(s)] for some."""
+    body = cc_bytes(chain_id, fc_bytes(fork, fa_bytes(block_number, timestamp), blob))
+    opt_bn = [] if block_number is None else [hexle_u64(block_number)]
+    opt_ts = [] if timestamp is None else [hexle_u64(timestamp)]
+    opt_blob = [] if blob is None else [hexle_u64(blob[0]), hexle_u64(blob[1]), hexle_u64(blob[2])]
+    tree = [hexle_u64(chain_id), [hexle_u64(fork), [opt_bn, opt_ts], opt_blob]]
+    return body, tree
+
+
+def stateless_input_case(npr, wit, chain, pubkey_seeds):
+    """RawStatelessInput/RawV4 = {new_payload_request, witness, chain_config, public_keys}. The body is
+    SCHEMA_ID + offset table + parts (mirrors ssz_differential_audit.stateless_input)."""
+    npr_body, npr_tree = npr
+    w_body, w_tree = wit
+    c_body, c_tree = chain
+    pks = [bvec(s, 65) for s in pubkey_seeds]
+    witness_offset = 16 + len(npr_body)
+    chain_offset = witness_offset + len(w_body)
+    pk_offset = chain_offset + len(c_body)
+    body = (SCHEMA_ID + _u32(16) + _u32(witness_offset) + _u32(chain_offset) + _u32(pk_offset)
+            + npr_body + w_body + c_body + b"".join(pks))
+    tree = [npr_tree, w_tree, c_tree, [pk.hex() for pk in pks]]
+    return body, tree
+
+
 # --- deterministic SSZ reference (matches both the Zig routine and the handwritten Lean meaning) -----
 
 def ref_read_uint_le(data: bytes, offset: int, width: int):
@@ -608,6 +638,21 @@ def rows():
     add("ssz_raw.decodeNewPayloadRequest", {"data": npr[0].hex()}, val_tree(npr[1]), "container-newpayload")
     add("ssz_raw.decodeNewPayloadRequest", {"data": (b"\x00" * 8).hex()}, INVALID, "container-malformed")  # < 44
 
+    # --- Internal entry routines: decodeRaw (schema-prefixed, no ERE) and decode (raw-first with an
+    # exact ERE-length retry). Both return the full RawStatelessInput/RawV4 tree. ------------------
+    si_body, si_tree = stateless_input_case(
+        npr_case(exec_payload_case(), [10, 50], bvec(9, 32), exec_requests_case([(1, 2, 32, 3, 7)], [], [])),
+        witness_case([b"state"], [b"code"], [b"header"]), chain_config_case(), [1, 2])
+    add("ssz_raw.decodeRaw", {"data": si_body.hex()}, val_tree(si_tree), "entry-raw")
+    add("ssz_raw.decodeRaw", {"data": SCHEMA_ID.hex()}, INVALID, "entry-malformed")          # too short
+    add("ssz_raw.decodeRaw", {"data": (b"\x00\x02" + si_body[2:]).hex()}, INVALID, "entry-malformed")  # wrong schema
+
+    add("ssz_raw.decode", {"data": si_body.hex()}, val_tree(si_tree), "entry-raw")            # raw path
+    ere = _u32(len(si_body)) + si_body
+    add("ssz_raw.decode", {"data": ere.hex()}, val_tree(si_tree), "entry-ere")                # exact ERE retry
+    add("ssz_raw.decode", {"data": (_u32(999) + si_body).hex()}, INVALID, "entry-ere")        # wrong ERE length
+    add("ssz_raw.decode", {"data": (b"\x00\x02").hex()}, INVALID, "entry-malformed")          # wrong schema, no ERE
+
     return out
 
 
@@ -662,12 +707,15 @@ def emit_lean(all_rows) -> str:
         return f'(none, {_lean_str(e["error"])})'
 
     container_groups = {name: [] for name in (
-        "execRequestsVectors", "execWitnessVectors", "execPayloadVectors", "newPayloadRequestVectors")}
+        "execRequestsVectors", "execWitnessVectors", "execPayloadVectors", "newPayloadRequestVectors",
+        "decodeRawVectors", "decodeVectors")}
     container_route = {
         "ssz_raw.decodeExecutionRequests": "execRequestsVectors",
         "ssz_raw.decodeExecutionWitness": "execWitnessVectors",
         "ssz_raw.decodeExecutionPayload": "execPayloadVectors",
-        "ssz_raw.decodeNewPayloadRequest": "newPayloadRequestVectors"}
+        "ssz_raw.decodeNewPayloadRequest": "newPayloadRequestVectors",
+        "ssz_raw.decodeRaw": "decodeRawVectors",
+        "ssz_raw.decode": "decodeVectors"}
 
     for r in all_rows:
         if r["expect"]["kind"] == "gap":
@@ -770,6 +818,10 @@ def emit_lean(all_rows) -> str:
               container_groups["execPayloadVectors"]),
         block("newPayloadRequestVectors", "String × String × (Option VTree × String)",
               container_groups["newPayloadRequestVectors"]),
+        block("decodeRawVectors", "String × String × (Option VTree × String)",
+              container_groups["decodeRawVectors"]),
+        block("decodeVectors", "String × String × (Option VTree × String)",
+              container_groups["decodeVectors"]),
         "end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
     ]
     return "\n".join(L) + "\n"

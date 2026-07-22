@@ -891,10 +891,43 @@ fn treeNewPayloadRequest(tb: TreeBuilder, npr: raw.RawNewPayloadRequest) Tree {
     });
 }
 
+// An option renders as a node: empty for none, or [value(s)] for some.
+fn treeOptU64(tb: TreeBuilder, v: ?u64) Tree {
+    if (v) |x| return tb.node(&.{tb.u64le(x)});
+    return tb.node(&.{});
+}
+fn treeOptBlob(tb: TreeBuilder, v: ?raw.RawBlobSchedule) Tree {
+    if (v) |s| return tb.node(&.{ tb.u64le(s.target), tb.u64le(s.max), tb.u64le(s.base_fee_update_fraction) });
+    return tb.node(&.{});
+}
+fn treeForkActivation(tb: TreeBuilder, fa: raw.RawForkActivation) Tree {
+    return tb.node(&.{ treeOptU64(tb, fa.block_number), treeOptU64(tb, fa.timestamp) });
+}
+fn treeForkConfig(tb: TreeBuilder, fc: raw.RawForkConfig) Tree {
+    return tb.node(&.{ tb.u64le(fc.fork), treeForkActivation(tb, fc.activation), treeOptBlob(tb, fc.blob_schedule) });
+}
+fn treeChainConfig(tb: TreeBuilder, cc: raw.RawChainConfig) Tree {
+    return tb.node(&.{ tb.u64le(cc.chain_id), treeForkConfig(tb, cc.active_fork) });
+}
+fn treePubkeyArray(tb: TreeBuilder, arr: []const [65]u8) Tree {
+    const kids = tb.arena.alloc(Tree, arr.len) catch unreachable;
+    for (arr, 0..) |k, i| kids[i] = tb.leaf(k[0..]);
+    return .{ .node = kids };
+}
+fn treeStatelessInput(tb: TreeBuilder, si: raw.RawStatelessInput) Tree {
+    return tb.node(&.{
+        treeNewPayloadRequest(tb, si.new_payload_request),
+        treeExecutionWitness(tb, si.witness),
+        treeChainConfig(tb, si.chain_config),
+        treePubkeyArray(tb, si.public_keys),
+    });
+}
+
 fn isContainerRoutine(routine: []const u8) bool {
     const names = [_][]const u8{
         "ssz_raw.decodeExecutionRequests", "ssz_raw.decodeExecutionWitness",
         "ssz_raw.decodeExecutionPayload",  "ssz_raw.decodeNewPayloadRequest",
+        "ssz_raw.decodeRaw",               "ssz_raw.decode",
     };
     for (names) |n| if (std.mem.eql(u8, routine, n)) return true;
     return false;
@@ -929,6 +962,20 @@ fn runContainer(routine: []const u8, args: std.json.ObjectMap, input: []const u8
     } else if (std.mem.eql(u8, routine, "ssz_raw.decodeNewPayloadRequest")) {
         if (raw.probe_decodeNewPayloadRequest(alloc, input)) |value| {
             const t = treeNewPayloadRequest(tb, value);
+            var v = value;
+            v.deinit(alloc);
+            return .{ .tree = t };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeRaw")) {
+        if (raw.decodeRaw(alloc, input)) |value| {
+            const t = treeStatelessInput(tb, value);
+            var v = value;
+            v.deinit(alloc);
+            return .{ .tree = t };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decode")) {
+        if (raw.decode(alloc, input)) |value| {
+            const t = treeStatelessInput(tb, value);
             var v = value;
             v.deinit(alloc);
             return .{ .tree = t };

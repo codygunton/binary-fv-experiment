@@ -3,6 +3,7 @@ import BinaryFv.SSZ.Zesu.Contracts.Options
 import BinaryFv.SSZ.Zesu.Contracts.Canonicality
 import BinaryFv.SSZ.Zesu.Contracts.Containers
 import BinaryFv.SSZ.Zesu.Contracts.Collections
+import BinaryFv.SSZ.Zesu.Contracts.Entry
 import BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors
 
 /-!
@@ -318,5 +319,40 @@ theorem new_payload_request_meaning_agrees :
     newPayloadRequestVectors.all
       (fun v => containerTreeEnc renderNewPayloadRequest (meaningNewPayloadRequest (hexToBytes v.2.1))
         == v.2.2) = true := by native_decide
+
+/-!
+## Internal entry routines
+
+`decodeRaw` / `decode` return the whole `RawV4`. An option renders as a node (empty = none). `decode`
+adds the raw-first / exact-ERE-length retry, so the tree is identical to `decodeRaw` on the retried body.
+-/
+
+def treeOptU64 (v : Option UInt64) : VTree :=
+  match v with | some x => .node [treeU64 x] | none => .node []
+def treeOptBlob (v : Option SszBridge.RawBlobSchedule) : VTree :=
+  match v with
+  | some s => .node [treeU64 s.target, treeU64 s.max, treeU64 s.baseFeeUpdateFraction]
+  | none => .node []
+
+def renderForkActivation (fa : SszBridge.RawForkActivation) : VTree :=
+  .node [treeOptU64 fa.blockNumber, treeOptU64 fa.timestamp]
+def renderForkConfig (fc : SszBridge.RawForkConfig) : VTree :=
+  .node [treeU64 fc.fork, renderForkActivation fc.activation, treeOptBlob fc.blobSchedule]
+def renderChainConfig (cc : SszBridge.RawChainConfig) : VTree :=
+  .node [treeU64 cc.chainId, renderForkConfig cc.activeFork]
+
+def renderStatelessInput (si : SszBridge.RawV4) : VTree :=
+  .node [renderNewPayloadRequest si.newPayloadRequest, renderExecutionWitness si.witness,
+    renderChainConfig si.chainConfig, .node (si.publicKeys.toList.map treeBv)]
+
+theorem decode_raw_meaning_agrees :
+    decodeRawVectors.all
+      (fun v => containerTreeEnc renderStatelessInput (meaningDecodeRaw (hexToBytes v.2.1)) == v.2.2)
+      = true := by native_decide
+
+theorem decode_meaning_agrees :
+    decodeVectors.all
+      (fun v => containerTreeEnc renderStatelessInput (meaningDecode (hexToBytes v.2.1)) == v.2.2)
+      = true := by native_decide
 
 end BinaryFv.SSZ.Zesu.Validation
