@@ -192,12 +192,11 @@ def postRawResult (env : DecoderEnvironment) (resultBuffer : Nat) (model : Decod
       after.regs.get? x10 = some (BitVec.ofNat 64 pointer)
   | .error _ => False
 
-def contractRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout) (resultBuffer : Nat)
-    (rep : ContainerRepresentation SszBridge.RawV4) :
+def contractRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout) (resultBuffer : Nat) :
     FunctionContract SszDecodeError DecoderGlobalsModel Nat where
   meaning := fun model => .ok (if model.stored.isSome then resultBuffer else 0)
   pre := fun model state =>
-    env.CodeIntact state ∧ StoredResultRep globals rep resultBuffer model state
+    env.CodeIntact state ∧ StoredResultPointerRep globals resultBuffer model state
   post := postRawResult env resultBuffer
   stepBound := fun _ => 32
 
@@ -207,17 +206,17 @@ def correctnessClaimRawError (env : DecoderEnvironment) (globals : DecoderGlobal
   ImplementsInstance instance_ entry exit (contractRawError env globals)
 
 def correctnessClaimRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
+    (resultBuffer : Nat)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractRawResult env globals resultBuffer rep)
+  ImplementsInstance instance_ entry exit (contractRawResult env globals resultBuffer)
 
 def satisfiableRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractRawError env globals)
 
 def satisfiableRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4) : Prop :=
-  ValidEnvironment env → PreSatisfiable (contractRawResult env globals resultBuffer rep)
+    (resultBuffer : Nat) : Prop :=
+  ValidEnvironment env → PreSatisfiable (contractRawResult env globals resultBuffer)
 
 /-!
 ## Allocator vtable routines

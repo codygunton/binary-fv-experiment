@@ -1,5 +1,6 @@
 import BinaryFv.SSZ.Zesu.Contracts.Catalog
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals
+import BinaryFv.SSZ.Zesu.MemoryRepresentation.Containers
 import BinaryFv.SSZ.Zesu.Runtime.BumpAllocator
 
 /-!
@@ -85,34 +86,56 @@ def canonicalHeap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap :=
 
 /-! ## Container representations
 
-`repRawV4` is materialized and input-free; the seven nested reps are concrete placeholders pinned in
-the containers row. -/
+Every container's representation is the exact native RV64 layout from `MemoryRepresentation.Containers`
+(offsets pinned against the ABI manifest by `container_field_offsets_valid` and the `RawV4` audits).
+`repRawV4` is the complete `RawV4Rep` — root allocation, all ten heap arrays, the descriptor table,
+every borrowed input slice, and all inline fixed fields — not merely the fixed-field fragment. The
+input base and bytes carried by `ContainerRepresentation` let the allocating containers and `RawV4`
+describe their input-relative borrowed slices. -/
 
-/-- The materialized fixed-field representation of a decoded `RawV4` at `base`. -/
+/-- The complete native representation of a decoded `RawV4` rooted at `base`, decoded from the caller's
+input at `inputBase`/`input`. -/
 def canonicalRepRawV4 : ContainerRepresentation SszBridge.RawV4 :=
-  fun value state base => RawV4FixedFieldsRep state base value
+  fun inputBase input value state base => RawV4Rep state inputBase input base value
 
-/-- A concrete placeholder representation, strengthened to the container's full field/collection
-layout in the containers row (H). -/
-def placeholderRep (α : Type) : ContainerRepresentation α := fun _ _ _ => True
+def canonicalRepForkActivation : ContainerRepresentation SszBridge.RawForkActivation :=
+  fun _ _ value state base => ForkActivationRep state base value
+
+def canonicalRepForkConfig : ContainerRepresentation SszBridge.RawForkConfig :=
+  fun _ _ value state base => ForkConfigRep state base value
+
+def canonicalRepChainConfig : ContainerRepresentation SszBridge.RawChainConfig :=
+  fun _ _ value state base => ChainConfigRep state base value
+
+def canonicalRepExecutionWitness : ContainerRepresentation SszBridge.RawExecutionWitness :=
+  fun inputBase input value state base => ExecutionWitnessRep state inputBase input base value
+
+def canonicalRepExecutionRequests : ContainerRepresentation SszBridge.RawExecutionRequests :=
+  fun _ _ value state base => ExecutionRequestsRep state base value
+
+def canonicalRepExecutionPayload : ContainerRepresentation SszBridge.RawExecutionPayload :=
+  fun inputBase input value state base => ExecutionPayloadRep state inputBase input base value
+
+def canonicalRepNewPayloadRequest : ContainerRepresentation SszBridge.RawNewPayloadRequest :=
+  fun inputBase input value state base => NewPayloadRequestRep state inputBase input base value
 
 /-! ## The canonical parameters -/
 
-/-- The one concrete `ContractParams` the root obligation is stated against. Every address- and
-layout-bearing field comes from a validated pinned artifact; the container representations are
-concrete (partial for the nested containers, full for `RawV4`'s fixed fields). -/
+/-- The one concrete `ContractParams` the root obligation is stated against. Every address-, layout-,
+and representation-bearing field comes from a validated pinned artifact or the exact native layout;
+there are no placeholder representations. -/
 def canonicalContractParams : ContractParams :=
   { env := canonicalEnvironment
     heap := canonicalHeap
     globals := canonicalDecoderGlobalsLayout
     resultBuffer := canonicalResultBuffer
-    repForkActivation := placeholderRep _
-    repForkConfig := placeholderRep _
-    repChainConfig := placeholderRep _
-    repExecutionWitness := placeholderRep _
-    repExecutionRequests := placeholderRep _
-    repExecutionPayload := placeholderRep _
-    repNewPayloadRequest := placeholderRep _
+    repForkActivation := canonicalRepForkActivation
+    repForkConfig := canonicalRepForkConfig
+    repChainConfig := canonicalRepChainConfig
+    repExecutionWitness := canonicalRepExecutionWitness
+    repExecutionRequests := canonicalRepExecutionRequests
+    repExecutionPayload := canonicalRepExecutionPayload
+    repNewPayloadRequest := canonicalRepNewPayloadRequest
     repRawV4 := canonicalRepRawV4 }
 
 end BinaryFv.SSZ.Zesu.Contracts
