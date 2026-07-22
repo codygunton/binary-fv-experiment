@@ -685,12 +685,59 @@ fn emitRoutineOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: A
 // report the value + per-event allocation ledger + OOM sweep. Field order / stride match the source.
 // ============================================================================================
 
-/// An allocating routine's outcome in the vector's value encoding: a list of elements, each a list of
-/// field tokens (raw bytes; hex-rendered at emit / compare time). No host pointers.
+/// A recursive value tree for nested containers: a leaf (raw bytes, hex-rendered) or a node of trees.
+const Tree = union(enum) {
+    leaf: []const u8,
+    node: []const Tree,
+};
+
+/// An allocating routine's outcome in the vector's value encoding. `items` is the flat collection
+/// encoding (a list of elements, each a list of field tokens); `tree` is the nested-container
+/// encoding. Both use raw bytes hex-rendered at emit / compare time — no host pointers.
 const AllocActual = union(enum) {
     items: []const []const []const u8,
+    tree: Tree,
     err: []const u8,
 };
+
+/// Builds tree nodes/leaves into an arena that outlives the (freed) decoded value.
+const TreeBuilder = struct {
+    arena: std.mem.Allocator,
+    fn leaf(self: TreeBuilder, s: []const u8) Tree {
+        return .{ .leaf = self.arena.dupe(u8, s) catch unreachable };
+    }
+    fn u64le(self: TreeBuilder, v: u64) Tree {
+        const b = self.arena.alloc(u8, 8) catch unreachable;
+        std.mem.writeInt(u64, b[0..8], v, .little);
+        return .{ .leaf = b };
+    }
+    fn u256le(self: TreeBuilder, v: u256) Tree {
+        const b = self.arena.alloc(u8, 32) catch unreachable;
+        std.mem.writeInt(u256, b[0..32], v, .little);
+        return .{ .leaf = b };
+    }
+    fn node(self: TreeBuilder, kids: []const Tree) Tree {
+        return .{ .node = self.arena.dupe(Tree, kids) catch unreachable };
+    }
+};
+
+fn emitTree(w: *Writer, tree: Tree) !void {
+    switch (tree) {
+        .leaf => |b| {
+            try w.writeByte('"');
+            for (b) |c| try w.print("{x:0>2}", .{c});
+            try w.writeByte('"');
+        },
+        .node => |kids| {
+            try w.writeByte('[');
+            for (kids, 0..) |k, i| {
+                if (i != 0) try w.writeByte(',');
+                try emitTree(w, k);
+            }
+            try w.writeByte(']');
+        },
+    }
+}
 
 /// Builds tokens/elements into an arena that outlives the (freed) decoded result.
 const TokBuilder = struct {
@@ -777,6 +824,136 @@ fn runCollection(routine: []const u8, args: std.json.ObjectMap, input: []const u
     return null;
 }
 
+// ---- Nested-container tree renderers: build the recursive value tree from the decoded struct, in the
+// exact field order of the pinned source. Element/leaf order matches ssz_routine_vectors.py and Lean. --
+
+fn treeWithdrawal(tb: TreeBuilder, w: raw.RawWithdrawal) Tree {
+    return tb.node(&.{ tb.u64le(w.index), tb.u64le(w.validator_index), tb.leaf(w.address[0..]), tb.u64le(w.amount) });
+}
+fn treeDeposit(tb: TreeBuilder, d: raw.RawDepositRequest) Tree {
+    return tb.node(&.{ tb.leaf(d.pubkey[0..]), tb.leaf(d.withdrawal_credentials[0..]), tb.u64le(d.amount), tb.leaf(d.signature[0..]), tb.u64le(d.index) });
+}
+fn treeWithdrawalReq(tb: TreeBuilder, wr: raw.RawWithdrawalRequest) Tree {
+    return tb.node(&.{ tb.leaf(wr.source_address[0..]), tb.leaf(wr.validator_pubkey[0..]), tb.u64le(wr.amount) });
+}
+fn treeConsolidation(tb: TreeBuilder, c: raw.RawConsolidationRequest) Tree {
+    return tb.node(&.{ tb.leaf(c.source_address[0..]), tb.leaf(c.source_pubkey[0..]), tb.leaf(c.target_pubkey[0..]) });
+}
+
+fn treeWithdrawalArray(tb: TreeBuilder, arr: []const raw.RawWithdrawal) Tree {
+    const kids = tb.arena.alloc(Tree, arr.len) catch unreachable;
+    for (arr, 0..) |x, i| kids[i] = treeWithdrawal(tb, x);
+    return .{ .node = kids };
+}
+fn treeByteLeafArray(tb: TreeBuilder, arr: []const []const u8) Tree {
+    const kids = tb.arena.alloc(Tree, arr.len) catch unreachable;
+    for (arr, 0..) |s, i| kids[i] = tb.leaf(s);
+    return .{ .node = kids };
+}
+fn treeHashArray(tb: TreeBuilder, arr: []const [32]u8) Tree {
+    const kids = tb.arena.alloc(Tree, arr.len) catch unreachable;
+    for (arr, 0..) |h, i| kids[i] = tb.leaf(h[0..]);
+    return .{ .node = kids };
+}
+
+fn treeExecutionRequests(tb: TreeBuilder, er: raw.RawExecutionRequests) Tree {
+    const deps = tb.arena.alloc(Tree, er.deposits.len) catch unreachable;
+    for (er.deposits, 0..) |d, i| deps[i] = treeDeposit(tb, d);
+    const wrs = tb.arena.alloc(Tree, er.withdrawals.len) catch unreachable;
+    for (er.withdrawals, 0..) |wr, i| wrs[i] = treeWithdrawalReq(tb, wr);
+    const cons = tb.arena.alloc(Tree, er.consolidations.len) catch unreachable;
+    for (er.consolidations, 0..) |c, i| cons[i] = treeConsolidation(tb, c);
+    return tb.node(&.{ .{ .node = deps }, .{ .node = wrs }, .{ .node = cons } });
+}
+
+fn treeExecutionWitness(tb: TreeBuilder, ew: raw.RawExecutionWitness) Tree {
+    return tb.node(&.{ treeByteLeafArray(tb, ew.state), treeByteLeafArray(tb, ew.codes), treeByteLeafArray(tb, ew.headers) });
+}
+
+fn treeExecutionPayload(tb: TreeBuilder, ep: raw.RawExecutionPayload) Tree {
+    return tb.node(&.{
+        tb.leaf(ep.parent_hash[0..]),   tb.leaf(ep.fee_recipient[0..]), tb.leaf(ep.state_root[0..]),
+        tb.leaf(ep.receipts_root[0..]), tb.leaf(ep.logs_bloom[0..]),    tb.leaf(ep.prev_randao[0..]),
+        tb.u64le(ep.block_number),      tb.u64le(ep.gas_limit),         tb.u64le(ep.gas_used),
+        tb.u64le(ep.timestamp),         tb.leaf(ep.extra_data),         tb.u256le(ep.base_fee_per_gas),
+        tb.leaf(ep.block_hash[0..]),    treeByteLeafArray(tb, ep.transactions), treeWithdrawalArray(tb, ep.withdrawals),
+        tb.u64le(ep.blob_gas_used),     tb.u64le(ep.excess_blob_gas),   tb.leaf(ep.block_access_list),
+        tb.u64le(ep.slot_number),
+    });
+}
+
+fn treeNewPayloadRequest(tb: TreeBuilder, npr: raw.RawNewPayloadRequest) Tree {
+    return tb.node(&.{
+        treeExecutionPayload(tb, npr.execution_payload),
+        treeHashArray(tb, npr.versioned_hashes),
+        tb.leaf(npr.parent_beacon_block_root[0..]),
+        treeExecutionRequests(tb, npr.execution_requests),
+    });
+}
+
+fn isContainerRoutine(routine: []const u8) bool {
+    const names = [_][]const u8{
+        "ssz_raw.decodeExecutionRequests", "ssz_raw.decodeExecutionWitness",
+        "ssz_raw.decodeExecutionPayload",  "ssz_raw.decodeNewPayloadRequest",
+    };
+    for (names) |n| if (std.mem.eql(u8, routine, n)) return true;
+    return false;
+}
+
+/// Decode one nested container under `alloc`, render its value tree into `arena`, then free the value.
+/// Signature matches `runCollection` so both share the allocating-vector driver. `args` is unused here.
+fn runContainer(routine: []const u8, args: std.json.ObjectMap, input: []const u8, alloc: std.mem.Allocator, arena: std.mem.Allocator) ?AllocActual {
+    _ = args;
+    const tb = TreeBuilder{ .arena = arena };
+    if (std.mem.eql(u8, routine, "ssz_raw.decodeExecutionRequests")) {
+        if (raw.probe_decodeExecutionRequests(alloc, input)) |value| {
+            const t = treeExecutionRequests(tb, value);
+            var v = value;
+            v.deinit(alloc);
+            return .{ .tree = t };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeExecutionWitness")) {
+        if (raw.probe_decodeExecutionWitness(alloc, input)) |value| {
+            const t = treeExecutionWitness(tb, value);
+            var v = value;
+            v.deinit(alloc);
+            return .{ .tree = t };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeExecutionPayload")) {
+        if (raw.probe_decodeExecutionPayload(alloc, input)) |value| {
+            const t = treeExecutionPayload(tb, value);
+            var v = value;
+            v.deinit(alloc);
+            return .{ .tree = t };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeNewPayloadRequest")) {
+        if (raw.probe_decodeNewPayloadRequest(alloc, input)) |value| {
+            const t = treeNewPayloadRequest(tb, value);
+            var v = value;
+            v.deinit(alloc);
+            return .{ .tree = t };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    }
+    return null;
+}
+
+fn treeMatches(tree: Tree, want: std.json.Value) bool {
+    switch (tree) {
+        .leaf => |b| return switch (want) {
+            .string => |s| hexEqualsBytes(s, b),
+            else => false,
+        },
+        .node => |kids| return switch (want) {
+            .array => |a| {
+                if (a.items.len != kids.len) return false;
+                for (kids, a.items) |k, wv| if (!treeMatches(k, wv)) return false;
+                return true;
+            },
+            else => false,
+        },
+    }
+}
+
 fn hexNibble(c: u8) ?u8 {
     return switch (c) {
         '0'...'9' => c - '0',
@@ -832,6 +1009,14 @@ fn allocActualMatches(actual: AllocActual, expect: std.json.ObjectMap) bool {
             }
             return true;
         },
+        .tree => |t| {
+            if (!std.mem.eql(u8, kind, "value")) return false;
+            const vobj = switch (expect.get("value") orelse return false) {
+                .object => |o| o,
+                else => return false,
+            };
+            return treeMatches(t, vobj.get("tree") orelse return false);
+        },
     }
 }
 
@@ -856,6 +1041,10 @@ fn emitAllocOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: All
             }
             try w.writeByte(']');
         },
+        .tree => |t| {
+            try w.writeAll(",\"kind\":\"value\",\"tree\":");
+            try emitTree(w, t);
+        },
         .err => |label| {
             try w.writeAll(",\"kind\":\"error\",\"error\":");
             try writeJsonString(w, label);
@@ -870,18 +1059,23 @@ fn emitAllocOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: All
     try w.writeAll("}\n");
 }
 
-/// Run a collection once under a recording allocator failing at `fail_at`; classify for the OOM sweep.
-fn collectionInjectOnce(gpa: std.mem.Allocator, routine: []const u8, args: std.json.ObjectMap, input: []const u8, fail_at: usize) []const u8 {
+/// A runner decodes one allocating routine under `alloc`, renders its value into `arena`, then frees.
+/// `runCollection` (flat `items`) and `runContainer` (nested `tree`) both match this signature so they
+/// share the allocating-vector driver below.
+const AllocRunner = *const fn (routine: []const u8, args: std.json.ObjectMap, input: []const u8, alloc: std.mem.Allocator, arena: std.mem.Allocator) ?AllocActual;
+
+/// Run one allocating routine under a recording allocator failing at `fail_at`; classify for the sweep.
+fn allocInjectOnce(gpa: std.mem.Allocator, run: AllocRunner, routine: []const u8, args: std.json.ObjectMap, input: []const u8, fail_at: usize) []const u8 {
     var debug: std.heap.DebugAllocator(.{}) = .init;
     var rec = Recording.init(debug.allocator(), gpa, fail_at);
     var scratch = std.heap.ArenaAllocator.init(gpa);
     var reason: []const u8 = "";
-    if (runCollection(routine, args, input, rec.allocator(), scratch.allocator())) |actual| {
+    if (run(routine, args, input, rec.allocator(), scratch.allocator())) |actual| {
         switch (actual) {
-            .items => reason = "accepted-under-oom",
             .err => |label| if (!std.mem.eql(u8, label, "outOfMemory")) {
                 reason = "non-oom-error-under-oom";
             },
+            else => reason = "accepted-under-oom",
         }
     }
     scratch.deinit();
@@ -891,30 +1085,30 @@ fn collectionInjectOnce(gpa: std.mem.Allocator, routine: []const u8, args: std.j
     return reason;
 }
 
-fn collectionOomSweep(gpa: std.mem.Allocator, routine: []const u8, args: std.json.ObjectMap, input: []const u8, allocations: usize, max_inject: usize) OomSweep {
+fn allocOomSweep(gpa: std.mem.Allocator, run: AllocRunner, routine: []const u8, args: std.json.ObjectMap, input: []const u8, allocations: usize, max_inject: usize) OomSweep {
     if (allocations == 0) return .{ .safe = true, .injected = 0, .sampled = false, .reason = "" };
     const sampled = allocations > max_inject;
     const stride = if (sampled) (allocations + max_inject - 1) / max_inject else 1;
     var injected: usize = 0;
     var k: usize = 0;
     while (k < allocations) : (k += stride) {
-        const reason = collectionInjectOnce(gpa, routine, args, input, k);
+        const reason = allocInjectOnce(gpa, run, routine, args, input, k);
         injected += 1;
         if (reason.len != 0) return .{ .safe = false, .injected = injected, .sampled = sampled, .reason = reason };
     }
     return .{ .safe = true, .injected = injected, .sampled = sampled, .reason = "" };
 }
 
-/// Process one allocating-collection vector: value match + allocation ledger + OOM sweep. Returns true
-/// on any defect (value mismatch, leak, or OOM-unsafe path).
-fn processCollectionLine(gpa: std.mem.Allocator, out: *Writer, id: []const u8, routine: []const u8, args: std.json.ObjectMap, input: []const u8, expect: std.json.ObjectMap) !bool {
+/// Process one allocating-routine vector (collection or container): value match + per-event allocation
+/// ledger + OOM sweep. Returns true on any defect (value mismatch, leak, or OOM-unsafe path).
+fn processAllocLine(gpa: std.mem.Allocator, run: AllocRunner, out: *Writer, id: []const u8, routine: []const u8, args: std.json.ObjectMap, input: []const u8, expect: std.json.ObjectMap) !bool {
     var arena_inst = std.heap.ArenaAllocator.init(gpa);
     defer arena_inst.deinit();
     var debug: std.heap.DebugAllocator(.{}) = .init;
     var rec = Recording.init(debug.allocator(), gpa, std.math.maxInt(usize));
     defer rec.deinit();
 
-    const actual = runCollection(routine, args, input, rec.allocator(), arena_inst.allocator()) orelse {
+    const actual = run(routine, args, input, rec.allocator(), arena_inst.allocator()) orelse {
         _ = debug.deinit();
         try out.writeAll("{\"id\":");
         try writeJsonString(out, id);
@@ -927,7 +1121,7 @@ fn processCollectionLine(gpa: std.mem.Allocator, out: *Writer, id: []const u8, r
     const allocations = rec.events.items.len;
     const backing_leak = debug.deinit() == .leak;
     const leaked = self_leak or backing_leak;
-    const sweep = collectionOomSweep(gpa, routine, args, input, allocations, default_max_inject);
+    const sweep = allocOomSweep(gpa, run, routine, args, input, allocations, default_max_inject);
     const matched = allocActualMatches(actual, expect);
     try emitAllocOutcome(out, id, routine, actual, matched, rec.events.items, leaked, sweep);
     return (!matched) or leaked or !sweep.safe;
@@ -975,8 +1169,9 @@ fn processRoutineLine(gpa: std.mem.Allocator, out: *Writer, line: []const u8) !b
     }
     defer if (owned) gpa.free(input);
 
-    // Allocating collections decode under the recording allocator and report a value + ledger.
-    if (isCollectionRoutine(routine)) return processCollectionLine(gpa, out, id, routine, args, input, expect);
+    // Allocating routines decode under the recording allocator and report a value + per-event ledger.
+    if (isCollectionRoutine(routine)) return processAllocLine(gpa, runCollection, out, id, routine, args, input, expect);
+    if (isContainerRoutine(routine)) return processAllocLine(gpa, runContainer, out, id, routine, args, input, expect);
 
     var arrbuf: [256]u8 = undefined;
     var scalarbuf: [16]u64 = undefined;

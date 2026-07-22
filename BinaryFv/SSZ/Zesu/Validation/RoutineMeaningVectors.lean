@@ -62,6 +62,10 @@ def bvHex {n : Nat} (v : SszBridge.RawByteVector n) : String := bytesToHex v.toA
 /-- A variable byte-list field as hex. -/
 def rbHex (a : SszBridge.RawBytes) : String := bytesToHex a.toList
 
+/-- A `BitVec 256` (base fee) as 32-byte little-endian hex — the probe's `tb.u256le` token. -/
+def bitvec256ToHexLE (v : BitVec 256) : String :=
+  bytesToHex ((List.range 32).map (fun i => UInt8.ofNat ((v.toNat >>> (8 * i)) % 256)))
+
 /-- The scalar-read meaning selected by routine name, as an `Option Nat` (`none` = `invalidSsz`). -/
 def scalarMeaning (routine : String) (bytes : ByteArray) (offset : Nat) : Option Nat :=
   if routine == "ssz_raw.readU32" then (meaningReadU32 bytes offset).toOption.map UInt32.toNat
@@ -245,5 +249,74 @@ theorem byte_list_list_meaning_agrees :
       (fun v => collEnc (fun it => [rbHex it])
         (meaningByteListList v.2.2.1 v.2.2.2.1 (hexToBytes v.2.1)) == v.2.2.2.2)
       = true := by native_decide
+
+/-!
+## Allocating containers (recursive value trees)
+
+Each nested container meaning renders to the same `VTree` the probe emits (`.leaf` = a hex field,
+`.node` = subtrees), in the pinned source's field order. Expected is `(Option VTree × String)`.
+-/
+
+def treeU64 (v : UInt64) : VTree := .leaf (u64ToHexLE v)
+def treeBv {n : Nat} (v : SszBridge.RawByteVector n) : VTree := .leaf (bvHex v)
+def treeRb (a : SszBridge.RawBytes) : VTree := .leaf (rbHex a)
+def treeU256 (v : BitVec 256) : VTree := .leaf (bitvec256ToHexLE v)
+
+def renderWithdrawal (w : SszBridge.RawWithdrawal) : VTree :=
+  .node [treeU64 w.index, treeU64 w.validatorIndex, treeBv w.address, treeU64 w.amount]
+def renderDeposit (d : SszBridge.RawDepositRequest) : VTree :=
+  .node [treeBv d.pubkey, treeBv d.withdrawalCredentials, treeU64 d.amount, treeBv d.signature, treeU64 d.index]
+def renderWithdrawalReq (wr : SszBridge.RawWithdrawalRequest) : VTree :=
+  .node [treeBv wr.sourceAddress, treeBv wr.validatorPubkey, treeU64 wr.amount]
+def renderConsolidation (c : SszBridge.RawConsolidationRequest) : VTree :=
+  .node [treeBv c.sourceAddress, treeBv c.sourcePubkey, treeBv c.targetPubkey]
+
+def renderExecutionRequests (er : SszBridge.RawExecutionRequests) : VTree :=
+  .node [.node (er.deposits.toList.map renderDeposit),
+    .node (er.withdrawals.toList.map renderWithdrawalReq),
+    .node (er.consolidations.toList.map renderConsolidation)]
+
+def renderExecutionWitness (ew : SszBridge.RawExecutionWitness) : VTree :=
+  .node [.node (ew.state.toList.map treeRb), .node (ew.codes.toList.map treeRb),
+    .node (ew.headers.toList.map treeRb)]
+
+def renderExecutionPayload (ep : SszBridge.RawExecutionPayload) : VTree :=
+  .node [treeBv ep.parentHash, treeBv ep.feeRecipient, treeBv ep.stateRoot, treeBv ep.receiptsRoot,
+    treeBv ep.logsBloom, treeBv ep.prevRandao, treeU64 ep.blockNumber, treeU64 ep.gasLimit,
+    treeU64 ep.gasUsed, treeU64 ep.timestamp, treeRb ep.extraData, treeU256 ep.baseFeePerGas,
+    treeBv ep.blockHash, .node (ep.transactions.toList.map treeRb),
+    .node (ep.withdrawals.toList.map renderWithdrawal),
+    treeU64 ep.blobGasUsed, treeU64 ep.excessBlobGas, treeRb ep.blockAccessList, treeU64 ep.slotNumber]
+
+def renderNewPayloadRequest (npr : SszBridge.RawNewPayloadRequest) : VTree :=
+  .node [renderExecutionPayload npr.executionPayload,
+    .node (npr.versionedHashes.toList.map treeBv), treeBv npr.parentBeaconBlockRoot,
+    renderExecutionRequests npr.executionRequests]
+
+/-- Normalize a nested-container meaning to `(Option VTree × String)`. -/
+def containerTreeEnc {α} (render : α → VTree) (r : Except SszDecodeError α) : Option VTree × String :=
+  match r with
+  | .ok v => (some (render v), "")
+  | .error e => (none, errLabelOf e)
+
+theorem exec_requests_meaning_agrees :
+    execRequestsVectors.all
+      (fun v => containerTreeEnc renderExecutionRequests (meaningExecutionRequests (hexToBytes v.2.1))
+        == v.2.2) = true := by native_decide
+
+theorem exec_witness_meaning_agrees :
+    execWitnessVectors.all
+      (fun v => containerTreeEnc renderExecutionWitness (meaningExecutionWitness (hexToBytes v.2.1))
+        == v.2.2) = true := by native_decide
+
+theorem exec_payload_meaning_agrees :
+    execPayloadVectors.all
+      (fun v => containerTreeEnc renderExecutionPayload (meaningExecutionPayload (hexToBytes v.2.1))
+        == v.2.2) = true := by native_decide
+
+theorem new_payload_request_meaning_agrees :
+    newPayloadRequestVectors.all
+      (fun v => containerTreeEnc renderNewPayloadRequest (meaningNewPayloadRequest (hexToBytes v.2.1))
+        == v.2.2) = true := by native_decide
 
 end BinaryFv.SSZ.Zesu.Validation

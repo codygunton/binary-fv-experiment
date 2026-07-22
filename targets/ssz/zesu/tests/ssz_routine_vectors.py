@@ -193,6 +193,106 @@ def byte_list_list_bytes(items):
     return table + b"".join(items)
 
 
+# --- Nested containers: a recursive value TREE. A leaf is a hex string; a node is a list of trees.
+# Both runners reproduce the same tree (field order matches the pinned source). The `bodies` /`tree`
+# pairs let one function produce both the SSZ input and the expected value. -------------------------
+
+def t_u256(v):                                         # a u256 field: 32-byte little-endian hex leaf
+    return v.to_bytes(32, "little").hex()
+
+
+def val_tree(tree):
+    return {"kind": "value", "value": {"tree": tree}, "error": None}
+
+
+def exec_requests_case(deposits, withdrawal_reqs, consolidations):
+    """RawExecutionRequests = {deposits, withdrawals, consolidations}: three collection nodes."""
+    dep = [deposit_elem(*d) for d in deposits]
+    wr = [withdrawal_req_elem(*w) for w in withdrawal_reqs]
+    cons = [consolidation_elem(*c) for c in consolidations]
+    body = (_u32(12) + _u32(12 + sum(len(e[0]) for e in dep))
+            + _u32(12 + sum(len(e[0]) for e in dep) + sum(len(e[0]) for e in wr))
+            + b"".join(e[0] for e in dep) + b"".join(e[0] for e in wr) + b"".join(e[0] for e in cons))
+    tree = [[e[1] for e in dep], [e[1] for e in wr], [e[1] for e in cons]]
+    return body, tree
+
+
+def witness_case(state, codes, headers):
+    """RawExecutionWitness = {state, codes, headers}: three byte-list-list nodes (each item a leaf)."""
+    sd, cd, hd = byte_list_list_bytes(state), byte_list_list_bytes(codes), byte_list_list_bytes(headers)
+    body = _u32(12) + _u32(12 + len(sd)) + _u32(12 + len(sd) + len(cd)) + sd + cd + hd
+    tree = [[s.hex() for s in state], [c.hex() for c in codes], [h.hex() for h in headers]]
+    return body, tree
+
+
+def exec_payload_case(*, parent_hash=None, fee_recipient=None, state_root=None, receipts_root=None,
+                      logs_bloom=None, prev_randao=None, block_number=100, gas_limit=200, gas_used=150,
+                      timestamp=1000, extra_data=b"extra", base_fee_per_gas=7, block_hash=None,
+                      transactions=(b"\xc0", b"\x01\x02"), withdrawals=((1, 2, 5, 999),),
+                      blob_gas_used=11, excess_blob_gas=22, block_access_list=b"access", slot_number=7):
+    """RawExecutionPayload: 19 fields, mostly fixed leaves plus the transactions and withdrawals nodes.
+    Field order matches the pinned source (parent_hash .. slot_number)."""
+    parent_hash = parent_hash or bvec(1, 32)
+    fee_recipient = fee_recipient or bvec(2, 20)
+    state_root = state_root or bvec(3, 32)
+    receipts_root = receipts_root or bvec(4, 32)
+    logs_bloom = logs_bloom or bvec(5, 256)
+    prev_randao = prev_randao or bvec(6, 32)
+    block_hash = block_hash or bvec(7, 32)
+    wd = [withdrawal_elem(*w) for w in withdrawals]
+    tx_data = byte_list_list_bytes(list(transactions))
+    wd_data = b"".join(e[0] for e in wd)
+    fixed_size = 540
+    tx_offset = fixed_size + len(extra_data)
+    wd_offset = tx_offset + len(tx_data)
+    bal_offset = wd_offset + len(wd_data)
+    fixed = bytearray(fixed_size)
+    fixed[0:32] = parent_hash
+    fixed[32:52] = fee_recipient
+    fixed[52:84] = state_root
+    fixed[84:116] = receipts_root
+    fixed[116:372] = logs_bloom
+    fixed[372:404] = prev_randao
+    fixed[404:412] = _u64(block_number)
+    fixed[412:420] = _u64(gas_limit)
+    fixed[420:428] = _u64(gas_used)
+    fixed[428:436] = _u64(timestamp)
+    fixed[436:440] = _u32(fixed_size)
+    fixed[440:472] = base_fee_per_gas.to_bytes(32, "little")
+    fixed[472:504] = block_hash
+    fixed[504:508] = _u32(tx_offset)
+    fixed[508:512] = _u32(wd_offset)
+    fixed[512:520] = _u64(blob_gas_used)
+    fixed[520:528] = _u64(excess_blob_gas)
+    fixed[528:532] = _u32(bal_offset)
+    fixed[532:540] = _u64(slot_number)
+    body = bytes(fixed) + extra_data + tx_data + wd_data + block_access_list
+    tree = [
+        parent_hash.hex(), fee_recipient.hex(), state_root.hex(), receipts_root.hex(),
+        logs_bloom.hex(), prev_randao.hex(), hexle_u64(block_number), hexle_u64(gas_limit),
+        hexle_u64(gas_used), hexle_u64(timestamp), extra_data.hex(), t_u256(base_fee_per_gas),
+        block_hash.hex(), [tx.hex() for tx in transactions], [e[1] for e in wd],
+        hexle_u64(blob_gas_used), hexle_u64(excess_blob_gas), block_access_list.hex(), hexle_u64(slot_number),
+    ]
+    return body, tree
+
+
+def npr_case(payload, versioned_hash_seeds, parent_beacon_block_root, requests, padding=0):
+    """RawNewPayloadRequest = {execution_payload, versioned_hashes, parent_beacon_block_root,
+    execution_requests}. `payload`/`requests` are (body, tree) pairs."""
+    payload_body, payload_tree = payload
+    req_body, req_tree = requests
+    hashes = [bvec(s, 32) for s in versioned_hash_seeds]
+    vh_data = b"".join(hashes)
+    payload_offset = 44 + padding
+    hashes_offset = payload_offset + len(payload_body)
+    requests_offset = hashes_offset + len(vh_data)
+    body = (_u32(payload_offset) + _u32(hashes_offset) + parent_beacon_block_root
+            + _u32(requests_offset) + (b"P" * padding) + payload_body + vh_data + req_body)
+    tree = [payload_tree, [h.hex() for h in hashes], parent_beacon_block_root.hex(), req_tree]
+    return body, tree
+
+
 # --- deterministic SSZ reference (matches both the Zig routine and the handwritten Lean meaning) -----
 
 def ref_read_uint_le(data: bytes, offset: int, width: int):
@@ -481,6 +581,33 @@ def rows():
     add("ssz_raw.decodeByteListList", {"data": byte_list_list_bytes([b"toolong"]).hex(),
         "max_items": 8, "max_item_bytes": 2}, INVALID, "collection-malformed")  # item exceeds max_item_bytes
 
+    # --- Allocating containers (nested structs -> recursive value trees) ---------------------------
+    # decodeExecutionRequests (three request collections; fixed size 12)
+    er_body, er_tree = exec_requests_case([(1, 2, 32, 3, 7)], [(4, 5, 55)], [(6, 7, 8)])
+    add("ssz_raw.decodeExecutionRequests", {"data": er_body.hex()}, val_tree(er_tree), "container-execrequests")
+    er0 = exec_requests_case([], [], [])
+    add("ssz_raw.decodeExecutionRequests", {"data": er0[0].hex()}, val_tree(er0[1]), "container-execrequests")
+    add("ssz_raw.decodeExecutionRequests", {"data": (b"\x00" * 8).hex()}, INVALID, "container-malformed")  # < 12
+
+    # decodeExecutionWitness (three byte-list-lists; fixed size 12)
+    w_body, w_tree = witness_case([b"state-a", b"state-b"], [b"code"], [b"header"])
+    add("ssz_raw.decodeExecutionWitness", {"data": w_body.hex()}, val_tree(w_tree), "container-execwitness")
+    w0 = witness_case([], [], [])
+    add("ssz_raw.decodeExecutionWitness", {"data": w0[0].hex()}, val_tree(w0[1]), "container-execwitness")
+    add("ssz_raw.decodeExecutionWitness", {"data": (b"\x00" * 8).hex()}, INVALID, "container-malformed")
+
+    # decodeExecutionPayload (19 fields incl. a u256 and the transactions/withdrawals nodes; fixed 540)
+    ep = exec_payload_case()
+    add("ssz_raw.decodeExecutionPayload", {"data": ep[0].hex()}, val_tree(ep[1]), "container-execpayload")
+    ep0 = exec_payload_case(extra_data=b"", transactions=(), withdrawals=(), block_access_list=b"")
+    add("ssz_raw.decodeExecutionPayload", {"data": ep0[0].hex()}, val_tree(ep0[1]), "container-execpayload")
+    add("ssz_raw.decodeExecutionPayload", {"data": (b"\x00" * 100).hex()}, INVALID, "container-malformed")  # < 540
+
+    # decodeNewPayloadRequest (nests a payload + hashes + pbbr + requests; fixed size 44)
+    npr = npr_case(exec_payload_case(), [10, 50], bvec(9, 32), exec_requests_case([(1, 2, 32, 3, 7)], [], []))
+    add("ssz_raw.decodeNewPayloadRequest", {"data": npr[0].hex()}, val_tree(npr[1]), "container-newpayload")
+    add("ssz_raw.decodeNewPayloadRequest", {"data": (b"\x00" * 8).hex()}, INVALID, "container-malformed")  # < 44
+
     return out
 
 
@@ -521,6 +648,26 @@ def emit_lean(all_rows) -> str:
                 "[" + ", ".join(_lean_str(t) for t in el) + "]" for el in e["value"]["items"]) + "]"
             return f'(some {items}, "")'
         return f'(none, {_lean_str(e["error"])})'
+
+    def tree_to_lean(t):
+        # A leaf (hex string) -> `.leaf "<hex>"`; a node (list) -> `.node [ ... ]`.
+        if isinstance(t, str):
+            return f'.leaf {_lean_str(t)}'
+        return '.node [' + ', '.join(tree_to_lean(c) for c in t) + ']'
+
+    def tree_exp(e):
+        # expected : Option VTree × String.
+        if e["kind"] == "value":
+            return f'(some ({tree_to_lean(e["value"]["tree"])}), "")'
+        return f'(none, {_lean_str(e["error"])})'
+
+    container_groups = {name: [] for name in (
+        "execRequestsVectors", "execWitnessVectors", "execPayloadVectors", "newPayloadRequestVectors")}
+    container_route = {
+        "ssz_raw.decodeExecutionRequests": "execRequestsVectors",
+        "ssz_raw.decodeExecutionWitness": "execWitnessVectors",
+        "ssz_raw.decodeExecutionPayload": "execPayloadVectors",
+        "ssz_raw.decodeNewPayloadRequest": "newPayloadRequestVectors"}
 
     for r in all_rows:
         if r["expect"]["kind"] == "gap":
@@ -571,6 +718,9 @@ def emit_lean(all_rows) -> str:
         elif rt == "ssz_raw.decodeByteListList":
             bll.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {a["max_items"]}, '
                        f'{a["max_item_bytes"]}, {coll_exp(e)})')
+        elif rt in container_route:
+            container_groups[container_route[rt]].append(
+                f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {tree_exp(e)})')
 
     def block(name, ty, items):
         body = ",\n   ".join(items) if items else ""
@@ -581,6 +731,13 @@ def emit_lean(all_rows) -> str:
         "-- Typed per-routine leaf vectors baked for the handwritten-meaning agreement check",
         "-- (BinaryFv/SSZ/Zesu/Validation/RoutineMeaningVectors.lean). `some`=expected value, `none`=invalidSsz.",
         "namespace BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
+        "",
+        "/-- A recursive value tree for nested containers: a `leaf` hex string or a `node` of subtrees. -/",
+        "inductive VTree where",
+        "  | leaf : String → VTree",
+        "  | node : List VTree → VTree",
+        "  deriving BEq, Repr",
+        "",
         block("scalarVectors", "String × String × String × Nat × Option Nat", scalar),
         block("sliceVectors", "String × String × String × Nat × Nat × Option String", slice_),
         block("requireU32Vectors", "String × String × Bool", requ),
@@ -605,6 +762,14 @@ def emit_lean(all_rows) -> str:
               coll_groups["consolidationRequestsVectors"]),
         block("byteListListVectors",
               "String × String × Nat × Nat × (Option (List (List String)) × String)", bll),
+        block("execRequestsVectors", "String × String × (Option VTree × String)",
+              container_groups["execRequestsVectors"]),
+        block("execWitnessVectors", "String × String × (Option VTree × String)",
+              container_groups["execWitnessVectors"]),
+        block("execPayloadVectors", "String × String × (Option VTree × String)",
+              container_groups["execPayloadVectors"]),
+        block("newPayloadRequestVectors", "String × String × (Option VTree × String)",
+              container_groups["newPayloadRequestVectors"]),
         "end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
     ]
     return "\n".join(L) + "\n"
