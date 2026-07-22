@@ -6,13 +6,22 @@ and with the corpus's own accept/reject expectation. This is falsification/regre
 is never a proof input. The existing three-way `ssz-value-v1` differential (`ssz_differential_audit.py`)
 is preserved as an independent top-level check and is not replaced by this.
 
-Parties (each optional; at least the Lean runner is required):
+Parties (each optional; at least one runner is required):
   * `--lean-runner`  : the `ssz_contract_runner` executable (over the pinned oracle)
-  * `--zesu-probe`   : the host probe over the private decoder routines (emits the same JSONL) [future]
+  * `--zesu-probe`   : the host probe over the private `ssz_raw.decode` routine (emits the decision)
 
 For every top-level `ssz_raw.decode` case:
   * every present runner's `outcome` (accept/reject) must equal the corpus `expect.accept`;
-  * every pair of present runners must produce byte-identical outcome objects.
+  * every pair of present runners must agree on `outcome`, and on the decoded `value` among the
+    runners that emit one.
+
+The `value` field is compared only among runners that produce it, not required of all. The Lean
+oracle runner renders the full `ssz-value-v1` value; the host Zig probe deliberately emits only the
+decision (its allocation behavior goes to a separate ledger) because `raw.decode`'s value fidelity is
+already certified by the preserved three-way `ssz-value-v1` audit over the same fixtures — see the
+probe's module doc and DECISIONS.md. The reject `error` label is each runner's own taxonomy (Zig has
+three variants; the oracle six) and is therefore never required to match across runners.
+
 The runner may need an unlimited stack for multi-megabyte cases; this harness raises it before exec.
 """
 
@@ -60,10 +69,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus-generator", required=True, help="path to ssz_contract_corpus.py")
     ap.add_argument("--fixtures", required=True, help="path to ssz_differential_audit.py")
-    ap.add_argument("--lean-runner", required=True, help="the ssz_contract_runner executable")
-    ap.add_argument("--zesu-probe", help="the host private-routine probe executable (future)")
+    ap.add_argument("--lean-runner", help="the ssz_contract_runner executable (over the oracle)")
+    ap.add_argument("--zesu-probe", help="the host private-routine probe executable")
     ap.add_argument("--corpus-out", default="corpus.jsonl")
     a = ap.parse_args()
+    if not a.lean_runner and not a.zesu_probe:
+        raise SystemExit("at least one of --lean-runner / --zesu-probe is required")
 
     gen = _load(Path(a.corpus_generator))
     fixtures = _load(Path(a.fixtures))
@@ -73,13 +84,16 @@ def main() -> int:
                                    for r in rows))
     expect = {r["id"]: r["expect"]["accept"] for r in rows}
 
-    runners: dict[str, dict[str, dict]] = {"lean": _run(a.lean_runner, corpus_path)}
+    runners: dict[str, dict[str, dict]] = {}
+    if a.lean_runner:
+        runners["lean"] = _run(a.lean_runner, corpus_path)
     if a.zesu_probe:
         runners["zesu"] = _run(a.zesu_probe, corpus_path)
 
     failures: list[str] = []
     for case_id, want_accept in expect.items():
-        outcomes = {}
+        decisions: dict[str, str] = {}
+        values: dict[str, str] = {}
         for party, results in runners.items():
             row = results.get(case_id)
             if row is None:
@@ -89,10 +103,15 @@ def main() -> int:
             if got != want_accept:
                 failures.append(f"{case_id}: {party} outcome={row['outcome']} but corpus expects "
                                 f"{'accept' if want_accept else 'reject'}")
-            outcomes[party] = json.dumps(row, sort_keys=True)
-        if len(set(outcomes.values())) > 1:
-            failures.append(f"{case_id}: runners disagree: "
-                            + "; ".join(f"{p}={o}" for p, o in outcomes.items()))
+            decisions[party] = row["outcome"]
+            if "value" in row:
+                values[party] = row["value"]
+        if len(set(decisions.values())) > 1:
+            failures.append(f"{case_id}: runners disagree on outcome: "
+                            + "; ".join(f"{p}={o}" for p, o in decisions.items()))
+        if len(set(values.values())) > 1:
+            failures.append(f"{case_id}: value-emitting runners disagree on value: "
+                            + ", ".join(sorted(values)))
 
     parties = "+".join(runners)
     if failures:
