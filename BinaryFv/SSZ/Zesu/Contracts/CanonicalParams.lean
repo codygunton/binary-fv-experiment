@@ -1,5 +1,6 @@
 import BinaryFv.SSZ.Zesu.Contracts.Catalog
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals
+import BinaryFv.SSZ.Zesu.MemoryRepresentation.Containers
 import BinaryFv.SSZ.Zesu.Runtime.BumpAllocator
 
 /-!
@@ -18,12 +19,13 @@ address- and layout-bearing fields are taken from validated pinned artifacts —
 The Zig `?T` option layouts are the ABI's payload-then-discriminant layout at the pinned sizes
 (`AbiManifest`), chosen so `ValidEnvironment` holds.
 
-The container representations are **concrete but partial**: `repRawV4` is the materialized fixed-field
-representation `RawV4FixedFieldsRep`; the seven nested-container representations are deliberately
-trivial placeholders, to be strengthened to full field/collection layouts in the containers row (H).
-Per `ProgramCorrectness`, a weak representation only weakens a contract's success arm — it cannot make
-the per-occurrence obligation vacuous, because `ImplementsInstance` still demands an actual entered
-trace reaching a generated exit with frame preservation.
+The container representations are **concrete and complete**: `repRawV4` is the full input-aware
+`RawV4Rep` (allocation, slice descriptors, and borrowed input slices, not just the fixed fields), and
+all seven nested-container representations are the materialized per-type layouts from
+`MemoryRepresentation.Containers` — there are no placeholder representations. Row H's job is to *prove*
+that execution establishes these representations, not to define them. Every literal offset they use is
+pinned to the reflected ABI manifest by `container_field_offsets_valid` (`native_decide`), so a
+mutated offset fails the build.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Contracts
@@ -36,15 +38,37 @@ open BinaryFv.SSZ.Zesu.Elfling
 
 /-! ## The Zig option/aggregate layouts
 
-Payload at offset 0, discriminant after the payload, at the pinned `AbiManifest` sizes. -/
+Every field of these layouts is read straight from the compiler-reflected ABI manifest (`?u64` and
+`?RawBlobSchedule` now emit `|size`, `|payload`, and `|tag`, not just the size). Size and alignment
+are genuinely reflected (`@sizeOf`/`@alignOf`); the payload/discriminant offsets are derived from the
+pinned compiler's non-niche optional ABI and guarded in `abi_manifest.zig`'s `optionalTagOffset` (see
+its comment). The `getD` fallbacks are never taken: `canonicalOptionalU64_pinned` /
+`canonicalOptionalBlobSchedule_pinned` prove each field equals the exact manifest value, so a mutated
+offset in the manifest (or a wrong key here) fails those `native_decide` checks. -/
 
-/-- `?u64`: 16 bytes, `u64` payload at 0, discriminant at 8. -/
+open BinaryFv.SSZ.Zesu.Artifact in
+/-- `?u64`, defined entirely from the manifest: total size, payload offset, and reflected tag offset. -/
 def canonicalOptionalU64 : OptionLayout :=
-  { size := 16, discriminantOffset := 8, payloadOffset := 0 }
+  { size := optionalU64Size.getD 0,
+    discriminantOffset := optionalU64TagOffset.getD 0,
+    payloadOffset := optionalU64PayloadOffset.getD 0 }
 
-/-- `?RawBlobSchedule`: 32 bytes, 24-byte payload at 0, discriminant at 24. -/
+open BinaryFv.SSZ.Zesu.Artifact in
+/-- `?RawBlobSchedule`, defined entirely from the manifest. -/
 def canonicalOptionalBlobSchedule : OptionLayout :=
-  { size := 32, discriminantOffset := 24, payloadOffset := 0 }
+  { size := optionalBlobScheduleSize.getD 0,
+    discriminantOffset := optionalBlobScheduleTagOffset.getD 0,
+    payloadOffset := optionalBlobSchedulePayloadOffset.getD 0 }
+
+/-- Per-offset mutation guard: the `?u64` layout is exactly the reflected 16/8/0. -/
+theorem canonicalOptionalU64_pinned :
+    canonicalOptionalU64 = { size := 16, discriminantOffset := 8, payloadOffset := 0 } := by
+  native_decide
+
+/-- Per-offset mutation guard: the `?RawBlobSchedule` layout is exactly the reflected 32/24/0. -/
+theorem canonicalOptionalBlobSchedule_pinned :
+    canonicalOptionalBlobSchedule = { size := 32, discriminantOffset := 24, payloadOffset := 0 } := by
+  native_decide
 
 /-- `RawBlobSchedule`: three consecutive `u64` fields. -/
 def canonicalBlobScheduleLayout : BlobScheduleLayout :=
@@ -65,34 +89,56 @@ def canonicalHeap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap :=
 
 /-! ## Container representations
 
-`repRawV4` is materialized and input-free; the seven nested reps are concrete placeholders pinned in
-the containers row. -/
+Every container's representation is the exact native RV64 layout from `MemoryRepresentation.Containers`
+(offsets pinned against the ABI manifest by `container_field_offsets_valid` and the `RawV4` audits).
+`repRawV4` is the complete `RawV4Rep` — root allocation, all ten heap arrays, the descriptor table,
+every borrowed input slice, and all inline fixed fields — not merely the fixed-field fragment. The
+input base and bytes carried by `ContainerRepresentation` let the allocating containers and `RawV4`
+describe their input-relative borrowed slices. -/
 
-/-- The materialized fixed-field representation of a decoded `RawV4` at `base`. -/
+/-- The complete native representation of a decoded `RawV4` rooted at `base`, decoded from the caller's
+input at `inputBase`/`input`. -/
 def canonicalRepRawV4 : ContainerRepresentation SszBridge.RawV4 :=
-  fun value state base => RawV4FixedFieldsRep state base value
+  fun inputBase input value state base => RawV4Rep state inputBase input base value
 
-/-- A concrete placeholder representation, strengthened to the container's full field/collection
-layout in the containers row (H). -/
-def placeholderRep (α : Type) : ContainerRepresentation α := fun _ _ _ => True
+def canonicalRepForkActivation : ContainerRepresentation SszBridge.RawForkActivation :=
+  fun _ _ value state base => ForkActivationRep state base value
+
+def canonicalRepForkConfig : ContainerRepresentation SszBridge.RawForkConfig :=
+  fun _ _ value state base => ForkConfigRep state base value
+
+def canonicalRepChainConfig : ContainerRepresentation SszBridge.RawChainConfig :=
+  fun _ _ value state base => ChainConfigRep state base value
+
+def canonicalRepExecutionWitness : ContainerRepresentation SszBridge.RawExecutionWitness :=
+  fun inputBase input value state base => ExecutionWitnessRep state inputBase input base value
+
+def canonicalRepExecutionRequests : ContainerRepresentation SszBridge.RawExecutionRequests :=
+  fun _ _ value state base => ExecutionRequestsRep state base value
+
+def canonicalRepExecutionPayload : ContainerRepresentation SszBridge.RawExecutionPayload :=
+  fun inputBase input value state base => ExecutionPayloadRep state inputBase input base value
+
+def canonicalRepNewPayloadRequest : ContainerRepresentation SszBridge.RawNewPayloadRequest :=
+  fun inputBase input value state base => NewPayloadRequestRep state inputBase input base value
 
 /-! ## The canonical parameters -/
 
-/-- The one concrete `ContractParams` the root obligation is stated against. Every address- and
-layout-bearing field comes from a validated pinned artifact; the container representations are
-concrete (partial for the nested containers, full for `RawV4`'s fixed fields). -/
+/-- The one concrete `ContractParams` the root obligation is stated against. Every address-, layout-,
+and representation-bearing field comes from a validated pinned artifact or the exact native layout;
+there are no placeholder representations. -/
 def canonicalContractParams : ContractParams :=
   { env := canonicalEnvironment
     heap := canonicalHeap
     globals := canonicalDecoderGlobalsLayout
     resultBuffer := canonicalResultBuffer
-    repForkActivation := placeholderRep _
-    repForkConfig := placeholderRep _
-    repChainConfig := placeholderRep _
-    repExecutionWitness := placeholderRep _
-    repExecutionRequests := placeholderRep _
-    repExecutionPayload := placeholderRep _
-    repNewPayloadRequest := placeholderRep _
+    repForkActivation := canonicalRepForkActivation
+    repForkConfig := canonicalRepForkConfig
+    repChainConfig := canonicalRepChainConfig
+    repExecutionWitness := canonicalRepExecutionWitness
+    repExecutionRequests := canonicalRepExecutionRequests
+    repExecutionPayload := canonicalRepExecutionPayload
+    repNewPayloadRequest := canonicalRepNewPayloadRequest
     repRawV4 := canonicalRepRawV4 }
 
 end BinaryFv.SSZ.Zesu.Contracts

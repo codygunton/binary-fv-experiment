@@ -117,7 +117,7 @@ def postEntry (env : DecoderEnvironment) (args : EntryArgs)
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   match result with
-  | .ok value => rep value after args.resultBase
+  | .ok value => rep args.base args.bytes value after args.resultBase
   | .error error =>
       error = SszDecodeError.invalidSsz ∨ error = SszDecodeError.unknownFork ∨
         error = SszDecodeError.outOfMemory

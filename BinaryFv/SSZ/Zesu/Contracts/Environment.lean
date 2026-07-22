@@ -28,12 +28,14 @@ structure OptionLayout where
   size : Nat
   discriminantOffset : Nat
   payloadOffset : Nat
+  deriving DecidableEq, Repr, Inhabited
 
 /-- Field offsets within a `RawBlobSchedule` payload. -/
 structure BlobScheduleLayout where
   targetOffset : Nat
   maxOffset : Nat
   baseFeeUpdateFractionOffset : Nat
+  deriving DecidableEq, Repr
 
 /-- The pinned facts every decoder contract is stated against. -/
 structure DecoderEnvironment where

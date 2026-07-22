@@ -15,8 +15,17 @@ def rawStatelessInputChainConfigOffset : Option Nat := abiDatum "ssz_raw.RawStat
 def rawStatelessInputPublicKeysOffset : Option Nat := abiDatum "ssz_raw.RawStatelessInput|public_keys"
 def optionalU64Size : Option Nat := abiDatum "?u64|size"
 def optionalU64Align : Option Nat := abiDatum "?u64|align"
+def optionalU64PayloadOffset : Option Nat := abiDatum "?u64|payload"
+def optionalU64TagOffset : Option Nat := abiDatum "?u64|tag"
 def optionalBlobScheduleSize : Option Nat := abiDatum "?ssz_raw.RawBlobSchedule|size"
 def optionalBlobScheduleAlign : Option Nat := abiDatum "?ssz_raw.RawBlobSchedule|align"
+def optionalBlobSchedulePayloadOffset : Option Nat := abiDatum "?ssz_raw.RawBlobSchedule|payload"
+def optionalBlobScheduleTagOffset : Option Nat := abiDatum "?ssz_raw.RawBlobSchedule|tag"
+/-- The `stored_result` global is `?RawStatelessInput`: an inline 848-byte optional result object. -/
+def storedResultSize : Option Nat := abiDatum "?ssz_raw.RawStatelessInput|size"
+def storedResultAlign : Option Nat := abiDatum "?ssz_raw.RawStatelessInput|align"
+def storedResultPayloadOffset : Option Nat := abiDatum "?ssz_raw.RawStatelessInput|payload"
+def storedResultTagOffset : Option Nat := abiDatum "?ssz_raw.RawStatelessInput|tag"
 
 theorem raw_stateless_input_layout :
     rawStatelessInputSize = some 832 ∧ rawStatelessInputAlign = some 16 ∧
@@ -24,11 +33,21 @@ theorem raw_stateless_input_layout :
         rawStatelessInputChainConfigOffset = some 736 ∧ rawStatelessInputPublicKeysOffset = some 816 := by
   native_decide
 
-theorem optional_u64_layout : optionalU64Size = some 16 ∧ optionalU64Align = some 8 := by
+theorem optional_u64_layout :
+    optionalU64Size = some 16 ∧ optionalU64Align = some 8 ∧
+      optionalU64PayloadOffset = some 0 ∧ optionalU64TagOffset = some 8 := by
   native_decide
 
 theorem optional_blob_schedule_layout :
-    optionalBlobScheduleSize = some 32 ∧ optionalBlobScheduleAlign = some 8 := by
+    optionalBlobScheduleSize = some 32 ∧ optionalBlobScheduleAlign = some 8 ∧
+      optionalBlobSchedulePayloadOffset = some 0 ∧ optionalBlobScheduleTagOffset = some 24 := by
+  native_decide
+
+/-- The `stored_result` object: 848 bytes, the 832-byte `RawStatelessInput` payload at offset 0, the
+discriminant at 832. -/
+theorem stored_result_layout :
+    storedResultSize = some 848 ∧ storedResultAlign = some 16 ∧
+      storedResultPayloadOffset = some 0 ∧ storedResultTagOffset = some 832 := by
   native_decide
 
 /-- Nested descriptor offsets used by the guarded native `RawV4` observer. -/
@@ -76,7 +95,7 @@ theorem raw_v4_fixed_field_offsets_valid : rawV4FixedFieldOffsetsValid = true :=
 
 /-- Every queried member is produced by Zig reflection over every field of each raw result type. -/
 def completeRawV4AbiManifest : Bool :=
-  ZesuSszAbi.manifest.size == 88 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024
+  ZesuSszAbi.manifest.size == 96 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024
 
 theorem complete_raw_v4_abi_manifest : completeRawV4AbiManifest = true := by
   native_decide

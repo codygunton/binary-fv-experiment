@@ -492,10 +492,17 @@ def decode_loc_expr(expr):
     m = re.match(r'DW_OP_fbreg:\s*(-?\d+)', expr)
     if m: return ("fbreg", -1, int(m.group(1)))     # reg filled from the frame base by the caller
     m = re.match(r'DW_OP_addr\s+0x([0-9a-f]+)', expr)
-    if m: return ("addr", -1, int(m.group(1), 16))
+    if m: return ("addrValue" if "stack_value" in expr else "addr", -1, int(m.group(1), 16))
     m = re.match(r'DW_OP_breg(\d+)\s*\([^)]*\):\s*(-?\d+)', expr)
-    if m: return ("breg", int(m.group(1)), int(m.group(2)))
-    if "stack_value" in expr: return ("const", -1, 0)
+    if m:
+        return ("bregValue" if "stack_value" in expr else "breg",
+                int(m.group(1)), int(m.group(2)))
+    # Preserve the value of a genuine constant.  Merely calling every stack-value expression
+    # `const` loses information: DWARF also uses DW_OP_stack_value for register-plus-offset values.
+    m = re.fullmatch(r'DW_OP_lit(\d+);\s*DW_OP_stack_value', expr)
+    if m: return ("const", -1, int(m.group(1)))
+    m = re.fullmatch(r'DW_OP_const[us]:\s*(-?\d+);\s*DW_OP_stack_value', expr)
+    if m: return ("const", -1, int(m.group(1)))
     return ("other", -1, 0)
 
 def parse_debug_loc(readelf, obj):
@@ -563,6 +570,98 @@ def occurrence_bindings(d, dies, name_of_off, locs, occ_ranges):
         out.append((pname, *resolve_binding(loc, locs, occ_ranges, frame_reg)))
     return out
 
+# The pinned Zig call sites recover values that optimized DWARF omits.  These are deliberately
+# narrow: only the reader chain used by this decoder and the emitted C memmove ABI are accepted.
+# A new missing-location shape fails generation instead of acquiring a guessed source ABI.
+READER_ARG_INDEX = {
+    "ssz_raw.readOffset": {"offset": 1},
+    "ssz_raw.readU32": {"offset": 1},
+    "ssz_raw.readU64": {"offset": 1},
+    "ssz_raw.readU256": {"offset": 1},
+    "ssz_raw.readArray": {"offset": 2},
+    "ssz_raw.bytesAt": {"offset": 1, "len": 2},
+}
+
+def source_call_args(srclines, line, column):
+    """Top-level argument strings for the call beginning at DWARF line/column.
+
+    Zig call sites in the reader chain are small, but some span lines.  Start at the DWARF column,
+    find the first `(`, then split commas while tracking nested (), [], and {}.  Strings do not occur
+    in these calls; rejecting an unterminated call is safer than guessing.
+    """
+    if line <= 0 or line > len(srclines): return None
+    text = "\n".join(srclines[line - 1:line + 12])
+    start = max(column - 1, 0)
+    op = text.find("(", start)
+    if op < 0: return None
+    args, token = [], []
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    stack = []
+    for ch in text[op + 1:]:
+        if ch in pairs:
+            stack.append(pairs[ch]); token.append(ch)
+        elif stack and ch == stack[-1]:
+            stack.pop(); token.append(ch)
+        elif ch == ")" and not stack:
+            args.append("".join(token).strip())
+            return args
+        elif ch == "," and not stack:
+            args.append("".join(token).strip()); token = []
+        else:
+            token.append(ch)
+    return None
+
+def recover_missing_bindings(occ_sorted, srclines):
+    """Return per-occurrence effective bindings and an audit table of every recovery.
+
+    A recovered constant is represented as `(const, -1, value)`; a recovered machine register as
+    `(reg, register, 0)`.  Forwarded reader parameters are solved by a fixed point over the generated
+    parent relation.  This makes the resolved table usable by occurrence preconditions while retaining
+    the raw DWARF table separately.
+    """
+    effective = [list(o.get("bindings", [])) for o in occ_sorted]
+    recoveries = []
+
+    def known(i, name):
+        for pn, kind, reg, off in effective[i]:
+            if pn == name and kind != "callerProvided": return (kind, reg, off)
+        return None
+
+    changed = True
+    while changed:
+        changed = False
+        for i, o in enumerate(occ_sorted):
+            for j, (pname, kind, reg, off) in enumerate(effective[i]):
+                if kind != "callerProvided": continue
+                resolved = None
+                reason = None
+                if o["qualified"] == "memmove" and pname == "n" and o["kind"] == "emitted":
+                    resolved, reason = ("reg", 12, 0), "riscvCAbiArg2"
+                elif o["qualified"] in READER_ARG_INDEX:
+                    args = source_call_args(srclines, o["callLine"], o["callColumn"])
+                    arg_idx = READER_ARG_INDEX[o["qualified"]].get(pname)
+                    expr = args[arg_idx].strip() if args is not None and arg_idx is not None and arg_idx < len(args) else None
+                    if expr is not None and re.fullmatch(r"\d+", expr):
+                        resolved, reason = ("const", -1, int(expr)), "sourceLiteral"
+                    elif expr == "N" and o["parentIdx"] is not None:
+                        parent = occ_sorted[o["parentIdx"]]
+                        if parent["qualified"] == "ssz_raw.readArray" and parent["specialization"]:
+                            resolved, reason = ("const", -1, int(parent["specialization"][0])), "readArrayWidth"
+                    elif expr is not None and o["parentIdx"] is not None:
+                        inherited = known(o["parentIdx"], expr)
+                        if inherited is not None:
+                            resolved, reason = inherited, "forwardedParentParam"
+                if resolved is not None:
+                    effective[i][j] = (pname, *resolved)
+                    recoveries.append((i, pname, reason, resolved[0], resolved[1], resolved[2]))
+                    changed = True
+
+    unresolved = [(i, o["qualified"], p[0]) for i, (o, rows) in enumerate(zip(occ_sorted, effective))
+                  for p in rows if p[1] in ("callerProvided", "unresolved")]
+    if unresolved:
+        raise SystemExit(f"BINDING RECOVERY FAILURE: unresolved occurrence parameters: {unresolved}")
+    return effective, sorted(recoveries)
+
 def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globals, decoder_sha):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-globals). DO NOT EDIT.",
          "-- Untrusted extracted data: the decoder's private globals and the allocator/heap runtime",
@@ -585,19 +684,31 @@ def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globa
     L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals")
     return "\n".join(L) + "\n"
 
-def emit_bindings_lean(occ_sorted):
+def emit_bindings_lean(occ_sorted, effective, recoveries):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-bindings). DO NOT EDIT.",
          "-- Untrusted extracted data: the entry-time ABI/binding of every occurrence's formal",
          "-- parameters, resolved from DWARF .debug_loc at each occurrence's entry PC. Validated in",
          "-- Lean by BinaryFv/SSZ/Zesu/Elfling/GeneratedBindings.lean.",
          "namespace BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings",
-         "/-- (occurrence index, parameter name, location kind, register-or-address, offset).",
-         "`kind` is one of reg / fbreg / breg / addr / const / other / unresolved; the fourth field is a",
-         "RISC-V x-register number for reg/fbreg/breg, an address for addr, and -1 otherwise. -/",
-         "def bindings : List (Nat × String × String × Int × Int) :="]
+         "-- Rows are (occurrence index, parameter name, location kind, register-or-address,",
+         "-- offset-or-value). The final field is the concrete value for const and the base offset",
+         "-- otherwise.",
+         "/-- Raw DWARF rows, retained so recovery never hides what the compiler actually emitted. -/",
+         "def rawBindings : List (Nat × String × String × Int × Int) :="]
     rows = [f'({i}, {lean_str(pname)}, {lean_str(kind)}, {reg}, {off})'
             for i, o in enumerate(occ_sorted)
             for (pname, kind, reg, off) in o.get("bindings", [])]
+    L.append("  [" + ",\n   ".join(rows) + "]")
+    L.extend(["/-- Effective rows after deterministic pinned-source/ABI recovery. For `const`, the",
+              "final field is the concrete value; for `reg`, the fourth field is the register. -/"])
+    L.append("def bindings : List (Nat × String × String × Int × Int) :=")
+    rows = [f'({i}, {lean_str(pname)}, {lean_str(kind)}, {reg}, {off})'
+            for i, bs in enumerate(effective) for (pname, kind, reg, off) in bs]
+    L.append("  [" + ",\n   ".join(rows) + "]")
+    L.append("/-- (occurrence, parameter, recovery reason, effective kind, register, value/offset). -/")
+    L.append("def recoveredBindings : List (Nat × String × String × String × Int × Int) :=")
+    rows = [f'({i}, {lean_str(p)}, {lean_str(reason)}, {lean_str(kind)}, {reg}, {off})'
+            for (i, p, reason, kind, reg, off) in recoveries]
     L.append("  [" + ",\n   ".join(rows) + "]")
     L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings")
     return "\n".join(L) + "\n"
@@ -752,6 +863,10 @@ def main():
         r["children"] = sorted(reindex[c] for c in r["children"]); occ_sorted.append(r)
     entry_idx = reindex[entry_idx]
 
+    # Resolve every DWARF-absent reader/ABI parameter from the pinned Zig call site or the explicit
+    # RISC-V C ABI rule. Raw rows remain in the output beside these effective rows for auditability.
+    effective_bindings, recovered_bindings = recover_missing_bindings(occ_sorted, srclines)
+
     # Attribution defects decidable from the inline tree alone (uncovered-reachable PCs are a CFG
     # property proved in the Lean reachable partition, not decidable here).
     defects.extend(sibling_overlap_defects(occ_sorted))
@@ -835,7 +950,9 @@ def main():
         runtime_globs = read_runtime_globals(a.readelf, a.elf)
         open(a.out_globals, "w").write(
             emit_globals_lean(dec_bss_base, dec_bss_size, globs, refs, runtime_globs, object_sha["decoder"]))
-    if a.out_bindings: open(a.out_bindings, "w").write(emit_bindings_lean(occ_sorted))
+    if a.out_bindings:
+        open(a.out_bindings, "w").write(
+            emit_bindings_lean(occ_sorted, effective_bindings, recovered_bindings))
     routines = {(o["qualified"], tuple(o["specialization"])) for o in occ_sorted}
     print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(program['defects'])} "
           f"entry={entry_idx} excluded={len(excluded_sorted)}")
