@@ -19,12 +19,13 @@ address- and layout-bearing fields are taken from validated pinned artifacts —
 The Zig `?T` option layouts are the ABI's payload-then-discriminant layout at the pinned sizes
 (`AbiManifest`), chosen so `ValidEnvironment` holds.
 
-The container representations are **concrete but partial**: `repRawV4` is the materialized fixed-field
-representation `RawV4FixedFieldsRep`; the seven nested-container representations are deliberately
-trivial placeholders, to be strengthened to full field/collection layouts in the containers row (H).
-Per `ProgramCorrectness`, a weak representation only weakens a contract's success arm — it cannot make
-the per-occurrence obligation vacuous, because `ImplementsInstance` still demands an actual entered
-trace reaching a generated exit with frame preservation.
+The container representations are **concrete and complete**: `repRawV4` is the full input-aware
+`RawV4Rep` (allocation, slice descriptors, and borrowed input slices, not just the fixed fields), and
+all seven nested-container representations are the materialized per-type layouts from
+`MemoryRepresentation.Containers` — there are no placeholder representations. Row H's job is to *prove*
+that execution establishes these representations, not to define them. Every literal offset they use is
+pinned to the reflected ABI manifest by `container_field_offsets_valid` (`native_decide`), so a
+mutated offset fails the build.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Contracts
@@ -38,8 +39,10 @@ open BinaryFv.SSZ.Zesu.Elfling
 /-! ## The Zig option/aggregate layouts
 
 Every field of these layouts is read straight from the compiler-reflected ABI manifest (`?u64` and
-`?RawBlobSchedule` now emit `|size`, `|payload`, and `|tag` — the reflected discriminant offset — not
-just the size). The `getD` fallbacks are never taken: `canonicalOptionalU64_pinned` /
+`?RawBlobSchedule` now emit `|size`, `|payload`, and `|tag`, not just the size). Size and alignment
+are genuinely reflected (`@sizeOf`/`@alignOf`); the payload/discriminant offsets are derived from the
+pinned compiler's non-niche optional ABI and guarded in `abi_manifest.zig`'s `optionalTagOffset` (see
+its comment). The `getD` fallbacks are never taken: `canonicalOptionalU64_pinned` /
 `canonicalOptionalBlobSchedule_pinned` prove each field equals the exact manifest value, so a mutated
 offset in the manifest (or a wrong key here) fails those `native_decide` checks. -/
 

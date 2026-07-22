@@ -17,9 +17,11 @@ shipped binary.
 
 The exported wrapper's real interface is the C ABI `zesu_decode_raw(input, len) -> i32`: the input
 pointer in `a0`, the length in `a1`, and a `1`/`0` return in `a0`. Its real effect is on three private
-globals — an `attempted` flag, a 32-bit `last_status`, and an optional `stored_result` pointer — read
-back out through the exported accessors `zesu_raw_result` and `zesu_raw_error`. It does not write a
-caller result buffer, and there is no free public status slot.
+globals — an `attempted` flag, a 32-bit `last_status`, and an inline `stored_result` object
+(`?RawStatelessInput`, 848 bytes: payload at offset 0, discriminant at 832 — not a pointer slot) —
+read back out through the exported accessors `zesu_raw_result` and `zesu_raw_error`. `zesu_raw_result`
+returns the *address* of that object's payload (or null); it does not write a caller result buffer,
+and there is no free public status slot.
 
 This module models that interface. The `resultBase + 832` 16-bit union stays where it belongs, on the
 *internal* `decodeRaw` (see `MemoryRepresentation.Result`); nothing here uses it.
@@ -130,9 +132,10 @@ def resultingGlobals (incoming : DecoderGlobalsModel)
 /-!
 ## Representing the globals in canonical memory
 
-An `attempted` flag is one byte; `last_status` is a 32-bit little-endian word. The stored-result
-pointer and the buffer it points at are represented separately (`StoredResultRep`) because that ties
-a *value* to memory and needs the canonical result-buffer location.
+An `attempted` flag is one byte; `last_status` is a 32-bit little-endian word. The inline
+`stored_result` object — its discriminant byte and, on success, the `RawV4` payload laid out at the
+object's payload address — is represented separately (`StoredResultRep`) because that ties a *value*
+to memory and needs the canonical payload location.
 -/
 
 /-- A concrete little-endian 32-bit word in Sail sparse memory. -/
@@ -145,7 +148,7 @@ def FlagRep (state : State) (base : Nat) (value : Bool) : Prop :=
   state.mem.get? base = some (BitVec.ofNat 8 (if value then 1 else 0))
 
 /-- The scalar part of the decoder globals — the `attempted` flag and the 32-bit `last_status` —
-represents `model` at `layout`. The stored-result pointer is `StoredResultRep`. -/
+represents `model` at `layout`. The inline `stored_result` object is `StoredResultRep`. -/
 def DecoderGlobalsScalarRep (layout : DecoderGlobalsLayout) (model : DecoderGlobalsModel)
     (state : State) : Prop :=
   FlagRep state layout.attempted model.attempted ∧

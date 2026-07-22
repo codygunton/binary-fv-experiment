@@ -14,10 +14,23 @@ fn logScalarLayout(comptime T: type) void {
     @compileLog(@typeName(T) ++ "|align", @alignOf(T));
 }
 
-/// The discriminant (`tag`) byte offset of a non-pointer optional. Zig lays such an optional out as
-/// payload-then-discriminant, so the tag byte sits immediately after the payload at `@sizeOf(Child)`.
-/// The guard keeps this honest: it fires (rather than reporting a wrong offset) if the optional is
-/// ever not larger than its payload, i.e. if there is no separate tag to point at.
+/// The discriminant (`tag`) byte offset of an optional laid out with a *separate* discriminant.
+///
+/// Zig exposes `@offsetOf`/`@bitOffsetOf` only for struct/union fields, not for an optional's
+/// synthetic discriminant, so the offset cannot be read back by reflection directly. It is instead
+/// *derived* from the ABI, and the guard is what makes the derivation sound rather than a guess:
+///
+///   - `@sizeOf(Opt) <= @sizeOf(Child)` means the optional is niche-optimized (the discriminant is
+///     folded into a spare bit pattern of the payload — e.g. pointer/error/enum optionals). There is
+///     no separate tag byte to point at, so we `@compileError` rather than report a wrong offset.
+///   - Passing the guard therefore witnesses a *non-niche* optional. For those Zig's layout is fixed:
+///     the payload occupies `[0, @sizeOf(Child))` and the one-byte discriminant is placed at the next
+///     naturally-aligned offset, which for a 1-byte flag is exactly `@sizeOf(Child)` (`@sizeOf` is a
+///     multiple of the payload's alignment). So `@sizeOf(Child)` is the true discriminant offset for
+///     every optional this function accepts.
+///
+/// This is still tied to the pinned compiler: the same `zig` that builds the production decoder emits
+/// this manifest, so the derived offset is the one the decoder actually uses.
 fn optionalTagOffset(comptime Opt: type) comptime_int {
     const Child = @typeInfo(Opt).optional.child;
     if (@sizeOf(Opt) <= @sizeOf(Child))
@@ -25,9 +38,9 @@ fn optionalTagOffset(comptime Opt: type) comptime_int {
     return @sizeOf(Child);
 }
 
-/// Emit the full compiler-reflected layout of a non-pointer optional: total size/alignment, the
-/// payload offset (0 — Zig places the payload first, and the reflected tag sits past the payload),
-/// and the reflected discriminant offset.
+/// Emit the layout of a non-pointer optional: total size/alignment (both genuinely reflected), the
+/// payload offset (`0` — Zig places a non-niche optional's payload first), and the discriminant
+/// offset derived-and-guarded by `optionalTagOffset`.
 fn logOptionalLayout(comptime Opt: type) void {
     @compileLog(@typeName(Opt) ++ "|size", @sizeOf(Opt));
     @compileLog(@typeName(Opt) ++ "|align", @alignOf(Opt));
