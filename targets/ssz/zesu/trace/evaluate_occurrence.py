@@ -76,86 +76,83 @@ def run_capture(qemu, gdb, plugin, elf, input_path, lo, hi, boundary_pcs, mem_sp
     return records, json.loads(gdbout.read_text())["stops"]
 
 
-def evaluate(occ, records, stops, arm, expected=None):
-    """Evaluate one input's evidence against occurrence 116 + children. `arm` is present/absent/malformed.
-    `expected` overrides the checked binding (entry PC / child offsets) so negative tests can corrupt it."""
-    exp = {"entry_pc": occ["entryPc"], "child_offsets": {117: 0, 118: 8, 119: 16},
-           "child_entry": {117: 76988, 118: 77020, 119: 77120}}
-    exp.update(expected or {})
-    entry_pc = exp["entry_pc"]
+CHILD_ENTRY = {117: 76988, 118: 77020, 119: 77120}
+CHILD_OFFSETS = {117: 0, 118: 8, 119: 16}  # Row A const-offset bindings for the three readU64 children
+STEP_BOUND = 256                             # contractOptionalBlobSchedule.stepBound
+
+
+def reduce_evidence(occ, records, stops, arm):
+    """Reduce raw QEMU/GDB evidence to a compact, deterministic per-occurrence structure that BOTH the
+    Python oracle and the Lean checker evaluate identically. Only observed facts go here; the expected
+    binding / meaning / layout live in the checker."""
     region_ranges = [(r["start"], r["start"] + r["size"]) for r in occ["regions"]]
 
     def in_regions(pc):
         return any(a <= pc < b for a, b in region_ranges)
 
     executed = [pc for k, pc in ((r[0], r[1]) for r in records) if k == "E"]
-    exec_set = sorted(set(executed))
-    edges = sorted({(executed[i], executed[i + 1]) for i in range(len(executed) - 1)
-                    if executed[i + 1] != executed[i] + 2 and executed[i + 1] != executed[i] + 4})
-    # Every executed edge whose source is inside the occurrence must be a declared CFG edge (no phantom
-    # control flow); a dropped/injected edge in the evidence flips this.
-    declared_edges = {(e["source"], e["target"]) for e in occ["edges"]}
-    occ_exec_edges = {(s, t) for (s, t) in edges if in_regions(s)}
-    edges_subset_of_cfg = occ_exec_edges <= declared_edges
-
-    stop_by_pc = {s["pc"]: s for s in stops}
-    entry = stop_by_pc.get(entry_pc)
-
-    # readU64 loads/stores: (pc, addr, width, value).
+    edges = {(executed[i], executed[i + 1]) for i in range(len(executed) - 1)
+             if executed[i + 1] != executed[i] + 2 and executed[i + 1] != executed[i] + 4}
     loads = [tuple(r[1:]) for r in records if r[0] == "L"]
     stores = [tuple(r[1:]) for r in records if r[0] == "S"]
+    entry = {s["pc"]: s for s in stops}.get(occ["entryPc"])
+    return {
+        "occ": occ["index"] if "index" in occ else 116,
+        "arm": arm,
+        "qualified": occ["qualified"],
+        "entryPc": occ["entryPc"],
+        "exitPc": occ["exitPc"],
+        "regions": sorted([a, b] for a, b in region_ranges),
+        "declaredEdges": sorted([e["source"], e["target"]] for e in occ["edges"]),
+        "firstExecuted": executed[0] if executed else None,
+        "occInsnCount": sum(1 for pc in executed if in_regions(pc)),
+        "occExecEdges": sorted([s, t] for (s, t) in edges if in_regions(s)),
+        "inRegionStores": sorted([pc, addr, w, v] for (pc, addr, w, v) in stores if in_regions(pc)),
+        "inputByteLoads": sorted([addr, v] for (pc, addr, w, v) in loads
+                                 if INPUT[0] <= addr < INPUT[1] and w == 1),
+        "entryRegs": {str(n): (entry["registers"][f"x{n}"] if entry else 0) for n in range(32)},
+    }
+
+
+def evaluate_compact(ev, mutate=None):
+    """Evaluate the compact evidence against the FIXED Row A binding / meaning / layout. `mutate` is an
+    optional dict overwriting evidence fields (for negative tests). Returns a dict of check booleans.
+    This is the reference oracle; the Lean checker computes the same booleans on the same evidence."""
+    ev = {**ev, **(mutate or {})}
+    arm = ev["arm"]
+    in_regions = lambda pc: any(a <= pc < b for a, b in ev["regions"])
+    declared = {(s, t) for s, t in ev["declaredEdges"]}
+    sp = ev["entryRegs"]["2"]
+    a0 = ev["entryRegs"]["10"]
 
     checks = {}
-    # The window opens at the occurrence boundary, so the true entry is the FIRST executed PC and has a
-    # captured GDB stop; a wrong entry (a mid-occurrence PC) is reached only from inside and is not first.
-    checks["entry_reached"] = (entry is not None and len(executed) > 0
-                               and executed[0] == entry_pc)
-    checks["edges_subset_of_cfg"] = edges_subset_of_cfg
+    checks["entry_reached"] = ev["firstExecuted"] == ev["entryPc"]
+    checks["edges_subset_of_cfg"] = all((s, t) in declared for s, t in ev["occExecEdges"])
 
-    # Child const-offset bindings: from GDB stops at the child entry PCs, and from the load addresses.
-    child_offsets = exp["child_offsets"]
-    child_entry = exp["child_entry"]
-    # The blob-schedule slice pointer: the input address the first field is read from minus offset 0.
-    field_loads = {}  # child idx -> (base_addr, decoded u64)
+    # Nested readU64 const offsets: the input byte loads must be EXACTLY the 8-byte windows at
+    # slice_ptr + {0,8,16} (the Row A const-offset bindings) — no gap, no extra, no shift. This ties the
+    # observed load addresses to the generated binding; a +8 ABI error or a dropped field breaks it.
+    by_addr = {addr: v for addr, v in ev["inputByteLoads"]}
+    slice_ptr = min(by_addr) if by_addr else None
     if arm == "present":
-        # The three readU64 children each read 8 consecutive input bytes. Sorted, the in-window input
-        # byte loads are the 24 bytes [slice_ptr, slice_ptr+24); reconstruct three little-endian u64s
-        # RELATIVE to the slice start (alignment-independent).
-        input_byte_loads = sorted((addr, v) for (pc, addr, w, v) in loads
-                                  if INPUT[0] <= addr < INPUT[1] and w == 1)
-        by_addr = {addr: v for addr, v in input_byte_loads}
-        slice_ptr = min(by_addr) if by_addr else None
-        for k, idx in enumerate((117, 118, 119)):
-            base = slice_ptr + k * 8 if slice_ptr is not None else None
-            if base is not None and all((base + j) in by_addr for j in range(8)):
-                val = sum(by_addr[base + j] << (8 * j) for j in range(8))
-                field_loads[idx] = (base, val, base - slice_ptr)
-        checks["child_offsets_from_loads"] = all(
-            idx in field_loads and field_loads[idx][2] == child_offsets[idx] for idx in (117, 118, 119))
-        # Meaning: RawBlobSchedule = (target, max, base_fee) from the three fields.
-        decoded = {idx: field_loads[idx][1] for idx in field_loads}
-        checks["decoded_blob_schedule"] = [decoded.get(117), decoded.get(118), decoded.get(119)]
+        expect_addrs = ({slice_ptr + off + j for off in CHILD_OFFSETS.values() for j in range(8)}
+                        if slice_ptr is not None else set())
+        realized = slice_ptr is not None and set(by_addr) == expect_addrs
+        checks["child_offsets_from_loads"] = realized
+        checks["decoded_blob_schedule"] = (
+            [sum(by_addr[slice_ptr + CHILD_OFFSETS[idx] + j] << (8 * j) for j in range(8))
+             for idx in (117, 118, 119)] if realized else None)
     else:
-        checks["child_offsets_from_loads"] = None  # children do not execute in absent/malformed arms
+        checks["child_offsets_from_loads"] = None
         checks["decoded_blob_schedule"] = None
 
-    # Result/exit binding: the indirect-return result slot (a0=x10 at entry) is a stack address the
-    # RawBlobSchedule is returned through. A swapped register / wrong result slot moves it off-stack.
-    sp0 = entry["registers"]["x2"] if entry else 0
-    a0 = entry["registers"]["x10"] if entry else 0
-    checks["result_slot_on_stack"] = entry is not None and classify_write(a0, sp0) == "stack"
+    checks["result_slot_on_stack"] = classify_write(a0, sp) == "stack"
+    checks["insn_count"] = ev["occInsnCount"]
+    checks["step_bound"] = STEP_BOUND
+    checks["within_step_bound"] = ev["occInsnCount"] <= STEP_BOUND
 
-    # Step bound: instruction count within the occurrence <= contract stepBound (256).
-    occ_insns = [pc for pc in executed if in_regions(pc)]
-    checks["insn_count"] = len(occ_insns)
-    checks["step_bound"] = 256
-    checks["within_step_bound"] = len(occ_insns) <= 256
-
-    # Allocation ledger: decodeOptionalBlobSchedule is non-allocating; no heap / cursor writes in-window.
-    sp = entry["registers"]["x2"] if entry else 0
-    in_window_stores = [(pc, addr, w, v) for (pc, addr, w, v) in stores if in_regions(pc)]
     classes = {}
-    for (pc, addr, w, v) in in_window_stores:
+    for (pc, addr, w, v) in ev["inRegionStores"]:
         c = classify_write(addr, sp)
         classes[c] = classes.get(c, 0) + 1
     checks["write_classes"] = classes
@@ -163,9 +160,29 @@ def evaluate(occ, records, stops, arm, expected=None):
     checks["input_preserved"] = classes.get("input", 0) == 0
     checks["code_preserved"] = classes.get("code", 0) == 0
     checks["no_unclassified_writes"] = classes.get("unclassified", 0) == 0
+    return checks
 
-    return {"arm": arm, "entry_pc": entry_pc, "executed_pcs": len(exec_set), "edges": len(edges),
-            "checks": checks, "entry_registers": entry["registers"] if entry else None}
+
+def evaluate(occ, records, stops, arm, mutate=None):
+    return evaluate_compact(reduce_evidence(occ, records, stops, arm), mutate)
+
+
+def capture_arms(qemu, gdb, plugin, elf, program_json, arms, scratch):
+    """Capture + reduce the compact evidence for `arms` = {name: input_path}. Returns [compact, ...]."""
+    occ = json.load(open(program_json))["occurrences"][116]
+    assert occ["qualified"] == "ssz_raw.decodeOptionalBlobSchedule", occ["qualified"]
+    occ = {**occ, "index": 116}
+    lo, hi = occ["entryPc"], occ["exitPc"]
+    boundary = [occ["entryPc"], 76988, 77020, 77120] + occ["exits"]
+    scratch = Path(scratch)
+    scratch.mkdir(parents=True, exist_ok=True)
+    evidence = []
+    for arm, path in arms.items():
+        sub = scratch / arm
+        sub.mkdir(exist_ok=True)
+        records, stops = run_capture(qemu, gdb, plugin, elf, path, lo, hi, boundary, ["$x10:24"], sub)
+        evidence.append(reduce_evidence(occ, records, stops, arm))
+    return evidence
 
 
 def main() -> int:
@@ -182,28 +199,17 @@ def main() -> int:
     ap.add_argument("--out-json", required=True)
     a = ap.parse_args()
 
-    occ = json.load(open(a.program_json))["occurrences"][116]
-    assert occ["qualified"] == "ssz_raw.decodeOptionalBlobSchedule", occ["qualified"]
-    lo, hi = occ["entryPc"], occ["exitPc"]
-    boundary = [occ["entryPc"], 76988, 77020, 77120] + occ["exits"]
-    scratch = Path(a.scratch)
-    scratch.mkdir(parents=True, exist_ok=True)
-
-    results = []
-    for arm, path in (("present", a.present), ("absent", a.absent), ("malformed", a.malformed)):
-        sub = scratch / arm
-        sub.mkdir(exist_ok=True)
-        # Read the result slot (a0 at entry) so the exit binding's OptionSome/None rep is checkable.
-        records, stops = run_capture(a.qemu, a.gdb, a.plugin, a.elf, path, lo, hi, boundary,
-                                     ["$x10:24"], sub)
-        results.append(evaluate(occ, records, stops, arm))
-
-    report = {"occurrence": 116, "qualified": occ["qualified"], "arms": results}
+    evidence = capture_arms(a.qemu, a.gdb, a.plugin, a.elf, a.program_json,
+                            {"present": a.present, "absent": a.absent, "malformed": a.malformed},
+                            a.scratch)
+    arms = [{"evidence": ev, "checks": evaluate_compact(ev)} for ev in evidence]
+    report = {"occurrence": 116, "qualified": "ssz_raw.decodeOptionalBlobSchedule", "arms": arms}
     Path(a.out_json).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    for r in results:
+    for r in arms:
         c = r["checks"]
-        print(f"[{r['arm']:9s}] entry={c['entry_reached']} insns={c['insn_count']}/{c['step_bound']} "
-              f"no_alloc={c['no_allocation']} input_ok={c['input_preserved']} code_ok={c['code_preserved']} "
+        print(f"[{r['evidence']['arm']:9s}] entry={c['entry_reached']} "
+              f"insns={c['insn_count']}/{c['step_bound']} no_alloc={c['no_allocation']} "
+              f"input_ok={c['input_preserved']} code_ok={c['code_preserved']} "
               f"unclassified=0:{c['no_unclassified_writes']} classes={c['write_classes']} "
               f"blob={c['decoded_blob_schedule']}")
     return 0

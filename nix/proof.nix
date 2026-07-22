@@ -338,6 +338,12 @@ let
     # handwritten meaning equals its expected value/error — the Lean side of the probe's
     # `--routine-vectors` check. Also outside the theorem graph.
     lake build BinaryFv.SSZ.Zesu.Validation.RoutineMeaningVectors
+    # Row C diagnostic checker: native_decide that, for the decodeOptionalBlobSchedule occurrence, the
+    # Lean checker reproduces the Python oracle on the present/absent/malformed production-ELF evidence,
+    # the present arm is a GO, the actual loaded slice decodes to the recorded fields under
+    # meaningOptionalBlobSchedule, and each of the eight evidence corruptions flips a check. Also outside
+    # the theorem graph (the validation-import guard above forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.BinaryOccurrenceCheck
     touch "$out"
   '';
 

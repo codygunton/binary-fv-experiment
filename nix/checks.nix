@@ -18,6 +18,7 @@ let
       sszContractCorpus
       sszContractProbeCheck
       sszProductionUnchanged
+      sszBinaryEvidence
       sszContractAgreement
       zesuSinkObservability
       zesuSsz
