@@ -344,6 +344,13 @@ let
     # meaningOptionalBlobSchedule, and each of the eight evidence corruptions flips a check. Also outside
     # the theorem graph (the validation-import guard above forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.BinaryOccurrenceCheck
+    # Row C SCALED checker: native_decide that, for EVERY occurrence in program.json, the Lean checker
+    # reproduces the Python oracle (`checker_agrees_with_oracle`) on the production-ELF evidence; that the
+    # six structural/effect gating checks pass on every covered occurrence (`gating_checks_hold`); that no
+    # check ever fails — results are pass or explicit gap (`no_gating_failures`); and that mutating the
+    # sampled occurrence's evidence flips the responsible check. Coverage is per occurrence, gaps explicit.
+    # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.ScaleOccurrenceCheck
     touch "$out"
   '';
 

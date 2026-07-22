@@ -5,7 +5,12 @@
  * deterministic execution trace:
  *
  *   - every executed instruction PC (`E <pc>`), from which executed CFG edges are reconstructed; and
- *   - every load/store `(pc, address, width, value)` (`L`/`S <pc> <addr> <width> <value>`).
+ *   - every load  `(pc, address, width, value)`      (`L <pc> <addr> <width> <value>`); and
+ *   - every store `(pc, address, width, value, sp)`  (`S <pc> <addr> <width> <value> <sp>`).
+ *
+ * The stack pointer is read (via the plugin register API) at the moment of every store so that write
+ * classification (stack vs heap vs input vs code vs …) is exact and self-contained: the scaled
+ * per-occurrence checker needs no separate GDB register capture. Reads use `QEMU_PLUGIN_CB_R_REGS`.
  *
  * The plugin only OBSERVES: it never modifies the guest, and the ELF is neither rebuilt, relinked,
  * patched, nor instrumented. Output is a plain append-only text log (one record per line), so a run
@@ -29,9 +34,57 @@ static FILE *trace_out;
 static uint64_t pc_lo;               /* inclusive  */
 static uint64_t pc_hi = UINT64_MAX;  /* exclusive  */
 
+/* Handle to the stack-pointer register, resolved once per vCPU at init. */
+static struct qemu_plugin_register *sp_handle;
+static GByteArray *sp_buf;           /* reused scratch for register reads */
+
 static inline int in_window(uint64_t pc)
 {
     return pc >= pc_lo && pc < pc_hi;
+}
+
+/* Current stack pointer, read from the vCPU register file (0 if unavailable). */
+static uint64_t read_sp(void)
+{
+    if (!sp_handle || !sp_buf) {
+        return 0;
+    }
+    g_byte_array_set_size(sp_buf, 0);
+    if (!qemu_plugin_read_register(sp_handle, sp_buf) || sp_buf->len == 0) {
+        return 0;
+    }
+    uint64_t sp = 0;
+    /* target byte order is little-endian for RV64 */
+    for (guint i = 0; i < sp_buf->len && i < 8; i++) {
+        sp |= (uint64_t)sp_buf->data[i] << (8 * i);
+    }
+    return sp;
+}
+
+/* Resolve the sp register handle in vCPU context (required by the plugin API). */
+static void vcpu_init(qemu_plugin_id_t id, unsigned int vcpu_index)
+{
+    (void)id;
+    (void)vcpu_index;
+    if (sp_handle) {
+        return;
+    }
+    GArray *regs = qemu_plugin_get_registers();
+    if (!regs) {
+        return;
+    }
+    for (guint i = 0; i < regs->len; i++) {
+        qemu_plugin_reg_descriptor *d =
+            &g_array_index(regs, qemu_plugin_reg_descriptor, i);
+        if (d->name && g_strcmp0(d->name, "sp") == 0) {
+            sp_handle = d->handle;
+            break;
+        }
+    }
+    g_array_free(regs, TRUE);
+    if (!sp_buf) {
+        sp_buf = g_byte_array_new();
+    }
 }
 
 /* Extract the concrete integer value of a load/store from the plugin's tagged union. */
@@ -69,10 +122,16 @@ static void mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
         return;
     }
     unsigned int width = 1u << qemu_plugin_mem_size_shift(info);
-    char kind = qemu_plugin_mem_is_store(info) ? 'S' : 'L';
+    int is_store = qemu_plugin_mem_is_store(info);
     uint64_t value = mem_value_u64(qemu_plugin_mem_get_value(info));
-    fprintf(trace_out, "%c %" PRIu64 " %" PRIu64 " %u %" PRIu64 "\n",
-            kind, pc, vaddr, width, value);
+    if (is_store) {
+        /* Stores carry the stack pointer so writes can be classified without GDB. */
+        fprintf(trace_out, "S %" PRIu64 " %" PRIu64 " %u %" PRIu64 " %" PRIu64 "\n",
+                pc, vaddr, width, value, read_sp());
+    } else {
+        fprintf(trace_out, "L %" PRIu64 " %" PRIu64 " %u %" PRIu64 "\n",
+                pc, vaddr, width, value);
+    }
 }
 
 static void tb_translate(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
@@ -84,8 +143,9 @@ static void tb_translate(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         void *pc = (void *)(uintptr_t)qemu_plugin_insn_vaddr(insn);
         qemu_plugin_register_vcpu_insn_exec_cb(insn, insn_exec,
                                                QEMU_PLUGIN_CB_NO_REGS, pc);
+        /* CB_R_REGS: the store branch reads sp via qemu_plugin_read_register. */
         qemu_plugin_register_vcpu_mem_cb(insn, mem_access,
-                                         QEMU_PLUGIN_CB_NO_REGS,
+                                         QEMU_PLUGIN_CB_R_REGS,
                                          QEMU_PLUGIN_MEM_RW, pc);
     }
 }
@@ -120,6 +180,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
     if (!trace_out) {
         return -1;
     }
+    qemu_plugin_register_vcpu_init_cb(id, vcpu_init);
     qemu_plugin_register_vcpu_tb_trans_cb(id, tb_translate);
     qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
     return 0;
