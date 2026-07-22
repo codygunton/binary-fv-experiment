@@ -270,17 +270,18 @@ let
         --objdump ${riscvObjdump} \
         --out-json "$1/program.json" \
         --out-lean "$1/GeneratedProgram.lean" \
-        --out-md "$1/program.md"
+        --out-md "$1/program.md" \
+        --out-globals "$1/DecoderGlobals.lean"
     }
     mkdir -p run1 run2 "$out"
     gen run1
     gen run2
-    for f in program.json GeneratedProgram.lean program.md; do
+    for f in program.json GeneratedProgram.lean program.md DecoderGlobals.lean; do
       cmp -s "run1/$f" "run2/$f" \
         || { echo "GENERATOR NON-DETERMINISTIC: $f differs between two runs" >&2; exit 1; }
     done
-    cp run1/program.json run1/GeneratedProgram.lean run1/program.md "$out/"
-    printf '%s\n' "two independent runs produced byte-identical program.json/GeneratedProgram.lean/program.md" \
+    cp run1/program.json run1/GeneratedProgram.lean run1/program.md run1/DecoderGlobals.lean "$out/"
+    printf '%s\n' "two independent runs produced byte-identical program.json/GeneratedProgram.lean/program.md/DecoderGlobals.lean" \
       > "$out/determinism.txt"
   '';
 
