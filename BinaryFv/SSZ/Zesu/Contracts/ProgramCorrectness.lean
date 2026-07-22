@@ -1,4 +1,5 @@
 import BinaryFv.SSZ.Zesu.Contracts.Catalog
+import BinaryFv.SSZ.Zesu.Contracts.CanonicalParams
 import BinaryFv.SSZ.Zesu.Artifact.Symbols
 
 namespace BinaryFv.SSZ.Zesu.Contracts
@@ -178,12 +179,14 @@ theorem sszProgramCorrectness_perInstance {program : Program} {p : ContractParam
   obtain ⟨_, _, ⟨_, hranked⟩, hlocals, _⟩ := ltg
   exact global_of_local hranked hlocals
 
-/-- Everything the root theorem depends on: program correctness for some canonical parameters, plus
-the two recorded binary/oracle divergences. The existential is over the contract parameters only;
-`sszProgramCorrectness` pins their environment to the canonical image, so this is not an escape
-hatch. -/
+/-- Everything the root theorem depends on: program correctness for the **one concrete**
+`canonicalContractParams`, plus the two recorded binary/oracle divergences.
+
+This no longer quantifies the parameters existentially: `canonicalContractParams` fixes every
+address- and layout-bearing field to a validated pinned artifact (`CanonicalParams`), so a proof can
+neither choose a convenient environment nor leave the parameters open. -/
 def sszComplianceObligations (program : Program) : Prop :=
-  (∃ p, sszProgramCorrectness program p) ∧ knownDivergences
+  sszProgramCorrectness program canonicalContractParams ∧ knownDivergences
 
 /-- Coverage plus the composition entails that the specific occurrence at a cataloged identity
 implements its routine's correctness claim. This is the lemma that makes "`sszProgramCorrectness`
