@@ -263,6 +263,78 @@ let
     touch "$out"
   '';
 
+  # Row B oracle runner, built standalone. The runner root `ContractRunner` imports only the Sail-free
+  # `SszBridge.Core`, so `lake build ssz_contract_runner` compiles just that small closure on top of
+  # the (cached) prebuilt spec libs — it does NOT rebuild the theorem tree, and it never carries a
+  # theorem as a premise. The prebuilt libs are linked only to satisfy lake's whole-file config eval.
+  sszContractRunner = pkgs.runCommand "ssz-contract-runner" {
+    nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.git pkgs.jq pkgs.patchelf ];
+  } ''
+    cp -R ${repo} source
+    chmod -R u+w source
+    cd source
+
+    mkdir -p build .lake/packages/repl "$TMPDIR/home"
+    ln -s ${sailRiscvLean} build/sail-riscv-lean
+    ln -s ${sszSpecLean} build/ssz-spec-lean
+    ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
+    ln -s ${zesuAbiManifest} build/zesu-abi-lean
+    ln -s ${elflingProgram} build/elfling-program-lean
+    cp -a ${replSource}/. .lake/packages/repl/
+    chmod -R u+w .lake/packages/repl
+    ${pkgs.jq}/bin/jq '
+      .packages |= map(
+        if .name == "repl" then
+          {
+            type: "path",
+            scope: .scope,
+            name: .name,
+            manifestFile: .manifestFile,
+            inherited: .inherited,
+            dir: ".lake/packages/repl",
+            configFile: .configFile
+          }
+        else . end
+      )
+    ' lake-manifest.json > lake-manifest.nix.json
+    mv lake-manifest.nix.json lake-manifest.json
+    substituteInPlace lakefile.lean \
+      --replace-fail 'require repl from git "https://github.com/leanprover-community/repl.git" @ "v4.26.0"' \
+      'require repl from ".lake/packages/repl"'
+
+    export HOME="$TMPDIR/home"
+    lake build ssz_contract_runner
+    mkdir -p "$out/bin"
+    cp .lake/build/bin/ssz_contract_runner "$out/bin/ssz_contract_runner"
+
+    # lake links the exe against the host dynamic linker (`/lib64/ld-linux-x86-64.so.2`), which is
+    # absent from a Nix build sandbox, so any derivation that *runs* the runner (the agreement check)
+    # would get ENOENT on exec. It is statically linked against Lean and needs only glibc, so repoint
+    # the interpreter and rpath at the pinned glibc to make it runnable in a pure sandbox.
+    patchelf \
+      --set-interpreter "${pkgs.glibc}/lib/ld-linux-x86-64.so.2" \
+      --set-rpath "${pkgs.glibc}/lib" \
+      "$out/bin/ssz_contract_runner"
+  '';
+
+  # Row B full differential in CI: the pinned oracle runner and the host source probe must both agree
+  # with the corpus expectation, and with each other, on ALL 49 cases — including the ~1 MiB collision
+  # fixtures that `native_decide` omits. This closes the oracle-side residual that the kernel check
+  # leaves open on the large cases (see DECISIONS.md); the value fidelity of those cases stays covered
+  # by the preserved three-way `ssz-value-v1` audit.
+  sszContractAgreement = pkgs.runCommand "ssz-contract-agreement" {
+    nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
+  } ''
+    set -euo pipefail
+    mkdir -p "$out"
+    python3 ${repo}/targets/ssz/zesu/tests/ssz_contract_agreement.py \
+      --corpus-generator ${repo}/targets/ssz/zesu/tests/ssz_contract_corpus.py \
+      --fixtures ${repo}/targets/ssz/zesu/tests/ssz_differential_audit.py \
+      --lean-runner ${sszContractRunner}/bin/ssz_contract_runner \
+      --zesu-probe ${targets.public.zesuContractProbe}/bin/ssz-contract-probe \
+      --corpus-out "$out/corpus.jsonl" | tee "$out/agreement.txt"
+  '';
+
   devShell = pkgs.mkShell {
     inputsFrom = [ rv64.devShell ];
     packages = [
@@ -279,12 +351,15 @@ let
 in
 {
   public = {
-    inherit binaryFvLean sailRiscvLean sszSpecLean zesuSszElfLean;
+    inherit binaryFvLean sailRiscvLean sszSpecLean zesuSszElfLean
+      sszContractRunner sszContractAgreement;
 
     binary-fv-lean = binaryFvLean;
     sail-riscv-lean = sailRiscvLean;
     ssz-spec-lean = sszSpecLean;
     zesu-ssz-elf-lean = zesuSszElfLean;
+    ssz-contract-runner = sszContractRunner;
+    ssz-contract-agreement = sszContractAgreement;
   };
 
   inherit devShell;
