@@ -1,4 +1,5 @@
 import BinaryFv.SSZ.Zesu.Contracts.Leaves
+import BinaryFv.SSZ.Zesu.Contracts.Options
 import BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors
 
 /-!
@@ -71,6 +72,29 @@ theorem require_u32_meaning_agrees :
 theorem ere_prefix_meaning_agrees :
     erePrefixVectors.all
       (fun v => meaningHasExactErePrefix (hexToBytes v.2.1) == v.2.2) = true := by
+  native_decide
+
+/-- `decodeOptionalU64` as `Option (Option Nat)`: `none` = error, `some none` = SSZ `none`,
+`some (some v)` = present. Options fail only with `invalidSsz`, so the outer `none` pins that error. -/
+def optionU64Meaning (bytes : ByteArray) : Option (Option Nat) :=
+  (meaningOptionalU64 bytes).toOption.map (fun o => o.map UInt64.toNat)
+
+/-- `decodeOptionalBlobSchedule` as `Option (Option (target, max, baseFeeUpdateFraction))`. -/
+def optionBlobMeaning (bytes : ByteArray) : Option (Option (Nat × Nat × Nat)) :=
+  (meaningOptionalBlobSchedule bytes).toOption.map
+    (fun o => o.map (fun s => (s.target.toNat, s.max.toNat, s.baseFeeUpdateFraction.toNat)))
+
+/-- **`decodeOptionalU64`:** the meaning matches the expected absent/present/malformed outcome. -/
+theorem optional_u64_meaning_agrees :
+    optionalU64Vectors.all
+      (fun v => optionU64Meaning (hexToBytes v.2.1) == v.2.2) = true := by
+  native_decide
+
+/-- **`decodeOptionalBlobSchedule`:** the meaning matches the expected absent/present/malformed
+outcome, with exact `(target, max, baseFeeUpdateFraction)` fields on the present arm. -/
+theorem optional_blob_meaning_agrees :
+    optionalBlobVectors.all
+      (fun v => optionBlobMeaning (hexToBytes v.2.1) == v.2.2) = true := by
   native_decide
 
 end BinaryFv.SSZ.Zesu.Validation

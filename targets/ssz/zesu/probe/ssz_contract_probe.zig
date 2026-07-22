@@ -256,13 +256,18 @@ fn jsonInt(obj: std.json.ObjectMap, key: []const u8) ?i64 {
     };
 }
 
+/// The three little-endian u64 fields of a decoded blob schedule, in the vector's value encoding.
+const BlobFields = struct { target: u64, max: u64, bfuf: u64 };
+
 /// The actual outcome of a routine call, in the vector's value encoding (no host pointers).
 const Actual = union(enum) {
-    nat: u256, // scalar reads (u32/u64/offset; u256 headroom for readU256)
+    nat: u256, // scalar reads (u32/u64/offset/u256)
     bytes: []const u8, // slice reads, input-relative
     boolean: bool,
     ok: void,
     err: []const u8, // local error label
+    opt_u64: ?u64, // decodeOptionalU64
+    opt_blob: ?BlobFields, // decodeOptionalBlobSchedule
 };
 
 /// `readArray(N)` copies its result into `buf` so the returned slice outlives the stack array.
@@ -291,6 +296,13 @@ fn runRoutine(routine: []const u8, args: std.json.ObjectMap, input: []const u8, 
         if (raw.probe_requireU32Length(input)) |_| return .{ .ok = {} } else |e| return .{ .err = errLabel(@errorName(e)) };
     } else if (std.mem.eql(u8, routine, "ssz_raw.hasExactErePrefix")) {
         return .{ .boolean = raw.probe_hasExactErePrefix(input) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeOptionalU64")) {
+        if (raw.probe_decodeOptionalU64(input)) |v| return .{ .opt_u64 = v } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeOptionalBlobSchedule")) {
+        if (raw.probe_decodeOptionalBlobSchedule(input)) |v| {
+            if (v) |s| return .{ .opt_blob = .{ .target = s.target, .max = s.max, .bfuf = s.base_fee_update_fraction } };
+            return .{ .opt_blob = null };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
     } else if (std.mem.startsWith(u8, routine, "ssz_raw.readArray[")) {
         const width: usize = @intCast(jsonInt(args, "width") orelse 0);
         inline for (.{ 20, 32, 48, 65, 96, 256 }) |N| {
@@ -355,6 +367,41 @@ fn actualMatches(actual: Actual, expect: std.json.ObjectMap) bool {
                 else => false,
             };
         },
+        .opt_u64 => |ov| {
+            if (!std.mem.eql(u8, kind, "value")) return false;
+            const vobj = switch (expect.get("value") orelse return false) {
+                .object => |o| o,
+                else => return false,
+            };
+            switch (vobj.get("opt") orelse return false) {
+                .null => return ov == null,
+                .object => |oo| {
+                    const want_s = jsonStr(oo, "u64") orelse return false;
+                    const want = std.fmt.parseInt(u64, want_s, 10) catch return false;
+                    return ov != null and ov.? == want;
+                },
+                else => return false,
+            }
+        },
+        .opt_blob => |ob| {
+            if (!std.mem.eql(u8, kind, "value")) return false;
+            const vobj = switch (expect.get("value") orelse return false) {
+                .object => |o| o,
+                else => return false,
+            };
+            switch (vobj.get("opt") orelse return false) {
+                .null => return ob == null,
+                .object => |oo| {
+                    if (ob == null) return false;
+                    const s = ob.?;
+                    const t = std.fmt.parseInt(u64, jsonStr(oo, "target") orelse return false, 10) catch return false;
+                    const m = std.fmt.parseInt(u64, jsonStr(oo, "max") orelse return false, 10) catch return false;
+                    const b = std.fmt.parseInt(u64, jsonStr(oo, "bfuf") orelse return false, 10) catch return false;
+                    return s.target == t and s.max == m and s.bfuf == b;
+                },
+                else => return false,
+            }
+        },
     }
 }
 
@@ -372,6 +419,12 @@ fn emitRoutineOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: A
         },
         .boolean => |x| try w.print(",\"kind\":\"value\",\"bool\":{}", .{x}),
         .ok => try w.writeAll(",\"kind\":\"value\",\"ok\":true"),
+        .opt_u64 => |ov| {
+            if (ov) |v| try w.print(",\"kind\":\"value\",\"opt\":{{\"u64\":\"{d}\"}}", .{v}) else try w.writeAll(",\"kind\":\"value\",\"opt\":null");
+        },
+        .opt_blob => |ob| {
+            if (ob) |s| try w.print(",\"kind\":\"value\",\"opt\":{{\"target\":\"{d}\",\"max\":\"{d}\",\"bfuf\":\"{d}\"}}", .{ s.target, s.max, s.bfuf }) else try w.writeAll(",\"kind\":\"value\",\"opt\":null");
+        },
         .err => |label| {
             try w.writeAll(",\"kind\":\"error\",\"error\":");
             try writeJsonString(w, label);
