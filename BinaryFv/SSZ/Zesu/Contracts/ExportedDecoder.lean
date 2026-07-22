@@ -34,8 +34,13 @@ structure DecoderGlobalsLayout where
   attempted : Nat
   /-- Address of the 32-bit `last_status` word. -/
   status : Nat
-  /-- Address of the optional `stored_result` pointer. -/
+  /-- Address of the inline `stored_result` object (a `?RawStatelessInput`, not a pointer slot): the
+  848-byte optional result whose 832-byte payload sits at `storedResult + storedResultObject.payloadOffset`
+  and whose discriminant sits at `storedResult + storedResultObject.discriminantOffset`. -/
   storedResult : Nat
+  /-- The compiler-reflected `?RawStatelessInput` layout of the `stored_result` object (size 848,
+  payload at 0, discriminant at 832). -/
+  storedResultObject : OptionLayout
 deriving Repr, Inhabited
 
 /-- The ghost model of the decoder globals: whether a decode was attempted, the recorded status, and
@@ -146,24 +151,34 @@ def DecoderGlobalsScalarRep (layout : DecoderGlobalsLayout) (model : DecoderGlob
   FlagRep state layout.attempted model.attempted ∧
   Word32LERep state layout.status model.status.code
 
-/-- The stored-result pointer word alone: the canonical `resultBase` when a value is stored, or null
-otherwise. `zesu_raw_result` returns exactly this word; that the buffer it points at holds a valid
-`RawV4` is the exported wrapper's postcondition, not the accessor's local obligation, so the accessor
-needs neither the container representation nor the input. -/
-def StoredResultPointerRep (layout : DecoderGlobalsLayout) (resultBase : Nat)
-    (model : DecoderGlobalsModel) (state : State) : Prop :=
-  Word64LERep state layout.storedResult (if model.stored.isSome then resultBase else 0)
+/-- The discriminant byte of the inline `stored_result` object (`?RawStatelessInput`): present exactly
+when the ghost model holds a value. `zesu_raw_result` reads this — not a pointer word — to decide
+whether to return the payload address or null, so the accessor needs neither the container
+representation nor the input. -/
+def StoredResultDiscriminantRep (layout : DecoderGlobalsLayout) (model : DecoderGlobalsModel)
+    (state : State) : Prop :=
+  MemoryRepresentation.OptionTagRep state
+    (layout.storedResult + layout.storedResultObject.discriminantOffset) model.stored.isSome
 
-/-- The stored-result pointer *and* the `RawV4` the buffer holds on success, under the full container
+/-- The complete inline `stored_result` object: its discriminant, and — on success — the `RawV4`
+payload laid out at `resultBase` (the object's payload address) under the full container
 representation. The value arm carries the caller's input base/bytes so the borrowed input slices of
 the stored `RawV4` are represented. -/
 def StoredResultRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation SszBridge.RawV4)
     (inputBase : Nat) (input : ByteArray) (resultBase : Nat) (model : DecoderGlobalsModel)
     (state : State) : Prop :=
-  StoredResultPointerRep layout resultBase model state ∧
+  StoredResultDiscriminantRep layout model state ∧
   match model.stored with
   | some value => rep inputBase input value state resultBase
   | none => True
+
+/-- The complete incoming/outgoing representation of all three decoder globals against a ghost model:
+the scalar `attempted`/`last_status` words and the full inline `stored_result` object. -/
+def DecoderGlobalsRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation SszBridge.RawV4)
+    (inputBase : Nat) (input : ByteArray) (resultBase : Nat) (model : DecoderGlobalsModel)
+    (state : State) : Prop :=
+  DecoderGlobalsScalarRep layout model state ∧
+  StoredResultRep layout rep inputBase input resultBase model state
 
 /-!
 ## Model-level facts
@@ -227,20 +242,21 @@ def specZesuDecodeRaw : RoutineSpec ZesuDecodeRawArgs (Except SszDecodeError Ssz
   meaning := fun args => meaningDecode args.bytes
 
 /-- The wrapper entry binding: the real C ABI `zesu_decode_raw(input, len)` — the input pointer in
-`a0`, the length in `a1` — over valid code and input, with the decoder globals representing the
-incoming ghost model. -/
+`a0`, the length in `a1` — over valid code and input, with the *complete* incoming decoder-globals
+representation (the scalar words and the full inline `stored_result` object). -/
 def preZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs) (state : State) : Prop :=
   MemoryBytes state args.inputBase args.bytes ∧
   env.CodeIntact state ∧
   state.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) ∧
   state.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) ∧
-  DecoderGlobalsScalarRep globals incoming state
+  DecoderGlobalsRep globals rep args.inputBase args.bytes resultBuffer incoming state
 
-/-- The wrapper exit binding, after retiring the return: the exact `a0` return code, the updated
-decoder globals (`attempted`, 32-bit status, stored-result pointer and buffer), and the preserved
-input and code. Allocation effects and preserved frames are added when the runner is proved (Row D);
-this fixes the observable interface. -/
+/-- The wrapper exit binding, after retiring the return: the exact `a0` return code, the complete
+updated decoder globals (`attempted`, 32-bit status, and the inline `stored_result` object), and the
+preserved input and code. Allocation effects and preserved frames are added when the runner is proved
+(Row D); this fixes the observable interface. -/
 def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
@@ -248,8 +264,7 @@ def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout
   MemoryBytes after args.inputBase args.bytes ∧
   env.CodeIntact after ∧
   after.regs.get? x10 = some (BitVec.ofNat 64 (callOutcome incoming result).returnCode) ∧
-  DecoderGlobalsScalarRep globals (resultingGlobals incoming result) after ∧
-  StoredResultRep globals rep args.inputBase args.bytes resultBuffer (resultingGlobals incoming result) after
+  DecoderGlobalsRep globals rep args.inputBase args.bytes resultBuffer (resultingGlobals incoming result) after
 
 /-- The wrapper as a full occurrence contract: the shared spec paired with the real exported binding
 at a given incoming globals model. -/
@@ -259,7 +274,7 @@ def occurrenceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobals
     OccurrenceContract ZesuDecodeRawArgs (Except SszDecodeError SszBridge.RawV4) where
   spec := specZesuDecodeRaw
   binding :=
-    { entry := preZesuDecodeRaw env globals incoming
+    { entry := preZesuDecodeRaw env globals resultBuffer rep incoming
       exit := postZesuDecodeRaw env globals resultBuffer rep incoming
       stepBound := fun args => 2 * (16384 + 512 * args.bytes.size) + 1024 }
 

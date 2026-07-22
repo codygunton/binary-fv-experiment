@@ -121,18 +121,40 @@ theorem decoderGlobalsValidated : decoderGlobalsChecksPass = true := by native_d
 
 /-! ## The checked layouts -/
 
-/-- The canonical decoder-globals layout, taken **only** from the validated generated artifact — no
-address is handwritten. `zesu_raw_error` reads `status`; `zesu_raw_result` returns `storedResult`
-(the buffer itself) or null. -/
+/-- The `?RawStatelessInput` layout of the inline `stored_result` object, from the ABI manifest:
+848 bytes, payload at 0, discriminant at 832. -/
+def canonicalStoredResultObjectLayout : Contracts.OptionLayout :=
+  { size := (Artifact.storedResultSize).getD 0
+    discriminantOffset := (Artifact.storedResultTagOffset).getD 0
+    payloadOffset := (Artifact.storedResultPayloadOffset).getD 0 }
+
+/-- The canonical decoder-globals layout, taken **only** from the validated generated artifact and the
+ABI manifest — no address is handwritten. `zesu_raw_error` reads `status`; `zesu_raw_result` returns
+the address of the inline `stored_result` object (its payload) or null. -/
 def canonicalDecoderGlobalsLayout : DecoderGlobalsLayout :=
   { attempted := (decoderGlobalAddr? "raw_decoder_root.attempted").getD 0
     status := (decoderGlobalAddr? "raw_decoder_root.last_status").getD 0
-    storedResult := (decoderGlobalAddr? "raw_decoder_root.stored_result").getD 0 }
+    storedResult := (decoderGlobalAddr? "raw_decoder_root.stored_result").getD 0
+    storedResultObject := canonicalStoredResultObjectLayout }
 
-/-- The canonical result buffer the exported accessor returns on success: the `stored_result` global
-itself (not a separate pointer). -/
+/-- The canonical result buffer the exported accessor returns on success: the address of the inline
+`stored_result` object's payload, i.e. the `stored_result` global address plus the payload offset (0).
+This is what `zesu_raw_result` returns — the object's address — not a separately-stored pointer. -/
 def canonicalResultBuffer : Nat :=
-  (decoderGlobalAddr? "raw_decoder_root.stored_result").getD 0
+  (decoderGlobalAddr? "raw_decoder_root.stored_result").getD 0 + canonicalStoredResultObjectLayout.payloadOffset
+
+/-- The object layout is exactly the reflected 848/832/0. -/
+theorem canonicalStoredResultObjectLayout_pinned :
+    canonicalStoredResultObjectLayout = { size := 848, discriminantOffset := 832, payloadOffset := 0 } := by
+  native_decide
+
+/-- `zesu_raw_result` returns the inline object's payload address, not a separately stored pointer:
+the canonical result buffer is exactly `stored_result` plus the object's payload offset. -/
+theorem canonicalResultBuffer_is_object_payload :
+    canonicalResultBuffer
+      = canonicalDecoderGlobalsLayout.storedResult
+        + canonicalDecoderGlobalsLayout.storedResultObject.payloadOffset :=
+  rfl
 
 /-- The canonical heap base and limit, from the validated `heap` region. -/
 def canonicalHeapBase : Nat := (runtimeGlobalAddr? "heap").getD 0

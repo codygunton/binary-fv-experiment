@@ -53,4 +53,8 @@ comptime {
     }) |T| logLayout(T);
     logOptionalLayout(?u64);
     logOptionalLayout(?raw.RawBlobSchedule);
+    // The `stored_result` global is `?RawStatelessInput`: an inline optional result object, not a
+    // pointer slot. Reflect its size and discriminant offset so the exported accessor's model is
+    // pinned to the real 848-byte layout.
+    logOptionalLayout(?raw.RawStatelessInput);
 }
