@@ -45,6 +45,10 @@ def HeapFixedVectorArrayRep {length : Nat} (state : State) (base : Nat)
   ∀ index (h : index < values.size),
     FixedByteVectorRep state (base + length * index) values[index]
 
+/-- The one-byte discriminant of a Zig non-pointer optional: `1` when present, `0` when absent. -/
+def OptionTagRep (state : State) (base : Nat) (present : Bool) : Prop :=
+  state.mem.get? base = some (BitVec.ofNat 8 (if present then 1 else 0))
+
 /-- A concrete little-endian RV64 word in Sail sparse memory. -/
 def Word64LERep (state : State) (base value : Nat) : Prop :=
   ∀ index, index < 8 →

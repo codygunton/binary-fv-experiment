@@ -28,7 +28,7 @@ structure OptionLayout where
   size : Nat
   discriminantOffset : Nat
   payloadOffset : Nat
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Inhabited
 
 /-- Field offsets within a `RawBlobSchedule` payload. -/
 structure BlobScheduleLayout where

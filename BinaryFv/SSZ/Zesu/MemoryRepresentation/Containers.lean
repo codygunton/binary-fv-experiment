@@ -18,10 +18,6 @@ namespace BinaryFv.SSZ.Zesu.MemoryRepresentation
 
 open BinaryFv.RiscV
 
-/-- The one-byte discriminant of a Zig non-pointer optional: `1` when present, `0` when absent. -/
-def OptionTagRep (state : State) (base : Nat) (present : Bool) : Prop :=
-  state.mem.get? base = some (BitVec.ofNat 8 (if present then 1 else 0))
-
 /-- A `?u64` (16 bytes): the `u64` payload at offset 0 and the discriminant byte at offset 8. When
 absent, only the discriminant is constrained; the payload bytes are undefined. -/
 def OptionU64Rep (state : State) (base : Nat) (value : Option UInt64) : Prop :=
