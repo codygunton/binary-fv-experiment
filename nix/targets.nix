@@ -744,6 +744,7 @@ let
     let
       probe = "${zesuContractProbe}/bin/ssz-contract-probe";
       agreement = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_agreement.py"; name = "ssz_contract_agreement.py"; };
+      routineVectors = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_routine_vectors.py"; name = "ssz_routine_vectors.py"; };
       mutation = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_mutation.py"; name = "ssz_contract_mutation.py"; };
       report = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_report.py"; name = "ssz_contract_report.py"; };
       corpusGen = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; };
@@ -763,6 +764,13 @@ let
       # (b) no leaks and (c) out-of-memory safety: the probe exits nonzero on any defect
       ${probe} "$out/corpus.jsonl" --ledger "$out/ledger.jsonl" > "$out/outcomes.jsonl" \
         || { echo "PROBE LEAK/OOM DEFECT (see ledger)" >&2; cat "$out/ledger.jsonl" >&2; exit 1; }
+
+      # (d) per-routine typed vectors: the real private routines match the exact expected value/error.
+      # The probe exits nonzero on any mismatched or unhandled routine vector.
+      python3 ${routineVectors} --out "$out/routine-vectors.jsonl"
+      ${probe} --routine-vectors "$out/routine-vectors.jsonl" > "$out/routine-outcomes.jsonl" \
+        || { echo "ROUTINE VECTOR MISMATCH (see routine-outcomes.jsonl)" >&2; \
+             grep '"match":false' "$out/routine-outcomes.jsonl" >&2 || true; exit 1; }
 
       # the real source rejects every targeted mutation class
       python3 ${mutation} --fixtures ${fixtures} --lean-runner ${probe} > "$out/mutation.txt" \
