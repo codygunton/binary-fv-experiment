@@ -41,8 +41,12 @@ def read_windows():
             addr = int(loc, 0)
         else:
             addr = int(gdb.parse_and_eval(loc)) & (2**64 - 1)
-        data = bytes(gdb.selected_inferior().read_memory(addr, length))
-        windows.append({"spec": spec, "addr": addr, "bytes": data.hex()})
+        # A boundary register may not hold a pointer at every stop; record null rather than aborting.
+        try:
+            data = bytes(gdb.selected_inferior().read_memory(addr, length))
+            windows.append({"spec": spec, "addr": addr, "bytes": data.hex()})
+        except (gdb.MemoryError, gdb.error):
+            windows.append({"spec": spec, "addr": addr, "bytes": None})
     return windows
 
 stops = []
