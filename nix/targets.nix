@@ -678,6 +678,82 @@ let
     '';
   };
 
+  # Row B host contract probe: a ReleaseSafe host executable that imports only the pinned `ssz_raw`
+  # module and drives the *real private* `raw.decode` over the shared contract corpus. The probe root
+  # lives in this repo (like `zesuAbiManifest`) and pulls `ssz_raw` from the pinned source, so no
+  # source patching is needed to reach the private routine. It emits the canonical decision plus an
+  # allocation ledger and validates out-of-memory safety. Host-only; never linked into the RV64 graph.
+  zesuContractProbe = pkgs.stdenvNoCC.mkDerivation {
+    pname = "zesu-ssz-contract-probe";
+    version = "96f1621";
+    src = zesuRepaired;
+    nativeBuildInputs = [ pkgs.zig ];
+    dontConfigure = true;
+    dontFixup = true;
+
+    buildPhase = ''
+      runHook preBuild
+      export HOME="$TMPDIR"
+      export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+      export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+      zig build-exe -O ReleaseSafe \
+        --dep ssz_raw \
+        -Mroot=${builtins.path { path = repo + "/targets/ssz/zesu/probe/ssz_contract_probe.zig"; name = "ssz_contract_probe.zig"; }} \
+        -Mssz_raw=$PWD/src/stateless/stateless/ssz_raw.zig \
+        -femit-bin=ssz-contract-probe
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/bin" "$out/meta"
+      cp ssz-contract-probe "$out/bin/ssz-contract-probe"
+      printf '%s\n' "zesu=codygunton/zesu@${zesuRepairedRevision}" > "$out/meta/provenance.txt"
+      printf '%s\n' "zig=$(zig version)" >> "$out/meta/provenance.txt"
+      runHook postInstall
+    '';
+  };
+
+  # Row B source-vs-expectation gate (no Lean toolchain): the real private decoder source must (a)
+  # decide accept/reject exactly as the corpus expects on every case, (b) never leak on any path, and
+  # (c) survive the single-point out-of-memory sweep. Agreement is transitive, so this alone is a
+  # complete source-vs-expectation check; the Lean-runner agreement lane cross-validates the oracle.
+  sszContractProbeCheck =
+    let
+      probe = "${zesuContractProbe}/bin/ssz-contract-probe";
+      agreement = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_agreement.py"; name = "ssz_contract_agreement.py"; };
+      mutation = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_mutation.py"; name = "ssz_contract_mutation.py"; };
+      corpusGen = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; };
+      fixtures = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
+    in
+    pkgs.runCommand "ssz-contract-probe-check" {
+      nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
+    } ''
+      set -euo pipefail
+      mkdir -p "$out"
+
+      # (a) the real source's decision agrees with the corpus expectation on every case
+      python3 ${agreement} --corpus-generator ${corpusGen} --fixtures ${fixtures} \
+        --zesu-probe ${probe} --corpus-out "$out/corpus.jsonl" > "$out/agreement.txt" \
+        || { echo "PROBE AGREEMENT FAILED" >&2; cat "$out/agreement.txt" >&2; exit 1; }
+
+      # (b) no leaks and (c) out-of-memory safety: the probe exits nonzero on any defect
+      ${probe} "$out/corpus.jsonl" --ledger "$out/ledger.jsonl" > "$out/outcomes.jsonl" \
+        || { echo "PROBE LEAK/OOM DEFECT (see ledger)" >&2; cat "$out/ledger.jsonl" >&2; exit 1; }
+
+      # the real source rejects every targeted mutation class
+      python3 ${mutation} --fixtures ${fixtures} --lean-runner ${probe} > "$out/mutation.txt" \
+        || { echo "MUTATION SMOKE FAILED" >&2; cat "$out/mutation.txt" >&2; exit 1; }
+
+      {
+        cat "$out/agreement.txt"
+        cat "$out/mutation.txt"
+        printf 'cases=%s leaked=%s oom_unsafe=%s\n' \
+          "$(wc -l < "$out/outcomes.jsonl")" \
+          "$(grep -c '"leaked":true' "$out/ledger.jsonl" || true)" \
+          "$(grep -c '"oom_safe":false' "$out/ledger.jsonl" || true)"
+      } | tee "$out/summary.txt"
+    '';
+
   zesuSsz = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-rv64im-zicclsm";
     version = "96f1621";
@@ -908,6 +984,8 @@ in
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
       sszContractCorpus
+      zesuContractProbe
+      sszContractProbeCheck
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -925,6 +1003,8 @@ in
     elfling-relocation-check = elflingRelocationCheck;
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;
     ssz-contract-corpus = sszContractCorpus;
+    zesu-contract-probe = zesuContractProbe;
+    ssz-contract-probe-check = sszContractProbeCheck;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;
