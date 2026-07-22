@@ -60,6 +60,16 @@ def requireU32Vectors : List (String × String × Bool) :=
    ("ssz_raw.requireU32Length/boundary-length/50", "00000000", true),
    ("ssz_raw.requireU32Length/boundary-length/51", "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", true)]
 
+def canonicalOffsetsVectors : List (String × String × Nat × List Nat × Bool) :=
+  [("ssz_raw.requireCanonicalOffsets/offset-canonical/57", "00000000000000000000000000000000", 8, [8], true),
+   ("ssz_raw.requireCanonicalOffsets/offset-canonical/58", "00000000000000000000000000000000", 8, [8, 12, 16], true),
+   ("ssz_raw.requireCanonicalOffsets/offset-canonical/59", "00000000000000000000000000000000", 8, [8, 8], true),
+   ("ssz_raw.requireCanonicalOffsets/offset-wrong-first/60", "00000000000000000000000000000000", 8, [12], false),
+   ("ssz_raw.requireCanonicalOffsets/offset-descending/61", "00000000000000000000000000000000", 8, [8, 12, 10], false),
+   ("ssz_raw.requireCanonicalOffsets/offset-out-of-range/62", "00000000000000000000000000000000", 8, [8, 20], false),
+   ("ssz_raw.requireCanonicalOffsets/offset-short-slice/63", "00000000", 8, [8], false),
+   ("ssz_raw.requireCanonicalOffsets/offset-empty-table/64", "00000000000000000000000000000000", 8, [], false)]
+
 def erePrefixVectors : List (String × String × Bool) :=
   [("ssz_raw.hasExactErePrefix/raw-ere/53", "", false),
    ("ssz_raw.hasExactErePrefix/raw-ere/54", "010203", false),
@@ -67,20 +77,20 @@ def erePrefixVectors : List (String × String × Bool) :=
    ("ssz_raw.hasExactErePrefix/raw-ere/56", "0700000041424344", false)]
 
 def optionalU64Vectors : List (String × String × Option (Option Nat)) :=
-  [("ssz_raw.decodeOptionalU64/option-absent/57", "", some none),
-   ("ssz_raw.decodeOptionalU64/option-present/58", "1122334455667788", some (some 9833440827789222417)),
-   ("ssz_raw.decodeOptionalU64/option-present/59", "0000000000000000", some (some 0)),
-   ("ssz_raw.decodeOptionalU64/option-present/60", "ffffffffffffffff", some (some 18446744073709551615)),
-   ("ssz_raw.decodeOptionalU64/option-malformed/61", "11111111111111", none),
-   ("ssz_raw.decodeOptionalU64/option-malformed/62", "111111111111111111", none)]
+  [("ssz_raw.decodeOptionalU64/option-absent/65", "", some none),
+   ("ssz_raw.decodeOptionalU64/option-present/66", "1122334455667788", some (some 9833440827789222417)),
+   ("ssz_raw.decodeOptionalU64/option-present/67", "0000000000000000", some (some 0)),
+   ("ssz_raw.decodeOptionalU64/option-present/68", "ffffffffffffffff", some (some 18446744073709551615)),
+   ("ssz_raw.decodeOptionalU64/option-malformed/69", "11111111111111", none),
+   ("ssz_raw.decodeOptionalU64/option-malformed/70", "111111111111111111", none)]
 
 def optionalBlobVectors : List (String × String × Option (Option (Nat × Nat × Nat))) :=
-  [("ssz_raw.decodeOptionalBlobSchedule/option-absent/63", "", some none),
-   ("ssz_raw.decodeOptionalBlobSchedule/option-present/64", "01060b10151a1f24292e33383d42474c51565b60656a6f74", some (some (2602827787409229313, 5496434700932296233, 8390041614455363153))),
-   ("ssz_raw.decodeOptionalBlobSchedule/option-present/65", "000000000000000000000000000000000000000000000000", some (some (0, 0, 0))),
-   ("ssz_raw.decodeOptionalBlobSchedule/option-present/66", "ffffffffffffffffffffffffffffffffffffffffffffffff", some (some (18446744073709551615, 18446744073709551615, 18446744073709551615))),
-   ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/67", "2222222222222222222222222222222222222222222222", none),
-   ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/68", "22222222222222222222222222222222222222222222222222", none),
-   ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/69", "22222222222222222222222222222222", none)]
+  [("ssz_raw.decodeOptionalBlobSchedule/option-absent/71", "", some none),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-present/72", "01060b10151a1f24292e33383d42474c51565b60656a6f74", some (some (2602827787409229313, 5496434700932296233, 8390041614455363153))),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-present/73", "000000000000000000000000000000000000000000000000", some (some (0, 0, 0))),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-present/74", "ffffffffffffffffffffffffffffffffffffffffffffffff", some (some (18446744073709551615, 18446744073709551615, 18446744073709551615))),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/75", "2222222222222222222222222222222222222222222222", none),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/76", "22222222222222222222222222222222222222222222222222", none),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/77", "22222222222222222222222222222222", none)]
 
 end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors

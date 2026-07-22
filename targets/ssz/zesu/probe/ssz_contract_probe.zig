@@ -294,6 +294,24 @@ fn runRoutine(routine: []const u8, args: std.json.ObjectMap, input: []const u8, 
         if (raw.probe_bytesAt(input, off, len)) |s| return .{ .bytes = s } else |e| return .{ .err = errLabel(@errorName(e)) };
     } else if (std.mem.eql(u8, routine, "ssz_raw.requireU32Length")) {
         if (raw.probe_requireU32Length(input)) |_| return .{ .ok = {} } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.requireCanonicalOffsets")) {
+        const fixed_size: usize = @intCast(jsonInt(args, "fixed_size") orelse 0);
+        var offs_buf: [64]usize = undefined;
+        var n: usize = 0;
+        switch (args.get("offsets") orelse return null) {
+            .array => |arr| for (arr.items) |it| {
+                if (n >= offs_buf.len) return null;
+                offs_buf[n] = switch (it) {
+                    .integer => |x| @intCast(x),
+                    else => return null,
+                };
+                n += 1;
+            },
+            else => return null,
+        }
+        if (raw.probe_requireCanonicalOffsets(input, fixed_size, offs_buf[0..n])) |_|
+            return .{ .ok = {} }
+        else |e| return .{ .err = errLabel(@errorName(e)) };
     } else if (std.mem.eql(u8, routine, "ssz_raw.hasExactErePrefix")) {
         return .{ .boolean = raw.probe_hasExactErePrefix(input) };
     } else if (std.mem.eql(u8, routine, "ssz_raw.decodeOptionalU64")) {
