@@ -14,9 +14,10 @@ So expected ≡ Zig-routine ∧ expected ≡ Lean-meaning ⇒ Zig-routine ≡ ha
 at the exact-value / exact-error granularity item 3 requires. Expected values are a small deterministic
 SSZ reference computed here; a divergence in either runner is a real finding.
 
-This module covers the leaf readers (scalar / slice / predicate) and the two non-allocating option
-decoders (`decodeOptionalU64`, `decodeOptionalBlobSchedule`). Container / collection / runtime routines
-are added by their own vector groups.
+This module covers the leaf readers (scalar / slice / predicate), the two non-allocating option
+decoders (`decodeOptionalU64`, `decodeOptionalBlobSchedule`), and the three non-allocating containers
+(`decodeForkActivation`, `decodeForkConfig`, `decodeChainConfig`). Allocating collections / containers
+and the runtime routines are added by their own vector groups.
 
 JSONL row schema (`ssz-routine-vectors-v1`), keys sorted, one line per case:
   {"schema","id","routine","args":{...typed...},
@@ -65,6 +66,66 @@ def val_opt_blob(v):
     """decodeOptionalBlobSchedule result: `None`, or a `(target, max, bfuf)` triple of u64s."""
     inner = None if v is None else {"target": str(v[0]), "max": str(v[1]), "bfuf": str(v[2])}
     return {"kind": "value", "value": {"opt": inner}, "error": None}
+
+
+UNKNOWN_FORK = {"kind": "error", "value": None, "error": "unknownFork"}
+
+
+def val_scalars(xs):
+    """A container/struct value flattened to a fixed-order list of u64 scalars (decimal strings). This
+    is a lossless encoding of the decoded struct: every u64 field, with each option preceded by a 0/1
+    presence bit. Both runners flatten in the SAME field order (documented at each container below)."""
+    return {"kind": "value", "value": {"scalars": [str(x) for x in xs]}, "error": None}
+
+
+# --- SSZ container fixture builders (mirror ssz_differential_audit.py; kept inline so this generator
+# stays self-contained for the Nix probe invocation). Values are triple-checked by probe + Lean. ------
+
+def _u32(v):
+    return v.to_bytes(4, "little")
+
+
+def _u64(v):
+    return v.to_bytes(8, "little")
+
+
+def fa_bytes(block_number, timestamp):
+    """decodeForkActivation input: two u32 offsets (fixed_size 8), then two optional u64 regions."""
+    block = b"" if block_number is None else _u64(block_number)
+    time = b"" if timestamp is None else _u64(timestamp)
+    return _u32(8) + _u32(8 + len(block)) + block + time
+
+
+def fc_bytes(fork, activation, blob_schedule):
+    """decodeForkConfig input: u64 fork, two u32 offsets (fixed_size 16), activation, blob region."""
+    blob = b"" if blob_schedule is None else b"".join(_u64(v) for v in blob_schedule)
+    return _u64(fork) + _u32(16) + _u32(16 + len(activation)) + activation + blob
+
+
+def cc_bytes(chain_id, fork_config):
+    """decodeChainConfig input: u64 chain_id, one u32 offset (fixed_size 12), then the fork config."""
+    return _u64(chain_id) + _u32(12) + fork_config
+
+
+# Flatteners: the exact field order both the Zig probe and the Lean meaning reproduce.
+def flat_opt(v):                                        # option -> [presence, value|0]
+    return [0, 0] if v is None else [1, v]
+
+
+def flat_fa(block_number, timestamp):                   # ForkActivation -> 4 scalars
+    return flat_opt(block_number) + flat_opt(timestamp)
+
+
+def flat_blob(bs):                                      # Option BlobSchedule -> [presence, t, m, b]
+    return [0, 0, 0, 0] if bs is None else [1, bs[0], bs[1], bs[2]]
+
+
+def flat_fc(fork, block_number, timestamp, blob):       # ForkConfig -> 9 scalars
+    return [fork] + flat_fa(block_number, timestamp) + flat_blob(blob)
+
+
+def flat_cc(chain_id, fork, block_number, timestamp, blob):  # ChainConfig -> 10 scalars
+    return [chain_id] + flat_fc(fork, block_number, timestamp, blob)
 
 
 # --- deterministic SSZ reference (matches both the Zig routine and the handwritten Lean meaning) -----
@@ -249,6 +310,48 @@ def rows():
     add("ssz_raw.decodeOptionalBlobSchedule", {"data": (b"\x22" * 25).hex()}, INVALID, "option-malformed")  # 25
     add("ssz_raw.decodeOptionalBlobSchedule", {"data": (b"\x22" * 16).hex()}, INVALID, "option-malformed")  # 16
 
+    # --- Non-allocating containers: decodeForkActivation / decodeForkConfig / decodeChainConfig -------
+    # Value = flattened u64 scalar list (field order in flat_fa/flat_fc/flat_cc above). These exercise
+    # the offset-table + optional composition, and (fork config / chain config) the unknownFork arm and
+    # its ordering: the offset-table check precedes the fork-bound check, which precedes child decodes.
+
+    # decodeForkActivation
+    add("ssz_raw.decodeForkActivation", {"data": fa_bytes(None, None).hex()}, val_scalars(flat_fa(None, None)), "container-forkactivation")
+    add("ssz_raw.decodeForkActivation", {"data": fa_bytes(5, None).hex()}, val_scalars(flat_fa(5, None)), "container-forkactivation")
+    add("ssz_raw.decodeForkActivation", {"data": fa_bytes(None, 7).hex()}, val_scalars(flat_fa(None, 7)), "container-forkactivation")
+    add("ssz_raw.decodeForkActivation", {"data": fa_bytes(11, 22).hex()}, val_scalars(flat_fa(11, 22)), "container-forkactivation")
+    add("ssz_raw.decodeForkActivation", {"data": (b"\x00" * 4).hex()}, INVALID, "container-malformed")          # < 8 bytes
+    add("ssz_raw.decodeForkActivation", {"data": (_u32(9) + _u32(9)).hex()}, INVALID, "container-malformed")    # first offset != 8
+    add("ssz_raw.decodeForkActivation", {"data": (_u32(8) + _u32(15) + b"\x00" * 7).hex()}, INVALID, "container-malformed")  # 7-byte option region
+
+    # decodeForkConfig
+    add("ssz_raw.decodeForkConfig", {"data": fc_bytes(20, fa_bytes(None, None), (1, 2, 3)).hex()},
+        val_scalars(flat_fc(20, None, None, (1, 2, 3))), "container-forkconfig")
+    add("ssz_raw.decodeForkConfig", {"data": fc_bytes(0, fa_bytes(4, 8), None).hex()},
+        val_scalars(flat_fc(0, 4, 8, None)), "container-forkconfig")
+    add("ssz_raw.decodeForkConfig", {"data": fc_bytes(20, fa_bytes(1, 2), (9, 9, 9)).hex()},
+        val_scalars(flat_fc(20, 1, 2, (9, 9, 9))), "container-forkconfig")
+    add("ssz_raw.decodeForkConfig", {"data": fc_bytes(21, fa_bytes(None, None), (1, 2, 3)).hex()},
+        UNKNOWN_FORK, "fork-unknown")                                                                          # fork 21 > 20
+    add("ssz_raw.decodeForkConfig", {"data": fc_bytes(255, fa_bytes(1, 2), None).hex()},
+        UNKNOWN_FORK, "fork-unknown")                                                                          # fork 255
+    # Ordering: fork 21 with a malformed CHILD still yields unknownFork (bound checked before children).
+    add("ssz_raw.decodeForkConfig", {"data": fc_bytes(21, (_u32(8) + _u32(15) + b"\x00" * 7), (1, 2, 3)).hex()},
+        UNKNOWN_FORK, "fork-ordering")
+    # Ordering: a bad offset table with fork 21 yields invalidSsz (offset check precedes the bound).
+    add("ssz_raw.decodeForkConfig", {"data": (_u64(21) + _u32(17) + _u32(17)).hex()},
+        INVALID, "fork-ordering")                                                                              # first offset 17 != 16
+    add("ssz_raw.decodeForkConfig", {"data": (b"\x00" * 8).hex()}, INVALID, "container-malformed")             # < 16 bytes
+
+    # decodeChainConfig (nests a fork config; unknownFork propagates from the child)
+    add("ssz_raw.decodeChainConfig", {"data": cc_bytes(1, fc_bytes(20, fa_bytes(None, None), (1, 2, 3))).hex()},
+        val_scalars(flat_cc(1, 20, None, None, (1, 2, 3))), "container-chainconfig")
+    add("ssz_raw.decodeChainConfig", {"data": cc_bytes(7, fc_bytes(0, fa_bytes(4, 8), None)).hex()},
+        val_scalars(flat_cc(7, 0, 4, 8, None)), "container-chainconfig")
+    add("ssz_raw.decodeChainConfig", {"data": cc_bytes(1, fc_bytes(21, fa_bytes(None, None), (1, 2, 3))).hex()},
+        UNKNOWN_FORK, "fork-unknown")                                                                          # child fork 21
+    add("ssz_raw.decodeChainConfig", {"data": (b"\x00" * 8).hex()}, INVALID, "container-malformed")            # < 12 bytes
+
     return out
 
 
@@ -261,6 +364,16 @@ def emit_lean(all_rows) -> str:
     omitted (their arm is not value-checkable). Groups: scalar reads, slice reads, unit checks,
     predicates — matching the handwritten meaning families."""
     scalar, slice_, requ, ere, optu64, optblob, canon = [], [], [], [], [], [], []
+    fa_c, fc_c, cc_c = [], [], []
+
+    def container_row(r, a, e):
+        # expected : Option (List Nat) × String -- (some scalars, "") on success; (none, label) on error.
+        if e["kind"] == "value":
+            exp = f'(some [{", ".join(e["value"]["scalars"])}], "")'
+        else:
+            exp = f'(none, {_lean_str(e["error"])})'
+        return f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {exp})'
+
     for r in all_rows:
         if r["expect"]["kind"] == "gap":
             continue
@@ -298,6 +411,12 @@ def emit_lean(all_rows) -> str:
                 ev = "some none" if inner is None else \
                     f'some (some ({inner["target"]}, {inner["max"]}, {inner["bfuf"]}))'
             optblob.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {ev})')
+        elif rt == "ssz_raw.decodeForkActivation":
+            fa_c.append(container_row(r, a, e))
+        elif rt == "ssz_raw.decodeForkConfig":
+            fc_c.append(container_row(r, a, e))
+        elif rt == "ssz_raw.decodeChainConfig":
+            cc_c.append(container_row(r, a, e))
 
     def block(name, ty, items):
         body = ",\n   ".join(items) if items else ""
@@ -315,6 +434,9 @@ def emit_lean(all_rows) -> str:
         block("erePrefixVectors", "String × String × Bool", ere),
         block("optionalU64Vectors", "String × String × Option (Option Nat)", optu64),
         block("optionalBlobVectors", "String × String × Option (Option (Nat × Nat × Nat))", optblob),
+        block("forkActivationVectors", "String × String × (Option (List Nat) × String)", fa_c),
+        block("forkConfigVectors", "String × String × (Option (List Nat) × String)", fc_c),
+        block("chainConfigVectors", "String × String × (Option (List Nat) × String)", cc_c),
         "end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
     ]
     return "\n".join(L) + "\n"
