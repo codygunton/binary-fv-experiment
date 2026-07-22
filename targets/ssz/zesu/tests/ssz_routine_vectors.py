@@ -221,7 +221,8 @@ def val_tree(tree):
 
 
 def exec_requests_case(deposits, withdrawal_reqs, consolidations):
-    """RawExecutionRequests = {deposits, withdrawals, consolidations}: three collection nodes."""
+    """RawExecutionRequests = {deposits, withdrawals, consolidations}: three collection nodes. Allocates
+    one block per non-empty sub-collection, in that order. Returns (body, tree, alloc-shape)."""
     dep = [deposit_elem(*d) for d in deposits]
     wr = [withdrawal_req_elem(*w) for w in withdrawal_reqs]
     cons = [consolidation_elem(*c) for c in consolidations]
@@ -229,15 +230,19 @@ def exec_requests_case(deposits, withdrawal_reqs, consolidations):
             + _u32(12 + sum(len(e[0]) for e in dep) + sum(len(e[0]) for e in wr))
             + b"".join(e[0] for e in dep) + b"".join(e[0] for e in wr) + b"".join(e[0] for e in cons))
     tree = [[e[1] for e in dep], [e[1] for e in wr], [e[1] for e in cons]]
-    return body, tree
+    shape = [("deposit", len(deposits)), ("withdrawalReq", len(withdrawal_reqs)),
+             ("consolidation", len(consolidations))]
+    return body, tree, shape
 
 
 def witness_case(state, codes, headers):
-    """RawExecutionWitness = {state, codes, headers}: three byte-list-list nodes (each item a leaf)."""
+    """RawExecutionWitness = {state, codes, headers}: three byte-list-list nodes (each item a leaf).
+    Allocates one []const u8 array per non-empty list, in that order."""
     sd, cd, hd = byte_list_list_bytes(state), byte_list_list_bytes(codes), byte_list_list_bytes(headers)
     body = _u32(12) + _u32(12 + len(sd)) + _u32(12 + len(sd) + len(cd)) + sd + cd + hd
     tree = [[s.hex() for s in state], [c.hex() for c in codes], [h.hex() for h in headers]]
-    return body, tree
+    shape = [("sliceU8", len(state)), ("sliceU8", len(codes)), ("sliceU8", len(headers))]
+    return body, tree, shape
 
 
 def exec_payload_case(*, parent_hash=None, fee_recipient=None, state_root=None, receipts_root=None,
@@ -289,14 +294,17 @@ def exec_payload_case(*, parent_hash=None, fee_recipient=None, state_root=None, 
         block_hash.hex(), [tx.hex() for tx in transactions], [e[1] for e in wd],
         hexle_u64(blob_gas_used), hexle_u64(excess_blob_gas), block_access_list.hex(), hexle_u64(slot_number),
     ]
-    return body, tree
+    # decodeExecutionPayload allocates transactions (byte-list-list) then withdrawals, in that order.
+    shape = [("sliceU8", len(list(transactions))), ("withdrawal", len(withdrawals))]
+    return body, tree, shape
 
 
 def npr_case(payload, versioned_hash_seeds, parent_beacon_block_root, requests, padding=0):
     """RawNewPayloadRequest = {execution_payload, versioned_hashes, parent_beacon_block_root,
-    execution_requests}. `payload`/`requests` are (body, tree) pairs."""
-    payload_body, payload_tree = payload
-    req_body, req_tree = requests
+    execution_requests}. `payload`/`requests` are (body, tree, shape) triples. Allocates in decode
+    order: payload's blocks, then versioned_hashes, then execution_requests' blocks."""
+    payload_body, payload_tree, payload_shape = payload
+    req_body, req_tree, req_shape = requests
     hashes = [bvec(s, 32) for s in versioned_hash_seeds]
     vh_data = b"".join(hashes)
     payload_offset = 44 + padding
@@ -305,7 +313,8 @@ def npr_case(payload, versioned_hash_seeds, parent_beacon_block_root, requests, 
     body = (_u32(payload_offset) + _u32(hashes_offset) + parent_beacon_block_root
             + _u32(requests_offset) + (b"P" * padding) + payload_body + vh_data + req_body)
     tree = [payload_tree, [h.hex() for h in hashes], parent_beacon_block_root.hex(), req_tree]
-    return body, tree
+    shape = payload_shape + [("hash32", len(versioned_hash_seeds))] + req_shape
+    return body, tree, shape
 
 
 SCHEMA_ID = b"\x00\x01"  # the pinned Amsterdam V4 schema id (ssz_raw.schema_id)
@@ -324,9 +333,10 @@ def chain_config_case(chain_id=1, fork=20, block_number=None, timestamp=0, blob=
 
 def stateless_input_case(npr, wit, chain, pubkey_seeds):
     """RawStatelessInput/RawV4 = {new_payload_request, witness, chain_config, public_keys}. The body is
-    SCHEMA_ID + offset table + parts (mirrors ssz_differential_audit.stateless_input)."""
-    npr_body, npr_tree = npr
-    w_body, w_tree = wit
+    SCHEMA_ID + offset table + parts. Allocates in decode order: npr's blocks, witness's blocks,
+    chain_config (none), then public_keys."""
+    npr_body, npr_tree, npr_shape = npr
+    w_body, w_tree, w_shape = wit
     c_body, c_tree = chain
     pks = [bvec(s, 65) for s in pubkey_seeds]
     witness_offset = 16 + len(npr_body)
@@ -335,7 +345,8 @@ def stateless_input_case(npr, wit, chain, pubkey_seeds):
     body = (SCHEMA_ID + _u32(16) + _u32(witness_offset) + _u32(chain_offset) + _u32(pk_offset)
             + npr_body + w_body + c_body + b"".join(pks))
     tree = [npr_tree, w_tree, c_tree, [pk.hex() for pk in pks]]
-    return body, tree
+    shape = npr_shape + w_shape + [("pubkey65", len(pubkey_seeds))]
+    return body, tree, shape
 
 
 # --- deterministic SSZ reference (matches both the Zig routine and the handwritten Lean meaning) -----
@@ -408,10 +419,32 @@ def ref_optional_blob(data: bytes):
 
 # --- vector construction ----------------------------------------------------------------------------
 
-def rows():
+def rows(abi=None):
     out = []
 
-    def add(routine, args, expect, coverage):
+    def ledger_of(shape):
+        """The expected per-event allocation ledger for an ordered list of (element-type, count) blocks
+        — computed independently of the decoder from the routine's allocation structure and the host
+        ABI table (`abi`). A block of count 0 allocates nothing (Zig `alloc(T, 0)` never calls rawAlloc).
+        Every block is freed on the success path, and no two live blocks alias."""
+        events = []
+        for typename, count in shape:
+            if count <= 0:
+                continue
+            events.append({
+                "ordinal": len(events),
+                "size": count * abi[typename]["size"],
+                "alignment": abi[typename]["align"],
+                "block": len(events),
+                "aliases": False,
+                "freed": True,
+            })
+        return events
+
+    def add(routine, args, expect, coverage, shape=None):
+        # For allocating success cases, bake the independent expected ledger (only when --abi is given).
+        if shape is not None and abi is not None and expect.get("kind") == "value":
+            expect = {**expect, "ledger": ledger_of(shape)}
         out.append({
             "schema": SCHEMA, "id": f"{routine}/{coverage}/{len(out)}",
             "routine": routine, "args": args, "expect": expect, "coverage": coverage,
@@ -564,12 +597,20 @@ def rows():
 
     # --- Collections (allocating): zero / one / many elements, plus malformed (non-multiple of the
     # fixed stride) and count > max. Element order and stride match the pinned source. -------------
+    coll_elem_type = {
+        "ssz_raw.decodeVersionedHashes": "hash32", "ssz_raw.decodePublicKeys": "pubkey65",
+        "ssz_raw.decodeWithdrawals": "withdrawal", "ssz_raw.decodeDepositRequests": "deposit",
+        "ssz_raw.decodeWithdrawalRequests": "withdrawalReq",
+        "ssz_raw.decodeConsolidationRequests": "consolidation"}
+
     def add_coll(routine, elems, coverage, extra=None):
         body = b"".join(e[0] for e in elems)
         args = {"data": body.hex()}
         if extra:
             args.update(extra)
-        add(routine, args, val_items([e[1] for e in elems]), coverage)
+        # A collection allocates one block of `len(elems)` elements (none when empty).
+        add(routine, args, val_items([e[1] for e in elems]), coverage,
+            shape=[(coll_elem_type[routine], len(elems))])
 
     # decodeVersionedHashes (stride 32, max 4096)
     add_coll("ssz_raw.decodeVersionedHashes", [], "collection-zero")
@@ -613,58 +654,60 @@ def rows():
     add("ssz_raw.decodeConsolidationRequests", {"data": (b"\x00" * 115).hex()}, INVALID, "collection-malformed")
 
     # decodeByteListList (offset-table list of byte lists; runtime max_items / max_item_bytes args).
+    # Allocates one []const u8 array of `len(items)` slice descriptors (none when empty).
     bll_extra = {"max_items": 8, "max_item_bytes": 1024}
     add("ssz_raw.decodeByteListList", {"data": byte_list_list_bytes([]).hex(), **bll_extra},
-        val_items([]), "collection-zero")
+        val_items([]), "collection-zero", shape=[("sliceU8", 0)])
     add("ssz_raw.decodeByteListList", {"data": byte_list_list_bytes([b"hello"]).hex(), **bll_extra},
-        val_items([[b"hello".hex()]]), "collection-one")
+        val_items([[b"hello".hex()]]), "collection-one", shape=[("sliceU8", 1)])
     add("ssz_raw.decodeByteListList",
         {"data": byte_list_list_bytes([b"ab", b"", b"cdef"]).hex(), **bll_extra},
-        val_items([[b"ab".hex()], [b"".hex()], [b"cdef".hex()]]), "collection-many")
+        val_items([[b"ab".hex()], [b"".hex()], [b"cdef".hex()]]), "collection-many", shape=[("sliceU8", 3)])
     add("ssz_raw.decodeByteListList", {"data": (b"\x01\x02\x03").hex(), **bll_extra},
         INVALID, "collection-malformed")  # len 3 < 4, nonzero
     add("ssz_raw.decodeByteListList", {"data": byte_list_list_bytes([b"toolong"]).hex(),
         "max_items": 8, "max_item_bytes": 2}, INVALID, "collection-malformed")  # item exceeds max_item_bytes
 
-    # --- Allocating containers (nested structs -> recursive value trees) ---------------------------
+    # --- Allocating containers (nested structs -> recursive value trees). The `shape` is the exact
+    # ordered allocation the decoder performs; the probe compares its observed ledger to it. ---------
     # decodeExecutionRequests (three request collections; fixed size 12)
-    er_body, er_tree = exec_requests_case([(1, 2, 32, 3, 7)], [(4, 5, 55)], [(6, 7, 8)])
-    add("ssz_raw.decodeExecutionRequests", {"data": er_body.hex()}, val_tree(er_tree), "container-execrequests")
-    er0 = exec_requests_case([], [], [])
-    add("ssz_raw.decodeExecutionRequests", {"data": er0[0].hex()}, val_tree(er0[1]), "container-execrequests")
+    er_body, er_tree, er_shape = exec_requests_case([(1, 2, 32, 3, 7)], [(4, 5, 55)], [(6, 7, 8)])
+    add("ssz_raw.decodeExecutionRequests", {"data": er_body.hex()}, val_tree(er_tree), "container-execrequests", shape=er_shape)
+    er0b, er0t, er0s = exec_requests_case([], [], [])
+    add("ssz_raw.decodeExecutionRequests", {"data": er0b.hex()}, val_tree(er0t), "container-execrequests", shape=er0s)
     add("ssz_raw.decodeExecutionRequests", {"data": (b"\x00" * 8).hex()}, INVALID, "container-malformed")  # < 12
 
     # decodeExecutionWitness (three byte-list-lists; fixed size 12)
-    w_body, w_tree = witness_case([b"state-a", b"state-b"], [b"code"], [b"header"])
-    add("ssz_raw.decodeExecutionWitness", {"data": w_body.hex()}, val_tree(w_tree), "container-execwitness")
-    w0 = witness_case([], [], [])
-    add("ssz_raw.decodeExecutionWitness", {"data": w0[0].hex()}, val_tree(w0[1]), "container-execwitness")
+    w_body, w_tree, w_shape = witness_case([b"state-a", b"state-b"], [b"code"], [b"header"])
+    add("ssz_raw.decodeExecutionWitness", {"data": w_body.hex()}, val_tree(w_tree), "container-execwitness", shape=w_shape)
+    w0b, w0t, w0s = witness_case([], [], [])
+    add("ssz_raw.decodeExecutionWitness", {"data": w0b.hex()}, val_tree(w0t), "container-execwitness", shape=w0s)
     add("ssz_raw.decodeExecutionWitness", {"data": (b"\x00" * 8).hex()}, INVALID, "container-malformed")
 
     # decodeExecutionPayload (19 fields incl. a u256 and the transactions/withdrawals nodes; fixed 540)
     ep = exec_payload_case()
-    add("ssz_raw.decodeExecutionPayload", {"data": ep[0].hex()}, val_tree(ep[1]), "container-execpayload")
+    add("ssz_raw.decodeExecutionPayload", {"data": ep[0].hex()}, val_tree(ep[1]), "container-execpayload", shape=ep[2])
     ep0 = exec_payload_case(extra_data=b"", transactions=(), withdrawals=(), block_access_list=b"")
-    add("ssz_raw.decodeExecutionPayload", {"data": ep0[0].hex()}, val_tree(ep0[1]), "container-execpayload")
+    add("ssz_raw.decodeExecutionPayload", {"data": ep0[0].hex()}, val_tree(ep0[1]), "container-execpayload", shape=ep0[2])
     add("ssz_raw.decodeExecutionPayload", {"data": (b"\x00" * 100).hex()}, INVALID, "container-malformed")  # < 540
 
     # decodeNewPayloadRequest (nests a payload + hashes + pbbr + requests; fixed size 44)
     npr = npr_case(exec_payload_case(), [10, 50], bvec(9, 32), exec_requests_case([(1, 2, 32, 3, 7)], [], []))
-    add("ssz_raw.decodeNewPayloadRequest", {"data": npr[0].hex()}, val_tree(npr[1]), "container-newpayload")
+    add("ssz_raw.decodeNewPayloadRequest", {"data": npr[0].hex()}, val_tree(npr[1]), "container-newpayload", shape=npr[2])
     add("ssz_raw.decodeNewPayloadRequest", {"data": (b"\x00" * 8).hex()}, INVALID, "container-malformed")  # < 44
 
     # --- Internal entry routines: decodeRaw (schema-prefixed, no ERE) and decode (raw-first with an
     # exact ERE-length retry). Both return the full RawStatelessInput/RawV4 tree. ------------------
-    si_body, si_tree = stateless_input_case(
+    si_body, si_tree, si_shape = stateless_input_case(
         npr_case(exec_payload_case(), [10, 50], bvec(9, 32), exec_requests_case([(1, 2, 32, 3, 7)], [], [])),
         witness_case([b"state"], [b"code"], [b"header"]), chain_config_case(), [1, 2])
-    add("ssz_raw.decodeRaw", {"data": si_body.hex()}, val_tree(si_tree), "entry-raw")
+    add("ssz_raw.decodeRaw", {"data": si_body.hex()}, val_tree(si_tree), "entry-raw", shape=si_shape)
     add("ssz_raw.decodeRaw", {"data": SCHEMA_ID.hex()}, INVALID, "entry-malformed")          # too short
     add("ssz_raw.decodeRaw", {"data": (b"\x00\x02" + si_body[2:]).hex()}, INVALID, "entry-malformed")  # wrong schema
 
-    add("ssz_raw.decode", {"data": si_body.hex()}, val_tree(si_tree), "entry-raw")            # raw path
+    add("ssz_raw.decode", {"data": si_body.hex()}, val_tree(si_tree), "entry-raw", shape=si_shape)  # raw path
     ere = _u32(len(si_body)) + si_body
-    add("ssz_raw.decode", {"data": ere.hex()}, val_tree(si_tree), "entry-ere")                # exact ERE retry
+    add("ssz_raw.decode", {"data": ere.hex()}, val_tree(si_tree), "entry-ere", shape=si_shape)      # exact ERE retry
     add("ssz_raw.decode", {"data": (_u32(999) + si_body).hex()}, INVALID, "entry-ere")        # wrong ERE length
     add("ssz_raw.decode", {"data": (b"\x00\x02").hex()}, INVALID, "entry-malformed")          # wrong schema, no ERE
 
@@ -711,7 +754,7 @@ def rows():
 
     # zesu_decode_raw / zesu_raw_error / zesu_raw_result: exercised over a valid input (ok, status 1,
     # result present) and an invalid one (invalidSsz, status 2, no result).
-    good_body, _ = stateless_input_case(
+    good_body, _, _ = stateless_input_case(
         npr_case(exec_payload_case(), [10, 50], bvec(9, 32), exec_requests_case([(1, 2, 32, 3, 7)], [], [])),
         witness_case([b"state"], [b"code"], [b"header"]), chain_config_case(), [1, 2])
     bad_body = b"\x00\x02\x00"  # right schema id, too short -> invalidSsz
@@ -923,8 +966,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out")
     ap.add_argument("--out-lean")
+    # The host ABI table (from `ssz-contract-probe --dump-abi`); when given, each allocating success
+    # vector carries an independent expected allocation ledger for the probe to compare exactly.
+    ap.add_argument("--abi")
     args = ap.parse_args()
-    all_rows = rows()
+    abi = json.load(open(args.abi)) if args.abi else None
+    all_rows = rows(abi=abi)
     lines = [json.dumps(r, sort_keys=True, separators=(",", ":")) for r in all_rows]
     text = "\n".join(lines) + "\n"
     if args.out:

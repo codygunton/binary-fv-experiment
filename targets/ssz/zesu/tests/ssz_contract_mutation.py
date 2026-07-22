@@ -59,10 +59,13 @@ def _run_one(runner: str, name: str, data: bytes) -> str:
 # ---- Routine-vector mutations: prove the per-routine value/error check is discriminating. Each mutates
 # ONE row's expectation and requires the probe to flag exactly that row as a mismatch. ----------------
 
-def _gen_vectors(generator: str) -> list[dict]:
+def _gen_vectors(generator: str, abi: str | None = None) -> list[dict]:
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
         path = fh.name
-    subprocess.run([sys.executable, generator, "--out", path], check=True)
+    cmd = [sys.executable, generator, "--out", path]
+    if abi:
+        cmd += ["--abi", abi]  # so allocating vectors carry expected ledgers
+    subprocess.run(cmd, check=True)
     rows = [json.loads(l) for l in Path(path).read_text().splitlines() if l.strip()]
     Path(path).unlink(missing_ok=True)
     return rows
@@ -92,11 +95,12 @@ def _first(rows, predicate):
     raise SystemExit(f"mutation: no routine vector matched a required predicate")
 
 
-def routine_vector_mutations(probe: str, generator: str) -> list[str]:
-    """Each mutation edits one expected value/error and must be caught (that row -> match:false, and the
-    probe exits nonzero). Covers wrong local value, wrong error, endianness, size bound, fork/error
-    ordering."""
-    pristine = _gen_vectors(generator)
+def routine_vector_mutations(probe: str, generator: str, abi: str | None = None) -> list[str]:
+    """Each mutation edits one expected value/error/allocation-event and must be caught (that row ->
+    match:false, probe exits nonzero). Covers wrong local value, wrong error, endianness, size bound,
+    fork/error ordering, and — against the independent expected ledger — allocation size/alignment/
+    ordinal."""
+    pristine = _gen_vectors(generator, abi)
     fails: list[str] = []
 
     rc, base = _probe_routine_vectors(probe, pristine)
@@ -114,6 +118,9 @@ def routine_vector_mutations(probe: str, generator: str) -> list[str]:
             fails.append(f"mutation '{label}' not caught: {target['id']} still match={out.get(target['id'])}")
         elif rc2 == 0:
             fails.append(f"mutation '{label}' left the probe exit code 0")
+
+    def has_ledger(r):
+        return bool(r["expect"].get("ledger"))
 
     # wrong local value: bump a readU64 expected scalar.
     mutate("local-value",
@@ -139,72 +146,69 @@ def routine_vector_mutations(probe: str, generator: str) -> list[str]:
            lambda r: r["routine"] == "ssz_raw.decodeForkConfig" and r["expect"]["kind"] == "error"
            and r["expect"]["error"] == "unknownFork",
            lambda r: r["expect"].__setitem__("error", "invalidSsz"))
+
+    # Allocation ledger: corrupt one field of the INDEPENDENT expected ledger and require the probe to
+    # flag it. These only run with an ABI table (otherwise no expected ledger is present).
+    if abi is not None:
+        # size: a wrong-but-plausible byte count (e.g. 48 -> 56 for a withdrawal block).
+        mutate("alloc-size",
+               lambda r: has_ledger(r),
+               lambda r: r["expect"]["ledger"][0].__setitem__("size", r["expect"]["ledger"][0]["size"] + 8))
+        # alignment: a wrong-but-plausible power of two.
+        mutate("alloc-alignment",
+               lambda r: has_ledger(r),
+               lambda r: r["expect"]["ledger"][0].__setitem__("alignment",
+                                                              r["expect"]["ledger"][0]["alignment"] * 2 or 4))
+        # ordinal / sequence: renumber the first event.
+        mutate("alloc-ordinal",
+               lambda r: has_ledger(r),
+               lambda r: r["expect"]["ledger"][0].__setitem__("ordinal", 7))
+        # frees: claim a block was not freed on the success path.
+        mutate("alloc-freed",
+               lambda r: has_ledger(r),
+               lambda r: r["expect"]["ledger"][0].__setitem__("freed", False))
+        # aliases: claim a block aliased a live block.
+        mutate("alloc-aliases",
+               lambda r: has_ledger(r),
+               lambda r: r["expect"]["ledger"][0].__setitem__("aliases", True))
     return fails
 
 
-def allocation_ledger_sensitivity(probe: str, generator: str) -> list[str]:
-    """The per-event allocation ledger must record real ordinal/size/alignment and inject at every
-    ordinal. A wrong allocation would change one of these fields; here we assert the fields are present
-    and non-degenerate for an allocating routine, so such a change would be observable."""
-    pristine = _gen_vectors(generator)
-    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
-        for r in pristine:
-            fh.write(json.dumps(r) + "\n")
-        path = fh.name
-    result = subprocess.run([probe, "--routine-vectors", path], capture_output=True, text=True,
-                            preexec_fn=_unlimited_stack)
-    Path(path).unlink(missing_ok=True)
-    fails: list[str] = []
-    seen = False
-    for line in result.stdout.splitlines():
-        if not line.strip():
-            continue
-        o = json.loads(line)
-        events = o.get("events")
-        if not events:
-            continue
-        seen = True
-        # every ordinal was injected by the OOM sweep
-        if o.get("oom_injected") != o.get("allocations"):
-            fails.append(f"{o['id']}: OOM sweep injected {o.get('oom_injected')} of {o.get('allocations')} ordinals")
-        for k, e in enumerate(events):
-            if e["ordinal"] != k:
-                fails.append(f"{o['id']}: event {k} has ordinal {e['ordinal']}")
-            if e["size"] == 0:
-                fails.append(f"{o['id']}: event {k} has size 0")
-            al = e["alignment"]
-            if al == 0 or (al & (al - 1)) != 0:
-                fails.append(f"{o['id']}: event {k} has non-power-of-two alignment {al}")
-    if not seen:
-        fails.append("no allocating routine emitted an allocation event")
-    return fails
-
-
-def removed_routine_case(report: str, generator: str, program_json: str, corpus: str,
-                         outcomes: str, ledger: str) -> list[str]:
-    """Dropping a required routine's vectors must surface as an explicit coverage gap in the report."""
-    if not (report and program_json and corpus and outcomes and ledger):
+def removed_routine_case(probe: str, report: str, generator: str, program_json: str, corpus: str,
+                         outcomes: str, ledger: str, abi: str | None = None) -> list[str]:
+    """Dropping a required routine's vectors must surface as a coverage gap for EXACTLY that routine —
+    the other 42 stay covered. Uses genuine probe outcomes for the retained rows (not the vector file),
+    so `covered` reflects real match results rather than an all-unmatched artifact."""
+    if not (probe and report and program_json and corpus and outcomes and ledger):
         return []
-    pristine = _gen_vectors(generator)
+    pristine = _gen_vectors(generator, abi)
     dropped = "ssz_raw.readU256"
     kept = [r for r in pristine if r["routine"] != dropped]
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
         for r in kept:
             fh.write(json.dumps(r) + "\n")
         vec_path = fh.name
+    # Genuine probe outcomes for the retained vectors.
+    result = subprocess.run([probe, "--routine-vectors", vec_path], capture_output=True, text=True,
+                            preexec_fn=_unlimited_stack)
+    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
+        fh.write(result.stdout)
+        out_path = fh.name
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
         rj = fh.name
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
         rm = fh.name
     subprocess.run([sys.executable, report, "--corpus", corpus, "--outcomes", outcomes,
                     "--ledger", ledger, "--program-json", program_json, "--routine-vectors", vec_path,
-                    "--routine-outcomes", vec_path, "--out-json", rj, "--out-md", rm],
+                    "--routine-outcomes", out_path, "--out-json", rj, "--out-md", rm],
                    check=True, capture_output=True, text=True)
     rc = json.loads(Path(rj).read_text())["routine_coverage"]
-    for p in (vec_path, rj, rm):
+    for p in (vec_path, out_path, rj, rm):
         Path(p).unlink(missing_ok=True)
-    if dropped not in rc["uncovered_routines"]:
-        return [f"removed-routine-case: dropping {dropped} vectors did not surface as a coverage gap"]
+    uncovered = set(rc["uncovered_routines"])
+    if uncovered != {dropped}:
+        return [f"removed-routine-case: dropping {dropped} should leave exactly it uncovered, "
+                f"got uncovered={sorted(uncovered)}"]
     return []
 
 
@@ -221,11 +225,13 @@ def main() -> int:
     ap.add_argument("--corpus")
     ap.add_argument("--outcomes")
     ap.add_argument("--ledger")
+    ap.add_argument("--abi")
     a = ap.parse_args()
     f = _load(Path(a.fixtures))
 
     base = f.make_v4()
     layout = f.layout(base)
+    ere_ok = f.u32(len(base)) + base            # exact ERE-length prefix -> `decode` retries and accepts
     # (mutation-class label, mutated bytes) — each must flip accept -> reject.
     mutants = [
         ("wrong-schema-id", b"\x00\x02" + base[2:]),
@@ -234,11 +240,16 @@ def main() -> int:
         ("fork-index-ordering", f.make_v4(chain_bytes=f.chain_config(fork=21))),
         ("versioned-hash-nondivisible", f.make_v4(versioned_hashes=b"X" * 33)),
         ("withdrawals-over-bound", f.make_v4(payload_kwargs={"withdrawals": (bytes(44),) * 17})),
+        # ERE retry: corrupting the exact-length prefix breaks the retry, so the accepted ERE input is
+        # rejected. Distinguishes the retry gate from a raw-only decode.
+        ("ere-retry-length", f.u32(len(base) + 1) + base),
     ]
 
     failures: list[str] = []
     if _run_one(a.lean_runner, "base", base) != "accept":
         failures.append("base valid V4 was not accepted")
+    if _run_one(a.lean_runner, "ere-ok", ere_ok) != "accept":
+        failures.append("valid exact-ERE-prefixed input was not accepted (retry path)")
     for label, data in mutants:
         outcome = _run_one(a.lean_runner, label, data)
         if outcome != "reject":
@@ -255,19 +266,18 @@ def main() -> int:
     # Per-routine value/error, allocation-ledger, and removed-routine-case mutations (host probe only).
     routine_classes = 0
     if a.probe and a.routine_vectors_gen:
-        rv = routine_vector_mutations(a.probe, a.routine_vectors_gen)
-        al = allocation_ledger_sensitivity(a.probe, a.routine_vectors_gen)
-        rm = removed_routine_case(a.report, a.routine_vectors_gen, a.program_json,
-                                  a.corpus, a.outcomes, a.ledger)
-        failures += rv + al + rm
-        routine_classes = 5 + 1 + (1 if a.report else 0)
+        rv = routine_vector_mutations(a.probe, a.routine_vectors_gen, a.abi)
+        rm = removed_routine_case(a.probe, a.report, a.routine_vectors_gen, a.program_json,
+                                  a.corpus, a.outcomes, a.ledger, a.abi)
+        failures += rv + rm
+        routine_classes = 5 + (5 if a.abi else 0) + (1 if a.report else 0)
 
     if failures:
         print(f"MUTATION SMOKE FAILED, {len(failures)} issue(s):", file=sys.stderr)
         for line in failures:
             print(f"  {line}", file=sys.stderr)
         return 1
-    print(f"mutation smoke OK: base accepted, {len(mutants)} decode mutation classes caught, "
+    print(f"mutation smoke OK: base + ere accepted, {len(mutants)} decode mutation classes caught, "
           f"{routine_classes} routine/ledger/coverage mutation classes caught, "
           "harness catches a flipped expectation")
     return 0

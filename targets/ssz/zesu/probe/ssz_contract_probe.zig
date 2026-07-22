@@ -1105,7 +1105,7 @@ fn allocActualMatches(actual: AllocActual, expect: std.json.ObjectMap) bool {
     }
 }
 
-fn emitAllocOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: AllocActual, matched: bool, events: []const AllocEvent, leaked: bool, sweep: OomSweep) !void {
+fn emitAllocOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: AllocActual, matched: bool, events: []const AllocEvent, leaked: bool, sweep: OomSweep, ledger_match: bool) !void {
     try w.writeAll("{\"id\":");
     try writeJsonString(w, id);
     try w.writeAll(",\"routine\":");
@@ -1135,7 +1135,7 @@ fn emitAllocOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: All
             try writeJsonString(w, label);
         },
     }
-    try w.print(",\"match\":{},\"allocations\":{d},\"leaked\":{},\"oom_safe\":{},\"oom_injected\":{d},\"events\":", .{ matched, events.len, leaked, sweep.safe, sweep.injected });
+    try w.print(",\"match\":{},\"ledger_match\":{},\"allocations\":{d},\"leaked\":{},\"oom_safe\":{},\"oom_injected\":{d},\"events\":", .{ matched, ledger_match, events.len, leaked, sweep.safe, sweep.injected });
     try emitEvents(w, events);
     if (!sweep.safe) {
         try w.writeAll(",\"oom_reason\":");
@@ -1186,6 +1186,41 @@ fn allocOomSweep(gpa: std.mem.Allocator, run: AllocRunner, routine: []const u8, 
 
 /// Process one allocating-routine vector (collection or container): value match + per-event allocation
 /// ledger + OOM sweep. Returns true on any defect (value mismatch, leak, or OOM-unsafe path).
+/// Compare the observed per-event ledger against the vector's INDEPENDENT `expect.ledger` (computed by
+/// the generator from the routine's allocation structure + the host ABI table, not from the decoder).
+/// Every field is compared exactly: ordinal (sequence), size, alignment, block id, aliases, freed. A
+/// wrong-but-plausible size/alignment/ordinal/alias/free would fail here. `true` if there is no
+/// expected ledger (a reject case, whose allocation-then-free is covered by the OOM sweep instead).
+fn ledgerMatches(events: []const AllocEvent, expect: std.json.ObjectMap) bool {
+    const want = expect.get("ledger") orelse return true;
+    const arr = switch (want) {
+        .array => |a| a,
+        else => return false,
+    };
+    if (arr.items.len != events.len) return false;
+    for (arr.items, events) |wv, e| {
+        const w = switch (wv) {
+            .object => |o| o,
+            else => return false,
+        };
+        if ((jsonInt(w, "ordinal") orelse -1) != @as(i64, @intCast(e.ordinal))) return false;
+        if ((jsonInt(w, "size") orelse -1) != @as(i64, @intCast(e.size))) return false;
+        if ((jsonInt(w, "alignment") orelse -1) != @as(i64, @intCast(e.alignment))) return false;
+        if ((jsonInt(w, "block") orelse -1) != @as(i64, @intCast(e.block))) return false;
+        const want_alias = switch (w.get("aliases") orelse return false) {
+            .bool => |b| b,
+            else => return false,
+        };
+        if (want_alias != e.aliases) return false;
+        const want_freed = switch (w.get("freed") orelse return false) {
+            .bool => |b| b,
+            else => return false,
+        };
+        if (want_freed != e.freed) return false;
+    }
+    return true;
+}
+
 fn processAllocLine(gpa: std.mem.Allocator, run: AllocRunner, out: *Writer, id: []const u8, routine: []const u8, args: std.json.ObjectMap, input: []const u8, expect: std.json.ObjectMap) !bool {
     var arena_inst = std.heap.ArenaAllocator.init(gpa);
     defer arena_inst.deinit();
@@ -1207,8 +1242,10 @@ fn processAllocLine(gpa: std.mem.Allocator, run: AllocRunner, out: *Writer, id: 
     const backing_leak = debug.deinit() == .leak;
     const leaked = self_leak or backing_leak;
     const sweep = allocOomSweep(gpa, run, routine, args, input, allocations, default_max_inject);
-    const matched = allocActualMatches(actual, expect);
-    try emitAllocOutcome(out, id, routine, actual, matched, rec.events.items, leaked, sweep);
+    const value_matched = allocActualMatches(actual, expect);
+    const ledger_matched = ledgerMatches(rec.events.items, expect);
+    const matched = value_matched and ledger_matched;
+    try emitAllocOutcome(out, id, routine, actual, matched, rec.events.items, leaked, sweep, ledger_matched);
     return (!matched) or leaked or !sweep.safe;
 }
 
@@ -1427,11 +1464,14 @@ pub fn main(init: std.process.Init) !void {
     var routine_vectors_path: ?[]const u8 = null;
     var max_inject: usize = default_max_inject;
     var list_routines = false;
+    var dump_abi = false;
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const a = args[i];
         if (std.mem.eql(u8, a, "--list-routines")) {
             list_routines = true;
+        } else if (std.mem.eql(u8, a, "--dump-abi")) {
+            dump_abi = true;
         } else if (std.mem.eql(u8, a, "--routine-vectors")) {
             i += 1;
             if (i >= args.len) fatal("--routine-vectors needs a path");
@@ -1458,6 +1498,31 @@ pub fn main(init: std.process.Init) !void {
         const lr = &lr_file.interface;
         for (exposed_routines) |name| try lr.print("{s}\n", .{name});
         try lr.flush();
+        return;
+    }
+
+    if (dump_abi) {
+        // The host @sizeOf / @alignOf of every allocating element type, so the vector generator can
+        // compute each routine's expected allocation ledger independently of the decoder's own alloc.
+        var ab_buf: [4096]u8 = undefined;
+        var ab_file = std.Io.File.stdout().writer(init.io, &ab_buf);
+        const ab = &ab_file.interface;
+        try ab.print("{{\"hash32\":{{\"size\":{d},\"align\":{d}}}," ++
+            "\"pubkey65\":{{\"size\":{d},\"align\":{d}}}," ++
+            "\"withdrawal\":{{\"size\":{d},\"align\":{d}}}," ++
+            "\"deposit\":{{\"size\":{d},\"align\":{d}}}," ++
+            "\"withdrawalReq\":{{\"size\":{d},\"align\":{d}}}," ++
+            "\"consolidation\":{{\"size\":{d},\"align\":{d}}}," ++
+            "\"sliceU8\":{{\"size\":{d},\"align\":{d}}}}}\n", .{
+            @sizeOf([32]u8),                  @alignOf([32]u8),
+            @sizeOf([65]u8),                  @alignOf([65]u8),
+            @sizeOf(raw.RawWithdrawal),       @alignOf(raw.RawWithdrawal),
+            @sizeOf(raw.RawDepositRequest),   @alignOf(raw.RawDepositRequest),
+            @sizeOf(raw.RawWithdrawalRequest), @alignOf(raw.RawWithdrawalRequest),
+            @sizeOf(raw.RawConsolidationRequest), @alignOf(raw.RawConsolidationRequest),
+            @sizeOf([]const u8),              @alignOf([]const u8),
+        });
+        try ab.flush();
         return;
     }
 
