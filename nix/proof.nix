@@ -260,6 +260,10 @@ let
     # handwritten `meaningDecode` with both the pinned oracle and the corpus expectation; any
     # disagreement fails the build. This is falsification evidence, never a proof premise.
     lake build BinaryFv.SSZ.Zesu.Validation.MeaningAgreement
+    # Per-routine meaning agreement (Row B item 3): native_decide that each typed leaf vector's
+    # handwritten meaning equals its expected value/error — the Lean side of the probe's
+    # `--routine-vectors` check. Also outside the theorem graph.
+    lake build BinaryFv.SSZ.Zesu.Validation.RoutineMeaningVectors
     touch "$out"
   '';
 
