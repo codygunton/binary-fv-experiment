@@ -8,6 +8,7 @@
 /docs/ai/
 /.ai-coord/
 /.claude/
+/DECISIONS.md
 __pycache__/
 *.o
 *.a
