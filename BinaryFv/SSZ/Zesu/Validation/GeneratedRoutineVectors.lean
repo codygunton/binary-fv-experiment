@@ -66,4 +66,21 @@ def erePrefixVectors : List (String × String × Bool) :=
    ("ssz_raw.hasExactErePrefix/raw-ere/55", "0400000041424344", true),
    ("ssz_raw.hasExactErePrefix/raw-ere/56", "0700000041424344", false)]
 
+def optionalU64Vectors : List (String × String × Option (Option Nat)) :=
+  [("ssz_raw.decodeOptionalU64/option-absent/57", "", some none),
+   ("ssz_raw.decodeOptionalU64/option-present/58", "1122334455667788", some (some 9833440827789222417)),
+   ("ssz_raw.decodeOptionalU64/option-present/59", "0000000000000000", some (some 0)),
+   ("ssz_raw.decodeOptionalU64/option-present/60", "ffffffffffffffff", some (some 18446744073709551615)),
+   ("ssz_raw.decodeOptionalU64/option-malformed/61", "11111111111111", none),
+   ("ssz_raw.decodeOptionalU64/option-malformed/62", "111111111111111111", none)]
+
+def optionalBlobVectors : List (String × String × Option (Option (Nat × Nat × Nat))) :=
+  [("ssz_raw.decodeOptionalBlobSchedule/option-absent/63", "", some none),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-present/64", "01060b10151a1f24292e33383d42474c51565b60656a6f74", some (some (2602827787409229313, 5496434700932296233, 8390041614455363153))),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-present/65", "000000000000000000000000000000000000000000000000", some (some (0, 0, 0))),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-present/66", "ffffffffffffffffffffffffffffffffffffffffffffffff", some (some (18446744073709551615, 18446744073709551615, 18446744073709551615))),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/67", "2222222222222222222222222222222222222222222222", none),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/68", "22222222222222222222222222222222222222222222222222", none),
+   ("ssz_raw.decodeOptionalBlobSchedule/option-malformed/69", "22222222222222222222222222222222", none)]
+
 end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors

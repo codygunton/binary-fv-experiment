@@ -14,8 +14,9 @@ So expected ≡ Zig-routine ∧ expected ≡ Lean-meaning ⇒ Zig-routine ≡ ha
 at the exact-value / exact-error granularity item 3 requires. Expected values are a small deterministic
 SSZ reference computed here; a divergence in either runner is a real finding.
 
-This module covers the leaf readers (scalar / slice / predicate). Container / option / collection /
-runtime routines are added by their own vector groups.
+This module covers the leaf readers (scalar / slice / predicate) and the two non-allocating option
+decoders (`decodeOptionalU64`, `decodeOptionalBlobSchedule`). Container / collection / runtime routines
+are added by their own vector groups.
 
 JSONL row schema (`ssz-routine-vectors-v1`), keys sorted, one line per case:
   {"schema","id","routine","args":{...typed...},
@@ -54,6 +55,18 @@ def val_ok():
     return {"kind": "value", "value": {"ok": True}, "error": None}
 
 
+def val_opt_u64(v):
+    """decodeOptionalU64 result: `None` (SSZ `none`) or an int (`some value`)."""
+    inner = None if v is None else {"u64": str(v)}
+    return {"kind": "value", "value": {"opt": inner}, "error": None}
+
+
+def val_opt_blob(v):
+    """decodeOptionalBlobSchedule result: `None`, or a `(target, max, bfuf)` triple of u64s."""
+    inner = None if v is None else {"target": str(v[0]), "max": str(v[1]), "bfuf": str(v[2])}
+    return {"kind": "value", "value": {"opt": inner}, "error": None}
+
+
 # --- deterministic SSZ reference (matches both the Zig routine and the handwritten Lean meaning) -----
 
 def ref_read_uint_le(data: bytes, offset: int, width: int):
@@ -82,6 +95,30 @@ def ref_has_exact_ere_prefix(data: bytes):
         return val_bool(False)
     declared = int.from_bytes(data[0:4], "little")
     return val_bool(declared == len(data) - 4)
+
+
+BLOB_SCHEDULE_SIZE = 24  # three little-endian u64 fields (target, max, base_fee_update_fraction)
+
+
+def ref_optional_u64(data: bytes):
+    """decodeOptionalU64: len 0 -> none; len 8 -> some(u64 LE); any other length -> invalidSsz."""
+    if len(data) == 0:
+        return val_opt_u64(None)
+    if len(data) == 8:
+        return val_opt_u64(int.from_bytes(data, "little"))
+    return INVALID
+
+
+def ref_optional_blob(data: bytes):
+    """decodeOptionalBlobSchedule: len 0 -> none; len 24 -> some(three u64 LE fields); else invalidSsz."""
+    if len(data) == 0:
+        return val_opt_blob(None)
+    if len(data) == BLOB_SCHEDULE_SIZE:
+        target = int.from_bytes(data[0:8], "little")
+        mx = int.from_bytes(data[8:16], "little")
+        bfuf = int.from_bytes(data[16:24], "little")
+        return val_opt_blob((target, mx, bfuf))
+    return INVALID
 
 
 # --- vector construction ----------------------------------------------------------------------------
@@ -163,6 +200,24 @@ def rows():
     ]:
         add("ssz_raw.hasExactErePrefix", {"data": body.hex()}, ref_has_exact_ere_prefix(body), "raw-ere")
 
+    # decodeOptionalU64: absent (0 bytes), present (exactly 8), malformed (any other length).
+    add("ssz_raw.decodeOptionalU64", {"data": b"".hex()}, ref_optional_u64(b""), "option-absent")
+    add("ssz_raw.decodeOptionalU64", {"data": pat8.hex()}, ref_optional_u64(pat8), "option-present")
+    add("ssz_raw.decodeOptionalU64", {"data": (b"\x00" * 8).hex()}, ref_optional_u64(b"\x00" * 8), "option-present")
+    add("ssz_raw.decodeOptionalU64", {"data": (b"\xff" * 8).hex()}, ref_optional_u64(b"\xff" * 8), "option-present")
+    add("ssz_raw.decodeOptionalU64", {"data": (b"\x11" * 7).hex()}, INVALID, "option-malformed")   # 7 != 0,8
+    add("ssz_raw.decodeOptionalU64", {"data": (b"\x11" * 9).hex()}, INVALID, "option-malformed")   # 9 != 0,8
+
+    # decodeOptionalBlobSchedule: absent (0), present (exactly 24), malformed (any other length).
+    blob24 = bytes((i * 5 + 1) & 0xFF for i in range(BLOB_SCHEDULE_SIZE))
+    add("ssz_raw.decodeOptionalBlobSchedule", {"data": b"".hex()}, ref_optional_blob(b""), "option-absent")
+    add("ssz_raw.decodeOptionalBlobSchedule", {"data": blob24.hex()}, ref_optional_blob(blob24), "option-present")
+    add("ssz_raw.decodeOptionalBlobSchedule", {"data": (b"\x00" * 24).hex()}, ref_optional_blob(b"\x00" * 24), "option-present")
+    add("ssz_raw.decodeOptionalBlobSchedule", {"data": (b"\xff" * 24).hex()}, ref_optional_blob(b"\xff" * 24), "option-present")
+    add("ssz_raw.decodeOptionalBlobSchedule", {"data": (b"\x22" * 23).hex()}, INVALID, "option-malformed")  # 23
+    add("ssz_raw.decodeOptionalBlobSchedule", {"data": (b"\x22" * 25).hex()}, INVALID, "option-malformed")  # 25
+    add("ssz_raw.decodeOptionalBlobSchedule", {"data": (b"\x22" * 16).hex()}, INVALID, "option-malformed")  # 16
+
     return out
 
 
@@ -174,7 +229,7 @@ def emit_lean(all_rows) -> str:
     """Bake the leaf vectors into a Lean data module for the `native_decide` meaning check. Gaps are
     omitted (their arm is not value-checkable). Groups: scalar reads, slice reads, unit checks,
     predicates — matching the handwritten meaning families."""
-    scalar, slice_, requ, ere = [], [], [], []
+    scalar, slice_, requ, ere, optu64, optblob = [], [], [], [], [], []
     for r in all_rows:
         if r["expect"]["kind"] == "gap":
             continue
@@ -192,6 +247,22 @@ def emit_lean(all_rows) -> str:
             requ.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {"true" if e["kind"] == "value" else "false"})')
         elif rt == "ssz_raw.hasExactErePrefix":
             ere.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {"true" if e["value"]["bool"] else "false"})')
+        elif rt == "ssz_raw.decodeOptionalU64":
+            # `none` = error (only invalidSsz is reachable); `some none` = SSZ none; `some (some v)`.
+            if e["kind"] != "value":
+                ev = "none"
+            else:
+                inner = e["value"]["opt"]
+                ev = "some none" if inner is None else f'some (some {inner["u64"]})'
+            optu64.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {ev})')
+        elif rt == "ssz_raw.decodeOptionalBlobSchedule":
+            if e["kind"] != "value":
+                ev = "none"
+            else:
+                inner = e["value"]["opt"]
+                ev = "some none" if inner is None else \
+                    f'some (some ({inner["target"]}, {inner["max"]}, {inner["bfuf"]}))'
+            optblob.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {ev})')
 
     def block(name, ty, items):
         body = ",\n   ".join(items) if items else ""
@@ -206,6 +277,8 @@ def emit_lean(all_rows) -> str:
         block("sliceVectors", "String × String × String × Nat × Nat × Option String", slice_),
         block("requireU32Vectors", "String × String × Bool", requ),
         block("erePrefixVectors", "String × String × Bool", ere),
+        block("optionalU64Vectors", "String × String × Option (Option Nat)", optu64),
+        block("optionalBlobVectors", "String × String × Option (Option (Nat × Nat × Nat))", optblob),
         "end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
     ]
     return "\n".join(L) + "\n"
