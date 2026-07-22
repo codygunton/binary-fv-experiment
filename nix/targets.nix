@@ -801,8 +801,13 @@ let
         || { echo "ROUTINE VECTOR MISMATCH (see routine-outcomes.jsonl)" >&2; \
              grep '"match":false' "$out/routine-outcomes.jsonl" >&2 || true; exit 1; }
 
-      # the real source rejects every targeted mutation class
-      python3 ${mutation} --fixtures ${fixtures} --lean-runner ${probe} > "$out/mutation.txt" \
+      # the real source rejects every targeted mutation class, and the per-routine value/error,
+      # allocation-ledger, and removed-routine-case checks are all discriminating.
+      python3 ${mutation} --fixtures ${fixtures} --lean-runner ${probe} \
+        --probe ${probe} --routine-vectors-gen ${routineVectors} --report ${report} \
+        --program-json ${elflingProgram}/program.json \
+        --corpus "$out/corpus.jsonl" --outcomes "$out/outcomes.jsonl" --ledger "$out/ledger.jsonl" \
+        > "$out/mutation.txt" \
         || { echo "MUTATION SMOKE FAILED" >&2; cat "$out/mutation.txt" >&2; exit 1; }
 
       # (e) coverage keyed by all 43 routines + 141 occurrences: every generated occurrence's routine
