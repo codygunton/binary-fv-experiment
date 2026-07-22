@@ -36,15 +36,35 @@ open BinaryFv.SSZ.Zesu.Elfling
 
 /-! ## The Zig option/aggregate layouts
 
-Payload at offset 0, discriminant after the payload, at the pinned `AbiManifest` sizes. -/
+Every field of these layouts is read straight from the compiler-reflected ABI manifest (`?u64` and
+`?RawBlobSchedule` now emit `|size`, `|payload`, and `|tag` — the reflected discriminant offset — not
+just the size). The `getD` fallbacks are never taken: `canonicalOptionalU64_pinned` /
+`canonicalOptionalBlobSchedule_pinned` prove each field equals the exact manifest value, so a mutated
+offset in the manifest (or a wrong key here) fails those `native_decide` checks. -/
 
-/-- `?u64`: 16 bytes, `u64` payload at 0, discriminant at 8. -/
+open BinaryFv.SSZ.Zesu.Artifact in
+/-- `?u64`, defined entirely from the manifest: total size, payload offset, and reflected tag offset. -/
 def canonicalOptionalU64 : OptionLayout :=
-  { size := 16, discriminantOffset := 8, payloadOffset := 0 }
+  { size := optionalU64Size.getD 0,
+    discriminantOffset := optionalU64TagOffset.getD 0,
+    payloadOffset := optionalU64PayloadOffset.getD 0 }
 
-/-- `?RawBlobSchedule`: 32 bytes, 24-byte payload at 0, discriminant at 24. -/
+open BinaryFv.SSZ.Zesu.Artifact in
+/-- `?RawBlobSchedule`, defined entirely from the manifest. -/
 def canonicalOptionalBlobSchedule : OptionLayout :=
-  { size := 32, discriminantOffset := 24, payloadOffset := 0 }
+  { size := optionalBlobScheduleSize.getD 0,
+    discriminantOffset := optionalBlobScheduleTagOffset.getD 0,
+    payloadOffset := optionalBlobSchedulePayloadOffset.getD 0 }
+
+/-- Per-offset mutation guard: the `?u64` layout is exactly the reflected 16/8/0. -/
+theorem canonicalOptionalU64_pinned :
+    canonicalOptionalU64 = { size := 16, discriminantOffset := 8, payloadOffset := 0 } := by
+  native_decide
+
+/-- Per-offset mutation guard: the `?RawBlobSchedule` layout is exactly the reflected 32/24/0. -/
+theorem canonicalOptionalBlobSchedule_pinned :
+    canonicalOptionalBlobSchedule = { size := 32, discriminantOffset := 24, payloadOffset := 0 } := by
+  native_decide
 
 /-- `RawBlobSchedule`: three consecutive `u64` fields. -/
 def canonicalBlobScheduleLayout : BlobScheduleLayout :=
