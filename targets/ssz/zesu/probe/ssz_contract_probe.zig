@@ -679,6 +679,260 @@ fn emitRoutineOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: A
     try w.print(",\"match\":{}}}\n", .{matched});
 }
 
+// ============================================================================================
+// Allocating collections: decode under the shared recording allocator, render each element as a list
+// of hex field tokens (u64 -> 8-byte little-endian, byte-vector -> raw bytes), free the result, and
+// report the value + per-event allocation ledger + OOM sweep. Field order / stride match the source.
+// ============================================================================================
+
+/// An allocating routine's outcome in the vector's value encoding: a list of elements, each a list of
+/// field tokens (raw bytes; hex-rendered at emit / compare time). No host pointers.
+const AllocActual = union(enum) {
+    items: []const []const []const u8,
+    err: []const u8,
+};
+
+/// Builds tokens/elements into an arena that outlives the (freed) decoded result.
+const TokBuilder = struct {
+    arena: std.mem.Allocator,
+    fn u64le(self: TokBuilder, v: u64) []const u8 {
+        const b = self.arena.alloc(u8, 8) catch unreachable;
+        std.mem.writeInt(u64, b[0..8], v, .little);
+        return b;
+    }
+    fn bytes(self: TokBuilder, s: []const u8) []const u8 {
+        return self.arena.dupe(u8, s) catch unreachable;
+    }
+    fn elem(self: TokBuilder, toks: []const []const u8) []const []const u8 {
+        return self.arena.dupe([]const u8, toks) catch unreachable;
+    }
+};
+
+fn isCollectionRoutine(routine: []const u8) bool {
+    const names = [_][]const u8{
+        "ssz_raw.decodeVersionedHashes", "ssz_raw.decodePublicKeys",       "ssz_raw.decodeWithdrawals",
+        "ssz_raw.decodeDepositRequests", "ssz_raw.decodeWithdrawalRequests", "ssz_raw.decodeConsolidationRequests",
+        "ssz_raw.decodeByteListList",
+    };
+    for (names) |n| if (std.mem.eql(u8, routine, n)) return true;
+    return false;
+}
+
+/// Decode one collection under `alloc`, render its value into `arena`, then free the result. `arena`
+/// outlives the free so the rendered tokens remain valid. Returns null only for a non-collection name.
+fn runCollection(routine: []const u8, args: std.json.ObjectMap, input: []const u8, alloc: std.mem.Allocator, arena: std.mem.Allocator) ?AllocActual {
+    const tb = TokBuilder{ .arena = arena };
+    if (std.mem.eql(u8, routine, "ssz_raw.decodeVersionedHashes")) {
+        if (raw.probe_decodeVersionedHashes(alloc, input)) |result| {
+            const els = arena.alloc([]const []const u8, result.len) catch unreachable;
+            for (result, 0..) |h, i| els[i] = tb.elem(&.{tb.bytes(h[0..])});
+            alloc.free(result);
+            return .{ .items = els };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodePublicKeys")) {
+        if (raw.probe_decodePublicKeys(alloc, input)) |result| {
+            const els = arena.alloc([]const []const u8, result.len) catch unreachable;
+            for (result, 0..) |k, i| els[i] = tb.elem(&.{tb.bytes(k[0..])});
+            alloc.free(result);
+            return .{ .items = els };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeWithdrawals")) {
+        if (raw.probe_decodeWithdrawals(alloc, input)) |result| {
+            const els = arena.alloc([]const []const u8, result.len) catch unreachable;
+            for (result, 0..) |w, i| els[i] = tb.elem(&.{ tb.u64le(w.index), tb.u64le(w.validator_index), tb.bytes(w.address[0..]), tb.u64le(w.amount) });
+            alloc.free(result);
+            return .{ .items = els };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeDepositRequests")) {
+        if (raw.probe_decodeDepositRequests(alloc, input)) |result| {
+            const els = arena.alloc([]const []const u8, result.len) catch unreachable;
+            for (result, 0..) |d, i| els[i] = tb.elem(&.{ tb.bytes(d.pubkey[0..]), tb.bytes(d.withdrawal_credentials[0..]), tb.u64le(d.amount), tb.bytes(d.signature[0..]), tb.u64le(d.index) });
+            alloc.free(result);
+            return .{ .items = els };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeWithdrawalRequests")) {
+        if (raw.probe_decodeWithdrawalRequests(alloc, input)) |result| {
+            const els = arena.alloc([]const []const u8, result.len) catch unreachable;
+            for (result, 0..) |wr, i| els[i] = tb.elem(&.{ tb.bytes(wr.source_address[0..]), tb.bytes(wr.validator_pubkey[0..]), tb.u64le(wr.amount) });
+            alloc.free(result);
+            return .{ .items = els };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeConsolidationRequests")) {
+        if (raw.probe_decodeConsolidationRequests(alloc, input)) |result| {
+            const els = arena.alloc([]const []const u8, result.len) catch unreachable;
+            for (result, 0..) |c, i| els[i] = tb.elem(&.{ tb.bytes(c.source_address[0..]), tb.bytes(c.source_pubkey[0..]), tb.bytes(c.target_pubkey[0..]) });
+            alloc.free(result);
+            return .{ .items = els };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    } else if (std.mem.eql(u8, routine, "ssz_raw.decodeByteListList")) {
+        const max_items: usize = @intCast(jsonInt(args, "max_items") orelse 0);
+        const max_item_bytes: usize = @intCast(jsonInt(args, "max_item_bytes") orelse 0);
+        if (raw.probe_decodeByteListList(alloc, input, max_items, max_item_bytes)) |result| {
+            const els = arena.alloc([]const []const u8, result.len) catch unreachable;
+            for (result, 0..) |it, i| els[i] = tb.elem(&.{tb.bytes(it)});
+            alloc.free(result);
+            return .{ .items = els };
+        } else |e| return .{ .err = errLabel(@errorName(e)) };
+    }
+    return null;
+}
+
+fn hexNibble(c: u8) ?u8 {
+    return switch (c) {
+        '0'...'9' => c - '0',
+        'a'...'f' => c - 'a' + 10,
+        'A'...'F' => c - 'A' + 10,
+        else => null,
+    };
+}
+
+/// Whether an ascii-hex string equals a raw byte slice (no intermediate buffer, so any token length).
+fn hexEqualsBytes(hex: []const u8, bytes: []const u8) bool {
+    if (hex.len != bytes.len * 2) return false;
+    for (bytes, 0..) |b, i| {
+        const hi = hexNibble(hex[i * 2]) orelse return false;
+        const lo = hexNibble(hex[i * 2 + 1]) orelse return false;
+        if (b != hi * 16 + lo) return false;
+    }
+    return true;
+}
+
+fn allocActualMatches(actual: AllocActual, expect: std.json.ObjectMap) bool {
+    const kind = jsonStr(expect, "kind") orelse return false;
+    switch (actual) {
+        .err => |label| {
+            if (!std.mem.eql(u8, kind, "error")) return false;
+            const want = jsonStr(expect, "error") orelse return false;
+            return std.mem.eql(u8, label, want);
+        },
+        .items => |els| {
+            if (!std.mem.eql(u8, kind, "value")) return false;
+            const vobj = switch (expect.get("value") orelse return false) {
+                .object => |o| o,
+                else => return false,
+            };
+            const want_items = switch (vobj.get("items") orelse return false) {
+                .array => |a| a,
+                else => return false,
+            };
+            if (want_items.items.len != els.len) return false;
+            for (want_items.items, els) |want_el_v, got_el| {
+                const want_el = switch (want_el_v) {
+                    .array => |a| a,
+                    else => return false,
+                };
+                if (want_el.items.len != got_el.len) return false;
+                for (want_el.items, got_el) |want_tok_v, got_tok| {
+                    const want_hex = switch (want_tok_v) {
+                        .string => |s| s,
+                        else => return false,
+                    };
+                    if (!hexEqualsBytes(want_hex, got_tok)) return false;
+                }
+            }
+            return true;
+        },
+    }
+}
+
+fn emitAllocOutcome(w: *Writer, id: []const u8, routine: []const u8, actual: AllocActual, matched: bool, events: []const AllocEvent, leaked: bool, sweep: OomSweep) !void {
+    try w.writeAll("{\"id\":");
+    try writeJsonString(w, id);
+    try w.writeAll(",\"routine\":");
+    try writeJsonString(w, routine);
+    switch (actual) {
+        .items => |els| {
+            try w.writeAll(",\"kind\":\"value\",\"items\":[");
+            for (els, 0..) |el, i| {
+                if (i != 0) try w.writeByte(',');
+                try w.writeByte('[');
+                for (el, 0..) |tok, j| {
+                    if (j != 0) try w.writeByte(',');
+                    try w.writeByte('"');
+                    for (tok) |c| try w.print("{x:0>2}", .{c});
+                    try w.writeByte('"');
+                }
+                try w.writeByte(']');
+            }
+            try w.writeByte(']');
+        },
+        .err => |label| {
+            try w.writeAll(",\"kind\":\"error\",\"error\":");
+            try writeJsonString(w, label);
+        },
+    }
+    try w.print(",\"match\":{},\"allocations\":{d},\"leaked\":{},\"oom_safe\":{},\"oom_injected\":{d},\"events\":", .{ matched, events.len, leaked, sweep.safe, sweep.injected });
+    try emitEvents(w, events);
+    if (!sweep.safe) {
+        try w.writeAll(",\"oom_reason\":");
+        try writeJsonString(w, sweep.reason);
+    }
+    try w.writeAll("}\n");
+}
+
+/// Run a collection once under a recording allocator failing at `fail_at`; classify for the OOM sweep.
+fn collectionInjectOnce(gpa: std.mem.Allocator, routine: []const u8, args: std.json.ObjectMap, input: []const u8, fail_at: usize) []const u8 {
+    var debug: std.heap.DebugAllocator(.{}) = .init;
+    var rec = Recording.init(debug.allocator(), gpa, fail_at);
+    var scratch = std.heap.ArenaAllocator.init(gpa);
+    var reason: []const u8 = "";
+    if (runCollection(routine, args, input, rec.allocator(), scratch.allocator())) |actual| {
+        switch (actual) {
+            .items => reason = "accepted-under-oom",
+            .err => |label| if (!std.mem.eql(u8, label, "outOfMemory")) {
+                reason = "non-oom-error-under-oom";
+            },
+        }
+    }
+    scratch.deinit();
+    if (rec.leaked() and reason.len == 0) reason = "leak-under-oom";
+    rec.deinit();
+    if (debug.deinit() == .leak and reason.len == 0) reason = "backing-leak-under-oom";
+    return reason;
+}
+
+fn collectionOomSweep(gpa: std.mem.Allocator, routine: []const u8, args: std.json.ObjectMap, input: []const u8, allocations: usize, max_inject: usize) OomSweep {
+    if (allocations == 0) return .{ .safe = true, .injected = 0, .sampled = false, .reason = "" };
+    const sampled = allocations > max_inject;
+    const stride = if (sampled) (allocations + max_inject - 1) / max_inject else 1;
+    var injected: usize = 0;
+    var k: usize = 0;
+    while (k < allocations) : (k += stride) {
+        const reason = collectionInjectOnce(gpa, routine, args, input, k);
+        injected += 1;
+        if (reason.len != 0) return .{ .safe = false, .injected = injected, .sampled = sampled, .reason = reason };
+    }
+    return .{ .safe = true, .injected = injected, .sampled = sampled, .reason = "" };
+}
+
+/// Process one allocating-collection vector: value match + allocation ledger + OOM sweep. Returns true
+/// on any defect (value mismatch, leak, or OOM-unsafe path).
+fn processCollectionLine(gpa: std.mem.Allocator, out: *Writer, id: []const u8, routine: []const u8, args: std.json.ObjectMap, input: []const u8, expect: std.json.ObjectMap) !bool {
+    var arena_inst = std.heap.ArenaAllocator.init(gpa);
+    defer arena_inst.deinit();
+    var debug: std.heap.DebugAllocator(.{}) = .init;
+    var rec = Recording.init(debug.allocator(), gpa, std.math.maxInt(usize));
+    defer rec.deinit();
+
+    const actual = runCollection(routine, args, input, rec.allocator(), arena_inst.allocator()) orelse {
+        _ = debug.deinit();
+        try out.writeAll("{\"id\":");
+        try writeJsonString(out, id);
+        try out.writeAll(",\"routine\":");
+        try writeJsonString(out, routine);
+        try out.writeAll(",\"kind\":\"unhandled\",\"match\":false}\n");
+        return true;
+    };
+    const self_leak = rec.leaked();
+    const allocations = rec.events.items.len;
+    const backing_leak = debug.deinit() == .leak;
+    const leaked = self_leak or backing_leak;
+    const sweep = collectionOomSweep(gpa, routine, args, input, allocations, default_max_inject);
+    const matched = allocActualMatches(actual, expect);
+    try emitAllocOutcome(out, id, routine, actual, matched, rec.events.items, leaked, sweep);
+    return (!matched) or leaked or !sweep.safe;
+}
+
 /// Process one routine-vector line; returns true if it was a defect (mismatch or unhandled routine).
 fn processRoutineLine(gpa: std.mem.Allocator, out: *Writer, line: []const u8) !bool {
     var parsed = std.json.parseFromSlice(std.json.Value, gpa, line, .{}) catch return false;
@@ -720,6 +974,9 @@ fn processRoutineLine(gpa: std.mem.Allocator, out: *Writer, line: []const u8) !b
         owned = true;
     }
     defer if (owned) gpa.free(input);
+
+    // Allocating collections decode under the recording allocator and report a value + ledger.
+    if (isCollectionRoutine(routine)) return processCollectionLine(gpa, out, id, routine, args, input, expect);
 
     var arrbuf: [256]u8 = undefined;
     var scalarbuf: [16]u64 = undefined;
