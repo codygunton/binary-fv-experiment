@@ -36,6 +36,21 @@ SCHEMA = "ssz-routine-vectors-v1"
 ZESU_PIN = "codygunton/zesu@96f1621468ba54755d653f19cbc9704e789be001"
 
 INVALID = {"kind": "error", "value": None, "error": "invalidSsz"}
+OOM = {"kind": "error", "value": None, "error": "outOfMemory"}
+
+
+def bump_alloc(pos, top, size, alignment):
+    """The pinned zesu_raw_alloc / Runtime.allocate arithmetic: the aligned address, or None."""
+    if alignment == 0 or (alignment & (alignment - 1)) != 0 or pos > top:
+        return None
+    misalign = pos & (alignment - 1)
+    padding = 0 if misalign == 0 else alignment - misalign
+    if padding > top - pos:
+        return None
+    aligned = pos + padding
+    if size > top - aligned:
+        return None
+    return aligned
 
 
 def val_nat(n):
@@ -653,6 +668,60 @@ def rows():
     add("ssz_raw.decode", {"data": (_u32(999) + si_body).hex()}, INVALID, "entry-ere")        # wrong ERE length
     add("ssz_raw.decode", {"data": (b"\x00\x02").hex()}, INVALID, "entry-malformed")          # wrong schema, no ERE
 
+    # --- Runtime / allocator / root routines (raw_allocator.zig / raw_decoder_root.zig / runtime.c) --
+    # raw_allocator.zesu_raw_alloc: virtual-heap bump arithmetic -> the aligned address or outOfMemory.
+    def alloc_val(pos, top, size, alignment):
+        a = bump_alloc(pos, top, size, alignment)
+        return val_nat(a) if a is not None else OOM
+
+    for (pos, top, size, al, cov) in [
+        (0x1000, 0x2000, 64, 8, "runtime-alloc"),          # aligned base -> base
+        (0x1001, 0x2000, 16, 8, "runtime-alloc"),          # misaligned base -> base + padding
+        (0x1000, 0x1010, 64, 8, "runtime-alloc-oom"),      # exhausted (64 > 16 available)
+        (0x1000, 0x2000, 16, 0, "runtime-alloc-oom"),      # alignment 0
+        (0x1000, 0x2000, 16, 3, "runtime-alloc-oom"),      # non-power-of-two alignment
+        (0x2000, 0x1000, 16, 8, "runtime-alloc-oom"),      # position past limit
+    ]:
+        add("raw_allocator.zesu_raw_alloc",
+            {"heap_pos": pos, "heap_top": top, "bytes": size, "alignment": al}, alloc_val(pos, top, size, al), cov)
+
+    # raw_decoder_root.allocatorAlloc: the vtable thunk -> zesu_raw_alloc(len, 1<<align_log2).
+    for (pos, top, size, log2, cov) in [
+        (0x1000, 0x2000, 64, 3, "runtime-alloc"),          # align 8 -> base
+        (0x1000, 0x1010, 64, 3, "runtime-alloc-oom"),      # exhausted
+    ]:
+        add("raw_decoder_root.allocatorAlloc",
+            {"heap_pos": pos, "heap_top": top, "bytes": size, "align_log2": log2},
+            alloc_val(pos, top, size, 1 << log2), cov)
+
+    # allocatorResize always false; allocatorRemap always null (false); allocatorFree a no-op; the
+    # allocator constructor routes to zesu_raw_alloc.
+    add("raw_decoder_root.allocatorResize", {}, val_bool(False), "runtime-const")
+    add("raw_decoder_root.allocatorRemap", {}, val_bool(False), "runtime-const")
+    add("raw_decoder_root.allocatorFree", {}, val_ok(), "runtime-const")
+    add("raw_decoder_root.allocator", {}, val_ok(), "runtime-const")
+
+    # memcpy / memmove: deliver the source bytes. memmove additionally handles overlapping regions.
+    copy_src = bytes((i * 3 + 1) & 0xFF for i in range(24))
+    add("memcpy", {"data": copy_src.hex(), "len": 24}, val_bytes(copy_src), "runtime-copy")
+    add("memcpy", {"data": copy_src.hex(), "len": 10}, val_bytes(copy_src[:10]), "runtime-copy")
+    add("memmove", {"data": copy_src.hex(), "len": 24}, val_bytes(copy_src), "runtime-copy")
+    add("memmove", {"data": copy_src.hex(), "len": 16, "dst_offset": 4}, val_bytes(copy_src[:16]), "runtime-copy-overlap")
+    add("memmove", {"data": copy_src.hex(), "len": 16, "dst_offset": 8}, val_bytes(copy_src[:16]), "runtime-copy-overlap")
+
+    # zesu_decode_raw / zesu_raw_error / zesu_raw_result: exercised over a valid input (ok, status 1,
+    # result present) and an invalid one (invalidSsz, status 2, no result).
+    good_body, _ = stateless_input_case(
+        npr_case(exec_payload_case(), [10, 50], bvec(9, 32), exec_requests_case([(1, 2, 32, 3, 7)], [], [])),
+        witness_case([b"state"], [b"code"], [b"header"]), chain_config_case(), [1, 2])
+    bad_body = b"\x00\x02\x00"  # right schema id, too short -> invalidSsz
+    add("raw_decoder_root.zesu_decode_raw", {"data": good_body.hex()}, val_nat(1), "runtime-decode")
+    add("raw_decoder_root.zesu_decode_raw", {"data": bad_body.hex()}, val_nat(0), "runtime-decode")
+    add("raw_decoder_root.zesu_raw_error", {"data": good_body.hex()}, val_nat(1), "runtime-decode")   # ok
+    add("raw_decoder_root.zesu_raw_error", {"data": bad_body.hex()}, val_nat(2), "runtime-decode")    # invalid_ssz
+    add("raw_decoder_root.zesu_raw_result", {"data": good_body.hex()}, val_bool(True), "runtime-decode")
+    add("raw_decoder_root.zesu_raw_result", {"data": bad_body.hex()}, val_bool(False), "runtime-decode")
+
     return out
 
 
@@ -716,6 +785,7 @@ def emit_lean(all_rows) -> str:
         "ssz_raw.decodeNewPayloadRequest": "newPayloadRequestVectors",
         "ssz_raw.decodeRaw": "decodeRawVectors",
         "ssz_raw.decode": "decodeVectors"}
+    runtime_alloc, runtime_copy, runtime_decode_ret, runtime_error, runtime_result = [], [], [], [], []
 
     for r in all_rows:
         if r["expect"]["kind"] == "gap":
@@ -769,6 +839,23 @@ def emit_lean(all_rows) -> str:
         elif rt in container_route:
             container_groups[container_route[rt]].append(
                 f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {tree_exp(e)})')
+        elif rt in ("raw_allocator.zesu_raw_alloc", "raw_decoder_root.allocatorAlloc"):
+            alignment = a["alignment"] if "alignment" in a else (1 << a["align_log2"])
+            addr = f'some {e["value"]["nat"]}' if e["kind"] == "value" else "none"
+            runtime_alloc.append(f'({_lean_str(r["id"])}, {a["heap_pos"]}, {a["heap_top"]}, '
+                                 f'{a["bytes"]}, {alignment}, {addr})')
+        elif rt in ("memcpy", "memmove"):
+            runtime_copy.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {a["len"]}, '
+                                f'{_lean_str(e["value"]["bytes"])})')
+        elif rt == "raw_decoder_root.zesu_decode_raw":
+            runtime_decode_ret.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {e["value"]["nat"]})')
+        elif rt == "raw_decoder_root.zesu_raw_error":
+            runtime_error.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {e["value"]["nat"]})')
+        elif rt == "raw_decoder_root.zesu_raw_result":
+            runtime_result.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, '
+                                  f'{"true" if e["value"]["bool"] else "false"})')
+        # raw_decoder_root.allocatorResize / Remap / Free / allocator carry no data-dependent meaning;
+        # their constant meanings (false / none / ok / ok) are covered by dedicated Lean theorems.
 
     def block(name, ty, items):
         body = ",\n   ".join(items) if items else ""
@@ -822,6 +909,11 @@ def emit_lean(all_rows) -> str:
               container_groups["decodeRawVectors"]),
         block("decodeVectors", "String × String × (Option VTree × String)",
               container_groups["decodeVectors"]),
+        block("runtimeAllocVectors", "String × Nat × Nat × Nat × Nat × Option Nat", runtime_alloc),
+        block("runtimeCopyVectors", "String × String × Nat × String", runtime_copy),
+        block("runtimeDecodeRetVectors", "String × String × Nat", runtime_decode_ret),
+        block("runtimeErrorVectors", "String × String × Nat", runtime_error),
+        block("runtimeResultVectors", "String × String × Bool", runtime_result),
         "end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
     ]
     return "\n".join(L) + "\n"
