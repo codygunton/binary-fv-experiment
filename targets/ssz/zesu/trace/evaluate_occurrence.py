@@ -76,9 +76,13 @@ def run_capture(qemu, gdb, plugin, elf, input_path, lo, hi, boundary_pcs, mem_sp
     return records, json.loads(gdbout.read_text())["stops"]
 
 
-def evaluate(occ, records, stops, arm):
-    """Evaluate one input's evidence against occurrence 116 + children. `arm` is present/absent/malformed."""
-    entry_pc = occ["entryPc"]
+def evaluate(occ, records, stops, arm, expected=None):
+    """Evaluate one input's evidence against occurrence 116 + children. `arm` is present/absent/malformed.
+    `expected` overrides the checked binding (entry PC / child offsets) so negative tests can corrupt it."""
+    exp = {"entry_pc": occ["entryPc"], "child_offsets": {117: 0, 118: 8, 119: 16},
+           "child_entry": {117: 76988, 118: 77020, 119: 77120}}
+    exp.update(expected or {})
+    entry_pc = exp["entry_pc"]
     region_ranges = [(r["start"], r["start"] + r["size"]) for r in occ["regions"]]
 
     def in_regions(pc):
@@ -88,6 +92,11 @@ def evaluate(occ, records, stops, arm):
     exec_set = sorted(set(executed))
     edges = sorted({(executed[i], executed[i + 1]) for i in range(len(executed) - 1)
                     if executed[i + 1] != executed[i] + 2 and executed[i + 1] != executed[i] + 4})
+    # Every executed edge whose source is inside the occurrence must be a declared CFG edge (no phantom
+    # control flow); a dropped/injected edge in the evidence flips this.
+    declared_edges = {(e["source"], e["target"]) for e in occ["edges"]}
+    occ_exec_edges = {(s, t) for (s, t) in edges if in_regions(s)}
+    edges_subset_of_cfg = occ_exec_edges <= declared_edges
 
     stop_by_pc = {s["pc"]: s for s in stops}
     entry = stop_by_pc.get(entry_pc)
@@ -97,11 +106,15 @@ def evaluate(occ, records, stops, arm):
     stores = [tuple(r[1:]) for r in records if r[0] == "S"]
 
     checks = {}
-    checks["entry_reached"] = entry is not None and any(pc == entry_pc for pc in exec_set)
+    # The window opens at the occurrence boundary, so the true entry is the FIRST executed PC and has a
+    # captured GDB stop; a wrong entry (a mid-occurrence PC) is reached only from inside and is not first.
+    checks["entry_reached"] = (entry is not None and len(executed) > 0
+                               and executed[0] == entry_pc)
+    checks["edges_subset_of_cfg"] = edges_subset_of_cfg
 
     # Child const-offset bindings: from GDB stops at the child entry PCs, and from the load addresses.
-    child_offsets = {117: 0, 118: 8, 119: 16}
-    child_entry = {117: 76988, 118: 77020, 119: 77120}
+    child_offsets = exp["child_offsets"]
+    child_entry = exp["child_entry"]
     # The blob-schedule slice pointer: the input address the first field is read from minus offset 0.
     field_loads = {}  # child idx -> (base_addr, decoded u64)
     if arm == "present":
@@ -125,6 +138,12 @@ def evaluate(occ, records, stops, arm):
     else:
         checks["child_offsets_from_loads"] = None  # children do not execute in absent/malformed arms
         checks["decoded_blob_schedule"] = None
+
+    # Result/exit binding: the indirect-return result slot (a0=x10 at entry) is a stack address the
+    # RawBlobSchedule is returned through. A swapped register / wrong result slot moves it off-stack.
+    sp0 = entry["registers"]["x2"] if entry else 0
+    a0 = entry["registers"]["x10"] if entry else 0
+    checks["result_slot_on_stack"] = entry is not None and classify_write(a0, sp0) == "stack"
 
     # Step bound: instruction count within the occurrence <= contract stepBound (256).
     occ_insns = [pc for pc in executed if in_regions(pc)]
