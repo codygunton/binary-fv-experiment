@@ -23,18 +23,22 @@ stated against exactly those real registers, which is the correction.
 /-- **The wrapper entry binds the input pointer in `a0`.** A state whose `a0` is not the input base
 does not satisfy the entry binding — so a mutated argument register fails. -/
 theorem wrapper_entry_requires_input_in_a0 (env : DecoderEnvironment)
-    (globals : DecoderGlobalsLayout) (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
+    (globals : DecoderGlobalsLayout) (resultBuffer : Nat)
+    (rep : ContainerRepresentation SszBridge.RawV4) (incoming : DecoderGlobalsModel)
+    (args : ZesuDecodeRawArgs)
     (state : State) (hbad : state.regs.get? x10 ≠ some (BitVec.ofNat 64 args.inputBase)) :
-    ¬ preZesuDecodeRaw env globals incoming args state := by
+    ¬ preZesuDecodeRaw env globals resultBuffer rep incoming args state := by
   intro h
   exact hbad h.2.2.1
 
 /-- **The wrapper entry binds the length in `a1`.** A state whose `a1` is not the input length does
 not satisfy the entry binding. -/
 theorem wrapper_entry_requires_length_in_a1 (env : DecoderEnvironment)
-    (globals : DecoderGlobalsLayout) (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
+    (globals : DecoderGlobalsLayout) (resultBuffer : Nat)
+    (rep : ContainerRepresentation SszBridge.RawV4) (incoming : DecoderGlobalsModel)
+    (args : ZesuDecodeRawArgs)
     (state : State) (hbad : state.regs.get? x11 ≠ some (BitVec.ofNat 64 args.bytes.size)) :
-    ¬ preZesuDecodeRaw env globals incoming args state := by
+    ¬ preZesuDecodeRaw env globals resultBuffer rep incoming args state := by
   intro h
   exact hbad h.2.2.2.1
 
@@ -83,5 +87,55 @@ theorem accessors_after_fresh_rejection (env : DecoderEnvironment) (globals : De
         (resultingGlobals DecoderGlobalsModel.fresh (.error error)) = .ok 0 := by
   simp [contractRawResult, resultingGlobals, callOutcome, DecodeCallOutcome.stored,
     DecoderGlobalsModel.fresh]
+
+/-! ## The stored result against the actual 848-byte object layout -/
+
+/-- **A fresh success populates the inline object.** When the wrapper's outgoing stored-result
+representation holds after a fresh successful decode, the `stored_result` discriminant byte is present
+(at the reflected offset within the object) and the payload buffer holds the value under the container
+representation — the value lives in the 848-byte object, not behind a pointer. -/
+theorem stored_object_holds_value_after_fresh_success (globals : DecoderGlobalsLayout)
+    (rep : ContainerRepresentation SszBridge.RawV4) (inputBase : Nat) (input : ByteArray)
+    (resultBase : Nat) (incoming : DecoderGlobalsModel) (value : SszBridge.RawV4) (state : State)
+    (hfresh : incoming.attempted = false)
+    (h : StoredResultRep globals rep inputBase input resultBase
+          (resultingGlobals incoming (.ok value)) state) :
+    OptionTagRep state (globals.storedResult + globals.storedResultObject.discriminantOffset) true ∧
+      rep inputBase input value state resultBase := by
+  have hstored : (resultingGlobals incoming (.ok value)).stored = some value :=
+    (fresh_success_stores_value incoming value hfresh).2.2.2
+  obtain ⟨hdisc, hval⟩ := h
+  rw [hstored] at hval
+  refine ⟨?_, hval⟩
+  unfold StoredResultDiscriminantRep at hdisc
+  rw [hstored] at hdisc
+  simpa using hdisc
+
+/-- **A fresh rejection clears the discriminant.** After a fresh rejected decode, the outgoing
+stored-result discriminant byte is absent. -/
+theorem stored_object_absent_after_fresh_rejection (globals : DecoderGlobalsLayout)
+    (rep : ContainerRepresentation SszBridge.RawV4) (inputBase : Nat) (input : ByteArray)
+    (resultBase : Nat) (incoming : DecoderGlobalsModel) (error : SszDecodeError) (state : State)
+    (hfresh : incoming.attempted = false)
+    (h : StoredResultRep globals rep inputBase input resultBase
+          (resultingGlobals incoming (.error error)) state) :
+    OptionTagRep state (globals.storedResult + globals.storedResultObject.discriminantOffset) false := by
+  have hnone : (resultingGlobals incoming (.error error)).stored = none :=
+    (fresh_rejection_stores_nothing incoming error hfresh).2.2
+  obtain ⟨hdisc, _⟩ := h
+  unfold StoredResultDiscriminantRep at hdisc
+  rw [hnone] at hdisc
+  simpa using hdisc
+
+/-- **A second call leaves the object untouched.** Once `attempted` is set the globals are unchanged,
+so the outgoing stored-result representation is exactly the incoming one. -/
+theorem stored_object_unchanged_after_second_call (globals : DecoderGlobalsLayout)
+    (rep : ContainerRepresentation SszBridge.RawV4) (inputBase : Nat) (input : ByteArray)
+    (resultBase : Nat) (incoming : DecoderGlobalsModel)
+    (result : Except SszDecodeError SszBridge.RawV4) (state : State) (h : incoming.attempted = true)
+    (hrep : StoredResultRep globals rep inputBase input resultBase
+              (resultingGlobals incoming result) state) :
+    StoredResultRep globals rep inputBase input resultBase incoming state := by
+  rwa [(second_call_is_alreadyDecoded incoming result h).2.2.2] at hrep
 
 end BinaryFv.SSZ.Zesu.Contracts

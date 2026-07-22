@@ -21,6 +21,11 @@ def optionalBlobScheduleSize : Option Nat := abiDatum "?ssz_raw.RawBlobSchedule|
 def optionalBlobScheduleAlign : Option Nat := abiDatum "?ssz_raw.RawBlobSchedule|align"
 def optionalBlobSchedulePayloadOffset : Option Nat := abiDatum "?ssz_raw.RawBlobSchedule|payload"
 def optionalBlobScheduleTagOffset : Option Nat := abiDatum "?ssz_raw.RawBlobSchedule|tag"
+/-- The `stored_result` global is `?RawStatelessInput`: an inline 848-byte optional result object. -/
+def storedResultSize : Option Nat := abiDatum "?ssz_raw.RawStatelessInput|size"
+def storedResultAlign : Option Nat := abiDatum "?ssz_raw.RawStatelessInput|align"
+def storedResultPayloadOffset : Option Nat := abiDatum "?ssz_raw.RawStatelessInput|payload"
+def storedResultTagOffset : Option Nat := abiDatum "?ssz_raw.RawStatelessInput|tag"
 
 theorem raw_stateless_input_layout :
     rawStatelessInputSize = some 832 ∧ rawStatelessInputAlign = some 16 ∧
@@ -36,6 +41,13 @@ theorem optional_u64_layout :
 theorem optional_blob_schedule_layout :
     optionalBlobScheduleSize = some 32 ∧ optionalBlobScheduleAlign = some 8 ∧
       optionalBlobSchedulePayloadOffset = some 0 ∧ optionalBlobScheduleTagOffset = some 24 := by
+  native_decide
+
+/-- The `stored_result` object: 848 bytes, the 832-byte `RawStatelessInput` payload at offset 0, the
+discriminant at 832. -/
+theorem stored_result_layout :
+    storedResultSize = some 848 ∧ storedResultAlign = some 16 ∧
+      storedResultPayloadOffset = some 0 ∧ storedResultTagOffset = some 832 := by
   native_decide
 
 /-- Nested descriptor offsets used by the guarded native `RawV4` observer. -/
@@ -83,7 +95,7 @@ theorem raw_v4_fixed_field_offsets_valid : rawV4FixedFieldOffsetsValid = true :=
 
 /-- Every queried member is produced by Zig reflection over every field of each raw result type. -/
 def completeRawV4AbiManifest : Bool :=
-  ZesuSszAbi.manifest.size == 92 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024
+  ZesuSszAbi.manifest.size == 96 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024
 
 theorem complete_raw_v4_abi_manifest : completeRawV4AbiManifest = true := by
   native_decide

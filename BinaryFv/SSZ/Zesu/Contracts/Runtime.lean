@@ -196,7 +196,7 @@ def contractRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout
     FunctionContract SszDecodeError DecoderGlobalsModel Nat where
   meaning := fun model => .ok (if model.stored.isSome then resultBuffer else 0)
   pre := fun model state =>
-    env.CodeIntact state ∧ StoredResultPointerRep globals resultBuffer model state
+    env.CodeIntact state ∧ StoredResultDiscriminantRep globals model state
   post := postRawResult env resultBuffer
   stepBound := fun _ => 32
 
