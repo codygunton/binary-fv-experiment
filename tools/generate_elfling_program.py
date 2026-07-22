@@ -476,6 +476,93 @@ def read_runtime_globals(readelf, elf):
     if missing: raise SystemExit(f"runtime globals missing from ELF symbol table: {missing}")
     return [(n, found[n][0], found[n][1]) for n in RUNTIME_GLOBAL_NAMES]
 
+# ---- Per-occurrence ABI/binding extraction (from DWARF .debug_loc) ------------------------------
+# Every occurrence's formal parameters have an entry-time location — the register, stack slot, or
+# memory the argument lives in when the occurrence is entered. Emitted occurrences carry their real
+# (optimized) ABI; inlined occurrences carry occurrence-specific locations that may not be the source
+# ABI. Both are resolved from `.debug_loc`, which in this relocatable object shares the object-relative
+# PC space of the DIE ranges (verified: a loclist entry begins at the same offset as its occurrence's
+# range). An argument with no location valid at entry is a first-class `unresolved` binding.
+
+def decode_loc_expr(expr):
+    """A single DWARF location expression -> (kind, reg, offset).
+    kind in {reg, fbreg, addr, breg, const, other}; reg is a DWARF/RISC-V x-register number (0-31)."""
+    m = re.match(r'DW_OP_reg(\d+)\b', expr)
+    if m: return ("reg", int(m.group(1)), 0)
+    m = re.match(r'DW_OP_fbreg:\s*(-?\d+)', expr)
+    if m: return ("fbreg", -1, int(m.group(1)))     # reg filled from the frame base by the caller
+    m = re.match(r'DW_OP_addr\s+0x([0-9a-f]+)', expr)
+    if m: return ("addr", -1, int(m.group(1), 16))
+    m = re.match(r'DW_OP_breg(\d+)\s*\([^)]*\):\s*(-?\d+)', expr)
+    if m: return ("breg", int(m.group(1)), int(m.group(2)))
+    if "stack_value" in expr: return ("const", -1, 0)
+    return ("other", -1, 0)
+
+def parse_debug_loc(readelf, obj):
+    """loclist-key -> [(begin, end, expr)] over `.debug_loc`. A loclist is keyed by the offset of its
+    first entry; entries accumulate until `<End of list>`. PCs are object-relative."""
+    txt = subprocess.run([readelf, "--debug-dump=loc", obj], capture_output=True, text=True).stdout
+    locs, key = {}, None
+    for ln in txt.splitlines():
+        m = re.match(r'^\s*([0-9a-f]{8})\s+([0-9a-f]{16})\s+([0-9a-f]{16})\s+\((.*)\)\s*$', ln)
+        if m:
+            off, begin, end, expr = int(m.group(1),16), int(m.group(2),16), int(m.group(3),16), m.group(4)
+            if key is None: key = off
+            locs.setdefault(key, []).append((begin, end, expr))
+        elif re.search(r'<End of list>', ln):
+            key = None
+    return locs
+
+def frame_base_reg_of(d):
+    """The x-register the occurrence's frame is based on, from the enclosing concrete subprogram's
+    `DW_AT_frame_base` (a `DW_OP_regN`); -1 if it is the CFA or otherwise not a plain register."""
+    p = d
+    while p is not None:
+        fb = p.attrs.get("DW_AT_frame_base")
+        if fb is not None:
+            m = re.search(r'DW_OP_reg(\d+)\b', fb)
+            return int(m.group(1)) if m else -1
+        p = p.parent
+    return -1
+
+def resolve_binding(loc_attr, locs, occ_ranges, frame_reg):
+    """(kind, reg, offset) of one parameter over the occurrence. Prefer the location valid exactly at
+    the entry PC; else the earliest location overlapping the occurrence's ranges; else `callerProvided`
+    (the optimizer emitted no location — the argument flows from the caller). `fbreg` is rewritten to
+    the enclosing frame-base register. `unresolved` is reserved for an undecodable expression."""
+    def finish(k, r, o):
+        if k == "other": return ("unresolved", r, o)
+        return (k, frame_reg if k == "fbreg" else r, o)
+    entry_obj = occ_ranges[0][0]
+    if "location list" in loc_attr:
+        entries = locs.get(int(loc_attr.split()[0], 0), [])
+        covering = [x for (b, e, x) in entries if b <= entry_obj < e]
+        if covering: return finish(*decode_loc_expr(covering[0]))
+        overlap = sorted([(b, x) for (b, e, x) in entries
+                          if any(b < re2 and rb < e for (rb, re2) in occ_ranges)])
+        if overlap: return finish(*decode_loc_expr(overlap[0][1]))
+        return ("callerProvided", -1, 0)
+    m = re.search(r'\((DW_OP_[^)]*(?:\([^)]*\)[^)]*)*)\)\s*$', loc_attr)   # inline "N byte block: .. (DW_OP_..)"
+    if m: return finish(*decode_loc_expr(m.group(1)))
+    return ("callerProvided", -1, 0)
+
+def occurrence_bindings(d, dies, name_of_off, locs, occ_ranges):
+    """The entry-time (name, kind, reg, offset) of every direct formal parameter of occurrence `d`.
+    A parameter with no `DW_AT_location` is `callerProvided` — never silently the source ABI."""
+    frame_reg = frame_base_reg_of(d)
+    out = []
+    for i, c in enumerate(dies):
+        if c.parent is not d or c.tag != "DW_TAG_formal_parameter": continue
+        nm = c.attrs.get("DW_AT_name")
+        pname = attr_name(nm) if nm is not None else (
+            name_of_off.get(attr_ref(c.attrs["DW_AT_abstract_origin"]), f"arg{i}")
+            if "DW_AT_abstract_origin" in c.attrs else f"arg{i}")
+        loc = c.attrs.get("DW_AT_location")
+        if loc is None:
+            out.append((pname, "callerProvided", -1, 0)); continue
+        out.append((pname, *resolve_binding(loc, locs, occ_ranges, frame_reg)))
+    return out
+
 def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globals, decoder_sha):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-globals). DO NOT EDIT.",
          "-- Untrusted extracted data: the decoder's private globals and the allocator/heap runtime",
@@ -498,6 +585,23 @@ def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globa
     L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals")
     return "\n".join(L) + "\n"
 
+def emit_bindings_lean(occ_sorted):
+    L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-bindings). DO NOT EDIT.",
+         "-- Untrusted extracted data: the entry-time ABI/binding of every occurrence's formal",
+         "-- parameters, resolved from DWARF .debug_loc at each occurrence's entry PC. Validated in",
+         "-- Lean by BinaryFv/SSZ/Zesu/Elfling/GeneratedBindings.lean.",
+         "namespace BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings",
+         "/-- (occurrence index, parameter name, location kind, register-or-address, offset).",
+         "`kind` is one of reg / fbreg / breg / addr / const / other / unresolved; the fourth field is a",
+         "RISC-V x-register number for reg/fbreg/breg, an address for addr, and -1 otherwise. -/",
+         "def bindings : List (Nat × String × String × Int × Int) :="]
+    rows = [f'({i}, {lean_str(pname)}, {lean_str(kind)}, {reg}, {off})'
+            for i, o in enumerate(occ_sorted)
+            for (pname, kind, reg, off) in o.get("bindings", [])]
+    L.append("  [" + ",\n   ".join(rows) + "]")
+    L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings")
+    return "\n".join(L) + "\n"
+
 def main():
     ap = argparse.ArgumentParser()
     for k in ["readelf","decoder","allocator","sink","runtime","source"]: ap.add_argument("--"+k, required=True)
@@ -510,7 +614,7 @@ def main():
     # blocks/edges), proposed here and validated in Lean against the Sail-decoded CFG.
     ap.add_argument("--elf", required=True)
     ap.add_argument("--objdump", required=True)
-    for k in ["out-json","out-lean","out-md","out-globals"]: ap.add_argument("--"+k)
+    for k in ["out-json","out-lean","out-md","out-globals","out-bindings"]: ap.add_argument("--"+k)
     a = ap.parse_args()
 
     text_bases, runtime_func_base, bss_bases, symbol_addrs = parse_linker_map(a.map)
@@ -533,6 +637,7 @@ def main():
 
     for objkind, obj in objects:
         dies, name_of_off, ranges_map, declline_of_off = parse_readelf(a.readelf, obj)
+        locs = parse_debug_loc(a.readelf, obj)
         for d in dies:
             name = occ_name(d, name_of_off)
             if name is None: continue
@@ -570,6 +675,7 @@ def main():
                    "regions":cr, "entryPc":min(r["start"] for r in cr),
                    "exitPc":max(r["start"]+r["size"] for r in cr), "dieOffset":d.off,
                    "callLine":intof(d.attrs.get("DW_AT_call_line")), "callColumn":intof(d.attrs.get("DW_AT_call_column")),
+                   "bindings":occurrence_bindings(d, dies, name_of_off, locs, rs),
                    "_die":d}
             die_to_idx[id(d)] = len(occ); occ.append(rec)
 
@@ -729,6 +835,7 @@ def main():
         runtime_globs = read_runtime_globals(a.readelf, a.elf)
         open(a.out_globals, "w").write(
             emit_globals_lean(dec_bss_base, dec_bss_size, globs, refs, runtime_globs, object_sha["decoder"]))
+    if a.out_bindings: open(a.out_bindings, "w").write(emit_bindings_lean(occ_sorted))
     routines = {(o["qualified"], tuple(o["specialization"])) for o in occ_sorted}
     print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(program['defects'])} "
           f"entry={entry_idx} excluded={len(excluded_sorted)}")

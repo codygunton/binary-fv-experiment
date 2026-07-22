@@ -19,6 +19,7 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramInstructions
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramNesting
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramReachablePartition
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals
+import BinaryFv.SSZ.Zesu.Elfling.BindingInventory
 import BinaryFv.SSZ.Zesu.MachineExecution.DecodeTactic
 import BinaryFv.SSZ.Zesu.MachineExecution.BlobScheduleAndResultStores
 import BinaryFv.SSZ.Zesu.MachineExecution.ParserBlocks
