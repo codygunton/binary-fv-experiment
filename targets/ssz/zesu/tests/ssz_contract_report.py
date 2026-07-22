@@ -29,7 +29,7 @@ def build_report(corpus: list[dict], outcomes: list[dict], ledger: list[dict]) -
 
     coverage: dict[str, dict[str, int]] = {}
     cases = []
-    accepts = rejects = leaks = oom_unsafe = 0
+    accepts = rejects = leaks = oom_unsafe = aliasing = 0
     for cid in sorted(by_id):
         row = by_id[cid]
         cov = row.get("coverage", "unknown")
@@ -46,9 +46,16 @@ def build_report(corpus: list[dict], outcomes: list[dict], ledger: list[dict]) -
             leaks += 1
         if led.get("oom_safe") is False:
             oom_unsafe += 1
+        if any(e.get("aliases") for e in led.get("events", [])):
+            aliasing += 1
         bucket = coverage.setdefault(cov, {"cases": 0, "accept": 0, "reject": 0})
         bucket["cases"] += 1
         bucket["accept" if decided_accept else "reject"] += 1
+        # Per-event allocation ledger (recording allocator): derive the aggregate columns from events.
+        events = led.get("events", [])
+        allocated_bytes = sum(e["size"] for e in events)
+        freed_bytes = sum(e["size"] for e in events if e.get("freed"))
+        aliases = any(e.get("aliases") for e in events)
         cases.append({
             "id": cid,
             "coverage": cov,
@@ -56,8 +63,9 @@ def build_report(corpus: list[dict], outcomes: list[dict], ledger: list[dict]) -
             "probe_outcome": got.get("outcome", "missing"),
             "agrees": agrees,
             "allocations": led.get("allocations"),
-            "allocated_bytes": led.get("allocated_bytes"),
-            "freed_bytes": led.get("freed_bytes"),
+            "allocated_bytes": allocated_bytes,
+            "freed_bytes": freed_bytes,
+            "aliases": aliases,
             "leaked": led.get("leaked"),
             "oom_safe": led.get("oom_safe"),
             "oom_injected": led.get("oom_injected"),
@@ -73,6 +81,7 @@ def build_report(corpus: list[dict], outcomes: list[dict], ledger: list[dict]) -
             "all_agree_with_corpus": all(c["agrees"] for c in cases),
             "leaks": leaks,
             "oom_unsafe": oom_unsafe,
+            "aliasing": aliasing,
         },
         "coverage": {k: coverage[k] for k in sorted(coverage)},
         "cases": cases,
@@ -104,6 +113,7 @@ def render_md(report: dict) -> str:
         f"- all decisions agree with the corpus expectation: **{s['all_agree_with_corpus']}**",
         f"- error-path leaks: **{s['leaks']}**",
         f"- out-of-memory-unsafe cases: **{s['oom_unsafe']}**",
+        f"- cases with aliasing live allocations: **{s['aliasing']}**",
         "",
         "## Coverage",
         "",
