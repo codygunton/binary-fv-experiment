@@ -785,6 +785,78 @@ let
         | tee "$out/summary.txt"
     '';
 
+  # Row C (scaled): deterministically capture per-occurrence evidence for ALL occurrences in
+  # program.json from the UNCHANGED production ELF (pinned qemu-riscv64 plugin trace; the plugin reads
+  # sp per store, so write classification is self-contained and no GDB is needed), reduce it, and
+  # regenerate the scaled Lean evidence module + coverage report. The ELF is never rebuilt/patched.
+  # `setarch -R` makes every recorded address deterministic; the drift check compares the regenerated
+  # module to the committed one byte-for-byte, so the scaled Lean checker can never certify stale
+  # evidence. Coverage is per occurrence; explicit gaps (uncovered / input-dependent bound / structural
+  # meaning) are recorded, never counted as passes.
+  sszScaleEvidence =
+    let
+      trace = builtins.path { path = repo + "/targets/ssz/zesu/trace"; name = "ssz-trace-tools"; };
+      fixtures = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
+      committedEvidence = builtins.path { path = repo + "/BinaryFv/SSZ/Zesu/Validation/GeneratedScaleEvidence.lean"; name = "GeneratedScaleEvidence.lean"; };
+      committedReport = builtins.path { path = repo + "/targets/ssz/zesu/trace/SCALE_COVERAGE.md"; name = "SCALE_COVERAGE.md"; };
+    in
+    pkgs.runCommand "ssz-scale-occurrence-evidence" {
+      nativeBuildInputs = [
+        pkgs.python3 pkgs.gcc pkgs.util-linux pkgs.qemu-user pkgs.glib pkgs.pkg-config pkgs.coreutils
+      ];
+    } ''
+      set -euo pipefail
+      export HOME="$TMPDIR"
+      cp -R ${trace} trace && chmod -R u+w trace
+      cp ${fixtures} ssz_differential_audit.py
+
+      # Build the observe-only sp-reading plugin against the pinned qemu headers + glib.
+      gcc -shared -fPIC -O2 -o trace/qemu_trace_plugin.so trace/qemu_trace_plugin.c \
+        -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0)
+
+      # The SAME deterministic present / absent / malformed inputs as the vertical slice (they cover
+      # 138/141 occurrences; the 3 uncovered are the never-invoked allocator grow/error paths).
+      python3 - <<'PY'
+      import importlib.util, sys
+      spec = importlib.util.spec_from_file_location('fx', 'ssz_differential_audit.py')
+      fx = importlib.util.module_from_spec(spec); sys.modules['fx'] = fx; spec.loader.exec_module(fx)
+      open('present.bin', 'wb').write(fx.make_rich_v4())
+      open('absent.bin', 'wb').write(fx.make_v4(chain_bytes=fx.chain_config(blob_schedule=None)))
+      u64, u32, fa = fx.u64, fx.u32, fx.fork_activation
+      act = fa(None, 0); blob = u64(22) + u64(23)
+      fc = u64(20) + u32(16) + u32(16 + len(act)) + act + blob
+      open('malformed.bin', 'wb').write(fx.make_v4(chain_bytes=u64(1) + u32(12) + fc))
+      PY
+
+      mkdir -p "$out" scratch
+      python3 trace/scale_occurrences.py \
+        --qemu ${qemuRiscv64} --plugin trace/qemu_trace_plugin.so \
+        --elf ${zesuSsz}/bin/zesu-ssz --program ${elflingProgram}/program.json \
+        --scratch scratch \
+        --arm present=present.bin --arm malformed=malformed.bin --arm absent=absent.bin \
+        --out-json "$out/coverage.json" \
+        --out-lean "$out/GeneratedScaleEvidence.lean" \
+        --out-report "$out/SCALE_COVERAGE.md"
+
+      # Drift: the committed generated evidence module (native_decide-checked by the proof.nix Row C
+      # lane) and the committed coverage report must byte-equal a fresh capture of the unchanged ELF.
+      cmp -s "$out/GeneratedScaleEvidence.lean" ${committedEvidence} \
+        || { echo "DRIFT: committed GeneratedScaleEvidence.lean differs from a fresh production capture" >&2; \
+             diff "$out/GeneratedScaleEvidence.lean" ${committedEvidence} | head -40 >&2; exit 1; }
+      cmp -s "$out/SCALE_COVERAGE.md" ${committedReport} \
+        || { echo "DRIFT: committed SCALE_COVERAGE.md differs from a fresh production capture" >&2; \
+             diff "$out/SCALE_COVERAGE.md" ${committedReport} | head -40 >&2; exit 1; }
+      python3 - "$out/coverage.json" <<'PY' | tee "$out/summary.txt"
+      import json, sys
+      s = json.load(open(sys.argv[1]))["summary"]
+      print(f"scaled per-occurrence evidence: {s['covered']}/{s['occurrences']} occurrences covered; "
+            "matches committed module")
+      for n, d in sorted(s["byCheck"].items()):
+          print(f"  {n:22s} pass={d['pass']:3d} fail={d['fail']:3d} gap={d['gap']:3d}")
+      assert sum(d["fail"] for d in s["byCheck"].values()) == 0, "a per-occurrence check FAILED"
+      PY
+    '';
+
   zesuSsz = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-rv64im-zicclsm";
     version = "96f1621";
@@ -1009,6 +1081,7 @@ in
       sszContractProbeCheck
       sszProductionUnchanged
       sszBinaryEvidence
+      sszScaleEvidence
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -1029,6 +1102,7 @@ in
     ssz-contract-probe-check = sszContractProbeCheck;
     ssz-production-object-unchanged = sszProductionUnchanged;
     ssz-binary-evidence = sszBinaryEvidence;
+    ssz-scale-evidence = sszScaleEvidence;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;
