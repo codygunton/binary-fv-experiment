@@ -146,19 +146,24 @@ def DecoderGlobalsScalarRep (layout : DecoderGlobalsLayout) (model : DecoderGlob
   FlagRep state layout.attempted model.attempted ∧
   Word32LERep state layout.status model.status.code
 
-/-- The stored-result pointer at `layout.storedResult` and the buffer it points at.
+/-- The stored-result pointer word alone: the canonical `resultBase` when a value is stored, or null
+otherwise. `zesu_raw_result` returns exactly this word; that the buffer it points at holds a valid
+`RawV4` is the exported wrapper's postcondition, not the accessor's local obligation, so the accessor
+needs neither the container representation nor the input. -/
+def StoredResultPointerRep (layout : DecoderGlobalsLayout) (resultBase : Nat)
+    (model : DecoderGlobalsModel) (state : State) : Prop :=
+  Word64LERep state layout.storedResult (if model.stored.isSome then resultBase else 0)
 
-`zesu_raw_result` returns this pointer: the canonical `resultBase` when a value is stored, or null
-otherwise. When a value is stored, canonical memory at `resultBase` represents it under the same
-`RawV4` container representation the internal `decodeRaw` contract uses, so the exported and internal
-views of a successful result agree by construction. -/
+/-- The stored-result pointer *and* the `RawV4` the buffer holds on success, under the full container
+representation. The value arm carries the caller's input base/bytes so the borrowed input slices of
+the stored `RawV4` are represented. -/
 def StoredResultRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation SszBridge.RawV4)
-    (resultBase : Nat) (model : DecoderGlobalsModel) (state : State) : Prop :=
+    (inputBase : Nat) (input : ByteArray) (resultBase : Nat) (model : DecoderGlobalsModel)
+    (state : State) : Prop :=
+  StoredResultPointerRep layout resultBase model state ∧
   match model.stored with
-  | some value =>
-      Word64LERep state layout.storedResult resultBase ∧ rep value state resultBase
-  | none =>
-      Word64LERep state layout.storedResult 0
+  | some value => rep inputBase input value state resultBase
+  | none => True
 
 /-!
 ## Model-level facts
@@ -244,7 +249,7 @@ def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout
   env.CodeIntact after ∧
   after.regs.get? x10 = some (BitVec.ofNat 64 (callOutcome incoming result).returnCode) ∧
   DecoderGlobalsScalarRep globals (resultingGlobals incoming result) after ∧
-  StoredResultRep globals rep resultBuffer (resultingGlobals incoming result) after
+  StoredResultRep globals rep args.inputBase args.bytes resultBuffer (resultingGlobals incoming result) after
 
 /-- The wrapper as a full occurrence contract: the shared spec paired with the real exported binding
 at a given incoming globals model. -/

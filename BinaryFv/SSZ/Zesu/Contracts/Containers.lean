@@ -37,6 +37,16 @@ structure ContainerArgs where
   allocatorBase : Nat
   resultBase : Nat
 
+/-- The representation obligation for a container result, to be discharged against the pinned ABI
+manifest in the extraction row. Keeping it a parameter of the contract rather than a literal is what
+lets these contracts stay address-free today.
+
+It is applied as `rep inputBase input value state resultBase`: carrying the caller's input base and
+bytes lets a representation describe the container's *input-relative borrowed slices* (`extra_data`,
+transactions, witness nodes, …), not only its heap-owned and inline fields. Fixed containers ignore
+the input arguments. -/
+abbrev ContainerRepresentation (α : Type) := Nat → ByteArray → α → State → Nat → Prop
+
 /-!
 ## Meanings
 -/
@@ -131,42 +141,30 @@ def preContainer (env : DecoderEnvironment) (args : ContainerArgs) (state : Stat
 
 `representation` is supplied per container because each has its own field layout; making it a
 parameter keeps this shared shape honest instead of collapsing distinct records into one vague
-claim. -/
+claim. It is applied at the result base with the caller's input base/bytes, so a representation may
+describe input-relative borrowed slices. -/
 def postFixedContainer {α : Type} (env : DecoderEnvironment) (args : ContainerArgs)
-    (representation : α → State → Nat → Prop)
+    (representation : ContainerRepresentation α)
     (result : Except SszDecodeError α) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
   match result with
-  | .ok value => representation value after args.resultBase
+  | .ok value => representation args.base args.bytes value after args.resultBase
   | .error error =>
       error = SszDecodeError.invalidSsz ∨ error = SszDecodeError.unknownFork
 
 /-- An allocating container: its children allocate, so out-of-memory is reachable. -/
 def postAllocatingContainer {α : Type} (env : DecoderEnvironment) (args : ContainerArgs)
-    (representation : α → State → Nat → Prop)
+    (representation : ContainerRepresentation α)
     (result : Except SszDecodeError α) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   match result with
-  | .ok value => representation value after args.resultBase
+  | .ok value => representation args.base args.bytes value after args.resultBase
   | .error error =>
       error = SszDecodeError.invalidSsz ∨ error = SszDecodeError.unknownFork ∨
         error = SszDecodeError.outOfMemory
-
-/-!
-## Result representations
-
-Each container's memory representation is left as an abstract obligation keyed by the ABI layout.
-Spelling the field offsets inline would be an unchecked guess about Zig's record layout, exactly the
-mistake `DecoderEnvironment` exists to prevent; the extraction row supplies them.
--/
-
-/-- The representation obligation for a container result, to be discharged against the pinned ABI
-manifest in the extraction row. Keeping it a parameter of the contract rather than a literal is what
-lets these contracts stay address-free today. -/
-abbrev ContainerRepresentation (α : Type) := α → State → Nat → Prop
 
 /-!
 ## Contracts
