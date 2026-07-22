@@ -156,17 +156,67 @@ def rows():
     return out
 
 
+def _lean_str(s: str) -> str:
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def emit_lean(all_rows) -> str:
+    """Bake the leaf vectors into a Lean data module for the `native_decide` meaning check. Gaps are
+    omitted (their arm is not value-checkable). Groups: scalar reads, slice reads, unit checks,
+    predicates — matching the handwritten meaning families."""
+    scalar, slice_, requ, ere = [], [], [], []
+    for r in all_rows:
+        if r["expect"]["kind"] == "gap":
+            continue
+        rt, a, e = r["routine"], r["args"], r["expect"]
+        if rt in ("ssz_raw.readU32", "ssz_raw.readOffset", "ssz_raw.readU64"):
+            v = f'some {e["value"]["nat"]}' if e["kind"] == "value" else "none"
+            scalar.append(f'({_lean_str(rt)}, {_lean_str(r["id"])}, {_lean_str(a["data"])}, {a["offset"]}, {v})')
+        elif rt == "ssz_raw.bytesAt":
+            v = f'some {_lean_str(e["value"]["bytes"])}' if e["kind"] == "value" else "none"
+            slice_.append(f'({_lean_str(rt)}, {_lean_str(r["id"])}, {_lean_str(a["data"])}, {a["offset"]}, {a["len"]}, {v})')
+        elif rt.startswith("ssz_raw.readArray["):
+            v = f'some {_lean_str(e["value"]["bytes"])}' if e["kind"] == "value" else "none"
+            slice_.append(f'({_lean_str(rt)}, {_lean_str(r["id"])}, {_lean_str(a["data"])}, {a["offset"]}, {a["width"]}, {v})')
+        elif rt == "ssz_raw.requireU32Length":
+            requ.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {"true" if e["kind"] == "value" else "false"})')
+        elif rt == "ssz_raw.hasExactErePrefix":
+            ere.append(f'({_lean_str(r["id"])}, {_lean_str(a["data"])}, {"true" if e["value"]["bool"] else "false"})')
+
+    def block(name, ty, items):
+        body = ",\n   ".join(items) if items else ""
+        return f"def {name} : List ({ty}) :=\n  [{body}]\n"
+
+    L = [
+        "-- GENERATED FILE: produced by targets/ssz/zesu/tests/ssz_routine_vectors.py --out-lean. DO NOT EDIT.",
+        "-- Typed per-routine leaf vectors baked for the handwritten-meaning agreement check",
+        "-- (BinaryFv/SSZ/Zesu/Validation/RoutineMeaningVectors.lean). `some`=expected value, `none`=invalidSsz.",
+        "namespace BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
+        block("scalarVectors", "String × String × String × Nat × Option Nat", scalar),
+        block("sliceVectors", "String × String × String × Nat × Nat × Option String", slice_),
+        block("requireU32Vectors", "String × String × Bool", requ),
+        block("erePrefixVectors", "String × String × Bool", ere),
+        "end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
+    ]
+    return "\n".join(L) + "\n"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out")
+    ap.add_argument("--out-lean")
     args = ap.parse_args()
-    lines = [json.dumps(r, sort_keys=True, separators=(",", ":")) for r in rows()]
+    all_rows = rows()
+    lines = [json.dumps(r, sort_keys=True, separators=(",", ":")) for r in all_rows]
     text = "\n".join(lines) + "\n"
     if args.out:
         with open(args.out, "w") as f:
             f.write(text)
-    else:
+    elif not args.out_lean:
         sys.stdout.write(text)
+    if args.out_lean:
+        with open(args.out_lean, "w") as f:
+            f.write(emit_lean(all_rows))
 
 
 if __name__ == "__main__":
