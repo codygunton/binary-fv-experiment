@@ -14,6 +14,27 @@ fn logScalarLayout(comptime T: type) void {
     @compileLog(@typeName(T) ++ "|align", @alignOf(T));
 }
 
+/// The discriminant (`tag`) byte offset of a non-pointer optional. Zig lays such an optional out as
+/// payload-then-discriminant, so the tag byte sits immediately after the payload at `@sizeOf(Child)`.
+/// The guard keeps this honest: it fires (rather than reporting a wrong offset) if the optional is
+/// ever not larger than its payload, i.e. if there is no separate tag to point at.
+fn optionalTagOffset(comptime Opt: type) comptime_int {
+    const Child = @typeInfo(Opt).optional.child;
+    if (@sizeOf(Opt) <= @sizeOf(Child))
+        @compileError("optional " ++ @typeName(Opt) ++ " has no separate discriminant byte");
+    return @sizeOf(Child);
+}
+
+/// Emit the full compiler-reflected layout of a non-pointer optional: total size/alignment, the
+/// payload offset (0 — Zig places the payload first, and the reflected tag sits past the payload),
+/// and the reflected discriminant offset.
+fn logOptionalLayout(comptime Opt: type) void {
+    @compileLog(@typeName(Opt) ++ "|size", @sizeOf(Opt));
+    @compileLog(@typeName(Opt) ++ "|align", @alignOf(Opt));
+    @compileLog(@typeName(Opt) ++ "|payload", @as(comptime_int, 0));
+    @compileLog(@typeName(Opt) ++ "|tag", optionalTagOffset(Opt));
+}
+
 comptime {
     inline for (.{
         raw.RawStatelessInput,
@@ -30,6 +51,6 @@ comptime {
         raw.RawWithdrawalRequest,
         raw.RawConsolidationRequest,
     }) |T| logLayout(T);
-    logScalarLayout(?u64);
-    logScalarLayout(?raw.RawBlobSchedule);
+    logOptionalLayout(?u64);
+    logOptionalLayout(?raw.RawBlobSchedule);
 }
