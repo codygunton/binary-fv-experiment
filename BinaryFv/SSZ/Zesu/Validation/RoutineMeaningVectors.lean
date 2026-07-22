@@ -40,6 +40,7 @@ def hexToBytes (s : String) : ByteArray := Id.run do
 def scalarMeaning (routine : String) (bytes : ByteArray) (offset : Nat) : Option Nat :=
   if routine == "ssz_raw.readU32" then (meaningReadU32 bytes offset).toOption.map UInt32.toNat
   else if routine == "ssz_raw.readU64" then (meaningReadU64 bytes offset).toOption.map UInt64.toNat
+  else if routine == "ssz_raw.readU256" then (meaningReadU256 bytes offset).toOption.map BitVec.toNat
   else (meaningReadOffset bytes offset).toOption
 
 /-- The slice-read meaning selected by routine name (`bytesAt` vs `readArray[N]`, `len` = the width). -/
