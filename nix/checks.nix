@@ -17,6 +17,7 @@ let
       elflingGeneratorDefectsCheck
       sszContractCorpus
       sszContractProbeCheck
+      sszContractAgreement
       zesuSinkObservability
       zesuSsz
       zesuValue;

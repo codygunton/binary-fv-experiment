@@ -33,7 +33,7 @@ def hexToBytes? (s : String) : Option ByteArray := Id.run do
   if cs.size % 2 ≠ 0 then return none
   let mut out := ByteArray.empty
   let mut i := 0
-  while h : i + 1 < cs.size do
+  while _h : i + 1 < cs.size do
     match hexDigit? cs[i]!, hexDigit? cs[i + 1]! with
     | some hi, some lo => out := out.push (UInt8.ofNat (hi * 16 + lo)); i := i + 2
     | _, _ => return none
