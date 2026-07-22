@@ -4,6 +4,7 @@ import BinaryFv.SSZ.Zesu.Contracts.Canonicality
 import BinaryFv.SSZ.Zesu.Contracts.Containers
 import BinaryFv.SSZ.Zesu.Contracts.Collections
 import BinaryFv.SSZ.Zesu.Contracts.Entry
+import BinaryFv.SSZ.Zesu.Contracts.Runtime
 import BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors
 
 /-!
@@ -354,5 +355,61 @@ theorem decode_meaning_agrees :
     decodeVectors.all
       (fun v => containerTreeEnc renderStatelessInput (meaningDecode (hexToBytes v.2.1)) == v.2.2)
       = true := by native_decide
+
+/-!
+## Runtime / allocator / root routines
+
+`meaningAlloc` is the pinned `BumpHeap` arithmetic (address or none); `meaningCopy` is the identity;
+`allocatorResize`/`Remap` are the constants `false`/`none`. The root accessors are driven by
+`meaningDecode`: `zesu_decode_raw` returns 1 on accept, `zesu_raw_error` returns the DecodeStatus code
+(ok 1 / invalidSsz 2 / unknownFork 3 / outOfMemory 4), `zesu_raw_result` is present exactly on accept.
+-/
+
+open BinaryFv.SSZ.Zesu.Runtime (BumpHeap)
+
+/-- The bump-allocation address (relative to the heap base), or `none`. -/
+def allocAddr (pos top bytes alignment : Nat) : Option Nat :=
+  (meaningAlloc { position := pos, limit := top } bytes alignment).map Prod.fst
+
+/-- The DecodeStatus code the exported `zesu_raw_error` returns, matching the Zig enum values. -/
+def decodeStatusCode : Except SszDecodeError SszBridge.RawV4 → Nat
+  | .ok _ => 1
+  | .error .invalidSsz => 2
+  | .error .unknownFork => 3
+  | .error .outOfMemory => 4
+
+/-- **`zesu_raw_alloc` / `allocatorAlloc`:** the bump address / out-of-memory matches. -/
+theorem runtime_alloc_meaning_agrees :
+    runtimeAllocVectors.all
+      (fun v => allocAddr v.2.1 v.2.2.1 v.2.2.2.1 v.2.2.2.2.1 == v.2.2.2.2.2) = true := by
+  native_decide
+
+/-- **`memcpy` / `memmove`:** the meaning delivers the first `len` source bytes. -/
+theorem runtime_copy_meaning_agrees :
+    runtimeCopyVectors.all
+      (fun v => meaningCopy ((hexToBytes v.2.1).extract 0 v.2.2.1) == hexToBytes v.2.2.2) = true := by
+  native_decide
+
+/-- **`allocatorResize` / `allocatorRemap`:** the constant meanings the vtable thunks return. -/
+theorem runtime_resize_remap_meanings :
+    meaningAllocatorResize = false ∧ meaningAllocatorRemap = none := ⟨rfl, rfl⟩
+
+/-- **`zesu_decode_raw`:** returns 1 exactly on accept. -/
+theorem runtime_decode_ret_meaning_agrees :
+    runtimeDecodeRetVectors.all
+      (fun v => (if isAccepted (meaningDecode (hexToBytes v.2.1)) then 1 else 0) == v.2.2) = true := by
+  native_decide
+
+/-- **`zesu_raw_error`:** returns the DecodeStatus code of the decode. -/
+theorem runtime_error_meaning_agrees :
+    runtimeErrorVectors.all
+      (fun v => decodeStatusCode (meaningDecode (hexToBytes v.2.1)) == v.2.2) = true := by
+  native_decide
+
+/-- **`zesu_raw_result`:** present exactly on accept. -/
+theorem runtime_result_meaning_agrees :
+    runtimeResultVectors.all
+      (fun v => isAccepted (meaningDecode (hexToBytes v.2.1)) == v.2.2) = true := by
+  native_decide
 
 end BinaryFv.SSZ.Zesu.Validation

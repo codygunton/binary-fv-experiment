@@ -25,6 +25,21 @@
 
 const std = @import("std");
 const raw = @import("ssz_raw");
+// Runtime / allocator / root routines live in other pinned source files, exposed by their own
+// validation overlays (raw_allocator.zig, raw_decoder_root.zig) and the linked freestanding C runtime
+// (riscv64_runtime.c). See overlay_exports_allocator.zig / overlay_exports_root.zig.
+const alloc_mod = @import("raw_allocator");
+const root_mod = @import("raw_decoder_root");
+
+// The bump-heap cursor/limit the pinned `zesu_raw_alloc` reads via `extern var`. The probe owns them:
+// for the arithmetic-only allocator routines it drives a *virtual* heap (arbitrary addresses); for
+// `zesu_decode_raw`, which writes decoded bytes, it points them at a real buffer.
+export var ZKVM_HEAP_POS: usize = 0;
+export var ZKVM_HEAP_TOP: usize = 0;
+
+// The pinned freestanding `memcpy`/`memmove` from riscv64_runtime.c (linked object).
+extern fn memcpy(dst: [*]u8, src: [*]const u8, n: usize) callconv(.c) [*]u8;
+extern fn memmove(dst: [*]u8, src: [*]const u8, n: usize) callconv(.c) [*]u8;
 
 const Writer = std.Io.Writer;
 
@@ -46,6 +61,12 @@ const exposed_routines = [_][]const u8{
     "ssz_raw.bytesAt",                 "ssz_raw.hasExactErePrefix",
     "ssz_raw.readArray[20]", "ssz_raw.readArray[32]", "ssz_raw.readArray[48]",
     "ssz_raw.readArray[65]", "ssz_raw.readArray[96]", "ssz_raw.readArray[256]",
+    // Runtime / allocator / root routines (raw_allocator.zig, raw_decoder_root.zig, riscv64_runtime.c).
+    "raw_allocator.zesu_raw_alloc",     "raw_decoder_root.zesu_decode_raw",
+    "raw_decoder_root.zesu_raw_result", "raw_decoder_root.zesu_raw_error",
+    "raw_decoder_root.allocatorAlloc",  "raw_decoder_root.allocatorResize",
+    "raw_decoder_root.allocatorRemap",  "raw_decoder_root.allocatorFree",
+    "raw_decoder_root.allocator",       "memcpy", "memmove",
 };
 
 // Compile-time proof that the overlay exposes every private catalog routine: referencing each
@@ -77,6 +98,23 @@ comptime {
     _ = raw.probe_readArray;
     _ = raw.probe_bytesAt;
     _ = raw.probe_hasExactErePrefix;
+}
+
+// Compile-time proof that the raw_allocator / raw_decoder_root overlays expose their routines, and
+// that the freestanding C runtime's memcpy/memmove are linked.
+comptime {
+    _ = alloc_mod.probe_zesu_raw_alloc;
+    _ = root_mod.probe_allocatorAlloc;
+    _ = root_mod.probe_allocatorResize;
+    _ = root_mod.probe_allocatorRemap;
+    _ = root_mod.probe_allocatorFree;
+    _ = root_mod.probe_allocator;
+    _ = root_mod.probe_reset;
+    _ = root_mod.zesu_decode_raw;
+    _ = root_mod.zesu_raw_result;
+    _ = root_mod.zesu_raw_error;
+    _ = &memcpy;
+    _ = &memmove;
 }
 
 /// The generous read limit for the corpus file itself (not a single decode input).
@@ -1174,6 +1212,113 @@ fn processAllocLine(gpa: std.mem.Allocator, run: AllocRunner, out: *Writer, id: 
     return (!matched) or leaked or !sweep.safe;
 }
 
+// ============================================================================================
+// Runtime / allocator / root routines (raw_allocator.zig, raw_decoder_root.zig, riscv64_runtime.c).
+// The bump allocator is driven with a virtual heap (arithmetic only); zesu_decode_raw uses a real
+// heap buffer (it writes decoded bytes). Results reuse the plain Actual encoding.
+// ============================================================================================
+
+fn isRuntimeRoutine(routine: []const u8) bool {
+    const names = [_][]const u8{
+        "raw_allocator.zesu_raw_alloc",     "raw_decoder_root.zesu_decode_raw",
+        "raw_decoder_root.zesu_raw_result", "raw_decoder_root.zesu_raw_error",
+        "raw_decoder_root.allocatorAlloc",  "raw_decoder_root.allocatorResize",
+        "raw_decoder_root.allocatorRemap",  "raw_decoder_root.allocatorFree",
+        "raw_decoder_root.allocator",       "memcpy", "memmove",
+    };
+    for (names) |n| if (std.mem.eql(u8, routine, n)) return true;
+    return false;
+}
+
+/// Reset the root state, point the bump heap at a real buffer, and run one `zesu_decode_raw`.
+fn decodeUnderRoot(heap: []u8, input: []const u8) i32 {
+    root_mod.probe_reset();
+    ZKVM_HEAP_POS = @intFromPtr(heap.ptr);
+    ZKVM_HEAP_TOP = @intFromPtr(heap.ptr) + heap.len;
+    return root_mod.zesu_decode_raw(input.ptr, input.len);
+}
+
+fn runRuntime(routine: []const u8, args: std.json.ObjectMap, input: []const u8, gpa: std.mem.Allocator, arrbuf: *[256]u8) ?Actual {
+    if (std.mem.eql(u8, routine, "raw_allocator.zesu_raw_alloc")) {
+        ZKVM_HEAP_POS = @intCast(jsonInt(args, "heap_pos") orelse 0);
+        ZKVM_HEAP_TOP = @intCast(jsonInt(args, "heap_top") orelse 0);
+        const bytes: usize = @intCast(jsonInt(args, "bytes") orelse 0);
+        const alignment: usize = @intCast(jsonInt(args, "alignment") orelse 0);
+        if (alloc_mod.probe_zesu_raw_alloc(bytes, alignment)) |ptr| return .{ .nat = @intFromPtr(ptr) };
+        return .{ .err = "outOfMemory" };
+    } else if (std.mem.eql(u8, routine, "raw_decoder_root.allocatorAlloc")) {
+        ZKVM_HEAP_POS = @intCast(jsonInt(args, "heap_pos") orelse 0);
+        ZKVM_HEAP_TOP = @intCast(jsonInt(args, "heap_top") orelse 0);
+        const bytes: usize = @intCast(jsonInt(args, "bytes") orelse 0);
+        const log2: u6 = @intCast(jsonInt(args, "align_log2") orelse 0);
+        var ctx: u8 = 0;
+        if (root_mod.probe_allocatorAlloc(@ptrCast(&ctx), bytes, @enumFromInt(log2), 0)) |ptr| return .{ .nat = @intFromPtr(ptr) };
+        return .{ .err = "outOfMemory" };
+    } else if (std.mem.eql(u8, routine, "raw_decoder_root.allocatorResize")) {
+        var ctx: u8 = 0;
+        var mem = [_]u8{0} ** 8;
+        return .{ .boolean = root_mod.probe_allocatorResize(@ptrCast(&ctx), mem[0..], @enumFromInt(0), 4, 0) };
+    } else if (std.mem.eql(u8, routine, "raw_decoder_root.allocatorRemap")) {
+        var ctx: u8 = 0;
+        var mem = [_]u8{0} ** 8;
+        return .{ .boolean = root_mod.probe_allocatorRemap(@ptrCast(&ctx), mem[0..], @enumFromInt(0), 4, 0) != null };
+    } else if (std.mem.eql(u8, routine, "raw_decoder_root.allocatorFree")) {
+        ZKVM_HEAP_POS = 0x20000;
+        ZKVM_HEAP_TOP = 0x21000;
+        const before = ZKVM_HEAP_POS;
+        var ctx: u8 = 0;
+        var mem = [_]u8{0} ** 8;
+        root_mod.probe_allocatorFree(@ptrCast(&ctx), mem[0..], @enumFromInt(0), 0);
+        if (ZKVM_HEAP_POS != before) return .{ .err = "free-had-effect" };
+        return .{ .ok = {} };
+    } else if (std.mem.eql(u8, routine, "raw_decoder_root.allocator")) {
+        // The constructor must yield an allocator that routes to zesu_raw_alloc: allocating through it
+        // gives the same address a direct call would from the same heap.
+        ZKVM_HEAP_POS = 0x30000;
+        ZKVM_HEAP_TOP = 0x31000;
+        const a = root_mod.probe_allocator();
+        const p1 = a.rawAlloc(64, @enumFromInt(3), 0);
+        ZKVM_HEAP_POS = 0x30000;
+        const p2 = alloc_mod.probe_zesu_raw_alloc(64, 8);
+        if (!(p1 != null and p2 != null and @intFromPtr(p1.?) == @intFromPtr(p2.?))) return .{ .err = "ctor-mismatch" };
+        return .{ .ok = {} };
+    } else if (std.mem.eql(u8, routine, "memcpy") or std.mem.eql(u8, routine, "memmove")) {
+        const len: usize = @intCast(jsonInt(args, "len") orelse @as(i64, @intCast(input.len)));
+        if (len > input.len or len > arrbuf.len) return null;
+        const is_move = std.mem.eql(u8, routine, "memmove");
+        if (jsonInt(args, "dst_offset")) |doff_i| {
+            // Overlapping copy within one buffer: src at [0,len), dst at [off, off+len).
+            const off: usize = @intCast(doff_i);
+            var buf: [512]u8 = undefined;
+            if (off + len > buf.len) return null;
+            @memset(buf[0 .. off + len], 0);
+            @memcpy(buf[0..len], input[0..len]);
+            if (is_move) _ = memmove(buf[off..].ptr, buf[0..].ptr, len) else _ = memcpy(buf[off..].ptr, buf[0..].ptr, len);
+            @memcpy(arrbuf[0..len], buf[off .. off + len]);
+            return .{ .bytes = arrbuf[0..len] };
+        }
+        var dst: [512]u8 = undefined;
+        if (is_move) _ = memmove(dst[0..].ptr, input[0..len].ptr, len) else _ = memcpy(dst[0..].ptr, input[0..len].ptr, len);
+        @memcpy(arrbuf[0..len], dst[0..len]);
+        return .{ .bytes = arrbuf[0..len] };
+    } else if (std.mem.eql(u8, routine, "raw_decoder_root.zesu_decode_raw")) {
+        const heap = gpa.alloc(u8, 1 << 20) catch return null;
+        defer gpa.free(heap);
+        return .{ .nat = @intCast(decodeUnderRoot(heap, input)) };
+    } else if (std.mem.eql(u8, routine, "raw_decoder_root.zesu_raw_error")) {
+        const heap = gpa.alloc(u8, 1 << 20) catch return null;
+        defer gpa.free(heap);
+        _ = decodeUnderRoot(heap, input);
+        return .{ .nat = root_mod.zesu_raw_error() };
+    } else if (std.mem.eql(u8, routine, "raw_decoder_root.zesu_raw_result")) {
+        const heap = gpa.alloc(u8, 1 << 20) catch return null;
+        defer gpa.free(heap);
+        _ = decodeUnderRoot(heap, input);
+        return .{ .boolean = root_mod.zesu_raw_result() != null };
+    }
+    return null;
+}
+
 /// Process one routine-vector line; returns true if it was a defect (mismatch or unhandled routine).
 fn processRoutineLine(gpa: std.mem.Allocator, out: *Writer, line: []const u8) !bool {
     var parsed = std.json.parseFromSlice(std.json.Value, gpa, line, .{}) catch return false;
@@ -1222,6 +1367,21 @@ fn processRoutineLine(gpa: std.mem.Allocator, out: *Writer, line: []const u8) !b
 
     var arrbuf: [256]u8 = undefined;
     var scalarbuf: [16]u64 = undefined;
+    // Runtime / allocator / root routines from the other overlaid source files.
+    if (isRuntimeRoutine(routine)) {
+        const actual = runRuntime(routine, args, input, gpa, &arrbuf) orelse {
+            try out.writeAll("{\"id\":");
+            try writeJsonString(out, id);
+            try out.writeAll(",\"routine\":");
+            try writeJsonString(out, routine);
+            try out.writeAll(",\"kind\":\"unhandled\",\"match\":false}\n");
+            return true;
+        };
+        const matched = actualMatches(actual, expect);
+        try emitRoutineOutcome(out, id, routine, actual, matched);
+        return !matched;
+    }
+
     const actual = runRoutine(routine, args, input, &arrbuf, &scalarbuf) orelse {
         // A vector naming a routine this probe cannot reach/dispatch is a real gap in coverage.
         try out.writeAll("{\"id\":");

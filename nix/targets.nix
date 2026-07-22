@@ -693,10 +693,14 @@ let
     dontConfigure = true;
     dontFixup = true;
 
-    # The exact pinned sha256 of `src/stateless/stateless/ssz_raw.zig` (source manifest entry). The
-    # overlay is applied only after this matches, so a drifted source fails the build rather than
-    # silently exposing a different routine set.
+    # The exact pinned sha256 of each overlaid source file (the source manifest entries). Each overlay
+    # is applied only after its hash matches, so a drifted source fails the build rather than silently
+    # exposing a different routine set. raw_allocator/raw_decoder_root are Zesu sources; riscv64_runtime
+    # is the repo's freestanding RV64 C runtime (memcpy/memmove).
     ssz_raw_sha256 = "ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0f6783a1d131";
+    raw_allocator_sha256 = "c9e9457e45a3827729adb1921e07ba31997a536dc8f719e04d2d0d6f4c742591";
+    raw_decoder_root_sha256 = "53afe7a5c7c70122a3e2a9f9673a3415a50579a2ed11a21d9dd1c839e0c18a5e";
+    riscv64_runtime_sha256 = "5f80e272e96ccb30ca109bb77c9a78c9769bfd6b54ac2d7f712d3c2deb9b8235";
 
     buildPhase = ''
       runHook preBuild
@@ -704,7 +708,7 @@ let
       export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
       export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
 
-      # --- validation-only overlay: verify the pinned source, then append private-routine re-exports.
+      # --- validation-only overlays: verify each pinned source, then append private-routine re-exports.
       overlay=src/stateless/stateless/ssz_raw.zig
       echo "$ssz_raw_sha256  $overlay" | sha256sum -c - \
         || { echo "OVERLAY: pinned ssz_raw.zig sha256 mismatch (source drifted)" >&2; exit 1; }
@@ -719,10 +723,35 @@ let
       done
       cat ${builtins.path { path = repo + "/targets/ssz/zesu/probe/overlay_exports.zig"; name = "overlay_exports.zig"; }} >> "$overlay"
 
+      alloc_overlay=src/zkvm/raw_allocator.zig
+      echo "$raw_allocator_sha256  $alloc_overlay" | sha256sum -c - \
+        || { echo "OVERLAY: pinned raw_allocator.zig sha256 mismatch (source drifted)" >&2; exit 1; }
+      grep -qE "^pub export fn zesu_raw_alloc\b" "$alloc_overlay" \
+        || { echo "OVERLAY: zesu_raw_alloc not found in pinned raw_allocator.zig" >&2; exit 1; }
+      cat ${builtins.path { path = repo + "/targets/ssz/zesu/probe/overlay_exports_allocator.zig"; name = "overlay_exports_allocator.zig"; }} >> "$alloc_overlay"
+
+      root_overlay=src/zkvm/raw_decoder_root.zig
+      echo "$raw_decoder_root_sha256  $root_overlay" | sha256sum -c - \
+        || { echo "OVERLAY: pinned raw_decoder_root.zig sha256 mismatch (source drifted)" >&2; exit 1; }
+      for fn in allocatorAlloc allocatorResize allocatorRemap allocatorFree allocator; do
+        grep -qE "^fn $fn\b|^fn $fn\(" "$root_overlay" \
+          || { echo "OVERLAY: private routine 'fn $fn' not found in pinned raw_decoder_root.zig" >&2; exit 1; }
+      done
+      cat ${builtins.path { path = repo + "/targets/ssz/zesu/probe/overlay_exports_root.zig"; name = "overlay_exports_root.zig"; }} >> "$root_overlay"
+
+      # The freestanding RV64 C runtime (memcpy/memmove) is verified, then compiled to a linked object.
+      runtime_c=${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }}
+      echo "$riscv64_runtime_sha256  $runtime_c" | sha256sum -c - \
+        || { echo "OVERLAY: pinned riscv64_runtime.c sha256 mismatch (source drifted)" >&2; exit 1; }
+      zig cc -c "$runtime_c" -o runtime.o -O2
+
       zig build-exe -O ReleaseSafe \
-        --dep ssz_raw \
+        --dep ssz_raw --dep raw_allocator --dep raw_decoder_root \
         -Mroot=${builtins.path { path = repo + "/targets/ssz/zesu/probe/ssz_contract_probe.zig"; name = "ssz_contract_probe.zig"; }} \
         -Mssz_raw=$PWD/$overlay \
+        -Mraw_allocator=$PWD/$alloc_overlay \
+        --dep ssz_raw -Mraw_decoder_root=$PWD/$root_overlay \
+        runtime.o \
         -femit-bin=ssz-contract-probe
       runHook postBuild
     '';
