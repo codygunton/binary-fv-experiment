@@ -73,6 +73,25 @@ def readByte? (image : ProgramImage) (address : Nat) : Option UInt8 :=
   | some segment => segment.readByte? address
   | none => none
 
+/-- A readable address lies inside one of the image's load segments. Stated generically, so a proof
+about a concrete image never has to unfold the parsed segment data to use it. -/
+theorem readByte?_mem_segment {image : ProgramImage} {address : Nat} {byte : UInt8}
+    (h : image.readByte? address = some byte) :
+    ∃ segment ∈ image.segments.toList,
+      segment.virtualAddress ≤ address ∧ address < segment.virtualAddress + segment.memorySize := by
+  unfold readByte? at h
+  cases hfind : image.segmentAt? address with
+  | none => rw [hfind] at h; exact absurd h (by simp)
+  | some segment =>
+      have hfind' : image.segments.toList.find?
+          (fun segment => segment.containsMemoryByte address) = some segment := hfind
+      have hmem : segment ∈ image.segments.toList :=
+        List.mem_of_find?_eq_some (p := fun s : LoadSegment => s.containsMemoryByte address) hfind'
+      have hcontains : segment.containsMemoryByte address = true :=
+        List.find?_some (p := fun s : LoadSegment => s.containsMemoryByte address) hfind'
+      rw [LoadSegment.containsMemoryByte, decide_eq_true_eq] at hcontains
+      exact ⟨segment, hmem, hcontains.1, hcontains.2⟩
+
 def fileSegmentAt? (image : ProgramImage) (address : Nat) : Option LoadSegment :=
   image.segments.toList.find? fun segment => segment.containsInitialByte address
 
