@@ -11,6 +11,7 @@ import BinaryFv.SSZ.Zesu.Elfling.BlobScheduleInstance
 import BinaryFv.SSZ.Zesu.Elfling.BlobScheduleMapping
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramValidation
+import BinaryFv.SSZ.Zesu.Elfling.GeneratedBoundaryInventory
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramGeometry
 import BinaryFv.SSZ.Zesu.Elfling.ManifestCheck
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProvenanceCheck
