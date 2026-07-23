@@ -54,9 +54,22 @@ namespace DecoderEnvironment
 def NoAllocation (env : DecoderEnvironment) (before after : State) : Prop :=
   ∀ address, env.allocatorState address → after.mem.get? address = before.mem.get? address
 
-/-- The loaded code was not modified. -/
+/-- The loaded code and read-only constant data were not modified.
+
+**This is the file-backed image, not the full image** — and that distinction is a correction, not a
+convenience. The pinned Zesu ELF has a single RWX load segment whose file-backed bytes
+(`[0x10000, 0x1500C)`) are the code and rodata, while its zero-filled BSS tail holds the *mutable*
+runtime state: the host-provided heap globals `ZKVM_HEAP_POS`/`ZKVM_HEAP_TOP`, the 64 MiB arena, and
+the decoder's private globals (`attempted`, `last_status`, `stored_result`). The freestanding
+`zesu_raw_alloc` reads `ZKVM_HEAP_POS`/`ZKVM_HEAP_TOP` as host-provided `extern var`s and *writes*
+`ZKVM_HEAP_POS` on every allocation; the wrapper writes all three decoder globals. So a full-image
+`matchesMemory` — which pins every BSS byte to its static zero — is **unsatisfiable** on any
+mutating path: `postAlloc`'s `CodeIntact after` would demand the cursor still be zero after the
+allocator advanced it. `fileBytesMatchMemory` preserves exactly the code and rodata the decoder must
+not corrupt, and leaves the mutable BSS to the predicates that actually pin it (`DecoderGlobalsRep`
+for the decoder globals, the allocation ledger for the heap), which is the correct division. -/
 def CodeIntact (env : DecoderEnvironment) (state : State) : Prop :=
-  env.image.matchesMemory state.mem
+  env.image.fileBytesMatchMemory state.mem
 
 end DecoderEnvironment
 

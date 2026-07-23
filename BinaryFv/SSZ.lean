@@ -53,6 +53,7 @@ import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Fuel
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Layout
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Preflight
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.StateBuilder
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.CodeIntactRegression
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
 import BinaryFv.SSZ.Zesu.Interface
 import BinaryFv.SSZ.Root
