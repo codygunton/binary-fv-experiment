@@ -30,6 +30,16 @@ reaching-definitions fixpoint over the reconstructed CFG plus a danger-set closu
 loaded image — with its residual hypotheses stated in `STATIC_REACHABILITY.md`. Row C's
 conclusions exclude them and the one unresolved step bound either way.
 
+**Meaning checks are deliberately PARTIAL in Row C, and are reported as such.** `meaningTie`
+states only that the little-endian integer of the exact window an occurrence read IS the value
+it produced — a scalar/slice tie. It does NOT run the occurrence's `RoutineSpec.meaning` and
+compare a structured result, so every structural routine is an explicit gap (`mean: structural`)
+rather than a pass, as is the one occurrence whose comptime limits are not readable from the
+pinned source. Broad source-level semantic validation is Row B's job (it runs the handwritten
+Lean `meaning` for all 43 routine identities against the real Zig decoder); the deep
+machine-level meaning check here is the kernel-checked vertical slice for occurrence 116. Row C
+claims nothing more than the per-occurrence numbers in the table below.
+
 **138/141 occurrences covered** by the present /
 malformed / absent arms. Per-check totals:
 
