@@ -2,6 +2,7 @@ import BinaryFv.RiscV.Execution.MemoryIo
 import BinaryFv.RiscV.Execution.Machine
 import BinaryFv.RiscV.Execution.Runner
 import BinaryFv.RiscV.Execution.ImageLoad
+import BinaryFv.RiscV.Proof.ImageLoadFrame
 import BinaryFv.RiscV.Platform.NormalState
 import BinaryFv.SSZ.Zesu.Artifact.Symbols
 import BinaryFv.SSZ.Zesu.Artifact.Layout
