@@ -81,15 +81,39 @@ sentinel at once. -/
 /-- One main-memory PMA region spanning every address the runner touches. -/
 def zesuPmaRange : AddressRange := ⟨0, 2 ^ 63⟩
 
+/-- The attributes of a normal cacheable main-memory region, copied from the `MainMemory` region the
+Sail model installs by default (`sail_model_init`'s last `pma_regions` entry). Reconstructing them
+here — rather than reading the post-init `pma_regions` and copying its last entry — keeps the builder
+self-contained: `configureZesuMachine` writes `pma_regions` without first reading it, so the
+Runs-threading never has to characterize `sail_model_init`'s `pma_regions` value. -/
+def zesuMainMemoryAttributes : PMA where
+  mem_type := .MainMemory
+  cacheable := true
+  coherent := true
+  executable := true
+  readable := true
+  writable := true
+  read_idempotent := true
+  write_idempotent := true
+  misaligned_exceptions := { load_store := none, vector := none, amo := .AccessFault }
+  atomic_support := .AMOCASQ
+  reservability := .RsrvEventual
+  supports_cbo_zero := true
+  supports_pte_read := true
+  supports_pte_write := true
+
+/-- The single main-memory PMA region the runner installs: `zesuMainMemoryAttributes` over
+`zesuPmaRange`, which covers the loaded image, the arena, and the runner's input/stack/sentinel. -/
+def zesuMainMemoryRegion : PMA_Region where
+  base := BitVec.ofNat 64 zesuPmaRange.start
+  size := BitVec.ofNat 64 zesuPmaRange.size
+  attributes := zesuMainMemoryAttributes
+  include_in_device_tree := false
+
 def configureZesuMachine : SailM Unit := do
   initializeModel
   enableMExtension
-  let some mainMemory := (← readReg pma_regions).getLast? | throw Sail.Error.Unreachable
-  writeReg pma_regions [
-    { mainMemory with
-      base := BitVec.ofNat 64 zesuPmaRange.start
-      size := BitVec.ofNat 64 zesuPmaRange.size }
-  ]
+  writeReg pma_regions [zesuMainMemoryRegion]
   writeReg pmpcfg_n default
   writeReg pmpaddr_n default
   writeReg mcountinhibit (0 : BitVec 32)
