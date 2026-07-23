@@ -3,9 +3,10 @@
 
 Independent of the trace plugin (a second, separate evidence channel): drive the pinned `qemu-riscv64`
 gdbstub with a RISC-V GDB, break at each boundary PC, and record all 32 integer registers + `pc` at
-every stop, plus selected memory windows (each read as bytes). `setarch -R` pins the guest stack base so
-the capture is deterministic. The production ELF is only OBSERVED — never rebuilt, relinked, patched, or
-instrumented.
+every stop, plus selected memory windows (each read as bytes). `setarch -R` stabilizes repeated runs
+on one host; the evidence reducer separately normalizes stack addresses relative to entry SP because
+absolute guest-stack placement can differ across hosts. The production ELF is only OBSERVED — never
+rebuilt, relinked, patched, or instrumented.
 
 Inline exits are captured AFTER the outgoing edge (stops at the continuation target PC). Output is
 deterministic JSON. Diagnostic-only; never imported by the proof.

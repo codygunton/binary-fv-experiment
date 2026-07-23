@@ -44,6 +44,20 @@ def mutations(evi):
     ]
 
 
+def normalization_failures():
+    """The same stack-relative facts must serialize identically under two host stack bases."""
+    failures = []
+    bases = (140737136016832, 140737194737072)
+    for offset in (0, 3592, 4096):
+        got = {ev.normalize_stack_address(sp + offset, sp) for sp in bases}
+        if got != {ev.CANONICAL_SP + offset}:
+            failures.append(f"stack normalization drift at offset {offset}: {sorted(got)}")
+    fixed = ev.INPUT[0] + 8
+    if any(ev.normalize_stack_address(fixed, sp) != fixed for sp in bases):
+        failures.append("stack normalization changed a fixed input address")
+    return failures
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--qemu", required=True)
@@ -62,7 +76,8 @@ def main() -> int:
             "within_step_bound", "no_allocation", "input_preserved", "code_preserved",
             "no_unclassified_writes"]
     base = ev.evaluate_compact(evi)
-    failures = [f"baseline check {k} did not pass" for k in good if base.get(k) is not True]
+    failures = normalization_failures()
+    failures += [f"baseline check {k} did not pass" for k in good if base.get(k) is not True]
 
     cases = mutations(evi)
     for label, mut, check in cases:
@@ -74,7 +89,8 @@ def main() -> int:
         for f in failures:
             print(f"  {f}", file=sys.stderr)
         return 1
-    print(f"negative tests OK: baseline passes all {len(good)} checks; all {len(cases)} evidence "
+    print(f"negative tests OK: stack normalization is cross-host stable; baseline passes all "
+          f"{len(good)} checks; all {len(cases)} evidence "
           f"corruptions caught (swapped reg / +8 ABI / wrong occurrence / phantom edge / wrong "
           f"allocation / out-of-frame / input / code)")
     return 0

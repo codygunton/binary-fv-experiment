@@ -30,6 +30,7 @@ CURSOR = (86032, 86048)          # .sbss: ZKVM_HEAP_TOP@86032, ZKVM_HEAP_POS@860
 HEAP = (86048, 67194912)         # bump heap (allocated blocks)
 INPUT = (67194912, 69292064)     # SSZ input buffer — read-only (input preservation)
 GLOBALS = (69292064, 69292928)   # decoder statics (stored_result / last_status / attempted / ...)
+CANONICAL_SP = 1 << 47           # stable origin used only when serializing stack-relative evidence
 
 
 def classify_write(addr: int, sp: int) -> str:
@@ -47,6 +48,18 @@ def classify_write(addr: int, sp: int) -> str:
     if sp - (1 << 16) <= addr <= sp + (1 << 16):
         return "stack"
     return "unclassified"
+
+
+def normalize_stack_address(addr: int, sp: int) -> int:
+    """Keep fixed guest addresses exact; serialize stack addresses relative to a stable origin.
+
+    `setarch -R` makes repeated captures stable on one host, but Linux/QEMU stack placement can still
+    differ across hosts (as the first real pull-request run demonstrated).  The facts checked here are
+    stack-relative: whether the result/stores lie in the declared frame and at which offset from entry
+    SP. Re-centering both SP and every stack address preserves those facts without pretending the
+    host-selected absolute stack base belongs to the production ELF.
+    """
+    return CANONICAL_SP + (addr - sp) if classify_write(addr, sp) == "stack" else addr
 
 
 def run_capture(qemu, gdb, plugin, elf, input_path, lo, hi, boundary_pcs, mem_specs, scratch):
@@ -96,6 +109,11 @@ def reduce_evidence(occ, records, stops, arm):
     loads = [tuple(r[1:]) for r in records if r[0] == "L"]
     stores = [tuple(r[1:]) for r in records if r[0] == "S"]
     entry = {s["pc"]: s for s in stops}.get(occ["entryPc"])
+    raw_regs = entry["registers"] if entry else {f"x{n}": 0 for n in range(32)}
+    raw_sp = raw_regs["x2"]
+    normalized_regs = {
+        str(n): normalize_stack_address(raw_regs[f"x{n}"], raw_sp) for n in range(32)
+    }
     return {
         "occ": occ["index"] if "index" in occ else 116,
         "arm": arm,
@@ -107,10 +125,13 @@ def reduce_evidence(occ, records, stops, arm):
         "firstExecuted": executed[0] if executed else None,
         "occInsnCount": sum(1 for pc in executed if in_regions(pc)),
         "occExecEdges": sorted([s, t] for (s, t) in edges if in_regions(s)),
-        "inRegionStores": sorted([pc, addr, w, v] for (pc, addr, w, v) in stores if in_regions(pc)),
+        "inRegionStores": sorted(
+            [pc, normalize_stack_address(addr, raw_sp), w, v]
+            for (pc, addr, w, v) in stores if in_regions(pc)
+        ),
         "inputByteLoads": sorted([addr, v] for (pc, addr, w, v) in loads
                                  if INPUT[0] <= addr < INPUT[1] and w == 1),
-        "entryRegs": {str(n): (entry["registers"][f"x{n}"] if entry else 0) for n in range(32)},
+        "entryRegs": normalized_regs,
     }
 
 

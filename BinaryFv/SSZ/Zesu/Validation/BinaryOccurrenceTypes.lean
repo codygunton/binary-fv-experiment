@@ -11,8 +11,9 @@ These are validation (falsification/regression) types — never imported by the 
 
 namespace BinaryFv.SSZ.Zesu.Validation
 
-/-- Compact production-ELF evidence for one occurrence on one input arm. Addresses are guest virtual
-addresses (large `Nat`s, deterministic under `setarch -R`). -/
+/-- Compact production-ELF evidence for one occurrence on one input arm. Fixed addresses are exact
+guest virtual addresses. Stack addresses are translated by one common delta to a stable synthetic SP;
+this preserves every checked stack-relative offset while removing host-selected stack-base drift. -/
 structure OccEvidence where
   arm : String
   entryPc : Nat
