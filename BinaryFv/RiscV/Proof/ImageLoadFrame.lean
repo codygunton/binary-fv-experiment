@@ -240,6 +240,22 @@ theorem loadFilledBytes_establishes (base count : Nat) (value : UInt8) (s0 : Sta
   · intro i hi
     exact hwin i (by simp [List.mem_range']; omega)
 
+/-- A `forIn'` whose body ignores the membership proof is the corresponding `forIn`. Proved by
+induction; the head step and the `ForInStep` matching are identical on both sides, and the tails agree
+by the induction hypothesis. This is what lets `loadBytes` (a `forIn'` because its body reads
+`bytes[index]` under the range proof) reduce to the `forIn` establishment above. -/
+theorem forIn'_eq_forIn_ignore {α β : Type} (l : List α) (init : β)
+    (g : α → β → SailM (ForInStep β)) :
+    forIn' l init (fun a _ b => g a b) = forIn l init g := by
+  induction l generalizing init with
+  | nil => rw [List.forIn'_nil, List.forIn_nil]
+  | cons a l ih =>
+    rw [List.forIn'_cons, List.forIn_cons]
+    refine bind_congr (fun x => ?_)
+    cases x with
+    | done b => rfl
+    | yield b => exact ih b
+
 /-- **`loadZeroBytes` establishes a zeroed window.** Specialization of `loadFilledBytes` at `0`. -/
 theorem loadZeroBytes_establishes (base count : Nat) (s0 : State) :
     ∃ s, Runs (loadZeroBytes base count) s0 s () ∧
@@ -248,5 +264,55 @@ theorem loadZeroBytes_establishes (base count : Nat) (s0 : State) :
       (∀ i, i < count → s.mem.get? (base + i) = some (0 : BitVec 8)) := by
   obtain ⟨s, hrun, hregs, hframe, hwin⟩ := loadFilledBytes_establishes base count 0 s0
   exact ⟨s, hrun, hregs, hframe, fun i hi => by simpa using hwin i hi⟩
+
+/-- **`loadBytes` establishes `MemoryBytes`.** Every input byte reads back at its offset from `base`;
+everything else and every register is untouched.
+
+`loadBytes` is a `forIn'` loop (its body reads `bytes[index]` under the range membership proof). The
+proof is only used to justify the safe index, and `bytes[index] = bytes[index]!` there, so the loop
+equals a `forIn` loop with the proof-free `bytes[index]!` body, which `forIn_writeBytes_establishes`
+discharges. -/
+theorem loadBytes_establishes (base : Nat) (bytes : ByteArray) (s0 : State) :
+    ∃ s, Runs (loadBytes base bytes) s0 s () ∧
+      s.regs = s0.regs ∧
+      (∀ a, a < base ∨ base + bytes.size ≤ a → s.mem.get? a = s0.mem.get? a) ∧
+      (∀ i (h : i < bytes.size),
+        s.mem.get? (base + i) = some (BitVec.ofNat 8 (bytes[i]'h).toNat)) := by
+  -- the proof-free body used by the `forIn` establishment
+  let g : Nat → PUnit → SailM (ForInStep PUnit) := fun index _ => do
+    let _ ← writeByte (base + index) (BitVec.ofNat 8 (bytes[index]!).toNat)
+    pure (ForInStep.yield PUnit.unit)
+  have hrange : (List.range' [:bytes.size].start [:bytes.size].size [:bytes.size].step)
+      = List.range' 0 bytes.size 1 := by simp [Std.Range.size]
+  -- the loop of loadBytes (a `forIn'`) equals `forIn (range' 0 size 1) () g`
+  have hA : (forIn' [:bytes.size] PUnit.unit (fun index _ r => do
+        let _ ← writeByte (base + index) (BitVec.ofNat 8 bytes[index].toNat)
+        pure (ForInStep.yield PUnit.unit)))
+      = forIn (List.range' 0 bytes.size 1) PUnit.unit g := by
+    rw [Std.Range.forIn'_eq_forIn'_range',
+      List.forIn'_congr hrange rfl (g := fun a _ b => g a b) ?_]
+    · exact forIn'_eq_forIn_ignore _ _ g
+    · intro a hmem b
+      have hlt : a < bytes.size := by have := List.mem_range'.mp hmem; omega
+      simp only [g, getElem!_pos bytes a hlt]
+  have hloop : loadBytes base bytes
+      = (forIn (List.range' 0 bytes.size 1) PUnit.unit g >>= fun _ => pure PUnit.unit) := by
+    show (forIn' [:bytes.size] PUnit.unit _ >>= fun _ => pure PUnit.unit) = _
+    rw [hA]
+  obtain ⟨s, hrun, hregs, hframe, hwin⟩ :=
+    forIn_writeBytes_establishes (fun i => base + i) (fun i => BitVec.ofNat 8 (bytes[i]!).toNat)
+      (List.range' 0 bytes.size 1) s0 (range'_map_add_nodup base bytes.size)
+  have hrun' : Runs (loadBytes base bytes) s0 s () := by
+    rw [hloop]
+    exact Runs.bind (by simpa [g] using hrun)
+      (by show (pure PUnit.unit : SailM Unit).run s = .ok () s; rfl)
+  refine ⟨s, hrun', hregs, ?_, ?_⟩
+  · intro a ha
+    apply hframe
+    simp only [List.mem_map, List.mem_range']
+    rintro ⟨i, ⟨_, hi⟩, rfl⟩; omega
+  · intro i h
+    have := hwin i (by simp [List.mem_range']; omega)
+    rwa [getElem!_pos bytes i h] at this
 
 end BinaryFv.RiscV
