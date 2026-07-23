@@ -982,7 +982,7 @@ let
 
       mkdir -p "$out" scratch
       python3 trace/scale_occurrences.py \
-        --qemu ${qemuRiscv64} --plugin trace/qemu_trace_plugin.so \
+        --qemu ${qemuRiscv64} --plugin trace/qemu_trace_plugin.so --objdump ${riscvObjdump} \
         --elf ${zesuSsz}/bin/zesu-ssz --program ${elflingProgram}/program.json \
         --scratch scratch \
         --arm present=present.bin --arm malformed=malformed.bin --arm absent=absent.bin \

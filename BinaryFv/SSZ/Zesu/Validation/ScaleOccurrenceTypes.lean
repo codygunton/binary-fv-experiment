@@ -31,10 +31,17 @@ structure OccScaleEvidence where
   firstInRegion : Nat
   /-- max instructions in one invocation (span between successive `entryPc` executions). -/
   maxInsnPerInvocation : Nat
-  /-- the declared basic-block start PCs (exhaustive; the sound CFG reference). -/
-  blockStarts : List Nat
-  /-- distinct non-fallthrough transfer targets that landed in-region. -/
-  landingTargets : List Nat
+  /-- the occurrence's declared CFG edges (generator: attributed from DEEPEST-owned PCs). -/
+  declaredEdges : List (Nat × Nat)
+  /-- distinct executed transfers whose SOURCE is a PC this occurrence owns (dynamic returns and
+  unresolved indirect calls excluded — those are validated against `exits`). -/
+  executedOwnedEdges : List (Nat × Nat)
+  /-- the declared exit PCs. -/
+  exits : List Nat
+  /-- owned PCs from which execution actually left the occurrence's regions. -/
+  leavingSources : List Nat
+  /-- owned PCs whose transfer is dynamic (ret / unresolved indirect call). -/
+  dynamicTransferSources : List Nat
   /-- the resolved contract step bound, or `none` if input-dependent/unknown (an explicit gap). -/
   stepBound : Option Nat
   /-- whether the source routine allocates (bumps the allocator cursor). -/
@@ -60,6 +67,7 @@ structure OccScaleEvidence where
 structure ScaleChecks where
   entryReached : Option Bool
   controlFlowIntegrity : Option Bool
+  exitsRespected : Option Bool
   withinStepBound : Option Bool
   allocationConsistent : Option Bool
   inputPreserved : Option Bool

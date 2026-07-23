@@ -14,12 +14,17 @@ full-run trace cover ~all occurrences at once. Nothing is rebuilt, relinked, pat
 The generic per-occurrence checks (apply to all occurrences, trace-only):
   entryReached          the first in-region PC executed is the declared entryPc (the occurrence is
                         entered at its binding entry); invocations are counted by entryPc executions
-  controlFlowIntegrity  execution enters the occurrence's own code ONLY at a declared basic-block
-                        boundary — every non-fallthrough transfer into an in-region PC lands on a
-                        `blocks[].start`. (The `edges` list is a non-exhaustive subset of the true CFG;
-                        the `blocks` partition IS exhaustive, so it is the sound reference. Undeclared
-                        but block-aligned internal edges and out-of-region call/return targets are
-                        recorded as facts, and validated on their own by the child/callee occurrences.)
+  controlFlowIntegrity  EXACT conformance to the generated CFG: every executed transfer whose SOURCE is
+                        a PC this occurrence OWNS appears verbatim in its declared `edges`. The generator
+                        attributes each PC's edges to the DEEPEST occurrence owning it
+                        (`owned = regions - children's regions`), so an edge is declared exactly once
+                        across an inline chain; the checker uses that same ownership. (An earlier version
+                        of this checker compared against block-start membership instead, on the mistaken
+                        inference that `edges` was non-exhaustive — it is not; that comparison had simply
+                        ignored child-owned PCs. `cfg_audit.py` verifies the declared edges against the
+                        control transfers decoded from the disassembly.)
+  exitsRespected        every executed transfer that LEAVES the occurrence's regions departs from a PC
+                        listed in the declared `exits`.
   withinStepBound       max per-invocation instruction count <= the routine's contract step bound
                         (const bounds + readArray's specialization width; input-dependent bounds = gap)
   allocationConsistent  a NON-allocating routine never bumps the allocator cursor (.sbss); the
@@ -93,6 +98,27 @@ def parse_trace(path: Path):
     return executed, loads, stores
 
 
+def dynamic_transfer_pcs(objdump: str, elf: str) -> set:
+    """PCs whose control transfer is DYNAMIC — `ret`/`jr` returns and indirect `jalr` whose target
+    objdump could not resolve. Their targets are not statically known, so the generator models them as
+    `exits` rather than declared `edges`; the checker validates them via `exitsRespected` instead of
+    edge membership (a return legitimately goes to a different caller on each invocation)."""
+    import re as _re
+    out = subprocess.run([objdump, "-d", "--no-show-raw-insn", elf],
+                         capture_output=True, text=True, check=True).stdout
+    pcs = set()
+    for ln in out.splitlines():
+        m = _re.match(r"\s*([0-9a-f]+):\s+(\S+)\s*([^#]*)(#.*)?$", ln)
+        if not m:
+            continue
+        pc, op, ops, cmt = int(m.group(1), 16), m.group(2), m.group(3).strip(), m.group(4)
+        if op in ("ret", "jr", "mret", "sret"):
+            pcs.add(pc)
+        elif op == "jalr" and not (cmt and _re.search(r"#\s*[0-9a-f]+", cmt)):
+            pcs.add(pc)   # unresolved indirect call
+    return pcs
+
+
 def step_bound_for(short: str, occ, catalog, arglb: dict):
     """Resolve a CONCRETE numeric step bound for an occurrence, or None (an explicit gap) if the
     contract argument is not observable from the occurrence's own trace.
@@ -140,7 +166,7 @@ def step_bound_for(short: str, occ, catalog, arglb: dict):
 STORE_SUMMARY_TIES = {"raw"}  # memcpy/memmove: summarize the (large) destination-buffer write set
 
 
-def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0):
+def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0, children_pcs=frozenset(), dynamic_pcs=frozenset()):
     """Extract the COMPACT, deterministic per-occurrence facts the checker consumes — observed facts
     only; the expected binding/bound/layout live in the checker. This is the reduction that BOTH the
     Python oracle (`evaluate_facts`) and the generated Lean checker evaluate identically."""
@@ -174,20 +200,37 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0)
         per_inv = [len(in_region_idx)]
     f["maxInsnPerInvocation"] = max(per_inv)
 
-    # non-fallthrough transfers that LAND in-region → their targets must be declared block-starts.
-    land_targets, out_targets = set(), set()
+    # EXACT control-flow validation against the generated CFG.
+    # The generator attributes each PC's edges to the DEEPEST occurrence owning it
+    # (`owned = regions - children's regions`), so every executed transfer FROM an owned PC must appear
+    # verbatim in this occurrence's declared `edges` — not merely land on a block start. Every executed
+    # transfer that LEAVES the occurrence's regions must have its source in the declared `exits`.
+    owned = set()
+    for a, b in ranges:
+        owned |= set(range(a, b, 2))
+    owned -= children_pcs
+    declared_edges = sorted([e["source"], e["target"]] for e in occ["edges"])
+    declared_set = {(e["source"], e["target"]) for e in occ["edges"]}
+    exits = sorted(occ.get("exits") or [])
+    exec_owned, leaving_src, dyn_src = set(), set(), set()
     for i in range(len(executed) - 1):
         s, t = executed[i], executed[i + 1]
-        if t == s + 2 or t == s + 4:
-            continue
-        if in_region(t):
-            land_targets.add(t)
-        elif in_region(s):
-            out_targets.add(t)
+        if s in owned:
+            if s in dynamic_pcs:
+                dyn_src.add(s)          # dynamic return/indirect: validated via `exits`, not `edges`
+            else:
+                exec_owned.add((s, t))
+            if not in_region(t):
+                leaving_src.add(s)
     f["blockStarts"] = block_starts
-    f["landingTargets"] = sorted(land_targets)
-    f["offBlockLandings"] = sorted(t for t in land_targets if t not in bs_set)
-    f["outOfRegionTargets"] = sorted(out_targets)
+    f["declaredEdges"] = declared_edges
+    f["executedOwnedEdges"] = sorted([s, t] for (s, t) in exec_owned)
+    f["undeclaredExecutedEdges"] = sorted([s, t] for (s, t) in exec_owned if (s, t) not in declared_set)
+    f["exits"] = exits
+    f["leavingSources"] = sorted(leaving_src)
+    f["leavingSourcesNotInExits"] = sorted(s for s in leaving_src if s not in set(exits))
+    f["dynamicTransferSources"] = sorted(dyn_src)
+    f["dynamicSourcesNotInExits"] = sorted(s for s in dyn_src if s not in set(exits))
 
     tie = f["meaningTieKind"]
 
@@ -265,7 +308,11 @@ def evaluate_facts(f):
         return checks, gaps
 
     checks["entryReached"] = f["firstInRegion"] == f["entryPc"]
-    checks["controlFlowIntegrity"] = len(f["offBlockLandings"]) == 0
+    # EXACT generated-CFG conformance: every executed transfer from an owned PC is a declared edge.
+    checks["controlFlowIntegrity"] = len(f["undeclaredExecutedEdges"]) == 0
+    # every executed transfer leaving the occurrence's regions departs at a declared exit PC.
+    checks["exitsRespected"] = (len(f["leavingSourcesNotInExits"]) == 0
+                                and len(f["dynamicSourcesNotInExits"]) == 0)
 
     bound = f["stepBound"]
     if bound is None:
@@ -302,8 +349,9 @@ def run_full_trace(qemu, plugin, elf, input_path, out_path):
     return r.returncode
 
 
-CHECK_NAMES = ("entryReached", "controlFlowIntegrity", "withinStepBound", "allocationConsistent",
-               "inputPreserved", "codePreserved", "writesClassified", "meaningTie")
+CHECK_NAMES = ("entryReached", "controlFlowIntegrity", "exitsRespected", "withinStepBound",
+               "allocationConsistent", "inputPreserved", "codePreserved", "writesClassified",
+               "meaningTie")
 
 
 # --- Lean emission --------------------------------------------------------------------------------
@@ -345,8 +393,11 @@ def occ_to_lean(rec) -> str:
         f"entryPc := {f['entryPc']}, covered := {_b(f.get('covered'))}, "
         f"firstInRegion := {f.get('firstInRegion', 0)}, "
         f"maxInsnPerInvocation := {f.get('maxInsnPerInvocation', 0)}, "
-        f"blockStarts := {_ln(f.get('blockStarts', []))}, "
-        f"landingTargets := {_ln(f.get('landingTargets', []))}, "
+        f"declaredEdges := {_lp(f.get('declaredEdges', []))}, "
+        f"executedOwnedEdges := {_lp(f.get('executedOwnedEdges', []))}, "
+        f"exits := {_ln(f.get('exits', []))}, "
+        f"leavingSources := {_ln(f.get('leavingSources', []))}, "
+        f"dynamicTransferSources := {_ln(f.get('dynamicTransferSources', []))}, "
         f"stepBound := {_oi(f.get('stepBound'))}, allocates := {_b(f.get('allocates', False))}, "
         f"meaningTieKind := {_str(f.get('meaningTieKind', 'structural'))}, "
         f"storesSummarized := {_b(f.get('storesSummarized', False))}, "
@@ -359,6 +410,7 @@ def occ_to_lean(rec) -> str:
     ck = (
         f"{{ entryReached := {_ob(c['entryReached'])}, "
         f"controlFlowIntegrity := {_ob(c['controlFlowIntegrity'])}, "
+        f"exitsRespected := {_ob(c['exitsRespected'])}, "
         f"withinStepBound := {_ob(c['withinStepBound'])}, "
         f"allocationConsistent := {_ob(c['allocationConsistent'])}, "
         f"inputPreserved := {_ob(c['inputPreserved'])}, "
@@ -442,6 +494,9 @@ def emit_lean(records) -> str:
         "-- the validation-import guard forbids the theorem graph from importing this.",
         "import BinaryFv.SSZ.Zesu.Validation.ScaleOccurrenceTypes",
         "",
+        "-- Large generated list literals: raise the elaborator's recursion limit.",
+        "set_option maxRecDepth 100000",
+        "",
         "namespace BinaryFv.SSZ.Zesu.Validation.GeneratedScaleEvidence",
         "open BinaryFv.SSZ.Zesu.Validation",
         "",
@@ -460,6 +515,7 @@ def main() -> int:
     ap.add_argument("--plugin", required=True)
     ap.add_argument("--elf", required=True)
     ap.add_argument("--program", required=True)
+    ap.add_argument("--objdump", required=True)
     ap.add_argument("--catalog", default=str(HERE / "routine_catalog.json"))
     ap.add_argument("--scratch", required=True)
     # each arm: name=path/to/input.bin ; occurrences are assigned to the first arm (in order) that covers them
@@ -483,8 +539,20 @@ def main() -> int:
         decision = run_full_trace(args.qemu, args.plugin, args.elf, ipath, log)
         arm_traces[name] = (parse_trace(log), decision, ipath)
 
+    # PCs of each occurrence's regions, for the generator's deepest-owner edge attribution.
+    def _rpcs(x):
+        s = set()
+        for r in x["regions"]:
+            s |= set(range(r["start"], r["start"] + r["size"], 2))
+        return s
+    all_rpcs = [_rpcs(x) for x in occ]
+    dyn_pcs = dynamic_transfer_pcs(args.objdump, args.elf)
+
     records = []
     for idx, o in enumerate(occ):
+        kids = set()
+        for c in o.get("children") or []:
+            kids |= all_rpcs[c]
         o = {**o, "index": idx}
         short = o["qualified"].split(".")[-1]
         chosen = None
@@ -496,11 +564,11 @@ def main() -> int:
                 chosen = name
                 break
         if chosen is None:
-            facts = reduce_occurrence(o, short, catalog, [], [], [])  # covered=False
+            facts = reduce_occurrence(o, short, catalog, [], [], [], 0, kids, dyn_pcs)  # covered=False
         else:
             (executed, loads, stores), _, ipath = arm_traces[chosen]
             input_len = Path(ipath).stat().st_size
-            facts = reduce_occurrence(o, short, catalog, executed, loads, stores, input_len)
+            facts = reduce_occurrence(o, short, catalog, executed, loads, stores, input_len, kids, dyn_pcs)
         checks, gaps = evaluate_facts(facts)
         records.append({
             "index": idx, "qualified": o["qualified"], "routine": short,

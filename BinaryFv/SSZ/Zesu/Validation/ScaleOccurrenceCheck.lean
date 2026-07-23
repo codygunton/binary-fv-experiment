@@ -10,7 +10,8 @@ captured from the UNCHANGED production ELF under pinned QEMU) and re-derives eig
 checks, reproducing the Python oracle (`scale_occurrences.evaluate_facts`) exactly:
 
   entryReached          the first in-region PC is the declared entry PC
-  controlFlowIntegrity  every in-region transfer target is a declared basic-block start
+  controlFlowIntegrity  every executed transfer from an OWNED pc is a declared CFG edge (exact)
+  exitsRespected        every leaving / dynamic transfer departs at a declared exit PC
   withinStepBound       max per-invocation instruction count ≤ the contract step bound (gap if the
                         bound is input-dependent)
   allocationConsistent  a non-allocating routine never bumps the allocator cursor
@@ -55,13 +56,15 @@ def scaledClasses (ev : OccScaleEvidence) : List String :=
 /-- The scaled checker, reproducing the Python oracle `evaluate_facts`. -/
 def evaluateOcc (ev : OccScaleEvidence) : ScaleChecks :=
   if !ev.covered then
-    { entryReached := none, controlFlowIntegrity := none, withinStepBound := none,
+    { entryReached := none, controlFlowIntegrity := none, exitsRespected := none, withinStepBound := none,
       allocationConsistent := none, inputPreserved := none, codePreserved := none,
       writesClassified := none, meaningTie := none }
   else
     let classes := scaledClasses ev
     { entryReached := some (ev.firstInRegion == ev.entryPc)
-      controlFlowIntegrity := some (ev.landingTargets.all (fun t => ev.blockStarts.contains t))
+      controlFlowIntegrity := some (ev.executedOwnedEdges.all (fun e => ev.declaredEdges.contains e))
+      exitsRespected := some (ev.leavingSources.all (fun s => ev.exits.contains s) &&
+                              ev.dynamicTransferSources.all (fun s => ev.exits.contains s))
       withinStepBound := ev.stepBound.map (fun b => ev.maxInsnPerInvocation ≤ b)
       allocationConsistent := some (ev.allocates || !(classes.contains "allocator-cursor"))
       inputPreserved := some (!(classes.contains "input"))
@@ -88,6 +91,7 @@ theorem gating_checks_hold :
       !ev.covered ||
         (let r := evaluateOcc ev
          r.entryReached == some true && r.controlFlowIntegrity == some true &&
+         r.exitsRespected == some true &&
          r.allocationConsistent == some true && r.inputPreserved == some true &&
          r.codePreserved == some true && r.writesClassified == some true)) = true := by
   native_decide
@@ -98,6 +102,7 @@ theorem no_gating_failures :
     allOccs.all (fun p =>
       let r := evaluateOcc p.1
       r.entryReached != some false && r.controlFlowIntegrity != some false &&
+      r.exitsRespected != some false &&
       r.allocationConsistent != some false && r.inputPreserved != some false &&
       r.codePreserved != some false && r.writesClassified != some false &&
       r.withinStepBound != some false && r.meaningTie != some false) = true := by
@@ -144,9 +149,16 @@ theorem negative_wrong_entry :
     (evaluateOcc { sample with firstInRegion := sample.entryPc + 4 }).entryReached
       = some false := by native_decide
 
-/-- mid-block landing: a transfer target that is not a declared block start. -/
-theorem negative_off_block_landing :
-    (evaluateOcc { sample with landingTargets := (sample.entryPc + 2) :: sample.landingTargets }).controlFlowIntegrity
+/-- undeclared edge: an executed transfer from an owned PC that is not in the generated CFG. -/
+theorem negative_undeclared_edge :
+    (evaluateOcc { sample with
+        executedOwnedEdges := (sample.entryPc, 999999) :: sample.executedOwnedEdges }).controlFlowIntegrity
+      = some false := by native_decide
+
+/-- exit violation: execution leaves the occurrence from a PC that is not a declared exit. -/
+theorem negative_undeclared_exit :
+    (evaluateOcc { sample with
+        leavingSources := 999999 :: sample.leavingSources }).exitsRespected
       = some false := by native_decide
 
 /-- spurious allocation: a store bumping the allocator cursor in a non-allocating routine. -/
