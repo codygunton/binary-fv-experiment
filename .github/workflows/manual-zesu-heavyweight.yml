@@ -11,6 +11,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  row-c-extended:
+    name: Row C extended re-verification (full proof + evidence drift)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      # Extended tier: rebuild the full theorem graph (which includes the Row C diagnostic lane) and
+      # re-capture the blob-schedule + all-141-occurrence evidence and the static classification from the
+      # UNCHANGED ELF, drift-checking every committed artifact. A deeper, independent gate than the
+      # required-lightweight run.
+      - name: Full Lean proof (with the Row C diagnostic lane)
+        run: nix build --max-jobs 1 --print-build-logs --no-link .#binary-fv-lean
+      - name: Row C evidence + coverage + static classification drift
+        run: |
+          nix build --print-build-logs --no-link \
+            .#ssz-binary-evidence \
+            .#ssz-scale-evidence
+
   preservation-and-boundaries:
     name: Zesu preservation suites and extended boundaries
     runs-on: ubuntu-24.04
