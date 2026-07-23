@@ -21,9 +21,12 @@ that check, both flagged in the D0 design pass:
 This module closes both, computing the inventory **from the trusted decoded CFG** (`controlFlow?`)
 rather than a hand-maintained list, and checking it exhaustive:
 
-1. `directSuccessorsMapped` — every decoded direct successor of every owned-or-excluded pc is itself
-   owned or excluded. Control never leaves the mapped reachable code by a direct edge. This covers
-   the excluded routines' internal edges and their returns into the absorbing caller in one sweep.
+1. `directSuccessorsMapped` — every decoded *direct* successor of every owned-or-excluded pc is itself
+   owned or excluded. Control never leaves the mapped reachable code by a direct edge. This covers the
+   excluded routines' internal direct edges. It says nothing about returns: `ControlTransfer.directTargets`
+   is `#[]` for `.return_` (a `ret` goes to a dynamic `ra` the CFG cannot resolve), so returns are
+   *not* checked here — the return of an absorbed excluded routine into its caller is discharged by the
+   caller's own local trace obligation (D0's call/return accounting), not by this CFG sweep.
 2. `noUnresolvedDirect` — no owned-or-excluded pc has an *unresolved* direct transfer
    (`jump none` / `call none`): every direct branch/jump/call has a decoded target.
 3. `indirectSitesResolved` — the only non-direct, non-return, non-terminal transfers in owned-or-
@@ -150,8 +153,10 @@ theorem negative_excluded_routines_required :
 /-- **The complete checked-boundary inventory.** For the one canonical decoded CFG: every direct
 successor of every owned-or-excluded pc is mapped, no direct transfer is unresolved, and the only
 indirect transfers are the three `jalr ra` allocator-vtable dispatches whose pinned target is a
-mapped occurrence. So every decoded successor of every owned pc is owned, excluded (absorbed), or a
-checked allocator boundary — no partial coverage remains. -/
+mapped occurrence. So every *statically decodable* transfer out of an owned pc lands in owned code,
+excluded (absorbed) code, or a checked allocator boundary — no partial coverage remains. The one
+dynamic transfer kind, `ret`, is not resolved here (its target is a runtime `ra`); it is accounted
+by the caller's local trace obligation under D0's call/return discipline. -/
 theorem boundary_inventory_complete :
     ∃ nodes, controlFlow? = some nodes ∧
       directSuccessorsMappedB nodes = true ∧
