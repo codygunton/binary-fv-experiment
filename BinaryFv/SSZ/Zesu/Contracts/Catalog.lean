@@ -91,6 +91,34 @@ inductive RoutineTag where
   | allocatorAlloc | allocatorResize | allocatorRemap | allocatorFree | allocatorCtor
 deriving DecidableEq, Repr, Inhabited
 
+/-- The tag's constructor name, so a generated artifact can carry the dispatch key as a string
+without importing the handwritten catalog and the proof layer can still check the two agree. -/
+def RoutineTag.name : RoutineTag → String
+  | .zesuDecodeRaw => "zesuDecodeRaw" | .decode => "decode" | .decodeRaw => "decodeRaw"
+  | .newPayloadRequest => "newPayloadRequest" | .executionPayload => "executionPayload"
+  | .executionRequests => "executionRequests" | .executionWitness => "executionWitness"
+  | .chainConfig => "chainConfig" | .forkConfig => "forkConfig"
+  | .forkActivation => "forkActivation"
+  | .optionalU64 => "optionalU64" | .optionalBlobSchedule => "optionalBlobSchedule"
+  | .versionedHashes => "versionedHashes" | .withdrawals => "withdrawals"
+  | .depositRequests => "depositRequests" | .withdrawalRequests => "withdrawalRequests"
+  | .consolidationRequests => "consolidationRequests" | .publicKeys => "publicKeys"
+  | .byteListList => "byteListList"
+  | .requireCanonicalOffsets => "requireCanonicalOffsets" | .requireU32Length => "requireU32Length"
+  | .readOffset => "readOffset" | .readU32 => "readU32" | .readU64 => "readU64"
+  | .readU256 => "readU256" | .readArray => "readArray" | .bytesAt => "bytesAt"
+  | .hasExactErePrefix => "hasExactErePrefix"
+  | .rawAlloc => "rawAlloc" | .memcpy => "memcpy" | .memmove => "memmove"
+  | .rawResult => "rawResult" | .rawError => "rawError"
+  | .allocatorAlloc => "allocatorAlloc" | .allocatorResize => "allocatorResize"
+  | .allocatorRemap => "allocatorRemap" | .allocatorFree => "allocatorFree"
+  | .allocatorCtor => "allocatorCtor"
+
+/-- Distinct tags have distinct names, so matching a generated row's tag string against
+`RoutineTag.name` identifies exactly one tag. -/
+theorem RoutineTag.name_injective : ∀ a b : RoutineTag, a.name = b.name → a = b := by
+  intro a b h; revert h; cases a <;> cases b <;> simp [RoutineTag.name]
+
 /-- Why a source routine is excluded from the cataloged semantic proof — either it has no live
 occurrence in the canonical binary, or it is reachable emitted glue whose net effect is captured
 elsewhere. The last two are the row-2 reachable-but-excluded categories, shared with the generated

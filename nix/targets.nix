@@ -421,17 +421,20 @@ let
         --out-md "$1/program.md" \
         --out-globals "$1/DecoderGlobals.lean" \
         --out-bindings "$1/GeneratedBindings.lean" \
-        --out-bindings-json "$1/bindings.json"
+        --out-bindings-json "$1/bindings.json" \
+        --out-manifest "$1/GeneratedManifest.lean" \
+        --out-manifest-md "$1/MANIFEST.md"
     }
     mkdir -p run1 run2 "$out"
     gen run1
     gen run2
-    for f in program.json GeneratedProgram.lean program.md DecoderGlobals.lean GeneratedBindings.lean bindings.json; do
+    for f in program.json GeneratedProgram.lean program.md DecoderGlobals.lean GeneratedBindings.lean bindings.json GeneratedManifest.lean MANIFEST.md; do
       cmp -s "run1/$f" "run2/$f" \
         || { echo "GENERATOR NON-DETERMINISTIC: $f differs between two runs" >&2; exit 1; }
     done
     cp run1/program.json run1/GeneratedProgram.lean run1/program.md run1/DecoderGlobals.lean \
-       run1/GeneratedBindings.lean run1/bindings.json "$out/"
+       run1/GeneratedBindings.lean run1/bindings.json run1/GeneratedManifest.lean \
+       run1/MANIFEST.md "$out/"
     printf '%s\n' "two independent runs produced byte-identical program.json/GeneratedProgram.lean/program.md/DecoderGlobals.lean/GeneratedBindings.lean/bindings.json" \
       > "$out/determinism.txt"
   '';

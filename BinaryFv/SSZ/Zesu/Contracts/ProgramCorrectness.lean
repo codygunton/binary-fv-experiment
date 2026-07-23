@@ -201,6 +201,75 @@ structure ProgramGeometry (program : Program) : Prop where
       instanceExecutionPcs program callee pc →
         instanceExitPred instance_ pc → instanceExitPred callee pc
 
+/-! ### Deciding the geometry
+
+Each geometry clause is a `Bool` computation over the generated program's range arrays, together
+with a bridge to the `Prop` the composition consumes. A mutated program — a dropped absorbed routine,
+a callee whose extent escapes its caller's, a boundary pointing at the wrong occurrence — makes one
+of these evaluate to `false`, so the premise fails a check rather than being quietly assumed. -/
+
+/-- The ranges an occurrence's execution may occupy, as data: its own regions and its extent. This is
+`instanceExecutionPcs` in range form, and `executionPcs_iff_ranges` is the tie. -/
+def instanceExecutionRanges (program : Program) (instance_ : FunctionInstance) :
+    Array BinaryFv.Binary.AddressRange :=
+  instance_.regions ++ Program.extentRanges program instance_
+
+theorem executionPcs_iff_ranges {program : Program} {instance_ : FunctionInstance} {pc : BitVec 64} :
+    instanceExecutionPcs program instance_ pc ↔ RegionPcs (instanceExecutionRanges program instance_) pc := by
+  simp [instanceExecutionPcs, InstanceExecutionPcs, instanceReachedPcs, instanceExecutionRanges,
+    RegionPcs.append_iff]
+
+/-- Every occurrence owns a subset of where it executes. -/
+def ownedWithinExecutionB (program : Program) : Bool :=
+  program.instances.all fun i =>
+    Program.rangesSubsume (instanceExecutionRanges program i) (Program.ownedRanges program i)
+
+/-- Every callee executes inside its caller's execution set. -/
+def calleeWithinExecutionB (program : Program) : Bool :=
+  program.instances.all fun i =>
+    (calleeInstances program i).all fun c =>
+      Program.rangesSubsume (instanceExecutionRanges program i) (instanceExecutionRanges program c)
+
+/-- Every caller exit that lies inside a callee's execution set is itself a callee exit. -/
+def calleeExitContainmentB (program : Program) : Bool :=
+  program.instances.all fun i =>
+    (calleeInstances program i).all fun c =>
+      i.exitPcs.all fun pc =>
+        !Program.inRanges (instanceExecutionRanges program c) pc || c.exitPcs.contains pc
+
+/-- All three geometry clauses at once. -/
+def programGeometryB (program : Program) : Bool :=
+  ownedWithinExecutionB program && calleeWithinExecutionB program && calleeExitContainmentB program
+
+private theorem forall_mem_of_all {α : Type _} {xs : Array α} {f : α → Bool}
+    (h : xs.all f = true) : ∀ x ∈ xs, f x = true := by
+  intro x hx
+  obtain ⟨i, hi, hget⟩ := Array.mem_iff_getElem.mp hx
+  exact hget ▸ (Array.all_eq_true.mp h) i hi
+
+/-- **The decidable check discharges the geometry.** This is what lets D1 establish
+`ProgramGeometry generatedProgram` by evaluation on the generated data, with no assumption. -/
+theorem programGeometry_of_check {program : Program} (h : programGeometryB program = true) :
+    ProgramGeometry program := by
+  obtain ⟨howned, hcallee, hexit⟩ : ownedWithinExecutionB program = true ∧
+      calleeWithinExecutionB program = true ∧ calleeExitContainmentB program = true := by
+    simpa [programGeometryB, Bool.and_eq_true, and_assoc] using h
+  refine ⟨?_, ?_, ?_⟩
+  · intro i hi pc hpc
+    exact executionPcs_iff_ranges.mpr
+      (RegionPcs.of_rangesSubsume (forall_mem_of_all howned i hi) hpc)
+  · intro i hi c hc pc hpc
+    exact executionPcs_iff_ranges.mpr
+      (RegionPcs.of_rangesSubsume (forall_mem_of_all (forall_mem_of_all hcallee i hi) c hc)
+        (executionPcs_iff_ranges.mp hpc))
+  · intro i hi c hc pc hpc hexitPc
+    have hrow := forall_mem_of_all (forall_mem_of_all hexit i hi) c hc
+    have hmem := forall_mem_of_all hrow pc.toNat hexitPc
+    have hin : Program.inRanges (instanceExecutionRanges program c) pc.toNat = true :=
+      RegionPcs.iff_inRanges.mp (executionPcs_iff_ranges.mp hpc)
+    simp [hin] at hmem
+    simpa [instanceExitPred, FunctionInstance.isExit] using hmem
+
 /-- **A closed child supplies the summary its caller splices.** Given the callee's closed obligation
 and typed arguments whose entry binding holds, the callee's own confined run *is* a `childSummaryOf`
 witness for the caller — with the callee's exact consumed count, not an invented one.
@@ -252,6 +321,18 @@ accepted. -/
 def CallGraphRanked (program : Program) (rank : FunctionInstance → Nat) : Prop :=
   ∀ instance_ ∈ program.instances, ∀ callee ∈ calleeInstances program instance_,
     rank callee < rank instance_
+
+/-- The ranked-graph check in `Bool` form. -/
+def callGraphRankedB (program : Program) (rank : FunctionInstance → Nat) : Bool :=
+  program.instances.all fun i => (calleeInstances program i).all fun c => decide (rank c < rank i)
+
+/-- **The decidable check discharges acyclicity.** The rank is generated data checked here, not a
+witness chosen to make an induction close. -/
+theorem callGraphRanked_of_check {program : Program} {rank : FunctionInstance → Nat}
+    (h : callGraphRankedB program rank = true) : CallGraphRanked program rank := by
+  intro i hi c hc
+  exact of_decide_eq_true (forall_mem_of_all (forall_mem_of_all h i hi) c hc)
+
 
 /-- **The local-to-global composition principle, proved.**
 

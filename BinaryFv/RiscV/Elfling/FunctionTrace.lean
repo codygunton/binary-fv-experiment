@@ -51,6 +51,18 @@ theorem RegionPcs.of_rangesSubsume {outer inner : Array AddressRange}
   exact ⟨outer[j], Array.mem_iff_getElem.mpr ⟨j, hj, rfl⟩,
     Nat.le_trans hsub'.1 hlo, Nat.lt_of_lt_of_le hhi hsub'.2⟩
 
+/-- Appending range arrays is union on the address sets. -/
+theorem RegionPcs.append_iff {a b : Array AddressRange} {pc : BitVec 64} :
+    RegionPcs (a ++ b) pc ↔ RegionPcs a pc ∨ RegionPcs b pc := by
+  constructor
+  · rintro ⟨range, hrange, hlo, hhi⟩
+    rcases Array.mem_append.mp hrange with h | h
+    · exact Or.inl ⟨range, h, hlo, hhi⟩
+    · exact Or.inr ⟨range, h, hlo, hhi⟩
+  · rintro (⟨range, hrange, hlo, hhi⟩ | ⟨range, hrange, hlo, hhi⟩)
+    · exact ⟨range, Array.mem_append.mpr (Or.inl hrange), hlo, hhi⟩
+    · exact ⟨range, Array.mem_append.mpr (Or.inr hrange), hlo, hhi⟩
+
 /-- `RegionPcs` is exactly the decidable membership check on the same ranges. -/
 theorem RegionPcs.iff_inRanges {ranges : Array AddressRange} {pc : BitVec 64} :
     RegionPcs ranges pc ↔ BinaryFv.Binary.Elfling.Program.inRanges ranges pc.toNat = true := by

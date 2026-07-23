@@ -45,7 +45,7 @@ lean_lib ZesuSszAbi where
 
 lean_lib ElflingGeneratedProgram where
   srcDir := "build/elfling-program-lean"
-  roots := #[`GeneratedProgram, `DecoderGlobals, `GeneratedBindings]
+  roots := #[`GeneratedProgram, `DecoderGlobals, `GeneratedBindings, `GeneratedManifest]
 
 @[default_target]
 lean_lib BinaryFv where

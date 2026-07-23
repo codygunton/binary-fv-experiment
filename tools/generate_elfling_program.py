@@ -1071,7 +1071,8 @@ def main():
     # blocks/edges), proposed here and validated in Lean against the Sail-decoded CFG.
     ap.add_argument("--elf", required=True)
     ap.add_argument("--objdump", required=True)
-    for k in ["out-json","out-lean","out-md","out-globals","out-bindings","out-bindings-json"]:
+    for k in ["out-json","out-lean","out-md","out-globals","out-bindings","out-bindings-json",
+              "out-manifest","out-manifest-md"]:
         ap.add_argument("--"+k)
     a = ap.parse_args()
 
@@ -1307,6 +1308,12 @@ def main():
     if a.out_bindings_json:
         open(a.out_bindings_json, "w").write(
             emit_bindings_json(occ_sorted, effective_bindings, recovered_bindings, derived_bindings))
+    if a.out_manifest or a.out_manifest_md:
+        mrows = manifest_rows(program, {"effective": effective_bindings})
+        if a.out_manifest:
+            open(a.out_manifest, "w").write(emit_manifest_lean(program, mrows))
+        if a.out_manifest_md:
+            open(a.out_manifest_md, "w").write(emit_manifest_md(program, mrows))
     routines = {(o["qualified"], tuple(o["specialization"])) for o in occ_sorted}
     print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(program['defects'])} "
           f"entry={entry_idx} excluded={len(excluded_sorted)}")
@@ -1546,6 +1553,247 @@ def emit_md(p):
         M += ["", "## Attribution defects", ""] + [f"- `{json.dumps(d)}`" for d in p["defects"]]
     M.append("")
     return "\n".join(M)
+
+
+# ---------------------------------------------------------------------------
+# Occurrence manifest (row D1)
+# ---------------------------------------------------------------------------
+#
+# The single source of both the Lean manifest and the Markdown work-assignment view, so the two can
+# never disagree. Everything emitted here is PROPOSED by the generator and CHECKED in Lean against
+# `generatedProgram` and the handwritten catalog (`GeneratedManifest.lean`): the routine tag against
+# `catalogEntryFor`, the kind/parent/children/calls/entry/exits against the occurrence record, and
+# the row set against `generatedProgram.instances` in both directions.
+#
+# Deliberately NOT emitted: the numeric step bound. It lives in exactly one place — the contract the
+# occurrence's `RoutineTag` selects through `routineContract` — and copying it into generated data
+# would create an unchecked second copy of a proof-relevant constant. The manifest carries the tag,
+# which is what determines it.
+
+# qualified name -> RoutineTag constructor, PROPOSED here and checked in Lean against the catalog.
+ROUTINE_TAGS = {
+    "raw_decoder_root.zesu_decode_raw": "zesuDecodeRaw",
+    "ssz_raw.decode": "decode",
+    "ssz_raw.decodeRaw": "decodeRaw",
+    "ssz_raw.decodeNewPayloadRequest": "newPayloadRequest",
+    "ssz_raw.decodeExecutionPayload": "executionPayload",
+    "ssz_raw.decodeExecutionRequests": "executionRequests",
+    "ssz_raw.decodeExecutionWitness": "executionWitness",
+    "ssz_raw.decodeChainConfig": "chainConfig",
+    "ssz_raw.decodeForkConfig": "forkConfig",
+    "ssz_raw.decodeForkActivation": "forkActivation",
+    "ssz_raw.decodeOptionalU64": "optionalU64",
+    "ssz_raw.decodeOptionalBlobSchedule": "optionalBlobSchedule",
+    "ssz_raw.decodeVersionedHashes": "versionedHashes",
+    "ssz_raw.decodeWithdrawals": "withdrawals",
+    "ssz_raw.decodeDepositRequests": "depositRequests",
+    "ssz_raw.decodeWithdrawalRequests": "withdrawalRequests",
+    "ssz_raw.decodeConsolidationRequests": "consolidationRequests",
+    "ssz_raw.decodePublicKeys": "publicKeys",
+    "ssz_raw.decodeByteListList": "byteListList",
+    "ssz_raw.requireCanonicalOffsets": "requireCanonicalOffsets",
+    "ssz_raw.requireU32Length": "requireU32Length",
+    "ssz_raw.readOffset": "readOffset",
+    "ssz_raw.readU32": "readU32",
+    "ssz_raw.readU64": "readU64",
+    "ssz_raw.readU256": "readU256",
+    "ssz_raw.readArray": "readArray",
+    "ssz_raw.bytesAt": "bytesAt",
+    "ssz_raw.hasExactErePrefix": "hasExactErePrefix",
+    "raw_allocator.zesu_raw_alloc": "rawAlloc",
+    "memcpy": "memcpy",
+    "memmove": "memmove",
+    "raw_decoder_root.zesu_raw_result": "rawResult",
+    "raw_decoder_root.zesu_raw_error": "rawError",
+    "raw_decoder_root.allocatorAlloc": "allocatorAlloc",
+    "raw_decoder_root.allocatorResize": "allocatorResize",
+    "raw_decoder_root.allocatorRemap": "allocatorRemap",
+    "raw_decoder_root.allocatorFree": "allocatorFree",
+    "raw_decoder_root.allocator": "allocatorCtor",
+}
+
+# RoutineTag -> the plan row that owns its local proofs. Row E is the blob-schedule vertical slice,
+# F the leaves/options/runtime, G the collections, H the containers and decodeRaw/decode, I the
+# exported wrapper.
+OWNING_ROW = {
+    "optionalBlobSchedule": "E",
+    "optionalU64": "F", "requireCanonicalOffsets": "F", "requireU32Length": "F",
+    "readOffset": "F", "readU32": "F", "readU64": "F", "readU256": "F", "readArray": "F",
+    "bytesAt": "F", "hasExactErePrefix": "F", "rawAlloc": "F", "memcpy": "F", "memmove": "F",
+    "rawResult": "F", "rawError": "F", "allocatorAlloc": "F", "allocatorResize": "F",
+    "allocatorRemap": "F", "allocatorFree": "F", "allocatorCtor": "F",
+    "versionedHashes": "G", "withdrawals": "G", "depositRequests": "G",
+    "withdrawalRequests": "G", "consolidationRequests": "G", "publicKeys": "G",
+    "byteListList": "G",
+    "newPayloadRequest": "H", "executionPayload": "H", "executionRequests": "H",
+    "executionWitness": "H", "chainConfig": "H", "forkConfig": "H", "forkActivation": "H",
+    "decodeRaw": "H", "decode": "H",
+    "zesuDecodeRaw": "I",
+}
+
+
+def manifest_rows(p, bindings):
+    """One row per generated occurrence, in occurrence-index order."""
+    occ = p["occurrences"]
+    excl = p.get("excludedRoutines", [])
+    by_id = {}
+    for i, o in enumerate(occ):
+        by_id[(o["qualified"], tuple(o["specialization"]),
+               tuple((s["callerQualified"], s["line"], s["column"]) for s in o["inlineStack"]))] = i
+    # binding rows keyed by occurrence index, from the SAME effective table Lean validates
+    brows = {}
+    for i, bs in enumerate(bindings.get("effective", [])):
+        for (name, kind, _reg, _value) in bs:
+            brows.setdefault(i, []).append(f"{name}:{kind}")
+    rows = []
+    for i, o in enumerate(occ):
+        tag = ROUTINE_TAGS.get(o["qualified"])
+        if tag is None:
+            raise SystemExit(f"MANIFEST: occurrence {i} `{o['qualified']}` has no routine tag")
+        row_owner = OWNING_ROW.get(tag)
+        if row_owner is None:
+            raise SystemExit(f"MANIFEST: tag {tag} has no owning row")
+        calls = [c[1] for c in o["externalCalls"] if c[0] == "occ"]
+        absorbed = [c[1] for c in o["externalCalls"] if c[0] != "occ"]
+        rows.append({
+            "index": i,
+            "qualified": o["qualified"],
+            "specialization": list(o["specialization"]),
+            "tag": tag,
+            "kind": o["kind"],
+            "parent": o.get("parentIdx"),
+            "children": list(o["children"]),
+            "externalCalls": calls,
+            "absorbed": absorbed,
+            "entryPc": o["entryPc"],
+            "exitPcs": list(o["exits"]),
+            "bindingRows": sorted(brows.get(i, [])),
+            "dependencies": sorted(set(list(o["children"]) + calls)),
+            "theoremName": f"localContract_occ{i}",
+            "owningRow": row_owner,
+            "proofStatus": "pending",
+        })
+    # Manifest integrity, enforced at GENERATION time: one row per occurrence, one occurrence per
+    # row, in index order, with distinct theorem names. Any omission, duplication or reorder aborts.
+    if len(rows) != len(occ):
+        raise SystemExit("MANIFEST: row count does not match occurrence count")
+    if [r["index"] for r in rows] != list(range(len(occ))):
+        raise SystemExit("MANIFEST: rows are not in occurrence-index order")
+    if len({r["index"] for r in rows}) != len(rows):
+        raise SystemExit("MANIFEST: duplicated occurrence index")
+    if len({r["theoremName"] for r in rows}) != len(rows):
+        raise SystemExit("MANIFEST: duplicated theorem name")
+    for r in rows:
+        if r["qualified"] != occ[r["index"]]["qualified"]:
+            raise SystemExit(f"MANIFEST: row {r['index']} names the wrong occurrence")
+        for d in r["dependencies"]:
+            if not (0 <= d < len(occ)):
+                raise SystemExit(f"MANIFEST: row {r['index']} depends on nonexistent occurrence {d}")
+    del excl
+    return rows
+
+
+def emit_manifest_lean(p, rows):
+    def nats(xs): return "#[" + ", ".join(str(x) for x in xs) + "]"
+    def strs(xs): return "#[" + ", ".join(lean_str(x) for x in xs) + "]"
+    L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-manifest). DO NOT EDIT.",
+         "import GeneratedProgram", "",
+         "/-!", "# The occurrence manifest (row D1)", "",
+         "One row per generated occurrence, in occurrence-index order. Emitted from the same data as",
+         "`MANIFEST.md`, so the work-assignment view and the Lean-visible backlog cannot drift.",
+         "",
+         "UNTRUSTED, like every generated artifact: `GeneratedManifest.lean` in the proof tree checks",
+         "each row against `generatedProgram` and the handwritten catalog, in both directions.",
+         "",
+         "The numeric step bound is deliberately absent: it lives in the contract the row's",
+         "`routineTag` selects, and a copy here would be an unchecked second source for a",
+         "proof-relevant constant.",
+         "-/", "",
+         "namespace BinaryFv.SSZ.Zesu.Elfling.Generated", "",
+         "open BinaryFv.Binary.Elfling", "",
+         "/-- One manifest row. `routineTag` is the constructor name of the `RoutineTag` the proof",
+         "layer checks against `catalogEntryFor`; keeping it a `String` here is what stops the",
+         "generated file from importing the handwritten catalog. -/",
+         "structure ManifestRow where",
+         "  index : Nat",
+         "  id : InstanceId",
+         "  qualifiedName : String",
+         "  routineTag : String",
+         "  kind : String",
+         "  parent : Option Nat",
+         "  children : Array Nat",
+         "  externalCalls : Array Nat",
+         "  absorbed : Array Nat",
+         "  entryPc : Nat",
+         "  exitPcs : Array Nat",
+         "  bindingRows : Array String",
+         "  dependencies : Array Nat",
+         "  theoremName : String",
+         "  owningRow : String",
+         "  proofStatus : String",
+         "deriving Repr, Inhabited, DecidableEq", "",
+         "/-- The complete manifest: exactly one row per generated occurrence, in index order. -/",
+         "def generatedManifest : Array ManifestRow :=", "  #["]
+    items = []
+    for r in rows:
+        parent = "none" if r["parent"] is None else f'some {r["parent"]}'
+        items.append(
+            f'    {{ index := {r["index"]}, id := occ{r["index"]}Id, '
+            f'qualifiedName := {lean_str(r["qualified"])}, routineTag := {lean_str(r["tag"])},\n'
+            f'      kind := {lean_str(r["kind"])}, parent := {parent}, '
+            f'children := {nats(r["children"])}, externalCalls := {nats(r["externalCalls"])},\n'
+            f'      absorbed := {nats(r["absorbed"])}, entryPc := {r["entryPc"]}, '
+            f'exitPcs := {nats(r["exitPcs"])},\n'
+            f'      bindingRows := {strs(r["bindingRows"])}, '
+            f'dependencies := {nats(r["dependencies"])},\n'
+            f'      theoremName := {lean_str(r["theoremName"])}, '
+            f'owningRow := {lean_str(r["owningRow"])}, '
+            f'proofStatus := {lean_str(r["proofStatus"])} }}')
+    L.append(",\n".join(items))
+    L += ["  ]", "", "end BinaryFv.SSZ.Zesu.Elfling.Generated", ""]
+    return "\n".join(L)
+
+
+def emit_manifest_md(p, rows):
+    occ = p["occurrences"]
+    by_row = {}
+    for r in rows:
+        by_row.setdefault(r["owningRow"], []).append(r)
+    by_routine = {}
+    for r in rows:
+        key = r["qualified"] + ("[" + ",".join(r["specialization"]) + "]" if r["specialization"] else "")
+        by_routine.setdefault(key, []).append(r)
+    M = ["# Occurrence manifest — the Row D local-proof backlog", "",
+         "GENERATED by `tools/generate_elfling_program.py`. Do not edit; regenerate.",
+         "",
+         "Emitted from the same rows as `GeneratedManifest.lean`, so this view and the Lean-visible",
+         "backlog cannot drift. The Lean side checks every row against `generatedProgram` and the",
+         "handwritten catalog in both directions.",
+         "",
+         f"**{len(rows)} occurrences** across **{len(by_routine)} source routines**.",
+         "",
+         "## By owning plan row", "",
+         "| row | occurrences | routines |", "|---|--:|--:|"]
+    for row_owner in sorted(by_row):
+        rs = by_row[row_owner]
+        routines = {r["qualified"] for r in rs}
+        M.append(f"| {row_owner} | {len(rs)} | {len(routines)} |")
+    M += ["", "## By source routine", "",
+          "Each group is one source routine; every occurrence of it must be proved locally, and no",
+          "occurrence inherits its sibling's proof.", ""]
+    for key in sorted(by_routine):
+        rs = by_routine[key]
+        M += [f"### `{key}` — {len(rs)} occurrence(s), row {rs[0]['owningRow']}", "",
+              "| occ | kind | entry | exits | deps | binding rows | theorem | status |",
+              "|--:|---|---|--:|---|---|---|---|"]
+        for r in rs:
+            deps = ",".join(str(d) for d in r["dependencies"]) or "—"
+            brs = ", ".join(f"`{b}`" for b in r["bindingRows"]) or "—"
+            M.append(f'| {r["index"]} | {r["kind"]} | `0x{r["entryPc"]:x}` | {len(r["exitPcs"])} | '
+                     f'{deps} | {brs} | `{r["theoremName"]}` | {r["proofStatus"]} |')
+        M.append("")
+    del occ
+    return "\n".join(M) + "\n"
 
 if __name__ == "__main__":
     main()
