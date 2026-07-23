@@ -20,36 +20,16 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
+import sys
 from pathlib import Path
 
-COND = {"beq", "bne", "blt", "bge", "bltu", "bgeu", "beqz", "bnez", "bgez", "blez", "bgtz", "bltz",
-        "bgt", "ble", "bgtu", "bleu"}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# The direct-vs-dynamic transfer rule is shared with the scaled checker and mirrors the extractor:
+# objdump's `#` comment alone does NOT make a `jalr` direct (it prints one for a bare `jalr a5` too).
+from riscv_transfers import COND, RET, disassemble, resolved_target  # noqa: E402
+
 UNCOND = {"j", "jr"}
 CALL = {"jal", "jalr"}
-RET = {"ret", "mret", "sret"}
-
-
-def disassemble(objdump: str, elf: str):
-    out = subprocess.run([objdump, "-d", "--no-show-raw-insn", elf],
-                         capture_output=True, text=True, check=True).stdout
-    insns = {}
-    order = []
-    for ln in out.splitlines():
-        m = re.match(r"\s*([0-9a-f]+):\s+(\S+)\s*([^#]*)(#.*)?$", ln)
-        if m:
-            a = int(m.group(1), 16)
-            ops = m.group(3).strip().rstrip(",")
-            # objdump resolves `jalr N(ra)`-style long-range DIRECT calls in a trailing comment
-            # (`# 13eb8 <memcpy>`); keep it so those targets are decoded rather than treated as indirect.
-            resolved = None
-            if m.group(4):
-                r = re.search(r"#\s*([0-9a-f]+)", m.group(4))
-                if r:
-                    resolved = int(r.group(1), 16)
-            insns[a] = (m.group(2), ops, resolved)
-            order.append(a)
-    return insns, order
 
 
 def target_of(ops: str):
@@ -63,8 +43,11 @@ def target_of(ops: str):
     return int(m.group(1), 16) if m else None
 
 
-def successors(addr: int, op: str, ops: str, next_addr: int | None, resolved=None):
-    """Real successors of one instruction: (list_of_targets, indirect_flag)."""
+def successors(addr: int, op: str, ops: str, next_addr: int | None, direct=None):
+    """Real successors of one instruction: (list_of_targets, indirect_flag).
+
+    `direct` is `riscv_transfers.resolved_target(addr, insns)` — the target of an `auipc`+`jalr`/`jr`
+    long-range DIRECT call, or None when the transfer is genuinely dynamic."""
     if op in RET:
         return [], True
     if op in COND:
@@ -73,19 +56,21 @@ def successors(addr: int, op: str, ops: str, next_addr: int | None, resolved=Non
         if t is not None:
             s = s + [t]
         return s, False
-    if op in UNCOND:
+    if op == "j":
         t = target_of(ops)
-        if op == "jr":
-            return [], True
         return ([t] if t is not None else []), t is None
     if op == "jal":
-        t = target_of(ops) if target_of(ops) is not None else resolved
+        t = target_of(ops) if target_of(ops) is not None else direct
         return ([t] if t is not None else []), t is None
-    if op == "jalr":
-        # `jalr N(base)` that objdump resolved is a long-range DIRECT call: its target is known.
-        if resolved is not None:
-            return [resolved], False
-        return [], True
+    if op in ("jr", "jalr"):
+        # Direct ONLY for the auipc+jalr pair; a bare `jalr rs` is indirect however objdump renders it.
+        if direct is None:
+            return [], True
+        # `jalr` writes ra, so a resolved one is a CALL and also reaches its return site — the
+        # generator declares both edges. `jr` writes x0: a tail jump, with no fall-through.
+        if op == "jalr":
+            return [x for x in [direct, next_addr] if x is not None], False
+        return [direct], False
     return ([next_addr] if next_addr is not None else []), False
 
 
@@ -127,8 +112,8 @@ def main() -> int:
         for pc in sorted(owned):
             if pc not in insns:
                 continue
-            op, ops, resolved = insns[pc]
-            succ, indirect = successors(pc, op, ops, nxt.get(pc), resolved)
+            op, ops, _ = insns[pc]
+            succ, indirect = successors(pc, op, ops, nxt.get(pc), resolved_target(pc, insns))
             if indirect:
                 indirect_sites.append(pc)
             for t in succ:

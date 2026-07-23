@@ -35,11 +35,28 @@ The generic per-occurrence checks (apply to all occurrences, trace-only):
   codePreserved         no store into the .text code region
   writesClassified      every in-region store lands in a known region (code/cursor/heap/input/global/
                         stack, sp taken from the store record itself) — no unclassified writes
-  meaningTie            routine-specific: for scalar/offset/slice leaf readers the value read from the
-                        input is faithfully carried to a result store. Claimed PASS only on a clean
-                        tie; otherwise an EXPLICIT gap (never a failure — a missed heuristic tie is not
-                        evidence of a binding violation). The rigorous per-value meaning check is the
-                        kernel-checked vertical slice (occurrence 116), not this lightweight scan.
+  bindingsEvaluable     every EFFECTIVE Row A binding row (the recovered table, not the raw DWARF one)
+                        resolves to a concrete value from the machine state captured at the declared
+                        entry PC: registers from the boundary snapshot, memory from the ELF image
+                        overlaid with the preceding stores. A declared location the machine cannot
+                        supply is a FAILURE, not a gap.
+  bindingsRealized      the resolved values have their declared consequence in the trace, per routine
+                        family: the exported entry's (input, input_len) equal the linked buffer base
+                        and the exact byte length fed to the process; memcpy/memmove write exactly
+                        [dst,dst+n) and read [src,src+n); an allocation's cursor bump covers its
+                        request at the requested alignment; an `offset`-bound reader takes its window
+                        at sliceBase+offset and touches exactly `len` bytes. Every captured invocation
+                        is evaluated, not just the first.
+  exitBindingRealized   the result register at a declared RETURN exit matches the routine's exit
+                        convention. Tail-call exits are excluded: their register file holds the
+                        callee's arguments, not this occurrence's result.
+  allocationLedger      an allocating occurrence's cursor bumps are well-formed ledger events — the
+                        ledger is reconstructed from ZKVM_HEAP_POS's own write history, not from
+                        anything the allocator reports about itself.
+  meaningTie            for a fixed-width leaf reader: the little-endian integer of the EXACT window it
+                        read IS the value it produced (stored, or held in a register when it left).
+                        Anything weaker is an EXPLICIT gap, never a failure. The full per-value meaning
+                        against the handwritten spec is the kernel-checked vertical slice (occ 116).
 
 This is diagnostic-only evidence and is NEVER imported by the theorem graph.
 """
@@ -52,10 +69,15 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))   # the shared trace helpers live beside this script
 
 # Pinned production memory layout (from the zesu-ssz ELF section headers / symbols; see STATUS).
 TEXT = (65768, 81704)            # code — read-only (code preservation)
-CURSOR = (86032, 86048)          # .sbss allocator cursor (ZKVM_HEAP_TOP@86032, ZKVM_HEAP_POS@86040)
+CURSOR = (86032, 86048)          # .sbss allocator words: ZKVM_HEAP_TOP@86032, ZKVM_HEAP_POS@86040
+# Only ZKVM_HEAP_POS is the bump CURSOR; ZKVM_HEAP_TOP is the heap limit, written once at startup with
+# the heap's end address. Treating the whole 16-byte window as the cursor made that one-off limit store
+# look like an allocation event whose "size" was a huge negative jump.
+CURSOR_POS = (86040, 86048)
 HEAP = (86048, 67194912)         # bump heap (allocated blocks)
 INPUT = (67194912, 69292064)     # SSZ input buffer — read-only (input preservation)
 GLOBALS = (69292064, 69292928)   # decoder statics (stored_result / last_status / attempted / ...)
@@ -79,9 +101,15 @@ def classify_write(addr: int, sp: int) -> str:
 
 
 def parse_trace(path: Path):
-    """Parse the self-contained plugin trace into (executed, loads, stores).
-    executed: [pc]; loads: [(pc,addr,w,v)]; stores: [(pc,addr,w,v,sp)]."""
-    executed, loads, stores = [], [], []
+    """Parse the self-contained plugin trace into (executed, loads, stores, regs).
+
+    Every memory record carries the position in `executed` at which it happened, so the checker can ask
+    what memory looked like *at* a boundary snapshot rather than only at the end of the run.
+      executed: [pc]
+      loads:    [(idx,pc,addr,w,v)]
+      stores:   [(idx,pc,addr,w,v,sp)]
+      regs:     [(idx,pc,[0,x1..x31])]   — full integer register file at a declared boundary pc"""
+    executed, loads, stores, regs = [], [], [], []
     with open(path) as fh:
         for line in fh:
             p = line.split()
@@ -90,33 +118,26 @@ def parse_trace(path: Path):
             if p[0] == "E":
                 executed.append(int(p[1]))
             elif p[0] == "L":
-                loads.append((int(p[1]), int(p[2]), int(p[3]), int(p[4])))
+                loads.append((len(executed), int(p[1]), int(p[2]), int(p[3]), int(p[4])))
             elif p[0] == "S":
                 # S <pc> <addr> <width> <value> <sp>  (sp appended by the register-reading plugin)
                 sp = int(p[5]) if len(p) > 5 else 0
-                stores.append((int(p[1]), int(p[2]), int(p[3]), int(p[4]), sp))
-    return executed, loads, stores
+                stores.append((len(executed), int(p[1]), int(p[2]), int(p[3]), int(p[4]), sp))
+            elif p[0] == "R":
+                # R <pc> <x1> … <x31>, taken BEFORE the instruction at <pc> executes.
+                regs.append((len(executed), int(p[1]), [0] + [int(x) for x in p[2:]]))
+    return executed, loads, stores, regs
 
 
-def dynamic_transfer_pcs(objdump: str, elf: str) -> set:
-    """PCs whose control transfer is DYNAMIC — `ret`/`jr` returns and indirect `jalr` whose target
-    objdump could not resolve. Their targets are not statically known, so the generator models them as
-    `exits` rather than declared `edges`; the checker validates them via `exitsRespected` instead of
-    edge membership (a return legitimately goes to a different caller on each invocation)."""
-    import re as _re
-    out = subprocess.run([objdump, "-d", "--no-show-raw-insn", elf],
-                         capture_output=True, text=True, check=True).stdout
-    pcs = set()
-    for ln in out.splitlines():
-        m = _re.match(r"\s*([0-9a-f]+):\s+(\S+)\s*([^#]*)(#.*)?$", ln)
-        if not m:
-            continue
-        pc, op, ops, cmt = int(m.group(1), 16), m.group(2), m.group(3).strip(), m.group(4)
-        if op in ("ret", "jr", "mret", "sret"):
-            pcs.add(pc)
-        elif op == "jalr" and not (cmt and _re.search(r"#\s*[0-9a-f]+", cmt)):
-            pcs.add(pc)   # unresolved indirect call
-    return pcs
+# The direct-vs-dynamic transfer rule lives in ONE place (`riscv_transfers`), mirroring the extractor
+# and Sail's `DecodedWord.controlTransfer`. An earlier version of this function classified a `jalr` as
+# a resolved DIRECT call whenever objdump printed a `#` comment — but objdump prints one for a bare
+# `jalr a5` too (rendering it as `jalr 0(a5)`), so genuine indirect calls were treated as static and
+# their absence from the declared `edges` would have been reported as a CFG violation instead of being
+# routed to the exit check. See riscv_transfers.resolved_target.
+import riscv_transfers as rt  # noqa: E402
+from riscv_transfers import dynamic_transfer_pcs  # noqa: E402
+import occurrence_semantics as osem  # noqa: E402
 
 
 def step_bound_for(short: str, occ, catalog, arglb: dict):
@@ -166,7 +187,147 @@ def step_bound_for(short: str, occ, catalog, arglb: dict):
 STORE_SUMMARY_TIES = {"raw"}  # memcpy/memmove: summarize the (large) destination-buffer write set
 
 
-def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0, children_pcs=frozenset(), dynamic_pcs=frozenset()):
+def carry_value(v, sp):
+    """How a resolved binding value may be carried into the committed evidence.
+
+    Guest STACK addresses shift between the host and the Nix sandbox even under `setarch -R`, so an
+    absolute stack address must never enter a committed artifact. Small scalars (offsets, lengths,
+    alignments) and fixed-vaddr pointers are deterministic and are carried exactly; a stack pointer is
+    carried as its CLASS only. `("unresolved", 0)` marks a location the machine could not supply — a
+    failure of `entryBindingsEvaluable`, never a silent pass."""
+    if v is None:
+        return ("unresolved", 0)
+    if v < 65536:
+        return ("exact", v)
+    cls = classify_write(v, sp)
+    return ("stack", 0) if cls == "stack" else ("exact", v)
+
+
+def resolve_rows(rows, regs, mem, at_index, sp):
+    """Resolve every effective Row A binding row against the captured machine state.
+    Returns (carried_rows, all_evaluable, raw_values_by_name)."""
+    carried, ok, byname = [], True, {}
+    for r in rows:
+        v = osem.resolve_binding(r, regs, mem, at_index)
+        if v is None:
+            ok = False
+        byname[r["name"]] = v
+        how, cv = carry_value(v, sp)
+        carried.append({"name": r["name"], "kind": r["kind"], "reg": r["reg"], "declared": r["value"],
+                        "how": how, "value": cv})
+    return carried, ok, byname
+
+
+def span_of(addrs):
+    """(lo, count_of_distinct_bytes, hi_exclusive) of a set of byte addresses, or None if empty."""
+    if not addrs:
+        return None
+    return (min(addrs), len(addrs), max(addrs) + 1)
+
+
+def evaluate_entry_consequences(short, occ_index, values, ctx, inv, catalog_meta):
+    """The routine-family consequence of the resolved entry bindings (layer 2 in the module docstring).
+
+    Returns (verdict, detail) where verdict is True (realized), False (contradicted) or None (no
+    consequence is observable for this family — an explicit gap)."""
+    fam = (catalog_meta or {}).get("bindingFamily")
+    obs = inv.setdefault("obs", {})
+    obs["family"] = fam or ""
+    if fam is None:
+        return None, "no binding consequence defined for this routine"
+
+    if fam == "entryAbi":
+        # zesu_decode_raw(input, input_len): external ground truth — the buffer base the ELF is linked
+        # at and the exact byte length of the file the process was fed.
+        want_ptr, want_len = INPUT[0], ctx["inputLen"]
+        got_ptr, got_len = values.get("input"), values.get("input_len")
+        obs.update(entryInput=got_ptr, entryLen=got_len, wantInput=want_ptr, wantLen=want_len)
+        ok = (got_ptr == want_ptr and got_len == want_len)
+        return ok, (f"input={got_ptr} (expect {want_ptr}); input_len={got_len} (expect {want_len})")
+
+    if fam == "rawCopy":
+        # memcpy/memmove(dst, src, n): the copy must WRITE exactly [dst,dst+n) and READ exactly
+        # [src,src+n). Off-by-one or a swapped register pair fails immediately.
+        dst, src, n = values.get("dst"), values.get("src"), values.get("n")
+        if None in (dst, src, n):
+            return False, "dst/src/n not resolvable"
+        ws, rs = inv["storeAddrs"], inv["loadAddrs"]
+        want_w, want_r = set(range(dst, dst + n)), set(range(src, src + n))
+        obs.update(copyN=n, copyStoredBytes=len(ws), copyWantBytes=len(want_w),
+                   copySrcCovered=int(want_r <= rs))
+        ok = ws == want_w and want_r <= rs
+        return ok, (f"dst={dst} src={src} n={n}; wrote {len(ws)} bytes (want {len(want_w)}), "
+                    f"read covers src window: {want_r <= rs}")
+
+    if fam == "alloc":
+        # zesu_raw_alloc(bytes, alignment) / allocatorAlloc(len, alignment): the cursor bump must cover
+        # the request and the pointer handed back must honour the requested alignment.
+        size = values.get("bytes", values.get("len"))
+        align = values.get("alignment")
+        ev = inv.get("ledgerEvent")
+        if size is None or align is None:
+            return False, "size/alignment not resolvable"
+        # allocatorAlloc takes log2(alignment); zesu_raw_alloc takes the byte alignment.
+        align_bytes = (1 << align) if (catalog_meta.get("alignmentIsLog2") and align < 64) else align
+        if ev is None or ev.get("size") is None:
+            return None, f"size={size} align={align_bytes}: no cursor bump observed in this invocation"
+        obs.update(allocSize=size, allocAlign=align_bytes, allocBump=ev["size"],
+                   allocAfter=ev["after"])
+        ok = ev["size"] >= size and (ev["after"] % align_bytes == 0 or ev["before"] % align_bytes == 0)
+        return ok, (f"size={size} align={align_bytes}; cursor {ev['before']}->{ev['after']} "
+                    f"(bump {ev['size']})")
+
+    if fam == "offsetRead":
+        # A reader bound to `offset` must take its window at sliceBase + offset, and a reader bound to
+        # `len` must touch exactly `len` bytes. `bytesAt` only *forms* a sub-slice, so it may legitimately
+        # perform no load at all — that is a gap, not a violation.
+        off = values.get("offset")
+        want_len = values.get("len")
+        if "offset" not in values:
+            # NOT a failure of the binary: the effective Row A table has no `offset` row for this
+            # occurrence at all (DWARF listed no location for that formal parameter, and the generator's
+            # recovery rules only fill rows DWARF emitted). Reported as an interface gap.
+            return None, ("the effective binding table declares no `offset` row for this occurrence; "
+                          "nothing to realize (see the missing-parameter census in the report)")
+        if off is None:
+            return False, "declared `offset` row did not resolve against the machine state"
+        first = inv.get("firstReadAddr")
+        if first is None:
+            return None, (f"offset={off}: the occurrence performed no data load in this invocation "
+                          "(a sub-slice former reads nothing of its own)")
+        base = first - off
+        inv["impliedSliceBase"] = base
+        if base < 0:
+            return False, f"offset={off} exceeds the first load address {first}"
+        cls = classify_write(base, inv.get("sp", 0))
+        if cls not in ("input", "heap", "stack", "decoder-global"):
+            return False, (f"offset={off} implies slice base {base}, classified {cls} — "
+                           "no data region holds it")
+        obs.update(offset=off, baseClassOk=1, readCount=inv["readCount"],
+                   declaredLen=(-1 if want_len is None else want_len))
+        if want_len is not None:
+            got = inv["readCount"]
+            return (got == want_len), (f"offset={off} len={want_len}; read {got} distinct bytes "
+                                       f"from base {base} ({cls})")
+        return True, f"offset={off}; implied slice base {base} ({cls})"
+
+    if fam == "comptime":
+        # const-folded parameters must equal the value pinned from the Zig source in the catalog, so a
+        # constant-folded binding cannot drift from the source it claims to encode.
+        want = (catalog_meta or {}).get("comptimeValues") or {}
+        if not want:
+            # Deliberately a GAP, not a pass: comparing a const binding against the value observed in
+            # the very run being validated would be circular.
+            return None, (catalog_meta or {}).get("comptimeNote",
+                                                  "no pinned source constants for this routine")
+        bad = {k: (values.get(k), v) for k, v in want.items() if values.get(k) != v}
+        return (not bad), ("matches pinned source constants" if not bad else f"mismatch: {bad}")
+
+    return None, f"unknown binding family {fam}"
+
+
+def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
+                      children_pcs=frozenset(), dynamic_pcs=frozenset(), ctx=None):
     """Extract the COMPACT, deterministic per-occurrence facts the checker consumes — observed facts
     only; the expected binding/bound/layout live in the checker. This is the reduction that BOTH the
     Python oracle (`evaluate_facts`) and the generated Lean checker evaluate identically."""
@@ -239,7 +400,7 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
     # absolute values; only their (benign) "stack" class is summarized via `hadStackStore`. Every other
     # region (code/cursor/heap/input/global) sits at a FIXED vaddr in the static -no-pie ELF, so those
     # addresses are deterministic and are carried for the Lean checker to re-classify.
-    reg_stores = [(addr, sp) for (pc, addr, w, v, sp) in stores if in_region(pc)]
+    reg_stores = [(addr, sp) for (_i, pc, addr, w, v, sp) in stores if in_region(pc)]
     f["storeCount"] = len(reg_stores)
     nonstack, had_stack, all_classes = [], False, set()
     for (addr, sp) in reg_stores:
@@ -261,12 +422,47 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
         f["inRegionStores"] = sorted(set(nonstack))
 
     # meaning-tie witness: a value the routine both LOADED from input and STORED (scalar carried through).
-    in_input_loads = [(addr, v) for (pc, addr, w, v) in loads if in_region(pc) and INPUT[0] <= addr < INPUT[1]]
+    in_input_loads = [(addr, v) for (_i, pc, addr, w, v) in loads if in_region(pc) and INPUT[0] <= addr < INPUT[1]]
     in_load_vals = sorted({v for (_, v) in in_input_loads})
-    store_vals = {v for (pc, addr, w, v, sp) in stores if in_region(pc)}
+    store_vals = {v for (_i, pc, addr, w, v, sp) in stores if in_region(pc)}
     f["inputLoadVals"] = in_load_vals
     f["storeHasInputPtr"] = any(INPUT[0] <= v < INPUT[1] for v in store_vals)
     f["scalarCarried"] = any(v in store_vals for v in in_load_vals)
+
+    # RIGOROUS meaning for the fixed-width little-endian leaf readers: the value the occurrence
+    # produced must be the little-endian integer of the EXACT window it read. This replaces the earlier
+    # "some loaded value was also stored" heuristic, which a coincidence could satisfy.
+    width = meta.get("meaningWidth")
+    if short == "readArray":
+        spec = occ.get("specialization") or []
+        width = int(spec[0]) if spec and str(spec[0]).isdigit() else None
+    f["meaningWidth"] = width
+    f["meaningLE"] = None
+    if width and in_input_loads:
+        bytemap = osem.observed_bytes(
+            [(i, pc, addr, w, v) for (i, pc, addr, w, v) in loads
+             if in_region(pc) and INPUT[0] <= addr < INPUT[1]], INPUT[0], INPUT[1])
+        base = min(bytemap)
+        got = len(bytemap)
+        val = osem.le_value(bytemap, base, width) if got == width else None
+        if val is None:
+            f["meaningLEDetail"] = {"base": base, "width": width, "bytesRead": got,
+                                    "reason": "read window is not exactly the declared width"}
+        else:
+            # "Produced" means the value left the occurrence: written to memory, or held in a register
+            # when the occurrence returns. An INLINED leaf reader normally hands its result to the
+            # enclosing frame in a register, so a store-only test would report a gap for most of them.
+            in_store = val in store_vals
+            in_regs = False
+            if ctx is not None:
+                for pc in (occ.get("exits") or []):
+                    for (_i, _pc, regs) in ctx["regsByPc"].get(pc, []):
+                        if val in regs[1:]:
+                            in_regs = True
+                            break
+            f["meaningLE"] = True if (in_store or in_regs) else None
+            f["meaningLEDetail"] = {"base": base, "width": width, "value": val,
+                                    "producedAsStore": in_store, "producedInExitRegister": in_regs}
 
     # Step bound: resolve the (possibly input-dependent) contract bound to a concrete number using SOUND
     # lower bounds on its argument (see step_bound_for). inputBytes = distinct in-region input bytes read
@@ -281,7 +477,177 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
     f["stepBound"] = bound
     f["stepBoundGap"] = None if bound is not None else reason
     f["stepBoundDeriv"] = deriv
+
+    # ---- Row A ENTRY/EXIT BINDINGS, allocation LEDGER and routine MEANING --------------------------
+    # The declared bindings are the thing Row A actually says about an occurrence; up to here nothing
+    # evaluated them against the machine. `ctx` carries the boundary register snapshots, the shadow
+    # memory (ELF image + replayed stores) and the effective binding table.
+    if ctx is not None:
+        _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, in_region,
+                         entry_idxs)
+        _reduce_ledger(f, meta, ctx, executed, entry_idxs)
     return f
+
+
+def _reduce_ledger(f, meta, ctx, executed, entry_idxs):
+    """The occurrence's own slice of the allocation ledger.
+
+    The ledger is reconstructed from the allocator cursor's store history — the allocation ACT itself —
+    not from anything the allocator reports about itself. For an ALLOCATING occurrence every event it
+    causes must be well formed: a strictly positive bump that leaves the cursor inside the heap. A
+    non-allocating occurrence must cause NO event; `allocationConsistent` already states that, so here
+    it is an explicit gap rather than a second copy of the same claim."""
+    bounds = entry_idxs + [len(executed)] if entry_idxs else [0, len(executed)]
+    windows = list(zip(bounds, bounds[1:]))
+    mine = [e for e in ctx["ledger"] if any(lo <= e["index"] < hi for lo, hi in windows)]
+    f["ledgerEventCount"] = len(mine)
+    if not meta.get("allocates"):
+        f["allocationLedger"] = None
+        f["ledgerGap"] = "non-allocating routine: covered by allocationConsistent"
+        return
+    if not mine:
+        f["allocationLedger"] = None
+        f["ledgerGap"] = "allocating routine caused no cursor event in this arm"
+        return
+    sized = [e for e in mine if e["size"] is not None]
+    f["ledgerAllPositive"] = all(e["size"] > 0 for e in sized)
+    f["ledgerAfterInHeap"] = all(HEAP[0] <= e["after"] < HEAP[1] for e in mine)
+    f["allocationLedger"] = f["ledgerAllPositive"] and f["ledgerAfterInHeap"]
+    f["ledgerSizes"] = sorted({e["size"] for e in sized})
+
+
+def _invocation_window(executed, entry_idxs, k, in_region):
+    """The [start, end) trace positions of invocation `k`, i.e. from its entry to the next entry."""
+    bounds = entry_idxs + [len(executed)]
+    return bounds[k], bounds[k + 1]
+
+
+def _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, in_region, entry_idxs):
+    """Evaluate the effective Row A bindings, the allocation ledger event and the little-endian meaning
+    for EACH captured invocation of this occurrence, then reduce to per-occurrence evidence."""
+    rows = ctx["bindings"].get(f["index"], [])
+    entry_snaps = ctx["regsByPc"].get(f["entryPc"], [])
+    exits = set(occ.get("exits") or [])
+    f["bindingRowCount"] = len(rows)
+    f["entrySnapshots"] = len(entry_snaps)
+
+    if not rows:
+        # A paramless occurrence declares no entry placement; there is nothing to evaluate, and saying
+        # "pass" would be counting an absent obligation as a discharged one.
+        f["bindingsEvaluable"] = None
+        f["bindingsRealized"] = None
+        f["bindingGap"] = "occurrence declares no parameter bindings (paramless)"
+    elif not entry_snaps:
+        f["bindingsEvaluable"] = None
+        f["bindingsRealized"] = None
+        f["bindingGap"] = "no register snapshot at the declared entry pc in this arm"
+    else:
+        evaluable, realized, details, carried = True, [], [], None
+        # Evaluate every captured invocation, not just the first: a binding that holds once and breaks
+        # later is a violation, and only per-invocation evaluation can see that.
+        for (n, (idx, _pc, regs)) in enumerate(entry_snaps):
+            sp = regs[2]
+            crows, ok, byname = resolve_rows(rows, regs, ctx["mem"], idx, sp)
+            evaluable = evaluable and ok
+            if carried is None:
+                carried = crows
+            inv = _invocation_facts(f, idx, executed, loads, stores, ranges, in_region, entry_idxs,
+                                    exits, ctx)
+            inv["sp"] = sp
+            verdict, detail = evaluate_entry_consequences(short, f["index"], byname, ctx, inv, meta)
+            realized.append(verdict)
+            if n == 0:
+                f["bindingObs"] = sorted((k, int(v)) for k, v in inv.get("obs", {}).items()
+                                         if not isinstance(v, str))
+                f["bindingFamily"] = inv.get("obs", {}).get("family", "")
+            if n < 4:            # keep the report bounded and deterministic
+                details.append(detail)
+        f["bindingRows"] = carried
+        f["bindingHows"] = [c["how"] for c in carried]
+        f["realizedPass"] = sum(1 for v in realized if v is True)
+        f["realizedFail"] = sum(1 for v in realized if v is False)
+        f["realizedGap"] = sum(1 for v in realized if v is None)
+        f["bindingsEvaluable"] = evaluable
+        if any(v is False for v in realized):
+            f["bindingsRealized"] = False
+        elif realized and all(v is True for v in realized):
+            f["bindingsRealized"] = True
+        else:
+            f["bindingsRealized"] = None
+            f["bindingGap"] = (meta.get("bindingFamily") and
+                               f"binding consequence not observable in every invocation: {details[:2]}"
+                               or "no binding consequence defined for this routine")
+        f["bindingDetail"] = details
+
+    # ---- exit binding: the result register at a declared exit pc --------------------------------
+    conv = meta.get("exitConvention")
+    f["exitConvention"] = conv or ""
+    # A declared exit is not necessarily a RETURN: several occurrences leave through a tail call, where
+    # the register file holds the callee's arguments, not this routine's result. Applying a result
+    # convention there compares the wrong thing, so only `ret` exits are used.
+    ret_exits = sorted(exits & ctx["retPcs"])
+    exit_snaps = [(i, pc, r) for pc in ret_exits for (i, p2, r) in ctx["regsByPc"].get(pc, [])]
+    exit_snaps.sort()
+    f["returnExits"] = ret_exits
+    f["exitSnapshots"] = len(exit_snaps)
+    if conv is None:
+        f["exitBindingRealized"] = None
+        f["exitGap"] = "no exit convention declared for this routine"
+    elif not ret_exits:
+        f["exitBindingRealized"] = None
+        f["exitGap"] = "occurrence has no `ret` exit (it leaves through a tail call)"
+    elif not exit_snaps:
+        f["exitBindingRealized"] = None
+        f["exitGap"] = "no register snapshot at a declared return exit in this arm"
+    else:
+        f["exitBindingRealized"], f["exitDetail"] = _check_exit(conv, exit_snaps, f, ctx)
+
+
+def _invocation_facts(f, entry_idx, executed, loads, stores, ranges, in_region, entry_idxs, exits, ctx):
+    """The observable consequences of ONE invocation: which bytes it read and wrote, and the allocator
+    cursor event it caused. Bounded to [this entry, next entry) so consequences of one call are never
+    attributed to another."""
+    later = [i for i in entry_idxs if i > entry_idx]
+    end = later[0] if later else len(executed)
+    lo, hi = entry_idx, end
+    read_addrs, write_addrs, first_read = set(), set(), None
+    for (i, pc, addr, w, v) in loads:
+        if lo <= i < hi and in_region(pc):
+            for j in range(w):
+                read_addrs.add(addr + j)
+            if first_read is None or addr < first_read:
+                first_read = addr
+    for (i, pc, addr, w, v, sp) in stores:
+        if lo <= i < hi and in_region(pc):
+            for j in range(w):
+                write_addrs.add(addr + j)
+    ev = None
+    for e in ctx["ledger"]:
+        if lo <= e["index"] < hi:
+            ev = e
+            break
+    return {"loadAddrs": read_addrs, "storeAddrs": write_addrs, "readCount": len(read_addrs),
+            "firstReadAddr": first_read, "ledgerEvent": ev, "window": (lo, hi)}
+
+
+def _check_exit(conv, exit_snaps, f, ctx):
+    """Check the declared exit convention against the register file at a declared exit pc."""
+    a0 = [r[10] for (_i, _pc, r) in exit_snaps]
+    f["exitA0Classes"] = sorted({classify_write(v, r[2]) for (_i, _pc, r) in exit_snaps
+                                 for v in [r[10]]})
+    if conv == "allocPointer":
+        # the allocator returns the block it just handed out: a heap pointer, or null on failure
+        ok = all(v == 0 or HEAP[0] <= v < HEAP[1] for v in a0)
+        return ok, f"a0 at exit: {sorted(set(a0))[:4]} (heap pointer or null)"
+    if conv == "copyDestination":
+        # memcpy/memmove return their destination argument unchanged
+        ok = all(v != 0 for v in a0)
+        return ok, f"a0 at exit non-null in {len(a0)} snapshot(s)"
+    if conv == "decodeDecision":
+        # the exported wrapper returns the 0/1 decision the process exits with
+        ok = all(v in (0, 1) for v in a0)
+        return ok, f"a0 at exit: {sorted(set(a0))}"
+    return None, f"unknown exit convention {conv}"
 
 
 def classes_of(f):
@@ -326,10 +692,31 @@ def evaluate_facts(f):
     checks["codePreserved"] = "code" not in classes
     checks["allocationConsistent"] = True if f["allocates"] else ("allocator-cursor" not in classes)
 
+    # Row A ENTRY BINDINGS: every declared effective location must be readable from the real machine.
+    checks["bindingsEvaluable"] = f.get("bindingsEvaluable")
+    if checks["bindingsEvaluable"] is None:
+        gaps["bindingsEvaluable"] = f.get("bindingGap", "no binding evidence")
+    # …and must have their declared consequence in the trace (routine-family specific).
+    checks["bindingsRealized"] = f.get("bindingsRealized")
+    if checks["bindingsRealized"] is None:
+        gaps["bindingsRealized"] = f.get("bindingGap", "no binding consequence observable")
+    checks["exitBindingRealized"] = f.get("exitBindingRealized")
+    if checks["exitBindingRealized"] is None:
+        gaps["exitBindingRealized"] = f.get("exitGap", "no exit convention")
+    # ALLOCATION LEDGER: an allocating occurrence's cursor bumps must be well-formed ledger events.
+    checks["allocationLedger"] = f.get("allocationLedger")
+    if checks["allocationLedger"] is None:
+        gaps["allocationLedger"] = f.get("ledgerGap", "occurrence causes no allocation event")
+
+    # MEANING. `meaningLE` is the rigorous statement (the little-endian integer of the exact window the
+    # occurrence read IS the value it produced); the older value tie remains only as a fallback for the
+    # slice readers, and anything weaker is an explicit gap.
     tie = f["meaningTieKind"]
-    if tie in ("scalarLE", "offset") and f["scalarCarried"]:
+    if f.get("meaningLE") is True:
         checks["meaningTie"] = True
     elif tie == "slice" and f["storeHasInputPtr"]:
+        checks["meaningTie"] = True
+    elif tie in ("scalarLE", "offset") and f["scalarCarried"]:
         checks["meaningTie"] = True
     else:
         checks["meaningTie"] = None
@@ -338,10 +725,15 @@ def evaluate_facts(f):
     return checks, gaps
 
 
-def run_full_trace(qemu, plugin, elf, input_path, out_path):
+def run_full_trace(qemu, plugin, elf, input_path, out_path, bpc_path=None, bcap=256):
     """Run the UNCHANGED ELF under pinned QEMU with the trace plugin (no PC window: whole run).
-    setarch -R disables host ASLR for a deterministic guest stack. Returns the ELF decision (0/1)."""
-    cmd = ["setarch", "-R", qemu, "-plugin", f"{plugin},out={out_path}", elf]
+    setarch -R disables host ASLR for a deterministic guest stack. `bpc_path` lists the declared Row A
+    entry/exit PCs at which the plugin snapshots the whole integer register file, so the checker can
+    evaluate the declared bindings against the real machine. Returns the ELF decision (0/1)."""
+    args = f"{plugin},out={out_path}"
+    if bpc_path:
+        args += f",bpc={bpc_path},bcap={bcap}"
+    cmd = ["setarch", "-R", qemu, "-plugin", args, elf]
     with open(input_path, "rb") as fh:
         r = subprocess.run(cmd, stdin=fh, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if r.returncode >= 2:
@@ -351,6 +743,7 @@ def run_full_trace(qemu, plugin, elf, input_path, out_path):
 
 CHECK_NAMES = ("entryReached", "controlFlowIntegrity", "exitsRespected", "withinStepBound",
                "allocationConsistent", "inputPreserved", "codePreserved", "writesClassified",
+               "bindingsEvaluable", "bindingsRealized", "exitBindingRealized", "allocationLedger",
                "meaningTie")
 
 
@@ -374,6 +767,10 @@ def _lp(xs):  # List (Nat × Nat)
 
 def _ls(xs):  # List String
     return "[" + ", ".join('"' + str(s).replace('"', '\\"') + '"' for s in xs) + "]"
+
+
+def _lsi(xs):  # List (String × Int)
+    return "[" + ", ".join(f'({_str(k)}, {v})' for k, v in xs) + "]"
 
 
 def _b(x):
@@ -405,7 +802,22 @@ def occ_to_lean(rec) -> str:
         f"hadStackStore := {_b(f.get('hadStackStore', False))}, "
         f"storeClasses := {_ls(f.get('storeClasses', []))}, "
         f"scalarCarried := {_b(f.get('scalarCarried', False))}, "
-        f"storeHasInputPtr := {_b(f.get('storeHasInputPtr', False))} }}"
+        f"storeHasInputPtr := {_b(f.get('storeHasInputPtr', False))}, "
+        f"bindingHows := {_ls(f.get('bindingHows', []))}, "
+        f"bindingFamily := {_str(f.get('bindingFamily', ''))}, "
+        f"bindingObs := {_lsi(f.get('bindingObs', []))}, "
+        f"realizedPass := {f.get('realizedPass', 0)}, "
+        f"realizedFail := {f.get('realizedFail', 0)}, "
+        f"realizedGap := {f.get('realizedGap', 0)}, "
+        f"exitConvention := {_str(f.get('exitConvention', ''))}, "
+        f"returnExits := {_ln(f.get('returnExits', []))}, "
+        f"exitA0Classes := {_ls(f.get('exitA0Classes', []))}, "
+        f"ledgerEventCount := {f.get('ledgerEventCount', 0)}, "
+        f"ledgerAllPositive := {_b(f.get('ledgerAllPositive', True))}, "
+        f"ledgerAfterInHeap := {_b(f.get('ledgerAfterInHeap', True))}, "
+        f"meaningWidth := {_oi(f.get('meaningWidth'))}, "
+        f"meaningValue := {_oi((f.get('meaningLEDetail') or {}).get('value'))}, "
+        f"meaningProduced := {_b(f.get('meaningLE') is True)} }}"
     )
     ck = (
         f"{{ entryReached := {_ob(c['entryReached'])}, "
@@ -416,24 +828,32 @@ def occ_to_lean(rec) -> str:
         f"inputPreserved := {_ob(c['inputPreserved'])}, "
         f"codePreserved := {_ob(c['codePreserved'])}, "
         f"writesClassified := {_ob(c['writesClassified'])}, "
+        f"bindingsEvaluable := {_ob(c['bindingsEvaluable'])}, "
+        f"bindingsRealized := {_ob(c['bindingsRealized'])}, "
+        f"exitBindingRealized := {_ob(c['exitBindingRealized'])}, "
+        f"allocationLedger := {_ob(c['allocationLedger'])}, "
         f"meaningTie := {_ob(c['meaningTie'])} }}"
     )
     return f"  (\n    {ev},\n    {ck})"
 
 
-# Occurrences no input exercises, each STATICALLY classified as unreachable in this ELF's control flow
-# (see classify_uncovered.py / UNCOVERED_CLASSIFICATION.md — a CFG proof, not "N test runs missed it").
+# Occurrences no input exercises. Their static unreachability is established by
+# `static_reachability.py` (a backward reaching-definitions fixpoint over the reconstructed CFG plus a
+# danger-set closure over the loaded image), and its residual hypotheses are stated in
+# `STATIC_REACHABILITY.md`. These strings summarize that analysis; they do not stand on their own, and
+# Row C's conclusions exclude these occurrences either way — every check for them is an explicit gap.
 DOCUMENTED_UNCOVERED = {
-    "allocatorRemap": "std.mem.Allocator remap slot (vtable+16); STATIC: the vtable is indexed only at "
-                      "offsets 0 (alloc) and 24 (free) by any indirect call and no direct jal targets it, "
-                      "so the decoder never calls allocator.remap (exact-size bump allocations never grow).",
-    "allocatorResize": "std.mem.Allocator resize slot (vtable+8); STATIC: the vtable is never indexed at "
-                       "offset 8 by any indirect call and no direct jal targets it, so the decoder never "
-                       "calls allocator.resize.",
-    "zesu_raw_error": "exported raw-ABI error getter (auipc/lw/ret); STATIC: no jal/jalr/data pointer in "
-                      "the binary references its entry, so the sealed _start harness never calls it (it "
-                      "discriminates success/failure via zesu_raw_result's null return). No callable ABI "
-                      "surface on the sealed executable to invoke it without relinking (forbidden).",
+    "allocatorRemap": "std.mem.Allocator remap slot (vtable+16). STATIC: no instruction targets its "
+                      "entry directly; for an indirect transfer to carry it, some register would have "
+                      "to hold vtable+16 minus the site's load offset, and no image word holds that "
+                      "value and no instruction materializes it. See STATIC_REACHABILITY.md.",
+    "allocatorResize": "std.mem.Allocator resize slot (vtable+8). STATIC: same closure as remap — the "
+                       "base register would have to hold a value that appears nowhere in the image and "
+                       "is materialized by no instruction. See STATIC_REACHABILITY.md.",
+    "zesu_raw_error": "exported raw-ABI error getter. STATIC: its entry appears at NO image address at "
+                      "all and is materialized by no instruction, so no register can hold it; the "
+                      "sealed _start harness discriminates success/failure via zesu_raw_result's null "
+                      "return. See STATIC_REACHABILITY.md.",
 }
 
 
@@ -443,7 +863,8 @@ def emit_report(records, summary) -> str:
     short = {"entryReached": "entry", "controlFlowIntegrity": "cfg", "exitsRespected": "exit",
              "withinStepBound": "step",
              "allocationConsistent": "alloc", "inputPreserved": "inp", "codePreserved": "code",
-             "writesClassified": "wr", "meaningTie": "mean"}
+             "writesClassified": "wr", "bindingsEvaluable": "bind", "bindingsRealized": "breal",
+             "exitBindingRealized": "xbind", "allocationLedger": "ledg", "meaningTie": "mean"}
     L = ["# Row C — scaled per-occurrence production-ELF coverage (GENERATED)",
          "",
          "Regenerated by `targets/ssz/zesu/trace/scale_occurrences.py` from the UNCHANGED production",
@@ -459,9 +880,18 @@ def emit_report(records, summary) -> str:
          "unresolved bound (its `offsets.length` is a caller-passed argument, not in the occurrence's",
          "input reads) — an explicit gap with the required interface change noted below.",
          "",
-         "**Uncovered occurrences** are STATICALLY classified as unreachable in this ELF's control flow",
-         "(`UNCOVERED_CLASSIFICATION.md` / `classify_uncovered.py`), not merely untested. Row C's",
-         "conclusions exclude them and the one unresolved step bound.",
+         "**Row A bindings** are evaluated against the real machine: every effective binding row is",
+         "resolved from the register file captured at the occurrence's declared entry PC (and, for",
+         "`breg`/`fbreg` rows, from the ELF image overlaid with the stores preceding that point).",
+         "`bind` = every declared location resolved; `breal` = the resolved values had their declared",
+         "consequence in the trace (routine-family specific); `xbind` = the result register at a",
+         "declared RETURN exit matches the routine's convention. `ledg` is the allocation ledger,",
+         "reconstructed from the bump cursor's own write history.",
+         "",
+         "**Uncovered occurrences** are STATICALLY analysed by `static_reachability.py` — a backward",
+         "reaching-definitions fixpoint over the reconstructed CFG plus a danger-set closure over the",
+         "loaded image — with its residual hypotheses stated in `STATIC_REACHABILITY.md`. Row C's",
+         "conclusions exclude them and the one unresolved step bound either way.",
          "",
          f"**{summary['covered']}/{summary['occurrences']} occurrences covered** by the present /",
          "malformed / absent arms. Per-check totals:",
@@ -470,6 +900,30 @@ def emit_report(records, summary) -> str:
     for n in CHECK_NAMES:
         d = summary["byCheck"][n]
         L.append(f"| {n} | {d['pass']} | {d['fail']} | {d['gap']} |")
+    census = summary.get("missingParameterRows", {}).get("rows", [])
+    if census:
+        L += ["", "## Interface gap — parameters with no binding row at all", "",
+              "Row A proves every EMITTED binding row resolves to a concrete location, and names the 31",
+              "paramless occurrences. It does not require an occurrence to carry a row for every formal",
+              "parameter of its source routine. Where DWARF emitted no location for a parameter, the",
+              "generator's recovery rules (which fill `callerProvided` ROWS) never see it, so no row",
+              "exists and Row C has nothing to validate. These occurrences are affected:", ""]
+        for c in census:
+            L.append(f"- occ {c['index']} `{c['routine']}` — declares {c['declared']}, "
+                     f"missing {c['missing']}")
+        L += ["",
+              "**Required interface change**: the extractor should emit an explicit `unresolved` row for",
+              "a formal parameter DWARF omitted entirely, so the gap is a first-class row rather than an",
+              "absence. Until then these are reported as `breal` gaps, never as passes.", ""]
+    led = summary.get("arms", {})
+    if led:
+        L += ["", "## Allocation ledger (reconstructed from the bump cursor's write history)", "",
+              "| arm | events | monotonic | all positive | total bytes |", "|---|---:|---|---|---:|"]
+        for name in sorted(led):
+            d = led[name].get("ledger") or {}
+            L.append(f"| {name} | {d.get('events', 0)} | {d.get('monotonic')} | "
+                     f"{d.get('allPositive')} | {d.get('totalBytes', 0)} |")
+        L.append("")
     uncovered = [r for r in records if not r["facts"].get("covered")]
     if uncovered:
         L += ["", "## Uncovered occurrences (documented gaps, not passes)", ""]
@@ -516,6 +970,8 @@ def main() -> int:
     ap.add_argument("--plugin", required=True)
     ap.add_argument("--elf", required=True)
     ap.add_argument("--program", required=True)
+    ap.add_argument("--bindings", required=True,
+                    help="bindings.json from the extractor: the EFFECTIVE (recovered) Row A table")
     ap.add_argument("--objdump", required=True)
     ap.add_argument("--catalog", default=str(HERE / "routine_catalog.json"))
     ap.add_argument("--scratch", required=True)
@@ -532,13 +988,44 @@ def main() -> int:
     scratch = Path(args.scratch)
     scratch.mkdir(parents=True, exist_ok=True)
 
+    # The EFFECTIVE Row A bindings — the recovered table the Lean inventory validates, NOT the raw
+    # DWARF rows in program.json (those still carry the 50 `callerProvided` gaps, and validating
+    # against them would check a location the compiler never gave).
+    braw = json.loads(Path(args.bindings).read_text())["effective"]
+    bindings_by_occ = {}
+    for r in braw:
+        bindings_by_occ.setdefault(r["occurrence"], []).append(r)
+
+    # The boundary PCs at which the plugin snapshots registers: every declared entry and exit.
+    bpcs = sorted({o["entryPc"] for o in occ} | {e for o in occ for e in (o.get("exits") or [])})
+    bpc_file = scratch / "boundary_pcs.txt"
+    bpc_file.write_text("\n".join(str(x) for x in bpcs) + "\n")
+
     # Capture one full-run trace per arm, then parse.
     arm_traces = {}
     for spec in args.arm:
         name, _, ipath = spec.partition("=")
         log = scratch / f"full_{name}.log"
-        decision = run_full_trace(args.qemu, args.plugin, args.elf, ipath, log)
+        decision = run_full_trace(args.qemu, args.plugin, args.elf, ipath, log, bpc_file)
         arm_traces[name] = (parse_trace(log), decision, ipath)
+
+    # Per-arm machine context: boundary snapshots by PC, shadow memory (ELF image + replayed stores),
+    # and the allocation ledger reconstructed from the cursor's own write history.
+    image = osem.load_image(args.elf)
+    arm_ctx = {}
+    for name, ((ex, lo, st, rg), _dec, ipath) in arm_traces.items():
+        by_pc = {}
+        for (i, pc, r) in rg:
+            by_pc.setdefault(pc, []).append((i, pc, r))
+        ledger = osem.build_ledger(st, CURSOR_POS[0], CURSOR_POS[1])
+        arm_ctx[name] = {
+            "regsByPc": by_pc,
+            "mem": osem.Memory(image, [(i, a, w, v) for (i, _pc, a, w, v, _sp) in st]),
+            "ledger": ledger,
+            "ledgerInvariants": osem.ledger_invariants(ledger),
+            "bindings": bindings_by_occ,
+            "inputLen": Path(ipath).stat().st_size,
+        }
 
     # PCs of each occurrence's regions, for the generator's deepest-owner edge attribution.
     def _rpcs(x):
@@ -548,6 +1035,10 @@ def main() -> int:
         return s
     all_rpcs = [_rpcs(x) for x in occ]
     dyn_pcs = dynamic_transfer_pcs(args.objdump, args.elf)
+    _insns, _order = rt.disassemble(args.objdump, args.elf)
+    ret_pcs = {pc for pc in _order if _insns[pc][0] in rt.RET}
+    for c in arm_ctx.values():
+        c["retPcs"] = ret_pcs
 
     records = []
     for idx, o in enumerate(occ):
@@ -559,7 +1050,7 @@ def main() -> int:
         chosen = None
         for spec in args.arm:
             name = spec.split("=", 1)[0]
-            (executed, loads, stores), _, _ = arm_traces[name]
+            (executed, loads, stores, _rg), _, _ = arm_traces[name]
             ranges = [(r["start"], r["start"] + r["size"]) for r in o["regions"]]
             if any(any(a <= pc < b for a, b in ranges) for pc in executed):
                 chosen = name
@@ -567,14 +1058,37 @@ def main() -> int:
         if chosen is None:
             facts = reduce_occurrence(o, short, catalog, [], [], [], 0, kids, dyn_pcs)  # covered=False
         else:
-            (executed, loads, stores), _, ipath = arm_traces[chosen]
+            (executed, loads, stores, _rg), _, ipath = arm_traces[chosen]
             input_len = Path(ipath).stat().st_size
-            facts = reduce_occurrence(o, short, catalog, executed, loads, stores, input_len, kids, dyn_pcs)
+            facts = reduce_occurrence(o, short, catalog, executed, loads, stores, input_len, kids,
+                                      dyn_pcs, arm_ctx[chosen])
         checks, gaps = evaluate_facts(facts)
         records.append({
             "index": idx, "qualified": o["qualified"], "routine": short,
             "arm": chosen, "checks": checks, "gaps": gaps, "facts": facts,
         })
+
+    # MISSING-PARAMETER CENSUS. Row A's inventory proves every EMITTED row resolves to a concrete
+    # location, and names the 31 paramless occurrences — but it does not check that an occurrence has a
+    # row for every formal parameter of its source routine. Where DWARF listed no location at all for a
+    # parameter, the generator's recovery rules (which fill `callerProvided` ROWS) never see it, so the
+    # row is simply absent and Row C has nothing to validate. This census makes that visible instead of
+    # letting the binding checks quietly report a gap.
+    routine_params = {}
+    for idx, o in enumerate(occ):
+        sh = o["qualified"].split(".")[-1]
+        routine_params.setdefault(sh, set()).update(
+            r["name"] for r in bindings_by_occ.get(idx, []))
+    census = []
+    for idx, o in enumerate(occ):
+        sh = o["qualified"].split(".")[-1]
+        have = {r["name"] for r in bindings_by_occ.get(idx, [])}
+        if not have:
+            continue                       # genuinely paramless occurrences are named by Row A
+        missing = sorted(routine_params[sh] - have)
+        if missing:
+            census.append({"index": idx, "routine": sh, "declared": sorted(have),
+                           "missing": missing})
 
     # Aggregate coverage.
     passed = {n: sum(1 for r in records if r["checks"].get(n) is True) for n in CHECK_NAMES}
@@ -584,9 +1098,19 @@ def main() -> int:
         "occurrences": len(occ),
         "covered": sum(1 for r in records if r["facts"].get("covered")),
         "byCheck": {n: {"pass": passed[n], "fail": failed[n], "gap": gapped[n]} for n in CHECK_NAMES},
-        "arms": {name: {"decision": arm_traces[name][1], "input": arm_traces[name][2]} for name in arm_traces},
+        "arms": {name: {"decision": arm_traces[name][1], "input": arm_traces[name][2],
+                        "ledger": arm_ctx[name]["ledgerInvariants"]} for name in arm_traces},
     }
-    out = {"summary": summary, "occurrences": records}
+    summary["missingParameterRows"] = {
+        "occurrences": len(census),
+        "note": "occurrences whose effective Row A table omits a parameter that OTHER occurrences of "
+                "the same source routine declare. DWARF emitted no location for it, so the generator's "
+                "recovery (which fills callerProvided rows) never sees it and no row exists to "
+                "validate. Row C reports these as explicit binding gaps.",
+        "rows": census,
+    }
+    out = {"summary": summary, "occurrences": records, "ledger": {
+        name: arm_ctx[name]["ledger"] for name in arm_ctx}}
     Path(args.out_json).write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
     if args.out_lean:
         Path(args.out_lean).write_text(emit_lean(records))

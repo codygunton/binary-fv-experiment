@@ -713,6 +713,23 @@ def emit_bindings_lean(occ_sorted, effective, recoveries):
     L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings")
     return "\n".join(L) + "\n"
 
+def emit_bindings_json(occ_sorted, effective, recoveries):
+    """The SAME three binding tables as `--out-bindings`, as JSON.
+
+    `program.json`'s per-occurrence `bindings` are the RAW DWARF rows, which still carry the 50
+    `callerProvided` gaps. Any consumer that wants the *effective* entry placement of an occurrence's
+    parameters — Row C's production-ELF binding validator, for one — must read the recovered table, not
+    the raw one, or it silently validates against a location DWARF never gave. Emitting it here keeps
+    one generator as the single source of truth for both the Lean inventory and the binary evidence."""
+    return json.dumps({
+        "raw": [{"occurrence": i, "name": p, "kind": k, "reg": r, "value": v}
+                for i, o in enumerate(occ_sorted) for (p, k, r, v) in o.get("bindings", [])],
+        "effective": [{"occurrence": i, "name": p, "kind": k, "reg": r, "value": v}
+                      for i, bs in enumerate(effective) for (p, k, r, v) in bs],
+        "recovered": [{"occurrence": i, "name": p, "reason": reason, "kind": k, "reg": r, "value": v}
+                      for (i, p, reason, k, r, v) in recoveries],
+    }, indent=1, sort_keys=True) + "\n"
+
 def main():
     ap = argparse.ArgumentParser()
     for k in ["readelf","decoder","allocator","sink","runtime","source"]: ap.add_argument("--"+k, required=True)
@@ -725,7 +742,8 @@ def main():
     # blocks/edges), proposed here and validated in Lean against the Sail-decoded CFG.
     ap.add_argument("--elf", required=True)
     ap.add_argument("--objdump", required=True)
-    for k in ["out-json","out-lean","out-md","out-globals","out-bindings"]: ap.add_argument("--"+k)
+    for k in ["out-json","out-lean","out-md","out-globals","out-bindings","out-bindings-json"]:
+        ap.add_argument("--"+k)
     a = ap.parse_args()
 
     text_bases, runtime_func_base, bss_bases, symbol_addrs = parse_linker_map(a.map)
@@ -953,6 +971,9 @@ def main():
     if a.out_bindings:
         open(a.out_bindings, "w").write(
             emit_bindings_lean(occ_sorted, effective_bindings, recovered_bindings))
+    if a.out_bindings_json:
+        open(a.out_bindings_json, "w").write(
+            emit_bindings_json(occ_sorted, effective_bindings, recovered_bindings))
     routines = {(o["qualified"], tuple(o["specialization"])) for o in occ_sorted}
     print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(program['defects'])} "
           f"entry={entry_idx} excluded={len(excluded_sorted)}")

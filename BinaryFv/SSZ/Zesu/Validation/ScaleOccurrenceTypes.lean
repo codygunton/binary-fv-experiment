@@ -61,9 +61,45 @@ structure OccScaleEvidence where
   scalarCarried : Bool
   /-- a stored value that is an input-region pointer (slice view). -/
   storeHasInputPtr : Bool
+  -- Row A entry/exit BINDINGS (the declared machine placement), evaluated against the real run.
+  /-- how each declared effective binding row resolved: "exact" (a deterministic value), "stack" (a
+  real but environment-dependent stack address, carried as its class only), or "unresolved" (the
+  declared location could not be read — a FAILURE, never a gap). -/
+  bindingHows : List String
+  /-- the routine's binding-consequence family ("entryAbi" / "rawCopy" / "alloc" / "offsetRead" /
+  "comptime"), or `""` when no consequence is defined for it. -/
+  bindingFamily : String
+  /-- the decisive scalar observations of the FIRST captured invocation, as (name, value) pairs. -/
+  bindingObs : List (String × Int)
+  /-- per-invocation consequence verdicts, reduced to counts. -/
+  realizedPass : Nat
+  realizedFail : Nat
+  realizedGap : Nat
+  /-- the exit convention declared for this routine ("" if none). -/
+  exitConvention : String
+  /-- declared exits that are genuine `ret` instructions (a tail-call exit carries the callee's
+  arguments, not this occurrence's result, so a result convention does not apply there). -/
+  returnExits : List Nat
+  /-- how `a0` classifies at each captured return exit. -/
+  exitA0Classes : List String
+  -- Allocation ledger, reconstructed from the bump cursor's own write history.
+  /-- allocation events (cursor bumps) inside this occurrence's invocation windows. -/
+  ledgerEventCount : Nat
+  /-- every sized event strictly advanced the cursor. -/
+  ledgerAllPositive : Bool
+  /-- every event left the cursor inside the heap. -/
+  ledgerAfterInHeap : Bool
+  -- Meaning.
+  /-- the declared little-endian width of a fixed-width leaf reader (`none` otherwise). -/
+  meaningWidth : Option Nat
+  /-- the little-endian value of the EXACT window the occurrence read (`none` if the window read was
+  not exactly `meaningWidth` bytes). -/
+  meaningValue : Option Nat
+  /-- the decoded value left the occurrence: stored, or held in a register at a declared exit. -/
+  meaningProduced : Bool
   deriving Repr, DecidableEq, Inhabited
 
-/-- The eight generic per-occurrence checks; `none` is an EXPLICIT gap (never counted as a pass). -/
+/-- The generic per-occurrence checks; `none` is an EXPLICIT gap (never counted as a pass). -/
 structure ScaleChecks where
   entryReached : Option Bool
   controlFlowIntegrity : Option Bool
@@ -73,6 +109,14 @@ structure ScaleChecks where
   inputPreserved : Option Bool
   codePreserved : Option Bool
   writesClassified : Option Bool
+  /-- every declared Row A binding row resolved against the real machine state at the entry PC. -/
+  bindingsEvaluable : Option Bool
+  /-- the resolved bindings had their declared consequence in the trace. -/
+  bindingsRealized : Option Bool
+  /-- the result register at a declared RETURN exit matches the routine's exit convention. -/
+  exitBindingRealized : Option Bool
+  /-- an allocating occurrence's cursor bumps are well-formed ledger events. -/
+  allocationLedger : Option Bool
   meaningTie : Option Bool
   deriving Repr, DecidableEq, BEq, Inhabited
 
