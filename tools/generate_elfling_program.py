@@ -1631,6 +1631,63 @@ OWNING_ROW = {
     "zesuDecodeRaw": "I",
 }
 
+# Human-readable rendering of each routine's step bound, for the MANIFEST.md view ONLY. This is
+# DOCUMENTATION, not a proof input: it is never emitted into GeneratedManifest.lean and no proof or
+# check consumes it. The authoritative source of every step bound is the Lean contract the row's
+# RoutineTag selects through `routineContract` (BinaryFv/SSZ/Zesu/Contracts/*.lean); this dict mirrors
+# those `stepBound` fields for the human backlog view, and must be kept in step with them by hand.
+# `|input|` is the input byte size, `|offsets|`/`|len|` an argument length, `N` a readArray width.
+STEP_BOUND_EXPR = {
+    "zesuDecodeRaw": "2·(16384 + 512·|input|) + 1024",
+    "decode": "2·(16384 + 512·|input|)",
+    "decodeRaw": "16384 + 512·|input|",
+    "newPayloadRequest": "8192 + 256·|input|",
+    "executionPayload": "4096 + 256·|input|",
+    "executionRequests": "1024 + 256·|input|",
+    "executionWitness": "1024 + 256·|input|",
+    "chainConfig": "2048",
+    "forkConfig": "1024",
+    "forkActivation": "512",
+    "optionalU64": "128",
+    "optionalBlobSchedule": "256",
+    "versionedHashes": "128 + 64·(|input|/32 + 1)",
+    "withdrawals": "128 + 256·(|input|/44 + 1)",
+    "depositRequests": "128 + 512·(|input|/192 + 1)",
+    "withdrawalRequests": "128 + 256·(|input|/76 + 1)",
+    "consolidationRequests": "128 + 256·(|input|/116 + 1)",
+    "publicKeys": "128 + 128·(|input|/65 + 1)",
+    "byteListList": "256 + 256·(|input|/4 + 1)",
+    "requireCanonicalOffsets": "32 + 32·|offsets|",
+    "requireU32Length": "32",
+    "readOffset": "64",
+    "readU32": "64",
+    "readU64": "96",
+    "readU256": "128",
+    "readArray": "32 + 4·N",
+    "bytesAt": "32",
+    "hasExactErePrefix": "64",
+    "rawAlloc": "128",
+    "memcpy": "64 + 8·|len|",
+    "memmove": "64 + 16·|len|",
+    "rawResult": "32",
+    "rawError": "16",
+    "allocatorAlloc": "128",
+    "allocatorResize": "8",
+    "allocatorRemap": "8",
+    "allocatorFree": "8",
+    "allocatorCtor": "16",
+}
+
+
+def step_bound_expr(tag, specialization):
+    """Human step-bound string for a routine, substituting the concrete readArray width for N."""
+    expr = STEP_BOUND_EXPR.get(tag)
+    if expr is None:
+        raise SystemExit(f"MANIFEST: tag {tag} has no step-bound expression")
+    if tag == "readArray" and specialization:
+        expr = expr.replace("N", specialization[0])
+    return expr
+
 
 def manifest_rows(p, bindings):
     """One row per generated occurrence, in occurrence-index order."""
@@ -1770,6 +1827,12 @@ def emit_manifest_md(p, rows):
          "backlog cannot drift. The Lean side checks every row against `generatedProgram` and the",
          "handwritten catalog in both directions.",
          "",
+         "The **step bound** shown per routine is a human-readable mirror of that routine's Lean",
+         "contract bound; the authoritative source is the contract the row's `RoutineTag` selects",
+         "through `routineContract` (`BinaryFv/SSZ/Zesu/Contracts/*.lean`). It is documentation only —",
+         "not emitted into `GeneratedManifest.lean` and not consumed by any proof — so nothing here",
+         "introduces a second proof-relevant source for the bound. `|input|` is the input byte size.",
+         "",
          f"**{len(rows)} occurrences** across **{len(by_routine)} source routines**.",
          "",
          "## By owning plan row", "",
@@ -1783,7 +1846,9 @@ def emit_manifest_md(p, rows):
           "occurrence inherits its sibling's proof.", ""]
     for key in sorted(by_routine):
         rs = by_routine[key]
+        bound = step_bound_expr(rs[0]["tag"], rs[0]["specialization"])
         M += [f"### `{key}` — {len(rs)} occurrence(s), row {rs[0]['owningRow']}", "",
+              f"Step bound (from `routineContract`, human mirror): `{bound}`", "",
               "| occ | kind | entry | exits | deps | binding rows | theorem | status |",
               "|--:|---|---|--:|---|---|---|---|"]
         for r in rs:
