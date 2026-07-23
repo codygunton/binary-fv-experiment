@@ -119,12 +119,11 @@ def storeU64 (addr value : Nat) : SailM Unit := do
   for i in [:8] do
     writeByte (addr + i) (BitVec.ofNat 8 ((value / 256 ^ i) % 256))
 
-/-- Materialize and zero the decoder's private globals to the fresh `DecoderGlobalsModel`. -/
-def initDecoderGlobals : SailM Unit := do
-  -- attempted = 0, allocator_state = 0, last_status (4 bytes) = 0
-  loadZeroBytes decoderBssBase 8
-  -- the full 848-byte stored_result object, discriminant included, zeroed → `none`
-  loadZeroBytes storedResultAddr storedResultSize
+/-- Materialize and zero the decoder's private globals to the fresh `DecoderGlobalsModel`: the whole
+private BSS block, which covers `attempted`, the allocator-state byte, `last_status`, and the full
+848-byte `stored_result` object (discriminant included → `none`). -/
+def initDecoderGlobals : SailM Unit :=
+  loadZeroBytes decoderBssBase Elfling.GeneratedDecoderGlobals.bssSize
 
 /-- Initialize the bump allocator's runtime globals: cursor at the arena base, ceiling at the top. -/
 def initRuntimeGlobals : SailM Unit := do
@@ -135,13 +134,20 @@ def initRuntimeGlobals : SailM Unit := do
   storeU64 zkvmHeapTop
     ((Elfling.GeneratedDecoderGlobals.runtimeGlobals.find? (·.1 == "heap")).elim 0 (fun g => g.2.1 + g.2.2))
 
-/-- The full entry-state construction for input `input` at the pinned runner layout. -/
+/-- The full entry-state construction for input `input` at the pinned runner layout.
+
+Only the addresses the decoder reads before writing are materialized: the file-backed code and
+rodata, the input, the decoder's private globals (zeroed → fresh model), and the host heap globals.
+The 64 MiB arena and the machine stack are deliberately **not** pre-filled — the allocator and the
+decoder's frames write them before reading (Sail's `readByte` traps on absent memory, so a genuine
+read-before-write would surface as a trap, not silent zero). This keeps the builder to ~20 KB of file
+bytes plus the input rather than a 69 MB image expansion, and pairs with the file-backed `CodeIntact`
+correction. -/
 def buildZesuEntryState (input : ByteArray) : SailM Unit := do
   configureZesuMachine
-  -- Load the pinned image: file bytes plus zero-filled BSS and arena.
-  loadProgramImage Artifact.programImage
-  -- Materialize the runner's own ranges on top of the loaded image.
-  loadZeroBytes canonicalRunnerLayout.stackBase canonicalRunnerLayout.stackSize
+  -- Materialize only the file-backed code and rodata (not the 69 MB BSS/arena tail).
+  loadFileBackedImage Artifact.programImage
+  -- The caller-owned input buffer.
   loadBytes canonicalRunnerLayout.inputBase input
   -- Fresh decoder globals and initialized allocator runtime globals.
   initDecoderGlobals
