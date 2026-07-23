@@ -440,7 +440,8 @@ DOCUMENTED_UNCOVERED = {
 def emit_report(records, summary) -> str:
     """A compact, deterministic per-occurrence coverage report (markdown). Gaps are shown explicitly."""
     sym = {True: "P", False: "F", None: "-"}
-    short = {"entryReached": "entry", "controlFlowIntegrity": "cfg", "withinStepBound": "step",
+    short = {"entryReached": "entry", "controlFlowIntegrity": "cfg", "exitsRespected": "exit",
+             "withinStepBound": "step",
              "allocationConsistent": "alloc", "inputPreserved": "inp", "codePreserved": "code",
              "writesClassified": "wr", "meaningTie": "mean"}
     L = ["# Row C — scaled per-occurrence production-ELF coverage (GENERATED)",
