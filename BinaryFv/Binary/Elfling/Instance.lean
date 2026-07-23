@@ -239,7 +239,7 @@ Two address sets fix this, both computed here from generated data so that no pro
   can actually reach.
 
 The closure is fuel-bounded by the size of the program, deduplicated, and stops early at a fixed
-point, so it is a total function that `decide`/`native_decide` can evaluate. -/
+point, so it is a total, decidable function a kernel evaluation can settle. -/
 
 /-- The occurrences and excluded routines control may transfer to directly: inlined children and
 resolved external calls. -/
