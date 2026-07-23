@@ -12,11 +12,11 @@ The directory names describe the subject of each definition or theorem; there is
 - `Runtime`: allocator, allocation-bound, and memory-copy contracts.
 - `Entrypoints`: end-to-end ABI-call traces and result interpretation, grouped by exported function.
   `ZesuDecodeRaw` covers `zesu_decode_raw`.
-- `Contracts`: the handwritten, address-free per-routine catalog — `meaning`/`pre`/`post` and the
-  correctness claim for each of the 43 SSZ routines — that the compliance proof discharges.
-- `Elfling`: the deterministically generated, address-bearing program (`GeneratedProgram`, regenerated
-  by `nix build .#elfling-program`) and its validation against the canonical ELF and Sail-decoded
-  control flow (coverage, exact reachability both directions, total edge classification, provenance).
+- `Contracts`: the source-level meaning of each decoder routine and the machine interface each
+  compiled occurrence must satisfy. Begin with `Contracts/README.md`.
+- `Elfling`: the generated occurrence map and its validation against the canonical ELF, including
+  control-flow edges, calls, inlined children, global addresses, and parameter locations. Begin with
+  `Elfling/README.md`; regenerate the data with `nix build .#elfling-program`.
 
 `Interface.lean` defines the public executable API. The SSZ root theorem is in the parent
 `BinaryFv/SSZ/Root.lean` module.

@@ -2,44 +2,36 @@ import GeneratedBindings
 import BinaryFv.RiscV.Elfling.Contract
 
 /-!
-# Complete generated occurrence bindings
+# Where each occurrence receives its arguments
 
-`GeneratedBindings.lean` is *untrusted* generated data: the entry-time location of every occurrence's
-formal parameters, resolved from DWARF `.debug_loc` at each occurrence's entry PC (see
-`tools/generate_elfling_program.py --out-bindings`). Each parameter's DWARF kind is one of:
+A source routine can appear many times in an optimized binary. One copy may be emitted as a normal
+function while others are inlined into callers, and each occurrence can receive the same logical
+argument in a different register, stack slot, address, or constant. This file turns the generated
+location data into predicates over Sail machine state.
 
-- `reg` / `fbreg` / `breg` / `addr` — a concrete register, frame slot, base+offset location, or
-  memory address; `bregValue` / `addrValue` preserve DWARF's `DW_OP_stack_value` distinction
-  (emitted occurrences carry their real optimized ABI this way, and many inlined occurrences too);
-- `const` — the concrete constant value (from DWARF or deterministic source recovery);
-- `callerProvided` — the optimizer emitted **no** location at the occurrence's entry PC. The argument
-  flows from the caller and DWARF does not record where.
+`GeneratedBindings.lean` contains two tables:
 
-## Raw DWARF versus effective bindings
+- `rawBindings` preserves the DWARF information exactly;
+- `bindings` is the table used by proofs after all missing DWARF locations have been recovered.
 
-`rawBindings` preserves exactly what DWARF said, including 50 `callerProvided` gaps. `bindings` is the
-effective table: the generator resolves those gaps from pinned Zig call-site literals, forwarding
-through the reader chain, `readArray` specialization widths, or the RISC-V C ABI for `memmove`.
-Generation fails if any gap remains. `recoveredBindings` records every change beside the raw table,
-so recovery is inspectable rather than silently replacing the compiler evidence.
+The raw table has 137 parameter rows. DWARF directly identifies 49 locations and 38 constants. It
+omits 50 locations after optimization. The generator recovers all 50 with the narrow rules below and
+refuses to produce the Lean file if any parameter remains unknown. `recoveredBindings` records the
+before-and-after rows so reviewers can audit every recovery.
 
-## The binding-classification spike (5 buckets)
+## How to read a binding kind
 
-A classification spike over all 137 parameter rows, validated against the real DWARF/CFG artifacts and
-the pinned Zig source, separates every parameter into:
+- `reg` is a value held directly in a RISC-V register.
+- `fbreg` and `breg` are values loaded from a frame- or register-relative memory address.
+- `addr` is a value loaded from an absolute address.
+- `bregValue` and `addrValue` are addresses or computed values themselves, not memory loads. This
+  distinction comes from DWARF's `DW_OP_stack_value`.
+- `const` is a compile-time value.
+- `callerProvided` appears only in the raw table and means DWARF supplied no entry location.
 
-1. **concrete DWARF location** (`reg`/`fbreg`/`breg`/`addr`) — 49 rows, resolved as the real
-   optimized location;
-2. **constant-folded** (`const`) — 38 rows, resolved as a compile-time value;
-3. **eliminated / irrelevant to the specialized meaning** — none in this decoder;
-4. **mechanically recovered from pinned source/parent specialization/ABI** — 50 raw gaps, all now
-   concrete in the effective table;
-5. **genuinely unresolved semantic input** — zero; the generator refuses to emit the artifact if one
-   appears.
+## Recovery rules
 
-## Recovery rules (the 50 raw `callerProvided` rows)
-
-Rather than 50 handwritten Lean entries, four generator rules cover every missing location:
+Four generator rules cover the 50 raw `callerProvided` rows:
 
 - `readArrayWidth`: the `len` of a `ssz_raw.bytesAt` occurrence. `bytesAt(data, offset,
   len)` is always called with a *compile-time* length by its enclosing reader — `readArray(N,…)` →
@@ -52,9 +44,9 @@ Rather than 50 handwritten Lean entries, four generator rules cover every missin
 - `forwardedParentParam`: a reader forwards its parent's already-resolved parameter, such as
   `readOffset` forwarding `offset` into `readU32`, then into `bytesAt`.
 
-The effective rows feed `generatedEntryBinding`, and `withGeneratedEntry` attaches that predicate to
-a typed `OccurrenceBinding`. Rows E-I only supply the small typed-argument-to-name projection; they
-do not rediscover locations or constants.
+`generatedEntryBinding` interprets the effective rows against Sail state. `withGeneratedEntry`
+combines that machine placement with a typed routine contract; later proofs only map typed arguments
+to their Zig parameter names.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Elfling
