@@ -156,4 +156,97 @@ theorem loadFileBackedImage_single_establishes {image : ProgramImage} {segment :
   rw [hseg] at himg
   exact hfile addr byte himg
 
+/-! ## The `for`-loop loaders (`loadBytes`, `loadFilledBytes`)
+
+`loadBytes` and `loadFilledBytes` are `forIn [:count]` loops of `writeByte`s. `forIn_eq_forIn_range'`
+rewrites the range loop to a `List.range'` loop, which admits a clean front induction; the general
+lemma below establishes any such write loop, and the two loaders are its specializations. -/
+
+/-- **A `forIn` write loop establishes each write and frames the complement.** For a list `l` of
+indices with pairwise-distinct target addresses (`(l.map addr).Nodup`), running
+`writeByte (addr i) (val i)` for each `i ∈ l` leaves the registers unchanged, agrees with the start
+state on every address not written, and reads each `addr i` back as `val i` (distinctness makes each
+write the last to its address). -/
+theorem forIn_writeBytes_establishes (addr : Nat → Nat) (val : Nat → BitVec 8) :
+    ∀ (l : List Nat) (s0 : State), (l.map addr).Nodup →
+      ∃ s, Runs (forIn l PUnit.unit
+            (fun i _ => do let _ ← writeByte (addr i) (val i); pure (ForInStep.yield PUnit.unit)))
+            s0 s () ∧
+        s.regs = s0.regs ∧
+        (∀ a, a ∉ l.map addr → s.mem.get? a = s0.mem.get? a) ∧
+        (∀ i ∈ l, s.mem.get? (addr i) = some (val i)) := by
+  intro l
+  induction l with
+  | nil =>
+    intro s0 _
+    refine ⟨s0, ?_, rfl, fun _ _ => rfl, fun i hi => absurd hi (List.not_mem_nil)⟩
+    simp only [List.forIn_nil]; rfl
+  | cons a l ih =>
+    intro s0 hnodup
+    have hnodup' : (l.map addr).Nodup := (List.nodup_cons.mp (by simpa using hnodup)).2
+    have hnotmem : addr a ∉ l.map addr := (List.nodup_cons.mp (by simpa using hnodup)).1
+    -- run the head write, then the tail loop
+    have hwrite : Runs (writeByte (addr a) (val a)) s0
+        { s0 with mem := s0.mem.insert (addr a) (val a) } () := by
+      show (writeByte (addr a) (val a)).run s0 = .ok () _; rw [writeByte_run]
+    obtain ⟨s, hrun, hregs, hframe, hwin⟩ := ih { s0 with mem := s0.mem.insert (addr a) (val a) } hnodup'
+    have hmidmem : ∀ b, b ≠ addr a →
+        (s0.mem.insert (addr a) (val a)).get? b = s0.mem.get? b := by
+      intro b hne
+      rw [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]; simp [Ne.symm hne]
+    have hbody : Runs (do let _ ← writeByte (addr a) (val a); pure (ForInStep.yield PUnit.unit))
+        s0 { s0 with mem := s0.mem.insert (addr a) (val a) } (ForInStep.yield PUnit.unit) :=
+      Runs.bind hwrite (by
+        show (pure (ForInStep.yield PUnit.unit) : SailM _).run _ = .ok _ _; rfl)
+    refine ⟨s, ?_, ?_, ?_, ?_⟩
+    · rw [List.forIn_cons]; exact Runs.bind hbody hrun
+    · rw [hregs]
+    · intro b hb
+      have hb' : b ∉ l.map addr := fun hmem => hb (by simp [hmem])
+      have hbne : b ≠ addr a := fun h => hb (by simp [h])
+      rw [hframe b hb', hmidmem b hbne]
+    · intro i hi
+      rcases List.mem_cons.mp hi with heq | hmem
+      · subst heq
+        rw [hframe (addr i) hnotmem]
+        rw [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]; simp
+      · exact hwin i hmem
+
+/-- The address map of both loaders, `fun i => base + i`, is injective, so its image over
+`List.range' 0 count 1` has no duplicates. -/
+theorem range'_map_add_nodup (base count : Nat) :
+    ((List.range' 0 count 1).map (fun i => base + i)).Nodup := by
+  rw [List.map_add_range']; exact List.nodup_range' 1
+
+/-- **`loadFilledBytes` establishes a constant-valued window.** Every address in
+`[base, base + count)` reads back `value`; everything else and every register is untouched. -/
+theorem loadFilledBytes_establishes (base count : Nat) (value : UInt8) (s0 : State) :
+    ∃ s, Runs (loadFilledBytes base count value) s0 s () ∧
+      s.regs = s0.regs ∧
+      (∀ a, a < base ∨ base + count ≤ a → s.mem.get? a = s0.mem.get? a) ∧
+      (∀ i, i < count → s.mem.get? (base + i) = some (BitVec.ofNat 8 value.toNat)) := by
+  obtain ⟨s, hrun, hregs, hframe, hwin⟩ :=
+    forIn_writeBytes_establishes (fun i => base + i) (fun _ => BitVec.ofNat 8 value.toNat)
+      (List.range' 0 count 1) s0 (range'_map_add_nodup base count)
+  have hrun' : Runs (loadFilledBytes base count value) s0 s () := by
+    show Runs (forIn [:count] PUnit.unit _ >>= fun _ => pure PUnit.unit) s0 s ()
+    rw [Std.Range.forIn_eq_forIn_range']
+    exact Runs.bind (by simpa using hrun) (by show (pure PUnit.unit : SailM Unit).run s = .ok () s; rfl)
+  refine ⟨s, hrun', hregs, ?_, ?_⟩
+  · intro a ha
+    apply hframe
+    simp only [List.mem_map, List.mem_range']
+    rintro ⟨i, ⟨_, hi⟩, rfl⟩; omega
+  · intro i hi
+    exact hwin i (by simp [List.mem_range']; omega)
+
+/-- **`loadZeroBytes` establishes a zeroed window.** Specialization of `loadFilledBytes` at `0`. -/
+theorem loadZeroBytes_establishes (base count : Nat) (s0 : State) :
+    ∃ s, Runs (loadZeroBytes base count) s0 s () ∧
+      s.regs = s0.regs ∧
+      (∀ a, a < base ∨ base + count ≤ a → s.mem.get? a = s0.mem.get? a) ∧
+      (∀ i, i < count → s.mem.get? (base + i) = some (0 : BitVec 8)) := by
+  obtain ⟨s, hrun, hregs, hframe, hwin⟩ := loadFilledBytes_establishes base count 0 s0
+  exact ⟨s, hrun, hregs, hframe, fun i hi => by simpa using hwin i hi⟩
+
 end BinaryFv.RiscV
