@@ -50,6 +50,7 @@ import BinaryFv.SSZ.Zesu.Contracts.Canonicality
 import BinaryFv.SSZ.Zesu.Contracts.Leaves
 import BinaryFv.SSZ.Zesu.SpecCorrespondence.PrimitiveReads
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Layout
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Preflight
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
 import BinaryFv.SSZ.Zesu.Interface
 import BinaryFv.SSZ.Root
