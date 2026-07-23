@@ -6,7 +6,7 @@ import BinaryFv.SSZ.Zesu.Validation.GeneratedScaleEvidence
 
 Generalizes the kernel-checked `decodeOptionalBlobSchedule` vertical slice (`BinaryOccurrenceCheck`)
 to EVERY occurrence in `program.json`. It reads the generated compact evidence (`GeneratedScaleEvidence`,
-captured from the UNCHANGED production ELF under pinned QEMU) and re-derives thirteen generic
+captured from the UNCHANGED production ELF under pinned QEMU) and re-derives fourteen generic
 per-occurrence checks, reproducing the Python oracle (`scale_occurrences.evaluate_facts`) exactly:
 
   entryReached          the first in-region PC is the declared entry PC
@@ -22,17 +22,25 @@ per-occurrence checks, reproducing the Python oracle (`scale_occurrences.evaluat
   bindingsEvaluable     every declared Row A binding row resolved against the real machine state at
                         the occurrence's declared entry PC (an unresolvable location is a FAILURE)
   bindingsRealized      the resolved bindings had their declared consequence in the trace
+  derivedBindingsHold   a loop-`derived` row's `index * stride + constant` relation held at every
+                        captured entry (the register carried a multiple of the stride, and the argument
+                        was that value plus the row's constant)
   exitBindingRealized   the result register at a declared RETURN exit matches the exit convention
-  allocationLedger      an allocating occurrence's cursor bumps are well-formed ledger events
+  allocationLedger      the occurrence's cursor events ARE the allocation sequence its fixture requires
+                        — count, order, sizes, alignments and returned blocks — with the expected side
+                        derived from the pinned Zig decode order and the Row B element ABI, not from
+                        the binary
   meaningTie            the little-endian integer of the exact window a leaf reader read IS the value
                         it produced (gap otherwise; the full per-value meaning against the handwritten
                         spec is the vertical slice, not this scan)
 
 ## What this module re-derives, and what it does not
 
-`bindingsEvaluable`, `exitBindingRealized`, `allocationLedger`, `meaningTie` and the four family
-predicates (`offsetReadHolds` / `entryAbiHolds` / `rawCopyHolds` / `allocHolds`) are computed HERE from
-the carried observations — the Lean checker decides them, it does not import a verdict.
+`bindingsEvaluable`, `derivedBindingsHold`, `exitBindingRealized`, `allocationLedger`, `meaningTie` and
+the four family predicates (`offsetReadHolds` / `entryAbiHolds` / `rawCopyHolds` / `allocHolds`) are
+computed HERE from the carried observations — the Lean checker decides them, it does not import a
+verdict. The allocation ledger's two sides are both raw data: the cursor-write history and the
+independently derived expected sequence; the comparison itself is `ledgerAgrees`, defined here.
 
 `bindingsRealized` is the AGGREGATION of per-invocation verdicts, and that aggregation rule is
 re-derived here (`bindingsRealizedOf`); the per-invocation family verdicts themselves are the Python
@@ -79,12 +87,31 @@ def obs (ev : OccScaleEvidence) (k : String) : Option Int :=
 from the real machine state at the declared entry PC. `"unresolved"` means the declared location could
 not be read at all, which is a FAILURE — a binding that names a location the machine cannot supply is
 wrong, not merely unobserved. An occurrence with no declared rows has no obligation to discharge, so it
-is an explicit gap rather than a free pass. -/
+is an explicit gap rather than a free pass.
+
+There is no "declared but meaningless" row to except any more: the generator refuses to emit one, so
+this is also the statement that the occurrence's `generatedEntryBinding` has a witness on its captured
+entry state (see `entry_predicates_satisfiable_on_captured_states`). -/
 def bindingsEvaluableOf (ev : OccScaleEvidence) : Option Bool :=
   if ev.bindingHows.isEmpty then none
   else if ev.bindingHows.any (fun h => h == "unresolved") then some false
-  else if ev.hasUnlocatedRow then none      -- a DECLARED gap: no location was ever claimed
   else some true
+
+/-- **A loop-derived row's relation held at every captured entry.** The register must have carried a
+multiple of the stride — that is what makes it `index * stride` — and the argument must have been that
+register value plus the row's constant. Mirrors `BindingInventory.DerivedIndexRep`.
+
+Mutating the stride, the constant, the register's captured value, or the resolved argument all break
+this; an empty sample would let it pass on nothing, so that fails too. -/
+def derivedRowHolds (d : DerivedRowEvidence) : Bool :=
+  d.stride != 0 && !d.registerValues.isEmpty &&
+    d.registerValues.length == d.values.length &&
+    (List.zip d.registerValues d.values).all
+      (fun p => p.1 % d.stride == 0 && p.2 == p.1 + d.constant)
+
+/-- An occurrence with no loop-derived row has nothing to discharge here — an explicit gap. -/
+def derivedBindingsHoldOf (ev : OccScaleEvidence) : Option Bool :=
+  if ev.derivedRows.isEmpty then none else some (ev.derivedRows.all derivedRowHolds)
 
 /-- The per-invocation consequence verdicts, aggregated. A single contradicted invocation fails the
 occurrence; a pass requires every captured invocation to have realized the consequence. -/
@@ -157,11 +184,55 @@ def exitBindingOf (ev : OccScaleEvidence) : Option Bool :=
     else some (ev.exitReturnedValues.all (fun v => v == (if ev.armDecision == 0 then 1 else 0)))
   else none
 
-/-- An allocating occurrence's ledger events must strictly advance the cursor and leave it in the heap;
-a non-allocating one causes no event and is covered by `allocationConsistent` instead. -/
+/-! ## The allocation ledger: observed cursor history vs the independently expected sequence -/
+
+/-- The pinned bump allocator's own arithmetic: `ptr = align_up(cursor, alignment)`. -/
+def alignUp (value alignment : Nat) : Nat :=
+  if alignment ≤ 1 then value else ((value + alignment - 1) / alignment) * alignment
+
+/-- One observed allocation IS the expected one: same position in the run's allocation sequence, the
+cursor landing exactly where the pinned allocator would put it for that size and alignment, and — where
+it was captured — the returned block being the very block carved out.
+
+`cursorAfter = align_up(cursorBefore, alignment) + size` is what makes a wrong SIZE and a wrong
+ALIGNMENT both visible: the alignment shows up as the padding between `cursorBefore` and the block. -/
+def allocEventAgrees (o : ObservedAlloc) (e : ExpectedAlloc) : Bool :=
+  let ptr := alignUp o.cursorBefore e.alignment
+  o.ordinal == e.ordinal && o.cursorAfter == ptr + e.size &&
+    (match o.returnedPointer with
+     | none => true                     -- a narrow per-field gap: the return was not captured
+     | some p => p == ptr)
+
+/-- Consecutive events are strictly later in the run's allocation sequence, so a REORDERING of the
+observed events is a failure even where two events happen to have the same size. -/
+def ordinalsIncrease (os : List ObservedAlloc) : Bool :=
+  (List.zip os (os.drop 1)).all (fun p => p.1.ordinal < p.2.ordinal)
+
+/-- **The ledger comparison.** Same event COUNT, same ORDER, same SIZES, same ALIGNMENTS, same returned
+blocks. Mirrors `scale_occurrences.ledger_agrees`. -/
+def ledgerAgrees (observed : List ObservedAlloc) (expected : List ExpectedAlloc) : Bool :=
+  observed.length == expected.length &&
+    (List.zip observed expected).all (fun p => allocEventAgrees p.1 p.2) &&
+    ordinalsIncrease observed
+
+/-- **The whole-run ledger of one arm.** Beyond the per-event agreement, the observed events must CHAIN
+— each starts where the last one ended, which is what a bump allocator does and what a dropped or
+inserted event breaks — and both sequences must be numbered `0, 1, 2, …` with no hole. -/
+def armLedgerHolds (l : ArmLedger) : Bool :=
+  ledgerAgrees l.observed l.expected &&
+    (List.zip l.observed (l.observed.drop 1)).all (fun p => p.2.cursorBefore == p.1.cursorAfter) &&
+    (l.observed.zipIdx.all fun p => p.1.ordinal == p.2) &&
+    (l.expected.zipIdx.all fun p => p.1.ordinal == p.2)
+
+/-- An allocating occurrence's cursor events must BE the allocations the fixture requires of it — same
+count, order, sizes, alignments and returned blocks. A non-allocating occurrence causes no event and is
+covered by `allocationConsistent` instead, so it is an explicit gap rather than a second opinion.
+
+An occurrence that is expected to allocate nothing and allocated nothing PASSES: that is a checkable
+outcome, not an absent obligation. -/
 def allocationLedgerOf (ev : OccScaleEvidence) : Option Bool :=
-  if !ev.allocates || ev.ledgerEventCount == 0 then none
-  else some (ev.ledgerAllPositive && ev.ledgerAfterInHeap)
+  if !ev.allocates then none
+  else some (ledgerAgrees ev.ledgerObserved ev.ledgerExpected)
 
 /-- The scaled checker, reproducing the Python oracle `evaluate_facts`. -/
 def evaluateOcc (ev : OccScaleEvidence) : ScaleChecks :=
@@ -169,11 +240,13 @@ def evaluateOcc (ev : OccScaleEvidence) : ScaleChecks :=
     { entryReached := none, controlFlowIntegrity := none, exitsRespected := none, withinStepBound := none,
       allocationConsistent := none, inputPreserved := none, codePreserved := none,
       writesClassified := none, bindingsEvaluable := none, bindingsRealized := none,
-      exitBindingRealized := none, allocationLedger := none, meaningTie := none }
+      derivedBindingsHold := none, exitBindingRealized := none, allocationLedger := none,
+      meaningTie := none }
   else
     let classes := scaledClasses ev
     { bindingsEvaluable := bindingsEvaluableOf ev
       bindingsRealized := bindingsRealizedOf ev
+      derivedBindingsHold := derivedBindingsHoldOf ev
       exitBindingRealized := exitBindingOf ev
       allocationLedger := allocationLedgerOf ev
       entryReached := some (ev.firstInRegion == ev.entryPc)
@@ -260,23 +333,54 @@ theorem all_declared_bindings_resolve :
     allOccs.all (fun p => (evaluateOcc p.1).bindingsEvaluable != some false) = true := by
   native_decide
 
-/-- **109 occurrences are fully located; 8 carry a declared `unlocated` row.**
+/-- **Every occurrence's generated entry predicate is SATISFIABLE on its captured entry state.**
 
-The extractor now emits one row per SIGNATURE parameter (from the abstract-origin DIE), so a parameter
-the optimizer dropped from the concrete instance is a visible row rather than an absence. Eight rows —
-the `offset` of the `decodeWithdrawals` loop's reader chain, whose source argument is the runtime
-expression `index * WITHDRAWAL_SIZE + k` — are `unlocated`: DWARF recorded no location and no mechanical
-rule recovers one. Those occurrences are an explicit GAP here, never a pass. -/
-theorem located_and_unlocated_partition :
-    (allOccs.filter (fun p => (evaluateOcc p.1).bindingsEvaluable == some true)).length = 109 ∧
-    (allOccs.filter (fun p => p.1.hasUnlocatedRow)).length = 8 := by
+`generatedEntryBinding` quantifies over an occurrence's binding rows, so a row with no machine meaning
+makes the whole predicate `False` and every implication out of it vacuous — which is exactly what the
+old `unlocated` kind did to the eight `decodeWithdrawals` reader rows. Row A now has a real case for
+every kind it emits (`BindingInventory.no_binding_kind_is_impossible`); this is the other half, on the
+production machine: for every covered occurrence that declares rows, EVERY row resolved to a concrete
+value from the register/memory state captured at its declared entry PC, so the conjunction has a
+witness there. 117 occurrences declare rows; the remaining 24 are the paramless ones Row A names. -/
+theorem entry_predicates_satisfiable_on_captured_states :
+    allOccs.all (fun p =>
+      !p.1.covered || p.1.bindingHows.isEmpty ||
+        (evaluateOcc p.1).bindingsEvaluable == some true) = true := by native_decide
+
+theorem located_occurrence_partition :
+    (allOccs.filter (fun p => (evaluateOcc p.1).bindingsEvaluable == some true)).length = 117 ∧
+    (allOccs.filter (fun p => p.1.bindingHows.isEmpty)).length = 24 := by
   native_decide
 
-/-- Every occurrence with an `unlocated` row reports a binding GAP — the declared gap is never silently
-counted as a discharged obligation. -/
-theorem unlocated_rows_are_gaps :
-    allOccs.all (fun p => !p.1.hasUnlocatedRow ||
-      (evaluateOcc p.1).bindingsEvaluable == none) = true := by native_decide
+/-! ### The loop-derived withdrawal offsets
+
+The eight rows the previous round left `unlocated` now carry the relation the machine actually
+realizes, and the production run is what checks it. -/
+
+/-- **The eight loop-derived rows hold on their captured entry states.** Occurrences 46–53 — the
+`decodeWithdrawals` reader chain — each declare `offset = index * WITHDRAWAL_SIZE + k`, and at every
+captured entry the loop register carried a multiple of the stride and the argument was that value plus
+the row's constant. Kernel-checked. -/
+theorem derived_rows_hold :
+    (allOccs.filter (fun p => !p.1.derivedRows.isEmpty)).length = 8 ∧
+    allOccs.all (fun p => p.1.derivedRows.isEmpty ||
+      (evaluateOcc p.1).derivedBindingsHold == some true) = true := by native_decide
+
+/-- The derived rows are exactly occurrences 46–53, all binding `offset` through the same loop register
+with the pinned `WITHDRAWAL_SIZE` stride and the four `RawWithdrawal` field offsets. -/
+theorem derived_rows_are_the_withdrawal_chain :
+    (allOccs.filterMap (fun p =>
+        p.1.derivedRows.head?.map (fun d => (p.1.index, d.register, d.stride, d.constant)))) =
+      [(46, 23, 44, 0), (47, 23, 44, 0), (48, 23, 44, 8), (49, 23, 44, 8),
+       (50, 23, 44, 16), (51, 23, 44, 16), (52, 23, 44, 36), (53, 23, 44, 36)] := by
+  native_decide
+
+/-- The evidence is not degenerate: the loop ran more than once, so the register genuinely varied over
+`index * 44`. A single `index = 0` sample would satisfy any stride. -/
+theorem derived_rows_saw_more_than_one_index :
+    allOccs.all (fun p => p.1.derivedRows.all
+      (fun d => d.registerValues == [0, 44] && d.values == [d.constant, 44 + d.constant])) = true := by
+  native_decide
 
 /-- **The re-derived family consequences agree with the recorded aggregate.** For every occurrence whose
 routine has a binding-consequence family, the consequence RE-DERIVED here from the carried observations
@@ -304,15 +408,39 @@ theorem no_binding_failures :
     allOccs.all (fun p =>
       let r := evaluateOcc p.1
       r.bindingsEvaluable != some false && r.bindingsRealized != some false &&
+      r.derivedBindingsHold != some false &&
       r.exitBindingRealized != some false && r.allocationLedger != some false) = true := by
   native_decide
 
-/-- **The allocation ledger is well formed wherever it was observed.** Every cursor bump caused by an
-allocating occurrence strictly advanced the bump cursor and left it inside the heap — reconstructed from
-the cursor's own write history, not from anything the allocator reports about itself. -/
-theorem allocation_ledger_wellformed :
-    allOccs.all (fun p => p.1.ledgerEventCount == 0 ||
-      (p.1.ledgerAllPositive && p.1.ledgerAfterInHeap)) = true := by native_decide
+/-! ## The allocation ledger — the exact sequence, not merely a forward-moving cursor -/
+
+/-- **Every arm's whole-run allocation ledger is exactly the sequence its fixture requires.** The
+observed side is `ZKVM_HEAP_POS`'s write history from the unchanged production ELF; the expected side is
+derived without reference to the binary, from the pinned Zig decode order applied to that arm's exact
+bytes and sized by the Row B probe's element ABI. Same count, same order, same sizes, same alignments,
+same returned blocks, chained end to end. Kernel-checked. -/
+theorem arm_ledgers_hold : armLedgers.all armLedgerHolds = true := by native_decide
+
+/-- The three arms cover a decoding run and a rejecting one, so the ledger check is exercised both on a
+complete sequence and on the PREFIX a rejected payload allocates before the decoder stops. -/
+theorem arm_ledger_shapes :
+    (armLedgers.map (fun l => (l.arm, l.observed.length, l.rejectedAt != ""))) =
+      [("absent", 7, false), ("malformed", 6, true), ("present", 10, false)] := by native_decide
+
+/-- **Every allocating occurrence's slice of the ledger is exactly what it owes.** All 16 allocating
+occurrences — the two allocator leaves, the entry, and the collection/container occurrences between them
+— match their independently derived allocation sequence. Kernel-checked. -/
+theorem allocating_occurrences_match_expected_ledger :
+    (allOccs.filter (fun p => p.1.allocates && p.1.covered)).length = 16 ∧
+    allOccs.all (fun p => !(p.1.allocates && p.1.covered) ||
+      (evaluateOcc p.1).allocationLedger == some true) = true := by native_decide
+
+/-- Every observed event's returned block was captured, so no allocation's returned-pointer field is a
+gap. `allocEventAgrees` would otherwise accept an uncaptured return. -/
+theorem returned_blocks_all_observed :
+    allOccs.all (fun p => p.1.ledgerReturnedUnknown == 0) = true ∧
+    armLedgers.all (fun l => l.observed.all (fun o => o.returnedPointer.isSome)) = true := by
+  native_decide
 
 /-!
 ## Negative tests — mutating a covered occurrence's evidence must flip the responsible check. The
@@ -380,12 +508,41 @@ theorem negative_unresolved_binding :
     (evaluateOcc { sample with bindingHows := ["exact", "unresolved"] }).bindingsEvaluable
       = some false := by native_decide
 
-/-- a DECLARED `unlocated` row is an explicit gap, not a failure and not a pass: the extractor states
-up front that DWARF recorded no location for that parameter, so there is nothing to check. -/
-theorem unlocated_row_is_a_gap :
-    (evaluateOcc { sample with
-        bindingHows := ["exact", "unlocated"], hasUnlocatedRow := true }).bindingsEvaluable
-      = none := by native_decide
+/-! ### Loop-derived binding negatives — mutating the index, stride, constant or the machine location.
+
+The baseline is occurrence 47 (`readU64(data, offset)` in the `decodeWithdrawals` loop): the register
+carried `0` then `44`, and the argument was `0` then `44`. -/
+
+/-- occurrence 47's derived row from the generated evidence. -/
+def derivedSample : DerivedRowEvidence :=
+  ((allOccs.filter (fun p => p.1.index == 47)).head!.1.derivedRows).head!
+
+theorem derived_sample_holds : derivedRowHolds derivedSample = true := by native_decide
+
+/-- WRONG STRIDE: `WITHDRAWAL_SIZE` is 44, and the second iteration's register value 44 is not a
+multiple of 43. A single `index = 0` sample could not tell these apart; two can. -/
+theorem negative_derived_wrong_stride :
+    derivedRowHolds { derivedSample with stride := 43 } = false := by native_decide
+
+/-- WRONG CONSTANT: the field offset within the element is part of the relation. -/
+theorem negative_derived_wrong_constant :
+    derivedRowHolds { derivedSample with constant := derivedSample.constant + 4 } = false := by
+  native_decide
+
+/-- WRONG MACHINE LOCATION: the value the loop register actually carried is what the relation is about.
+A register holding something that is not `index * stride` fails. -/
+theorem negative_derived_wrong_register_value :
+    derivedRowHolds { derivedSample with registerValues := [0, 45] } = false := by native_decide
+
+/-- WRONG INDEX: the register stepping to the wrong iteration breaks the tie between the register and
+the argument the row resolved to. -/
+theorem negative_derived_wrong_index :
+    derivedRowHolds { derivedSample with registerValues := [0, 88] } = false := by native_decide
+
+/-- An empty sample is not a pass: there would be nothing the relation held on. -/
+theorem negative_derived_no_sample :
+    derivedRowHolds { derivedSample with registerValues := [], values := [] } = false := by
+  native_decide
 
 /-- a contradicted binding consequence in any single invocation fails the occurrence. -/
 theorem negative_binding_consequence :
@@ -457,10 +614,77 @@ theorem decode_decision_ties_to_process_exit :
         exitReturnedValues := [1], armDecision := 0 }
       = some true := by native_decide
 
-/-- a ledger event that moved the bump cursor BACKWARD. -/
-theorem negative_ledger_regression :
+/-! ### Allocation-ledger negatives — the sequence, not just the direction of travel.
+
+The baseline is the `present` arm's whole-run ledger: ten allocations, each pinned by size, alignment,
+order and returned block. Every mutation below is one an "the cursor moved forward inside the heap"
+test would have accepted. -/
+
+/-- the `present` arm's ledger from the generated evidence. -/
+def ledgerSample : ArmLedger := (armLedgers.filter (fun l => l.arm == "present")).head!
+
+theorem ledger_sample_holds : armLedgerHolds ledgerSample = true := by native_decide
+
+/-- WRONG EVENT COUNT: an extra allocation nobody asked for. The cursor still only moved forward. -/
+theorem negative_ledger_extra_event :
+    armLedgerHolds { ledgerSample with
+        observed := ledgerSample.observed ++
+          [{ ordinal := 10, cursorBefore := 86858, cursorAfter := 86890,
+             returnedPointer := some 86858 }] } = false := by native_decide
+
+/-- WRONG EVENT COUNT the other way: a dropped allocation. -/
+theorem negative_ledger_missing_event :
+    armLedgerHolds { ledgerSample with observed := ledgerSample.observed.drop 1 } = false := by
+  native_decide
+
+/-- REORDERED EVENTS: the same allocations, performed in the wrong order. Sizes alone would not catch
+this where two events happen to be the same size; the ordinals and the cursor chain do. -/
+theorem negative_ledger_reordered :
+    armLedgerHolds { ledgerSample with
+        observed := ledgerSample.observed.drop 1 ++ ledgerSample.observed.take 1 } = false := by
+  native_decide
+
+/-- WRONG SIZE: the block carved out is not the size the fixture requires. -/
+theorem negative_ledger_wrong_size :
+    armLedgerHolds { ledgerSample with
+        expected := ledgerSample.expected.map
+          (fun e => if e.ordinal == 3 then { e with size := e.size + 8 } else e) } = false := by
+  native_decide
+
+/-- WRONG ALIGNMENT: event 6 follows a 1-aligned block, so its 8-byte alignment is what produces the
+four bytes of padding before it. Claiming alignment 1 predicts a different cursor. -/
+theorem negative_ledger_wrong_alignment :
+    armLedgerHolds { ledgerSample with
+        expected := ledgerSample.expected.map
+          (fun e => if e.ordinal == 6 then { e with alignment := 1 } else e) } = false := by
+  native_decide
+
+/-- WRONG RETURNED BLOCK: the cursor advanced exactly as required, but the allocator handed back a
+different block than the one it carved out — invisible to any check on the cursor alone. -/
+theorem negative_ledger_wrong_returned_block :
+    armLedgerHolds { ledgerSample with
+        observed := ledgerSample.observed.map
+          (fun o => if o.ordinal == 2 then { o with returnedPointer := some (o.cursorBefore + 8) }
+                    else o) } = false := by
+  native_decide
+
+/-- A per-OCCURRENCE slice is checked the same way: `decodeWithdrawals`' single event with the wrong
+size fails its occurrence check, not merely the whole-run one. -/
+theorem negative_occurrence_ledger_wrong_size :
     (evaluateOcc { sample with
-        allocates := true, ledgerEventCount := 2,
-        ledgerAllPositive := false }).allocationLedger = some false := by native_decide
+        allocates := true,
+        ledgerObserved := [{ ordinal := 1, cursorBefore := 86080, cursorAfter := 86176,
+                             returnedPointer := some 86080 }],
+        ledgerExpected := [{ ordinal := 1, routine := "decodeWithdrawals", element := "withdrawal",
+                             count := 1, size := 48, alignment := 8 }] }).allocationLedger
+      = some false := by native_decide
+
+/-- and an occurrence that allocated when the fixture required nothing of it. -/
+theorem negative_occurrence_ledger_unexpected_event :
+    (evaluateOcc { sample with
+        allocates := true,
+        ledgerObserved := [{ ordinal := 0, cursorBefore := 86048, cursorAfter := 86080,
+                             returnedPointer := some 86048 }],
+        ledgerExpected := [] }).allocationLedger = some false := by native_decide
 
 end BinaryFv.SSZ.Zesu.Validation

@@ -347,8 +347,14 @@ let
     # Row C SCALED checker: native_decide that, for EVERY occurrence in program.json, the Lean checker
     # reproduces the Python oracle (`checker_agrees_with_oracle`) on the production-ELF evidence; that the
     # six structural/effect gating checks pass on every covered occurrence (`gating_checks_hold`); that no
-    # check ever fails — results are pass or explicit gap (`no_gating_failures`); and that mutating the
-    # sampled occurrence's evidence flips the responsible check. Coverage is per occurrence, gaps explicit.
+    # check ever fails — results are pass or explicit gap (`no_gating_failures`); that every occurrence's
+    # generated entry predicate is SATISFIED by its captured entry state, including the eight loop-derived
+    # withdrawal offsets (`entry_predicates_satisfiable_on_captured_states`, `derived_rows_hold`); that
+    # each arm's whole-run allocation ledger and every allocating occurrence's slice of it are exactly the
+    # sequence the fixture requires (`arm_ledgers_hold`, `allocating_occurrences_match_expected_ledger`);
+    # and that mutating the sampled evidence — a derived row's index/stride/constant/register, or the
+    # ledger's event count, order, size, alignment or returned block — flips the responsible check.
+    # Coverage is per occurrence, gaps explicit.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.ScaleOccurrenceCheck
     touch "$out"

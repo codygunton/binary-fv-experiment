@@ -674,7 +674,221 @@ def source_call_args(srclines, line, column):
 # formal parameters, the occurrence is recorded as DWARF-paramless and that limitation is stated,
 # rather than papered over with a guess.
 
-def recover_missing_bindings(occ_sorted, srclines):
+# ---- Loop-derived reader offsets (the `decodeWithdrawals` reader chain) -------------------------
+#
+# `readU64(data, offset + 8)` inside `for (result, 0..) |*entry, index| { const offset = index *
+# WITHDRAWAL_SIZE; ... }` has an argument that is neither a compile-time constant nor a location DWARF
+# recorded: it is the loop's running byte offset. Recording it as an absent/`unlocated` row is NOT
+# adequate — a consumer that quantifies over the rows to build the occurrence's entry PRECONDITION then
+# gets an unsatisfiable conjunct, and every implication out of that precondition becomes vacuous.
+#
+# The offset is not unknown, though: the compiler keeps `index * STRIDE` in a loop-carried register, so
+# the argument's real relation `index * STRIDE + k` IS realized by the machine. These rules recover
+# that register from the loaded image so the row can say exactly what holds:
+#
+#   * the loop is the natural loop (over the disassembled direct-edge CFG) whose body contains the
+#     occurrence's entry PC and is the smallest such;
+#   * a candidate register is written EXACTLY once in that loop, by `addi r, r, STRIDE` — a basic
+#     induction variable stepping by the pinned source stride;
+#   * the candidate must be ZERO on entry to the loop, established on every incoming edge either by a
+#     literal-zero definition or by a `bnez r` / `beqz r` guard whose taken edge leads into the loop;
+#   * exactly one candidate must survive — an ambiguous or absent one is a generation FAILURE, never a
+#     guess.
+#
+# A call site is taken to clobber exactly the caller-saved registers, i.e. the RISC-V C ABI holds across
+# it — the same assumption `riscvCAbiArg2` already relies on. Without it no candidate survives a loop
+# containing a call (this one calls `memmove`), and with a weaker assumption the analysis would be
+# unsound rather than merely silent.
+#
+# The recovered row is `("derived", register, k)`; `derivedBindings` records the stride, the pinned
+# source constant it came from, and the loop, so the derivation is auditable rather than asserted.
+ABI_REG_NUMBER = {
+    "zero": 0, "ra": 1, "sp": 2, "gp": 3, "tp": 4, "t0": 5, "t1": 6, "t2": 7, "s0": 8, "fp": 8,
+    "s1": 9, "a0": 10, "a1": 11, "a2": 12, "a3": 13, "a4": 14, "a5": 15, "a6": 16, "a7": 17,
+    "s2": 18, "s3": 19, "s4": 20, "s5": 21, "s6": 22, "s7": 23, "s8": 24, "s9": 25, "s10": 26,
+    "s11": 27, "t3": 28, "t4": 29, "t5": 30, "t6": 31,
+}
+# Registers the RISC-V C ABI requires a callee to preserve; every other register is assumed clobbered
+# across a call site.
+CALLEE_SAVED_REGS = {"sp", "gp", "tp", "s0", "fp", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8",
+                     "s9", "s10", "s11"}
+STORE_MNEMONICS = {"sb", "sh", "sw", "sd", "fsw", "fsd", "sc.w", "sc.d"}
+NO_DEST_MNEMONICS = STORE_MNEMONICS | BRANCH_MNEMONICS | {
+    "j", "ret", "jr", "nop", "ecall", "ebreak", "unimp", "fence", "fence.i", "mret", "sret", "wfi"}
+
+def written_regs(addr, insns):
+    """The ABI register names an instruction may write, or `None` when that cannot be decided.
+
+    `None` (rather than an empty set) is the conservative answer: a caller treating an undecodable
+    instruction as writing nothing would silently keep a candidate the instruction may have clobbered."""
+    mnem, ops, _ = insns[addr]
+    if mnem in NO_DEST_MNEMONICS:
+        return set()
+    if mnem in ("jal", "jalr"):
+        # A call: the link register plus every caller-saved register. `j`/`jr`/`ret` are already
+        # handled above (they link to `zero`).
+        return (set(ABI_REG_NUMBER) - CALLEE_SAVED_REGS)
+    dest = ops.split(",", 1)[0].strip()
+    if dest in ABI_REG_NUMBER:
+        return {dest}
+    return None
+
+def _direct_preds(insns):
+    """pc -> set of pcs whose decoded direct targets include it (the same edges `classify` proposes)."""
+    preds = {}
+    for a in insns:
+        for t in classify(a, insns)[1]:
+            preds.setdefault(t, set()).add(a)
+    return preds
+
+def _natural_loop_body(header, latch, preds):
+    """The natural loop of back edge `latch -> header`: the header plus every node that reaches the
+    latch without passing through the header."""
+    body = {header, latch}
+    stack = [latch]
+    while stack:
+        n = stack.pop()
+        for p in preds.get(n, ()):
+            if p not in body:
+                body.add(p)
+                stack.append(p)
+    return body
+
+def innermost_loop(entry_pc, insns, preds):
+    """(header, latch, body) of the smallest natural loop containing `entry_pc`, or None."""
+    best = None
+    for latch in sorted(insns):
+        for header in classify(latch, insns)[1]:
+            if header > latch or header not in insns:
+                continue                       # only a backward transfer can close a loop
+            body = _natural_loop_body(header, latch, preds)
+            if entry_pc in body and (best is None or len(body) < len(best[2])):
+                best = (header, latch, body)
+    return best
+
+def _branch_register(mnem, ops):
+    """The register a zero-test branch compares, and whether the TAKEN edge means `reg == 0`."""
+    parts = [p.strip() for p in ops.split(",")]
+    if mnem == "beqz" and len(parts) == 2:
+        return parts[0], True
+    if mnem == "bnez" and len(parts) == 2:
+        return parts[0], False
+    if mnem in ("beq", "bne") and len(parts) == 3:
+        if parts[1] in ("zero", "x0"):
+            return parts[0], mnem == "beq"
+        if parts[0] in ("zero", "x0"):
+            return parts[1], mnem == "beq"
+    return None, None
+
+def _writes_literal_zero(mnem, ops, reg):
+    """Whether the instruction definitely assigns the literal 0 to `reg`."""
+    parts = [p.strip() for p in ops.split(",")]
+    if not parts or parts[0] != reg:
+        return False
+    if mnem == "li" and len(parts) == 2 and parts[1] == "0":
+        return True
+    if mnem == "mv" and len(parts) == 2 and parts[1] in ("zero", "x0"):
+        return True
+    if mnem in ("addi", "add") and len(parts) == 3 and parts[1] in ("zero", "x0") \
+            and parts[2] in ("0", "zero", "x0"):
+        return True
+    return False
+
+def zero_on_entry_edge(reg, source, header, insns, preds, limit=4096):
+    """Whether `reg == 0` holds on the edge `source -> header`, walking back along a straight line.
+
+    Two sound witnesses are accepted: a definition that assigns the literal 0, and a zero-test branch
+    whose outgoing edge we took. The walk stops (conservatively answering False) at the first join
+    point, the first undecodable instruction, or any other definition of `reg`."""
+    pc, nxt, steps = source, header, 0
+    while steps < limit and pc in insns:
+        mnem, ops, _ = insns[pc]
+        breg, taken_is_zero = _branch_register(mnem, ops)
+        if breg == reg:
+            target = _operand_target(ops)
+            took_taken_edge = (target == nxt)
+            if took_taken_edge == taken_is_zero:
+                return True
+            return False                       # the edge we took proves reg != 0
+        if _writes_literal_zero(mnem, ops, reg):
+            return True
+        w = written_regs(pc, insns)
+        if w is None or reg in w:
+            return False                       # some other (or undecodable) definition reaches here
+        prev = pc - 4
+        if preds.get(pc, set()) != {prev} or prev not in insns:
+            return False                       # a join point: the straight-line walk is over
+        if nxt not in classify(prev, insns)[1] and pc not in classify(prev, insns)[1]:
+            return False
+        pc, nxt, steps = prev, pc, steps + 1
+    return False
+
+def loop_stride_register(entry_pc, stride, insns, preds):
+    """The unique loop-carried register holding `index * stride` at `entry_pc`, or (None, reason)."""
+    loop = innermost_loop(entry_pc, insns, preds)
+    if loop is None:
+        return None, "no natural loop contains the occurrence's entry pc"
+    header, latch, body = loop
+    writes = {}
+    for pc in sorted(body):
+        w = written_regs(pc, insns)
+        if w is None:
+            return None, f"undecodable instruction at {pc} in the loop body"
+        for r in w:
+            writes.setdefault(r, []).append(pc)
+    candidates = []
+    for r, sites in sorted(writes.items()):
+        if len(sites) != 1:
+            continue
+        mnem, ops, _ = insns[sites[0]]
+        parts = [p.strip() for p in ops.split(",")]
+        if mnem == "addi" and len(parts) == 3 and parts[0] == r and parts[1] == r \
+                and parts[2] == str(stride):
+            candidates.append(r)
+    entries = sorted(p for p in preds.get(header, ()) if p not in body)
+    if not entries:
+        return None, "the loop header has no entry edge from outside the loop"
+    zeroed = [r for r in candidates
+              if all(zero_on_entry_edge(r, p, header, insns, preds) for p in entries)]
+    if len(zeroed) != 1:
+        return None, (f"expected exactly one zero-initialized +{stride} induction register in the loop "
+                      f"[{header},{latch}]; found {zeroed} among candidates {candidates}")
+    return (ABI_REG_NUMBER[zeroed[0]], header, latch), None
+
+LOOP_OFFSET_EXPR = re.compile(r"^\s*(\w+)\s*(?:\+\s*(\d+)\s*)?$")
+
+def loop_offset_source(expr, call_line, srclines, consts):
+    """`(variable, stride, stride-constant name, constant)` for a reader argument of the pinned shape
+    `<var>` / `<var> + <int>` where the enclosing Zig function defines `const <var> = <x> * <STRIDE>;`.
+
+    Anything else returns None: the recovery is deliberately narrow, so a new missing-location shape
+    fails generation instead of acquiring a guessed relation."""
+    if not expr:
+        return None
+    m = LOOP_OFFSET_EXPR.match(expr)
+    if not m:
+        return None
+    var, addend = m.group(1), int(m.group(2) or 0)
+    line = call_line
+    if line <= 0 or line > len(srclines):
+        return None
+    pattern = re.compile(r"^\s*(?:const|var)\s+" + re.escape(var) + r"\s*(?::[^=]+)?=\s*"
+                         r"(\w+)\s*\*\s*(\w+)\s*;")
+    for idx in range(line - 1, max(line - 60, 0) - 1, -1):
+        text = srclines[idx]
+        if re.match(r"^\s*(?:pub\s+)?fn\s", text):
+            return None                         # left the enclosing function without a definition
+        m2 = pattern.match(text)
+        if not m2:
+            continue
+        rhs = m2.group(2)
+        stride = consts.get(rhs, int(rhs) if rhs.isdigit() else None)
+        if stride is None or stride <= 0:
+            return None
+        return (var, stride, rhs if not rhs.isdigit() else "", addend)
+    return None
+
+def recover_missing_bindings(occ_sorted, srclines, consts, insns):
     """Return per-occurrence effective bindings and an audit table of every recovery.
 
     A recovered constant is represented as `(const, -1, value)`; a recovered machine register as
@@ -684,11 +898,33 @@ def recover_missing_bindings(occ_sorted, srclines):
     """
     effective = [list(o.get("bindings", [])) for o in occ_sorted]
     recoveries = []
+    derived = {}                # (occurrence, parameter) -> audit row
+    preds = _direct_preds(insns)
+    loop_cache = {}
 
     def known(i, name):
         for pn, kind, reg, off in effective[i]:
             if pn == name and kind != "callerProvided": return (kind, reg, off)
         return None
+
+    def derive_from_loop(i, o, pname, expr):
+        """The loop-carried `index * STRIDE` register realizing this reader's `offset` argument."""
+        src = loop_offset_source(expr, o["callLine"], srclines, consts)
+        if src is None:
+            return None
+        var, stride, stride_name, addend = src
+        key = (o["entryPc"], stride)
+        if key not in loop_cache:
+            loop_cache[key] = loop_stride_register(o["entryPc"], stride, insns, preds)
+        found, why = loop_cache[key]
+        if found is None:
+            raise SystemExit(
+                f"GENERATION FAILURE: occurrence {i} ({o['qualified']}) takes `{pname} = {expr}` with "
+                f"`{var} = index * {stride}` from the pinned source, but the loop-induction recovery "
+                f"could not pin the register: {why}")
+        reg, header, latch = found
+        derived[(i, pname)] = (i, pname, reg, stride, addend, expr, stride_name, header, latch)
+        return ("derived", reg, addend)
 
     changed = True
     while changed:
@@ -714,38 +950,32 @@ def recover_missing_bindings(occ_sorted, srclines):
                         inherited = known(o["parentIdx"], expr)
                         if inherited is not None:
                             resolved, reason = inherited, "forwardedParentParam"
+                            if inherited[0] == "derived":
+                                # The parent's argument IS this parameter, so the child inherits the
+                                # same loop register, stride and constant — audited under its own key.
+                                p = derived[(o["parentIdx"], expr)]
+                                derived[(i, pname)] = (i, pname) + p[2:]
+                    if resolved is None and expr is not None:
+                        # Not a constant, not forwarded from an already-resolved parent: the last
+                        # narrow rule is the loop-carried `index * STRIDE` induction register.
+                        resolved = derive_from_loop(i, o, pname, expr)
+                        reason = "loopInductionOffset" if resolved is not None else None
                 if resolved is not None:
                     effective[i][j] = (pname, *resolved)
                     recoveries.append((i, pname, reason, resolved[0], resolved[1], resolved[2]))
                     changed = True
 
-    # A parameter that is genuinely a RUNTIME value gets a first-class `unlocated` row carrying the
-    # pinned source expression, instead of failing generation or (worse) vanishing from the table.
-    #
-    # The reader chain inside a loop is the real case: `readU64(data, offset + 8)` where
-    # `offset = index * WITHDRAWAL_SIZE`. That argument is neither a compile-time constant nor a
-    # location DWARF recorded, so no mechanical rule can resolve it — but the parameter EXISTS, and a
-    # table that omits it is indistinguishable from a paramless routine. `unlocated` says exactly what
-    # is known: the parameter is declared, its value is this source expression, and its machine
-    # location is not recorded. It is deliberately NOT in `resolvedBindingKinds`.
-    unlocated = []
-    for i, (o, rows) in enumerate(zip(occ_sorted, effective)):
-        for j, (pname, kind, reg, off) in enumerate(rows):
-            if kind not in ("callerProvided", "unresolved"):
-                continue
-            expr = None
-            if o["qualified"] in READER_ARG_INDEX:
-                args = source_call_args(srclines, o["callLine"], o["callColumn"])
-                idx = READER_ARG_INDEX[o["qualified"]].get(pname)
-                if args is not None and idx is not None and idx < len(args):
-                    expr = args[idx].strip()
-            if expr is None:
-                # Not a reader-chain argument: the parameter is declared by the pinned source
-                # signature but the compiler recorded no location for this occurrence at all.
-                expr = "<no DWARF location; parameter declared by the pinned source signature>"
-            effective[i][j] = (pname, "unlocated", -1, 0)
-            unlocated.append((i, o["qualified"], pname, expr))
-    return effective, sorted(recoveries), sorted(unlocated)
+    # EVERY declared parameter must now carry a machine meaning: a concrete DWARF location, a recovered
+    # constant/register, or a `derived` loop relation. A row that survives to here would silently make
+    # the occurrence's generated entry PRECONDITION unsatisfiable in the consumer, so it is a hard
+    # generation failure — never an artifact with a hole in it.
+    stuck = [(i, occ_sorted[i]["qualified"], pname, kind)
+             for i, rows in enumerate(effective)
+             for (pname, kind, _r, _o) in rows if kind in ("callerProvided", "unresolved")]
+    if stuck:
+        raise SystemExit("GENERATION FAILURE: parameters with no machine meaning after recovery: "
+                         + json.dumps(stuck))
+    return effective, sorted(recoveries), sorted(derived.values())
 
 def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globals, decoder_sha):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-globals). DO NOT EDIT.",
@@ -769,7 +999,7 @@ def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globa
     L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals")
     return "\n".join(L) + "\n"
 
-def emit_bindings_lean(occ_sorted, effective, recoveries, unlocated):
+def emit_bindings_lean(occ_sorted, effective, recoveries, derived):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-bindings). DO NOT EDIT.",
          "-- Untrusted extracted data: the entry-time ABI/binding of every occurrence's formal",
          "-- parameters, resolved from DWARF .debug_loc at each occurrence's entry PC. Validated in",
@@ -790,12 +1020,15 @@ def emit_bindings_lean(occ_sorted, effective, recoveries, unlocated):
     rows = [f'({i}, {lean_str(pname)}, {lean_str(kind)}, {reg}, {off})'
             for i, bs in enumerate(effective) for (pname, kind, reg, off) in bs]
     L.append("  [" + ",\n   ".join(rows) + "]")
-    L.append("/-- Parameters that are DECLARED by the routine signature but whose machine location DWARF")
-    L.append("did not record and no mechanical rule can recover — genuinely runtime values. Each row")
-    L.append("carries the pinned Zig source expression the argument evaluates. These are NOT resolved")
-    L.append("bindings; they are recorded so a missing location is a visible row, never an absent one. -/")
-    L.append("def unlocatedBindings : List (Nat × String × String × String) :=")
-    rows = [f'({i}, {lean_str(q)}, {lean_str(p)}, {lean_str(e)})' for (i, q, p, e) in unlocated]
+    L.append("/-- Parameters whose source argument is a LOOP-DERIVED value `index * stride + constant`.")
+    L.append("DWARF recorded no location for them, but the compiled loop keeps `index * stride` in a")
+    L.append("loop-carried register, so the row states that relation instead of leaving a hole. Fields:")
+    L.append("(occurrence, parameter, register, stride, constant, pinned source expression, the pinned")
+    L.append("source constant the stride came from, loop header pc, loop latch pc). -/")
+    L.append("def derivedBindings : List (Nat × String × Nat × Nat × Nat × String × String × Nat × Nat) :=")
+    rows = [f'({i}, {lean_str(p)}, {reg}, {stride}, {const}, {lean_str(expr)}, {lean_str(sname)}, '
+            f'{header}, {latch})'
+            for (i, p, reg, stride, const, expr, sname, header, latch) in derived]
     L.append("  [" + ",\n   ".join(rows) + "]")
     L.append("/-- (occurrence, parameter, recovery reason, effective kind, register, value/offset). -/")
     L.append("def recoveredBindings : List (Nat × String × String × String × Int × Int) :=")
@@ -805,10 +1038,10 @@ def emit_bindings_lean(occ_sorted, effective, recoveries, unlocated):
     L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings")
     return "\n".join(L) + "\n"
 
-def emit_bindings_json(occ_sorted, effective, recoveries, unlocated):
-    """The SAME three binding tables as `--out-bindings`, as JSON.
+def emit_bindings_json(occ_sorted, effective, recoveries, derived):
+    """The SAME binding tables as `--out-bindings`, as JSON.
 
-    `program.json`'s per-occurrence `bindings` are the RAW DWARF rows, which still carry the 50
+    `program.json`'s per-occurrence `bindings` are the RAW DWARF rows, which still carry the 61
     `callerProvided` gaps. Any consumer that wants the *effective* entry placement of an occurrence's
     parameters — Row C's production-ELF binding validator, for one — must read the recovered table, not
     the raw one, or it silently validates against a location DWARF never gave. Emitting it here keeps
@@ -820,8 +1053,10 @@ def emit_bindings_json(occ_sorted, effective, recoveries, unlocated):
                       for i, bs in enumerate(effective) for (p, k, r, v) in bs],
         "recovered": [{"occurrence": i, "name": p, "reason": reason, "kind": k, "reg": r, "value": v}
                       for (i, p, reason, k, r, v) in recoveries],
-        "unlocated": [{"occurrence": i, "routine": q, "name": p, "sourceExpr": e}
-                      for (i, q, p, e) in unlocated],
+        "derived": [{"occurrence": i, "name": p, "register": reg, "stride": stride,
+                     "constant": const, "sourceExpr": expr, "strideConstant": sname,
+                     "loopHeader": header, "loopLatch": latch}
+                    for (i, p, reg, stride, const, expr, sname, header, latch) in derived],
     }, indent=1, sort_keys=True) + "\n"
 
 def main():
@@ -976,10 +1211,6 @@ def main():
         r["children"] = sorted(reindex[c] for c in r["children"]); occ_sorted.append(r)
     entry_idx = reindex[entry_idx]
 
-    # Resolve every DWARF-absent reader/ABI parameter from the pinned Zig call site or the explicit
-    # RISC-V C ABI rule. Raw rows remain in the output beside these effective rows for auditability.
-    effective_bindings, recovered_bindings, unlocated_bindings = recover_missing_bindings(occ_sorted, srclines)
-
     # Attribution defects decidable from the inline tree alone (uncovered-reachable PCs are a CFG
     # property proved in the Lean reachable partition, not decidable here).
     defects.extend(sibling_overlap_defects(occ_sorted))
@@ -1008,6 +1239,13 @@ def main():
     # --- Control-flow interface (area #2): propose entries/exits/blocks/edges/external-calls from the
     # canonical ELF's disassembly; Lean validates every one against the Sail-decoded `controlFlowNodes`.
     insns = disassemble(a.objdump, a.elf)
+
+    # Resolve every DWARF-absent reader/ABI parameter from the pinned Zig call site, the explicit
+    # RISC-V C ABI rule, or — for a loop-carried reader offset — the induction register recovered from
+    # this disassembly. Raw rows remain in the output beside these effective rows for auditability.
+    effective_bindings, recovered_bindings, derived_bindings = recover_missing_bindings(
+        occ_sorted, srclines, consts, insns)
+
     region_pc_sets = compute_occurrence_cfg(occ_sorted, insns)   # fills o["exits"], o["edges"]
     for o in occ_sorted:
         o["blocks"] = occurrence_blocks(o, insns)
@@ -1065,10 +1303,10 @@ def main():
             emit_globals_lean(dec_bss_base, dec_bss_size, globs, refs, runtime_globs, object_sha["decoder"]))
     if a.out_bindings:
         open(a.out_bindings, "w").write(
-            emit_bindings_lean(occ_sorted, effective_bindings, recovered_bindings, unlocated_bindings))
+            emit_bindings_lean(occ_sorted, effective_bindings, recovered_bindings, derived_bindings))
     if a.out_bindings_json:
         open(a.out_bindings_json, "w").write(
-            emit_bindings_json(occ_sorted, effective_bindings, recovered_bindings, unlocated_bindings))
+            emit_bindings_json(occ_sorted, effective_bindings, recovered_bindings, derived_bindings))
     routines = {(o["qualified"], tuple(o["specialization"])) for o in occ_sorted}
     print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(program['defects'])} "
           f"entry={entry_idx} excluded={len(excluded_sorted)}")

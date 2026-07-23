@@ -982,10 +982,18 @@ let
       PY
 
       mkdir -p "$out" scratch
+
+      # The Row B element ABI: @sizeOf / @alignOf of every allocated element type, straight from the
+      # Zig compiler via the host contract probe. This is the INDEPENDENT half of the allocation-ledger
+      # check — the expected sequence is sized from here and from the pinned decode order, never from
+      # anything the RV64 binary reports about itself.
+      ${zesuContractProbe}/bin/ssz-contract-probe --dump-abi > "$out/abi.json"
+
       python3 trace/scale_occurrences.py \
         --qemu ${qemuRiscv64} --plugin trace/qemu_trace_plugin.so --objdump ${riscvObjdump} \
         --elf ${zesuSsz}/bin/zesu-ssz --program ${elflingProgram}/program.json \
         --bindings ${elflingProgram}/bindings.json \
+        --source ${zesuRepaired} --abi "$out/abi.json" \
         --scratch scratch \
         --arm present=present.bin --arm malformed=malformed.bin --arm absent=absent.bin \
         --out-json "$out/coverage.json" \
@@ -1000,6 +1008,14 @@ let
       cmp -s "$out/SCALE_COVERAGE.md" ${committedReport} \
         || { echo "DRIFT: committed SCALE_COVERAGE.md differs from a fresh production capture" >&2; \
              diff "$out/SCALE_COVERAGE.md" ${committedReport} | head -40 >&2; exit 1; }
+
+      # Mutation suite for the two checks this round strengthened. Corrupt COPIES of the evidence just
+      # captured and require every corruption to flip the responsible oracle predicate — a loop-derived
+      # row's index/stride/constant/register value, and the ledger's event count, order, size, alignment
+      # and returned block. The Lean checker carries the same mutations as `negative_derived_*` /
+      # `negative_ledger_*`, so both sides reject the same corrupted evidence.
+      python3 trace/scale_negative_tests.py --coverage "$out/coverage.json" \
+        | tee "$out/scale-negative-tests.txt"
 
       # STATIC unreachability of the uncovered occurrences, on the unchanged ELF: a backward
       # reaching-definitions fixpoint over the reconstructed CFG plus a danger-set closure over the
@@ -1037,6 +1053,14 @@ let
       for n, d in sorted(s["byCheck"].items()):
           print(f"  {n:22s} pass={d['pass']:3d} fail={d['fail']:3d} gap={d['gap']:3d}")
       assert sum(d["fail"] for d in s["byCheck"].values()) == 0, "a per-occurrence check FAILED"
+      # The whole-run allocation ledger of EVERY arm must be the sequence its fixture requires: same
+      # count, order, sizes, alignments and returned blocks. An arm whose occurrences are all covered
+      # by an earlier arm would otherwise never have its ledger compared.
+      for name, agrees in sorted(s["armLedgersAgree"].items()):
+          d = s["armLedgers"][name]
+          print(f"  ledger[{name}] observed={len(d['observed'])} expected={len(d['expected'])} "
+                f"agree={agrees}")
+          assert agrees, f"arm {name}: observed allocation ledger != independently expected sequence"
       PY
     '';
 

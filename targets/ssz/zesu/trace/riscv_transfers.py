@@ -94,3 +94,28 @@ def is_dynamic_transfer(pc: int, insns) -> bool:
 def dynamic_transfer_pcs(objdump: str, elf: str) -> set:
     insns, order = disassemble(objdump, elf)
     return {pc for pc in order if is_dynamic_transfer(pc, insns)}
+
+
+def is_call(pc: int, insns) -> bool:
+    """True when the transfer at `pc` is a CALL — it links a return address, so control comes back to
+    `pc + 4`. `j` / `jr` / `ret` link to `zero` and never return here.
+
+    Leaving an occurrence's regions by a call is not the end of the occurrence's dynamic extent: the
+    callee's effects (an allocation, for one) belong to the invocation that made the call."""
+    mnem, ops, _ = insns[pc]
+    if mnem == "jal":
+        return True                       # objdump renders `jal zero,target` as `j`
+    if mnem != "jalr":
+        return False
+    m = re.match(r"\s*(?:([a-z][a-z0-9]*)\s*,\s*)?(-?\d+)?\(([a-z][a-z0-9]*)\)", ops)
+    if m:
+        rd = m.group(1) or "ra"
+    else:
+        m2 = re.match(r"\s*([a-z][a-z0-9]*)\s*,\s*([a-z][a-z0-9]*)\s*$", ops)   # jalr rd, rs
+        rd = m2.group(1) if m2 else "ra"                                        # bare `jalr rs`
+    return rd not in ("zero", "x0")
+
+
+def call_pcs(objdump: str, elf: str) -> set:
+    insns, order = disassemble(objdump, elf)
+    return {pc for pc in order if is_call(pc, insns)}

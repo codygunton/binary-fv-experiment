@@ -12,7 +12,11 @@ Every one of these shows a defect is SURFACED and FAILS generation, never silent
                             are `overlappingOwnership` (unit test of the pure detector); the real,
                             correctly-nested program produces none.
   * binding gap           — source/parent recovery produces concrete values, preserves the DWARF
-                            stack-value distinction, and refuses a new unresolved expression.
+                            stack-value distinction, and refuses a parameter left with no machine
+                            meaning (which would make the occurrence's entry predicate unsatisfiable).
+  * loop-derived offset   — a loop-carried reader offset resolves to the induction REGISTER recovered
+                            from the loaded image; an ambiguous or non-zero-initialized candidate is
+                            refused rather than guessed (unit tests of the pure analysis).
 
 `uncovered reachable instructions` are not decidable from DWARF alone (they need the decoded CFG); that
 guard is the Lean reachable-partition proof, whose mutation test lives with the generator-backed
@@ -108,13 +112,14 @@ def test_binding_recovery(gen):
          "bindings": [("offset", "callerProvided", -1, 0),
                       ("len", "callerProvided", -1, 0)]},
     ]
-    effective, recovered = gen.recover_missing_bindings(occ, lines)
+    effective, recovered, derived = gen.recover_missing_bindings(occ, lines, {}, {})
     check("binding: source literal is concrete", effective[0] == [("offset", "const", -1, 16)],
           repr(effective[0]))
     check("binding: parent forwarding and literal length are concrete",
           effective[1] == [("offset", "const", -1, 16), ("len", "const", -1, 8)],
           repr(effective[1]))
     check("binding: all three recoveries are audited", len(recovered) == 3, repr(recovered))
+    check("binding: nothing is loop-derived here", derived == [], repr(derived))
     check("binding: breg stack_value is a value, not a memory location",
           gen.decode_loc_expr("DW_OP_breg27 (s11): 48; DW_OP_stack_value") ==
           ("bregValue", 27, 48))
@@ -125,11 +130,95 @@ def test_binding_recovery(gen):
                "callColumn": 11, "parentIdx": None, "specialization": [],
                "bindings": [("different_name", "callerProvided", -1, 0)]}]
     try:
-        gen.recover_missing_bindings(broken, lines)
+        gen.recover_missing_bindings(broken, lines, {}, {})
         refused = False
     except SystemExit as err:
-        refused = "BINDING RECOVERY FAILURE" in str(err)
-    check("binding: a new unresolved shape fails generation", refused)
+        refused = "no machine meaning after recovery" in str(err)
+    check("binding: a parameter with no machine meaning fails generation", refused)
+
+
+# A minimal loop with ONE zero-initialized `+stride` induction register, in the objdump shape
+# `disassemble` produces: {pc: (mnemonic, operands, resolved-comment)}.
+#   100: li   s7,0            preheader: the induction variable starts at zero
+#   104: addi a0,a0,-1        loop header (target of the back edge)
+#   108: bnez a0,120 <end>    the occurrence's entry pc
+#   10c: addi s7,s7,44        the induction step, by the pinned source stride
+#   110: j    104 <header>    back edge
+#   120: ret
+def _loop_insns(extra=None):
+    insns = {
+        0x100: ("li", "s7,0", None),
+        0x104: ("addi", "a0,a0,-1", None),
+        0x108: ("bnez", "a0,120 <end>", None),
+        0x10c: ("addi", "s7,s7,44", None),
+        0x110: ("j", "104 <header>", None),
+        0x120: ("ret", "", None),
+    }
+    insns.update(extra or {})
+    return insns
+
+
+LOOP_SRC = [
+    "fn decodeWithdrawals(alloc: std.mem.Allocator, data: []const u8) DecodeError![]RawWithdrawal {",
+    "    const offset = index * WITHDRAWAL_SIZE;",
+    "    .validator_index = try readU64(data, offset + 8),",
+]
+
+
+def test_loop_induction_recovery(gen):
+    """A loop-carried reader offset resolves to the induction REGISTER, not to a hole.
+
+    `readU64(data, offset + 8)` inside `for (…) |*entry, index| { const offset = index *
+    WITHDRAWAL_SIZE; … }` has no DWARF location. Emitting it as an absent/unlocated row would make the
+    occurrence's generated entry predicate unsatisfiable, so the generator recovers the register the
+    compiled loop keeps `index * WITHDRAWAL_SIZE` in — or fails."""
+    consts = {"WITHDRAWAL_SIZE": 44}
+    src = gen.loop_offset_source("offset + 8", 3, LOOP_SRC, consts)
+    check("loop: the source relation is read from the pinned Zig", src == ("offset", 44, "WITHDRAWAL_SIZE", 8),
+          repr(src))
+    check("loop: an unrelated expression is not a loop relation",
+          gen.loop_offset_source("data.len", 3, LOOP_SRC, consts) is None)
+
+    insns = _loop_insns()
+    preds = gen._direct_preds(insns)
+    found, why = gen.loop_stride_register(0x108, 44, insns, preds)
+    check("loop: the +stride induction register is recovered", found == (23, 0x104, 0x110),
+          repr(found) + " " + repr(why))
+
+    # A second register stepping by the same stride, also zero on entry, is AMBIGUOUS: two candidates
+    # mean the generator cannot say which one holds the offset, so it refuses rather than picking one.
+    ambiguous = _loop_insns({
+        0x0fc: ("li", "s9,0", None),
+        0x114: ("addi", "s9,s9,44", None),
+        0x110: ("j", "114 <step2>", None),
+        0x118: ("j", "104 <header>", None),
+    })
+    del ambiguous[0x100]
+    ambiguous[0x0fc] = ("li", "s9,0", None)
+    ambiguous[0x100] = ("li", "s7,0", None)
+    found2, why2 = gen.loop_stride_register(0x108, 44, ambiguous, gen._direct_preds(ambiguous))
+    check("loop: two candidate induction registers are refused, not guessed",
+          found2 is None and "exactly one" in (why2 or ""), repr(why2))
+
+    # A register stepping by the stride but NOT zero on entry is not the offset.
+    not_zeroed = _loop_insns({0x100: ("addi", "s7,a0,7", None)})
+    found3, why3 = gen.loop_stride_register(0x108, 44, not_zeroed, gen._direct_preds(not_zeroed))
+    check("loop: an induction register that is not zero on entry is refused",
+          found3 is None, repr(found3))
+
+    # And the recovery is wired into the binding pass: the row becomes `derived`, with the register,
+    # stride and constant audited.
+    occ = [{"qualified": "ssz_raw.readU64", "kind": "inlined", "callLine": 3, "callColumn": 1,
+            "parentIdx": None, "specialization": [], "entryPc": 0x108,
+            "bindings": [("offset", "callerProvided", -1, 0)]}]
+    effective, recovered, derived = gen.recover_missing_bindings(occ, LOOP_SRC, consts, insns)
+    check("loop: the row is `derived`, carrying the register and the constant",
+          effective[0] == [("offset", "derived", 23, 8)], repr(effective[0]))
+    check("loop: the derivation is audited with stride, source expression and loop",
+          derived == [(0, "offset", 23, 44, 8, "offset + 8", "WITHDRAWAL_SIZE", 0x104, 0x110)],
+          repr(derived))
+    check("loop: the recovery is recorded under its own rule",
+          [r[2] for r in recovered] == ["loopInductionOffset"], repr(recovered))
 
 
 def main():
@@ -147,6 +236,7 @@ def main():
         print("ambiguous attribution:"); test_ambiguous_width(gen)
         print("sibling overlap:");       test_sibling_overlap(gen, args, tmp)
         print("binding recovery:");      test_binding_recovery(gen)
+        print("loop-derived offsets:");  test_loop_induction_recovery(gen)
 
     if FAILURES:
         print(f"\nGENERATOR DEFECT TESTS FAILED: {FAILURES}", file=sys.stderr)

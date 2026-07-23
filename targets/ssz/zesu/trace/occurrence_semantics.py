@@ -112,7 +112,8 @@ def resolve_binding(row, regs, mem: Memory, at_index: int):
 
     Mirrors `BindingInventory.bindingRowHolds` exactly: `const` is the value itself; `reg` reads the
     register; `breg`/`fbreg` read the machine word at base+offset; `bregValue` is base+offset with no
-    load (DWARF `DW_OP_stack_value`); `addr`/`addrValue` are the absolute forms."""
+    load (DWARF `DW_OP_stack_value`); `addr`/`addrValue` are the absolute forms; `derived` is the
+    loop-carried `index * stride` register plus the row's constant (`DerivedIndexRep`)."""
     kind, reg, val = row["kind"], row["reg"], row["value"]
     if kind == "const":
         return val
@@ -125,7 +126,7 @@ def resolve_binding(row, regs, mem: Memory, at_index: int):
     base = regs[reg]
     if kind == "reg":
         return base
-    if kind == "bregValue":
+    if kind in ("bregValue", "derived"):
         return (base + val) & MASK64
     if kind in ("breg", "fbreg"):
         return mem.read_u64((base + val) & MASK64, at_index)

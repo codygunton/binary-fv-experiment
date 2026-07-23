@@ -13,6 +13,68 @@ graph (enforced by the validation-import guard).
 
 namespace BinaryFv.SSZ.Zesu.Validation
 
+/-- A loop-`derived` Row A binding row, evaluated at every captured entry of its occurrence.
+
+The row declares `value = index * stride + constant` with the scaled index living in `register`
+(`BindingInventory.DerivedIndexRep`). The evidence carries what that register actually held and what
+the row resolved to, at each invocation, so the relation is CHECKED rather than assumed: a row whose
+register does not carry a multiple of the stride, or whose argument is not that value plus the
+constant, fails. -/
+structure DerivedRowEvidence where
+  /-- the Zig parameter name the row binds. -/
+  name : String
+  /-- the loop-carried register holding `index * stride`. -/
+  register : Nat
+  /-- the pinned source stride (`WITHDRAWAL_SIZE`). -/
+  stride : Nat
+  /-- the row's constant addend (the field's offset within the element). -/
+  constant : Nat
+  /-- what `register` held at each captured entry, in invocation order. -/
+  registerValues : List Nat
+  /-- what the row resolved to at each of those entries. -/
+  values : List Nat
+  deriving Repr, DecidableEq, Inhabited
+
+/-- One allocation as the UNCHANGED production ELF performed it: a write of the bump cursor, plus the
+pointer the allocator handed back at its return. Reconstructed from `ZKVM_HEAP_POS`'s own write
+history — the allocation ACT — not from anything the allocator reports about itself. -/
+structure ObservedAlloc where
+  /-- position in the run's allocation sequence (the startup cursor write is not an allocation). -/
+  ordinal : Nat
+  cursorBefore : Nat
+  cursorAfter : Nat
+  /-- `a0` at the allocator's return inside this event's window, when it was captured. -/
+  returnedPointer : Option Nat
+  deriving Repr, DecidableEq, Inhabited
+
+/-- One allocation the fixture REQUIRES, derived without reference to the binary: the pinned Zig decode
+order applied to the exact bytes fed to the process, sized by the Row B probe's element ABI. -/
+structure ExpectedAlloc where
+  ordinal : Nat
+  /-- the Zig routine whose `alloc(T, n)` this is. -/
+  routine : String
+  /-- the element type (`--dump-abi` key). -/
+  element : String
+  count : Nat
+  /-- `count * @sizeOf(element)`. -/
+  size : Nat
+  /-- `@alignOf(element)`. -/
+  alignment : Nat
+  deriving Repr, DecidableEq, Inhabited
+
+/-- One arm's WHOLE-RUN allocation ledger: everything the ELF did beside everything it had to do. -/
+structure ArmLedger where
+  arm : String
+  /-- the process exit code (0 decoded, 1 rejected). -/
+  decision : Nat
+  inputBytes : Nat
+  /-- where the independent shape walk says the pinned decoder rejects this fixture (`""` if it
+  decodes) — the reason a rejected arm allocates a prefix of the full sequence. -/
+  rejectedAt : String
+  observed : List ObservedAlloc
+  expected : List ExpectedAlloc
+  deriving Repr, DecidableEq, Inhabited
+
 /-- The compact per-occurrence facts reduced from the production trace (observed facts only). -/
 structure OccScaleEvidence where
   /-- occurrence index in `program.json`. -/
@@ -66,6 +128,8 @@ structure OccScaleEvidence where
   real but environment-dependent stack address, carried as its class only), or "unresolved" (the
   declared location could not be read — a FAILURE, never a gap). -/
   bindingHows : List String
+  /-- the occurrence's loop-`derived` rows with the machine values they were evaluated against. -/
+  derivedRows : List DerivedRowEvidence
   /-- the routine's binding-consequence family ("entryAbi" / "rawCopy" / "alloc" / "offsetRead" /
   "comptime"), or `""` when no consequence is defined for it. -/
   bindingFamily : String
@@ -75,9 +139,6 @@ structure OccScaleEvidence where
   realizedPass : Nat
   realizedFail : Nat
   realizedGap : Nat
-  /-- some declared row is `unlocated`: the extractor states DWARF gave no location for that
-  parameter and no mechanical rule recovers it — a DECLARED gap, never a wrong binding. -/
-  hasUnlocatedRow : Bool
   /-- the exit convention declared for this routine ("" if none). -/
   exitConvention : String
   /-- invocations whose returned `a0` equalled the `dst` argument captured at that same invocation's
@@ -93,13 +154,15 @@ structure OccScaleEvidence where
   returnExits : List Nat
   /-- how `a0` classifies at each captured return exit. -/
   exitA0Classes : List String
-  -- Allocation ledger, reconstructed from the bump cursor's own write history.
-  /-- allocation events (cursor bumps) inside this occurrence's invocation windows. -/
+  -- Allocation ledger: the cursor's own write history beside the independently expected sequence.
+  /-- allocation events inside this occurrence's dynamic extents. -/
   ledgerEventCount : Nat
-  /-- every sized event strictly advanced the cursor. -/
-  ledgerAllPositive : Bool
-  /-- every event left the cursor inside the heap. -/
-  ledgerAfterInHeap : Bool
+  /-- those events as the ELF performed them, in order. -/
+  ledgerObserved : List ObservedAlloc
+  /-- the events this occurrence MUST perform on this arm's fixture, derived without the binary. -/
+  ledgerExpected : List ExpectedAlloc
+  /-- observed events whose returned pointer was not captured (a narrow, explicit per-field gap). -/
+  ledgerReturnedUnknown : Nat
   -- Meaning.
   /-- the declared little-endian width of a fixed-width leaf reader (`none` otherwise). -/
   meaningWidth : Option Nat
@@ -124,9 +187,11 @@ structure ScaleChecks where
   bindingsEvaluable : Option Bool
   /-- the resolved bindings had their declared consequence in the trace. -/
   bindingsRealized : Option Bool
+  /-- every loop-`derived` row's `index * stride + constant` relation held at every captured entry. -/
+  derivedBindingsHold : Option Bool
   /-- the result register at a declared RETURN exit matches the routine's exit convention. -/
   exitBindingRealized : Option Bool
-  /-- an allocating occurrence's cursor bumps are well-formed ledger events. -/
+  /-- the occurrence's cursor events ARE the independently expected allocation sequence. -/
   allocationLedger : Option Bool
   meaningTie : Option Bool
   deriving Repr, DecidableEq, BEq, Inhabited
