@@ -269,6 +269,45 @@ def absorbedRanges (program : Program) (instance_ : FunctionInstance) : Array Ad
 def ownedRanges (program : Program) (instance_ : FunctionInstance) : Array AddressRange :=
   instance_.regions ++ absorbedRanges program instance_
 
+/-- **Absorption requires a genuine transfer edge.** Every region an occurrence absorbs belongs to
+an excluded routine the occurrence lists as a transfer target — so absorption can only pull in code
+the occurrence actually calls or inlines, never arbitrary code. This is what stops the owned set
+from quietly claiming ordinary uncovered code: an excluded routine the occurrence does not transfer
+to contributes nothing. -/
+theorem absorbed_requires_transfer (program : Program) (instance_ : FunctionInstance)
+    (range : AddressRange) (h : range ∈ absorbedRanges program instance_) :
+    ∃ x ∈ program.excluded,
+      (transferIds instance_).any (fun id => decide (id = x.id)) = true ∧ range ∈ x.regions := by
+  unfold absorbedRanges at h
+  have gen : ∀ (l : List ExcludedOccurrence) (acc : Array AddressRange),
+      range ∈ l.foldl (fun acc excluded =>
+          if (transferIds instance_).any (fun id => decide (id = excluded.id))
+          then acc ++ excluded.regions else acc) acc →
+      range ∈ acc ∨ ∃ x ∈ l, (transferIds instance_).any (fun id => decide (id = x.id)) = true
+          ∧ range ∈ x.regions := by
+    intro l
+    induction l with
+    | nil => intro acc hacc; exact Or.inl hacc
+    | cons hd tl ih =>
+      intro acc hacc
+      simp only [List.foldl_cons] at hacc
+      rcases ih _ hacc with hrec | ⟨x, hx, hcond, hxr⟩
+      · by_cases hp : (transferIds instance_).any (fun id => decide (id = hd.id)) = true
+        · simp only [hp, if_true] at hrec
+          rcases Array.mem_append.mp hrec with hl | hr
+          · exact Or.inl hl
+          · exact Or.inr ⟨hd, List.mem_cons_self, hp, hr⟩
+        · simp only [Bool.not_eq_true] at hp
+          simp only [hp, Bool.false_eq_true, if_false] at hrec
+          exact Or.inl hrec
+      · exact Or.inr ⟨x, List.mem_cons_of_mem _ hx, hcond, hxr⟩
+  rw [← Array.foldl_toList] at h
+  rcases gen program.excluded.toList #[] h with hempty | ⟨x, hx, hcond, hxr⟩
+  · exact absurd hempty (by simp)
+  · exact ⟨x, Array.mem_iff_getElem.mpr (by
+      obtain ⟨n, hn, hget⟩ := List.getElem_of_mem hx
+      exact ⟨n, by simpa using hn, by simpa using hget⟩), hcond, hxr⟩
+
 /-- One expansion round of the transfer graph, deduplicated. -/
 def expandTransfers (program : Program) (ids : Array InstanceId) : Array InstanceId :=
   ids.foldl

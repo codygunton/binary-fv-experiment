@@ -92,6 +92,50 @@ theorem reachable_covered_excluded_disjoint :
   rw [reachable_partition a ha, he] at hc
   exact absurd hc (by decide)
 
+/-! ## Absorption draws only from the surfaced excluded inventory
+
+D0's local obligation lets an occurrence *absorb* the excluded routines it calls — their PCs join
+its owned set so its own proof accounts for them (`Program.ownedRanges`). The reviewer's concern is
+that this could let an occurrence claim ordinary uncovered code. It cannot, and here is why, made
+concrete on the real program:
+
+* the absorbable set is exactly this surfaced inventory (`generatedProgram.excluded` **is**
+  `generatedExcludedOccurrences` definitionally), and every absorbed PC is an `isExcludedPC`;
+* an excluded PC is disjoint from every covered PC over the reachable set
+  (`reachable_covered_excluded_disjoint`), and every reachable PC is covered **or** excluded with no
+  gap (`reachable_no_silent_drop`) — so there is no "ordinary uncovered reachable code" for
+  absorption to hide;
+* absorption happens only where the routine is called (`Program.absorbed_requires_transfer`, generic),
+  and that call edge is a real decoded direct call (`externalCallsValid`, checked for this program in
+  `GeneratedProgramCfg`). -/
+
+/-- The program's excluded field is exactly the surfaced reachable-but-excluded inventory. -/
+theorem excluded_is_the_inventory :
+    generatedProgram.excluded = generatedExcludedOccurrences := rfl
+
+/-- Every PC any occurrence absorbs is an excluded-inventory PC. -/
+def absorbedPCsAreExcludedB : Bool :=
+  generatedProgram.instances.all fun i =>
+    (Program.absorbedRanges generatedProgram i).all fun r =>
+      (List.range r.size).all fun k => isExcludedPC (r.start + k)
+
+theorem absorbed_pcs_are_excluded : absorbedPCsAreExcludedB = true := by native_decide
+
+/-- An occurrence's own regions and the regions it absorbs are disjoint: absorbed code is genuinely
+separate from the occurrence's own cataloged code. -/
+def ownAndAbsorbedDisjointB : Bool :=
+  generatedProgram.instances.all fun i =>
+    (Program.absorbedRanges generatedProgram i).all fun a =>
+      i.regions.all fun o =>
+        decide (a.start + a.size ≤ o.start ∨ o.start + o.size ≤ a.start)
+
+theorem own_and_absorbed_disjoint : ownAndAbsorbedDisjointB = true := by native_decide
+
+/-- Negative: an occurrence with no external calls (occ 0, `zesu_raw_alloc`) absorbs nothing. -/
+theorem negative_occ0_absorbs_nothing :
+    Program.absorbedRanges generatedProgram (generatedProgram.instances[0]!) = #[] := by
+  native_decide
+
 /-! ## The counts: 3369 = 3135 + 234 -/
 
 theorem reachable_count : reachableAddresses.size = 3369 := by native_decide

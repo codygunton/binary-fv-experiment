@@ -217,4 +217,28 @@ theorem negative_uncontained_exit_fails_geometry : ¬ ProgramGeometry boundaryPr
     boundaryChild_callee (BitVec.ofNat 64 150) hpc hexit
   simp [instanceExitPred, FunctionInstance.isExit] at h
 
+/-! ## 6. An occurrence with no catalog dispatch cannot be discharged
+
+`instanceObligation` and `instanceLocalTraceObligation` both fall to `False` when
+`catalogEntryFor` returns `none`. So an occurrence whose identity is not in the catalog does not
+get a vacuously-true obligation — it gets an *unprovable* one, and the closed composition simply
+cannot be produced for a program containing it. On the real program `catalog_dispatch_total`
+rules this out; here we exhibit that a missing dispatch is genuinely fatal rather than silently
+accepted. -/
+
+/-- The test fixtures use `test.zig` identities, which are not in the handwritten catalog. -/
+theorem uncataloged_has_no_dispatch : catalogEntryFor leaf.id.function = none := by rfl
+
+/-- **A missing dispatch makes the closed obligation `False`** — not `True`. An uncataloged
+occurrence cannot be discharged, so a program is only accepted if every occurrence dispatches. -/
+theorem negative_missing_dispatch_closed (p : ContractParams) :
+    instanceObligation p rankedProgram leaf = False := by
+  unfold instanceObligation; rw [uncataloged_has_no_dispatch]
+
+/-- **A missing dispatch makes the local obligation `False`** too, so it cannot be smuggled in as an
+easy local premise either. -/
+theorem negative_missing_dispatch_local (p : ContractParams) :
+    instanceLocalTraceObligation p rankedProgram leaf = False := by
+  unfold instanceLocalTraceObligation; rw [uncataloged_has_no_dispatch]
+
 end BinaryFv.SSZ.Zesu.Contracts.CompositionTests
