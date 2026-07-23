@@ -82,7 +82,9 @@ wrong, not merely unobserved. An occurrence with no declared rows has no obligat
 is an explicit gap rather than a free pass. -/
 def bindingsEvaluableOf (ev : OccScaleEvidence) : Option Bool :=
   if ev.bindingHows.isEmpty then none
-  else some (ev.bindingHows.all (fun h => h != "unresolved"))
+  else if ev.bindingHows.any (fun h => h == "unresolved") then some false
+  else if ev.hasUnlocatedRow then none      -- a DECLARED gap: no location was ever claimed
+  else some true
 
 /-- The per-invocation consequence verdicts, aggregated. A single contradicted invocation fails the
 occurrence; a pass requires every captured invocation to have realized the consequence. -/
@@ -118,23 +120,42 @@ def rawCopyHolds (ev : OccScaleEvidence) : Option Bool :=
   | some got, some want, some cov => some (got == want && cov == 1)
   | _, _, _ => none
 
-/-- The `alloc` consequence, RE-DERIVED: the cursor bump covers the request and the block honours the
-requested alignment. -/
+/-- The `alloc` consequence, RE-DERIVED: the EXPECTED allocation occurred.
+
+The bump allocator is fully determined — `ptr = align_up(cursor, alignment)` and
+`cursor' = ptr + bytes` — so both the new cursor and the returned pointer are predicted from
+`(cursor_before, size, alignment)`. Checking only that the cursor moved forward inside the heap would
+accept a wrong size, a skipped alignment step, or a returned pointer that is not the block just carved
+out; this compares against the predicted values instead. -/
 def allocHolds (ev : OccScaleEvidence) : Option Bool :=
   if ev.bindingFamily != "alloc" then none else
-  match obs ev "allocSize", obs ev "allocBump", obs ev "allocAlign", obs ev "allocAfter" with
-  | some size, some bump, some align, some after =>
-      some (size ≤ bump && align > 0 && after % align == 0)
+  match obs ev "allocAfter", obs ev "allocWantAfter", obs ev "allocPtrKnown", obs ev "allocPtrMatches" with
+  | some after, some wantAfter, some ptrKnown, some ptrMatches =>
+      some (after == wantAfter && (ptrKnown == 0 || ptrMatches == 1))
   | _, _, _, _ => none
 
-/-- The exit convention at a declared RETURN exit. A tail-call exit is excluded upstream: its register
-file holds the callee's arguments, not this occurrence's result. -/
+/-- The exit convention at a declared RETURN exit, RE-DERIVED. A tail-call exit is excluded upstream:
+its register file holds the callee's arguments, not this occurrence's result.
+
+Every branch compares the returned register against something INDEPENDENTLY known. An earlier version
+returned `some true` for `copyDestination` and `decodeDecision` without looking at anything, which is
+not a check: it accepted any register value at all. -/
 def exitBindingOf (ev : OccScaleEvidence) : Option Bool :=
   if ev.exitConvention == "" then none
-  else if ev.returnExits.isEmpty || ev.exitA0Classes.isEmpty then none
+  else if ev.returnExits.isEmpty then none
   else if ev.exitConvention == "allocPointer" then
-    some (ev.exitA0Classes.all (fun c => c == "heap" || c == "unclassified"))
-  else some true
+    -- Subsumed by `allocHolds`, which predicts the exact pointer; a range test here would only add a
+    -- weaker second opinion that could pass where the exact check fails.
+    none
+  else if ev.exitConvention == "copyDestination" then
+    -- memcpy/memmove return `dst` unchanged: every paired invocation must match.
+    if ev.exitPairsTotal == 0 then none else some (ev.exitPairsMatched == ev.exitPairsTotal)
+  else if ev.exitConvention == "decodeDecision" then
+    -- the wrapper's result must agree with the decision the PROCESS exited with
+    -- (harness: exit 0 = decoded, exit 1 = rejected).
+    if ev.exitReturnedValues.isEmpty then none
+    else some (ev.exitReturnedValues.all (fun v => v == (if ev.armDecision == 0 then 1 else 0)))
+  else none
 
 /-- An allocating occurrence's ledger events must strictly advance the cursor and leave it in the heap;
 a non-allocating one causes no event and is covered by `allocationConsistent` instead. -/
@@ -231,20 +252,31 @@ theorem uncovered_are_exactly_the_statically_dead :
 
 /-! ## Row A bindings — the declared machine placement, checked against the real run -/
 
-/-- **Every declared Row A binding resolves against the production machine.** For each of the 110
-occurrences carrying effective binding rows, every declared location — register, frame slot, base+offset
-memory word, or constant — produced a concrete value from the register/memory state captured at that
-occurrence's declared entry PC. No row is `"unresolved"`. Kernel-checked. -/
+/-- **No declared Row A binding failed to resolve against the production machine.** Wherever a row names
+a location — register, frame slot, base+offset memory word, or constant — that location produced a
+concrete value from the register/memory state captured at the occurrence's declared entry PC. No row is
+`"unresolved"`. Kernel-checked. -/
 theorem all_declared_bindings_resolve :
     allOccs.all (fun p => (evaluateOcc p.1).bindingsEvaluable != some false) = true := by
   native_decide
 
-/-- The count of occurrences whose bindings were evaluated is exactly the 110 that Row A's
-`BindingInventory.bound_occurrence_count` says carry parameter rows — the binding evidence covers the
-whole bound population, not a sample. -/
-theorem bound_occurrence_coverage :
-    (allOccs.filter (fun p => (evaluateOcc p.1).bindingsEvaluable == some true)).length = 110 := by
+/-- **109 occurrences are fully located; 8 carry a declared `unlocated` row.**
+
+The extractor now emits one row per SIGNATURE parameter (from the abstract-origin DIE), so a parameter
+the optimizer dropped from the concrete instance is a visible row rather than an absence. Eight rows —
+the `offset` of the `decodeWithdrawals` loop's reader chain, whose source argument is the runtime
+expression `index * WITHDRAWAL_SIZE + k` — are `unlocated`: DWARF recorded no location and no mechanical
+rule recovers one. Those occurrences are an explicit GAP here, never a pass. -/
+theorem located_and_unlocated_partition :
+    (allOccs.filter (fun p => (evaluateOcc p.1).bindingsEvaluable == some true)).length = 109 ∧
+    (allOccs.filter (fun p => p.1.hasUnlocatedRow)).length = 8 := by
   native_decide
+
+/-- Every occurrence with an `unlocated` row reports a binding GAP — the declared gap is never silently
+counted as a discharged obligation. -/
+theorem unlocated_rows_are_gaps :
+    allOccs.all (fun p => !p.1.hasUnlocatedRow ||
+      (evaluateOcc p.1).bindingsEvaluable == none) = true := by native_decide
 
 /-- **The re-derived family consequences agree with the recorded aggregate.** For every occurrence whose
 routine has a binding-consequence family, the consequence RE-DERIVED here from the carried observations
@@ -348,6 +380,13 @@ theorem negative_unresolved_binding :
     (evaluateOcc { sample with bindingHows := ["exact", "unresolved"] }).bindingsEvaluable
       = some false := by native_decide
 
+/-- a DECLARED `unlocated` row is an explicit gap, not a failure and not a pass: the extractor states
+up front that DWARF recorded no location for that parameter, so there is nothing to check. -/
+theorem unlocated_row_is_a_gap :
+    (evaluateOcc { sample with
+        bindingHows := ["exact", "unlocated"], hasUnlocatedRow := true }).bindingsEvaluable
+      = none := by native_decide
+
 /-- a contradicted binding consequence in any single invocation fails the occurrence. -/
 theorem negative_binding_consequence :
     (evaluateOcc { sample with realizedPass := 3, realizedFail := 1, realizedGap := 0 }).bindingsRealized
@@ -380,12 +419,43 @@ theorem negative_offset_read_width :
         bindingObs := [("baseClassOk", 1), ("declaredLen", 8), ("readCount", 12)] }
       = some false := by native_decide
 
-/-- an allocation whose cursor bump is smaller than the request it claims to satisfy. -/
-theorem negative_alloc_undersized :
+/-- an allocation whose new cursor is not `align_up(before, alignment) + size`. -/
+theorem negative_alloc_wrong_cursor :
     allocHolds { sample with
         bindingFamily := "alloc",
-        bindingObs := [("allocAfter", 86080), ("allocAlign", 8), ("allocBump", 16), ("allocSize", 32)] }
+        bindingObs := [("allocAfter", 86072), ("allocWantAfter", 86080),
+                       ("allocPtrKnown", 1), ("allocPtrMatches", 1)] }
       = some false := by native_decide
+
+/-- an allocation that advanced the cursor correctly but handed back a DIFFERENT block than the one it
+carved out — invisible to a "cursor moved forward inside the heap" test. -/
+theorem negative_alloc_wrong_pointer :
+    allocHolds { sample with
+        bindingFamily := "alloc",
+        bindingObs := [("allocAfter", 86080), ("allocWantAfter", 86080),
+                       ("allocPtrKnown", 1), ("allocPtrMatches", 0)] }
+      = some false := by native_decide
+
+/-- a copy that returned something other than its `dst` argument in one of its invocations. -/
+theorem negative_copy_destination :
+    exitBindingOf { sample with
+        exitConvention := "copyDestination", returnExits := [1],
+        exitPairsMatched := 17, exitPairsTotal := 18 }
+      = some false := by native_decide
+
+/-- a decoder whose returned decision contradicts the exit code the process actually produced. -/
+theorem negative_decode_decision :
+    exitBindingOf { sample with
+        exitConvention := "decodeDecision", returnExits := [1],
+        exitReturnedValues := [0], armDecision := 0 }
+      = some false := by native_decide
+
+/-- and the positive direction: exit code 0 (decoded) requires the wrapper to have returned 1. -/
+theorem decode_decision_ties_to_process_exit :
+    exitBindingOf { sample with
+        exitConvention := "decodeDecision", returnExits := [1],
+        exitReturnedValues := [1], armDecision := 0 }
+      = some true := by native_decide
 
 /-- a ledger event that moved the bump cursor BACKWARD. -/
 theorem negative_ledger_regression :

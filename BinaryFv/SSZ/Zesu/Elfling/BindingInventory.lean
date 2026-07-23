@@ -83,18 +83,40 @@ def resolvedBindingKinds : List String :=
 theorem callerProvided_not_resolved : resolvedBindingKinds.contains "callerProvided" = false := by
   native_decide
 
-/-- The raw artifact has exactly the 50 DWARF-absent rows that recovery must explain. -/
+/-- The raw artifact has exactly the 61 DWARF-absent rows that recovery must explain. -/
 theorem raw_callerProvided_count :
-    (rawBindings.filter fun r => r.2.2.1 == "callerProvided").length = 50 := by native_decide
+    (rawBindings.filter fun r => r.2.2.1 == "callerProvided").length = 61 := by native_decide
 
-/-- Every effective parameter has a concrete register, memory location, address, or value. -/
-theorem all_bindings_resolved :
-    bindings.all (fun r => resolvedBindingKinds.contains r.2.2.1) = true := by native_decide
+/-- **Every effective parameter is either resolved or an explicitly declared `unlocated` gap.**
+
+`unlocated` is deliberately outside `resolvedBindingKinds`: it records that the routine DECLARES the
+parameter (per its abstract-origin signature) while DWARF recorded no location for this occurrence and
+no mechanical rule recovers one. The previous inventory could not say this, because a parameter the
+optimizer dropped from the concrete instance simply had no row — indistinguishable from a paramless
+routine. Making the gap a row is what lets a consumer see it. -/
+theorem all_bindings_resolved_or_declared_unlocated :
+    bindings.all (fun r => resolvedBindingKinds.contains r.2.2.1 || r.2.2.1 == "unlocated")
+      = true := by native_decide
 
 /-- The number of genuinely resolved (concrete-location or constant-folded) parameter bindings. -/
 def resolvedBindingCount : Nat := (bindings.filter fun r => resolvedBindingKinds.contains r.2.2.1).length
 
-theorem resolved_count : resolvedBindingCount = 137 := by native_decide
+/-- Rows that are declared but carry no machine location. -/
+def unlocatedBindingCount : Nat := (bindings.filter fun r => r.2.2.1 == "unlocated").length
+
+theorem resolved_count : resolvedBindingCount = 140 := by native_decide
+
+/-- **The 8 unlocated rows are exactly the `unlocatedBindings` audit table**, so every declared gap is
+named with the pinned Zig source expression its argument evaluates. -/
+theorem unlocated_count : unlocatedBindingCount = 8 ∧ unlocatedBindings.length = 8 := by native_decide
+
+theorem unlocated_rows_are_audited :
+    unlocatedBindings.all (fun u => bindings.contains (u.1, u.2.2.1, "unlocated", -1, 0))
+      = true := by native_decide
+
+/-- Every unlocated row records a non-empty source expression: the gap is described, not merely flagged. -/
+theorem unlocated_rows_have_source_expressions :
+    unlocatedBindings.all (fun u => u.2.2.2 != "") = true := by native_decide
 
 /-! ## Recovery coverage -/
 
@@ -105,15 +127,24 @@ def callerProvidedKeys : List (Nat × String) :=
 /-- The keys for which the generator emitted a concrete recovery. -/
 def recoveredKeys : List (Nat × String) := recoveredBindings.map fun r => (r.1, r.2.1)
 
-/-- Every raw gap has exactly one generated recovery, and no recovery hides a non-gap. -/
+/-- The keys the extractor recorded as declared-but-unlocated. -/
+def unlocatedKeys : List (Nat × String) := unlocatedBindings.map fun u => (u.1, u.2.2.1)
+
+/-- Every raw gap is either mechanically recovered or an audited `unlocated` row — never dropped. -/
 theorem recovery_covers_all_callerProvided :
-    callerProvidedKeys.all (fun k => recoveredKeys.contains k) = true := by native_decide
+    callerProvidedKeys.all (fun k => recoveredKeys.contains k || unlocatedKeys.contains k)
+      = true := by native_decide
 
 theorem recovery_only_callerProvided :
     recoveredKeys.all (fun k => callerProvidedKeys.contains k) = true := by native_decide
 
-theorem recovery_count : recoveredBindings.length = 50 ∧ callerProvidedKeys.length = 50 := by
+theorem recovery_count : recoveredBindings.length = 53 ∧ callerProvidedKeys.length = 61 := by
   native_decide
+
+/-- Recovery explains every raw gap that is not a declared `unlocated` row: 53 recovered + 8 unlocated
+= the 61 rows DWARF left without a location. Nothing falls between the two. -/
+theorem recovery_and_unlocated_exhaust_the_gaps :
+    recoveredBindings.length + unlocatedBindings.length = 61 := by native_decide
 
 /-- Counts plus membership are a genuine one-to-one recovery, not duplicate rows hiding an omission. -/
 theorem recovery_keys_unique : callerProvidedKeys.Nodup ∧ recoveredKeys.Nodup := by native_decide
@@ -141,6 +172,7 @@ theorem effective_locations_well_formed :
           r.2.2.1 = "fbreg" then
         decide (1 ≤ r.2.2.2.1 ∧ r.2.2.2.1 ≤ 31)
       else if r.2.2.1 = "addr" ∨ r.2.2.1 = "addrValue" then decide (0 ≤ r.2.2.2.1)
+      else if r.2.2.1 = "unlocated" then decide (r.2.2.2.1 = -1 ∧ r.2.2.2.2 = 0)
       else false) = true := by
   native_decide
 
@@ -275,13 +307,13 @@ theorem memmove_n_recovers_to_memcpy_abi :
 def boundOccurrenceCount : Nat :=
   (List.range 141).countP fun i => !(occurrenceParams i).isEmpty
 
-theorem bound_occurrence_count : boundOccurrenceCount = 110 := by native_decide
+theorem bound_occurrence_count : boundOccurrenceCount = 117 := by native_decide
 
 /-- The 31 occurrences with no parameters (allocator/accessor bodies, memory-slice-input decoders,
 etc.). Listed explicitly so a silently-dropped binding cannot masquerade as a paramless occurrence. -/
 def paramlessOccurrences : List Nat :=
-  [2, 4, 5, 7, 16, 23, 33, 40, 45, 47, 49, 51, 53, 56, 58, 63, 70, 81, 88, 95, 102, 105, 111, 116,
-   120, 123, 124, 127, 135, 137, 138]
+  [2, 4, 5, 7, 16, 23, 45, 58, 63, 70, 81, 88, 95, 102, 105, 111, 116, 120, 123, 124, 127, 135, 137,
+   138]
 
 /-- **All 141 occurrences are accounted for.** An occurrence is paramless iff it is in the list, so
 the 110 bound and 31 paramless occurrences exhaust the program — the "only 110/141 have rows" gap is
@@ -291,13 +323,13 @@ theorem all_occurrences_accounted :
       = true := by native_decide
 
 theorem coverage_partitions_141 :
-    boundOccurrenceCount + paramlessOccurrences.length = 141 ∧ paramlessOccurrences.length = 31 := by
+    boundOccurrenceCount + paramlessOccurrences.length = 141 ∧ paramlessOccurrences.length = 24 := by
   native_decide
 
 /-- The total number of parameter bindings across all occurrences. -/
 def totalParamCount : Nat := bindings.length
 
-theorem total_param_count : totalParamCount = 137 := by native_decide
+theorem total_param_count : totalParamCount = 148 := by native_decide
 
 /-- Every recorded parameter carries an explicit kind (the `filterMap` never drops a row). -/
 theorem every_binding_has_kind : bindings.all (fun r => r.2.2.1 != "") = true := by native_decide

@@ -205,9 +205,21 @@ def carry_value(v, sp):
 
 def resolve_rows(rows, regs, mem, at_index, sp):
     """Resolve every effective Row A binding row against the captured machine state.
-    Returns (carried_rows, all_evaluable, raw_values_by_name)."""
-    carried, ok, byname = [], True, {}
+
+    Three outcomes per row, kept distinct because they mean different things:
+      "exact"/"stack"  the declared location was read (a stack value is carried as its class only);
+      "unlocated"      the row is a DECLARED gap — the extractor recorded that DWARF gave no location
+                       for this parameter and no mechanical rule recovers it. An explicit gap, never a
+                       failure: the interface says up front that there is nothing to check here;
+      "unresolved"     the row DOES name a location and the machine could not supply it. A FAILURE.
+    Returns (carried_rows, evaluable, values_by_name, unlocated_names)."""
+    carried, ok, byname, unlocated = [], True, {}, set()
     for r in rows:
+        if r["kind"] == "unlocated":
+            unlocated.add(r["name"])
+            carried.append({"name": r["name"], "kind": r["kind"], "reg": r["reg"],
+                            "declared": r["value"], "how": "unlocated", "value": 0})
+            continue
         v = osem.resolve_binding(r, regs, mem, at_index)
         if v is None:
             ok = False
@@ -215,7 +227,7 @@ def resolve_rows(rows, regs, mem, at_index, sp):
         how, cv = carry_value(v, sp)
         carried.append({"name": r["name"], "kind": r["kind"], "reg": r["reg"], "declared": r["value"],
                         "how": how, "value": cv})
-    return carried, ok, byname
+    return carried, ok, byname, unlocated
 
 
 def span_of(addrs):
@@ -271,11 +283,29 @@ def evaluate_entry_consequences(short, occ_index, values, ctx, inv, catalog_meta
         align_bytes = (1 << align) if (catalog_meta.get("alignmentIsLog2") and align < 64) else align
         if ev is None or ev.get("size") is None:
             return None, f"size={size} align={align_bytes}: no cursor bump observed in this invocation"
+        # The bump allocator's behaviour is fully determined, so check the EXACT expected allocation,
+        # not merely that the cursor advanced. From the pinned `zesu_raw_alloc` code:
+        #     ptr    = align_up(cursor_before, alignment)
+        #     cursor = ptr + bytes
+        #     return   ptr
+        # so both the new cursor and the returned pointer are predicted from (cursor_before, size,
+        # alignment). A wrong size, a wrong alignment, a missing alignment step or a returned pointer
+        # that is not the block just carved out all fail here; "the cursor moved forward inside the
+        # heap" does not distinguish any of them.
+        before, after = ev["before"], ev["after"]
+        want_ptr = ((before + align_bytes - 1) // align_bytes) * align_bytes
+        want_after = want_ptr + size
+        got_ptr = inv.get("returnedPointer")
         obs.update(allocSize=size, allocAlign=align_bytes, allocBump=ev["size"],
-                   allocAfter=ev["after"])
-        ok = ev["size"] >= size and (ev["after"] % align_bytes == 0 or ev["before"] % align_bytes == 0)
-        return ok, (f"size={size} align={align_bytes}; cursor {ev['before']}->{ev['after']} "
-                    f"(bump {ev['size']})")
+                   allocAfter=after, allocWantAfter=want_after,
+                   allocPtrMatches=(1 if (got_ptr is not None and got_ptr == want_ptr) else 0),
+                   allocPtrKnown=(1 if got_ptr is not None else 0))
+        ok = (after == want_after)
+        if got_ptr is not None:
+            ok = ok and got_ptr == want_ptr
+        return ok, (f"size={size} align={align_bytes}; cursor {before}->{after} "
+                    f"(expected {want_after}); returned pointer {got_ptr} "
+                    f"(expected {want_ptr})")
 
     if fam == "offsetRead":
         # A reader bound to `offset` must take its window at sliceBase + offset, and a reader bound to
@@ -283,12 +313,12 @@ def evaluate_entry_consequences(short, occ_index, values, ctx, inv, catalog_meta
         # perform no load at all — that is a gap, not a violation.
         off = values.get("offset")
         want_len = values.get("len")
+        if "offset" in (values.get("__unlocated__") or set()):
+            # The row EXISTS and says the location is unrecorded — a declared gap, not a violation.
+            return None, ("`offset` is a declared `unlocated` row: DWARF recorded no location and the "
+                          "source argument is a runtime expression, so there is no value to realize")
         if "offset" not in values:
-            # NOT a failure of the binary: the effective Row A table has no `offset` row for this
-            # occurrence at all (DWARF listed no location for that formal parameter, and the generator's
-            # recovery rules only fill rows DWARF emitted). Reported as an interface gap.
-            return None, ("the effective binding table declares no `offset` row for this occurrence; "
-                          "nothing to realize (see the missing-parameter census in the report)")
+            return None, "the binding table declares no `offset` row for this occurrence"
         if off is None:
             return False, "declared `offset` row did not resolve against the machine state"
         first = inv.get("firstReadAddr")
@@ -482,6 +512,7 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
     # The declared bindings are the thing Row A actually says about an occurrence; up to here nothing
     # evaluated them against the machine. `ctx` carries the boundary register snapshots, the shadow
     # memory (ELF image + replayed stores) and the effective binding table.
+    f["armDecision"] = (ctx or {}).get("armDecision", 0)
     if ctx is not None:
         _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, in_region,
                          entry_idxs)
@@ -527,6 +558,7 @@ def _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, 
     for EACH captured invocation of this occurrence, then reduce to per-occurrence evidence."""
     rows = ctx["bindings"].get(f["index"], [])
     entry_snaps = ctx["regsByPc"].get(f["entryPc"], [])
+    exit_pairs = []            # (entry `dst` argument, value returned by that same invocation)
     exits = set(occ.get("exits") or [])
     f["bindingRowCount"] = len(rows)
     f["entrySnapshots"] = len(entry_snaps)
@@ -547,13 +579,15 @@ def _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, 
         # later is a violation, and only per-invocation evaluation can see that.
         for (n, (idx, _pc, regs)) in enumerate(entry_snaps):
             sp = regs[2]
-            crows, ok, byname = resolve_rows(rows, regs, ctx["mem"], idx, sp)
+            crows, ok, byname, unloc = resolve_rows(rows, regs, ctx["mem"], idx, sp)
             evaluable = evaluable and ok
+            byname["__unlocated__"] = unloc
             if carried is None:
                 carried = crows
             inv = _invocation_facts(f, idx, executed, loads, stores, ranges, in_region, entry_idxs,
                                     exits, ctx)
             inv["sp"] = sp
+            exit_pairs.append((byname.get("dst"), inv.get("returnedPointer")))
             verdict, detail = evaluate_entry_consequences(short, f["index"], byname, ctx, inv, meta)
             realized.append(verdict)
             if n == 0:
@@ -564,10 +598,19 @@ def _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, 
                 details.append(detail)
         f["bindingRows"] = carried
         f["bindingHows"] = [c["how"] for c in carried]
+        f["hasUnlocatedRow"] = any(c["how"] == "unlocated" for c in carried)
         f["realizedPass"] = sum(1 for v in realized if v is True)
         f["realizedFail"] = sum(1 for v in realized if v is False)
         f["realizedGap"] = sum(1 for v in realized if v is None)
-        f["bindingsEvaluable"] = evaluable
+        if not evaluable:
+            f["bindingsEvaluable"] = False
+        elif f["hasUnlocatedRow"]:
+            f["bindingsEvaluable"] = None
+            f["bindingGap"] = ("the extractor declares a row for this parameter but DWARF recorded no "
+                               "location and no mechanical rule recovers it (see `unlocated` in "
+                               "bindings.json); there is no declared location to check")
+        else:
+            f["bindingsEvaluable"] = True
         if any(v is False for v in realized):
             f["bindingsRealized"] = False
         elif realized and all(v is True for v in realized):
@@ -600,7 +643,18 @@ def _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, 
         f["exitBindingRealized"] = None
         f["exitGap"] = "no register snapshot at a declared return exit in this arm"
     else:
-        f["exitBindingRealized"], f["exitDetail"] = _check_exit(conv, exit_snaps, f, ctx)
+        f["exitBindingRealized"], f["exitDetail"] = _check_exit(conv, exit_snaps, f, ctx, exit_pairs)
+        f["exitPairsMatched"] = sum(1 for (d, r) in exit_pairs
+                                    if d is not None and r is not None and d == r)
+        f["exitPairsTotal"] = sum(1 for (d, r) in exit_pairs if d is not None and r is not None)
+        # Carry only DETERMINISTIC returned values. A returned pointer is usually a guest STACK
+        # address, and the guest stack base differs between this host and the Nix sandbox even under
+        # `setarch -R`, so putting one in a committed artifact makes the drift check fail for a reason
+        # that has nothing to do with the binary. The conventions that consume this field
+        # (`decodeDecision`) return small scalars; `copyDestination` uses the pair COUNTS, which are
+        # environment-independent, and `exitA0Classes` already summarizes the rest.
+        f["exitReturnedValues"] = sorted({r for (_d, r) in exit_pairs
+                                          if r is not None and r < 65536})[:4]
 
 
 def _invocation_facts(f, entry_idx, executed, loads, stores, ranges, in_region, entry_idxs, exits, ctx):
@@ -626,29 +680,57 @@ def _invocation_facts(f, entry_idx, executed, loads, stores, ranges, in_region, 
         if lo <= e["index"] < hi:
             ev = e
             break
+    # The value this invocation RETURNED: a0 at a declared `ret` exit inside the same window, so the
+    # result is paired with the entry arguments of the very same call rather than any other.
+    returned = None
+    for pc in (exits & ctx["retPcs"]):
+        for (i, _pc, regs) in ctx["regsByPc"].get(pc, []):
+            if lo <= i < hi:
+                returned = regs[10]
+                break
+        if returned is not None:
+            break
     return {"loadAddrs": read_addrs, "storeAddrs": write_addrs, "readCount": len(read_addrs),
-            "firstReadAddr": first_read, "ledgerEvent": ev, "window": (lo, hi)}
+            "firstReadAddr": first_read, "ledgerEvent": ev, "window": (lo, hi),
+            "returnedPointer": returned}
 
 
-def _check_exit(conv, exit_snaps, f, ctx):
-    """Check the declared exit convention against the register file at a declared exit pc."""
-    a0 = [r[10] for (_i, _pc, r) in exit_snaps]
-    f["exitA0Classes"] = sorted({classify_write(v, r[2]) for (_i, _pc, r) in exit_snaps
-                                 for v in [r[10]]})
+def _check_exit(conv, exit_snaps, f, ctx, per_inv):
+    """Check the declared exit convention against the register file at a declared RETURN exit.
+
+    Every convention here compares the returned register to something INDEPENDENTLY known — the entry
+    argument of the same invocation, or the decision the process actually exited with. An earlier
+    version returned `true` unconditionally for `copyDestination` and `decodeDecision`, which is not a
+    check at all: it passed for any register value whatsoever."""
+    f["exitA0Classes"] = sorted({classify_write(r[10], r[2]) for (_i, _pc, r) in exit_snaps})
+
     if conv == "allocPointer":
-        # the allocator returns the block it just handed out: a heap pointer, or null on failure
-        ok = all(v == 0 or HEAP[0] <= v < HEAP[1] for v in a0)
-        return ok, f"a0 at exit: {sorted(set(a0))[:4]} (heap pointer or null)"
-    if conv == "copyDestination":
-        # memcpy/memmove return their destination argument unchanged
-        ok = all(v != 0 for v in a0)
-        return ok, f"a0 at exit non-null in {len(a0)} snapshot(s)"
-    if conv == "decodeDecision":
-        # the exported wrapper returns the 0/1 decision the process exits with
-        ok = all(v in (0, 1) for v in a0)
-        return ok, f"a0 at exit: {sorted(set(a0))}"
-    return None, f"unknown exit convention {conv}"
+        # Checked exactly by the `alloc` binding family (returned pointer == align_up(cursor,
+        # alignment)); repeating a weaker range test here would only add a second, laxer opinion.
+        return None, "the returned pointer is checked exactly by the alloc binding family"
 
+    if conv == "copyDestination":
+        # memcpy/memmove return their `dst` argument unchanged. Pair each invocation's returned a0
+        # with the `dst` captured at that same invocation's entry.
+        pairs = [(d, r) for (d, r) in per_inv if d is not None and r is not None]
+        if not pairs:
+            return None, "no invocation paired an entry `dst` with a returned a0"
+        matched = sum(1 for d, r in pairs if d == r)
+        return matched == len(pairs), (f"{len(pairs)} invocation(s); returned a0 == entry dst in "
+                                       f"{matched}")
+
+    if conv == "decodeDecision":
+        # The exported wrapper's return value must agree with the decision the PROCESS actually exited
+        # with: the harness exits 0 when the decode succeeded and 1 when it was rejected.
+        a0 = [r for (_d, r) in per_inv if r is not None]
+        if not a0:
+            return None, "no returned a0 captured at a return exit"
+        want = 1 if ctx.get("armDecision") == 0 else 0
+        return all(v == want for v in a0), (
+            f"returned a0 {sorted(set(a0))}; process exit code {ctx.get('armDecision')} "
+            f"implies decode decision {want}")
+
+    return None, f"unknown exit convention {conv}"
 
 def classes_of(f):
     """The distinct write classes for an occurrence — recomputed from the carried non-stack addresses
@@ -810,6 +892,11 @@ def occ_to_lean(rec) -> str:
         f"realizedFail := {f.get('realizedFail', 0)}, "
         f"realizedGap := {f.get('realizedGap', 0)}, "
         f"exitConvention := {_str(f.get('exitConvention', ''))}, "
+        f"hasUnlocatedRow := {_b(f.get('hasUnlocatedRow', False))}, "
+        f"exitPairsMatched := {f.get('exitPairsMatched') or 0}, "
+        f"exitPairsTotal := {f.get('exitPairsTotal') or 0}, "
+        f"exitReturnedValues := {_ln(f.get('exitReturnedValues') or [])}, "
+        f"armDecision := {f.get('armDecision', 0)}, "
         f"returnExits := {_ln(f.get('returnExits', []))}, "
         f"exitA0Classes := {_ls(f.get('exitA0Classes', []))}, "
         f"ledgerEventCount := {f.get('ledgerEventCount', 0)}, "
@@ -1025,6 +1112,7 @@ def main() -> int:
             "ledgerInvariants": osem.ledger_invariants(ledger),
             "bindings": bindings_by_occ,
             "inputLen": Path(ipath).stat().st_size,
+            "armDecision": _dec,
         }
 
     # PCs of each occurrence's regions, for the generator's deepest-owner edge attribution.

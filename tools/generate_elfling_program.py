@@ -553,11 +553,55 @@ def resolve_binding(loc_attr, locs, occ_ranges, frame_reg):
     if m: return finish(*decode_loc_expr(m.group(1)))
     return ("callerProvided", -1, 0)
 
-def occurrence_bindings(d, dies, name_of_off, locs, occ_ranges):
-    """The entry-time (name, kind, reg, offset) of every direct formal parameter of occurrence `d`.
-    A parameter with no `DW_AT_location` is `callerProvided` — never silently the source ABI."""
+def index_dies(dies):
+    """(offset -> DIE, id(parent) -> [children]) so an occurrence can reach its abstract origin's
+    formal parameters. DIEs carry a `parent` link but no child list."""
+    by_off, children = {}, {}
+    for d in dies:
+        by_off[d.off] = d
+        if d.parent is not None:
+            children.setdefault(id(d.parent), []).append(d)
+    return by_off, children
+
+
+def signature_params(d, dies_by_off, children_of, name_of_off):
+    """The COMPLETE formal parameter list of the routine occurrence `d` realizes, in signature order,
+    taken from its abstract-origin subprogram DIE.
+
+    An optimized concrete instance may omit a `DW_TAG_formal_parameter` child entirely — not merely
+    leave it without a location. Enumerating only the concrete instance's children therefore produced a
+    binding table that was silently SHORT: four `bytesAt` occurrences had no `offset` row and the
+    `readU64`/`readArray` occurrences enclosing them had no rows at all, so Row A recorded them as
+    "paramless" when their routines plainly take parameters. The abstract origin always carries the
+    full signature, so it is the authority for WHICH parameters exist; the concrete instance is the
+    authority for WHERE each one lives."""
+    origin = d
+    if "DW_AT_abstract_origin" in d.attrs:
+        origin = dies_by_off.get(attr_ref(d.attrs["DW_AT_abstract_origin"]), d)
+    names = []
+    for c in children_of.get(id(origin), ()):
+        if c.tag != "DW_TAG_formal_parameter":
+            continue
+        nm = c.attrs.get("DW_AT_name")
+        if nm is not None:
+            names.append(attr_name(nm))
+        elif "DW_AT_abstract_origin" in c.attrs:
+            names.append(name_of_off.get(attr_ref(c.attrs["DW_AT_abstract_origin"]), f"arg{len(names)}"))
+        else:
+            names.append(f"arg{len(names)}")
+    return names
+
+
+def occurrence_bindings(d, dies, name_of_off, locs, occ_ranges, dies_by_off=None, children_of=None):
+    """The entry-time (name, kind, reg, offset) of every formal parameter of the routine occurrence `d`
+    REALIZES — one row per signature parameter, never a short table.
+
+    A parameter the concrete instance located is resolved from `.debug_loc`. A parameter the concrete
+    instance carries WITHOUT a location is `callerProvided`. A parameter the concrete instance omits
+    entirely is ALSO `callerProvided` — a declared row the recovery pass can act on, rather than an
+    absence that later stages cannot distinguish from a genuinely paramless routine."""
     frame_reg = frame_base_reg_of(d)
-    out = []
+    out, seen = [], {}
     for i, c in enumerate(dies):
         if c.parent is not d or c.tag != "DW_TAG_formal_parameter": continue
         nm = c.attrs.get("DW_AT_name")
@@ -566,9 +610,20 @@ def occurrence_bindings(d, dies, name_of_off, locs, occ_ranges):
             if "DW_AT_abstract_origin" in c.attrs else f"arg{i}")
         loc = c.attrs.get("DW_AT_location")
         if loc is None:
-            out.append((pname, "callerProvided", -1, 0)); continue
-        out.append((pname, *resolve_binding(loc, locs, occ_ranges, frame_reg)))
-    return out
+            row = (pname, "callerProvided", -1, 0)
+        else:
+            row = (pname, *resolve_binding(loc, locs, occ_ranges, frame_reg))
+        seen[pname] = row
+        out.append(row)
+    if children_of is None or dies_by_off is None:
+        return out
+    # Re-emit in signature order, inserting a declared row for every parameter the instance omitted.
+    sig = signature_params(d, dies_by_off, children_of, name_of_off)
+    if not sig:
+        return out
+    ordered = [seen.get(p, (p, "callerProvided", -1, 0)) for p in sig]
+    ordered += [r for r in out if r[0] not in sig]     # never drop a row DWARF did emit
+    return ordered
 
 # The pinned Zig call sites recover values that optimized DWARF omits.  These are deliberately
 # narrow: only the reader chain used by this decoder and the emitted C memmove ABI are accepted.
@@ -610,6 +665,14 @@ def source_call_args(srclines, line, column):
         else:
             token.append(ch)
     return None
+
+# NOTE: completing a signature from the pinned Zig source was tried and REJECTED. An occurrence's
+# `declLine` does not reliably point at its own `fn` declaration — `zesu_raw_result`'s resolves into a
+# different file at an unrelated function — so parsing `fn name(...)` there invents parameters that do
+# not exist. Inventing a parameter is strictly worse than omitting one, so the signature authority is
+# DWARF's abstract origin (see `signature_params`) and nothing else. Where the abstract origin lists no
+# formal parameters, the occurrence is recorded as DWARF-paramless and that limitation is stated,
+# rather than papered over with a guess.
 
 def recover_missing_bindings(occ_sorted, srclines):
     """Return per-occurrence effective bindings and an audit table of every recovery.
@@ -656,11 +719,33 @@ def recover_missing_bindings(occ_sorted, srclines):
                     recoveries.append((i, pname, reason, resolved[0], resolved[1], resolved[2]))
                     changed = True
 
-    unresolved = [(i, o["qualified"], p[0]) for i, (o, rows) in enumerate(zip(occ_sorted, effective))
-                  for p in rows if p[1] in ("callerProvided", "unresolved")]
-    if unresolved:
-        raise SystemExit(f"BINDING RECOVERY FAILURE: unresolved occurrence parameters: {unresolved}")
-    return effective, sorted(recoveries)
+    # A parameter that is genuinely a RUNTIME value gets a first-class `unlocated` row carrying the
+    # pinned source expression, instead of failing generation or (worse) vanishing from the table.
+    #
+    # The reader chain inside a loop is the real case: `readU64(data, offset + 8)` where
+    # `offset = index * WITHDRAWAL_SIZE`. That argument is neither a compile-time constant nor a
+    # location DWARF recorded, so no mechanical rule can resolve it — but the parameter EXISTS, and a
+    # table that omits it is indistinguishable from a paramless routine. `unlocated` says exactly what
+    # is known: the parameter is declared, its value is this source expression, and its machine
+    # location is not recorded. It is deliberately NOT in `resolvedBindingKinds`.
+    unlocated = []
+    for i, (o, rows) in enumerate(zip(occ_sorted, effective)):
+        for j, (pname, kind, reg, off) in enumerate(rows):
+            if kind not in ("callerProvided", "unresolved"):
+                continue
+            expr = None
+            if o["qualified"] in READER_ARG_INDEX:
+                args = source_call_args(srclines, o["callLine"], o["callColumn"])
+                idx = READER_ARG_INDEX[o["qualified"]].get(pname)
+                if args is not None and idx is not None and idx < len(args):
+                    expr = args[idx].strip()
+            if expr is None:
+                # Not a reader-chain argument: the parameter is declared by the pinned source
+                # signature but the compiler recorded no location for this occurrence at all.
+                expr = "<no DWARF location; parameter declared by the pinned source signature>"
+            effective[i][j] = (pname, "unlocated", -1, 0)
+            unlocated.append((i, o["qualified"], pname, expr))
+    return effective, sorted(recoveries), sorted(unlocated)
 
 def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globals, decoder_sha):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-globals). DO NOT EDIT.",
@@ -684,7 +769,7 @@ def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globa
     L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals")
     return "\n".join(L) + "\n"
 
-def emit_bindings_lean(occ_sorted, effective, recoveries):
+def emit_bindings_lean(occ_sorted, effective, recoveries, unlocated):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-bindings). DO NOT EDIT.",
          "-- Untrusted extracted data: the entry-time ABI/binding of every occurrence's formal",
          "-- parameters, resolved from DWARF .debug_loc at each occurrence's entry PC. Validated in",
@@ -705,6 +790,13 @@ def emit_bindings_lean(occ_sorted, effective, recoveries):
     rows = [f'({i}, {lean_str(pname)}, {lean_str(kind)}, {reg}, {off})'
             for i, bs in enumerate(effective) for (pname, kind, reg, off) in bs]
     L.append("  [" + ",\n   ".join(rows) + "]")
+    L.append("/-- Parameters that are DECLARED by the routine signature but whose machine location DWARF")
+    L.append("did not record and no mechanical rule can recover — genuinely runtime values. Each row")
+    L.append("carries the pinned Zig source expression the argument evaluates. These are NOT resolved")
+    L.append("bindings; they are recorded so a missing location is a visible row, never an absent one. -/")
+    L.append("def unlocatedBindings : List (Nat × String × String × String) :=")
+    rows = [f'({i}, {lean_str(q)}, {lean_str(p)}, {lean_str(e)})' for (i, q, p, e) in unlocated]
+    L.append("  [" + ",\n   ".join(rows) + "]")
     L.append("/-- (occurrence, parameter, recovery reason, effective kind, register, value/offset). -/")
     L.append("def recoveredBindings : List (Nat × String × String × String × Int × Int) :=")
     rows = [f'({i}, {lean_str(p)}, {lean_str(reason)}, {lean_str(kind)}, {reg}, {off})'
@@ -713,7 +805,7 @@ def emit_bindings_lean(occ_sorted, effective, recoveries):
     L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings")
     return "\n".join(L) + "\n"
 
-def emit_bindings_json(occ_sorted, effective, recoveries):
+def emit_bindings_json(occ_sorted, effective, recoveries, unlocated):
     """The SAME three binding tables as `--out-bindings`, as JSON.
 
     `program.json`'s per-occurrence `bindings` are the RAW DWARF rows, which still carry the 50
@@ -728,6 +820,8 @@ def emit_bindings_json(occ_sorted, effective, recoveries):
                       for i, bs in enumerate(effective) for (p, k, r, v) in bs],
         "recovered": [{"occurrence": i, "name": p, "reason": reason, "kind": k, "reg": r, "value": v}
                       for (i, p, reason, k, r, v) in recoveries],
+        "unlocated": [{"occurrence": i, "routine": q, "name": p, "sourceExpr": e}
+                      for (i, q, p, e) in unlocated],
     }, indent=1, sort_keys=True) + "\n"
 
 def main():
@@ -766,6 +860,7 @@ def main():
 
     for objkind, obj in objects:
         dies, name_of_off, ranges_map, declline_of_off = parse_readelf(a.readelf, obj)
+        dies_by_off, children_of = index_dies(dies)
         locs = parse_debug_loc(a.readelf, obj)
         for d in dies:
             name = occ_name(d, name_of_off)
@@ -804,7 +899,7 @@ def main():
                    "regions":cr, "entryPc":min(r["start"] for r in cr),
                    "exitPc":max(r["start"]+r["size"] for r in cr), "dieOffset":d.off,
                    "callLine":intof(d.attrs.get("DW_AT_call_line")), "callColumn":intof(d.attrs.get("DW_AT_call_column")),
-                   "bindings":occurrence_bindings(d, dies, name_of_off, locs, rs),
+                   "bindings":occurrence_bindings(d, dies, name_of_off, locs, rs, dies_by_off, children_of),
                    "_die":d}
             die_to_idx[id(d)] = len(occ); occ.append(rec)
 
@@ -883,7 +978,7 @@ def main():
 
     # Resolve every DWARF-absent reader/ABI parameter from the pinned Zig call site or the explicit
     # RISC-V C ABI rule. Raw rows remain in the output beside these effective rows for auditability.
-    effective_bindings, recovered_bindings = recover_missing_bindings(occ_sorted, srclines)
+    effective_bindings, recovered_bindings, unlocated_bindings = recover_missing_bindings(occ_sorted, srclines)
 
     # Attribution defects decidable from the inline tree alone (uncovered-reachable PCs are a CFG
     # property proved in the Lean reachable partition, not decidable here).
@@ -970,10 +1065,10 @@ def main():
             emit_globals_lean(dec_bss_base, dec_bss_size, globs, refs, runtime_globs, object_sha["decoder"]))
     if a.out_bindings:
         open(a.out_bindings, "w").write(
-            emit_bindings_lean(occ_sorted, effective_bindings, recovered_bindings))
+            emit_bindings_lean(occ_sorted, effective_bindings, recovered_bindings, unlocated_bindings))
     if a.out_bindings_json:
         open(a.out_bindings_json, "w").write(
-            emit_bindings_json(occ_sorted, effective_bindings, recovered_bindings))
+            emit_bindings_json(occ_sorted, effective_bindings, recovered_bindings, unlocated_bindings))
     routines = {(o["qualified"], tuple(o["specialization"])) for o in occ_sorted}
     print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(program['defects'])} "
           f"entry={entry_idx} excluded={len(excluded_sorted)}")

@@ -75,8 +75,19 @@ structure OccScaleEvidence where
   realizedPass : Nat
   realizedFail : Nat
   realizedGap : Nat
+  /-- some declared row is `unlocated`: the extractor states DWARF gave no location for that
+  parameter and no mechanical rule recovers it — a DECLARED gap, never a wrong binding. -/
+  hasUnlocatedRow : Bool
   /-- the exit convention declared for this routine ("" if none). -/
   exitConvention : String
+  /-- invocations whose returned `a0` equalled the `dst` argument captured at that same invocation's
+  entry, and the number of invocations for which both were captured. -/
+  exitPairsMatched : Nat
+  exitPairsTotal : Nat
+  /-- distinct values returned at a declared return exit (bounded sample). -/
+  exitReturnedValues : List Nat
+  /-- the process exit code of the arm this occurrence was evaluated on. -/
+  armDecision : Nat
   /-- declared exits that are genuine `ret` instructions (a tail-call exit carries the callee's
   arguments, not this occurrence's result, so a result convention does not apply there). -/
   returnExits : List Nat
