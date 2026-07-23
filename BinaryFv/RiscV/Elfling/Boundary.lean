@@ -1,50 +1,28 @@
 import BinaryFv.RiscV.Elfling.Contract
 
 /-!
-# Checked boundaries and edge-aware scoped traces for Elfling occurrences
+# Calls, inlining, and checked trace boundaries
 
-`FunctionTrace` (see `FunctionTrace.lean`) confines execution to one occurrence's regions and stops at
-that occurrence's generated exits, but it is deliberately *flat*: every retired instruction is one the
-occurrence owns, and the only way out is an exit pc. Real occurrences are not flat. They contain
-inlined children, they make resolved calls that return, and they leave through classified edges. This
-module adds the boundary vocabulary that names those transitions and an *edge-aware* trace,
-`ScopedTrace`, that can splice a child's summary in place of re-executing it.
+`FunctionTrace` describes execution inside one compiled occurrence. Real code also calls separately
+emitted routines and enters regions that came from inlined routines. `ScopedTrace` lets a parent use
+a proved summary of either kind of child while still reconstructing one ordinary machine trace.
 
-Four design points carry the weight.
+The generator supplies the parent and child regions, control-flow edges, calls, and exits. The
+`validFor` predicates check every boundary against that data:
 
-*Boundaries are checked against generated data, never invented.* Every `validFor` predicate below is
-built only from a `FunctionInstance`'s own `edges`, `exitPcs`, `externalCalls`, and `children` — the
-untrusted-but-validated generator output. A `CallSite` is valid only if `source → calleeEntry` is a
-real emitted edge landing on the callee's own entry pc; an `InlineBoundary`'s entry/exit edges must
-genuinely *cross* the child boundary in both directions (an entry leaves the parent and lands in the
-child; an exit leaves the child and lands back in the parent). Nothing here writes an address literal.
+- a call must use a real edge to the callee's generated entry and return to the instruction after the
+  call;
+- an inline entry must cross from the parent into the child;
+- an inline exit must cross from the child back into the parent.
 
-*Each splice carries its checked boundary.* Unlike the first draft, `ScopedTrace`'s splice
-constructors do not take bare program counters. `callStep` carries a `CallSite` and a `CallSite.validFor`
-proof; `inlineStep` carries an `InlineBoundary` and an `InlineBoundary.validFor` proof. The concrete
-transfer states and their `Runs (try_step …)`/region facts are bundled in `CallTransfer`/`InlineTransfer`
-so the constructor cannot be built without producing the real machine steps that realize the boundary.
+Each splice also contains the actual Sail steps at the boundary. A call counts the call instruction,
+the summarized callee body, and the return instruction. An inline child counts its summarized body
+and the outgoing instruction. The child summary and parent arithmetic share the same `used` value,
+so a proof cannot invent a convenient step count.
 
-*The child summary carries its exact consumed count.* `childSummary : InstanceId → Nat → Nat → State →
-State → Prop` records *which* child ran, at which step number, and — the middle `Nat` — exactly how
-many machine steps it consumed. A splice may not invent a `used` count independent of the summary: the
-same `used` appears in the summary premise and in the trace's step arithmetic, and `SummariesCompose`
-only discharges a composition whose length matches.
-
-*Every machine step at a boundary is accounted exactly once.* A call is not one abstract move: the
-parent retires the call instruction (`callPc → calleeEntry`), the callee body runs as a summary ending
-*sitting on* its return instruction, the parent retires that return (`retPc → returnPc`), and only then
-resumes at the checked continuation. An inline splice runs the child body ending sitting on a checked
-outgoing edge, then retires that outgoing edge back into the parent. So a `callStep` accounts
-`1 + used + 1 + count` steps and an `inlineStep` accounts `used + 1 + count` — the transfer
-instructions are never dropped.
-
-Reconstructing an ordinary `FunctionTrace` from a `ScopedTrace` requires that each spliced summary
-really is a confined subtrace of the length the parent accounts for it. That fact — `SummariesCompose`
-— is stated as an explicit obligation and discharged, for a single child, by `FunctionTrace.append`.
-The generic composition theorem is then fully proved *given* it; deriving it for a concrete program
-(which child fires at which state) needs the decoder's successor data and lives above this generic
-layer.
+`SummariesCompose` is the remaining interface: it says that each child summary expands to a confined
+`FunctionTrace` of exactly the advertised length. Once that is available, `toFunctionTrace` expands
+all splices into a flat trace.
 -/
 
 namespace BinaryFv.RiscV.Elfling

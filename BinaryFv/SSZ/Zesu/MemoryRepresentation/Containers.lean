@@ -1,17 +1,15 @@
 import BinaryFv.SSZ.Zesu.MemoryRepresentation.RawV4
 
 /-!
-# Native RV64 representations of the seven decoder containers
+# The seven Zesu container types in RISC-V memory
 
-Each container decoder writes its result as a fixed Zig record at its own `resultBase`. These
-predicates say exactly how that record is laid out in generated Sail sparse memory, composing the
-leaf/collection representations from `RawV4.lean` at the compiler-reflected field offsets. Every
-literal offset here is pinned against the pinned ABI manifest by `containerFieldOffsetsValid`.
+Each predicate in this file says when bytes in Sail memory represent one decoded Zig container.
+Fields are combined from reusable word, vector, slice, and array predicates. The final offset audit
+checks the handwritten field offsets against the ABI manifest produced by the pinned Zig compiler.
 
-The four *allocating* containers borrow byte slices from the caller's input, so — like `RawV4Rep` —
-their predicates take the input base and bytes. The three *fixed* containers do not allocate and do
-not alias input; they accept the same arguments for a uniform `ContainerRepresentation` shape but
-ignore them.
+The first three containers contain only inline data. The other four include heap arrays or slices
+that borrow bytes from the caller's input, so those predicates also receive the input address and
+`ByteArray`. These definitions describe memory after decoding; they do not perform the decode.
 -/
 
 namespace BinaryFv.SSZ.Zesu.MemoryRepresentation

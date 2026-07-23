@@ -1,8 +1,12 @@
 import BinaryFv.RiscV.Elfling.Boundary
 
 /-!
-# Row A vertical tests for the checked-edge boundary layer
+# Examples and regression tests for checked boundaries
 
+These small theorems show what the boundary definitions accept and reject without requiring the full
+Zesu program. The positive cases account for calls, returns, and inline exits. The negative cases
+mutate one edge, continuation, or step count at a time and prove that the corresponding validity
+predicate becomes false.
 Definitional checks on `CallSite` / `InlineBoundary` / `ExitBoundary` / `ScopedTrace` that the plan's
 Row A vertical tests call for. They hold at the boundary layer's own abstraction (no Sail runner), so a
 regression in the boundary definitions fails them.

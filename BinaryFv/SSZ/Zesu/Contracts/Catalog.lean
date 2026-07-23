@@ -263,10 +263,10 @@ structure ContractParams where
   env : DecoderEnvironment
   heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap
   /-- The pinned addresses of the three private decoder globals (`attempted`, 32-bit `last_status`,
-  optional `stored_result` pointer), read back through the exported accessors. This replaces the
+  and the inline optional `stored_result` object), read back through the exported accessors. This replaces the
   previous free public 64-bit `statusBase` slot, which the wrapper never writes. -/
   globals : DecoderGlobalsLayout
-  /-- The canonical buffer the exported `stored_result` pointer points at on success. -/
+  /-- The payload address returned by `zesu_raw_result` when `stored_result` is present. -/
   resultBuffer : Nat
   repForkActivation : ContainerRepresentation SszBridge.RawForkActivation
   repForkConfig : ContainerRepresentation SszBridge.RawForkConfig

@@ -4,11 +4,14 @@ import BinaryFv.SSZ.Zesu.MemoryRepresentation.Containers
 import BinaryFv.SSZ.Zesu.Runtime.BumpAllocator
 
 /-!
-# The canonical contract parameters
+# The concrete binary and ABI used by every contract
 
-`ContractParams` was previously only ever quantified existentially (`∃ p, sszProgramCorrectness …`).
-This module replaces that existential with one concrete value, `canonicalContractParams`, whose
-address- and layout-bearing fields are taken from validated pinned artifacts — never handwritten:
+`ContractParams` collects the external facts needed to interpret a decoder contract: the loaded
+program, allocator addresses, heap range, private globals, Zig layouts, and predicates describing
+decoded values in memory. The final proof uses the single value `canonicalContractParams`; it cannot
+choose a more convenient environment.
+
+Its fields come from checked artifacts:
 
 - `env.image` is the pinned canonical image `Artifact.programImage`;
 - `env.allocatorState` is `canonicalAllocatorState` (the `ZKVM_HEAP_POS`/`ZKVM_HEAP_TOP` byte ranges,
@@ -16,16 +19,13 @@ address- and layout-bearing fields are taken from validated pinned artifacts —
 - `heap` is the validated 64 MiB `heap` region;
 - `globals`/`resultBuffer` are the validated decoder globals.
 
-The Zig `?T` option layouts are the ABI's payload-then-discriminant layout at the pinned sizes
-(`AbiManifest`), chosen so `ValidEnvironment` holds.
+The Zig optional layouts come from the ABI manifest produced by the pinned compiler.
 
 The container representations are **concrete and complete**: `repRawV4` is the full input-aware
 `RawV4Rep` (allocation, slice descriptors, and borrowed input slices, not just the fixed fields), and
-all seven nested-container representations are the materialized per-type layouts from
-`MemoryRepresentation.Containers` — there are no placeholder representations. Row H's job is to *prove*
-that execution establishes these representations, not to define them. Every literal offset they use is
-pinned to the reflected ABI manifest by `container_field_offsets_valid` (`native_decide`), so a
-mutated offset fails the build.
+all seven nested-container representations use the concrete layouts in
+`MemoryRepresentation.Containers`. Later execution proofs must establish these predicates; they may
+not replace them with placeholders. Lean checks every literal field offset against the manifest.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Contracts
