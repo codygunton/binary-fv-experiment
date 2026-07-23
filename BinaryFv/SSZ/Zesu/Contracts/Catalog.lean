@@ -277,62 +277,155 @@ structure ContractParams where
   repNewPayloadRequest : ContainerRepresentation SszBridge.RawNewPayloadRequest
   repRawV4 : ContainerRepresentation SszBridge.RawV4
 
-/--
-The correctness obligation a single generated occurrence owes, selected by its routine `tag`.
+/-- One routine's handwritten contract with its argument and outcome types packaged alongside it.
 
-The entry PC and exit predicate come from the occurrence's generated data, never from an existential,
-so a proof cannot pick a convenient entry or exit. Every branch returns the `correctnessClaim` for
-exactly the routine the identity names; heterogeneous `Args`/`Result` types are erased to `Prop`
-here, which is why one typed dispatch can cover the whole catalog. -/
-def routineObligation (p : ContractParams) (instance_ : FunctionInstance) (tag : RoutineTag) : Prop :=
-  let entry : BitVec 64 := BitVec.ofNat 64 instance_.entryPc
-  let exit : BitVec 64 → Prop := fun pc => instance_.isExit pc.toNat
+Heterogeneity is the whole reason this exists. The decoder's leaves produce
+`Except SszDecodeError _` over half a dozen argument records, while the exported wrapper produces
+`DecodeCallOutcome`; there is no single `OccurrenceContract Args Outcome` the catalog could return.
+Packaging the types lets **one** total dispatch select the real typed contract, after which the
+closed and the local obligation are both formed from that same selection — so they cannot drift, and
+neither can be stated for a contract the other does not use. Erasure to `Prop` happens only after a
+branch has chosen its contract, never before. -/
+structure TaggedContract where
+  Args : Type
+  Outcome : Type
+  contract : OccurrenceContract Args Outcome
+
+/--
+The typed contract a generated occurrence's routine `tag` selects.
+
+This is the single point at which an occurrence's identity becomes a handwritten contract. A routine
+whose contract is source-shaped is projected through `FunctionContract.toOccurrence`; the exported
+wrapper, whose outcome is richer than `Except`, supplies its `OccurrenceContract` directly. -/
+def routineContract (p : ContractParams) (function : FunctionId) (tag : RoutineTag) :
+    TaggedContract :=
   match tag with
   | .zesuDecodeRaw =>
-      correctnessClaimZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4 instance_ entry exit
-  | .decode => correctnessClaimDecode p.env p.repRawV4 instance_ entry exit
-  | .decodeRaw => correctnessClaimDecodeRaw p.env p.repRawV4 instance_ entry exit
-  | .newPayloadRequest =>
-      correctnessClaimNewPayloadRequest p.env p.repNewPayloadRequest instance_ entry exit
-  | .executionPayload =>
-      correctnessClaimExecutionPayload p.env p.repExecutionPayload instance_ entry exit
-  | .executionRequests =>
-      correctnessClaimExecutionRequests p.env p.repExecutionRequests instance_ entry exit
-  | .executionWitness =>
-      correctnessClaimExecutionWitness p.env p.repExecutionWitness instance_ entry exit
-  | .chainConfig => correctnessClaimChainConfig p.env p.repChainConfig instance_ entry exit
-  | .forkConfig => correctnessClaimForkConfig p.env p.repForkConfig instance_ entry exit
-  | .forkActivation => correctnessClaimForkActivation p.env p.repForkActivation instance_ entry exit
-  | .optionalU64 => correctnessClaimOptionalU64 p.env instance_ entry exit
-  | .optionalBlobSchedule => correctnessClaimOptionalBlobSchedule p.env instance_ entry exit
-  | .versionedHashes => correctnessClaimVersionedHashes p.env instance_ entry exit
-  | .withdrawals => correctnessClaimWithdrawals p.env instance_ entry exit
-  | .depositRequests => correctnessClaimDepositRequests p.env instance_ entry exit
-  | .withdrawalRequests => correctnessClaimWithdrawalRequests p.env instance_ entry exit
-  | .consolidationRequests => correctnessClaimConsolidationRequests p.env instance_ entry exit
-  | .publicKeys => correctnessClaimPublicKeys p.env instance_ entry exit
-  | .byteListList => correctnessClaimByteListList p.env instance_ entry exit
-  | .requireCanonicalOffsets => correctnessClaimRequireCanonicalOffsets p.env instance_ entry exit
-  | .requireU32Length => correctnessClaimRequireU32Length p.env instance_ entry exit
-  | .readOffset => correctnessClaimReadOffset p.env instance_ entry exit
-  | .readU32 => correctnessClaimReadU32 p.env instance_ entry exit
-  | .readU64 => correctnessClaimReadU64 p.env instance_ entry exit
-  | .readU256 => correctnessClaimReadU256 p.env instance_ entry exit
-  | .readArray =>
-      correctnessClaimReadArray p.env (readArrayWidthOf instance_.id.function) instance_ entry exit
-  | .bytesAt => correctnessClaimBytesAt p.env instance_ entry exit
-  | .hasExactErePrefix => correctnessClaimHasExactErePrefix p.env instance_ entry exit
-  | .rawAlloc => correctnessClaimAlloc p.env p.heap instance_ entry exit
-  | .memcpy => correctnessClaimMemcpy p.env instance_ entry exit
-  | .memmove => correctnessClaimMemmove p.env instance_ entry exit
-  | .rawResult =>
-      correctnessClaimRawResult p.env p.globals p.resultBuffer instance_ entry exit
-  | .rawError => correctnessClaimRawError p.env p.globals instance_ entry exit
-  | .allocatorAlloc => correctnessClaimAllocatorAlloc p.env p.heap instance_ entry exit
-  | .allocatorResize => correctnessClaimAllocatorResize p.env instance_ entry exit
-  | .allocatorRemap => correctnessClaimAllocatorRemap p.env instance_ entry exit
-  | .allocatorFree => correctnessClaimAllocatorFree p.env instance_ entry exit
-  | .allocatorCtor => correctnessClaimAllocatorCtor p.env instance_ entry exit
+      ⟨_, _, occurrenceZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4
+                DecoderGlobalsModel.fresh⟩
+  | .decode => ⟨_, _, (contractDecode p.env p.repRawV4).toOccurrence⟩
+  | .decodeRaw => ⟨_, _, (contractDecodeRaw p.env p.repRawV4).toOccurrence⟩
+  | .newPayloadRequest => ⟨_, _, (contractNewPayloadRequest p.env p.repNewPayloadRequest).toOccurrence⟩
+  | .executionPayload => ⟨_, _, (contractExecutionPayload p.env p.repExecutionPayload).toOccurrence⟩
+  | .executionRequests => ⟨_, _, (contractExecutionRequests p.env p.repExecutionRequests).toOccurrence⟩
+  | .executionWitness => ⟨_, _, (contractExecutionWitness p.env p.repExecutionWitness).toOccurrence⟩
+  | .chainConfig => ⟨_, _, (contractChainConfig p.env p.repChainConfig).toOccurrence⟩
+  | .forkConfig => ⟨_, _, (contractForkConfig p.env p.repForkConfig).toOccurrence⟩
+  | .forkActivation => ⟨_, _, (contractForkActivation p.env p.repForkActivation).toOccurrence⟩
+  | .optionalU64 => ⟨_, _, (contractOptionalU64 p.env).toOccurrence⟩
+  | .optionalBlobSchedule => ⟨_, _, (contractOptionalBlobSchedule p.env).toOccurrence⟩
+  | .versionedHashes => ⟨_, _, (contractVersionedHashes p.env).toOccurrence⟩
+  | .withdrawals => ⟨_, _, (contractWithdrawals p.env).toOccurrence⟩
+  | .depositRequests => ⟨_, _, (contractDepositRequests p.env).toOccurrence⟩
+  | .withdrawalRequests => ⟨_, _, (contractWithdrawalRequests p.env).toOccurrence⟩
+  | .consolidationRequests => ⟨_, _, (contractConsolidationRequests p.env).toOccurrence⟩
+  | .publicKeys => ⟨_, _, (contractPublicKeys p.env).toOccurrence⟩
+  | .byteListList => ⟨_, _, (contractByteListList p.env).toOccurrence⟩
+  | .requireCanonicalOffsets => ⟨_, _, (contractRequireCanonicalOffsets p.env).toOccurrence⟩
+  | .requireU32Length => ⟨_, _, (contractRequireU32Length p.env).toOccurrence⟩
+  | .readOffset => ⟨_, _, (contractReadOffset p.env).toOccurrence⟩
+  | .readU32 => ⟨_, _, (contractReadU32 p.env).toOccurrence⟩
+  | .readU64 => ⟨_, _, (contractReadU64 p.env).toOccurrence⟩
+  | .readU256 => ⟨_, _, (contractReadU256 p.env).toOccurrence⟩
+  | .readArray => ⟨_, _, (contractReadArray p.env (readArrayWidthOf function)).toOccurrence⟩
+  | .bytesAt => ⟨_, _, (contractBytesAt p.env).toOccurrence⟩
+  | .hasExactErePrefix => ⟨_, _, (contractHasExactErePrefix p.env).toOccurrence⟩
+  | .rawAlloc => ⟨_, _, (contractAlloc p.env p.heap).toOccurrence⟩
+  | .memcpy => ⟨_, _, (contractMemcpy p.env).toOccurrence⟩
+  | .memmove => ⟨_, _, (contractMemmove p.env).toOccurrence⟩
+  | .rawResult => ⟨_, _, (contractRawResult p.env p.globals p.resultBuffer).toOccurrence⟩
+  | .rawError => ⟨_, _, (contractRawError p.env p.globals).toOccurrence⟩
+  | .allocatorAlloc => ⟨_, _, (contractAllocatorAlloc p.env p.heap).toOccurrence⟩
+  | .allocatorResize => ⟨_, _, (contractAllocatorResize p.env).toOccurrence⟩
+  | .allocatorRemap => ⟨_, _, (contractAllocatorRemap p.env).toOccurrence⟩
+  | .allocatorFree => ⟨_, _, (contractAllocatorFree p.env).toOccurrence⟩
+  | .allocatorCtor => ⟨_, _, (contractAllocatorCtor p.env).toOccurrence⟩
+
+/-- The run one occurrence supplies to whoever splices it, at this contract's own types.
+
+Every component the splice needs is present and typed: the arguments it was called with, its step
+bound, a confined entered run of *exactly* `used` machine steps from its generated entry to one of
+its generated exits, and its exit binding at the outcome its `meaning` prescribes. Nothing here is a
+bare state relation — the binding handoff survives into the summary rather than being erased before
+it is proved. -/
+def TaggedContract.summary (tc : TaggedContract) (region exit : BitVec 64 → Prop)
+    (entry : BitVec 64) (fromStep used : Nat) (s s' : BinaryFv.RiscV.State) : Prop :=
+  ∃ args : tc.Args,
+    tc.contract.binding.entry args s ∧
+    used ≤ tc.contract.binding.stepBound args ∧
+    EnteredFunctionTrace region exit entry fromStep used s s' ∧
+    tc.contract.binding.exit args (tc.contract.spec.meaning args) s s'
+
+/-! ## Where an occurrence executes
+
+Two address sets, both computed from the generated program, decide what any per-occurrence obligation
+can possibly say. See `BinaryFv.Binary.Elfling.Program.ownedRanges`/`extentRanges` for the data and
+`InstanceExecutionPcs` for why the distinction is forced rather than chosen. -/
+
+/-- What an occurrence's *local* proof may retire step by step: its own code plus the uncataloged
+routines it absorbs. -/
+def instanceOwnPcs (program : Program) (instance_ : FunctionInstance) : BitVec 64 → Prop :=
+  RegionPcs (Program.ownedRanges program instance_)
+
+/-- The addresses an occurrence reaches: the transfer-graph extent of everything it may call or
+inline. Supplied to the closed obligation as its `reached` set. -/
+def instanceReachedPcs (program : Program) (instance_ : FunctionInstance) : BitVec 64 → Prop :=
+  RegionPcs (Program.extentRanges program instance_)
+
+/-- Where an occurrence's execution may sit: its own regions together with everything it reaches. -/
+def instanceExecutionPcs (program : Program) (instance_ : FunctionInstance) : BitVec 64 → Prop :=
+  InstanceExecutionPcs instance_ (instanceReachedPcs program instance_)
+
+/-- The entry PC of a generated occurrence, as a machine word. Read off the occurrence, never
+existentially chosen. -/
+def instanceEntryWord (instance_ : FunctionInstance) : BitVec 64 :=
+  BitVec.ofNat 64 instance_.entryPc
+
+/-- The exit predicate of a generated occurrence: exactly its generated exit PCs. -/
+def instanceExitPred (instance_ : FunctionInstance) (pc : BitVec 64) : Prop :=
+  instance_.isExit pc.toNat
+
+/--
+The **closed** correctness obligation a single generated occurrence owes, selected by its routine
+`tag`: it implements its contract, confined to where it executes, entering at its generated entry and
+stopping at a generated exit.
+
+The entry PC, exit predicate and reachable address set all come from generated data, never from an
+existential, so a proof cannot pick a convenient entry, exit, or confinement. `reached` is the
+occurrence's transfer-graph extent — see `InstanceExecutionPcs` for why an obligation confined to the
+occurrence's own regions alone would be false for every occurrence that calls out. -/
+def routineObligation (p : ContractParams) (instance_ : FunctionInstance)
+    (reached : BitVec 64 → Prop) (tag : RoutineTag) : Prop :=
+  (routineContract p instance_.id.function tag).contract.ImplementsInstance instance_ reached
+    (instanceEntryWord instance_) (instanceExitPred instance_)
+
+/--
+The **local** obligation a single generated occurrence owes: it implements *the same* contract
+against summaries of the occurrences below it, retiring its own steps only inside what it owns.
+
+This is the proposition the local-proof campaign discharges once per occurrence, and the one
+`LocalContractAssumptions` quantifies. It is not an implication between closed obligations: its
+premise content is the admitted `childSummary` relation, its conclusion is an `EnteredScopedTrace`,
+and the closed obligation appears nowhere in it. -/
+def routineLocalObligation (p : ContractParams) (instance_ : FunctionInstance)
+    (own : BitVec 64 → Prop)
+    (childSummary : InstanceId → Nat → Nat → BinaryFv.RiscV.State → BinaryFv.RiscV.State → Prop) (tag : RoutineTag) : Prop :=
+  (routineContract p instance_.id.function tag).contract.LocallyImplementsInstance own
+    (instanceEntryWord instance_) (instanceExitPred instance_) childSummary
+
+/-- The local and closed obligations of an occurrence are formed from **one** contract selection, so
+composing the first into the second is a statement about the same contract. This is the step
+`global_of_local` performs per occurrence; `hsub` and `hcompose` are the generated geometry and the
+discharged child summaries. -/
+theorem routineObligation_of_local {p : ContractParams} {instance_ : FunctionInstance}
+    {own reached : BitVec 64 → Prop}
+    {childSummary : InstanceId → Nat → Nat → BinaryFv.RiscV.State → BinaryFv.RiscV.State → Prop} {tag : RoutineTag}
+    (hsub : ∀ pc, own pc → InstanceExecutionPcs instance_ reached pc)
+    (hcompose : SummariesCompose (InstanceExecutionPcs instance_ reached)
+      (instanceExitPred instance_) childSummary)
+    (hlocal : routineLocalObligation p instance_ own childSummary tag) :
+    routineObligation p instance_ reached tag :=
+  OccurrenceContract.LocallyImplementsInstance.toImplementsInstance hsub hcompose hlocal
 
 /-- The satisfiability obligation for a routine's contract, selected by the same `tag`.
 

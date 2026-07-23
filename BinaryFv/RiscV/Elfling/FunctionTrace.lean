@@ -34,6 +34,35 @@ This is the only place an occurrence's addresses enter the execution layer, and 
 def RegionPcs (regions : Array AddressRange) (pc : BitVec 64) : Prop :=
   ∃ range ∈ regions, range.start ≤ pc.toNat ∧ pc.toNat < range.stop
 
+/-- A decidable range-array containment check discharges the corresponding address-set inclusion.
+
+This is the bridge that lets the composition's geometry side conditions be *checked* on the generated
+program rather than assumed: `Program.rangesSubsume` is a `Bool` a kernel evaluation settles, and
+this turns it into the `∀ pc` inclusion the trace lemmas consume. -/
+theorem RegionPcs.of_rangesSubsume {outer inner : Array AddressRange}
+    (h : BinaryFv.Binary.Elfling.Program.rangesSubsume outer inner = true) {pc : BitVec 64}
+    (hpc : RegionPcs inner pc) : RegionPcs outer pc := by
+  obtain ⟨range, hrange, hlo, hhi⟩ := hpc
+  obtain ⟨i, hi, hget⟩ := Array.mem_iff_getElem.mp hrange
+  have hcov := (Array.all_eq_true.mp h) i hi
+  rw [hget] at hcov
+  obtain ⟨j, hj, hsub⟩ := Array.any_eq_true.mp hcov
+  have hsub' : outer[j].start ≤ range.start ∧ range.stop ≤ outer[j].stop := of_decide_eq_true hsub
+  exact ⟨outer[j], Array.mem_iff_getElem.mpr ⟨j, hj, rfl⟩,
+    Nat.le_trans hsub'.1 hlo, Nat.lt_of_lt_of_le hhi hsub'.2⟩
+
+/-- `RegionPcs` is exactly the decidable membership check on the same ranges. -/
+theorem RegionPcs.iff_inRanges {ranges : Array AddressRange} {pc : BitVec 64} :
+    RegionPcs ranges pc ↔ BinaryFv.Binary.Elfling.Program.inRanges ranges pc.toNat = true := by
+  constructor
+  · rintro ⟨range, hrange, hlo, hhi⟩
+    obtain ⟨i, hi, hget⟩ := Array.mem_iff_getElem.mp hrange
+    exact Array.any_eq_true.mpr ⟨i, hi, by rw [hget]; exact decide_eq_true ⟨hlo, hhi⟩⟩
+  · intro h
+    obtain ⟨i, hi, hin⟩ := Array.any_eq_true.mp h
+    exact ⟨ranges[i], Array.mem_iff_getElem.mpr ⟨i, hi, rfl⟩,
+      (of_decide_eq_true hin).1, (of_decide_eq_true hin).2⟩
+
 /-- `try_step` execution confined to `region`, running until the pc satisfies `exit`.
 
 `count` is the exact number of retired steps and `fromStep` the starting step number, matching
@@ -95,6 +124,55 @@ theorem append {region mid exit : BitVec 64 → Prop} {a n m : Nat} {s s' s'' : 
       exact FunctionTrace.step fromStep (count + m) pc u u' s'' hpc hregion
         (fun hx => hnotExit (exitSubsetMid pc hx)) hstep hrec
 
+/-- A confined run stays confined in any larger address set. This is what lets a callee's own
+confined run be read as a run inside the caller's execution extent, which is the only honest reading:
+the callee's instructions are not the caller's, but they *are* inside the code the caller reaches.
+
+It weakens only the confinement, never the exit set or the step count, so nothing about *where the
+run stopped* or *how long it took* is relaxed. -/
+theorem mono_region {region region' exit : BitVec 64 → Prop} {fromStep count : Nat} {s s' : State}
+    (hsub : ∀ pc, region pc → region' pc)
+    (h : FunctionTrace region exit fromStep count s s') :
+    FunctionTrace region' exit fromStep count s s' := by
+  induction h with
+  | exitAt fromStep t pc hpc hexit => exact FunctionTrace.exitAt fromStep t pc hpc hexit
+  | step fromStep count pc u u' u'' hpc hregion hnotExit hstep _ ih =>
+      exact FunctionTrace.step fromStep count pc u u' u'' hpc (hsub pc hregion) hnotExit hstep ih
+
+/--
+Sequencing a *nested* run into an enclosing one: `append` for the case where the first run is
+confined to a smaller address set with its own stopping set.
+
+This is `append` with its side condition localized. `append` demands `exit ⊆ mid` globally, which is
+the right condition when both runs belong to the same occurrence but is far too strong across a
+boundary: a callee's exits are its own returns, not its caller's. What actually has to hold is that
+the *inner* run cannot step past one of the outer run's exits — and the inner run only ever occupies
+`inner`, so it suffices that every outer exit lying inside `inner` is already an inner stopping
+point. Where the two address sets are disjoint (a separately emitted callee) that is vacuous; where
+they are nested (an inlined child) it is a real, decidable check on the generated exit inventories.
+
+Dropping it would be unsound in exactly the way `append`'s condition guards against: the inner run
+could step straight through the outer occurrence's return and the concatenation would claim a
+confinement it never had.
+-/
+theorem append_within {inner region mid exit : BitVec 64 → Prop} {a n m : Nat} {s s' s'' : State}
+    (innerSubset : ∀ pc, inner pc → region pc)
+    (outerExitsStopInner : ∀ pc, inner pc → exit pc → mid pc)
+    (h1 : FunctionTrace inner mid a n s s')
+    (h2 : FunctionTrace region exit (a + n) m s' s'') :
+    FunctionTrace region exit a (n + m) s s'' := by
+  induction h1 generalizing m s'' with
+  | exitAt fromStep t _ _ _ => simpa using h2
+  | step fromStep count pc u u' u'' hpc hregion hnotExit hstep _ ih =>
+      have h2' : FunctionTrace region exit (fromStep + 1 + count) m u'' s'' := by
+        have harith : fromStep + (count + 1) = fromStep + 1 + count := by omega
+        rwa [harith] at h2
+      have hrec : FunctionTrace region exit (fromStep + 1) (count + m) u' s'' := ih h2'
+      have hcount : count + 1 + m = count + m + 1 := by omega
+      rw [hcount]
+      exact FunctionTrace.step fromStep (count + m) pc u u' s'' hpc (innerSubset pc hregion)
+        (fun hx => hnotExit (outerExitsStopInner pc hregion hx)) hstep hrec
+
 end FunctionTrace
 
 /--
@@ -127,6 +205,17 @@ theorem count_pos {region exit : BitVec 64 → Prop} {entry : BitVec 64} {fromSt
         exact Option.some.inj hstart
       exact hnotExit (hEq ▸ hexit)
   | step _ n _ _ _ _ _ _ _ _ _ => omega
+
+/-- Entering carries over to a larger confinement, since the entry pc is still in region. -/
+theorem mono_region {region region' exit : BitVec 64 → Prop} {entry : BitVec 64}
+    {fromStep count : Nat} {s s' : State}
+    (hsub : ∀ pc, region pc → region' pc)
+    (h : EnteredFunctionTrace region exit entry fromStep count s s') :
+    EnteredFunctionTrace region' exit entry fromStep count s s' :=
+  { startsAtEntry := h.startsAtEntry
+    entryInRegion := hsub entry h.entryInRegion
+    entryNotExit := h.entryNotExit
+    trace := h.trace.mono_region hsub }
 
 end EnteredFunctionTrace
 

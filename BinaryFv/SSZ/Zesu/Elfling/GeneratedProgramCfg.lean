@@ -47,7 +47,7 @@ open BinaryFv.SSZ.Zesu.ControlFlow (controlFlow?)
 theorem controlFlow_isSome : ∃ nodes, controlFlow? = some nodes :=
   Option.isSome_iff_exists.mp (by native_decide)
 open BinaryFv.SSZ.Zesu.Elfling.Generated
-  (generatedProgram generatedExcludedOccurrences ExcludedOccurrence)
+  (generatedProgram generatedExcludedOccurrences)
 
 /-! ## Occurrence geometry -/
 
@@ -63,7 +63,7 @@ def ownedBy (program : Program) (o : FunctionInstance) (pc : Nat) : Bool :=
     | none => true
 
 /-- The entry PC an excluded routine is called at (its lowest region start). -/
-def exclEntryPc (x : ExcludedOccurrence) : Nat :=
+def exclEntryPc (x : BinaryFv.Binary.Elfling.ExcludedOccurrence) : Nat :=
   x.regions.foldl (fun m r => Nat.min m r.start) ((x.regions[0]?.map (·.start)).getD 0)
 
 /-- The entry PC a callee identity names — an emitted occurrence's `entryPc` or an excluded routine's

@@ -1412,29 +1412,8 @@ def emit_lean(p):
     L.append("def generatedInstances : Array FunctionInstance :=")
     L.append("  #[" + ", ".join(f'occ{i}' for i in range(len(p["occurrences"]))) + "]")
     L.append("")
-    ei = p["entryIndex"]
-    L.append(f'/-- The complete generated program: entry `zesu_decode_raw` (occ {ei}), all reachable')
-    L.append("    occurrences, and the surfaced attribution defects. -/")
-    # Authoritative: the emitted defect list is exactly the generator's, never a hardcoded `#[]`. The
-    # derivation additionally FAILS when this list is nonempty, so in a released program it is `#[]`
-    # because there were no defects — not because emission discarded them.
-    defects = "#[" + ", ".join(defect_lean(d) for d in p["defects"]) + "]"
-    L.append("def generatedProgram : Program :=")
-    L.append(f'  {{ entry := occ{ei}Id, instances := generatedInstances, defects := {defects},')
-    L.append(f'    provenance := {prov(p["occurrences"][ei])} }}')
-    L.append("")
     # Reachable-but-excluded taxonomy (auditable data the reachable-partition proof consumes).
     L.append("/-! ### Reachable-but-excluded emitted routines (auditable exclusion taxonomy). -/")
-    L.append("")
-    L.append("/-- A reachable code routine carrying no cataloged occurrence: emitted glue the optimizer")
-    L.append("did not fold into a cataloged ancestor. Address-bearing, untrusted auditable data; the Lean")
-    L.append("reachable-partition validation checks these regions exactly tile `reachable \\ covered`. -/")
-    L.append("structure ExcludedOccurrence where")
-    L.append("  id : InstanceId")
-    L.append("  qualifiedName : String")
-    L.append("  category : String")
-    L.append("  regions : Array AddressRange")
-    L.append("deriving Repr, Inhabited, DecidableEq")
     L.append("")
     L.append("/-- Every reachable-but-excluded emitted routine: emitted identity, DWARF name, category,")
     L.append("canonical regions. The identity lets a resolved external call target an excluded routine. -/")
@@ -1448,6 +1427,18 @@ def emit_lean(p):
         L.append("  #[" + ",\n   ".join(items) + "]")
     else:
         L.append("  #[]")
+    L.append("")
+    ei = p["entryIndex"]
+    L.append(f'/-- The complete generated program: entry `zesu_decode_raw` (occ {ei}), all reachable')
+    L.append("    occurrences, and the surfaced attribution defects. -/")
+    # Authoritative: the emitted defect list is exactly the generator's, never a hardcoded `#[]`. The
+    # derivation additionally FAILS when this list is nonempty, so in a released program it is `#[]`
+    # because there were no defects — not because emission discarded them.
+    defects = "#[" + ", ".join(defect_lean(d) for d in p["defects"]) + "]"
+    L.append("def generatedProgram : Program :=")
+    L.append(f'  {{ entry := occ{ei}Id, instances := generatedInstances, defects := {defects},')
+    L.append(f'    provenance := {prov(p["occurrences"][ei])},')
+    L.append("    excluded := generatedExcludedOccurrences }")
     L.append("")
     # Independently generated pinned-source manifest (path -> content SHA-256), for cross-checking the
     # handwritten row-1 `pinnedSourceManifest` rather than trusting it.

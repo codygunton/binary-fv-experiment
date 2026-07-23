@@ -153,14 +153,14 @@ def contractOptionalU64 (env : DecoderEnvironment) :
 This is the point of the layering: the statement names no address, and the occurrence supplies every
 one of them. -/
 def correctnessClaimOptionalBlobSchedule (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractOptionalBlobSchedule env)
+  ImplementsInstance instance_ reached entry exit (contractOptionalBlobSchedule env)
 
 def correctnessClaimOptionalU64 (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractOptionalU64 env)
+  ImplementsInstance instance_ reached entry exit (contractOptionalU64 env)
 
 /-- The blob-schedule precondition is satisfiable for a well-formed environment, so its contract is
 not vacuous. Conditioned on `ValidEnvironment` rather than asserted unconditionally: the

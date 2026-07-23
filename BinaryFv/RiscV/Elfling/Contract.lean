@@ -1,4 +1,4 @@
-import BinaryFv.RiscV.Elfling.FunctionTrace
+import BinaryFv.RiscV.Elfling.Boundary
 import BinaryFv.RiscV.Logic.RegisterAgree
 import BinaryFv.RiscV.Logic.ImageMemory
 
@@ -181,30 +181,53 @@ def Implements {Error Args Result : Type}
   OccurrenceContract.Implements region exit entry contract.toOccurrence
 
 /--
-`OccurrenceContract.Implements` for a generated Elfling occurrence: the confinement region is exactly
-that occurrence's possibly discontiguous ranges.
+Where a generated occurrence's execution may sit: its own possibly discontiguous ranges, together
+with `reached` — the addresses of everything it may transfer control into.
+
+The second component is not a loophole, it is the correction of one. `Implements` confines *every*
+retired step to the region, so an occurrence that calls another occurrence has no confined run at all
+if the region is only its own code: the callee's instructions execute and are not in it. Stating the
+obligation over own-regions alone therefore makes it unsatisfiable for every calling occurrence —
+false rather than merely unproved — and a local assumption built on it would be worthless.
+
+`reached` is supplied by the generated layer as a specific computed address set (the occurrence's
+transfer-graph extent), never existentially chosen, so widening it is a visible change to generated
+data that the boundary inventory checks.
+-/
+def InstanceExecutionPcs (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (reached : BitVec 64 → Prop) (pc : BitVec 64) : Prop :=
+  RegionPcs instance_.regions pc ∨ reached pc
+
+/-- An occurrence's own code is part of where it executes. -/
+theorem RegionPcs.subset_executionPcs {instance_ : BinaryFv.Binary.Elfling.FunctionInstance}
+    {reached : BitVec 64 → Prop} {pc : BitVec 64} (h : RegionPcs instance_.regions pc) :
+    InstanceExecutionPcs instance_ reached pc := Or.inl h
+
+/--
+`OccurrenceContract.Implements` for a generated Elfling occurrence: the confinement region is that
+occurrence's ranges together with the addresses it reaches.
 
 This is the single visible seam between the generated, untrusted, address-bearing layer and the
-handwritten, address-free contract. The contract argument mentions no address; the occurrence
-supplies all of them.
+handwritten, address-free contract. The contract argument mentions no address; the occurrence and the
+generated extent supply all of them.
 -/
 def OccurrenceContract.ImplementsInstance {Args Outcome : Type}
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop)
     (contract : OccurrenceContract Args Outcome) : Prop :=
-  OccurrenceContract.Implements (RegionPcs instance_.regions) exit entry contract
+  OccurrenceContract.Implements (InstanceExecutionPcs instance_ reached) exit entry contract
 
 /--
 `Implements` for a generated Elfling occurrence of a source-shaped contract.
 
-The name and signature are unchanged from before the meaning/placement split: the catalog still joins
-a `FunctionContract` to an occurrence through this, and it now routes through the occurrence form.
+The catalog still joins a `FunctionContract` to an occurrence through this, and it routes through the
+occurrence form.
 -/
 def ImplementsInstance {Error Args Result : Type}
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop)
     (contract : FunctionContract Error Args Result) : Prop :=
-  Implements (RegionPcs instance_.regions) exit entry contract
+  Implements (InstanceExecutionPcs instance_ reached) exit entry contract
 
 /--
 A contract whose entry binding no state satisfies is vacuously implemented.
@@ -239,5 +262,115 @@ theorem Implements.not_vacuous {Error Args Result : Type}
     ∃ (args : Args) (count : Nat) (s s' : State),
       0 < count ∧ contract.post args (contract.meaning args) s s' :=
   OccurrenceContract.Implements.not_vacuous himpl hsat
+
+/-! ## Local implementation
+
+`LocallyImplements` is `Implements` phrased against `ScopedTrace`: an occurrence implements its
+contract *given* summaries of the occurrences below it. This is the compositional unit the whole
+proof campaign is organized around — the thing a later row proves once per occurrence — and the point
+of the pair below is the discharge direction: once those summaries are real (`SummariesCompose`), a
+local implementation *is* a closed `Implements`.
+
+Two address sets appear, and the asymmetry between them is the substance:
+
+- the local run retires its own steps only inside `own` — the occurrence's code plus whatever
+  uncataloged routine it absorbs — so a local proof may not wander into a callee it holds a summary
+  for;
+- the closed run it collapses to is confined to `InstanceExecutionPcs`, which additionally admits the
+  code the occurrence reaches, because that code genuinely executes.
+-/
+
+/--
+An occurrence implements its contract *relative to* admitted child/callee summaries.
+
+Identical to `OccurrenceContract.Implements` except the confined run is an `EnteredScopedTrace`, so a
+proof may spend child summaries instead of re-executing inlined children and callees.
+-/
+def OccurrenceContract.LocallyImplements {Args Outcome : Type}
+    (own exit : BitVec 64 → Prop) (entry : BitVec 64)
+    (childSummary : BinaryFv.Binary.Elfling.InstanceId → Nat → Nat → State → State → Prop)
+    (contract : OccurrenceContract Args Outcome) : Prop :=
+  ∀ (args : Args) (fromStep : Nat) (s : State),
+    contract.binding.entry args s →
+      ∃ (count : Nat) (s' : State),
+        count ≤ contract.binding.stepBound args ∧
+        EnteredScopedTrace own exit childSummary entry fromStep count s s' ∧
+        contract.binding.exit args (contract.spec.meaning args) s s'
+
+/-- `LocallyImplements` for a source-shaped `FunctionContract`: exactly the occurrence-shaped local
+obligation on the projected `OccurrenceContract`, so the source-shaped leaves and the
+occurrence-specific bindings live under one local seam just as they do under one closed seam. -/
+def LocallyImplements {Error Args Result : Type}
+    (own exit : BitVec 64 → Prop) (entry : BitVec 64)
+    (childSummary : BinaryFv.Binary.Elfling.InstanceId → Nat → Nat → State → State → Prop)
+    (contract : FunctionContract Error Args Result) : Prop :=
+  OccurrenceContract.LocallyImplements own exit entry childSummary contract.toOccurrence
+
+/--
+The local obligation of a generated Elfling occurrence: it implements its contract against summaries
+of the occurrences below it, retiring its own steps only inside what it owns.
+
+`own` is generated data — the occurrence's ranges plus the ranges of the uncataloged routines it
+absorbs — so the local obligation cannot be relaxed by choosing a bigger address set. This is the
+proposition `LocalContractAssumptions` quantifies, and the one a later row discharges per occurrence.
+-/
+def OccurrenceContract.LocallyImplementsInstance {Args Outcome : Type}
+    (own : BitVec 64 → Prop) (entry : BitVec 64) (exit : BitVec 64 → Prop)
+    (childSummary : BinaryFv.Binary.Elfling.InstanceId → Nat → Nat → State → State → Prop)
+    (contract : OccurrenceContract Args Outcome) : Prop :=
+  OccurrenceContract.LocallyImplements own exit entry childSummary contract
+
+/-- `LocallyImplementsInstance` for a source-shaped contract. -/
+def LocallyImplementsInstance {Error Args Result : Type}
+    (own : BitVec 64 → Prop) (entry : BitVec 64) (exit : BitVec 64 → Prop)
+    (childSummary : BinaryFv.Binary.Elfling.InstanceId → Nat → Nat → State → State → Prop)
+    (contract : FunctionContract Error Args Result) : Prop :=
+  OccurrenceContract.LocallyImplementsInstance own entry exit childSummary contract.toOccurrence
+
+/--
+**The local-to-closed step, proved.** A `LocallyImplements` whose admitted summaries genuinely
+compose inside the enclosing address set is a plain `Implements` there.
+
+This is the lemma the whole boundary layer exists to serve: prove an occurrence against summaries of
+its children, then collapse to an address-confined `Implements` once those summaries are discharged
+by the children's own proofs. The residual, program-specific obligation is supplying
+`SummariesCompose`, which `summaryComposes_of_subtrace` reduces to each child's own `FunctionTrace`.
+-/
+theorem OccurrenceContract.LocallyImplements.toImplements {Args Outcome : Type}
+    {own outer exit : BitVec 64 → Prop} {entry : BitVec 64}
+    {childSummary : BinaryFv.Binary.Elfling.InstanceId → Nat → Nat → State → State → Prop}
+    {contract : OccurrenceContract Args Outcome}
+    (hsub : ∀ pc, own pc → outer pc)
+    (hcompose : SummariesCompose outer exit childSummary)
+    (h : OccurrenceContract.LocallyImplements own exit entry childSummary contract) :
+    OccurrenceContract.Implements outer exit entry contract := by
+  intro args fromStep s hpre
+  obtain ⟨count, s', hbound, hentered, hpost⟩ := h args fromStep s hpre
+  exact ⟨count, s', hbound, hentered.toEnteredFunctionTrace_within hsub hcompose, hpost⟩
+
+/-- The occurrence-shaped local-to-closed step: from the occurrence's local obligation over what it
+owns to its closed obligation over where it executes. The premise `hsub` is the generated fact that
+an occurrence owns a subset of its own execution extent. -/
+theorem OccurrenceContract.LocallyImplementsInstance.toImplementsInstance {Args Outcome : Type}
+    {instance_ : BinaryFv.Binary.Elfling.FunctionInstance}
+    {own reached : BitVec 64 → Prop} {entry : BitVec 64} {exit : BitVec 64 → Prop}
+    {childSummary : BinaryFv.Binary.Elfling.InstanceId → Nat → Nat → State → State → Prop}
+    {contract : OccurrenceContract Args Outcome}
+    (hsub : ∀ pc, own pc → InstanceExecutionPcs instance_ reached pc)
+    (hcompose : SummariesCompose (InstanceExecutionPcs instance_ reached) exit childSummary)
+    (h : OccurrenceContract.LocallyImplementsInstance own entry exit childSummary contract) :
+    OccurrenceContract.ImplementsInstance instance_ reached entry exit contract :=
+  OccurrenceContract.LocallyImplements.toImplements hsub hcompose h
+
+/-- `LocallyImplements.toImplements` for a source-shaped contract. -/
+theorem LocallyImplements.toImplements {Error Args Result : Type}
+    {own outer exit : BitVec 64 → Prop} {entry : BitVec 64}
+    {childSummary : BinaryFv.Binary.Elfling.InstanceId → Nat → Nat → State → State → Prop}
+    {contract : FunctionContract Error Args Result}
+    (hsub : ∀ pc, own pc → outer pc)
+    (hcompose : SummariesCompose outer exit childSummary)
+    (h : LocallyImplements own exit entry childSummary contract) :
+    Implements outer exit entry contract :=
+  OccurrenceContract.LocallyImplements.toImplements hsub hcompose h
 
 end BinaryFv.RiscV.Elfling

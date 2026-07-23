@@ -159,17 +159,42 @@ inductive AttributionDefect where
 deriving Repr, Inhabited
 
 /--
-A complete extracted program: its entry occurrence, every reachable occurrence, and every
-attribution defect found while extracting it.
+A reachable emitted routine that no catalog entry covers.
+
+These are real code — the extraction's reachable partition proves every reachable pc is either
+covered by an occurrence or one of these — reached through `externalCalls` like any other callee.
+They are surfaced rather than dropped precisely so that a gap in the catalog cannot masquerade as
+complete coverage.
+
+An excluded routine has no contract of its own, so it has no summary to splice. The occurrence that
+calls it therefore **absorbs** it: the excluded routine's pcs join the calling occurrence's owned
+address set, and the caller's own proof accounts for its execution. That is the only placement that
+keeps the per-occurrence obligation count honest without inventing a contract for uncataloged code.
+-/
+structure ExcludedOccurrence where
+  id : InstanceId
+  qualifiedName : String
+  category : String
+  regions : Array AddressRange
+deriving Repr, Inhabited, DecidableEq
+
+/--
+A complete extracted program: its entry occurrence, every reachable occurrence, every reachable
+routine deliberately left uncataloged, and every attribution defect found while extracting it.
 
 `defects` being nonempty is not an error in the data; it is an error in the *program's* readiness,
 and the validity layer is what refuses it.
+
+`excluded` defaults to `#[]` so a program written by hand (the boundary tests, the vertical slice)
+need not mention it; the generator emits the real inventory.
 -/
 structure Program where
   entry : InstanceId
   instances : Array FunctionInstance
   defects : Array AttributionDefect
   provenance : ExtractionProvenance
+  /-- Reachable emitted routines that carry no catalog entry, absorbed by their callers. -/
+  excluded : Array ExcludedOccurrence := #[]
 deriving Repr, Inhabited
 
 namespace Program
@@ -195,6 +220,101 @@ double-counted by any per-instance obligation. -/
 def instanceIdsDistinct (program : Program) : Prop :=
   ∀ i j, (hi : i < program.instances.size) → (hj : j < program.instances.size) →
     (program.instances[i]).id = (program.instances[j]).id → i = j
+
+/-! ## The transfer graph and the address sets it induces
+
+An occurrence's contract cannot be about its own instructions alone. When it calls another
+occurrence, the machine executes the callee's instructions; when it calls a routine the catalog
+deliberately excludes, it executes that routine's instructions too. A confinement predicate built
+only from `regions` therefore describes a run that does not exist, and the corresponding obligation
+is unsatisfiable for every occurrence that transfers control.
+
+Two address sets fix this, both computed here from generated data so that no proof may choose them:
+
+* **owned** — the occurrence's own regions plus the regions of the excluded routines it absorbs.
+  This is what its *local* proof may retire step by step, and it is deliberately the smaller set: an
+  occurrence may not wander into a callee it has a summary for.
+* **extent** — owned, plus the same for everything reachable in the transfer graph. This is what its
+  *closed* obligation confines execution to, and it is exactly as large as the code the occurrence
+  can actually reach.
+
+The closure is fuel-bounded by the size of the program, deduplicated, and stops early at a fixed
+point, so it is a total function that `decide`/`native_decide` can evaluate. -/
+
+/-- The occurrences and excluded routines control may transfer to directly: inlined children and
+resolved external calls. -/
+def transferIds (instance_ : FunctionInstance) : Array InstanceId :=
+  instance_.children ++ instance_.externalCalls
+
+/-- The regions attributed to one identity, whether it names an occurrence or an excluded routine.
+An identity naming neither owns nothing. -/
+def rangesOf (program : Program) (id : InstanceId) : Array AddressRange :=
+  match program.find? id with
+  | some instance_ => instance_.regions
+  | none =>
+      match program.excluded.find? (fun x => decide (x.id = id)) with
+      | some excluded => excluded.regions
+      | none => #[]
+
+/-- The excluded routines an occurrence absorbs: those it calls directly. They carry no contract, so
+no summary can be spliced for them and the calling occurrence's own proof owes their execution. -/
+def absorbedRanges (program : Program) (instance_ : FunctionInstance) : Array AddressRange :=
+  program.excluded.foldl
+    (fun acc excluded =>
+      if (transferIds instance_).any (fun id => decide (id = excluded.id)) then acc ++ excluded.regions
+      else acc)
+    #[]
+
+/-- What an occurrence's *local* proof owns: its own regions plus the excluded routines it absorbs. -/
+def ownedRanges (program : Program) (instance_ : FunctionInstance) : Array AddressRange :=
+  instance_.regions ++ absorbedRanges program instance_
+
+/-- One expansion round of the transfer graph, deduplicated. -/
+def expandTransfers (program : Program) (ids : Array InstanceId) : Array InstanceId :=
+  ids.foldl
+    (fun acc id =>
+      match program.find? id with
+      | some instance_ =>
+          (transferIds instance_).foldl
+            (fun acc callee => if acc.any (fun x => decide (x = callee)) then acc else acc.push callee)
+            acc
+      | none => acc)
+    ids
+
+/-- Fuel-bounded transfer closure, stopping at the first fixed point. -/
+def transferClosureAux (program : Program) : Nat → Array InstanceId → Array InstanceId
+  | 0, ids => ids
+  | fuel + 1, ids =>
+      let next := expandTransfers program ids
+      if next.size = ids.size then ids else transferClosureAux program fuel next
+
+/-- Every identity reachable from `id` in the transfer graph, including `id` itself. The fuel is the
+number of identities the program can possibly name, so the closure is complete. -/
+def transferClosure (program : Program) (id : InstanceId) : Array InstanceId :=
+  transferClosureAux program (program.instances.size + program.excluded.size) #[id]
+
+/-- Every address an occurrence's execution may occupy: what it owns, plus what everything it may
+transfer to owns. -/
+def extentRanges (program : Program) (instance_ : FunctionInstance) : Array AddressRange :=
+  (transferClosure program instance_.id).foldl
+    (fun acc id =>
+      match program.find? id with
+      | some callee => acc ++ ownedRanges program callee
+      | none => acc ++ rangesOf program id)
+    #[]
+
+/-- Whether `inner` covers no address `outer` does not, checked range by range.
+
+Sufficient rather than exact — it asks each inner range to sit inside a *single* outer range — which
+is all the geometry needs, because both sides are unions of the same atomic occurrence ranges. Being
+a `Bool`, it is what makes the geometry facts a decidable check on the generated program instead of
+an assumption. -/
+def rangesSubsume (outer inner : Array AddressRange) : Bool :=
+  inner.all fun r => outer.any fun o => decide (o.start ≤ r.start ∧ r.stop ≤ o.stop)
+
+/-- Whether `address` lies in one of the ranges. -/
+def inRanges (ranges : Array AddressRange) (address : Nat) : Bool :=
+  ranges.any fun r => decide (r.start ≤ address ∧ address < r.stop)
 
 end Program
 

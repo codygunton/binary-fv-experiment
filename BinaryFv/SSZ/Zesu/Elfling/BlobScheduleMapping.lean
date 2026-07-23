@@ -188,11 +188,21 @@ def blobScheduleEntry : BitVec 64 := BitVec.ofNat 64 blobScheduleInstance.entryP
 /-- The occurrence's exit predicate: exactly its generated exit PCs. -/
 def blobScheduleExit (pc : BitVec 64) : Prop := pc.toNat ∈ blobScheduleInstance.exitPcs
 
+/-- The extracted slice as a `Program` in its own right: the occurrence together with the three
+nested `readU64` children it inlines. The occurrence's execution extent is then computed from the
+same generated data the whole-program obligation uses, rather than being written by hand. -/
+def blobScheduleProgram : Program :=
+  { entry := blobScheduleInstanceId, instances := blobScheduleInstances, defects := #[],
+    provenance := blobScheduleInstance.provenance }
+
 /-- The address-free `decodeOptionalBlobSchedule` correctness obligation, bound to the generated
-occurrence and its generated entry/exit. Stated here; its semantic discharge (both option branches,
-live-state instantiation, stores) is row 3 (`ssz-elfling-blob-schedule`). This is the join the whole
-Elfling layering exists to make: an address-free claim, every address supplied by the occurrence. -/
+occurrence and its generated entry/exit/extent. Stated here; its semantic discharge (both option
+branches, live-state instantiation, stores) is row 3 (`ssz-elfling-blob-schedule`). This is the join
+the whole Elfling layering exists to make: an address-free claim, every address supplied by the
+occurrence. -/
 def blobScheduleCorrectnessObligation (env : DecoderEnvironment) : Prop :=
-  correctnessClaimOptionalBlobSchedule env blobScheduleInstance blobScheduleEntry blobScheduleExit
+  correctnessClaimOptionalBlobSchedule env blobScheduleInstance
+    (Contracts.instanceReachedPcs blobScheduleProgram blobScheduleInstance) blobScheduleEntry
+    blobScheduleExit
 
 end BinaryFv.SSZ.Zesu.Elfling

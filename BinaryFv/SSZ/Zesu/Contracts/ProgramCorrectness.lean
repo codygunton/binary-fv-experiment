@@ -15,13 +15,18 @@ The local-to-global obligation that ties the generated Elfling program, the hand
 and the pinned specification into one statement the root theorem descends through.
 
 `sszProgramCorrectness` is not a bag of unrelated propositions. Its load-bearing content is a
-*proved composition*: from each occurrence's **local** obligation (it implements its contract given
-its callees do) and the acyclicity of the call/inline graph, `global_of_local` derives every
-occurrence's **global** obligation — the entry's included. So coverage plus the local obligations
-*entail* that every live occurrence implements the correctness claim its identity names
-(`sszProgramCorrectness_perInstance`), which is what the name promises. Crucially, the entry's local
-obligation never contains the entry's own global obligation among its premises, so the composition is
-not circular.
+*proved composition*: from each occurrence's **local trace** obligation, the acyclicity of the
+call/inline graph, and the generated address geometry, `global_of_local` derives every occurrence's
+**closed** obligation — the entry's included. So coverage plus the local obligations *entail* that
+every live occurrence implements the correctness claim its identity names
+(`sszProgramCorrectness_perInstance`), which is what the name promises.
+
+The local obligation is a statement about a *run*, not about other propositions. It hands the proof
+an admitted child-summary relation realizing its callees' contracts (`ChildSummariesAvailable`) and
+asks for an `EnteredScopedTrace` confined to what the occurrence owns; `instanceObligation` occurs on
+neither side of it, so the composition is neither circular nor a rearrangement of already-closed
+facts. Its predecessor — `(all callee global obligations) → this global obligation` — was exactly
+such a rearrangement and has been removed.
 -/
 
 /-- The environment is the canonical one: its loaded image is the pinned Zesu ELF image, and its
@@ -63,11 +68,13 @@ def IsCanonicalGeneratedProgram (program : Program) : Prop :=
   program.defects = #[]
 
 /-- The obligation a single generated occurrence owes: the correctness claim for the routine its
-identity names. `catalogEntryFor` is a single-valued lookup, so this is a genuine dispatch, not a
-choice. An occurrence with no catalog entry owes `False`, which coverage forbids from ever arising. -/
-def instanceObligation (p : ContractParams) (instance_ : FunctionInstance) : Prop :=
+identity names, confined to where that occurrence executes. `catalogEntryFor` is a single-valued
+lookup, so this is a genuine dispatch, not a choice. An occurrence with no catalog entry owes
+`False`, which coverage forbids from ever arising. -/
+def instanceObligation (p : ContractParams) (program : Program) (instance_ : FunctionInstance) :
+    Prop :=
   match catalogEntryFor instance_.id.function with
-  | some entry => routineObligation p instance_ entry.tag
+  | some entry => routineObligation p instance_ (instanceReachedPcs program instance_) entry.tag
   | none => False
 
 /-- Every live routine's contract has a satisfiable precondition under a valid environment. Stated
@@ -90,14 +97,153 @@ theorem calleeInstances_subset {program : Program} {instance_ callee : FunctionI
     (h : callee ∈ calleeInstances program instance_) : callee ∈ program.instances :=
   (Array.mem_filter.mp h).1
 
-/-- The **local** obligation: the occurrence implements its contract *assuming each of its callees
-does*. The premise ranges over `calleeInstances`, which never contains the occurrence itself, so the
-entry's local obligation never presumes the entry's own global obligation — this is the fix for the
-prior circular statement. A leaf (no callees) reduces to its unconditional obligation. -/
-def instanceLocalObligation (p : ContractParams) (program : Program)
+/-! ### Child summaries
+
+A local proof does not get to assume its callees' *propositions*; it gets to spend their *runs*. The
+relation below is what a `ScopedTrace` splice consumes, and it is deliberately concrete: a witness
+names the exact callee occurrence, the state it was entered in, the number of machine steps it
+consumed, the generated exit it stopped on, the typed arguments it was called with, the typed outcome
+its `meaning` prescribes, and its exit binding. Erasing that handoff to a bare state relation before
+proving it is exactly how a composition can look sound and say nothing. -/
+
+/-- The summary one cataloged occurrence supplies to whoever splices it: a confined entered run of
+exactly `used` steps from its generated entry to one of its generated exits, at typed arguments whose
+entry binding held and whose exit binding holds at the outcome its `meaning` prescribes. An
+occurrence with no catalog entry supplies nothing (`False`), so no splice can invent one. -/
+def instanceSummary (p : ContractParams) (program : Program) (callee : FunctionInstance)
+    (fromStep used : Nat) (s s' : State) : Prop :=
+  match catalogEntryFor callee.id.function with
+  | some entry =>
+      (routineContract p callee.id.function entry.tag).summary
+        (instanceExecutionPcs program callee) (instanceExitPred callee) (instanceEntryWord callee)
+        fromStep used s s'
+  | none => False
+
+/-- The child-summary relation admitted by *one* occurrence's local proof: only the occurrences it
+actually depends on, each summarized as above. Keying it to the parent is what makes the composition
+provable — an unrelated occurrence's run is not confined to this parent's extent and could not be
+spliced into it. -/
+def childSummaryOf (p : ContractParams) (program : Program) (instance_ : FunctionInstance)
+    (child : InstanceId) (fromStep used : Nat) (s s' : State) : Prop :=
+  ∃ callee ∈ calleeInstances program instance_,
+    callee.id = child ∧ instanceSummary p program callee fromStep used s s'
+
+/-- What a local proof is *given* about the occurrences below it: an admitted summary relation that
+realizes each callee's own contract. Whenever a callee's entry binding holds at a state, the relation
+must contain a run of that callee — within its step bound — ending in a state satisfying its exit
+binding at the outcome its `meaning` prescribes.
+
+This is the assume half of the assume/guarantee split, and it is stated in terms of the callees'
+*contracts*, never their `ImplementsInstance` propositions: a local proof is handed behavior, not
+closed theorems. -/
+def ChildSummariesAvailable (p : ContractParams) (program : Program) (instance_ : FunctionInstance)
+    (childSummary : InstanceId → Nat → Nat → State → State → Prop) : Prop :=
+  ∀ callee ∈ calleeInstances program instance_, ∀ entry : CatalogEntry,
+    catalogEntryFor callee.id.function = some entry →
+      ∀ (args : (routineContract p callee.id.function entry.tag).Args) (fromStep : Nat) (s : State),
+        (routineContract p callee.id.function entry.tag).contract.binding.entry args s →
+          ∃ used s',
+            used ≤ (routineContract p callee.id.function entry.tag).contract.binding.stepBound args ∧
+              childSummary callee.id fromStep used s s' ∧
+              (routineContract p callee.id.function entry.tag).contract.binding.exit args
+                ((routineContract p callee.id.function entry.tag).contract.spec.meaning args) s s'
+
+/-- **The local obligation.** Given *any* admitted summary relation that realizes its callees'
+contracts, the occurrence implements its own contract — retiring its own steps only inside what it
+owns and spending those summaries at its checked boundaries.
+
+This replaces the previous `instanceLocalObligation`, which was
+`(all callee global obligations) → this global obligation`: an implication between already-closed
+`ImplementsInstance` propositions that rearranged global facts and never mentioned a trace. Here the
+premise is behavioral (`ChildSummariesAvailable`), the conclusion is an `EnteredScopedTrace`
+(`routineLocalObligation` → `LocallyImplementsInstance`), and `instanceObligation` occurs on neither
+side.
+
+Quantifying over the relation rather than fixing it to `childSummaryOf` is what keeps the obligation
+genuinely local: the proof may use only what a callee's contract guarantees, never which occurrence
+happens to sit below it in this program. -/
+def instanceLocalTraceObligation (p : ContractParams) (program : Program)
     (instance_ : FunctionInstance) : Prop :=
-  (∀ callee ∈ calleeInstances program instance_, instanceObligation p callee) →
-    instanceObligation p instance_
+  match catalogEntryFor instance_.id.function with
+  | some entry =>
+      ∀ childSummary : InstanceId → Nat → Nat → State → State → Prop,
+        ChildSummariesAvailable p program instance_ childSummary →
+          routineLocalObligation p instance_ (instanceOwnPcs program instance_) childSummary
+            entry.tag
+  | none => False
+
+/-! ### The geometry the composition rests on
+
+Three facts about the generated address sets. They are `Prop`s here so this module stays independent
+of the generated program, and each is a decidable check on it — `Program.rangesSubsume` and
+`Program.inRanges` are `Bool`s — so a mutated program fails a check rather than passing silently. -/
+
+/-- The generated geometry a ranked composition needs.
+
+* `ownedWithinExecution` — an occurrence owns a subset of where it executes, so its local run is a
+  run in its extent. Without it the local obligation could be about addresses the closed one excludes.
+* `calleeWithinExecution` — a callee executes inside its caller's extent. This is what makes the
+  callee's own confined run spliceable at all.
+* `calleeExitContainment` — a caller's exit that lies inside a callee's extent is already an exit of
+  that callee. This is the load-bearing one: without it a spliced callee could step straight through
+  its caller's `ret` and the reconstruction would claim a confinement the run never had. It is
+  vacuous where the two extents are disjoint (a separately emitted callee) and a real check where
+  they nest (an inlined child, whose regions lie inside its parent's).
+-/
+structure ProgramGeometry (program : Program) : Prop where
+  ownedWithinExecution : ∀ instance_ ∈ program.instances, ∀ pc,
+    instanceOwnPcs program instance_ pc → instanceExecutionPcs program instance_ pc
+  calleeWithinExecution : ∀ instance_ ∈ program.instances,
+    ∀ callee ∈ calleeInstances program instance_, ∀ pc,
+      instanceExecutionPcs program callee pc → instanceExecutionPcs program instance_ pc
+  calleeExitContainment : ∀ instance_ ∈ program.instances,
+    ∀ callee ∈ calleeInstances program instance_, ∀ pc,
+      instanceExecutionPcs program callee pc →
+        instanceExitPred instance_ pc → instanceExitPred callee pc
+
+/-- **A closed child supplies the summary its caller splices.** Given the callee's closed obligation
+and typed arguments whose entry binding holds, the callee's own confined run *is* a `childSummaryOf`
+witness for the caller — with the callee's exact consumed count, not an invented one.
+
+This is the direction that makes the local obligation dischargeable: a later row proves each
+occurrence locally, and this turns the occurrence below it into the summary the splice needed. -/
+theorem childSummariesAvailable_of_closed {p : ContractParams} {program : Program}
+    {instance_ : FunctionInstance}
+    (closed : ∀ callee ∈ calleeInstances program instance_, instanceObligation p program callee) :
+    ChildSummariesAvailable p program instance_ (childSummaryOf p program instance_) := by
+  intro callee hcallee entry found args fromStep s hpre
+  have hclosed := closed callee hcallee
+  unfold instanceObligation at hclosed
+  rw [found] at hclosed
+  obtain ⟨used, s', hbound, htrace, hexit⟩ := hclosed args fromStep s hpre
+  refine ⟨used, s', hbound, ⟨callee, hcallee, rfl, ?_⟩, hexit⟩
+  unfold instanceSummary
+  rw [found]
+  exact ⟨args, hpre, hbound, htrace, hexit⟩
+
+/-- **The spliced summaries genuinely compose.** Every child summary this occurrence admits is a run
+inside its extent that cannot have stepped past one of its exits, so appending the parent's
+continuation is an honest confined run of the summed length.
+
+This is the program-specific obligation the generic boundary layer leaves open, discharged here from
+the generated geometry alone — no local or closed correctness is used. -/
+theorem summariesCompose_of_geometry {p : ContractParams} {program : Program}
+    {instance_ : FunctionInstance} (geom : ProgramGeometry program)
+    (hmem : instance_ ∈ program.instances) :
+    SummariesCompose (instanceExecutionPcs program instance_) (instanceExitPred instance_)
+      (childSummaryOf p program instance_) := by
+  intro child fromStep used count s s' s'' hsummary hcont
+  obtain ⟨callee, hcallee, _, hsum⟩ := hsummary
+  unfold instanceSummary at hsum
+  cases found : catalogEntryFor callee.id.function with
+  | none => rw [found] at hsum; exact hsum.elim
+  | some entry =>
+      rw [found] at hsum
+      obtain ⟨_, _, _, htrace, _⟩ := hsum
+      exact FunctionTrace.append_within
+        (geom.calleeWithinExecution instance_ hmem callee hcallee)
+        (geom.calleeExitContainment instance_ hmem callee hcallee)
+        htrace.trace hcont
 
 /-- A rank witnessing that the call/inline graph is acyclic: every callee ranks strictly below its
 caller. Its existence is what makes the local-to-global induction well-founded, and it is where a
@@ -109,41 +255,60 @@ def CallGraphRanked (program : Program) (rank : FunctionInstance → Nat) : Prop
 
 /-- **The local-to-global composition principle, proved.**
 
-If the call graph is acyclic (ranked) and every occurrence satisfies its local obligation, then every
-occurrence satisfies its global obligation — in particular the entry. This discharges the
-composition: per-function correctness *given callees*, assembled along the acyclic graph by strong
-induction on the rank, yields whole-program correctness. Because it is a theorem, the local-to-global
-step cannot be circular or vacuous. -/
+If the call/inline graph is acyclic (ranked), the generated geometry holds, and every occurrence
+satisfies its **local trace** obligation, then every occurrence satisfies its **closed** obligation —
+in particular the entry's.
+
+Read the two ends: the premise is a family of `EnteredScopedTrace` proofs against admitted child
+summaries; the conclusion is a family of `ImplementsInstance` propositions, each an
+`EnteredFunctionTrace` confined to where that occurrence executes. The induction is on the generated
+rank, so each occurrence's callees are closed before it is, and their closed runs are what
+`summariesCompose_of_geometry` turns into the summaries its local proof spent. Nothing here
+rearranges already-global facts. -/
 theorem global_of_local {program : Program} {p : ContractParams} {rank : FunctionInstance → Nat}
-    (ranked : CallGraphRanked program rank)
-    (locals : ∀ instance_ ∈ program.instances, instanceLocalObligation p program instance_) :
-    ∀ instance_ ∈ program.instances, instanceObligation p instance_ := by
-  have key : ∀ n, ∀ inst, inst ∈ program.instances → rank inst = n → instanceObligation p inst := by
+    (ranked : CallGraphRanked program rank) (geom : ProgramGeometry program)
+    (locals : ∀ instance_ ∈ program.instances, instanceLocalTraceObligation p program instance_) :
+    ∀ instance_ ∈ program.instances, instanceObligation p program instance_ := by
+  have key : ∀ n, ∀ inst, inst ∈ program.instances → rank inst = n →
+      instanceObligation p program inst := by
     intro n
     induction n using Nat.strongRecOn with
     | ind n IH =>
       intro inst hinst hrank
-      refine locals inst hinst ?_
-      intro callee hcallee
-      have hmem : callee ∈ program.instances := calleeInstances_subset hcallee
-      have hlt : rank callee < n := hrank ▸ ranked inst hinst callee hcallee
-      exact IH (rank callee) hlt callee hmem rfl
+      have closed : ∀ callee ∈ calleeInstances program inst, instanceObligation p program callee := by
+        intro callee hcallee
+        have hmem : callee ∈ program.instances := calleeInstances_subset hcallee
+        have hlt : rank callee < n := hrank ▸ ranked inst hinst callee hcallee
+        exact IH (rank callee) hlt callee hmem rfl
+      have hlocal := locals inst hinst
+      unfold instanceLocalTraceObligation at hlocal
+      unfold instanceObligation
+      cases found : catalogEntryFor inst.id.function with
+      | none => rw [found] at hlocal; exact hlocal.elim
+      | some entry =>
+          rw [found] at hlocal
+          exact routineObligation_of_local (geom.ownedWithinExecution inst hinst)
+            (summariesCompose_of_geometry geom hinst)
+            (hlocal (childSummaryOf p program inst) (childSummariesAvailable_of_closed closed))
   intro inst hinst
   exact key (rank inst) inst hinst rfl
 
 /-- The explicit local-to-global composition obligation, non-circular.
 
-The entry is `zesu_decode_raw`; every callee edge resolves to an occurrence; the call graph is
-acyclic (some rank witnesses it); and **every occurrence satisfies its local obligation**. Via
-`global_of_local` these yield every occurrence's global obligation — the entry's included — without
-the entry's obligation ever appearing among its own premises. It also carries `catalogGroundsInSpec`,
-tying the entry contract to the public `SszSpec.decode`. -/
+The entry is `zesu_decode_raw`; every callee edge resolves to an occurrence or to a routine the
+extraction surfaced as excluded (which its caller absorbs); the call/inline graph is acyclic (some
+rank witnesses it); the generated geometry holds; and **every occurrence satisfies its local trace
+obligation**. Via `global_of_local` these yield every occurrence's closed obligation — the entry's
+included — without the entry's obligation ever appearing among its own premises. It also carries
+`catalogGroundsInSpec`, tying the entry contract to the public `SszSpec.decode`. -/
 def LocalToGlobal (program : Program) (p : ContractParams) : Prop :=
   program.entry.function = zesuDecodeRawFunctionId ∧
   (∀ instance_ ∈ program.instances, ∀ callee ∈ (instance_.children ++ instance_.externalCalls),
-      ∃ calleeInstance ∈ program.instances, calleeInstance.id = callee) ∧
+      (∃ calleeInstance ∈ program.instances, calleeInstance.id = callee) ∨
+        (∃ absorbed ∈ program.excluded, absorbed.id = callee)) ∧
   (∃ rank, CallGraphRanked program rank) ∧
-  (∀ instance_ ∈ program.instances, instanceLocalObligation p program instance_) ∧
+  ProgramGeometry program ∧
+  (∀ instance_ ∈ program.instances, instanceLocalTraceObligation p program instance_) ∧
   catalogGroundsInSpec
 
 /--
@@ -155,11 +320,11 @@ local-to-global composition (from which the per-instance dispatch is *derived* �
 `sszProgramCorrectness_perInstance` — rather than assumed). `IsCanonicalEnvironment` pins the
 environment so none of these can be trivialized.
 
-Note the container/`RawV4` result representations in `p` are still free parameters here; they are
-pinned to concrete ABI memory layouts in the containers row. The per-instance obligations are
-non-vacuous regardless, because `ImplementsInstance` demands an actual entered trace that reaches a
-generated exit with frame preservation — a trivial representation weakens the success arm but cannot
-make the obligation vacuous. -/
+The container/`RawV4` result representations in `p` are not free: `canonicalContractParams` fixes
+every one of them to the concrete ABI memory layout taken from the pinned artifact, so a proof can
+neither choose a convenient representation nor leave it open. The per-instance obligations are
+non-vacuous independently of that, because `ImplementsInstance` demands an actual entered trace that
+reaches a generated exit with frame preservation. -/
 def sszProgramCorrectness (program : Program) (p : ContractParams) : Prop :=
   IsCanonicalGeneratedProgram program ∧
   IsCanonicalEnvironment p.env ∧
@@ -174,10 +339,10 @@ entail that every live occurrence implements its contract; it is stronger than a
 per-instance obligation as a conjunct, because here it is proved from the compositional pieces. -/
 theorem sszProgramCorrectness_perInstance {program : Program} {p : ContractParams}
     (correct : sszProgramCorrectness program p) :
-    ∀ instance_ ∈ program.instances, instanceObligation p instance_ := by
+    ∀ instance_ ∈ program.instances, instanceObligation p program instance_ := by
   obtain ⟨_, _, _, _, _, ltg⟩ := correct
-  obtain ⟨_, _, ⟨_, hranked⟩, hlocals, _⟩ := ltg
-  exact global_of_local hranked hlocals
+  obtain ⟨_, _, ⟨_, hranked⟩, hgeom, hlocals, _⟩ := ltg
+  exact global_of_local hranked hgeom hlocals
 
 /-- Everything the root theorem depends on: program correctness for the **one concrete**
 `canonicalContractParams`, plus the two recorded binary/oracle divergences.
@@ -196,7 +361,7 @@ theorem instance_implements_its_contract
     (correct : sszProgramCorrectness program p)
     {instance_ : FunctionInstance} (mem : instance_ ∈ program.instances)
     {entry : CatalogEntry} (found : catalogEntryFor instance_.id.function = some entry) :
-    routineObligation p instance_ entry.tag := by
+    routineObligation p instance_ (instanceReachedPcs program instance_) entry.tag := by
   have h := sszProgramCorrectness_perInstance correct instance_ mem
   unfold instanceObligation at h
   rw [found] at h

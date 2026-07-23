@@ -1,4 +1,4 @@
-import BinaryFv.RiscV.Elfling.Contract
+import BinaryFv.RiscV.Elfling.FunctionTrace
 
 /-!
 # Checked boundaries and edge-aware scoped traces for Elfling occurrences
@@ -41,10 +41,16 @@ instructions are never dropped.
 
 Reconstructing an ordinary `FunctionTrace` from a `ScopedTrace` requires that each spliced summary
 really is a confined subtrace of the length the parent accounts for it. That fact — `SummariesCompose`
-— is stated as an explicit obligation and discharged, for a single child, by `FunctionTrace.append`.
-The generic composition theorem is then fully proved *given* it; deriving it for a concrete program
-(which child fires at which state) needs the decoder's successor data and lives above this generic
-layer.
+— is stated as an explicit obligation and discharged, for a single child, by
+`FunctionTrace.append_within`. The generic composition theorem is then fully proved *given* it;
+deriving it for a concrete program (which child fires at which state) needs the decoder's successor
+data and lives above this generic layer.
+
+*The reconstruction lands in the extent, not in the occupancy.* A scoped run retires its own steps
+inside the occurrence's owned addresses, but a callee's instructions are not the caller's, and a flat
+trace that claimed otherwise would be describing a run that does not exist. So
+`ScopedTrace.toFunctionTrace_within` takes the owned set and the enclosing *extent* separately: the
+scoped side stays strict, and only the reconstructed side admits the code the occurrence reaches.
 -/
 
 namespace BinaryFv.RiscV.Elfling
@@ -370,10 +376,14 @@ to `s'` in `used` steps and the parent then runs confined from `s'` (at step `fr
 real exit in `count` steps, the whole thing is a confined parent run of `used + count` steps.
 
 Because the summary now carries `used`, this obligation is over the summary's *own* consumed count, so
-it cannot be satisfied by a mismatched length. It is exactly the shape `FunctionTrace.append` produces
-for one child (see `summaryComposes_of_subtrace`): the child is a `FunctionTrace region mid used` whose
-local stop set `mid` contains every real exit, and appending the parent continuation yields a
+it cannot be satisfied by a mismatched length. It is the shape `FunctionTrace.append_within` produces
+for one child (see `summaryComposes_of_subtrace`): the child is a `FunctionTrace inner mid used`
+confined to its own address set, and appending the parent continuation yields a
 `FunctionTrace region exit (used + count)`.
+
+Note the `region` here is the one the *reconstructed* run is confined to. For a call it must be the
+caller's execution extent, not the caller's own regions: the callee's instructions are outside the
+caller's code and no honest reconstruction can pretend otherwise.
 -/
 def SummariesCompose (region exit : BitVec 64 → Prop)
     (childSummary : InstanceId → Nat → Nat → State → State → Prop) : Prop :=
@@ -384,59 +394,81 @@ def SummariesCompose (region exit : BitVec 64 → Prop)
 
 /--
 The canonical way to discharge one `SummariesCompose` step: a child that is itself a confined
-subtrace `FunctionTrace region mid used` — with `mid` containing every real `exit` — composes with any
-continuation to the real exits. This is just `FunctionTrace.append`, recorded here to name the
-mechanism that a program-specific proof plugs a child `Implements` into.
+subtrace `FunctionTrace inner mid used` — inside the reconstruction's address set, with every
+enclosing `exit` that lies in `inner` already stopping it — composes with any continuation to the
+real exits. This is `FunctionTrace.append_within`, recorded here to name the mechanism a
+program-specific proof plugs a child `Implements` into.
 -/
-theorem summaryComposes_of_subtrace {region mid exit : BitVec 64 → Prop}
-    (exitSubsetMid : ∀ pc, exit pc → mid pc)
+theorem summaryComposes_of_subtrace {inner region mid exit : BitVec 64 → Prop}
+    (innerSubset : ∀ pc, inner pc → region pc)
+    (outerExitsStopInner : ∀ pc, inner pc → exit pc → mid pc)
     {fromStep used count : Nat} {s s' s'' : State}
-    (child : FunctionTrace region mid fromStep used s s')
+    (child : FunctionTrace inner mid fromStep used s s')
     (cont : FunctionTrace region exit (fromStep + used) count s' s'') :
     FunctionTrace region exit fromStep (used + count) s s'' :=
-  FunctionTrace.append exitSubsetMid child cont
+  FunctionTrace.append_within innerSubset outerExitsStopInner child cont
 
 /-- A `ScopedTrace` collapses to an ordinary `FunctionTrace` once its child summaries are known to
-compose. The owned/exit constructors mirror `FunctionTrace` directly; each splice retires its
+compose — and the flat run it collapses to is confined to `outer`, the address set the *reconstructed*
+run occupies, which is larger than the `own` set the scoped run retires its own steps in.
+
+Keeping the two apart is what makes this usable. `own` is the occurrence's own code (plus whatever
+uncataloged routine it absorbs); a scoped `ownStep` may only retire an instruction there, so a local
+proof gains no freedom to wander into a callee. `outer` is the occurrence's execution extent; the
+callee's instructions genuinely execute, so the flat reconstruction has to admit them.
+
+The owned/exit constructors mirror `FunctionTrace` directly through `hsub`; each splice retires its
 boundary's transfer instruction(s) with `FunctionTrace.step` and discharges the spliced body with the
 `SummariesCompose` hypothesis. The step arithmetic lines up exactly because the splice count already
 counts the transfer instructions. -/
+theorem ScopedTrace.toFunctionTrace_within {own outer exit : BitVec 64 → Prop}
+    {childSummary : InstanceId → Nat → Nat → State → State → Prop}
+    (hsub : ∀ pc, own pc → outer pc)
+    (hcompose : SummariesCompose outer exit childSummary)
+    {fromStep count : Nat} {s s' : State}
+    (h : ScopedTrace own exit childSummary fromStep count s s') :
+    FunctionTrace outer exit fromStep count s s' := by
+  induction h with
+  | exitAt fromStep t pc hpc hexit => exact FunctionTrace.exitAt fromStep t pc hpc hexit
+  | ownStep fromStep count pc u u' u'' hpc hregion hnotExit hstep _ ih =>
+      exact FunctionTrace.step fromStep count pc u u' u'' hpc (hsub pc hregion) hnotExit hstep ih
+  | inlineStep fromStep used count ib inst childInst u uResume u'' htransfer _ ih =>
+      -- ih : FunctionTrace outer exit (fromStep + used + 1) count uResume u''
+      have outFt : FunctionTrace outer exit (fromStep + used) (count + 1) htransfer.sExit u'' :=
+        FunctionTrace.step (fromStep + used) count htransfer.childExitPc
+          htransfer.sExit uResume u''
+          htransfer.atExit (hsub _ htransfer.exitInRegion) htransfer.exitNotExit htransfer.doExit ih
+      have bodyFt : FunctionTrace outer exit fromStep (used + (count + 1)) u u'' :=
+        hcompose ib.child fromStep used (count + 1) u htransfer.sExit u'' htransfer.body outFt
+      have harith : used + 1 + count = used + (count + 1) := by omega
+      rw [harith]; exact bodyFt
+  | callStep fromStep used count cs inst callee u uResume u'' htransfer _ ih =>
+      -- ih : FunctionTrace outer exit (fromStep + 1 + used + 1) count uResume u''
+      have retFt : FunctionTrace outer exit (fromStep + 1 + used) (count + 1) htransfer.sRet u'' :=
+        FunctionTrace.step (fromStep + 1 + used) count htransfer.retPc
+          htransfer.sRet uResume u''
+          htransfer.atRet (hsub _ htransfer.retInRegion) htransfer.retNotExit htransfer.doReturn ih
+      have bodyFt :
+          FunctionTrace outer exit (fromStep + 1) (used + (count + 1)) htransfer.sCall u'' :=
+        hcompose cs.callee (fromStep + 1) used (count + 1) htransfer.sCall htransfer.sRet u''
+          htransfer.body retFt
+      have callFt : FunctionTrace outer exit fromStep (used + (count + 1) + 1) u u'' :=
+        FunctionTrace.step fromStep (used + (count + 1)) htransfer.callPc
+          u htransfer.sCall u''
+          htransfer.atCall (hsub _ htransfer.callInRegion) htransfer.callNotExit htransfer.doCall
+          bodyFt
+      have harith : 1 + used + 1 + count = used + (count + 1) + 1 := by omega
+      rw [harith]; exact callFt
+
+/-- The same-address-set case: a scoped run whose splices compose inside the very region it owns.
+This is the shape a leaf occurrence (no calls out of its own code) uses. -/
 theorem ScopedTrace.toFunctionTrace {region exit : BitVec 64 → Prop}
     {childSummary : InstanceId → Nat → Nat → State → State → Prop}
     (hcompose : SummariesCompose region exit childSummary)
     {fromStep count : Nat} {s s' : State}
     (h : ScopedTrace region exit childSummary fromStep count s s') :
-    FunctionTrace region exit fromStep count s s' := by
-  induction h with
-  | exitAt fromStep t pc hpc hexit => exact FunctionTrace.exitAt fromStep t pc hpc hexit
-  | ownStep fromStep count pc u u' u'' hpc hregion hnotExit hstep _ ih =>
-      exact FunctionTrace.step fromStep count pc u u' u'' hpc hregion hnotExit hstep ih
-  | inlineStep fromStep used count ib inst childInst u uResume u'' htransfer _ ih =>
-      -- ih : FunctionTrace region exit (fromStep + used + 1) count uResume u''
-      have outFt : FunctionTrace region exit (fromStep + used) (count + 1) htransfer.sExit u'' :=
-        FunctionTrace.step (fromStep + used) count htransfer.childExitPc
-          htransfer.sExit uResume u''
-          htransfer.atExit htransfer.exitInRegion htransfer.exitNotExit htransfer.doExit ih
-      have bodyFt : FunctionTrace region exit fromStep (used + (count + 1)) u u'' :=
-        hcompose ib.child fromStep used (count + 1) u htransfer.sExit u'' htransfer.body outFt
-      have harith : used + 1 + count = used + (count + 1) := by omega
-      rw [harith]; exact bodyFt
-  | callStep fromStep used count cs inst callee u uResume u'' htransfer _ ih =>
-      -- ih : FunctionTrace region exit (fromStep + 1 + used + 1) count uResume u''
-      have retFt : FunctionTrace region exit (fromStep + 1 + used) (count + 1) htransfer.sRet u'' :=
-        FunctionTrace.step (fromStep + 1 + used) count htransfer.retPc
-          htransfer.sRet uResume u''
-          htransfer.atRet htransfer.retInRegion htransfer.retNotExit htransfer.doReturn ih
-      have bodyFt :
-          FunctionTrace region exit (fromStep + 1) (used + (count + 1)) htransfer.sCall u'' :=
-        hcompose cs.callee (fromStep + 1) used (count + 1) htransfer.sCall htransfer.sRet u''
-          htransfer.body retFt
-      have callFt : FunctionTrace region exit fromStep (used + (count + 1) + 1) u u'' :=
-        FunctionTrace.step fromStep (used + (count + 1)) htransfer.callPc
-          u htransfer.sCall u''
-          htransfer.atCall htransfer.callInRegion htransfer.callNotExit htransfer.doCall bodyFt
-      have harith : 1 + used + 1 + count = used + (count + 1) + 1 := by omega
-      rw [harith]; exact callFt
+    FunctionTrace region exit fromStep count s s' :=
+  h.toFunctionTrace_within (fun _ hpc => hpc) hcompose
 
 /-- With no children admitted (`childSummary` uninhabited), a `ScopedTrace` is a `FunctionTrace`
 outright — no honest composition data is needed, because the splice constructors cannot fire. This is
@@ -448,64 +480,28 @@ theorem ScopedTrace.toFunctionTrace_of_noChildren {region exit : BitVec 64 → P
     FunctionTrace region exit fromStep count s s' :=
   h.toFunctionTrace (fun _ _ _ _ _ _ _ hbody _ => hbody.elim)
 
-/-- An `EnteredScopedTrace` becomes an `EnteredFunctionTrace` under the same composition obligation:
-the entry facts carry over verbatim and the underlying trace is collapsed by
-`ScopedTrace.toFunctionTrace`. -/
+/-- An `EnteredScopedTrace` becomes an `EnteredFunctionTrace` in the enclosing extent under the same
+composition obligation: the entry facts carry over (the entry pc is owned, hence in the extent) and
+the underlying trace is collapsed by `ScopedTrace.toFunctionTrace_within`. -/
+theorem EnteredScopedTrace.toEnteredFunctionTrace_within {own outer exit : BitVec 64 → Prop}
+    {childSummary : InstanceId → Nat → Nat → State → State → Prop} {entry : BitVec 64}
+    {fromStep count : Nat} {s s' : State}
+    (hsub : ∀ pc, own pc → outer pc)
+    (hcompose : SummariesCompose outer exit childSummary)
+    (h : EnteredScopedTrace own exit childSummary entry fromStep count s s') :
+    EnteredFunctionTrace outer exit entry fromStep count s s' :=
+  { startsAtEntry := h.startsAtEntry
+    entryInRegion := hsub entry h.entryInRegion
+    entryNotExit := h.entryNotExit
+    trace := h.trace.toFunctionTrace_within hsub hcompose }
+
+/-- The same-address-set case of `toEnteredFunctionTrace_within`. -/
 theorem EnteredScopedTrace.toEnteredFunctionTrace {region exit : BitVec 64 → Prop}
     {childSummary : InstanceId → Nat → Nat → State → State → Prop} {entry : BitVec 64}
     {fromStep count : Nat} {s s' : State}
     (hcompose : SummariesCompose region exit childSummary)
     (h : EnteredScopedTrace region exit childSummary entry fromStep count s s') :
     EnteredFunctionTrace region exit entry fromStep count s s' :=
-  { startsAtEntry := h.startsAtEntry
-    entryInRegion := h.entryInRegion
-    entryNotExit := h.entryNotExit
-    trace := h.trace.toFunctionTrace hcompose }
-
-/-! ## Local implementation and ranked composition
-
-`LocallyImplements` is `Implements` phrased against `ScopedTrace`: an occurrence implements its
-contract *given* abstract child/callee summaries. The point of the whole module is the discharge
-direction — once those summaries are real (`SummariesCompose`), a local implementation is a closed
-`Implements`. -/
-
-/--
-An occurrence implements its contract *relative to* admitted child/callee summaries.
-
-Identical to `Implements` except the confined run is an `EnteredScopedTrace`, so a proof may spend
-child summaries instead of re-executing inlined children and callees. This is the compositional unit:
-each occurrence is verified against summaries of the occurrences below it in the call/inline order.
--/
-def LocallyImplements {Error Args Result : Type}
-    (region exit : BitVec 64 → Prop) (entry : BitVec 64)
-    (childSummary : InstanceId → Nat → Nat → State → State → Prop)
-    (contract : FunctionContract Error Args Result) : Prop :=
-  ∀ (args : Args) (fromStep : Nat) (s : State),
-    contract.pre args s →
-      ∃ (count : Nat) (s' : State),
-        count ≤ contract.stepBound args ∧
-        EnteredScopedTrace region exit childSummary entry fromStep count s s' ∧
-        contract.post args (contract.meaning args) s s'
-
-/--
-Ranked composition, closed direction: a `LocallyImplements` whose admitted summaries genuinely compose
-(`SummariesCompose`) is a plain `Implements`.
-
-This is the lemma the whole boundary layer exists to serve: proving an occurrence against summaries of
-its children, then collapsing to an address-confined `Implements` once those summaries are discharged
-by the children's own proofs. It is fully proved here; the residual, program-specific obligation is
-supplying `SummariesCompose`, which `summaryComposes_of_subtrace` reduces to each child's
-`FunctionTrace`.
--/
-theorem LocallyImplements.toImplements {Error Args Result : Type}
-    {region exit : BitVec 64 → Prop} {entry : BitVec 64}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop}
-    {contract : FunctionContract Error Args Result}
-    (hcompose : SummariesCompose region exit childSummary)
-    (h : LocallyImplements region exit entry childSummary contract) :
-    Implements region exit entry contract := by
-  intro args fromStep s hpre
-  obtain ⟨count, s', hbound, hentered, hpost⟩ := h args fromStep s hpre
-  exact ⟨count, s', hbound, hentered.toEnteredFunctionTrace hcompose, hpost⟩
+  h.toEnteredFunctionTrace_within (fun _ hpc => hpc) hcompose
 
 end BinaryFv.RiscV.Elfling

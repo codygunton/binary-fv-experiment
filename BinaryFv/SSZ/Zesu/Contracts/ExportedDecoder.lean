@@ -284,9 +284,9 @@ def occurrenceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobals
 /-- The exported wrapper's correctness claim, at the fresh incoming model the root theorem uses. -/
 def correctnessClaimZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  OccurrenceContract.ImplementsInstance instance_ entry exit
+  OccurrenceContract.ImplementsInstance instance_ reached entry exit
     (occurrenceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
 
 /-- The exported wrapper's entry binding is satisfiable under a valid environment. -/

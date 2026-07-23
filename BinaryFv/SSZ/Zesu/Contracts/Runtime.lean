@@ -132,19 +132,19 @@ def contractMemmove (env : DecoderEnvironment) :
 -/
 
 def correctnessClaimAlloc (env : DecoderEnvironment) (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractAlloc env heap)
+  ImplementsInstance instance_ reached entry exit (contractAlloc env heap)
 
 def correctnessClaimMemcpy (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractMemcpy env)
+  ImplementsInstance instance_ reached entry exit (contractMemcpy env)
 
 def correctnessClaimMemmove (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractMemmove env)
+  ImplementsInstance instance_ reached entry exit (contractMemmove env)
 
 def satisfiableAlloc (env : DecoderEnvironment) (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractAlloc env heap)
@@ -201,15 +201,15 @@ def contractRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout
   stepBound := fun _ => 32
 
 def correctnessClaimRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractRawError env globals)
+  ImplementsInstance instance_ reached entry exit (contractRawError env globals)
 
 def correctnessClaimRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractRawResult env globals resultBuffer)
+  ImplementsInstance instance_ reached entry exit (contractRawResult env globals resultBuffer)
 
 def satisfiableRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractRawError env globals)
@@ -281,30 +281,30 @@ def contractAllocatorCtor (env : DecoderEnvironment) :
   stepBound := fun _ => 16
 
 def correctnessClaimAllocatorResize (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractAllocatorResize env)
+  ImplementsInstance instance_ reached entry exit (contractAllocatorResize env)
 
 def correctnessClaimAllocatorRemap (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractAllocatorRemap env)
+  ImplementsInstance instance_ reached entry exit (contractAllocatorRemap env)
 
 def correctnessClaimAllocatorFree (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractAllocatorFree env)
+  ImplementsInstance instance_ reached entry exit (contractAllocatorFree env)
 
 def correctnessClaimAllocatorAlloc (env : DecoderEnvironment)
     (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractAllocatorAlloc env heap)
+  ImplementsInstance instance_ reached entry exit (contractAllocatorAlloc env heap)
 
 def correctnessClaimAllocatorCtor (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractAllocatorCtor env)
+  ImplementsInstance instance_ reached entry exit (contractAllocatorCtor env)
 
 def satisfiableAllocatorResize (env : DecoderEnvironment) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractAllocatorResize env)
