@@ -103,6 +103,26 @@ theorem no_gating_failures :
       r.withinStepBound != some false && r.meaningTie != some false) = true := by
   native_decide
 
+/-- **Step bounds hold on every covered occurrence except the one documented gap.** occurrence 134
+(`requireCanonicalOffsets`) is the sole covered occurrence whose contract bound is an explicit gap — its
+`offsets.length` argument is caller-passed, not present in the occurrence's own input-buffer reads (the
+required interface change is recorded in the catalog / coverage report). Every OTHER covered occurrence
+passes `withinStepBound`, including the input-dependent bounds resolved via sound lower bounds on their
+argument. Kernel-checked; Row C's step-bound conclusion excludes occurrence 134 by construction. -/
+theorem step_bounds_hold_except_documented_gap :
+    allOccs.all (fun p =>
+      let ev := p.1
+      !ev.covered || ev.index == 134 || (evaluateOcc ev).withinStepBound == some true) = true := by
+  native_decide
+
+/-- The uncovered occurrences (allocatorRemap 123 / allocatorResize 135 / zesu_raw_error 137, each
+STATICALLY classified as unreachable in this ELF's control flow — see `UNCOVERED_CLASSIFICATION.md`) are
+exactly the occurrences the checker reports as not covered; every OTHER occurrence is covered and carries
+concrete per-occurrence evidence. Row C's coverage conclusion excludes precisely these three. -/
+theorem uncovered_are_exactly_the_statically_dead :
+    allOccs.all (fun p => p.1.covered == (p.1.index != 123 && p.1.index != 135 && p.1.index != 137))
+      = true := by native_decide
+
 /-!
 ## Negative tests — mutating a covered occurrence's evidence must flip the responsible check. The
 sampled occurrence is 116 (`decodeOptionalBlobSchedule`), the vertical-slice occurrence, located in
