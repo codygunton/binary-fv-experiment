@@ -101,6 +101,28 @@ def readFileByte? (image : ProgramImage) (address : Nat) : Option UInt8 :=
   | some segment => segment.readFileByte? address
   | none => none
 
+/-- A file-backed address lies inside one segment's file-backed window
+`[virtualAddress, initialEndAddress)`. The file-byte companion to `readByte?_mem_segment`: stated
+generically, so a proof about a concrete image bounds its file addresses without unfolding the parsed
+segment data — the intended use is to confine `fileBytesMatchMemory`'s addresses below a runner range
+so a later loader's frame preserves them. -/
+theorem readFileByte?_mem_segment {image : ProgramImage} {address : Nat} {byte : UInt8}
+    (h : image.readFileByte? address = some byte) :
+    ∃ segment ∈ image.segments.toList,
+      segment.virtualAddress ≤ address ∧ address < segment.initialEndAddress := by
+  unfold readFileByte? at h
+  cases hfind : image.fileSegmentAt? address with
+  | none => rw [hfind] at h; exact absurd h (by simp)
+  | some segment =>
+      have hfind' : image.segments.toList.find?
+          (fun segment => segment.containsInitialByte address) = some segment := hfind
+      have hmem : segment ∈ image.segments.toList :=
+        List.mem_of_find?_eq_some (p := fun s : LoadSegment => s.containsInitialByte address) hfind'
+      have hcontains : segment.containsInitialByte address = true :=
+        List.find?_some (p := fun s : LoadSegment => s.containsInitialByte address) hfind'
+      rw [LoadSegment.containsInitialByte, decide_eq_true_eq] at hcontains
+      exact ⟨segment, hmem, hcontains.1, hcontains.2⟩
+
 def readNatLE? (image : ProgramImage) (address : Nat) : Nat → Option Nat
   | 0 => some 0
   | width + 1 => do
