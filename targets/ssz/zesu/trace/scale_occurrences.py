@@ -93,30 +93,54 @@ def parse_trace(path: Path):
     return executed, loads, stores
 
 
-def step_bound_for(short: str, occ, catalog):
-    """Resolve a concrete numeric step bound for an occurrence, or None if input-dependent/unknown.
-    readArray's `32 + 4*length` is fixed per-occurrence by its comptime element width (specialization)."""
+def step_bound_for(short: str, occ, catalog, arglb: dict):
+    """Resolve a CONCRETE numeric step bound for an occurrence, or None (an explicit gap) if the
+    contract argument is not observable from the occurrence's own trace.
+
+    Input-dependent contract bounds have the shape `bound(arg) = C + K*(arg//D + E)`, monotonic
+    non-decreasing in `arg`. Verifying `maxInsn <= bound(actualArg)` needs a value of `arg`, but a
+    SOUND LOWER bound `argLB <= actualArg` suffices: since `bound` is non-decreasing,
+    `bound(argLB) <= bound(actualArg)`, so `maxInsn <= bound(argLB)` implies `maxInsn <= bound(actualArg)`.
+    The sound lower bounds (in `arglb`):
+      inputLen   the whole-input byte length (entry routines: their slice IS the whole input — exact);
+      inputBytes the count of distinct in-region input-buffer bytes the occurrence read (a decoder reads
+                 only within its own slice, so this is <= the slice length);
+      copyLen    the in-region store count (memcpy/memmove store <= `length` bytes, one chunk per store).
+    `unobservable` args (e.g. requireCanonicalOffsets' caller-passed offsets.length) stay explicit gaps.
+    readArray's `32 + 4*width` is fixed per-occurrence by its comptime element width (specialization)."""
     meta = catalog.get(short)
     if not meta:
-        return None, "no catalog entry"
+        return None, "no catalog entry", None
     sb = meta["stepBound"]
     if "const" in sb:
-        return sb["const"], None
+        return sb["const"], None, {"kind": "const"}
     if short == "readArray":
         spec = occ.get("specialization") or []
         if spec and str(spec[0]).isdigit():
             width = int(spec[0])
-            return 32 + 4 * width, None
-        return None, "readArray width not in specialization"
+            return 32 + 4 * width, None, {"kind": "readArray", "width": width}
+        return None, "readArray width not in specialization", None
+    form = meta.get("stepBoundForm")
+    if form:
+        src = form["arg"]
+        if src == "unobservable":
+            return None, "input-dependent bound; argument not observable: " + form.get("interfaceNote", ""), None
+        argv = arglb.get(src)
+        if argv is None:
+            return None, f"input-dependent bound; {src} not available", None
+        C, K, D, E = form["C"], form["K"], form["D"], form["E"]
+        bound = C + K * (argv // D + E)
+        return bound, None, {"kind": "form", "C": C, "K": K, "D": D, "E": E,
+                             "arg": src, "argLB": argv, "bound": bound}
     if "inputDependent" in sb:
-        return None, f"input-dependent bound: {sb['inputDependent']}"
-    return None, sb.get("unknown", "unknown bound")
+        return None, f"input-dependent bound: {sb['inputDependent']}", None
+    return None, sb.get("unknown", "unknown bound"), None
 
 
 STORE_SUMMARY_TIES = {"raw"}  # memcpy/memmove: summarize the (large) destination-buffer write set
 
 
-def reduce_occurrence(occ, short, catalog, executed, loads, stores):
+def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0):
     """Extract the COMPACT, deterministic per-occurrence facts the checker consumes — observed facts
     only; the expected binding/bound/layout live in the checker. This is the reduction that BOTH the
     Python oracle (`evaluate_facts`) and the generated Lean checker evaluate identically."""
@@ -165,10 +189,6 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores):
     f["offBlockLandings"] = sorted(t for t in land_targets if t not in bs_set)
     f["outOfRegionTargets"] = sorted(out_targets)
 
-    bound, reason = step_bound_for(short, occ, catalog)
-    f["stepBound"] = bound
-    f["stepBoundGap"] = None if bound is not None else reason
-
     tie = f["meaningTieKind"]
 
     # Classify every in-region store with its OWN recorded sp. Stack addresses are environment-dependent
@@ -198,11 +218,26 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores):
         f["inRegionStores"] = sorted(set(nonstack))
 
     # meaning-tie witness: a value the routine both LOADED from input and STORED (scalar carried through).
-    in_load_vals = sorted({v for (pc, addr, w, v) in loads if in_region(pc) and INPUT[0] <= addr < INPUT[1]})
+    in_input_loads = [(addr, v) for (pc, addr, w, v) in loads if in_region(pc) and INPUT[0] <= addr < INPUT[1]]
+    in_load_vals = sorted({v for (_, v) in in_input_loads})
     store_vals = {v for (pc, addr, w, v, sp) in stores if in_region(pc)}
     f["inputLoadVals"] = in_load_vals
     f["storeHasInputPtr"] = any(INPUT[0] <= v < INPUT[1] for v in store_vals)
     f["scalarCarried"] = any(v in store_vals for v in in_load_vals)
+
+    # Step bound: resolve the (possibly input-dependent) contract bound to a concrete number using SOUND
+    # lower bounds on its argument (see step_bound_for). inputBytes = distinct in-region input bytes read
+    # (<= the routine's slice length); copyLen = in-region store count (<= bytes copied); inputLen = the
+    # whole-input length (entry routines). requireCanonicalOffsets' offsets.length is unobservable -> gap.
+    arglb = {
+        "inputLen": input_len,
+        "inputBytes": len({addr for (addr, _) in in_input_loads}),
+        "copyLen": f["storeCount"],
+    }
+    bound, reason, deriv = step_bound_for(short, occ, catalog, arglb)
+    f["stepBound"] = bound
+    f["stepBoundGap"] = None if bound is not None else reason
+    f["stepBoundDeriv"] = deriv
     return f
 
 
@@ -334,15 +369,19 @@ def occ_to_lean(rec) -> str:
     return f"  (\n    {ev},\n    {ck})"
 
 
-# Documented reasons for occurrences that no practical input exercises (verified: 6 varied inputs —
-# truncated / empty / bad-offset / big-collections — reach none of these PCs). Explicit gaps, not passes.
+# Occurrences no input exercises, each STATICALLY classified as unreachable in this ELF's control flow
+# (see classify_uncovered.py / UNCOVERED_CLASSIFICATION.md — a CFG proof, not "N test runs missed it").
 DOCUMENTED_UNCOVERED = {
-    "allocatorRemap": "std.mem.Allocator remap slot: the bump allocator makes exact-size allocations and "
-                      "never grows, so remap is never invoked on any input (dead in this decoder).",
-    "allocatorResize": "std.mem.Allocator resize slot: exact-size bump allocations never grow, so resize "
-                       "is never invoked on any input (dead in this decoder).",
-    "zesu_raw_error": "this error-emit site is not on the reject path any tested malformation takes "
-                      "(rejections return via a different path); left as an explicit coverage gap.",
+    "allocatorRemap": "std.mem.Allocator remap slot (vtable+16); STATIC: the vtable is indexed only at "
+                      "offsets 0 (alloc) and 24 (free) by any indirect call and no direct jal targets it, "
+                      "so the decoder never calls allocator.remap (exact-size bump allocations never grow).",
+    "allocatorResize": "std.mem.Allocator resize slot (vtable+8); STATIC: the vtable is never indexed at "
+                       "offset 8 by any indirect call and no direct jal targets it, so the decoder never "
+                       "calls allocator.resize.",
+    "zesu_raw_error": "exported raw-ABI error getter (auipc/lw/ret); STATIC: no jal/jalr/data pointer in "
+                      "the binary references its entry, so the sealed _start harness never calls it (it "
+                      "discriminates success/failure via zesu_raw_result's null return). No callable ABI "
+                      "surface on the sealed executable to invoke it without relinking (forbidden).",
 }
 
 
@@ -358,6 +397,18 @@ def emit_report(records, summary) -> str:
          "`zesu-ssz` ELF under pinned `qemu-riscv64`. Diagnostic-only; never imported by the proof.",
          "Coverage is PER OCCURRENCE (never inherited from a sibling of the same routine). `P`=pass,",
          "`F`=fail, `-`=explicit gap (never counted as a pass).",
+         "",
+         "**Step bounds**: input-dependent contract bounds `C + K*(arg//D + E)` are resolved to a concrete",
+         "number using a SOUND LOWER bound on `arg` (whole-input length for entry routines; distinct",
+         "in-region input bytes read — <= the slice length — for containers/collections; in-region store",
+         "count — <= bytes copied — for memcpy/memmove). Since the bound is monotonic, `maxInsn <=`",
+         "`bound(argLB)` implies `maxInsn <= bound(actualArg)`. `requireCanonicalOffsets` is the one",
+         "unresolved bound (its `offsets.length` is a caller-passed argument, not in the occurrence's",
+         "input reads) — an explicit gap with the required interface change noted below.",
+         "",
+         "**Uncovered occurrences** are STATICALLY classified as unreachable in this ELF's control flow",
+         "(`UNCOVERED_CLASSIFICATION.md` / `classify_uncovered.py`), not merely untested. Row C's",
+         "conclusions exclude them and the one unresolved step bound.",
          "",
          f"**{summary['covered']}/{summary['occurrences']} occurrences covered** by the present /",
          "malformed / absent arms. Per-check totals:",
@@ -447,8 +498,9 @@ def main() -> int:
         if chosen is None:
             facts = reduce_occurrence(o, short, catalog, [], [], [])  # covered=False
         else:
-            (executed, loads, stores), _, _ = arm_traces[chosen]
-            facts = reduce_occurrence(o, short, catalog, executed, loads, stores)
+            (executed, loads, stores), _, ipath = arm_traces[chosen]
+            input_len = Path(ipath).stat().st_size
+            facts = reduce_occurrence(o, short, catalog, executed, loads, stores, input_len)
         checks, gaps = evaluate_facts(facts)
         records.append({
             "index": idx, "qualified": o["qualified"], "routine": short,

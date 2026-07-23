@@ -949,10 +949,12 @@ let
       fixtures = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
       committedEvidence = builtins.path { path = repo + "/BinaryFv/SSZ/Zesu/Validation/GeneratedScaleEvidence.lean"; name = "GeneratedScaleEvidence.lean"; };
       committedReport = builtins.path { path = repo + "/targets/ssz/zesu/trace/SCALE_COVERAGE.md"; name = "SCALE_COVERAGE.md"; };
+      committedClassification = builtins.path { path = repo + "/targets/ssz/zesu/trace/UNCOVERED_CLASSIFICATION.md"; name = "UNCOVERED_CLASSIFICATION.md"; };
     in
     pkgs.runCommand "ssz-scale-occurrence-evidence" {
       nativeBuildInputs = [
         pkgs.python3 pkgs.gcc pkgs.util-linux pkgs.qemu-user pkgs.glib pkgs.pkg-config pkgs.coreutils
+        riscvBinutils
       ];
     } ''
       set -euo pipefail
@@ -996,6 +998,17 @@ let
       cmp -s "$out/SCALE_COVERAGE.md" ${committedReport} \
         || { echo "DRIFT: committed SCALE_COVERAGE.md differs from a fresh production capture" >&2; \
              diff "$out/SCALE_COVERAGE.md" ${committedReport} | head -40 >&2; exit 1; }
+
+      # STATIC classification of the uncovered occurrences (CFG reachability on the unchanged ELF):
+      # asserts allocatorResize/Remap and zesu_raw_error are provably unreachable in this executable's
+      # control flow (exit != 0 if any becomes invocable), and drift-checks the committed classification.
+      python3 trace/classify_uncovered.py \
+        --objdump ${riscvObjdump} --elf ${zesuSsz}/bin/zesu-ssz \
+        --program ${elflingProgram}/program.json \
+        --out-json "$out/uncovered-classification.json" --out-md "$out/UNCOVERED_CLASSIFICATION.md"
+      cmp -s "$out/UNCOVERED_CLASSIFICATION.md" ${committedClassification} \
+        || { echo "DRIFT: committed UNCOVERED_CLASSIFICATION.md differs from a fresh static analysis" >&2; \
+             diff "$out/UNCOVERED_CLASSIFICATION.md" ${committedClassification} | head -40 >&2; exit 1; }
       python3 - "$out/coverage.json" <<'PY' | tee "$out/summary.txt"
       import json, sys
       s = json.load(open(sys.argv[1]))["summary"]
