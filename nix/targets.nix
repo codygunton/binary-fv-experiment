@@ -731,9 +731,10 @@ let
 
   # Row C: deterministically capture the decodeOptionalBlobSchedule occurrence evidence from the
   # UNCHANGED production ELF (pinned qemu-riscv64 plugin trace + batch GDB), reduce it to the compact
-  # form, and regenerate the Lean evidence module. The ELF is never rebuilt/patched. `setarch -R` +
-  # the fixed nix-sandbox process image make every recorded address deterministic, so the emitted
-  # module is reproducible; `sszBinaryEvidenceCheck` compares it to the committed one for drift.
+  # form, and regenerate the Lean evidence module. The ELF is never rebuilt/patched. Fixed guest
+  # addresses remain exact; stack addresses are normalized relative to entry SP because their absolute
+  # base can differ across hosts. The emitted module is therefore reproducible, and the drift check
+  # compares it to the committed one.
   sszBinaryEvidence =
     let
       trace = builtins.path { path = repo + "/targets/ssz/zesu/trace"; name = "ssz-trace-tools"; };
@@ -774,6 +775,10 @@ let
         --elf ${zesuSsz}/bin/zesu-ssz --program-json ${elflingProgram}/program.json \
         --present present.bin --absent absent.bin --malformed malformed.bin --scratch scratch \
         --out-json "$out/evidence.json" --out-lean "$out/GeneratedBinaryEvidence.lean"
+      python3 trace/negative_tests.py \
+        --qemu ${qemuRiscv64} --gdb ${pkgs.gdb}/bin/gdb --plugin trace/qemu_trace_plugin.so \
+        --elf ${zesuSsz}/bin/zesu-ssz --program-json ${elflingProgram}/program.json \
+        --present present.bin --scratch negative-scratch
 
       # Drift: the committed generated evidence module (native_decide-checked by the proof.nix Row C
       # lane) must byte-equal what a fresh capture of the unchanged ELF produces, so the Lean checker

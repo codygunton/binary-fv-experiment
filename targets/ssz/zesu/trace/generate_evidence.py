@@ -9,8 +9,10 @@ plugin trace + batch GDB), runs the Python oracle over it, and emits:
                      diagnostic checker consumes.
 
 Only observed, reduced facts go into the evidence (executed-PC/edge summary, in-region stores, input
-byte loads, entry sp/a0). The evidence is compact and deterministic, so it is committed and drift-checked
-rather than shipping the raw multi-MB trace. Diagnostic-only; never imported by the proof.
+byte loads, entry sp/a0). Fixed guest addresses stay exact; host-selected stack addresses are
+serialized as offsets from a stable synthetic SP, preserving the checked frame relations across
+hosts. The evidence is compact and deterministic, so it is committed and drift-checked rather than
+shipping the raw multi-MB trace. Diagnostic-only; never imported by the proof.
 """
 from __future__ import annotations
 
