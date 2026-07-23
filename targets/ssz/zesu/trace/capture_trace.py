@@ -2,10 +2,11 @@
 """Row C: capture a deterministic execution trace of the UNCHANGED production RV64 `zesu-ssz` ELF.
 
 Runs the pinned `qemu-riscv64` (user mode) with the pinned `qemu_trace_plugin.so` over an SSZ input fed
-on stdin, and writes the plugin's `(pc | pc,addr,width,value)` trace to `--out`. `setarch -R` disables
-host ASLR so the guest stack base — and therefore every recorded address — is stable across runs; the
-code/input/heap are static (`-no-pie`, static globals) and already fixed. The ELF is never rebuilt,
-relinked, patched, or instrumented: the plugin only observes.
+on stdin, and writes the plugin's `(pc | pc,addr,width,value)` trace to `--out`. `setarch -R`
+stabilizes repeated captures on one host; the reducer normalizes stack addresses relative to entry SP
+because absolute guest-stack placement can still differ across hosts. Code/input/heap addresses are
+static (`-no-pie`, static globals) and remain exact. The ELF is never rebuilt, relinked, patched, or
+instrumented: the plugin only observes.
 
 An optional `[--lo, --hi)` PC window keeps a vertical-slice trace small. The ELF's own stdout
 (`ok <checksum>` / `invalid`) is written to `--elf-stdout` if given, else discarded; the process exit
