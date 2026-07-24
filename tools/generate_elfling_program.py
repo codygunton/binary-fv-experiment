@@ -1253,7 +1253,8 @@ def main():
     # callees are not "called"). Resolve each deepest-owned call site to the callee's emitted identity.
     entry_to_callee = {}
     for i, function_instance in enumerate(function_instances_sorted):
-        if function_instance["kind"] == "emitted": entry_to_callee.setdefault(function_instance["entryPc"], ("function_instances", i))
+        if function_instance["kind"] == "emitted":
+            entry_to_callee.setdefault(function_instance["entryPc"], ("function_instance", i))
     for j, x in enumerate(excluded_sorted):
         entry_to_callee.setdefault(x["entryPc"], ("excl", j))
     for i, function_instance in enumerate(function_instances_sorted):
@@ -1335,7 +1336,7 @@ def defect_lean(d):
         return f'AttributionDefect.unmappedRegion {{ start := {r["start"]}, size := {r["size"]} }}'
     if k == "overlappingOwnership":
         return (f'AttributionDefect.overlappingOwnership {d["address"]} '
-                f'function_instances{d["firstIdx"]}Id function_instances{d["secondIdx"]}Id')
+                f'functionInstance{d["firstIdx"]}Id functionInstance{d["secondIdx"]}Id')
     if k == "uncovered":
         return f'AttributionDefect.uncovered {d["address"]}'
     raise SystemExit(f"defect_lean: unknown defect kind {k!r}")
@@ -1355,7 +1356,7 @@ def excl_id_lean(x):
 
 def callee_ref(c):
     kind, idx = c
-    return f'function_instances{idx}Id' if kind == "function_instances" else f'excl{idx}Id'
+    return f'functionInstance{idx}Id' if kind == "function_instance" else f'excl{idx}Id'
 
 def blocks_lean(function_instance):
     return "#[" + ", ".join(f'{{ range := {{ start := {b["start"]}, size := {b["size"]} }} }}'
@@ -1395,8 +1396,8 @@ def emit_lean(p):
     L.append("/-! ### FunctionInstance instances (address-bearing). -/")
     for i, function_instance in enumerate(p["function_instances"]):
         regions = "#[" + ", ".join(f'{{ start := {r["start"]}, size := {r["size"]} }}' for r in function_instance["regions"]) + "]"
-        parent = "none" if function_instance["parentIdx"] is None else f'some function_instances{function_instance["parentIdx"]}Id'
-        children = "#[" + ", ".join(f'function_instances{c}Id' for c in function_instance["children"]) + "]"
+        parent = "none" if function_instance["parentIdx"] is None else f'some functionInstance{function_instance["parentIdx"]}Id'
+        children = "#[" + ", ".join(f'functionInstance{c}Id' for c in function_instance["children"]) + "]"
         exits = "#[" + ", ".join(str(e) for e in function_instance["exits"]) + "]"
         extcalls = "#[" + ", ".join(callee_ref(c) for c in function_instance["externalCalls"]) + "]"
         L.append(f'/-- function_instances {i}: {function_instance["qualified"]}{("["+",".join(function_instance["specialization"])+"]") if function_instance["specialization"] else ""}'
@@ -1408,19 +1409,19 @@ def emit_lean(p):
         L.append(f'    declProvenance := {{ sourceFileHash := {lean_str(function_instance["sourceFileHash"])}, declSpan := {{ line := {function_instance["declLine"]}, column := 1 }} }},')
         L.append(f'    provenance := {prov(function_instance)}, symbol? := none }}')
         L.append("")
-    L.append("/-- Every generated function_instance. -/")
-    L.append("def generatedInstances : Array FunctionInstance :=")
+    L.append("/-- Every generated function instance. -/")
+    L.append("def generatedFunctionInstances : Array FunctionInstance :=")
     L.append("  #[" + ", ".join(f'functionInstance{i}' for i in range(len(p["function_instances"]))) + "]")
     L.append("")
     ei = p["entryIndex"]
-    L.append(f'/-- The complete generated program: entry `zesu_decode_raw` (function_instances {ei}), all reachable')
-    L.append("    function_instances, and the surfaced attribution defects. -/")
+    L.append(f'/-- The complete generated program: entry `zesu_decode_raw` (function instance {ei}), all reachable')
+    L.append("    function instances, and the surfaced attribution defects. -/")
     # Authoritative: the emitted defect list is exactly the generator's, never a hardcoded `#[]`. The
     # derivation additionally FAILS when this list is nonempty, so in a released program it is `#[]`
     # because there were no defects — not because emission discarded them.
     defects = "#[" + ", ".join(defect_lean(d) for d in p["defects"]) + "]"
     L.append("def generatedProgram : Program :=")
-    L.append(f'  {{ entry := function_instances{ei}Id, instances := generatedInstances, defects := {defects},')
+    L.append(f'  {{ entry := functionInstance{ei}Id, functionInstances := generatedFunctionInstances, defects := {defects},')
     L.append(f'    provenance := {prov(p["function_instances"][ei])} }}')
     L.append("")
     # Reachable-but-excluded taxonomy (auditable data the reachable-partition proof consumes).

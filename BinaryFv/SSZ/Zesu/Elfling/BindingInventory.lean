@@ -424,7 +424,7 @@ def emittedAbis : List (Nat × List (String × String × Int × Int)) :=
    (139, [("dst", "reg", 10, 0), ("src", "reg", 11, 0), ("n", "reg", 12, 0)]),
    (140, [("dst", "reg", 10, 0), ("src", "reg", 11, 0), ("n", "reg", 12, 0)])]
 
-theorem emitted_function instance_count : emittedAbis.length = 14 := by native_decide
+theorem emitted_function_instance_count : emittedAbis.length = 14 := by native_decide
 
 /-- **Every emitted function instance's ABI is pinned exactly.** Mutating a register, dropping a parameter,
 or adding one to any of the 14 fails `native_decide`. -/
@@ -444,7 +444,7 @@ theorem memmove_n_recovers_to_memcpy_abi :
 def boundFunctionInstanceCount : Nat :=
   (List.range 141).countP fun i => !(functionInstanceParams i).isEmpty
 
-theorem bound_function instance_count : boundFunctionInstanceCount = 117 := by native_decide
+theorem bound_function_instance_count : boundFunctionInstanceCount = 117 := by native_decide
 
 /-- The 31 function instances with no parameters (allocator/accessor bodies, memory-slice-input decoders,
 etc.). Listed explicitly so a silently-dropped binding cannot masquerade as a paramless functionInstance. -/
