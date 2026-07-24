@@ -146,7 +146,7 @@ theorem buildZesuEntryState_entry_binding (input : ByteArray) :
     (hframe6 a (Or.inr (by omega))).trans ((hframe5 a (Or.inr (by omega))).trans
       (hframe4 a (Or.inr (by omega))))
   -- File bytes are below every runner range, the zeroed stack included, so they survive all of them.
-  have hstackBase : (86028 : Nat) ≤ canonicalRunnerLayout.stackBase := by native_decide
+  have hstackBase : (86028 : Nat) ≤ canonicalRunnerLayout.stackBase := by decide
   have hmem_low : ∀ a, a < 86028 → s6.mem.get? a = s2.mem.get? a := fun a ha =>
     (hframe6 a (Or.inl (by omega))).trans ((hframe5 a (Or.inl (by omega))).trans
       ((hframe4 a (Or.inl (by omega))).trans ((hframe3 a (Or.inl (by omega))).trans
