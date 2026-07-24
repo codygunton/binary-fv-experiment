@@ -759,4 +759,51 @@ theorem catalogSemanticObligations_of_oracleAgreement
     meaningEmptyIsNone_holds, twentyFourIsSome, meaningOtherLengthIsInvalid_holds,
     meaningNeverForkOrMemory_holds⟩
 
+/-! ## The fork-ordering divergence
+
+`forkErrorOrderingDiffers` is one half of `knownDivergences`. It is an existential, so it needs a
+witness and both of the witness's facts.
+
+**Why the oracle half is not the `decodeCanonical_eq` cascade.** Rewriting with `decodeCanonical_eq`
+works and leaves a `match` on `forkConfigType.deserialize`, which is where it stops: reducing that
+needs upstream's `extractFieldOffsets`, and that definition is `private` in the pinned
+`Spec/Deserialize.lean` — the same obstacle as `extractCollOffsets`, one definition over. `rfl` and
+`decide` do not reach it either, since `deserialize` is well-founded rather than structural, so the
+kernel gets no unfolding from it.
+
+**Axioms, and why this costs nothing.** `native_decide` puts `Lean.ofReduceBool` and
+`Lean.trustCompiler` on this theorem. `BinaryFv.SSZ.binary_is_canonical` — and so `root_compliance` —
+already depends on both, from the pinned-artifact facts, so the root's trust class is unchanged.
+`catalogSemanticObligations_of_oracleAgreement` is a separate declaration and stays clean. If the
+`extractCollOffsets` shim lands and is widened to `extractFieldOffsets`, this becomes provable by
+reduction and the axioms can be dropped. -/
+
+/-- The witness: fork `21`, one past the last known fork, with both offsets equal to the
+fixed-section size `16`.
+
+Both facts the divergence needs come from that one choice. The offset table is canonical, so
+`meaningForkConfig` gets past `requireCanonicalOffsets` and stops at the fork bound, which is the
+whole point — the binary rejects *before* looking at the children. And the offsets being `16` in a
+16-byte buffer leaves the activation slice empty, which is what makes the oracle reject too, since it
+decodes the children first and a variable-field container cannot be empty. -/
+def forkOrderingWitness : ByteArray := ⟨#[21, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0]⟩
+
+/-- The binary's side: `unknownFork`, raised before any child is decoded. -/
+theorem meaningForkConfig_forkOrderingWitness :
+    meaningForkConfig forkOrderingWitness = .error .unknownFork := by
+  rfl
+
+/-- The oracle's side: a structural rejection, having never reached the fork bound. -/
+theorem decodeCanonical_forkOrderingWitness :
+    (SszBridge.decodeCanonical SszBridge.forkConfigType forkOrderingWitness).toOption = none := by
+  have h : (SszBridge.decodeCanonical SszBridge.forkConfigType forkOrderingWitness).toOption.isNone
+      = true := by native_decide
+  simpa using h
+
+/-- **The two reject the same input with different errors.** Both still reject, which is all
+`root_compliance` observes — naming this is what stops a container contract from claiming the error
+constructors agree. -/
+theorem forkErrorOrderingDiffers_holds : forkErrorOrderingDiffers :=
+  ⟨forkOrderingWitness, meaningForkConfig_forkOrderingWitness, decodeCanonical_forkOrderingWitness⟩
+
 end BinaryFv.SSZ.Zesu.Contracts
