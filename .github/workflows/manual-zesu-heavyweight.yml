@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: DeterminateSystems/determinate-nix-action@v3
       # Extended tier: rebuild the full theorem graph (which includes the Row C diagnostic lane) and
-      # re-capture the blob-schedule + all-141-occurrence evidence and the static classification from the
+      # re-capture the blob-schedule + all-141-function-instance evidence and the static classification from the
       # UNCHANGED ELF, drift-checking every committed artifact. A deeper, independent gate than the
       # required-lightweight run.
       - name: Full Lean proof (with the Row C diagnostic lane)
