@@ -66,7 +66,7 @@ theorem exclusions_all_classified : exclusionsAllClassified = true := by native_
 /-- (5) `sszProgramCorrectness` genuinely references the per-function-instance implementation predicate:
 program correctness entails that the function instance at any cataloged identity implements its routine's
 `correctnessClaim`. Ordinary kernel proof, no artifact trust. -/
-theorem program_correctness_references_per_instance
+theorem program_correctness_references_per_function_instance
     {program : Program} {p : ContractParams}
     (correct : sszProgramCorrectness program p)
     {functionInstance : FunctionInstance} (mem : functionInstance ∈ program.functionInstances)
