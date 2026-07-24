@@ -1,26 +1,63 @@
 # Elfling proof layer
 
-Elfling connects a compiled RISC-V program to readable, function-shaped Lean proofs. The extractor
-finds each emitted or inlined function occurrence in the binary and records its instructions,
-control-flow edges, children, calls, and exits. Lean checks that generated description before using
-it in a proof.
+Elfling turns a compiled RISC-V binary back into units that can carry readable, function-shaped
+proofs. The compiler may emit one source function as a callable body, copy it into several callers,
+split its instructions into separate address ranges, or do all three. Elfling records those compiled
+appearances without pretending that compiler output still has a one-function/one-address-range shape.
 
-If you are new to this directory, read the files in this order:
+## The basic model
 
-1. [`BinaryFv/Binary/Elfling/Instance.lean`](../../Binary/Elfling/Instance.lean) defines the
-   architecture-independent program and function-occurrence data.
-2. [`FunctionTrace.lean`](FunctionTrace.lean) describes execution that stays inside one occurrence.
-3. [`Contract.lean`](Contract.lean) separates a routine's shared meaning from one occurrence's
-   register and memory placement.
-4. [`Boundary.lean`](Boundary.lean) composes a parent trace with summaries of calls and inlined
-   children.
-5. [`BoundaryTests.lean`](BoundaryTests.lean) contains small positive and negative examples of the
-   boundary checks.
+An **occurrence** is one compiled appearance of a source function. For example, if `readU64` remains
+as a callable function and is also inlined twice into `decodeHeader`, the binary contains three
+`readU64` occurrences. They share the same source-level behavior, but have different instructions,
+addresses, inputs, and result locations.
 
-An **occurrence** is one compiled appearance of a source routine. A routine may have one standalone
-body and several inlined occurrences, each with different registers or stack slots. A **binding**
-describes that machine-specific placement; a **specification** describes the source-level result and
-is shared between occurrences.
+A `FunctionInstance` is the static description of one occurrence: its address ranges, entry and exit
+PCs, calls, inlined children, and provenance. `Instance.lean` defines that handwritten data model; it
+is not generated. The extractor creates values of those types for a particular binary, and separate
+checks validate those values before proofs use them.
+
+A `FunctionTrace` is different: it is one dynamic machine execution through an occurrence. It
+relates a starting Sail state to an ending Sail state and records exactly how many instructions were
+retired. One static `FunctionInstance` can describe many different traces, because the same code can
+run on many inputs.
+
+```text
+source functions
+      │ compile
+      ▼
+concrete binary instructions
+      │ extract and validate
+      ▼
+FunctionInstance values                 static: where each compiled occurrence lives
+      │
+      ├── shared RoutineSpec             what every occurrence of the source routine means
+      └── OccurrenceBinding              where this occurrence gets arguments and leaves results
+                    │ prove
+                    ▼
+              ScopedTrace                local execution, using child summaries at crossings
+                    │ expand checked crossings
+                    ▼
+              FunctionTrace              ordinary instruction-by-instruction execution
+```
+
+The crossings in that diagram are the **boundaries**. A parent occurrence reaches a separately
+emitted child by a call edge, or enters and leaves an inlined child through ordinary control-flow
+edges. `Boundary.lean` validates those ownership-crossing edges and defines how a child summary is
+spliced into the parent's trace without omitting the call, return, or outgoing instruction.
+
+## Reading order
+
+1. [`BinaryFv/Binary/Elfling/Instance.lean`](../../Binary/Elfling/Instance.lean) defines the static
+   vocabulary: occurrence identities, address ranges, entries, exits, children, calls, and programs.
+2. [`FunctionTrace.lean`](FunctionTrace.lean) defines a dynamic execution confined to a supplied
+   address set until it reaches a supplied exit.
+3. [`Contract.lean`](Contract.lean) gives every source routine one shared meaning and every compiled
+   occurrence its own register-and-memory binding.
+4. [`Boundary.lean`](Boundary.lean) validates crossings between occurrences and expands a parent
+   proof that uses child summaries into one ordinary machine trace.
+5. [`BoundaryTests.lean`](BoundaryTests.lean) shows which valid crossings compose and which malformed
+   crossings are rejected.
 
 The generated files and extracted addresses are evidence, not trusted axioms. Boolean checks and
 Lean theorems in this layer reject stale edges, invented boundaries, missing parameter locations,
