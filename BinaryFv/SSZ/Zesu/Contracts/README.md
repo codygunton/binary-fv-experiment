@@ -5,12 +5,16 @@ files are specifications and proof interfaces; they are not a second implementat
 
 Start with:
 
-1. `Entry.lean` for the source-level decoding pipeline and its relationship to the SSZ oracle.
-2. `Catalog.lean` for the list of source routines and the contract assigned to each one.
-3. `ExportedDecoder.lean` for the public C function and its private global state.
-4. `CanonicalParams.lean` for the one pinned binary image, heap, ABI layout, and memory
-   representation used by the final theorem.
-5. `ProgramCorrectness.lean` for the combined obligation over all generated occurrences.
+1. [`Entry.lean`](Entry.lean) describes the source-level decoding pipeline and its relationship to
+   the SSZ oracle.
+2. [`Catalog.lean`](Catalog.lean) lists the source routines and selects the contract assigned to each
+   one.
+3. [`ExportedDecoder.lean`](ExportedDecoder.lean) models the public C function and its private global
+   state.
+4. [`CanonicalParams.lean`](CanonicalParams.lean) fixes the binary image, heap, ABI layouts, and
+   memory representations used by the program-level obligation.
+5. [`ProgramCorrectness.lean`](ProgramCorrectness.lean) collects the per-occurrence obligations for
+   the generated program.
 
 `ProgramCorrectness.lean` also defines the Row D local-to-global composition. A local occurrence proof
 owns its own instructions and may splice summaries for lower-ranked children. Generated geometry and
@@ -24,5 +28,5 @@ different. Its actual ABI is `zesu_decode_raw(input, len) -> i32`, and it commun
 value and status through private globals observed by `zesu_raw_result` and `zesu_raw_error`.
 
 Addresses and layouts must come from the pinned ELF, linker map, DWARF, or compiler-produced ABI
-manifest. `CanonicalParams.lean` collects those checked facts so later proofs cannot choose convenient
-addresses or placeholder representations.
+manifest. [`CanonicalParams.lean`](CanonicalParams.lean) collects those checked facts so later proofs
+cannot choose convenient addresses or placeholder representations.

@@ -4,9 +4,14 @@ The SSZ specification works with Lean values. The compiled decoder works with Zi
 optional values, and heap allocations in RISC-V memory. This directory defines predicates that say
 when a region of Sail machine memory represents a particular Lean value.
 
-Read `Basic.lean` and `Collections.lean` for reusable words, vectors, slices, and heap arrays. Then
-read `Containers.lean` for the seven decoder container types and `RawV4.lean` for the complete
-top-level result.
+Read the files in this order:
+
+1. [`RawV4.lean`](RawV4.lean) defines the reusable byte, word, vector, slice, and heap-array
+   predicates, then builds the complete top-level `RawV4Rep`.
+2. [`Containers.lean`](Containers.lean) defines the seven nested decoder-container representations.
+3. [`Result.lean`](Result.lean) describes the internal `decodeRaw` hidden-result union.
+4. [`Observers.lean`](Observers.lean) contains guarded functions that reconstruct represented values
+   from Sail memory.
 
 A representation predicate does not allocate or decode anything. It only relates:
 

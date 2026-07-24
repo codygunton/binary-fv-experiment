@@ -7,14 +7,23 @@ that data and expose safer definitions to the contract proofs.
 
 The most useful entry points are:
 
-- `BindingInventory.lean`: explains where each source parameter lives at machine entry.
-- `GeneratedDecoderGlobals.lean`: validates the addresses and sizes of decoder and allocator globals.
-- `BlobScheduleInstance.lean`: a small generated occurrence used as an end-to-end example.
+- [`BindingInventory.lean`](BindingInventory.lean) explains where each source parameter lives at
+  machine entry.
+- [`GeneratedDecoderGlobals.lean`](GeneratedDecoderGlobals.lean) is handwritten validation of the
+  generated decoder and allocator global-address tables.
+- [`BlobScheduleInstance.lean`](BlobScheduleInstance.lean) is a generated, checked-in vertical-slice
+  occurrence. Its header identifies the generator and says not to edit it manually.
 
-Files named `Generated*.lean` are build products and should not be edited by hand. The raw binding
-table preserves DWARF exactly. A separate effective table fills the few locations optimized out of
-DWARF using narrow, checked rules based on pinned Zig call sites or the RISC-V C ABI. Generation
-fails instead of guessing when no rule applies.
+Do not infer editability from a `Generated` filename: some tracked `Generated*.lean` modules are
+handwritten validators for generated data. Generated files identify themselves with a `GENERATED
+FILE` header. The main `GeneratedProgram.lean`, `DecoderGlobals.lean`, and
+`GeneratedBindings.lean` artifacts are outputs of `nix build .#elfling-program` and are not
+committed. The hermetic proof build links that output at `build/elfling-program-lean/`; for a manual
+build, the output is available through the Nix result link unless `--out-link` selects another path.
+
+The raw binding table preserves DWARF exactly. A separate effective table fills locations optimized
+out of DWARF using narrow, checked rules based on pinned Zig call sites or the RISC-V C ABI.
+Generation fails instead of guessing when no rule applies.
 
 Occurrence numbers such as `occ140` are stable identifiers within the pinned generated program, not
 source routine names or runtime addresses.
