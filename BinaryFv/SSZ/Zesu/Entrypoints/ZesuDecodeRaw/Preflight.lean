@@ -1,4 +1,4 @@
-import BinaryFv.SSZ.Zesu.Interface
+import BinaryFv.SSZ.Zesu.ExecutionTypes
 import BinaryFv.SSZ.Zesu.Artifact.Layout
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Layout
 

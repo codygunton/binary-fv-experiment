@@ -1,0 +1,254 @@
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Classify
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Fuel
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Preflight
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.StateBuilder
+import BinaryFv.SSZ.Zesu.MemoryRepresentation.ValueObserver
+
+/-!
+# Running the decoder and its exported accessors
+
+This is the executable half of the public API: build the entry state, run the machine to the return
+sentinel, then **execute the two exported accessors** — `zesu_raw_result` and `zesu_raw_error` — as
+real calls from the post-return state, and hand all of it to `classifyWrapperRun`.
+
+Executing the accessors, rather than re-reading the globals the wrapper wrote, is the point. The
+accessors are the documented public interface: `zesu_raw_result` decides null-versus-payload from
+the inline optional's discriminant, and `zesu_raw_error` reports the recorded status. Running them
+means the runner's answer depends on the same code a caller would run, and it makes the accessor
+contracts (`contractRawResult`, `contractRawError`) load-bearing for the runner rather than
+decorative.
+
+Each accessor call is set up exactly like the main one: a fresh return address (the same sentinel),
+a fresh stack pointer at the top of the runner's stack, and `PC`/`nextPC` at the symbol. Its fuel
+comes from its own contract's step bound (`Fuel.lean`), so an accessor that runs away is reported as
+fuel exhaustion rather than looping forever.
+
+Every address here is resolved from the pinned artifact's symbol table or the checked layout; the
+module writes no address literal.
+-/
+
+namespace BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
+
+open BinaryFv.Binary
+open PreSail
+open LeanRV64DExecutable.Functions
+open Register
+open BinaryFv.RiscV
+open BinaryFv.SSZ.Zesu
+open BinaryFv.SSZ.Zesu.MemoryRepresentation
+
+/-! ## Symbols and addresses the runner needs -/
+
+/-- The three exported entry points the runner calls, resolved from the pinned artifact's symbol
+table in one place. Resolving them *before* building any state means a symbol table that does not
+contain them is reported as an invalid artifact instead of surfacing as a Sail fault. -/
+structure RunnerSymbols where
+  decodeEntry : Nat
+  rawResult : Nat
+  rawError : Nat
+deriving Repr
+
+/-- Resolve the runner's three entry points, or fail. -/
+def runnerSymbols : Option RunnerSymbols := do
+  let decode ← Artifact.zesuDecodeRaw.toOption
+  let result ← Artifact.zesuRawResult.toOption
+  let error ← Artifact.zesuRawError.toOption
+  pure ⟨decode.value, result.value, error.value⟩
+
+/-- The canonical artifact resolves all three, so the `none` branch above is unreachable for the
+binary this proof is about — and the builder's own `Unreachable` throw on an unresolved entry symbol
+is likewise unreachable. -/
+theorem runnerSymbols_isSome : runnerSymbols.isSome = true := by native_decide
+
+/-- The address of the inline `stored_result` object's discriminant byte, from the checked globals
+layout and the reflected option layout. -/
+def storedResultDiscriminantAddr : Nat :=
+  Elfling.canonicalDecoderGlobalsLayout.storedResult +
+    Elfling.canonicalDecoderGlobalsLayout.storedResultObject.discriminantOffset
+
+/-- The runner's value observation: the complete `RawV4` read from the canonical result buffer —
+the address `zesu_raw_result` returns on success. -/
+def observeDecodedValue (state : State) : Option SszBridge.RawV4 :=
+  observeRawV4? state Elfling.canonicalResultBuffer
+
+/-- The return sentinel as a machine word. Reaching it ends a run; it is in no mapped range, so it
+cannot be a real instruction fetch. -/
+def sentinelWord : BitVec 64 := BitVec.ofNat 64 canonicalRunnerLayout.sentinel
+
+/-! ## Running one call -/
+
+/-- Call a zero-argument exported accessor from the current state and report how it ended.
+
+The C ABI setup is explicit rather than inherited from whatever the previous call left behind: `ra`
+is the sentinel, `sp` is the top of the runner's stack, and `PC`/`nextPC` are the accessor's entry.
+A reached sentinel with a readable `a0` is `returned`; the other three outcomes stay distinct. -/
+def runAccessor (entryPc fuel : Nat) : SailM AccessorOutcome := do
+  writeReg x1 sentinelWord
+  writeReg x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)
+  writeReg PC (BitVec.ofNat 64 entryPc)
+  writeReg nextPC (BitVec.ofNat 64 entryPc)
+  match ← runToOutcome sentinelWord fuel 0 with
+  | .reached _ =>
+    let final ← EStateM.get
+    match observeReturnCode? final with
+    | some code => pure (.returned code)
+    | none => pure .noReturn
+  | .trapped => pure .trapped
+  | .exhausted => pure .exhausted
+
+/-- Call both accessors, but only for a run that actually returned. After a trap or an exhausted
+budget the machine state is not one the accessors' contracts describe, so nothing is called and the
+placeholder outcomes are passed along — the classifier ignores them in exactly those two cases
+(`classifyWrapperRun_trapped`, `classifyWrapperRun_exhausted`). -/
+def runAccessorsIfReached (symbols : RunnerSymbols) (outcome : SentinelOutcome) :
+    SailM (AccessorOutcome × AccessorOutcome) :=
+  match outcome with
+  | .reached _ => do
+    let result ← runAccessor symbols.rawResult (accessorFuel rawResultStepBound)
+    let error ← runAccessor symbols.rawError (accessorFuel rawErrorStepBound)
+    pure (result, error)
+  | _ => pure (AccessorOutcome.noReturn, AccessorOutcome.noReturn)
+
+/-- The whole machine-level run: build the entry state, run `zesu_decode_raw` to the sentinel,
+execute both accessors, and classify — in one place, so there is no second answer to drift.
+
+The value and the discriminant are observed from the state **as the decode left it**, before either
+accessor runs, so the observation cannot be affected by accessor execution. -/
+def runZesuDecodeRaw (symbols : RunnerSymbols) (input : ByteArray) :
+    SailM (Except RiscvSpec.ExecutionError DecodeOutcome) := do
+  buildZesuEntryState input
+  let outcome ← runToOutcome sentinelWord (zesuFuel input.size) 0
+  let afterCall ← EStateM.get
+  let accessors ← runAccessorsIfReached symbols outcome
+  pure (classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+    Elfling.canonicalResultBuffer accessors.1 accessors.2 outcome afterCall)
+
+/-- Read a completed Sail run's answer.
+
+A Sail-level fault that escapes the run — an access outside materialized memory, a failed model
+assertion, an unreachable model branch — is a trap: the machine could not continue, which is exactly
+what `.trapped` names. (The builder's own `Unreachable` throw, taken when the entry symbol does not
+resolve, cannot happen here: `runnerSymbols` has already resolved it.) -/
+def runAnswer (action : SailM (Except RiscvSpec.ExecutionError DecodeOutcome)) :
+    Except RiscvSpec.ExecutionError DecodeOutcome :=
+  match action.run initialState with
+  | .ok result _ => result
+  | .error _ _ => .error .trapped
+
+/-- Execute the decoder on `input` from the pinned artifact. -/
+def executeDecode (input : ByteArray) : Except RiscvSpec.ExecutionError DecodeOutcome :=
+  match runnerSymbols with
+  | none => .error .invalidArtifact
+  | some symbols => runAnswer (runZesuDecodeRaw symbols input)
+
+/-- The public entry: reject a non-canonical artifact or an out-of-bound input first, then run.
+
+`preflight` is a decidable check on the caller's `ByteArray`s that touches neither machine memory
+nor a Sail step, so "rejected before any address arithmetic" is literal. -/
+def executeChecked (binary : RiscvSpec.ValidatedElf) (input : ByteArray) :
+    Except RiscvSpec.ExecutionError DecodeOutcome :=
+  match preflight binary input with
+  | .error error => .error error
+  | .ok () => executeDecode input
+
+/-! ## What the public entry does with a rejected caller
+
+These are about `executeChecked`'s gate, and hold without running the machine at all. -/
+
+/-- A non-canonical artifact never reaches the machine. -/
+theorem executeChecked_rejects_wrong_artifact {binary : RiscvSpec.ValidatedElf} (input : ByteArray)
+    (h : binary.bytes ≠ Artifact.bytes) :
+    executeChecked binary input = .error .invalidArtifact := by
+  unfold executeChecked
+  rw [preflight_rejects_wrong_artifact input h]
+
+/-- An input outside the theorem's bound never reaches the machine either. -/
+theorem executeChecked_rejects_oversized_input {binary : RiscvSpec.ValidatedElf}
+    (hcanon : artifactIsCanonical binary = true) {input : ByteArray}
+    (h : Runtime.maximumInputBytes ≤ input.size) :
+    executeChecked binary input = .error .invalidArtifact := by
+  unfold executeChecked
+  rw [preflight_rejects_oversized_input hcanon h]
+
+/-- On an accepted caller the gate is transparent: the answer is exactly the machine run's. -/
+theorem executeChecked_eq_executeDecode {binary : RiscvSpec.ValidatedElf}
+    (hcanon : artifactIsCanonical binary = true) {input : ByteArray}
+    (h : input.size < Runtime.maximumInputBytes) :
+    executeChecked binary input = executeDecode input := by
+  unfold executeChecked
+  rw [preflight_ok hcanon h]
+
+/-! ## The runner never invents a rejection
+
+The classifier's converse lifts to the runner: if `executeDecode` answers `rejected`, then the
+machine really reached the sentinel with `a0 = 0`, the executed `zesu_raw_result` really returned
+null, the stored-result discriminant really read `absent`, and the executed `zesu_raw_error` really
+returned one of the two statuses the specification itself can produce. No trap, exhausted budget,
+unreadable return, or exhausted arena can reach this outcome. -/
+/-- Inversion for a completed `SailM` bind: if the whole action ran normally, so did its first half,
+and the second half ran from where the first left off. The mirror image of `Runs.bind`, which builds
+such a run; this one takes one apart. -/
+theorem run_bind_inv {α β : Type} {first : SailM α} {next : α → SailM β} {before after : State}
+    {result : β} (h : (first >>= next).run before = .ok result after) :
+    ∃ value middle, first.run before = .ok value middle ∧
+      (next value).run middle = .ok result after := by
+  change EStateM.bind first next before = .ok result after at h
+  unfold EStateM.bind at h
+  match hfirst : first before with
+  | .error e s => rw [hfirst] at h; exact absurd h (by simp)
+  | .ok value middle => exact ⟨value, middle, hfirst, by rw [hfirst] at h; exact h⟩
+
+/-- **Every completed run answers with a classification.** The runner has exactly one place where a
+result is produced, so whatever it returns is a `classifyWrapperRun` of some outcome, some final
+state, and the two accessor outcomes. -/
+theorem runZesuDecodeRaw_classifies (symbols : RunnerSymbols) (input : ByteArray) {before after : State}
+    {result : Except RiscvSpec.ExecutionError DecodeOutcome}
+    (h : (runZesuDecodeRaw symbols input).run before = .ok result after) :
+    ∃ outcome final rawResult rawError,
+      result = classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+        Elfling.canonicalResultBuffer rawResult rawError outcome final := by
+  unfold runZesuDecodeRaw at h
+  obtain ⟨_, _, _, h⟩ := run_bind_inv h
+  obtain ⟨outcome, _, _, h⟩ := run_bind_inv h
+  obtain ⟨final, _, _, h⟩ := run_bind_inv h
+  obtain ⟨accessors, _, _, h⟩ := run_bind_inv h
+  refine ⟨outcome, final, accessors.1, accessors.2, ?_⟩
+  injection h with hvalue _
+  exact hvalue.symm
+
+/-- The classifier's converse, lifted to the executable entry: an answer of `rejected` really came
+from a machine that reached the sentinel with `a0 = 0`, an executed `zesu_raw_result` that returned
+null, a stored-result discriminant reading `absent`, and an executed `zesu_raw_error` reporting one
+of the two statuses the specification itself can produce. -/
+theorem executeDecode_rejected_forces_checks {input : ByteArray}
+    (h : executeDecode input = .ok .rejected) :
+    ∃ final steps rawResult rawError,
+      observeReturnCode? final = some 0 ∧
+      rawResult = AccessorOutcome.returned 0 ∧
+      observeOptionTag? final storedResultDiscriminantAddr = some false ∧
+      (∃ status, rawError = AccessorOutcome.returned status ∧
+        (status = Contracts.DecodeStatus.invalidSsz.code ∨
+          status = Contracts.DecodeStatus.unknownFork.code)) ∧
+      classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+        Elfling.canonicalResultBuffer rawResult rawError (.reached steps) final = .ok .rejected := by
+  unfold executeDecode at h
+  match hsym : runnerSymbols with
+  | none => simp only [hsym] at h; exact absurd h (by simp)
+  | some symbols =>
+    simp only [hsym, runAnswer] at h
+    match hrun : (runZesuDecodeRaw symbols input).run initialState with
+    | .error e s => simp only [hrun] at h; exact absurd h (by simp)
+    | .ok result s =>
+      simp only [hrun] at h
+      obtain ⟨outcome, final, rawResult, rawError, hresult⟩ :=
+        runZesuDecodeRaw_classifies symbols input hrun
+      have hclass : classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+          Elfling.canonicalResultBuffer rawResult rawError outcome final = .ok .rejected := by
+        rw [← hresult]; exact h
+      obtain ⟨⟨steps, hsteps⟩, hcode, ⟨status, herror, hstatus⟩, hnull, htag⟩ :=
+        wrapper_rejection_forces_checks hclass
+      subst hsteps
+      exact ⟨final, steps, rawResult, rawError, hcode, hnull, htag, ⟨status, herror, hstatus⟩,
+        hclass⟩
+
+end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw

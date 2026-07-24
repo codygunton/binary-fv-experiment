@@ -1,8 +1,9 @@
+import BinaryFv.SSZ.Zesu.Contracts.CanonicalParams
 import BinaryFv.SSZ.Zesu.Contracts.ExportedDecoder
 import BinaryFv.SSZ.Zesu.Runtime.AllocationBound
 
 /-!
-# Deriving the runner's step budget
+# Deriving the runner's step budgets
 
 The exported occurrence contract already bounds the complete composed decode, including summarized
 callees. The executable runner uses that same bound plus two steps: one to retire the final return
@@ -10,6 +11,10 @@ into the sentinel and one to make the inequality strict.
 
 This file proves that the resulting fuel is positive, exceeds the contract bound, and remains below
 the 64-bit step-counter limit for every input covered by the theorem.
+
+The two exported accessors get their budgets the same way, from *their* contracts
+(`contractRawResult`, `contractRawError`) rather than from literals here, so a contract whose step
+bound changes moves the runner's fuel with it.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
@@ -46,5 +51,41 @@ theorem zesuFuel_exceeds_bound (inputSize : Nat) : entryStepBound inputSize < ze
 theorem count_lt_zesuFuel {inputSize count : Nat} (h : count ≤ entryStepBound inputSize) :
     count < zesuFuel inputSize :=
   Nat.lt_of_le_of_lt h (zesuFuel_exceeds_bound inputSize)
+
+/-! ## The exported accessors' budgets
+
+Same construction, one level down: each accessor's fuel is its own contract's step bound plus the
+same two slack steps. The bounds are *read from the contracts*, so there is no second literal to
+drift. -/
+
+open BinaryFv.SSZ.Zesu.Contracts in
+/-- `zesu_raw_result`'s step bound, taken from `contractRawResult` at the canonical parameters. Its
+`Args` is the ghost globals model, which the bound does not depend on. -/
+def rawResultStepBound : Nat :=
+  (contractRawResult canonicalEnvironment Elfling.canonicalDecoderGlobalsLayout
+    Elfling.canonicalResultBuffer).stepBound DecoderGlobalsModel.fresh
+
+open BinaryFv.SSZ.Zesu.Contracts in
+/-- `zesu_raw_error`'s step bound, taken from `contractRawError` at the canonical parameters. -/
+def rawErrorStepBound : Nat :=
+  (contractRawError canonicalEnvironment Elfling.canonicalDecoderGlobalsLayout).stepBound
+    DecoderGlobalsModel.fresh
+
+/-- An accessor's fuel: its contract bound plus the same two slack steps as the main run. -/
+def accessorFuel (stepBound : Nat) : Nat := stepBound + 2
+
+/-- Both accessor budgets are positive, so neither immediately exhausts. -/
+theorem accessorFuel_pos (stepBound : Nat) : 0 < accessorFuel stepBound := by
+  unfold accessorFuel; omega
+
+/-- Each accessor's fuel strictly exceeds its contract bound, so a call that respects its contract
+always reaches the sentinel within budget. -/
+theorem accessorFuel_exceeds_bound (stepBound : Nat) : stepBound < accessorFuel stepBound := by
+  unfold accessorFuel; omega
+
+/-- The accessors' bounds are the contracts' `32` and `16` — recorded so a contract edit that
+changes them is visible here rather than silently retuning the runner. -/
+theorem accessor_step_bounds : rawResultStepBound = 32 ∧ rawErrorStepBound = 16 := by
+  constructor <;> rfl
 
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
