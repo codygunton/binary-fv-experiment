@@ -33,6 +33,7 @@ import BinaryFv.SSZ.Zesu.MemoryRepresentation.Result
 import BinaryFv.SSZ.Zesu.Runtime.AllocatorVtable
 import BinaryFv.SSZ.Zesu.Runtime.BumpAllocator
 import BinaryFv.SSZ.Zesu.Runtime.AllocationBound
+import BinaryFv.SSZ.Zesu.Runtime.AllocationCursor
 import BinaryFv.SSZ.Zesu.Runtime.MemoryCopy
 import BinaryFv.SSZ.Zesu.Contracts.Error
 import BinaryFv.SSZ.Zesu.Contracts.Environment
