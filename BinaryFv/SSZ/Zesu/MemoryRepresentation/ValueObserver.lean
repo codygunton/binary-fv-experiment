@@ -402,4 +402,16 @@ theorem observe_raw_v4_of_rep (state : State) (inputBase : Nat) (input : ByteArr
         (allocations.publicKeyContents i h))]
   rfl
 
+/-- **Observer failure is impossible under the representation.** A represented value is always
+observable, so `none` from `observeRawV4?` is positive evidence that the memory does *not* represent
+any value — which is what lets the runner report a failed observation as `malformedResult` rather
+than having to treat it as inconclusive. -/
+theorem observe_raw_v4_isSome_of_rep (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4)
+    (inputMemory : MemoryBytes state inputBase input)
+    (representation : RawV4Rep state inputBase input rootBase value) :
+    (observeRawV4? state rootBase).isSome = true := by
+  rw [observe_raw_v4_of_rep state inputBase input rootBase value inputMemory representation]
+  rfl
+
 end BinaryFv.SSZ.Zesu.MemoryRepresentation

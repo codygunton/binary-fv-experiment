@@ -367,6 +367,15 @@ let
     # oversized-input cases are proved universally in `Runner.lean` instead of sampled here.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.RunnerExecution
+    # Row D observer sensitivity: the correspondence proof shows the observer reads back what the
+    # representation says is there, but not that it LOOKS at every field — an observer ignoring
+    # `parentHash` would still satisfy it. So this corrupts one byte per layout family (fixed field,
+    # optional tag/payload, slice pointer/length, list count/base, nested base) in the memory a real
+    # accepted decode left behind, and checks each corruption moves the observation. The control is
+    # the payload of an ABSENT optional, which must NOT move it — that is what the representation
+    # promises about it, and it proves the checks detect real dependence rather than noise.
+    # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.ObserverMutation
     touch "$out"
   '';
 

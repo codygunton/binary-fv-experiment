@@ -19,6 +19,12 @@ impractical to evaluate inside `native_decide`.
 Files named `Generated*.lean` are deterministic outputs of the corpus/vector generators and should
 not be edited by hand.
 
+`ObserverMutation.lean` checks the value observer from the other side. The correspondence proof says
+the observer reads back whatever the representation holds, which cannot catch an observer that
+ignores a field; so this corrupts one byte per layout family in the memory a real accepted decode
+left behind and checks each corruption moves the observation. Its control is the payload of an
+*absent* optional, which must not move it.
+
 Row D adds the strongest check in this directory, `RunnerExecution.lean`: it *runs the pinned RISC-V
 binary in the Sail model* — entry state, machine steps to the return sentinel, both exported
 accessors, and the full value observation — and compares the result with the same SSZ oracle. On the
