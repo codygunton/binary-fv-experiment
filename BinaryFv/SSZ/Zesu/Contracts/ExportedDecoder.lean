@@ -8,23 +8,22 @@ open BinaryFv.SSZ.Zesu.MemoryRepresentation
 open LeanRV64DExecutable.Functions Register
 
 /-!
-# The real exported decoder
+# Contract for the public decoder API
 
-`zesu_decode_raw` is not the internal `decodeRaw`. Its machine interface was previously modelled with
-the internal four-register hidden-result convention (`x10 = resultBase`, …), and its effect was
-modelled as a free 64-bit status word written to an arbitrary `statusBase`. Both are wrong about the
-shipped binary.
+This file models the three functions visible to a caller:
 
-The exported wrapper's real interface is the C ABI `zesu_decode_raw(input, len) -> i32`: the input
-pointer in `a0`, the length in `a1`, and a `1`/`0` return in `a0`. Its real effect is on three private
-globals — an `attempted` flag, a 32-bit `last_status`, and an inline `stored_result` object
-(`?RawStatelessInput`, 848 bytes: payload at offset 0, discriminant at 832 — not a pointer slot) —
-read back out through the exported accessors `zesu_raw_result` and `zesu_raw_error`. `zesu_raw_result`
-returns the *address* of that object's payload (or null); it does not write a caller result buffer,
-and there is no free public status slot.
+- `zesu_decode_raw(input, len) -> i32` runs the decoder once and returns `1` for success or `0` for
+  failure;
+- `zesu_raw_result()` returns the address of the stored value after a successful call, or null;
+- `zesu_raw_error()` returns the recorded 32-bit status.
 
-This module models that interface. The `resultBase + 832` 16-bit union stays where it belongs, on the
-*internal* `decodeRaw` (see `MemoryRepresentation.Result`); nothing here uses it.
+The wrapper receives the input pointer in RISC-V register `a0` and its length in `a1`. It stores its
+state in three private globals: a one-byte `attempted` flag, `last_status`, and an inline
+`?RawStatelessInput` object named `stored_result`. That object is 848 bytes: its 832-byte payload
+starts at offset 0 and its discriminant is at offset 832. It is not a pointer slot.
+
+The internal Zig function `decodeRaw` uses a different hidden-result ABI. Its representation remains
+in `MemoryRepresentation.Result`; none of that internal calling convention is used here.
 -/
 
 /-- The addresses of the three private decoder globals, as pinned by the linker map.
@@ -48,8 +47,8 @@ deriving Repr, Inhabited
 /-- The ghost model of the decoder globals: whether a decode was attempted, the recorded status, and
 the stored result value if one was produced.
 
-`stored` holds the decoded *value*; how a value is realized in memory (a canonical result buffer and a
-pointer to it) is the representation's job, not the model's. These are ghost values, not ABI
+`stored` holds the decoded value; how that value is realized in the inline global object is the
+representation's job. These are ghost values, not ABI
 arguments: the exported accessors observe canonical global memory and this model is what that memory
 represents. -/
 structure DecoderGlobalsModel where

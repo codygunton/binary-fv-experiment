@@ -3,27 +3,23 @@ import BinaryFv.SSZ.Zesu.Artifact.Symbols
 import BinaryFv.SSZ.Zesu.Contracts.ExportedDecoder
 
 /-!
-# Validation of the extracted decoder globals
+# Checking the decoder's global addresses
 
-`DecoderGlobals.lean` is *untrusted* generated data: the canonical linked addresses and sizes of the
-decoder's private globals (`attempted`, `allocator_state`, `last_status`, `stored_result`), extracted
-by `tools/generate_elfling_program.py` from the sidecar symbol table (offsets) and the pinned linker
-map (the `.bss` base), together with the exported accessors' instructions that reference them.
+The generated `DecoderGlobals.lean` file records the linked addresses and sizes of four private
+decoder globals, three allocator globals, and the accessor instructions that reference them. The
+generator reads offsets from the decoder object's symbol table, the `.bss` base from the linker map,
+and runtime symbols from the pinned ELF.
 
-This module *checks* that data against the pinned canonical image and only then defines
-`canonicalDecoderGlobalsLayout`. The addresses are never handwritten or existentially chosen: they
-flow from the generated artifact, and `decoderGlobalsValidated` is the kernel-checked proof that the
-artifact is internally consistent and agrees with the real production ELF.
-
-The checks, all discharged by `native_decide`:
+Generated data is not trusted merely because it compiled. This module checks it against the canonical
+program image before exposing `canonicalDecoderGlobalsLayout`. The checks cover:
 
 * **identity** — exactly the four expected globals, in declaration order;
 * **size/alignment** — each global's size matches its Zig type, and `last_status`/`stored_result`/the
   `.bss` block carry their required alignment;
 * **disjoint `.bss` containment** — every global lies inside the decoder `.bss` block and no two
   overlap;
-* **production-ELF references** — each recorded accessor instruction is present in the canonical image
-  at its pc with the exact 32-bit word, and its resolved operand target is one of the globals.
+- **production-ELF references** — each recorded accessor instruction is present in the canonical
+  image with the expected instruction word and targets a known global.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Elfling

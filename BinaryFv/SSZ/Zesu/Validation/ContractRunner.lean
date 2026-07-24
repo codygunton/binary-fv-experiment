@@ -2,16 +2,15 @@ import SszBridge.Core
 import Lean.Data.Json
 
 /-!
-# Row B Lean runner over the pinned decode spec
+# Executable runner for the independent SSZ oracle
 
-A **validation-only** executable that reads the `ssz-contract-corpus-v1` JSONL corpus and, for each
-top-level `ssz_raw.decode` case, runs the pinned oracle `SszBridge.decodeStatelessInput` and emits a
-canonical JSONL outcome. The host Zig probe over the pinned decoder must emit the same outcomes;
-agreement is the oracle≈Zig half of Row B (the meanings≈oracle half is a kernel-checked Lean check —
-see `Validation/MeaningAgreement.lean`).
+This validation-only program reads the shared JSONL corpus, decodes each whole-input case with
+`SszBridge.decodeStatelessInput`, and writes a canonical JSON outcome. The host Zig probe processes
+the same corpus, so the agreement check can compare the independent oracle with the pinned decoder
+source on large inputs.
 
-This module imports only the Sail-free pinned spec, so it can be an executable (the Sail model carries
-a top-level `main`; see `DECISIONS.md`). It is **not** imported by the theorem umbrella (`BinaryFv`).
+This module imports only the Sail-free specification. It is deliberately outside the theorem import
+graph: its results can reveal a bad contract, but they are never premises of the compliance proof.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation

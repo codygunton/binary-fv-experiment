@@ -181,8 +181,8 @@ def contractRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
   post := postRawError env
   stepBound := fun _ => 16
 
-/-- `zesu_raw_result` returns the stored-result pointer: the canonical `resultBuffer` when a value is
-stored, or null otherwise. -/
+/-- `zesu_raw_result` returns the address of the inline stored-result payload when a value is present,
+and null otherwise. -/
 def postRawResult (env : DecoderEnvironment) (resultBuffer : Nat) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
