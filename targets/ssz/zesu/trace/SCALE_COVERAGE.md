@@ -62,7 +62,7 @@ malformed / absent arms. Per-check totals:
 
 ## Parameter-row census
 
-Every function_instance must carry a row for every parameter its ROUTINE declares — otherwise a
+Every function instance must carry a row for every parameter its ROUTINE declares — otherwise a
 silently dropped binding is indistinguishable from a paramless routine, and the function instance's
 entry predicate quietly says less than the source does. The extractor takes each signature
 from the function instance's DWARF abstract-origin DIE, so this census (function instances declaring fewer

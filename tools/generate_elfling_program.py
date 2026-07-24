@@ -597,7 +597,7 @@ def function_instance_bindings(d, dies, name_of_off, locs, function_instance_ran
     REALIZES — one row per signature parameter, never a short table.
 
     A parameter the concrete function instance located is resolved from `.debug_loc`. A parameter the concrete
-    instance carries WITHOUT a location is `callerProvided`. A parameter the concrete function instance omits
+    function instance carries WITHOUT a location is `callerProvided`. A parameter the concrete function instance omits
     entirely is ALSO `callerProvided` — a declared row the recovery pass can act on, rather than an
     absence that later stages cannot distinguish from a genuinely paramless routine."""
     frame_reg = frame_base_reg_of(d)
@@ -666,7 +666,7 @@ def source_call_args(srclines, line, column):
             token.append(ch)
     return None
 
-# NOTE: completing a signature from the pinned Zig source was tried and REJECTED. An function instance's
+# NOTE: completing a signature from the pinned Zig source was tried and REJECTED. A function instance's
 # `declLine` does not reliably point at its own `fn` declaration — `zesu_raw_result`'s resolves into a
 # different file at an unrelated function — so parsing `fn name(...)` there invents parameters that do
 # not exist. Inventing a parameter is strictly worse than omitting one, so the signature authority is
@@ -1042,7 +1042,7 @@ def emit_bindings_json(function_instances_sorted, effective, recoveries, derived
     """The SAME binding tables as `--out-bindings`, as JSON.
 
     `program.json`'s per-function-instance `bindings` are the RAW DWARF rows, which still carry the 61
-    `callerProvided` gaps. Any consumer that wants the *effective* entry placement of an function instance's
+    `callerProvided` gaps. Any consumer that wants the *effective* entry placement of a function instance's
     parameters — Row C's production-ELF binding validator, for one — must read the recovered table, not
     the raw one, or it silently validates against a location DWARF never gave. Emitting it here keeps
     one generator as the single source of truth for both the Lean inventory and the binary evidence."""
@@ -1085,7 +1085,7 @@ def main():
     file_hash[FILES["runtime"]] = hashlib.sha256(open(a.runtime_c, "rb").read()).hexdigest()
 
     objects = [("decoder", a.decoder), ("allocator", a.allocator), ("sink", a.sink), ("runtime", a.runtime)]
-    # The ACTUAL SHA-256 of each sidecar object the extractor read, so an function instance's `sidecarHash`
+    # The ACTUAL SHA-256 of each sidecar object the extractor read, so a function instance's `sidecarHash`
     # pins the exact debug-bearing object it came from — never a single decoder `.text` hash reused for
     # every function instance (review blocker #5).
     object_sha = {objkind: hashlib.sha256(open(obj, "rb").read()).hexdigest() for objkind, obj in objects}
