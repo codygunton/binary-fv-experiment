@@ -298,9 +298,15 @@ def byteListListLoopInvariant (bytes : ByteArray) (maxItemBytes : Nat)
   ∀ pair ∈ starts.zip ends,
     pair.1 ≤ pair.2 ∧ pair.2 ≤ bytes.size ∧ pair.2 - pair.1 ≤ maxItemBytes
 
-/-- A zero-length input still allocates: the source takes `alloc.alloc(_, 0)` rather than returning
-a static empty slice, so "no allocation" would be the wrong postcondition even here. -/
-def emptyByteListListStillAllocates : Prop :=
+/-- A zero-length input decodes to the empty array rather than failing.
+
+**Renamed from `emptyByteListListIsEmptyArray`, and the old name overclaimed.** A zero-length input
+does still allocate — the source takes `alloc.alloc(_, 0)` rather than returning a static empty
+slice, so "no allocation" would be the wrong postcondition even here — but *this statement says
+nothing about that*. It is about the meaning, which has no allocation effect to observe. The
+allocation claim is `postCollection`'s `AllocatedDescriptorArray`, and restating it here would create
+a second source for a proof-relevant fact, which is what this project rejects everywhere else. -/
+def emptyByteListListIsEmptyArray : Prop :=
   ∀ maxItems maxItemBytes,
     meaningByteListList maxItems maxItemBytes ByteArray.empty = .ok #[]
 

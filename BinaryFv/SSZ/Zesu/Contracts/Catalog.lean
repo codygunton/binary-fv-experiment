@@ -573,8 +573,29 @@ where
 
 /-- Every claim the catalog makes about the decoder's meaning, as one conjunction.
 
-`sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` carry the root theorem; the rest
-bound which errors each group can produce and record the known asymmetries. -/
+**Twenty conjuncts, but they are not twenty constraints of equal weight, and reading them as such is
+misleading.** They fall into three kinds:
+
+* **Load-bearing (5).** `sourceShapedDecodeAgreesWithOracle`, `sourceShapedContainersAgreeWithOracle`,
+  `v3ShapeExcludesCanonicalV4`, `zeroFirstOffsetAliasRejected`, `meaningTwentyFourIsSome`. These say
+  the binary's per-container offset discipline coincides with the oracle's global re-serialization
+  equality. All the difficulty is here. `catalogGroundsInSpec` looks like a sixth but is *derived*
+  from the first (`catalogGroundsInSpec_of_agreement`), because `SszSpec.decode` is
+  `decodeStatelessInput` with the value forgotten.
+* **Real but self-contained (8).** `retryTailNeverSchemaValid`, `canonicalOffsetsCharacterization`,
+  `bytesAtSucceedsIffFits`, `readOffsetIsWidenedReadU32`, `leafReadsOnlyFailInvalid`,
+  `collectionsNeverUnknownFork`, `onlyForkConfigRaisesUnknownFork`, `fixedContainersNeverAllocate`,
+  plus the three `meaningOptionalBlobSchedule` characterizations other than the 24-byte one. Each is
+  a genuine statement about a meaning, provable from that meaning's shape.
+* **Definitional or one-sided (3).** `allocatorVtableEntriesAreConstant` is `rfl` — both sides are
+  *defined* as the constants, so its force is entirely in the occurrence contract.
+  `outOfMemoryUnreachableBelowBound` is the specification-side half only; `meaningDecode` has no
+  allocation-failure outcome, so the machine-side claim is `raw_allocation_bound_fits_arena`
+  elsewhere. `emptyByteListListIsEmptyArray` says nothing about allocation despite the routine
+  allocating; that claim is `postCollection`'s.
+
+Each of those docstrings says the same thing at its own definition. Recorded here too because the
+count is what a reader sees first. -/
 def catalogSemanticObligations : Prop :=
   sourceShapedDecodeAgreesWithOracle ∧
   catalogGroundsInSpec ∧
@@ -587,7 +608,7 @@ def catalogSemanticObligations : Prop :=
   readOffsetIsWidenedReadU32 ∧
   leafReadsOnlyFailInvalid ∧
   collectionsNeverUnknownFork ∧
-  emptyByteListListStillAllocates ∧
+  emptyByteListListIsEmptyArray ∧
   onlyForkConfigRaisesUnknownFork ∧
   fixedContainersNeverAllocate ∧
   allocatorVtableEntriesAreConstant ∧

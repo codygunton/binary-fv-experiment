@@ -19,10 +19,22 @@ demands byte equality. The Zig decoder never re-serializes. Instead each contain
 `requireCanonicalOffsets`, and `decodeByteListList` separately rejects a zero first offset — which
 is exactly the `00 00 00 00` empty-list alias that the oracle's re-serialization check kills.
 
-That those per-container checks together imply global re-serialization equality is the single
-load-bearing lemma of the whole catalog. It needs the source-shaped composition to exist first, so
-it is stated in `Contracts/Entry.lean` as `sourceShapedDecodeAgreesWithOracle` — named rather than
-left implicit, because every container contract silently depends on it.
+That those per-container checks together imply global re-serialization equality is the catalog's one
+genuinely hard lemma. It needs the source-shaped composition to exist first, so it is stated in
+`Contracts/Entry.lean` as `sourceShapedDecodeAgreesWithOracle` — named rather than left implicit,
+because every container contract silently depends on it.
+
+**Its domain is much smaller than "all containers", and saying so is the difference between a
+tractable obligation and an intimidating one.** Only four meanings are hand-composed from leaf
+meanings: the entry's four-field table in `meaningDecodeRaw`, and the
+`meaningForkActivation` → `meaningForkConfig` → `meaningChainConfig` chain. *Every other* container
+and collection meaning — `meaningExecutionWitness`, `meaningExecutionRequests`,
+`meaningExecutionPayload`, `meaningNewPayloadRequest`, `meaningPublicKeys`, `meaningByteListList`,
+and the five fixed-stride collections — is literally `SszBridge.decodeCanonical` at the
+corresponding schema type followed by a projection. Those agree with the oracle *by construction*,
+not by theorem, because both sides are the same function. So the nested byte-list-list offset tables,
+which look like the sharpest case, cannot part from re-serialization at all; the question only has
+content at the entry table and along the three-link chain.
 -/
 
 /-- `requireCanonicalOffsets(data, fixedSize, offsets)`.
@@ -123,7 +135,7 @@ fixed-size element type those four bytes are data: `.list (.uintN 8) 4` on four 
 `#[0,0,0,0]`, re-serializes to the same four bytes, and is **accepted**. The tell that the original
 had drifted past its own intent is that on the fixed path nothing rejects at all, while the sentence
 above claims the oracle rejects through re-serialization equality. On the restricted domain that
-claim is exactly right, and the serialize-compare really is the gate that fires: a zero first offset
+claim is exactly right, and it really is the serialize-compare branch that rejects: a zero first offset
 gives an element count of zero, an empty list re-serializes to the empty buffer, and an empty buffer
 cannot equal a body of four or more bytes.
 

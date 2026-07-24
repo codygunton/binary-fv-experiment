@@ -354,12 +354,27 @@ def readOffsetIsWidenedReadU32 : Prop :=
   ∀ (bytes : ByteArray) (offset : Nat),
     meaningReadOffset bytes offset = (meaningReadU32 bytes offset).map UInt32.toNat
 
-/-- Every leaf reader's only error is `invalidSsz`: none allocates and none inspects a fork index. -/
+/-- Every leaf reader's only error is `invalidSsz`: none allocates and none inspects a fork index.
+
+"Every" is meant literally — all seven cataloged leaf meanings, at every offset and every width.
+`meaningReadArray` is quantified over its width because each width is a separately emitted
+`comptime` instantiation, so a claim about one width would say nothing about the others. -/
 def leafReadsOnlyFailInvalid : Prop :=
   ∀ (bytes : ByteArray) (offset : Nat),
     meaningReadU32 bytes offset ≠ .error .unknownFork ∧
     meaningReadU32 bytes offset ≠ .error .outOfMemory ∧
     meaningReadU64 bytes offset ≠ .error .unknownFork ∧
-    meaningReadU64 bytes offset ≠ .error .outOfMemory
+    meaningReadU64 bytes offset ≠ .error .outOfMemory ∧
+    meaningReadOffset bytes offset ≠ .error .unknownFork ∧
+    meaningReadOffset bytes offset ≠ .error .outOfMemory ∧
+    meaningReadU256 bytes offset ≠ .error .unknownFork ∧
+    meaningReadU256 bytes offset ≠ .error .outOfMemory ∧
+    meaningRequireU32Length bytes ≠ .error .unknownFork ∧
+    meaningRequireU32Length bytes ≠ .error .outOfMemory ∧
+    (∀ length : Nat,
+      meaningBytesAt bytes offset length ≠ .error .unknownFork ∧
+      meaningBytesAt bytes offset length ≠ .error .outOfMemory ∧
+      meaningReadArray length bytes offset ≠ .error .unknownFork ∧
+      meaningReadArray length bytes offset ≠ .error .outOfMemory)
 
 end BinaryFv.SSZ.Zesu.Contracts

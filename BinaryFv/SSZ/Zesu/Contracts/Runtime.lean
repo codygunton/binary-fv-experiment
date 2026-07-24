@@ -338,7 +338,14 @@ def satisfiableAllocatorCtor (env : DecoderEnvironment) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractAllocatorCtor env)
 
 /-- The three non-`alloc` vtable entries are constant, so the decoder never reuses or frees memory
-and the global allocation bound is a plain sum over allocation sites. -/
+and the global allocation bound is a plain sum over allocation sites.
+
+**What this does not establish.** It is `rfl`: `meaningAllocatorResize` and `meaningAllocatorRemap`
+are *defined* as `false` and `none` just above, so the conjunct is `false = false ∧ none = none` and
+carries no information about the binary. What it records is the catalog's *choice* of meaning for
+those two routines; the obligation that the compiled vtable entries really return those constants is
+the occurrence contract's, discharged by the local proof, not here. It is kept as a conjunct so the
+choice is reviewed rather than buried in two definitions. -/
 def allocatorVtableEntriesAreConstant : Prop :=
   meaningAllocatorResize = false ∧ meaningAllocatorRemap = none
 
@@ -346,9 +353,16 @@ def allocatorVtableEntriesAreConstant : Prop :=
 Out-of-memory is unreachable below the root theorem's input bound.
 
 Every allocation the decoder performs is bounded by a function of the input length, so a heap sized
-for 2 MiB of input cannot be exhausted. This is what lets the entry contract's `outOfMemory` arm be
-discharged rather than merely normalized, and it is the obligation the global allocation bound in
-`Runtime.AllocationBound` must eventually discharge. -/
+for 2 MiB of input cannot be exhausted.
+
+**What this does not establish, and it is less than the name suggests.** It is stated against
+`meaningDecode`, which is built from pure reads and the oracle and has **no allocation-failure
+outcome at all** — so it holds for a reason that has nothing to do with the arena, and the scope
+hypothesis goes unused. It does **not** discharge the entry contract's `outOfMemory` arm. That arm is
+about the machine, and the theorem that closes it is `raw_allocation_bound_fits_arena` in
+`Runtime.AllocationBound`. This conjunct is the specification-side half: it says the *meaning* the
+binary is being held to never demands an allocation failure, so an exhausted arena can only ever be a
+divergence from the spec rather than agreement with it. -/
 def outOfMemoryUnreachableBelowBound : Prop :=
   ∀ (bytes : ByteArray), rootComplianceScope bytes →
     meaningDecode bytes ≠ .error .outOfMemory

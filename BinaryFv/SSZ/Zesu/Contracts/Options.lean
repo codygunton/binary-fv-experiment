@@ -182,7 +182,12 @@ has a specification-side target that is already fixed.
 def meaningEmptyIsNone : Prop :=
   meaningOptionalBlobSchedule ByteArray.empty = .ok none
 
-/-- Exactly 24 canonical bytes decode to a present schedule. -/
+/-- Exactly 24 bytes decode to a present schedule.
+
+No canonicality hypothesis, and none is needed: `blobScheduleType` is three fixed-width `u64`s, so
+*every* 24-byte buffer is the canonical encoding of exactly one schedule. That is stronger than it
+may look — it is the encode-after-decode direction, which is why it needs
+`uint64LE_of_readUInt64LE` rather than upstream's `decode_encode`. -/
 def meaningTwentyFourIsSome : Prop :=
   ∀ bytes : ByteArray, bytes.size = 24 →
     ∃ schedule, meaningOptionalBlobSchedule bytes = .ok (some schedule)

@@ -347,7 +347,18 @@ theorem leafReadsOnlyFailInvalid_holds : leafReadsOnlyFailInvalid := fun bytes o
   ⟨(meaningReadU32_onlyInvalid bytes offset).ne (by simp),
     (meaningReadU32_onlyInvalid bytes offset).ne (by simp),
     (meaningReadU64_onlyInvalid bytes offset).ne (by simp),
-    (meaningReadU64_onlyInvalid bytes offset).ne (by simp)⟩
+    (meaningReadU64_onlyInvalid bytes offset).ne (by simp),
+    (meaningReadOffset_onlyInvalid bytes offset).ne (by simp),
+    (meaningReadOffset_onlyInvalid bytes offset).ne (by simp),
+    (meaningReadU256_onlyInvalid bytes offset).ne (by simp),
+    (meaningReadU256_onlyInvalid bytes offset).ne (by simp),
+    (meaningRequireU32Length_onlyInvalid bytes).ne (by simp),
+    (meaningRequireU32Length_onlyInvalid bytes).ne (by simp),
+    fun length =>
+      ⟨(meaningBytesAt_onlyInvalid bytes offset length).ne (by simp),
+        (meaningBytesAt_onlyInvalid bytes offset length).ne (by simp),
+        (meaningReadArray_onlyInvalid length bytes offset).ne (by simp),
+        (meaningReadArray_onlyInvalid length bytes offset).ne (by simp)⟩⟩
 
 /-- No collection decoder reads a fork index. -/
 theorem collectionsNeverUnknownFork_holds : collectionsNeverUnknownFork := fun bytes =>
@@ -363,12 +374,34 @@ theorem meaningNeverForkOrMemory_holds : meaningNeverForkOrMemory := fun bytes =
   ⟨(meaningOptionalBlobSchedule_onlyInvalid bytes).ne (by simp),
     (meaningOptionalBlobSchedule_onlyInvalid bytes).ne (by simp)⟩
 
+/-- The witness: fork `21`, one past the last known fork, with both offsets equal to the
+fixed-section size `16`.
+
+Both facts the fork-ordering divergence needs come from that one choice. The offset table is
+canonical, so `meaningForkConfig` gets past `requireCanonicalOffsets` and stops at the fork bound,
+which is the whole point — the binary rejects *before* looking at the children. And the offsets being
+`16` in a 16-byte buffer leaves the activation slice empty, which is what makes the oracle reject
+too, since it decodes the children first and a variable-field container cannot be empty. The oracle
+half is at the end of this file; only the binary's half is needed here. -/
+def forkOrderingWitness : ByteArray := ⟨#[21, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0]⟩
+
+/-- The binary's side: `unknownFork`, raised before any child is decoded.
+
+This is also the existence half of `onlyForkConfigRaisesUnknownFork` — "only" needs a routine that
+actually raises it, not just routines that do not. -/
+theorem meaningForkConfig_forkOrderingWitness :
+    meaningForkConfig forkOrderingWitness = .error .unknownFork := by
+  rfl
+
 /-- `decodeForkConfig` is the decoder's only source of `unknownFork`. -/
-theorem onlyForkConfigRaisesUnknownFork_holds : onlyForkConfigRaisesUnknownFork := fun bytes =>
-  ⟨(meaningForkActivation_onlyInvalid bytes).ne (by simp),
-    (meaningExecutionWitness_onlyInvalid bytes).ne (by simp),
-    (meaningExecutionRequests_onlyInvalid bytes).ne (by simp),
-    (meaningExecutionPayload_onlyInvalid bytes).ne (by simp)⟩
+theorem onlyForkConfigRaisesUnknownFork_holds : onlyForkConfigRaisesUnknownFork :=
+  ⟨fun bytes =>
+    ⟨(meaningForkActivation_onlyInvalid bytes).ne (by simp),
+      (meaningExecutionWitness_onlyInvalid bytes).ne (by simp),
+      (meaningExecutionRequests_onlyInvalid bytes).ne (by simp),
+      (meaningExecutionPayload_onlyInvalid bytes).ne (by simp),
+      (meaningNewPayloadRequest_onlyInvalid bytes).ne (by simp)⟩,
+    forkOrderingWitness, meaningForkConfig_forkOrderingWitness⟩
 
 /-- The three fixed containers never allocate, so out-of-memory is unreachable for them. -/
 theorem fixedContainersNeverAllocate_holds : fixedContainersNeverAllocate := fun bytes =>
@@ -600,7 +633,7 @@ postcondition denying allocation would be false even here. The meaning side of t
 empty input really is *accepted*, with an empty result, for every pair of runtime bounds — the
 element type is variable-size, so the decoder takes the explicit empty-list arm before it ever reads
 an offset, and the bounds never come into it. -/
-theorem emptyByteListListStillAllocates_holds : emptyByteListListStillAllocates := by
+theorem emptyByteListListIsEmptyArray_holds : emptyByteListListIsEmptyArray := by
   intro maxItems maxItemBytes
   have hserialize := SSZType.serializeVarElemsAux.eq_1 (SszBridge.u8.list maxItemBytes) 0
   have hempty : (ByteArray.empty == ByteArray.empty) = true := by decide
@@ -753,7 +786,7 @@ theorem catalogSemanticObligations_of_oracleAgreement
   ⟨entryAgrees, catalogGroundsInSpec_of_agreement entryAgrees, retryTailNeverSchemaValid_holds,
     v3Excluded, containersAgree, canonicalOffsetsCharacterization_holds, zeroAlias,
     bytesAtSucceedsIffFits_holds, readOffsetIsWidenedReadU32_holds, leafReadsOnlyFailInvalid_holds,
-    collectionsNeverUnknownFork_holds, emptyByteListListStillAllocates_holds,
+    collectionsNeverUnknownFork_holds, emptyByteListListIsEmptyArray_holds,
     onlyForkConfigRaisesUnknownFork_holds, fixedContainersNeverAllocate_holds,
     allocatorVtableEntriesAreConstant_holds, outOfMemoryUnreachableBelowBound_holds,
     meaningEmptyIsNone_holds, twentyFourIsSome, meaningOtherLengthIsInvalid_holds,
@@ -777,21 +810,6 @@ already depends on both, from the pinned-artifact facts, so the root's trust cla
 `catalogSemanticObligations_of_oracleAgreement` is a separate declaration and stays clean. If the
 `extractCollOffsets` shim lands and is widened to `extractFieldOffsets`, this becomes provable by
 reduction and the axioms can be dropped. -/
-
-/-- The witness: fork `21`, one past the last known fork, with both offsets equal to the
-fixed-section size `16`.
-
-Both facts the divergence needs come from that one choice. The offset table is canonical, so
-`meaningForkConfig` gets past `requireCanonicalOffsets` and stops at the fork bound, which is the
-whole point — the binary rejects *before* looking at the children. And the offsets being `16` in a
-16-byte buffer leaves the activation slice empty, which is what makes the oracle reject too, since it
-decodes the children first and a variable-field container cannot be empty. -/
-def forkOrderingWitness : ByteArray := ⟨#[21, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0]⟩
-
-/-- The binary's side: `unknownFork`, raised before any child is decoded. -/
-theorem meaningForkConfig_forkOrderingWitness :
-    meaningForkConfig forkOrderingWitness = .error .unknownFork := by
-  rfl
 
 /-- The oracle's side: a structural rejection, having never reached the fork bound. -/
 theorem decodeCanonical_forkOrderingWitness :
