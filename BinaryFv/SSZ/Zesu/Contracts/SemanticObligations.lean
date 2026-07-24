@@ -651,6 +651,72 @@ theorem readUInt32LE_zero_of_readU32LE (bytes : ByteArray) (size : bytes.size �
     · simp [z0, z1, z2, z3]
     · omega
 
+/-! ### The general reader bridge
+
+The zero-value bridge above is what `zeroFirstOffsetAliasRejected` needs, but it is not the only
+obligation phrased against the wrong reader. `retryTailNeverSchemaValid`'s second hypothesis is
+`SszBridge.readU32LE? (bytes.extract 2 bytes.size) 0 = some 16`, while the entry meaning reads that
+same offset through `meaningReadOffset` → `meaningReadU32` → `readUInt32LE`. A consumer holding the
+meaning's form could not apply the obligation at all. `meaningHasExactErePrefix`'s docstring is
+explicit that the bridge's framing reader is the right choice "here and only here", so this is a
+mismatch rather than a convention, and the fix is to relate the two readers once and for all.
+
+**Axioms.** `or_shifts_toNat` closes its byte-lane identity with `bv_decide`, so it and
+`readU32LE?_eq_map_readUInt32LE` carry `Lean.ofReduceBool`/`Lean.trustCompiler`. The zero-value
+bridge above is *not* rewritten as a corollary of them for exactly that reason: its own proof is
+axiom-clean, and collapsing the two would spend that for nothing. -/
+
+/-- Four bytes OR-ed into their little-endian lanes have the weighted-sum value.
+
+The lanes are disjoint, so the OR is an addition; `bv_decide` settles that at `UInt32`, and the
+remaining step is that the sum of four byte values weighted by powers of 256 cannot overflow. -/
+theorem or_shifts_toNat (x0 x1 x2 x3 : UInt8) :
+    (x0.toUInt32 ||| x1.toUInt32 <<< 8 ||| x2.toUInt32 <<< 16 ||| x3.toUInt32 <<< 24).toNat
+      = x0.toNat + x1.toNat * 256 + x2.toNat * 256 ^ 2 + x3.toNat * 256 ^ 3 := by
+  have key : (x0.toUInt32 ||| x1.toUInt32 <<< 8 ||| x2.toUInt32 <<< 16 ||| x3.toUInt32 <<< 24)
+      = x0.toUInt32 + x1.toUInt32 * 256 + x2.toUInt32 * 65536 + x3.toUInt32 * 16777216 := by
+    bv_decide
+  rw [key]
+  have hsize : UInt8.size = 256 := rfl
+  have h0 := x0.toNat_lt_size
+  have h1 := x1.toNat_lt_size
+  have h2 := x2.toNat_lt_size
+  have h3 := x3.toNat_lt_size
+  simp [UInt32.toNat_add, UInt32.toNat_mul, UInt8.toNat_toUInt32]
+  omega
+
+/-- **The bridge's framing reader is the spec's reader, widened.**
+
+At every offset and every value, including out of bounds — both guard on `offset + 4 ≤ size` and
+neither has a failure mode the other lacks. This is what lets an obligation stated with
+`SszBridge.readU32LE?` be applied to a decode path that reads with `readUInt32LE`. -/
+theorem readU32LE?_eq_map_readUInt32LE (bytes : ByteArray) (offset : Nat) :
+    SszBridge.readU32LE? bytes offset = (readUInt32LE bytes offset).map UInt32.toNat := by
+  rw [SszBridge.readU32LE?, readUInt32LE]
+  split
+  · rw [dif_neg (by omega)]
+    rfl
+  · rw [dif_pos (by omega)]
+    rw [← SpecCorrespondence.get!_eq_getElem bytes offset (by omega),
+      ← SpecCorrespondence.get!_eq_getElem bytes (offset + 1) (by omega),
+      ← SpecCorrespondence.get!_eq_getElem bytes (offset + 2) (by omega),
+      ← SpecCorrespondence.get!_eq_getElem bytes (offset + 3) (by omega)]
+    exact congrArg some (or_shifts_toNat _ _ _ _).symm
+
+/-- The form a consumer of `retryTailNeverSchemaValid` actually holds: the meaning's offset read
+determines the bridge reader's value. -/
+theorem readU32LE?_of_meaningReadOffset (bytes : ByteArray) (offset value : Nat)
+    (read : meaningReadOffset bytes offset = .ok value) :
+    SszBridge.readU32LE? bytes offset = some value := by
+  rw [readU32LE?_eq_map_readUInt32LE]
+  rw [meaningReadOffset, meaningReadU32] at read
+  cases h : readUInt32LE bytes offset with
+  | none => rw [h] at read; simp [Option.toDecodeResult, Except.map] at read
+  | some widened =>
+      rw [h] at read
+      simp only [Option.toDecodeResult, Except.map, Except.ok.injEq] at read
+      simp [read]
+
 /-! ## What the semantic obligations still rest on
 
 The two obligations the navigation calls out as carrying the root theorem —
