@@ -511,4 +511,145 @@ theorem raw_v4_deposit_observes (state : State) (inputBase : Nat) (input : ByteA
       value.newPayloadRequest.executionRequests.deposits[index]
       (allocations.depositContents index indexBound)⟩
 
+/-! ## Observing the chain config
+
+`RawV4FixedFieldsRep` now pins the whole chain config through `ChainConfigRep`, so — unlike the
+earlier version, which pinned only `chainId` and `activeFork.fork` — the fork activation and the
+optional blob schedule can actually be read back. These observers invert that representation exactly,
+bottom-up: tag byte, `?u64`, blob schedule, `?RawBlobSchedule`, activation, fork config, chain config.
+-/
+
+/-- Read an option's discriminant byte. Anything other than the two documented values is rejected
+rather than silently treated as absent. -/
+def observeOptionTag? (state : State) (base : Nat) : Option Bool := do
+  let byte ← state.mem.get? base
+  if byte = BitVec.ofNat 8 1 then pure true
+  else if byte = BitVec.ofNat 8 0 then pure false
+  else none
+
+theorem observe_option_tag_of_rep (state : State) (base : Nat) (present : Bool)
+    (representation : OptionTagRep state base present) :
+    observeOptionTag? state base = some present := by
+  unfold observeOptionTag?
+  rw [show state.mem.get? base = some (BitVec.ofNat 8 (if present then 1 else 0)) from representation]
+  cases present <;> simp
+
+/-- Read a `?u64`: the discriminant at `base + 8` decides whether the payload at `base` is taken. -/
+def observeOptionU64? (state : State) (base : Nat) : Option (Option UInt64) := do
+  let present ← observeOptionTag? state (base + 8)
+  if present then
+    let word ← observeWord64? state base
+    pure (some (UInt64.ofNat word))
+  else
+    pure none
+
+theorem observe_option_u64_of_rep (state : State) (base : Nat) (value : Option UInt64)
+    (representation : OptionU64Rep state base value) :
+    observeOptionU64? state base = some value := by
+  unfold observeOptionU64? OptionU64Rep at *
+  cases value with
+  | none => rw [observe_option_tag_of_rep state (base + 8) false representation]; rfl
+  | some v =>
+    obtain ⟨word, tag⟩ := representation
+    rw [observe_option_tag_of_rep state (base + 8) true tag]
+    simp [observe_word64_of_rep state base v.toNat (UInt64.toNat_lt v) word, UInt64.ofNat_toNat]
+
+/-- Read a `RawBlobSchedule`: three consecutive little-endian words. -/
+def observeBlobSchedule? (state : State) (base : Nat) : Option SszBridge.RawBlobSchedule := do
+  let target ← observeWord64? state base
+  let max ← observeWord64? state (base + 8)
+  let baseFeeUpdateFraction ← observeWord64? state (base + 16)
+  pure { target := UInt64.ofNat target, max := UInt64.ofNat max,
+         baseFeeUpdateFraction := UInt64.ofNat baseFeeUpdateFraction }
+
+theorem observe_blob_schedule_of_rep (state : State) (base : Nat)
+    (value : SszBridge.RawBlobSchedule) (representation : BlobScheduleRep state base value) :
+    observeBlobSchedule? state base = some value := by
+  obtain ⟨target, max, fraction⟩ := representation
+  unfold observeBlobSchedule?
+  rw [observe_word64_of_rep state base value.target.toNat (UInt64.toNat_lt value.target) target,
+    observe_word64_of_rep state (base + 8) value.max.toNat (UInt64.toNat_lt value.max) max,
+    observe_word64_of_rep state (base + 16) value.baseFeeUpdateFraction.toNat
+      (UInt64.toNat_lt value.baseFeeUpdateFraction) fraction]
+  simp [UInt64.ofNat_toNat]
+
+/-- Read a `?RawBlobSchedule`: the discriminant sits after the 24-byte payload. -/
+def observeOptionBlobSchedule? (state : State) (base : Nat) :
+    Option (Option SszBridge.RawBlobSchedule) := do
+  let present ← observeOptionTag? state (base + 24)
+  if present then
+    let schedule ← observeBlobSchedule? state base
+    pure (some schedule)
+  else
+    pure none
+
+theorem observe_option_blob_schedule_of_rep (state : State) (base : Nat)
+    (value : Option SszBridge.RawBlobSchedule)
+    (representation : OptionBlobScheduleRep state base value) :
+    observeOptionBlobSchedule? state base = some value := by
+  unfold observeOptionBlobSchedule? OptionBlobScheduleRep at *
+  cases value with
+  | none => rw [observe_option_tag_of_rep state (base + 24) false representation]; rfl
+  | some schedule =>
+    obtain ⟨payload, tag⟩ := representation
+    rw [observe_option_tag_of_rep state (base + 24) true tag]
+    simp [observe_blob_schedule_of_rep state base schedule payload]
+
+/-- Read a `RawForkActivation`: two `?u64`s, 16 bytes apart. -/
+def observeForkActivation? (state : State) (base : Nat) : Option SszBridge.RawForkActivation := do
+  let blockNumber ← observeOptionU64? state base
+  let timestamp ← observeOptionU64? state (base + 16)
+  pure { blockNumber := blockNumber, timestamp := timestamp }
+
+theorem observe_fork_activation_of_rep (state : State) (base : Nat)
+    (value : SszBridge.RawForkActivation) (representation : ForkActivationRep state base value) :
+    observeForkActivation? state base = some value := by
+  obtain ⟨blockNumber, timestamp⟩ := representation
+  unfold observeForkActivation?
+  rw [observe_option_u64_of_rep state base value.blockNumber blockNumber,
+    observe_option_u64_of_rep state (base + 16) value.timestamp timestamp]
+  rfl
+
+/-- Read a `RawForkConfig`: `fork` at 0, `activation` at 8, `blob_schedule` at 40. -/
+def observeForkConfig? (state : State) (base : Nat) : Option SszBridge.RawForkConfig := do
+  let fork ← observeWord64? state base
+  let activation ← observeForkActivation? state (base + 8)
+  let blobSchedule ← observeOptionBlobSchedule? state (base + 40)
+  pure { fork := UInt64.ofNat fork, activation := activation, blobSchedule := blobSchedule }
+
+theorem observe_fork_config_of_rep (state : State) (base : Nat) (value : SszBridge.RawForkConfig)
+    (representation : ForkConfigRep state base value) :
+    observeForkConfig? state base = some value := by
+  obtain ⟨fork, activation, blobSchedule⟩ := representation
+  unfold observeForkConfig?
+  rw [observe_word64_of_rep state base value.fork.toNat (UInt64.toNat_lt value.fork) fork,
+    observe_fork_activation_of_rep state (base + 8) value.activation activation,
+    observe_option_blob_schedule_of_rep state (base + 40) value.blobSchedule blobSchedule]
+  simp [UInt64.ofNat_toNat]
+
+/-- Read a `RawChainConfig`: `chain_id` at 0, `active_fork` at 8. -/
+def observeChainConfig? (state : State) (base : Nat) : Option SszBridge.RawChainConfig := do
+  let chainId ← observeWord64? state base
+  let activeFork ← observeForkConfig? state (base + 8)
+  pure { chainId := UInt64.ofNat chainId, activeFork := activeFork }
+
+theorem observe_chain_config_of_rep (state : State) (base : Nat)
+    (value : SszBridge.RawChainConfig) (representation : ChainConfigRep state base value) :
+    observeChainConfig? state base = some value := by
+  obtain ⟨chainId, activeFork⟩ := representation
+  unfold observeChainConfig?
+  rw [observe_word64_of_rep state base value.chainId.toNat (UInt64.toNat_lt value.chainId) chainId,
+    observe_fork_config_of_rep state (base + 8) value.activeFork activeFork]
+  simp [UInt64.ofNat_toNat]
+
+/-- **The chain config of a represented `RawV4` reads back exactly.** This is the part of the value
+observer that the earlier representation made impossible: with only `chainId` and `activeFork.fork`
+pinned, `activation` and `blobSchedule` were unconstrained and no observer could recover them. -/
+theorem observe_chain_config_of_raw_v4_rep (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : SszBridge.RawV4)
+    (representation : RawV4Rep state inputBase input rootBase value) :
+    observeChainConfig? state (rootBase + 736) = some value.chainConfig :=
+  observe_chain_config_of_rep state (rootBase + 736) value.chainConfig
+    representation.fixedFields.chainConfig
+
 end BinaryFv.SSZ.Zesu.MemoryRepresentation
