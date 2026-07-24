@@ -8,17 +8,16 @@ import BinaryFv.SSZ.Zesu.Contracts.Runtime
 import BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors
 
 /-!
-# Kernel-checked per-routine meaning agreement (Row B, item 3)
+# Checking every routine's Lean meaning
 
-For every typed leaf-routine vector (`ssz-routine-vectors-v1`), the handwritten `meaning*` produces the
-vector's exact expected success value or exact local error — checked in the kernel by `native_decide`.
-The host probe checks the same vectors against the real Zig routine (`--routine-vectors`), so together
-`expected ≡ Zig-routine` (probe) and `expected ≡ meaning` (here) give `Zig-routine ≡ handwritten meaning`
-per routine, at the exact-value / exact-error granularity Row B requires.
+The generated vectors describe typed calls to all 43 routine identities and their exact expected
+value or local error. This module evaluates the handwritten Lean `meaning` for each vector and checks
+the result with `native_decide`. The host Zig probe independently calls the real source routine on the
+same vector. Agreement with the shared expectation therefore connects the source routine to its Lean
+meaning.
 
-This is a validation module — falsification evidence, not a proof premise — and is not imported by the
-theorem umbrella `BinaryFv`. Leaf readers fail only with `invalidSsz`, so a `none` expectation pins that
-exact error (there is only one).
+This is finite validation evidence, not a premise of the compliance theorem. The build enforces that
+no production proof module imports this directory.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation

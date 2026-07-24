@@ -1,27 +1,18 @@
-//! Row B host contract probe over the pinned *private* decoder routine `ssz_raw.decode`.
+//! Host-side validation of the pinned Zesu source.
 //!
-//! This executable imports only the `ssz_raw` module (the same source that compiles to the RV64
-//! production decoder object) and drives it over the shared `ssz-contract-corpus-v1` JSONL corpus.
-//! For every `ssz_raw.decode` case it:
+//! This executable has two related jobs:
 //!
-//!   * runs the real private `raw.decode` under a recording allocator and emits a *canonical
-//!     outcome* to stdout — `{"id","routine","outcome"[,"error"]}` — matching the Lean
-//!     `ssz_contract_runner` outcome (minus `value`; see below);
-//!   * emits an *allocation ledger* to the ledger stream (a `--ledger` file, else stderr): the exact
-//!     allocation count / bytes, an error-path leak check, and a single-point out-of-memory
-//!     robustness sweep (inject a failure at each allocation index and require the decoder to
-//!     surface a clean `error.OutOfMemory` with no leak).
+//! - run the complete decoder over a shared corpus and emit deterministic accept/reject outcomes;
+//! - call each cataloged source routine with typed vectors and compare its exact value, error, and
+//!   allocation events with an independently generated expectation.
 //!
-//! Item 1 (Row B): the file-private catalog routines ARE now reachable for direct per-routine testing
-//! through the validation-only overlay (`overlay_exports.zig`), which the `zesuContractProbe`
-//! derivation appends to a sha256-verified copy of the pinned source (production object derivations
-//! are untouched). The `comptime` block below references every `raw.probe_*` re-export, so this exe
-//! fails to build unless all are exposed; `--list-routines` prints the reachable routine identities.
-//! The whole-input `raw.decode` decision + allocation lane below is preserved; the per-routine typed
-//! vectors and Zig-vs-Lean-meaning value/error comparison build on this exposure. *Value* fidelity of
-//! `raw.decode` itself remains additionally certified by the three-way `ssz-value-v1` audit.
+//! Validation-only overlays expose private Zig routines after Nix verifies the original source hash.
+//! They are never used to build the production RV64 object. Compile-time references below ensure that
+//! every expected routine is actually reachable by the probe.
 //!
-//! Exit status is nonzero if any case leaks or is out-of-memory-unsafe (both real defects).
+//! Allocating calls use a recording allocator. Its evidence contains stable block identifiers rather
+//! than host pointers, and the probe injects out-of-memory failures to check cleanup behavior. Any
+//! mismatch, leak, or unsafe failure path produces a nonzero exit status.
 
 const std = @import("std");
 const raw = @import("ssz_raw");

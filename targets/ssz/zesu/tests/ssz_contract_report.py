@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Row B contract-validation report: consolidate the shared corpus, the host probe's canonical
-outcomes, and its allocation ledger into one deterministic JSON + Markdown evidence artifact.
+"""Render the source-validation evidence as deterministic JSON and Markdown.
 
-This is a *report over already-checked evidence*, not itself a gate: the probe check
-(`sszContractProbeCheck`) is what fails the build on a disagreement, leak, or out-of-memory defect.
-The report exists so a reviewer can see, in one place, the coverage the corpus achieves and the
-per-case decision + allocation profile of the real `ssz_raw.decode` source.
+The build gates have already checked the corpus outcomes, typed routine vectors, and allocation
+events. This script makes that evidence reviewable by grouping it first by the 43 source-routine
+identities and then by the 141 generated binary occurrences.
 
-Determinism: every table is sorted by a stable key and no wall-clock time is emitted, so the JSON and
-Markdown are byte-identical across runs (the Nix derivation embeds them as build outputs).
+Every table uses stable sorting and omits timestamps and host-specific values, so repeated builds
+produce byte-identical reports.
 """
 
 from __future__ import annotations

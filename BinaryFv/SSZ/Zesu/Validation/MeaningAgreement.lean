@@ -2,16 +2,14 @@ import BinaryFv.SSZ.Zesu.Contracts.Entry
 import BinaryFv.SSZ.Zesu.Validation.GeneratedCorpus
 
 /-!
-# Kernel-checked meaning/oracle agreement (Row B)
+# Checking the composed Lean meaning against the oracle
 
-The Row B validation of the **handwritten `meaning` definitions**: for every small
-`ssz-contract-corpus-v1` case, the source-shaped `meaningDecode` and the pinned oracle
-`SszBridge.decodeStatelessInput` agree on acceptance, and each matches the case's expected
-classification — checked in the kernel by `native_decide`.
+For each small whole-input corpus case, this module evaluates both the handwritten `meaningDecode`
+and the independent `SszBridge.decodeStatelessInput` oracle. `native_decide` checks that they agree on
+acceptance and that both match the expected classification.
 
-This is `Entry.sourceShapedDecodeAgreesWithOracle` realized on the corpus, and it is *stronger* than a
-runtime JSONL cross-check: it is a proof for these inputs. It is a validation module — falsification
-evidence, not a proof premise — and is not imported by the theorem umbrella `BinaryFv`.
+These are proofs about the finite corpus, not a universal decoder theorem. They provide strong
+regression evidence while remaining outside the compliance theorem's import graph.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation
