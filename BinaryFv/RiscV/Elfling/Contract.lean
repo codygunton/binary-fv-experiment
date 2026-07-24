@@ -3,36 +3,23 @@ import BinaryFv.RiscV.Logic.RegisterAgree
 import BinaryFv.RiscV.Logic.ImageMemory
 
 /-!
-# Hoare-style contracts for Elfling occurrences
+# Contracts for compiled routine occurrences
 
-The handwritten half of the proof splits into two independent parts, because a source routine and one
-of its generated occurrences are different things.
+This file connects source-level intent to RISC-V execution. The important distinction is between a
+routine and an occurrence of that routine:
 
-*What a routine means* is a specification-level function — it is the same for every occurrence of that
-source routine, whether the occurrence was separately emitted or inlined ten frames deep. This is a
-`RoutineSpec`.
+- `RoutineSpec` says what the source routine computes. Every emitted or inlined occurrence shares
+  this meaning.
+- `OccurrenceBinding` says where one compiled occurrence receives its arguments, where it leaves its
+  result, and how many instructions it may use. Optimization can give two occurrences different
+  registers and stack slots.
+- `OccurrenceContract` pairs those two pieces. `Implements` states that the generated machine trace
+  satisfies the pair.
 
-*Where an occurrence lives in the machine* — the entry state its caller must establish, the exit
-state it guarantees, and how many instructions it may take — is specific to that one occurrence. An
-optimizer can give two occurrences of the same routine completely different register/stack/memory
-bindings, and a faithful model must let them differ. This is an `OccurrenceBinding`.
-
-An `OccurrenceContract` pairs the shared spec with one occurrence's binding, and `Implements` is the
-obligation tying that pair to actual generated Sail execution confined to the occurrence.
-
-Three things are deliberate.
-
-*The outcome type is a parameter.* The decoder's leaf routines produce `Except DecodeError Result`,
-but the exported wrapper produces a richer `DecodeCallOutcome` (success / rejected / already-decoded).
-Parameterizing the outcome keeps this layer generic instead of hard-coding `Except`, and avoids a
-collision with `BinaryFv.RiscV.DecodeError` (an unrelated ELF word-decode failure).
-
-*`exit` sees both states.* Every frame predicate in this codebase is binary — `Agree P before after`,
-`imageUnchanged image after` — so a postcondition that only saw the final state could not say
-"unrelated memory is preserved" at all.
-
-*`Implements` quantifies over the starting step number.* `Trace`'s step counter is a real obligation
-and composition requires the callee's binding to hold at whatever step number the caller reached.
+The outcome type is generic because most decoder routines return `Except`, while the exported
+wrapper also distinguishes a refused second call. Exit conditions receive both the initial and final
+machine state so they can state preservation facts. The starting step number is also explicit so a
+callee trace can begin at the exact point reached by its caller.
 -/
 
 namespace BinaryFv.RiscV.Elfling
@@ -44,34 +31,24 @@ open BinaryFv.Binary
 open BinaryFv.RiscV
 
 /--
-The handwritten specification of one semantic routine, as a spec-level function from arguments to an
-outcome.
+The source-level meaning shared by every compiled occurrence of a routine.
 
-`meaning` must be a specialized or composed specification operation, never a fresh re-implementation
-of the routine's control flow: a hand-rolled mirror of the machine code would always be provable and
-would say nothing about the specification.
-
-**One `RoutineSpec` is shared by every occurrence of a source routine.** It mentions no address, no
-register, and no step count — those all belong to the occurrence's `OccurrenceBinding`. Relinking the
-binary, or the optimizer inlining a routine into a new caller, changes bindings, never this.
+This definition contains no addresses, registers, or step counts. Its `meaning` should be built from
+the independent specification, not by restating the machine code.
 -/
 structure RoutineSpec (Args Outcome : Type) where
   meaning : Args → Outcome
 
 /--
-Where one generated occurrence sits in the machine: what its caller must establish on entry, what its
-exit state must satisfy for a given outcome, and its instruction budget.
-
-**Every generated occurrence has its own `OccurrenceBinding`.** The three occurrence kinds bind
-differently, and this is exactly the distinction the previous single-contract model erased:
+The machine interface for one generated occurrence.
 
 - an exported occurrence binds the real C ABI and the wrapper's global effects;
 - an emitted internal occurrence binds its actual optimized ABI (which may drop or reorder source
   arguments);
 - an inlined occurrence binds its actual entry/exit registers, stack slots, and memory locations.
 
-`stepBound` is an upper bound, so a binding may not be discharged by a run that merely stops
-somewhere; `exit` is what pins where it stopped and what it produced.
+`entry` describes the required starting state, `exit` relates the start and finish to the expected
+outcome, and `stepBound` limits the run.
 -/
 structure OccurrenceBinding (Args Outcome : Type) where
   entry : Args → State → Prop

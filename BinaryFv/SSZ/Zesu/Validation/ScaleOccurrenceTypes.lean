@@ -1,14 +1,12 @@
 /-!
-# Row C: types for the SCALED per-occurrence production-ELF validation
+# Compact evidence for all compiled occurrences
 
-Compact, deterministic per-occurrence evidence (`OccScaleEvidence`) and the eight generic check results
-(`ScaleChecks`) for the scaled Row C validator. One `OccScaleEvidence` per occurrence in `program.json`
-carries only the reduced facts the checker needs — never the raw multi-MB trace — captured from the
-UNCHANGED production `zesu-ssz` ELF under pinned QEMU. Each check is an `Option Bool`: `some true` pass,
-`some false` fail, `none` an EXPLICIT gap (coverage or check not evaluable), never silently a pass.
+The raw QEMU traces are several megabytes and contain host-dependent details. The reducer stores one
+`OccScaleEvidence` record per generated occurrence with only the facts needed by the Lean checker.
+`ScaleChecks` uses `some true` for a pass, `some false` for a contradiction, and `none` for an
+explicit coverage or observability gap. A gap is never treated as success.
 
-This is a validation-namespace module: diagnostic/regression evidence, NEVER imported by the theorem
-graph (enforced by the validation-import guard).
+These records are validation-only and cannot be imported by the compliance theorem.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation

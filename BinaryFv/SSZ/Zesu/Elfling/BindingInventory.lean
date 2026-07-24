@@ -2,54 +2,44 @@ import GeneratedBindings
 import BinaryFv.RiscV.Elfling.Contract
 
 /-!
-# Complete generated occurrence bindings
+# Where each occurrence receives its arguments
 
-`GeneratedBindings.lean` is *untrusted* generated data: the entry-time location of every occurrence's
-formal parameters, resolved from DWARF `.debug_loc` at each occurrence's entry PC (see
-`tools/generate_elfling_program.py --out-bindings`). Each parameter's DWARF kind is one of:
+A source routine can appear many times in an optimized binary. One copy may be emitted as a normal
+function while others are inlined into callers, and each occurrence can receive the same logical
+argument in a different register, stack slot, address, or constant. This file turns the generated
+location data into predicates over Sail machine state.
 
-- `reg` / `fbreg` / `breg` / `addr` — a concrete register, frame slot, base+offset location, or
-  memory address; `bregValue` / `addrValue` preserve DWARF's `DW_OP_stack_value` distinction
-  (emitted occurrences carry their real optimized ABI this way, and many inlined occurrences too);
-- `const` — the concrete constant value (from DWARF or deterministic source recovery);
-- `derived` — a loop-carried value: the source argument is `index * stride + constant`, and the
-  compiled loop keeps `index * stride` in a register (see below);
-- `callerProvided` — the optimizer emitted **no** location at the occurrence's entry PC. This kind
-  appears only in the RAW table; generation fails if one survives recovery.
+`GeneratedBindings.lean` contains two tables:
 
-## Raw DWARF versus effective bindings
+- `rawBindings` preserves the DWARF information exactly;
+- `bindings` is the table used by proofs after all missing DWARF locations have been recovered.
 
-`rawBindings` preserves exactly what DWARF said, including 61 `callerProvided` gaps. `bindings` is the
-effective table: the generator resolves those gaps from pinned Zig call-site literals, forwarding
-through the reader chain, `readArray` specialization widths, the RISC-V C ABI for `memmove`, or the
-loop-induction register for a loop-carried reader offset. **Generation fails if any gap remains** —
-there is no bucket for a parameter with no machine meaning, because a row like that would make the
-occurrence's entry predicate unsatisfiable and every implication out of it vacuous.
-`recoveredBindings` records every change beside the raw table, so recovery is inspectable rather than
-silently replacing the compiler evidence.
+The raw table has 148 parameter rows, one for each parameter in an occurrence's DWARF
+abstract-origin signature. It contains 61 `callerProvided` gaps where optimized DWARF gives no
+entry-time location. The generator recovers every gap with the five narrow rules below and refuses
+to produce the file if any parameter remains unknown. `recoveredBindings` records each change so the
+effective table never silently replaces compiler evidence.
 
-## The binding-classification spike
+## How to read a binding kind
 
-A classification spike over all 148 parameter rows — one row per *signature* parameter, taken from each
-occurrence's DWARF abstract-origin DIE, so a parameter the optimizer dropped from the concrete instance
-is a visible row rather than an absence — separates every parameter into:
+- `reg` is a value held directly in a RISC-V register.
+- `fbreg` and `breg` are values loaded from a frame- or register-relative memory address.
+- `addr` is a value loaded from an absolute address.
+- `bregValue` and `addrValue` are addresses or computed values themselves, not memory loads. This
+  distinction comes from DWARF's `DW_OP_stack_value`.
+- `const` is a compile-time value.
+- `derived` is a loop-carried value. For the withdrawal reader chain, the source argument is
+  `index * stride + constant` and the compiled loop keeps `index * stride` in a register.
+- `callerProvided` appears only in the raw table and means DWARF supplied no entry location.
 
-1. **concrete DWARF location** (`reg`/`fbreg`/`breg`/`addr`/`bregValue`/`addrValue`) or
-   **constant-folded** (`const`) — 140 rows, `resolvedBindingCount`;
-2. **loop-derived** (`derived`) — 8 rows: the `offset` of the `decodeWithdrawals` reader chain, whose
-   source argument is `index * WITHDRAWAL_SIZE + k`;
-3. **genuinely unresolved semantic input** — zero, and the generator refuses to emit the artifact if
-   one appears (`no_genuinely_unresolved`, plus the generator's own hard failure).
+There are 140 concrete or constant rows and eight `derived` rows. No semantic input is unresolved.
+`no_binding_kind_is_impossible` checks that every effective kind has a real interpretation in
+`bindingRowHolds`; Row C then checks these predicates against register and memory snapshots captured
+from the unchanged production ELF.
 
-`no_binding_kind_is_impossible` is the machine-checked statement that (3) is not hiding inside (1) or
-(2): every effective row's kind has a real case in `bindingRowHolds`, so no occurrence's entry
-predicate is unsatisfiable merely because of a kind. Row C separately checks that each occurrence's
-predicate is satisfied by the register/memory state captured at its entry PC in the unchanged
-production ELF.
+## Recovery rules
 
-## Recovery rules (the 61 raw `callerProvided` rows)
-
-Rather than 61 handwritten Lean entries, five generator rules cover every missing location:
+Five generator rules cover the 61 raw `callerProvided` rows:
 
 - `readArrayWidth`: the `len` of a `ssz_raw.bytesAt` occurrence. `bytesAt(data, offset,
   len)` is always called with a *compile-time* length by its enclosing reader — `readArray(N,…)` →
@@ -68,9 +58,9 @@ Rather than 61 handwritten Lean entries, five generator rules cover every missin
   (b) zero on every edge entering that loop. The row becomes `derived`, and `derivedBindings` records
   the register, stride, constant, pinned source expression and loop so the derivation is auditable.
 
-The effective rows feed `generatedEntryBinding`, and `withGeneratedEntry` attaches that predicate to
-a typed `OccurrenceBinding`. Rows E-I only supply the small typed-argument-to-name projection; they
-do not rediscover locations or constants.
+`generatedEntryBinding` interprets the effective rows against Sail state. `withGeneratedEntry`
+combines that machine placement with a typed routine contract; later proofs only map typed arguments
+to their Zig parameter names.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Elfling
