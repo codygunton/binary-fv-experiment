@@ -564,7 +564,7 @@ def emit_md(out, uncovered) -> str:
          f"- return sites: {s['returnSites']} (a return can only reach a call site's return address)",
          f"- no direct branch/call targets any of the three entries: **{s['noDirectReference']}**",
          "",
-         "| function_instances | routine | entry pc | entry value in image | materialized by code | verdict |",
+         "| function instance | routine | entry pc | entry value in image | materialized by code | verdict |",
          "|---:|---|---:|---|---|---|"]
     for i, v in sorted(out["verdicts"].items(), key=lambda kv: int(kv[0])):
         locs = ", ".join(hex(x) for x in v["imageLocationsHoldingEntry"]) or "—"
