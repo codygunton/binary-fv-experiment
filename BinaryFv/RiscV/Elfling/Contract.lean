@@ -3,17 +3,17 @@ import BinaryFv.RiscV.Logic.RegisterAgree
 import BinaryFv.RiscV.Logic.ImageMemory
 
 /-!
-# Contracts for compiled routine occurrences
+# Contracts for compiled routine function instances
 
 This file connects source-level intent to RISC-V execution. The important distinction is between a
-routine and an occurrence of that routine:
+routine and a function instance of that routine:
 
-- `RoutineSpec` says what the source routine computes. Every emitted or inlined occurrence shares
+- `RoutineSpec` says what the source routine computes. Every emitted or inlined function instance shares
   this meaning.
-- `OccurrenceBinding` says where one compiled occurrence receives its arguments, where it leaves its
-  result, and how many instructions it may use. Optimization can give two occurrences different
+- `FunctionInstanceBinding` says where one compiled function instance receives its arguments, where it leaves its
+  result, and how many instructions it may use. Optimization can give two function instances different
   registers and stack slots.
-- `OccurrenceContract` pairs those two pieces. `Implements` states that the generated machine trace
+- `FunctionInstanceContract` pairs those two pieces. `Implements` states that the generated machine trace
   satisfies the pair.
 
 The outcome type is generic because most decoder routines return `Except`, while the exported
@@ -31,7 +31,7 @@ open BinaryFv.Binary
 open BinaryFv.RiscV
 
 /--
-The source-level meaning shared by every compiled occurrence of a routine.
+The source-level meaning shared by every compiled function instance of a routine.
 
 This definition contains no addresses, registers, or step counts. Its `meaning` should be built from
 the independent specification, not by restating the machine code.
@@ -40,40 +40,40 @@ structure RoutineSpec (Args Outcome : Type) where
   meaning : Args → Outcome
 
 /--
-The machine interface for one generated occurrence.
+The machine interface for one generated function instance.
 
-- an exported occurrence binds the real C ABI and the wrapper's global effects;
-- an emitted internal occurrence binds its actual optimized ABI (which may drop or reorder source
+- an exported function instance binds the real C ABI and the wrapper's global effects;
+- an emitted internal function instance binds its actual optimized ABI (which may drop or reorder source
   arguments);
-- an inlined occurrence binds its actual entry/exit registers, stack slots, and memory locations.
+- an inlined function instance binds its actual entry/exit registers, stack slots, and memory locations.
 
 `entry` describes the required starting state, `exit` relates the start and finish to the expected
 outcome, and `stepBound` limits the run.
 -/
-structure OccurrenceBinding (Args Outcome : Type) where
+structure FunctionInstanceBinding (Args Outcome : Type) where
   entry : Args → State → Prop
   exit : Args → Outcome → State → State → Prop
   stepBound : Args → Nat
 
 /--
-One occurrence's full contract: the shared `RoutineSpec` this occurrence realizes, paired with this
-occurrence's own `OccurrenceBinding`.
+One function instance's full contract: the shared `RoutineSpec` this function instance realizes, paired with this
+function instance's own `FunctionInstanceBinding`.
 
-The spec is what the occurrence must *mean*; the binding is *where and how* it means it. Keeping them
-as separate fields is what lets many occurrences of one routine share a single meaning while each
+The spec is what the function instance must *mean*; the binding is *where and how* it means it. Keeping them
+as separate fields is what lets many function instances of one routine share a single meaning while each
 carries its own machine placement.
 -/
-structure OccurrenceContract (Args Outcome : Type) where
+structure FunctionInstanceContract (Args Outcome : Type) where
   spec : RoutineSpec Args Outcome
-  binding : OccurrenceBinding Args Outcome
+  binding : FunctionInstanceBinding Args Outcome
 
 /--
-A source-shaped contract: the special case of an `OccurrenceContract` whose outcome is
+A source-shaped contract: the special case of a `FunctionInstanceContract` whose outcome is
 `Except Error Result` and whose binding is the routine's *source-level* ABI.
 
 Most decoder leaves are cataloged this way because their source ABI is a faithful binding for the
-occurrence in question. `FunctionContract.toOccurrence` projects one into the generic form, so the
-occurrence-specific bindings (the exported wrapper, deeply inlined occurrences) and the source-shaped
+function instance in question. `FunctionContract.toFunctionInstance` projects one into the generic form, so the
+function instance-specific bindings (the exported wrapper, deeply inlined function instances) and the source-shaped
 leaves live under one `Implements` obligation.
 -/
 structure FunctionContract (Error Args Result : Type) where
@@ -91,15 +91,15 @@ def toRoutineSpec (contract : FunctionContract Error Args Result) :
     RoutineSpec Args (Except Error Result) :=
   { meaning := contract.meaning }
 
-/-- The (source-shaped) occurrence binding of a source-shaped contract. -/
+/-- The (source-shaped) function instance binding of a source-shaped contract. -/
 def toBinding (contract : FunctionContract Error Args Result) :
-    OccurrenceBinding Args (Except Error Result) :=
+    FunctionInstanceBinding Args (Except Error Result) :=
   { entry := contract.pre, exit := contract.post, stepBound := contract.stepBound }
 
-/-- A source-shaped contract as a generic `OccurrenceContract`. This is the single adapter between the
-old source-shaped catalog and the occurrence-aware obligation. -/
-def toOccurrence (contract : FunctionContract Error Args Result) :
-    OccurrenceContract Args (Except Error Result) :=
+/-- A source-shaped contract as a generic `FunctionInstanceContract`. This is the single adapter between the
+old source-shaped catalog and the function instance-aware obligation. -/
+def toFunctionInstance (contract : FunctionContract Error Args Result) :
+    FunctionInstanceContract Args (Except Error Result) :=
   { spec := contract.toRoutineSpec, binding := contract.toBinding }
 
 end FunctionContract
@@ -125,19 +125,19 @@ theorem trans {preserved : Register → Prop} {image : BinaryFv.Binary.ProgramIm
 end CalleeFrame
 
 /--
-The obligation that a generated occupancy of instruction space implements an occurrence contract.
+The obligation that a generated occupancy of instruction space implements a function instance contract.
 
 Read it as: for every argument tuple, every starting step number, and every state satisfying the
-occurrence's `entry` binding, execution confined to `region` from `entry` reaches a generated exit
-within `stepBound` steps, and the resulting states satisfy the occurrence's `exit` binding *at the
+function instance's `entry` binding, execution confined to `region` from `entry` reaches a generated exit
+within `stepBound` steps, and the resulting states satisfy the function instance's `exit` binding *at the
 exact outcome `meaning` prescribes*.
 
 Using `EnteredFunctionTrace` rather than a bare `FunctionTrace` is what rules out the degenerate
 proof in which the machine already sits on an exit and nothing is executed.
 -/
-def OccurrenceContract.Implements {Args Outcome : Type}
+def FunctionInstanceContract.Implements {Args Outcome : Type}
     (region exit : BitVec 64 → Prop) (entry : BitVec 64)
-    (contract : OccurrenceContract Args Outcome) : Prop :=
+    (contract : FunctionInstanceContract Args Outcome) : Prop :=
   ∀ (args : Args) (fromStep : Nat) (s : State),
     contract.binding.entry args s →
       ∃ (count : Nat) (s' : State),
@@ -146,42 +146,42 @@ def OccurrenceContract.Implements {Args Outcome : Type}
         contract.binding.exit args (contract.spec.meaning args) s s'
 
 /--
-`Implements` for a source-shaped `FunctionContract`: it is exactly the occurrence obligation on the
-projected `OccurrenceContract`.
+`Implements` for a source-shaped `FunctionContract`: it is exactly the function instance obligation on the
+projected `FunctionInstanceContract`.
 
-This keeps every source-shaped leaf under the same seam the occurrence-specific bindings use, so the
+This keeps every source-shaped leaf under the same seam the function instance-specific bindings use, so the
 local-to-global composition never has to special-case the two.
 -/
 def Implements {Error Args Result : Type}
     (region exit : BitVec 64 → Prop) (entry : BitVec 64)
     (contract : FunctionContract Error Args Result) : Prop :=
-  OccurrenceContract.Implements region exit entry contract.toOccurrence
+  FunctionInstanceContract.Implements region exit entry contract.toFunctionInstance
 
 /--
-`OccurrenceContract.Implements` for a generated Elfling occurrence: the confinement region is exactly
-that occurrence's possibly discontiguous ranges.
+`FunctionInstanceContract.Implements` for a generated Elfling function instance: the confinement region is exactly
+that function instance's possibly discontiguous ranges.
 
 This is the single visible seam between the generated, untrusted, address-bearing layer and the
-handwritten, address-free contract. The contract argument mentions no address; the occurrence
+handwritten, address-free contract. The contract argument mentions no address; the function instance
 supplies all of them.
 -/
-def OccurrenceContract.ImplementsInstance {Args Outcome : Type}
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+def FunctionInstanceContract.ImplementsFunctionInstance {Args Outcome : Type}
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop)
-    (contract : OccurrenceContract Args Outcome) : Prop :=
-  OccurrenceContract.Implements (RegionPcs instance_.regions) exit entry contract
+    (contract : FunctionInstanceContract Args Outcome) : Prop :=
+  FunctionInstanceContract.Implements (RegionPcs functionInstance.regions) exit entry contract
 
 /--
-`Implements` for a generated Elfling occurrence of a source-shaped contract.
+`Implements` for a generated Elfling function instance of a source-shaped contract.
 
 The name and signature are unchanged from before the meaning/placement split: the catalog still joins
-a `FunctionContract` to an occurrence through this, and it now routes through the occurrence form.
+a `FunctionContract` to a function instance through this, and it now routes through the function instance form.
 -/
-def ImplementsInstance {Error Args Result : Type}
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+def ImplementsFunctionInstance {Error Args Result : Type}
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop)
     (contract : FunctionContract Error Args Result) : Prop :=
-  Implements (RegionPcs instance_.regions) exit entry contract
+  Implements (RegionPcs functionInstance.regions) exit entry contract
 
 /--
 A contract whose entry binding no state satisfies is vacuously implemented.
@@ -190,19 +190,19 @@ Sail memory is sparse, so an `entry` must materialize every address the routine 
 to write one that is quietly contradictory. Every cataloged routine therefore carries a companion
 satisfiability claim, and this is the shape of it.
 -/
-def OccurrenceContract.PreSatisfiable {Args Outcome : Type}
-    (contract : OccurrenceContract Args Outcome) : Prop :=
+def FunctionInstanceContract.PreSatisfiable {Args Outcome : Type}
+    (contract : FunctionInstanceContract Args Outcome) : Prop :=
   ∃ (args : Args) (s : State), contract.binding.entry args s
 
 /-- `PreSatisfiable` for a source-shaped `FunctionContract`. -/
 def PreSatisfiable {Error Args Result : Type} (contract : FunctionContract Error Args Result) : Prop :=
-  OccurrenceContract.PreSatisfiable contract.toOccurrence
+  FunctionInstanceContract.PreSatisfiable contract.toFunctionInstance
 
-theorem OccurrenceContract.Implements.not_vacuous {Args Outcome : Type}
+theorem FunctionInstanceContract.Implements.not_vacuous {Args Outcome : Type}
     {region exit : BitVec 64 → Prop} {entry : BitVec 64}
-    {contract : OccurrenceContract Args Outcome}
-    (himpl : OccurrenceContract.Implements region exit entry contract)
-    (hsat : OccurrenceContract.PreSatisfiable contract) :
+    {contract : FunctionInstanceContract Args Outcome}
+    (himpl : FunctionInstanceContract.Implements region exit entry contract)
+    (hsat : FunctionInstanceContract.PreSatisfiable contract) :
     ∃ (args : Args) (count : Nat) (s s' : State),
       0 < count ∧ contract.binding.exit args (contract.spec.meaning args) s s' := by
   obtain ⟨args, s, hpre⟩ := hsat
@@ -215,6 +215,6 @@ theorem Implements.not_vacuous {Error Args Result : Type}
     (himpl : Implements region exit entry contract) (hsat : PreSatisfiable contract) :
     ∃ (args : Args) (count : Nat) (s s' : State),
       0 < count ∧ contract.post args (contract.meaning args) s s' :=
-  OccurrenceContract.Implements.not_vacuous himpl hsat
+  FunctionInstanceContract.Implements.not_vacuous himpl hsat
 
 end BinaryFv.RiscV.Elfling

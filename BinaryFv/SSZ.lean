@@ -7,7 +7,7 @@ import BinaryFv.SSZ.Zesu.Artifact.AllocatorCalls
 import BinaryFv.SSZ.Zesu.Artifact.PrimitiveReadInventory
 import BinaryFv.SSZ.Zesu.ControlFlow.Decode
 import BinaryFv.SSZ.Zesu.ControlFlow.FunctionWords
-import BinaryFv.SSZ.Zesu.Elfling.BlobScheduleInstance
+import BinaryFv.SSZ.Zesu.Elfling.BlobScheduleFunctionInstance
 import BinaryFv.SSZ.Zesu.Elfling.BlobScheduleMapping
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramValidation

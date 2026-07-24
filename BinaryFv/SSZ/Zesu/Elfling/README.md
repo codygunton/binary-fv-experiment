@@ -1,7 +1,7 @@
-# Generated Zesu occurrence data
+# Generated Zesu function instance data
 
 This directory specializes the generic Elfling proof layer to the compiled Zesu decoder. The
-generator finds every emitted and inlined routine occurrence and writes Lean data for its identity,
+generator finds every emitted and inlined routine function instance and writes Lean data for its identity,
 control flow, parameter locations, and referenced globals. Handwritten Lean modules then validate
 that data and expose safer definitions to the contract proofs.
 
@@ -11,8 +11,8 @@ The most useful entry points are:
   machine entry.
 - [`GeneratedDecoderGlobals.lean`](GeneratedDecoderGlobals.lean) is handwritten validation of the
   generated decoder and allocator global-address tables.
-- [`BlobScheduleInstance.lean`](BlobScheduleInstance.lean) is a generated, checked-in vertical-slice
-  occurrence. Its header identifies the generator and says not to edit it manually.
+- [`BlobScheduleFunctionInstance.lean`](BlobScheduleFunctionInstance.lean) is a generated, checked-in vertical-slice
+  function instance. Its header identifies the generator and says not to edit it manually.
 
 Do not infer editability from a `Generated` filename: some tracked `Generated*.lean` modules are
 handwritten validators for generated data. Generated files identify themselves with a `GENERATED
@@ -25,5 +25,5 @@ The raw binding table preserves DWARF exactly. A separate effective table fills 
 out of DWARF using narrow, checked rules based on pinned Zig call sites or the RISC-V C ABI.
 Generation fails instead of guessing when no rule applies.
 
-Occurrence numbers such as `occ140` are stable identifiers within the pinned generated program, not
+FunctionInstance numbers such as `functionInstance140` are stable identifiers within the pinned generated program, not
 source routine names or runtime addresses.

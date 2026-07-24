@@ -391,7 +391,7 @@ let
 
   # Deterministic ELF/DWARF/CFG -> Elfling Program generator (milestone 4). Reads the validated DWARF
   # sidecars, maps to canonical PCs, resolves readArray widths from DWARF call_line -> pinned source,
-  # matches occurrences to the live catalog, folds glue into the nearest cataloged ancestor, and emits
+  # matches function instances to the live catalog, folds glue into the nearest cataloged ancestor, and emits
   # deterministic JSON, a generated Lean `Program`, and a Markdown source/function/CFG index.
   #
   # Filtered inputs: only the generator script (via builtins.path, not the whole repo), the validated
@@ -437,41 +437,41 @@ let
 
   # Deterministic DWARF -> Lean extractor for the `decodeOptionalBlobSchedule` vertical slice
   # (milestone 3). Reads the validated decoder DWARF sidecar with the pinned LLVM 21.1.8
-  # `llvm-dwarfdump`, finds the single inline instance, its inline call stack and nested `readU64`
+  # `llvm-dwarfdump`, finds the single inline function instance, its inline call stack and nested `readU64`
   # field reads, maps object-relative DWARF ranges to canonical-ELF PCs, and emits the committed
-  # `BlobScheduleInstance.lean` verbatim.
+  # `BlobScheduleFunctionInstance.lean` verbatim.
   #
   # Filtered inputs: only the extractor script (via builtins.path, not the whole repo) and the
   # validated sidecar — so editing handwritten proofs never rebuilds it. Determinism is an
   # acceptance criterion: it runs twice and FAILS unless byte-identical, then a drift guard FAILS
-  # unless the regenerated file equals the committed `BlobScheduleInstance.lean` (the analog of how
+  # unless the regenerated file equals the committed `BlobScheduleFunctionInstance.lean` (the analog of how
   # the decoder `.text` sha256 is reproduced AND enforced).
   blobScheduleExtractorScript = builtins.path {
-    path = repo + "/tools/extract_blob_schedule_instance.py";
-    name = "extract_blob_schedule_instance.py";
+    path = repo + "/tools/extract_blob_schedule_function_instance.py";
+    name = "extract_blob_schedule_function_instance.py";
   };
   blobScheduleCommitted = builtins.path {
-    path = repo + "/BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean";
-    name = "BlobScheduleInstance.lean";
+    path = repo + "/BinaryFv/SSZ/Zesu/Elfling/BlobScheduleFunctionInstance.lean";
+    name = "BlobScheduleFunctionInstance.lean";
   };
-  blobScheduleInstance = pkgs.runCommand "blob-schedule-instance" {
+  blobScheduleFunctionInstance = pkgs.runCommand "blob-schedule-function-instance" {
     nativeBuildInputs = [ pkgs.python3 pkgs.coreutils pkgs.diffutils ];
   } ''
     gen() {
       python3 ${blobScheduleExtractorScript} \
         ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
         --dwarfdump ${pkgs.llvm}/bin/llvm-dwarfdump \
-        --lean --out-lean "$1/BlobScheduleInstance.lean"
+        --lean --out-lean "$1/BlobScheduleFunctionInstance.lean"
     }
     mkdir -p run1 run2 "$out"
     gen run1
     gen run2
-    cmp -s run1/BlobScheduleInstance.lean run2/BlobScheduleInstance.lean \
-      || { echo "BLOB-SCHEDULE EXTRACTOR NON-DETERMINISTIC: BlobScheduleInstance.lean differs between two runs" >&2; exit 1; }
-    cmp -s run1/BlobScheduleInstance.lean ${blobScheduleCommitted} \
-      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleInstance.lean differs from committed BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean" >&2; exit 1; }
-    cp run1/BlobScheduleInstance.lean "$out/"
-    printf '%s\n' "two independent runs produced byte-identical BlobScheduleInstance.lean; regenerated == committed" \
+    cmp -s run1/BlobScheduleFunctionInstance.lean run2/BlobScheduleFunctionInstance.lean \
+      || { echo "BLOB-SCHEDULE EXTRACTOR NON-DETERMINISTIC: BlobScheduleFunctionInstance.lean differs between two runs" >&2; exit 1; }
+    cmp -s run1/BlobScheduleFunctionInstance.lean ${blobScheduleCommitted} \
+      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleFunctionInstance.lean differs from committed BinaryFv/SSZ/Zesu/Elfling/BlobScheduleFunctionInstance.lean" >&2; exit 1; }
+    cp run1/BlobScheduleFunctionInstance.lean "$out/"
+    printf '%s\n' "two independent runs produced byte-identical BlobScheduleFunctionInstance.lean; regenerated == committed" \
       > "$out/determinism.txt"
   '';
 
@@ -1104,7 +1104,7 @@ in
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
-      blobScheduleInstance
+      blobScheduleFunctionInstance
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
@@ -1124,7 +1124,7 @@ in
     zesu-raw-ssz-sidecar = zesuRawSidecar;
     zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
     elfling-program = elflingProgram;
-    blob-schedule-instance = blobScheduleInstance;
+    blob-schedule-function-instance = blobScheduleFunctionInstance;
     elfling-decoder-llvm-ir = elflingDecoderLlvmIr;
     elfling-relocation-check = elflingRelocationCheck;
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;

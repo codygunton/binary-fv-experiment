@@ -73,9 +73,9 @@ def contractRequireCanonicalOffsets (env : DecoderEnvironment) :
   stepBound := fun args => 32 + 32 * args.offsets.length
 
 def correctnessClaimRequireCanonicalOffsets (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractRequireCanonicalOffsets env)
+  ImplementsFunctionInstance functionInstance entry exit (contractRequireCanonicalOffsets env)
 
 def satisfiableRequireCanonicalOffsets (env : DecoderEnvironment) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractRequireCanonicalOffsets env)

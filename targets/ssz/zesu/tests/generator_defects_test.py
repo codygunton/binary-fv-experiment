@@ -4,11 +4,11 @@
 Every one of these shows a defect is SURFACED and FAILS generation, never silently dropped:
 
   * unmapped region       — a linker map missing an object's `.text` placement makes the affected
-                            occurrences unmappable; the generator emits `unmappedRegion` defects, writes
+                            function instances unmappable; the generator emits `unmappedRegion` defects, writes
                             them into the JSON, and exits nonzero (end-to-end against the real sidecars).
   * ambiguous attribution — a `readArray(<unknown>)` whose width cannot be resolved from source is an
                             `ambiguousAttribution` (unit test of the pure resolution path).
-  * sibling overlap       — two occurrences claiming a common PC without an inline ancestor relationship
+  * sibling overlap       — two function instances claiming a common PC without an inline ancestor relationship
                             are `overlappingOwnership` (unit test of the pure detector); the real,
                             correctly-nested program produces none.
   * binding gap           — source/parent recovery produces concrete values, preserves the DWARF
@@ -78,12 +78,12 @@ def test_ambiguous_width(gen):
 
 
 def test_sibling_overlap(gen, args, tmp):
-    occ = [
+    function_instance = [
         {"parentIdx": None, "regions": [{"start": 0x1000, "size": 0x40}], "qualified": "a"},
         {"parentIdx": None, "regions": [{"start": 0x1020, "size": 0x40}], "qualified": "b"},  # overlaps a
         {"parentIdx": 0, "regions": [{"start": 0x1000, "size": 0x10}], "qualified": "child"},  # nested in a
     ]
-    defs = gen.sibling_overlap_defects(occ)
+    defs = gen.sibling_overlap_defects(function_instance)
     kinds = [d["kind"] for d in defs]
     check("overlap: sibling PC clash surfaced", "overlappingOwnership" in kinds, str(kinds))
     check("overlap: nested child is NOT flagged against its parent",
@@ -93,13 +93,13 @@ def test_sibling_overlap(gen, args, tmp):
     rc, _ = run_generator(args, ["--map", args.map, "--out-json", outj])
     check("overlap: real program generates cleanly", rc == 0 and os.path.exists(outj), f"rc={rc}")
     if os.path.exists(outj):
-        real = gen.sibling_overlap_defects(json.load(open(outj))["occurrences"])
-        check("overlap: detector finds none on the real occurrences", real == [], str(real))
+        real = gen.sibling_overlap_defects(json.load(open(outj))["function_instances"])
+        check("overlap: detector finds none on the real function instances", real == [], str(real))
 
 
 def test_binding_recovery(gen):
     lines = ["const x = readU64(data, 16);", "const bytes = bytesAt(data, offset, 8);"]
-    occ = [
+    function_instance = [
         {"qualified": "ssz_raw.readU64", "kind": "inlined", "callLine": 1,
          "callColumn": 11, "parentIdx": None, "specialization": [],
          "bindings": [("offset", "callerProvided", -1, 0)]},
@@ -108,7 +108,7 @@ def test_binding_recovery(gen):
          "bindings": [("offset", "callerProvided", -1, 0),
                       ("len", "callerProvided", -1, 0)]},
     ]
-    effective, recovered = gen.recover_missing_bindings(occ, lines)
+    effective, recovered = gen.recover_missing_bindings(function_instance, lines)
     check("binding: source literal is concrete", effective[0] == [("offset", "const", -1, 16)],
           repr(effective[0]))
     check("binding: parent forwarding and literal length are concrete",

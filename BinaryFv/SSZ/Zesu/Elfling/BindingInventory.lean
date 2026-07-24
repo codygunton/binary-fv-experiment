@@ -2,10 +2,10 @@ import GeneratedBindings
 import BinaryFv.RiscV.Elfling.Contract
 
 /-!
-# Where each occurrence receives its arguments
+# Where each function instance receives its arguments
 
 A source routine can appear many times in an optimized binary. One copy may be emitted as a normal
-function while others are inlined into callers, and each occurrence can receive the same logical
+function while others are inlined into callers, and each function instance can receive the same logical
 argument in a different register, stack slot, address, or constant. This file turns the generated
 location data into predicates over Sail machine state.
 
@@ -33,12 +33,12 @@ before-and-after rows so reviewers can audit every recovery.
 
 Four generator rules cover the 50 raw `callerProvided` rows:
 
-- `readArrayWidth`: the `len` of a `ssz_raw.bytesAt` occurrence. `bytesAt(data, offset,
+- `readArrayWidth`: the `len` of a `ssz_raw.bytesAt` function instance. `bytesAt(data, offset,
   len)` is always called with a *compile-time* length by its enclosing reader — `readArray(N,…)` →
   `N`, `readU32` → 4, `readU64` → 8, `readU256` → 32 — so `len` is the constant recovered from the
-  parent occurrence's routine/specialization (recorded as the fourth field).
-- `riscvCAbiArg2`: occ140 = `memmove`, an emitted body whose `n` DWARF location is absent.
-  By the RISC-V C ABI the third integer argument is in `x12`; the adjacent emitted `memcpy` (occ139)
+  parent function instance's routine/specialization (recorded as the fourth field).
+- `riscvCAbiArg2`: functionInstance140 = `memmove`, an emitted body whose `n` DWARF location is absent.
+  By the RISC-V C ABI the third integer argument is in `x12`; the adjacent emitted `memcpy` (functionInstance139)
   carries `n = reg x12`, and the shared `preCopy` contract binds `x12 = length`. Recovered to `x12`.
 - `sourceLiteral`: a literal argument at the pinned Zig call site;
 - `forwardedParentParam`: a reader forwards its parent's already-resolved parameter, such as
@@ -53,13 +53,13 @@ namespace BinaryFv.SSZ.Zesu.Elfling
 
 open BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings
 
-/-- The effective `(name, kind, register-or-address, offset-or-value)` parameters of occurrence `i`.
+/-- The effective `(name, kind, register-or-address, offset-or-value)` parameters of function instance `i`.
 Unlike the raw DWARF rows, this table includes deterministic pinned-source/ABI recovery. -/
-def occurrenceParams (i : Nat) : List (String × String × Int × Int) :=
+def functionInstanceParams (i : Nat) : List (String × String × Int × Int) :=
   bindings.filterMap fun r => if r.1 == i then some (r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2) else none
 
 /-- The raw DWARF parameters before source/ABI recovery. Kept visible so recovery is auditable. -/
-def rawOccurrenceParams (i : Nat) : List (String × String × Int × Int) :=
+def rawFunctionInstanceParams (i : Nat) : List (String × String × Int × Int) :=
   rawBindings.filterMap fun r =>
     if r.1 == i then some (r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2) else none
 
@@ -90,7 +90,7 @@ theorem resolved_count : resolvedBindingCount = 137 := by native_decide
 
 /-! ## Recovery coverage -/
 
-/-- The `(occurrence, parameter)` keys missing from raw DWARF. -/
+/-- The `(function instance, parameter)` keys missing from raw DWARF. -/
 def callerProvidedKeys : List (Nat × String) :=
   rawBindings.filterMap fun r => if r.2.2.1 == "callerProvided" then some (r.1, r.2.1) else none
 
@@ -141,7 +141,7 @@ theorem no_genuinely_unresolved :
     bindings.all (fun r => r.2.2.1 != "callerProvided" && r.2.2.1 != "unresolved") = true := by
   native_decide
 
-/-! ## Executable entry predicates for occurrence contracts -/
+/-! ## Executable entry predicates for function instance contracts -/
 
 open BinaryFv.RiscV
 open LeanRV64DExecutable.Functions
@@ -208,29 +208,29 @@ def bindingRowHolds (row : Nat × String × String × Int × Int)
       value = registerOrAddress.toNat
     else False
 
-/-- The complete generated entry placement for one occurrence. This is the machine-placement conjunct
+/-- The complete generated entry placement for one function instance. This is the machine-placement conjunct
 that typed local contracts use; `values` is the small handwritten projection from that routine's
 argument structure to its Zig parameter names. -/
-def generatedEntryBinding (occurrence : Nat) (values : ParameterValues) (state : State) : Prop :=
-  ∀ row ∈ bindings, row.1 = occurrence → bindingRowHolds row values state
+def generatedEntryBinding (functionInstance : Nat) (values : ParameterValues) (state : State) : Prop :=
+  ∀ row ∈ bindings, row.1 = functionInstance → bindingRowHolds row values state
 
-/-- Add the generated parameter placement to a typed occurrence binding without changing its exit or
+/-- Add the generated parameter placement to a typed function instance binding without changing its exit or
 step bound. This is the explicit connection between the generated inventory and local contracts. -/
 def withGeneratedEntry {Args Outcome : Type}
-    (binding : BinaryFv.RiscV.Elfling.OccurrenceBinding Args Outcome) (occurrence : Nat)
+    (binding : BinaryFv.RiscV.Elfling.FunctionInstanceBinding Args Outcome) (functionInstance : Nat)
     (values : Args → ParameterValues) :
-    BinaryFv.RiscV.Elfling.OccurrenceBinding Args Outcome where
-  entry := fun args state => binding.entry args state ∧ generatedEntryBinding occurrence (values args) state
+    BinaryFv.RiscV.Elfling.FunctionInstanceBinding Args Outcome where
+  entry := fun args state => binding.entry args state ∧ generatedEntryBinding functionInstance (values args) state
   exit := binding.exit
   stepBound := binding.stepBound
 
-/-! ## Emitted-occurrence ABIs — all 14 pinned exactly
+/-! ## Emitted-function instance ABIs — all 14 pinned exactly
 
-The review noted only two emitted ABIs were pinned. All 14 emitted occurrences are pinned here: the
+The review noted only two emitted ABIs were pinned. All 14 emitted function instances are pinned here: the
 eight with parameters exactly (mutation- and omission-sensitive), and the six paramless ones as
 empty. -/
 
-/-- The 14 emitted occurrences and their exact effective entry parameters. -/
+/-- The 14 emitted function instances and their exact effective entry parameters. -/
 def emittedAbis : List (Nat × List (String × String × Int × Int)) :=
   [(0, [("bytes", "reg", 10, 0), ("alignment", "reg", 11, 0)]),
    (1, [("input", "reg", 10, 0), ("input_len", "reg", 11, 0)]),
@@ -247,46 +247,46 @@ def emittedAbis : List (Nat × List (String × String × Int × Int)) :=
    (139, [("dst", "reg", 10, 0), ("src", "reg", 11, 0), ("n", "reg", 12, 0)]),
    (140, [("dst", "reg", 10, 0), ("src", "reg", 11, 0), ("n", "reg", 12, 0)])]
 
-theorem emitted_occurrence_count : emittedAbis.length = 14 := by native_decide
+theorem emitted_function_instance_count : emittedAbis.length = 14 := by native_decide
 
-/-- **Every emitted occurrence's ABI is pinned exactly.** Mutating a register, dropping a parameter,
+/-- **Every emitted function instance's ABI is pinned exactly.** Mutating a register, dropping a parameter,
 or adding one to any of the 14 fails `native_decide`. -/
 theorem emitted_abis_pinned :
-    emittedAbis.all (fun p => occurrenceParams p.1 == p.2) = true := by native_decide
+    emittedAbis.all (fun p => functionInstanceParams p.1 == p.2) = true := by native_decide
 
-/-- **occ140's absent `n` recovers to the C ABI register.** The raw row stays visible while the
+/-- **functionInstance140's absent `n` recovers to the C ABI register.** The raw row stays visible while the
 effective binding is `x12`, matching emitted `memcpy`. -/
 theorem memmove_n_recovers_to_memcpy_abi :
-    (rawOccurrenceParams 140).contains ("n", "callerProvided", -1, 0) = true ∧
-      (occurrenceParams 139).contains ("n", "reg", 12, 0) = true ∧
-        (occurrenceParams 140).contains ("n", "reg", 12, 0) = true := by native_decide
+    (rawFunctionInstanceParams 140).contains ("n", "callerProvided", -1, 0) = true ∧
+      (functionInstanceParams 139).contains ("n", "reg", 12, 0) = true ∧
+        (functionInstanceParams 140).contains ("n", "reg", 12, 0) = true := by native_decide
 
-/-! ## Coverage — all 141 occurrences accounted -/
+/-! ## Coverage — all 141 function instances accounted -/
 
-/-- The number of the 141 occurrences carrying at least one parameter binding. -/
-def boundOccurrenceCount : Nat :=
-  (List.range 141).countP fun i => !(occurrenceParams i).isEmpty
+/-- The number of the 141 function instances carrying at least one parameter binding. -/
+def boundFunctionInstanceCount : Nat :=
+  (List.range 141).countP fun i => !(functionInstanceParams i).isEmpty
 
-theorem bound_occurrence_count : boundOccurrenceCount = 110 := by native_decide
+theorem bound_function_instance_count : boundFunctionInstanceCount = 110 := by native_decide
 
-/-- The 31 occurrences with no parameters (allocator/accessor bodies, memory-slice-input decoders,
-etc.). Listed explicitly so a silently-dropped binding cannot masquerade as a paramless occurrence. -/
-def paramlessOccurrences : List Nat :=
+/-- The 31 function instances with no parameters (allocator/accessor bodies, memory-slice-input decoders,
+etc.). Listed explicitly so a silently-dropped binding cannot masquerade as a paramless function instance. -/
+def paramlessFunctionInstances : List Nat :=
   [2, 4, 5, 7, 16, 23, 33, 40, 45, 47, 49, 51, 53, 56, 58, 63, 70, 81, 88, 95, 102, 105, 111, 116,
    120, 123, 124, 127, 135, 137, 138]
 
-/-- **All 141 occurrences are accounted for.** An occurrence is paramless iff it is in the list, so
-the 110 bound and 31 paramless occurrences exhaust the program — the "only 110/141 have rows" gap is
+/-- **All 141 function instances are accounted for.** A function instance is paramless iff it is in the list, so
+the 110 bound and 31 paramless function instances exhaust the program — the "only 110/141 have rows" gap is
 closed by naming the other 31, not by hiding them. -/
-theorem all_occurrences_accounted :
-    (List.range 141).all (fun i => (occurrenceParams i).isEmpty == paramlessOccurrences.contains i)
+theorem all_function_instances_accounted :
+    (List.range 141).all (fun i => (functionInstanceParams i).isEmpty == paramlessFunctionInstances.contains i)
       = true := by native_decide
 
 theorem coverage_partitions_141 :
-    boundOccurrenceCount + paramlessOccurrences.length = 141 ∧ paramlessOccurrences.length = 31 := by
+    boundFunctionInstanceCount + paramlessFunctionInstances.length = 141 ∧ paramlessFunctionInstances.length = 31 := by
   native_decide
 
-/-- The total number of parameter bindings across all occurrences. -/
+/-- The total number of parameter bindings across all function instances. -/
 def totalParamCount : Nat := bindings.length
 
 theorem total_param_count : totalParamCount = 137 := by native_decide
@@ -298,34 +298,34 @@ theorem every_binding_has_kind : bindings.all (fun r => r.2.2.1 != "") = true :=
 
 One register-bound, one stack/base-relative with a recovered constant, and one ABI recovery. -/
 
-/-- **Register-bound.** occ139 (`memcpy`) binds all three parameters in argument registers `x10/x11/x12`
+/-- **Register-bound.** functionInstance139 (`memcpy`) binds all three parameters in argument registers `x10/x11/x12`
 — the real optimized ABI, resolved by DWARF. -/
 theorem validate_register_bound :
-    occurrenceParams 139 == [("dst", "reg", 10, 0), ("src", "reg", 11, 0), ("n", "reg", 12, 0)] := by
+    functionInstanceParams 139 == [("dst", "reg", 10, 0), ("src", "reg", 11, 0), ("n", "reg", 12, 0)] := by
   native_decide
 
-/-- **Register-plus-offset value plus constant.** occ73 binds `offset` to `x27 + 48` (DWARF
+/-- **Register-plus-offset value plus constant.** functionInstance73 binds `offset` to `x27 + 48` (DWARF
 `stack_value`, so there is no memory load) and resolves `len` from `readArray[32]`. -/
 theorem validate_stack_relative :
-    rawOccurrenceParams 73 == [("offset", "bregValue", 27, 48), ("len", "callerProvided", -1, 0)] ∧
-      occurrenceParams 73 == [("offset", "bregValue", 27, 48), ("len", "const", -1, 32)] := by
+    rawFunctionInstanceParams 73 == [("offset", "bregValue", 27, 48), ("len", "callerProvided", -1, 0)] ∧
+      functionInstanceParams 73 == [("offset", "bregValue", 27, 48), ("len", "const", -1, 32)] := by
   native_decide
 
-/-- **ABI recovery.** occ140 (`memmove`) has no raw DWARF location for `n`, but its effective binding
+/-- **ABI recovery.** functionInstance140 (`memmove`) has no raw DWARF location for `n`, but its effective binding
 is the RISC-V C ABI's third integer argument register, `x12`. -/
 theorem validate_caller_provided_recovery :
-    rawOccurrenceParams 140 ==
+    rawFunctionInstanceParams 140 ==
         [("dst", "reg", 10, 0), ("src", "reg", 11, 0), ("n", "callerProvided", -1, 0)] ∧
-      occurrenceParams 140 ==
+      functionInstanceParams 140 ==
         [("dst", "reg", 10, 0), ("src", "reg", 11, 0), ("n", "reg", 12, 0)] := by
   native_decide
 
 /-- **The blob-schedule offsets are concrete.** The three nested reads are fixed at 0, 8, and 16;
 none is left as an absent location. -/
 theorem blob_schedule_binds_outside_arg_registers :
-    occurrenceParams 116 == [] ∧
-      occurrenceParams 117 == [("offset", "const", -1, 0)] ∧
-      occurrenceParams 118 == [("offset", "const", -1, 8)] ∧
-      occurrenceParams 119 == [("offset", "const", -1, 16)] := by native_decide
+    functionInstanceParams 116 == [] ∧
+      functionInstanceParams 117 == [("offset", "const", -1, 0)] ∧
+      functionInstanceParams 118 == [("offset", "const", -1, 8)] ∧
+      functionInstanceParams 119 == [("offset", "const", -1, 16)] := by native_decide
 
 end BinaryFv.SSZ.Zesu.Elfling

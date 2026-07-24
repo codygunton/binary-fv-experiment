@@ -265,45 +265,45 @@ def readArrayWidths : List Nat := [20, 32, 48, 65, 96, 256]
 -/
 
 def correctnessClaimReadU32 (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractReadU32 env)
+  ImplementsFunctionInstance functionInstance entry exit (contractReadU32 env)
 
 def correctnessClaimReadU64 (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractReadU64 env)
+  ImplementsFunctionInstance functionInstance entry exit (contractReadU64 env)
 
 def correctnessClaimReadOffset (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractReadOffset env)
+  ImplementsFunctionInstance functionInstance entry exit (contractReadOffset env)
 
 def correctnessClaimHasExactErePrefix (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractHasExactErePrefix env)
+  ImplementsFunctionInstance functionInstance entry exit (contractHasExactErePrefix env)
 
 def correctnessClaimRequireU32Length (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractRequireU32Length env)
+  ImplementsFunctionInstance functionInstance entry exit (contractRequireU32Length env)
 
 def correctnessClaimBytesAt (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractBytesAt env)
+  ImplementsFunctionInstance functionInstance entry exit (contractBytesAt env)
 
 def correctnessClaimReadU256 (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractReadU256 env)
+  ImplementsFunctionInstance functionInstance entry exit (contractReadU256 env)
 
 /-- One correctness claim per concrete `readArray` width. -/
 def correctnessClaimReadArray (env : DecoderEnvironment) (length : Nat)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractReadArray env length)
+  ImplementsFunctionInstance functionInstance entry exit (contractReadArray env length)
 
 /-!
 ## Satisfiability

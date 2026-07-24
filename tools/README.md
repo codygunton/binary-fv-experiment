@@ -4,7 +4,7 @@
 disassembly. Nix invokes it to produce machine-readable and Markdown reports for each retained ELF.
 
 [`generate_elfling_program.py`](generate_elfling_program.py) turns the compiled Zesu decoder into
-data for the Elfling proof layer. It reads DWARF for occurrences and parameter locations, the linker
+data for the Elfling proof layer. It reads DWARF for function instances and parameter locations, the linker
 map and symbol tables for global addresses, and objdump output for instructions and control flow.
 Locations removed by optimization are recovered only by explicit rules over pinned Zig call sites
 or the RISC-V C ABI.
