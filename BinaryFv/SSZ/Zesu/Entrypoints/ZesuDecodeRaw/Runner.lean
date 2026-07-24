@@ -1,3 +1,4 @@
+import BinaryFv.RiscV.Proof.RunnerCorrespondence
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Classify
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Fuel
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Preflight
@@ -177,6 +178,69 @@ theorem executeChecked_eq_executeDecode {binary : RiscvSpec.ValidatedElf}
     executeChecked binary input = executeDecode input := by
   unfold executeChecked
   rw [preflight_ok hcanon h]
+
+/-! ## Following a real trace
+
+The correspondence in the other direction: given a composed Sail trace from the built entry state to
+the sentinel, the *executable* runner follows it and answers with the classification of the state
+that trace ends in. This is the seam the local occurrence proofs feed into — they produce the trace,
+and these lemmas carry it through the runner to the public answer.
+
+The budget premise is deliberately left in view. `runToOutcome_of_traceToSentinel` needs a strict
+`count < fuel`, and `count_lt_zesuFuel` supplies it from the contract's own step bound, so the fuel
+is never a free parameter that could be enlarged to make a proof go through. -/
+
+/-- The main loop follows any trace whose length the exported contract's step bound covers. The
+`count ≤ entryStepBound` premise is exactly what the occurrence contract gives; `count_lt_zesuFuel`
+turns it into the strict inequality the generic correspondence requires. -/
+theorem runToOutcome_of_entry_trace (input : ByteArray) {count : Nat} {entry final : State}
+    (htrace : TraceToSentinel sentinelWord 0 count entry final)
+    (hbound : count ≤ entryStepBound input.size) :
+    Runs (runToOutcome sentinelWord (zesuFuel input.size) 0) entry final (.reached count) := by
+  have := runToOutcome_of_traceToSentinel sentinelWord count (zesuFuel input.size) 0 entry final
+    htrace (count_lt_zesuFuel hbound)
+  simpa using this
+
+/-- Reading the current state is a run that changes nothing. -/
+theorem get_runs (state : State) : Runs (EStateM.get : SailM State) state state state := rfl
+
+/-- **The executable runner follows a composed trace to its answer.**
+
+Given the builder's run, a trace from the built state to the sentinel within the contract's step
+bound, and the two accessor runs from the trace's final state, the whole runner runs to exactly the
+classification of that final state. Nothing here re-derives machine behaviour: the trace and the
+accessor runs are premises, supplied by the local proofs. -/
+theorem runZesuDecodeRaw_of_trace (symbols : RunnerSymbols) (input : ByteArray) {count : Nat}
+    {entry final after : State} {accessors : AccessorOutcome × AccessorOutcome}
+    (hbuild : Runs (buildZesuEntryState input) initialState entry ())
+    (htrace : TraceToSentinel sentinelWord 0 count entry final)
+    (hbound : count ≤ entryStepBound input.size)
+    (haccessors : Runs (runAccessorsIfReached symbols (.reached count)) final after accessors) :
+    Runs (runZesuDecodeRaw symbols input) initialState after
+      (classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+        Elfling.canonicalResultBuffer accessors.1 accessors.2 (.reached count) final) :=
+  Runs.bind hbuild
+    (Runs.bind (runToOutcome_of_entry_trace input htrace hbound)
+      (Runs.bind (get_runs final) (Runs.bind haccessors rfl)))
+
+/-- The same, read off through the public entry: `executeDecode` answers with the classification of
+the traced final state. -/
+theorem executeDecode_of_trace {symbols : RunnerSymbols} (input : ByteArray) {count : Nat}
+    {entry final after : State} {accessors : AccessorOutcome × AccessorOutcome}
+    (hsymbols : runnerSymbols = some symbols)
+    (hbuild : Runs (buildZesuEntryState input) initialState entry ())
+    (htrace : TraceToSentinel sentinelWord 0 count entry final)
+    (hbound : count ≤ entryStepBound input.size)
+    (haccessors : Runs (runAccessorsIfReached symbols (.reached count)) final after accessors) :
+    executeDecode input =
+      classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+        Elfling.canonicalResultBuffer accessors.1 accessors.2 (.reached count) final := by
+  have hrun : (runZesuDecodeRaw symbols input).run initialState =
+      .ok (classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+        Elfling.canonicalResultBuffer accessors.1 accessors.2 (.reached count) final) after :=
+    runZesuDecodeRaw_of_trace symbols input hbuild htrace hbound haccessors
+  unfold executeDecode runAnswer
+  simp only [hsymbols, hrun]
 
 /-! ## The runner never invents a rejection
 
