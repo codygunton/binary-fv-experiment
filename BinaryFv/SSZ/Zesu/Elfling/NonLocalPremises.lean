@@ -4,22 +4,28 @@ import BinaryFv.SSZ.Zesu.Contracts.SemanticObligations
 /-!
 # Assembling the non-local premises of the root obligation
 
-`sszComplianceObligations generatedProgram` is what the root theorem consumes. Row D's job is to
-prove every part of it that is *not* one of the 141 local occurrence proofs, so that the only thing
-the later rows still owe is `LocalContractAssumptions`.
+`sszComplianceObligations generatedProgram` is **one of two things** the root theorem consumes, and
+the distinction matters for reading this module. `root_compliance` descends through
+`successful_trace_of_spec_accepts` / `rejected_trace_of_spec_rejects`, and each of those produces a
+canonical program together with `sszComplianceObligations` *and* a `Nonempty` live run
+(`SuccessfulRun` / `RejectedRun`). The run-existence half is the pair of authorized scaffolds in
+`Entrypoints/ZesuDecodeRaw/Execution.lean` — the only two `sorry`s left in the SSZ proof — and it is
+**not** reduced here. So the premise list below is Row D's remaining *obligation* scope, not the
+whole of what stands between the project and an unconditional root theorem.
 
-This module is the join. It collects the facts already discharged against the generated data —
-coverage, canonical provenance, the address geometry, the acyclic rank, callee resolution — and the
-facts about the canonical parameters themselves, and reduces `sszProgramCorrectness` to exactly three
-residual premises:
+Within that scope, this module is the join. It collects the facts already discharged against the
+generated data — coverage, canonical provenance, the address geometry, the acyclic rank, callee
+resolution — and the facts about the canonical parameters themselves, and reduces
+`sszProgramCorrectness` to exactly three residual premises:
 
 * `catalogSemanticObligations` — what the contracts *claim* about the decoder's meaning;
-* `catalogSatisfiability canonicalContractParams` — no cataloged precondition is impossible;
+* `catalogSatisfiability canonicalContractParams` — no cataloged precondition is impossible
+  (discharged in `Entrypoints/ZesuDecodeRaw/CatalogSatisfiability.lean`, which sits above this
+  module because its witness state comes from the runner's own builder);
 * `LocalContractAssumptions` — the per-occurrence trace proofs, Rows E–I.
 
-Reading the reduction is how you read Row D's remaining scope: anything a premise here does not name
-is proved. The first two are D4's own remaining work and are discharged in their own modules; the
-third is deliberately left, because it is the whole point of the conditional capstone.
+Anything the premises do not name is proved — with the live-run caveat above kept in view. The third
+premise is deliberately left, because it is the whole point of the conditional capstone.
 
 Nothing here re-derives a machine fact. Each component is imported from the module that established
 it, so a regression shows up as a failure in that module rather than as a quietly weakened root.
@@ -112,7 +118,8 @@ divergences, and the 141 local occurrence proofs.
 
 Keeping this beside the coarser `sszComplianceObligations_of_locals` is deliberate: that one names
 the *shape* of the obligation, this one names the *work*. When a premise disappears from here, that
-is what progress on Row D looks like. -/
+is what progress on Row D looks like. (`catalogSatisfiability` is discharged one layer up, in
+`CatalogSatisfiability.lean`, which restates this without it.) -/
 theorem sszComplianceObligations_of_residue
     (entryAgrees : sourceShapedDecodeAgreesWithOracle)
     (containersAgree : sourceShapedContainersAgreeWithOracle)
