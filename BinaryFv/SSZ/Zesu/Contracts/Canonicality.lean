@@ -115,11 +115,25 @@ The oracle rejects it through `decodeCanonical`'s re-serialization equality; the
 through `decodeByteListList`'s explicit `first_offset == 0` guard. This is the one alias where the
 two otherwise-different canonicality mechanisms visibly coincide, which makes it the natural first
 case of the composition bridge in `Contracts/Entry.lean`.
+
+**`elementType` must be variable-size, and that hypothesis is a correction, not a convenience.**
+Without it the statement is false — see `DECISIONS.md`. A leading `00 00 00 00` is an *offset* only
+when the wire format has an offset table, which is exactly when the elements are variable-size. For a
+fixed-size element type those four bytes are data: `.list (.uintN 8) 4` on four zero bytes decodes to
+`#[0,0,0,0]`, re-serializes to the same four bytes, and is **accepted**. The tell that the original
+had drifted past its own intent is that on the fixed path nothing rejects at all, while the sentence
+above claims the oracle rejects through re-serialization equality. On the restricted domain that
+claim is exactly right, and the serialize-compare really is the gate that fires: a zero first offset
+gives an element count of zero, an empty list re-serializes to the empty buffer, and an empty buffer
+cannot equal a body of four or more bytes.
+
+The restriction loses no coverage. It still quantifies over *every* element type, so no list with an
+offset table escapes it — and the binary's guard exists only where an offset table does.
 -/
 def zeroFirstOffsetAliasRejected : Prop :=
   ∀ (bytes : ByteArray),
     bytes.size ≥ 4 → SszBridge.readU32LE? bytes 0 = some 0 →
-      ∀ (elementType : SSZType) (capacity : Nat),
+      ∀ (elementType : SSZType) (capacity : Nat), elementType.isFixedSize = false →
         (SszBridge.decodeCanonical (.list elementType capacity) bytes).toOption = none
 
 end BinaryFv.SSZ.Zesu.Contracts

@@ -1,4 +1,5 @@
 import BinaryFv.SSZ.Zesu.Contracts.Catalog
+import BinaryFv.SSZ.Zesu.SpecCorrespondence.EncodeDecode
 
 /-!
 # Discharging the catalog's semantic obligations
@@ -605,6 +606,50 @@ theorem emptyByteListListStillAllocates_holds : emptyByteListListStillAllocates 
   have hempty : (ByteArray.empty == ByteArray.empty) = true := by decide
   simp [meaningByteListList, decodeCanonical_eq, byteListListType, SszBridge.byteList,
     SSZType.deserialize, SSZType.isFixedSize, SSZType.serialize, hserialize, hempty]
+
+/-! ### Toward the zero-first-offset alias
+
+`zeroFirstOffsetAliasRejected` is stated against the bridge's framing reader `readU32LE?`, while the
+list decoder consults the spec's own `readUInt32LE`. The two read the same four bytes but are
+different functions, so the obligation cannot even reach the decode path without this bridge.
+
+The rest of that obligation is blocked, not unproved: the decoder's offset-table walker
+`extractCollOffsets` is `private` in the pinned `Spec/Deserialize.lean`, so its zero-count equation
+(`… b 0 off = .ok []`) can neither be named nor unfolded here, and the value the decode produces
+stays opaque. Upstream de-privatised its bit-packing definitions for exactly this reason (see
+`Spec/Deserialize.lean`'s note that they are "public defs (not `private`) so the Layer 2
+bit-packing inverse proof in `Proofs/BitPack.lean` can reach them"), so the precedent for lifting it
+is upstream's own. -/
+
+/-- **A zero first offset in the bridge's reader is a zero first offset in the spec's.**
+
+Both read the four leading bytes little-endian; the bridge's returns a `Nat` and the spec's a
+`UInt32`, which is the whole of the difference. A sum of four byte values weighted by powers of 256
+is zero exactly when every byte is zero, and on all-zero bytes the spec's shift-and-or reader is zero
+too. -/
+theorem readUInt32LE_zero_of_readU32LE (bytes : ByteArray) (size : bytes.size ≥ 4)
+    (zero : SszBridge.readU32LE? bytes 0 = some 0) : readUInt32LE bytes 0 = some 0 := by
+  rw [SszBridge.readU32LE?] at zero
+  split at zero
+  · exact absurd zero (by simp)
+  · simp only [Option.some.injEq] at zero
+    have h0 := (bytes.get! 0).toNat_lt_size
+    have h1 := (bytes.get! (0 + 1)).toNat_lt_size
+    have h2 := (bytes.get! (0 + 2)).toNat_lt_size
+    have h3 := (bytes.get! (0 + 3)).toNat_lt_size
+    have zeroNat : (0 : UInt8).toNat = 0 := rfl
+    have z0 : bytes.get! 0 = 0 := UInt8.toNat_inj.mp (by rw [zeroNat]; omega)
+    have z1 : bytes.get! (0 + 1) = 0 := UInt8.toNat_inj.mp (by rw [zeroNat]; omega)
+    have z2 : bytes.get! (0 + 2) = 0 := UInt8.toNat_inj.mp (by rw [zeroNat]; omega)
+    have z3 : bytes.get! (0 + 3) = 0 := UInt8.toNat_inj.mp (by rw [zeroNat]; omega)
+    rw [SpecCorrespondence.get!_eq_getElem bytes 0 (by omega)] at z0
+    rw [SpecCorrespondence.get!_eq_getElem bytes (0 + 1) (by omega)] at z1
+    rw [SpecCorrespondence.get!_eq_getElem bytes (0 + 2) (by omega)] at z2
+    rw [SpecCorrespondence.get!_eq_getElem bytes (0 + 3) (by omega)] at z3
+    rw [readUInt32LE]
+    split
+    · simp [z0, z1, z2, z3]
+    · omega
 
 /-! ## What the semantic obligations still rest on
 
