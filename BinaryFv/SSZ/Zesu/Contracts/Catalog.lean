@@ -423,7 +423,7 @@ function instance cannot slip through.
 Uniqueness of the matched entry is `catalogEntryFor` returning `some` (a single entry from
 `Array.find?`) together with `catalogIdentitiesDistinct`, which rules out a second entry with the
 same identity. -/
-def instancesDispatchUniquely (program : Program) : Prop :=
+def functionInstancesDispatchUniquely (program : Program) : Prop :=
   program.functionInstanceIdsDistinct ∧
   catalogIdentitiesDistinct ∧
   ∀ functionInstance ∈ program.functionInstances,
@@ -440,7 +440,7 @@ def coverage (program : Program) : Prop :=
   everyRoutineHasFunctionInstance program ∧
   everyFunctionInstanceIsCataloged program ∧
   excludedRoutinesAbsent program ∧
-  instancesDispatchUniquely program ∧
+  functionInstancesDispatchUniquely program ∧
   catalogIdentitiesDistinct ∧
   readArrayWidthsPresent ∧
   extractionDefectFree program

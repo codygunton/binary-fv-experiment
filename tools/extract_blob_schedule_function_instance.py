@@ -44,7 +44,7 @@ def qname(v):
     m = re.search(r'"([^"]+)"', v or ""); return m.group(1) if m else None
 def canon(rs): return [{"start": TEXT_BASE + a, "size": b - a} for (a, b) in rs]
 
-def die_offset_of_instance():
+def die_offset_of_function_instance():
     """Deterministically find the DIE offset of the single decodeOptionalBlobSchedule inline."""
     lines = dwdump("--debug-info").splitlines()
     for i, ln in enumerate(lines):
@@ -60,7 +60,7 @@ def parse_ranges(block_lines):
     return [(int(a, 16), int(b, 16))
             for (a, b) in re.findall(r'\[0x([0-9a-f]+), 0x([0-9a-f]+)\)', "\n".join(block_lines))]
 
-off = die_offset_of_instance()
+off = die_offset_of_function_instance()
 
 # Parents (inline call stack, outermost-first).
 plines = dwdump(f"--debug-info={off}", "--show-parents", "--parent-recurse-depth=12").splitlines()
