@@ -16,41 +16,12 @@ namespace BinaryFv.SSZ.Zesu.MemoryRepresentation
 
 open BinaryFv.RiscV
 
-/-- A `?u64` (16 bytes): the `u64` payload at offset 0 and the discriminant byte at offset 8. When
-absent, only the discriminant is constrained; the payload bytes are undefined. -/
-def OptionU64Rep (state : State) (base : Nat) (value : Option UInt64) : Prop :=
-  match value with
-  | some v => Word64LERep state base v.toNat ∧ OptionTagRep state (base + 8) true
-  | none => OptionTagRep state (base + 8) false
+/-! ## The three fixed (non-allocating) containers
 
-/-- A `RawBlobSchedule` (24 bytes): three consecutive little-endian `u64` fields. -/
-def BlobScheduleRep (state : State) (base : Nat) (value : SszBridge.RawBlobSchedule) : Prop :=
-  Word64LERep state base value.target.toNat ∧
-    Word64LERep state (base + 8) value.max.toNat ∧
-      Word64LERep state (base + 16) value.baseFeeUpdateFraction.toNat
-
-/-- A `?RawBlobSchedule` (32 bytes): the 24-byte payload at offset 0 and the discriminant at 24. -/
-def OptionBlobScheduleRep (state : State) (base : Nat) (value : Option SszBridge.RawBlobSchedule) :
-    Prop :=
-  match value with
-  | some v => BlobScheduleRep state base v ∧ OptionTagRep state (base + 24) true
-  | none => OptionTagRep state (base + 24) false
-
-/-! ## The three fixed (non-allocating) containers -/
-
-/-- `RawForkActivation` (32 bytes): `block_number : ?u64` at 0, `timestamp : ?u64` at 16. -/
-def ForkActivationRep (state : State) (base : Nat) (value : SszBridge.RawForkActivation) : Prop :=
-  OptionU64Rep state base value.blockNumber ∧ OptionU64Rep state (base + 16) value.timestamp
-
-/-- `RawForkConfig` (72 bytes): `fork : u64` at 0, `activation` at 8, `blob_schedule : ?…` at 40. -/
-def ForkConfigRep (state : State) (base : Nat) (value : SszBridge.RawForkConfig) : Prop :=
-  Word64LERep state base value.fork.toNat ∧
-    ForkActivationRep state (base + 8) value.activation ∧
-      OptionBlobScheduleRep state (base + 40) value.blobSchedule
-
-/-- `RawChainConfig` (80 bytes): `chain_id : u64` at 0, `active_fork` at 8. -/
-def ChainConfigRep (state : State) (base : Nat) (value : SszBridge.RawChainConfig) : Prop :=
-  Word64LERep state base value.chainId.toNat ∧ ForkConfigRep state (base + 8) value.activeFork
+`OptionU64Rep`, `BlobScheduleRep`, `OptionBlobScheduleRep`, `ForkActivationRep`, `ForkConfigRep`, and
+`ChainConfigRep` now live in `RawV4.lean`. They were moved there unchanged so that
+`RawV4FixedFieldsRep` can state the chain config with `ChainConfigRep`; this file imports `RawV4`, so
+the definitions are still in scope here and every use below is unaffected. -/
 
 /-! ## The four allocating containers -/
 

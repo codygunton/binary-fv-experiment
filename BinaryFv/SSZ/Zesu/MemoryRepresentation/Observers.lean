@@ -188,9 +188,9 @@ theorem observe_raw_v4_scalars_of_rep (state : State) (rootBase : Nat)
     observe_word64_of_rep state (rootBase + 144) _
       (UInt64.toNat_lt value.newPayloadRequest.executionPayload.slotNumber) representation.slotNumber,
     observe_word64_of_rep state (rootBase + 736) _ (UInt64.toNat_lt value.chainConfig.chainId)
-      representation.chainId,
+      representation.chainConfig.1,
     observe_word64_of_rep state (rootBase + 744) _ (UInt64.toNat_lt value.chainConfig.activeFork.fork)
-      representation.activeFork]
+      (by simpa [Nat.add_assoc] using representation.chainConfig.2.1)]
   rfl
 
 theorem input_slice_descriptor_memory_list (state : State) (inputBase : Nat) (input : ByteArray)
