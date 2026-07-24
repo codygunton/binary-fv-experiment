@@ -20,6 +20,28 @@ difficulty actually lives:
   canonicality test is a global re-serialization equality the binary never performs.
 
 Everything proved here is proved over *all* inputs; nothing is decided on a fixture.
+
+## Axioms — the module is no longer clean, and that is a real change
+
+`catalogSemanticObligations_of_oracleAgreement` now depends on `Lean.ofReduceBool` and
+`Lean.trustCompiler`. It did not when this module was written. Two proofs brought them in, and both
+were deliberate:
+
+* `meaningTwentyFourIsSome_holds` reaches `SpecCorrespondence.uint64LE_of_readUInt64LE`, whose eight
+  byte-extraction arms are closed by `bv_decide`. Checked rather than assumed that nothing cheaper
+  works: `omega` finds no usable constraints (it does not see through `|||`/`<<<`), `decide` cannot
+  run on free variables, and `simp` makes no progress. Avoiding it would mean hand-proving the
+  bit-level identities, which is real effort for a trust class the root already carries.
+* `forkErrorOrderingDiffers_holds` uses `native_decide`, because reducing the oracle side needs
+  upstream's `private extractFieldOffsets`.
+
+So the trust boundary moved, and the honest statement is narrower than "this module is clean":
+`readUInt32LE_zero_of_readU32LE` is still `propext`/`Quot.sound` **in isolation**, which is why it is
+kept rather than rewritten as a corollary of the `bv_decide`-carrying general bridge — but that care
+no longer buys module-level cleanliness, only a clean lemma. The class was already in
+`BinaryFv.SSZ.root_compliance` via `binary_is_canonical`'s pinned-artifact facts, so nothing new
+reaches the root; what changed is that this file can no longer be cited as evidence of the stronger
+property.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Contracts

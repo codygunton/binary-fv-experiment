@@ -24,6 +24,13 @@ inside a concrete lemma is how a general theory ends up in the wrong repository.
 trust class the pinned artifact's `native_decide` facts put in the root — and the same class
 upstream's own `decode_encode` carries, for the same reason — but it is worth knowing which
 theorems have it.
+
+**And it has since reached one.** `meaningTwentyFourIsSome_holds` uses this primitive, so
+`catalogSemanticObligations_of_oracleAgreement` now carries both axioms where it previously carried
+none. Recorded here as well as at that theorem because this module is where the class enters.
+Nothing cheaper closes the arms — `omega` sees no constraints through `|||`/`<<<`, `decide` cannot
+run on free variables, `simp` makes no progress — so removing it means hand-proving the bit-level
+identities, which is not worth it for a class the root already carries.
 -/
 
 namespace BinaryFv.SSZ.Zesu.SpecCorrespondence
