@@ -4,27 +4,35 @@ This directory checks that the handwritten Lean meanings agree with the pinned Z
 test and falsification layer, not part of the compliance theorem: production proof modules are
 forbidden from importing `Validation`.
 
-The validation uses one shared set of examples in two ways:
+The validation uses the same expected routine vectors in two ways:
 
-1. The host Zig probe calls the real source routines and compares their exact values, errors, and
-   allocation events with the expected vectors.
-2. `RoutineMeaningVectors.lean` evaluates the corresponding handwritten Lean `meaning` definitions
-   against those same expectations with `native_decide`.
+1. The [host Zig probe](../../../../targets/ssz/zesu/probe/README.md) calls the real source
+   routines and compares their values, errors, and allocation events with the expected vectors.
+2. [RoutineMeaningVectors.lean](RoutineMeaningVectors.lean) evaluates the corresponding handwritten
+   Lean `meaning` definitions against those expectations with `native_decide`.
 
 Together, those checks compare each source routine with its Lean meaning without making test results
-an assumption of the theorem. `MeaningAgreement.lean` adds an end-to-end acceptance check against the
-independent SSZ oracle. `ContractRunner.lean` is the small executable used for large cases that are
-impractical to evaluate inside `native_decide`.
-
-Files named `Generated*.lean` are deterministic outputs of the corpus/vector generators and should
-not be edited by hand.
+an assumption of the theorem. [MeaningAgreement.lean](MeaningAgreement.lean) checks the small
+whole-input corpus against the independent SSZ oracle.
+[ContractRunner.lean](ContractRunner.lean) is the executable oracle used by the external agreement
+driver for cases that are impractical to reduce inside Lean's kernel.
 
 Row C adds checks against execution of the unchanged production ELF:
 
-- `BinaryOccurrenceCheck.lean` is a small end-to-end example for one optional decoder and its three
-  child readers.
-- `ScaleOccurrenceCheck.lean` checks reduced evidence for all 141 compiled occurrences.
-- the corresponding `*Types.lean` files define the deterministic evidence format.
+[GeneratedCorpus.lean](GeneratedCorpus.lean) and
+[GeneratedRoutineVectors.lean](GeneratedRoutineVectors.lean) are deterministic generator outputs.
+Their headers identify the generating commands; edit the generators under
+[targets/ssz/zesu/tests](../../../../targets/ssz/zesu/tests/README.md), not these files.
 
-The capture and reduction tools live in `targets/ssz/zesu/trace/`; see its README before changing an
-evidence field or interpreting a pass, failure, or gap.
+- [BinaryOccurrenceCheck.lean](BinaryOccurrenceCheck.lean) checks one optional decoder occurrence
+  and its three child readers as a small end-to-end example.
+- [ScaleOccurrenceCheck.lean](ScaleOccurrenceCheck.lean) checks reduced evidence for all 141 compiled
+  occurrences. Its outcomes distinguish passes, failures, and explicit gaps.
+- [BinaryOccurrenceTypes.lean](BinaryOccurrenceTypes.lean) and
+  [ScaleOccurrenceTypes.lean](ScaleOccurrenceTypes.lean) define the corresponding evidence formats.
+- [GeneratedBinaryEvidence.lean](GeneratedBinaryEvidence.lean) and
+  [GeneratedScaleEvidence.lean](GeneratedScaleEvidence.lean) are deterministic outputs of the Row C
+  trace reducers and must not be edited by hand.
+
+The [trace README](../../../../targets/ssz/zesu/trace/README.md) explains capture and reduction before
+these Lean checks consume the evidence.

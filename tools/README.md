@@ -1,12 +1,13 @@
 # Developer tools
 
-`analyze_rv64.py` performs target-independent direct-control-flow analysis over an RV64
+[`analyze_rv64.py`](analyze_rv64.py) performs target-independent direct-control-flow analysis over an RV64
 disassembly. Nix invokes it to produce machine-readable and Markdown reports for each retained ELF.
 
-`generate_elfling_program.py` turns the compiled Zesu decoder into data for the Elfling proof layer.
-It reads DWARF for occurrences and parameter locations, the linker map and symbol tables for global
-addresses, and objdump output for instructions and control flow. A small explicit set of locations
-removed by optimization is recovered from pinned Zig call sites or the RISC-V C ABI.
+[`generate_elfling_program.py`](generate_elfling_program.py) turns the compiled Zesu decoder into
+data for the Elfling proof layer. It reads DWARF for occurrences and parameter locations, the linker
+map and symbol tables for global addresses, and objdump output for instructions and control flow.
+Locations removed by optimization are recovered only by explicit rules over pinned Zig call sites
+or the RISC-V C ABI.
 
 The generator emits the address-bearing program, readable reports, decoder globals, and raw and
 effective parameter-binding tables. Run it through `nix build .#elfling-program`; the build runs it
