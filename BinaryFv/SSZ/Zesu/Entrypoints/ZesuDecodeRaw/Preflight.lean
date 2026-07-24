@@ -3,12 +3,11 @@ import BinaryFv.SSZ.Zesu.Artifact.Layout
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Layout
 
 /-!
-# The runner's preflight gate
+# Rejecting the wrong binary or an oversized input
 
-Before the runner constructs any machine state or does any address arithmetic, it checks two things
-about its inputs. Both are `RiscvSpec.execute`'s first actions, and both reject rather than proceed.
+Before constructing Sail state, the runner checks the caller-supplied ELF and input.
 
-*The artifact is the canonical one.* `RiscvSpec.execute` takes a caller-supplied `ValidatedElf`. Its
+First, `RiscvSpec.execute` takes a `ValidatedElf`. Its
 `parsed_ok`/`layout` fields already guarantee it parses and has an executable load layout, but not
 that it is *this* proof's binary — a caller could hand a different, well-formed ELF. So the gate
 compares its bytes to `Artifact.bytes`, the one Nix-built image the whole proof is about. A
@@ -16,7 +15,7 @@ mismatched artifact is rejected with `.invalidArtifact`; a matching one is, by p
 the canonical `SSZ.binary`, so everything the artifact layer proved about `Artifact` transfers
 to it.
 
-*The input fits the theorem's bound.* The public theorem only claims correctness for
+Second, the public theorem only claims correctness for
 `input.size < 2 MiB`; the runner makes that a runtime guard so no address computed from the input
 length can exceed the pinned input buffer. An input at or above the bound is rejected before the
 buffer base is ever touched.

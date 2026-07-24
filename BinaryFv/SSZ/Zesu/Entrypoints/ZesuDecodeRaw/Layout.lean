@@ -4,20 +4,19 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals
 import DecoderGlobals
 
 /-!
-# The runner's memory layout
+# Memory reserved by the executable runner
 
-Everything the executable runner places in memory that the linked image does not: the input buffer,
-the machine stack, and the return sentinel. One record fixes all of them, and this module proves the
-properties every later step of the runner and its correspondence proof needs — that no range wraps,
-that they are pairwise disjoint, that they are correctly aligned, and that none of them collides
-with anything the ELF loads or with the decoder's own heap and globals.
+The linked decoder already occupies code, constants, globals, and a 64 MiB heap. The runner must add
+an input buffer, machine stack, and return sentinel without overlapping any of them. `RunnerLayout`
+records those locations, and this module proves that its ranges are aligned, non-wrapping, disjoint,
+and above everything used by the ELF.
 
 Getting this wrong is not a proof inconvenience, it is a silent unsoundness: a stack that overlapped
 the heap would let the decoder's own frame corrupt an allocation and the run would still "succeed".
 So the layout is one pinned record with concrete addresses, and each property below is a `decide` on
 those numbers rather than a side condition carried around.
 
-*The bound the disjointness rests on.* Rather than case over every loaded segment, the module
+Rather than case over every loaded segment, the module
 establishes one number — `loadedCeiling` — above which the image loads nothing, the heap does not
 reach, and the decoder's globals do not sit, and then places every runner range above it. That keeps
 the disjointness argument a comparison instead of an enumeration, and it is checked against the real

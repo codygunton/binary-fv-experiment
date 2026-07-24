@@ -3,15 +3,13 @@ import BinaryFv.RiscV.Execution.MemoryIo
 import BinaryFv.RiscV.Logic.Framing
 
 /-!
-# Memory establishment for the sparse file-backed loader
+# What the sparse memory loaders establish
 
-The runner builds its entry state by materializing memory with a handful of loops
-(`loadSegmentPrefix`, `loadBytes`, `loadFilledBytes`). Every later correspondence step needs to read
-back what those loops wrote and to know they touched nothing else. This module proves exactly that,
-bottom-up, so the state builder's memory facts (`fileBytesMatchMemory`, `MemoryBytes`, zeroed
-globals) reduce to running the loaders.
+The entry-state builder uses loops to load file-backed ELF bytes, copy the input, and fill global
+regions. Later proofs need both the bytes written inside each window and preservation outside it.
+This module supplies those target-independent facts.
 
-Two disciplines carry the proofs:
+There are two proof patterns:
 
 * `loadSegmentPrefix` is a structural recursion on the byte count, so its establishment lemma is a
   plain induction: it writes `[virtualAddress, virtualAddress + count)` to the segment's file bytes,
@@ -20,8 +18,7 @@ Two disciplines carry the proofs:
 * the `for`-loop loaders (`loadBytes`, `loadFilledBytes`) are handled in a companion lemma set built
   on the same `writeByte` frame lemmas.
 
-Everything here is target-independent; the SSZ runner instantiates it against `Artifact.programImage`
-and `canonicalRunnerLayout`.
+The SSZ runner applies these generic lemmas to its concrete image and memory layout.
 -/
 
 namespace BinaryFv.RiscV

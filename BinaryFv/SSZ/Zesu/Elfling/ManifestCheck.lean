@@ -2,13 +2,10 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramGeometry
 import GeneratedManifest
 
 /-!
-# The occurrence manifest, checked against the program it claims to enumerate
+# Checking the occurrence proof backlog
 
-`GeneratedManifest.lean` and `MANIFEST.md` are emitted from one set of rows, so the work-assignment
-view and the Lean-visible backlog cannot disagree with each other. This module is what stops either
-of them disagreeing with the *program*.
-
-Every direction is checked:
+The generator emits the same 141 rows as Lean data and as the human-readable `MANIFEST.md`. This
+module checks that the shared rows describe the actual generated program:
 
 * **one row per occurrence, one occurrence per row, in index order** — a row deleted, duplicated,
   reordered, or pointed at a sibling occurrence fails `manifestIndexed`/`manifestMatchesProgram`;
@@ -21,9 +18,8 @@ Every direction is checked:
 * **each row's dependency indices are the occurrence's dependencies** — so a row cannot understate
   what its proof may assume.
 
-`LocalContractAssumptions` is then defined once, and `localContractAssumptions_iff_manifest` makes
-the quantified proposition and the manifest-indexed backlog the same statement — the two cannot
-drift apart, which is the point of freezing the manifest at all.
+`localContractAssumptions_iff_manifest` then connects the quantified local-proof assumption to this
+checked backlog, so the proof statement and work assignment cannot drift apart.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Elfling.Validation

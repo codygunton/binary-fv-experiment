@@ -5,19 +5,18 @@ import BinaryFv.SSZ.Zesu.Contracts.CanonicalParams
 import BinaryFv.SSZ.Zesu.Contracts.ExportedDecoder
 
 /-!
-# The built entry state satisfies the exported occurrence's entry binding
+# Proving the constructed state is a valid decoder entry
 
-`buildZesuEntryState` (see `StateBuilder`) constructs the Sail state the exported `zesu_decode_raw`
-call begins from. This module threads `Runs` through the whole builder and reads off the facts the
-exported entry binding needs: the input in memory (`MemoryBytes`), the code and rodata intact
-(`fileBytesMatchMemory` = the file-backed `CodeIntact`), the C-ABI argument registers, and the return
-sentinel.
+`buildZesuEntryState` creates the Sail state used to call `zesu_decode_raw`. This module proves that
+running the builder establishes the exported contract's entry predicate: input bytes are present,
+file-backed code and constants are intact, private globals represent a fresh decoder, and `a0`, `a1`,
+`ra`, and `PC` contain the C ABI values.
 
 The threading splits at the one input-independent seam. `configureZesuMachine` is a closed program
 (machine setup: `sail_model_init` + M-extension + the pinned PMA region), so its success is a finite
 evaluation `native_decide` settles — this is the SSZ layer, where that is permitted, and it sidesteps
 hand-threading `sail_model_init`'s ~40 register writes and its `misa`-dependent `legalize_*` reads.
-Everything after configure is input-dependent and is threaded with the `ImageLoadFrame` establishment
+Everything after configuration is input-dependent and is threaded with the `ImageLoadFrame` establishment
 lemmas: each loader sets its own addresses and frames the complement, so the earlier-established facts
 survive because the runner's ranges are pairwise disjoint.
 -/

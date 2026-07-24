@@ -1,12 +1,11 @@
 import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
 
 /-!
-# Negative and anti-vacuity checks for the local-to-closed composition
+# Examples that challenge local-to-global composition
 
-`global_of_local` turns a family of local `EnteredScopedTrace` obligations into a family of closed
-`ImplementsInstance` obligations. Every premise it consumes is load-bearing, and this module is where
-that is checked rather than asserted: each test either exhibits a program the premise *rejects*, or
-shows the premise carries content it could not carry if it were vacuous.
+`global_of_local` combines local occurrence proofs into closed machine traces. These examples show
+why its graph, summary, and boundary premises are necessary. Each fixture changes one structural fact
+and proves that the composition rejects it.
 
 Four failure modes are covered.
 
@@ -18,7 +17,7 @@ Four failure modes are covered.
 * **A missing child summary.** If the admitted relation contains no run for a callee whose entry
   binding is satisfiable, `ChildSummariesAvailable` is false: a local proof cannot be handed an empty
   relation and still be asked to splice.
-* **A missing or wrong checked boundary.** A program in which a callee's extent contains one of its
+- **A missing or wrong checked boundary.** A program in which a callee's extent contains one of its
   caller's exits that is not itself a callee exit fails `ProgramGeometry` — and it must, because the
   spliced callee could otherwise run straight through its caller's return.
 -/

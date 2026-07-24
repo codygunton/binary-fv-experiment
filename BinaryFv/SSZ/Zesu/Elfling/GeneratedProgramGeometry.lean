@@ -3,13 +3,12 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramValidation
 import GeneratedProgram
 
 /-!
-# The generated program's dependency graph and address geometry
+# Checking the program shape required by composition
 
-`global_of_local` composes the 141 local trace obligations into the 141 closed ones, and it consumes
-exactly two things about the program besides those obligations: a rank witnessing that the transfer
-graph is acyclic, and the `ProgramGeometry` relating each occurrence's owned addresses, its execution
-extent, and its exits. This module discharges both for the one canonical generated program, by
-evaluation on the generated data — no local correctness is used, and nothing is assumed.
+`global_of_local` needs two structural facts about the 141 generated occurrences: calls and inlining
+must form an acyclic dependency graph, and each child's address extent and exits must fit its parent.
+This module checks both facts on the canonical generated program without using any local correctness
+proof.
 
 *The rank is not invented.* `generatedRank` is the number of identities reachable from an occurrence
 in the transfer graph. On an acyclic graph a callee's reachable set is a proper subset of its
@@ -18,7 +17,7 @@ decreases along every edge. If the extraction ever produced a cycle the count wo
 and `callGraphRanked_check` would evaluate to `false`, which is the point: acyclicity is checked on
 the real graph rather than supplied as a convenient witness.
 
-*The geometry is where the boundary inventory bites.* `calleeExitContainment` says a caller's exit
+The geometry check includes `calleeExitContainment`: a caller's exit
 that lies inside a callee's extent is already an exit of that callee. For a separately emitted callee
 this is vacuous (the address sets are disjoint); for an inlined child, whose regions sit inside its
 parent's, it is a real constraint on the generated exit inventories, and it is exactly what stops a

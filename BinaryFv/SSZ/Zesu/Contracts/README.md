@@ -12,6 +12,12 @@ Start with:
    representation used by the final theorem.
 5. `ProgramCorrectness.lean` for the combined obligation over all generated occurrences.
 
+`ProgramCorrectness.lean` also defines the Row D local-to-global composition. A local occurrence proof
+owns its own instructions and may splice summaries for lower-ranked children. Generated geometry and
+boundary checks then expand all local proofs into closed traces. `CompositionTests.lean` contains
+small counterexamples showing that cycles, missing summaries, bad ranks, and bad boundaries are
+rejected.
+
 Most internal routines use `FunctionContract`: arguments describe source values, `meaning` gives the
 expected result, and `pre`/`post` connect those values to machine state. The exported wrapper is
 different. Its actual ABI is `zesu_decode_raw(input, len) -> i32`, and it communicates the decoded

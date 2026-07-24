@@ -5,14 +5,11 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramReachablePartition
 import GeneratedProgram
 
 /-!
-# The complete checked-boundary inventory
+# Accounting for every control-flow boundary
 
-D0's composition confines each occurrence's closed run to its **execution extent** (its own regions
-plus everything it transfers to). For that to be sound the transfer graph must account for *every*
-way control leaves a pc the occurrence owns — otherwise a run could jump to code outside the extent
-and the confined `FunctionTrace` would silently fail. `GeneratedProgramCfg` already checks the
-**direct** edges of the cataloged occurrences (`edgesComplete`), but two kinds of transfer escaped
-that check, both flagged in the D0 design pass:
+A closed occurrence trace stays inside its execution extent, so every transfer from owned code must
+lead to mapped code or a checked boundary. This module computes that inventory from the decoded CFG
+and checks two cases not covered by the ordinary cataloged-occurrence edge table:
 
 * the **absorbed excluded routines** carry code the composition owns, yet their CFG was never checked;
 * the **indirect allocator dispatches** — `jalr` through the immutable `std.mem.Allocator` vtable —
@@ -35,8 +32,8 @@ rather than a hand-maintained list, and checking it exhaustive:
    `Artifact.allocator_vtable_alloc_target` — a mapped occurrence (`allocatorAlloc`). The extent
    wiring that puts that occurrence into each caller's extent is done in `GeneratedProgramGeometry`.
 
-Together these make "every decoded successor of an owned pc is owned / in extent / a checked
-boundary" a generated, exhaustively-checked fact rather than a partial one.
+Together these checks make every decoded successor of owned code explicit. Dynamic returns remain a
+trace obligation: the CFG cannot resolve the caller's `ra`.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Elfling.Validation

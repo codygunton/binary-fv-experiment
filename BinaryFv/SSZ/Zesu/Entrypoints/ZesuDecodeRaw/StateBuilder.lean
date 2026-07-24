@@ -11,15 +11,15 @@ import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Layout
 import DecoderGlobals
 
 /-!
-# The runner's Sail state builder
+# Constructing the Sail state for `zesu_decode_raw`
 
-Constructs the concrete Sail machine state the exported `zesu_decode_raw` call begins from, then runs
-it to the return sentinel. Modeled on the proven Keccak `executeDirect`
-(`BinaryFv/Keccak/Reth/Execution/DirectCall.lean`): the same `initializeModel`/`enableMExtension`/PMA/
-CSR configuration — Zicclsm is already always-on in this Sail build (`hartSupports Ext_Zicclsm`), so
-no extra enable is needed — followed by loading the pinned image, materializing the runner's own
-ranges, copying the input, initializing the decoder's private and runtime globals to the fresh model,
-and setting the C-ABI entry registers.
+The builder configures the Sail RISC-V model, loads the pinned file-backed image bytes, copies the
+caller's input, initializes decoder and allocator globals, and writes the public C ABI registers. The
+resulting program then runs until it reaches the return sentinel.
+
+Machine configuration follows the already proved Keccak direct-call runner. Zicclsm is always enabled
+in this Sail build, so only the model initialization, M extension, PMA region, and CSR setup are
+required here.
 
 Everything address-bearing comes from one place: `canonicalRunnerLayout` for the runner-added ranges,
 and the generated `DecoderGlobals` table for the decoder's own globals and the 64 MiB arena. Nothing
