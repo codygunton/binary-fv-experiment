@@ -10,7 +10,7 @@ lanes. Start with these Row B files:
   source probe.
 - [ssz_contract_mutation.py](ssz_contract_mutation.py) corrupts expectations and coverage inputs to
   show that the checks can fail.
-- [ssz_contract_report.py](ssz_contract_report.py) renders routine- and occurrence-level coverage as
+- [ssz_contract_report.py](ssz_contract_report.py) renders routine- and function-instance-level coverage as
   JSON and Markdown.
 
 Expected allocation sequences are derived from fixture structure and compiler-reported element

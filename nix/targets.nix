@@ -822,8 +822,9 @@ let
         > "$out/mutation.txt" \
         || { echo "MUTATION SMOKE FAILED" >&2; cat "$out/mutation.txt" >&2; exit 1; }
 
-      # (e) coverage keyed by all 43 routines + 141 occurrences: every generated occurrence's routine
-      # is exercised by a matching typed vector. The report asserts no routine/occurrence is an
+      # (e) coverage keyed by all 43 routines + 141 function instances: every generated function
+      # instance's routine is exercised by a matching typed vector. The report asserts no routine or
+      # function instance is an
       # uncovered gap; a regression that dropped a routine's vectors would surface here.
       python3 ${report} --corpus "$out/corpus.jsonl" --outcomes "$out/outcomes.jsonl" \
         --ledger "$out/ledger.jsonl" --out-json "$out/report.json" --out-md "$out/report.md" \
@@ -831,9 +832,9 @@ let
         --routine-vectors "$out/routine-vectors.jsonl" --routine-outcomes "$out/routine-outcomes.jsonl" \
         > "$out/report.txt"
       python3 -c 'import json,sys; rc=json.load(open("'"$out"'/report.json"))["routine_coverage"]; \
-        sys.exit(0 if (rc["routines"]==43 and rc["occurrences"]==141 and rc["all_routines_covered"] \
-        and rc["all_occurrences_covered"]) else 1)' \
-        || { echo "COVERAGE GAP: not all 43 routines / 141 occurrences covered" >&2; \
+        sys.exit(0 if (rc["routines"]==43 and rc["function_instances"]==141 and rc["all_routines_covered"] \
+        and rc["all_function_instances_covered"]) else 1)' \
+        || { echo "COVERAGE GAP: not all 43 routines / 141 function instances covered" >&2; \
              cat "$out/report.txt" >&2; exit 1; }
 
       {
