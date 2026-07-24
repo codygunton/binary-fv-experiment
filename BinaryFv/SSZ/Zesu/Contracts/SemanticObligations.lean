@@ -384,7 +384,7 @@ theorem allocatorVtableEntriesAreConstant_holds : allocatorVtableEntriesAreConst
 Stated over the *meaning*, this is the specification-side half: `meaningDecode` is built from pure
 reads and the pinned oracle, neither of which has an allocation-failure outcome, so no input — inside
 the scope bound or outside it — can make it produce `outOfMemory`. That is what makes the arm
-discharge­able rather than normalizable, and it is why the scope hypothesis is not used.
+dischargeable rather than normalizable, and it is why the scope hypothesis is not used.
 
 The machine-side half is a different theorem and is not claimed here: the binary really does have an
 exhaustion branch, and `Runtime.raw_allocation_bound_fits_arena` is what rules it out below 2 MiB. -/
@@ -409,5 +409,243 @@ theorem bytesAtSucceedsIffFits_holds : bytesAtSucceedsIffFits := by
 meaning adds no failure mode of its own. -/
 theorem readOffsetIsWidenedReadU32_holds : readOffsetIsWidenedReadU32 :=
   fun _ _ => rfl
+
+/-! ### The offset table
+
+`requireCanonicalOffsets` is the decoder's whole canonicality discipline, and its recursion carries
+one offset of state — the previous entry — that the obligation's `Nondecreasing` does not mention.
+Naming that state is what makes the induction go through. -/
+
+/-- The walk's invariant: every entry is at least its predecessor, starting from `previous`.
+`Nondecreasing` says the same thing about a list on its own; this is the form the recursion produces
+and `nondecreasing_cons_iff` is the bridge. -/
+def NondecreasingFrom (previous : Nat) : List Nat → Prop
+  | [] => True
+  | offset :: rest => previous ≤ offset ∧ NondecreasingFrom offset rest
+
+theorem nondecreasing_cons_iff (offset : Nat) (rest : List Nat) :
+    Nondecreasing (offset :: rest) ↔ NondecreasingFrom offset rest := by
+  induction rest generalizing offset with
+  | nil => simp [Nondecreasing, NondecreasingFrom]
+  | cons second rest ih => simp [Nondecreasing, NondecreasingFrom, ih second]
+
+/-- The walk accepts exactly the tables that never step backwards and never leave the slice. -/
+theorem walk_ok_iff (bytes : ByteArray) (offsets : List Nat) (previous : Nat) :
+    meaningRequireCanonicalOffsets.walk bytes previous offsets = .ok () ↔
+      (NondecreasingFrom previous offsets ∧ ∀ offset ∈ offsets, offset ≤ bytes.size) := by
+  induction offsets generalizing previous with
+  | nil => simp [meaningRequireCanonicalOffsets.walk, NondecreasingFrom]
+  | cons offset rest ih =>
+      rw [meaningRequireCanonicalOffsets.walk]
+      split
+      · rename_i hbad
+        simp only [NondecreasingFrom, List.mem_cons, forall_eq_or_imp]
+        constructor
+        · intro h; exact absurd h (by simp)
+        · rintro ⟨⟨hprev, -⟩, hsize, -⟩; omega
+      · rename_i hgood
+        rw [ih]
+        simp only [NondecreasingFrom, List.mem_cons, forall_eq_or_imp]
+        constructor
+        · rintro ⟨hnd, hall⟩; exact ⟨⟨by omega, hnd⟩, by omega, hall⟩
+        · rintro ⟨⟨-, hnd⟩, -, hall⟩; exact ⟨hnd, hall⟩
+
+/-- **`requireCanonicalOffsets` accepts exactly the canonical prefix tables.**
+
+The first entry must *equal* the fixed size, not merely reach it: that equality is what forbids
+padding between a container's fixed section and its first variable field, and it is the clause the
+oracle's re-serialization check enforces by a completely different route. -/
+theorem canonicalOffsetsCharacterization_holds : canonicalOffsetsCharacterization := by
+  intro bytes fixedSize offsets
+  unfold meaningRequireCanonicalOffsets
+  split
+  · rename_i hbad
+    constructor
+    · intro h; exact absurd h (by simp)
+    · rintro ⟨hfix, hne, hhead, -, -⟩
+      rcases hbad with hbad | hbad | hbad
+      · omega
+      · exact absurd (List.isEmpty_iff.mp hbad) hne
+      · exact absurd hhead hbad
+  · rename_i hgood
+    rw [walk_ok_iff]
+    match offsets with
+    | [] => simp [List.isEmpty] at hgood
+    | first :: rest =>
+        have hhead : first = fixedSize :=
+          Classical.byContradiction fun hne => hgood (Or.inr (Or.inr hne))
+        subst hhead
+        constructor
+        · rintro ⟨⟨-, hnd⟩, hall⟩
+          exact ⟨hall first (by simp), by simp, rfl,
+            (nondecreasing_cons_iff first rest).mpr hnd, hall⟩
+        · rintro ⟨-, -, -, hnd, hall⟩
+          exact ⟨⟨Nat.le_refl _, (nondecreasing_cons_iff first rest).mp hnd⟩, hall⟩
+
+/-! ### The asymmetric ERE retry
+
+The binary retries the four-byte-stripped input on `invalidSsz` while the oracle retries on every
+bridge error but `v3Quarantined`. That asymmetry is only safe because the retry can never *succeed*
+on an input that reached the top-level offset table, and this is the byte-level reason why. -/
+
+theorem ByteArray.get!_eq_getElem (bytes : ByteArray) (index : Nat) (h : index < bytes.size) :
+    bytes.get! index = bytes[index] := by
+  show bytes.data[index]! = bytes[index]
+  rw [getElem!_pos bytes.data index h]
+  rfl
+
+/-- Reading inside a suffix is reading at the shifted index of the original. -/
+theorem get!_extract_suffix (bytes : ByteArray) (start index : Nat)
+    (h : start + index < bytes.size) :
+    (bytes.extract start bytes.size).get! index = bytes.get! (start + index) := by
+  have hi : index < (bytes.extract start bytes.size).size := by
+    rw [ByteArray.size_extract]; omega
+  rw [ByteArray.get!_eq_getElem _ _ hi, ByteArray.getElem_extract hi,
+    ByteArray.get!_eq_getElem _ _ h]
+
+/-- **The four-byte-stripped tail of a framed input never carries the schema id.**
+
+An input that reaches the top-level offset table has `hasSchemaId`, so it starts `00 01`, and a first
+offset of exactly `16` forces its bytes 2..6 to be `10 00 00 00`. Byte 5 is therefore `00` — and byte
+5 is the tail's *second* byte, the one `hasSchemaId` demands be `01`. So the retry cannot succeed on
+precisely the inputs where the binary and the oracle disagree about attempting it. -/
+theorem retryTailNeverSchemaValid_holds : retryTailNeverSchemaValid := by
+  intro bytes _ hfirst
+  rw [SszBridge.readU32LE?] at hfirst
+  split at hfirst
+  · exact absurd hfirst (by simp)
+  · rename_i hfits
+    rw [ByteArray.size_extract] at hfits
+    have hsize : 6 ≤ bytes.size := by omega
+    -- The declared value is 16, and every byte is below 256, so the three high bytes are zero.
+    have hsum : (bytes.get! 2).toNat + (bytes.get! 3).toNat * 256 +
+        (bytes.get! 4).toNat * 256 ^ 2 + (bytes.get! 5).toNat * 256 ^ 3 = 16 := by
+      have h0 := get!_extract_suffix bytes 2 0 (by omega)
+      have h1 := get!_extract_suffix bytes 2 1 (by omega)
+      have h2 := get!_extract_suffix bytes 2 2 (by omega)
+      have h3 := get!_extract_suffix bytes 2 3 (by omega)
+      simpa [h0, h1, h2, h3] using hfirst
+    have hfifth : (bytes.get! 5).toNat = 0 := by
+      have hlt := (bytes.get! 5).toNat_lt_size
+      omega
+    -- Byte 5 of the input is byte 1 of the tail, and `hasSchemaId` needs that byte to be `01`.
+    have htail : ((bytes.extract 4 bytes.size).get! 1).toNat = 0 := by
+      rw [get!_extract_suffix bytes 4 1 (by omega)]
+      exact hfifth
+    have hne : (bytes.extract 4 bytes.size).get! 1 ≠ 1 := fun h => by
+      rw [h] at htail
+      exact absurd htail (by decide)
+    simp [SszBridge.hasSchemaId, hne]
+
+/-! ### Evaluating the oracle
+
+The three option-length cases are claims about what `decodeCanonical` *does*, so unlike everything
+above they need it to reduce. Two obstacles: the oracle is written in `do` notation, and the
+serializer is a mutual structural recursion whose arms do not fire by `rfl` (its `[]` lives in the
+dependent `List schema.interp`, so `simp` cannot match the generated equation either). The bridge
+below removes the first obstacle once, and the two arms are then supplied at the exact schema. -/
+
+/-- `decodeCanonical` with its `do` notation discharged: deserialize, then demand the decode consumed
+the whole body and that re-serializing reproduces it byte for byte.
+
+Stated as a rewrite because the `do` block does not simplify on its own, and every evaluation below
+would otherwise get stuck on the same bind. -/
+theorem decodeCanonical_eq (schema : SSZType) (body : ByteArray) :
+    SszBridge.decodeCanonical schema body =
+      match schema.deserialize body with
+      | .error error => .error error
+      | .ok (value, used) =>
+          if used != body.size then .error .trailingBytes
+          else if schema.serialize value == body then .ok value else .error .invalidOffset := by
+  unfold SszBridge.decodeCanonical
+  cases schema.deserialize body <;> rfl
+
+/-- Zero bytes decode to `none`: the element type is fixed-size, so the count is `0 / 24 = 0`, the
+empty list re-serializes to the empty buffer, and the projection of an empty array is `none`. -/
+theorem meaningEmptyIsNone_holds : meaningEmptyIsNone := by
+  have hserialize := SSZType.serializeFixedElems.eq_1
+    (SSZType.container [SSZType.uintN 64, SSZType.uintN 64, SSZType.uintN 64])
+  have hempty : (ByteArray.empty == ByteArray.empty) = true := by decide
+  simp [meaningEmptyIsNone, meaningOptionalBlobSchedule, decodeCanonical_eq,
+    optionalBlobScheduleType, SSZType.deserialize, SSZType.isFixedSize, SszBridge.blobScheduleType,
+    SszBridge.u64, SSZType.fixedByteSize, SSZType.deserializeFixedElems, SSZType.serialize,
+    SSZType.allFixedSize, SSZType.fixedByteSizeFields, SszBridge.maxBlobSchedulesPerFork,
+    hserialize, hempty]
+
+/-- **Every length other than 0 and 24 is `invalidSsz`.**
+
+The two rejections are the oracle's own, and which one fires is genuinely input-dependent: more than
+one element's worth of bytes is `outOfRange`, and anything that is not a whole number of 24-byte
+elements is `trailingBytes`. What rules out the remaining case is arithmetic — a size that survives
+both checks has `size / 24 ≤ 1` and `size / 24 * 24 = size`, which for `size ∉ {0, 24}` is
+impossible. Both normalize to `invalidSsz` at the Zig boundary. -/
+theorem meaningOtherLengthIsInvalid_holds : meaningOtherLengthIsInvalid := by
+  intro bytes hzero htwentyFour
+  by_cases hbig : bytes.size / 24 > 1
+  · simp [meaningOptionalBlobSchedule, decodeCanonical_eq, optionalBlobScheduleType,
+      SSZType.deserialize, SSZType.isFixedSize, SszBridge.blobScheduleType, SszBridge.u64,
+      SSZType.fixedByteSize, SSZType.allFixedSize, SSZType.fixedByteSizeFields,
+      SszBridge.maxBlobSchedulesPerFork, hbig, sszToDecodeError]
+  · have htrailing : bytes.size / 24 * 24 ≠ bytes.size := by omega
+    simp [meaningOptionalBlobSchedule, decodeCanonical_eq, optionalBlobScheduleType,
+      SSZType.deserialize, SSZType.isFixedSize, SszBridge.blobScheduleType, SszBridge.u64,
+      SSZType.fixedByteSize, SSZType.allFixedSize, SSZType.fixedByteSizeFields,
+      SszBridge.maxBlobSchedulesPerFork, hbig, htrailing, sszToDecodeError]
+
+/-- **A zero-length `byteListList` still allocates.**
+
+The source takes `alloc.alloc([]const u8, 0)` rather than returning a static empty slice, so a
+postcondition denying allocation would be false even here. The meaning side of that is this: the
+empty input really is *accepted*, with an empty result, for every pair of runtime bounds — the
+element type is variable-size, so the decoder takes the explicit empty-list arm before it ever reads
+an offset, and the bounds never come into it. -/
+theorem emptyByteListListStillAllocates_holds : emptyByteListListStillAllocates := by
+  intro maxItems maxItemBytes
+  have hserialize := SSZType.serializeVarElemsAux.eq_1 (SszBridge.u8.list maxItemBytes) 0
+  have hempty : (ByteArray.empty == ByteArray.empty) = true := by decide
+  simp [meaningByteListList, decodeCanonical_eq, byteListListType, SszBridge.byteList,
+    SSZType.deserialize, SSZType.isFixedSize, SSZType.serialize, hserialize, hempty]
+
+/-! ## What the semantic obligations still rest on
+
+The two obligations the navigation calls out as carrying the root theorem —
+`sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` — are not independent, and saying so
+is worth a theorem rather than a comment: the second follows from the first, because `SszSpec.decode`
+is exactly `decodeStatelessInput` with its value forgotten. So the catalog's remaining semantic
+content is one agreement claim about the entry, one about the fixed containers, and three
+byte-level facts. -/
+
+/-- **The catalog's meanings are grounded in the pinned oracle** — given that the source-shaped
+composition and the oracle agree on acceptance. `SszSpec.decode` accepts exactly when
+`decodeStatelessInput` returns a value, so the two statements differ only in how they spell
+"accepted". -/
+theorem catalogGroundsInSpec_of_agreement (agrees : sourceShapedDecodeAgreesWithOracle) :
+    catalogGroundsInSpec := by
+  intro bytes
+  rw [agrees bytes]
+  unfold SszSpec.decode
+  cases SszBridge.decodeStatelessInput bytes with
+  | ok value => simp [Except.toOption]
+  | error error => simp [Except.toOption]
+
+/-- **The catalog's semantic obligations, reduced to the oracle-agreement content.**
+
+Fifteen of the twenty conjuncts are discharged above; the five premises here are what is left, and
+they are all of one kind — the binary decides canonicality by per-container offset checks while the
+oracle decides it by re-serializing, and these say the two coincide. `catalogGroundsInSpec` is not a
+premise because it follows from the first one. -/
+theorem catalogSemanticObligations_of_oracleAgreement
+    (entryAgrees : sourceShapedDecodeAgreesWithOracle)
+    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (v3Excluded : v3ShapeExcludesCanonicalV4) (zeroAlias : zeroFirstOffsetAliasRejected)
+    (twentyFourIsSome : meaningTwentyFourIsSome) : catalogSemanticObligations :=
+  ⟨entryAgrees, catalogGroundsInSpec_of_agreement entryAgrees, retryTailNeverSchemaValid_holds,
+    v3Excluded, containersAgree, canonicalOffsetsCharacterization_holds, zeroAlias,
+    bytesAtSucceedsIffFits_holds, readOffsetIsWidenedReadU32_holds, leafReadsOnlyFailInvalid_holds,
+    collectionsNeverUnknownFork_holds, emptyByteListListStillAllocates_holds,
+    onlyForkConfigRaisesUnknownFork_holds, fixedContainersNeverAllocate_holds,
+    allocatorVtableEntriesAreConstant_holds, outOfMemoryUnreachableBelowBound_holds,
+    meaningEmptyIsNone_holds, twentyFourIsSome, meaningOtherLengthIsInvalid_holds,
+    meaningNeverForkOrMemory_holds⟩
 
 end BinaryFv.SSZ.Zesu.Contracts
