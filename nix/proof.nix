@@ -324,6 +324,23 @@ COMPAT
       SizzLean/Proofs/VectorFixed.lean=1c7c7e11451beb845705769f2ddb073b87666ee9c01323a336d364f489a5a890 \
       SszBridge/Core.lean=0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
       > "$out/provenance.txt"
+
+    # The hashes above are the *upstream* provenance claim: what was fetched and verified. Two of
+    # the shipped files are not byte-identical to it, so record that here rather than leaving an
+    # auditor to hash the tree, find two mismatches, and have nothing in this file to explain them.
+    # The dangerous reading is the other one — that the shipped files are pristine when they are
+    # not — so the patch is named in the artifact that travels, not only in this derivation.
+    {
+      ${pkgs.coreutils}/bin/printf '%s\n' \
+        'patch=SizzLean/Compat.lean is added by nix/proof.nix and is NOT upstream content' \
+        'patch=SizzLean/Proofs/UInt.lean has one inserted first line: import SizzLean.Compat' \
+        'patch=SizzLean/Proofs/BitPack.lean has one inserted first line: import SizzLean.Compat' \
+        'patch-reason=ByteArray.size_push exists in the Lean release etheorem pins and not in this project pinned nightly'
+      for patched in SizzLean/Compat.lean SizzLean/Proofs/UInt.lean SizzLean/Proofs/BitPack.lean; do
+        ${pkgs.coreutils}/bin/printf 'as-shipped/%s=%s\n' "$patched" \
+          "$(${pkgs.coreutils}/bin/sha256sum "$out/$patched" | cut -d ' ' -f 1)"
+      done
+    } >> "$out/provenance.txt"
   '';
 
   binaryFvLean = pkgs.runCommand "binary-fv-lean" {
