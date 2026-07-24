@@ -79,13 +79,13 @@ theorem excludedRoutinesAbsent_holds : excludedRoutinesAbsent generatedProgram :
 /-! ## Unique dispatch: distinctness of function instance ids and catalog identities -/
 
 /-- The generated function instance identities are duplicate-free. -/
-theorem instanceIdsNodup_true :
+theorem functionInstanceIdsNodup_true :
     (decide ((generatedProgram.functionInstances.toList.map (·.id)).Nodup)) = true := by native_decide
 
-theorem instanceIdsDistinct_holds : generatedProgram.functionInstanceIdsDistinct := by
+theorem functionInstanceIdsDistinct_holds : generatedProgram.functionInstanceIdsDistinct := by
   intro i j hi hj heq
   exact array_key_index_inj generatedProgram.functionInstances (·.id)
-    (nodup_of_decide instanceIdsNodup_true) hi hj heq
+    (nodup_of_decide functionInstanceIdsNodup_true) hi hj heq
 
 /-- The catalog identities are duplicate-free. -/
 theorem catalogIdsNodup_true :
@@ -107,8 +107,8 @@ theorem dispatch_holds :
   intro i hi
   exact Option.isSome_iff_exists.mp (forall_mem_of_all dispatchB_true i hi)
 
-theorem instancesDispatchUniquely_holds : instancesDispatchUniquely generatedProgram :=
-  ⟨instanceIdsDistinct_holds, catalogIdentitiesDistinct_holds, dispatch_holds⟩
+theorem functionInstancesDispatchUniquely_holds : functionInstancesDispatchUniquely generatedProgram :=
+  ⟨functionInstanceIdsDistinct_holds, catalogIdentitiesDistinct_holds, dispatch_holds⟩
 
 /-! ## Required specializations present -/
 
@@ -131,7 +131,7 @@ theorem readArrayWidthsPresent_holds : readArrayWidthsPresent := by
 
 theorem coverage_holds : coverage generatedProgram :=
   ⟨everyRoutineHasFunctionInstance_holds, everyFunctionInstanceIsCataloged_holds, excludedRoutinesAbsent_holds,
-   instancesDispatchUniquely_holds, catalogIdentitiesDistinct_holds, readArrayWidthsPresent_holds,
+   functionInstancesDispatchUniquely_holds, catalogIdentitiesDistinct_holds, readArrayWidthsPresent_holds,
    rfl⟩
 
 /-! ## Source provenance recorded -/
