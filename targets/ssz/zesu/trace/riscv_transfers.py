@@ -100,7 +100,7 @@ def is_call(pc: int, insns) -> bool:
     """True when the transfer at `pc` is a CALL — it links a return address, so control comes back to
     `pc + 4`. `j` / `jr` / `ret` link to `zero` and never return here.
 
-    Leaving a function instance's regions by a call is not the end of the function_instance's dynamic extent: the
+    Leaving a function instance's regions by a call is not the end of the function instance's dynamic extent: the
     callee's effects (an allocation, for one) belong to the invocation that made the call."""
     mnem, ops, _ = insns[pc]
     if mnem == "jal":

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Row C: map production-ELF evidence to a generated Elfling function_instance and evaluate its Row A binding
-and effects. Stop/go for the `decodeOptionalBlobSchedule` vertical slice (function_instance 116 + nested
+and effects. Stop/go for the `decodeOptionalBlobSchedule` vertical slice (function instance 116 + nested
 readU64 children 117/118/119).
 
 Evidence is the UNCHANGED production ELF observed under pinned QEMU (plugin trace of executed PCs +
@@ -8,7 +8,7 @@ loads/stores) and batch GDB (registers/memory at the binding boundaries). Nothin
 The evaluation is deterministic and emits a JSON evidence+result summary; a generated Lean data module
 for the Lean diagnostic checker is added next. Diagnostic-only; never imported by the proof.
 
-Checks (per the plan): function_instance entry reached; nested readU64 const-offset bindings realized by the
+Checks (per the plan): function instance entry reached; nested readU64 const-offset bindings realized by the
 load addresses; `RoutineSpec.meaning` (the decoded RawBlobSchedule from the actual loads); result +
 exit binding (result slot written); instruction count vs step bound; allocation ledger; and code/input
 preservation + a classified write frame (decoder global / allocator cursor / heap / stack / input /
@@ -95,7 +95,7 @@ STEP_BOUND = 256                             # contractOptionalBlobSchedule.step
 
 
 def reduce_evidence(function_instance, records, stops, arm):
-    """Reduce raw QEMU/GDB evidence to a compact, deterministic per-function_instance structure that BOTH the
+    """Reduce raw QEMU/GDB evidence to a compact, deterministic per-function-instance structure that BOTH the
     Python oracle and the Lean checker evaluate identically. Only observed facts go here; the expected
     binding / meaning / layout live in the checker."""
     region_ranges = [(r["start"], r["start"] + r["size"]) for r in function_instance["regions"]]

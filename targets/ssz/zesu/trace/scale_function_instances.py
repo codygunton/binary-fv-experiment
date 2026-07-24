@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
-"""Reduce production-ELF traces into deterministic evidence for all generated function_instances.
+"""Reduce production-ELF traces into deterministic evidence for all generated function instances.
 
-Coverage is PER OCCURRENCE — a function instance is validated only on evidence in which its OWN region
+Coverage is PER FUNCTION INSTANCE — a function instance is validated only on evidence in which its OWN region
 executes, never inherited from another function_instance of the same source routine. Every check that cannot
 be evaluated for a function instance is recorded as an EXPLICIT gap, never silently counted as a pass.
 
 Evidence: the UNCHANGED production `zesu-ssz` ELF run under pinned `qemu-riscv64` with the diagnostic
 trace plugin (`qemu_trace_plugin.so`). The plugin is self-contained — each store carries the stack
 pointer — so write classification needs no separate GDB register capture, which is what makes a single
-full-run trace cover ~all function_instances at once. Nothing is rebuilt, relinked, patched, or instrumented.
+full-run trace cover ~all function instances at once. Nothing is rebuilt, relinked, patched, or instrumented.
 
-The generic per-function-instance checks (apply to all function_instances, trace-only):
-  entryReached          the first in-region PC executed is the declared entryPc (the function_instance is
+The generic per-function-instance checks (apply to all function instances, trace-only):
+  entryReached          the first in-region PC executed is the declared entryPc (the function instance is
                         entered at its binding entry); invocations are counted by entryPc executions
   controlFlowIntegrity  EXACT conformance to the generated CFG: every executed transfer whose SOURCE is
-                        a PC this function_instance OWNS appears verbatim in its declared `edges`. The generator
-                        attributes each PC's edges to the DEEPEST function_instance owning it
+                        a PC this function instance OWNS appears verbatim in its declared `edges`. The generator
+                        attributes each PC's edges to the DEEPEST function instance owning it
                         (`owned = regions - children's regions`), so an edge is declared exactly once
                         across an inline chain; the checker uses that same ownership. (An earlier version
                         of this checker compared against block-start membership instead, on the mistaken
                         inference that `edges` was non-exhaustive — it is not; that comparison had simply
                         ignored child-owned PCs. `cfg_audit.py` verifies the declared edges against the
                         control transfers decoded from the disassembly.)
-  exitsRespected        every executed transfer that LEAVES the function_instance's regions departs from a PC
+  exitsRespected        every executed transfer that LEAVES the function instance's regions departs from a PC
                         listed in the declared `exits`.
   withinStepBound       max per-invocation instruction count <= the routine's contract step bound
                         (const bounds + readArray's specialization width; input-dependent bounds = gap)
@@ -51,8 +51,8 @@ The generic per-function-instance checks (apply to all function_instances, trace
                         argument was that value plus the row's constant.
   exitBindingRealized   the result register at a declared RETURN exit matches the routine's exit
                         convention. Tail-call exits are excluded: their register file holds the
-                        callee's arguments, not this function_instance's result.
-  allocationLedger      the function_instance's cursor events ARE the allocation sequence the fixture requires
+                        callee's arguments, not this function instance's result.
+  allocationLedger      the function instance's cursor events ARE the allocation sequence the fixture requires
                         — same count, same order, same size, same alignment, same returned block. The
                         observed side is reconstructed from ZKVM_HEAP_POS's own write history; the
                         expected side is derived from the pinned Zig decode order and the Row B element
@@ -60,7 +60,7 @@ The generic per-function-instance checks (apply to all function_instances, trace
   meaningTie            for a fixed-width leaf reader: the little-endian integer of the EXACT window it
                         read IS the value it produced (stored, or held in a register when it left).
                         Anything weaker is an EXPLICIT gap, never a failure. The full per-value meaning
-                        against the handwritten spec is the kernel-checked vertical slice (function_instance 116).
+                        against the handwritten spec is the kernel-checked vertical slice (function instance 116).
 
 This is diagnostic-only evidence and is never imported by the theorem graph. `scale_negative_tests.py`
 corrupts copies of what this script captures and requires each corruption to flip the responsible
@@ -149,7 +149,7 @@ import allocation_shapes as al  # noqa: E402
 
 def step_bound_for(short: str, function_instance, catalog, arglb: dict):
     """Resolve a CONCRETE numeric step bound for a function instance, or None (an explicit gap) if the
-    contract argument is not observable from the function_instance's own trace.
+    contract argument is not observable from the function instance's own trace.
 
     Input-dependent contract bounds have the shape `bound(arg) = C + K*(arg//D + E)`, monotonic
     non-decreasing in `arg`. Verifying `maxInsn <= bound(actualArg)` needs a value of `arg`, but a
@@ -157,7 +157,7 @@ def step_bound_for(short: str, function_instance, catalog, arglb: dict):
     `bound(argLB) <= bound(actualArg)`, so `maxInsn <= bound(argLB)` implies `maxInsn <= bound(actualArg)`.
     The sound lower bounds (in `arglb`):
       inputLen   the whole-input byte length (entry routines: their slice IS the whole input — exact);
-      inputBytes the count of distinct in-region input-buffer bytes the function_instance read (a decoder reads
+      inputBytes the count of distinct in-region input-buffer bytes the function instance read (a decoder reads
                  only within its own slice, so this is <= the slice length);
       copyLen    the in-region store count (memcpy/memmove store <= `length` bytes, one chunk per store).
     `unobservable` args (e.g. requireCanonicalOffsets' caller-passed offsets.length) stay explicit gaps.
@@ -218,7 +218,7 @@ def resolve_rows(rows, regs, mem, at_index, sp):
       "unresolved"     the row names a location the machine could not supply. A FAILURE.
     There is no third, "nothing to check here" outcome: the generator refuses to emit a row without a
     machine meaning, because `generatedEntryBinding` quantifies over the rows and one meaningless row
-    would make the function_instance's whole entry predicate unsatisfiable.
+    would make the function instance's whole entry predicate unsatisfiable.
 
     A `derived` row additionally records the loop register it reads, so the derived relation
     `value = index * stride + constant` can be checked rather than only evaluated.
@@ -249,7 +249,7 @@ def span_of(addrs):
 def chain_is_infix(chain, path) -> bool:
     """Whether a function instance's routine chain occurs contiguously inside an expected event's call path.
 
-    An inlined function_instance's chain is its inline stack (`decodeRaw > … > decodeWithdrawals`); an emitted
+    An inlined function instance's chain is its inline stack (`decodeRaw > … > decodeWithdrawals`); an emitted
     one's is just its own routine, which is why `decodeByteListList` claims the four events its four
     call sites cause. Contiguity is what stops an unrelated ancestor from claiming an event."""
     if not chain:
@@ -378,12 +378,12 @@ def evaluate_entry_consequences(short, function_instance_index, values, ctx, inv
         off = values.get("offset")
         want_len = values.get("len")
         if "offset" not in values:
-            return None, "the binding table declares no `offset` row for this function_instance"
+            return None, "the binding table declares no `offset` row for this function instance"
         if off is None:
             return False, "declared `offset` row did not resolve against the machine state"
         first = inv.get("firstReadAddr")
         if first is None:
-            return None, (f"offset={off}: the function_instance performed no data load in this invocation "
+            return None, (f"offset={off}: the function instance performed no data load in this invocation "
                           "(a sub-slice former reads nothing of its own)")
         base = first - off
         inv["impliedSliceBase"] = base
@@ -585,18 +585,18 @@ def reduce_function_instance(function_instance, short, catalog, executed, loads,
 def dynamic_extents(entry_idxs, executed, in_region, call_pcs, ret_pcs, function_entries):
     """The [start, end) trace window of each invocation — its DYNAMIC EXTENT.
 
-    An function_instance's effects include what its callees do: an allocation is performed by the allocator,
-    not by the collection that requested it. So the extent covers every step from the function_instance's entry
+    An function instance's effects include what its callees do: an allocation is performed by the allocator,
+    not by the collection that requested it. So the extent covers every step from the function instance's entry
     up to and including its last own instruction, plus every step spent inside a routine it called (or
     tail-called) and has not yet returned from.
 
-    A shadow call depth, incremented only for transfers OUT OF this function_instance, is what separates
-    "inside my callee" from "after me": once the depth is back to zero and the function_instance's own regions
+    A shadow call depth, incremented only for transfers OUT OF this function instance, is what separates
+    "inside my callee" from "after me": once the depth is back to zero and the function instance's own regions
     stop executing, its extent is over. The depth also has to follow a TAIL transfer — the allocator
     vtable slot `jr`s straight into `zesu_raw_alloc`, so a plain call/return count would end the wrapper's
     extent one instruction before the allocation it exists to perform.
 
-    Region membership alone is not enough either: an INLINED function_instance's fragments are interleaved with
+    Region membership alone is not enough either: an INLINED function instance's fragments are interleaved with
     its parent's code, so control leaves and re-enters its regions many times within one invocation.
     Only the LAST own instruction ends it."""
     n = len(executed)
@@ -621,7 +621,7 @@ def dynamic_extents(entry_idxs, executed, in_region, call_pcs, ret_pcs, function
 
 
 def _reduce_ledger(f, meta, ctx, extents, chain):
-    """The function_instance's own slice of the allocation ledger, paired with the INDEPENDENTLY EXPECTED
+    """The function instance's own slice of the allocation ledger, paired with the INDEPENDENTLY EXPECTED
     allocation sequence for the exact fixture this arm ran.
 
     The observed side is reconstructed from the allocator cursor's store history — the allocation ACT
@@ -656,7 +656,7 @@ def _reduce_ledger(f, meta, ctx, extents, chain):
 
 def _reduce_bindings(f, function_instance, short, meta, ctx, executed, loads, stores, ranges, in_region, entry_idxs):
     """Evaluate the effective Row A bindings, the allocation ledger event and the little-endian meaning
-    for EACH captured invocation of this function_instance, then reduce to per-function-instance evidence."""
+    for EACH captured invocation of this function instance, then reduce to per-function-instance evidence."""
     rows = ctx["bindings"].get(f["index"], [])
     entry_snaps = ctx["regsByPc"].get(f["entryPc"], [])
     exit_pairs = []            # (entry `dst` argument, value returned by that same invocation)
@@ -669,7 +669,7 @@ def _reduce_bindings(f, function_instance, short, meta, ctx, executed, loads, st
         # "pass" would be counting an absent obligation as a discharged one.
         f["bindingsEvaluable"] = None
         f["bindingsRealized"] = None
-        f["bindingGap"] = "function_instance declares no parameter bindings (paramless)"
+        f["bindingGap"] = "function instance declares no parameter bindings (paramless)"
     elif not entry_snaps:
         f["bindingsEvaluable"] = None
         f["bindingsRealized"] = None
@@ -745,7 +745,7 @@ def _reduce_bindings(f, function_instance, short, meta, ctx, executed, loads, st
         f["exitGap"] = "no exit convention declared for this routine"
     elif not ret_exits:
         f["exitBindingRealized"] = None
-        f["exitGap"] = "function_instance has no `ret` exit (it leaves through a tail call)"
+        f["exitGap"] = "function instance has no `ret` exit (it leaves through a tail call)"
     elif not exit_snaps:
         f["exitBindingRealized"] = None
         f["exitGap"] = "no register snapshot at a declared return exit in this arm"
@@ -859,7 +859,7 @@ def evaluate_facts(f):
     gaps: dict[str, str] = {}
     if not f.get("covered"):
         for name in CHECK_NAMES:
-            checks[name], gaps[name] = None, "function_instance region not executed by any arm"
+            checks[name], gaps[name] = None, "function instance region not executed by any arm"
         return checks, gaps
 
     checks["entryReached"] = f["firstInRegion"] == f["entryPc"]
@@ -893,7 +893,7 @@ def evaluate_facts(f):
     drows = f.get("derivedRows") or []
     if not drows:
         checks["derivedBindingsHold"] = None
-        gaps["derivedBindingsHold"] = "function_instance declares no loop-derived binding row"
+        gaps["derivedBindingsHold"] = "function instance declares no loop-derived binding row"
     else:
         checks["derivedBindingsHold"] = all(derived_row_holds(d) for d in drows)
     checks["exitBindingRealized"] = f.get("exitBindingRealized")
@@ -902,7 +902,7 @@ def evaluate_facts(f):
     # ALLOCATION LEDGER: the function instance's cursor events ARE the independently expected sequence.
     checks["allocationLedger"] = f.get("allocationLedger")
     if checks["allocationLedger"] is None:
-        gaps["allocationLedger"] = f.get("ledgerGap", "function_instance causes no allocation event")
+        gaps["allocationLedger"] = f.get("ledgerGap", "function instance causes no allocation event")
 
     # MEANING. `meaningLE` is the rigorous statement (the little-endian integer of the exact window the
     # function instance read IS the value it produced); the older value tie remains only as a fallback for the
@@ -917,7 +917,7 @@ def evaluate_facts(f):
     else:
         checks["meaningTie"] = None
         gaps["meaningTie"] = (f"{tie}: no clean input-to-result value tie in this region "
-                              "(deep meaning is validated for function_instance 116 in the Lean checker)")
+                              "(deep meaning is validated for function instance 116 in the Lean checker)")
     return checks, gaps
 
 
@@ -1092,7 +1092,7 @@ def emit_report(records, summary) -> str:
          "",
          "Regenerated by `targets/ssz/zesu/trace/scale_function_instances.py` from the UNCHANGED production",
          "`zesu-ssz` ELF under pinned `qemu-riscv64`. Diagnostic-only; never imported by the proof.",
-         "Coverage is PER OCCURRENCE (never inherited from a sibling of the same routine). `P`=pass,",
+         "Coverage is PER FUNCTION INSTANCE (never inherited from a sibling of the same routine). `P`=pass,",
          "`F`=fail, `-`=explicit gap (never counted as a pass).",
          "",
          "**Step bounds**: input-dependent contract bounds `C + K*(arg//D + E)` are resolved to a concrete",
@@ -1100,19 +1100,19 @@ def emit_report(records, summary) -> str:
          "in-region input bytes read — <= the slice length — for containers/collections; in-region store",
          "count — <= bytes copied — for memcpy/memmove). Since the bound is monotonic, `maxInsn <=`",
          "`bound(argLB)` implies `maxInsn <= bound(actualArg)`. `requireCanonicalOffsets` is the one",
-         "unresolved bound (its `offsets.length` is a caller-passed argument, not in the function_instance's",
+         "unresolved bound (its `offsets.length` is a caller-passed argument, not in the function instance's",
          "input reads) — an explicit gap, with the required interface change recorded in",
          "`routine_catalog.json` under that routine's `stepBoundForm.interfaceNote`.",
          "",
          "**Row A bindings** are evaluated against the real machine: every effective binding row is",
-         "resolved from the register file captured at the function_instance's declared entry PC (and, for",
+         "resolved from the register file captured at the function instance's declared entry PC (and, for",
          "`breg`/`fbreg` rows, from the ELF image overlaid with the stores preceding that point).",
          "`bind` = every declared location resolved; `breal` = the resolved values had their declared",
          "consequence in the trace (routine-family specific); `deriv` = a loop-`derived` row's relation",
          "`index * stride + constant` held at EVERY captured entry (the loop register carried a multiple",
          "of the stride and the argument was that value plus the row's constant); `xbind` = the result",
          "register at a declared RETURN exit matches the routine's convention. `ledg` compares the",
-         "function_instance's slice of the bump cursor's own write history against the allocation sequence",
+         "function instance's slice of the bump cursor's own write history against the allocation sequence",
          "derived independently of the binary (see the ledger section below).",
          "",
          "**Uncovered function instances** are STATICALLY analysed by `static_reachability.py` — a backward",
@@ -1140,17 +1140,17 @@ def emit_report(records, summary) -> str:
     census = summary.get("missingParameterRows", {}).get("rows", [])
     L += ["", "## Parameter-row census", "",
           "Every function_instance must carry a row for every parameter its ROUTINE declares — otherwise a",
-          "silently dropped binding is indistinguishable from a paramless routine, and the function_instance's",
+          "silently dropped binding is indistinguishable from a paramless routine, and the function instance's",
           "entry predicate quietly says less than the source does. The extractor takes each signature",
-          "from the function_instance's DWARF abstract-origin DIE, so this census (function_instances declaring fewer",
-          "parameters than a sibling function_instance of the same routine) is expected to be empty.", ""]
+          "from the function instance's DWARF abstract-origin DIE, so this census (function instances declaring fewer",
+          "parameters than a sibling function instance of the same routine) is expected to be empty.", ""]
     if census:
         for c in census:
             L.append(f"- function_instance {c['index']} `{c['routine']}` — declares {c['declared']}, "
                      f"missing {c['missing']}")
         L.append("")
     else:
-        L += ["No function_instance is missing a parameter row.", ""]
+        L += ["No function instance is missing a parameter row.", ""]
     ledgers = summary.get("armLedgers", {})
     if ledgers:
         L += ["", "## Allocation ledger — observed cursor history vs the independently expected sequence",
@@ -1268,24 +1268,34 @@ def main() -> int:
     # A `derived` row's stride lives in the generator's audit table; attach it so the row carries its
     # whole relation (`register`, `stride`, `constant`) where it is evaluated.
     strides = {(d["function_instance"], d["name"]): d["stride"] for d in btables.get("derived", [])}
-    bindings_by_occ = {}
+    bindings_by_function_instance = {}
     for r in btables["effective"]:
         if r["kind"] == "derived":
             r = {**r, "stride": strides[(r["function_instance"], r["name"])]}
-        bindings_by_occ.setdefault(r["function_instance"], []).append(r)
+        bindings_by_function_instance.setdefault(r["function_instance"], []).append(r)
 
     # The routine chain of each function instance (short names, outermost first): its inline stack plus its own
     # routine. This is how an independently expected allocation event is attributed to the function instances
     # that own it — an emitted function instance's chain is just its own routine, so `decodeByteListList`
     # claims the events of all four of its call sites.
-    occ_chain = [[s["callerQualified"].split(".")[-1] for s in o["inlineStack"]]
-                 + [o["qualified"].split(".")[-1]] for o in function_instances]
+    function_instance_chain = [
+        [s["callerQualified"].split(".")[-1] for s in function_instance["inlineStack"]]
+        + [function_instance["qualified"].split(".")[-1]]
+        for function_instance in function_instances
+    ]
 
     # The allocation sequence each fixture REQUIRES, derived with no reference to the binary.
     consts, abi = al.load_inputs(args.source, args.abi)
 
     # The boundary PCs at which the plugin snapshots registers: every declared entry and exit.
-    bpcs = sorted({o["entryPc"] for o in function_instances} | {e for o in function_instances for e in (o.get("exits") or [])})
+    bpcs = sorted(
+        {function_instance["entryPc"] for function_instance in function_instances}
+        | {
+            exit_pc
+            for function_instance in function_instances
+            for exit_pc in (function_instance.get("exits") or [])
+        }
+    )
     bpc_file = scratch / "boundary_pcs.txt"
     bpc_file.write_text("\n".join(str(x) for x in bpcs) + "\n")
 
@@ -1308,13 +1318,17 @@ def main() -> int:
     # The allocator leaf's return sites: `a0` there is the block the allocator actually handed back, so
     # each cursor event can be paired with the pointer its caller received. Without that, an allocation
     # that bumped the cursor correctly but returned a different block would be invisible.
-    alloc_leaf = next(i for i, o in enumerate(function_instances)
-                      if o["qualified"] == "raw_allocator.zesu_raw_alloc")
+    alloc_leaf = next(
+        i
+        for i, function_instance in enumerate(function_instances)
+        if function_instance["qualified"] == "raw_allocator.zesu_raw_alloc"
+    )
     alloc_ret_pcs = sorted(set(function_instances[alloc_leaf].get("exits") or []) & ret_pcs)
 
     # Every routine a transfer can land on as a call or TAIL-call target: the emitted function instances and
     # the reachable-but-excluded glue the generator catalogs beside them.
-    function_entries = ({o["entryPc"] for o in function_instances if o["kind"] == "emitted"}
+    function_entries = ({function_instance["entryPc"] for function_instance in function_instances
+                         if function_instance["kind"] == "emitted"}
                         | {x["entryPc"] for x in program.get("excludedRoutines", [])})
 
     arm_ctx, arm_ledgers = {}, {}
@@ -1335,11 +1349,11 @@ def main() -> int:
             "mem": osem.Memory(image, [(i, a, w, v) for (i, _pc, a, w, v, _sp) in st]),
             "ledger": ledger,
             "ledgerInvariants": osem.ledger_invariants(ledger),
-            "bindings": bindings_by_occ,
+            "bindings": bindings_by_function_instance,
             "inputLen": Path(ipath).stat().st_size,
             "armDecision": _dec,
             "expected": expected["events"],
-            "functionInstanceChain": occ_chain,
+            "functionInstanceChain": function_instance_chain,
             "callPcs": call_pcs,
             "retPcs": ret_pcs,
             "functionEntries": function_entries,
@@ -1373,30 +1387,34 @@ def main() -> int:
     all_rpcs = [_rpcs(x) for x in function_instances]
 
     records = []
-    for idx, o in enumerate(function_instances):
+    for idx, function_instance in enumerate(function_instances):
         kids = set()
-        for c in o.get("children") or []:
+        for c in function_instance.get("children") or []:
             kids |= all_rpcs[c]
-        o = {**o, "index": idx}
-        short = o["qualified"].split(".")[-1]
+        function_instance = {**function_instance, "index": idx}
+        short = function_instance["qualified"].split(".")[-1]
         chosen = None
         for spec in args.arm:
             name = spec.split("=", 1)[0]
             (executed, loads, stores, _rg), _, _ = arm_traces[name]
-            ranges = [(r["start"], r["start"] + r["size"]) for r in o["regions"]]
+            ranges = [(r["start"], r["start"] + r["size"]) for r in function_instance["regions"]]
             if any(any(a <= pc < b for a, b in ranges) for pc in executed):
                 chosen = name
                 break
         if chosen is None:
-            facts = reduce_function_instance(o, short, catalog, [], [], [], 0, kids, dyn_pcs)  # covered=False
+            facts = reduce_function_instance(
+                function_instance, short, catalog, [], [], [], 0, kids, dyn_pcs
+            )  # covered=False
         else:
             (executed, loads, stores, _rg), _, ipath = arm_traces[chosen]
             input_len = Path(ipath).stat().st_size
-            facts = reduce_function_instance(o, short, catalog, executed, loads, stores, input_len, kids,
-                                      dyn_pcs, arm_ctx[chosen])
+            facts = reduce_function_instance(
+                function_instance, short, catalog, executed, loads, stores, input_len, kids,
+                dyn_pcs, arm_ctx[chosen]
+            )
         checks, gaps = evaluate_facts(facts)
         records.append({
-            "index": idx, "qualified": o["qualified"], "routine": short,
+            "index": idx, "qualified": function_instance["qualified"], "routine": short,
             "arm": chosen, "checks": checks, "gaps": gaps, "facts": facts,
         })
 
@@ -1407,16 +1425,16 @@ def main() -> int:
     # checks would quietly report a gap instead of a missing obligation, which is what it exists to
     # surface.
     routine_params = {}
-    for idx, o in enumerate(function_instances):
-        sh = o["qualified"].split(".")[-1]
+    for idx, function_instance in enumerate(function_instances):
+        sh = function_instance["qualified"].split(".")[-1]
         routine_params.setdefault(sh, set()).update(
-            r["name"] for r in bindings_by_occ.get(idx, []))
+            r["name"] for r in bindings_by_function_instance.get(idx, []))
     census = []
-    for idx, o in enumerate(function_instances):
-        sh = o["qualified"].split(".")[-1]
-        have = {r["name"] for r in bindings_by_occ.get(idx, [])}
+    for idx, function_instance in enumerate(function_instances):
+        sh = function_instance["qualified"].split(".")[-1]
+        have = {r["name"] for r in bindings_by_function_instance.get(idx, [])}
         if not have:
-            continue                       # genuinely paramless function_instances are named by Row A
+            continue                       # genuinely paramless function instances are named by Row A
         missing = sorted(routine_params[sh] - have)
         if missing:
             census.append({"index": idx, "routine": sh, "declared": sorted(have),
@@ -1437,9 +1455,9 @@ def main() -> int:
     }
     summary["missingParameterRows"] = {
         "function_instances": len(census),
-        "note": "function_instances whose effective Row A table omits a parameter that OTHER function_instances of "
+        "note": "function instances whose effective Row A table omits a parameter that OTHER function instances of "
                 "the same source routine declare. Expected to be empty: the extractor takes each "
-                "signature from the function_instance's DWARF abstract-origin DIE, so a parameter the "
+                "signature from the function instance's DWARF abstract-origin DIE, so a parameter the "
                 "optimizer dropped is still a row.",
         "rows": census,
     }

@@ -27,17 +27,17 @@ for a strong one:
                   allocator cursor by at least `bytes`, return an `alignment`-aligned pointer, and
                   match the reconstructed ledger event.
      offsetRead   an `offset`-bound reader must load its window at `sliceBase + offset`, where
-                  `sliceBase` is required to AGREE across all sibling function_instances reading in the same
+                  `sliceBase` is required to AGREE across all sibling function instances reading in the same
                   parent invocation. Sibling agreement is what falsifies a wrong offset: a single
-                  function_instance's base is unobservable, but two siblings disagreeing about it is not.
+                  function instance's base is unobservable, but two siblings disagreeing about it is not.
      comptime     a `const`-bound parameter must equal the value pinned in the routine catalog from the
                   Zig source, so a constant-folded binding cannot silently drift from the source.
 
-3. `exitBindingRealized` — at a declared exit PC, the function_instance's result register matches the
+3. `exitBindingRealized` — at a declared exit PC, the function instance's result register matches the
    convention its binding declares (allocation pointer, copy destination, decode decision).
 
 Meanings (`meaningLE`) upgrade the previous "some loaded value was also stored" heuristic to the real
-statement: the little-endian integer of the exact window the function_instance read from the input IS the
+statement: the little-endian integer of the exact window the function instance read from the input IS the
 value it produced. Anything weaker stays an explicit gap.
 
 Diagnostic-only; never imported by the theorem graph.

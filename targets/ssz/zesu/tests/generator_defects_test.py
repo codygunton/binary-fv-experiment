@@ -8,12 +8,12 @@ Every one of these shows a defect is SURFACED and FAILS generation, never silent
                             them into the JSON, and exits nonzero (end-to-end against the real sidecars).
   * ambiguous attribution — a `readArray(<unknown>)` whose width cannot be resolved from source is an
                             `ambiguousAttribution` (unit test of the pure resolution path).
-  * sibling overlap       — two function_instances claiming a common PC without an inline ancestor relationship
+  * sibling overlap       — two function instances claiming a common PC without an inline ancestor relationship
                             are `overlappingOwnership` (unit test of the pure detector); the real,
                             correctly-nested program produces none.
   * binding gap           — source/parent recovery produces concrete values, preserves the DWARF
                             stack-value distinction, and refuses a parameter left with no machine
-                            meaning (which would make the function_instance's entry predicate unsatisfiable).
+                            meaning (which would make the function instance's entry predicate unsatisfiable).
   * loop-derived offset   — a loop-carried reader offset resolves to the induction REGISTER recovered
                             from the loaded image; an ambiguous or non-zero-initialized candidate is
                             refused rather than guessed (unit tests of the pure analysis).
@@ -141,7 +141,7 @@ def test_binding_recovery(gen):
 # `disassemble` produces: {pc: (mnemonic, operands, resolved-comment)}.
 #   100: li   s7,0            preheader: the induction variable starts at zero
 #   104: addi a0,a0,-1        loop header (target of the back edge)
-#   108: bnez a0,120 <end>    the function_instance's entry pc
+#   108: bnez a0,120 <end>    the function instance's entry pc
 #   10c: addi s7,s7,44        the induction step, by the pinned source stride
 #   110: j    104 <header>    back edge
 #   120: ret
@@ -170,7 +170,7 @@ def test_loop_induction_recovery(gen):
 
     `readU64(data, offset + 8)` inside `for (…) |*entry, index| { const offset = index *
     WITHDRAWAL_SIZE; … }` has no DWARF location. Emitting it as an absent/unlocated row would make the
-    function_instance's generated entry predicate unsatisfiable, so the generator recovers the register the
+    function instance's generated entry predicate unsatisfiable, so the generator recovers the register the
     compiled loop keeps `index * WITHDRAWAL_SIZE` in — or fails."""
     consts = {"WITHDRAWAL_SIZE": 44}
     src = gen.loop_offset_source("offset + 8", 3, LOOP_SRC, consts)

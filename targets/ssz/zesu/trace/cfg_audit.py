@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Row C: audit the generated per-function_instance CFG (`edges` / `exits`) against the TRUE control transfers
+"""Row C: audit the generated per-function-instance CFG (`edges` / `exits`) against the TRUE control transfers
 decoded from the UNCHANGED production ELF disassembly.
 
-For every function_instance this decodes each in-block instruction's real successors (conditional branches ->
+For every function instance this decodes each in-block instruction's real successors (conditional branches ->
 taken target + fallthrough; `j`/`jal` -> target (+ return site); `jalr`/`ret` -> indirect/return) and
-compares that ground truth to the function_instance's declared `edges`. It reports, per function_instance:
+compares that ground truth to the function instance's declared `edges`. It reports, per function_instance:
 
-  missingInternal   a real transfer whose SOURCE and TARGET are both inside the function_instance's blocks but
+  missingInternal   a real transfer whose SOURCE and TARGET are both inside the function instance's blocks but
                     which is absent from `edges` — a genuine hole in the generated CFG;
   declaredNotReal   a declared edge that is not a real successor of its source instruction;
-  exitsOk           whether every real transfer leaving the function_instance's blocks has its source in `exits`.
+  exitsOk           whether every real transfer leaving the function instance's blocks has its source in `exits`.
 
 This exists because the scaled validator must check the EXACT generated edges, not merely that transfer
 targets land on block starts. Where the generated data is wrong, the extractor is the thing to repair —
@@ -90,24 +90,24 @@ def main() -> int:
     # (`owned = regions - children's regions`), so an edge appears exactly once across an inline chain.
     # The audit must use the same ownership, otherwise a parent looks "incomplete" for edges that are
     # correctly attributed to its inlined children.
-    def region_pcs(o):
+    def region_pcs(function_instance):
         s = set()
-        for r in o["regions"]:
+        for r in function_instance["regions"]:
             s |= set(range(r["start"], r["start"] + r["size"], 2))
         return s
 
-    rpcs = [region_pcs(o) for o in function_instances]
+    rpcs = [region_pcs(function_instance) for function_instance in function_instances]
 
     report = []
     tot_missing = tot_bogus = tot_exitbad = 0
-    for i, o in enumerate(function_instances):
+    for i, function_instance in enumerate(function_instances):
         children = set()
-        for c in o["children"]:
+        for c in function_instance["children"]:
             children |= rpcs[c]
         owned = rpcs[i] - children
         region = rpcs[i]
-        declared = {(e["source"], e["target"]) for e in o["edges"]}
-        exits = set(o.get("exits") or [])
+        declared = {(e["source"], e["target"]) for e in function_instance["edges"]}
+        exits = set(function_instance.get("exits") or [])
         real, indirect_sites = set(), []
         for pc in sorted(owned):
             if pc not in insns:
@@ -126,7 +126,7 @@ def main() -> int:
         exit_bad = sorted(leaving_src - exits)
         tot_missing += len(missing); tot_bogus += len(bogus); tot_exitbad += len(exit_bad)
         report.append({
-            "index": i, "qualified": o["qualified"],
+            "index": i, "qualified": function_instance["qualified"],
             "realOwned": len(real), "declared": len(declared),
             "missingInternal": missing[:20], "missingCount": len(missing),
             "declaredNotReal": bogus[:20], "declaredNotRealCount": len(bogus),

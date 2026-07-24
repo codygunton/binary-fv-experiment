@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Row C: generate the deterministic Lean evidence module for the decodeOptionalBlobSchedule slice.
 
-Captures the compact per-function_instance evidence for the present / absent / malformed arms (via the QEMU
+Captures the compact per-function-instance evidence for the present / absent / malformed arms (via the QEMU
 plugin trace + batch GDB), runs the Python oracle over it, and emits:
 
   * `--out-json`   : the evidence + oracle check results (for drift comparison and the Python side);

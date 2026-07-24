@@ -20,7 +20,7 @@ automatically and a wrong count is not something the checker can absorb.
 The parse mirrors `ssz_raw.zig`'s validation closely enough to stop where the decoder stops: a rejected
 payload allocates only what it managed to allocate before the rejection (the `malformed` arm relies on
 this). Every allocating call site carries the Zig routine chain that reaches it, so an observed event
-can be attributed to the function_instances that own it.
+can be attributed to the function instances that own it.
 
 Diagnostic-only; never imported by the theorem graph.
 """

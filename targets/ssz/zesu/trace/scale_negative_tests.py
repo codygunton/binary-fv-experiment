@@ -74,7 +74,7 @@ def ledger_mutations(led):
 
 
 def function_instance_ledger_mutations(rec):
-    """Corruptions of ONE function_instance's slice — the per-function_instance check must be discriminating too."""
+    """Corruptions of ONE function instance's slice — the per-function-instance check must be discriminating too."""
     f = rec["facts"]
     obs, exp = f["ledgerObserved"], f["ledgerExpected"]
     return [
