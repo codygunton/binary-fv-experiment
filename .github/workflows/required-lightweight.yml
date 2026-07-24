@@ -40,7 +40,7 @@ jobs:
       - uses: DeterminateSystems/determinate-nix-action@v3
       - name: Build root Lean library
         # Builds the proof + the Row C diagnostic lane: BinaryOccurrenceCheck (blob-schedule slice) and
-        # ScaleOccurrenceCheck (all 141 occurrences) — the native_decide checker/oracle-agreement and the
+        # ScaleFunctionInstanceCheck (all 141 function instances) — the native_decide checker/oracle-agreement and the
         # negative (mutation) theorems. The validation-import guard keeps them out of the theorem graph.
         run: nix build --max-jobs 1 --print-build-logs --no-link .#binary-fv-lean
 
@@ -55,8 +55,9 @@ jobs:
       # arms from the UNCHANGED zesu-ssz ELF under pinned qemu+GDB and drift-check the committed evidence.
       - name: Row C spike (blob-schedule vertical slice, PR-fast)
         run: nix build --print-build-logs --no-link .#ssz-binary-evidence
-      # Required: scale the same machinery to ALL 141 occurrences (per-occurrence coverage, explicit gaps)
-      # and the STATIC classification of the uncovered occurrences; both regenerate from the unchanged ELF
+      # Required: scale the same machinery to ALL 141 function instances (per-function-instance coverage,
+      # explicit gaps) and the STATIC classification of the uncovered function instances; both regenerate
+      # from the unchanged ELF
       # and byte-drift-check the committed Lean evidence, coverage report, and classification.
       - name: Row C scaled coverage + static uncovered classification (required)
         run: nix build --print-build-logs --no-link .#ssz-scale-evidence
