@@ -5,7 +5,7 @@ import BinaryFv.SSZ.Zesu.Runtime.AllocationBound
 /-!
 # Deriving the runner's step budgets
 
-The exported occurrence contract already bounds the complete composed decode, including summarized
+The exported function instance contract already bounds the complete composed decode, including summarized
 callees. The executable runner uses that same bound plus two steps: one to retire the final return
 into the sentinel and one to make the inequality strict.
 
@@ -21,9 +21,9 @@ namespace BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
 
 open BinaryFv.SSZ.Zesu
 
-/-- The exported wrapper's occurrence step bound, as a function of the input size. Kept in one place
+/-- The exported wrapper's function instance step bound, as a function of the input size. Kept in one place
 so the fuel is derived from it rather than from a separate literal. Matches
-`occurrenceZesuDecodeRaw`'s `stepBound`. -/
+`functionInstanceZesuDecodeRaw`'s `stepBound`. -/
 def entryStepBound (inputSize : Nat) : Nat := 2 * (16384 + 512 * inputSize) + 1024
 
 /-- The runner's fuel: the entry step bound plus two — one slack step to retire the return that lands

@@ -150,15 +150,15 @@ uses the `resultBase + 832` layout.
 
 def correctnessClaimDecodeRaw (env : DecoderEnvironment)
     (rep : ContainerRepresentation SszBridge.RawV4)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractDecodeRaw env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractDecodeRaw env rep)
 
 def correctnessClaimDecode (env : DecoderEnvironment)
     (rep : ContainerRepresentation SszBridge.RawV4)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractDecode env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractDecode env rep)
 
 /-!
 ## Satisfiability

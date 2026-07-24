@@ -23,14 +23,14 @@ ranges.
 
 The qualified-name convention is the Zig module-qualified form, which the extraction row reconciles
 against DWARF. The declaration line and the source content hash are **not** part of the identity;
-they are provenance carried by generated occurrences and checked — the hash for equality against
+they are provenance carried by generated function instances and checked — the hash for equality against
 `pinnedSourceManifest`, the line for `> 0` — by `sourceProvenanceRecorded`.
 -/
 
 /-! ## Source files
 
 Each routine's declaring source file, by path only. Content hashes and declaration lines are
-validated *provenance* (`DeclarationProvenance`), carried by generated occurrences and checked
+validated *provenance* (`DeclarationProvenance`), carried by generated function instances and checked
 against the pinned source in the extraction row — they are not part of these identities. -/
 
 /-- The SSZ decoder body: `src/stateless/stateless/ssz_raw.zig`. -/
@@ -53,7 +53,7 @@ def runtimeSourceFile : SourceFile :=
 pinned content — the Zesu source at `github:codygunton/zesu@96f1621` and the repo's freestanding RV64
 runtime.
 
-`sourceProvenanceRecorded` checks every occurrence's recorded `declProvenance.sourceFileHash` for
+`sourceProvenanceRecorded` checks every function instance's recorded `declProvenance.sourceFileHash` for
 *equality* with the manifest entry for its file, so provenance is validated against the pin rather
 than merely being non-empty. If the pinned revision (or the runtime source) changes, this manifest
 must change with it — that coupling is exactly what provenance is for. -/
@@ -64,7 +64,7 @@ def pinnedSourceManifest : List (SourceFile × String) :=
     (runtimeSourceFile, "5f80e272e96ccb30ca109bb77c9a78c9769bfd6b54ac2d7f712d3c2deb9b8235") ]
 
 /-- The pinned content hash for a source file, if it is one of the manifest files; `none` otherwise
-(which makes `sourceProvenanceRecorded` reject an occurrence attributed to an off-manifest file). -/
+(which makes `sourceProvenanceRecorded` reject a function instance attributed to an off-manifest file). -/
 def pinnedSourceHash (file : SourceFile) : Option String :=
   (pinnedSourceManifest.find? (fun entry => decide (entry.1 = file))).map (·.2)
 
@@ -76,7 +76,7 @@ inductive RoutineGroup where
 deriving DecidableEq, Repr, Inhabited
 
 /-- The dispatch key: one constructor per handwritten contract. This is what turns "this instance's
-identity" into "this instance's `correctnessClaim`", so the per-instance obligation is a total
+identity" into "this instance's `correctnessClaim`", so the per-function-instance obligation is a total
 function of the catalog rather than a hand-maintained list of unrelated propositions. -/
 inductive RoutineTag where
   | zesuDecodeRaw | decode | decodeRaw
@@ -120,7 +120,7 @@ theorem RoutineTag.name_injective : ∀ a b : RoutineTag, a.name = b.name → a 
   intro a b h; revert h; cases a <;> cases b <;> simp [RoutineTag.name]
 
 /-- Why a source routine is excluded from the cataloged semantic proof — either it has no live
-occurrence in the canonical binary, or it is reachable emitted glue whose net effect is captured
+function instance in the canonical binary, or it is reachable emitted glue whose net effect is captured
 elsewhere. The last two are the row-2 reachable-but-excluded categories, shared with the generated
 Elfling reachable-partition taxonomy (stack-integration point). -/
 inductive ExclusionReason where
@@ -138,9 +138,9 @@ deriving DecidableEq, Repr, Inhabited
 
 /-- Whether a cataloged routine is expected to occur in the canonical program. -/
 inductive Presence where
-  /-- Appears as one or more generated occurrences (emitted or inlined). -/
+  /-- Appears as one or more generated function instances (emitted or inlined). -/
   | live
-  /-- Has no occurrence, for the given reason. -/
+  /-- Has no function instance, for the given reason. -/
   | absent (reason : ExclusionReason)
 deriving DecidableEq, Repr, Inhabited
 
@@ -157,7 +157,7 @@ deriving Repr, Inhabited
 
 namespace CatalogEntry
 
-/-- The catalog entry is expected to have live occurrences. -/
+/-- The catalog entry is expected to have live function instances. -/
 def isLive (entry : CatalogEntry) : Bool :=
   match entry.presence with | .live => true | .absent _ => false
 
@@ -189,9 +189,9 @@ def zesuDecodeRawFunctionId : FunctionId :=
 The complete catalog of live routines.
 
 Every entry has handwritten `meaning`, `pre`, `post`, `contract`, `correctnessClaim`, and
-`satisfiable` definitions, and its `tag` selects them in `instanceObligation`. `readArray` appears
+`satisfiable` definitions, and its `tag` selects them in `functionInstanceObligation`. `readArray` appears
 once per concrete width the decoder instantiates (20, 32, 48, 65, 96, 256), so a generated
-occurrence is matched by full identity, not by the bare name.
+function instance is matched by full identity, not by the bare name.
 -/
 def catalog : Array CatalogEntry :=
   #[ -- Entry / top level
@@ -259,7 +259,7 @@ def catalog : Array CatalogEntry :=
        group := .runtime, tag := .allocatorCtor, allocates := false, hasSymbol := false
        presence := .live } ]
 
-/-- Routines present in source but with no live occurrence in the canonical program, each with a
+/-- Routines present in source but with no live function instance in the canonical program, each with a
 machine-checkable reason. Coverage requires that none of these is matched by a generated instance. -/
 def excludedRoutines : Array CatalogEntry :=
   #[ { functionId := fid decoderSourceFile "ssz_raw.putU32"
@@ -275,17 +275,17 @@ def excludedRoutines : Array CatalogEntry :=
 /-- The concrete `readArray` widths the pinned decoder instantiates, as source-derived facts. -/
 def requiredReadArrayWidths : List Nat := [20, 32, 48, 65, 96, 256]
 
-/-- The width a generated `readArray` occurrence carries, parsed from its specialization. -/
+/-- The width a generated `readArray` function instance carries, parsed from its specialization. -/
 def readArrayWidthOf (function : FunctionId) : Nat :=
   ((function.specialization[0]?).bind String.toNat?).getD 0
 
-/-! ## Typed per-instance dispatch -/
+/-! ## Typed per-function-instance dispatch -/
 
 /--
-Everything a per-instance obligation needs beyond the instance itself: the pinned environment, the
+Everything a per-function-instance obligation needs beyond the instance itself: the pinned environment, the
 allocator heap, the status slot, and the container/RawV4 result representations.
 
-Bundling these keeps `instanceObligation` a total function while letting each container assert its own
+Bundling these keeps `functionInstanceObligation` a total function while letting each container assert its own
 result layout. -/
 structure ContractParams where
   env : DecoderEnvironment
@@ -309,7 +309,7 @@ structure ContractParams where
 
 Heterogeneity is the whole reason this exists. The decoder's leaves produce
 `Except SszDecodeError _` over half a dozen argument records, while the exported wrapper produces
-`DecodeCallOutcome`; there is no single `OccurrenceContract Args Outcome` the catalog could return.
+`DecodeCallOutcome`; there is no single `FunctionInstanceContract Args Outcome` the catalog could return.
 Packaging the types lets **one** total dispatch select the real typed contract, after which the
 closed and the local obligation are both formed from that same selection — so they cannot drift, and
 neither can be stated for a contract the other does not use. Erasure to `Prop` happens only after a
@@ -317,59 +317,59 @@ branch has chosen its contract, never before. -/
 structure TaggedContract where
   Args : Type
   Outcome : Type
-  contract : OccurrenceContract Args Outcome
+  contract : FunctionInstanceContract Args Outcome
 
 /--
-The typed contract a generated occurrence's routine `tag` selects.
+The typed contract a generated function instance's routine `tag` selects.
 
-This is the single point at which an occurrence's identity becomes a handwritten contract. A routine
-whose contract is source-shaped is projected through `FunctionContract.toOccurrence`; the exported
-wrapper, whose outcome is richer than `Except`, supplies its `OccurrenceContract` directly. -/
+This is the single point at which a function instance's identity becomes a handwritten contract. A routine
+whose contract is source-shaped is projected through `FunctionContract.toFunctionInstance`; the exported
+wrapper, whose outcome is richer than `Except`, supplies its `FunctionInstanceContract` directly. -/
 def routineContract (p : ContractParams) (function : FunctionId) (tag : RoutineTag) :
     TaggedContract :=
   match tag with
   | .zesuDecodeRaw =>
-      ⟨_, _, occurrenceZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4
+      ⟨_, _, functionInstanceZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4
                 DecoderGlobalsModel.fresh⟩
-  | .decode => ⟨_, _, (contractDecode p.env p.repRawV4).toOccurrence⟩
-  | .decodeRaw => ⟨_, _, (contractDecodeRaw p.env p.repRawV4).toOccurrence⟩
-  | .newPayloadRequest => ⟨_, _, (contractNewPayloadRequest p.env p.repNewPayloadRequest).toOccurrence⟩
-  | .executionPayload => ⟨_, _, (contractExecutionPayload p.env p.repExecutionPayload).toOccurrence⟩
-  | .executionRequests => ⟨_, _, (contractExecutionRequests p.env p.repExecutionRequests).toOccurrence⟩
-  | .executionWitness => ⟨_, _, (contractExecutionWitness p.env p.repExecutionWitness).toOccurrence⟩
-  | .chainConfig => ⟨_, _, (contractChainConfig p.env p.repChainConfig).toOccurrence⟩
-  | .forkConfig => ⟨_, _, (contractForkConfig p.env p.repForkConfig).toOccurrence⟩
-  | .forkActivation => ⟨_, _, (contractForkActivation p.env p.repForkActivation).toOccurrence⟩
-  | .optionalU64 => ⟨_, _, (contractOptionalU64 p.env).toOccurrence⟩
-  | .optionalBlobSchedule => ⟨_, _, (contractOptionalBlobSchedule p.env).toOccurrence⟩
-  | .versionedHashes => ⟨_, _, (contractVersionedHashes p.env).toOccurrence⟩
-  | .withdrawals => ⟨_, _, (contractWithdrawals p.env).toOccurrence⟩
-  | .depositRequests => ⟨_, _, (contractDepositRequests p.env).toOccurrence⟩
-  | .withdrawalRequests => ⟨_, _, (contractWithdrawalRequests p.env).toOccurrence⟩
-  | .consolidationRequests => ⟨_, _, (contractConsolidationRequests p.env).toOccurrence⟩
-  | .publicKeys => ⟨_, _, (contractPublicKeys p.env).toOccurrence⟩
-  | .byteListList => ⟨_, _, (contractByteListList p.env).toOccurrence⟩
-  | .requireCanonicalOffsets => ⟨_, _, (contractRequireCanonicalOffsets p.env).toOccurrence⟩
-  | .requireU32Length => ⟨_, _, (contractRequireU32Length p.env).toOccurrence⟩
-  | .readOffset => ⟨_, _, (contractReadOffset p.env).toOccurrence⟩
-  | .readU32 => ⟨_, _, (contractReadU32 p.env).toOccurrence⟩
-  | .readU64 => ⟨_, _, (contractReadU64 p.env).toOccurrence⟩
-  | .readU256 => ⟨_, _, (contractReadU256 p.env).toOccurrence⟩
-  | .readArray => ⟨_, _, (contractReadArray p.env (readArrayWidthOf function)).toOccurrence⟩
-  | .bytesAt => ⟨_, _, (contractBytesAt p.env).toOccurrence⟩
-  | .hasExactErePrefix => ⟨_, _, (contractHasExactErePrefix p.env).toOccurrence⟩
-  | .rawAlloc => ⟨_, _, (contractAlloc p.env p.heap).toOccurrence⟩
-  | .memcpy => ⟨_, _, (contractMemcpy p.env).toOccurrence⟩
-  | .memmove => ⟨_, _, (contractMemmove p.env).toOccurrence⟩
-  | .rawResult => ⟨_, _, (contractRawResult p.env p.globals p.resultBuffer).toOccurrence⟩
-  | .rawError => ⟨_, _, (contractRawError p.env p.globals).toOccurrence⟩
-  | .allocatorAlloc => ⟨_, _, (contractAllocatorAlloc p.env p.heap).toOccurrence⟩
-  | .allocatorResize => ⟨_, _, (contractAllocatorResize p.env).toOccurrence⟩
-  | .allocatorRemap => ⟨_, _, (contractAllocatorRemap p.env).toOccurrence⟩
-  | .allocatorFree => ⟨_, _, (contractAllocatorFree p.env).toOccurrence⟩
-  | .allocatorCtor => ⟨_, _, (contractAllocatorCtor p.env).toOccurrence⟩
+  | .decode => ⟨_, _, (contractDecode p.env p.repRawV4).toFunctionInstance⟩
+  | .decodeRaw => ⟨_, _, (contractDecodeRaw p.env p.repRawV4).toFunctionInstance⟩
+  | .newPayloadRequest => ⟨_, _, (contractNewPayloadRequest p.env p.repNewPayloadRequest).toFunctionInstance⟩
+  | .executionPayload => ⟨_, _, (contractExecutionPayload p.env p.repExecutionPayload).toFunctionInstance⟩
+  | .executionRequests => ⟨_, _, (contractExecutionRequests p.env p.repExecutionRequests).toFunctionInstance⟩
+  | .executionWitness => ⟨_, _, (contractExecutionWitness p.env p.repExecutionWitness).toFunctionInstance⟩
+  | .chainConfig => ⟨_, _, (contractChainConfig p.env p.repChainConfig).toFunctionInstance⟩
+  | .forkConfig => ⟨_, _, (contractForkConfig p.env p.repForkConfig).toFunctionInstance⟩
+  | .forkActivation => ⟨_, _, (contractForkActivation p.env p.repForkActivation).toFunctionInstance⟩
+  | .optionalU64 => ⟨_, _, (contractOptionalU64 p.env).toFunctionInstance⟩
+  | .optionalBlobSchedule => ⟨_, _, (contractOptionalBlobSchedule p.env).toFunctionInstance⟩
+  | .versionedHashes => ⟨_, _, (contractVersionedHashes p.env).toFunctionInstance⟩
+  | .withdrawals => ⟨_, _, (contractWithdrawals p.env).toFunctionInstance⟩
+  | .depositRequests => ⟨_, _, (contractDepositRequests p.env).toFunctionInstance⟩
+  | .withdrawalRequests => ⟨_, _, (contractWithdrawalRequests p.env).toFunctionInstance⟩
+  | .consolidationRequests => ⟨_, _, (contractConsolidationRequests p.env).toFunctionInstance⟩
+  | .publicKeys => ⟨_, _, (contractPublicKeys p.env).toFunctionInstance⟩
+  | .byteListList => ⟨_, _, (contractByteListList p.env).toFunctionInstance⟩
+  | .requireCanonicalOffsets => ⟨_, _, (contractRequireCanonicalOffsets p.env).toFunctionInstance⟩
+  | .requireU32Length => ⟨_, _, (contractRequireU32Length p.env).toFunctionInstance⟩
+  | .readOffset => ⟨_, _, (contractReadOffset p.env).toFunctionInstance⟩
+  | .readU32 => ⟨_, _, (contractReadU32 p.env).toFunctionInstance⟩
+  | .readU64 => ⟨_, _, (contractReadU64 p.env).toFunctionInstance⟩
+  | .readU256 => ⟨_, _, (contractReadU256 p.env).toFunctionInstance⟩
+  | .readArray => ⟨_, _, (contractReadArray p.env (readArrayWidthOf function)).toFunctionInstance⟩
+  | .bytesAt => ⟨_, _, (contractBytesAt p.env).toFunctionInstance⟩
+  | .hasExactErePrefix => ⟨_, _, (contractHasExactErePrefix p.env).toFunctionInstance⟩
+  | .rawAlloc => ⟨_, _, (contractAlloc p.env p.heap).toFunctionInstance⟩
+  | .memcpy => ⟨_, _, (contractMemcpy p.env).toFunctionInstance⟩
+  | .memmove => ⟨_, _, (contractMemmove p.env).toFunctionInstance⟩
+  | .rawResult => ⟨_, _, (contractRawResult p.env p.globals p.resultBuffer).toFunctionInstance⟩
+  | .rawError => ⟨_, _, (contractRawError p.env p.globals).toFunctionInstance⟩
+  | .allocatorAlloc => ⟨_, _, (contractAllocatorAlloc p.env p.heap).toFunctionInstance⟩
+  | .allocatorResize => ⟨_, _, (contractAllocatorResize p.env).toFunctionInstance⟩
+  | .allocatorRemap => ⟨_, _, (contractAllocatorRemap p.env).toFunctionInstance⟩
+  | .allocatorFree => ⟨_, _, (contractAllocatorFree p.env).toFunctionInstance⟩
+  | .allocatorCtor => ⟨_, _, (contractAllocatorCtor p.env).toFunctionInstance⟩
 
-/-- The run one occurrence supplies to whoever splices it, at this contract's own types.
+/-- The run one function instance supplies to whoever splices it, at this contract's own types.
 
 Every component the splice needs is present and typed: the arguments it was called with, its step
 bound, a confined entered run of *exactly* `used` machine steps from its generated entry to one of
@@ -384,76 +384,76 @@ def TaggedContract.summary (tc : TaggedContract) (region exit : BitVec 64 → Pr
     EnteredFunctionTrace region exit entry fromStep used s s' ∧
     tc.contract.binding.exit args (tc.contract.spec.meaning args) s s'
 
-/-! ## Where an occurrence executes
+/-! ## Where a function instance executes
 
-Two address sets, both computed from the generated program, decide what any per-occurrence obligation
+Two address sets, both computed from the generated program, decide what any per-function-instance obligation
 can possibly say. See `BinaryFv.Binary.Elfling.Program.ownedRanges`/`extentRanges` for the data and
-`InstanceExecutionPcs` for why the distinction is forced rather than chosen. -/
+`FunctionInstanceExecutionPcs` for why the distinction is forced rather than chosen. -/
 
-/-- What an occurrence's *local* proof may retire step by step: its own code plus the uncataloged
+/-- What a function instance's *local* proof may retire step by step: its own code plus the uncataloged
 routines it absorbs. -/
-def instanceOwnPcs (program : Program) (instance_ : FunctionInstance) : BitVec 64 → Prop :=
-  RegionPcs (Program.ownedRanges program instance_)
+def functionInstanceOwnPcs (program : Program) (functionInstance : FunctionInstance) : BitVec 64 → Prop :=
+  RegionPcs (Program.ownedRanges program functionInstance)
 
-/-- The addresses an occurrence reaches: the transfer-graph extent of everything it may call or
+/-- The addresses a function instance reaches: the transfer-graph extent of everything it may call or
 inline. Supplied to the closed obligation as its `reached` set. -/
-def instanceReachedPcs (program : Program) (instance_ : FunctionInstance) : BitVec 64 → Prop :=
-  RegionPcs (Program.extentRanges program instance_)
+def functionInstanceReachedPcs (program : Program) (functionInstance : FunctionInstance) : BitVec 64 → Prop :=
+  RegionPcs (Program.extentRanges program functionInstance)
 
-/-- Where an occurrence's execution may sit: its own regions together with everything it reaches. -/
-def instanceExecutionPcs (program : Program) (instance_ : FunctionInstance) : BitVec 64 → Prop :=
-  InstanceExecutionPcs instance_ (instanceReachedPcs program instance_)
+/-- Where a function instance's execution may sit: its own regions together with everything it reaches. -/
+def functionInstanceExecutionPcs (program : Program) (functionInstance : FunctionInstance) : BitVec 64 → Prop :=
+  FunctionInstanceExecutionPcs functionInstance (functionInstanceReachedPcs program functionInstance)
 
-/-- The entry PC of a generated occurrence, as a machine word. Read off the occurrence, never
+/-- The entry PC of a generated function instance, as a machine word. Read off the function instance, never
 existentially chosen. -/
-def instanceEntryWord (instance_ : FunctionInstance) : BitVec 64 :=
-  BitVec.ofNat 64 instance_.entryPc
+def functionInstanceEntryWord (functionInstance : FunctionInstance) : BitVec 64 :=
+  BitVec.ofNat 64 functionInstance.entryPc
 
-/-- The exit predicate of a generated occurrence: exactly its generated exit PCs. -/
-def instanceExitPred (instance_ : FunctionInstance) (pc : BitVec 64) : Prop :=
-  instance_.isExit pc.toNat
+/-- The exit predicate of a generated function instance: exactly its generated exit PCs. -/
+def functionInstanceExitPred (functionInstance : FunctionInstance) (pc : BitVec 64) : Prop :=
+  functionInstance.isExit pc.toNat
 
 /--
-The **closed** correctness obligation a single generated occurrence owes, selected by its routine
+The **closed** correctness obligation a single generated function instance owes, selected by its routine
 `tag`: it implements its contract, confined to where it executes, entering at its generated entry and
 stopping at a generated exit.
 
 The entry PC, exit predicate and reachable address set all come from generated data, never from an
 existential, so a proof cannot pick a convenient entry, exit, or confinement. `reached` is the
-occurrence's transfer-graph extent — see `InstanceExecutionPcs` for why an obligation confined to the
-occurrence's own regions alone would be false for every occurrence that calls out. -/
-def routineObligation (p : ContractParams) (instance_ : FunctionInstance)
+function instance's transfer-graph extent — see `FunctionInstanceExecutionPcs` for why an obligation confined to the
+function instance's own regions alone would be false for every function instance that calls out. -/
+def routineObligation (p : ContractParams) (functionInstance : FunctionInstance)
     (reached : BitVec 64 → Prop) (tag : RoutineTag) : Prop :=
-  (routineContract p instance_.id.function tag).contract.ImplementsInstance instance_ reached
-    (instanceEntryWord instance_) (instanceExitPred instance_)
+  (routineContract p functionInstance.id.function tag).contract.ImplementsFunctionInstance functionInstance reached
+    (functionInstanceEntryWord functionInstance) (functionInstanceExitPred functionInstance)
 
 /--
-The **local** obligation a single generated occurrence owes: it implements *the same* contract
-against summaries of the occurrences below it, retiring its own steps only inside what it owns.
+The **local** obligation a single generated function instance owes: it implements *the same* contract
+against summaries of the function instances below it, retiring its own steps only inside what it owns.
 
-This is the proposition the local-proof campaign discharges once per occurrence, and the one
+This is the proposition the local-proof campaign discharges once per function instance, and the one
 `LocalContractAssumptions` quantifies. It is not an implication between closed obligations: its
 premise content is the admitted `childSummary` relation, its conclusion is an `EnteredScopedTrace`,
 and the closed obligation appears nowhere in it. -/
-def routineLocalObligation (p : ContractParams) (instance_ : FunctionInstance)
+def routineLocalObligation (p : ContractParams) (functionInstance : FunctionInstance)
     (own : BitVec 64 → Prop)
-    (childSummary : InstanceId → Nat → Nat → BinaryFv.RiscV.State → BinaryFv.RiscV.State → Prop) (tag : RoutineTag) : Prop :=
-  (routineContract p instance_.id.function tag).contract.LocallyImplementsInstance own
-    (instanceEntryWord instance_) (instanceExitPred instance_) childSummary
+    (childSummary : FunctionInstanceId → Nat → Nat → BinaryFv.RiscV.State → BinaryFv.RiscV.State → Prop) (tag : RoutineTag) : Prop :=
+  (routineContract p functionInstance.id.function tag).contract.LocallyImplementsFunctionInstance own
+    (functionInstanceEntryWord functionInstance) (functionInstanceExitPred functionInstance) childSummary
 
-/-- The local and closed obligations of an occurrence are formed from **one** contract selection, so
+/-- The local and closed obligations of a function instance are formed from **one** contract selection, so
 composing the first into the second is a statement about the same contract. This is the step
-`global_of_local` performs per occurrence; `hsub` and `hcompose` are the generated geometry and the
+`global_of_local` performs per function instance; `hsub` and `hcompose` are the generated geometry and the
 discharged child summaries. -/
-theorem routineObligation_of_local {p : ContractParams} {instance_ : FunctionInstance}
+theorem routineObligation_of_local {p : ContractParams} {functionInstance : FunctionInstance}
     {own reached : BitVec 64 → Prop}
-    {childSummary : InstanceId → Nat → Nat → BinaryFv.RiscV.State → BinaryFv.RiscV.State → Prop} {tag : RoutineTag}
-    (hsub : ∀ pc, own pc → InstanceExecutionPcs instance_ reached pc)
-    (hcompose : SummariesCompose (InstanceExecutionPcs instance_ reached)
-      (instanceExitPred instance_) childSummary)
-    (hlocal : routineLocalObligation p instance_ own childSummary tag) :
-    routineObligation p instance_ reached tag :=
-  OccurrenceContract.LocallyImplementsInstance.toImplementsInstance hsub hcompose hlocal
+    {childSummary : FunctionInstanceId → Nat → Nat → BinaryFv.RiscV.State → BinaryFv.RiscV.State → Prop} {tag : RoutineTag}
+    (hsub : ∀ pc, own pc → FunctionInstanceExecutionPcs functionInstance reached pc)
+    (hcompose : SummariesCompose (FunctionInstanceExecutionPcs functionInstance reached)
+      (functionInstanceExitPred functionInstance) childSummary)
+    (hlocal : routineLocalObligation p functionInstance own childSummary tag) :
+    routineObligation p functionInstance reached tag :=
+  FunctionInstanceContract.LocallyImplementsFunctionInstance.toImplementsFunctionInstance hsub hcompose hlocal
 
 /-- The satisfiability obligation for a routine's contract, selected by the same `tag`.
 
@@ -504,7 +504,7 @@ def routineSatisfiable (p : ContractParams) (function : FunctionId) (tag : Routi
 /-! ## Full-identity matching -/
 
 /-- The catalog entry whose full `FunctionId` equals `function`, if any. Matching is by the whole
-identity — file, qualified name, and specialization — so a `readArray[32]` occurrence cannot be
+identity — file, qualified name, and specialization — so a `readArray[32]` function instance cannot be
 satisfied by the `readArray[20]` contract. -/
 def catalogEntryFor (function : FunctionId) : Option CatalogEntry :=
   catalog.find? fun entry => decide (entry.functionId = function)
@@ -515,40 +515,40 @@ def excludedEntryFor (function : FunctionId) : Option CatalogEntry :=
 
 /-! ## Coverage and uniqueness obligations -/
 
-/-- Every live catalog entry has at least one generated occurrence carrying its exact identity. -/
-def everyRoutineHasInstance (program : Program) : Prop :=
+/-- Every live catalog entry has at least one generated function instance carrying its exact identity. -/
+def everyRoutineHasFunctionInstance (program : Program) : Prop :=
   ∀ entry ∈ catalog, entry.isLive = true →
-    ∃ instance_ ∈ program.instances, instance_.id.function = entry.functionId
+    ∃ functionInstance ∈ program.functionInstances, functionInstance.id.function = entry.functionId
 
-/-- Every generated occurrence carries the identity of exactly one live catalog entry. This is the
+/-- Every generated function instance carries the identity of exactly one live catalog entry. This is the
 direction that forbids an unproved region — including an un-accounted compiler/runtime routine —
 hiding inside a "complete" proof. -/
-def everyInstanceIsCataloged (program : Program) : Prop :=
-  ∀ instance_ ∈ program.instances,
-    ∃ entry ∈ catalog, entry.isLive = true ∧ instance_.id.function = entry.functionId
+def everyFunctionInstanceIsCataloged (program : Program) : Prop :=
+  ∀ functionInstance ∈ program.functionInstances,
+    ∃ entry ∈ catalog, entry.isLive = true ∧ functionInstance.id.function = entry.functionId
 
-/-- No excluded routine has any generated occurrence: the exclusions are honest. -/
+/-- No excluded routine has any generated function instance: the exclusions are honest. -/
 def excludedRoutinesAbsent (program : Program) : Prop :=
-  ∀ instance_ ∈ program.instances, ∀ excluded ∈ excludedRoutines,
-    instance_.id.function ≠ excluded.functionId
+  ∀ functionInstance ∈ program.functionInstances, ∀ excluded ∈ excludedRoutines,
+    functionInstance.id.function ≠ excluded.functionId
 
-/-- Each catalog identity is unique, so one occurrence cannot be counted against two entries. -/
+/-- Each catalog identity is unique, so one function instance cannot be counted against two entries. -/
 def catalogIdentitiesDistinct : Prop :=
   ∀ i j, (hi : i < catalog.size) → (hj : j < catalog.size) →
     (catalog[i]).functionId = (catalog[j]).functionId → i = j
 
-/-- Every generated occurrence is matched by exactly one live catalog entry, and every occurrence
-identity is distinct: one convenient occurrence cannot satisfy several entries, and a duplicated
-occurrence cannot slip through.
+/-- Every generated function instance is matched by exactly one live catalog entry, and every function instance
+identity is distinct: one convenient function instance cannot satisfy several entries, and a duplicated
+function instance cannot slip through.
 
 Uniqueness of the matched entry is `catalogEntryFor` returning `some` (a single entry from
 `Array.find?`) together with `catalogIdentitiesDistinct`, which rules out a second entry with the
 same identity. -/
-def instancesDispatchUniquely (program : Program) : Prop :=
-  program.instanceIdsDistinct ∧
+def functionInstancesDispatchUniquely (program : Program) : Prop :=
+  program.functionInstanceIdsDistinct ∧
   catalogIdentitiesDistinct ∧
-  ∀ instance_ ∈ program.instances,
-    ∃ entry, catalogEntryFor instance_.id.function = some entry
+  ∀ functionInstance ∈ program.functionInstances,
+    ∃ entry, catalogEntryFor functionInstance.id.function = some entry
 
 /-- Every required `readArray` width is present as a live catalog entry. -/
 def readArrayWidthsPresent : Prop :=
@@ -558,10 +558,10 @@ def readArrayWidthsPresent : Prop :=
 /-- The full coverage obligation: both matching directions, honest exclusions, unique dispatch, the
 required specializations, and a defect-free extraction. -/
 def coverage (program : Program) : Prop :=
-  everyRoutineHasInstance program ∧
-  everyInstanceIsCataloged program ∧
+  everyRoutineHasFunctionInstance program ∧
+  everyFunctionInstanceIsCataloged program ∧
   excludedRoutinesAbsent program ∧
-  instancesDispatchUniquely program ∧
+  functionInstancesDispatchUniquely program ∧
   catalogIdentitiesDistinct ∧
   readArrayWidthsPresent ∧
   extractionDefectFree program
@@ -588,7 +588,7 @@ misleading.** They fall into three kinds:
   plus the three `meaningOptionalBlobSchedule` characterizations other than the 24-byte one. Each is
   a genuine statement about a meaning, provable from that meaning's shape.
 * **Definitional or one-sided (3).** `allocatorVtableEntriesAreConstant` is `rfl` — both sides are
-  *defined* as the constants, so its force is entirely in the occurrence contract.
+  *defined* as the constants, so its force is entirely in the function instance contract.
   `outOfMemoryUnreachableBelowBound` is the specification-side half only; `meaningDecode` has no
   allocation-failure outcome, so the machine-side claim is `raw_allocation_bound_fits_arena`
   elsewhere. `emptyByteListListIsEmptyArray` says nothing about allocation despite the routine

@@ -8,7 +8,7 @@ The two checks added after the third review round are the ones a weak predicate 
   * `allocationLedger` — the observed cursor-write history IS the allocation sequence the fixture
     requires (count, order, sizes, alignments, returned blocks).
 
-A check that cannot fail is not a check, so this takes the REAL evidence `scale_occurrences.py` just
+A check that cannot fail is not a check, so this takes the REAL evidence `scale_function_instances.py` just
 captured and corrupts copies of it, requiring each corruption to flip the responsible oracle predicate.
 The Lean checker carries the same mutations as `negative_derived_*` / `negative_ledger_*` theorems over
 the same evidence shape, so both sides reject the same corrupted evidence.
@@ -26,7 +26,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-import scale_occurrences as so  # noqa: E402
+import scale_function_instances as so  # noqa: E402
 
 
 def derived_mutations(row):
@@ -73,52 +73,52 @@ def ledger_mutations(led):
     ]
 
 
-def occurrence_ledger_mutations(rec):
-    """Corruptions of ONE occurrence's slice — the per-occurrence check must be discriminating too."""
+def function_instance_ledger_mutations(rec):
+    """Corruptions of ONE function instance's slice — the per-function-instance check must be discriminating too."""
     f = rec["facts"]
     obs, exp = f["ledgerObserved"], f["ledgerExpected"]
     return [
-        ("occ-wrong-size", obs, [{**e, "size": e["size"] + 8} for e in exp]),
-        ("occ-wrong-alignment", obs, [{**e, "alignment": e["alignment"] * 8 + 1} for e in exp]),
-        ("occ-unexpected-event", obs, []),
-        ("occ-missing-event", [], exp),
-        ("occ-wrong-returned-block", [{**o, "returned": o["before"] + 8} for o in obs], exp),
+        ("function instance-wrong-size", obs, [{**e, "size": e["size"] + 8} for e in exp]),
+        ("function instance-wrong-alignment", obs, [{**e, "alignment": e["alignment"] * 8 + 1} for e in exp]),
+        ("function instance-unexpected-event", obs, []),
+        ("function instance-missing-event", [], exp),
+        ("function instance-wrong-returned-block", [{**o, "returned": o["before"] + 8} for o in obs], exp),
     ]
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--coverage", required=True, help="coverage.json emitted by scale_occurrences.py")
+    ap.add_argument("--coverage", required=True, help="coverage.json emitted by scale_function_instances.py")
     a = ap.parse_args()
     data = json.loads(Path(a.coverage).read_text())
     failures, checked = [], 0
 
     # --- baseline: the real evidence passes ------------------------------------------------------
-    derived_rows = [(r["index"], d) for r in data["occurrences"]
+    derived_rows = [(r["index"], d) for r in data["function_instances"]
                     for d in (r["facts"].get("derivedRows") or [])]
     if len(derived_rows) != 8:
         failures.append(f"expected 8 loop-derived rows in the evidence, found {len(derived_rows)}")
     for idx, d in derived_rows:
         if not so.derived_row_holds(d):
-            failures.append(f"occ {idx}: the real derived row does not hold")
+            failures.append(f"function instance {idx}: the real derived row does not hold")
 
     ledgers = data["summary"]["armLedgers"]
     for name, led in sorted(ledgers.items()):
         if not so.arm_ledger_holds(led):
             failures.append(f"arm {name}: the real whole-run ledger does not agree")
 
-    allocating = [r for r in data["occurrences"]
+    allocating = [r for r in data["function_instances"]
                   if r["facts"].get("allocates") and r["facts"].get("covered")]
     for r in allocating:
         if not so.ledger_agrees(r["facts"]["ledgerObserved"], r["facts"]["ledgerExpected"]):
-            failures.append(f"occ {r['index']}: the real occurrence ledger does not agree")
+            failures.append(f"function instance {r['index']}: the real function instance ledger does not agree")
 
     # --- mutations: every corruption must be caught ----------------------------------------------
     for idx, d in derived_rows:
         for label, mutated in derived_mutations(d):
             checked += 1
             if so.derived_row_holds(mutated):
-                failures.append(f"occ {idx}: derived mutation '{label}' NOT caught")
+                failures.append(f"function instance {idx}: derived mutation '{label}' NOT caught")
 
     for name, led in sorted(ledgers.items()):
         for label, mutated in ledger_mutations(led):
@@ -127,10 +127,10 @@ def main() -> int:
                 failures.append(f"arm {name}: ledger mutation '{label}' NOT caught")
 
     for r in allocating:
-        for label, obs, exp in occurrence_ledger_mutations(r):
+        for label, obs, exp in function_instance_ledger_mutations(r):
             checked += 1
             if so.ledger_agrees(obs, exp):
-                failures.append(f"occ {r['index']}: ledger mutation '{label}' NOT caught")
+                failures.append(f"function instance {r['index']}: ledger mutation '{label}' NOT caught")
 
     if failures:
         print(f"SCALED NEGATIVE TESTS FAILED ({len(failures)}):", file=sys.stderr)
@@ -138,7 +138,7 @@ def main() -> int:
             print(f"  {f}", file=sys.stderr)
         return 1
     print(f"scaled negative tests OK: {len(derived_rows)} loop-derived rows and "
-          f"{len(ledgers)} arm ledgers + {len(allocating)} occurrence ledgers hold on the real "
+          f"{len(ledgers)} arm ledgers + {len(allocating)} function instance ledgers hold on the real "
           f"evidence; all {checked} corruptions caught (stride / constant / register value / index / "
           f"empty sample; extra / missing / reordered event, wrong size, wrong alignment, wrong "
           f"returned block)")

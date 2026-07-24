@@ -2,20 +2,20 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramGeometry
 import GeneratedManifest
 
 /-!
-# Checking the occurrence proof backlog
+# Checking the function instance proof backlog
 
 The generator emits the same 141 rows as Lean data and as the human-readable `MANIFEST.md`. This
 module checks that the shared rows describe the actual generated program:
 
-* **one row per occurrence, one occurrence per row, in index order** — a row deleted, duplicated,
-  reordered, or pointed at a sibling occurrence fails `manifestIndexed`/`manifestMatchesProgram`;
-* **each row's data is the occurrence's data** — identity, qualified name, kind, parent, children,
+* **one row per function instance, one function instance per row, in index order** — a row deleted, duplicated,
+  reordered, or pointed at a sibling function instance fails `manifestIndexed`/`manifestMatchesProgram`;
+* **each row's data is the function instance's data** — identity, qualified name, kind, parent, children,
   external calls, absorbed excluded routines, entry pc and exit pcs, all compared against
   `generatedProgram`;
 * **each row's routine tag is the catalog's** — `routineTag` is a string in the generated file (so
   the generator never imports the handwritten catalog), matched here against
   `catalogEntryFor`'s tag through `RoutineTag.name`, which is injective;
-* **each row's dependency indices are the occurrence's dependencies** — so a row cannot understate
+* **each row's dependency indices are the function instance's dependencies** — so a row cannot understate
   what its proof may assume.
 
 `localContractAssumptions_iff_manifest` then connects the quantified local-proof assumption to this
@@ -31,14 +31,14 @@ open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram generatedManifest Man
 
 /-! ## The manifest indexes the program exactly -/
 
-/-- Exactly one row per occurrence, in occurrence-index order. -/
+/-- Exactly one row per function instance, in function instance-index order. -/
 def manifestIndexedB (m : Array ManifestRow) : Bool :=
-  (m.size == generatedProgram.instances.size) &&
+  (m.size == generatedProgram.functionInstances.size) &&
     (List.range m.size).all fun k => m[k]!.index == k
 
 theorem manifest_indexed_check : manifestIndexedB generatedManifest = true := by native_decide
 
-theorem manifest_size : generatedManifest.size = generatedProgram.instances.size := by
+theorem manifest_size : generatedManifest.size = generatedProgram.functionInstances.size := by
   have h := manifest_indexed_check
   simp [manifestIndexedB, Bool.and_eq_true] at h
   exact h.1
@@ -50,12 +50,12 @@ theorem manifest_row_index (k : Nat) (h : k < generatedManifest.size) :
   have := List.all_eq_true.mp hall.2 k (List.mem_range.mpr h)
   simpa [getElem!_pos, h] using this
 
-/-- Every row's payload is the occurrence's own data. Identity, name, kind, nesting, transfer
-targets, entry and exits — a row that describes a sibling occurrence fails here. -/
+/-- Every row's payload is the function instance's own data. Identity, name, kind, nesting, transfer
+targets, entry and exits — a row that describes a sibling function instance fails here. -/
 def manifestMatchesProgramB (m : Array ManifestRow) : Bool :=
   (List.range m.size).all fun k =>
     let r := m[k]!
-    let i := generatedProgram.instances[k]!
+    let i := generatedProgram.functionInstances[k]!
     decide (r.id = i.id) &&
       decide (r.qualifiedName = i.id.function.declaration.qualifiedName) &&
       decide (r.kind = (if i.parent?.isSome then "inlined" else "emitted")) &&
@@ -63,14 +63,14 @@ def manifestMatchesProgramB (m : Array ManifestRow) : Bool :=
       decide (r.exitPcs = i.exitPcs) &&
       decide (r.children.size = i.children.size) &&
       (r.children.all fun c =>
-        c < generatedProgram.instances.size &&
-          i.children.any fun cid => decide (cid = generatedProgram.instances[c]!.id)) &&
+        c < generatedProgram.functionInstances.size &&
+          i.children.any fun cid => decide (cid = generatedProgram.functionInstances[c]!.id)) &&
       (r.externalCalls.all fun c =>
-        c < generatedProgram.instances.size &&
-          i.externalCalls.any fun cid => decide (cid = generatedProgram.instances[c]!.id)) &&
+        c < generatedProgram.functionInstances.size &&
+          i.externalCalls.any fun cid => decide (cid = generatedProgram.functionInstances[c]!.id)) &&
       (r.absorbed.all fun x =>
-        x < generatedProgram.excluded.size &&
-          i.externalCalls.any fun cid => decide (cid = generatedProgram.excluded[x]!.id)) &&
+        x < generatedProgram.excludedFunctionInstances.size &&
+          i.externalCalls.any fun cid => decide (cid = generatedProgram.excludedFunctionInstances[x]!.id)) &&
       decide (r.dependencies.size = r.children.size + r.externalCalls.size) &&
       (r.dependencies.all fun d =>
         (r.children.any fun c => c == d) || (r.externalCalls.any fun c => c == d))
@@ -78,18 +78,18 @@ def manifestMatchesProgramB (m : Array ManifestRow) : Bool :=
 theorem manifest_matches_program_check : manifestMatchesProgramB generatedManifest = true := by
   native_decide
 
-/-- Every row's routine tag is the tag the handwritten catalog dispatches its occurrence to. -/
+/-- Every row's routine tag is the tag the handwritten catalog dispatches its function instance to. -/
 def manifestTagsMatchCatalogB (m : Array ManifestRow) : Bool :=
   (List.range m.size).all fun k =>
     let r := m[k]!
-    match catalogEntryFor generatedProgram.instances[k]!.id.function with
+    match catalogEntryFor generatedProgram.functionInstances[k]!.id.function with
     | some entry => decide (r.routineTag = entry.tag.name)
     | none => false
 
 theorem manifest_tags_match_catalog_check : manifestTagsMatchCatalogB generatedManifest = true := by
   native_decide
 
-/-- Theorem names are distinct, so two occurrences cannot be discharged by one proof. -/
+/-- Theorem names are distinct, so two function instances cannot be discharged by one proof. -/
 def manifestTheoremNamesDistinctB (m : Array ManifestRow) : Bool :=
   (List.range m.size).all fun i =>
     (List.range m.size).all fun j =>
@@ -99,16 +99,16 @@ theorem manifest_theorem_names_distinct :
     manifestTheoremNamesDistinctB generatedManifest = true := by native_decide
 
 /-- Every row is assigned to one of the plan rows that owns local proofs, and every row still says
-`pending` — no occurrence is recorded as proved before its proof exists. -/
+`pending` — no function instance is recorded as proved before its proof exists. -/
 def manifestRowsAssignedB (m : Array ManifestRow) : Bool :=
   m.all fun r =>
     (["E", "F", "G", "H", "I"].contains r.owningRow) && (r.proofStatus == "pending")
 
 theorem manifest_rows_assigned : manifestRowsAssignedB generatedManifest = true := by native_decide
 
-/-- The manifest has exactly 141 rows, matching the occurrence count. -/
+/-- The manifest has exactly 141 rows, matching the function instance count. -/
 theorem manifest_row_count : generatedManifest.size = 141 :=
-  manifest_size.trans generated_occurrence_count
+  manifest_size.trans generated_function_function_instance_count
 
 
 /-! ## Negative checks: every mutation of the manifest is caught
@@ -118,7 +118,7 @@ real manifest and the corresponding check is shown to evaluate to `false`. Gener
 same integrity rules a second time — `manifest_rows` in the generator aborts on a missing,
 duplicated, misordered or misattributed row — so a drifted manifest cannot even be emitted. -/
 
-/-- One occurrence dropped from the backlog. -/
+/-- One function instance dropped from the backlog. -/
 def manifestDeletedRow : Array ManifestRow := generatedManifest.eraseIdx! 7
 
 theorem negative_manifest_deleted_row :
@@ -131,7 +131,7 @@ def manifestDuplicatedRow : Array ManifestRow :=
 theorem negative_manifest_duplicated_row :
     manifestIndexedB manifestDuplicatedRow = false := by native_decide
 
-/-- Two rows transposed, so the backlog is no longer in occurrence order. -/
+/-- Two rows transposed, so the backlog is no longer in function instance order. -/
 def manifestReorderedRows : Array ManifestRow :=
   (generatedManifest.set! 7 generatedManifest[8]!).set! 8 generatedManifest[7]!
 
@@ -145,7 +145,7 @@ def manifestWrongTag : Array ManifestRow :=
 theorem negative_manifest_wrong_tag :
     manifestTagsMatchCatalogB manifestWrongTag = false := by native_decide
 
-/-- One row pointed at a sibling occurrence's identity and entry. -/
+/-- One row pointed at a sibling function instance's identity and entry. -/
 def manifestSiblingRow : Array ManifestRow :=
   generatedManifest.set! 7
     { generatedManifest[7]! with
@@ -155,7 +155,7 @@ def manifestSiblingRow : Array ManifestRow :=
 theorem negative_manifest_sibling_row :
     manifestMatchesProgramB manifestSiblingRow = false := by native_decide
 
-/-- One row's dependency set altered to name an occurrence it does not depend on. -/
+/-- One row's dependency set altered to name a function instance it does not depend on. -/
 def manifestAlteredDependency : Array ManifestRow :=
   generatedManifest.set! 6 { generatedManifest[6]! with dependencies := #[0] }
 
@@ -169,7 +169,7 @@ def manifestPrematureStatus : Array ManifestRow :=
 theorem negative_manifest_premature_status :
     manifestRowsAssignedB manifestPrematureStatus = false := by native_decide
 
-/-- Two occurrences sharing one theorem name. -/
+/-- Two function instances sharing one theorem name. -/
 def manifestSharedTheorem : Array ManifestRow :=
   generatedManifest.set! 7
     { generatedManifest[7]! with theoremName := generatedManifest[8]!.theoremName }
@@ -180,33 +180,33 @@ theorem negative_manifest_shared_theorem :
 /-! ## The frozen local assumption -/
 
 /--
-**The one local assumption Row D's root theorem is conditional on**: every generated occurrence
+**The one local assumption Row D's root theorem is conditional on**: every generated function instance
 satisfies its local trace obligation, at the pinned contract parameters and the canonical program.
 
 Nothing else is mixed in — no coverage, no runner, no spec equivalence, no heap bound, no observer
 fact. Each of those is proved separately and unconditionally. Unfolded, each conjunct hands a proof
-an admitted child-summary relation realizing that occurrence's callees' contracts and asks for an
-`EnteredScopedTrace` confined to what the occurrence owns.
+an admitted child-summary relation realizing that function instance's callees' contracts and asks for an
+`EnteredScopedTrace` confined to what the function instance owns.
 -/
 def LocalContractAssumptions : Prop :=
-  ∀ instance_ ∈ generatedProgram.instances,
-    instanceLocalTraceObligation canonicalContractParams generatedProgram instance_
+  ∀ functionInstance ∈ generatedProgram.functionInstances,
+    functionInstanceLocalTraceObligation canonicalContractParams generatedProgram functionInstance
 
 /--
 **The assumption and the manifest are the same statement.** One direction says every manifest row's
-occurrence is covered by the assumption; the other says the assumption follows from discharging the
-manifest row by row. So the backlog cannot silently omit an occurrence the assumption needs, and the
+function instance is covered by the assumption; the other says the assumption follows from discharging the
+manifest row by row. So the backlog cannot silently omit a function instance the assumption needs, and the
 assumption cannot silently need one the backlog does not list.
 -/
 theorem localContractAssumptions_iff_manifest :
     LocalContractAssumptions ↔
       ∀ k, ∀ h : k < generatedManifest.size,
-        instanceLocalTraceObligation canonicalContractParams generatedProgram
-          (generatedProgram.instances[k]'(manifest_size ▸ h)) := by
+        functionInstanceLocalTraceObligation canonicalContractParams generatedProgram
+          (generatedProgram.functionInstances[k]'(manifest_size ▸ h)) := by
   constructor
   · intro hall k h
     exact hall _ (Array.mem_iff_getElem.mpr ⟨k, manifest_size ▸ h, rfl⟩)
-  · intro hrows instance_ hinst
+  · intro hrows functionInstance hinst
     obtain ⟨k, hk, hget⟩ := Array.mem_iff_getElem.mp hinst
     exact hget ▸ hrows k (manifest_size ▸ hk)
 

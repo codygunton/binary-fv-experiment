@@ -191,7 +191,7 @@ theorem executeChecked_eq_executeDecode {binary : RiscvSpec.ValidatedElf}
 
 The correspondence in the other direction: given a composed Sail trace from the built entry state to
 the sentinel, the *executable* runner follows it and answers with the classification of the state
-that trace ends in. This is the seam the local occurrence proofs feed into — they produce the trace,
+that trace ends in. This is the seam the local function instance proofs feed into — they produce the trace,
 and these lemmas carry it through the runner to the public answer.
 
 The budget premise is deliberately left in view. `runToOutcome_of_traceToSentinel` needs a strict
@@ -199,7 +199,7 @@ The budget premise is deliberately left in view. `runToOutcome_of_traceToSentine
 is never a free parameter that could be enlarged to make a proof go through. -/
 
 /-- The main loop follows any trace whose length the exported contract's step bound covers. The
-`count ≤ entryStepBound` premise is exactly what the occurrence contract gives; `count_lt_zesuFuel`
+`count ≤ entryStepBound` premise is exactly what the function instance contract gives; `count_lt_zesuFuel`
 turns it into the strict inequality the generic correspondence requires. -/
 theorem runToOutcome_of_entry_trace (input : ByteArray) {count : Nat} {entry final : State}
     (htrace : TraceToSentinel sentinelWord 0 count entry final)

@@ -23,7 +23,7 @@ the conclusion that the decoder cannot report `outOfMemory`:
 
 Everything here is about the pure `BumpHeap` model and plain arithmetic. Connecting it to a machine
 state (reading the cursor out of `ZKVM_HEAP_POS`) and to per-routine sums belongs above, where the
-canonical addresses live; the per-occurrence delta facts themselves are local obligations of the
+canonical addresses live; the per-function-instance delta facts themselves are local obligations of the
 row proofs, not assumptions made here.
 -/
 
@@ -104,7 +104,7 @@ inductive CursorChain : Nat → Nat → List Nat → Prop where
       CursorChain before finish (cost :: costs)
 
 /-- **The whole chain's advance is at most the sum of its steps' costs.** This is the composition
-theorem: it is what lets a per-occurrence delta obligation, discharged locally, add up to a
+theorem: it is what lets a per-function-instance delta obligation, discharged locally, add up to a
 whole-run bound without anyone having to reason about the trace globally. -/
 theorem CursorChain.total_le {start finish : Nat} {costs : List Nat}
     (chain : CursorChain start finish costs) :
@@ -152,7 +152,7 @@ never takes the branch that records status `4`. Stated about a `BumpHeap` whose 
 cursor and whose limit is the arena ceiling, which is what the machine holds.
 
 What remains for the row proofs is the chain itself — that a decode of an `inputSize`-byte input
-performs allocations whose costs sum within the bound. That is a local obligation per occurrence, not
+performs allocations whose costs sum within the bound. That is a local obligation per function instance, not
 an assumption here. -/
 theorem allocation_succeeds_of_chain_within_budget {inputSize arenaBase start finish bytes alignment : Nat}
     {costs : List Nat} {heap : BumpHeap}

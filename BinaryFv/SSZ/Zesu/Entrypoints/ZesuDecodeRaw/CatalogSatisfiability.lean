@@ -322,7 +322,7 @@ theorem satisfiable_allocatorCtor : satisfiableAllocatorCtor canonicalEnvironmen
 
 The dispatch is total over `RoutineTag`, so this is a case analysis with no default arm: adding a
 routine to the catalog without a witness is a compile error rather than a silent gap. Nothing here
-depends on the entry being live or on which occurrence carries it — satisfiability is a property of
+depends on the entry being live or on which function instance carries it — satisfiability is a property of
 the contract. -/
 theorem canonical_catalog_satisfiability :
     catalogSatisfiability canonicalContractParams := by
@@ -375,7 +375,7 @@ theorem canonical_catalog_satisfiability :
 a state carrying real code lives. This restates it without that premise.
 
 What remains: four oracle-agreement facts, the two recorded binary/oracle divergences, and the 141
-local occurrence proofs. Plus — not visible in this signature and not reduced by it — the two live-run
+local function instance proofs. Plus — not visible in this signature and not reduced by it — the two live-run
 scaffolds in `Execution.lean`, which the root theorem consumes alongside this obligation. -/
 theorem sszComplianceObligations_of_residue
     (entryAgrees : sourceShapedDecodeAgreesWithOracle)

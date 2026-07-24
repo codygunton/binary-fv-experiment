@@ -31,12 +31,12 @@ Row C adds checks against execution of the unchanged production ELF:
 Their headers identify the generating commands; edit the generators under
 [targets/ssz/zesu/tests](../../../../targets/ssz/zesu/tests/README.md), not these files.
 
-- [BinaryOccurrenceCheck.lean](BinaryOccurrenceCheck.lean) checks one optional decoder occurrence
+- [BinaryFunctionInstanceCheck.lean](BinaryFunctionInstanceCheck.lean) checks one optional decoder function instance
   and its three child readers as a small end-to-end example.
-- [ScaleOccurrenceCheck.lean](ScaleOccurrenceCheck.lean) checks reduced evidence for all 141 compiled
-  occurrences. Its outcomes distinguish passes, failures, and explicit gaps.
-- [BinaryOccurrenceTypes.lean](BinaryOccurrenceTypes.lean) and
-  [ScaleOccurrenceTypes.lean](ScaleOccurrenceTypes.lean) define the corresponding evidence formats.
+- [ScaleFunctionInstanceCheck.lean](ScaleFunctionInstanceCheck.lean) checks reduced evidence for all 141 compiled
+  function instances. Its outcomes distinguish passes, failures, and explicit gaps.
+- [BinaryFunctionInstanceTypes.lean](BinaryFunctionInstanceTypes.lean) and
+  [ScaleFunctionInstanceTypes.lean](ScaleFunctionInstanceTypes.lean) define the corresponding evidence formats.
 - [GeneratedBinaryEvidence.lean](GeneratedBinaryEvidence.lean) and
   [GeneratedScaleEvidence.lean](GeneratedScaleEvidence.lean) are deterministic outputs of the Row C
   trace reducers and must not be edited by hand.

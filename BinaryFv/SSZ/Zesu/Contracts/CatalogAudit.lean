@@ -13,7 +13,7 @@ The data checks over the immutable handwritten catalog use `native_decide`. That
 documented "small immutable-artifact checking" trust the repository already relies on for closed
 facts about fixed artifacts (`Lean.ofReduceBool`, `Lean.trustCompiler`), and none of these audit
 theorems is on `root_compliance`'s dependency spine, so its axiom set is unaffected. The two genuine
-obligations (per-instance dispatch and the root dependency) are ordinary kernel proofs with no such
+obligations (per-function-instance dispatch and the root dependency) are ordinary kernel proofs with no such
 trust. -/
 
 /-- Boolean: catalog identities are pairwise distinct. -/
@@ -63,16 +63,16 @@ theorem exclusions_disjoint_from_catalog : exclusionsDisjoint = true := by nativ
 /-- (4b) Every excluded routine is classified with a machine-checkable reason. -/
 theorem exclusions_all_classified : exclusionsAllClassified = true := by native_decide
 
-/-- (5) `sszProgramCorrectness` genuinely references the per-instance implementation predicate:
-program correctness entails that the occurrence at any cataloged identity implements its routine's
+/-- (5) `sszProgramCorrectness` genuinely references the per-function-instance implementation predicate:
+program correctness entails that the function instance at any cataloged identity implements its routine's
 `correctnessClaim`. Ordinary kernel proof, no artifact trust. -/
-theorem program_correctness_references_per_instance
+theorem program_correctness_references_per_function_instance
     {program : Program} {p : ContractParams}
     (correct : sszProgramCorrectness program p)
-    {instance_ : FunctionInstance} (mem : instance_ ∈ program.instances)
-    {entry : CatalogEntry} (found : catalogEntryFor instance_.id.function = some entry) :
-    routineObligation p instance_ (instanceReachedPcs program instance_) entry.tag :=
-  instance_implements_its_contract correct mem found
+    {functionInstance : FunctionInstance} (mem : functionInstance ∈ program.functionInstances)
+    {entry : CatalogEntry} (found : catalogEntryFor functionInstance.id.function = some entry) :
+    routineObligation p functionInstance (functionInstanceReachedPcs program functionInstance) entry.tag :=
+  function_instance_implements_its_contract correct mem found
 
 /-- (6) The runner/result theorems `root_compliance` is built from depend on
 `sszComplianceObligations program`: it entails program correctness for the concrete
@@ -97,118 +97,118 @@ variable (p : ContractParams) (i : FunctionInstance) (r : BitVec 64 → Prop)
 
 
 example : routineObligation p i r .zesuDecodeRaw
-    = correctnessClaimZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4 i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4 i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .decode
-    = correctnessClaimDecode p.env p.repRawV4 i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimDecode p.env p.repRawV4 i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .decodeRaw
-    = correctnessClaimDecodeRaw p.env p.repRawV4 i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimDecodeRaw p.env p.repRawV4 i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .newPayloadRequest
-    = correctnessClaimNewPayloadRequest p.env p.repNewPayloadRequest i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimNewPayloadRequest p.env p.repNewPayloadRequest i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .executionPayload
-    = correctnessClaimExecutionPayload p.env p.repExecutionPayload i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimExecutionPayload p.env p.repExecutionPayload i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .executionRequests
-    = correctnessClaimExecutionRequests p.env p.repExecutionRequests i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimExecutionRequests p.env p.repExecutionRequests i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .executionWitness
-    = correctnessClaimExecutionWitness p.env p.repExecutionWitness i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimExecutionWitness p.env p.repExecutionWitness i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .chainConfig
-    = correctnessClaimChainConfig p.env p.repChainConfig i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimChainConfig p.env p.repChainConfig i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .forkConfig
-    = correctnessClaimForkConfig p.env p.repForkConfig i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimForkConfig p.env p.repForkConfig i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .forkActivation
-    = correctnessClaimForkActivation p.env p.repForkActivation i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimForkActivation p.env p.repForkActivation i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .optionalU64
-    = correctnessClaimOptionalU64 p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimOptionalU64 p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .optionalBlobSchedule
-    = correctnessClaimOptionalBlobSchedule p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimOptionalBlobSchedule p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .versionedHashes
-    = correctnessClaimVersionedHashes p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimVersionedHashes p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .withdrawals
-    = correctnessClaimWithdrawals p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimWithdrawals p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .depositRequests
-    = correctnessClaimDepositRequests p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimDepositRequests p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .withdrawalRequests
-    = correctnessClaimWithdrawalRequests p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimWithdrawalRequests p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .consolidationRequests
-    = correctnessClaimConsolidationRequests p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimConsolidationRequests p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .publicKeys
-    = correctnessClaimPublicKeys p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimPublicKeys p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .byteListList
-    = correctnessClaimByteListList p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimByteListList p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .requireCanonicalOffsets
-    = correctnessClaimRequireCanonicalOffsets p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimRequireCanonicalOffsets p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .requireU32Length
-    = correctnessClaimRequireU32Length p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimRequireU32Length p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .readOffset
-    = correctnessClaimReadOffset p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimReadOffset p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .readU32
-    = correctnessClaimReadU32 p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimReadU32 p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .readU64
-    = correctnessClaimReadU64 p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimReadU64 p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .readU256
-    = correctnessClaimReadU256 p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimReadU256 p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .readArray
-    = correctnessClaimReadArray p.env (readArrayWidthOf i.id.function) i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimReadArray p.env (readArrayWidthOf i.id.function) i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .bytesAt
-    = correctnessClaimBytesAt p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimBytesAt p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .hasExactErePrefix
-    = correctnessClaimHasExactErePrefix p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimHasExactErePrefix p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .rawAlloc
-    = correctnessClaimAlloc p.env p.heap i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimAlloc p.env p.heap i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .memcpy
-    = correctnessClaimMemcpy p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimMemcpy p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .memmove
-    = correctnessClaimMemmove p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimMemmove p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .rawResult
-    = correctnessClaimRawResult p.env p.globals p.resultBuffer i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimRawResult p.env p.globals p.resultBuffer i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .rawError
-    = correctnessClaimRawError p.env p.globals i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimRawError p.env p.globals i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .allocatorAlloc
-    = correctnessClaimAllocatorAlloc p.env p.heap i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimAllocatorAlloc p.env p.heap i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .allocatorResize
-    = correctnessClaimAllocatorResize p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimAllocatorResize p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .allocatorRemap
-    = correctnessClaimAllocatorRemap p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimAllocatorRemap p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .allocatorFree
-    = correctnessClaimAllocatorFree p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimAllocatorFree p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 example : routineObligation p i r .allocatorCtor
-    = correctnessClaimAllocatorCtor p.env i r (instanceEntryWord i) (instanceExitPred i) := rfl
+    = correctnessClaimAllocatorCtor p.env i r (functionInstanceEntryWord i) (functionInstanceExitPred i) := rfl
 
 
 end ClaimAgreement

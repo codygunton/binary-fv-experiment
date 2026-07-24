@@ -7,7 +7,7 @@ decoder. Read the files in this order:
    and heap.
 2. [Preflight.lean](Preflight.lean) rejects a different ELF or an input outside the theorem's size
    bound.
-3. [Fuel.lean](Fuel.lean) derives the runner budget from the exported occurrence's contract bound.
+3. [Fuel.lean](Fuel.lean) derives the runner budget from the exported function instance's contract bound.
 4. [StateBuilder.lean](StateBuilder.lean) configures Sail, loads file-backed image bytes, initializes
    globals, copies the input, and writes the C ABI registers.
 5. [EntryBinding.lean](EntryBinding.lean) proves that the resulting state satisfies the exported

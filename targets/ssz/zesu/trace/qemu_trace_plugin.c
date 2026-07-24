@@ -11,11 +11,11 @@
  *
  * The stack pointer is read (via the plugin register API) at the moment of every store so that write
  * classification (stack vs heap vs input vs code vs …) is exact and self-contained: the scaled
- * per-occurrence checker needs no separate GDB register capture. Reads use `QEMU_PLUGIN_CB_R_REGS`.
+ * per-function-instance checker needs no separate GDB register capture. Reads use `QEMU_PLUGIN_CB_R_REGS`.
  *
- * Boundary PCs (`bpc=<file>`, one decimal PC per line — the occurrences' declared Row A entry and exit
+ * Boundary PCs (`bpc=<file>`, one decimal PC per line — the function instances' declared Row A entry and exit
  * PCs) additionally get a full `x1..x31` snapshot taken BEFORE the instruction at that PC executes, so
- * the checker can evaluate each occurrence's declared DWARF entry bindings (`reg` / `breg` / `fbreg` /
+ * the checker can evaluate each function instance's declared DWARF entry bindings (`reg` / `breg` / `fbreg` /
  * `bregValue` / `addr` / `const`) and its exit register state against the real machine. `bcap=<n>`
  * bounds the snapshots per PC (default 256) so a hot boundary cannot blow the trace up; the cap keeps
  * the FIRST n hits, which is deterministic.

@@ -77,7 +77,7 @@ theorem canonical_parses_as_artifact {binary : RiscvSpec.ValidatedElf}
 
 /-- A canonical ELF's parsed image is the canonical program image the contracts pin. So once the gate
 passes, `Artifact.programImage`-based framing (the runner layout's `loaded_disjoint_from_runner`, the
-occurrence regions) applies to the caller's binary without re-deriving anything. -/
+function instance regions) applies to the caller's binary without re-deriving anything. -/
 theorem canonical_image_is_programImage {binary : RiscvSpec.ValidatedElf}
     (h : artifactIsCanonical binary = true) :
     binary.elf.programImage = Artifact.programImage := by

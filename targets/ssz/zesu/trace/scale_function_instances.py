@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
-"""Reduce production-ELF traces into deterministic evidence for all generated occurrences.
+"""Reduce production-ELF traces into deterministic evidence for all generated function instances.
 
-Coverage is PER OCCURRENCE — an occurrence is validated only on evidence in which its OWN region
-executes, never inherited from another occurrence of the same source routine. Every check that cannot
-be evaluated for an occurrence is recorded as an EXPLICIT gap, never silently counted as a pass.
+Coverage is PER FUNCTION INSTANCE — a function instance is validated only on evidence in which its OWN region
+executes, never inherited from another function instance of the same source routine. Every check that cannot
+be evaluated for a function instance is recorded as an EXPLICIT gap, never silently counted as a pass.
 
 Evidence: the UNCHANGED production `zesu-ssz` ELF run under pinned `qemu-riscv64` with the diagnostic
 trace plugin (`qemu_trace_plugin.so`). The plugin is self-contained — each store carries the stack
 pointer — so write classification needs no separate GDB register capture, which is what makes a single
-full-run trace cover ~all occurrences at once. Nothing is rebuilt, relinked, patched, or instrumented.
+full-run trace cover ~all function instances at once. Nothing is rebuilt, relinked, patched, or instrumented.
 
-The generic per-occurrence checks (apply to all occurrences, trace-only):
-  entryReached          the first in-region PC executed is the declared entryPc (the occurrence is
+The generic per-function-instance checks (apply to all function instances, trace-only):
+  entryReached          the first in-region PC executed is the declared entryPc (the function instance is
                         entered at its binding entry); invocations are counted by entryPc executions
   controlFlowIntegrity  EXACT conformance to the generated CFG: every executed transfer whose SOURCE is
-                        a PC this occurrence OWNS appears verbatim in its declared `edges`. The generator
-                        attributes each PC's edges to the DEEPEST occurrence owning it
+                        a PC this function instance OWNS appears verbatim in its declared `edges`. The generator
+                        attributes each PC's edges to the DEEPEST function instance owning it
                         (`owned = regions - children's regions`), so an edge is declared exactly once
                         across an inline chain; the checker uses that same ownership. (An earlier version
                         of this checker compared against block-start membership instead, on the mistaken
                         inference that `edges` was non-exhaustive — it is not; that comparison had simply
                         ignored child-owned PCs. `cfg_audit.py` verifies the declared edges against the
                         control transfers decoded from the disassembly.)
-  exitsRespected        every executed transfer that LEAVES the occurrence's regions departs from a PC
+  exitsRespected        every executed transfer that LEAVES the function instance's regions departs from a PC
                         listed in the declared `exits`.
   withinStepBound       max per-invocation instruction count <= the routine's contract step bound
                         (const bounds + readArray's specialization width; input-dependent bounds = gap)
@@ -51,8 +51,8 @@ The generic per-occurrence checks (apply to all occurrences, trace-only):
                         argument was that value plus the row's constant.
   exitBindingRealized   the result register at a declared RETURN exit matches the routine's exit
                         convention. Tail-call exits are excluded: their register file holds the
-                        callee's arguments, not this occurrence's result.
-  allocationLedger      the occurrence's cursor events ARE the allocation sequence the fixture requires
+                        callee's arguments, not this function instance's result.
+  allocationLedger      the function instance's cursor events ARE the allocation sequence the fixture requires
                         — same count, same order, same size, same alignment, same returned block. The
                         observed side is reconstructed from ZKVM_HEAP_POS's own write history; the
                         expected side is derived from the pinned Zig decode order and the Row B element
@@ -60,7 +60,7 @@ The generic per-occurrence checks (apply to all occurrences, trace-only):
   meaningTie            for a fixed-width leaf reader: the little-endian integer of the EXACT window it
                         read IS the value it produced (stored, or held in a register when it left).
                         Anything weaker is an EXPLICIT gap, never a failure. The full per-value meaning
-                        against the handwritten spec is the kernel-checked vertical slice (occ 116).
+                        against the handwritten spec is the kernel-checked vertical slice (function instance 116).
 
 This is diagnostic-only evidence and is never imported by the theorem graph. `scale_negative_tests.py`
 corrupts copies of what this script captures and requires each corruption to flip the responsible
@@ -143,13 +143,13 @@ def parse_trace(path: Path):
 # routed to the exit check. See riscv_transfers.resolved_target.
 import riscv_transfers as rt  # noqa: E402
 from riscv_transfers import dynamic_transfer_pcs  # noqa: E402
-import occurrence_semantics as osem  # noqa: E402
+import function_instance_semantics as osem  # noqa: E402
 import allocation_shapes as al  # noqa: E402
 
 
-def step_bound_for(short: str, occ, catalog, arglb: dict):
-    """Resolve a CONCRETE numeric step bound for an occurrence, or None (an explicit gap) if the
-    contract argument is not observable from the occurrence's own trace.
+def step_bound_for(short: str, function_instance, catalog, arglb: dict):
+    """Resolve a CONCRETE numeric step bound for a function instance, or None (an explicit gap) if the
+    contract argument is not observable from the function instance's own trace.
 
     Input-dependent contract bounds have the shape `bound(arg) = C + K*(arg//D + E)`, monotonic
     non-decreasing in `arg`. Verifying `maxInsn <= bound(actualArg)` needs a value of `arg`, but a
@@ -157,11 +157,11 @@ def step_bound_for(short: str, occ, catalog, arglb: dict):
     `bound(argLB) <= bound(actualArg)`, so `maxInsn <= bound(argLB)` implies `maxInsn <= bound(actualArg)`.
     The sound lower bounds (in `arglb`):
       inputLen   the whole-input byte length (entry routines: their slice IS the whole input — exact);
-      inputBytes the count of distinct in-region input-buffer bytes the occurrence read (a decoder reads
+      inputBytes the count of distinct in-region input-buffer bytes the function instance read (a decoder reads
                  only within its own slice, so this is <= the slice length);
       copyLen    the in-region store count (memcpy/memmove store <= `length` bytes, one chunk per store).
     `unobservable` args (e.g. requireCanonicalOffsets' caller-passed offsets.length) stay explicit gaps.
-    readArray's `32 + 4*width` is fixed per-occurrence by its comptime element width (specialization)."""
+    readArray's `32 + 4*width` is fixed per-function-instance by its comptime element width (specialization)."""
     meta = catalog.get(short)
     if not meta:
         return None, "no catalog entry", None
@@ -169,7 +169,7 @@ def step_bound_for(short: str, occ, catalog, arglb: dict):
     if "const" in sb:
         return sb["const"], None, {"kind": "const"}
     if short == "readArray":
-        spec = occ.get("specialization") or []
+        spec = function_instance.get("specialization") or []
         if spec and str(spec[0]).isdigit():
             width = int(spec[0])
             return 32 + 4 * width, None, {"kind": "readArray", "width": width}
@@ -218,7 +218,7 @@ def resolve_rows(rows, regs, mem, at_index, sp):
       "unresolved"     the row names a location the machine could not supply. A FAILURE.
     There is no third, "nothing to check here" outcome: the generator refuses to emit a row without a
     machine meaning, because `generatedEntryBinding` quantifies over the rows and one meaningless row
-    would make the occurrence's whole entry predicate unsatisfiable.
+    would make the function instance's whole entry predicate unsatisfiable.
 
     A `derived` row additionally records the loop register it reads, so the derived relation
     `value = index * stride + constant` can be checked rather than only evaluated.
@@ -247,9 +247,9 @@ def span_of(addrs):
 
 
 def chain_is_infix(chain, path) -> bool:
-    """Whether an occurrence's routine chain occurs contiguously inside an expected event's call path.
+    """Whether a function instance's routine chain occurs contiguously inside an expected event's call path.
 
-    An inlined occurrence's chain is its inline stack (`decodeRaw > … > decodeWithdrawals`); an emitted
+    An inlined function instance's chain is its inline stack (`decodeRaw > … > decodeWithdrawals`); an emitted
     one's is just its own routine, which is why `decodeByteListList` claims the four events its four
     call sites cause. Contiguity is what stops an unrelated ancestor from claiming an event."""
     if not chain:
@@ -265,7 +265,7 @@ def ledger_agrees(observed, expected) -> bool:
     pinned bump allocator would put it for the expected size and alignment:
     `after = align_up(before, alignment) + size`. Where the allocator's returned pointer was captured it
     must be that same aligned base — the block the caller got is the block that was carved out. This
-    mirrors `ScaleOccurrenceCheck.ledgerAgrees` exactly."""
+    mirrors `ScaleFunctionInstanceCheck.ledgerAgrees` exactly."""
     if len(observed) != len(expected):
         return False
     for o, e in zip(observed, expected):
@@ -283,7 +283,7 @@ def arm_ledger_holds(led) -> bool:
     """One arm's WHOLE-RUN ledger. Beyond the per-event agreement the observed events must CHAIN — each
     starts where the last ended, which is what a bump allocator does and what a dropped or inserted event
     breaks — and both sequences must be numbered 0,1,2,… with no hole. Mirrors
-    `ScaleOccurrenceCheck.armLedgerHolds` exactly."""
+    `ScaleFunctionInstanceCheck.armLedgerHolds` exactly."""
     o, e = led["observed"], led["expected"]
     return (ledger_agrees(o, e)
             and all(o[i + 1]["before"] == o[i]["after"] for i in range(len(o) - 1))
@@ -294,14 +294,14 @@ def arm_ledger_holds(led) -> bool:
 def derived_row_holds(d) -> bool:
     """The loop-derived relation held at every captured entry: the register carried a multiple of the
     stride (it is `index * stride`) and the parameter is that value plus the row's constant. Mirrors
-    `BindingInventory.DerivedIndexRep` and `ScaleOccurrenceCheck.derivedRowHolds`."""
+    `BindingInventory.DerivedIndexRep` and `ScaleFunctionInstanceCheck.derivedRowHolds`."""
     if d["stride"] == 0 or not d["registerValues"] or len(d["registerValues"]) != len(d["values"]):
         return False
     return all(rv % d["stride"] == 0 and v == rv + d["constant"]
                for rv, v in zip(d["registerValues"], d["values"]))
 
 
-def evaluate_entry_consequences(short, occ_index, values, ctx, inv, catalog_meta):
+def evaluate_entry_consequences(short, function_instance_index, values, ctx, inv, catalog_meta):
     """The routine-family consequence of the resolved entry bindings (layer 2 in the module docstring).
 
     Returns (verdict, detail) where verdict is True (realized), False (contradicted) or None (no
@@ -378,12 +378,12 @@ def evaluate_entry_consequences(short, occ_index, values, ctx, inv, catalog_meta
         off = values.get("offset")
         want_len = values.get("len")
         if "offset" not in values:
-            return None, "the binding table declares no `offset` row for this occurrence"
+            return None, "the binding table declares no `offset` row for this function instance"
         if off is None:
             return False, "declared `offset` row did not resolve against the machine state"
         first = inv.get("firstReadAddr")
         if first is None:
-            return None, (f"offset={off}: the occurrence performed no data load in this invocation "
+            return None, (f"offset={off}: the function instance performed no data load in this invocation "
                           "(a sub-slice former reads nothing of its own)")
         base = first - off
         inv["impliedSliceBase"] = base
@@ -416,14 +416,14 @@ def evaluate_entry_consequences(short, occ_index, values, ctx, inv, catalog_meta
     return None, f"unknown binding family {fam}"
 
 
-def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
+def reduce_function_instance(function_instance, short, catalog, executed, loads, stores, input_len=0,
                       children_pcs=frozenset(), dynamic_pcs=frozenset(), ctx=None):
-    """Extract the COMPACT, deterministic per-occurrence facts the checker consumes — observed facts
+    """Extract the COMPACT, deterministic per-function-instance facts the checker consumes — observed facts
     only; the expected binding/bound/layout live in the checker. This is the reduction that BOTH the
     Python oracle (`evaluate_facts`) and the generated Lean checker evaluate identically."""
-    ranges = [(r["start"], r["start"] + r["size"]) for r in occ["regions"]]
-    entry_pc = occ["entryPc"]
-    block_starts = sorted({b["start"] for b in occ["blocks"]})
+    ranges = [(r["start"], r["start"] + r["size"]) for r in function_instance["regions"]]
+    entry_pc = function_instance["entryPc"]
+    block_starts = sorted({b["start"] for b in function_instance["blocks"]})
     bs_set = set(block_starts)
 
     def in_region(pc):
@@ -432,8 +432,8 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
     in_region_idx = [i for i, pc in enumerate(executed) if in_region(pc)]
     meta = catalog.get(short, {})
     f: dict[str, object] = {
-        "index": occ.get("index"),
-        "qualified": occ["qualified"], "routine": short,
+        "index": function_instance.get("index"),
+        "qualified": function_instance["qualified"], "routine": short,
         "entryPc": entry_pc, "covered": len(in_region_idx) > 0,
         "allocates": meta.get("allocates", False),
         "meaningTieKind": meta.get("meaningTie", "structural"),
@@ -452,17 +452,17 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
     f["maxInsnPerInvocation"] = max(per_inv)
 
     # EXACT control-flow validation against the generated CFG.
-    # The generator attributes each PC's edges to the DEEPEST occurrence owning it
+    # The generator attributes each PC's edges to the DEEPEST function instance owning it
     # (`owned = regions - children's regions`), so every executed transfer FROM an owned PC must appear
-    # verbatim in this occurrence's declared `edges` — not merely land on a block start. Every executed
-    # transfer that LEAVES the occurrence's regions must have its source in the declared `exits`.
+    # verbatim in this function instance's declared `edges` — not merely land on a block start. Every executed
+    # transfer that LEAVES the function instance's regions must have its source in the declared `exits`.
     owned = set()
     for a, b in ranges:
         owned |= set(range(a, b, 2))
     owned -= children_pcs
-    declared_edges = sorted([e["source"], e["target"]] for e in occ["edges"])
-    declared_set = {(e["source"], e["target"]) for e in occ["edges"]}
-    exits = sorted(occ.get("exits") or [])
+    declared_edges = sorted([e["source"], e["target"]] for e in function_instance["edges"])
+    declared_set = {(e["source"], e["target"]) for e in function_instance["edges"]}
+    exits = sorted(function_instance.get("exits") or [])
     exec_owned, leaving_src, dyn_src = set(), set(), set()
     for i in range(len(executed) - 1):
         s, t = executed[i], executed[i + 1]
@@ -519,12 +519,12 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
     f["storeHasInputPtr"] = any(INPUT[0] <= v < INPUT[1] for v in store_vals)
     f["scalarCarried"] = any(v in store_vals for v in in_load_vals)
 
-    # RIGOROUS meaning for the fixed-width little-endian leaf readers: the value the occurrence
+    # RIGOROUS meaning for the fixed-width little-endian leaf readers: the value the function instance
     # produced must be the little-endian integer of the EXACT window it read. This replaces the earlier
     # "some loaded value was also stored" heuristic, which a coincidence could satisfy.
     width = meta.get("meaningWidth")
     if short == "readArray":
-        spec = occ.get("specialization") or []
+        spec = function_instance.get("specialization") or []
         width = int(spec[0]) if spec and str(spec[0]).isdigit() else None
     f["meaningWidth"] = width
     f["meaningLE"] = None
@@ -539,13 +539,13 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
             f["meaningLEDetail"] = {"base": base, "width": width, "bytesRead": got,
                                     "reason": "read window is not exactly the declared width"}
         else:
-            # "Produced" means the value left the occurrence: written to memory, or held in a register
-            # when the occurrence returns. An INLINED leaf reader normally hands its result to the
+            # "Produced" means the value left the function instance: written to memory, or held in a register
+            # when the function instance returns. An INLINED leaf reader normally hands its result to the
             # enclosing frame in a register, so a store-only test would report a gap for most of them.
             in_store = val in store_vals
             in_regs = False
             if ctx is not None:
-                for pc in (occ.get("exits") or []):
+                for pc in (function_instance.get("exits") or []):
                     for (_i, _pc, regs) in ctx["regsByPc"].get(pc, []):
                         if val in regs[1:]:
                             in_regs = True
@@ -563,40 +563,40 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
         "inputBytes": len({addr for (addr, _) in in_input_loads}),
         "copyLen": f["storeCount"],
     }
-    bound, reason, deriv = step_bound_for(short, occ, catalog, arglb)
+    bound, reason, deriv = step_bound_for(short, function_instance, catalog, arglb)
     f["stepBound"] = bound
     f["stepBoundGap"] = None if bound is not None else reason
     f["stepBoundDeriv"] = deriv
 
     # ---- Row A ENTRY/EXIT BINDINGS, allocation LEDGER and routine MEANING --------------------------
-    # The declared bindings are the thing Row A actually says about an occurrence; up to here nothing
+    # The declared bindings are the thing Row A actually says about a function instance; up to here nothing
     # evaluated them against the machine. `ctx` carries the boundary register snapshots, the shadow
     # memory (ELF image + replayed stores) and the effective binding table.
     f["armDecision"] = (ctx or {}).get("armDecision", 0)
     if ctx is not None:
         extents = dynamic_extents(entry_idxs or [in_region_idx[0]], executed, in_region,
                                   ctx["callPcs"], ctx["retPcs"], ctx["functionEntries"])
-        _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, in_region,
+        _reduce_bindings(f, function_instance, short, meta, ctx, executed, loads, stores, ranges, in_region,
                          entry_idxs)
-        _reduce_ledger(f, meta, ctx, extents, ctx["occChain"][f["index"]])
+        _reduce_ledger(f, meta, ctx, extents, ctx["functionInstanceChain"][f["index"]])
     return f
 
 
 def dynamic_extents(entry_idxs, executed, in_region, call_pcs, ret_pcs, function_entries):
     """The [start, end) trace window of each invocation — its DYNAMIC EXTENT.
 
-    An occurrence's effects include what its callees do: an allocation is performed by the allocator,
-    not by the collection that requested it. So the extent covers every step from the occurrence's entry
+    A function instance's effects include what its callees do: an allocation is performed by the allocator,
+    not by the collection that requested it. So the extent covers every step from the function instance's entry
     up to and including its last own instruction, plus every step spent inside a routine it called (or
     tail-called) and has not yet returned from.
 
-    A shadow call depth, incremented only for transfers OUT OF this occurrence, is what separates
-    "inside my callee" from "after me": once the depth is back to zero and the occurrence's own regions
+    A shadow call depth, incremented only for transfers OUT OF this function instance, is what separates
+    "inside my callee" from "after me": once the depth is back to zero and the function instance's own regions
     stop executing, its extent is over. The depth also has to follow a TAIL transfer — the allocator
     vtable slot `jr`s straight into `zesu_raw_alloc`, so a plain call/return count would end the wrapper's
     extent one instruction before the allocation it exists to perform.
 
-    Region membership alone is not enough either: an INLINED occurrence's fragments are interleaved with
+    Region membership alone is not enough either: an INLINED function instance's fragments are interleaved with
     its parent's code, so control leaves and re-enters its regions many times within one invocation.
     Only the LAST own instruction ends it."""
     n = len(executed)
@@ -621,7 +621,7 @@ def dynamic_extents(entry_idxs, executed, in_region, call_pcs, ret_pcs, function
 
 
 def _reduce_ledger(f, meta, ctx, extents, chain):
-    """The occurrence's own slice of the allocation ledger, paired with the INDEPENDENTLY EXPECTED
+    """The function instance's own slice of the allocation ledger, paired with the INDEPENDENTLY EXPECTED
     allocation sequence for the exact fixture this arm ran.
 
     The observed side is reconstructed from the allocator cursor's store history — the allocation ACT
@@ -631,7 +631,7 @@ def _reduce_ledger(f, meta, ctx, extents, chain):
     makes the check discriminating: "the cursor moved forward inside the heap" cannot tell an extra
     allocation, a wrong size, a wrong alignment or a reordering from the real sequence.
 
-    A non-allocating occurrence must cause NO event; `allocationConsistent` already states that, so
+    A non-allocating function instance must cause NO event; `allocationConsistent` already states that, so
     here it is an explicit gap rather than a second copy of the same claim."""
     observed = [e for e in ctx["ledger"]
                 if e["size"] is not None and any(lo <= e["index"] < hi for lo, hi in extents)]
@@ -649,27 +649,27 @@ def _reduce_ledger(f, meta, ctx, extents, chain):
     # A returned pointer the trace did not capture is a narrow per-FIELD gap: the rest of the event is
     # still compared. None occur on the current arms (`returned_blocks_all_observed`).
     f["ledgerReturnedUnknown"] = sum(1 for e in observed if e.get("returned") is None)
-    # An occurrence expected to allocate nothing that allocated nothing PASSES — that is a checkable
+    # A function instance expected to allocate nothing that allocated nothing PASSES — that is a checkable
     # outcome, not an absent obligation.
     f["allocationLedger"] = ledger_agrees(f["ledgerObserved"], f["ledgerExpected"])
 
 
-def _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, in_region, entry_idxs):
+def _reduce_bindings(f, function_instance, short, meta, ctx, executed, loads, stores, ranges, in_region, entry_idxs):
     """Evaluate the effective Row A bindings, the allocation ledger event and the little-endian meaning
-    for EACH captured invocation of this occurrence, then reduce to per-occurrence evidence."""
+    for EACH captured invocation of this function instance, then reduce to per-function-instance evidence."""
     rows = ctx["bindings"].get(f["index"], [])
     entry_snaps = ctx["regsByPc"].get(f["entryPc"], [])
     exit_pairs = []            # (entry `dst` argument, value returned by that same invocation)
-    exits = set(occ.get("exits") or [])
+    exits = set(function_instance.get("exits") or [])
     f["bindingRowCount"] = len(rows)
     f["entrySnapshots"] = len(entry_snaps)
 
     if not rows:
-        # A paramless occurrence declares no entry placement; there is nothing to evaluate, and saying
+        # A paramless function instance declares no entry placement; there is nothing to evaluate, and saying
         # "pass" would be counting an absent obligation as a discharged one.
         f["bindingsEvaluable"] = None
         f["bindingsRealized"] = None
-        f["bindingGap"] = "occurrence declares no parameter bindings (paramless)"
+        f["bindingGap"] = "function instance declares no parameter bindings (paramless)"
     elif not entry_snaps:
         f["bindingsEvaluable"] = None
         f["bindingsRealized"] = None
@@ -732,7 +732,7 @@ def _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, 
     # ---- exit binding: the result register at a declared exit pc --------------------------------
     conv = meta.get("exitConvention")
     f["exitConvention"] = conv or ""
-    # A declared exit is not necessarily a RETURN: several occurrences leave through a tail call, where
+    # A declared exit is not necessarily a RETURN: several function instances leave through a tail call, where
     # the register file holds the callee's arguments, not this routine's result. Applying a result
     # convention there compares the wrong thing, so only `ret` exits are used.
     ret_exits = sorted(exits & ctx["retPcs"])
@@ -745,7 +745,7 @@ def _reduce_bindings(f, occ, short, meta, ctx, executed, loads, stores, ranges, 
         f["exitGap"] = "no exit convention declared for this routine"
     elif not ret_exits:
         f["exitBindingRealized"] = None
-        f["exitGap"] = "occurrence has no `ret` exit (it leaves through a tail call)"
+        f["exitGap"] = "function instance has no `ret` exit (it leaves through a tail call)"
     elif not exit_snaps:
         f["exitBindingRealized"] = None
         f["exitGap"] = "no register snapshot at a declared return exit in this arm"
@@ -840,7 +840,7 @@ def _check_exit(conv, exit_snaps, f, ctx, per_inv):
     return None, f"unknown exit convention {conv}"
 
 def classes_of(f):
-    """The distinct write classes for an occurrence — recomputed from the carried non-stack addresses
+    """The distinct write classes for a function instance — recomputed from the carried non-stack addresses
     (classified with sp=0; they are never stack) plus the summarized `stack` flag, or the summarized set
     for raw mem primitives. Mirrors the Lean checker exactly and equals the reducer's `storeClasses`."""
     if f.get("storesSummarized"):
@@ -852,20 +852,20 @@ def classes_of(f):
 
 
 def evaluate_facts(f):
-    """The reference oracle: evaluate the generic per-occurrence checks from the compact facts. Returns
+    """The reference oracle: evaluate the generic per-function-instance checks from the compact facts. Returns
     a dict mapping each check to True / False / None (None = explicit gap). The Lean checker computes the
     same booleans on the same facts."""
     checks: dict[str, object] = {}
     gaps: dict[str, str] = {}
     if not f.get("covered"):
         for name in CHECK_NAMES:
-            checks[name], gaps[name] = None, "occurrence region not executed by any arm"
+            checks[name], gaps[name] = None, "function instance region not executed by any arm"
         return checks, gaps
 
     checks["entryReached"] = f["firstInRegion"] == f["entryPc"]
     # EXACT generated-CFG conformance: every executed transfer from an owned PC is a declared edge.
     checks["controlFlowIntegrity"] = len(f["undeclaredExecutedEdges"]) == 0
-    # every executed transfer leaving the occurrence's regions departs at a declared exit PC.
+    # every executed transfer leaving the function instance's regions departs at a declared exit PC.
     checks["exitsRespected"] = (len(f["leavingSourcesNotInExits"]) == 0
                                 and len(f["dynamicSourcesNotInExits"]) == 0)
 
@@ -893,19 +893,19 @@ def evaluate_facts(f):
     drows = f.get("derivedRows") or []
     if not drows:
         checks["derivedBindingsHold"] = None
-        gaps["derivedBindingsHold"] = "occurrence declares no loop-derived binding row"
+        gaps["derivedBindingsHold"] = "function instance declares no loop-derived binding row"
     else:
         checks["derivedBindingsHold"] = all(derived_row_holds(d) for d in drows)
     checks["exitBindingRealized"] = f.get("exitBindingRealized")
     if checks["exitBindingRealized"] is None:
         gaps["exitBindingRealized"] = f.get("exitGap", "no exit convention")
-    # ALLOCATION LEDGER: the occurrence's cursor events ARE the independently expected sequence.
+    # ALLOCATION LEDGER: the function instance's cursor events ARE the independently expected sequence.
     checks["allocationLedger"] = f.get("allocationLedger")
     if checks["allocationLedger"] is None:
-        gaps["allocationLedger"] = f.get("ledgerGap", "occurrence causes no allocation event")
+        gaps["allocationLedger"] = f.get("ledgerGap", "function instance causes no allocation event")
 
     # MEANING. `meaningLE` is the rigorous statement (the little-endian integer of the exact window the
-    # occurrence read IS the value it produced); the older value tie remains only as a fallback for the
+    # function instance read IS the value it produced); the older value tie remains only as a fallback for the
     # slice readers, and anything weaker is an explicit gap.
     tie = f["meaningTieKind"]
     if f.get("meaningLE") is True:
@@ -917,7 +917,7 @@ def evaluate_facts(f):
     else:
         checks["meaningTie"] = None
         gaps["meaningTie"] = (f"{tie}: no clean input-to-result value tie in this region "
-                              "(deep meaning is validated for occurrence 116 in the Lean checker)")
+                              "(deep meaning is validated for function instance 116 in the Lean checker)")
     return checks, gaps
 
 
@@ -994,8 +994,8 @@ def _str(s):
     return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def occ_to_lean(rec) -> str:
-    """One `(OccScaleEvidence × ScaleChecks)` tuple literal, deterministic."""
+def function_instance_to_lean(rec) -> str:
+    """One `(FunctionInstanceScaleEvidence × ScaleChecks)` tuple literal, deterministic."""
     f, c = rec["facts"], rec["checks"]
     ev = (
         f"{{ index := {rec['index']}, qualified := {_str(f['qualified'])}, "
@@ -1059,11 +1059,11 @@ def occ_to_lean(rec) -> str:
     return f"  (\n    {ev},\n    {ck})"
 
 
-# Occurrences no input exercises. Their static unreachability is established by
+# Function instances that no input exercises. Their static unreachability is established by
 # `static_reachability.py` (a backward reaching-definitions fixpoint over the reconstructed CFG plus a
 # danger-set closure over the loaded image), and its residual hypotheses are stated in
 # `STATIC_REACHABILITY.md`. These strings summarize that analysis; they do not stand on their own, and
-# Row C's conclusions exclude these occurrences either way — every check for them is an explicit gap.
+# Row C's conclusions exclude these function instances either way — every check for them is an explicit gap.
 DOCUMENTED_UNCOVERED = {
     "allocatorRemap": "std.mem.Allocator remap slot (vtable+16). STATIC: no instruction targets its "
                       "entry directly; for an indirect transfer to carry it, some register would have "
@@ -1080,7 +1080,7 @@ DOCUMENTED_UNCOVERED = {
 
 
 def emit_report(records, summary) -> str:
-    """A compact, deterministic per-occurrence coverage report (markdown). Gaps are shown explicitly."""
+    """A compact, deterministic per-function-instance coverage report (markdown). Gaps are shown explicitly."""
     sym = {True: "P", False: "F", None: "-"}
     short = {"entryReached": "entry", "controlFlowIntegrity": "cfg", "exitsRespected": "exit",
              "withinStepBound": "step",
@@ -1088,11 +1088,11 @@ def emit_report(records, summary) -> str:
              "writesClassified": "wr", "bindingsEvaluable": "bind", "bindingsRealized": "breal",
              "derivedBindingsHold": "deriv", "exitBindingRealized": "xbind",
              "allocationLedger": "ledg", "meaningTie": "mean"}
-    L = ["# Row C — scaled per-occurrence production-ELF coverage (GENERATED)",
+    L = ["# Row C — scaled per-function-instance production-ELF coverage (GENERATED)",
          "",
-         "Regenerated by `targets/ssz/zesu/trace/scale_occurrences.py` from the UNCHANGED production",
+         "Regenerated by `targets/ssz/zesu/trace/scale_function_instances.py` from the UNCHANGED production",
          "`zesu-ssz` ELF under pinned `qemu-riscv64`. Diagnostic-only; never imported by the proof.",
-         "Coverage is PER OCCURRENCE (never inherited from a sibling of the same routine). `P`=pass,",
+         "Coverage is PER FUNCTION INSTANCE (never inherited from a sibling of the same routine). `P`=pass,",
          "`F`=fail, `-`=explicit gap (never counted as a pass).",
          "",
          "**Step bounds**: input-dependent contract bounds `C + K*(arg//D + E)` are resolved to a concrete",
@@ -1100,37 +1100,37 @@ def emit_report(records, summary) -> str:
          "in-region input bytes read — <= the slice length — for containers/collections; in-region store",
          "count — <= bytes copied — for memcpy/memmove). Since the bound is monotonic, `maxInsn <=`",
          "`bound(argLB)` implies `maxInsn <= bound(actualArg)`. `requireCanonicalOffsets` is the one",
-         "unresolved bound (its `offsets.length` is a caller-passed argument, not in the occurrence's",
+         "unresolved bound (its `offsets.length` is a caller-passed argument, not in the function instance's",
          "input reads) — an explicit gap, with the required interface change recorded in",
          "`routine_catalog.json` under that routine's `stepBoundForm.interfaceNote`.",
          "",
          "**Row A bindings** are evaluated against the real machine: every effective binding row is",
-         "resolved from the register file captured at the occurrence's declared entry PC (and, for",
+         "resolved from the register file captured at the function instance's declared entry PC (and, for",
          "`breg`/`fbreg` rows, from the ELF image overlaid with the stores preceding that point).",
          "`bind` = every declared location resolved; `breal` = the resolved values had their declared",
          "consequence in the trace (routine-family specific); `deriv` = a loop-`derived` row's relation",
          "`index * stride + constant` held at EVERY captured entry (the loop register carried a multiple",
          "of the stride and the argument was that value plus the row's constant); `xbind` = the result",
          "register at a declared RETURN exit matches the routine's convention. `ledg` compares the",
-         "occurrence's slice of the bump cursor's own write history against the allocation sequence",
+         "function instance's slice of the bump cursor's own write history against the allocation sequence",
          "derived independently of the binary (see the ledger section below).",
          "",
-         "**Uncovered occurrences** are STATICALLY analysed by `static_reachability.py` — a backward",
+         "**Uncovered function instances** are STATICALLY analysed by `static_reachability.py` — a backward",
          "reaching-definitions fixpoint over the reconstructed CFG plus a danger-set closure over the",
          "loaded image — with its residual hypotheses stated in `STATIC_REACHABILITY.md`. Row C's",
          "conclusions exclude them and the one unresolved step bound either way.",
          "",
          "**Meaning checks are deliberately PARTIAL in Row C, and are reported as such.** `meaningTie`",
-         "states only that the little-endian integer of the exact window an occurrence read IS the value",
-         "it produced — a scalar/slice tie. It does NOT run the occurrence's `RoutineSpec.meaning` and",
+         "states only that the little-endian integer of the exact window a function instance read IS the value",
+         "it produced — a scalar/slice tie. It does NOT run the function instance's `RoutineSpec.meaning` and",
          "compare a structured result, so every structural routine is an explicit gap (`mean: structural`)",
-         "rather than a pass, as is the one occurrence whose comptime limits are not readable from the",
+         "rather than a pass, as is the one function instance whose comptime limits are not readable from the",
          "pinned source. Broad source-level semantic validation is Row B's job (it runs the handwritten",
          "Lean `meaning` for all 43 routine identities against the real Zig decoder); the deep",
-         "machine-level meaning check here is the kernel-checked vertical slice for occurrence 116. Row C",
-         "claims nothing more than the per-occurrence numbers in the table below.",
+         "machine-level meaning check here is the kernel-checked vertical slice for function instance 116. Row C",
+         "claims nothing more than the per-function-instance numbers in the table below.",
          "",
-         f"**{summary['covered']}/{summary['occurrences']} occurrences covered** by the present /",
+         f"**{summary['covered']}/{summary['function_instances']} function instances covered** by the present /",
          "malformed / absent arms. Per-check totals:",
          "",
          "| check | pass | fail | gap |", "|---|---:|---:|---:|"]
@@ -1139,18 +1139,18 @@ def emit_report(records, summary) -> str:
         L.append(f"| {n} | {d['pass']} | {d['fail']} | {d['gap']} |")
     census = summary.get("missingParameterRows", {}).get("rows", [])
     L += ["", "## Parameter-row census", "",
-          "Every occurrence must carry a row for every parameter its ROUTINE declares — otherwise a",
-          "silently dropped binding is indistinguishable from a paramless routine, and the occurrence's",
+          "Every function instance must carry a row for every parameter its ROUTINE declares — otherwise a",
+          "silently dropped binding is indistinguishable from a paramless routine, and the function instance's",
           "entry predicate quietly says less than the source does. The extractor takes each signature",
-          "from the occurrence's DWARF abstract-origin DIE, so this census (occurrences declaring fewer",
-          "parameters than a sibling occurrence of the same routine) is expected to be empty.", ""]
+          "from the function instance's DWARF abstract-origin DIE, so this census (function instances declaring fewer",
+          "parameters than a sibling function instance of the same routine) is expected to be empty.", ""]
     if census:
         for c in census:
-            L.append(f"- occ {c['index']} `{c['routine']}` — declares {c['declared']}, "
+            L.append(f"- function instance {c['index']} `{c['routine']}` — declares {c['declared']}, "
                      f"missing {c['missing']}")
         L.append("")
     else:
-        L += ["No occurrence is missing a parameter row.", ""]
+        L += ["No function instance is missing a parameter row.", ""]
     ledgers = summary.get("armLedgers", {})
     if ledgers:
         L += ["", "## Allocation ledger — observed cursor history vs the independently expected sequence",
@@ -1178,10 +1178,10 @@ def emit_report(records, summary) -> str:
             L.append("")
     uncovered = [r for r in records if not r["facts"].get("covered")]
     if uncovered:
-        L += ["", "## Uncovered occurrences (documented gaps, not passes)", ""]
+        L += ["", "## Uncovered function instances (documented gaps, not passes)", ""]
         for r in uncovered:
             reason = DOCUMENTED_UNCOVERED.get(r["routine"], "not exercised by any tested arm")
-            L.append(f"- occ {r['index']} `{r['qualified']}` — {reason}")
+            L.append(f"- function instance {r['index']} `{r['qualified']}` — {reason}")
     L += ["",
           "Header abbreviations: " + ", ".join(f"{short[n]}={n}" for n in CHECK_NAMES) + ".",
           "",
@@ -1203,10 +1203,10 @@ def arm_ledger_to_lean(name, d) -> str:
 
 def emit_lean(records, arm_ledgers) -> str:
     head = [
-        "-- GENERATED — do not edit. Regenerated by targets/ssz/zesu/trace/scale_occurrences.py from the",
+        "-- GENERATED — do not edit. Regenerated by targets/ssz/zesu/trace/scale_function_instances.py from the",
         "-- UNCHANGED production zesu-ssz ELF under pinned qemu-riscv64. Diagnostic-only evidence;",
         "-- the validation-import guard forbids the theorem graph from importing this.",
-        "import BinaryFv.SSZ.Zesu.Validation.ScaleOccurrenceTypes",
+        "import BinaryFv.SSZ.Zesu.Validation.ScaleFunctionInstanceTypes",
         "",
         "-- Large generated list literals: raise the elaborator's recursion limit.",
         "set_option maxRecDepth 100000",
@@ -1223,11 +1223,11 @@ def emit_lean(records, arm_ledgers) -> str:
                 + "]")
     head += [
         "",
-        "/-- Compact per-occurrence production-ELF evidence paired with the Python oracle's check result,",
-        "for every occurrence in program.json. Coverage is per occurrence; `none` checks are explicit gaps. -/",
-        "def allOccs : List (OccScaleEvidence × ScaleChecks) :=",
+        "/-- Compact per-function-instance production-ELF evidence paired with the Python oracle's check result,",
+        "for every function instance in program.json. Coverage is per function instance; `none` checks are explicit gaps. -/",
+        "def allFunctionInstances : List (FunctionInstanceScaleEvidence × ScaleChecks) :=",
     ]
-    body = "[\n" + ",\n".join(occ_to_lean(r) for r in records) + "]"
+    body = "[\n" + ",\n".join(function_instance_to_lean(r) for r in records) + "]"
     tail = ["", "end BinaryFv.SSZ.Zesu.Validation.GeneratedScaleEvidence", ""]
     return "\n".join(head) + "\n" + body + "\n" + "\n".join(tail)
 
@@ -1248,7 +1248,7 @@ def main() -> int:
                     help="the Row B probe's --dump-abi: @sizeOf/@alignOf of each allocated element")
     ap.add_argument("--catalog", default=str(HERE / "routine_catalog.json"))
     ap.add_argument("--scratch", required=True)
-    # each arm: name=path/to/input.bin ; occurrences are assigned to the first arm (in order) that covers them
+    # each arm: name=path/to/input.bin ; function instances are assigned to the first arm (in order) that covers them
     ap.add_argument("--arm", action="append", required=True, metavar="NAME=INPUT")
     ap.add_argument("--out-json", required=True)
     ap.add_argument("--out-lean")
@@ -1256,7 +1256,7 @@ def main() -> int:
     args = ap.parse_args()
 
     program = json.loads(Path(args.program).read_text())
-    occ = program["occurrences"]
+    function_instances = program["function_instances"]
     catalog = json.loads(Path(args.catalog).read_text())
     scratch = Path(args.scratch)
     scratch.mkdir(parents=True, exist_ok=True)
@@ -1267,25 +1267,35 @@ def main() -> int:
     btables = json.loads(Path(args.bindings).read_text())
     # A `derived` row's stride lives in the generator's audit table; attach it so the row carries its
     # whole relation (`register`, `stride`, `constant`) where it is evaluated.
-    strides = {(d["occurrence"], d["name"]): d["stride"] for d in btables.get("derived", [])}
-    bindings_by_occ = {}
+    strides = {(d["function_instance"], d["name"]): d["stride"] for d in btables.get("derived", [])}
+    bindings_by_function_instance = {}
     for r in btables["effective"]:
         if r["kind"] == "derived":
-            r = {**r, "stride": strides[(r["occurrence"], r["name"])]}
-        bindings_by_occ.setdefault(r["occurrence"], []).append(r)
+            r = {**r, "stride": strides[(r["function_instance"], r["name"])]}
+        bindings_by_function_instance.setdefault(r["function_instance"], []).append(r)
 
-    # The routine chain of each occurrence (short names, outermost first): its inline stack plus its own
-    # routine. This is how an independently expected allocation event is attributed to the occurrences
-    # that own it — an emitted occurrence's chain is just its own routine, so `decodeByteListList`
+    # The routine chain of each function instance (short names, outermost first): its inline stack plus its own
+    # routine. This is how an independently expected allocation event is attributed to the function instances
+    # that own it — an emitted function instance's chain is just its own routine, so `decodeByteListList`
     # claims the events of all four of its call sites.
-    occ_chain = [[s["callerQualified"].split(".")[-1] for s in o["inlineStack"]]
-                 + [o["qualified"].split(".")[-1]] for o in occ]
+    function_instance_chain = [
+        [s["callerQualified"].split(".")[-1] for s in function_instance["inlineStack"]]
+        + [function_instance["qualified"].split(".")[-1]]
+        for function_instance in function_instances
+    ]
 
     # The allocation sequence each fixture REQUIRES, derived with no reference to the binary.
     consts, abi = al.load_inputs(args.source, args.abi)
 
     # The boundary PCs at which the plugin snapshots registers: every declared entry and exit.
-    bpcs = sorted({o["entryPc"] for o in occ} | {e for o in occ for e in (o.get("exits") or [])})
+    bpcs = sorted(
+        {function_instance["entryPc"] for function_instance in function_instances}
+        | {
+            exit_pc
+            for function_instance in function_instances
+            for exit_pc in (function_instance.get("exits") or [])
+        }
+    )
     bpc_file = scratch / "boundary_pcs.txt"
     bpc_file.write_text("\n".join(str(x) for x in bpcs) + "\n")
 
@@ -1308,13 +1318,17 @@ def main() -> int:
     # The allocator leaf's return sites: `a0` there is the block the allocator actually handed back, so
     # each cursor event can be paired with the pointer its caller received. Without that, an allocation
     # that bumped the cursor correctly but returned a different block would be invisible.
-    alloc_leaf = next(i for i, o in enumerate(occ)
-                      if o["qualified"] == "raw_allocator.zesu_raw_alloc")
-    alloc_ret_pcs = sorted(set(occ[alloc_leaf].get("exits") or []) & ret_pcs)
+    alloc_leaf = next(
+        i
+        for i, function_instance in enumerate(function_instances)
+        if function_instance["qualified"] == "raw_allocator.zesu_raw_alloc"
+    )
+    alloc_ret_pcs = sorted(set(function_instances[alloc_leaf].get("exits") or []) & ret_pcs)
 
-    # Every routine a transfer can land on as a call or TAIL-call target: the emitted occurrences and
+    # Every routine a transfer can land on as a call or TAIL-call target: the emitted function instances and
     # the reachable-but-excluded glue the generator catalogs beside them.
-    function_entries = ({o["entryPc"] for o in occ if o["kind"] == "emitted"}
+    function_entries = ({function_instance["entryPc"] for function_instance in function_instances
+                         if function_instance["kind"] == "emitted"}
                         | {x["entryPc"] for x in program.get("excludedRoutines", [])})
 
     arm_ctx, arm_ledgers = {}, {}
@@ -1335,11 +1349,11 @@ def main() -> int:
             "mem": osem.Memory(image, [(i, a, w, v) for (i, _pc, a, w, v, _sp) in st]),
             "ledger": ledger,
             "ledgerInvariants": osem.ledger_invariants(ledger),
-            "bindings": bindings_by_occ,
+            "bindings": bindings_by_function_instance,
             "inputLen": Path(ipath).stat().st_size,
             "armDecision": _dec,
             "expected": expected["events"],
-            "occChain": occ_chain,
+            "functionInstanceChain": function_instance_chain,
             "callPcs": call_pcs,
             "retPcs": ret_pcs,
             "functionEntries": function_entries,
@@ -1354,7 +1368,7 @@ def main() -> int:
                           "count": e["count"], "size": e["size"], "alignment": e["alignment"]}
                          for e in expected["events"]],
         }
-        # The whole-run ordinals ARE the positions in the ALLOCATION sequence, so a per-occurrence slice
+        # The whole-run ordinals ARE the positions in the ALLOCATION sequence, so a per-function-instance slice
         # can be compared against the expected sequence by ordinal. The startup cursor write is not an
         # allocation and carries no ordinal.
         n = 0
@@ -1364,59 +1378,63 @@ def main() -> int:
             else:
                 e["ordinal"], n = n, n + 1
 
-    # PCs of each occurrence's regions, for the generator's deepest-owner edge attribution.
+    # PCs of each function instance's regions, for the generator's deepest-owner edge attribution.
     def _rpcs(x):
         s = set()
         for r in x["regions"]:
             s |= set(range(r["start"], r["start"] + r["size"], 2))
         return s
-    all_rpcs = [_rpcs(x) for x in occ]
+    all_rpcs = [_rpcs(x) for x in function_instances]
 
     records = []
-    for idx, o in enumerate(occ):
+    for idx, function_instance in enumerate(function_instances):
         kids = set()
-        for c in o.get("children") or []:
+        for c in function_instance.get("children") or []:
             kids |= all_rpcs[c]
-        o = {**o, "index": idx}
-        short = o["qualified"].split(".")[-1]
+        function_instance = {**function_instance, "index": idx}
+        short = function_instance["qualified"].split(".")[-1]
         chosen = None
         for spec in args.arm:
             name = spec.split("=", 1)[0]
             (executed, loads, stores, _rg), _, _ = arm_traces[name]
-            ranges = [(r["start"], r["start"] + r["size"]) for r in o["regions"]]
+            ranges = [(r["start"], r["start"] + r["size"]) for r in function_instance["regions"]]
             if any(any(a <= pc < b for a, b in ranges) for pc in executed):
                 chosen = name
                 break
         if chosen is None:
-            facts = reduce_occurrence(o, short, catalog, [], [], [], 0, kids, dyn_pcs)  # covered=False
+            facts = reduce_function_instance(
+                function_instance, short, catalog, [], [], [], 0, kids, dyn_pcs
+            )  # covered=False
         else:
             (executed, loads, stores, _rg), _, ipath = arm_traces[chosen]
             input_len = Path(ipath).stat().st_size
-            facts = reduce_occurrence(o, short, catalog, executed, loads, stores, input_len, kids,
-                                      dyn_pcs, arm_ctx[chosen])
+            facts = reduce_function_instance(
+                function_instance, short, catalog, executed, loads, stores, input_len, kids,
+                dyn_pcs, arm_ctx[chosen]
+            )
         checks, gaps = evaluate_facts(facts)
         records.append({
-            "index": idx, "qualified": o["qualified"], "routine": short,
+            "index": idx, "qualified": function_instance["qualified"], "routine": short,
             "arm": chosen, "checks": checks, "gaps": gaps, "facts": facts,
         })
 
-    # MISSING-PARAMETER CENSUS — kept as a REGRESSION guard. The extractor now takes each occurrence's
+    # MISSING-PARAMETER CENSUS — kept as a REGRESSION guard. The extractor now takes each function instance's
     # signature from its DWARF abstract-origin DIE, so a parameter the optimizer dropped from the
-    # concrete instance is still a row; this census (an occurrence declaring fewer parameters than a
-    # sibling occurrence of the same routine) should stay empty. If it ever fills up again, the binding
+    # concrete instance is still a row; this census (a function instance declaring fewer parameters than a
+    # sibling function instance of the same routine) should stay empty. If it ever fills up again, the binding
     # checks would quietly report a gap instead of a missing obligation, which is what it exists to
     # surface.
     routine_params = {}
-    for idx, o in enumerate(occ):
-        sh = o["qualified"].split(".")[-1]
+    for idx, function_instance in enumerate(function_instances):
+        sh = function_instance["qualified"].split(".")[-1]
         routine_params.setdefault(sh, set()).update(
-            r["name"] for r in bindings_by_occ.get(idx, []))
+            r["name"] for r in bindings_by_function_instance.get(idx, []))
     census = []
-    for idx, o in enumerate(occ):
-        sh = o["qualified"].split(".")[-1]
-        have = {r["name"] for r in bindings_by_occ.get(idx, [])}
+    for idx, function_instance in enumerate(function_instances):
+        sh = function_instance["qualified"].split(".")[-1]
+        have = {r["name"] for r in bindings_by_function_instance.get(idx, [])}
         if not have:
-            continue                       # genuinely paramless occurrences are named by Row A
+            continue                       # genuinely paramless function instances are named by Row A
         missing = sorted(routine_params[sh] - have)
         if missing:
             census.append({"index": idx, "routine": sh, "declared": sorted(have),
@@ -1427,7 +1445,7 @@ def main() -> int:
     failed = {n: sum(1 for r in records if r["checks"].get(n) is False) for n in CHECK_NAMES}
     gapped = {n: sum(1 for r in records if r["checks"].get(n) is None) for n in CHECK_NAMES}
     summary = {
-        "occurrences": len(occ),
+        "function_instances": len(function_instances),
         "covered": sum(1 for r in records if r["facts"].get("covered")),
         "byCheck": {n: {"pass": passed[n], "fail": failed[n], "gap": gapped[n]} for n in CHECK_NAMES},
         "arms": {name: {"decision": arm_traces[name][1], "input": arm_traces[name][2],
@@ -1436,14 +1454,14 @@ def main() -> int:
         "armLedgersAgree": {name: arm_ledger_holds(d) for name, d in arm_ledgers.items()},
     }
     summary["missingParameterRows"] = {
-        "occurrences": len(census),
-        "note": "occurrences whose effective Row A table omits a parameter that OTHER occurrences of "
+        "function_instances": len(census),
+        "note": "function instances whose effective Row A table omits a parameter that OTHER function instances of "
                 "the same source routine declare. Expected to be empty: the extractor takes each "
-                "signature from the occurrence's DWARF abstract-origin DIE, so a parameter the "
+                "signature from the function instance's DWARF abstract-origin DIE, so a parameter the "
                 "optimizer dropped is still a row.",
         "rows": census,
     }
-    out = {"summary": summary, "occurrences": records, "ledger": {
+    out = {"summary": summary, "function_instances": records, "ledger": {
         name: arm_ctx[name]["ledger"] for name in arm_ctx}}
     Path(args.out_json).write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
     if args.out_lean:
@@ -1453,7 +1471,7 @@ def main() -> int:
 
     # Human-readable digest to stderr.
     any_fail = sum(failed.values())
-    print(f"occurrences={len(occ)} covered={summary['covered']}", file=sys.stderr)
+    print(f"function_instances={len(function_instances)} covered={summary['covered']}", file=sys.stderr)
     for n in CHECK_NAMES:
         print(f"  {n:22s} pass={passed[n]:3d} fail={failed[n]:3d} gap={gapped[n]:3d}", file=sys.stderr)
     for name, agrees in sorted(summary["armLedgersAgree"].items()):
@@ -1466,7 +1484,7 @@ def main() -> int:
         for r in records:
             bad = [n for n in CHECK_NAMES if r["checks"].get(n) is False]
             if bad:
-                print(f"  occ {r['index']:3d} {r['qualified']:55s} {bad}", file=sys.stderr)
+                print(f"  function_instances {r['index']:3d} {r['qualified']:55s} {bad}", file=sys.stderr)
     if bad_ledger:
         print(f"WHOLE-RUN LEDGER MISMATCH on arms {bad_ledger}", file=sys.stderr)
     return 1 if (any_fail or bad_ledger) else 0

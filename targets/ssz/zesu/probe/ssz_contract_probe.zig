@@ -282,7 +282,7 @@ const OomSweep = struct {
 
 /// Inject a single allocation failure at each (sampled) recorded ordinal in `[0, allocations)` and
 /// require the decoder to fail cleanly with `error.OutOfMemory` and no leak — the allocator
-/// precondition the occurrence contracts assume.
+/// precondition the function instance contracts assume.
 fn oomSweep(gpa: std.mem.Allocator, input: []const u8, allocations: usize, max_inject: usize) OomSweep {
     if (allocations == 0) return .{ .safe = true, .injected = 0, .sampled = false, .reason = "" };
     const sampled = allocations > max_inject;

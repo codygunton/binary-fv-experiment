@@ -13,11 +13,11 @@ Start with:
    state.
 4. [`CanonicalParams.lean`](CanonicalParams.lean) fixes the binary image, heap, ABI layouts, and
    memory representations used by the program-level obligation.
-5. [`ProgramCorrectness.lean`](ProgramCorrectness.lean) collects the per-occurrence obligations for
+5. [`ProgramCorrectness.lean`](ProgramCorrectness.lean) collects the per-function-instance obligations for
    the generated program.
 
 [ProgramCorrectness.lean](ProgramCorrectness.lean) also defines the Row D local-to-global
-composition. A local occurrence proof owns its own instructions and may splice summaries for
+composition. A local function instance proof owns its own instructions and may splice summaries for
 lower-ranked children. Generated geometry and boundary checks then expand all local proofs into
 closed traces. [CompositionTests.lean](CompositionTests.lean) contains small counterexamples showing
 that cycles, missing summaries, bad ranks, and bad boundaries are rejected.

@@ -20,7 +20,7 @@ automatically and a wrong count is not something the checker can absorb.
 The parse mirrors `ssz_raw.zig`'s validation closely enough to stop where the decoder stops: a rejected
 payload allocates only what it managed to allocate before the rejection (the `malformed` arm relies on
 this). Every allocating call site carries the Zig routine chain that reaches it, so an observed event
-can be attributed to the occurrences that own it.
+can be attributed to the function instances that own it.
 
 Diagnostic-only; never imported by the theorem graph.
 """
@@ -42,7 +42,7 @@ ELEM_SLICE_U8 = "sliceU8"
 
 # Every allocation reaches the bump allocator through the std.mem.Allocator vtable slot and the raw
 # runtime entry, so both appear at the tail of each event's routine chain (which is what lets the two
-# allocator-leaf occurrences claim the same events as the collection that requested them).
+# allocator-leaf function instances claim the same events as the collection that requested them).
 ALLOCATOR_CHAIN = ("allocatorAlloc", "zesu_raw_alloc")
 DECODE_CHAIN = ("zesu_decode_raw", "decode", "decodeRaw")
 

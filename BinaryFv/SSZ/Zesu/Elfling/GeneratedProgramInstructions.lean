@@ -33,22 +33,22 @@ open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram)
 
 /-- Every generated region has a size divisible by 4. -/
 def regionsWordAlignedB : Bool :=
-  generatedProgram.instances.all fun inst => inst.regions.all fun r => r.size % 4 == 0
+  generatedProgram.functionInstances.all fun functionInstance => functionInstance.regions.all fun r => r.size % 4 == 0
 
 theorem regionsWordAlignedB_true : regionsWordAlignedB = true := by native_decide
 
 theorem generated_regions_word_aligned :
-    ∀ inst ∈ generatedProgram.instances, ∀ r ∈ inst.regions, r.size % 4 = 0 := by
-  intro inst hinst r hr
-  have h := forall_mem_of_all (forall_mem_of_all regionsWordAlignedB_true inst hinst) r hr
+    ∀ functionInstance ∈ generatedProgram.functionInstances, ∀ r ∈ functionInstance.regions, r.size % 4 = 0 := by
+  intro functionInstance hFunctionInstance r hr
+  have h := forall_mem_of_all (forall_mem_of_all regionsWordAlignedB_true functionInstance hFunctionInstance) r hr
   exact eq_of_beq h
 
 /-! ## The per-PC decode + legality check -/
 
 /-- At every word-PC of every region, the decoded CFG has a node whose instruction is legal. -/
 def regionPCsLegalIn (nodes : Array ControlFlowNode) (program : Program) : Bool :=
-  program.instances.all fun inst =>
-    inst.regions.all fun r =>
+  program.functionInstances.all fun functionInstance =>
+    functionInstance.regions.all fun r =>
       (List.range (r.size / 4)).all fun i =>
         match ControlFlowNodeAt? nodes (r.start + 4 * i) with
         | some node => node.word.legal
@@ -76,11 +76,11 @@ theorem regionPCsLegal_some {nodes : Array ControlFlowNode}
 /-- Extract the per-PC decode fact from the aggregate `Bool`. -/
 theorem regionPCsLegalIn_elim {nodes : Array ControlFlowNode} {program : Program}
     (h : regionPCsLegalIn nodes program = true)
-    {inst : FunctionInstance} (hinst : inst ∈ program.instances)
-    {r : AddressRange} (hr : r ∈ inst.regions)
+    {functionInstance : FunctionInstance} (hFunctionInstance : functionInstance ∈ program.functionInstances)
+    {r : AddressRange} (hr : r ∈ functionInstance.regions)
     {i : Nat} (hi : i < r.size / 4) :
     ∃ node, ControlFlowNodeAt? nodes (r.start + 4 * i) = some node ∧ node.word.legal = true := by
-  have hf := forall_mem_of_all h inst hinst
+  have hf := forall_mem_of_all h functionInstance hFunctionInstance
   have hg := forall_mem_of_all hf r hr
   have hb := forall_mem_of_all_list hg i (List.mem_range.mpr hi)
   revert hb
@@ -96,14 +96,14 @@ control-flow node *at that exact address* whose instruction is legal. DWARF prop
 confirms them against the ELF bytes. -/
 theorem generated_region_pcs_are_legal_instructions :
     ∃ nodes, controlFlow? = some nodes ∧
-      ∀ inst ∈ generatedProgram.instances, ∀ r ∈ inst.regions, ∀ i, i < r.size / 4 →
+      ∀ functionInstance ∈ generatedProgram.functionInstances, ∀ r ∈ functionInstance.regions, ∀ i, i < r.size / 4 →
         ∃ node, ControlFlowNodeAt? nodes (r.start + 4 * i) = some node ∧
           node.word.encoded.address = r.start + 4 * i ∧ node.word.legal = true := by
   obtain ⟨nodes, hn⟩ := controlFlow_exists
   refine ⟨nodes, hn, ?_⟩
-  intro inst hinst r hr i hi
+  intro functionInstance hFunctionInstance r hr i hi
   obtain ⟨node, hnode, hlegal⟩ :=
-    regionPCsLegalIn_elim (regionPCsLegal_some hn regionPCsLegal_true) hinst hr hi
+    regionPCsLegalIn_elim (regionPCsLegal_some hn regionPCsLegal_true) hFunctionInstance hr hi
   refine ⟨node, hnode, ?_, hlegal⟩
   have hnode' : nodes.toList.find? (fun n => n.word.encoded.address == r.start + 4 * i) = some node :=
     hnode

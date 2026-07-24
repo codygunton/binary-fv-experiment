@@ -48,8 +48,8 @@ those addresses) changes bindings but never what the routine means. -/
 theorem wrapper_spec_is_relocation_invariant (env : DecoderEnvironment)
     (g₁ g₂ : DecoderGlobalsLayout) (rb₁ rb₂ : Nat)
     (rep : ContainerRepresentation SszBridge.RawV4) (incoming : DecoderGlobalsModel) :
-    (occurrenceZesuDecodeRaw env g₁ rb₁ rep incoming).spec
-      = (occurrenceZesuDecodeRaw env g₂ rb₂ rep incoming).spec :=
+    (functionInstanceZesuDecodeRaw env g₁ rb₁ rep incoming).spec
+      = (functionInstanceZesuDecodeRaw env g₂ rb₂ rep incoming).spec :=
   rfl
 
 /-- The accessor `zesu_raw_error` means exactly the status the ghost globals model records. -/

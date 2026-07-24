@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Row C: generate the deterministic Lean evidence module for the decodeOptionalBlobSchedule slice.
 
-Captures the compact per-occurrence evidence for the present / absent / malformed arms (via the QEMU
+Captures the compact per-function-instance evidence for the present / absent / malformed arms (via the QEMU
 plugin trace + batch GDB), runs the Python oracle over it, and emits:
 
   * `--out-json`   : the evidence + oracle check results (for drift comparison and the Python side);
-  * `--out-lean`   : a generated Lean data module (OccEvidence + expected CheckResult per arm) the Lean
+  * `--out-lean`   : a generated Lean data module (FunctionInstanceEvidence + expected CheckResult per arm) the Lean
                      diagnostic checker consumes.
 
 Only observed, reduced facts go into the evidence (executed-PC/edge summary, in-region stores, input
@@ -20,7 +20,7 @@ import argparse
 import json
 from pathlib import Path
 
-import evaluate_occurrence as ev  # same directory
+import evaluate_function_instance as ev  # same directory
 
 
 def _pairs(xs):
@@ -42,8 +42,8 @@ def evidence_to_lean(evi) -> str:
         + ", regions := " + _pairs(evi["regions"])
         + ", declaredEdges := " + _pairs(evi["declaredEdges"])
         + ", firstExecuted := " + str(evi["firstExecuted"])
-        + ", occInsnCount := " + str(evi["occInsnCount"])
-        + ", occExecEdges := " + _pairs(evi["occExecEdges"])
+        + ", functionInstanceInsnCount := " + str(evi["functionInstanceInsnCount"])
+        + ", functionInstanceExecEdges := " + _pairs(evi["functionInstanceExecEdges"])
         + ", inRegionStores := " + _quads(evi["inRegionStores"])
         + ", inputByteLoads := " + _pairs(evi["inputByteLoads"])
         + ", sp := " + str(evi["entryRegs"]["2"])
@@ -77,10 +77,10 @@ def checks_to_lean(c) -> str:
 def emit_lean(arms) -> str:
     lines = [
         "-- GENERATED FILE: produced by targets/ssz/zesu/trace/generate_evidence.py --out-lean. DO NOT EDIT.",
-        "-- Deterministic production-ELF evidence for the decodeOptionalBlobSchedule slice (occurrence 116),",
-        "-- consumed by BinaryFv/SSZ/Zesu/Validation/BinaryOccurrenceCheck.lean. Diagnostic-only; the",
+        "-- Deterministic production-ELF evidence for the decodeOptionalBlobSchedule slice (function instance 116),",
+        "-- consumed by BinaryFv/SSZ/Zesu/Validation/BinaryFunctionInstanceCheck.lean. Diagnostic-only; the",
         "-- validation-import guard forbids the theorem graph from importing this.",
-        "import BinaryFv.SSZ.Zesu.Validation.BinaryOccurrenceTypes",
+        "import BinaryFv.SSZ.Zesu.Validation.BinaryFunctionInstanceTypes",
         "namespace BinaryFv.SSZ.Zesu.Validation.GeneratedBinaryEvidence",
         "open BinaryFv.SSZ.Zesu.Validation",
         "",
@@ -89,12 +89,12 @@ def emit_lean(arms) -> str:
     for arm in arms:
         nm = arm["evidence"]["arm"]
         names.append(nm)
-        lines.append(f"def {nm}Evidence : OccEvidence :=\n  {evidence_to_lean(arm['evidence'])}")
+        lines.append(f"def {nm}Evidence : FunctionInstanceEvidence :=\n  {evidence_to_lean(arm['evidence'])}")
         lines.append(f"def {nm}Expected : CheckResult :=\n  {checks_to_lean(arm['checks'])}")
         lines.append("")
     tuples = ", ".join(f"({nm}Evidence, {nm}Expected)" for nm in names)
     lines.append(f"/-- Each arm's evidence paired with the Python oracle's expected check result. -/")
-    lines.append(f"def allArms : List (OccEvidence × CheckResult) :=\n  [{tuples}]")
+    lines.append(f"def allArms : List (FunctionInstanceEvidence × CheckResult) :=\n  [{tuples}]")
     lines.append("end BinaryFv.SSZ.Zesu.Validation.GeneratedBinaryEvidence")
     return "\n".join(lines) + "\n"
 
@@ -119,7 +119,7 @@ def main() -> int:
                                a.scratch)
     arms = [{"evidence": e, "checks": ev.evaluate_compact(e)} for e in evidence]
     if a.out_json:
-        Path(a.out_json).write_text(json.dumps({"occurrence": 116, "arms": arms},
+        Path(a.out_json).write_text(json.dumps({"function_instance": 116, "arms": arms},
                                                indent=2, sort_keys=True) + "\n")
     if a.out_lean:
         Path(a.out_lean).write_text(emit_lean(arms))

@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-import evaluate_occurrence as ev  # same directory
+import evaluate_function_instance as ev  # same directory
 
 
 # The eight mutation classes, as edits to the compact evidence, and the check each must flip to False.
@@ -21,8 +21,8 @@ def mutations(evi):
     def with_store(addr):
         return {"inRegionStores": evi["inRegionStores"] + [[a_region_pc, addr, 8, 0]]}
     return [
-        # wrong occurrence entry: the first executed PC is not the declared entry
-        ("wrong-occurrence-entry", {"firstExecuted": evi["entryPc"] + 4}, "entry_reached"),
+        # wrong function instance entry: the first executed PC is not the declared entry
+        ("wrong-function_instance-entry", {"firstExecuted": evi["entryPc"] + 4}, "entry_reached"),
         # +8 ABI error: field 0 read at slice_ptr+8..15 instead of +0..7 (loads no longer realize 0/8/16)
         ("plus-8-abi-offset",
          {"inputByteLoads": [[a + 8 if a < slice_ptr + 8 else a, v] for a, v in evi["inputByteLoads"]]},
@@ -31,7 +31,7 @@ def mutations(evi):
         ("wrong-result-slot", {"entryRegs": {**evi["entryRegs"], "10": ev.HEAP[0] + 16}},
          "result_slot_on_stack"),
         # reassigned (phantom) edge: executed control flow not in the generated CFG
-        ("phantom-edge", {"occExecEdges": evi["occExecEdges"] + [[a_region_pc, 999999]]},
+        ("phantom-edge", {"functionInstanceExecEdges": evi["functionInstanceExecEdges"] + [[a_region_pc, 999999]]},
          "edges_subset_of_cfg"),
         # wrong allocation fact: an injected heap store in a non-allocating routine
         ("injected-heap-alloc", with_store(ev.HEAP[0] + 32), "no_allocation"),
@@ -91,7 +91,7 @@ def main() -> int:
         return 1
     print(f"negative tests OK: stack normalization is cross-host stable; baseline passes all "
           f"{len(good)} checks; all {len(cases)} evidence "
-          f"corruptions caught (swapped reg / +8 ABI / wrong occurrence / phantom edge / wrong "
+          f"corruptions caught (swapped reg / +8 ABI / wrong function_instance / phantom edge / wrong "
           f"allocation / out-of-frame / input / code)")
     return 0
 

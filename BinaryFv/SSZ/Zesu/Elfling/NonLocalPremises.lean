@@ -22,7 +22,7 @@ resolution — and the facts about the canonical parameters themselves, and redu
 * `catalogSatisfiability canonicalContractParams` — no cataloged precondition is impossible
   (discharged in `Entrypoints/ZesuDecodeRaw/CatalogSatisfiability.lean`, which sits above this
   module because its witness state comes from the runner's own builder);
-* `LocalContractAssumptions` — the per-occurrence trace proofs, Rows E–I.
+* `LocalContractAssumptions` — the per-function-instance trace proofs, Rows E–I.
 
 Anything the premises do not name is proved — with the live-run caveat above kept in view. The third
 premise is deliberately left, because it is the whole point of the conditional capstone.
@@ -97,16 +97,16 @@ theorem sszComplianceObligations_of_locals (semantic : catalogSemanticObligation
     sszComplianceObligations generatedProgram :=
   ⟨sszProgramCorrectness_of_locals semantic satisfiable locals, divergences⟩
 
-/-- **Every occurrence's closed obligation, from the same residue.** The composition is not restated
-here — it is `sszProgramCorrectness_perInstance`, whose proof runs `global_of_local` over the
+/-- **Every function instance's closed obligation, from the same residue.** The composition is not restated
+here — it is `sszProgramCorrectness_perFunctionInstance`, whose proof runs `global_of_local` over the
 generated rank. Recording it at this layer makes the payoff visible: the local proofs plus the
-generated structure entail that all 141 occurrences implement their contracts. -/
-theorem generated_instances_implement_of_locals (semantic : catalogSemanticObligations)
+generated structure entail that all 141 function instances implement their contracts. -/
+theorem generated_function_instances_implement_of_locals (semantic : catalogSemanticObligations)
     (satisfiable : catalogSatisfiability canonicalContractParams)
     (locals : LocalContractAssumptions) :
-    ∀ instance_ ∈ generatedProgram.instances,
-      instanceObligation canonicalContractParams generatedProgram instance_ :=
-  sszProgramCorrectness_perInstance (sszProgramCorrectness_of_locals semantic satisfiable locals)
+    ∀ functionInstance ∈ generatedProgram.functionInstances,
+      functionInstanceObligation canonicalContractParams generatedProgram functionInstance :=
+  sszProgramCorrectness_perFunctionInstance (sszProgramCorrectness_of_locals semantic satisfiable locals)
 
 /-- **The whole residue, in one signature.**
 
@@ -114,7 +114,7 @@ theorem generated_instances_implement_of_locals (semantic : catalogSemanticOblig
 here are the complete list of what the root obligation still rests on. Read top to bottom they are:
 four oracle-agreement facts (the binary's per-container canonicality discipline versus the oracle's
 re-serialization test), no cataloged precondition being impossible, the two recorded binary/oracle
-divergences, and the 141 local occurrence proofs.
+divergences, and the 141 local function instance proofs.
 
 Keeping this beside the coarser `sszComplianceObligations_of_locals` is deliberate: that one names
 the *shape* of the obligation, this one names the *work*. When a premise disappears from here, that

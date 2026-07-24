@@ -147,19 +147,19 @@ def contractMemmove (env : DecoderEnvironment) :
 -/
 
 def correctnessClaimAlloc (env : DecoderEnvironment) (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractAlloc env heap)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractAlloc env heap)
 
 def correctnessClaimMemcpy (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractMemcpy env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractMemcpy env)
 
 def correctnessClaimMemmove (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractMemmove env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractMemmove env)
 
 def satisfiableAlloc (env : DecoderEnvironment) (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractAlloc env heap)
@@ -216,15 +216,15 @@ def contractRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout
   stepBound := fun _ => 32
 
 def correctnessClaimRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractRawError env globals)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractRawError env globals)
 
 def correctnessClaimRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractRawResult env globals resultBuffer)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractRawResult env globals resultBuffer)
 
 def satisfiableRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractRawError env globals)
@@ -296,30 +296,30 @@ def contractAllocatorCtor (env : DecoderEnvironment) :
   stepBound := fun _ => 16
 
 def correctnessClaimAllocatorResize (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractAllocatorResize env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractAllocatorResize env)
 
 def correctnessClaimAllocatorRemap (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractAllocatorRemap env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractAllocatorRemap env)
 
 def correctnessClaimAllocatorFree (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractAllocatorFree env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractAllocatorFree env)
 
 def correctnessClaimAllocatorAlloc (env : DecoderEnvironment)
     (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractAllocatorAlloc env heap)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractAllocatorAlloc env heap)
 
 def correctnessClaimAllocatorCtor (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractAllocatorCtor env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractAllocatorCtor env)
 
 def satisfiableAllocatorResize (env : DecoderEnvironment) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractAllocatorResize env)
@@ -344,7 +344,7 @@ and the global allocation bound is a plain sum over allocation sites.
 are *defined* as `false` and `none` just above, so the conjunct is `false = false ∧ none = none` and
 carries no information about the binary. What it records is the catalog's *choice* of meaning for
 those two routines; the obligation that the compiled vtable entries really return those constants is
-the occurrence contract's, discharged by the local proof, not here. It is kept as a conjunct so the
+the function instance contract's, discharged by the local proof, not here. It is kept as a conjunct so the
 choice is reviewed rather than buried in two definitions. -/
 def allocatorVtableEntriesAreConstant : Prop :=
   meaningAllocatorResize = false ∧ meaningAllocatorRemap = none

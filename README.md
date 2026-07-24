@@ -157,7 +157,7 @@ SSZ Elfling scaffold — deterministic ELF/DWARF/CFG -> Elfling code generation 
 nix build .#zesu-raw-ssz-sidecar     # byte-identical DWARF sidecar for the decoder .text
 nix build .#zesu-ssz-runtime-sidecar # DWARF sidecar for the linked runtime
 nix build .#elfling-program          # -> GeneratedProgram.lean, program.json, program.md, determinism.txt
-nix build .#blob-schedule-instance   # -> BlobScheduleInstance.lean (regenerated + verified vs committed)
+nix build .#blob-schedule-function-instance   # -> BlobScheduleFunctionInstance.lean (regenerated + verified vs committed)
 nix build .#elfling-decoder-llvm-ir  # audit-only optimized LLVM IR (never a proof input)
 ```
 
@@ -178,7 +178,7 @@ nix build .#elfling-generator-defects-check  # fault-injection negative tests
 ```
 
 `GeneratedProgram.lean` is not committed — `.#elfling-program` regenerates it on every build.
-`BlobScheduleInstance.lean` is committed; `.#blob-schedule-instance` regenerates it and fails the
+`BlobScheduleFunctionInstance.lean` is committed; `.#blob-schedule-function-instance` regenerates it and fails the
 build unless the regenerated file is byte-identical to the committed copy (a drift guard).
 
 ## Trust boundary

@@ -60,7 +60,7 @@ structure SuccessfulRun (input : ByteArray) (value : SszBridge.RawV4) where
   stepCount : Nat
   builds : Runs (buildZesuEntryState input) initialState entryState ()
   trace : TraceToSentinel sentinelWord 0 stepCount entryState finalState
-  /-- The exported occurrence contract's own bound; the runner's fuel strictly exceeds it. -/
+  /-- The exported function instance contract's own bound; the runner's fuel strictly exceeds it. -/
   withinStepBound : stepCount ≤ entryStepBound input.size
   returnCode : observeReturnCode? finalState = some 1
   storedPresent : observeOptionTag? finalState storedResultDiscriminantAddr = some true

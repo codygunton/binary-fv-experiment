@@ -18,7 +18,7 @@ stale/hardcoded base, cannot pass both halves.
 """
 import argparse, json, sys
 
-# Identity-bearing occurrence fields: everything EXCEPT the address-bearing ones. `externalCalls` is
+# Identity-bearing function instance fields: everything EXCEPT the address-bearing ones. `externalCalls` is
 # emitted as callee (kind, index) references, which are relocation-stable, so it stays an identity
 # field; blocks/edges/exits carry addresses that shift and are checked separately below.
 ADDRESS_FIELDS = {"regions", "entryPc", "exitPc", "exits", "blocks", "edges"}
@@ -74,29 +74,52 @@ def main():
         if canon[scalar] != reloc[scalar]:
             fail(f"{scalar} changed under relocation ({canon[scalar]!r} vs {reloc[scalar]!r})")
 
-    co, ro = canon["occurrences"], reloc["occurrences"]
-    if len(co) != len(ro):
-        fail(f"occurrence count changed under relocation ({len(co)} vs {len(ro)})")
-    for i, (c, r) in enumerate(zip(co, ro)):
-        cid = {k: v for k, v in c.items() if k not in ADDRESS_FIELDS}
-        rid = {k: v for k, v in r.items() if k not in ADDRESS_FIELDS}
-        if cid != rid:
-            diff = {k: (cid.get(k), rid.get(k)) for k in set(cid) | set(rid) if cid.get(k) != rid.get(k)}
-            fail(f"occurrence[{i}] identity changed under relocation: {diff}")
-        if r["entryPc"] - c["entryPc"] != delta:
-            fail(f"occurrence[{i}] entryPc shifted by {r['entryPc']-c['entryPc']}, expected {delta}")
-        if r["exitPc"] - c["exitPc"] != delta:
-            fail(f"occurrence[{i}] exitPc shifted by {r['exitPc']-c['exitPc']}, expected {delta}")
-        check_regions("occurrence", i, c["regions"], r["regions"], delta)
-        if [e - delta for e in r.get("exits", [])] != c.get("exits", []):
-            fail(f"occurrence[{i}] exits did not shift uniformly by {delta}")
-        check_regions("occurrence", i, [b["range"] if "range" in b else b for b in c.get("blocks", [])],
-                      [b["range"] if "range" in b else b for b in r.get("blocks", [])], delta)
-        cedges, redges = c.get("edges", []), r.get("edges", [])
+    canonical_function_instances = canon["function_instances"]
+    relocated_function_instances = reloc["function_instances"]
+    if len(canonical_function_instances) != len(relocated_function_instances):
+        fail("function instance count changed under relocation "
+             f"({len(canonical_function_instances)} vs {len(relocated_function_instances)})")
+    for i, (canonical_function_instance, relocated_function_instance) in enumerate(
+            zip(canonical_function_instances, relocated_function_instances)):
+        canonical_identity = {
+            k: v for k, v in canonical_function_instance.items() if k not in ADDRESS_FIELDS
+        }
+        relocated_identity = {
+            k: v for k, v in relocated_function_instance.items() if k not in ADDRESS_FIELDS
+        }
+        if canonical_identity != relocated_identity:
+            diff = {
+                k: (canonical_identity.get(k), relocated_identity.get(k))
+                for k in set(canonical_identity) | set(relocated_identity)
+                if canonical_identity.get(k) != relocated_identity.get(k)
+            }
+            fail(f"function instance[{i}] identity changed under relocation: {diff}")
+        if relocated_function_instance["entryPc"] - canonical_function_instance["entryPc"] != delta:
+            fail(f"function instance[{i}] entryPc shifted by "
+                 f"{relocated_function_instance['entryPc']-canonical_function_instance['entryPc']}, "
+                 f"expected {delta}")
+        if relocated_function_instance["exitPc"] - canonical_function_instance["exitPc"] != delta:
+            fail(f"function instance[{i}] exitPc shifted by "
+                 f"{relocated_function_instance['exitPc']-canonical_function_instance['exitPc']}, "
+                 f"expected {delta}")
+        check_regions("function instance", i, canonical_function_instance["regions"],
+                      relocated_function_instance["regions"], delta)
+        if ([e - delta for e in relocated_function_instance.get("exits", [])]
+                != canonical_function_instance.get("exits", [])):
+            fail(f"function instance[{i}] exits did not shift uniformly by {delta}")
+        check_regions(
+            "function instance", i,
+            [b["range"] if "range" in b else b
+             for b in canonical_function_instance.get("blocks", [])],
+            [b["range"] if "range" in b else b
+             for b in relocated_function_instance.get("blocks", [])],
+            delta)
+        cedges = canonical_function_instance.get("edges", [])
+        redges = relocated_function_instance.get("edges", [])
         if len(cedges) != len(redges) or any(
                 re_["source"] - ce["source"] != delta or re_["target"] - ce["target"] != delta
                 for ce, re_ in zip(cedges, redges)):
-            fail(f"occurrence[{i}] edges did not shift uniformly by {delta}")
+            fail(f"function instance[{i}] edges did not shift uniformly by {delta}")
 
     ce, re = canon["excludedRoutines"], reloc["excludedRoutines"]
     if len(ce) != len(re):
@@ -107,7 +130,7 @@ def main():
         check_regions("excluded", i, c["regions"], r["regions"], delta)
 
     print(f"RELOCATION STABILITY OK: text base shifted by {delta:#x}; "
-          f"{len(co)} occurrence + {len(ce)} excluded identities byte-stable, "
+          f"{len(canonical_function_instances)} function instance + {len(ce)} excluded identities byte-stable, "
           f"every address shifted uniformly.")
 
 

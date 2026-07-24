@@ -39,7 +39,7 @@ open SizzLean.Spec
 
 /-! ## Byte arrays by index
 
-`ByteArray`'s `getElem` carries a bounds proof, and two occurrences of the same byte reached through
+`ByteArray`'s `getElem` carries a bounds proof, and two references to the same byte reached through
 different proof terms are defeq but not syntactically equal — enough to make a bitblasting tactic
 treat them as two different atoms. Going through `get!`, which carries no proof, avoids the whole
 question. -/

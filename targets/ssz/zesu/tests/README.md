@@ -10,7 +10,7 @@ lanes. Start with these Row B files:
   source probe.
 - [ssz_contract_mutation.py](ssz_contract_mutation.py) corrupts expectations and coverage inputs to
   show that the checks can fail.
-- [ssz_contract_report.py](ssz_contract_report.py) renders routine- and occurrence-level coverage as
+- [ssz_contract_report.py](ssz_contract_report.py) renders routine- and function-instance-level coverage as
   JSON and Markdown.
 
 Expected allocation sequences are derived from fixture structure and compiler-reported element
@@ -20,5 +20,5 @@ byte-identical across repeated runs; do not add timestamps, host addresses, or u
 The remaining scripts cover differential, observability, generator, relocation, and boundary
 checks inherited from earlier work. Validation results are test evidence; the proof import guard
 prevents `BinaryFv.SSZ.Zesu.Validation` modules from becoming premises of production proofs.
-Production-ELF capture and occurrence-level checks are documented in the
+Production-ELF capture and function instance-level checks are documented in the
 [trace README](../trace/README.md).

@@ -2,7 +2,7 @@
 """Row C: evaluate the actual Row A entry/exit BINDINGS, the allocation LEDGER, and routine MEANINGS
 against the register/memory state captured from the unchanged production ELF.
 
-The scaled checker previously validated an occurrence's control flow, effects and step bound, but not
+The scaled checker previously validated a function instance's control flow, effects and step bound, but not
 the thing Row A actually declares about it: *where its parameters live on entry*. A `["offset", "reg",
 9, 0]` row was carried through the pipeline and never evaluated against register x9. This module is
 that evaluation.
@@ -27,17 +27,17 @@ for a strong one:
                   allocator cursor by at least `bytes`, return an `alignment`-aligned pointer, and
                   match the reconstructed ledger event.
      offsetRead   an `offset`-bound reader must load its window at `sliceBase + offset`, where
-                  `sliceBase` is required to AGREE across all sibling occurrences reading in the same
+                  `sliceBase` is required to AGREE across all sibling function instances reading in the same
                   parent invocation. Sibling agreement is what falsifies a wrong offset: a single
-                  occurrence's base is unobservable, but two siblings disagreeing about it is not.
+                  function instance's base is unobservable, but two siblings disagreeing about it is not.
      comptime     a `const`-bound parameter must equal the value pinned in the routine catalog from the
                   Zig source, so a constant-folded binding cannot silently drift from the source.
 
-3. `exitBindingRealized` — at a declared exit PC, the occurrence's result register matches the
+3. `exitBindingRealized` — at a declared exit PC, the function instance's result register matches the
    convention its binding declares (allocation pointer, copy destination, decode decision).
 
 Meanings (`meaningLE`) upgrade the previous "some loaded value was also stored" heuristic to the real
-statement: the little-endian integer of the exact window the occurrence read from the input IS the
+statement: the little-endian integer of the exact window the function instance read from the input IS the
 value it produced. Anything weaker stays an explicit gap.
 
 Diagnostic-only; never imported by the theorem graph.

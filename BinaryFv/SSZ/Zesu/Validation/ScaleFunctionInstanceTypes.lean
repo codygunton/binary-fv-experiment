@@ -1,8 +1,8 @@
 /-!
-# Compact evidence for all compiled occurrences
+# Compact evidence for all compiled functionInstances
 
 The raw QEMU traces are several megabytes and contain host-dependent details. The reducer stores one
-`OccScaleEvidence` record per generated occurrence with only the facts needed by the Lean checker.
+`FunctionInstanceScaleEvidence` record per generated functionInstance with only the facts needed by the Lean checker.
 `ScaleChecks` uses `some true` for a pass, `some false` for a contradiction, and `none` for an
 explicit coverage or observability gap. A gap is never treated as success.
 
@@ -11,7 +11,7 @@ These records are validation-only and cannot be imported by the compliance theor
 
 namespace BinaryFv.SSZ.Zesu.Validation
 
-/-- A loop-`derived` Row A binding row, evaluated at every captured entry of its occurrence.
+/-- A loop-`derived` Row A binding row, evaluated at every captured entry of its functionInstance.
 
 The row declares `value = index * stride + constant` with the scaled index living in `register`
 (`BindingInventory.DerivedIndexRep`). The evidence carries what that register actually held and what
@@ -73,32 +73,32 @@ structure ArmLedger where
   expected : List ExpectedAlloc
   deriving Repr, DecidableEq, Inhabited
 
-/-- The compact per-occurrence facts reduced from the production trace (observed facts only). -/
-structure OccScaleEvidence where
-  /-- occurrence index in `program.json`. -/
+/-- The compact per-functionInstance facts reduced from the production trace (observed facts only). -/
+structure FunctionInstanceScaleEvidence where
+  /-- functionInstance index in `program.json`. -/
   index : Nat
   /-- fully-qualified inlined name (for readability / reports). -/
   qualified : String
   /-- the source-routine short name (last dotted component). -/
   routine : String
-  /-- the arm whose trace covers this occurrence (`""` if uncovered). -/
+  /-- the arm whose trace covers this functionInstance (`""` if uncovered). -/
   arm : String
   /-- declared Row A entry PC. -/
   entryPc : Nat
-  /-- whether the occurrence's region executed under the chosen arm. -/
+  /-- whether the functionInstance's region executed under the chosen arm. -/
   covered : Bool
   /-- first in-region PC executed (0 if uncovered). -/
   firstInRegion : Nat
   /-- max instructions in one invocation (span between successive `entryPc` executions). -/
   maxInsnPerInvocation : Nat
-  /-- the occurrence's declared CFG edges (generator: attributed from DEEPEST-owned PCs). -/
+  /-- the functionInstance's declared CFG edges (generator: attributed from DEEPEST-owned PCs). -/
   declaredEdges : List (Nat × Nat)
-  /-- distinct executed transfers whose SOURCE is a PC this occurrence owns (dynamic returns and
+  /-- distinct executed transfers whose SOURCE is a PC this functionInstance owns (dynamic returns and
   unresolved indirect calls excluded — those are validated against `exits`). -/
   executedOwnedEdges : List (Nat × Nat)
   /-- the declared exit PCs. -/
   exits : List Nat
-  /-- owned PCs from which execution actually left the occurrence's regions. -/
+  /-- owned PCs from which execution actually left the functionInstance's regions. -/
   leavingSources : List Nat
   /-- owned PCs whose transfer is dynamic (ret / unresolved indirect call). -/
   dynamicTransferSources : List Nat
@@ -126,7 +126,7 @@ structure OccScaleEvidence where
   real but environment-dependent stack address, carried as its class only), or "unresolved" (the
   declared location could not be read — a FAILURE, never a gap). -/
   bindingHows : List String
-  /-- the occurrence's loop-`derived` rows with the machine values they were evaluated against. -/
+  /-- the functionInstance's loop-`derived` rows with the machine values they were evaluated against. -/
   derivedRows : List DerivedRowEvidence
   /-- the routine's binding-consequence family ("entryAbi" / "rawCopy" / "alloc" / "offsetRead" /
   "comptime"), or `""` when no consequence is defined for it. -/
@@ -145,33 +145,33 @@ structure OccScaleEvidence where
   exitPairsTotal : Nat
   /-- distinct values returned at a declared return exit (bounded sample). -/
   exitReturnedValues : List Nat
-  /-- the process exit code of the arm this occurrence was evaluated on. -/
+  /-- the process exit code of the arm this functionInstance was evaluated on. -/
   armDecision : Nat
   /-- declared exits that are genuine `ret` instructions (a tail-call exit carries the callee's
-  arguments, not this occurrence's result, so a result convention does not apply there). -/
+  arguments, not this functionInstance's result, so a result convention does not apply there). -/
   returnExits : List Nat
   /-- how `a0` classifies at each captured return exit. -/
   exitA0Classes : List String
   -- Allocation ledger: the cursor's own write history beside the independently expected sequence.
-  /-- allocation events inside this occurrence's dynamic extents. -/
+  /-- allocation events inside this functionInstance's dynamic extents. -/
   ledgerEventCount : Nat
   /-- those events as the ELF performed them, in order. -/
   ledgerObserved : List ObservedAlloc
-  /-- the events this occurrence MUST perform on this arm's fixture, derived without the binary. -/
+  /-- the events this functionInstance MUST perform on this arm's fixture, derived without the binary. -/
   ledgerExpected : List ExpectedAlloc
   /-- observed events whose returned pointer was not captured (a narrow, explicit per-field gap). -/
   ledgerReturnedUnknown : Nat
   -- Meaning.
   /-- the declared little-endian width of a fixed-width leaf reader (`none` otherwise). -/
   meaningWidth : Option Nat
-  /-- the little-endian value of the EXACT window the occurrence read (`none` if the window read was
+  /-- the little-endian value of the EXACT window the functionInstance read (`none` if the window read was
   not exactly `meaningWidth` bytes). -/
   meaningValue : Option Nat
-  /-- the decoded value left the occurrence: stored, or held in a register at a declared exit. -/
+  /-- the decoded value left the functionInstance: stored, or held in a register at a declared exit. -/
   meaningProduced : Bool
   deriving Repr, DecidableEq, Inhabited
 
-/-- The generic per-occurrence checks; `none` is an EXPLICIT gap (never counted as a pass). -/
+/-- The generic per-functionInstance checks; `none` is an EXPLICIT gap (never counted as a pass). -/
 structure ScaleChecks where
   entryReached : Option Bool
   controlFlowIntegrity : Option Bool
@@ -189,7 +189,7 @@ structure ScaleChecks where
   derivedBindingsHold : Option Bool
   /-- the result register at a declared RETURN exit matches the routine's exit convention. -/
   exitBindingRealized : Option Bool
-  /-- the occurrence's cursor events ARE the independently expected allocation sequence. -/
+  /-- the functionInstance's cursor events ARE the independently expected allocation sequence. -/
   allocationLedger : Option Bool
   meaningTie : Option Bool
   deriving Repr, DecidableEq, BEq, Inhabited

@@ -466,25 +466,25 @@ COMPAT
     # handwritten meaning equals its expected value/error — the Lean side of the probe's
     # `--routine-vectors` check. Also outside the theorem graph.
     lake build BinaryFv.SSZ.Zesu.Validation.RoutineMeaningVectors
-    # Row C diagnostic checker: native_decide that, for the decodeOptionalBlobSchedule occurrence, the
+    # Row C diagnostic checker: native_decide that, for the decodeOptionalBlobSchedule function instance, the
     # Lean checker reproduces the Python oracle on the present/absent/malformed production-ELF evidence,
     # the present arm is a GO, the actual loaded slice decodes to the recorded fields under
     # meaningOptionalBlobSchedule, and each of the eight evidence corruptions flips a check. Also outside
     # the theorem graph (the validation-import guard above forbids any proof module from importing it).
-    lake build BinaryFv.SSZ.Zesu.Validation.BinaryOccurrenceCheck
-    # Row C SCALED checker: native_decide that, for EVERY occurrence in program.json, the Lean checker
+    lake build BinaryFv.SSZ.Zesu.Validation.BinaryFunctionInstanceCheck
+    # Row C SCALED checker: native_decide that, for EVERY function instance in program.json, the Lean checker
     # reproduces the Python oracle (`checker_agrees_with_oracle`) on the production-ELF evidence; that the
-    # six structural/effect gating checks pass on every covered occurrence (`gating_checks_hold`); that no
-    # check ever fails — results are pass or explicit gap (`no_gating_failures`); that every occurrence's
+    # six structural/effect gating checks pass on every covered function instance (`gating_checks_hold`); that no
+    # check ever fails — results are pass or explicit gap (`no_gating_failures`); that every function instance's
     # generated entry predicate is SATISFIED by its captured entry state, including the eight loop-derived
     # withdrawal offsets (`entry_predicates_satisfiable_on_captured_states`, `derived_rows_hold`); that
-    # each arm's whole-run allocation ledger and every allocating occurrence's slice of it are exactly the
-    # sequence the fixture requires (`arm_ledgers_hold`, `allocating_occurrences_match_expected_ledger`);
+    # each arm's whole-run allocation ledger and every allocating function instance's slice of it are exactly the
+    # sequence the fixture requires (`arm_ledgers_hold`, `allocating_function_instances_match_expected_ledger`);
     # and that mutating the sampled evidence — a derived row's index/stride/constant/register, or the
     # ledger's event count, order, size, alignment or returned block — flips the responsible check.
-    # Coverage is per occurrence, gaps explicit.
+    # Coverage is per function instance, gaps explicit.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
-    lake build BinaryFv.SSZ.Zesu.Validation.ScaleOccurrenceCheck
+    lake build BinaryFv.SSZ.Zesu.Validation.ScaleFunctionInstanceCheck
     # Row D executable runner: native_decide that RUNNING the pinned binary in the Sail model — entry
     # state, steps to the return sentinel, both exported accessors, and the full value observation —
     # gives the same answer as the SSZ oracle on every corpus case, field for field on the accepted

@@ -100,7 +100,7 @@ theorem file_addr_lt {addr : Nat} {byte : UInt8}
 
 /-! ## The entry binding
 
-The built state satisfies the exported occurrence's entry binding at the canonical parameters and the
+The built state satisfies the exported function instance's entry binding at the canonical parameters and the
 fresh incoming globals model. Threaded through the whole builder: configure (via `configure_runs`),
 the file loader, the input loader, the zeroed decoder globals, and the two runtime-globals writes,
 then the ABI register block. The three memory facts (`MemoryBytes`, `CodeIntact`, the fresh

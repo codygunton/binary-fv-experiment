@@ -5,12 +5,12 @@ import GeneratedProgram
 /-!
 # Checking the program shape required by composition
 
-`global_of_local` needs two structural facts about the 141 generated occurrences: calls and inlining
+`global_of_local` needs two structural facts about the 141 generated function instances: calls and inlining
 must form an acyclic dependency graph, and each child's address extent and exits must fit its parent.
 This module checks both facts on the canonical generated program without using any local correctness
 proof.
 
-*The rank is not invented.* `generatedRank` is the number of identities reachable from an occurrence
+*The rank is not invented.* `generatedRank` is the number of identities reachable from a function instance
 in the transfer graph. On an acyclic graph a callee's reachable set is a proper subset of its
 caller's — the caller reaches everything the callee does, plus itself — so the size strictly
 decreases along every edge. If the extraction ever produced a cycle the count would stop decreasing
@@ -32,44 +32,44 @@ open BinaryFv.RiscV.Elfling
 open BinaryFv.SSZ.Zesu.Contracts
 open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram)
 
-/-! ## The occurrence inventory is exactly the expected one -/
+/-! ## The function instance inventory is exactly the expected one -/
 
-/-- The canonical program has exactly 141 occurrences. Every later count — the manifest's rows, the
+/-- The canonical program has exactly 141 function instances. Every later count — the manifest's rows, the
 local assumption's conjuncts, the coverage report's lines — is checked against this number rather
 than against a separately maintained constant. -/
-theorem generated_occurrence_count : generatedProgram.instances.size = 141 := by native_decide
+theorem generated_function_function_instance_count : generatedProgram.functionInstances.size = 141 := by native_decide
 
 /-- The canonical program surfaces exactly 12 reachable-but-uncataloged routines, absorbed by their
 callers. -/
-theorem generated_excluded_count : generatedProgram.excluded.size = 12 := by native_decide
+theorem generated_excluded_count : generatedProgram.excludedFunctionInstances.size = 12 := by native_decide
 
 /-- The entry is the exported `zesu_decode_raw` wrapper, not inlined into anything. -/
 theorem generated_entry_is_exported :
     generatedProgram.entry.function = zesuDecodeRawFunctionId ∧
       generatedProgram.entry.inlineStack = [] := ⟨by decide, rfl⟩
 
-/-- Exactly one occurrence carries the entry identity. Together with `instanceIdsDistinct_holds` this
-is what makes "the entry occurrence" a definite description rather than a choice. -/
-def entryOccurrenceUniqueB : Bool :=
-  (generatedProgram.instances.filter fun i => decide (i.id = generatedProgram.entry)).size == 1
+/-- Exactly one function instance carries the entry identity. Together with `functionInstanceIdsDistinct_holds` this
+is what makes "the entry function instance" a definite description rather than a choice. -/
+def entryFunctionInstanceUniqueB : Bool :=
+  (generatedProgram.functionInstances.filter fun i => decide (i.id = generatedProgram.entry)).size == 1
 
-theorem entry_occurrence_unique : entryOccurrenceUniqueB = true := by native_decide
+theorem entry_function_instance_unique : entryFunctionInstanceUniqueB = true := by native_decide
 
-/-- Every occurrence dispatches to a catalog entry, so `instanceObligation` is never the `False`
-branch. This is the totality the local assumption depends on: a single occurrence with no contract
+/-- Every function instance dispatches to a catalog entry, so `functionInstanceObligation` is never the `False`
+branch. This is the totality the local assumption depends on: a single function instance with no contract
 would make one conjunct unprovable rather than merely unproved. -/
 def catalogDispatchTotalB : Bool :=
-  generatedProgram.instances.all fun i => (catalogEntryFor i.id.function).isSome
+  generatedProgram.functionInstances.all fun i => (catalogEntryFor i.id.function).isSome
 
 theorem catalog_dispatch_total : catalogDispatchTotalB = true := by native_decide
 
 /-! ## The rank -/
 
-/-- The number of identities an occurrence reaches in the transfer graph, itself included. On an
+/-- The number of identities a function instance reaches in the transfer graph, itself included. On an
 acyclic graph this strictly decreases along every edge, which is what `callGraphRanked_check`
 verifies on the real data. -/
-def generatedRank (instance_ : FunctionInstance) : Nat :=
-  (Program.transferClosure generatedProgram instance_.id).size
+def generatedRank (functionInstance : FunctionInstance) : Nat :=
+  (Program.transferClosure generatedProgram functionInstance.id).size
 
 theorem callGraphRanked_check : callGraphRankedB generatedProgram generatedRank = true := by
   native_decide
@@ -78,13 +78,13 @@ theorem callGraphRanked_check : callGraphRankedB generatedProgram generatedRank 
 theorem generated_call_graph_ranked : CallGraphRanked generatedProgram generatedRank :=
   callGraphRanked_of_check callGraphRanked_check
 
-/-- No occurrence is among its own dependencies. A direct consequence of the rank, recorded
+/-- No function instance is among its own dependencies. A direct consequence of the rank, recorded
 separately because it is the specific anti-circularity property the plan asks for. -/
 theorem generated_no_self_dependency :
-    ∀ instance_ ∈ generatedProgram.instances,
-      instance_ ∉ calleeInstances generatedProgram instance_ := by
-  intro instance_ hinst hself
-  have h := generated_call_graph_ranked instance_ hinst instance_ hself
+    ∀ functionInstance ∈ generatedProgram.functionInstances,
+      functionInstance ∉ calleeFunctionInstances generatedProgram functionInstance := by
+  intro functionInstance hinst hself
+  have h := generated_call_graph_ranked functionInstance hinst functionInstance hself
   omega
 
 /-! ## The address geometry -/
@@ -98,23 +98,23 @@ theorem generated_program_geometry : ProgramGeometry generatedProgram :=
 
 /-! ## Every callee identity resolves -/
 
-/-- Every identity an occurrence may transfer to is either another occurrence or one of the surfaced
+/-- Every identity a function instance may transfer to is either another function instance or one of the surfaced
 excluded routines. Nothing is reached that the program does not account for. -/
 def calleesResolveB : Bool :=
-  generatedProgram.instances.all fun i =>
+  generatedProgram.functionInstances.all fun i =>
     (i.children ++ i.externalCalls).all fun callee =>
-      generatedProgram.instances.any (fun other => decide (other.id = callee)) ||
-        generatedProgram.excluded.any (fun x => decide (x.id = callee))
+      generatedProgram.functionInstances.any (fun other => decide (other.id = callee)) ||
+        generatedProgram.excludedFunctionInstances.any (fun x => decide (x.id = callee))
 
 theorem callees_resolve_check : calleesResolveB = true := by native_decide
 
 theorem generated_callees_resolve :
-    ∀ instance_ ∈ generatedProgram.instances,
-      ∀ callee ∈ (instance_.children ++ instance_.externalCalls),
-        (∃ calleeInstance ∈ generatedProgram.instances, calleeInstance.id = callee) ∨
-          (∃ absorbed ∈ generatedProgram.excluded, absorbed.id = callee) := by
-  intro instance_ hinst callee hcallee
-  have hrow := forall_mem_of_all callees_resolve_check instance_ hinst
+    ∀ functionInstance ∈ generatedProgram.functionInstances,
+      ∀ callee ∈ (functionInstance.children ++ functionInstance.externalCalls),
+        (∃ calleeFunctionInstance ∈ generatedProgram.functionInstances, calleeFunctionInstance.id = callee) ∨
+          (∃ absorbed ∈ generatedProgram.excludedFunctionInstances, absorbed.id = callee) := by
+  intro functionInstance hinst callee hcallee
+  have hrow := forall_mem_of_all callees_resolve_check functionInstance hinst
   have h := forall_mem_of_all hrow callee hcallee
   rcases Bool.or_eq_true _ _ |>.mp h with h' | h'
   · obtain ⟨other, hother, heq⟩ := exists_mem_of_any h'

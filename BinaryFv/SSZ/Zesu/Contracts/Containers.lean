@@ -232,45 +232,45 @@ def contractNewPayloadRequest (env : DecoderEnvironment)
 
 def correctnessClaimForkActivation (env : DecoderEnvironment)
     (rep : ContainerRepresentation SszBridge.RawForkActivation)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractForkActivation env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractForkActivation env rep)
 
 def correctnessClaimForkConfig (env : DecoderEnvironment)
     (rep : ContainerRepresentation SszBridge.RawForkConfig)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractForkConfig env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractForkConfig env rep)
 
 def correctnessClaimChainConfig (env : DecoderEnvironment)
     (rep : ContainerRepresentation SszBridge.RawChainConfig)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractChainConfig env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractChainConfig env rep)
 
 def correctnessClaimExecutionWitness (env : DecoderEnvironment)
     (rep : ContainerRepresentation SszBridge.RawExecutionWitness)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractExecutionWitness env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractExecutionWitness env rep)
 
 def correctnessClaimExecutionRequests (env : DecoderEnvironment)
     (rep : ContainerRepresentation SszBridge.RawExecutionRequests)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractExecutionRequests env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractExecutionRequests env rep)
 
 def correctnessClaimExecutionPayload (env : DecoderEnvironment)
     (rep : ContainerRepresentation SszBridge.RawExecutionPayload)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractExecutionPayload env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractExecutionPayload env rep)
 
 def correctnessClaimNewPayloadRequest (env : DecoderEnvironment)
     (rep : ContainerRepresentation SszBridge.RawNewPayloadRequest)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ reached entry exit (contractNewPayloadRequest env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractNewPayloadRequest env rep)
 
 /-!
 ## Satisfiability

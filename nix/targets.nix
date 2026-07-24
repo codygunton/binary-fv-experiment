@@ -391,7 +391,7 @@ let
 
   # Deterministic ELF/DWARF/CFG -> Elfling Program generator (milestone 4). Reads the validated DWARF
   # sidecars, maps to canonical PCs, resolves readArray widths from DWARF call_line -> pinned source,
-  # matches occurrences to the live catalog, folds glue into the nearest cataloged ancestor, and emits
+  # matches function instances to the live catalog, folds glue into the nearest cataloged ancestor, and emits
   # deterministic JSON, a generated Lean `Program`, and a Markdown source/function/CFG index.
   #
   # Filtered inputs: only the generator script (via builtins.path, not the whole repo), the validated
@@ -441,41 +441,41 @@ let
 
   # Deterministic DWARF -> Lean extractor for the `decodeOptionalBlobSchedule` vertical slice
   # (milestone 3). Reads the validated decoder DWARF sidecar with the pinned LLVM 21.1.8
-  # `llvm-dwarfdump`, finds the single inline instance, its inline call stack and nested `readU64`
+  # `llvm-dwarfdump`, finds the single inline function instance, its inline call stack and nested `readU64`
   # field reads, maps object-relative DWARF ranges to canonical-ELF PCs, and emits the committed
-  # `BlobScheduleInstance.lean` verbatim.
+  # `BlobScheduleFunctionInstance.lean` verbatim.
   #
   # Filtered inputs: only the extractor script (via builtins.path, not the whole repo) and the
   # validated sidecar — so editing handwritten proofs never rebuilds it. Determinism is an
   # acceptance criterion: it runs twice and FAILS unless byte-identical, then a drift guard FAILS
-  # unless the regenerated file equals the committed `BlobScheduleInstance.lean` (the analog of how
+  # unless the regenerated file equals the committed `BlobScheduleFunctionInstance.lean` (the analog of how
   # the decoder `.text` sha256 is reproduced AND enforced).
   blobScheduleExtractorScript = builtins.path {
-    path = repo + "/tools/extract_blob_schedule_instance.py";
-    name = "extract_blob_schedule_instance.py";
+    path = repo + "/tools/extract_blob_schedule_function_instance.py";
+    name = "extract_blob_schedule_function_instance.py";
   };
   blobScheduleCommitted = builtins.path {
-    path = repo + "/BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean";
-    name = "BlobScheduleInstance.lean";
+    path = repo + "/BinaryFv/SSZ/Zesu/Elfling/BlobScheduleFunctionInstance.lean";
+    name = "BlobScheduleFunctionInstance.lean";
   };
-  blobScheduleInstance = pkgs.runCommand "blob-schedule-instance" {
+  blobScheduleFunctionInstance = pkgs.runCommand "blob-schedule-function-instance" {
     nativeBuildInputs = [ pkgs.python3 pkgs.coreutils pkgs.diffutils ];
   } ''
     gen() {
       python3 ${blobScheduleExtractorScript} \
         ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
         --dwarfdump ${pkgs.llvm}/bin/llvm-dwarfdump \
-        --lean --out-lean "$1/BlobScheduleInstance.lean"
+        --lean --out-lean "$1/BlobScheduleFunctionInstance.lean"
     }
     mkdir -p run1 run2 "$out"
     gen run1
     gen run2
-    cmp -s run1/BlobScheduleInstance.lean run2/BlobScheduleInstance.lean \
-      || { echo "BLOB-SCHEDULE EXTRACTOR NON-DETERMINISTIC: BlobScheduleInstance.lean differs between two runs" >&2; exit 1; }
-    cmp -s run1/BlobScheduleInstance.lean ${blobScheduleCommitted} \
-      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleInstance.lean differs from committed BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean" >&2; exit 1; }
-    cp run1/BlobScheduleInstance.lean "$out/"
-    printf '%s\n' "two independent runs produced byte-identical BlobScheduleInstance.lean; regenerated == committed" \
+    cmp -s run1/BlobScheduleFunctionInstance.lean run2/BlobScheduleFunctionInstance.lean \
+      || { echo "BLOB-SCHEDULE EXTRACTOR NON-DETERMINISTIC: BlobScheduleFunctionInstance.lean differs between two runs" >&2; exit 1; }
+    cmp -s run1/BlobScheduleFunctionInstance.lean ${blobScheduleCommitted} \
+      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleFunctionInstance.lean differs from committed BinaryFv/SSZ/Zesu/Elfling/BlobScheduleFunctionInstance.lean" >&2; exit 1; }
+    cp run1/BlobScheduleFunctionInstance.lean "$out/"
+    printf '%s\n' "two independent runs produced byte-identical BlobScheduleFunctionInstance.lean; regenerated == committed" \
       > "$out/determinism.txt"
   '';
 
@@ -826,8 +826,9 @@ let
         > "$out/mutation.txt" \
         || { echo "MUTATION SMOKE FAILED" >&2; cat "$out/mutation.txt" >&2; exit 1; }
 
-      # (e) coverage keyed by all 43 routines + 141 occurrences: every generated occurrence's routine
-      # is exercised by a matching typed vector. The report asserts no routine/occurrence is an
+      # (e) coverage keyed by all 43 routines + 141 function instances: every generated function
+      # instance's routine is exercised by a matching typed vector. The report asserts no routine or
+      # function instance is an
       # uncovered gap; a regression that dropped a routine's vectors would surface here.
       python3 ${report} --corpus "$out/corpus.jsonl" --outcomes "$out/outcomes.jsonl" \
         --ledger "$out/ledger.jsonl" --out-json "$out/report.json" --out-md "$out/report.md" \
@@ -835,9 +836,9 @@ let
         --routine-vectors "$out/routine-vectors.jsonl" --routine-outcomes "$out/routine-outcomes.jsonl" \
         > "$out/report.txt"
       python3 -c 'import json,sys; rc=json.load(open("'"$out"'/report.json"))["routine_coverage"]; \
-        sys.exit(0 if (rc["routines"]==43 and rc["occurrences"]==141 and rc["all_routines_covered"] \
-        and rc["all_occurrences_covered"]) else 1)' \
-        || { echo "COVERAGE GAP: not all 43 routines / 141 occurrences covered" >&2; \
+        sys.exit(0 if (rc["routines"]==43 and rc["function_instances"]==141 and rc["all_routines_covered"] \
+        and rc["all_function_instances_covered"]) else 1)' \
+        || { echo "COVERAGE GAP: not all 43 routines / 141 function instances covered" >&2; \
              cat "$out/report.txt" >&2; exit 1; }
 
       {
@@ -883,7 +884,7 @@ let
     printf 'all 3 shipped raw-SSZ objects byte-identical to their pinned hashes\n' | tee "$out/summary.txt"
   '';
 
-  # Row C: deterministically capture the decodeOptionalBlobSchedule occurrence evidence from the
+  # Row C: deterministically capture the decodeOptionalBlobSchedule function instance evidence from the
   # UNCHANGED production ELF (pinned qemu-riscv64 plugin trace + batch GDB), reduce it to the compact
   # form, and regenerate the Lean evidence module. The ELF is never rebuilt/patched. Fixed guest
   # addresses remain exact; stack addresses are normalized relative to entry SP because their absolute
@@ -895,7 +896,7 @@ let
       fixtures = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
       committedEvidence = builtins.path { path = repo + "/BinaryFv/SSZ/Zesu/Validation/GeneratedBinaryEvidence.lean"; name = "GeneratedBinaryEvidence.lean"; };
     in
-    pkgs.runCommand "ssz-binary-occurrence-evidence" {
+    pkgs.runCommand "ssz-binary-function-instance-evidence" {
       nativeBuildInputs = [
         pkgs.python3 pkgs.gcc pkgs.gdb pkgs.util-linux pkgs.qemu-user pkgs.glib pkgs.pkg-config
         pkgs.coreutils
@@ -944,13 +945,13 @@ let
         | tee "$out/summary.txt"
     '';
 
-  # Row C (scaled): deterministically capture per-occurrence evidence for ALL occurrences in
+  # Row C (scaled): deterministically capture per-function-instance evidence for ALL function instances in
   # program.json from the UNCHANGED production ELF (pinned qemu-riscv64 plugin trace; the plugin reads
   # sp per store, so write classification is self-contained and no GDB is needed), reduce it, and
   # regenerate the scaled Lean evidence module + coverage report. The ELF is never rebuilt/patched.
   # `setarch -R` makes every recorded address deterministic; the drift check compares the regenerated
   # module to the committed one byte-for-byte, so the scaled Lean checker can never certify stale
-  # evidence. Coverage is per occurrence; explicit gaps (uncovered / input-dependent bound / structural
+  # evidence. Coverage is per function instance; explicit gaps (uncovered / input-dependent bound / structural
   # meaning) are recorded, never counted as passes.
   sszScaleEvidence =
     let
@@ -960,7 +961,7 @@ let
       committedReport = builtins.path { path = repo + "/targets/ssz/zesu/trace/SCALE_COVERAGE.md"; name = "SCALE_COVERAGE.md"; };
       committedReachability = builtins.path { path = repo + "/targets/ssz/zesu/trace/STATIC_REACHABILITY.md"; name = "STATIC_REACHABILITY.md"; };
     in
-    pkgs.runCommand "ssz-scale-occurrence-evidence" {
+    pkgs.runCommand "ssz-scale-function-instance-evidence" {
       nativeBuildInputs = [
         pkgs.python3 pkgs.gcc pkgs.util-linux pkgs.qemu-user pkgs.glib pkgs.pkg-config pkgs.coreutils
         riscvBinutils
@@ -976,7 +977,7 @@ let
         -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0)
 
       # The SAME deterministic present / absent / malformed inputs as the vertical slice (they cover
-      # 138/141 occurrences; the 3 uncovered are the never-invoked allocator grow/error paths).
+      # 138/141 function instances; the 3 uncovered are the never-invoked allocator grow/error paths).
       python3 - <<'PY'
       import importlib.util, sys
       spec = importlib.util.spec_from_file_location('fx', 'ssz_differential_audit.py')
@@ -997,7 +998,7 @@ let
       # anything the RV64 binary reports about itself.
       ${zesuContractProbe}/bin/ssz-contract-probe --dump-abi > "$out/abi.json"
 
-      python3 trace/scale_occurrences.py \
+      python3 trace/scale_function_instances.py \
         --qemu ${qemuRiscv64} --plugin trace/qemu_trace_plugin.so --objdump ${riscvObjdump} \
         --elf ${zesuSsz}/bin/zesu-ssz --program ${elflingProgram}/program.json \
         --bindings ${elflingProgram}/bindings.json \
@@ -1025,11 +1026,11 @@ let
       python3 trace/scale_negative_tests.py --coverage "$out/coverage.json" \
         | tee "$out/scale-negative-tests.txt"
 
-      # STATIC unreachability of the uncovered occurrences, on the unchanged ELF: a backward
+      # STATIC unreachability of the uncovered function instances, on the unchanged ELF: a backward
       # reaching-definitions fixpoint over the reconstructed CFG plus a danger-set closure over the
       # loaded image. This SUPERSEDES the earlier 30-instruction linear back-scan, which was a
       # heuristic rather than a control-flow analysis. The script exits non-zero if any of the three
-      # occurrences is not established, and its residual hypotheses are stated in the emitted report.
+      # function instances is not established, and its residual hypotheses are stated in the emitted report.
       python3 trace/static_reachability.py \
         --objdump ${riscvObjdump} --elf ${zesuSsz}/bin/zesu-ssz \
         --program ${elflingProgram}/program.json \
@@ -1037,7 +1038,7 @@ let
       cmp -s "$out/STATIC_REACHABILITY.md" ${committedReachability} \
         || { echo "DRIFT: committed STATIC_REACHABILITY.md differs from a fresh static analysis" >&2; \
              diff "$out/STATIC_REACHABILITY.md" ${committedReachability} | head -40 >&2; exit 1; }
-      # The generated per-occurrence CFG must EQUAL the control transfers decoded from the binary, in
+      # The generated per-function-instance CFG must EQUAL the control transfers decoded from the binary, in
       # both directions: no real transfer missing from `edges`, no declared edge that is not real, and
       # every leaving transfer departing at a declared exit. This is what makes the scaled checker's
       # exact-edge comparison meaningful — without it the checker could agree with wrong generated data.
@@ -1056,13 +1057,13 @@ let
       python3 - "$out/coverage.json" <<'PY' | tee "$out/summary.txt"
       import json, sys
       s = json.load(open(sys.argv[1]))["summary"]
-      print(f"scaled per-occurrence evidence: {s['covered']}/{s['occurrences']} occurrences covered; "
+      print(f"scaled per-function-instance evidence: {s['covered']}/{s['function_instances']} function instances covered; "
             "matches committed module")
       for n, d in sorted(s["byCheck"].items()):
           print(f"  {n:22s} pass={d['pass']:3d} fail={d['fail']:3d} gap={d['gap']:3d}")
-      assert sum(d["fail"] for d in s["byCheck"].values()) == 0, "a per-occurrence check FAILED"
+      assert sum(d["fail"] for d in s["byCheck"].values()) == 0, "a per-function-instance check FAILED"
       # The whole-run allocation ledger of EVERY arm must be the sequence its fixture requires: same
-      # count, order, sizes, alignments and returned blocks. An arm whose occurrences are all covered
+      # count, order, sizes, alignments and returned blocks. An arm whose function instances are all covered
       # by an earlier arm would otherwise never have its ledger compared.
       for name, agrees in sorted(s["armLedgersAgree"].items()):
           d = s["armLedgers"][name]
@@ -1297,7 +1298,7 @@ in
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
-      blobScheduleInstance
+      blobScheduleFunctionInstance
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
@@ -1319,7 +1320,7 @@ in
     zesu-raw-ssz-sidecar = zesuRawSidecar;
     zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
     elfling-program = elflingProgram;
-    blob-schedule-instance = blobScheduleInstance;
+    blob-schedule-function-instance = blobScheduleFunctionInstance;
     elfling-decoder-llvm-ir = elflingDecoderLlvmIr;
     elfling-relocation-check = elflingRelocationCheck;
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;
