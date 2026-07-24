@@ -25,22 +25,22 @@ register at a declared RETURN exit matches the routine's convention. `ledg` comp
 function_instance's slice of the bump cursor's own write history against the allocation sequence
 derived independently of the binary (see the ledger section below).
 
-**Uncovered function_instances** are STATICALLY analysed by `static_reachability.py` — a backward
+**Uncovered function instances** are STATICALLY analysed by `static_reachability.py` — a backward
 reaching-definitions fixpoint over the reconstructed CFG plus a danger-set closure over the
 loaded image — with its residual hypotheses stated in `STATIC_REACHABILITY.md`. Row C's
 conclusions exclude them and the one unresolved step bound either way.
 
 **Meaning checks are deliberately PARTIAL in Row C, and are reported as such.** `meaningTie`
-states only that the little-endian integer of the exact window an function_instance read IS the value
-it produced — a scalar/slice tie. It does NOT run the function_instance's `RoutineSpec.meaning` and
+states only that the little-endian integer of the exact window a function instance read IS the value
+it produced — a scalar/slice tie. It does NOT run the function instance's `RoutineSpec.meaning` and
 compare a structured result, so every structural routine is an explicit gap (`mean: structural`)
-rather than a pass, as is the one function_instance whose comptime limits are not readable from the
+rather than a pass, as is the one function instance whose comptime limits are not readable from the
 pinned source. Broad source-level semantic validation is Row B's job (it runs the handwritten
 Lean `meaning` for all 43 routine identities against the real Zig decoder); the deep
-machine-level meaning check here is the kernel-checked vertical slice for function_instance 116. Row C
+machine-level meaning check here is the kernel-checked vertical slice for function instance 116. Row C
 claims nothing more than the per-function-instance numbers in the table below.
 
-**138/141 function_instances covered** by the present /
+**138/141 function instances covered** by the present /
 malformed / absent arms. Per-check totals:
 
 | check | pass | fail | gap |
@@ -119,7 +119,7 @@ the allocator's returned pointer equal to that aligned base.
 | 9 | `decodePublicKeys` | pubkey65 × 2 | 130 | 1 | 86728 → 86858 | 86728 |
 
 
-## Uncovered function_instances (documented gaps, not passes)
+## Uncovered function instances (documented gaps, not passes)
 
 - function instance 123 `raw_decoder_root.allocatorRemap` — std.mem.Allocator remap slot (vtable+16). STATIC: no instruction targets its entry directly; for an indirect transfer to carry it, some register would have to hold vtable+16 minus the site's load offset, and no image word holds that value and no instruction materializes it. See STATIC_REACHABILITY.md.
 - function instance 135 `raw_decoder_root.allocatorResize` — std.mem.Allocator resize slot (vtable+8). STATIC: same closure as remap — the base register would have to hold a value that appears nowhere in the image and is materialized by no instruction. See STATIC_REACHABILITY.md.
