@@ -68,14 +68,29 @@ def preAlloc (env : DecoderEnvironment) (args : AllocArgs) (state : State) : Pro
   state.regs.get? x11 = some (BitVec.ofNat 64 args.alignment)
 
 /-- Allocation either returns a fresh, suitably aligned block and advances the cursor, or returns
-null and leaves the cursor alone. -/
+null and leaves the cursor alone.
+
+The success arm bounds *how far* the cursor advances, not merely that it does. Without that clause
+"advances the cursor" is only a docstring, and no amount of composing allocations could conclude the
+arena does not fill — which is the whole content of the out-of-memory obligation. The bound is
+`(alignment - 1) + bytes` rather than `bytes` because the bump allocator inserts alignment padding;
+`Runtime.allocate_delta_le` is the matching fact about the pure model.
+
+This is a strengthening: it adds an obligation to whoever proves the allocator implements its
+contract, and gives callers a fact they did not have. Non-allocating routines need no analogue —
+`NoAllocation` already pins every allocator-state byte, so `cursor_eq_of_noAllocation` derives their
+zero delta. -/
 def postAlloc (env : DecoderEnvironment) (args : AllocArgs)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧
   match result with
   | .ok address =>
       address ≠ 0 ∧ args.alignment ≠ 0 ∧ address % args.alignment = 0 ∧
-      after.regs.get? x10 = some (BitVec.ofNat 64 address)
+      after.regs.get? x10 = some (BitVec.ofNat 64 address) ∧
+      ∃ cursorBefore cursorAfter,
+        env.cursor? before = some cursorBefore ∧ env.cursor? after = some cursorAfter ∧
+        cursorBefore ≤ cursorAfter ∧
+        cursorAfter - cursorBefore ≤ (args.alignment - 1) + args.bytes
   | .error error =>
       error = SszDecodeError.outOfMemory ∧
       after.regs.get? x10 = some (BitVec.ofNat 64 0) ∧

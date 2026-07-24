@@ -83,6 +83,40 @@ theorem allocate_isSome_of_room {heap : BumpHeap} {bytes alignment : Nat}
   rw [if_neg (by omega), if_neg (by omega)]
   rfl
 
+/-! ## Composing a chain of allocations
+
+The per-call bound is useless on its own — a decode performs many allocations, and the obligation is
+about the total. `CursorChain` is the shape a composed trace hands over: successive cursor values,
+each step advancing by at most that call's own cost. Its total is then the sum, which is what gets
+compared against `rawAllocationBound`. -/
+
+/-- The worst-case cursor cost of one allocation request, padding included. -/
+def requestCost (bytes alignment : Nat) : Nat := (alignment - 1) + bytes
+
+/-- A chain of allocations: the cursor moves from `start` to `finish`, each step advancing by at most
+that step's cost. Non-allocating routines contribute nothing — by `cursor_eq_of_noAllocation` their
+delta is zero, so they need no entry at all. -/
+inductive CursorChain : Nat → Nat → List Nat → Prop where
+  | nil (cursor : Nat) : CursorChain cursor cursor []
+  | step {before middle finish cost : Nat} {costs : List Nat}
+      (advances : before ≤ middle) (bounded : middle - before ≤ cost)
+      (rest : CursorChain middle finish costs) :
+      CursorChain before finish (cost :: costs)
+
+/-- **The whole chain's advance is at most the sum of its steps' costs.** This is the composition
+theorem: it is what lets a per-occurrence delta obligation, discharged locally, add up to a
+whole-run bound without anyone having to reason about the trace globally. -/
+theorem CursorChain.total_le {start finish : Nat} {costs : List Nat}
+    (chain : CursorChain start finish costs) :
+    start ≤ finish ∧ finish - start ≤ costs.sum := by
+  induction chain with
+  | nil cursor => exact ⟨Nat.le_refl cursor, by simp⟩
+  | step advances bounded rest ih =>
+    obtain ⟨hle, hsum⟩ := ih
+    refine ⟨Nat.le_trans advances hle, ?_⟩
+    simp only [List.sum_cons]
+    omega
+
 /-! ## The arithmetic conclusion -/
 
 /-- **A total within the planned bound leaves the cursor inside the arena**, for every input the
@@ -106,6 +140,39 @@ theorem room_of_bound {inputSize arenaBase cursor bytes alignment : Nat}
     cursor + (alignment - 1) + bytes ≤ arenaBase + zkvmArenaBytes := by
   have hfits := raw_allocation_bound_fits_arena inputSize
     ((cursor - arenaBase) + (alignment - 1) + bytes) inputBound budget
+  unfold zkvmArenaBytes at *
+  omega
+
+/-- **The out-of-memory branch is unreachable for an admitted input whose allocation chain fits the
+planned budget.**
+
+The three pieces joined: a chain of allocations totalling within `rawAllocationBound` leaves the
+cursor low enough that the *next* request still has room, so `allocate` succeeds and the decoder
+never takes the branch that records status `4`. Stated about a `BumpHeap` whose position is the real
+cursor and whose limit is the arena ceiling, which is what the machine holds.
+
+What remains for the row proofs is the chain itself — that a decode of an `inputSize`-byte input
+performs allocations whose costs sum within the bound. That is a local obligation per occurrence, not
+an assumption here. -/
+theorem allocation_succeeds_of_chain_within_budget {inputSize arenaBase start finish bytes alignment : Nat}
+    {costs : List Nat} {heap : BumpHeap}
+    (inputBound : inputSize < maximumInputBytes)
+    (valid : powerOfTwo alignment = true) (hpos : 0 < alignment)
+    (chain : CursorChain start finish costs)
+    (startsAtBase : arenaBase ≤ start)
+    (budget : (start - arenaBase) + costs.sum + requestCost bytes alignment
+      ≤ rawAllocationBound inputSize)
+    (atCursor : heap.position = finish)
+    (ceiling : heap.limit = arenaBase + zkvmArenaBytes) :
+    (allocate heap bytes alignment).isSome = true := by
+  obtain ⟨hle, hsum⟩ := chain.total_le
+  refine allocate_isSome_of_room valid hpos ?_
+  rw [atCursor, ceiling]
+  have hbudget : (finish - arenaBase) + (alignment - 1) + bytes ≤ rawAllocationBound inputSize := by
+    unfold requestCost at budget
+    omega
+  have := raw_allocation_bound_fits_arena inputSize
+    ((finish - arenaBase) + (alignment - 1) + bytes) inputBound hbudget
   unfold zkvmArenaBytes at *
   omega
 

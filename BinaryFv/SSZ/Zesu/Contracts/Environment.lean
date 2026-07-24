@@ -44,6 +44,16 @@ structure DecoderEnvironment where
   /-- The addresses holding the bump allocator's mutable state. A non-allocating routine must leave
   every one of them unchanged, which is what turns "does not allocate" into a checkable claim. -/
   allocatorState : Nat → Prop
+  /-- Address of the bump cursor (`ZKVM_HEAP_POS`) and of the arena's base.
+
+  These make "how much has been allocated" a statement about the machine rather than about a ghost
+  counter. That matters because the decoder's own exhaustion branch compares the *real* cursor
+  against the ceiling: a counter would only settle real unreachability once it had been proved equal
+  to the cursor delta, so bounding the cursor directly skips a step rather than losing one. Both
+  addresses must lie in `allocatorState`, which `ValidAllocatorAddresses` requires. -/
+  heapPosAddr : Nat
+  /-- Base of the arena the cursor advances through. -/
+  arenaBase : Nat
   optionalBlobSchedule : OptionLayout
   blobSchedule : BlobScheduleLayout
   optionalU64 : OptionLayout
@@ -53,6 +63,38 @@ namespace DecoderEnvironment
 /-- No byte of the allocator's mutable state changed: the routine performed no allocation. -/
 def NoAllocation (env : DecoderEnvironment) (before after : State) : Prop :=
   ∀ address, env.allocatorState address → after.mem.get? address = before.mem.get? address
+
+/-- The bump cursor's current value, read out of machine memory. -/
+def cursor? (env : DecoderEnvironment) (state : State) : Option Nat :=
+  observeWord64? state env.heapPosAddr
+
+/-- How many bytes the allocator has handed out: how far the cursor has advanced past the arena
+base. This is the quantity the arena bound is about. -/
+def allocatedBytes? (env : DecoderEnvironment) (state : State) : Option Nat :=
+  (env.cursor? state).map (· - env.arenaBase)
+
+/-- **A routine that allocates nothing leaves the cursor exactly where it was.** The qualitative
+`NoAllocation` already pins every allocator-state byte, so the quantitative fact falls out rather
+than needing its own clause — which is why adding the cursor to the environment strengthens the
+allocator's contract without touching any non-allocating routine's. -/
+theorem cursor_eq_of_noAllocation {env : DecoderEnvironment} {before after : State}
+    (inState : ∀ i, i < 8 → env.allocatorState (env.heapPosAddr + i))
+    (noAlloc : env.NoAllocation before after) :
+    env.cursor? after = env.cursor? before := by
+  unfold cursor? observeWord64?
+  have hbytes : ∀ i, i < 8 →
+      after.mem.get? (env.heapPosAddr + i) = before.mem.get? (env.heapPosAddr + i) :=
+    fun i hi => noAlloc _ (inState i hi)
+  have h0 := hbytes 0 (by omega)
+  have h1 := hbytes 1 (by omega)
+  have h2 := hbytes 2 (by omega)
+  have h3 := hbytes 3 (by omega)
+  have h4 := hbytes 4 (by omega)
+  have h5 := hbytes 5 (by omega)
+  have h6 := hbytes 6 (by omega)
+  have h7 := hbytes 7 (by omega)
+  simp only [Nat.add_zero] at h0
+  rw [h0, h1, h2, h3, h4, h5, h6, h7]
 
 /-- The loaded code and read-only constant data were not modified.
 

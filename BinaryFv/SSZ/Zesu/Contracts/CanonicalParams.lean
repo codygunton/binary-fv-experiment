@@ -79,9 +79,21 @@ option/aggregate layouts. -/
 def canonicalEnvironment : DecoderEnvironment :=
   { image := Artifact.programImage
     allocatorState := canonicalAllocatorState
+    heapPosAddr := Elfling.canonicalHeapPosAddr
+    arenaBase := canonicalHeapBase
     optionalBlobSchedule := canonicalOptionalBlobSchedule
     blobSchedule := canonicalBlobScheduleLayout
     optionalU64 := canonicalOptionalU64 }
+
+/-- **The cursor address really is allocator state.** Without this the environment could name a
+`heapPosAddr` outside the range `NoAllocation` pins, and a non-allocating routine could move the
+cursor while still satisfying its contract. It is what makes `cursor_eq_of_noAllocation` applicable
+at the canonical parameters. -/
+theorem canonical_heapPos_is_allocator_state (i : Nat) (h : i < 8) :
+    canonicalEnvironment.allocatorState (canonicalEnvironment.heapPosAddr + i) := by
+  refine Or.inl ⟨by simp [canonicalEnvironment], ?_⟩
+  simp only [canonicalEnvironment]
+  omega
 
 /-- The canonical bump heap: the validated 64 MiB `heap` region, cursor at its base. -/
 def canonicalHeap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap :=
