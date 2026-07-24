@@ -762,11 +762,12 @@ byte-level facts. -/
 /-- **The catalog's meanings are grounded in the pinned oracle** — given that the source-shaped
 composition and the oracle agree on acceptance. `SszSpec.decode` accepts exactly when
 `decodeStatelessInput` returns a value, so the two statements differ only in how they spell
-"accepted". -/
+"accepted". The scope hypothesis threads straight through, which is what it means for the two to be
+scoped for the same reason. -/
 theorem catalogGroundsInSpec_of_agreement (agrees : sourceShapedDecodeAgreesWithOracle) :
     catalogGroundsInSpec := by
-  intro bytes
-  rw [agrees bytes]
+  intro bytes scope
+  rw [agrees bytes scope]
   unfold SszSpec.decode
   cases SszBridge.decodeStatelessInput bytes with
   | ok value => simp [Except.toOption]
@@ -791,6 +792,49 @@ theorem catalogSemanticObligations_of_oracleAgreement
     allocatorVtableEntriesAreConstant_holds, outOfMemoryUnreachableBelowBound_holds,
     meaningEmptyIsNone_holds, twentyFourIsSome, meaningOtherLengthIsInvalid_holds,
     meaningNeverForkOrMemory_holds⟩
+
+/-! ## Negative test: the scope hypothesis cannot be dropped
+
+`sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` carry `rootComplianceScope`, and a
+reader tidying up might reasonably take that for defensive noise. It is not: **without it the
+catalog is unsatisfiable and the root theorem is vacuous.** `ereGateDivergesAboveU32` asserts a
+witness, outside the bound, that the composition accepts and the oracle rejects as `tooLarge`, and an
+unscoped equality of acceptance reads `true = false` there.
+
+Stating that in a comment would let it rot, so it is a theorem. The unscoped form is defined here,
+used nowhere else, purely so its inconsistency with the recorded divergence is machine-checked —
+the same device as D1's excluded-CFG negative test. Anyone who removes the hypothesis from the real
+obligation makes this file's claim false and the build fails. -/
+
+/-- `sourceShapedDecodeAgreesWithOracle` as it was written before the scope hypothesis was added.
+Deliberately unused except by the theorem below. -/
+def unscopedDecodeAgreesWithOracle : Prop :=
+  ∀ (bytes : ByteArray),
+    isAccepted (meaningDecode bytes) = (SszBridge.decodeStatelessInput bytes).toOption.isSome
+
+/-- **The unscoped obligation contradicts the recorded ERE divergence.**
+
+So `rootComplianceScope` is not a convenience: it is what makes the catalog satisfiable at all. -/
+theorem unscopedAgreement_contradicts_ereGate :
+    ¬ (unscopedDecodeAgreesWithOracle ∧ ereGateDivergesAboveU32) := by
+  rintro ⟨agree, bytes, _, accepts, tooLarge⟩
+  have h := agree bytes
+  rw [accepts, tooLarge] at h
+  simp [Except.toOption] at h
+
+/-- The same for `catalogGroundsInSpec`, which is the obligation above with the value forgotten and
+so fails the same way. -/
+def unscopedGroundsInSpec : Prop :=
+  ∀ (bytes : ByteArray),
+    isAccepted (meaningDecode bytes) = true ↔
+      ∃ value, BinaryFv.SSZ.SszSpec.decode bytes = .accepted value
+
+theorem unscopedGrounds_contradicts_ereGate :
+    ¬ (unscopedGroundsInSpec ∧ ereGateDivergesAboveU32) := by
+  rintro ⟨grounds, bytes, _, accepts, tooLarge⟩
+  obtain ⟨value, hv⟩ := (grounds bytes).mp accepts
+  rw [BinaryFv.SSZ.SszSpec.decode, tooLarge] at hv
+  simp at hv
 
 /-! ## The fork-ordering divergence
 

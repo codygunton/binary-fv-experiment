@@ -180,6 +180,10 @@ can quietly revert to prose. Each was established informally by the audit on iss
 owes a Lean proof.
 -/
 
+/-- The scope hypothesis of the root theorem, named rather than left implicit. -/
+def rootComplianceScope (bytes : ByteArray) : Prop :=
+  bytes.size < 2 * 1024 * 1024
+
 /-- **The catalog's central obligation.** The source-shaped composition agrees with the oracle on
 acceptance, at the granularity `root_compliance` observes.
 
@@ -187,17 +191,31 @@ The binary decides canonicality by per-container offset checks plus `decodeByteL
 zero-first-offset rejection; the oracle decides it globally by re-serializing. This says the two
 coincide on the pinned V4 schema. If it were false, every individual contract would still be
 provable — the machine faithfully implements its own weaker discipline — while the root theorem
-quietly failed. -/
+quietly failed.
+
+**The scope hypothesis is load-bearing, and its absence made the whole catalog unsatisfiable.**
+Without `rootComplianceScope` this contradicts `ereGateDivergesAboveU32`, which asserts a witness —
+outside the bound — that the composition accepts and the oracle rejects as `tooLarge`. At that
+witness the unscoped equation reads `true = false`, so `catalogSemanticObligations ∧
+knownDivergences` was jointly unsatisfiable and `root_compliance` was vacuous. That is not an
+argument in a comment: `unscopedAgreement_contradicts_ereGate` in
+`Contracts/SemanticObligations.lean` proves it, so the hypothesis cannot be tidied away without
+breaking the build. `root_compliance` is itself stated under `input.size < 2 * 1024 * 1024`, so
+nothing it consumes is lost. See `DECISIONS.md`. -/
 def sourceShapedDecodeAgreesWithOracle : Prop :=
-  ∀ (bytes : ByteArray),
+  ∀ (bytes : ByteArray), rootComplianceScope bytes →
     isAccepted (meaningDecode bytes) = (SszBridge.decodeStatelessInput bytes).toOption.isSome
 
 /-- The catalog's meanings are grounded in the pinned oracle, not in a private re-implementation:
-the entry meaning determines exactly the public `SszSpec.decode` outcome. -/
+the entry meaning determines exactly the public `SszSpec.decode` outcome.
+
+Scoped for the same reason as `sourceShapedDecodeAgreesWithOracle`, and it is the same defect: this
+is that obligation with the value forgotten, so the `ereGateDivergesAboveU32` witness refutes the
+unscoped form here too. -/
 def catalogGroundsInSpec : Prop :=
-  ∀ (bytes : ByteArray),
-    isAccepted (meaningDecode bytes) = true ↔
-      ∃ value, BinaryFv.SSZ.SszSpec.decode bytes = .accepted value
+  ∀ (bytes : ByteArray), rootComplianceScope bytes →
+    (isAccepted (meaningDecode bytes) = true ↔
+      ∃ value, BinaryFv.SSZ.SszSpec.decode bytes = .accepted value)
 
 /--
 Why the asymmetric ERE retry is unobservable.
@@ -221,10 +239,6 @@ def v3ShapeExcludesCanonicalV4 : Prop :=
     SszBridge.hasV3PayloadShape bytes = true →
       (SszBridge.decodeCanonical SszBridge.statelessInputV4Type
         (bytes.extract 2 bytes.size)).toOption = none
-
-/-- The scope hypothesis of the root theorem, named rather than left implicit. -/
-def rootComplianceScope (bytes : ByteArray) : Prop :=
-  bytes.size < 2 * 1024 * 1024
 
 /--
 A **known, bounded divergence** outside the root theorem's scope.
