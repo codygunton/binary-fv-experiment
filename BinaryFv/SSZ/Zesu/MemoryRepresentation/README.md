@@ -18,3 +18,17 @@ A representation predicate does not allocate or decode anything. It only relates
 Field offsets, sizes, and alignments are checked against the ABI manifest produced by the same pinned
 Zig compiler that builds the decoder. Optional payload bytes are intentionally unconstrained when
 the option is absent; only the discriminant is meaningful in that case.
+
+Representations say when memory *holds* a value; observers go the other way and *read* one back.
+`Observers.lean` has the guarded readers for words, byte regions, and the chain config, and
+`ValueObserver.lean` assembles them into `observeRawV4?`, which reconstructs a complete
+`SszBridge.RawV4` from machine memory. `observe_raw_v4_of_rep` is the correspondence that ties the
+two directions together: anything the representation says is there, the observer reads back exactly.
+It needs one hypothesis the representation deliberately omits — the caller's input in memory —
+because the borrowed slices alias that buffer.
+
+A representation that under-determines its value makes a *total* observer impossible, which is not a
+stylistic concern but a soundness one: `RawV4FixedFieldsRep` once pinned only two words of the chain
+config, so one state represented values differing in the fork activation and blob schedule, and the
+observer correspondence was false as stated. `RawV4.lean` now pins the whole `ChainConfigRep`, with
+`rawV4FixedFields_pins_fork_activation_and_blob_schedule` as the regression.

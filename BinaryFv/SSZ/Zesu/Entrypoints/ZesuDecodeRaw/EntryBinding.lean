@@ -117,8 +117,10 @@ theorem buildZesuEntryState_entry_binding (input : ByteArray) :
   obtain ⟨s1, hrun1⟩ := configure_runs
   obtain ⟨s2, hrun2, _hregs2, _hlow2, _hhigh2, hfile2⟩ :=
     loadFileBackedImage_single_establishes hsingle s1
+  obtain ⟨sstack, hrunstack, _hregsstack, hframestack, _hwinstack⟩ :=
+    loadZeroBytes_establishes canonicalRunnerLayout.stackBase canonicalRunnerLayout.stackSize s2
   obtain ⟨s3, hrun3, _hregs3, hframe3, hwin3⟩ :=
-    loadBytes_establishes canonicalRunnerLayout.inputBase input s2
+    loadBytes_establishes canonicalRunnerLayout.inputBase input sstack
   obtain ⟨s4, hrun4, _hregs4, hframe4, hwin4⟩ :=
     loadZeroBytes_establishes decoderBssBase GeneratedDecoderGlobals.bssSize s3
   obtain ⟨s5, hrun5, _hregs5, hframe5⟩ :=
@@ -143,9 +145,12 @@ theorem buildZesuEntryState_entry_binding (input : ByteArray) :
   have hmem_high : ∀ a, 69292928 ≤ a → s6.mem.get? a = s3.mem.get? a := fun a ha =>
     (hframe6 a (Or.inr (by omega))).trans ((hframe5 a (Or.inr (by omega))).trans
       (hframe4 a (Or.inr (by omega))))
+  -- File bytes are below every runner range, the zeroed stack included, so they survive all of them.
+  have hstackBase : (86028 : Nat) ≤ canonicalRunnerLayout.stackBase := by native_decide
   have hmem_low : ∀ a, a < 86028 → s6.mem.get? a = s2.mem.get? a := fun a ha =>
     (hframe6 a (Or.inl (by omega))).trans ((hframe5 a (Or.inl (by omega))).trans
-      ((hframe4 a (Or.inl (by omega))).trans (hframe3 a (Or.inl (by omega)))))
+      ((hframe4 a (Or.inl (by omega))).trans ((hframe3 a (Or.inl (by omega))).trans
+        (hframestack a (Or.inl (by omega))))))
   have hmem_glob : ∀ a, 86048 ≤ a → s6.mem.get? a = s4.mem.get? a := fun a ha =>
     (hframe6 a (Or.inr (by omega))).trans (hframe5 a (Or.inr (by omega)))
   -- Build the entry state, threading `Runs`, and read off the memory and the ABI registers.
@@ -165,10 +170,10 @@ theorem buildZesuEntryState_entry_binding (input : ByteArray) :
         (Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
           (Runs.bind (by rw [Runs, writeReg_run]) (by rw [Runs, writeReg_run])))))
     refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_⟩
-    · unfold buildZesuEntryState
+    · unfold buildZesuEntryState initStack
       simp only [hentry]
-      exact Runs.bind hrun1 (Runs.bind hrun2 (Runs.bind hrun3 (Runs.bind hrun4
-        (Runs.bind (Runs.bind hrun5 hrun6) hrunR))))
+      exact Runs.bind hrun1 (Runs.bind hrun2 (Runs.bind hrunstack (Runs.bind hrun3 (Runs.bind hrun4
+        (Runs.bind (Runs.bind hrun5 hrun6) hrunR)))))
     · simp [Std.ExtDHashMap.get?_insert]
     · simp [Std.ExtDHashMap.get?_insert]
   obtain ⟨sf, hrunsf, hmemsf, hx10, hx11⟩ := hbuilt

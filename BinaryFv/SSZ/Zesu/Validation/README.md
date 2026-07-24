@@ -19,6 +19,14 @@ impractical to evaluate inside `native_decide`.
 Files named `Generated*.lean` are deterministic outputs of the corpus/vector generators and should
 not be edited by hand.
 
+Row D adds the strongest check in this directory, `RunnerExecution.lean`: it *runs the pinned RISC-V
+binary in the Sail model* — entry state, machine steps to the return sentinel, both exported
+accessors, and the full value observation — and compares the result with the same SSZ oracle. On the
+corpus's accepted cases that comparison is field for field, through the canonical value render. Its
+other checks pin the failure modes a corpus cannot express: a short budget is fuel exhaustion, a
+misplaced observer is a malformed result, and a refused *second* call is a bad return rather than a
+rejection.
+
 Row C adds checks against execution of the unchanged production ELF:
 
 - `BinaryOccurrenceCheck.lean` is a small end-to-end example for one optional decoder and its three

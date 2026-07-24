@@ -185,41 +185,42 @@ inductive AccessorOutcome where
   | .exhausted => .fuelExhausted
   | .noReturn => .badReturn
 
-/-- What a completed *fresh* call's recorded status means, once the wrapper has returned `0` and
-both accessors agree the result slot is empty.
+/-- What a status recorded alongside a `0` return means for the runner. -/
+inductive StatusCategory where
+  /-- One of the two statuses the pure specification can produce: the run really was a rejection. -/
+  | specRejection
+  /-- The decoder ran out of arena. Not a rejection — see `statusCategory`. -/
+  | arenaExhausted
+  /-- A status a completed fresh call does not produce. -/
+  | undocumented
+  deriving DecidableEq, Repr
 
-Only the two statuses the pure specification can actually produce normalize to `rejected`. An
-allocator exhaustion is deliberately **not** one of them: `SszSpec.decode` is a total function with
-no out-of-memory outcome, so answering `rejected` for an exhausted arena could contradict a spec
-*acceptance*. It keeps its own `outOfMemory` error, which D4 then owes a proof is unreachable for
-`input.size < 2 MiB`. `notRun` and `alreadyDecoded` after a completed fresh call mean the wrapper
-did not behave as documented, and `ok` contradicts the `0` return code — all `badReturn`. -/
-def rejectionOutcomeOfStatus (status : Nat) : Except RiscvSpec.ExecutionError DecodeOutcome :=
+/-- Categorize a recorded status.
+
+Only `invalidSsz` and `unknownFork` — the two `statusOfResult` can produce — are rejections. An
+allocator exhaustion is deliberately not one: `SszSpec.decode` is a total function with no
+out-of-memory outcome, so answering `rejected` for an exhausted arena could contradict a spec
+*acceptance*. `notRun`, `ok`, and `alreadyDecoded` are undocumented for a completed fresh call;
+`alreadyDecoded` in particular is what a **second** call records, which is not a decode result at
+all. -/
+def statusCategory (status : Nat) : StatusCategory :=
   if status = DecodeStatus.invalidSsz.code ∨ status = DecodeStatus.unknownFork.code then
-    .ok .rejected
+    .specRejection
   else if status = DecodeStatus.outOfMemory.code then
-    .error .outOfMemory
+    .arenaExhausted
   else
-    .error .badReturn
+    .undocumented
 
-/-- **An exhausted arena is never a rejection.** It is reported as `outOfMemory`, keeping the
-implementation-level failure distinguishable from a spec rejection. -/
-theorem rejectionOutcomeOfStatus_outOfMemory :
-    rejectionOutcomeOfStatus DecodeStatus.outOfMemory.code = .error .outOfMemory := by
-  unfold rejectionOutcomeOfStatus
-  rw [if_neg (by simp [DecodeStatus.code]), if_pos rfl]
-
-/-- The converse: only the two spec-producible statuses yield a rejection. -/
-theorem status_of_rejectionOutcome {status : Nat}
-    (h : rejectionOutcomeOfStatus status = .ok .rejected) :
-    status = DecodeStatus.invalidSsz.code ∨ status = DecodeStatus.unknownFork.code := by
-  unfold rejectionOutcomeOfStatus at h
-  by_cases hrej : status = DecodeStatus.invalidSsz.code ∨ status = DecodeStatus.unknownFork.code
-  · exact hrej
-  · rw [if_neg hrej] at h
-    by_cases hoom : status = DecodeStatus.outOfMemory.code
-    · rw [if_pos hoom] at h; exact absurd h (by simp)
-    · rw [if_neg hoom] at h; exact absurd h (by simp)
+/-- The categories of the five statuses the wrapper can record, pinned so that a change to
+`DecodeStatus.code` or to the categorization is visible here. -/
+theorem statusCategory_pinned :
+    statusCategory DecodeStatus.invalidSsz.code = .specRejection ∧
+      statusCategory DecodeStatus.unknownFork.code = .specRejection ∧
+      statusCategory DecodeStatus.outOfMemory.code = .arenaExhausted ∧
+      statusCategory DecodeStatus.alreadyDecoded.code = .undocumented ∧
+      statusCategory DecodeStatus.ok.code = .undocumented ∧
+      statusCategory DecodeStatus.notRun.code = .undocumented := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide
 
 /-- Turn a finished wrapper run into the public outcome or a distinct `ExecutionError`, requiring
 the executed accessors to agree with the wrapper's return code.
@@ -227,9 +228,10 @@ the executed accessors to agree with the wrapper's return code.
 * Return `1`: `zesu_raw_error` must have returned the `ok` code, `zesu_raw_result` must have
   returned the canonical non-null result buffer, the stored-result discriminant must read `present`,
   and the value observer must succeed — then the outcome is that value.
-* Return `0`: `zesu_raw_result` must have returned null, the discriminant must read `absent`, and
-  `zesu_raw_error`'s status decides between the normalized `rejected` and the distinct errors
-  (`rejectionOutcomeOfStatus`) — notably an exhausted arena, which stays `outOfMemory`.
+* Return `0`: the recorded status decides the category first. Only a spec-producible rejection
+  status can become `rejected`, and only after `zesu_raw_result` returned null and the discriminant
+  read `absent`. An exhausted arena is `outOfMemory`; any other status — including the
+  `alreadyDecoded` a *second* call records — is `badReturn`.
 
 Anything else keeps a specific error: fuel exhaustion and stalls (of the main run *or* an accessor
 run) stay themselves, an undocumented status or an unreadable/other return code is `badReturn`, and
@@ -264,14 +266,18 @@ def classifyWrapperRun (observeValue : State → Option SszBridge.RawV4)
     | some 0 =>
       match rawError with
       | .returned status =>
-        match rawResult with
-        | .returned 0 =>
-          match observeOptionTag? final discriminantAddr with
-          | some false => rejectionOutcomeOfStatus status
-          | some true => .error .badReturn
-          | none => .error .malformedResult
-        | .returned _ => .error .malformedResult
-        | failure => .error failure.failureError
+        match statusCategory status with
+        | .specRejection =>
+          match rawResult with
+          | .returned 0 =>
+            match observeOptionTag? final discriminantAddr with
+            | some false => .ok .rejected
+            | some true => .error .badReturn
+            | none => .error .malformedResult
+          | .returned _ => .error .malformedResult
+          | failure => .error failure.failureError
+        | .arenaExhausted => .error .outOfMemory
+        | .undocumented => .error .badReturn
       | failure => .error failure.failureError
     | some _ => .error .badReturn
 
@@ -314,8 +320,7 @@ theorem wrapper_rejection_forces_checks {observeValue : State → Option SszBrid
     (h : classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError
       outcome final = .ok .rejected) :
     (∃ steps, outcome = .reached steps) ∧ observeReturnCode? final = some 0 ∧
-      (∃ status, rawError = .returned status ∧
-        (status = DecodeStatus.invalidSsz.code ∨ status = DecodeStatus.unknownFork.code)) ∧
+      (∃ status, rawError = .returned status ∧ statusCategory status = .specRejection) ∧
       rawResult = .returned 0 ∧
       observeOptionTag? final discriminantAddr = some false := by
   unfold classifyWrapperRun at h
@@ -330,18 +335,21 @@ theorem wrapper_rejection_forces_checks {observeValue : State → Option SszBrid
       rw [hcode] at h
       match rawError with
       | .returned status =>
-        match rawResult with
-        | .returned 0 =>
-          match htag : observeOptionTag? final discriminantAddr with
-          | some false =>
-            rw [htag] at h
-            exact ⟨⟨steps, rfl⟩, rfl, ⟨status, rfl, status_of_rejectionOutcome h⟩, rfl, rfl⟩
-          | some true => rw [htag] at h; exact absurd h (by simp)
-          | none => rw [htag] at h; exact absurd h (by simp)
-        | .returned (n + 1) => exact absurd h (by simp)
-        | .trapped => exact absurd h (by simp)
-        | .exhausted => exact absurd h (by simp)
-        | .noReturn => exact absurd h (by simp)
+        match hcat : statusCategory status with
+        | .specRejection =>
+          simp only [hcat] at h
+          match rawResult with
+          | .returned 0 =>
+            match htag : observeOptionTag? final discriminantAddr with
+            | some false => exact ⟨⟨steps, rfl⟩, rfl, ⟨status, rfl, hcat⟩, rfl, rfl⟩
+            | some true => rw [htag] at h; exact absurd h (by simp)
+            | none => rw [htag] at h; exact absurd h (by simp)
+          | .returned (n + 1) => exact absurd h (by simp)
+          | .trapped => exact absurd h (by simp)
+          | .exhausted => exact absurd h (by simp)
+          | .noReturn => exact absurd h (by simp)
+        | .arenaExhausted => exact absurd h (by simp [hcat])
+        | .undocumented => exact absurd h (by simp [hcat])
       | .trapped => exact absurd h (by simp)
       | .exhausted => exact absurd h (by simp)
       | .noReturn => exact absurd h (by simp)
@@ -403,29 +411,42 @@ theorem classifyWrapperRun_rejected (observeValue : State → Option SszBridge.R
     (final : State)
     (hcode : observeReturnCode? final = some 0)
     (herror : rawError = AccessorOutcome.returned status)
-    (hstatus : status = DecodeStatus.invalidSsz.code ∨ status = DecodeStatus.unknownFork.code)
+    (hstatus : statusCategory status = .specRejection)
     (hresult : rawResult = AccessorOutcome.returned 0)
     (htag : observeOptionTag? final discriminantAddr = some false) :
     classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError
       (.reached steps) final = .ok .rejected := by
   unfold classifyWrapperRun
-  rw [hcode, herror, hresult, htag]
-  simp only [rejectionOutcomeOfStatus, if_pos hstatus]
+  rw [hcode, herror, hresult]
+  simp [hstatus, htag]
 
-/-- **An exhausted arena is reported as `outOfMemory`, not as a rejection** — even though the
-wrapper returned `0` and the result slot is genuinely empty, exactly as on a real rejection. This is
-the one classification the spec's totality makes load-bearing. -/
+/-- **An exhausted arena is reported as `outOfMemory`, not as a rejection.** The status alone
+settles it: whatever the result slot looks like, an implementation-level exhaustion stays
+distinguishable from the spec rejection it superficially resembles. -/
 theorem classifyWrapperRun_outOfMemory (observeValue : State → Option SszBridge.RawV4)
     (discriminantAddr resultBase steps : Nat) (rawResult rawError : AccessorOutcome)
     (final : State)
     (hcode : observeReturnCode? final = some 0)
-    (herror : rawError = AccessorOutcome.returned DecodeStatus.outOfMemory.code)
-    (hresult : rawResult = AccessorOutcome.returned 0)
-    (htag : observeOptionTag? final discriminantAddr = some false) :
+    (herror : rawError = AccessorOutcome.returned DecodeStatus.outOfMemory.code) :
     classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError
       (.reached steps) final = .error .outOfMemory := by
   unfold classifyWrapperRun
-  rw [hcode, herror, hresult, htag]
-  exact rejectionOutcomeOfStatus_outOfMemory
+  rw [hcode, herror]
+  simp [show statusCategory DecodeStatus.outOfMemory.code = .arenaExhausted by decide]
+
+/-- **A refused second call is `badReturn`, never a rejection.** Once `attempted` is set the wrapper
+returns `0` and records `alreadyDecoded` while its stored result stays present — the same `0` a real
+rejection returns. The status is what tells them apart, which is why it is dispatched before the
+result slot is inspected. -/
+theorem classifyWrapperRun_alreadyDecoded (observeValue : State → Option SszBridge.RawV4)
+    (discriminantAddr resultBase steps : Nat) (rawResult rawError : AccessorOutcome)
+    (final : State)
+    (hcode : observeReturnCode? final = some 0)
+    (herror : rawError = AccessorOutcome.returned DecodeStatus.alreadyDecoded.code) :
+    classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError
+      (.reached steps) final = .error .badReturn := by
+  unfold classifyWrapperRun
+  rw [hcode, herror]
+  simp [show statusCategory DecodeStatus.alreadyDecoded.code = .undocumented by decide]
 
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw

@@ -357,6 +357,16 @@ let
     # Coverage is per occurrence, gaps explicit.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.ScaleOccurrenceCheck
+    # Row D executable runner: native_decide that RUNNING the pinned binary in the Sail model — entry
+    # state, steps to the return sentinel, both exported accessors, and the full value observation —
+    # gives the same answer as the SSZ oracle on every corpus case, field for field on the accepted
+    # ones (`runner_agrees_with_spec`); and that the failure modes stay apart under real execution: a
+    # short budget is fuel exhaustion, a misplaced observer is a malformed result, and a refused
+    # SECOND call — which returns 0 with `alreadyDecoded`, exactly as a rejection returns 0 — is a bad
+    # return, never a rejection. This is the executable-test item of D2; the bad-artifact and
+    # oversized-input cases are proved universally in `Runner.lean` instead of sampled here.
+    # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.RunnerExecution
     touch "$out"
   '';
 

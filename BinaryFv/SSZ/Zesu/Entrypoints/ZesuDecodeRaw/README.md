@@ -10,11 +10,26 @@ decoder. Read the files in this order:
    input, and writes the C ABI registers.
 5. `EntryBinding.lean` proves that the resulting state satisfies the exported contract's entry
    predicate.
+6. `Classify.lean` turns a finished run plus the two accessor returns into a public outcome or a
+   specific error.
+7. `Runner.lean` puts it together and is what `BinaryFv/SSZ/Zesu/Interface.lean` delegates to.
 
 Only file-backed ELF bytes are loaded eagerly. The roughly 69 MiB BSS and arena tail remain sparse;
-the builder writes the mutable globals it needs explicitly. `CodeIntactRegression.lean` demonstrates
-why code integrity covers file-backed bytes rather than requiring mutable BSS to remain equal to its
-initial zero image.
+the builder writes the mutable globals it needs explicitly, and zero-fills the machine stack the way
+an operating system hands a process zeroed pages — without that, the decoder's genuine reads of
+stack bytes it never wrote would trap, since Sail's `readByte` traps on absent memory. The arena
+needs no such fill: the allocator's blocks are written before they are read, which the executable
+runner tests confirm end to end. `CodeIntactRegression.lean` demonstrates why code integrity covers
+file-backed bytes rather than requiring mutable BSS to remain equal to its initial zero image.
 
-The runner stops when the decoder returns to the sentinel. Reaching the sentinel, trapping, and
-exhausting fuel are distinct outcomes so later correspondence proofs cannot conflate them.
+The runner stops when the decoder returns to the sentinel, then *executes* the two exported
+accessors — `zesu_raw_result` and `zesu_raw_error` — from the post-return state rather than
+re-reading the globals they read, so the answer depends on the same code a caller would run.
+Reaching the sentinel, trapping, and exhausting fuel are distinct outcomes, and so are the ways a
+returned run can still fail: an undocumented status, a result slot that disagrees with the return
+code, an unreadable value, and an exhausted arena each keep their own error. None of them may become
+a rejection — `wrapper_rejection_forces_checks` states that as a converse and
+`executeDecode_rejected_forces_checks` lifts it to the public entry.
+
+`BinaryFv/SSZ/Zesu/Validation/RunnerExecution.lean` runs all of this against the real binary and
+compares with the SSZ oracle.

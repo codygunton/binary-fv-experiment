@@ -159,19 +159,39 @@ def initRuntimeGlobals : SailM Unit := do
   storeU64 zkvmHeapTop
     ((Elfling.GeneratedDecoderGlobals.runtimeGlobals.find? (·.1 == "heap")).elim 0 (fun g => g.2.1 + g.2.2))
 
+/-- Zero the whole reserved machine stack, the way an operating system hands a fresh process zeroed
+stack pages.
+
+This is not optional. Sail's `readByte` traps on absent memory, so every address the decoder reads
+must be materialized first, and the compiled decoder genuinely reads stack bytes it never wrote —
+struct copies move padding, and a wider load can cover a narrower store. Running an accepted decode
+without this fill traps at `0x3000_000f_e66a`, ~6.5 KB below the top of the stack. On real hardware
+those reads are simply reads of mapped memory; zeroing the reservation models that faithfully and
+makes the runner's initial state a *specific*, fully determined one rather than a partial one.
+
+The whole reservation is filled rather than the part a particular run happens to touch, so a deeper
+run cannot silently start trapping. -/
+def initStack : SailM Unit :=
+  loadZeroBytes canonicalRunnerLayout.stackBase canonicalRunnerLayout.stackSize
+
 /-- The full entry-state construction for input `input` at the pinned runner layout.
 
-Only the addresses the decoder reads before writing are materialized: the file-backed code and
-rodata, the input, the decoder's private globals (zeroed → fresh model), and the host heap globals.
-The 64 MiB arena and the machine stack are deliberately **not** pre-filled — the allocator and the
-decoder's frames write them before reading (Sail's `readByte` traps on absent memory, so a genuine
-read-before-write would surface as a trap, not silent zero). This keeps the builder to ~20 KB of file
-bytes plus the input rather than a 69 MB image expansion, and pairs with the file-backed `CodeIntact`
-correction. -/
+Materialized: the file-backed code and rodata, the zeroed machine stack, the input, the decoder's
+private globals (zeroed → fresh model), and the host heap globals. The 64 MiB arena is deliberately
+**not** pre-filled — the allocator hands out blocks the decoder writes before reading, which the
+executable runner tests confirm end to end — so the builder stays at ~20 KB of file bytes plus the
+stack and the input rather than a 69 MB image expansion, pairing with the file-backed `CodeIntact`
+correction.
+
+The stack is filled *before* the input so that the input's bytes are the last word on their own
+range, which keeps `MemoryBytes` true for an input of any size rather than only for one small enough
+to sit below the stack. -/
 def buildZesuEntryState (input : ByteArray) : SailM Unit := do
   configureZesuMachine
   -- Materialize only the file-backed code and rodata (not the 69 MB BSS/arena tail).
   loadFileBackedImage Artifact.programImage
+  -- The machine stack the decoder's frames live in.
+  initStack
   -- The caller-owned input buffer.
   loadBytes canonicalRunnerLayout.inputBase input
   -- Fresh decoder globals and initialized allocator runtime globals.

@@ -227,8 +227,7 @@ theorem executeDecode_rejected_forces_checks {input : ByteArray}
       rawResult = AccessorOutcome.returned 0 ∧
       observeOptionTag? final storedResultDiscriminantAddr = some false ∧
       (∃ status, rawError = AccessorOutcome.returned status ∧
-        (status = Contracts.DecodeStatus.invalidSsz.code ∨
-          status = Contracts.DecodeStatus.unknownFork.code)) ∧
+        statusCategory status = .specRejection) ∧
       classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
         Elfling.canonicalResultBuffer rawResult rawError (.reached steps) final = .ok .rejected := by
   unfold executeDecode at h
