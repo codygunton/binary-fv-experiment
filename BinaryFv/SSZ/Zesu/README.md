@@ -17,8 +17,8 @@ The directory names describe the subject of each definition or theorem; there is
   exported function.
   `ZesuDecodeRaw` covers `zesu_decode_raw`.
 - [`Contracts`](Contracts): the source-level meaning of each decoder routine and the machine
-  interface each compiled occurrence must satisfy. Begin with its [README](Contracts/README.md).
-- [`Elfling`](Elfling): the generated occurrence map and its validation against the canonical ELF,
+  interface each compiled function instance must satisfy. Begin with its [README](Contracts/README.md).
+- [`Elfling`](Elfling): the generated function instance map and its validation against the canonical ELF,
   including control-flow edges, calls, inlined children, global addresses, and parameter locations.
   Begin with its [README](Elfling/README.md); regenerate the data with
   `nix build .#elfling-program`.

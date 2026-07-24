@@ -239,7 +239,7 @@ instantiates it at `DecoderGlobalsModel.fresh`; a second call is the same bindin
 -/
 
 /-- The shared specification of `zesu_decode_raw`: the pure `decode` outcome. Shared by every
-occurrence; it names no register, global, or address. -/
+function instance; it names no register, global, or address. -/
 def specZesuDecodeRaw : RoutineSpec ZesuDecodeRawArgs (Except SszDecodeError SszBridge.RawV4) where
   meaning := fun args => meaningDecode args.bytes
 
@@ -268,12 +268,12 @@ def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout
   after.regs.get? x10 = some (BitVec.ofNat 64 (callOutcome incoming result).returnCode) ∧
   DecoderGlobalsRep globals rep args.inputBase args.bytes resultBuffer (resultingGlobals incoming result) after
 
-/-- The wrapper as a full occurrence contract: the shared spec paired with the real exported binding
+/-- The wrapper as a full function instance contract: the shared spec paired with the real exported binding
 at a given incoming globals model. -/
-def occurrenceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+def functionInstanceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
     (incoming : DecoderGlobalsModel) :
-    OccurrenceContract ZesuDecodeRawArgs (Except SszDecodeError SszBridge.RawV4) where
+    FunctionInstanceContract ZesuDecodeRawArgs (Except SszDecodeError SszBridge.RawV4) where
   spec := specZesuDecodeRaw
   binding :=
     { entry := preZesuDecodeRaw env globals resultBuffer rep incoming
@@ -283,16 +283,16 @@ def occurrenceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobals
 /-- The exported wrapper's correctness claim, at the fresh incoming model the root theorem uses. -/
 def correctnessClaimZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  OccurrenceContract.ImplementsInstance instance_ entry exit
-    (occurrenceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
+  FunctionInstanceContract.ImplementsFunctionInstance functionInstance entry exit
+    (functionInstanceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
 
 /-- The exported wrapper's entry binding is satisfiable under a valid environment. -/
 def satisfiableZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4) : Prop :=
   ValidEnvironment env →
-    OccurrenceContract.PreSatisfiable
-      (occurrenceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
+    FunctionInstanceContract.PreSatisfiable
+      (functionInstanceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
 
 end BinaryFv.SSZ.Zesu.Contracts

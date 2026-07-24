@@ -3,7 +3,7 @@
 
 The build gates have already checked the corpus outcomes, typed routine vectors, and allocation
 events. This script makes that evidence reviewable by grouping it first by the 43 source-routine
-identities and then by the 141 generated binary occurrences.
+identities and then by the 141 generated binary function instances.
 
 Every table uses stable sorting and omits timestamps and host-specific values, so repeated builds
 produce byte-identical reports.
@@ -26,13 +26,13 @@ def _routine_id(qualified: str, specialization: list) -> str:
     return qualified + (f"[{','.join(specialization)}]" if specialization else "")
 
 
-def build_routine_and_occurrence_tables(
-    occurrences: list[dict], vectors: list[dict], outcomes: list[dict]
+def build_routine_and_function_instance_tables(
+    function_instances: list[dict], vectors: list[dict], outcomes: list[dict]
 ) -> dict:
-    """Coverage keyed first by all 43 routine identities, then by all 141 generated occurrences.
+    """Coverage keyed first by all 43 routine identities, then by all 141 generated function instances.
 
     A routine is *covered* iff it has at least one non-gap typed vector whose probe outcome matched.
-    Each occurrence inherits its routine's coverage. Routines / occurrences with no covering vector are
+    Each function instance inherits its routine's coverage. Routines or function instances with no covering vector are
     reported as explicit gaps rather than silently omitted."""
     outcome_by_id = {o["id"]: o for o in outcomes}
 
@@ -59,9 +59,13 @@ def build_routine_and_occurrence_tables(
         if got.get("oom_safe") is False:
             r["oom_unsafe"] = True
 
-    # All routine identities that carry an occurrence, plus any the vectors exercise.
-    occ_ids = [_routine_id(o.get("qualified", "?"), o.get("specialization", [])) for o in occurrences]
-    all_routine_ids = sorted(set(occ_ids) | set(routines))
+    # All routine identities that carry a function instance, plus any the vectors exercise.
+    function_instance_ids = [
+        _routine_id(function_instance.get("qualified", "?"),
+                    function_instance.get("specialization", []))
+        for function_instance in function_instances
+    ]
+    all_routine_ids = sorted(set(function_instance_ids) | set(routines))
 
     def covered(rt: str) -> bool:
         r = routines.get(rt)
@@ -73,7 +77,7 @@ def build_routine_and_occurrence_tables(
                               "categories": set(), "allocations": 0, "leaked": False, "oom_unsafe": False})
         routine_rows.append({
             "routine": rt,
-            "occurrences": occ_ids.count(rt),
+            "function_instances": function_instance_ids.count(rt),
             "vectors": r["vectors"],
             "matched": r["matched"],
             "value_cases": r["value"],
@@ -86,32 +90,35 @@ def build_routine_and_occurrence_tables(
             "covered": covered(rt),
         })
 
-    occurrence_rows = []
-    for idx, o in enumerate(occurrences):
-        rt = _routine_id(o.get("qualified", "?"), o.get("specialization", []))
-        occurrence_rows.append({
+    function_instance_rows = []
+    for idx, function_instance in enumerate(function_instances):
+        rt = _routine_id(function_instance.get("qualified", "?"),
+                         function_instance.get("specialization", []))
+        function_instance_rows.append({
             "index": idx,
-            "entry_pc": o.get("entryPc"),
+            "entry_pc": function_instance.get("entryPc"),
             "routine": rt,
-            "kind": o.get("kind", ""),
+            "kind": function_instance.get("kind", ""),
             "covered": covered(rt),
         })
 
     return {
         "routine_coverage": {
             "routines": len(all_routine_ids),
-            "occurrences": len(occurrences),
+            "function_instances": len(function_instances),
             "all_routines_covered": all(r["covered"] for r in routine_rows),
-            "all_occurrences_covered": all(o["covered"] for o in occurrence_rows),
+            "all_function_instances_covered": all(
+                function_instance["covered"] for function_instance in function_instance_rows
+            ),
             "uncovered_routines": [r["routine"] for r in routine_rows if not r["covered"]],
         },
         "routines": routine_rows,
-        "occurrences": occurrence_rows,
+        "function_instances": function_instance_rows,
     }
 
 
 def build_report(corpus: list[dict], outcomes: list[dict], ledger: list[dict],
-                 occurrences: list[dict] | None = None, vectors: list[dict] | None = None,
+                 function_instances: list[dict] | None = None, vectors: list[dict] | None = None,
                  routine_outcomes: list[dict] | None = None) -> dict:
     by_id = {r["id"]: r for r in corpus}
     outcome_by_id = {r["id"]: r for r in outcomes}
@@ -162,9 +169,9 @@ def build_report(corpus: list[dict], outcomes: list[dict], ledger: list[dict],
             "oom_sampled": led.get("oom_sampled"),
         })
 
-    routine_occurrence = (
-        build_routine_and_occurrence_tables(occurrences, vectors, routine_outcomes or [])
-        if occurrences is not None and vectors is not None else None
+    routine_function_instance = (
+        build_routine_and_function_instance_tables(function_instances, vectors, routine_outcomes or [])
+        if function_instances is not None and vectors is not None else None
     )
 
     report = {
@@ -187,16 +194,16 @@ def build_report(corpus: list[dict], outcomes: list[dict], ledger: list[dict],
                                   "probe == corpus and meanings == oracle == corpus (transitive)",
             "value_fidelity": "certified separately by the preserved three-way ssz-value-v1 audit; "
                               "the probe deliberately emits only the decision + ledger",
-            "occurrence_granularity": "the 43 routines / 141 occurrences are validated in the Lean "
+            "function_instance_granularity": "the 43 routines / 141 function instances are validated in the Lean "
                                       "binding inventory (Row A) and production traces (Row C); the "
                                       "probe exercises each routine directly via typed vectors and the "
                                       "composed top-level entrypoint",
         },
     }
-    if routine_occurrence is not None:
-        report["routine_coverage"] = routine_occurrence["routine_coverage"]
-        report["routines"] = routine_occurrence["routines"]
-        report["occurrences"] = routine_occurrence["occurrences"]
+    if routine_function_instance is not None:
+        report["routine_coverage"] = routine_function_instance["routine_coverage"]
+        report["routines"] = routine_function_instance["routines"]
+        report["function_instances"] = routine_function_instance["function_instances"]
     return report
 
 
@@ -242,35 +249,36 @@ def render_md(report: dict) -> str:
             "",
             "## Per-routine coverage (all 43 catalog identities)",
             "",
-            f"- routine identities: **{rc['routines']}**; generated occurrences: **{rc['occurrences']}**",
+            f"- routine identities: **{rc['routines']}**; generated function instances: **{rc['function_instances']}**",
             f"- all routines covered by a matching typed vector: **{rc['all_routines_covered']}**",
-            f"- all occurrences covered: **{rc['all_occurrences_covered']}**",
+            f"- all function instances covered: **{rc['all_function_instances_covered']}**",
         ]
         if rc["uncovered_routines"]:
             lines.append(f"- **uncovered (gap):** {', '.join(rc['uncovered_routines'])}")
         lines += [
             "",
-            "| routine | occ | vectors | value | error | matched | alloc-events | leaked | oom-unsafe | covered |",
+            "| routine | function instances | vectors | value | error | matched | alloc-events | leaked | oom-unsafe | covered |",
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | :---: | :---: | :---: |",
         ]
         for r in report["routines"]:
             lines.append(
-                f"| {r['routine']} | {r['occurrences']} | {r['vectors']} | {r['value_cases']} | "
+                f"| {r['routine']} | {r['function_instances']} | {r['vectors']} | {r['value_cases']} | "
                 f"{r['error_cases']} | {r['matched']}/{r['vectors']} | {r['allocation_events']} | "
                 f"{'✗' if r['leaked'] else '·'} | {'✗' if r['oom_unsafe'] else '·'} | "
                 f"{'✓' if r['covered'] else 'GAP'} |"
             )
         lines += [
             "",
-            "## Per-occurrence coverage (all 141 generated occurrences)",
+            "## Per-function-instance coverage (all 141 generated function instances)",
             "",
             "| # | entry-pc | routine | kind | covered |",
             "| ---: | ---: | --- | --- | :---: |",
         ]
-        for o in report["occurrences"]:
+        for function_instance in report["function_instances"]:
             lines.append(
-                f"| {o['index']} | {o['entry_pc']} | {o['routine']} | {o['kind']} | "
-                f"{'✓' if o['covered'] else 'GAP'} |"
+                f"| {function_instance['index']} | {function_instance['entry_pc']} | "
+                f"{function_instance['routine']} | {function_instance['kind']} | "
+                f"{'✓' if function_instance['covered'] else 'GAP'} |"
             )
 
     p = report["provenance"]
@@ -280,7 +288,7 @@ def render_md(report: dict) -> str:
         "",
         f"- **decision**: {p['decision_source']}; agreement: {p['decision_agreement']}.",
         f"- **value fidelity**: {p['value_fidelity']}.",
-        f"- **occurrence granularity**: {p['occurrence_granularity']}.",
+        f"- **function-instance granularity**: {p['function_instance_granularity']}.",
         "",
     ]
     return "\n".join(lines)
@@ -293,15 +301,15 @@ def main() -> int:
     ap.add_argument("--ledger", required=True)
     ap.add_argument("--out-json", required=True)
     ap.add_argument("--out-md", required=True)
-    # Optional inputs that add the 43-routine and 141-occurrence coverage tables.
-    ap.add_argument("--program-json", help="elfling program.json (the 141 generated occurrences)")
+    # Optional inputs that add the 43-routine and 141-function-instance coverage tables.
+    ap.add_argument("--program-json", help="Elfling program.json (the 141 generated function instances)")
     ap.add_argument("--routine-vectors", help="ssz-routine-vectors-v1 JSONL")
     ap.add_argument("--routine-outcomes", help="probe --routine-vectors output JSONL")
     a = ap.parse_args()
 
-    occurrences = vectors = routine_outcomes = None
+    function_instances = vectors = routine_outcomes = None
     if a.program_json:
-        occurrences = json.loads(Path(a.program_json).read_text())["occurrences"]
+        function_instances = json.loads(Path(a.program_json).read_text())["function_instances"]
     if a.routine_vectors:
         vectors = _load_jsonl(Path(a.routine_vectors))
     if a.routine_outcomes:
@@ -309,13 +317,13 @@ def main() -> int:
 
     report = build_report(
         _load_jsonl(Path(a.corpus)), _load_jsonl(Path(a.outcomes)), _load_jsonl(Path(a.ledger)),
-        occurrences=occurrences, vectors=vectors, routine_outcomes=routine_outcomes,
+        function_instances=function_instances, vectors=vectors, routine_outcomes=routine_outcomes,
     )
     Path(a.out_json).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     Path(a.out_md).write_text(render_md(report))
     rc = report.get("routine_coverage")
-    cov = (f", routines={rc['routines']} occ={rc['occurrences']} "
-           f"all_covered={rc['all_routines_covered'] and rc['all_occurrences_covered']}") if rc else ""
+    cov = (f", routines={rc['routines']} function_instances={rc['function_instances']} "
+           f"all_covered={rc['all_routines_covered'] and rc['all_function_instances_covered']}") if rc else ""
     print(f"report: {report['summary']['cases']} cases, "
           f"agree={report['summary']['all_agree_with_corpus']}, "
           f"leaks={report['summary']['leaks']}, oom_unsafe={report['summary']['oom_unsafe']}{cov}")

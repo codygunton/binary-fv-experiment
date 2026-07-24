@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Row C: map production-ELF evidence to a generated Elfling occurrence and evaluate its Row A binding
-and effects. Stop/go for the `decodeOptionalBlobSchedule` vertical slice (occurrence 116 + nested
+"""Row C: map production-ELF evidence to a generated Elfling function_instance and evaluate its Row A binding
+and effects. Stop/go for the `decodeOptionalBlobSchedule` vertical slice (function_instance 116 + nested
 readU64 children 117/118/119).
 
 Evidence is the UNCHANGED production ELF observed under pinned QEMU (plugin trace of executed PCs +
@@ -8,7 +8,7 @@ loads/stores) and batch GDB (registers/memory at the binding boundaries). Nothin
 The evaluation is deterministic and emits a JSON evidence+result summary; a generated Lean data module
 for the Lean diagnostic checker is added next. Diagnostic-only; never imported by the proof.
 
-Checks (per the plan): occurrence entry reached; nested readU64 const-offset bindings realized by the
+Checks (per the plan): function_instance entry reached; nested readU64 const-offset bindings realized by the
 load addresses; `RoutineSpec.meaning` (the decoded RawBlobSchedule from the actual loads); result +
 exit binding (result slot written); instruction count vs step bound; allocation ledger; and code/input
 preservation + a classified write frame (decoder global / allocator cursor / heap / stack / input /
@@ -94,11 +94,11 @@ CHILD_OFFSETS = {117: 0, 118: 8, 119: 16}  # Row A const-offset bindings for the
 STEP_BOUND = 256                             # contractOptionalBlobSchedule.stepBound
 
 
-def reduce_evidence(occ, records, stops, arm):
-    """Reduce raw QEMU/GDB evidence to a compact, deterministic per-occurrence structure that BOTH the
+def reduce_evidence(function_instance, records, stops, arm):
+    """Reduce raw QEMU/GDB evidence to a compact, deterministic per-function_instance structure that BOTH the
     Python oracle and the Lean checker evaluate identically. Only observed facts go here; the expected
     binding / meaning / layout live in the checker."""
-    region_ranges = [(r["start"], r["start"] + r["size"]) for r in occ["regions"]]
+    region_ranges = [(r["start"], r["start"] + r["size"]) for r in function_instance["regions"]]
 
     def in_regions(pc):
         return any(a <= pc < b for a, b in region_ranges)
@@ -108,23 +108,23 @@ def reduce_evidence(occ, records, stops, arm):
              if executed[i + 1] != executed[i] + 2 and executed[i + 1] != executed[i] + 4}
     loads = [tuple(r[1:]) for r in records if r[0] == "L"]
     stores = [tuple(r[1:]) for r in records if r[0] == "S"]
-    entry = {s["pc"]: s for s in stops}.get(occ["entryPc"])
+    entry = {s["pc"]: s for s in stops}.get(function_instance["entryPc"])
     raw_regs = entry["registers"] if entry else {f"x{n}": 0 for n in range(32)}
     raw_sp = raw_regs["x2"]
     normalized_regs = {
         str(n): normalize_stack_address(raw_regs[f"x{n}"], raw_sp) for n in range(32)
     }
     return {
-        "occ": occ["index"] if "index" in occ else 116,
+        "function_instance": function_instance["index"] if "index" in function_instance else 116,
         "arm": arm,
-        "qualified": occ["qualified"],
-        "entryPc": occ["entryPc"],
-        "exitPc": occ["exitPc"],
+        "qualified": function_instance["qualified"],
+        "entryPc": function_instance["entryPc"],
+        "exitPc": function_instance["exitPc"],
         "regions": sorted([a, b] for a, b in region_ranges),
-        "declaredEdges": sorted([e["source"], e["target"]] for e in occ["edges"]),
+        "declaredEdges": sorted([e["source"], e["target"]] for e in function_instance["edges"]),
         "firstExecuted": executed[0] if executed else None,
-        "occInsnCount": sum(1 for pc in executed if in_regions(pc)),
-        "occExecEdges": sorted([s, t] for (s, t) in edges if in_regions(s)),
+        "functionInstanceInsnCount": sum(1 for pc in executed if in_regions(pc)),
+        "functionInstanceExecEdges": sorted([s, t] for (s, t) in edges if in_regions(s)),
         "inRegionStores": sorted(
             [pc, normalize_stack_address(addr, raw_sp), w, v]
             for (pc, addr, w, v) in stores if in_regions(pc)
@@ -148,7 +148,7 @@ def evaluate_compact(ev, mutate=None):
 
     checks = {}
     checks["entry_reached"] = ev["firstExecuted"] == ev["entryPc"]
-    checks["edges_subset_of_cfg"] = all((s, t) in declared for s, t in ev["occExecEdges"])
+    checks["edges_subset_of_cfg"] = all((s, t) in declared for s, t in ev["functionInstanceExecEdges"])
 
     # Nested readU64 const offsets: the input byte loads must be EXACTLY the 8-byte windows at
     # slice_ptr + {0,8,16} (the Row A const-offset bindings) — no gap, no extra, no shift. This ties the
@@ -168,9 +168,9 @@ def evaluate_compact(ev, mutate=None):
         checks["decoded_blob_schedule"] = None
 
     checks["result_slot_on_stack"] = classify_write(a0, sp) == "stack"
-    checks["insn_count"] = ev["occInsnCount"]
+    checks["insn_count"] = ev["functionInstanceInsnCount"]
     checks["step_bound"] = STEP_BOUND
-    checks["within_step_bound"] = ev["occInsnCount"] <= STEP_BOUND
+    checks["within_step_bound"] = ev["functionInstanceInsnCount"] <= STEP_BOUND
 
     classes = {}
     for (pc, addr, w, v) in ev["inRegionStores"]:
@@ -184,17 +184,17 @@ def evaluate_compact(ev, mutate=None):
     return checks
 
 
-def evaluate(occ, records, stops, arm, mutate=None):
-    return evaluate_compact(reduce_evidence(occ, records, stops, arm), mutate)
+def evaluate(function_instance, records, stops, arm, mutate=None):
+    return evaluate_compact(reduce_evidence(function_instance, records, stops, arm), mutate)
 
 
 def capture_arms(qemu, gdb, plugin, elf, program_json, arms, scratch):
     """Capture + reduce the compact evidence for `arms` = {name: input_path}. Returns [compact, ...]."""
-    occ = json.load(open(program_json))["occurrences"][116]
-    assert occ["qualified"] == "ssz_raw.decodeOptionalBlobSchedule", occ["qualified"]
-    occ = {**occ, "index": 116}
-    lo, hi = occ["entryPc"], occ["exitPc"]
-    boundary = [occ["entryPc"], 76988, 77020, 77120] + occ["exits"]
+    function_instance = json.load(open(program_json))["function_instances"][116]
+    assert function_instance["qualified"] == "ssz_raw.decodeOptionalBlobSchedule", function_instance["qualified"]
+    function_instance = {**function_instance, "index": 116}
+    lo, hi = function_instance["entryPc"], function_instance["exitPc"]
+    boundary = [function_instance["entryPc"], 76988, 77020, 77120] + function_instance["exits"]
     scratch = Path(scratch)
     scratch.mkdir(parents=True, exist_ok=True)
     evidence = []
@@ -202,7 +202,7 @@ def capture_arms(qemu, gdb, plugin, elf, program_json, arms, scratch):
         sub = scratch / arm
         sub.mkdir(exist_ok=True)
         records, stops = run_capture(qemu, gdb, plugin, elf, path, lo, hi, boundary, ["$x10:24"], sub)
-        evidence.append(reduce_evidence(occ, records, stops, arm))
+        evidence.append(reduce_evidence(function_instance, records, stops, arm))
     return evidence
 
 
@@ -224,7 +224,7 @@ def main() -> int:
                             {"present": a.present, "absent": a.absent, "malformed": a.malformed},
                             a.scratch)
     arms = [{"evidence": ev, "checks": evaluate_compact(ev)} for ev in evidence]
-    report = {"occurrence": 116, "qualified": "ssz_raw.decodeOptionalBlobSchedule", "arms": arms}
+    report = {"function_instance": 116, "qualified": "ssz_raw.decodeOptionalBlobSchedule", "arms": arms}
     Path(a.out_json).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     for r in arms:
         c = r["checks"]

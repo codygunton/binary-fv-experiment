@@ -1,10 +1,10 @@
-import BinaryFv.SSZ.Zesu.Validation.ScaleOccurrenceTypes
+import BinaryFv.SSZ.Zesu.Validation.ScaleFunctionInstanceTypes
 import BinaryFv.SSZ.Zesu.Validation.GeneratedScaleEvidence
 
 /-!
-# Checking all 141 occurrences against the production ELF
+# Checking all 141 functionInstances against the production ELF
 
-This module extends the small `decodeOptionalBlobSchedule` example to every occurrence in the
+This module extends the small `decodeOptionalBlobSchedule` example to every functionInstance in the
 generated program. It reads compact evidence reduced from runs of the unchanged ELF and evaluates
 fourteen checks:
 
@@ -19,13 +19,13 @@ fourteen checks:
   writesClassified      every in-region store lands in a known memory region (re-classified here from
                         the recorded (addr, sp); raw mem primitives carry a class summary)
   bindingsEvaluable     every declared Row A binding row resolved against the real machine state at
-                        the occurrence's declared entry PC (an unresolvable location is a FAILURE)
+                        the functionInstance's declared entry PC (an unresolvable location is a FAILURE)
   bindingsRealized      the resolved bindings had their declared consequence in the trace
   derivedBindingsHold   a loop-`derived` row's `index * stride + constant` relation held at every
                         captured entry (the register carried a multiple of the stride, and the argument
                         was that value plus the row's constant)
   exitBindingRealized   the result register at a declared RETURN exit matches the exit convention
-  allocationLedger      the occurrence's cursor events ARE the allocation sequence its fixture requires
+  allocationLedger      the functionInstance's cursor events ARE the allocation sequence its fixture requires
                         — count, order, sizes, alignments and returned blocks — with the expected side
                         derived from the pinned Zig decode order and the Row B element ABI, not from
                         the binary
@@ -48,10 +48,10 @@ shadow memory into a committed artifact. `rederived_families_agree` is the cross
 import honest: the independently re-derived family predicate must never contradict the aggregate.
 
 Each check is an `Option Bool`: `none` is an explicit gap and is never counted as a pass. Coverage is
-per occurrence, so one inlined copy cannot inherit evidence from another copy of the same routine.
+per functionInstance, so one inlined copy cannot inherit evidence from another copy of the same routine.
 
-`checker_agrees_with_oracle` pins Lean ≡ Python on every occurrence. `gating_checks_hold` records that
-the six structural/effect checks pass on every COVERED occurrence. The `negative_*` theorems require
+`checker_agrees_with_oracle` pins Lean ≡ Python on every functionInstance. `gating_checks_hold` records that
+the six structural/effect checks pass on every COVERED functionInstance. The `negative_*` theorems require
 mutations of the evidence to flip a check. This validation module is never a theorem premise.
 -/
 
@@ -59,7 +59,7 @@ namespace BinaryFv.SSZ.Zesu.Validation
 
 open BinaryFv.SSZ.Zesu.Validation.GeneratedScaleEvidence
 
-/-- Pinned production memory layout (identical to `BinaryOccurrenceCheck.classifyWrite`). -/
+/-- Pinned production memory layout (identical to `BinaryFunctionInstanceCheck.classifyWrite`). -/
 def classifyWriteScaled (addr sp : Nat) : String :=
   if 65768 ≤ addr ∧ addr < 81704 then "code"
   else if 86032 ≤ addr ∧ addr < 86048 then "allocator-cursor"
@@ -69,28 +69,28 @@ def classifyWriteScaled (addr sp : Nat) : String :=
   else if sp - 65536 ≤ addr ∧ addr ≤ sp + 65536 then "stack"
   else "unclassified"
 
-/-- The distinct-relevant write classes of an occurrence: re-classified from the carried non-stack
+/-- The distinct-relevant write classes of an functionInstance: re-classified from the carried non-stack
 addresses (with `sp = 0`; carried addresses are never stack, and every non-stack region sits below the
 stack window) plus the summarized `stack` flag — or the pre-classified summary for raw mem primitives.
 Environment-independent: no absolute stack address appears. -/
-def scaledClasses (ev : OccScaleEvidence) : List String :=
+def scaledClasses (ev : FunctionInstanceScaleEvidence) : List String :=
   if ev.storesSummarized then ev.storeClasses
   else (ev.inRegionStores.map (fun a => classifyWriteScaled a 0)) ++ (if ev.hadStackStore then ["stack"] else [])
 
 /-- The named scalar observation `k` of the first captured invocation, if the reducer recorded one. -/
-def obs (ev : OccScaleEvidence) (k : String) : Option Int :=
+def obs (ev : FunctionInstanceScaleEvidence) (k : String) : Option Int :=
   (ev.bindingObs.find? (fun p => p.1 == k)).map Prod.snd
 
 /-- **Row A entry bindings resolve.** Every declared effective binding row produced a concrete value
 from the real machine state at the declared entry PC. `"unresolved"` means the declared location could
 not be read at all, which is a FAILURE — a binding that names a location the machine cannot supply is
-wrong, not merely unobserved. An occurrence with no declared rows has no obligation to discharge, so it
+wrong, not merely unobserved. An functionInstance with no declared rows has no obligation to discharge, so it
 is an explicit gap rather than a free pass.
 
 There is no "declared but meaningless" row to except any more: the generator refuses to emit one, so
-this is also the statement that the occurrence's `generatedEntryBinding` has a witness on its captured
+this is also the statement that the functionInstance's `generatedEntryBinding` has a witness on its captured
 entry state (see `entry_predicates_satisfiable_on_captured_states`). -/
-def bindingsEvaluableOf (ev : OccScaleEvidence) : Option Bool :=
+def bindingsEvaluableOf (ev : FunctionInstanceScaleEvidence) : Option Bool :=
   if ev.bindingHows.isEmpty then none
   else if ev.bindingHows.any (fun h => h == "unresolved") then some false
   else some true
@@ -107,13 +107,13 @@ def derivedRowHolds (d : DerivedRowEvidence) : Bool :=
     (List.zip d.registerValues d.values).all
       (fun p => p.1 % d.stride == 0 && p.2 == p.1 + d.constant)
 
-/-- An occurrence with no loop-derived row has nothing to discharge here — an explicit gap. -/
-def derivedBindingsHoldOf (ev : OccScaleEvidence) : Option Bool :=
+/-- An functionInstance with no loop-derived row has nothing to discharge here — an explicit gap. -/
+def derivedBindingsHoldOf (ev : FunctionInstanceScaleEvidence) : Option Bool :=
   if ev.derivedRows.isEmpty then none else some (ev.derivedRows.all derivedRowHolds)
 
 /-- The per-invocation consequence verdicts, aggregated. A single contradicted invocation fails the
-occurrence; a pass requires every captured invocation to have realized the consequence. -/
-def bindingsRealizedOf (ev : OccScaleEvidence) : Option Bool :=
+functionInstance; a pass requires every captured invocation to have realized the consequence. -/
+def bindingsRealizedOf (ev : FunctionInstanceScaleEvidence) : Option Bool :=
   if ev.realizedFail > 0 then some false
   else if ev.realizedPass > 0 && ev.realizedGap == 0 then some true
   else none
@@ -121,7 +121,7 @@ def bindingsRealizedOf (ev : OccScaleEvidence) : Option Bool :=
 /-- The `offsetRead` consequence, RE-DERIVED here from the carried observations rather than taken from
 the oracle: a reader declaring `len` must have touched exactly `len` distinct bytes, and the slice base
 its `offset` implies must land in a real data region. -/
-def offsetReadHolds (ev : OccScaleEvidence) : Option Bool :=
+def offsetReadHolds (ev : FunctionInstanceScaleEvidence) : Option Bool :=
   if ev.bindingFamily != "offsetRead" then none else
   match obs ev "declaredLen", obs ev "readCount", obs ev "baseClassOk" with
   | some declared, some got, some baseOk =>
@@ -131,7 +131,7 @@ def offsetReadHolds (ev : OccScaleEvidence) : Option Bool :=
 
 /-- The `entryAbi` consequence, RE-DERIVED: the exported entry's `input`/`input_len` registers must
 equal the linked input-buffer base and the exact byte length the process was fed. -/
-def entryAbiHolds (ev : OccScaleEvidence) : Option Bool :=
+def entryAbiHolds (ev : FunctionInstanceScaleEvidence) : Option Bool :=
   if ev.bindingFamily != "entryAbi" then none else
   match obs ev "entryInput", obs ev "wantInput", obs ev "entryLen", obs ev "wantLen" with
   | some i, some wi, some l, some wl => some (i == wi && l == wl)
@@ -139,7 +139,7 @@ def entryAbiHolds (ev : OccScaleEvidence) : Option Bool :=
 
 /-- The `rawCopy` consequence, RE-DERIVED: `memcpy`/`memmove` must write exactly `n` bytes at `dst`
 and read the whole `[src, src+n)` window. -/
-def rawCopyHolds (ev : OccScaleEvidence) : Option Bool :=
+def rawCopyHolds (ev : FunctionInstanceScaleEvidence) : Option Bool :=
   if ev.bindingFamily != "rawCopy" then none else
   match obs ev "copyStoredBytes", obs ev "copyWantBytes", obs ev "copySrcCovered" with
   | some got, some want, some cov => some (got == want && cov == 1)
@@ -152,7 +152,7 @@ The bump allocator is fully determined — `ptr = align_up(cursor, alignment)` a
 `(cursor_before, size, alignment)`. Checking only that the cursor moved forward inside the heap would
 accept a wrong size, a skipped alignment step, or a returned pointer that is not the block just carved
 out; this compares against the predicted values instead. -/
-def allocHolds (ev : OccScaleEvidence) : Option Bool :=
+def allocHolds (ev : FunctionInstanceScaleEvidence) : Option Bool :=
   if ev.bindingFamily != "alloc" then none else
   match obs ev "allocAfter", obs ev "allocWantAfter", obs ev "allocPtrKnown", obs ev "allocPtrMatches" with
   | some after, some wantAfter, some ptrKnown, some ptrMatches =>
@@ -160,12 +160,12 @@ def allocHolds (ev : OccScaleEvidence) : Option Bool :=
   | _, _, _, _ => none
 
 /-- The exit convention at a declared RETURN exit, RE-DERIVED. A tail-call exit is excluded upstream:
-its register file holds the callee's arguments, not this occurrence's result.
+its register file holds the callee's arguments, not this functionInstance's result.
 
 Every branch compares the returned register against something INDEPENDENTLY known. An earlier version
 returned `some true` for `copyDestination` and `decodeDecision` without looking at anything, which is
 not a check: it accepted any register value at all. -/
-def exitBindingOf (ev : OccScaleEvidence) : Option Bool :=
+def exitBindingOf (ev : FunctionInstanceScaleEvidence) : Option Bool :=
   if ev.exitConvention == "" then none
   else if ev.returnExits.isEmpty then none
   else if ev.exitConvention == "allocPointer" then
@@ -207,7 +207,7 @@ def ordinalsIncrease (os : List ObservedAlloc) : Bool :=
   (List.zip os (os.drop 1)).all (fun p => p.1.ordinal < p.2.ordinal)
 
 /-- **The ledger comparison.** Same event COUNT, same ORDER, same SIZES, same ALIGNMENTS, same returned
-blocks. Mirrors `scale_occurrences.ledger_agrees`. -/
+blocks. Mirrors `scale_function_instances.ledger_agrees`. -/
 def ledgerAgrees (observed : List ObservedAlloc) (expected : List ExpectedAlloc) : Bool :=
   observed.length == expected.length &&
     (List.zip observed expected).all (fun p => allocEventAgrees p.1 p.2) &&
@@ -222,18 +222,18 @@ def armLedgerHolds (l : ArmLedger) : Bool :=
     (l.observed.zipIdx.all fun p => p.1.ordinal == p.2) &&
     (l.expected.zipIdx.all fun p => p.1.ordinal == p.2)
 
-/-- An allocating occurrence's cursor events must BE the allocations the fixture requires of it — same
-count, order, sizes, alignments and returned blocks. A non-allocating occurrence causes no event and is
+/-- An allocating functionInstance's cursor events must BE the allocations the fixture requires of it — same
+count, order, sizes, alignments and returned blocks. A non-allocating functionInstance causes no event and is
 covered by `allocationConsistent` instead, so it is an explicit gap rather than a second opinion.
 
-An occurrence that is expected to allocate nothing and allocated nothing PASSES: that is a checkable
+An functionInstance that is expected to allocate nothing and allocated nothing PASSES: that is a checkable
 outcome, not an absent obligation. -/
-def allocationLedgerOf (ev : OccScaleEvidence) : Option Bool :=
+def allocationLedgerOf (ev : FunctionInstanceScaleEvidence) : Option Bool :=
   if !ev.allocates then none
   else some (ledgerAgrees ev.ledgerObserved ev.ledgerExpected)
 
 /-- The scaled checker, reproducing the Python oracle `evaluate_facts`. -/
-def evaluateOcc (ev : OccScaleEvidence) : ScaleChecks :=
+def evaluateFunctionInstance (ev : FunctionInstanceScaleEvidence) : ScaleChecks :=
   if !ev.covered then
     { entryReached := none, controlFlowIntegrity := none, exitsRespected := none, withinStepBound := none,
       allocationConsistent := none, inputPreserved := none, codePreserved := none,
@@ -256,7 +256,7 @@ def evaluateOcc (ev : OccScaleEvidence) : ScaleChecks :=
       inputPreserved := some (!(classes.contains "input"))
       codePreserved := some (!(classes.contains "code"))
       writesClassified := some (!(classes.contains "unclassified"))
-      -- MEANING. `meaningProduced` is the rigorous statement: the occurrence read a window of
+      -- MEANING. `meaningProduced` is the rigorous statement: the functionInstance read a window of
       -- EXACTLY its declared little-endian width, and that window's value is what it produced (stored,
       -- or held in a register when it left). The older value tie survives only for the slice readers.
       meaningTie :=
@@ -266,30 +266,30 @@ def evaluateOcc (ev : OccScaleEvidence) : ScaleChecks :=
                 && ev.scalarCarried then some true
         else none }
 
-/-- **Lean ≡ Python.** The scaled checker reproduces the oracle's result on EVERY occurrence
+/-- **Lean ≡ Python.** The scaled checker reproduces the oracle's result on EVERY functionInstance
 (present / malformed / absent arms, covered and uncovered). Kernel-checked. -/
 theorem checker_agrees_with_oracle :
-    allOccs.all (fun p => evaluateOcc p.1 == p.2) = true := by native_decide
+    allFunctionInstances.all (fun p => evaluateFunctionInstance p.1 == p.2) = true := by native_decide
 
 /-- The six structural/effect gating checks (entry / CFG integrity / allocation / input & code
-preservation / write classification) pass — `some true` — on EVERY covered occurrence. Step bound and
+preservation / write classification) pass — `some true` — on EVERY covered functionInstance. Step bound and
 meaning tie are reported separately (they carry explicit gaps). Kernel-checked. -/
 theorem gating_checks_hold :
-    allOccs.all (fun p =>
+    allFunctionInstances.all (fun p =>
       let ev := p.1
       !ev.covered ||
-        (let r := evaluateOcc ev
+        (let r := evaluateFunctionInstance ev
          r.entryReached == some true && r.controlFlowIntegrity == some true &&
          r.exitsRespected == some true &&
          r.allocationConsistent == some true && r.inputPreserved == some true &&
          r.codePreserved == some true && r.writesClassified == some true)) = true := by
   native_decide
 
-/-- No gating check ever FAILS (`some false`) on any occurrence: results are pass or explicit gap,
+/-- No gating check ever FAILS (`some false`) on any functionInstance: results are pass or explicit gap,
 never a violation of a Row A binding against the unchanged production ELF. Kernel-checked. -/
 theorem no_gating_failures :
-    allOccs.all (fun p =>
-      let r := evaluateOcc p.1
+    allFunctionInstances.all (fun p =>
+      let r := evaluateFunctionInstance p.1
       r.entryReached != some false && r.controlFlowIntegrity != some false &&
       r.exitsRespected != some false &&
       r.allocationConsistent != some false && r.inputPreserved != some false &&
@@ -297,57 +297,57 @@ theorem no_gating_failures :
       r.withinStepBound != some false && r.meaningTie != some false) = true := by
   native_decide
 
-/-- **Step bounds hold on every covered occurrence except the one documented gap.** occurrence 134
-(`requireCanonicalOffsets`) is the sole covered occurrence whose contract bound is an explicit gap — its
-`offsets.length` argument is caller-passed, not present in the occurrence's own input-buffer reads (the
-required interface change is recorded in the catalog / coverage report). Every OTHER covered occurrence
+/-- **Step bounds hold on every covered functionInstance except the one documented gap.** functionInstance 134
+(`requireCanonicalOffsets`) is the sole covered functionInstance whose contract bound is an explicit gap — its
+`offsets.length` argument is caller-passed, not present in the functionInstance's own input-buffer reads (the
+required interface change is recorded in the catalog / coverage report). Every OTHER covered functionInstance
 passes `withinStepBound`, including the input-dependent bounds resolved via sound lower bounds on their
-argument. Kernel-checked; Row C's step-bound conclusion excludes occurrence 134 by construction. -/
+argument. Kernel-checked; Row C's step-bound conclusion excludes functionInstance 134 by construction. -/
 theorem step_bounds_hold_except_documented_gap :
-    allOccs.all (fun p =>
+    allFunctionInstances.all (fun p =>
       let ev := p.1
-      !ev.covered || ev.index == 134 || (evaluateOcc ev).withinStepBound == some true) = true := by
+      !ev.covered || ev.index == 134 || (evaluateFunctionInstance ev).withinStepBound == some true) = true := by
   native_decide
 
-/-- The uncovered occurrences (allocatorRemap 123 / allocatorResize 135 / zesu_raw_error 137) are
-exactly the occurrences the checker reports as not covered; every OTHER occurrence is covered and carries
-concrete per-occurrence evidence. Row C's coverage conclusion excludes precisely these three.
+/-- The uncovered functionInstances (allocatorRemap 123 / allocatorResize 135 / zesu_raw_error 137) are
+exactly the functionInstances the checker reports as not covered; every OTHER functionInstance is covered and carries
+concrete per-functionInstance evidence. Row C's coverage conclusion excludes precisely these three.
 
 Their static unreachability is established separately by `static_reachability.py` — a backward
 reaching-definitions fixpoint over the reconstructed CFG plus a danger-set closure over the loaded image
 — and holds under the two hypotheses that analysis states explicitly (`STATIC_REACHABILITY.md`). This
 theorem asserts only the coverage partition, not the unreachability claim. -/
 theorem uncovered_are_exactly_the_statically_dead :
-    allOccs.all (fun p => p.1.covered == (p.1.index != 123 && p.1.index != 135 && p.1.index != 137))
+    allFunctionInstances.all (fun p => p.1.covered == (p.1.index != 123 && p.1.index != 135 && p.1.index != 137))
       = true := by native_decide
 
 /-! ## Row A bindings — the declared machine placement, checked against the real run -/
 
 /-- **No declared Row A binding failed to resolve against the production machine.** Wherever a row names
 a location — register, frame slot, base+offset memory word, or constant — that location produced a
-concrete value from the register/memory state captured at the occurrence's declared entry PC. No row is
+concrete value from the register/memory state captured at the functionInstance's declared entry PC. No row is
 `"unresolved"`. Kernel-checked. -/
 theorem all_declared_bindings_resolve :
-    allOccs.all (fun p => (evaluateOcc p.1).bindingsEvaluable != some false) = true := by
+    allFunctionInstances.all (fun p => (evaluateFunctionInstance p.1).bindingsEvaluable != some false) = true := by
   native_decide
 
-/-- **Every occurrence's generated entry predicate is SATISFIABLE on its captured entry state.**
+/-- **Every functionInstance's generated entry predicate is SATISFIABLE on its captured entry state.**
 
-`generatedEntryBinding` quantifies over an occurrence's binding rows, so a row with no machine meaning
+`generatedEntryBinding` quantifies over an functionInstance's binding rows, so a row with no machine meaning
 makes the whole predicate `False` and every implication out of it vacuous — which is exactly what the
 old `unlocated` kind did to the eight `decodeWithdrawals` reader rows. Row A now has a real case for
 every kind it emits (`BindingInventory.no_binding_kind_is_impossible`); this is the other half, on the
-production machine: for every covered occurrence that declares rows, EVERY row resolved to a concrete
+production machine: for every covered functionInstance that declares rows, EVERY row resolved to a concrete
 value from the register/memory state captured at its declared entry PC, so the conjunction has a
-witness there. 117 occurrences declare rows; the remaining 24 are the paramless ones Row A names. -/
+witness there. 117 functionInstances declare rows; the remaining 24 are the paramless ones Row A names. -/
 theorem entry_predicates_satisfiable_on_captured_states :
-    allOccs.all (fun p =>
+    allFunctionInstances.all (fun p =>
       !p.1.covered || p.1.bindingHows.isEmpty ||
-        (evaluateOcc p.1).bindingsEvaluable == some true) = true := by native_decide
+        (evaluateFunctionInstance p.1).bindingsEvaluable == some true) = true := by native_decide
 
-theorem located_occurrence_partition :
-    (allOccs.filter (fun p => (evaluateOcc p.1).bindingsEvaluable == some true)).length = 117 ∧
-    (allOccs.filter (fun p => p.1.bindingHows.isEmpty)).length = 24 := by
+theorem located_functionInstance_partition :
+    (allFunctionInstances.filter (fun p => (evaluateFunctionInstance p.1).bindingsEvaluable == some true)).length = 117 ∧
+    (allFunctionInstances.filter (fun p => p.1.bindingHows.isEmpty)).length = 24 := by
   native_decide
 
 /-! ### The loop-derived withdrawal offsets
@@ -355,19 +355,19 @@ theorem located_occurrence_partition :
 The eight rows the previous round left `unlocated` now carry the relation the machine actually
 realizes, and the production run is what checks it. -/
 
-/-- **The eight loop-derived rows hold on their captured entry states.** Occurrences 46–53 — the
+/-- **The eight loop-derived rows hold on their captured entry states.** FunctionInstances 46–53 — the
 `decodeWithdrawals` reader chain — each declare `offset = index * WITHDRAWAL_SIZE + k`, and at every
 captured entry the loop register carried a multiple of the stride and the argument was that value plus
 the row's constant. Kernel-checked. -/
 theorem derived_rows_hold :
-    (allOccs.filter (fun p => !p.1.derivedRows.isEmpty)).length = 8 ∧
-    allOccs.all (fun p => p.1.derivedRows.isEmpty ||
-      (evaluateOcc p.1).derivedBindingsHold == some true) = true := by native_decide
+    (allFunctionInstances.filter (fun p => !p.1.derivedRows.isEmpty)).length = 8 ∧
+    allFunctionInstances.all (fun p => p.1.derivedRows.isEmpty ||
+      (evaluateFunctionInstance p.1).derivedBindingsHold == some true) = true := by native_decide
 
-/-- The derived rows are exactly occurrences 46–53, all binding `offset` through the same loop register
+/-- The derived rows are exactly functionInstances 46–53, all binding `offset` through the same loop register
 with the pinned `WITHDRAWAL_SIZE` stride and the four `RawWithdrawal` field offsets. -/
 theorem derived_rows_are_the_withdrawal_chain :
-    (allOccs.filterMap (fun p =>
+    (allFunctionInstances.filterMap (fun p =>
         p.1.derivedRows.head?.map (fun d => (p.1.index, d.register, d.stride, d.constant)))) =
       [(46, 23, 44, 0), (47, 23, 44, 0), (48, 23, 44, 8), (49, 23, 44, 8),
        (50, 23, 44, 16), (51, 23, 44, 16), (52, 23, 44, 36), (53, 23, 44, 36)] := by
@@ -376,35 +376,35 @@ theorem derived_rows_are_the_withdrawal_chain :
 /-- The evidence is not degenerate: the loop ran more than once, so the register genuinely varied over
 `index * 44`. A single `index = 0` sample would satisfy any stride. -/
 theorem derived_rows_saw_more_than_one_index :
-    allOccs.all (fun p => p.1.derivedRows.all
+    allFunctionInstances.all (fun p => p.1.derivedRows.all
       (fun d => d.registerValues == [0, 44] && d.values == [d.constant, 44 + d.constant])) = true := by
   native_decide
 
-/-- **The re-derived family consequences agree with the recorded aggregate.** For every occurrence whose
+/-- **The re-derived family consequences agree with the recorded aggregate.** For every functionInstance whose
 routine has a binding-consequence family, the consequence RE-DERIVED here from the carried observations
 (`offsetReadHolds` / `entryAbiHolds` / `rawCopyHolds` / `allocHolds`) never contradicts the aggregated
 per-invocation verdict. This is what keeps the aggregate from being an unchecked import of the oracle's
 opinion. Kernel-checked. -/
 theorem rederived_families_agree :
-    allOccs.all (fun p =>
+    allFunctionInstances.all (fun p =>
       let ev := p.1
       let r := [offsetReadHolds ev, entryAbiHolds ev, rawCopyHolds ev, allocHolds ev]
       r.all (fun x => x != some false) &&
         (bindingsRealizedOf ev != some true || r.all (fun x => x != some false))) = true := by
   native_decide
 
-/-- **The exported entry ABI is realized exactly.** occurrence 1 (`zesu_decode_raw`) received the linked
+/-- **The exported entry ABI is realized exactly.** functionInstance 1 (`zesu_decode_raw`) received the linked
 input-buffer base and the exact byte length of the file the process was fed — external ground truth, not
 a self-report. Kernel-checked. -/
 theorem entry_abi_realized :
-    (allOccs.filter (fun p => p.1.index == 1)).all (fun p => entryAbiHolds p.1 == some true) = true := by
+    (allFunctionInstances.filter (fun p => p.1.index == 1)).all (fun p => entryAbiHolds p.1 == some true) = true := by
   native_decide
 
-/-- **No binding, exit or ledger check ever FAILS.** Across all 141 occurrences these are pass or
+/-- **No binding, exit or ledger check ever FAILS.** Across all 141 functionInstances these are pass or
 explicit gap — the production ELF never contradicted a declared Row A placement. Kernel-checked. -/
 theorem no_binding_failures :
-    allOccs.all (fun p =>
-      let r := evaluateOcc p.1
+    allFunctionInstances.all (fun p =>
+      let r := evaluateFunctionInstance p.1
       r.bindingsEvaluable != some false && r.bindingsRealized != some false &&
       r.derivedBindingsHold != some false &&
       r.exitBindingRealized != some false && r.allocationLedger != some false) = true := by
@@ -425,77 +425,77 @@ theorem arm_ledger_shapes :
     (armLedgers.map (fun l => (l.arm, l.observed.length, l.rejectedAt != ""))) =
       [("absent", 7, false), ("malformed", 6, true), ("present", 10, false)] := by native_decide
 
-/-- **Every allocating occurrence's slice of the ledger is exactly what it owes.** All 16 allocating
-occurrences — the two allocator leaves, the entry, and the collection/container occurrences between them
+/-- **Every allocating functionInstance's slice of the ledger is exactly what it owes.** All 16 allocating
+functionInstances — the two allocator leaves, the entry, and the collection/container functionInstances between them
 — match their independently derived allocation sequence. Kernel-checked. -/
-theorem allocating_occurrences_match_expected_ledger :
-    (allOccs.filter (fun p => p.1.allocates && p.1.covered)).length = 16 ∧
-    allOccs.all (fun p => !(p.1.allocates && p.1.covered) ||
-      (evaluateOcc p.1).allocationLedger == some true) = true := by native_decide
+theorem allocating_functionInstances_match_expected_ledger :
+    (allFunctionInstances.filter (fun p => p.1.allocates && p.1.covered)).length = 16 ∧
+    allFunctionInstances.all (fun p => !(p.1.allocates && p.1.covered) ||
+      (evaluateFunctionInstance p.1).allocationLedger == some true) = true := by native_decide
 
 /-- Every observed event's returned block was captured, so no allocation's returned-pointer field is a
 gap. `allocEventAgrees` would otherwise accept an uncaptured return. -/
 theorem returned_blocks_all_observed :
-    allOccs.all (fun p => p.1.ledgerReturnedUnknown == 0) = true ∧
+    allFunctionInstances.all (fun p => p.1.ledgerReturnedUnknown == 0) = true ∧
     armLedgers.all (fun l => l.observed.all (fun o => o.returnedPointer.isSome)) = true := by
   native_decide
 
 /-!
-## Negative tests — mutating a covered occurrence's evidence must flip the responsible check. The
-sampled occurrence is 116 (`decodeOptionalBlobSchedule`), the vertical-slice occurrence, located in
-`allOccs`. Each theorem corrupts one field and asserts the check turns `some false`.
+## Negative tests — mutating a covered functionInstance's evidence must flip the responsible check. The
+sampled functionInstance is 116 (`decodeOptionalBlobSchedule`), the vertical-slice functionInstance, located in
+`allFunctionInstances`. Each theorem corrupts one field and asserts the check turns `some false`.
 -/
 
-/-- occurrence 116's evidence from the generated list (the vertical-slice occurrence). -/
-def sample : OccScaleEvidence := (allOccs.filter (fun p => p.1.index == 116)).head!.1
+/-- functionInstance 116's evidence from the generated list (the vertical-slice functionInstance). -/
+def sample : FunctionInstanceScaleEvidence := (allFunctionInstances.filter (fun p => p.1.index == 116)).head!.1
 
 /-- The sample is genuinely a GO baseline (all gating checks pass). -/
 theorem sample_is_go :
-    let r := evaluateOcc sample
+    let r := evaluateFunctionInstance sample
     r.entryReached == some true && r.controlFlowIntegrity == some true &&
       r.allocationConsistent == some true && r.inputPreserved == some true &&
       r.codePreserved == some true && r.writesClassified == some true := by native_decide
 
 /-- wrong entry: first in-region PC is not the declared entry. -/
 theorem negative_wrong_entry :
-    (evaluateOcc { sample with firstInRegion := sample.entryPc + 4 }).entryReached
+    (evaluateFunctionInstance { sample with firstInRegion := sample.entryPc + 4 }).entryReached
       = some false := by native_decide
 
 /-- undeclared edge: an executed transfer from an owned PC that is not in the generated CFG. -/
 theorem negative_undeclared_edge :
-    (evaluateOcc { sample with
+    (evaluateFunctionInstance { sample with
         executedOwnedEdges := (sample.entryPc, 999999) :: sample.executedOwnedEdges }).controlFlowIntegrity
       = some false := by native_decide
 
-/-- exit violation: execution leaves the occurrence from a PC that is not a declared exit. -/
+/-- exit violation: execution leaves the functionInstance from a PC that is not a declared exit. -/
 theorem negative_undeclared_exit :
-    (evaluateOcc { sample with
+    (evaluateFunctionInstance { sample with
         leavingSources := 999999 :: sample.leavingSources }).exitsRespected
       = some false := by native_decide
 
 /-- spurious allocation: a store bumping the allocator cursor in a non-allocating routine. -/
 theorem negative_cursor_bump :
-    (evaluateOcc { sample with storesSummarized := true, storeClasses := "allocator-cursor" :: sample.storeClasses }).allocationConsistent
+    (evaluateFunctionInstance { sample with storesSummarized := true, storeClasses := "allocator-cursor" :: sample.storeClasses }).allocationConsistent
       = some false := by native_decide
 
 /-- code-preservation violation: an injected store into .text. -/
 theorem negative_code_write :
-    (evaluateOcc { sample with inRegionStores := (65768 + 8) :: sample.inRegionStores }).codePreserved
+    (evaluateFunctionInstance { sample with inRegionStores := (65768 + 8) :: sample.inRegionStores }).codePreserved
       = some false := by native_decide
 
 /-- input-preservation violation: an injected store into the SSZ input buffer. -/
 theorem negative_input_write :
-    (evaluateOcc { sample with inRegionStores := (67194912 + 8) :: sample.inRegionStores }).inputPreserved
+    (evaluateFunctionInstance { sample with inRegionStores := (67194912 + 8) :: sample.inRegionStores }).inputPreserved
       = some false := by native_decide
 
 /-- unclassified write: a store outside every known region and its stack window. -/
 theorem negative_unclassified_write :
-    (evaluateOcc { sample with inRegionStores := 3735879680 :: sample.inRegionStores }).writesClassified
+    (evaluateFunctionInstance { sample with inRegionStores := 3735879680 :: sample.inRegionStores }).writesClassified
       = some false := by native_decide
 
 /-- step-bound violation: instruction count exceeds the contract bound. -/
 theorem negative_step_bound :
-    (evaluateOcc { sample with maxInsnPerInvocation := 100000 }).withinStepBound
+    (evaluateFunctionInstance { sample with maxInsnPerInvocation := 100000 }).withinStepBound
       = some false := by native_decide
 
 /-! ### Binding / ledger negatives — the new checks must be falsifiable too. -/
@@ -503,17 +503,17 @@ theorem negative_step_bound :
 /-- an unreadable declared location: a binding naming a place the machine cannot supply must FAIL, not
 degrade into a gap. -/
 theorem negative_unresolved_binding :
-    (evaluateOcc { sample with bindingHows := ["exact", "unresolved"] }).bindingsEvaluable
+    (evaluateFunctionInstance { sample with bindingHows := ["exact", "unresolved"] }).bindingsEvaluable
       = some false := by native_decide
 
 /-! ### Loop-derived binding negatives — mutating the index, stride, constant or the machine location.
 
-The baseline is occurrence 47 (`readU64(data, offset)` in the `decodeWithdrawals` loop): the register
+The baseline is functionInstance 47 (`readU64(data, offset)` in the `decodeWithdrawals` loop): the register
 carried `0` then `44`, and the argument was `0` then `44`. -/
 
-/-- occurrence 47's derived row from the generated evidence. -/
+/-- functionInstance 47's derived row from the generated evidence. -/
 def derivedSample : DerivedRowEvidence :=
-  ((allOccs.filter (fun p => p.1.index == 47)).head!.1.derivedRows).head!
+  ((allFunctionInstances.filter (fun p => p.1.index == 47)).head!.1.derivedRows).head!
 
 theorem derived_sample_holds : derivedRowHolds derivedSample = true := by native_decide
 
@@ -542,14 +542,14 @@ theorem negative_derived_no_sample :
     derivedRowHolds { derivedSample with registerValues := [], values := [] } = false := by
   native_decide
 
-/-- a contradicted binding consequence in any single invocation fails the occurrence. -/
+/-- a contradicted binding consequence in any single invocation fails the functionInstance. -/
 theorem negative_binding_consequence :
-    (evaluateOcc { sample with realizedPass := 3, realizedFail := 1, realizedGap := 0 }).bindingsRealized
+    (evaluateFunctionInstance { sample with realizedPass := 3, realizedFail := 1, realizedGap := 0 }).bindingsRealized
       = some false := by native_decide
 
 /-- a gap in any invocation withholds the pass rather than granting it. -/
 theorem negative_binding_partial_is_gap :
-    (evaluateOcc { sample with realizedPass := 3, realizedFail := 0, realizedGap := 1 }).bindingsRealized
+    (evaluateFunctionInstance { sample with realizedPass := 3, realizedFail := 0, realizedGap := 1 }).bindingsRealized
       = none := by native_decide
 
 /-- a `memcpy` that wrote a different number of bytes than its `n` argument declared. -/
@@ -667,9 +667,9 @@ theorem negative_ledger_wrong_returned_block :
   native_decide
 
 /-- A per-OCCURRENCE slice is checked the same way: `decodeWithdrawals`' single event with the wrong
-size fails its occurrence check, not merely the whole-run one. -/
-theorem negative_occurrence_ledger_wrong_size :
-    (evaluateOcc { sample with
+size fails its functionInstance check, not merely the whole-run one. -/
+theorem negative_functionInstance_ledger_wrong_size :
+    (evaluateFunctionInstance { sample with
         allocates := true,
         ledgerObserved := [{ ordinal := 1, cursorBefore := 86080, cursorAfter := 86176,
                              returnedPointer := some 86080 }],
@@ -677,9 +677,9 @@ theorem negative_occurrence_ledger_wrong_size :
                              count := 1, size := 48, alignment := 8 }] }).allocationLedger
       = some false := by native_decide
 
-/-- and an occurrence that allocated when the fixture required nothing of it. -/
-theorem negative_occurrence_ledger_unexpected_event :
-    (evaluateOcc { sample with
+/-- and an functionInstance that allocated when the fixture required nothing of it. -/
+theorem negative_functionInstance_ledger_unexpected_event :
+    (evaluateFunctionInstance { sample with
         allocates := true,
         ledgerObserved := [{ ordinal := 0, cursorBefore := 86048, cursorAfter := 86080,
                              returnedPointer := some 86048 }],

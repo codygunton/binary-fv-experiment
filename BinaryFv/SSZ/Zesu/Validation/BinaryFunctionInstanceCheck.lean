@@ -1,11 +1,11 @@
-import BinaryFv.SSZ.Zesu.Validation.BinaryOccurrenceTypes
+import BinaryFv.SSZ.Zesu.Validation.BinaryFunctionInstanceTypes
 import BinaryFv.SSZ.Zesu.Validation.GeneratedBinaryEvidence
 import BinaryFv.SSZ.Zesu.Contracts.Options
 
 /-!
 # A small production-ELF validation example
 
-This checker focuses on occurrence 116, `decodeOptionalBlobSchedule`, and its three inlined
+This checker focuses on functionInstance 116, `decodeOptionalBlobSchedule`, and its three inlined
 `readU64` children. The generated evidence comes from running the unchanged production ELF under
 pinned QEMU.
 
@@ -40,28 +40,28 @@ def childOffsets : List Nat := [0, 8, 16]
 def stepBound : Nat := 256
 
 /-- The value of the input byte load at `addr` (0 if not loaded). -/
-def loadByte (ev : OccEvidence) (addr : Nat) : Nat :=
+def loadByte (ev : FunctionInstanceEvidence) (addr : Nat) : Nat :=
   (ev.inputByteLoads.find? (fun p => p.1 == addr)).elim 0 Prod.snd
 
 /-- The eight input addresses of the `readU64` at `base + off`. -/
 def fieldAddrs (base off : Nat) : List Nat := (List.range 8).map (fun j => base + off + j)
 
 /-- The little-endian `u64` read at `base + off`. -/
-def readWord (ev : OccEvidence) (base off : Nat) : Nat :=
+def readWord (ev : FunctionInstanceEvidence) (base off : Nat) : Nat :=
   (List.range 8).foldl (fun acc j => acc + loadByte ev (base + off + j) * 256 ^ j) 0
 
 /-- The slice-start address (min input load address), if any input byte was loaded. -/
-def slicePtr (ev : OccEvidence) : Option Nat := (ev.inputByteLoads.map Prod.fst).min?
+def slicePtr (ev : FunctionInstanceEvidence) : Option Nat := (ev.inputByteLoads.map Prod.fst).min?
 
 /-- The 24-byte blob-schedule slice reconstructed from the actual production loads. -/
-def sliceBytes (ev : OccEvidence) : ByteArray :=
+def sliceBytes (ev : FunctionInstanceEvidence) : ByteArray :=
   match slicePtr ev with
   | some base => ⟨((List.range 24).map (fun j => UInt8.ofNat (loadByte ev (base + j)))).toArray⟩
   | none => ByteArray.empty
 
 /-- Whether the input loads are EXACTLY the three 8-byte windows at the Row A offsets 0/8/16 — no gap,
 no extra, no shift. Ties the observed load addresses to the generated const-offset bindings. -/
-def offsetsRealized (ev : OccEvidence) : Bool :=
+def offsetsRealized (ev : FunctionInstanceEvidence) : Bool :=
   match slicePtr ev with
   | some base =>
       let want := (childOffsets.flatMap (fun off => fieldAddrs base off))
@@ -70,12 +70,12 @@ def offsetsRealized (ev : OccEvidence) : Bool :=
   | none => false
 
 /-- The checker, reproducing the Python oracle `evaluate_compact`. -/
-def evaluateOcc (ev : OccEvidence) : CheckResult :=
+def evaluateFunctionInstance (ev : FunctionInstanceEvidence) : CheckResult :=
   let declared := ev.declaredEdges
   let classes := ev.inRegionStores.map (fun s => classifyWrite s.2.1 ev.sp)
   let realized := offsetsRealized ev
   { entryReached := ev.firstExecuted == ev.entryPc
-    edgesSubsetOfCfg := ev.occExecEdges.all (· ∈ declared)
+    edgesSubsetOfCfg := ev.functionInstanceExecEdges.all (· ∈ declared)
     childOffsetsFromLoads := if ev.arm == "present" then some realized else none
     decodedBlobSchedule :=
       if ev.arm == "present" then
@@ -85,7 +85,7 @@ def evaluateOcc (ev : OccEvidence) : CheckResult :=
         | none => none
       else none
     resultSlotOnStack := classifyWrite ev.a0 ev.sp == "stack"
-    withinStepBound := ev.occInsnCount ≤ stepBound
+    withinStepBound := ev.functionInstanceInsnCount ≤ stepBound
     noAllocation := !(classes.contains "heap") && !(classes.contains "allocator-cursor")
     inputPreserved := !(classes.contains "input")
     codePreserved := !(classes.contains "code")
@@ -94,11 +94,11 @@ def evaluateOcc (ev : OccEvidence) : CheckResult :=
 /-- **Lean ≡ Python.** The checker reproduces the oracle's result on every arm (present/absent/malformed).
 Kernel-checked. -/
 theorem checker_agrees_with_oracle :
-    allArms.all (fun p => evaluateOcc p.1 == p.2) = true := by native_decide
+    allArms.all (fun p => evaluateFunctionInstance p.1 == p.2) = true := by native_decide
 
 /-- **Present arm is a GO.** Every check passes against the unchanged production ELF. -/
 theorem present_arm_go :
-    let r := evaluateOcc presentEvidence
+    let r := evaluateFunctionInstance presentEvidence
     r.entryReached ∧ r.edgesSubsetOfCfg ∧ r.childOffsetsFromLoads = some true ∧
       r.resultSlotOnStack ∧ r.withinStepBound ∧ r.noAllocation ∧ r.inputPreserved ∧
       r.codePreserved ∧ r.noUnclassifiedWrites := by native_decide
@@ -117,58 +117,58 @@ theorem present_meaning_agrees :
 
 /-- The evidence's decoded fields equal what the handwritten meaning computes on the same slice. -/
 theorem present_decoded_matches_meaning :
-    (evaluateOcc presentEvidence).decodedBlobSchedule = some [22, 23, 24] := by native_decide
+    (evaluateFunctionInstance presentEvidence).decodedBlobSchedule = some [22, 23, 24] := by native_decide
 
 /-!
 ## Negative tests — each corruption of the generated evidence flips a check (mutation survival blocks
 the row). These are the same eight classes as the Python `negative_tests.py`, ported across the boundary.
 -/
 
-/-- A store record inside the occurrence at a corrupt address (the pc is irrelevant to classification). -/
+/-- A store record inside the functionInstance at a corrupt address (the pc is irrelevant to classification). -/
 private def badStore (addr : Nat) : Nat × Nat × Nat × Nat := (76890, addr, 8, 0)
 
-/-- wrong occurrence entry: the first executed PC is not the declared entry. -/
+/-- wrong functionInstance entry: the first executed PC is not the declared entry. -/
 theorem negative_wrong_entry :
-    (evaluateOcc { presentEvidence with firstExecuted := presentEvidence.entryPc + 4 }).entryReached
+    (evaluateFunctionInstance { presentEvidence with firstExecuted := presentEvidence.entryPc + 4 }).entryReached
       = false := by native_decide
 
 /-- +8 ABI error: the first field's 8 loads are dropped, so the loads no longer realize offsets 0/8/16. -/
 theorem negative_plus8_offset :
-    (evaluateOcc { presentEvidence with
+    (evaluateFunctionInstance { presentEvidence with
         inputByteLoads := presentEvidence.inputByteLoads.drop 8 }).childOffsetsFromLoads
       = some false := by native_decide
 
 /-- swapped register / wrong result slot: the indirect-return slot (a0) is moved off-stack (into heap). -/
 theorem negative_wrong_result_slot :
-    (evaluateOcc { presentEvidence with a0 := 86048 + 16 }).resultSlotOnStack = false := by native_decide
+    (evaluateFunctionInstance { presentEvidence with a0 := 86048 + 16 }).resultSlotOnStack = false := by native_decide
 
 /-- reassigned (phantom) edge: executed control flow not present in the generated CFG. -/
 theorem negative_phantom_edge :
-    (evaluateOcc { presentEvidence with
-        occExecEdges := presentEvidence.occExecEdges ++ [(76890, 999999)] }).edgesSubsetOfCfg
+    (evaluateFunctionInstance { presentEvidence with
+        functionInstanceExecEdges := presentEvidence.functionInstanceExecEdges ++ [(76890, 999999)] }).edgesSubsetOfCfg
       = false := by native_decide
 
 /-- wrong allocation fact: an injected heap store in a non-allocating routine. -/
 theorem negative_heap_alloc :
-    (evaluateOcc { presentEvidence with
+    (evaluateFunctionInstance { presentEvidence with
         inRegionStores := presentEvidence.inRegionStores ++ [badStore (86048 + 32)] }).noAllocation
       = false := by native_decide
 
 /-- out-of-frame (unclassified) write. -/
 theorem negative_out_of_frame :
-    (evaluateOcc { presentEvidence with
+    (evaluateFunctionInstance { presentEvidence with
         inRegionStores := presentEvidence.inRegionStores ++ [badStore 3735879680] }).noUnclassifiedWrites
       = false := by native_decide
 
 /-- input-preservation violation. -/
 theorem negative_input_write :
-    (evaluateOcc { presentEvidence with
+    (evaluateFunctionInstance { presentEvidence with
         inRegionStores := presentEvidence.inRegionStores ++ [badStore (67194912 + 8)] }).inputPreserved
       = false := by native_decide
 
 /-- code-preservation violation. -/
 theorem negative_code_write :
-    (evaluateOcc { presentEvidence with
+    (evaluateFunctionInstance { presentEvidence with
         inRegionStores := presentEvidence.inRegionStores ++ [badStore (65768 + 8)] }).codePreserved
       = false := by native_decide
 

@@ -13,7 +13,7 @@ Start with:
    state.
 4. [`CanonicalParams.lean`](CanonicalParams.lean) fixes the binary image, heap, ABI layouts, and
    memory representations used by the program-level obligation.
-5. [`ProgramCorrectness.lean`](ProgramCorrectness.lean) collects the per-occurrence obligations for
+5. [`ProgramCorrectness.lean`](ProgramCorrectness.lean) collects the per-function instance obligations for
    the generated program.
 
 Most internal routines use `FunctionContract`: arguments describe source values, `meaning` gives the

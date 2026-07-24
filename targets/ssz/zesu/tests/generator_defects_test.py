@@ -4,16 +4,16 @@
 Every one of these shows a defect is SURFACED and FAILS generation, never silently dropped:
 
   * unmapped region       — a linker map missing an object's `.text` placement makes the affected
-                            occurrences unmappable; the generator emits `unmappedRegion` defects, writes
+                            function_instances unmappable; the generator emits `unmappedRegion` defects, writes
                             them into the JSON, and exits nonzero (end-to-end against the real sidecars).
   * ambiguous attribution — a `readArray(<unknown>)` whose width cannot be resolved from source is an
                             `ambiguousAttribution` (unit test of the pure resolution path).
-  * sibling overlap       — two occurrences claiming a common PC without an inline ancestor relationship
+  * sibling overlap       — two function_instances claiming a common PC without an inline ancestor relationship
                             are `overlappingOwnership` (unit test of the pure detector); the real,
                             correctly-nested program produces none.
   * binding gap           — source/parent recovery produces concrete values, preserves the DWARF
                             stack-value distinction, and refuses a parameter left with no machine
-                            meaning (which would make the occurrence's entry predicate unsatisfiable).
+                            meaning (which would make the function_instance's entry predicate unsatisfiable).
   * loop-derived offset   — a loop-carried reader offset resolves to the induction REGISTER recovered
                             from the loaded image; an ambiguous or non-zero-initialized candidate is
                             refused rather than guessed (unit tests of the pure analysis).
@@ -76,18 +76,18 @@ def test_ambiguous_width(gen):
                                    ["const x = readArray(zz_not_a_width, data, off);"], {})
     check("ambiguous: unknown readArray width is unresolved", unresolved is None, repr(unresolved))
     resolved = gen.norm_identity("ssz_raw.readArray__anon_9", die,
-                                 ["const x = readArray(32, d, o);"], {})
+                                 ["const x = readArray(32, d, function_instance);"], {})
     check("ambiguous: a resolvable width is NOT a defect",
           resolved == ("ssz_raw.readArray", ("32",)), repr(resolved))
 
 
 def test_sibling_overlap(gen, args, tmp):
-    occ = [
+    function_instances = [
         {"parentIdx": None, "regions": [{"start": 0x1000, "size": 0x40}], "qualified": "a"},
         {"parentIdx": None, "regions": [{"start": 0x1020, "size": 0x40}], "qualified": "b"},  # overlaps a
         {"parentIdx": 0, "regions": [{"start": 0x1000, "size": 0x10}], "qualified": "child"},  # nested in a
     ]
-    defs = gen.sibling_overlap_defects(occ)
+    defs = gen.sibling_overlap_defects(function_instances)
     kinds = [d["kind"] for d in defs]
     check("overlap: sibling PC clash surfaced", "overlappingOwnership" in kinds, str(kinds))
     check("overlap: nested child is NOT flagged against its parent",
@@ -97,13 +97,13 @@ def test_sibling_overlap(gen, args, tmp):
     rc, _ = run_generator(args, ["--map", args.map, "--out-json", outj])
     check("overlap: real program generates cleanly", rc == 0 and os.path.exists(outj), f"rc={rc}")
     if os.path.exists(outj):
-        real = gen.sibling_overlap_defects(json.load(open(outj))["occurrences"])
-        check("overlap: detector finds none on the real occurrences", real == [], str(real))
+        real = gen.sibling_overlap_defects(json.load(open(outj))["function_instances"])
+        check("overlap: detector finds none on the real function_instances", real == [], str(real))
 
 
 def test_binding_recovery(gen):
     lines = ["const x = readU64(data, 16);", "const bytes = bytesAt(data, offset, 8);"]
-    occ = [
+    function_instances = [
         {"qualified": "ssz_raw.readU64", "kind": "inlined", "callLine": 1,
          "callColumn": 11, "parentIdx": None, "specialization": [],
          "bindings": [("offset", "callerProvided", -1, 0)]},
@@ -112,7 +112,7 @@ def test_binding_recovery(gen):
          "bindings": [("offset", "callerProvided", -1, 0),
                       ("len", "callerProvided", -1, 0)]},
     ]
-    effective, recovered, derived = gen.recover_missing_bindings(occ, lines, {}, {})
+    effective, recovered, derived = gen.recover_missing_bindings(function_instances, lines, {}, {})
     check("binding: source literal is concrete", effective[0] == [("offset", "const", -1, 16)],
           repr(effective[0]))
     check("binding: parent forwarding and literal length are concrete",
@@ -141,7 +141,7 @@ def test_binding_recovery(gen):
 # `disassemble` produces: {pc: (mnemonic, operands, resolved-comment)}.
 #   100: li   s7,0            preheader: the induction variable starts at zero
 #   104: addi a0,a0,-1        loop header (target of the back edge)
-#   108: bnez a0,120 <end>    the occurrence's entry pc
+#   108: bnez a0,120 <end>    the function_instance's entry pc
 #   10c: addi s7,s7,44        the induction step, by the pinned source stride
 #   110: j    104 <header>    back edge
 #   120: ret
@@ -170,7 +170,7 @@ def test_loop_induction_recovery(gen):
 
     `readU64(data, offset + 8)` inside `for (…) |*entry, index| { const offset = index *
     WITHDRAWAL_SIZE; … }` has no DWARF location. Emitting it as an absent/unlocated row would make the
-    occurrence's generated entry predicate unsatisfiable, so the generator recovers the register the
+    function_instance's generated entry predicate unsatisfiable, so the generator recovers the register the
     compiled loop keeps `index * WITHDRAWAL_SIZE` in — or fails."""
     consts = {"WITHDRAWAL_SIZE": 44}
     src = gen.loop_offset_source("offset + 8", 3, LOOP_SRC, consts)
@@ -208,10 +208,10 @@ def test_loop_induction_recovery(gen):
 
     # And the recovery is wired into the binding pass: the row becomes `derived`, with the register,
     # stride and constant audited.
-    occ = [{"qualified": "ssz_raw.readU64", "kind": "inlined", "callLine": 3, "callColumn": 1,
+    function_instances = [{"qualified": "ssz_raw.readU64", "kind": "inlined", "callLine": 3, "callColumn": 1,
             "parentIdx": None, "specialization": [], "entryPc": 0x108,
             "bindings": [("offset", "callerProvided", -1, 0)]}]
-    effective, recovered, derived = gen.recover_missing_bindings(occ, LOOP_SRC, consts, insns)
+    effective, recovered, derived = gen.recover_missing_bindings(function_instances, LOOP_SRC, consts, insns)
     check("loop: the row is `derived`, carrying the register and the constant",
           effective[0] == [("offset", "derived", 23, 8)], repr(effective[0]))
     check("loop: the derivation is audited with stride, source expression and loop",

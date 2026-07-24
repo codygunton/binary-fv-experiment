@@ -23,14 +23,14 @@ ranges.
 
 The qualified-name convention is the Zig module-qualified form, which the extraction row reconciles
 against DWARF. The declaration line and the source content hash are **not** part of the identity;
-they are provenance carried by generated occurrences and checked — the hash for equality against
+they are provenance carried by generated function instances and checked — the hash for equality against
 `pinnedSourceManifest`, the line for `> 0` — by `sourceProvenanceRecorded`.
 -/
 
 /-! ## Source files
 
 Each routine's declaring source file, by path only. Content hashes and declaration lines are
-validated *provenance* (`DeclarationProvenance`), carried by generated occurrences and checked
+validated *provenance* (`DeclarationProvenance`), carried by generated function instances and checked
 against the pinned source in the extraction row — they are not part of these identities. -/
 
 /-- The SSZ decoder body: `src/stateless/stateless/ssz_raw.zig`. -/
@@ -53,7 +53,7 @@ def runtimeSourceFile : SourceFile :=
 pinned content — the Zesu source at `github:codygunton/zesu@96f1621` and the repo's freestanding RV64
 runtime.
 
-`sourceProvenanceRecorded` checks every occurrence's recorded `declProvenance.sourceFileHash` for
+`sourceProvenanceRecorded` checks every function instance's recorded `declProvenance.sourceFileHash` for
 *equality* with the manifest entry for its file, so provenance is validated against the pin rather
 than merely being non-empty. If the pinned revision (or the runtime source) changes, this manifest
 must change with it — that coupling is exactly what provenance is for. -/
@@ -64,7 +64,7 @@ def pinnedSourceManifest : List (SourceFile × String) :=
     (runtimeSourceFile, "5f80e272e96ccb30ca109bb77c9a78c9769bfd6b54ac2d7f712d3c2deb9b8235") ]
 
 /-- The pinned content hash for a source file, if it is one of the manifest files; `none` otherwise
-(which makes `sourceProvenanceRecorded` reject an occurrence attributed to an off-manifest file). -/
+(which makes `sourceProvenanceRecorded` reject a function instance attributed to an off-manifest file). -/
 def pinnedSourceHash (file : SourceFile) : Option String :=
   (pinnedSourceManifest.find? (fun entry => decide (entry.1 = file))).map (·.2)
 
@@ -75,8 +75,8 @@ inductive RoutineGroup where
   | entry | container | collection | option | leaf | runtime
 deriving DecidableEq, Repr, Inhabited
 
-/-- The dispatch key: one constructor per handwritten contract. This is what turns "this instance's
-identity" into "this instance's `correctnessClaim`", so the per-instance obligation is a total
+/-- The dispatch key: one constructor per handwritten contract. This is what turns "this function instance's
+identity" into "this function instance's `correctnessClaim`", so the per-function-instance obligation is a total
 function of the catalog rather than a hand-maintained list of unrelated propositions. -/
 inductive RoutineTag where
   | zesuDecodeRaw | decode | decodeRaw
@@ -92,7 +92,7 @@ inductive RoutineTag where
 deriving DecidableEq, Repr, Inhabited
 
 /-- Why a source routine is excluded from the cataloged semantic proof — either it has no live
-occurrence in the canonical binary, or it is reachable emitted glue whose net effect is captured
+function instance in the canonical binary, or it is reachable emitted glue whose net effect is captured
 elsewhere. The last two are the row-2 reachable-but-excluded categories, shared with the generated
 Elfling reachable-partition taxonomy (stack-integration point). -/
 inductive ExclusionReason where
@@ -110,9 +110,9 @@ deriving DecidableEq, Repr, Inhabited
 
 /-- Whether a cataloged routine is expected to occur in the canonical program. -/
 inductive Presence where
-  /-- Appears as one or more generated occurrences (emitted or inlined). -/
+  /-- Appears as one or more generated function instances (emitted or inlined). -/
   | live
-  /-- Has no occurrence, for the given reason. -/
+  /-- Has no function instance, for the given reason. -/
   | absent (reason : ExclusionReason)
 deriving DecidableEq, Repr, Inhabited
 
@@ -129,7 +129,7 @@ deriving Repr, Inhabited
 
 namespace CatalogEntry
 
-/-- The catalog entry is expected to have live occurrences. -/
+/-- The catalog entry is expected to have live function instances. -/
 def isLive (entry : CatalogEntry) : Bool :=
   match entry.presence with | .live => true | .absent _ => false
 
@@ -161,9 +161,9 @@ def zesuDecodeRawFunctionId : FunctionId :=
 The complete catalog of live routines.
 
 Every entry has handwritten `meaning`, `pre`, `post`, `contract`, `correctnessClaim`, and
-`satisfiable` definitions, and its `tag` selects them in `instanceObligation`. `readArray` appears
+`satisfiable` definitions, and its `tag` selects them in `functionInstanceObligation`. `readArray` appears
 once per concrete width the decoder instantiates (20, 32, 48, 65, 96, 256), so a generated
-occurrence is matched by full identity, not by the bare name.
+function instance is matched by full identity, not by the bare name.
 -/
 def catalog : Array CatalogEntry :=
   #[ -- Entry / top level
@@ -231,8 +231,8 @@ def catalog : Array CatalogEntry :=
        group := .runtime, tag := .allocatorCtor, allocates := false, hasSymbol := false
        presence := .live } ]
 
-/-- Routines present in source but with no live occurrence in the canonical program, each with a
-machine-checkable reason. Coverage requires that none of these is matched by a generated instance. -/
+/-- Routines present in source but with no live function instance in the canonical program, each with a
+machine-checkable reason. Coverage requires that none of these is matched by a generated function instance. -/
 def excludedRoutines : Array CatalogEntry :=
   #[ { functionId := fid decoderSourceFile "ssz_raw.putU32"
        group := .leaf, tag := .requireU32Length, allocates := false, hasSymbol := false
@@ -247,17 +247,17 @@ def excludedRoutines : Array CatalogEntry :=
 /-- The concrete `readArray` widths the pinned decoder instantiates, as source-derived facts. -/
 def requiredReadArrayWidths : List Nat := [20, 32, 48, 65, 96, 256]
 
-/-- The width a generated `readArray` occurrence carries, parsed from its specialization. -/
+/-- The width a generated `readArray` function instance carries, parsed from its specialization. -/
 def readArrayWidthOf (function : FunctionId) : Nat :=
   ((function.specialization[0]?).bind String.toNat?).getD 0
 
-/-! ## Typed per-instance dispatch -/
+/-! ## Typed per-function-instance dispatch -/
 
 /--
-Everything a per-instance obligation needs beyond the instance itself: the pinned environment, the
+Everything a per-function-instance obligation needs beyond the function instance itself: the pinned environment, the
 allocator heap, the status slot, and the container/RawV4 result representations.
 
-Bundling these keeps `instanceObligation` a total function while letting each container assert its own
+Bundling these keeps `functionInstanceObligation` a total function while letting each container assert its own
 result layout. -/
 structure ContractParams where
   env : DecoderEnvironment
@@ -278,65 +278,65 @@ structure ContractParams where
   repRawV4 : ContainerRepresentation SszBridge.RawV4
 
 /--
-The correctness obligation a single generated occurrence owes, selected by its routine `tag`.
+The correctness obligation a single generated function instance owes, selected by its routine `tag`.
 
-The entry PC and exit predicate come from the occurrence's generated data, never from an existential,
+The entry PC and exit predicate come from the function instance's generated data, never from an existential,
 so a proof cannot pick a convenient entry or exit. Every branch returns the `correctnessClaim` for
 exactly the routine the identity names; heterogeneous `Args`/`Result` types are erased to `Prop`
 here, which is why one typed dispatch can cover the whole catalog. -/
-def routineObligation (p : ContractParams) (instance_ : FunctionInstance) (tag : RoutineTag) : Prop :=
-  let entry : BitVec 64 := BitVec.ofNat 64 instance_.entryPc
-  let exit : BitVec 64 → Prop := fun pc => instance_.isExit pc.toNat
+def routineObligation (p : ContractParams) (functionInstance : FunctionInstance) (tag : RoutineTag) : Prop :=
+  let entry : BitVec 64 := BitVec.ofNat 64 functionInstance.entryPc
+  let exit : BitVec 64 → Prop := fun pc => functionInstance.isExit pc.toNat
   match tag with
   | .zesuDecodeRaw =>
-      correctnessClaimZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4 instance_ entry exit
-  | .decode => correctnessClaimDecode p.env p.repRawV4 instance_ entry exit
-  | .decodeRaw => correctnessClaimDecodeRaw p.env p.repRawV4 instance_ entry exit
+      correctnessClaimZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4 functionInstance entry exit
+  | .decode => correctnessClaimDecode p.env p.repRawV4 functionInstance entry exit
+  | .decodeRaw => correctnessClaimDecodeRaw p.env p.repRawV4 functionInstance entry exit
   | .newPayloadRequest =>
-      correctnessClaimNewPayloadRequest p.env p.repNewPayloadRequest instance_ entry exit
+      correctnessClaimNewPayloadRequest p.env p.repNewPayloadRequest functionInstance entry exit
   | .executionPayload =>
-      correctnessClaimExecutionPayload p.env p.repExecutionPayload instance_ entry exit
+      correctnessClaimExecutionPayload p.env p.repExecutionPayload functionInstance entry exit
   | .executionRequests =>
-      correctnessClaimExecutionRequests p.env p.repExecutionRequests instance_ entry exit
+      correctnessClaimExecutionRequests p.env p.repExecutionRequests functionInstance entry exit
   | .executionWitness =>
-      correctnessClaimExecutionWitness p.env p.repExecutionWitness instance_ entry exit
-  | .chainConfig => correctnessClaimChainConfig p.env p.repChainConfig instance_ entry exit
-  | .forkConfig => correctnessClaimForkConfig p.env p.repForkConfig instance_ entry exit
-  | .forkActivation => correctnessClaimForkActivation p.env p.repForkActivation instance_ entry exit
-  | .optionalU64 => correctnessClaimOptionalU64 p.env instance_ entry exit
-  | .optionalBlobSchedule => correctnessClaimOptionalBlobSchedule p.env instance_ entry exit
-  | .versionedHashes => correctnessClaimVersionedHashes p.env instance_ entry exit
-  | .withdrawals => correctnessClaimWithdrawals p.env instance_ entry exit
-  | .depositRequests => correctnessClaimDepositRequests p.env instance_ entry exit
-  | .withdrawalRequests => correctnessClaimWithdrawalRequests p.env instance_ entry exit
-  | .consolidationRequests => correctnessClaimConsolidationRequests p.env instance_ entry exit
-  | .publicKeys => correctnessClaimPublicKeys p.env instance_ entry exit
-  | .byteListList => correctnessClaimByteListList p.env instance_ entry exit
-  | .requireCanonicalOffsets => correctnessClaimRequireCanonicalOffsets p.env instance_ entry exit
-  | .requireU32Length => correctnessClaimRequireU32Length p.env instance_ entry exit
-  | .readOffset => correctnessClaimReadOffset p.env instance_ entry exit
-  | .readU32 => correctnessClaimReadU32 p.env instance_ entry exit
-  | .readU64 => correctnessClaimReadU64 p.env instance_ entry exit
-  | .readU256 => correctnessClaimReadU256 p.env instance_ entry exit
+      correctnessClaimExecutionWitness p.env p.repExecutionWitness functionInstance entry exit
+  | .chainConfig => correctnessClaimChainConfig p.env p.repChainConfig functionInstance entry exit
+  | .forkConfig => correctnessClaimForkConfig p.env p.repForkConfig functionInstance entry exit
+  | .forkActivation => correctnessClaimForkActivation p.env p.repForkActivation functionInstance entry exit
+  | .optionalU64 => correctnessClaimOptionalU64 p.env functionInstance entry exit
+  | .optionalBlobSchedule => correctnessClaimOptionalBlobSchedule p.env functionInstance entry exit
+  | .versionedHashes => correctnessClaimVersionedHashes p.env functionInstance entry exit
+  | .withdrawals => correctnessClaimWithdrawals p.env functionInstance entry exit
+  | .depositRequests => correctnessClaimDepositRequests p.env functionInstance entry exit
+  | .withdrawalRequests => correctnessClaimWithdrawalRequests p.env functionInstance entry exit
+  | .consolidationRequests => correctnessClaimConsolidationRequests p.env functionInstance entry exit
+  | .publicKeys => correctnessClaimPublicKeys p.env functionInstance entry exit
+  | .byteListList => correctnessClaimByteListList p.env functionInstance entry exit
+  | .requireCanonicalOffsets => correctnessClaimRequireCanonicalOffsets p.env functionInstance entry exit
+  | .requireU32Length => correctnessClaimRequireU32Length p.env functionInstance entry exit
+  | .readOffset => correctnessClaimReadOffset p.env functionInstance entry exit
+  | .readU32 => correctnessClaimReadU32 p.env functionInstance entry exit
+  | .readU64 => correctnessClaimReadU64 p.env functionInstance entry exit
+  | .readU256 => correctnessClaimReadU256 p.env functionInstance entry exit
   | .readArray =>
-      correctnessClaimReadArray p.env (readArrayWidthOf instance_.id.function) instance_ entry exit
-  | .bytesAt => correctnessClaimBytesAt p.env instance_ entry exit
-  | .hasExactErePrefix => correctnessClaimHasExactErePrefix p.env instance_ entry exit
-  | .rawAlloc => correctnessClaimAlloc p.env p.heap instance_ entry exit
-  | .memcpy => correctnessClaimMemcpy p.env instance_ entry exit
-  | .memmove => correctnessClaimMemmove p.env instance_ entry exit
+      correctnessClaimReadArray p.env (readArrayWidthOf functionInstance.id.function) functionInstance entry exit
+  | .bytesAt => correctnessClaimBytesAt p.env functionInstance entry exit
+  | .hasExactErePrefix => correctnessClaimHasExactErePrefix p.env functionInstance entry exit
+  | .rawAlloc => correctnessClaimAlloc p.env p.heap functionInstance entry exit
+  | .memcpy => correctnessClaimMemcpy p.env functionInstance entry exit
+  | .memmove => correctnessClaimMemmove p.env functionInstance entry exit
   | .rawResult =>
-      correctnessClaimRawResult p.env p.globals p.resultBuffer instance_ entry exit
-  | .rawError => correctnessClaimRawError p.env p.globals instance_ entry exit
-  | .allocatorAlloc => correctnessClaimAllocatorAlloc p.env p.heap instance_ entry exit
-  | .allocatorResize => correctnessClaimAllocatorResize p.env instance_ entry exit
-  | .allocatorRemap => correctnessClaimAllocatorRemap p.env instance_ entry exit
-  | .allocatorFree => correctnessClaimAllocatorFree p.env instance_ entry exit
-  | .allocatorCtor => correctnessClaimAllocatorCtor p.env instance_ entry exit
+      correctnessClaimRawResult p.env p.globals p.resultBuffer functionInstance entry exit
+  | .rawError => correctnessClaimRawError p.env p.globals functionInstance entry exit
+  | .allocatorAlloc => correctnessClaimAllocatorAlloc p.env p.heap functionInstance entry exit
+  | .allocatorResize => correctnessClaimAllocatorResize p.env functionInstance entry exit
+  | .allocatorRemap => correctnessClaimAllocatorRemap p.env functionInstance entry exit
+  | .allocatorFree => correctnessClaimAllocatorFree p.env functionInstance entry exit
+  | .allocatorCtor => correctnessClaimAllocatorCtor p.env functionInstance entry exit
 
 /-- The satisfiability obligation for a routine's contract, selected by the same `tag`.
 
-Aggregating these through the dispatch is what makes anti-vacuity uniform: every live instance's
+Aggregating these through the dispatch is what makes anti-vacuity uniform: every live function instance's
 contract must have a satisfiable precondition under a valid environment, stated at the routine's own
 parameter level. -/
 def routineSatisfiable (p : ContractParams) (function : FunctionId) (tag : RoutineTag) : Prop :=
@@ -383,7 +383,7 @@ def routineSatisfiable (p : ContractParams) (function : FunctionId) (tag : Routi
 /-! ## Full-identity matching -/
 
 /-- The catalog entry whose full `FunctionId` equals `function`, if any. Matching is by the whole
-identity — file, qualified name, and specialization — so a `readArray[32]` occurrence cannot be
+identity — file, qualified name, and specialization — so a `readArray[32]` function instance cannot be
 satisfied by the `readArray[20]` contract. -/
 def catalogEntryFor (function : FunctionId) : Option CatalogEntry :=
   catalog.find? fun entry => decide (entry.functionId = function)
@@ -394,40 +394,40 @@ def excludedEntryFor (function : FunctionId) : Option CatalogEntry :=
 
 /-! ## Coverage and uniqueness obligations -/
 
-/-- Every live catalog entry has at least one generated occurrence carrying its exact identity. -/
-def everyRoutineHasInstance (program : Program) : Prop :=
+/-- Every live catalog entry has at least one generated function instance carrying its exact identity. -/
+def everyRoutineHasFunctionInstance (program : Program) : Prop :=
   ∀ entry ∈ catalog, entry.isLive = true →
-    ∃ instance_ ∈ program.instances, instance_.id.function = entry.functionId
+    ∃ functionInstance ∈ program.functionInstances, functionInstance.id.function = entry.functionId
 
-/-- Every generated occurrence carries the identity of exactly one live catalog entry. This is the
+/-- Every generated function instance carries the identity of exactly one live catalog entry. This is the
 direction that forbids an unproved region — including an un-accounted compiler/runtime routine —
 hiding inside a "complete" proof. -/
-def everyInstanceIsCataloged (program : Program) : Prop :=
-  ∀ instance_ ∈ program.instances,
-    ∃ entry ∈ catalog, entry.isLive = true ∧ instance_.id.function = entry.functionId
+def everyFunctionInstanceIsCataloged (program : Program) : Prop :=
+  ∀ functionInstance ∈ program.functionInstances,
+    ∃ entry ∈ catalog, entry.isLive = true ∧ functionInstance.id.function = entry.functionId
 
-/-- No excluded routine has any generated occurrence: the exclusions are honest. -/
+/-- No excluded routine has any generated function instance: the exclusions are honest. -/
 def excludedRoutinesAbsent (program : Program) : Prop :=
-  ∀ instance_ ∈ program.instances, ∀ excluded ∈ excludedRoutines,
-    instance_.id.function ≠ excluded.functionId
+  ∀ functionInstance ∈ program.functionInstances, ∀ excluded ∈ excludedRoutines,
+    functionInstance.id.function ≠ excluded.functionId
 
-/-- Each catalog identity is unique, so one occurrence cannot be counted against two entries. -/
+/-- Each catalog identity is unique, so one function instance cannot be counted against two entries. -/
 def catalogIdentitiesDistinct : Prop :=
   ∀ i j, (hi : i < catalog.size) → (hj : j < catalog.size) →
     (catalog[i]).functionId = (catalog[j]).functionId → i = j
 
-/-- Every generated occurrence is matched by exactly one live catalog entry, and every occurrence
-identity is distinct: one convenient occurrence cannot satisfy several entries, and a duplicated
-occurrence cannot slip through.
+/-- Every generated function instance is matched by exactly one live catalog entry, and every function instance
+identity is distinct: one convenient function instance cannot satisfy several entries, and a duplicated
+function instance cannot slip through.
 
 Uniqueness of the matched entry is `catalogEntryFor` returning `some` (a single entry from
 `Array.find?`) together with `catalogIdentitiesDistinct`, which rules out a second entry with the
 same identity. -/
 def instancesDispatchUniquely (program : Program) : Prop :=
-  program.instanceIdsDistinct ∧
+  program.functionInstanceIdsDistinct ∧
   catalogIdentitiesDistinct ∧
-  ∀ instance_ ∈ program.instances,
-    ∃ entry, catalogEntryFor instance_.id.function = some entry
+  ∀ functionInstance ∈ program.functionInstances,
+    ∃ entry, catalogEntryFor functionInstance.id.function = some entry
 
 /-- Every required `readArray` width is present as a live catalog entry. -/
 def readArrayWidthsPresent : Prop :=
@@ -437,8 +437,8 @@ def readArrayWidthsPresent : Prop :=
 /-- The full coverage obligation: both matching directions, honest exclusions, unique dispatch, the
 required specializations, and a defect-free extraction. -/
 def coverage (program : Program) : Prop :=
-  everyRoutineHasInstance program ∧
-  everyInstanceIsCataloged program ∧
+  everyRoutineHasFunctionInstance program ∧
+  everyFunctionInstanceIsCataloged program ∧
   excludedRoutinesAbsent program ∧
   instancesDispatchUniquely program ∧
   catalogIdentitiesDistinct ∧

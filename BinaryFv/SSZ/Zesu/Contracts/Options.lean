@@ -18,8 +18,8 @@ silent about it — a `post` that only constrained the success arm would be sati
 implementation that scribbled over caller memory on the way to an error.
 
 `decodeOptionalBlobSchedule` is the first migration exemplar. The existing 66-step trace is a
-fragment of its inline instance; deliberately, no program counter appears anywhere in this module,
-because the binding lives in generated Elfling data and `ImplementsInstance` is the seam.
+fragment of its inline function instance; deliberately, no program counter appears anywhere in this module,
+because the binding lives in generated Elfling data and `ImplementsFunctionInstance` is the seam.
 -/
 
 /-- The SSZ schema `decodeOptionalBlobSchedule` decodes, as partial evaluation of the pinned bridge's
@@ -132,7 +132,7 @@ count per file, so an unfinished obligation must not be spelled as a `sorry`.
 
 /-- The exhaustive `decodeOptionalBlobSchedule` contract.
 
-`stepBound` is a provisional magnitude until the generated instance fixes it. It is an upper bound,
+`stepBound` is a provisional magnitude until the generated function instance fixes it. It is an upper bound,
 so tightening it later strengthens the claim rather than invalidating this statement. -/
 def contractOptionalBlobSchedule (env : DecoderEnvironment) :
     FunctionContract SszDecodeError SliceToResultArgs (Option SszBridge.RawBlobSchedule) where
@@ -148,19 +148,19 @@ def contractOptionalU64 (env : DecoderEnvironment) :
   post := postOptionalU64 env
   stepBound := fun _ => 128
 
-/-- The obligation that a generated Elfling occurrence implements the blob-schedule contract.
+/-- The obligation that a generated Elfling function instance implements the blob-schedule contract.
 
-This is the point of the layering: the statement names no address, and the occurrence supplies every
+This is the point of the layering: the statement names no address, and the function instance supplies every
 one of them. -/
 def correctnessClaimOptionalBlobSchedule (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractOptionalBlobSchedule env)
+  ImplementsFunctionInstance functionInstance entry exit (contractOptionalBlobSchedule env)
 
 def correctnessClaimOptionalU64 (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractOptionalU64 env)
+  ImplementsFunctionInstance functionInstance entry exit (contractOptionalU64 env)
 
 /-- The blob-schedule precondition is satisfiable for a well-formed environment, so its contract is
 not vacuous. Conditioned on `ValidEnvironment` rather than asserted unconditionally: the

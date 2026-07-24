@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Row C: audit the generated per-occurrence CFG (`edges` / `exits`) against the TRUE control transfers
+"""Row C: audit the generated per-function_instance CFG (`edges` / `exits`) against the TRUE control transfers
 decoded from the UNCHANGED production ELF disassembly.
 
-For every occurrence this decodes each in-block instruction's real successors (conditional branches ->
+For every function_instance this decodes each in-block instruction's real successors (conditional branches ->
 taken target + fallthrough; `j`/`jal` -> target (+ return site); `jalr`/`ret` -> indirect/return) and
-compares that ground truth to the occurrence's declared `edges`. It reports, per occurrence:
+compares that ground truth to the function_instance's declared `edges`. It reports, per function_instance:
 
-  missingInternal   a real transfer whose SOURCE and TARGET are both inside the occurrence's blocks but
+  missingInternal   a real transfer whose SOURCE and TARGET are both inside the function_instance's blocks but
                     which is absent from `edges` — a genuine hole in the generated CFG;
   declaredNotReal   a declared edge that is not a real successor of its source instruction;
-  exitsOk           whether every real transfer leaving the occurrence's blocks has its source in `exits`.
+  exitsOk           whether every real transfer leaving the function_instance's blocks has its source in `exits`.
 
 This exists because the scaled validator must check the EXACT generated edges, not merely that transfer
 targets land on block starts. Where the generated data is wrong, the extractor is the thing to repair —
@@ -84,9 +84,9 @@ def main() -> int:
 
     insns, order = disassemble(a.objdump, a.elf)
     nxt = {addr: order[i + 1] for i, addr in enumerate(order) if i + 1 < len(order)}
-    occ = json.loads(Path(a.program).read_text())["occurrences"]
+    function_instances = json.loads(Path(a.program).read_text())["function_instances"]
 
-    # The generator attributes each PC's edges to the DEEPEST occurrence owning it
+    # The generator attributes each PC's edges to the DEEPEST function instance owning it
     # (`owned = regions - children's regions`), so an edge appears exactly once across an inline chain.
     # The audit must use the same ownership, otherwise a parent looks "incomplete" for edges that are
     # correctly attributed to its inlined children.
@@ -96,11 +96,11 @@ def main() -> int:
             s |= set(range(r["start"], r["start"] + r["size"], 2))
         return s
 
-    rpcs = [region_pcs(o) for o in occ]
+    rpcs = [region_pcs(o) for o in function_instances]
 
     report = []
     tot_missing = tot_bogus = tot_exitbad = 0
-    for i, o in enumerate(occ):
+    for i, o in enumerate(function_instances):
         children = set()
         for c in o["children"]:
             children |= rpcs[c]
@@ -121,7 +121,7 @@ def main() -> int:
                     real.add((pc, t))
         missing = sorted(e for e in real if e not in declared)
         bogus = sorted(e for e in declared if e not in real)
-        # every real transfer leaving the occurrence's own regions must have its source in `exits`
+        # every real transfer leaving the function instance's own regions must have its source in `exits`
         leaving_src = {pc for (pc, t) in real if t not in region}
         exit_bad = sorted(leaving_src - exits)
         tot_missing += len(missing); tot_bogus += len(bogus); tot_exitbad += len(exit_bad)
@@ -135,21 +135,21 @@ def main() -> int:
 
     out = {
         "summary": {
-            "occurrences": len(occ),
-            "occurrencesWithMissingInternalEdges": sum(1 for r in report if r["missingCount"]),
+            "function_instances": len(function_instances),
+            "function_instancesWithMissingInternalEdges": sum(1 for r in report if r["missingCount"]),
             "totalMissingInternalEdges": tot_missing,
-            "occurrencesWithDeclaredNotReal": sum(1 for r in report if r["declaredNotRealCount"]),
+            "function_instancesWithDeclaredNotReal": sum(1 for r in report if r["declaredNotRealCount"]),
             "totalDeclaredNotReal": tot_bogus,
             "totalLeavingSourcesNotInExits": tot_exitbad,
         },
-        "occurrences": report,
+        "function_instances": report,
     }
     Path(a.out_json).write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
     s = out["summary"]
-    print(f"occurrences={s['occurrences']}")
-    print(f"  with MISSING internal edges: {s['occurrencesWithMissingInternalEdges']} "
+    print(f"function_instances={s['function_instances']}")
+    print(f"  with MISSING internal edges: {s['function_instancesWithMissingInternalEdges']} "
           f"(total {s['totalMissingInternalEdges']})")
-    print(f"  with declared-but-not-real edges: {s['occurrencesWithDeclaredNotReal']} "
+    print(f"  with declared-but-not-real edges: {s['function_instancesWithDeclaredNotReal']} "
           f"(total {s['totalDeclaredNotReal']})")
     print(f"  leaving-transfer sources absent from `exits`: {s['totalLeavingSourcesNotInExits']}")
     return 0

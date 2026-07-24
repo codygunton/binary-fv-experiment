@@ -31,7 +31,7 @@ Read the spine outward from the root:
 * `Zesu.Contracts.sszComplianceObligations` — some canonical contract parameters make
   `sszProgramCorrectness` hold, plus the two recorded divergences.
 * `Zesu.Contracts.sszProgramCorrectness` — canonical coverage, semantic correspondence, the
-  per-instance dispatch asserting each occurrence's `correctnessClaim`, precondition satisfiability,
+  per-function-instance dispatch asserting each function instance's `correctnessClaim`, precondition satisfiability,
   and the explicit local-to-global composition.
 * `Zesu.Contracts.catalog` — the 43 live routines, address-free, matched by full identity.
 * the generated Elfling program — canonical-ELF ranges, checked against the pinned bytes.

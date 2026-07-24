@@ -362,7 +362,7 @@
   "bindingFamily": "offsetRead",
   "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Leaves.lean",
   "meaningTie": "structural",
-  "notes": "contractReadArray env length; 'length' is the comptime width N, NOT a runtime arg (readArrayWidths = [20,32,48,65,96,256] -> bounds 112,160,224,292,416,1056). Each occurrence's FunctionId.specialization fixes one width. Classified inputDependent because the body is not a fixed literal.",
+  "notes": "contractReadArray env length; 'length' is the comptime width N, NOT a runtime arg (readArrayWidths = [20,32,48,65,96,256] -> bounds 112,160,224,292,416,1056). Each function_instance's FunctionId.specialization fixes one width. Classified inputDependent because the body is not a fixed literal.",
   "stepBound": {
    "inputDependent": "fun _ => 32 + 4 * length"
   }
@@ -425,7 +425,7 @@
    "E": 0,
    "K": 32,
    "arg": "unobservable",
-   "interfaceNote": "bound = 32 + 32*offsets.length; offsets.length is a caller-passed argument not present in this occurrence's input-buffer reads. Resolving it soundly needs the extractor to expose the occurrence's offset-count argument (or its validated-offset loop-iteration count)."
+   "interfaceNote": "bound = 32 + 32*offsets.length; offsets.length is a caller-passed argument not present in this function_instance's input-buffer reads. Resolving it soundly needs the extractor to expose the function_instance's offset-count argument (or its validated-offset loop-iteration count)."
   }
  },
  "requireU32Length": {
@@ -443,7 +443,7 @@
   "contractFile": "BinaryFv/SSZ/Zesu/Contracts/ExportedDecoder.lean",
   "exitConvention": "decodeDecision",
   "meaningTie": "structural",
-  "notes": "occurrenceZesuDecodeRaw binding stepBound (spec = specZesuDecodeRaw, meaning = meaningDecode). Exported C-ABI wrapper.",
+  "notes": "function_instanceZesuDecodeRaw binding stepBound (spec = specZesuDecodeRaw, meaning = meaningDecode). Exported C-ABI wrapper.",
   "stepBound": {
    "inputDependent": "fun args => 2 * (16384 + 512 * args.bytes.size) + 1024"
   },
