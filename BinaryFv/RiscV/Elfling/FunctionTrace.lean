@@ -4,8 +4,11 @@ import BinaryFv.Binary.Elfling
 /-!
 # Traces confined to an Elfling occurrence
 
-`FunctionTrace` is `try_step` execution that stays inside one occurrence's instruction regions until
-it reaches one of that occurrence's generated exits.
+An occurrence is the static description of one compiled appearance of a source function.
+`FunctionTrace` is dynamic: it relates the machine state before one execution of that occurrence to
+the state where execution reaches one of its exits. It repeatedly runs `try_step`, requires every
+retired PC to belong to the supplied address set, and records the exact number of retired
+instructions.
 
 Two design points carry weight.
 
