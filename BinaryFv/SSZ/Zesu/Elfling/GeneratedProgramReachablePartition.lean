@@ -8,8 +8,8 @@ import GeneratedProgram
 /-!
 # Exhaustive reachable-coverage partition (option A with guardrails)
 
-The generated occurrences cover the cataloged routines, but some PCs reachable from `zesu_decode_raw`
-belong to no cataloged occurrence. Rather than silently drop them, this module proves the **exhaustive
+The generated function instances cover the cataloged routines, but some PCs reachable from `zesu_decode_raw`
+belong to no cataloged function instance. Rather than silently drop them, this module proves the **exhaustive
 partition**
 
 ```
@@ -18,8 +18,8 @@ reachable = covered ⊎ excluded         (3369 = 3135 + 234)
 
 against the materialized reachable set (`ReachabilityCert.reachableAddresses`, tied to the canonical
 decoded CFG by `entryReachableInventoryCertificate`) and the generator-emitted excluded taxonomy
-(`Generated.generatedExcludedOccurrences`). The load-bearing content is `reachable_no_silent_drop`:
-**every reachable PC is either covered by a cataloged occurrence or one of the surfaced excluded
+(`Generated.generatedExcludedFunctionInstances`). The load-bearing content is `reachable_no_silent_drop`:
+**every reachable PC is either covered by a cataloged function instance or one of the surfaced excluded
 routines** — no reachable PC is unaccounted for. Covered and excluded are moreover disjoint over the
 reachable set, and the counts are exactly 3135 and 234.
 
@@ -47,17 +47,17 @@ open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
 open BinaryFv.SSZ.Zesu.ControlFlow (controlFlow?)
 open BinaryFv.SSZ.Zesu.Elfling.Generated
-  (generatedProgram generatedExcludedOccurrences reachableAddresses reachableEntry)
+  (generatedProgram generatedExcludedFunctionInstances reachableAddresses reachableEntry)
 
 /-! ## Covered / excluded membership -/
 
-/-- A PC covered by some cataloged generated occurrence. -/
+/-- A PC covered by some cataloged generated function instance. -/
 def isCoveredPC (a : Nat) : Bool :=
-  generatedProgram.instances.any fun inst => inst.containsAddress a
+  generatedProgram.functionInstances.any fun functionInstance => functionInstance.containsAddress a
 
 /-- A PC inside some surfaced excluded routine's region. -/
 def isExcludedPC (a : Nat) : Bool :=
-  generatedExcludedOccurrences.any fun x =>
+  generatedExcludedFunctionInstances.any fun x =>
     x.regions.any fun r => decide (r.start ≤ a ∧ a < r.stop)
 
 /-! ## The partition over the reachable set -/
@@ -68,7 +68,7 @@ def reachablePartitionB : Bool :=
 
 theorem reachablePartitionB_true : reachablePartitionB = true := by native_decide
 
-/-- **The exhaustive partition.** For every reachable PC, being covered by a cataloged occurrence is
+/-- **The exhaustive partition.** For every reachable PC, being covered by a cataloged function instance is
 exactly the negation of being in an excluded routine: the two sets partition the reachable set (no
 overlap, no gap). -/
 theorem reachable_partition :
@@ -118,7 +118,7 @@ def exclusionReasonOfCategory (s : String) : Option ExclusionReason :=
 its name shape (`*.deinit` for cleanup-no-op; a `std`/`mem`/`math` prefix for stdlib). This is what
 keeps the taxonomy honest rather than a free-form label. -/
 def excludedTaxonomyConsistentB : Bool :=
-  generatedExcludedOccurrences.all fun x =>
+  generatedExcludedFunctionInstances.all fun x =>
     match exclusionReasonOfCategory x.category with
     | some .reachableCleanupNoOp => x.qualifiedName.endsWith ".deinit"
     | some .reachableStdlib =>
@@ -131,7 +131,7 @@ theorem excludedTaxonomyConsistentB_true : excludedTaxonomyConsistentB = true :=
 /-- Every excluded routine is categorized as `reachableStdlib` (a `mem`/`std`/`math` implementation)
 or `reachableCleanupNoOp` (a `*.deinit`), with the name shape matching the reason. -/
 theorem excluded_taxonomy_consistent :
-    ∀ x ∈ generatedExcludedOccurrences,
+    ∀ x ∈ generatedExcludedFunctionInstances,
       (exclusionReasonOfCategory x.category = some .reachableStdlib ∧
         (x.qualifiedName.startsWith "mem." || x.qualifiedName.startsWith "std." ||
           x.qualifiedName.startsWith "math.") = true) ∨
@@ -153,7 +153,7 @@ theorem excluded_taxonomy_consistent :
 data genuinely accounts for the 234 uncovered reachable PCs. -/
 theorem excluded_reachable_pc_attributed :
     ∀ a ∈ reachableAddresses, isExcludedPC a = true →
-      ∃ x ∈ generatedExcludedOccurrences,
+      ∃ x ∈ generatedExcludedFunctionInstances,
         (x.regions.any fun r => decide (r.start ≤ a ∧ a < r.stop)) = true ∧
         (exclusionReasonOfCategory x.category).isSome = true := by
   intro a _ha hexc
@@ -186,7 +186,7 @@ theorem reachable_coverage_partition :
     covered_reachable_count, excluded_reachable_count⟩
 
 /-- **Every reachable node is decoded and owned.** For the canonical decode, every address in the exact
-reachable set is a decoded CFG node AND is owned by a cataloged occurrence or a surfaced excluded
+reachable set is a decoded CFG node AND is owned by a cataloged function instance or a surfaced excluded
 routine — the node-level counterpart of the total edge classification (`edges_all_classified`). -/
 theorem reachable_node_decoded_and_owned :
     ∃ nodes : Array RiscV.ControlFlowNode, controlFlow? = some nodes ∧
@@ -208,15 +208,15 @@ open BinaryFv.RiscV (State)
 open Register
 
 /-- Confinement predicate of an excluded routine: PCs inside its canonical regions. -/
-def excludedRegionPred (x : Generated.ExcludedOccurrence) : BitVec 64 → Prop :=
+def excludedRegionPred (x : Generated.ExcludedFunctionInstance) : BitVec 64 → Prop :=
   RegionPcs x.regions
 
 /-- An excluded routine's exit: control leaves its regions. -/
-def excludedExitPred (x : Generated.ExcludedOccurrence) : BitVec 64 → Prop :=
+def excludedExitPred (x : Generated.ExcludedFunctionInstance) : BitVec 64 → Prop :=
   fun pc => ¬ RegionPcs x.regions pc
 
 /-- The routine's entry PC (its lowest region start) as a machine word. -/
-def excludedEntryWord (x : Generated.ExcludedOccurrence) : BitVec 64 :=
+def excludedEntryWord (x : Generated.ExcludedFunctionInstance) : BitVec 64 :=
   BitVec.ofNat 64 (x.regions.foldl (fun m r => Nat.min m r.start) ((x.regions[0]?.map (·.start)).getD 0))
 
 /-- **Per-routine EXECUTION obligation.** From any machine state sitting on the routine's entry, the
@@ -226,7 +226,7 @@ the base obligation the category-specific memory effect strengthens in later row
 `reachableCleanupNoOp` (`*.deinit`) the additional fact is that the confined run leaves the accept/
 reject-determining state unchanged (its allocator free is a no-op); for a `reachableStdlib` it is that
 the run realizes the corresponding cataloged allocator-vtable contract. -/
-def excludedRoutineExecObligation (x : Generated.ExcludedOccurrence) : Prop :=
+def excludedRoutineExecObligation (x : Generated.ExcludedFunctionInstance) : Prop :=
   ∀ (fromStep : Nat) (s : State), s.regs.get? PC = some (excludedEntryWord x) →
     ∃ (count : Nat) (s' : State),
       EnteredFunctionTrace (excludedRegionPred x) (excludedExitPred x) (excludedEntryWord x)
@@ -237,7 +237,7 @@ shared `ExclusionReason`. Each is a MODULAR statement about one routine's execut
 for the removed global `excludedRoutinesOutcomeIrrelevant`. Stated as a `Prop`, discharged in the
 allocator/entry rows; not asserted true here. -/
 def excludedRoutineObligations : Prop :=
-  ∀ x ∈ generatedExcludedOccurrences,
+  ∀ x ∈ generatedExcludedFunctionInstances,
     match exclusionReasonOfCategory x.category with
     | some .reachableStdlib => excludedRoutineExecObligation x
     | some .reachableCleanupNoOp => excludedRoutineExecObligation x

@@ -13,7 +13,7 @@ The data checks over the immutable handwritten catalog use `native_decide`. That
 documented "small immutable-artifact checking" trust the repository already relies on for closed
 facts about fixed artifacts (`Lean.ofReduceBool`, `Lean.trustCompiler`), and none of these audit
 theorems is on `root_compliance`'s dependency spine, so its axiom set is unaffected. The two genuine
-obligations (per-instance dispatch and the root dependency) are ordinary kernel proofs with no such
+obligations (per-function-instance dispatch and the root dependency) are ordinary kernel proofs with no such
 trust. -/
 
 /-- Boolean: catalog identities are pairwise distinct. -/
@@ -63,16 +63,16 @@ theorem exclusions_disjoint_from_catalog : exclusionsDisjoint = true := by nativ
 /-- (4b) Every excluded routine is classified with a machine-checkable reason. -/
 theorem exclusions_all_classified : exclusionsAllClassified = true := by native_decide
 
-/-- (5) `sszProgramCorrectness` genuinely references the per-instance implementation predicate:
-program correctness entails that the occurrence at any cataloged identity implements its routine's
+/-- (5) `sszProgramCorrectness` genuinely references the per-function-instance implementation predicate:
+program correctness entails that the function instance at any cataloged identity implements its routine's
 `correctnessClaim`. Ordinary kernel proof, no artifact trust. -/
 theorem program_correctness_references_per_instance
     {program : Program} {p : ContractParams}
     (correct : sszProgramCorrectness program p)
-    {instance_ : FunctionInstance} (mem : instance_ ∈ program.instances)
-    {entry : CatalogEntry} (found : catalogEntryFor instance_.id.function = some entry) :
-    routineObligation p instance_ entry.tag :=
-  instance_implements_its_contract correct mem found
+    {functionInstance : FunctionInstance} (mem : functionInstance ∈ program.functionInstances)
+    {entry : CatalogEntry} (found : catalogEntryFor functionInstance.id.function = some entry) :
+    routineObligation p functionInstance entry.tag :=
+  function_instance_implements_its_contract correct mem found
 
 /-- (6) The runner/result theorems `root_compliance` is built from depend on
 `sszComplianceObligations program`: it entails program correctness for the concrete

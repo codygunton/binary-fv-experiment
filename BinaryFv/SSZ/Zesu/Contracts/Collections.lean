@@ -220,39 +220,39 @@ def contractByteListList (env : DecoderEnvironment) :
 -/
 
 def correctnessClaimVersionedHashes (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractVersionedHashes env)
+  ImplementsFunctionInstance functionInstance entry exit (contractVersionedHashes env)
 
 def correctnessClaimWithdrawals (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractWithdrawals env)
+  ImplementsFunctionInstance functionInstance entry exit (contractWithdrawals env)
 
 def correctnessClaimDepositRequests (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractDepositRequests env)
+  ImplementsFunctionInstance functionInstance entry exit (contractDepositRequests env)
 
 def correctnessClaimWithdrawalRequests (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractWithdrawalRequests env)
+  ImplementsFunctionInstance functionInstance entry exit (contractWithdrawalRequests env)
 
 def correctnessClaimConsolidationRequests (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractConsolidationRequests env)
+  ImplementsFunctionInstance functionInstance entry exit (contractConsolidationRequests env)
 
 def correctnessClaimPublicKeys (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractPublicKeys env)
+  ImplementsFunctionInstance functionInstance entry exit (contractPublicKeys env)
 
 def correctnessClaimByteListList (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractByteListList env)
+  ImplementsFunctionInstance functionInstance entry exit (contractByteListList env)
 
 /-!
 ## Satisfiability
