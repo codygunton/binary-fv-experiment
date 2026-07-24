@@ -61,6 +61,14 @@ binary this proof is about — and the builder's own `Unreachable` throw on an u
 is likewise unreachable. -/
 theorem runnerSymbols_isSome : runnerSymbols.isSome = true := by native_decide
 
+/-- The resolved entry points, as a value rather than an `Option`. Total because the canonical
+artifact resolves all three, so downstream statements do not have to carry a resolution hypothesis
+around. -/
+def resolvedSymbols : RunnerSymbols := runnerSymbols.get runnerSymbols_isSome
+
+@[simp] theorem runnerSymbols_eq_resolved : runnerSymbols = some resolvedSymbols :=
+  (Option.some_get runnerSymbols_isSome).symm
+
 /-- The address of the inline `stored_result` object's discriminant byte, from the checked globals
 layout and the reflected option layout. -/
 def storedResultDiscriminantAddr : Nat :=
@@ -241,6 +249,55 @@ theorem executeDecode_of_trace {symbols : RunnerSymbols} (input : ByteArray) {co
     runZesuDecodeRaw_of_trace symbols input hbuild htrace hbound haccessors
   unfold executeDecode runAnswer
   simp only [hsymbols, hrun]
+
+/-! ## The two public outcomes, from a run
+
+These are what `BinaryFv/SSZ/Root.lean` consumes. Each takes a complete description of one machine
+run — the builder's run, a trace within the contract's step bound, the wrapper's own globals, and
+the two accessor calls — and concludes the public answer, with no machine detail left for the root
+to reconstruct. -/
+
+/-- The canonical result buffer is not the null pointer, so `zesu_raw_result` returning it is
+distinguishable from returning nothing. -/
+theorem canonicalResultBuffer_ne_zero : Elfling.canonicalResultBuffer ≠ 0 := by native_decide
+
+/-- **A successful run answers with exactly the value its memory represents.** -/
+theorem executeDecode_accepted_of_run (input : ByteArray) (value : SszBridge.RawV4)
+    {entry final after : State} {count : Nat}
+    (hbuild : Runs (buildZesuEntryState input) initialState entry ())
+    (htrace : TraceToSentinel sentinelWord 0 count entry final)
+    (hbound : count ≤ entryStepBound input.size)
+    (haccessors : Runs (runAccessorsIfReached resolvedSymbols (.reached count)) final after
+      (.returned Elfling.canonicalResultBuffer, .returned Contracts.DecodeStatus.ok.code))
+    (hcode : observeReturnCode? final = some 1)
+    (htag : observeOptionTag? final storedResultDiscriminantAddr = some true)
+    (hinput : MemoryBytes final canonicalRunnerLayout.inputBase input)
+    (hvalue : RawV4Rep final canonicalRunnerLayout.inputBase input Elfling.canonicalResultBuffer
+      value) :
+    executeDecode input = .ok (.accepted value) := by
+  rw [executeDecode_of_trace input runnerSymbols_eq_resolved hbuild htrace hbound haccessors]
+  exact classifyWrapperRun_accepted observeDecodedValue storedResultDiscriminantAddr
+    Elfling.canonicalResultBuffer count _ _ final value hcode rfl rfl
+    canonicalResultBuffer_ne_zero htag
+    (observe_raw_v4_of_rep final canonicalRunnerLayout.inputBase input
+      Elfling.canonicalResultBuffer value hinput hvalue)
+
+/-- **A rejected run answers with the normalized rejection.** The status must be one the
+specification itself can produce; an exhausted arena or a refused second call cannot reach here. -/
+theorem executeDecode_rejected_of_run (input : ByteArray) {entry final after : State}
+    {count status : Nat}
+    (hbuild : Runs (buildZesuEntryState input) initialState entry ())
+    (htrace : TraceToSentinel sentinelWord 0 count entry final)
+    (hbound : count ≤ entryStepBound input.size)
+    (haccessors : Runs (runAccessorsIfReached resolvedSymbols (.reached count)) final after
+      (.returned 0, .returned status))
+    (hcode : observeReturnCode? final = some 0)
+    (hstatus : statusCategory status = .specRejection)
+    (htag : observeOptionTag? final storedResultDiscriminantAddr = some false) :
+    executeDecode input = .ok .rejected := by
+  rw [executeDecode_of_trace input runnerSymbols_eq_resolved hbuild htrace hbound haccessors]
+  exact classifyWrapperRun_rejected observeDecodedValue storedResultDiscriminantAddr
+    Elfling.canonicalResultBuffer count status _ _ final hcode rfl hstatus rfl htag
 
 /-! ## The runner never invents a rejection
 

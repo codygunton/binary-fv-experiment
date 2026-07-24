@@ -25,6 +25,13 @@ with `Zesu.Contracts.sszComplianceObligations program`, and the two runner/resul
 *consume* that program and obligation. So the spine is literal: no witness exists without program
 correctness, and the root claim is built only from witnesses.
 
+**This file contains no `sorry`.** Its two lemmas used to be scaffolds bridging a trace witness to
+the public API; that bridge is now a real proof in `Entrypoints/ZesuDecodeRaw/Runner.lean`
+(`executeDecode_accepted_of_run`, `executeDecode_rejected_of_run`), so the root only opens the
+preflight gate and hands each witness's fields straight over. The two remaining holes in the whole
+SSZ proof are the live-trace obligations in `Entrypoints/ZesuDecodeRaw/Execution.lean` — *constructing*
+a run of the machine from a specification outcome. Everything downstream of a run existing is proved.
+
 Read the spine outward from the root:
 
 * `root_compliance` — the public claim.
@@ -40,27 +47,44 @@ None of these is a `sorry`; they are named `Prop`s, so an unfinished obligation 
 without changing the `nix/proof.nix` hole count.
 -/
 
-/-- Authorized navigation scaffold connecting the executable runner/result observer to a successful
-live Sail trace, *given* the canonical generated program and its compliance obligation.
+/-- The proof's own binary passes the runner's canonicality gate — by definition, since `binary`'s
+bytes *are* the artifact's. Stated once so the two lemmas below can open the gate without
+re-evaluating an 86 KB byte comparison. -/
+theorem binary_is_canonical :
+    Zesu.Entrypoints.ZesuDecodeRaw.artifactIsCanonical binary = true :=
+  decide_eq_true (show binary.bytes = Zesu.Artifact.bytes from rfl)
+
+/-- A successful run of the exported wrapper gives the public acceptance.
 
 `program` and `obligations` are genuine premises, not manufactured by the root: they are produced by
-`successful_trace_of_spec_accepts` and threaded in here, so the eventual proof of this theorem may —
-and must — use program correctness to establish the runner result. -/
-theorem execute_accepts_of_successful_trace (input : ByteArray) (value : SszBridge.RawV4)
+`successful_trace_of_spec_accepts` and threaded in here, so the trace this consumes cannot exist
+without Elfling program correctness. The machine reasoning itself is entirely
+`executeDecode_accepted_of_run`'s — the root reconstructs none of it. -/
+theorem execute_accepts_of_successful_trace (input : ByteArray)
+    (inputBound : input.size < Zesu.Runtime.maximumInputBytes) (value : SszBridge.RawV4)
     (program : Program) (canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
     (obligations : Zesu.Contracts.sszComplianceObligations program)
-    (execution : Zesu.Entrypoints.ZesuDecodeRaw.SuccessfulTraceWitness input value) :
+    (execution : Zesu.Entrypoints.ZesuDecodeRaw.SuccessfulRun input value) :
     RiscvSpec.execute binary input = .ok (.accepted value) := by
-  sorry
+  rw [RiscvSpec.execute_eq_executeChecked,
+    Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_eq_executeDecode binary_is_canonical inputBound]
+  exact Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_accepted_of_run input value
+    execution.builds execution.trace execution.withinStepBound execution.accessors
+    execution.returnCode execution.storedPresent execution.inputPreserved execution.storedValue
 
-/-- Authorized navigation scaffold connecting a classified nonzero-status trace to the executable
-runner's normalized rejection result, given the same canonical program and obligation. -/
+/-- A run recording a spec-producible rejection status gives the public rejection, given the same
+canonical program and obligation. -/
 theorem execute_rejects_of_rejected_trace (input : ByteArray)
+    (inputBound : input.size < Zesu.Runtime.maximumInputBytes)
     (program : Program) (canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
     (obligations : Zesu.Contracts.sszComplianceObligations program)
-    (execution : Zesu.Entrypoints.ZesuDecodeRaw.RejectedTraceWitness input) :
+    (execution : Zesu.Entrypoints.ZesuDecodeRaw.RejectedRun input) :
     RiscvSpec.execute binary input = .ok .rejected := by
-  sorry
+  rw [RiscvSpec.execute_eq_executeChecked,
+    Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_eq_executeDecode binary_is_canonical inputBound]
+  exact Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_rejected_of_run input
+    execution.builds execution.trace execution.withinStepBound execution.accessors
+    execution.returnCode execution.specRejection execution.storedAbsent
 
 /-- The final Amsterdam V4 compliance statement.  Its dependency spine is intentionally visible:
 spec classification, the canonical Elfling program and its compliance obligation, live Sail traces,
@@ -75,11 +99,13 @@ theorem root_compliance :
       obtain ⟨program, canonical, obligations, ⟨execution⟩⟩ :=
         Zesu.Entrypoints.ZesuDecodeRaw.successful_trace_of_spec_accepts
           input inputBound value specResult
-      exact execute_accepts_of_successful_trace input value program canonical obligations execution
+      exact execute_accepts_of_successful_trace input inputBound value program canonical
+        obligations execution
   | rejected =>
       obtain ⟨program, canonical, obligations, ⟨execution⟩⟩ :=
         Zesu.Entrypoints.ZesuDecodeRaw.rejected_trace_of_spec_rejects
           input inputBound specResult
-      exact execute_rejects_of_rejected_trace input program canonical obligations execution
+      exact execute_rejects_of_rejected_trace input inputBound program canonical obligations
+        execution
 
 end BinaryFv.SSZ

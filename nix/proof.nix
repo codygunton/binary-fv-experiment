@@ -279,26 +279,28 @@ let
       exit 1
     fi
 
-    # Exactly four SSZ scaffolds are authorized, plus the one Keccak root scaffold. Keep the check
+    # Exactly two SSZ scaffolds are authorized, plus the one Keccak root scaffold. Keep the check
     # declaration-scoped by pinning both the file and the count; all helper proofs remain sorry-free.
     #
-    # The SSZ four are the two root runner/API bridges in `SSZ/Root.lean` and the two live-trace
-    # holes in `Entrypoints/ZesuDecodeRaw/Execution.lean`. The allowlist previously named only
-    # `SSZ/Root.lean` and asserted a count of 1 there, which predated the root scaffold being split
-    # into two theorems plus two trace obligations — so this audit rejected its own tree. Pinning all
-    # three files with exact counts is strictly tighter than the previous rule, not looser: the
-    # Execution.lean holes were formerly unlisted and are now explicitly bounded.
+    # The SSZ two are the live-trace obligations in `Entrypoints/ZesuDecodeRaw/Execution.lean`:
+    # producing a complete run of the wrapper from a spec acceptance, and from a spec rejection.
+    #
+    # `SSZ/Root.lean` is deliberately NOT on this allowlist any more. It used to hold two scaffolds
+    # bridging a trace witness to the public API; Row D's runner made that bridge a real proof
+    # (`executeDecode_accepted_of_run` / `executeDecode_rejected_of_run`), so the root now derives
+    # its two lemmas and contains no `sorry` at all. Dropping the file from the allowlist rather than
+    # setting its count to zero is the stricter choice: a future `sorry` there fails as *unexpected*
+    # instead of silently fitting under a budget.
     sorrySites=$(grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/ || true)
     unexpectedSorries=$(printf '%s\n' "$sorrySites" | grep -v -E \
-      '^BinaryFv/Keccak/Reth/Root\.lean:[0-9]+:.*sorry$|^BinaryFv/SSZ/Root\.lean:[0-9]+:.*sorry$|^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:[0-9]+:.*sorry$' \
+      '^BinaryFv/Keccak/Reth/Root\.lean:[0-9]+:.*sorry$|^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:[0-9]+:.*sorry$' \
       || true)
     if [ -n "$unexpectedSorries" ]; then
-      echo "Only the declaration-allowlisted Keccak and SSZ root scaffolds may contain sorry." >&2
+      echo "Only the declaration-allowlisted Keccak root and SSZ live-trace scaffolds may contain sorry." >&2
       echo "$unexpectedSorries" >&2
       exit 1
     fi
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Keccak/Reth/Root\.lean:')" = 1
-    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Root\.lean:')" = 2
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
 
     # Artifact boundary. `Reth/Artifact/` is immutable binary data and closed static facts about
