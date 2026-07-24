@@ -6,16 +6,23 @@ namespace BinaryFv.Binary.Elfling
 open BinaryFv.Binary
 
 /-!
-# Generated, address-bearing Elfling occurrences
+# Data model for compiled Elfling occurrences
 
-Everything here is emitted by the deterministic extractor and is therefore *untrusted*. Debug
-information only ever proposes a source-to-address mapping; the corresponding Lean validation checks
-every range and every byte against the canonical pinned ELF before any proof may rely on it. A wrong
-sidecar must be able to make extraction or validation fail, and must never be able to establish a
-false semantic result.
+This file is handwritten. It defines the architecture-independent types used to describe how source
+functions appear in a compiled binary; it does not contain a generated description of any particular
+binary.
 
-Handwritten contracts index by `InstanceId` (address-free). They never mention anything in this
-module.
+A **function occurrence** is one compiled appearance of a source function. The compiler may leave a
+function as a separately callable body, inline it into one or more callers, or split one appearance
+across discontiguous address ranges. `FunctionInstance` records one such appearance.
+
+The deterministic extractor creates address-bearing values of these types for a particular binary.
+Those values are *untrusted*: debug information only proposes a source-to-address mapping, and Lean
+validation checks every range and byte against the pinned ELF before a proof may rely on it. A wrong
+sidecar must make extraction or validation fail; it must never establish a false semantic result.
+
+Handwritten contracts use the address-free `InstanceId` to select an occurrence. Concrete addresses
+enter later through extracted `FunctionInstance` and `Program` values.
 -/
 
 /-- Where a generated fact came from, so a disputed mapping can be traced back to exact inputs.

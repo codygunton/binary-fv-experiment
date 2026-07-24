@@ -3,9 +3,14 @@ import BinaryFv.RiscV.Elfling.Contract
 /-!
 # Calls, inlining, and checked trace boundaries
 
-`FunctionTrace` describes execution inside one compiled occurrence. Real code also calls separately
-emitted routines and enters regions that came from inlined routines. `ScopedTrace` lets a parent use
-a proved summary of either kind of child while still reconstructing one ordinary machine trace.
+A boundary is a control-flow edge that crosses from one occurrence's owned instructions into another
+occurrence, or back again. The name refers to that ownership crossing; it does not mean an arbitrary
+place where a trace is split.
+
+`FunctionTrace` describes instruction-by-instruction execution inside one compiled occurrence. Real
+code also calls separately emitted routines and enters regions attributed to inlined routines.
+`ScopedTrace` lets a parent use a proved summary of either kind of child while still reconstructing
+one ordinary machine trace.
 
 The generator supplies the parent and child regions, control-flow edges, calls, and exits. The
 `validFor` predicates check every boundary against that data:
