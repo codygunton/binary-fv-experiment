@@ -31,6 +31,26 @@ lean_lib SszSpec where
     `SizzLean.Spec.SSZError,
     `SizzLean.Spec.Serialize,
     `SizzLean.Spec.Deserialize,
+    `SizzLean.Spec.BasicSupported,
+    `SizzLean.Spec.Supported,
+    `SizzLean.Spec.MaxByteLength,
+    -- Every `Proofs` module is named: Lake resolves an import only against a library whose *root*
+    -- is a prefix of it, so listing the three central theorems alone leaves their siblings
+    -- unbuilt.
+    `SizzLean.Compat,
+    `SizzLean.Proofs.SimpAttrs,
+    `SizzLean.Proofs.Simp,
+    `SizzLean.Proofs.UInt,
+    `SizzLean.Proofs.Bool,
+    `SizzLean.Proofs.BitPack,
+    `SizzLean.Proofs.SerializeSize,
+    `SizzLean.Proofs.FixedElems,
+    `SizzLean.Proofs.VectorFixed,
+    `SizzLean.Proofs.ListFixed,
+    `SizzLean.Proofs.ContainerFixed,
+    `SizzLean.Proofs.Roundtrip,
+    `SizzLean.Proofs.Injective,
+    `SizzLean.Proofs.SizeBound,
     `SszBridge.Core,
   ]
 

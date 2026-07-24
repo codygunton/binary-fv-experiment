@@ -169,8 +169,22 @@ let
   # The SSZ proof imports the executable SizzLean decoder, but only its pure wire-format closure.
   # Keep the source-level pins here: `SizzLean`'s normal Lake package also pulls its SHA/OpenSSL
   # packages, which the decoder does not need and the BinaryFv proof must not link.
+  #
+  # The pin also carries upstream's *proofs* about that closure — `Spec/BasicSupported.lean`,
+  # `Spec/Supported.lean`, `Spec/MaxByteLength.lean`, and all of `Proofs/`. The exclusion above is
+  # about the Lake package's SHA/OpenSSL dependencies, and `Proofs/` has none: its only non-SizzLean
+  # imports are `Std.Tactic.BVDecide` and `Lean.Meta.Tactic.Simp.RegisterCommand`. Pinning them is
+  # what stops Row D re-deriving `decode_encode` (serialize-then-deserialize is the identity on the
+  # `BasicSupported` shapes), `serialize_injective`, and `encode_size_le_max` from scratch. Every
+  # file is copied under the same SHA discipline as the spec files and listed in `provenance.txt`,
+  # so an upstream edit fails the build rather than silently changing what the proof rests on.
+  #
+  # Note the trust consequence, which is deliberate and stated rather than discovered later:
+  # upstream's multi-byte integer arms are closed with `bv_decide`, so any theorem reached through
+  # `decode_encode` carries `Lean.ofReduceBool`/`Lean.trustCompiler`. That is the same axiom class
+  # the pinned-artifact `native_decide` facts already put in the root, not a new one.
   sszSpecLean = pkgs.runCommand "binary-fv-ssz-spec-lean" {
-    nativeBuildInputs = [ pkgs.coreutils ];
+    nativeBuildInputs = [ pkgs.coreutils pkgs.gnused ];
   } ''
     copy_checked() {
       source="$1"
@@ -181,8 +195,9 @@ let
       cp "$source" "$destination"
     }
 
-    mkdir -p "$out/SizzLean/Spec" "$out/SszBridge"
-    spec_root=${etheorem}/packages/SizzLean/SizzLean/Spec
+    mkdir -p "$out/SizzLean/Spec" "$out/SizzLean/Proofs" "$out/SszBridge"
+    sizzlean_root=${etheorem}/packages/SizzLean/SizzLean
+    spec_root="$sizzlean_root/Spec"
     copy_checked "$spec_root/Type.lean" \
       ef7fd929a536cf157808cb4ace0255e3992dda566f93b77737166c3fb9139711 \
       "$out/SizzLean/Spec/Type.lean"
@@ -201,6 +216,84 @@ let
     copy_checked "$spec_root/Deserialize.lean" \
       db05b7d663445dc79e563ef0095482544ff950a7b51fd89e14fcb301b4830ef5 \
       "$out/SizzLean/Spec/Deserialize.lean"
+    copy_checked "$spec_root/BasicSupported.lean" \
+      5c50a2609d3891ba32016b0dbea3af684e0161ca0960977ebe4e8fecd86719e0 \
+      "$out/SizzLean/Spec/BasicSupported.lean"
+    copy_checked "$spec_root/Supported.lean" \
+      50f32f78c5c0190812b480cf4e749fe9462a416da7667e82eb918db46f123bcc \
+      "$out/SizzLean/Spec/Supported.lean"
+    copy_checked "$spec_root/MaxByteLength.lean" \
+      95529cf63920db116500d12e8d7cf9e1eab6d0d37f21a714d143d8ab4dbd818d \
+      "$out/SizzLean/Spec/MaxByteLength.lean"
+    copy_checked "$sizzlean_root/Proofs/BitPack.lean" \
+      903cb8a62cac4f8a2444ec8b1ab7d270bb2561f7801f79e3fa0c4bc4cfd91cc5 \
+      "$out/SizzLean/Proofs/BitPack.lean"
+    copy_checked "$sizzlean_root/Proofs/Bool.lean" \
+      4f28e9300e5d582a986fc81398dfb1ba289f1e43551f0fba6791953229dafacf \
+      "$out/SizzLean/Proofs/Bool.lean"
+    copy_checked "$sizzlean_root/Proofs/ContainerFixed.lean" \
+      a4cfbbe8e33e9aaf8a2664e7b98a18425b5763b5bc8ee83f352e3c2673cf5f17 \
+      "$out/SizzLean/Proofs/ContainerFixed.lean"
+    copy_checked "$sizzlean_root/Proofs/FixedElems.lean" \
+      1173b8b1dc05a9b799872b4e1044e3debb3558e7228ef441367f23a2977f417c \
+      "$out/SizzLean/Proofs/FixedElems.lean"
+    copy_checked "$sizzlean_root/Proofs/Injective.lean" \
+      f71f759814cc027455af8ae645c3e99594853470e2ecc4143239f4bd8413e091 \
+      "$out/SizzLean/Proofs/Injective.lean"
+    copy_checked "$sizzlean_root/Proofs/ListFixed.lean" \
+      5912c1ce7e664cf4064d53e6e2a45b4c460b03d436a68f0fad05c6c46753c4f2 \
+      "$out/SizzLean/Proofs/ListFixed.lean"
+    copy_checked "$sizzlean_root/Proofs/Roundtrip.lean" \
+      d3faad1aa57b43b07717a7f564d8ce9a30790b6a5a4ed9092961d323ed810e50 \
+      "$out/SizzLean/Proofs/Roundtrip.lean"
+    copy_checked "$sizzlean_root/Proofs/SerializeSize.lean" \
+      22da51a02f5845b648d1ecf37efa754df8afc42963314318ccf76b221ee1d16f \
+      "$out/SizzLean/Proofs/SerializeSize.lean"
+    copy_checked "$sizzlean_root/Proofs/Simp.lean" \
+      ef266efca1c8730900c4b186383f0b2cac0677e6a608460cc9c670a61f3296e1 \
+      "$out/SizzLean/Proofs/Simp.lean"
+    copy_checked "$sizzlean_root/Proofs/SimpAttrs.lean" \
+      63006416cad34b6e65dc7a60a5cf62765c994e5fd806bb881abcbd62139d72ca \
+      "$out/SizzLean/Proofs/SimpAttrs.lean"
+    copy_checked "$sizzlean_root/Proofs/SizeBound.lean" \
+      a45050a4d9fed9c67f5e6da7a131854666e791048bf5e0c58423db16e493d60b \
+      "$out/SizzLean/Proofs/SizeBound.lean"
+    copy_checked "$sizzlean_root/Proofs/UInt.lean" \
+      629894b6385041763094118c1a16a2383fa4cb3f5af5f6f0f2ae693ef6b0cdae \
+      "$out/SizzLean/Proofs/UInt.lean"
+    copy_checked "$sizzlean_root/Proofs/VectorFixed.lean" \
+      1c7c7e11451beb845705769f2ddb073b87666ee9c01323a336d364f489a5a890 \
+      "$out/SizzLean/Proofs/VectorFixed.lean"
+    # Toolchain shim, and the only edit made to any pinned upstream file.
+    #
+    # `Proofs/UInt.lean` and `Proofs/BitPack.lean` name `ByteArray.size_push` in `simp only` lists.
+    # That lemma exists in upstream's pinned `leanprover/lean4:v4.29.1` and not in this project's
+    # nightly, so the two files do not elaborate here — nothing to do with their content. The fix is
+    # one lemma, restated below, plus one inserted `import` line in each of those two files.
+    #
+    # The pristine SHA is still checked *before* the insertion, so an upstream edit fails the build
+    # exactly as before; what the patch cannot do is hide a change to what the proofs say. Keeping
+    # the shim in its own module rather than appending it to an upstream file keeps the two edits
+    # greppable (`grep -rn "import SizzLean.Compat"`) and trivially reversible when the toolchains
+    # converge.
+    ${pkgs.coreutils}/bin/cat > "$out/SizzLean/Compat.lean" <<'COMPAT'
+/-!
+# Toolchain compatibility for the pinned upstream proofs
+
+`ByteArray.size_push` is present in the Lean release `etheorem` pins and absent from the nightly this
+project pins. `SizzLean/Proofs/{UInt,BitPack}.lean` name it in `simp only` lists, so it is restated
+here and imported by exactly those two files. This module is added by `nix/proof.nix`; it is not
+upstream content.
+-/
+
+theorem ByteArray.size_push (bytes : ByteArray) (byte : UInt8) :
+    (bytes.push byte).size = bytes.size + 1 := by
+  cases bytes
+  exact Array.size_push ..
+COMPAT
+    ${pkgs.gnused}/bin/sed -i '1i import SizzLean.Compat' "$out/SizzLean/Proofs/UInt.lean"
+    ${pkgs.gnused}/bin/sed -i '1i import SizzLean.Compat' "$out/SizzLean/Proofs/BitPack.lean"
+
     copy_checked ${repo}/targets/ssz/zesu/spec/SszBridge/Core.lean \
       0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
       "$out/SszBridge/Core.lean"
@@ -213,6 +306,22 @@ let
       SizzLean/Spec/SSZError.lean=0e8ddfb73dc7ac7d6a56a2943e950051abd9310b25465e2f415c8a64327c4448 \
       SizzLean/Spec/Serialize.lean=d830cb74ded4cddbba87e4400ebaef71060f527317c5783d9a4fe9d02e7c0ae2 \
       SizzLean/Spec/Deserialize.lean=db05b7d663445dc79e563ef0095482544ff950a7b51fd89e14fcb301b4830ef5 \
+      SizzLean/Spec/BasicSupported.lean=5c50a2609d3891ba32016b0dbea3af684e0161ca0960977ebe4e8fecd86719e0 \
+      SizzLean/Spec/Supported.lean=50f32f78c5c0190812b480cf4e749fe9462a416da7667e82eb918db46f123bcc \
+      SizzLean/Spec/MaxByteLength.lean=95529cf63920db116500d12e8d7cf9e1eab6d0d37f21a714d143d8ab4dbd818d \
+      SizzLean/Proofs/BitPack.lean=903cb8a62cac4f8a2444ec8b1ab7d270bb2561f7801f79e3fa0c4bc4cfd91cc5 \
+      SizzLean/Proofs/Bool.lean=4f28e9300e5d582a986fc81398dfb1ba289f1e43551f0fba6791953229dafacf \
+      SizzLean/Proofs/ContainerFixed.lean=a4cfbbe8e33e9aaf8a2664e7b98a18425b5763b5bc8ee83f352e3c2673cf5f17 \
+      SizzLean/Proofs/FixedElems.lean=1173b8b1dc05a9b799872b4e1044e3debb3558e7228ef441367f23a2977f417c \
+      SizzLean/Proofs/Injective.lean=f71f759814cc027455af8ae645c3e99594853470e2ecc4143239f4bd8413e091 \
+      SizzLean/Proofs/ListFixed.lean=5912c1ce7e664cf4064d53e6e2a45b4c460b03d436a68f0fad05c6c46753c4f2 \
+      SizzLean/Proofs/Roundtrip.lean=d3faad1aa57b43b07717a7f564d8ce9a30790b6a5a4ed9092961d323ed810e50 \
+      SizzLean/Proofs/SerializeSize.lean=22da51a02f5845b648d1ecf37efa754df8afc42963314318ccf76b221ee1d16f \
+      SizzLean/Proofs/Simp.lean=ef266efca1c8730900c4b186383f0b2cac0677e6a608460cc9c670a61f3296e1 \
+      SizzLean/Proofs/SimpAttrs.lean=63006416cad34b6e65dc7a60a5cf62765c994e5fd806bb881abcbd62139d72ca \
+      SizzLean/Proofs/SizeBound.lean=a45050a4d9fed9c67f5e6da7a131854666e791048bf5e0c58423db16e493d60b \
+      SizzLean/Proofs/UInt.lean=629894b6385041763094118c1a16a2383fa4cb3f5af5f6f0f2ae693ef6b0cdae \
+      SizzLean/Proofs/VectorFixed.lean=1c7c7e11451beb845705769f2ddb073b87666ee9c01323a336d364f489a5a890 \
       SszBridge/Core.lean=0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
       > "$out/provenance.txt"
   '';
