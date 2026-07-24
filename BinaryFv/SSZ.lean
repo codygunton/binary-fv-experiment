@@ -28,6 +28,7 @@ import BinaryFv.SSZ.Zesu.MachineExecution.BlobScheduleAndResultStores
 import BinaryFv.SSZ.Zesu.MachineExecution.ParserBlocks
 import BinaryFv.SSZ.Zesu.MemoryRepresentation.RawV4
 import BinaryFv.SSZ.Zesu.MemoryRepresentation.Observers
+import BinaryFv.SSZ.Zesu.MemoryRepresentation.ValueObserver
 import BinaryFv.SSZ.Zesu.MemoryRepresentation.Result
 import BinaryFv.SSZ.Zesu.Runtime.AllocatorVtable
 import BinaryFv.SSZ.Zesu.Runtime.BumpAllocator
