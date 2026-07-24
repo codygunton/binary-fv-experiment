@@ -17,19 +17,12 @@ whole-input corpus against the independent SSZ oracle.
 [ContractRunner.lean](ContractRunner.lean) is the executable oracle used by the external agreement
 driver for cases that are impractical to reduce inside Lean's kernel.
 
-`ObserverMutation.lean` checks the value observer from the other side. The correspondence proof says
+[ObserverMutation.lean](ObserverMutation.lean) checks the value observer from the other side. The
+correspondence proof says
 the observer reads back whatever the representation holds, which cannot catch an observer that
 ignores a field; so this corrupts one byte per layout family in the memory a real accepted decode
 left behind and checks each corruption moves the observation. Its control is the payload of an
 *absent* optional, which must not move it.
-
-Row D adds the strongest check in this directory, `RunnerExecution.lean`: it *runs the pinned RISC-V
-binary in the Sail model* — entry state, machine steps to the return sentinel, both exported
-accessors, and the full value observation — and compares the result with the same SSZ oracle. On the
-corpus's accepted cases that comparison is field for field, through the canonical value render. Its
-other checks pin the failure modes a corpus cannot express: a short budget is fuel exhaustion, a
-misplaced observer is a malformed result, and a refused *second* call is a bad return rather than a
-rejection.
 
 Row C adds checks against execution of the unchanged production ELF:
 
@@ -50,3 +43,10 @@ Their headers identify the generating commands; edit the generators under
 
 The [trace README](../../../../targets/ssz/zesu/trace/README.md) explains capture and reduction before
 these Lean checks consume the evidence.
+
+Row D adds [RunnerExecution.lean](RunnerExecution.lean), which runs the pinned RISC-V binary in the
+Sail model: it builds the entry state, steps to the return sentinel, executes both exported
+accessors, observes the full value, and compares the result with the same SSZ oracle. Accepted corpus
+cases are compared field for field through the canonical value rendering. Additional cases establish
+that a short budget is fuel exhaustion, a misplaced observer is a malformed result, and a refused
+second call is a bad return rather than a rejection.

@@ -16,11 +16,11 @@ Start with:
 5. [`ProgramCorrectness.lean`](ProgramCorrectness.lean) collects the per-occurrence obligations for
    the generated program.
 
-`ProgramCorrectness.lean` also defines the Row D local-to-global composition. A local occurrence proof
-owns its own instructions and may splice summaries for lower-ranked children. Generated geometry and
-boundary checks then expand all local proofs into closed traces. `CompositionTests.lean` contains
-small counterexamples showing that cycles, missing summaries, bad ranks, and bad boundaries are
-rejected.
+[ProgramCorrectness.lean](ProgramCorrectness.lean) also defines the Row D local-to-global
+composition. A local occurrence proof owns its own instructions and may splice summaries for
+lower-ranked children. Generated geometry and boundary checks then expand all local proofs into
+closed traces. [CompositionTests.lean](CompositionTests.lean) contains small counterexamples showing
+that cycles, missing summaries, bad ranks, and bad boundaries are rejected.
 
 Most internal routines use `FunctionContract`: arguments describe source values, `meaning` gives the
 expected result, and `pre`/`post` connect those values to machine state. The exported wrapper is

@@ -30,7 +30,9 @@ source routine names or runtime addresses.
 
 Row D adds three checked views of this program:
 
-- `GeneratedProgramGeometry.lean` proves the call/inline graph is ranked and its address extents fit.
-- `GeneratedBoundaryInventory.lean` accounts for every direct successor and the three indirect
-  allocator-vtable calls.
-- `ManifestCheck.lean` proves the human proof backlog has exactly one accurate row per occurrence.
+- [GeneratedProgramGeometry.lean](GeneratedProgramGeometry.lean) proves the call/inline graph is
+  ranked and its address extents fit.
+- [GeneratedBoundaryInventory.lean](GeneratedBoundaryInventory.lean) accounts for every direct
+  successor and the three indirect allocator-vtable calls.
+- [ManifestCheck.lean](ManifestCheck.lean) proves the human proof backlog has exactly one accurate
+  row per occurrence.

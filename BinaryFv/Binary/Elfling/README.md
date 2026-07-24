@@ -1,7 +1,8 @@
 # Architecture-independent Elfling data
 
 This directory describes compiled routine occurrences without depending on a particular instruction
-set. `Instance.lean` defines identities, regions, calls, inlined children, and excluded routines.
+set. [Instance.lean](Instance.lean) defines identities, regions, calls, inlined children, and
+excluded routines.
 
 Row D distinguishes two address sets for each occurrence:
 
@@ -11,5 +12,6 @@ Row D distinguishes two address sets for each occurrence:
   enter.
 
 Local proofs retire only owned instructions and may use summaries for cataloged children. Closed
-traces expand those summaries and therefore run within the larger extent. The transfer closure and
-range checks in `Instance.lean` compute these sets from generated program data.
+traces expand those summaries and therefore run within the larger extent.
+[Instance.lean](Instance.lean) computes `ownedRanges` and the transfer-closed `extentRanges` from
+program data; target-specific modules prove those computed ranges satisfy their generated checks.
