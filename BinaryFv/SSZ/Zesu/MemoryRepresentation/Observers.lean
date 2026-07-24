@@ -511,6 +511,73 @@ theorem raw_v4_deposit_observes (state : State) (inputBase : Nat) (input : ByteA
       value.newPayloadRequest.executionRequests.deposits[index]
       (allocations.depositContents index indexBound)⟩
 
+/-! ## Two foundations for spec-typed observation
+
+The observers above return *observation records* (`Nat`, `List UInt8`) rather than the bridge's own
+types, because they were written to compare against captured evidence. Reconstructing a real
+`SszBridge` value needs two things they do not yet provide: that a successful `observeBytes?` returns
+exactly the requested number of bytes (so a fixed-width vector can be built from it), and a way to
+observe a whole heap array element by element. Both are stated once here and reused by every array.
+-/
+
+/-- A successful byte observation returns exactly the requested length. This is what lets an observed
+byte list be turned into a fixed-width `RawByteVector`. -/
+theorem observeBytes?_length (state : State) :
+    ∀ (length base : Nat) (bytes : List UInt8),
+      observeBytes? state base length = some bytes → bytes.length = length := by
+  intro length
+  induction length with
+  | zero =>
+    intro base bytes h
+    rw [observeBytes?] at h
+    exact (Option.some.inj h) ▸ rfl
+  | succ n ih =>
+    intro base bytes h
+    rw [observeBytes?] at h
+    cases hbyte : state.mem.get? base with
+    | none => rw [hbyte] at h; exact absurd h (by simp)
+    | some byte =>
+      rw [hbyte] at h
+      cases htail : observeBytes? state (base + 1) n with
+      | none => rw [htail] at h; exact absurd h (by simp)
+      | some tail =>
+        rw [htail] at h
+        simp only [Option.pure_def, Option.bind_eq_bind, Option.some_bind,
+          Option.some.injEq] at h
+        subst h
+        simp [ih (base + 1) tail htail]
+
+/-- Observe `count` consecutive elements, given an index-indexed element observer. Kept generic over
+the element type so every heap array — withdrawals, deposits, public keys, versioned hashes — uses the
+same combinator and the same correspondence lemma below. -/
+def observeElementsFrom? {α : Type} (observeAt : Nat → Option α) (start : Nat) :
+    Nat → Option (List α)
+  | 0 => some []
+  | count + 1 => do
+    let head ← observeAt start
+    let tail ← observeElementsFrom? observeAt (start + 1) count
+    pure (head :: tail)
+
+/-- **An element-wise correspondence lifts to the whole array.** If every element at index `start + i`
+observes to `values[i]`, the array observation returns exactly `values`. -/
+theorem observeElementsFrom_of_all {α : Type} (observeAt : Nat → Option α) :
+    ∀ (values : List α) (start : Nat),
+      (∀ i (hi : i < values.length), observeAt (start + i) = some values[i]) →
+      observeElementsFrom? observeAt start values.length = some values := by
+  intro values
+  induction values with
+  | nil => intro _ _; rfl
+  | cons head tail ih =>
+    intro start hall
+    have hhead : observeAt start = some head := by
+      simpa using hall 0 (by simp)
+    have htail : ∀ i (hi : i < tail.length), observeAt (start + 1 + i) = some tail[i] := by
+      intro i hi
+      have := hall (i + 1) (by simp [hi])
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using this
+    rw [List.length_cons, observeElementsFrom?, hhead]
+    simp [ih (start + 1) htail]
+
 /-! ## Observing the chain config
 
 `RawV4FixedFieldsRep` now pins the whole chain config through `ChainConfigRep`, so — unlike the
