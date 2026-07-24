@@ -141,4 +141,44 @@ def canonicalContractParams : ContractParams :=
     repNewPayloadRequest := canonicalRepNewPayloadRequest
     repRawV4 := canonicalRepRawV4 }
 
+/-! ## Non-local premises about the environment (Row D, D4)
+
+Two of the premises the root obligation rests on are facts about the canonical parameters
+themselves, independent of any execution. Both are settled here rather than assumed. -/
+
+/-- **The canonical environment is valid.** Every satisfiability obligation in the catalog is
+conditioned on `ValidEnvironment env`; discharging it here is what stops those obligations from
+being vacuous claims about a nonsensical layout. It is a statement about the reflected `?u64` and
+`?RawBlobSchedule` offsets — each discriminant inside its option, each payload fitting — so the
+pinned manifest values settle it. -/
+theorem canonical_environment_valid : ValidEnvironment canonicalEnvironment := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+    simp only [canonicalEnvironment, canonicalOptionalBlobSchedule_pinned,
+      canonicalOptionalU64_pinned] <;>
+    decide
+
+/-- **A fresh globals model cannot produce `alreadyDecoded`.**
+
+The exported wrapper refuses a *second* call, and the refusal is observationally a `0` return — the
+same code a rejection returns. The root theorem runs the decoder exactly once from a freshly built
+state, so this rules the refusal out at the source rather than relying on the runner to notice it
+downstream. `DecoderGlobalsModel.fresh` has `attempted = false`, and `callOutcome` only produces
+`alreadyDecoded` when `attempted` is set. -/
+theorem fresh_call_is_never_alreadyDecoded
+    (result : Except SszDecodeError SszBridge.RawV4) :
+    callOutcome DecoderGlobalsModel.fresh result ≠ .alreadyDecoded := by
+  cases result <;> simp [callOutcome, DecoderGlobalsModel.fresh]
+
+/-- The same fact in the form the status dispatch consumes: a fresh call never records the
+`alreadyDecoded` status, so a run that *did* record it is a misbehaving wrapper rather than a
+second call the root failed to account for. -/
+theorem fresh_call_status_is_never_alreadyDecoded
+    (result : Except SszDecodeError SszBridge.RawV4) :
+    (callOutcome DecoderGlobalsModel.fresh result).status ≠ .alreadyDecoded := by
+  cases result with
+  | ok _ => simp [callOutcome, DecodeCallOutcome.status, DecoderGlobalsModel.fresh]
+  | error error =>
+    cases error <;>
+      simp [callOutcome, DecodeCallOutcome.status, DecoderGlobalsModel.fresh, statusOfResult]
+
 end BinaryFv.SSZ.Zesu.Contracts
