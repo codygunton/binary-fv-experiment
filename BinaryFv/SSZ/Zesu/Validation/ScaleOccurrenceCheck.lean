@@ -2,12 +2,11 @@ import BinaryFv.SSZ.Zesu.Validation.ScaleOccurrenceTypes
 import BinaryFv.SSZ.Zesu.Validation.GeneratedScaleEvidence
 
 /-!
-# Row C: scaled Lean diagnostic checker over ALL production-ELF occurrences
+# Checking all 141 occurrences against the production ELF
 
-Generalizes the kernel-checked `decodeOptionalBlobSchedule` vertical slice (`BinaryOccurrenceCheck`)
-to EVERY occurrence in `program.json`. It reads the generated compact evidence (`GeneratedScaleEvidence`,
-captured from the UNCHANGED production ELF under pinned QEMU) and re-derives fourteen generic
-per-occurrence checks, reproducing the Python oracle (`scale_occurrences.evaluate_facts`) exactly:
+This module extends the small `decodeOptionalBlobSchedule` example to every occurrence in the
+generated program. It reads compact evidence reduced from runs of the unchanged ELF and evaluates
+fourteen checks:
 
   entryReached          the first in-region PC is the declared entry PC
   controlFlowIntegrity  every executed transfer from an OWNED pc is a declared CFG edge (exact)
@@ -34,7 +33,7 @@ per-occurrence checks, reproducing the Python oracle (`scale_occurrences.evaluat
                         it produced (gap otherwise; the full per-value meaning against the handwritten
                         spec is the vertical slice, not this scan)
 
-## What this module re-derives, and what it does not
+## What Lean checks directly
 
 `bindingsEvaluable`, `derivedBindingsHold`, `exitBindingRealized`, `allocationLedger`, `meaningTie` and
 the four family predicates (`offsetReadHolds` / `entryAbiHolds` / `rawCopyHolds` / `allocHolds`) are
@@ -48,13 +47,12 @@ reducer's, because reproducing them would require carrying every invocation's fu
 shadow memory into a committed artifact. `rederived_families_agree` is the cross-check that keeps that
 import honest: the independently re-derived family predicate must never contradict the aggregate.
 
-Each check is an `Option Bool`: `none` marks an EXPLICIT gap and is NEVER counted as a pass. Coverage is
-PER OCCURRENCE — an occurrence is validated only on evidence in which its own region executes.
+Each check is an `Option Bool`: `none` is an explicit gap and is never counted as a pass. Coverage is
+per occurrence, so one inlined copy cannot inherit evidence from another copy of the same routine.
 
 `checker_agrees_with_oracle` pins Lean ≡ Python on every occurrence. `gating_checks_hold` records that
 the six structural/effect checks pass on every COVERED occurrence. The `negative_*` theorems require
-mutations of the evidence to flip a check. Validation module — never a proof premise, never imported by
-the theorem graph.
+mutations of the evidence to flip a check. This validation module is never a theorem premise.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation

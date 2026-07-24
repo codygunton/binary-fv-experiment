@@ -1,12 +1,11 @@
 /-!
-# Row C: production-ELF occurrence-evidence types
+# Evidence types for the small binary-validation example
 
-The compact, deterministic per-occurrence evidence captured from the UNCHANGED production RV64 ELF under
-pinned QEMU (executed-PC/edge summary + in-region stores + input byte loads + entry `sp`/`a0`), plus the
-check-result record the diagnostic checker produces. Only observed, reduced facts live in `OccEvidence`;
-the expected binding / meaning / memory layout live in `BinaryOccurrenceCheck`.
+`OccEvidence` contains the reduced facts observed while the unchanged production ELF executed:
+control flow, stores, input loads, and entry registers. Expected bindings, meanings, and memory
+regions remain in `BinaryOccurrenceCheck`; they are not baked into the observation record.
 
-These are validation (falsification/regression) types — never imported by the theorem dependency graph.
+These validation-only types are not part of the compliance theorem.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation

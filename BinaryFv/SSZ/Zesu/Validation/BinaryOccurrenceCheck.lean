@@ -3,19 +3,19 @@ import BinaryFv.SSZ.Zesu.Validation.GeneratedBinaryEvidence
 import BinaryFv.SSZ.Zesu.Contracts.Options
 
 /-!
-# Row C: Lean diagnostic checker for the decodeOptionalBlobSchedule occurrence
+# A small production-ELF validation example
 
-Evaluates the compact production-ELF evidence (`GeneratedBinaryEvidence`) for occurrence 116 and its
-three nested `readU64` children (117/118/119) against the FIXED Row A binding / handwritten meaning /
-pinned memory layout, reproducing the Python oracle `evaluate_compact` exactly. It checks the entry and
-result/exit binding, the nested const-offset bindings, `RoutineSpec.meaning`, the executed control flow
-vs the generated CFG, the step bound, the (empty) allocation ledger, code/input preservation, and the
-classified write frame.
+This checker focuses on occurrence 116, `decodeOptionalBlobSchedule`, and its three inlined
+`readU64` children. The generated evidence comes from running the unchanged production ELF under
+pinned QEMU.
 
-`checker_agrees_with_oracle` pins Lean ≡ Python on every arm; `present_meaning_agrees` ties the actual
-production loads to `meaningOptionalBlobSchedule`; the `negative_*` theorems require each of the eight
-evidence corruptions to flip a check. This is a validation module — falsification/regression evidence,
-never a proof premise, and (enforced by the validation-import guard) never imported by the theorem graph.
+The checker verifies entry and result placement, the child offsets 0/8/16, the handwritten routine
+meaning, executed control flow, step bound, absence of allocation, protected-memory preservation, and
+the write frame. It reproduces the Python reducer's result, then independently ties the bytes actually
+loaded by the machine to `meaningOptionalBlobSchedule`.
+
+Negative theorems mutate one evidence field at a time. This module is validation evidence and is
+forbidden from the compliance theorem's import graph.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation

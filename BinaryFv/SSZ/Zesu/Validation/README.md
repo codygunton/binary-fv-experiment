@@ -18,3 +18,13 @@ impractical to evaluate inside `native_decide`.
 
 Files named `Generated*.lean` are deterministic outputs of the corpus/vector generators and should
 not be edited by hand.
+
+Row C adds checks against execution of the unchanged production ELF:
+
+- `BinaryOccurrenceCheck.lean` is a small end-to-end example for one optional decoder and its three
+  child readers.
+- `ScaleOccurrenceCheck.lean` checks reduced evidence for all 141 compiled occurrences.
+- the corresponding `*Types.lean` files define the deterministic evidence format.
+
+The capture and reduction tools live in `targets/ssz/zesu/trace/`; see its README before changing an
+evidence field or interpreting a pass, failure, or gap.

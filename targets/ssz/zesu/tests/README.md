@@ -16,3 +16,4 @@ byte-identical across repeated runs; do not add timestamps, host addresses, or u
 
 Other files in this directory cover differential tests, binary evidence, and later proof rows. Their
 generated artifacts are validation evidence and are never imported as premises by the root theorem.
+Production-ELF capture and occurrence-level checks are documented in `../trace/README.md`.

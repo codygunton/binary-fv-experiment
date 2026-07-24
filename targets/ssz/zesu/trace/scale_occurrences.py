@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Row C: scale the per-occurrence production-ELF validation from the blob-schedule vertical slice to
-ALL occurrences in `program.json`.
+"""Reduce production-ELF traces into deterministic evidence for all generated occurrences.
 
 Coverage is PER OCCURRENCE — an occurrence is validated only on evidence in which its OWN region
 executes, never inherited from another occurrence of the same source routine. Every check that cannot
@@ -63,7 +62,7 @@ The generic per-occurrence checks (apply to all occurrences, trace-only):
                         Anything weaker is an EXPLICIT gap, never a failure. The full per-value meaning
                         against the handwritten spec is the kernel-checked vertical slice (occ 116).
 
-This is diagnostic-only evidence and is NEVER imported by the theorem graph. `scale_negative_tests.py`
+This is diagnostic-only evidence and is never imported by the theorem graph. `scale_negative_tests.py`
 corrupts copies of what this script captures and requires each corruption to flip the responsible
 oracle predicate, so the checks here cannot quietly become unfalsifiable.
 """
