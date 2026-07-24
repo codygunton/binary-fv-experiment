@@ -110,9 +110,9 @@ theorem generated_instances_implement_of_locals (semantic : catalogSemanticOblig
 
 /-- **The whole residue, in one signature.**
 
-`Contracts.SemanticObligations` discharges fifteen of the twenty semantic conjuncts, so the premises
+`Contracts.SemanticObligations` discharges sixteen of the twenty semantic conjuncts, so the premises
 here are the complete list of what the root obligation still rests on. Read top to bottom they are:
-five oracle-agreement facts (the binary's per-container canonicality discipline versus the oracle's
+four oracle-agreement facts (the binary's per-container canonicality discipline versus the oracle's
 re-serialization test), no cataloged precondition being impossible, the two recorded binary/oracle
 divergences, and the 141 local occurrence proofs.
 
@@ -124,13 +124,11 @@ theorem sszComplianceObligations_of_residue
     (entryAgrees : sourceShapedDecodeAgreesWithOracle)
     (containersAgree : sourceShapedContainersAgreeWithOracle)
     (v3Excluded : v3ShapeExcludesCanonicalV4) (zeroAlias : zeroFirstOffsetAliasRejected)
-    (twentyFourIsSome : meaningTwentyFourIsSome)
     (satisfiable : catalogSatisfiability canonicalContractParams)
     (divergences : knownDivergences) (locals : LocalContractAssumptions) :
     sszComplianceObligations generatedProgram :=
   sszComplianceObligations_of_locals
-    (catalogSemanticObligations_of_oracleAgreement entryAgrees containersAgree v3Excluded zeroAlias
-      twentyFourIsSome)
+    (catalogSemanticObligations_of_oracleAgreement entryAgrees containersAgree v3Excluded zeroAlias)
     satisfiable divergences locals
 
 end BinaryFv.SSZ.Zesu.Elfling.Validation

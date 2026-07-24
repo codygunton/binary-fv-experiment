@@ -750,6 +750,76 @@ theorem readU32LE?_of_meaningReadOffset (bytes : ByteArray) (offset value : Nat)
       simp only [Option.toDecodeResult, Except.map, Except.ok.injEq] at read
       simp [read]
 
+/-! ## `meaningTwentyFourIsSome`
+
+The one oracle-agreement premise that is neither blocked on the upstream `private` declarations
+nor on the entry composition theorem, which is why it is the one that closes. It is the *encode-after-decode* direction — the value
+being re-serialized came out of `deserialize`, not into it — which upstream's `decode_encode` does not
+give in either fragment. `uint64LE_of_readUInt64LE` supplies it at `u64`, which is the only width the
+schedule's three fixed fields need.
+
+Nothing on this path is `private`: a fixed-element list never reaches `extractCollOffsets` and an
+all-fixed container never reaches `extractFieldOffsets`, so unlike `forkErrorOrderingDiffers` this
+closes by reduction. Axioms are `bv_decide`'s, inherited from `uint64LE_of_readUInt64LE`, and nothing
+else. -/
+
+/-- The all-fixed container's decode, at the exact reads it performs. -/
+theorem blobScheduleType_deserialize (bytes : ByteArray) (first second third : UInt64)
+    (readFirst : readUInt64LE (bytes.extract 0 8) 0 = some first)
+    (readSecond : readUInt64LE (bytes.extract 8 16) 0 = some second)
+    (readThird : readUInt64LE (bytes.extract 16 24) 0 = some third) :
+    SszBridge.blobScheduleType.deserialize bytes = .ok ((first, second, third, ()), 24) := by
+  simp only [SszBridge.blobScheduleType, SszBridge.u64, SSZType.deserialize,
+    SSZType.deserializeFixedFields, SSZType.isFixedSize, SSZType.fixedByteSize,
+    SSZType.allFixedSize]
+  simp [readFirst, readSecond, readThird]
+
+/-- The all-fixed container's encode: a plain concatenation, with an empty variable part. -/
+theorem blobScheduleType_serialize (first second third : UInt64) :
+    SszBridge.blobScheduleType.serialize (first, second, third, ()) =
+      uint64LE first ++ uint64LE second ++ uint64LE third := by
+  simp only [SszBridge.blobScheduleType, SszBridge.u64, SSZType.serialize,
+    SSZType.serializeFieldsAux, SSZType.fixedSectionSizeFields, SSZType.isFixedSize, if_true]
+  simp [ByteArray.append_empty, ByteArray.append_assoc]
+
+/-- **Every 24-byte buffer is the canonical encoding of exactly one blob schedule.** -/
+theorem meaningTwentyFourIsSome_holds : meaningTwentyFourIsSome := by
+  intro bytes size
+  have sizeFirst : (bytes.extract 0 8).size = 8 := by simp [size]
+  have sizeSecond : (bytes.extract 8 16).size = 8 := by simp [size]
+  have sizeThird : (bytes.extract 16 24).size = 8 := by simp [size]
+  obtain ⟨first, readFirst⟩ := Option.isSome_iff_exists.mp
+    (SpecCorrespondence.readUInt64LE_isSome (bytes.extract 0 8) 0 (by omega))
+  obtain ⟨second, readSecond⟩ := Option.isSome_iff_exists.mp
+    (SpecCorrespondence.readUInt64LE_isSome (bytes.extract 8 16) 0 (by omega))
+  obtain ⟨third, readThird⟩ := Option.isSome_iff_exists.mp
+    (SpecCorrespondence.readUInt64LE_isSome (bytes.extract 16 24) 0 (by omega))
+  have whole : bytes.extract 0 24 = bytes := by rw [← size]; simp
+  have decoded := blobScheduleType_deserialize bytes first second third readFirst readSecond readThird
+  -- The encode-after-decode step: the three fields re-serialize to the slices they were read from.
+  have encoded : SszBridge.blobScheduleType.serialize (first, second, third, ()) = bytes := by
+    rw [blobScheduleType_serialize,
+      SpecCorrespondence.uint64LE_of_readUInt64LE _ first sizeFirst readFirst,
+      SpecCorrespondence.uint64LE_of_readUInt64LE _ second sizeSecond readSecond,
+      SpecCorrespondence.uint64LE_of_readUInt64LE _ third sizeThird readThird]
+    exact SpecCorrespondence.extract_three bytes size
+  have fixedSize : SszBridge.blobScheduleType.isFixedSize = true := by
+    simp [SszBridge.blobScheduleType, SszBridge.u64, SSZType.isFixedSize, SSZType.allFixedSize]
+  have byteSize : SszBridge.blobScheduleType.fixedByteSize = 24 := by
+    simp [SszBridge.blobScheduleType, SszBridge.u64, SSZType.fixedByteSize,
+      SSZType.fixedByteSizeFields]
+  have oneElement :
+      SszBridge.blobScheduleType.serializeFixedElems [(first, second, third, ())] = bytes := by
+    simp [SSZType.serializeFixedElems, fixedSize, encoded]
+  refine ⟨SszBridge.rawBlobScheduleOf (first, second, third, ()), ?_⟩
+  unfold meaningOptionalBlobSchedule
+  rw [decodeCanonical_eq]
+  simp only [optionalBlobScheduleType, SSZType.deserialize, fixedSize, byteSize, size,
+    SszBridge.maxBlobSchedulesPerFork, SSZType.deserializeFixedElems, SSZType.serialize]
+  simp [whole, decoded, encoded, size, fixedSize, oneElement]
+  rw [if_pos (SpecCorrespondence.byteArray_beq_self bytes)]
+  rfl
+
 /-! ## What the semantic obligations still rest on
 
 The two obligations the navigation calls out as carrying the root theorem —
@@ -775,22 +845,22 @@ theorem catalogGroundsInSpec_of_agreement (agrees : sourceShapedDecodeAgreesWith
 
 /-- **The catalog's semantic obligations, reduced to the oracle-agreement content.**
 
-Fifteen of the twenty conjuncts are discharged above; the five premises here are what is left, and
+Sixteen of the twenty conjuncts are discharged above; the four premises here are what is left, and
 they are all of one kind — the binary decides canonicality by per-container offset checks while the
 oracle decides it by re-serializing, and these say the two coincide. `catalogGroundsInSpec` is not a
 premise because it follows from the first one. -/
 theorem catalogSemanticObligations_of_oracleAgreement
     (entryAgrees : sourceShapedDecodeAgreesWithOracle)
     (containersAgree : sourceShapedContainersAgreeWithOracle)
-    (v3Excluded : v3ShapeExcludesCanonicalV4) (zeroAlias : zeroFirstOffsetAliasRejected)
-    (twentyFourIsSome : meaningTwentyFourIsSome) : catalogSemanticObligations :=
+    (v3Excluded : v3ShapeExcludesCanonicalV4) (zeroAlias : zeroFirstOffsetAliasRejected) :
+    catalogSemanticObligations :=
   ⟨entryAgrees, catalogGroundsInSpec_of_agreement entryAgrees, retryTailNeverSchemaValid_holds,
     v3Excluded, containersAgree, canonicalOffsetsCharacterization_holds, zeroAlias,
     bytesAtSucceedsIffFits_holds, readOffsetIsWidenedReadU32_holds, leafReadsOnlyFailInvalid_holds,
     collectionsNeverUnknownFork_holds, emptyByteListListIsEmptyArray_holds,
     onlyForkConfigRaisesUnknownFork_holds, fixedContainersNeverAllocate_holds,
     allocatorVtableEntriesAreConstant_holds, outOfMemoryUnreachableBelowBound_holds,
-    meaningEmptyIsNone_holds, twentyFourIsSome, meaningOtherLengthIsInvalid_holds,
+    meaningEmptyIsNone_holds, meaningTwentyFourIsSome_holds, meaningOtherLengthIsInvalid_holds,
     meaningNeverForkOrMemory_holds⟩
 
 /-! ## Negative test: the scope hypothesis cannot be dropped

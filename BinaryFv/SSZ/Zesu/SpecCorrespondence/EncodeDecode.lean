@@ -97,4 +97,27 @@ theorem readUInt64LE_isSome (bytes : ByteArray) (offset : Nat) (fits : offset + 
   · simp
   · omega
 
+/-! ## Two `ByteArray` facts the canonicality proofs need
+
+Both are about core's `ByteArray` rather than about SSZ, and both are missing upstream. -/
+
+/-- `ByteArray` has no `ReflBEq` instance, and `decodeCanonical`'s re-serialization branch is a
+`==`, so this is needed the moment the compared arrays are not both literals. -/
+theorem byteArray_beq_self (bytes : ByteArray) : (bytes == bytes) = true := by
+  show bytes.data == bytes.data
+  exact beq_self_eq_true bytes.data
+
+/-- Three 8-byte slices reassemble a 24-byte buffer.
+
+The glue for the all-fixed container: `deserializeFixedFields` reads each field from its own
+`extract`, so proving that re-serializing reproduces the input means putting the slices back
+together. `ByteArray.extract_append_extract` twice, then `extract 0 size = self`. -/
+theorem extract_three (bytes : ByteArray) (size : bytes.size = 24) :
+    bytes.extract 0 8 ++ bytes.extract 8 16 ++ bytes.extract 16 24 = bytes := by
+  rw [ByteArray.extract_append_extract,
+    show min 0 8 = 0 from rfl, show max 8 16 = 16 from rfl,
+    ByteArray.extract_append_extract,
+    show min 0 16 = 0 from rfl, show max 16 24 = 24 from rfl, ← size]
+  simp
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
