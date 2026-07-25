@@ -1,4 +1,5 @@
 import BinaryFv.SSZ.Zesu.Contracts.Entry
+import BinaryFv.SSZ.Zesu.Contracts.SemanticObligations
 
 /-!
 # The entry offset table, on both sides
@@ -99,5 +100,31 @@ theorem extractFieldOffsets_eq_meaningReads (b : ByteArray) (o0 o1 o2 o3 : Nat) 
   simp only [meaningReadOffset, meaningReadU32, Option.toDecodeResult]
   cases readUInt32LE b 0 <;> cases readUInt32LE b 4 <;> cases readUInt32LE b 8 <;>
     cases readUInt32LE b 12 <;> simp [Except.map]
+
+/-! ## The source's offset check at the entry table -/
+
+/-- `requireCanonicalOffsets` at the entry's four-offset table, unfolded to arithmetic.
+
+A specialization of `canonicalOffsetsCharacterization_holds` to the concrete call in
+`meaningDecodeRaw`. `o0 = 16` is an *equality*, not a bound: a table whose first entry merely
+exceeds the fixed section is rejected, which is what forbids padding between the fixed section and
+the first variable field.
+
+The `≤ body.size` clauses for `o0`, `o1` and `o2` are absorbed: they follow from monotonicity and
+`o3 ≤ body.size`, so the six conjuncts below are the whole content of the check. -/
+theorem requireCanonicalOffsets_entry (body : ByteArray) (o0 o1 o2 o3 : Nat) :
+    meaningRequireCanonicalOffsets body 16 [o0, o1, o2, o3] = .ok () ↔
+      (16 ≤ body.size ∧ o0 = 16 ∧ o0 ≤ o1 ∧ o1 ≤ o2 ∧ o2 ≤ o3 ∧ o3 ≤ body.size) := by
+  rw [canonicalOffsetsCharacterization_holds body 16 [o0, o1, o2, o3]]
+  simp only [Nondecreasing, List.mem_cons, List.not_mem_nil, List.headD_cons,
+    ne_eq, reduceCtorEq, not_false_eq_true, true_and]
+  constructor
+  · rintro ⟨hfix, hhead, ⟨h01, h12, h23, -⟩, hall⟩
+    exact ⟨hfix, hhead, h01, h12, h23, hall o3 (by simp)⟩
+  · rintro ⟨hfix, hhead, h01, h12, h23, h3⟩
+    refine ⟨hfix, hhead, ⟨h01, h12, h23, trivial⟩, ?_⟩
+    intro offset hmem
+    simp only [or_false] at hmem
+    rcases hmem with rfl | rfl | rfl | rfl <;> omega
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
