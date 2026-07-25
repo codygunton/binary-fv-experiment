@@ -274,4 +274,39 @@ theorem deserialize_allFixed_container_used (t : SSZType) (b : ByteArray)
       obtain ⟨-, hu⟩ := h
       omega
 
+/-! ## The re-serialization side
+
+`decodeCanonical`'s canonicality test is `schema.serialize value == body`. For the entry container
+that expands through `serializeFieldsAux`, which emits one `uint32LE` offset per variable field into
+the fixed prefix — each offset being the *running* total of the preceding field bodies — and
+concatenates the bodies after it.
+
+This is ingredient (ii) of the decomposition: once the four per-field serialize equalities hold, the
+offset table is forced, because each offset is by construction the cumulative sum of the earlier
+body lengths. So (ii) is a consequence of (i) rather than a further obligation, which is what keeps
+the decomposition non-circular. -/
+
+/-- **The entry container's serialization, expanded.**
+
+The field serializations are named through hypotheses rather than inlined so the offset arithmetic
+stays legible: each offset is `16 + ` the sizes of the *preceding* bodies. -/
+theorem serialize_entry (v : SSZType.interpFields entryFields)
+    (s0 s1 s2 s3 : ByteArray)
+    (e0 : SSZType.serialize SszBridge.newPayloadRequestType v.1 = s0)
+    (e1 : SSZType.serialize SszBridge.witnessType v.2.1 = s1)
+    (e2 : SSZType.serialize SszBridge.chainConfigType v.2.2.1 = s2)
+    (e3 : SSZType.serialize (SSZType.list (SszBridge.byteVector SszBridge.publicKeyBytes)
+            SszBridge.maxPublicKeys) v.2.2.2.1 = s3) :
+    SSZType.serialize (.container entryFields) v =
+      (uint32LE (Nat.toUInt32 16)
+        ++ (uint32LE (Nat.toUInt32 (16 + s0.size))
+        ++ (uint32LE (Nat.toUInt32 (16 + s0.size + s1.size))
+        ++ uint32LE (Nat.toUInt32 (16 + s0.size + s1.size + s2.size)))))
+      ++ (s0 ++ (s1 ++ (s2 ++ s3))) := by
+  rw [SSZType.serialize]
+  simp only [entryFields, SSZType.serializeFieldsAux, newPayloadRequestType_not_fixed,
+    witnessType_not_fixed, chainConfigType_not_fixed, publicKeysField_not_fixed,
+    Bool.false_eq_true, if_false, e0, e1, e2, e3, ByteArray.append_empty,
+    SSZType.fixedSectionSizeFields, SSZType.fixedSectionSize, BYTES_PER_LENGTH_OFFSET]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
