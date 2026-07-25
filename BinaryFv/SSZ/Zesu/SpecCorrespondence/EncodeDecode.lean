@@ -104,6 +104,72 @@ theorem readUInt64LE_isSome (bytes : ByteArray) (offset : Nat) (fits : offset + 
   · simp
   · omega
 
+/-! ## The `u32` arm
+
+The same theorem at the width the *offset tables* are built from. `serializeFieldsAux` writes each
+variable field's offset with `uint32LE`, so the entry composition theorem's re-serialization half
+needs exactly this: the four bytes an offset was read from are the four bytes it serializes back to.
+
+Stated in the encode-after-decode direction, which is the direction that is missing. The other
+direction — `readUInt32LE (uint32LE value) 0 = some value` — is upstream's `decode_encode` and does
+*not* give what `decodeCanonical` needs, because the value `decodeCanonical` re-serializes came
+*out* of `deserialize` rather than into it. Writing that direction here by mistake would produce a
+theorem that is true, provable, and useless. -/
+
+theorem uint32LE_size (value : UInt32) : (uint32LE value).size = 4 := by
+  simp [uint32LE, ByteArray.size_push]
+
+/-- **Serializing a `u32` that was just read reproduces the four bytes it was read from.** -/
+theorem uint32LE_of_readUInt32LE (bytes : ByteArray) (value : UInt32) (size : bytes.size = 4)
+    (read : readUInt32LE bytes 0 = some value) : uint32LE value = bytes := by
+  rw [readUInt32LE] at read
+  split at read
+  · simp only [Option.some.injEq] at read
+    subst read
+    refine ext_of_get! (by rw [uint32LE_size, size]) ?_
+    intro index bound
+    rw [uint32LE_size] at bound
+    -- Name every input byte through `get!` so the two sides share atoms.
+    rw [← get!_eq_getElem bytes 0 (by omega), ← get!_eq_getElem bytes 1 (by omega),
+      ← get!_eq_getElem bytes 2 (by omega), ← get!_eq_getElem bytes 3 (by omega)]
+    match index, bound with
+    | 0, _ => show (_ : UInt32).toUInt8 = _; bv_decide
+    | 1, _ => show ((_ : UInt32) >>> 8).toUInt8 = _; bv_decide
+    | 2, _ => show ((_ : UInt32) >>> 16).toUInt8 = _; bv_decide
+    | 3, _ => show ((_ : UInt32) >>> 24).toUInt8 = _; bv_decide
+  · exact absurd read (by simp)
+
+/-- The read succeeds on any buffer long enough, which is the half the caller needs before it can
+apply the theorem above. -/
+theorem readUInt32LE_isSome (bytes : ByteArray) (offset : Nat) (fits : offset + 4 ≤ bytes.size) :
+    (readUInt32LE bytes offset).isSome = true := by
+  rw [readUInt32LE]
+  split
+  · simp
+  · omega
+
+/-! ### The `u32` arm is not vacuous, and says something
+
+A conditional equation can be true because its hypotheses are unsatisfiable, or because its
+conclusion holds regardless — either way it would prove nothing while looking identical from
+outside. These four witnesses rule both out, at `0x04030201`. They are kept rather than run once and
+deleted: they are the same anti-vacuity discipline `catalogSatisfiability` applies to the catalog,
+and a later edit that breaks the width or the byte order fails here rather than silently. -/
+
+/-- The hypotheses are satisfiable: a four-byte buffer really does read. -/
+theorem readUInt32LE_witness : readUInt32LE ⟨#[1, 2, 3, 4]⟩ 0 = some 67305985 := by decide
+
+/-- And the conclusion really does hold there, so hypotheses and conclusion are *jointly*
+satisfiable — the lemma is not vacuously true. -/
+theorem uint32LE_witness : uint32LE 67305985 = ⟨#[1, 2, 3, 4]⟩ := by decide
+
+/-- The conclusion discriminates on `value`: it is not an equation that holds for anything. -/
+theorem uint32LE_discriminates : uint32LE 0 ≠ (⟨#[1, 2, 3, 4]⟩ : ByteArray) := by decide
+
+/-- And the byte order is pinned little-endian rather than absorbed: the reversed buffer is not a
+solution. -/
+theorem uint32LE_is_little_endian : uint32LE 67305985 ≠ (⟨#[4, 3, 2, 1]⟩ : ByteArray) := by decide
+
 /-! ## Two `ByteArray` facts the canonicality proofs need
 
 Both are about core's `ByteArray` rather than about SSZ, and both are missing upstream. -/
