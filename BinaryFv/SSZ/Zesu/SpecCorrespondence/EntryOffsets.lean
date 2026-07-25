@@ -401,4 +401,49 @@ theorem extract_split_beyond_end :
     (⟨#[1, 2]⟩ : ByteArray).extract 0 5 ++ (⟨#[1, 2]⟩ : ByteArray).extract 5 2
       = (⟨#[1, 2]⟩ : ByteArray) := by decide
 
+/-! ### Matching a four-entry offset table field by field -/
+
+/-- A four-entry table of four-byte fields matches the buffer's first sixteen bytes exactly when
+each field matches its own four bytes.
+
+`16 ≤ body.size` is load-bearing for the *proof* — it is what makes each of the four `extract`s four
+bytes wide, and the cancellation needs those widths — but **not for the truth** of the statement, the
+same situation as `extract_split`. On a shorter buffer both sides are simply false: the left side has
+width 16 against a narrower `extract 0 16`, and the right side asks a four-byte field to equal a
+clamped `extract` narrower than four bytes. See `append4_needs_no_size_for_truth`.
+
+An earlier version of this docstring claimed the hypothesis *was* needed for truth, "unlike in
+`extract_split`". That was asserted rather than checked, one lemma after adopting the rule that every
+hypothesis must be shown to do work — which is the point of the rule. -/
+theorem append4_eq_extract_sixteen_iff {a0 a1 a2 a3 : ByteArray} (body : ByteArray)
+    (hbody : 16 ≤ body.size)
+    (h0 : a0.size = 4) (h1 : a1.size = 4) (h2 : a2.size = 4) (h3 : a3.size = 4) :
+    a0 ++ (a1 ++ (a2 ++ a3)) = body.extract 0 16 ↔
+      (a0 = body.extract 0 4 ∧ a1 = body.extract 4 8 ∧ a2 = body.extract 8 12 ∧
+        a3 = body.extract 12 16) := by
+  have w0 : (body.extract 0 4).size = 4 := by rw [ByteArray.size_extract]; omega
+  have w1 : (body.extract 4 8).size = 4 := by rw [ByteArray.size_extract]; omega
+  have w2 : (body.extract 8 12).size = 4 := by rw [ByteArray.size_extract]; omega
+  constructor
+  · intro h
+    rw [← extract_sixteen] at h
+    obtain ⟨p0, h'⟩ := append_inj_of_size_eq (by rw [h0, w0]) h
+    obtain ⟨p1, h''⟩ := append_inj_of_size_eq (by rw [h1, w1]) h'
+    obtain ⟨p2, p3⟩ := append_inj_of_size_eq (by rw [h2, w2]) h''
+    exact ⟨p0, p1, p2, p3⟩
+  · rintro ⟨rfl, rfl, rfl, rfl⟩
+    exact extract_sixteen body
+
+/-- `append4_eq_extract_sixteen_iff`'s size hypothesis is needed for its proof, not for its truth.
+
+On an eight-byte buffer with four four-byte fields, *both* sides of the equivalence are false — the
+left has width 16 against an eight-byte `extract 0 16`, and the right asks a four-byte field to equal
+the empty `extract 8 12` — so the equivalence itself still holds. Concrete counterexample-style, since
+`extract` and `++` are computable. -/
+theorem append4_needs_no_size_for_truth :
+    ¬ ((⟨#[0, 0, 0, 0]⟩ : ByteArray) ++ (⟨#[0, 0, 0, 0]⟩ ++ (⟨#[0, 0, 0, 0]⟩ ++ ⟨#[0, 0, 0, 0]⟩))
+        = (⟨#[0, 0, 0, 0, 0, 0, 0, 0]⟩ : ByteArray).extract 0 16) ∧
+      ¬ ((⟨#[0, 0, 0, 0]⟩ : ByteArray)
+        = (⟨#[0, 0, 0, 0, 0, 0, 0, 0]⟩ : ByteArray).extract 8 12) := by decide
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
