@@ -309,4 +309,52 @@ theorem serialize_entry (v : SSZType.interpFields entryFields)
     Bool.false_eq_true, if_false, e0, e1, e2, e3, ByteArray.append_empty,
     SSZType.fixedSectionSizeFields, SSZType.fixedSectionSize, BYTES_PER_LENGTH_OFFSET]
 
+/-! ## Splitting a concatenation
+
+The canonicality join needs to turn `fix ++ var = body` into its two halves. Core supplies the
+*assembly* direction — `extract_append_extract` and `extract_zero_size` put a buffer back together
+from its pieces — and cancellation when one side is syntactically shared (`append_left_inj`,
+`append_right_inj`). It does **not** supply the split: recovering the left half of a concatenation as
+an `extract`, or cancelling when the two left parts merely have equal size.
+
+That is a correction to an earlier reading of this row. Checking that `append_assoc`, `size_append`
+and `append_empty` exist established that the *arithmetic* needed nothing new; it did not establish
+that the *split* did, and those are different questions. The two lemmas below fill the gap and are
+the only ByteArray theory this item adds. -/
+
+/-- The left half of a concatenation, recovered as an `extract`. -/
+theorem extract_append_left (a b : ByteArray) : (a ++ b).extract 0 a.size = a := by
+  refine ext_of_get! ?_ ?_
+  · rw [ByteArray.size_extract, ByteArray.size_append]; omega
+  · intro index bound
+    rw [ByteArray.size_extract, ByteArray.size_append] at bound
+    have hleft : index < a.size := by omega
+    have hext : index < ((a ++ b).extract 0 a.size).size := by
+      rw [ByteArray.size_extract, ByteArray.size_append]; omega
+    rw [get!_eq_getElem _ index hext, get!_eq_getElem a index hleft,
+      ByteArray.getElem_extract hext]
+    simp only [Nat.zero_add]
+    exact ByteArray.getElem_append_left hleft
+
+/-- **Same-size left cancellation.** From `a ++ b = a' ++ b'` with `a.size = a'.size`, both halves
+agree. This is the form the canonicality join consumes: the offset table and the body region are
+compared against a buffer whose split point is known only by *width*, never syntactically. -/
+theorem append_inj_of_size_eq {a b a' b' : ByteArray} (hsize : a.size = a'.size)
+    (h : a ++ b = a' ++ b') : a = a' ∧ b = b' := by
+  have hleft : a = a' := by
+    have := extract_append_left a b
+    rw [h, hsize, extract_append_left a' b'] at this
+    exact this.symm
+  refine ⟨hleft, ?_⟩
+  subst hleft
+  exact (ByteArray.append_right_inj a).mp h
+
+/-- **`hsize` is load-bearing above, not decoration.** Without it a concatenation splits two ways:
+`[1] ++ [2]` and `[1,2] ++ []` are the same buffer with different halves. Kept, since it passes — and
+unlike the `deserialize` preconditions this one *can* be settled by evaluation, because `++` is
+computable and `ByteArray` has `DecidableEq`. -/
+theorem append_inj_needs_size :
+    ((⟨#[1]⟩ : ByteArray) ++ ⟨#[2]⟩ = (⟨#[1, 2]⟩ : ByteArray) ++ ⟨#[]⟩) ∧
+      (⟨#[1]⟩ : ByteArray) ≠ (⟨#[1, 2]⟩ : ByteArray) := by decide
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
