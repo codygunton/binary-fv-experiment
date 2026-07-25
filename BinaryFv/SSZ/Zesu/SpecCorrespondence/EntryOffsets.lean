@@ -917,5 +917,40 @@ theorem decodeCanonical_inv {t : SSZType} {b : ByteArray} {x : t.interp}
           exact ⟨rfl, byteArray_eq_of_beq hser⟩
         · intro h; exact absurd h (by simp)
 
+/-! ### Recovering the reads behind the table
+
+`uint32LE_eq_extract_iff` is stated against a *read* at an offset, but the composition carries the
+table as a list of `Nat`s. This recovers the four reads that produced them, which is what lets each
+offset-bytes condition become an offset-value condition. -/
+
+theorem entry_offset_reads (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3]) :
+    ∃ w0 w1 w2 w3 : UInt32,
+      readUInt32LE body 0 = some w0 ∧ readUInt32LE body 4 = some w1 ∧
+      readUInt32LE body 8 = some w2 ∧ readUInt32LE body 12 = some w3 ∧
+      o0 = w0.toNat ∧ o1 = w1.toNat ∧ o2 = w2.toNat ∧ o3 = w3.toNat := by
+  rw [extractFieldOffsets_entry] at hoffs
+  split at hoffs
+  · rename_i w0 w1 w2 w3 h0 h1 h2 h3
+    simp only [Except.ok.injEq, List.cons.injEq] at hoffs
+    exact ⟨w0, w1, w2, w3, h0, h1, h2, h3, hoffs.1.symm, hoffs.2.1.symm,
+      hoffs.2.2.1.symm, hoffs.2.2.2.1.symm⟩
+  · exact absurd hoffs (by simp)
+
+/-- Each offset-bytes condition, as an offset-value condition. -/
+theorem entry_offsetBytes_iff (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
+    (n : Nat) (hn : n < UInt32.size) :
+    (uint32LE (Nat.toUInt32 n) = body.extract 0 4 ↔ n = o0) ∧
+    (uint32LE (Nat.toUInt32 n) = body.extract 4 8 ↔ n = o1) ∧
+    (uint32LE (Nat.toUInt32 n) = body.extract 8 12 ↔ n = o2) ∧
+    (uint32LE (Nat.toUInt32 n) = body.extract 12 16 ↔ n = o3) := by
+  obtain ⟨w0, w1, w2, w3, r0, r1, r2, r3, e0, e1, e2, e3⟩ := entry_offset_reads body o0 o1 o2 o3 hoffs
+  subst e0; subst e1; subst e2; subst e3
+  exact ⟨uint32LE_eq_extract_iff body 0 n w0 r0 hn,
+    uint32LE_eq_extract_iff body 4 n w1 r1 hn,
+    uint32LE_eq_extract_iff body 8 n w2 r2 hn,
+    uint32LE_eq_extract_iff body 12 n w3 r3 hn⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
