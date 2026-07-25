@@ -675,9 +675,24 @@ field slices, then test re-serialization. The `used = body.size` check disappear
 being discharged — the variable-container arm returns `(v, b.size)`, so it is satisfied by
 construction, which is `deserialize_container_used` at this schema. -/
 
+/-- A successful entry offset table forces the body to reach sixteen bytes.
+
+Found by resolving a load-bearing question I had first left hedged: the table's fourth entry is read
+at offset 12, so `readUInt32LE_fits` gives `16 ≤ body.size` for free. Another *derivable*
+hypothesis — the third category again, and the second time it has appeared as a size bound sitting
+next to a successful read. -/
+theorem extractFieldOffsets_entry_fits (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3]) :
+    16 ≤ body.size := by
+  rw [extractFieldOffsets_entry] at hoffs
+  split at hoffs
+  · rename_i h3
+    exact readUInt32LE_fits h3
+  · exact absurd hoffs (by simp)
+
 theorem decodeCanonical_entry_unfold (body : ByteArray) (o0 o1 o2 o3 : Nat)
     (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
-    (h0 : o0 = 16) (h16 : 16 ≤ body.size) :
+    (h0 : o0 = 16) :
     SszBridge.decodeCanonical SszBridge.statelessInputV4Type body =
       match SSZType.deserializeVarFields entryFields body 0 [o0, o1, o2, o3] body.size with
       | .error e => .error e
@@ -688,6 +703,7 @@ theorem decodeCanonical_entry_unfold (body : ByteArray) (o0 o1 o2 o3 : Nat)
       match SSZType.deserializeVarFields entryFields body 0 [o0, o1, o2, o3] body.size with
       | .error e => .error e
       | .ok v => .ok (v, body.size) := by
+    have h16 : 16 ≤ body.size := extractFieldOffsets_entry_fits body o0 o1 o2 o3 hoffs
     show SSZType.deserialize (.container entryFields) body = _
     rw [SSZType.deserialize, if_neg (by rw [entryFields_not_allFixed]; simp)]
     simp only []
