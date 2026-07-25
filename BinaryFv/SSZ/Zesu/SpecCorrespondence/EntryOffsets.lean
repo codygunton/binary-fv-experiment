@@ -733,4 +733,26 @@ theorem decodeCanonical_of_used_eq (t : SSZType) (b : ByteArray) (x : t.interp) 
   simp [bind, Except.bind]
   rfl
 
+/-! ### Discharging the workhorse premise per field
+
+`decodeCanonical_of_used_eq` needs `used = b.size` at each entry field. For the three containers
+that is `deserialize_container_used`, and the `allFixedSize` premise is exactly the `isFixedSize`
+fact already proved by `decide` — `isFixedSize (.container fs)` *is* `allFixedSize fs`, so the two
+statements are definitionally the same and no bridging lemma is needed. -/
+
+theorem deserialize_newPayloadRequest_used {b : ByteArray}
+    {x : SszBridge.newPayloadRequestType.interp} {u : Nat}
+    (h : SSZType.deserialize SszBridge.newPayloadRequestType b = .ok (x, u)) : u = b.size :=
+  deserialize_container_used _ b newPayloadRequestType_not_fixed x u h
+
+theorem deserialize_witness_used {b : ByteArray}
+    {x : SszBridge.witnessType.interp} {u : Nat}
+    (h : SSZType.deserialize SszBridge.witnessType b = .ok (x, u)) : u = b.size :=
+  deserialize_container_used _ b witnessType_not_fixed x u h
+
+theorem deserialize_chainConfig_used {b : ByteArray}
+    {x : SszBridge.chainConfigType.interp} {u : Nat}
+    (h : SSZType.deserialize SszBridge.chainConfigType b = .ok (x, u)) : u = b.size :=
+  deserialize_container_used _ b chainConfigType_not_fixed x u h
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
