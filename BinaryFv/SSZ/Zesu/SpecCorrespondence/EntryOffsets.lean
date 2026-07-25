@@ -127,4 +127,55 @@ theorem requireCanonicalOffsets_entry (body : ByteArray) (o0 o1 o2 o3 : Nat) :
     simp only [or_false] at hmem
     rcases hmem with rfl | rfl | rfl | rfl <;> omega
 
+/-! ## The oracle's field slices
+
+`deserializeVarFields` walks the field list carrying the offset table, and for each variable field
+takes the slice from its own offset to the *next* one — with `bufEnd` standing in as the sentinel
+after the last field. Under the guards `requireCanonicalOffsets_entry` supplies, those slices are
+exactly the four `body.extract` calls `meaningDecodeRaw` makes.
+
+The `prefixOff` argument is threaded but never reaches the result on an all-variable field list: it
+only advances the fixed-section cursor, which has no fixed fields to read. -/
+
+/-- **The oracle slices the entry body exactly where the source does.**
+
+Stated as the full nested match rather than at acceptance granularity, because the composition
+theorem needs the decoded *values*, not just whether the decode succeeded — and because the nesting
+is what preserves first-error-wins ordering, which a flat match would silently discard. -/
+theorem deserializeVarFields_entry (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (h01 : o0 ≤ o1) (h12 : o1 ≤ o2) (h23 : o2 ≤ o3) (h3 : o3 ≤ body.size) :
+    SSZType.deserializeVarFields entryFields body 0 [o0, o1, o2, o3] body.size =
+      match SSZType.deserialize SszBridge.newPayloadRequestType (body.extract o0 o1) with
+      | .error e => .error e
+      | .ok (x0, _) =>
+        match SSZType.deserialize SszBridge.witnessType (body.extract o1 o2) with
+        | .error e => .error e
+        | .ok (x1, _) =>
+          match SSZType.deserialize SszBridge.chainConfigType (body.extract o2 o3) with
+          | .error e => .error e
+          | .ok (x2, _) =>
+            match SSZType.deserialize
+                (.list (SszBridge.byteVector SszBridge.publicKeyBytes) SszBridge.maxPublicKeys)
+                (body.extract o3 body.size) with
+            | .error e => .error e
+            | .ok (x3, _) => .ok (x0, x1, x2, x3, PUnit.unit) := by
+  have n01 : ¬ (o0 > o1) := by omega
+  have n12 : ¬ (o1 > o2) := by omega
+  have n23 : ¬ (o2 > o3) := by omega
+  have n1 : ¬ (o1 > body.size) := by omega
+  have n2 : ¬ (o2 > body.size) := by omega
+  have n3 : ¬ (o3 > body.size) := by omega
+  have nend : ¬ (body.size > body.size) := by omega
+  simp only [entryFields, SSZType.deserializeVarFields, newPayloadRequestType_not_fixed,
+    witnessType_not_fixed, chainConfigType_not_fixed, publicKeysField_not_fixed,
+    List.head?_cons, List.head?_nil, Option.getD_some, Option.getD_none,
+    n01, n12, n23, n1, n2, n3, nend, decide_false, Bool.or_false,
+    if_false, Bool.false_eq_true]
+  cases SSZType.deserialize SszBridge.newPayloadRequestType (body.extract o0 o1) <;>
+    cases SSZType.deserialize SszBridge.witnessType (body.extract o1 o2) <;>
+      cases SSZType.deserialize SszBridge.chainConfigType (body.extract o2 o3) <;>
+        cases SSZType.deserialize
+            (.list (SszBridge.byteVector SszBridge.publicKeyBytes) SszBridge.maxPublicKeys)
+            (body.extract o3 body.size) <;> rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
