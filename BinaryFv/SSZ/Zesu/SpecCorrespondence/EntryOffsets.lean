@@ -446,4 +446,92 @@ theorem append4_needs_no_size_for_truth :
       ¬ ((⟨#[0, 0, 0, 0]⟩ : ByteArray)
         = (⟨#[0, 0, 0, 0, 0, 0, 0, 0]⟩ : ByteArray).extract 8 12) := by decide
 
+/-! ## The join
+
+`decodeCanonical`'s canonicality test, decomposed. This is where the pieces meet: `serialize_entry`
+expands the left side, `extract_split` cuts the buffer at the table width, and
+`append4_eq_extract_sixteen_iff` takes the table apart field by field.
+
+What comes out is five conditions — four offset-bytes equalities and one body-region equality — and
+that shape is the point. The body-region condition is where the per-field canonicality lives, and the
+four offset conditions are forced by it, because each offset is the cumulative sum of the preceding
+body widths. So the decomposition is (i)-implies-(ii), not two independent obligations. -/
+
+/-- **The entry canonicality test, decomposed into four offset bytes plus the body region.** -/
+theorem serialize_entry_eq_body_iff (body : ByteArray) (v : SSZType.interpFields entryFields)
+    (s0 s1 s2 s3 : ByteArray)
+    (e0 : SSZType.serialize SszBridge.newPayloadRequestType v.1 = s0)
+    (e1 : SSZType.serialize SszBridge.witnessType v.2.1 = s1)
+    (e2 : SSZType.serialize SszBridge.chainConfigType v.2.2.1 = s2)
+    (e3 : SSZType.serialize (SSZType.list (SszBridge.byteVector SszBridge.publicKeyBytes)
+            SszBridge.maxPublicKeys) v.2.2.2.1 = s3)
+    (hbody : 16 ≤ body.size) :
+    SSZType.serialize (.container entryFields) v = body ↔
+      (uint32LE (Nat.toUInt32 16) = body.extract 0 4 ∧
+        uint32LE (Nat.toUInt32 (16 + s0.size)) = body.extract 4 8 ∧
+        uint32LE (Nat.toUInt32 (16 + s0.size + s1.size)) = body.extract 8 12 ∧
+        uint32LE (Nat.toUInt32 (16 + s0.size + s1.size + s2.size)) = body.extract 12 16 ∧
+        s0 ++ (s1 ++ (s2 ++ s3)) = body.extract 16 body.size) := by
+  rw [serialize_entry v s0 s1 s2 s3 e0 e1 e2 e3]
+  have htab : (uint32LE (Nat.toUInt32 16)
+      ++ (uint32LE (Nat.toUInt32 (16 + s0.size))
+      ++ (uint32LE (Nat.toUInt32 (16 + s0.size + s1.size))
+      ++ uint32LE (Nat.toUInt32 (16 + s0.size + s1.size + s2.size))))).size
+        = (body.extract 0 16).size := by
+    rw [ByteArray.size_append, ByteArray.size_append, ByteArray.size_append,
+      uint32LE_size, uint32LE_size, uint32LE_size, uint32LE_size, ByteArray.size_extract]
+    omega
+  constructor
+  · intro h
+    obtain ⟨htable, hvar⟩ :=
+      append_inj_of_size_eq htab (h.trans (extract_split body 16 hbody).symm)
+    obtain ⟨p0, p1, p2, p3⟩ :=
+      (append4_eq_extract_sixteen_iff body hbody (uint32LE_size _) (uint32LE_size _)
+        (uint32LE_size _) (uint32LE_size _)).mp htable
+    exact ⟨p0, p1, p2, p3, hvar⟩
+  · rintro ⟨p0, p1, p2, p3, hvar⟩
+    rw [(append4_eq_extract_sixteen_iff body hbody (uint32LE_size _) (uint32LE_size _)
+      (uint32LE_size _) (uint32LE_size _)).mpr ⟨p0, p1, p2, p3⟩, hvar]
+    exact extract_split body 16 hbody
+
+/-! ### Load-bearing audit of the join
+
+Run mechanically rather than on suspicion, which is the only way it fires when it is needed.
+
+**`e0`–`e3` are load-bearing for truth.** They are what tie `s0`–`s3` to the actual field
+serializations; with `s0` unconstrained the right side compares the buffer against arbitrary widths
+and the equivalence fails outright.
+
+**`hbody` is load-bearing for the proof only — the third such hypothesis in this module.** Below
+`16 ≤ body.size` both sides are false, so the equivalence survives. The two halves of that are
+recorded as theorems rather than asserted:
+
+* the right side fails on *width* — `uint32LE` is always four bytes and `body.extract 12 16` is
+  narrower than four on a short buffer, so the fourth conjunct cannot hold;
+* the left side fails on *size* — the entry serialization is at least sixteen bytes wide, being a
+  sixteen-byte table plus four bodies, so it cannot equal a shorter buffer.
+
+It is kept because every call site has the bound and dropping it would buy a case analysis for
+nothing. -/
+
+/-- The entry serialization always has room for its own offset table. -/
+theorem serialize_entry_size_ge_sixteen (v : SSZType.interpFields entryFields)
+    (s0 s1 s2 s3 : ByteArray)
+    (e0 : SSZType.serialize SszBridge.newPayloadRequestType v.1 = s0)
+    (e1 : SSZType.serialize SszBridge.witnessType v.2.1 = s1)
+    (e2 : SSZType.serialize SszBridge.chainConfigType v.2.2.1 = s2)
+    (e3 : SSZType.serialize (SSZType.list (SszBridge.byteVector SszBridge.publicKeyBytes)
+            SszBridge.maxPublicKeys) v.2.2.2.1 = s3) :
+    16 ≤ (SSZType.serialize (.container entryFields) v).size := by
+  rw [serialize_entry v s0 s1 s2 s3 e0 e1 e2 e3, ByteArray.size_append, ByteArray.size_append,
+    ByteArray.size_append, ByteArray.size_append, ByteArray.size_append, ByteArray.size_append,
+    uint32LE_size, uint32LE_size, uint32LE_size, uint32LE_size]
+  omega
+
+/-- The other half: on a short buffer the fourth offset conjunct fails on width alone, since
+`uint32LE` is four bytes and the final table slot is not. Concrete counterexample-style, at an
+eight-byte buffer. -/
+theorem entry_join_fourth_conjunct_fails_short :
+    ((⟨#[0, 0, 0, 0, 0, 0, 0, 0]⟩ : ByteArray).extract 12 16).size ≠ (uint32LE 0).size := by decide
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
