@@ -357,4 +357,48 @@ theorem append_inj_needs_size :
     ((⟨#[1]⟩ : ByteArray) ++ ⟨#[2]⟩ = (⟨#[1, 2]⟩ : ByteArray) ++ ⟨#[]⟩) ∧
       (⟨#[1]⟩ : ByteArray) ≠ (⟨#[1, 2]⟩ : ByteArray) := by decide
 
+/-! ### The two splits the join performs
+
+`serialize_entry` produces a sixteen-byte offset table followed by the four bodies, so the join
+splits `body` twice: once at width 16 into table and body region, and once inside the table into four
+four-byte offsets. Both are stated in the right-nested form `serialize_entry` actually produces, so
+no re-association is needed at the use site. -/
+
+/-- Split a buffer at any width within it. -/
+theorem extract_split (body : ByteArray) (n : Nat) (h : n ≤ body.size) :
+    body.extract 0 n ++ body.extract n body.size = body := by
+  rw [ByteArray.extract_append_extract, show min 0 n = 0 by omega,
+    show max n body.size = body.size by omega, ByteArray.extract_zero_size]
+
+/-- The offset table's sixteen bytes as four four-byte fields.
+
+No size hypothesis: `extract` clamps out of range, so this holds on short buffers too — where both
+sides are simply shorter than sixteen bytes. -/
+theorem extract_sixteen (body : ByteArray) :
+    body.extract 0 4 ++ (body.extract 4 8 ++ (body.extract 8 12 ++ body.extract 12 16))
+      = body.extract 0 16 := by
+  rw [ByteArray.extract_append_extract, show min 8 12 = 8 from rfl, show max 12 16 = 16 from rfl,
+    ByteArray.extract_append_extract, show min 4 8 = 4 from rfl, show max 8 16 = 16 from rfl,
+    ByteArray.extract_append_extract, show min 0 4 = 0 from rfl, show max 4 16 = 16 from rfl]
+
+/-- `extract_sixteen`'s missing size hypothesis is a real claim, not an oversight — checked on a
+five-byte buffer, where every field past the first is clamped or empty and both sides come out as the
+whole buffer. Concrete counterexample-style check, available here because `extract` is computable. -/
+theorem extract_sixteen_short_buffer :
+    (⟨#[1, 2, 3, 4, 5]⟩ : ByteArray).extract 0 4
+        ++ ((⟨#[1, 2, 3, 4, 5]⟩ : ByteArray).extract 4 8
+        ++ ((⟨#[1, 2, 3, 4, 5]⟩ : ByteArray).extract 8 12
+        ++ (⟨#[1, 2, 3, 4, 5]⟩ : ByteArray).extract 12 16))
+      = (⟨#[1, 2, 3, 4, 5]⟩ : ByteArray) := by decide
+
+/-- **`extract_split`'s hypothesis is NOT load-bearing for truth**, only for the proof route above:
+past the end, `extract 0 n` clamps to the whole buffer and `extract n size` is empty, so the equation
+still holds. Recorded rather than left implicit, so a later reader does not think the lemma is
+narrower than it is and go proving `n ≤ size` at a use site that does not need it. Kept at `n ≤ size`
+because every call in the join has that bound anyway, and the clamped proof needs a case split that
+buys nothing here. -/
+theorem extract_split_beyond_end :
+    (⟨#[1, 2]⟩ : ByteArray).extract 0 5 ++ (⟨#[1, 2]⟩ : ByteArray).extract 5 2
+      = (⟨#[1, 2]⟩ : ByteArray) := by decide
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
