@@ -811,4 +811,43 @@ theorem deserialize_publicKeys_used {b : ByteArray} {x : publicKeysType.interp} 
             omega
           · exact absurd h (by simp)
 
+/-! ### Splitting the body region four ways
+
+The join's fifth condition is `s0 ++ (s1 ++ (s2 ++ s3)) = body.extract 16 body.size` — the whole
+variable region against the four field bodies. Taking it apart needs the same treatment as the
+offset table, but at *offset-determined* widths rather than a fixed four bytes. -/
+
+/-- Four consecutive slices reassemble the span they cover. -/
+theorem extract_four (body : ByteArray) (a b c d e : Nat)
+    (hab : a ≤ b) (hbc : b ≤ c) (hcd : c ≤ d) (hde : d ≤ e) :
+    body.extract a b ++ (body.extract b c ++ (body.extract c d ++ body.extract d e))
+      = body.extract a e := by
+  rw [ByteArray.extract_append_extract, show min c d = c by omega, show max d e = e by omega,
+    ByteArray.extract_append_extract, show min b c = b by omega, show max c e = e by omega,
+    ByteArray.extract_append_extract, show min a b = a by omega, show max b e = e by omega]
+
+/-- **The variable region matches exactly when each field body matches its own slice.**
+
+The widths come from the offsets rather than from a constant, so each is `o_{i+1} - o_i`; that is
+what `cumulative_sums_eq_offsets` supplies from the per-field canonicality conditions. -/
+theorem append4_eq_extract_region_iff (body : ByteArray) (o1 o2 o3 : Nat)
+    {s0 s1 s2 s3 : ByteArray}
+    (h01 : 16 ≤ o1) (h12 : o1 ≤ o2) (h23 : o2 ≤ o3) (h3 : o3 ≤ body.size)
+    (w0 : s0.size = o1 - 16) (w1 : s1.size = o2 - o1) (w2 : s2.size = o3 - o2) :
+    s0 ++ (s1 ++ (s2 ++ s3)) = body.extract 16 body.size ↔
+      (s0 = body.extract 16 o1 ∧ s1 = body.extract o1 o2 ∧ s2 = body.extract o2 o3 ∧
+        s3 = body.extract o3 body.size) := by
+  have e0 : (body.extract 16 o1).size = o1 - 16 := by rw [ByteArray.size_extract]; omega
+  have e1 : (body.extract o1 o2).size = o2 - o1 := by rw [ByteArray.size_extract]; omega
+  have e2 : (body.extract o2 o3).size = o3 - o2 := by rw [ByteArray.size_extract]; omega
+  constructor
+  · intro h
+    rw [← extract_four body 16 o1 o2 o3 body.size h01 h12 h23 h3] at h
+    obtain ⟨p0, h'⟩ := append_inj_of_size_eq (by rw [w0, e0]) h
+    obtain ⟨p1, h''⟩ := append_inj_of_size_eq (by rw [w1, e1]) h'
+    obtain ⟨p2, p3⟩ := append_inj_of_size_eq (by rw [w2, e2]) h''
+    exact ⟨p0, p1, p2, p3⟩
+  · rintro ⟨rfl, rfl, rfl, rfl⟩
+    exact extract_four body 16 o1 o2 o3 body.size h01 h12 h23 h3
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
