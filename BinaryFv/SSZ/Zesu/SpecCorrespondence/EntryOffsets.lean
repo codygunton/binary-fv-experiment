@@ -668,4 +668,38 @@ theorem cumulative_sums_eq_offsets (body : ByteArray) (o0 o1 o2 o3 : Nat)
   rw [ByteArray.size_extract, ByteArray.size_extract, ByteArray.size_extract]
   omega
 
+/-! ## Assembling the entry theorem
+
+`decodeCanonical` at the entry schema, unfolded to the two things it actually does: walk the four
+field slices, then test re-serialization. The `used = body.size` check disappears here rather than
+being discharged — the variable-container arm returns `(v, b.size)`, so it is satisfied by
+construction, which is `deserialize_container_used` at this schema. -/
+
+theorem decodeCanonical_entry_unfold (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
+    (h0 : o0 = 16) (h16 : 16 ≤ body.size) :
+    SszBridge.decodeCanonical SszBridge.statelessInputV4Type body =
+      match SSZType.deserializeVarFields entryFields body 0 [o0, o1, o2, o3] body.size with
+      | .error e => .error e
+      | .ok v =>
+          if SSZType.serialize SszBridge.statelessInputV4Type v == body then .ok v
+          else .error .invalidOffset := by
+  have hdes : SSZType.deserialize SszBridge.statelessInputV4Type body =
+      match SSZType.deserializeVarFields entryFields body 0 [o0, o1, o2, o3] body.size with
+      | .error e => .error e
+      | .ok v => .ok (v, body.size) := by
+    show SSZType.deserialize (.container entryFields) body = _
+    rw [SSZType.deserialize, if_neg (by rw [entryFields_not_allFixed]; simp)]
+    simp only []
+    rw [if_neg (by rw [entryFields_fixedSectionSize]; omega)]
+    simp only [hoffs, List.head?_cons]
+    rw [if_neg (by rw [entryFields_fixedSectionSize, h0]; simp)]
+    -- Both sides are the same `match`, but on different motives, so `rfl` needs the scrutinee
+    -- reduced on both rather than on the left alone.
+    cases SSZType.deserializeVarFields entryFields body 0 [o0, o1, o2, o3] body.size <;> rfl
+  rw [SszBridge.decodeCanonical]
+  rw [hdes]
+  cases SSZType.deserializeVarFields entryFields body 0 [o0, o1, o2, o3] body.size <;>
+    simp [bind, Except.bind] <;> rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
