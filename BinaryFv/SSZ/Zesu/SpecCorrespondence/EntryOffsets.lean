@@ -718,4 +718,19 @@ theorem decodeCanonical_entry_unfold (body : ByteArray) (o0 o1 o2 o3 : Nat)
   cases SSZType.deserializeVarFields entryFields body 0 [o0, o1, o2, o3] body.size <;>
     simp [bind, Except.bind] <;> rfl
 
+/-- **`decodeCanonical` where the deserialize consumes its whole buffer** reduces to the
+re-serialization test alone.
+
+The per-field workhorse: the composition needs this four times, once per entry field, and the
+`used = b.size` premise is exactly what `deserialize_container_used` supplies for the three
+containers and what the fixed-element list arm's `trailingBytes` guard supplies for the fourth. -/
+theorem decodeCanonical_of_used_eq (t : SSZType) (b : ByteArray) (x : t.interp) (u : Nat)
+    (hdes : SSZType.deserialize t b = .ok (x, u)) (hused : u = b.size) :
+    SszBridge.decodeCanonical t b =
+      if SSZType.serialize t x == b then .ok x else .error .invalidOffset := by
+  subst hused
+  rw [SszBridge.decodeCanonical, hdes]
+  simp [bind, Except.bind]
+  rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
