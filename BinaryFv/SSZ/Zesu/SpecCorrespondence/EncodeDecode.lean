@@ -148,6 +148,38 @@ theorem readUInt32LE_isSome (bytes : ByteArray) (offset : Nat) (fits : offset + 
   · simp
   · omega
 
+/-! ### Decode after encode at width 32
+
+The *other* direction, needed for one specific purpose: `uint32LE` injectivity, which the entry
+theorem's offset-value equivalence needs in its forward direction. Upstream has `decode_encode` at
+the type level over `BasicSupported`, but not at this width on the raw `uint32LE`/`readUInt32LE` pair,
+and the offset table is built from exactly that pair.
+
+Note this is the direction the module docstring warns is *not* what `decodeCanonical` needs — true,
+and it is not being used for that. It is used only to cancel `uint32LE` on both sides of an equation.
+Keeping both directions in one place, each labelled with what it is for, is what stops the two being
+confused later. -/
+
+/-- `uint32LE` as an explicit four-element literal, so `getElem` reduces without needing
+`push`-indexing lemmas. -/
+theorem uint32LE_eq_literal (value : UInt32) :
+    uint32LE value = ⟨#[value.toUInt8, (value >>> 8).toUInt8, (value >>> 16).toUInt8,
+      (value >>> 24).toUInt8]⟩ := rfl
+
+theorem readUInt32LE_uint32LE (value : UInt32) : readUInt32LE (uint32LE value) 0 = some value := by
+  rw [uint32LE_eq_literal, readUInt32LE, dif_pos (by simp [ByteArray.size])]
+  show some (value.toUInt8.toUInt32 ||| (value >>> 8).toUInt8.toUInt32 <<< 8
+    ||| (value >>> 16).toUInt8.toUInt32 <<< 16 ||| (value >>> 24).toUInt8.toUInt32 <<< 24)
+      = some value
+  simp only [Option.some.injEq]
+  bv_decide
+
+/-- **`uint32LE` is injective**, so it can be cancelled from both sides of an equation. -/
+theorem uint32LE_injective {a b : UInt32} (h : uint32LE a = uint32LE b) : a = b := by
+  have ha := readUInt32LE_uint32LE a
+  rw [h, readUInt32LE_uint32LE b] at ha
+  exact (Option.some.injEq _ _).mp ha.symm
+
 /-! ### The `u32` arm is not vacuous, and says something
 
 A conditional equation can be true because its hypotheses are unsatisfiable, or because its
