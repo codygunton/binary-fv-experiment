@@ -54,6 +54,7 @@ import BinaryFv.SSZ.Zesu.Contracts.Canonicality
 import BinaryFv.SSZ.Zesu.Contracts.Leaves
 import BinaryFv.SSZ.Zesu.SpecCorrespondence.PrimitiveReads
 import BinaryFv.SSZ.Zesu.SpecCorrespondence.EncodeDecode
+import BinaryFv.SSZ.Zesu.SpecCorrespondence.EntryOffsets
 import BinaryFv.SSZ.Zesu.ExecutionTypes
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Fuel
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Runner
