@@ -178,4 +178,100 @@ theorem deserializeVarFields_entry (body : ByteArray) (o0 o1 o2 o3 : Nat)
             (.list (SszBridge.byteVector SszBridge.publicKeyBytes) SszBridge.maxPublicKeys)
             (body.extract o3 body.size) <;> rfl
 
+/-! ## The per-field `used` check is redundant
+
+**What breaks if this does not hold.** The source decodes each entry field with `decodeCanonical`,
+which checks `used = slice.size`. The oracle does *not*: the top-level check is vacuous at the entry
+container — the variable-container arm returns `(v, b.size)`, so `used = body.size` unconditionally
+— and `deserializeVarFields` discards each field's `used` (`Deserialize.lean:513` matches
+`.ok (x, _)`). So the re-serialization equality is the only thing constraining the fields. If the
+per-field `used` check were *not* redundant, the source side would be strictly stronger than the
+oracle, there would be a body the oracle accepts and the source rejects, and
+`sourceShapedDecodeAgreesWithOracle` would be **false**. This is a fourth statement defect avoided,
+not a convenience lemma.
+
+**It is not the general fact it looks like.** `used = (serialize value).size` for arbitrary shapes is
+a size-consistency theorem that is neither free nor upstream — `SizzLean.Proofs.SerializeSize`
+covers only `isFixedSize` shapes and `Roundtrip.decode_encode` runs the other way. What holds, and
+all that is needed, is a per-field-type fact about the four shapes the entry schema actually uses. -/
+
+/-- A field list with at least one variable-size field yields at least one offset.
+
+Needed to rule out `deserialize`'s degenerate `offs.head? = none` arm, which falls back to
+`deserializeFixedFields` and would return a `used` smaller than `b.size`. Upstream's own comment
+calls that arm unreachable when `allFixedSize` is false; that is support, not proof. -/
+theorem extractFieldOffsets_ne_nil (b : ByteArray) :
+    ∀ (fs : List SSZType) (off : Nat) (offs : List Nat),
+      SSZType.allFixedSize fs = false → extractFieldOffsets b fs off = .ok offs → offs ≠ [] := by
+  intro fs
+  induction fs with
+  | nil => intro _ _ hvar; exact absurd hvar (by simp [SSZType.allFixedSize])
+  | cons t ts ih =>
+      intro off offs hvar hext
+      by_cases hfix : t.isFixedSize
+      · rw [SSZType.allFixedSize, hfix] at hvar
+        simp only [Bool.true_and] at hvar
+        rw [extractFieldOffsets, if_pos hfix] at hext
+        exact ih _ _ hvar hext
+      · rw [extractFieldOffsets, if_neg hfix] at hext
+        split at hext
+        · exact absurd hext (by simp)
+        · split at hext
+          · simp only [Except.ok.injEq] at hext; subst hext; simp
+          · exact absurd hext (by simp)
+
+/-- **A variable-size container reports consuming its whole buffer.**
+
+So `decodeCanonical`'s `used = body.size` check is redundant at every variable container — which is
+what makes the source's per-field `decodeCanonical` no stronger than what the oracle does per field.
+See the section docstring for what would break otherwise. -/
+theorem deserialize_container_used (fs : List SSZType) (b : ByteArray)
+    (hvar : SSZType.allFixedSize fs = false)
+    (v : SSZType.interpFields fs) (u : Nat)
+    (h : SSZType.deserialize (.container fs) b = .ok (v, u)) : u = b.size := by
+  rw [SSZType.deserialize, if_neg (by simp [hvar])] at h
+  -- Zeta-reduce the `have prefixSize := …` binding so `split` can reach the size guard first.
+  simp only [] at h
+  split at h
+  · simp at h
+  · split at h
+    · simp at h
+    · rename_i offs hext
+      -- The degenerate `offs.head? = none` arm is unreachable: some field is variable.
+      have hne := extractFieldOffsets_ne_nil b fs 0 offs hvar hext
+      cases offs with
+      | nil => exact absurd rfl hne
+      | cons first rest =>
+          simp only [List.head?_cons] at h
+          split at h
+          · simp at h
+          · split at h
+            · simp at h
+            · simp only [Except.ok.injEq, Prod.mk.injEq] at h
+              exact h.2.symm
+
+/-- **`allFixedSize fs = false` is load-bearing above, not decoration.**
+
+An *all-fixed* container reports only its fixed width, which does not depend on the buffer length at
+all — so on any longer buffer `used < b.size` and the lemma above would be false without its
+hypothesis. Kept rather than argued in a comment: this is what makes the variable-size restriction a
+real precondition instead of an incidental one, and it is a passing check, so it can live here as a
+regression guard.
+
+`decide` cannot settle this by evaluation — `deserialize` is well-founded, so the kernel gets no
+unfolding from it — which is why it is proved by the same unfolding route as the lemma above. -/
+theorem deserialize_allFixed_container_used (t : SSZType) (b : ByteArray)
+    (hfix : SSZType.allFixedSize [t] = true)
+    (x : SSZType.interpFields [t]) (u : Nat)
+    (h : SSZType.deserialize (.container [t]) b = .ok (x, u)) : u = t.fixedByteSize := by
+  rw [SSZType.deserialize, if_pos hfix, SSZType.deserializeFixedFields] at h
+  split at h
+  · simp at h
+  · split at h
+    · simp at h
+    · rw [SSZType.deserializeFixedFields] at h
+      simp only [Except.ok.injEq, Prod.mk.injEq] at h
+      obtain ⟨-, hu⟩ := h
+      omega
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
