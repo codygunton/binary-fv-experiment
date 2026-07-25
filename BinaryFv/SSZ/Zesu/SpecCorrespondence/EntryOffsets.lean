@@ -642,4 +642,30 @@ side fail. Concrete counterexample-style, at the wrap point itself. -/
 theorem uint32LE_eq_extract_needs_bound :
     Nat.toUInt32 4294967296 = Nat.toUInt32 0 ∧ (4294967296 : Nat) ≠ 0 := by decide
 
+/-! ## (ii) from (i), concretely
+
+The decomposition's whole non-circularity claim is that the offset-table conditions follow from the
+per-field canonicality conditions rather than standing beside them. Here is that implication as
+arithmetic: if each field's serialization *is* its slice, then each field's width is the gap between
+consecutive offsets, so the cumulative sums the offset table encodes are the offsets themselves. -/
+
+/-- **Per-field canonicality forces the cumulative sums to be the offsets.**
+
+This is (ii)-from-(i). Nothing about serialization is used — only that each `s_i` is the slice between
+its offsets, which pins its width.
+
+Note the *fourth* field never appears: the table has four entries and the last field runs to the
+buffer end, so no offset encodes `s3`'s width and no hypothesis about it is needed. The compiler
+found that — an earlier version took `s3` and a canonicality hypothesis for it, both unused. -/
+theorem cumulative_sums_eq_offsets (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (s0 s1 s2 : ByteArray)
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h12 : o1 ≤ o2) (h23 : o2 ≤ o3) (h3 : o3 ≤ body.size)
+    (c0 : s0 = body.extract o0 o1) (c1 : s1 = body.extract o1 o2)
+    (c2 : s2 = body.extract o2 o3) :
+    16 + s0.size = o1 ∧ 16 + s0.size + s1.size = o2 ∧
+      16 + s0.size + s1.size + s2.size = o3 := by
+  subst c0 c1 c2 h0
+  rw [ByteArray.size_extract, ByteArray.size_extract, ByteArray.size_extract]
+  omega
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
