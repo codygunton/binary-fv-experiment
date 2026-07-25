@@ -952,5 +952,70 @@ theorem entry_offsetBytes_iff (body : ByteArray) (o0 o1 o2 o3 : Nat)
     uint32LE_eq_extract_iff body 8 n w2 r2 hn,
     uint32LE_eq_extract_iff body 12 n w3 r3 hn⟩
 
+/-! ## The entry composition, backward direction
+
+From the four per-field canonical decodes to the oracle's acceptance of the whole body. This is the
+direction that has to *construct* the accepted value and show its re-serialization reproduces the
+buffer, so it is where every piece built above finally meets. -/
+
+/-- **Four canonical field decodes make the entry decode canonical.** -/
+theorem decodeCanonical_entry_of_fields
+    (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h12 : o1 ≤ o2) (h23 : o2 ≤ o3) (h3 : o3 ≤ body.size)
+    (hu32 : body.size < UInt32.size)
+    {x0 : SszBridge.newPayloadRequestType.interp} {x1 : SszBridge.witnessType.interp}
+    {x2 : SszBridge.chainConfigType.interp} {x3 : publicKeysType.interp}
+    (a0 : SszBridge.decodeCanonical SszBridge.newPayloadRequestType (body.extract o0 o1) = .ok x0)
+    (a1 : SszBridge.decodeCanonical SszBridge.witnessType (body.extract o1 o2) = .ok x1)
+    (a2 : SszBridge.decodeCanonical SszBridge.chainConfigType (body.extract o2 o3) = .ok x2)
+    (a3 : SszBridge.decodeCanonical publicKeysType (body.extract o3 body.size) = .ok x3) :
+    (SszBridge.decodeCanonical SszBridge.statelessInputV4Type body).toOption.isSome = true := by
+  -- `omega` treats `UInt32.size` as an atom; this links it to the numeral.
+  have husz : UInt32.size = 4294967296 := rfl
+  obtain ⟨d0, s0eq⟩ := decodeCanonical_inv a0
+  obtain ⟨d1, s1eq⟩ := decodeCanonical_inv a1
+  obtain ⟨d2, s2eq⟩ := decodeCanonical_inv a2
+  obtain ⟨d3, s3eq⟩ := decodeCanonical_inv a3
+  subst h0
+  -- Each field body is exactly its slice, so its width is the gap between consecutive offsets.
+  have w0 : (SSZType.serialize SszBridge.newPayloadRequestType x0).size = o1 - 16 := by
+    rw [s0eq, ByteArray.size_extract]; omega
+  have w1 : (SSZType.serialize SszBridge.witnessType x1).size = o2 - o1 := by
+    rw [s1eq, ByteArray.size_extract]; omega
+  have w2 : (SSZType.serialize SszBridge.chainConfigType x2).size = o3 - o2 := by
+    rw [s2eq, ByteArray.size_extract]; omega
+  obtain ⟨c1, c2, c3⟩ :=
+    cumulative_sums_eq_offsets body 16 o1 o2 o3 _ _ _ rfl h01 h12 h23 h3 s0eq s1eq s2eq
+  -- `d3` is stated at `publicKeysType`; the walker's goal shows the unfolded list type. Defeq, so a
+  -- restatement crosses it, but `rw` needs the syntactic form.
+  have d3' : SSZType.deserialize
+      (.list (SszBridge.byteVector SszBridge.publicKeyBytes) SszBridge.maxPublicKeys)
+      (body.extract o3 body.size) = .ok (x3, (body.extract o3 body.size).size) := d3
+  rw [decodeCanonical_entry_unfold body 16 o1 o2 o3 hoffs rfl,
+    deserializeVarFields_entry body 16 o1 o2 o3 h01 h12 h23 h3, d0, d1, d2, d3']
+  have s3eq' : SSZType.serialize
+      (.list (SszBridge.byteVector SszBridge.publicKeyBytes) SszBridge.maxPublicKeys) x3
+      = body.extract o3 body.size := s3eq
+  have hser : SSZType.serialize SszBridge.statelessInputV4Type
+      ((x0, x1, x2, x3, PUnit.unit) : SSZType.interpFields entryFields) = body := by
+    show SSZType.serialize (.container entryFields) _ = body
+    rw [serialize_entry_eq_body_iff body (x0, x1, x2, x3, PUnit.unit) _ _ _ _ rfl rfl rfl rfl
+      (by omega)]
+    -- Reduce `(x0, x1, x2, x3, unit).fst` etc. so `omega` sees the same atoms as `c1`/`c2`/`c3`.
+    simp only []
+    refine ⟨?_, ?_, ?_, ?_, ?_⟩
+    · exact ((entry_offsetBytes_iff body 16 o1 o2 o3 hoffs 16 (by omega)).1).mpr rfl
+    · exact ((entry_offsetBytes_iff body 16 o1 o2 o3 hoffs _ (by omega)).2.1).mpr c1
+    · exact ((entry_offsetBytes_iff body 16 o1 o2 o3 hoffs _ (by omega)).2.2.1).mpr c2
+    · exact ((entry_offsetBytes_iff body 16 o1 o2 o3 hoffs _ (by omega)).2.2.2).mpr c3
+    · exact (append4_eq_extract_region_iff body o1 o2 o3 h01 h12 h23 h3 w0 w1 w2).mpr
+        ⟨s0eq, s1eq, s2eq, s3eq'⟩
+  -- The four matches are on `Except.ok` literals; reduce them so `v` is the actual tuple.
+  simp only []
+  rw [hser, byteArray_beq_self]
+  rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
+
 
