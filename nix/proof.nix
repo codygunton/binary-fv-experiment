@@ -184,7 +184,7 @@ let
   # `decode_encode` carries `Lean.ofReduceBool`/`Lean.trustCompiler`. That is the same axiom class
   # the pinned-artifact `native_decide` facts already put in the root, not a new one.
   sszSpecLean = pkgs.runCommand "binary-fv-ssz-spec-lean" {
-    nativeBuildInputs = [ pkgs.coreutils pkgs.gnused ];
+    nativeBuildInputs = [ pkgs.coreutils pkgs.gnused pkgs.gnugrep ];
   } ''
     copy_checked() {
       source="$1"
@@ -264,18 +264,42 @@ let
     copy_checked "$sizzlean_root/Proofs/VectorFixed.lean" \
       1c7c7e11451beb845705769f2ddb073b87666ee9c01323a336d364f489a5a890 \
       "$out/SizzLean/Proofs/VectorFixed.lean"
-    # Toolchain shim, and the only edit made to any pinned upstream file.
+    # ------------------------------------------------------------------------------------------
+    # THE COMPLETE LIST OF EDITS MADE TO PINNED UPSTREAM FILES. Three, in two groups.
     #
-    # `Proofs/UInt.lean` and `Proofs/BitPack.lean` name `ByteArray.size_push` in `simp only` lists.
-    # That lemma exists in upstream's pinned `leanprover/lean4:v4.29.1` and not in this project's
-    # nightly, so the two files do not elaborate here — nothing to do with their content. The fix is
-    # one lemma, restated below, plus one inserted `import` line in each of those two files.
+    # Kept together deliberately: the divergence from upstream is a property of the pin as a whole,
+    # and a reader who has to assemble it from three places in this file will miss one. Every entry
+    # is also named in `provenance.txt`, which travels with the artifact.
     #
-    # The pristine SHA is still checked *before* the insertion, so an upstream edit fails the build
-    # exactly as before; what the patch cannot do is hide a change to what the proofs say. Keeping
-    # the shim in its own module rather than appending it to an upstream file keeps the two edits
-    # greppable (`grep -rn "import SizzLean.Compat"`) and trivially reversible when the toolchains
-    # converge.
+    # Group 1 — TOOLCHAIN (2 edits). `Proofs/UInt.lean` and `Proofs/BitPack.lean` name
+    # `ByteArray.size_push` in `simp only` lists. That lemma exists in upstream's pinned
+    # `leanprover/lean4:v4.29.1` and not in this project's nightly, so the two files do not
+    # elaborate here — nothing to do with their content. The fix is one lemma, restated in
+    # `SizzLean/Compat.lean` below, plus one inserted `import` line in each of those two files.
+    #
+    # Group 2 — VISIBILITY (1 edit, 2 declarations). `Spec/Deserialize.lean` marks its offset-table
+    # walkers `private`: `extractFieldOffsets` (line 135) and `extractCollOffsets` (line 156).
+    # Row D's canonicality proofs have to *reduce* through both — `zeroFirstOffsetAliasRejected`
+    # needs the zero-count equation of the collection walker, and the oracle half of
+    # `forkErrorOrderingDiffers` needs the field walker — and a `private` definition can neither be
+    # named nor unfolded from here. The precedent is upstream's own: `Deserialize.lean:169` records
+    # that the bit-packing definitions are "Public defs (not `private`) so the Layer 2 bit-packing
+    # inverse proof in `Proofs/BitPack.lean` can reach them" — the identical situation one layer up.
+    #
+    # WHY ALL THREE ARE SAFE, and it is the same argument. None can change what any definition
+    # denotes: an added import and a widened visibility are both inert with respect to meaning, so
+    # no proof can say something different because of them. The pristine SHA is still checked
+    # *before* every edit, so an upstream change still fails the build. What these patches cannot do
+    # is hide a change to what the proofs say. Any edit that would alter a definition's *content* is
+    # out of scope and stops for the user.
+    #
+    # The visibility edit is guarded rather than trusted, because a silent no-op sed on a pinned
+    # source is exactly the failure that would leave the build green and the proofs unreachable:
+    # each declaration is matched by its FULL text and asserted present before the edit and absent
+    # after, SEPARATELY so that hitting one declaration twice cannot satisfy both; and the file's
+    # `private` count is asserted to go from exactly 10 to exactly 8. Any other number means the
+    # file is not what this derivation thinks it is, and the build fails rather than guessing.
+    # ------------------------------------------------------------------------------------------
     ${pkgs.coreutils}/bin/cat > "$out/SizzLean/Compat.lean" <<'COMPAT'
 /-!
 # Toolchain compatibility for the pinned upstream proofs
@@ -293,6 +317,38 @@ theorem ByteArray.size_push (bytes : ByteArray) (byte : UInt8) :
 COMPAT
     ${pkgs.gnused}/bin/sed -i '1i import SizzLean.Compat' "$out/SizzLean/Proofs/UInt.lean"
     ${pkgs.gnused}/bin/sed -i '1i import SizzLean.Compat' "$out/SizzLean/Proofs/BitPack.lean"
+
+    # Group 2, the visibility widening. See the block above for why it is safe and why it is
+    # guarded. `count_private` tolerates a zero match (`grep` exits 1) so the assertion reports the
+    # count rather than aborting on the grep itself.
+    deserialize="$out/SizzLean/Spec/Deserialize.lean"
+    count_private() {
+      { ${pkgs.gnugrep}/bin/grep -o 'private' "$1" || true; } | ${pkgs.coreutils}/bin/wc -l
+    }
+    count_line() {
+      { ${pkgs.gnugrep}/bin/grep -c -x -F "$2" "$1" || true; } | ${pkgs.coreutils}/bin/tail -n 1
+    }
+
+    # Pre-edit: both declarations present, once each, and the file has exactly ten `private`s.
+    test "$(count_line "$deserialize" 'private def extractFieldOffsets (b : ByteArray) :')" = 1
+    test "$(count_line "$deserialize" 'private def extractCollOffsets (b : ByteArray) :')" = 1
+    test "$(count_private "$deserialize")" = 10
+
+    ${pkgs.gnused}/bin/sed -i \
+      's|^private def extractFieldOffsets (b : ByteArray) :$|def extractFieldOffsets (b : ByteArray) :|' \
+      "$deserialize"
+    ${pkgs.gnused}/bin/sed -i \
+      's|^private def extractCollOffsets (b : ByteArray) :$|def extractCollOffsets (b : ByteArray) :|' \
+      "$deserialize"
+
+    # Post-edit: each `private` form gone and each public form present, asserted separately so that
+    # rewriting one declaration twice cannot pass for rewriting both; then the count is exactly two
+    # lower. Ten to eight, and nothing else.
+    test "$(count_line "$deserialize" 'private def extractFieldOffsets (b : ByteArray) :')" = 0
+    test "$(count_line "$deserialize" 'private def extractCollOffsets (b : ByteArray) :')" = 0
+    test "$(count_line "$deserialize" 'def extractFieldOffsets (b : ByteArray) :')" = 1
+    test "$(count_line "$deserialize" 'def extractCollOffsets (b : ByteArray) :')" = 1
+    test "$(count_private "$deserialize")" = 8
 
     copy_checked ${repo}/targets/ssz/zesu/spec/SszBridge/Core.lean \
       0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
@@ -325,18 +381,23 @@ COMPAT
       SszBridge/Core.lean=0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
       > "$out/provenance.txt"
 
-    # The hashes above are the *upstream* provenance claim: what was fetched and verified. Two of
+    # The hashes above are the *upstream* provenance claim: what was fetched and verified. Three of
     # the shipped files are not byte-identical to it, so record that here rather than leaving an
-    # auditor to hash the tree, find two mismatches, and have nothing in this file to explain them.
-    # The dangerous reading is the other one — that the shipped files are pristine when they are
-    # not — so the patch is named in the artifact that travels, not only in this derivation.
+    # auditor to hash the tree, find three mismatches, and have nothing in this file to explain
+    # them. The dangerous reading is the other one — that the shipped files are pristine when they
+    # are not — so the patches are named in the artifact that travels, not only in this derivation.
     {
       ${pkgs.coreutils}/bin/printf '%s\n' \
         'patch=SizzLean/Compat.lean is added by nix/proof.nix and is NOT upstream content' \
         'patch=SizzLean/Proofs/UInt.lean has one inserted first line: import SizzLean.Compat' \
         'patch=SizzLean/Proofs/BitPack.lean has one inserted first line: import SizzLean.Compat' \
-        'patch-reason=ByteArray.size_push exists in the Lean release etheorem pins and not in this project pinned nightly'
-      for patched in SizzLean/Compat.lean SizzLean/Proofs/UInt.lean SizzLean/Proofs/BitPack.lean; do
+        'patch-reason=ByteArray.size_push exists in the Lean release etheorem pins and not in this project pinned nightly' \
+        'patch=SizzLean/Spec/Deserialize.lean drops the private modifier on exactly two declarations: extractFieldOffsets (upstream line 135) and extractCollOffsets (upstream line 156)' \
+        'patch-reason=Row D canonicality proofs must reduce through both offset-table walkers, and a private definition can neither be named nor unfolded from outside the module' \
+        'patch-guard=each declaration matched by full text and asserted present before and absent after, separately; file private count asserted to go from exactly 10 to exactly 8' \
+        'patch-scope=visibility only: no definition body, signature or name is altered, so nothing any proof denotes can change'
+      for patched in SizzLean/Compat.lean SizzLean/Proofs/UInt.lean SizzLean/Proofs/BitPack.lean \
+        SizzLean/Spec/Deserialize.lean; do
         ${pkgs.coreutils}/bin/printf 'as-shipped/%s=%s\n' "$patched" \
           "$(${pkgs.coreutils}/bin/sha256sum "$out/$patched" | cut -d ' ' -f 1)"
       done
