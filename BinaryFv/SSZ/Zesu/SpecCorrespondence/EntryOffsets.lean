@@ -874,4 +874,39 @@ theorem append4_eq_extract_region_iff (body : ByteArray) (o1 o2 o3 : Nat)
   · rintro ⟨rfl, rfl, rfl, rfl⟩
     exact extract_four body 16 o1 o2 o3 body.size h01 h12 h23 h3
 
+/-! ### Inverting `decodeCanonical`
+
+`decodeCanonical_of_used_eq` runs one way — from a deserialize to the canonicality test. The chain
+needs the other: from an *acceptance*, recover both the deserialize and the re-serialization
+equality. Every per-field hypothesis in the composition arrives as an acceptance, so this is the
+entry point to all four. -/
+
+/-- **Acceptance gives back both halves**: the deserialize that produced the value, consuming the
+whole buffer, and the re-serialization equality that certified it canonical. -/
+theorem decodeCanonical_inv {t : SSZType} {b : ByteArray} {x : t.interp}
+    (h : SszBridge.decodeCanonical t b = .ok x) :
+    SSZType.deserialize t b = .ok (x, b.size) ∧ SSZType.serialize t x = b := by
+  rw [SszBridge.decodeCanonical] at h
+  revert h
+  cases hd : SSZType.deserialize t b with
+  | error e => intro h; simp [bind, Except.bind] at h
+  | ok pair =>
+      obtain ⟨value, used⟩ := pair
+      simp only [bind, Except.bind]
+      split
+      · intro h; exact absurd h (by simp)
+      · rename_i hused
+        split
+        · rename_i hser
+          intro h
+          -- `pure value` is `Except.ok value` only up to defeq, so coerce before injecting.
+          have h' : (Except.ok value : Except SSZError t.interp) = Except.ok x := h
+          injection h' with hvx
+          subst hvx
+          simp only [bne_iff_ne, ne_eq, Decidable.not_not] at hused
+          subst hused
+          exact ⟨rfl, byteArray_eq_of_beq hser⟩
+        · intro h; exact absurd h (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
+

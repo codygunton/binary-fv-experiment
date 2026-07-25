@@ -212,6 +212,15 @@ theorem byteArray_beq_self (bytes : ByteArray) : (bytes == bytes) = true := by
   show bytes.data == bytes.data
   exact beq_self_eq_true bytes.data
 
+/-- The other direction, and the reason it needs stating: there is **no `LawfulBEq ByteArray`
+instance**, so `eq_of_beq` does not apply and `simp` will not turn `==` into `=`. The conversion has
+to go through `.data`, where `Array UInt8` *is* lawful.
+
+`decodeCanonical`'s canonicality branch is a `==`, so every inversion of an acceptance needs this. -/
+theorem byteArray_eq_of_beq {a b : ByteArray} (h : (a == b) = true) : a = b := by
+  have hdata : (a.data == b.data) = true := h
+  exact ByteArray.ext (eq_of_beq hdata)
+
 /-- Three 8-byte slices reassemble a 24-byte buffer.
 
 The glue for the all-fixed container: `deserializeFixedFields` reads each field from its own
