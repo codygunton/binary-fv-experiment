@@ -572,4 +572,20 @@ theorem meaningPublicKeys_accepted (b : ByteArray) :
   cases h : SszBridge.decodeCanonical publicKeysType b <;>
     simp [meaningPublicKeys, isAccepted, Except.toOption, h]
 
+/-! ## From offset bytes to offset values
+
+The join leaves four conditions of the form `uint32LE (Nat.toUInt32 cumulativeSum) = body.extract
+(4 * i) (4 * i + 4)` — a claim about *bytes*. The offsets the source reads are *values*. Turning one
+into the other is the last step before the entry theorem, and it goes through
+`uint32LE_of_readUInt32LE`, which is stated at offset 0 on a four-byte buffer. So the read has to move
+from position `i` in the body to position 0 in the slice there first. -/
+
+/-- Reading a `uint32` at `i` is reading it at 0 in the four-byte slice starting at `i`. -/
+theorem readUInt32LE_extract (body : ByteArray) (i : Nat) (h : i + 4 ≤ body.size) :
+    readUInt32LE (body.extract i (i + 4)) 0 = readUInt32LE body i := by
+  have hslice : (body.extract i (i + 4)).size = 4 := by rw [ByteArray.size_extract]; omega
+  rw [readUInt32LE, readUInt32LE, dif_pos (by omega : 0 + 4 ≤ (body.extract i (i + 4)).size),
+    dif_pos h]
+  simp only [ByteArray.getElem_extract, Nat.zero_add, Nat.add_zero]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
