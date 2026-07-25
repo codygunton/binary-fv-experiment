@@ -755,4 +755,60 @@ theorem deserialize_chainConfig_used {b : ByteArray}
     (h : SSZType.deserialize SszBridge.chainConfigType b = .ok (x, u)) : u = b.size :=
   deserialize_container_used _ b chainConfigType_not_fixed x u h
 
+/-! ### The fourth field: a fixed-element list
+
+`publicKeysType` is `.list (byteVector 65) maxPublicKeys`, and `byteVector 65` is `.vector u8 65`,
+which is *fixed*-size. So it takes `deserialize`'s fixed-element list arm, and its `used = b.size`
+comes from a different mechanism than the three containers: the arm rejects with `trailingBytes`
+unless `count * sz = b.size`, and `deserializeFixedElems` accumulates exactly `count * sz`.
+
+That second half does not fall out definitionally — it needs an induction on the element count,
+which is why this field was sized separately from the three one-liners. -/
+
+/-- `deserializeFixedElems` reports exactly `count * sz` bytes past whatever it started with. -/
+theorem deserializeFixedElems_size (t : SSZType) :
+    ∀ (count : Nat) (b : ByteArray) (off sz : Nat) (acc : List t.interp) (accSz : Nat)
+      (xs : List t.interp) (n : Nat),
+      SSZType.deserializeFixedElems t count b off sz acc accSz = .ok (xs, n) →
+        n = accSz + count * sz := by
+  intro count
+  induction count with
+  | zero =>
+      intro b off sz acc accSz xs n h
+      rw [SSZType.deserializeFixedElems] at h
+      simp only [Except.ok.injEq, Prod.mk.injEq] at h
+      omega
+  | succ k ih =>
+      intro b off sz acc accSz xs n h
+      rw [SSZType.deserializeFixedElems] at h
+      split at h
+      · exact absurd h (by simp)
+      · split at h
+        · exact absurd h (by simp)
+        · have := ih b (off + sz) sz _ (accSz + sz) xs n h
+          rw [this, Nat.succ_mul]
+          omega
+
+/-- The public-keys list reports consuming its whole buffer. -/
+theorem deserialize_publicKeys_used {b : ByteArray} {x : publicKeysType.interp} {u : Nat}
+    (h : SSZType.deserialize publicKeysType b = .ok (x, u)) : u = b.size := by
+  simp only [publicKeysType] at h
+  rw [SSZType.deserialize, if_pos (by decide)] at h
+  simp only [] at h
+  split at h
+  · exact absurd h (by simp)
+  · split at h
+    · exact absurd h (by simp)
+    · split at h
+      · exact absurd h (by simp)
+      · rename_i hcount
+        split at h
+        · exact absurd h (by simp)
+        · rename_i xs used hfixed
+          split at h
+          · simp only [Except.ok.injEq, Prod.mk.injEq] at h
+            have := deserializeFixedElems_size _ _ b 0 _ [] 0 xs used hfixed
+            omega
+          · exact absurd h (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
