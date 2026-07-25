@@ -600,4 +600,46 @@ theorem readUInt32LE_extract_beyond_end :
     readUInt32LE ((⟨#[7, 8]⟩ : ByteArray).extract 0 4) 0 = readUInt32LE (⟨#[7, 8]⟩ : ByteArray) 0
       ∧ readUInt32LE (⟨#[7, 8]⟩ : ByteArray) 0 = none := by decide
 
+/-- A successful `uint32` read implies the buffer reaches four bytes past the offset.
+
+Found by the load-bearing audit: the offset-value equivalence below was first stated with
+`i + 4 ≤ body.size` as a separate hypothesis, and it is not merely non-load-bearing — it is
+*derivable*, because `readUInt32LE` returns `none` past the end. So the audit's question has three
+answers, not two: needed for truth, needed only by the proof, or already implied. -/
+theorem readUInt32LE_fits {body : ByteArray} {i : Nat} {o : UInt32}
+    (h : readUInt32LE body i = some o) : i + 4 ≤ body.size := by
+  rw [readUInt32LE] at h
+  split at h
+  · assumption
+  · exact absurd h (by simp)
+
+/-- **An offset-table entry matches its four bytes exactly when its value is the offset read there.**
+
+This is the step from the join's byte-level conditions to the source's offset values. The `n < 2^32`
+bound is where `meaningRequireU32Length` earns its place at the head of `meaningDecodeRaw`: without it
+`Nat.toUInt32` wraps and two different cumulative sums can write the same four bytes, so the table
+would no longer determine the offsets. -/
+theorem uint32LE_eq_extract_iff (body : ByteArray) (i n : Nat) (o : UInt32)
+    (hread : readUInt32LE body i = some o) (hn : n < UInt32.size) :
+    uint32LE (Nat.toUInt32 n) = body.extract i (i + 4) ↔ n = o.toNat := by
+  have hfits : i + 4 ≤ body.size := readUInt32LE_fits hread
+  have hslice : (body.extract i (i + 4)).size = 4 := by rw [ByteArray.size_extract]; omega
+  have hcanon : uint32LE o = body.extract i (i + 4) :=
+    uint32LE_of_readUInt32LE _ o hslice (by rw [readUInt32LE_extract body i hfits]; exact hread)
+  rw [← hcanon]
+  constructor
+  · intro h
+    rw [← uint32LE_injective h]
+    exact (UInt32.toNat_ofNat_of_lt hn).symm
+  · intro h
+    subst h
+    rw [show Nat.toUInt32 o.toNat = o from UInt32.ofNat_toNat]
+
+/-- **`hn` above IS load-bearing for truth** — the first hypothesis in this module that is, rather
+than being needed only by its proof. `Nat.toUInt32` wraps at `2 ^ 32`, so `2 ^ 32` and `0` write the
+same four bytes while differing as offsets: the left side of the equivalence would hold and the right
+side fail. Concrete counterexample-style, at the wrap point itself. -/
+theorem uint32LE_eq_extract_needs_bound :
+    Nat.toUInt32 4294967296 = Nat.toUInt32 0 ∧ (4294967296 : Nat) ≠ 0 := by decide
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
