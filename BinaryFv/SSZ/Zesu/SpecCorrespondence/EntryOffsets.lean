@@ -36,8 +36,17 @@ well-founded, which together account for most of the list.
 * **Two syntactically identical `match` terms can fail `rfl`** when they carry different motives.
   `cases` on the scrutinee reduces both sides; `split` reduces only the left, which looks like
   progress and is not.
-* **The LSP can report a stale unknown identifier** for a declaration added to an imported module in
-  the same session. `lake build` is authoritative; the axiom set is the independent tell.
+* **Anything reading through the LSP inherits its staleness, so `lake` is authoritative.** Two
+  symptoms of one root cause, worth stating together because they look unrelated:
+  - a *stale unknown identifier* for a declaration added to an imported module in the same session;
+  - a *spurious `sorryAx`* from `lean_verify`, which reads through the LSP — a stale view of a
+    partially elaborated file reports the one axiom that would mean unsoundness.
+
+  Both are transient and both disappear on a rebuild; neither is a permanent property of the tool.
+  The rule is therefore not "distrust `lean_verify`" but **`lake` decides any axiom claim** —
+  `#print axioms` under `lake build`, or a scratch file under `lake env lean`. That also applies to
+  the planned systematic axiom sweep: run it through `lake`, or it is a sweep with an unknown
+  false-negative rate.
 -/
 
 namespace BinaryFv.SSZ.Zesu.SpecCorrespondence
