@@ -14,6 +14,30 @@ previously unreachable: `extractFieldOffsets` was `private` in the pinned `Spec/
 until the visibility shim widened to both offset-table walkers (`efb3793`). Everything here is a
 statement *about* the pinned upstream walker rather than a re-implementation of it, which is the
 whole point — a hand-rolled four-offset reader would prove nothing about what the oracle does.
+
+## Mechanical notes for this project
+
+Collected because each cost a round trip to rediscover, and five is past the point where the next
+session should pay for them again. This project has no Mathlib, and the pinned spec's recursion is
+well-founded, which together account for most of the list.
+
+* **No `ring`.** For `n = accSz + (k+1) * sz` shapes, `rw [Nat.succ_mul]` then `omega`.
+* **No `by_contra`.** `split` on the `dite` reaches the same contradiction.
+* **`ByteArray` push-indexing lemmas do not exist under the guessable names** — not
+  `getElem_push_lt`, `getElem_push_eq`, nor `getElem_eq_data_getElem`. Exposing the buffer as an
+  explicit literal (`uint32LE_eq_literal`, `rfl`) sidesteps the whole question.
+* **`rw` on a schema abbreviation can fail where `simp only` unfolds it** — `rw [publicKeysType]`
+  reports "failed to rewrite using equation theorems"; `simp only [publicKeysType]` works. Likewise
+  `rw [statelessInputV4Type_eq]` fails with "motive is not type correct" because rewriting the
+  schema changes a bound value's type; `show` on the defeq container form has no motive to break.
+* **`decide` cannot evaluate `deserialize`** — it is well-founded, so the kernel gets no unfolding.
+  But `rw [SSZType.deserialize]` *does* unfold it through the generated equation lemmas. Those are
+  different claims, and reading the first as "`deserialize` is opaque" rules out proofs that work.
+* **Two syntactically identical `match` terms can fail `rfl`** when they carry different motives.
+  `cases` on the scrutinee reduces both sides; `split` reduces only the left, which looks like
+  progress and is not.
+* **The LSP can report a stale unknown identifier** for a declaration added to an imported module in
+  the same session. `lake build` is authoritative; the axiom set is the independent tell.
 -/
 
 namespace BinaryFv.SSZ.Zesu.SpecCorrespondence
