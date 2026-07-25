@@ -580,12 +580,24 @@ into the other is the last step before the entry theorem, and it goes through
 `uint32LE_of_readUInt32LE`, which is stated at offset 0 on a four-byte buffer. So the read has to move
 from position `i` in the body to position 0 in the slice there first. -/
 
-/-- Reading a `uint32` at `i` is reading it at 0 in the four-byte slice starting at `i`. -/
+/-- Reading a `uint32` at `i` is reading it at 0 in the four-byte slice starting at `i`.
+
+`i + 4 ≤ body.size` is load-bearing for the *proof* and **not for the truth** — the fourth such
+hypothesis in this module, not an exception to the pattern. Past the end both sides are `none`: the
+right side fails its own `i + 4 ≤ size` guard, and the left side's slice clamps to fewer than four
+bytes and fails the guard too. `readUInt32LE_extract_beyond_end` records it. -/
 theorem readUInt32LE_extract (body : ByteArray) (i : Nat) (h : i + 4 ≤ body.size) :
     readUInt32LE (body.extract i (i + 4)) 0 = readUInt32LE body i := by
   have hslice : (body.extract i (i + 4)).size = 4 := by rw [ByteArray.size_extract]; omega
   rw [readUInt32LE, readUInt32LE, dif_pos (by omega : 0 + 4 ≤ (body.extract i (i + 4)).size),
     dif_pos h]
   simp only [ByteArray.getElem_extract, Nat.zero_add, Nat.add_zero]
+
+/-- `readUInt32LE_extract` holds past the end too: both sides are `none`, so its size hypothesis is
+needed only by the proof. Checked at a two-byte buffer read from 0, where the slice clamps to two
+bytes and neither side can produce a value. Concrete counterexample-style. -/
+theorem readUInt32LE_extract_beyond_end :
+    readUInt32LE ((⟨#[7, 8]⟩ : ByteArray).extract 0 4) 0 = readUInt32LE (⟨#[7, 8]⟩ : ByteArray) 0
+      ∧ readUInt32LE (⟨#[7, 8]⟩ : ByteArray) 0 = none := by decide
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
