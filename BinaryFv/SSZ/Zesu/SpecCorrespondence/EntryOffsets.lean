@@ -534,4 +534,42 @@ eight-byte buffer. -/
 theorem entry_join_fourth_conjunct_fails_short :
     ((⟨#[0, 0, 0, 0, 0, 0, 0, 0]⟩ : ByteArray).extract 12 16).size ≠ (uint32LE 0).size := by decide
 
+/-! ## Wiring to the source's field meanings
+
+Three of `meaningDecodeRaw`'s four field decodes are `decodeCanonical` at their pinned schema
+followed by a projection, so they agree with the oracle **by construction** rather than by theorem:
+the projection is applied only on the `.ok` arm and cannot turn acceptance into rejection or back.
+The three lemmas below say exactly that and nothing more.
+
+The fourth field decode is `meaningChainConfig`, which is *source-shaped* — its `fork > 20` check
+sits between the offset-table check and the child decodes, so it is not `decodeCanonical` at any
+schema. That is `sourceShapedContainersAgreeWithOracle`, a separate component of item 6, and nothing
+in this module touches it.
+
+Load-bearing audit: these four have no hypotheses, so there is nothing to audit. Recorded because the
+audit is now mechanical, and "no hypotheses" is a result of running it rather than a reason to skip. -/
+
+/-- The entry schema's fourth field is exactly the collection `meaningPublicKeys` decodes. -/
+theorem publicKeysType_eq_entry_field :
+    publicKeysType
+      = .list (SszBridge.byteVector SszBridge.publicKeyBytes) SszBridge.maxPublicKeys := rfl
+
+theorem meaningNewPayloadRequest_accepted (b : ByteArray) :
+    isAccepted (meaningNewPayloadRequest b)
+      = (SszBridge.decodeCanonical SszBridge.newPayloadRequestType b).toOption.isSome := by
+  cases h : SszBridge.decodeCanonical SszBridge.newPayloadRequestType b <;>
+    simp [meaningNewPayloadRequest, isAccepted, Except.toOption, h]
+
+theorem meaningExecutionWitness_accepted (b : ByteArray) :
+    isAccepted (meaningExecutionWitness b)
+      = (SszBridge.decodeCanonical SszBridge.witnessType b).toOption.isSome := by
+  cases h : SszBridge.decodeCanonical SszBridge.witnessType b <;>
+    simp [meaningExecutionWitness, isAccepted, Except.toOption, h]
+
+theorem meaningPublicKeys_accepted (b : ByteArray) :
+    isAccepted (meaningPublicKeys b)
+      = (SszBridge.decodeCanonical publicKeysType b).toOption.isSome := by
+  cases h : SszBridge.decodeCanonical publicKeysType b <;>
+    simp [meaningPublicKeys, isAccepted, Except.toOption, h]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
