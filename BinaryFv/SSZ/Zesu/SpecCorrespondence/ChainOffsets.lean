@@ -279,4 +279,63 @@ theorem deserializeVarFields_forkConfig (b : ByteArray) (o0 o1 : Nat)
         (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork)
         (b.extract o1 b.size) <;> rfl
 
+/-! ## The per-field `used` check is redundant at the chain's field types
+
+Same obligation as at the entry schema, load-bearing for the same reason: the source decodes each child
+with `decodeCanonical`, which checks `used = slice.size`, while `deserializeVarFields` **discards** each
+field's `used`. If the check were not redundant the source would be strictly stronger than the oracle and
+the agreement would be false.
+
+**`chainConfig`'s case was already proved, and finding that out is the useful part.**
+`deserialize_chainConfig_used` exists in `EntryOffsets.lean` — because `chainConfigType` *is* one of the
+entry's four fields. The chain and the entry schema **overlap at chainConfig**: it is simultaneously the
+bottom of the entry's field list and the top of this chain. So the two fronts were never disjoint, and the
+compiler caught the duplicate when I tried to restate it. Worth recording because the module split was
+justified on the two schemas being structurally different, which is true, and it would be easy to read
+that as their *content* being disjoint, which is false.
+
+`deserialize_container_used` being stated over an arbitrary field list is what makes the two genuinely new
+container cases one-liners — the arity-free form written for the entry paying off rather than needing a
+chain-specific repeat.
+
+**Still owed here:** `forkConfig`'s third field, `.list blobScheduleType M`. It is another fixed-element
+list (`blobScheduleType` is all-fixed), so it wants the same treatment as `optionalU64` below rather than
+either container lemma. Not done; this section is not complete. -/
+
+theorem deserialize_forkActivation_used {b : ByteArray}
+    {x : SszBridge.forkActivationType.interp} {u : Nat}
+    (h : SSZType.deserialize SszBridge.forkActivationType b = .ok (x, u)) : u = b.size :=
+  deserialize_container_used _ b forkActivationType_not_fixed x u h
+
+theorem deserialize_forkConfig_used {b : ByteArray}
+    {x : SszBridge.forkConfigType.interp} {u : Nat}
+    (h : SSZType.deserialize SszBridge.forkConfigType b = .ok (x, u)) : u = b.size :=
+  deserialize_container_used _ b forkConfigType_not_fixed x u h
+
+/-- The optional-`u64` field of `forkActivation`: a **fixed**-element list, so it takes the
+`deserializeFixedElems` arm rather than the variable-container one. Same shape as the entry's
+public-keys field, and the reason the two variable containers above cannot cover it. -/
+theorem deserialize_optionalU64_used {b : ByteArray}
+    {x : (SSZType.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues).interp} {u : Nat}
+    (h : SSZType.deserialize
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) b = .ok (x, u)) :
+    u = b.size := by
+  rw [SSZType.deserialize, if_pos (by decide)] at h
+  simp only [] at h
+  split at h
+  · exact absurd h (by simp)
+  · split at h
+    · exact absurd h (by simp)
+    · split at h
+      · exact absurd h (by simp)
+      · rename_i hcount
+        split at h
+        · exact absurd h (by simp)
+        · rename_i xs used hfixed
+          split at h
+          · simp only [Except.ok.injEq, Prod.mk.injEq] at h
+            have := deserializeFixedElems_size _ _ b 0 _ [] 0 xs used hfixed
+            omega
+          · exact absurd h (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
