@@ -1179,4 +1179,43 @@ theorem deserializeVarFields_chainConfig_offsets_sound {b : ByteArray} {o : Nat}
   simp only [List.head?_nil, Option.getD_none] at a0
   exact a0
 
+/-- **The oracle rejects exactly the `forkConfig` tables the source rejects.** -/
+theorem decodeCanonical_forkConfig_rejects_noncanonical (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1])
+    (hbad : ¬ (o0 = 16 ∧ o0 ≤ o1 ∧ o1 ≤ b.size)) :
+    (SszBridge.decodeCanonical SszBridge.forkConfigType b).toOption.isSome = false := by
+  cases hdc : SszBridge.decodeCanonical SszBridge.forkConfigType b with
+  | error e => rfl
+  | ok v =>
+      exfalso
+      obtain ⟨hdes, -⟩ := decodeCanonical_inv hdc
+      have hdes' : SSZType.deserialize (.container forkConfigFields) b = .ok (v, b.size) := hdes
+      obtain ⟨offs, hext, hhead, hwalk⟩ :=
+        deserialize_container_parts forkConfigFields_not_allFixed hdes'
+      rw [hoffs] at hext
+      have hoff : [o0, o1] = offs := by injection hext
+      subst hoff
+      rw [forkConfigFields_fixedSection, List.head?_cons, Option.some.injEq] at hhead
+      exact hbad ⟨hhead, deserializeVarFields_forkConfig_offsets_sound hwalk⟩
+
+/-- **The oracle rejects exactly the `chainConfig` tables the source rejects.** The conjunction has two
+parts rather than three: a single-offset table has no monotonicity pair. -/
+theorem decodeCanonical_chainConfig_rejects_noncanonical (b : ByteArray) (o : Nat)
+    (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o])
+    (hbad : ¬ (o = 12 ∧ o ≤ b.size)) :
+    (SszBridge.decodeCanonical SszBridge.chainConfigType b).toOption.isSome = false := by
+  cases hdc : SszBridge.decodeCanonical SszBridge.chainConfigType b with
+  | error e => rfl
+  | ok v =>
+      exfalso
+      obtain ⟨hdes, -⟩ := decodeCanonical_inv hdc
+      have hdes' : SSZType.deserialize (.container chainConfigFields) b = .ok (v, b.size) := hdes
+      obtain ⟨offs, hext, hhead, hwalk⟩ :=
+        deserialize_container_parts chainConfigFields_not_allFixed hdes'
+      rw [hoffs] at hext
+      have hoff : [o] = offs := by injection hext
+      subst hoff
+      rw [chainConfigFields_fixedSection, List.head?_cons, Option.some.injEq] at hhead
+      exact hbad ⟨hhead, deserializeVarFields_chainConfig_offsets_sound hwalk⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
