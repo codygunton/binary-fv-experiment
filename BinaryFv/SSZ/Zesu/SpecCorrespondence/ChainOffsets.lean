@@ -378,4 +378,54 @@ theorem deserialize_blobScheduleList_used {b : ByteArray}
             omega
           · exact absurd h (by simp)
 
+/-! ## Schema-level decomposition, starting at the bottom of the chain
+
+`forkActivation` first, and the order is forced rather than chosen: `chainConfig` nests through
+`forkConfig` into `forkActivation`, so a decomposition of the outer ones consumes the inner ones. Bottom-up
+is the dependency order.
+
+`forkActivation` is also the cheapest, because it is all-variable — no leading-fixed skip, and no fork
+bound. So it is the closest analogue of the entry schema in the whole chain, and these two lemmas are
+`extractFieldOffsets_entry_fits` and `decodeCanonical_entry_unfold` at arity two.
+
+**Where the fork bound does *not* go, recorded before it becomes tempting.** `forkConfig`'s decomposition
+will have to place the source's `fork > 20` test, which sits *between* the offset-table check and the child
+decodes. That ordering is what makes `forkErrorOrderingDiffers` true and is why the container obligation is
+acceptance-only. A decomposition that commutes the test past the child decodes would be a fourth statement
+defect, not a simplification — standing instruction from lead is to stop and escalate rather than write it. -/
+
+/-- A successful `forkActivation` table read forces room for the table itself. -/
+theorem extractFieldOffsets_forkActivation_fits (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1]) : 8 ≤ b.size := by
+  rw [extractFieldOffsets_forkActivation] at hoffs
+  split at hoffs
+  · rename_i h1
+    exact readUInt32LE_fits h1
+  · exact absurd hoffs (by simp)
+
+/-- `decodeCanonical` at `forkActivation`, reduced to the walk plus the re-serialization test. -/
+theorem decodeCanonical_forkActivation_unfold (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1]) (h0 : o0 = 8) :
+    SszBridge.decodeCanonical SszBridge.forkActivationType b =
+      match SSZType.deserializeVarFields forkActivationFields b 0 [o0, o1] b.size with
+      | .error e => .error e
+      | .ok v =>
+          if SSZType.serialize SszBridge.forkActivationType v == b then .ok v
+          else .error .invalidOffset := by
+  have hdes : SSZType.deserialize SszBridge.forkActivationType b =
+      match SSZType.deserializeVarFields forkActivationFields b 0 [o0, o1] b.size with
+      | .error e => .error e
+      | .ok v => .ok (v, b.size) := by
+    have h8 : 8 ≤ b.size := extractFieldOffsets_forkActivation_fits b o0 o1 hoffs
+    show SSZType.deserialize (.container forkActivationFields) b = _
+    rw [SSZType.deserialize, if_neg (by rw [forkActivationFields_not_allFixed]; simp)]
+    simp only []
+    rw [if_neg (by rw [forkActivationFields_fixedSection]; omega)]
+    simp only [hoffs, List.head?_cons]
+    rw [if_neg (by rw [forkActivationFields_fixedSection, h0]; simp)]
+    cases SSZType.deserializeVarFields forkActivationFields b 0 [o0, o1] b.size <;> rfl
+  rw [SszBridge.decodeCanonical, hdes]
+  cases SSZType.deserializeVarFields forkActivationFields b 0 [o0, o1] b.size <;>
+    simp [bind, Except.bind] <;> rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
