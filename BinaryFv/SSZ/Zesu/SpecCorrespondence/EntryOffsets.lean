@@ -1247,6 +1247,47 @@ theorem entry_field_meanings_in_oracle_terms
   ⟨meaningNewPayloadRequest_accepted b, meaningExecutionWitness_accepted b,
     meaningPublicKeys_accepted b, containersAgree b⟩
 
+/-! ## A successful container decode pins its first offset
+
+The V3 exclusion needs this at three nesting levels — entry body, then
+`newPayloadRequestType`, then `executionPayloadType` — so it is worth stating once over an arbitrary
+field list rather than three times concretely. The fact is small: the container arm rejects with
+`invalidOffset` unless the first offset *equals* the fixed section size, so a successful decode
+determines that offset exactly.
+
+That equality is the whole mechanism behind `v3ShapeExcludesCanonicalV4`. The V3 classifier reads the
+`u32` at execution-payload byte 436 and demands `528`; canonicality forces `540` there. 436 is where
+`executionPayloadType`'s first *variable* field offset is written — the six byte-vectors and four
+`u64`s before it occupy `32+20+32+32+256+32 = 404` then `4 * 8 = 32`, so 436 — and 540 is that
+schema's fixed section size, not a constant taken from the V4 spec. If a field is ever added to
+`executionPayloadType`, 540 moves and the exclusion argument changes with it; the derivation is what
+makes that visible rather than silent. -/
+
+theorem deserialize_container_firstOffset {fs : List SSZType} {b : ByteArray}
+    (hvar : SSZType.allFixedSize fs = false)
+    {v : SSZType.interpFields fs} {u : Nat}
+    (h : SSZType.deserialize (.container fs) b = .ok (v, u)) :
+    ∃ offs, extractFieldOffsets b fs 0 = .ok offs ∧
+      offs.head? = some (SSZType.fixedSectionSizeFields fs) := by
+  rw [SSZType.deserialize, if_neg (by simp [hvar])] at h
+  simp only [] at h
+  split at h
+  · simp at h
+  · split at h
+    · simp at h
+    · rename_i offs hext
+      have hne := extractFieldOffsets_ne_nil b fs 0 offs hvar hext
+      cases offs with
+      | nil => exact absurd rfl hne
+      | cons first rest =>
+          simp only [List.head?_cons] at h
+          split at h
+          · simp at h
+          · rename_i hfirst
+            refine ⟨first :: rest, hext, ?_⟩
+            simp only [List.head?_cons, Option.some.injEq]
+            exact Classical.byContradiction fun hc => hfirst hc
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
