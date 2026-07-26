@@ -2242,6 +2242,145 @@ theorem raw_acceptance_agrees (containersAgree : sourceShapedContainersAgreeWith
         simp only [Except.toOption, Option.isSome_some, decide_eq_true_eq]
         exact UInt64.not_lt.mp hf
 
+/-! ## The outer assembly: the two retry arms
+
+`meaningDecode` against `decodeStatelessInput`. The raw-level intermediate above matches the two
+decoders; what is left is that the two *retry* behaviours agree on acceptance despite being triggered
+differently, and that is genuinely three separate arguments rather than one.
+
+* **The V3-quarantine arm** (below). The oracle does not retry at all on `v3Quarantined`; the source
+  does retry if its error was `invalidSsz`. The gap is closed from the *source* side, by
+  `retryTailNeverSchemaValid`.
+* **The `unknownFork` / `outOfMemory` arm** (still open). Here it is the other way round: the oracle
+  retries and the source does not, so the oracle's retry has to fail. `oracle_retry_rejects` is the
+  lemma, and `outOfMemoryUnreachableBelowBound` covers the second constructor.
+* **The both-retry arm** (still open). Needs `meaningHasExactErePrefix` and the oracle's length test
+  to be the same condition, then the intermediate applied a second time at the stripped tail.
+
+Recording which direction each asymmetry runs matters, because the reflex is to assume one lemma
+covers "the retries differ" and it does not: the two arms need opposite facts, and the first is about
+the source's retry while the second is about the oracle's. -/
+
+theorem hasSchemaId_size {bytes : ByteArray} (h : SszBridge.hasSchemaId bytes = true) :
+    2 ≤ bytes.size := by
+  rw [SszBridge.hasSchemaId] at h
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+  exact h.1.1
+
+/-- The source's outer entry point rejects whenever the raw decode and its ERE retry both reject.
+The retry condition is not examined: whichever way it goes the result is a rejection, which is what
+lets the two retry *triggers* differ without acceptance differing. -/
+theorem meaningDecode_rejects_of {bytes : ByteArray}
+    (hraw : isAccepted (meaningDecodeRaw bytes) = false)
+    (hretry : isAccepted (meaningDecodeRaw (bytes.extract 4 bytes.size)) = false) :
+    isAccepted (meaningDecode bytes) = false := by
+  rw [meaningDecode]
+  cases hr : meaningDecodeRaw bytes with
+  | ok v => rw [hr] at hraw; exact absurd hraw (by simp [isAccepted])
+  | error e =>
+      cases e with
+      | invalidSsz =>
+          by_cases hp : meaningHasExactErePrefix bytes = true
+          · rw [if_pos hp]; exact hretry
+          · rw [if_neg hp]; rfl
+      | unknownFork => rfl
+      | outOfMemory => rfl
+
+/-- The oracle quarantines a V3-shaped buffer and never reaches its ERE retry. -/
+theorem decodeStatelessInput_quarantines {bytes : ByteArray} (h : rootComplianceScope bytes)
+    (hv3 : SszBridge.hasV3PayloadShape bytes = true) :
+    (SszBridge.decodeStatelessInput bytes).toOption.isSome = false := by
+  rw [decodeStatelessInput_in_scope h, SszBridge.decodeRawOrQuarantineV3, if_pos hv3]
+  rfl
+
+/-- The source's raw decode rejects a V3-shaped buffer, via the proved exclusion. -/
+theorem meaningDecodeRaw_rejects_of_v3
+    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    {bytes : ByteArray} (h : rootComplianceScope bytes)
+    (hv3 : SszBridge.hasV3PayloadShape bytes = true) :
+    isAccepted (meaningDecodeRaw bytes) = false := by
+  obtain ⟨hashes, pe, hschema, hr16, _, _, _, _⟩ := hasV3PayloadShape_parts hv3
+  have hsize : ¬ (bytes.size < 2) := by have := hasSchemaId_size hschema; omega
+  have hnot : ¬ ((!SszBridge.hasSchemaId bytes) = true) := by simp [hschema]
+  rw [raw_acceptance_agrees containersAgree h, decodeRawV4_in_scope h, if_neg hsize, if_neg hnot]
+  have hexcl := v3ShapeExcludesCanonicalV4_holds bytes hv3
+  cases hdc : SszBridge.decodeCanonical SszBridge.statelessInputV4Type
+      (bytes.extract 2 bytes.size) with
+  | error e => rfl
+  | ok v => rw [hdc] at hexcl; exact absurd hexcl (by simp [Except.toOption])
+
+/-- **The V3-quarantine arm.** Both sides reject, and for genuinely different reasons: the oracle
+because it quarantines before decoding, the source because the exclusion makes its canonical decode
+fail and `retryTailNeverSchemaValid` then kills its retry.
+
+The asymmetry is real and is why this arm needs its own proof: the oracle **does not retry at all** on
+`v3Quarantined`, while the source *does* retry if its error was `invalidSsz`. Acceptance still agrees
+because the source's retry cannot succeed — a V3-shaped buffer satisfies exactly the two hypotheses of
+`retryTailNeverSchemaValid`, so the four-byte-stripped tail fails `hasSchemaId`. So the lemma stated
+about the *source's* retry is what closes a gap created by the *oracle's* refusal to retry. -/
+theorem v3_arm_rejects_both
+    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (retryTail : retryTailNeverSchemaValid)
+    {bytes : ByteArray} (h : rootComplianceScope bytes)
+    (hv3 : SszBridge.hasV3PayloadShape bytes = true) :
+    isAccepted (meaningDecode bytes) = false ∧
+      (SszBridge.decodeStatelessInput bytes).toOption.isSome = false := by
+  obtain ⟨hashes, pe, hschema, hr16, _, _, _, _⟩ := hasV3PayloadShape_parts hv3
+  refine ⟨meaningDecode_rejects_of
+    (meaningDecodeRaw_rejects_of_v3 containersAgree h hv3) ?_,
+    decodeStatelessInput_quarantines h hv3⟩
+  -- The retry: the stripped tail fails `hasSchemaId`, so the envelope rejects it.
+  have htail : SszBridge.hasSchemaId (bytes.extract 4 bytes.size) = false :=
+    retryTail bytes hschema hr16
+  have hscope : rootComplianceScope (bytes.extract 4 bytes.size) := by
+    have hb : bytes.size < 2 * 1024 * 1024 := h
+    rw [rootComplianceScope, ByteArray.size_extract]
+    omega
+  exact (raw_envelope_rejects_both hscope (.inr htail)).1
+
+/-- **The quarantine wrapper, matched.** The two arms above combine into one statement about the
+function `decodeStatelessInput` actually calls, which is what the outer assembly consumes twice —
+once for the first attempt and once for the ERE retry. -/
+theorem rawOrQuarantine_acceptance_agrees
+    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    isAccepted (meaningDecodeRaw bytes)
+      = (SszBridge.decodeRawOrQuarantineV3 bytes).toOption.isSome := by
+  rw [SszBridge.decodeRawOrQuarantineV3]
+  by_cases hv3 : SszBridge.hasV3PayloadShape bytes = true
+  · rw [if_pos hv3, meaningDecodeRaw_rejects_of_v3 containersAgree h hv3]
+    rfl
+  · rw [if_neg hv3]
+    exact raw_acceptance_agrees containersAgree h
+
+/-- `decodeRawV4` never raises `v3Quarantined`: that constructor belongs to the wrapper, not to the
+V4 decoder. Needed so that seeing `v3Quarantined` at the top level identifies the V3 arm rather than
+leaving it as one more error to reason about. -/
+theorem decodeRawV4_ne_quarantined {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    SszBridge.decodeRawV4 bytes ≠ .error .v3Quarantined := by
+  rw [decodeRawV4_in_scope h]
+  split
+  · simp
+  · split
+    · simp
+    · cases SszBridge.decodeCanonical SszBridge.statelessInputV4Type
+          (bytes.extract 2 bytes.size) with
+      | error e => simp
+      | ok v =>
+          -- Iota-reduce `match Except.ok v with …` so the fork test is reachable.
+          simp only []
+          by_cases hf : (SszBridge.rawV4OfInterp v).chainConfig.activeFork.fork > 20
+          · rw [if_pos hf]; simp
+          · rw [if_neg hf]; simp
+
+theorem quarantined_of_rawOrQuarantine {bytes : ByteArray} (hs : rootComplianceScope bytes)
+    (h : SszBridge.decodeRawOrQuarantineV3 bytes = .error .v3Quarantined) :
+    SszBridge.hasV3PayloadShape bytes = true := by
+  rw [SszBridge.decodeRawOrQuarantineV3] at h
+  split at h
+  · assumption
+  · exact absurd h (decodeRawV4_ne_quarantined hs)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
