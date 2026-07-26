@@ -24,16 +24,21 @@ Everything proved here is proved over *all* inputs; nothing is decided on a fixt
 ## Axioms — the module is no longer clean, and that is a real change
 
 `catalogSemanticObligations_of_oracleAgreement` now depends on `Lean.ofReduceBool` and
-`Lean.trustCompiler`. It did not when this module was written. Two proofs brought them in, and both
-were deliberate:
+`Lean.trustCompiler`. It did not when this module was written. **Exactly one** proof brings them in:
 
 * `meaningTwentyFourIsSome_holds` reaches `SpecCorrespondence.uint64LE_of_readUInt64LE`, whose eight
   byte-extraction arms are closed by `bv_decide`. Checked rather than assumed that nothing cheaper
   works: `omega` finds no usable constraints (it does not see through `|||`/`<<<`), `decide` cannot
   run on free variables, and `simp` makes no progress. Avoiding it would mean hand-proving the
   bit-level identities, which is real effort for a trust class the root already carries.
-* `forkErrorOrderingDiffers_holds` uses `native_decide`, because reducing the oracle side needs
-  upstream's `private extractFieldOffsets`.
+
+**This paragraph used to name a second source, and it was wrong.** It credited
+`forkErrorOrderingDiffers_holds`'s `native_decide`; that proof does use `native_decide`, but
+`forkErrorOrderingDiffers` is a conjunct of `knownDivergences`, not of `catalogSemanticObligations`,
+and is not reachable from this theorem at all. The error was invisible to the check being used to
+police it: the axiom *set* is identical whether the second path exists or not, so `#print axioms`
+could never have contradicted the claim. `SSZ/AxiomHygiene.lean` now pins the reachable trust
+**doors** instead, which does discriminate, and it is what found this.
 
 So the trust boundary moved, and the honest statement is narrower than "this module is clean":
 `readUInt32LE_zero_of_readU32LE` is still `propext`/`Quot.sound` **in isolation**, which is why it is
