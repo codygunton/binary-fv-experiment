@@ -941,4 +941,27 @@ theorem decodeCanonical_forkActivation_fields_of (b : ByteArray) (o0 o1 : Nat)
             rfl
     · exact absurd hacc (by simp [Except.toOption])
 
+/-! ### The source side's join
+
+`isAccepted_entry_join` at arity two. Both fields' decoded values feed only the returned record, so
+acceptance of the whole depends on their acceptance alone — which is what lets the source side be reduced
+to a `Bool` conjunction and then matched against the oracle field by field.
+
+Kept as its own lemma rather than inlined for the same reason as the entry's: the `do` block has to be
+matched *syntactically* for the rewrite to fire, and unfolding `bind` first turns it into nested
+`Except.bind` matches that no `do`-shaped lemma can then match. That was learned the hard way at the entry
+and is the reason `except_bind_ok` exists as a targeted lemma instead. -/
+
+/-- The two `forkActivation` field meanings join by conjunction: the decoded values feed only the
+returned record, so acceptance of the whole depends on the two fields' acceptance alone.
+`isAccepted_entry_join` at arity two. -/
+theorem isAccepted_forkActivation_join (s0 s1 : ByteArray) :
+    isAccepted (do
+        let blockNumber ← meaningOptionalU64 s0
+        let timestamp ← meaningOptionalU64 s1
+        return ({ blockNumber := blockNumber
+                  timestamp := timestamp } : SszBridge.RawForkActivation))
+      = (isAccepted (meaningOptionalU64 s0) && isAccepted (meaningOptionalU64 s1)) := by
+  cases meaningOptionalU64 s0 <;> cases meaningOptionalU64 s1 <;> rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
