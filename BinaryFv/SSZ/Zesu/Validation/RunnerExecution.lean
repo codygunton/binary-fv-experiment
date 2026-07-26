@@ -68,7 +68,26 @@ def runnerAgreesWithSpec : Bool :=
 This is the end-to-end differential: 46 cases — five accepted (raw and ERE-prefixed, including the
 rich payload), an unknown fork, a truncated body, and every offset mutation — each run instruction
 by instruction through the Sail model, with the accepted ones compared field for field, and each
-verdict additionally checked against the corpus's independently recorded expectation. -/
+verdict additionally checked against the corpus's independently recorded expectation.
+
+**Both halves of that second conjunct matter.** Agreement with the oracle alone would pass if the
+runner and the oracle were wrong in the same way; the corpus's own recorded verdict is an independent
+third opinion, so all three must coincide. And the corpus is genuinely two-sided — verified by
+counting rather than by reading this docstring: 46 cases, **5 accepted**
+(`valid-v4-raw`, `valid-v4-ere`, `valid-v4-empty-variable-lists`, `valid-v4-rich-raw`,
+`valid-v4-rich-ere`) and 41 rejected. A one-sided corpus would make the acceptance path untested
+while the check still passed, which is exactly how an earlier 360-input falsity sweep in this row
+turned out to have zero power.
+
+**What this theorem does NOT cover, stated here rather than only in the generated header.** The
+generator (`ssz_contract_corpus.py`) drops any case whose input exceeds its `max_bytes` budget,
+because `native_decide` over the full decode is impractical there, and records the drops at the top
+of `GeneratedCorpus.lean`. Three cases are currently dropped — `raw-ere-prefix-collision`,
+`ere-prefixed-collision`, `versioned-hashes-over-bound` — and **two of the three are *accepted*
+cases**, so the kernel-checked acceptance set is 5 of 7. All three are still exercised by
+`ssz_differential_audit.py` on the Python side; they are outside the *kernel-checked* set, not
+outside coverage. Recorded in this docstring because a reader citing `runner_agrees_with_spec` reads
+this, not the generated file's header comment. -/
 theorem runner_agrees_with_spec : runnerAgreesWithSpec = true := by native_decide
 
 /-! ## The gate
