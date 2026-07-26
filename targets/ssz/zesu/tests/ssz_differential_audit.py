@@ -572,6 +572,52 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# ---------------------------------------------------------------------------
+# CLASSIFIED REFERENCE-SIDE DIVERGENCES.
+#
+# Cases where the Python reference disagrees with BOTH our Lean oracle and the
+# zesu binary, and where the reference is the one that is wrong. These are
+# recorded, not suppressed: the case stays in the harness as a regression test
+# against the reference silently changing behaviour.
+#
+# `offset-value-fork-activation-padded` -- forkConfig's first offset padded from
+# 16 to 24. SSZ requires the first offset to EQUAL the fixed-section size.
+# `remerkleable/complex.py:948-950` (`Container.deserialize`) instead checks only
+#
+#     if dyn_fields[0].offset < fixed_size: raise ...
+#
+# a `<` BOUND WHERE THE SPEC REQUIRES AN `=` EQUALITY, so 24-against-16 passes.
+# `:952-956` then derives each field's size from consecutive offsets, so the
+# eight-byte gap is skipped and the first variable field is read from a shifted
+# position -- it does not reject a non-canonical buffer, it silently decodes a
+# DIFFERENT structure. Our oracle and the binary both reject. We are equal to the
+# spec and stricter than remerkleable, NOT stricter than the spec.
+#
+# The reference does not implement this check at all: `ssz_value_reference.py`
+# calls `SszStatelessInput.decode_bytes`, so execution-specs inherits
+# remerkleable's behaviour rather than choosing it. Nobody intends this.
+#
+# WHY THE OLD MUTATION SET COULD NOT HAVE FOUND IT, which is the sharp version of
+# "it lacked power": every prior offset mutation wrote 0, and 0 is SMALLER than
+# the fixed size -- the one direction remerkleable does guard. Padding is the
+# other side of the equality, and that is exactly the side nobody checks. The
+# harness's blind spot and the library's bug are the SAME SHAPE: both handle "too
+# small" and neither handles "too large".
+#
+# And a lesson about the case itself: `padded` was kept only as coverage, with an
+# explicit note that it had no power on the which-number question it was added
+# beside. That was correct -- and it had power on a question nobody asked. A
+# mutation whose EXPECTED information is low is not a mutation whose ACTUAL
+# information is low.
+# ---------------------------------------------------------------------------
+REFERENCE_SIDE_DIVERGENCES: dict[str, str] = {
+    "offset-value-fork-activation-padded": (
+        "remerkleable/complex.py:948 checks `first offset < fixed_size` where SSZ requires equality, "
+        "so a padded first offset is accepted and a shifted structure decoded; lean and zesu reject"
+    ),
+}
+
+
 def main() -> int:
     args = parse_args()
     for path in (args.reference_python, args.zesu_value_binary, args.lean_binary, args.reference_program):
@@ -600,8 +646,17 @@ def main() -> int:
                     + " ".join(f"{adapter}={digest(stream)}" for adapter, stream in streams.items())
                 )
         elif any(outcome.returncode == 0 for outcome in outcomes.values()):
-            accepted = ", ".join(adapter for adapter, outcome in outcomes.items() if outcome.returncode == 0)
-            failures.append(f"{case.name}: malformed input accepted by {accepted}")
+            accepted = sorted(
+                adapter for adapter, outcome in outcomes.items() if outcome.returncode == 0
+            )
+            reason = REFERENCE_SIDE_DIVERGENCES.get(case.name)
+            if reason is not None and accepted == ["python"]:
+                # Classified: the reference alone accepts, and it is the one that is wrong.
+                print(f"  classified reference-side divergence: {reason}")
+            else:
+                failures.append(
+                    f"{case.name}: malformed input accepted by {', '.join(accepted)}"
+                )
 
     if failures:
         print("strict V4 differential failed:", file=sys.stderr)
