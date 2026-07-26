@@ -428,4 +428,89 @@ theorem decodeCanonical_forkActivation_unfold (b : ByteArray) (o0 o1 : Nat)
   cases SSZType.deserializeVarFields forkActivationFields b 0 [o0, o1] b.size <;>
     simp [bind, Except.bind] <;> rfl
 
+/-! ### The other two unfolds, and the fork bound's conspicuous absence
+
+`forkConfig` and `chainConfig`, completing the unfold layer for the chain. Both are mixed containers, so
+their `fits` lemmas read the *last* offset position rather than the first: `forkConfig`'s table is read at
+8 and 12, so a successful read forces `16 ≤ b.size`; `chainConfig`'s single offset is read at 8, forcing
+`12 ≤ b.size`. Those are the derived fixed-section sizes, arrived at from the read positions rather than
+quoted — the same two numbers, reached the other way round.
+
+**The `fork > 20` test does not appear in `decodeCanonical_forkConfig_unfold`, and that is correct rather
+than an omission.** These lemmas are pure oracle: `decodeCanonical` at a schema, and `forkConfigType`
+types `fork` as an unbounded `u64`. The bound is *source*-side, applied inside `meaningForkConfig` between
+the offset check and the child decodes, and it enters only at the join. So there is no ordering question at
+this layer — the risk lead flagged arrives one layer up, where the two sides' orderings have to be matched,
+and it is recorded at the head of this section.
+
+`h0 : o = 12` for `chainConfig` is the canonicality requirement, and it is the same 12 the source
+hard-codes at `Containers.lean:99` — the agreement of those two constants is what the extended differential's
+read-position mutation now tests rather than assumes. -/
+
+theorem extractFieldOffsets_forkConfig_fits (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1]) : 16 ≤ b.size := by
+  rw [extractFieldOffsets_forkConfig] at hoffs
+  split at hoffs
+  · rename_i h1
+    have := readUInt32LE_fits h1
+    omega
+  · exact absurd hoffs (by simp)
+
+theorem extractFieldOffsets_chainConfig_fits (b : ByteArray) (o : Nat)
+    (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o]) : 12 ≤ b.size := by
+  rw [extractFieldOffsets_chainConfig] at hoffs
+  split at hoffs
+  · rename_i h1
+    have := readUInt32LE_fits h1
+    omega
+  · exact absurd hoffs (by simp)
+
+theorem decodeCanonical_forkConfig_unfold (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1]) (h0 : o0 = 16) :
+    SszBridge.decodeCanonical SszBridge.forkConfigType b =
+      match SSZType.deserializeVarFields forkConfigFields b 0 [o0, o1] b.size with
+      | .error e => .error e
+      | .ok v =>
+          if SSZType.serialize SszBridge.forkConfigType v == b then .ok v
+          else .error .invalidOffset := by
+  have hdes : SSZType.deserialize SszBridge.forkConfigType b =
+      match SSZType.deserializeVarFields forkConfigFields b 0 [o0, o1] b.size with
+      | .error e => .error e
+      | .ok v => .ok (v, b.size) := by
+    have h16 : 16 ≤ b.size := extractFieldOffsets_forkConfig_fits b o0 o1 hoffs
+    show SSZType.deserialize (.container forkConfigFields) b = _
+    rw [SSZType.deserialize, if_neg (by rw [forkConfigFields_not_allFixed]; simp)]
+    simp only []
+    rw [if_neg (by rw [forkConfigFields_fixedSection]; omega)]
+    simp only [hoffs, List.head?_cons]
+    rw [if_neg (by rw [forkConfigFields_fixedSection, h0]; simp)]
+    cases SSZType.deserializeVarFields forkConfigFields b 0 [o0, o1] b.size <;> rfl
+  rw [SszBridge.decodeCanonical, hdes]
+  cases SSZType.deserializeVarFields forkConfigFields b 0 [o0, o1] b.size <;>
+    simp [bind, Except.bind] <;> rfl
+
+theorem decodeCanonical_chainConfig_unfold (b : ByteArray) (o : Nat)
+    (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o]) (h0 : o = 12) :
+    SszBridge.decodeCanonical SszBridge.chainConfigType b =
+      match SSZType.deserializeVarFields chainConfigFields b 0 [o] b.size with
+      | .error e => .error e
+      | .ok v =>
+          if SSZType.serialize SszBridge.chainConfigType v == b then .ok v
+          else .error .invalidOffset := by
+  have hdes : SSZType.deserialize SszBridge.chainConfigType b =
+      match SSZType.deserializeVarFields chainConfigFields b 0 [o] b.size with
+      | .error e => .error e
+      | .ok v => .ok (v, b.size) := by
+    have h12 : 12 ≤ b.size := extractFieldOffsets_chainConfig_fits b o hoffs
+    show SSZType.deserialize (.container chainConfigFields) b = _
+    rw [SSZType.deserialize, if_neg (by rw [chainConfigFields_not_allFixed]; simp)]
+    simp only []
+    rw [if_neg (by rw [chainConfigFields_fixedSection]; omega)]
+    simp only [hoffs, List.head?_cons]
+    rw [if_neg (by rw [chainConfigFields_fixedSection, h0]; simp)]
+    cases SSZType.deserializeVarFields chainConfigFields b 0 [o] b.size <;> rfl
+  rw [SszBridge.decodeCanonical, hdes]
+  cases SSZType.deserializeVarFields chainConfigFields b 0 [o] b.size <;>
+    simp [bind, Except.bind] <;> rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
