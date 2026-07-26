@@ -1573,4 +1573,36 @@ theorem isAccepted_forkConfig_join (fork : UInt64) (s1 s2 : ByteArray) :
       = (isAccepted (meaningForkActivation s1) && isAccepted (meaningOptionalBlobSchedule s2)) := by
   cases meaningForkActivation s1 <;> cases meaningOptionalBlobSchedule s2 <;> rfl
 
+/-- `forkConfig`'s third field type is exactly the schema `meaningOptionalBlobSchedule` decodes against.
+Checked, not assumed -- the third such check in this module, after `publicKeysType` at the entry and
+`optionalU64Type` at `forkActivation`. -/
+theorem optionalBlobScheduleType_eq_forkConfig_field :
+    optionalBlobScheduleType
+      = .list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork := rfl
+
+/-- `meaningOptionalBlobSchedule` is oracle-shaped: `decodeCanonical` plus a projection, so its
+acceptance is the oracle's by construction. -/
+theorem meaningOptionalBlobSchedule_accepted (b : ByteArray) :
+    isAccepted (meaningOptionalBlobSchedule b)
+      = (SszBridge.decodeCanonical optionalBlobScheduleType b).toOption.isSome := by
+  cases h : SszBridge.decodeCanonical optionalBlobScheduleType b <;>
+    simp [meaningOptionalBlobSchedule, isAccepted, Except.toOption, h]
+
+/-- The source's inline `fork` read, in the form the oracle-side bridges consume. `meaningReadU64` is
+`Option.toDecodeResult` over `readUInt64LE`, so this is a re-spelling rather than content -- but it is the
+spelling that lets `deserialize_u64_extract` and `uint64LE_of_readUInt64LE` apply. -/
+theorem meaningReadU64_eq_some {b : ByteArray} {i : Nat} {x : UInt64}
+    (h : meaningReadU64 b i = .ok x) : readUInt64LE b i = some x := by
+  -- `Option.toDecodeResult` matches on the option, so its equation lemmas are indexed by that
+  -- scrutinee: case FIRST, then unfold. Same cause as the `varOffs` failure in
+  -- `deserializeVarFields_fixed_step`, and the rule that came out of it.
+  cases hr : readUInt64LE b i with
+  | none =>
+      rw [meaningReadU64, hr] at h
+      exact absurd h (by simp [Option.toDecodeResult])
+  | some w =>
+      rw [meaningReadU64, hr] at h
+      simp only [Option.toDecodeResult, Except.ok.injEq] at h
+      exact congrArg some h
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
