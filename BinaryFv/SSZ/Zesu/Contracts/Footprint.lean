@@ -115,7 +115,11 @@ theorem forkActivation_footprint (base : Nat) (value : SszBridge.RawForkActivati
       (optionU64_footprint (base + 16) value.timestamp)
 
 /-- The footprint result as a `LocalTo` fact about the canonical representation — the form the
-ownership discipline consumes. -/
+ownership discipline consumes.
+
+**Specialised at a literal 32 and therefore not the one to build on.** It is kept because the
+not-tight theorem is stated against it; `localTo_canonicalRepForkActivation_record` below is the
+version whose size traces to the manifest. -/
 theorem localTo_canonicalRepForkActivation_range32 :
     LocalTo canonicalRepForkActivation (fun base => range base 32) :=
   fun _ _ value s1 s2 base agree h => forkActivation_footprint base value s1 s2 agree h
@@ -184,6 +188,24 @@ theorem forkActivation_footprint_abi (base : Nat) (value : SszBridge.RawForkActi
     exact Option.some.inj hlayout
   subst h32
   exact forkActivation_footprint_record base 32 value (forkActivation_readSet_contained base)
+
+/-- **The form the discipline should consume: the size is never written down.** `recordSize` is
+whatever the compiler-reflected manifest says `RawForkActivation` occupies, so a struct-layout change
+moves the manifest and this follows, rather than the footprint quietly describing the wrong region.
+
+The offsets need no equivalent treatment, and checking that was worth more than assuming it:
+`MemoryRepresentation/Containers.lean:132`, `container_field_offsets_valid`, already pins
+`RawForkActivation|block_number = 0` and `|timestamp = 16` against the same manifest by
+`native_decide`. `ForkActivationRep`'s literals are audited there, at the representation layer, and
+this footprint inherits the pinning by having to transport that exact representation. Re-deriving the
+offsets here would be a second copy of an existing check, not new coverage. **The size was different —
+nothing pinned 32 anywhere except a docstring**, which is why `fork_activation_layout` had to be
+added. -/
+theorem localTo_canonicalRepForkActivation_record {recordSize : Nat}
+    (hsize : BinaryFv.SSZ.Zesu.Artifact.forkActivationSize = some recordSize) :
+    LocalTo canonicalRepForkActivation (fun base => range base recordSize) :=
+  fun _ _ value s1 s2 base agree h =>
+    forkActivation_footprint_abi base value hsize s1 s2 agree h
 
 /-! ## Tightness
 
