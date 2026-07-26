@@ -141,4 +141,32 @@ theorem extractFieldOffsets_forkConfig_eq_meaningReads (b : ByteArray) (o0 o1 : 
   simp only [meaningReadOffset, meaningReadU32, Option.toDecodeResult]
   cases readUInt32LE b 8 <;> cases readUInt32LE b 12 <;> simp [Except.map]
 
+/-! ## The chainConfig walk, with its leading fixed field
+
+The first genuinely new shape in item 6.2. `deserializeVarFields` reads the `u64` out of the *prefix*
+— `b.extract 0 8`, then `deserialize u64` on that slice — while the source reads it *in place* with
+`meaningReadU64 b 0` → `readUInt64LE b 0`.
+
+**That is a new reader pairing, not just a moved offset.** The entry schema is all-variable, so no field
+was ever read from the fixed prefix and this bridge was never needed. It is the same *class* of problem
+as the `readU32LE?`-versus-`readUInt32LE` mismatch (R2), one width and one position along: two
+definitions of "read the integer here", where nothing forces them to agree unless it is proved. -/
+
+/-- **Slice-then-deserialize equals read-in-place, at `u64`.** The bridge the leading-fixed skip needs. -/
+theorem deserialize_u64_extract (b : ByteArray) (i : Nat) (h : i + 8 ≤ b.size) {v : UInt64}
+    (hread : readUInt64LE b i = some v) :
+    SSZType.deserialize SszBridge.u64 (b.extract i (i + 8)) = .ok (v, 8) := by
+  -- `omega` needs the slice width; the unused-simp-arg linter flagged this only for the `simp` call
+  -- below, not for the proof, and removing it outright broke the `dif_pos` side goal.
+  have hslice : (b.extract i (i + 8)).size = 8 := by rw [ByteArray.size_extract]; omega
+  have hlocal : readUInt64LE (b.extract i (i + 8)) 0 = some v := by
+    rw [readUInt64LE, dif_pos (by omega : 0 + 8 ≤ (b.extract i (i + 8)).size)]
+    rw [readUInt64LE, dif_pos h] at hread
+    simp only [Option.some.injEq] at hread
+    simp only [Option.some.injEq, ← hread]
+    simp [ByteArray.getElem_extract]
+  show SSZType.deserialize (.uintN 64) _ = _
+  rw [SSZType.deserialize]
+  simp only [hlocal]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
