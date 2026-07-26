@@ -1568,6 +1568,45 @@ theorem executionPayload_byte436_eq_540 {payload : ByteArray}
   -- reader into that same expression.
   rw [readU32LE?_eq_map_readUInt32LE, ← hpos]
 
+/-! ### The request level's offset table
+
+The one place the V3 chain needs a *specialised* reduction rather than a generic lemma, and it is
+small: identifying the classifier's `payloadEnd` with the second offset needs to know that offset is
+read at byte 4. `newPayloadRequestFields` puts its three offsets at 0, 4 and 40 — the fixed
+`byteVector 32` occupying 8–39 between the second and third — so unlike `entryFields` the table is not
+a uniform stride and the reduction cannot come from an arity-free lemma.
+
+This is exactly the mixed-interleaving case the generalise-versus-parallel decision put on the
+specialised side, and it is the whole of that side for item 4: one table reduction, no decomposition. -/
+
+theorem newPayloadRequestFields_not_allFixed :
+    SSZType.allFixedSize newPayloadRequestFields = false := by decide
+
+theorem newPayloadRequestFields_takeWhile_fixed :
+    SSZType.fixedSectionSizeFields
+      (newPayloadRequestFields.takeWhile SSZType.isFixedSize) = 0 := by decide
+
+@[simp] theorem blobCommitmentsField_not_fixed :
+    (SSZType.list (SszBridge.byteVector 32) SszBridge.maxBlobCommitmentsPerBlock).isFixedSize
+      = false := by decide
+
+@[simp] theorem byteVector32_is_fixed :
+    (SszBridge.byteVector 32).isFixedSize = true := by decide
+
+@[simp] theorem byteVector32_fixedByteSize :
+    (SszBridge.byteVector 32).fixedByteSize = 32 := by decide
+
+@[simp] theorem executionRequestsType_not_fixed :
+    SszBridge.executionRequestsType.isFixedSize = false := by decide
+
+theorem extractFieldOffsets_newPayloadRequest (b : ByteArray) :
+    extractFieldOffsets b newPayloadRequestFields 0 =
+      match readUInt32LE b 0, readUInt32LE b 4, readUInt32LE b 40 with
+      | some p0, some p1, some p2 => .ok [p0.toNat, p1.toNat, p2.toNat]
+      | _, _, _ => .error .tooShort := by
+  simp [newPayloadRequestFields, extractFieldOffsets, BYTES_PER_LENGTH_OFFSET]
+  cases readUInt32LE b 0 <;> cases readUInt32LE b 4 <;> cases readUInt32LE b 40 <;> rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
