@@ -14,6 +14,7 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramValidation
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedBoundaryInventory
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramGeometry
 import BinaryFv.SSZ.Zesu.Elfling.ManifestCheck
+import BinaryFv.SSZ.Zesu.Elfling.InventoryMutation
 import BinaryFv.SSZ.Zesu.Elfling.NonLocalPremises
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProvenanceCheck
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramCfg
