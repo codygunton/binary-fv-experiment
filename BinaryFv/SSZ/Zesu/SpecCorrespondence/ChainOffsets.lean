@@ -1344,4 +1344,26 @@ theorem serialize_forkConfig_eq_body_iff (b : ByteArray)
   -- occurrence, `simp only` normalises both sides.
   simp only [and_assoc]
 
+/-- **The `chainConfig` join condition.** Two cuts: the inline `u64`, then the single offset. There is no
+table to split slot by slot, so the middle step of `forkConfig`'s three disappears rather than
+degenerating -- the fourth time an arity-one case has lost a step outright. -/
+theorem serialize_chainConfig_eq_body_iff (b : ByteArray)
+    (v : SSZType.interpFields chainConfigFields) (s0 s1 : ByteArray)
+    (e0 : SSZType.serialize SszBridge.u64 v.1 = s0)
+    (e1 : SSZType.serialize SszBridge.forkConfigType v.2.1 = s1)
+    (h12 : 12 ≤ b.size) :
+    SSZType.serialize (.container chainConfigFields) v = b ↔
+      (s0 = b.extract 0 8 ∧ uint32LE (Nat.toUInt32 12) = b.extract 8 12 ∧
+        s1 = b.extract 12 b.size) := by
+  have hs0 : s0.size = 8 := by rw [← e0]; exact serialize_u64_size v.1
+  rw [serialize_chainConfig v s0 s1 e0 e1]
+  have hpre : (s0 ++ uint32LE (Nat.toUInt32 12)).size = 12 := by
+    rw [ByteArray.size_append, uint32LE_size, hs0]
+  conv =>
+    lhs
+    rw [← ByteArray.extract_zero_size (b := b)]
+  rw [append_eq_extract_iff b 0 12 b.size (by omega) h12 h12 (by rw [hpre])]
+  rw [append_eq_extract_iff b 0 8 12 (by omega) (by omega) (by omega) (by rw [hs0])]
+  simp only [and_assoc]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
