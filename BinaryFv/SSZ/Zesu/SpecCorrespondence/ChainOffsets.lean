@@ -1316,4 +1316,32 @@ theorem serialize_u64_size (x : SszBridge.u64.interp) :
     (by constructor) (by decide) x]
   exact u64_fixedByteSize
 
+/-- **The `forkConfig` join condition.** Three cuts rather than two: the inline `u64` has to be separated
+from the offset table before the table can be separated slot by slot. -/
+theorem serialize_forkConfig_eq_body_iff (b : ByteArray)
+    (v : SSZType.interpFields forkConfigFields) (s0 s1 s2 : ByteArray)
+    (e0 : SSZType.serialize SszBridge.u64 v.1 = s0)
+    (e1 : SSZType.serialize SszBridge.forkActivationType v.2.1 = s1)
+    (e2 : SSZType.serialize
+        (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork) v.2.2.1 = s2)
+    (h16 : 16 ≤ b.size) :
+    SSZType.serialize (.container forkConfigFields) v = b ↔
+      (s0 = b.extract 0 8 ∧ uint32LE (Nat.toUInt32 16) = b.extract 8 12 ∧
+        uint32LE (Nat.toUInt32 (16 + s1.size)) = b.extract 12 16 ∧
+        s1 ++ s2 = b.extract 16 b.size) := by
+  have hs0 : s0.size = 8 := by rw [← e0]; exact serialize_u64_size v.1
+  rw [serialize_forkConfig v s0 s1 s2 e0 e1 e2]
+  have hpre : (s0 ++ (uint32LE (Nat.toUInt32 16)
+      ++ uint32LE (Nat.toUInt32 (16 + s1.size)))).size = 16 := by
+    rw [ByteArray.size_append, ByteArray.size_append, uint32LE_size, uint32LE_size, hs0]
+  conv =>
+    lhs
+    rw [← ByteArray.extract_zero_size (b := b)]
+  rw [append_eq_extract_iff b 0 16 b.size (by omega) h16 h16 (by rw [hpre])]
+  rw [append_eq_extract_iff b 0 8 16 (by omega) (by omega) (by omega) (by rw [hs0])]
+  rw [append_eq_extract_iff b 8 12 16 (by omega) (by omega) (by omega) (by rw [uint32LE_size])]
+  -- Three cuts leave `A ∧ (B ∧ C) ∧ D`; the statement is right-associated. `rw` fires at the wrong
+  -- occurrence, `simp only` normalises both sides.
+  simp only [and_assoc]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
