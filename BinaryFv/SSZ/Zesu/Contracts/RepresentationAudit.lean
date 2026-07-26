@@ -25,15 +25,22 @@ So a container appearing below is eligible for the discipline, not yet protected
 
 ## Audit status
 
-**Memory-determined, proved below:** `canonicalRepForkActivation`, `canonicalRepForkConfig`,
-`canonicalRepChainConfig` — the three non-allocating chain containers.
+**Memory-determined, proved below — seven of eight:** `canonicalRepForkActivation`,
+`canonicalRepForkConfig`, `canonicalRepChainConfig`, `canonicalRepExecutionRequests`,
+`canonicalRepExecutionWitness`, `canonicalRepExecutionPayload`, `canonicalRepNewPayloadRequest`.
 
-**Not yet audited:** `canonicalRepRawV4`, `canonicalRepExecutionWitness`,
-`canonicalRepExecutionRequests`, `canonicalRepExecutionPayload`, `canonicalRepNewPayloadRequest`.
-A mechanical scan found no reference to `regs`, `pc`, `choiceState`, `tags`, `cycleCount` or
-`sailOutput` anywhere under `MemoryRepresentation/`, so these are *expected* to be memory-determined
-too — but a grep is not a proof and this row has been bitten three times by exactly that substitution.
-They are listed as open rather than assumed.
+**Not yet audited — one:** `canonicalRepRawV4`. It is the outlier by construction rather than by
+oversight: `RawV4Rep` and its `RawV4AllocationRep` / `RawV4DescriptorRep` / `RawV4InputSlicesRep` /
+`RawV4FixedFieldsRep` sublayers are *structures*, so each transports field by field — the
+`ExecutionPayloadFixedRep` treatment below, repeated across the root allocation, ten heap arrays, the
+descriptor table and every borrowed input slice. Every primitive it is built from is already proved
+memory-determined here, so what remains is volume, not difficulty.
+
+A mechanical scan finds no reference to `regs`, `pc`, `choiceState`, `tags`, `cycleCount` or
+`sailOutput` anywhere under `MemoryRepresentation/`, so `canonicalRepRawV4` is *expected* to be
+memory-determined too — but a grep over definitions does not verify what those definitions call, and
+this row has repeatedly been bitten by exactly that substitution. It stays listed as open rather than
+assumed.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Contracts.RepresentationAudit
@@ -55,6 +62,20 @@ theorem memDetermined_and {P Q : State → Prop}
     MemDetermined (fun s => P s ∧ Q s) :=
   fun s1 s2 agree h => ⟨hp s1 s2 agree h.1, hq s1 s2 agree h.2⟩
 
+/-- A state-independent proposition is trivially memory-determined. Needed because several
+representations carry pure side conditions (`data < 2 ^ 64`, `InputBytesAt …`) alongside their
+memory claims. -/
+theorem memDetermined_const {p : Prop} : MemDetermined (fun _ => p) :=
+  fun _ _ _ h => h
+
+theorem memDetermined_forall {α : Sort u} {P : α → State → Prop}
+    (h : ∀ x, MemDetermined (P x)) : MemDetermined (fun s => ∀ x, P x s) :=
+  fun s1 s2 agree hp x => h x s1 s2 agree (hp x)
+
+theorem memDetermined_exists {α : Sort u} {P : α → State → Prop}
+    (h : ∀ x, MemDetermined (P x)) : MemDetermined (fun s => ∃ x, P x s) :=
+  fun s1 s2 agree hp => hp.imp fun x hx => h x s1 s2 agree hx
+
 /-! ## The primitives
 
 Every container representation bottoms out in these two. Both are pointwise claims about
@@ -68,6 +89,109 @@ theorem memDetermined_optionTag (base : Nat) (present : Bool) :
 theorem memDetermined_word64 (base value : Nat) :
     MemDetermined (fun s => Word64LERep s base value) :=
   fun _ _ agree h index hindex => (agree _).symm.trans (h index hindex)
+
+theorem memDetermined_fixedByteVector {length : Nat} (base : Nat)
+    (value : SszBridge.RawByteVector length) :
+    MemDetermined (fun s => FixedByteVectorRep s base value) :=
+  fun _ _ agree h index hindex => (agree _).symm.trans (h index hindex)
+
+theorem memDetermined_bitVectorLE {width : Nat} (base : Nat) (value : BitVec width) :
+    MemDetermined (fun s => BitVectorLERep s base value) :=
+  fun _ _ agree h index hindex => (agree _).symm.trans (h index hindex)
+
+/-- `HeapArrayRep` claims each byte is *present* rather than equal to a value, and `InputSliceRep`
+claims two addresses hold the *same* byte. Both still transport: agreement on all of memory carries
+any predicate built from `get?` at named addresses, whatever the shape of the claim. -/
+theorem memDetermined_heapArray (base count elementSize : Nat) :
+    MemDetermined (fun s => HeapArrayRep s base count elementSize) :=
+  fun _ _ agree h => ⟨h.1, fun index hindex => (agree _) ▸ h.2 index hindex⟩
+
+theorem memDetermined_inputSlice (inputBase inputOffset length sliceBase : Nat) :
+    MemDetermined (fun s => InputSliceRep s inputBase inputOffset length sliceBase) :=
+  fun _ _ agree h =>
+    ⟨h.1, fun index hindex => ((agree _).symm.trans (h.2 index hindex)).trans (agree _)⟩
+
+theorem memDetermined_heapFixedVectorArray {length : Nat} (base : Nat)
+    (values : Array (SszBridge.RawByteVector length)) :
+    MemDetermined (fun s => HeapFixedVectorArrayRep s base values) :=
+  memDetermined_forall fun index =>
+    memDetermined_forall fun _ => memDetermined_fixedByteVector _ _
+
+theorem memDetermined_sliceDescriptor (base data count : Nat) :
+    MemDetermined (fun s => SliceDescriptorRep s base data count) :=
+  memDetermined_and memDetermined_const
+    (memDetermined_and memDetermined_const
+      (memDetermined_and (memDetermined_word64 _ _) (memDetermined_word64 _ _)))
+
+theorem memDetermined_inputSliceDescriptor (inputBase : Nat) (input : ByteArray)
+    (descriptorBase inputOffset sliceBase : Nat) (bytes : Array UInt8) :
+    MemDetermined (fun s =>
+      InputSliceDescriptorRep s inputBase input descriptorBase inputOffset sliceBase bytes) :=
+  memDetermined_and (memDetermined_sliceDescriptor _ _ _)
+    (memDetermined_and (memDetermined_inputSlice _ _ _ _) memDetermined_const)
+
+theorem memDetermined_inputSliceDescriptorArray (inputBase : Nat) (input : ByteArray)
+    (descriptorBase : Nat) (slices : Array (Array UInt8)) :
+    MemDetermined (fun s =>
+      InputSliceDescriptorArrayRep s inputBase input descriptorBase slices) :=
+  memDetermined_forall fun _ =>
+    memDetermined_forall fun _ =>
+      memDetermined_exists fun _ =>
+        memDetermined_exists fun _ => memDetermined_inputSliceDescriptor _ _ _ _ _ _
+
+/-! ## The heap record arrays
+
+Four record shapes, each a conjunction of `Word64LERep` and `FixedByteVectorRep`, each wrapped in an
+index-quantified array rep. Uniform enough that the proofs are pure composition. -/
+
+theorem memDetermined_rawWithdrawal (base : Nat) (value : SszBridge.RawWithdrawal) :
+    MemDetermined (fun s => RawWithdrawalRep s base value) :=
+  memDetermined_and (memDetermined_word64 _ _)
+    (memDetermined_and (memDetermined_word64 _ _)
+      (memDetermined_and (memDetermined_word64 _ _) (memDetermined_fixedByteVector _ _)))
+
+theorem memDetermined_heapWithdrawalArray (base : Nat)
+    (values : Array SszBridge.RawWithdrawal) :
+    MemDetermined (fun s => HeapWithdrawalArrayRep s base values) :=
+  memDetermined_forall fun _ => memDetermined_forall fun _ => memDetermined_rawWithdrawal _ _
+
+theorem memDetermined_rawWithdrawalRequest (base : Nat)
+    (value : SszBridge.RawWithdrawalRequest) :
+    MemDetermined (fun s => RawWithdrawalRequestRep s base value) :=
+  memDetermined_and (memDetermined_word64 _ _)
+    (memDetermined_and (memDetermined_fixedByteVector _ _) (memDetermined_fixedByteVector _ _))
+
+theorem memDetermined_heapWithdrawalRequestArray (base : Nat)
+    (values : Array SszBridge.RawWithdrawalRequest) :
+    MemDetermined (fun s => HeapWithdrawalRequestArrayRep s base values) :=
+  memDetermined_forall fun _ =>
+    memDetermined_forall fun _ => memDetermined_rawWithdrawalRequest _ _
+
+theorem memDetermined_rawConsolidationRequest (base : Nat)
+    (value : SszBridge.RawConsolidationRequest) :
+    MemDetermined (fun s => RawConsolidationRequestRep s base value) :=
+  memDetermined_and (memDetermined_fixedByteVector _ _)
+    (memDetermined_and (memDetermined_fixedByteVector _ _) (memDetermined_fixedByteVector _ _))
+
+theorem memDetermined_heapConsolidationRequestArray (base : Nat)
+    (values : Array SszBridge.RawConsolidationRequest) :
+    MemDetermined (fun s => HeapConsolidationRequestArrayRep s base values) :=
+  memDetermined_forall fun _ =>
+    memDetermined_forall fun _ => memDetermined_rawConsolidationRequest _ _
+
+theorem memDetermined_rawDepositRequest (base : Nat) (value : SszBridge.RawDepositRequest) :
+    MemDetermined (fun s => RawDepositRequestRep s base value) :=
+  memDetermined_and (memDetermined_word64 _ _)
+    (memDetermined_and (memDetermined_word64 _ _)
+      (memDetermined_and (memDetermined_fixedByteVector _ _)
+        (memDetermined_and (memDetermined_fixedByteVector _ _)
+          (memDetermined_fixedByteVector _ _))))
+
+theorem memDetermined_heapDepositRequestArray (base : Nat)
+    (values : Array SszBridge.RawDepositRequest) :
+    MemDetermined (fun s => HeapDepositRequestArrayRep s base values) :=
+  memDetermined_forall fun _ =>
+    memDetermined_forall fun _ => memDetermined_rawDepositRequest _ _
 
 /-! ## The option and blob-schedule layers -/
 
@@ -105,6 +229,91 @@ theorem memDetermined_chainConfig (base : Nat) (value : SszBridge.RawChainConfig
     MemDetermined (fun s => ChainConfigRep s base value) :=
   memDetermined_and (memDetermined_word64 _ _) (memDetermined_forkConfig _ _)
 
+/-! ## The four remaining containers
+
+`ExecutionPayloadFixedRep` is a structure rather than a conjunction, so its transport is written out
+field by field — fifteen of them. Mechanical, but not automatable through the `_and` combinator. -/
+
+theorem memDetermined_executionPayloadFixed (base : Nat)
+    (value : SszBridge.RawExecutionPayload) :
+    MemDetermined (fun s => ExecutionPayloadFixedRep s base value) :=
+  fun s1 s2 agree h =>
+    { baseFeePerGas := memDetermined_bitVectorLE _ _ s1 s2 agree h.baseFeePerGas
+      parentHash := memDetermined_fixedByteVector _ _ s1 s2 agree h.parentHash
+      feeRecipient := memDetermined_fixedByteVector _ _ s1 s2 agree h.feeRecipient
+      stateRoot := memDetermined_fixedByteVector _ _ s1 s2 agree h.stateRoot
+      receiptsRoot := memDetermined_fixedByteVector _ _ s1 s2 agree h.receiptsRoot
+      logsBloom := memDetermined_fixedByteVector _ _ s1 s2 agree h.logsBloom
+      prevRandao := memDetermined_fixedByteVector _ _ s1 s2 agree h.prevRandao
+      blockHash := memDetermined_fixedByteVector _ _ s1 s2 agree h.blockHash
+      blockNumber := memDetermined_word64 _ _ s1 s2 agree h.blockNumber
+      gasLimit := memDetermined_word64 _ _ s1 s2 agree h.gasLimit
+      gasUsed := memDetermined_word64 _ _ s1 s2 agree h.gasUsed
+      timestamp := memDetermined_word64 _ _ s1 s2 agree h.timestamp
+      blobGasUsed := memDetermined_word64 _ _ s1 s2 agree h.blobGasUsed
+      excessBlobGas := memDetermined_word64 _ _ s1 s2 agree h.excessBlobGas
+      slotNumber := memDetermined_word64 _ _ s1 s2 agree h.slotNumber }
+
+theorem memDetermined_executionRequests (base : Nat)
+    (value : SszBridge.RawExecutionRequests) :
+    MemDetermined (fun s => ExecutionRequestsRep s base value) :=
+  memDetermined_exists fun _ => memDetermined_exists fun _ => memDetermined_exists fun _ =>
+    memDetermined_and (memDetermined_sliceDescriptor _ _ _)
+      (memDetermined_and (memDetermined_heapArray _ _ _)
+        (memDetermined_and (memDetermined_heapDepositRequestArray _ _)
+          (memDetermined_and (memDetermined_sliceDescriptor _ _ _)
+            (memDetermined_and (memDetermined_heapArray _ _ _)
+              (memDetermined_and (memDetermined_heapWithdrawalRequestArray _ _)
+                (memDetermined_and (memDetermined_sliceDescriptor _ _ _)
+                  (memDetermined_and (memDetermined_heapArray _ _ _)
+                    (memDetermined_heapConsolidationRequestArray _ _))))))))
+
+theorem memDetermined_executionWitness (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawExecutionWitness) :
+    MemDetermined (fun s => ExecutionWitnessRep s inputBase input base value) :=
+  memDetermined_exists fun _ => memDetermined_exists fun _ => memDetermined_exists fun _ =>
+    memDetermined_and (memDetermined_sliceDescriptor _ _ _)
+      (memDetermined_and (memDetermined_heapArray _ _ _)
+        (memDetermined_and (memDetermined_inputSliceDescriptorArray _ _ _ _)
+          (memDetermined_and (memDetermined_sliceDescriptor _ _ _)
+            (memDetermined_and (memDetermined_heapArray _ _ _)
+              (memDetermined_and (memDetermined_inputSliceDescriptorArray _ _ _ _)
+                (memDetermined_and (memDetermined_sliceDescriptor _ _ _)
+                  (memDetermined_and (memDetermined_heapArray _ _ _)
+                    (memDetermined_inputSliceDescriptorArray _ _ _ _))))))))
+
+theorem memDetermined_executionPayload (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawExecutionPayload) :
+    MemDetermined (fun s => ExecutionPayloadRep s inputBase input base value) :=
+  memDetermined_and (memDetermined_executionPayloadFixed _ _)
+    (memDetermined_and
+      (memDetermined_exists fun _ => memDetermined_exists fun _ =>
+        memDetermined_inputSliceDescriptor _ _ _ _ _ _)
+      (memDetermined_and
+        (memDetermined_exists fun _ => memDetermined_exists fun _ =>
+          memDetermined_inputSliceDescriptor _ _ _ _ _ _)
+        (memDetermined_and
+          (memDetermined_exists fun _ =>
+            memDetermined_and (memDetermined_sliceDescriptor _ _ _)
+              (memDetermined_and (memDetermined_heapArray _ _ _)
+                (memDetermined_inputSliceDescriptorArray _ _ _ _)))
+          (memDetermined_exists fun _ =>
+            memDetermined_and (memDetermined_sliceDescriptor _ _ _)
+              (memDetermined_and (memDetermined_heapArray _ _ _)
+                (memDetermined_heapWithdrawalArray _ _))))))
+
+theorem memDetermined_newPayloadRequest (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawNewPayloadRequest) :
+    MemDetermined (fun s => NewPayloadRequestRep s inputBase input base value) :=
+  memDetermined_and (memDetermined_executionPayload _ _ _ _)
+    (memDetermined_and
+      (memDetermined_exists fun _ =>
+        memDetermined_and (memDetermined_sliceDescriptor _ _ _)
+          (memDetermined_and (memDetermined_heapArray _ _ _)
+            (memDetermined_heapFixedVectorArray _ _)))
+      (memDetermined_and (memDetermined_fixedByteVector _ _)
+        (memDetermined_executionRequests _ _)))
+
 /-! ## The audit results, stated as `LocalTo`
 
 `LocalTo` at the universal region is the eligibility fact the discipline needs. Stated on the
@@ -125,5 +334,25 @@ theorem localTo_canonicalRepChainConfig :
     LocalTo canonicalRepChainConfig (fun _ _ => True) :=
   fun _ _ value s1 s2 base agree h =>
     memDetermined_chainConfig base value s1 s2 (fun a => agree a trivial) h
+
+theorem localTo_canonicalRepExecutionRequests :
+    LocalTo canonicalRepExecutionRequests (fun _ _ => True) :=
+  fun _ _ value s1 s2 base agree h =>
+    memDetermined_executionRequests base value s1 s2 (fun a => agree a trivial) h
+
+theorem localTo_canonicalRepExecutionWitness :
+    LocalTo canonicalRepExecutionWitness (fun _ _ => True) :=
+  fun inputBase input value s1 s2 base agree h =>
+    memDetermined_executionWitness inputBase input base value s1 s2 (fun a => agree a trivial) h
+
+theorem localTo_canonicalRepExecutionPayload :
+    LocalTo canonicalRepExecutionPayload (fun _ _ => True) :=
+  fun inputBase input value s1 s2 base agree h =>
+    memDetermined_executionPayload inputBase input base value s1 s2 (fun a => agree a trivial) h
+
+theorem localTo_canonicalRepNewPayloadRequest :
+    LocalTo canonicalRepNewPayloadRequest (fun _ _ => True) :=
+  fun inputBase input value s1 s2 base agree h =>
+    memDetermined_newPayloadRequest inputBase input base value s1 s2 (fun a => agree a trivial) h
 
 end BinaryFv.SSZ.Zesu.Contracts.RepresentationAudit
