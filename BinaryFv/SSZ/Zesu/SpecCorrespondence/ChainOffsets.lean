@@ -1306,4 +1306,14 @@ theorem serialize_chainConfig (v : SSZType.interpFields chainConfigFields) (s0 s
     ByteArray.append_empty, SSZType.fixedSectionSizeFields, SSZType.fixedSectionSize,
     BYTES_PER_LENGTH_OFFSET]
 
+/-- The leading `u64` serializes to exactly eight bytes. Off upstream's
+`size_serialize_eq_fixedByteSize` rather than proved locally — it is one of the thirteen `Proofs`
+modules the pin was widened for, and this is the first time that widening has been drawn on for the
+chain rather than the entry. -/
+theorem serialize_u64_size (x : SszBridge.u64.interp) :
+    (SSZType.serialize SszBridge.u64 x).size = 8 := by
+  rw [SizzLean.Proofs.size_serialize_eq_fixedByteSize (s := SszBridge.u64)
+    (by constructor) (by decide) x]
+  exact u64_fixedByteSize
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
