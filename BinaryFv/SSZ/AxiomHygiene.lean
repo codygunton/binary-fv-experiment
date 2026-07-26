@@ -172,6 +172,27 @@ def containerFootprintDoors : List Name :=
    ``BinaryFv.SSZ.Zesu.Artifact.raw_v4_heap_element_sizes_valid,
    ``BinaryFv.SSZ.Zesu.Artifact.raw_stateless_input_layout]
 
+/-- `rawV4_survives_chain` — the ownership composition layer. **An empty door set, and that is the
+claim.**
+
+The layer is conditional: it takes the ownership promises and the root record size as premises and
+proves they suffice, so it appeals to the compiler nowhere. Pinning that as `[]` makes it checkable —
+the guard reports any door reachable from here as `unexpected`, so the day this layer picks up a
+`native_decide`, directly or through something it starts consuming, the build says so.
+
+It matters more here than elsewhere because **this layer is the artefact going to the human.** A
+conditional theorem that quietly acquired a compiler appeal would still be conditional and still be
+true, and no downstream axiom set would change — the one situation `#print axioms` cannot see and
+this guard can.
+
+**Coverage, stated rather than implied.** The anchor's cone is `rawV4_survives_chain`'s: the root
+corollary, `chain_agrees_on_region`, and the whole `Footprint` chain beneath them. It does **not**
+reach the four sibling corollaries or the satisfiability witnesses. That is the same gap recorded
+under `heapFootprintDoors`, and it is acceptable for the same reason plus one more: those four are
+the same three lines as the root's, so a door could only reach them through machinery this anchor
+already covers. -/
+def compositionDoors : List Name := []
+
 /-- `catalogSemanticObligations_of_oracleAgreement` — a single door, through the `u64` primitive.
 See the module docstring: the recorded provenance claimed two. -/
 def catalogObligationDoors : List Name :=
@@ -236,6 +257,7 @@ def anchors : List (Name × List Name) :=
    (``BinaryFv.SSZ.Zesu.Contracts.Footprint.heapLayer_footprints_abi, heapFootprintDoors),
    (``BinaryFv.SSZ.Zesu.Contracts.Footprint.containerLayer_footprints_abi,
      containerFootprintDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.OwnershipComposition.rawV4_survives_chain, compositionDoors),
    (``BinaryFv.SSZ.root_compliance, rootDoors)]
 
 run_cmd do
