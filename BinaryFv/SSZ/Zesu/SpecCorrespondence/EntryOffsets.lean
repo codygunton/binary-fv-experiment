@@ -1811,11 +1811,12 @@ theorem decodeRawV4_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes)
 The source checks `fork > 20` *inside* `meaningChainConfig`; the oracle checks it in `decodeRawV4`,
 after a complete canonical decode of the whole body. These two lemmas are the join.
 
-`chainConfig_acceptance_is_fork_bound` reads the container obligation on an accepting slice, giving the
-source's chainConfig acceptance as the bound on that field's decoded value.
-`rawV4_fork_eq_field_fork` says the oracle's whole-body projection *is* that field projection. Together
-the two checks are the same predicate applied at two layers — which is the fact the row derived three
-times independently and can now cite. -/
+**Nothing here is discharged, and the wording matters.** `sourceShapedContainersAgreeWithOracle`
+already states the `fork ≤ 20` bound in the oracle's terms — the bound is written into the obligation
+at `Containers.lean:365`. So `chainConfig_acceptance_is_fork_bound` is that *assumed* fact specialised
+to its accepting branch, and the only new content in the pair is `rawV4_fork_eq_field_fork`, which is
+`rfl`. What these lemmas do is move a supplied bound to the layer that consumes it; they do not prove
+the two checks agree. A reader must not mistake this for the match having been established. -/
 
 theorem chainConfig_acceptance_is_fork_bound
     (containersAgree : sourceShapedContainersAgreeWithOracle)
