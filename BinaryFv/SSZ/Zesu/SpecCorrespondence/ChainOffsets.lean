@@ -1630,4 +1630,36 @@ theorem meaningReadU64_exists (b : ByteArray) (i : Nat) (fits : i + 8 ≤ b.size
   obtain ⟨w, hw⟩ := readUInt64LE_exists b i fits
   exact ⟨w, by rw [meaningReadU64, hw]; rfl⟩
 
+/-- **A successful `forkConfig` decode's `fork` field IS the inline read.** Stated narrowly rather than as
+the full forward direction, because the acceptance join needs exactly this and nothing more: to compare the
+source's `fork > 20` test against the oracle-shaped bound it must know the two are looking at the same
+value. -/
+theorem decodeCanonical_forkConfig_fork_eq (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1])
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size)
+    {x0 : UInt64} (a0 : readUInt64LE b 0 = some x0)
+    {v : SszBridge.forkConfigType.interp}
+    (hdc : SszBridge.decodeCanonical SszBridge.forkConfigType b = .ok v) :
+    v.1 = x0 := by
+  subst h0
+  have h16 : 16 ≤ b.size := extractFieldOffsets_forkConfig_fits b 16 o1 hoffs
+  rw [decodeCanonical_forkConfig_unfold b 16 o1 hoffs rfl,
+    deserializeVarFields_forkConfig b 16 o1 (by omega) h01 h1 a0] at hdc
+  split at hdc
+  · exact absurd hdc (by simp)
+  · -- The outer `split` binds the walk's own match into a hypothesis rather than splitting it; the
+    -- remaining case analysis is on THAT, not on the goal.
+    rename_i v' heq
+    split at heq
+    · exact absurd heq (by simp)
+    · split at heq
+      · exact absurd heq (by simp)
+      · simp only [Except.ok.injEq] at heq
+        subst heq
+        split at hdc
+        · simp only [Except.ok.injEq] at hdc
+          subst hdc
+          rfl
+        · exact absurd hdc (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
