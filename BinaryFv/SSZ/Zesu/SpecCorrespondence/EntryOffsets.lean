@@ -2445,24 +2445,6 @@ theorem meaningRequireCanonicalOffsets_only_invalidSsz (bytes : ByteArray) (fixe
   · exact .inr rfl
   · exact canonicalOffsets_walk_only_invalidSsz bytes offs fixedSize
 
-/-- The three oracle-shaped field meanings can only fail with `invalidSsz`, because
-`sszToDecodeError` is the constant function. So `unknownFork` out of `meaningDecodeRaw` can only have
-come from `meaningChainConfig`. -/
-theorem oracleShaped_only_invalidSsz (b : ByteArray) :
-    (meaningNewPayloadRequest b = .error .unknownFork → False) ∧
-      (meaningExecutionWitness b = .error .unknownFork → False) ∧
-      (meaningPublicKeys b = .error .unknownFork → False) := by
-  refine ⟨?_, ?_, ?_⟩
-  · intro h
-    rw [meaningNewPayloadRequest] at h
-    split at h <;> exact absurd h (by simp [sszToDecodeError])
-  · intro h
-    rw [meaningExecutionWitness] at h
-    split at h <;> exact absurd h (by simp [sszToDecodeError])
-  · intro h
-    rw [meaningPublicKeys] at h
-    split at h <;> exact absurd h (by simp [sszToDecodeError])
-
 /-! ### Arm 2: `unknownFork` pins how far the decode got
 
 `oracle_retry_rejects` needs `hasSchemaId bytes` and a first offset of exactly 16. Both follow from the
@@ -2470,13 +2452,14 @@ source having raised `unknownFork` at all, and the reason is the offset check: i
 `invalidSsz`, so an `unknownFork` proves it *succeeded*, and a successful check pins the first offset to
 16 by equality rather than by bound.
 
-**A prediction that did not hold, recorded because the lemma is still in the file.** I expected this to
-need `oracleShaped_only_invalidSsz` — that the three oracle-shaped field meanings cannot raise
-`unknownFork` either — in order to locate the error at `meaningChainConfig`. It does not: the conclusion
-is only about the offset check, so knowing *which* field decode raised the error is not required.
-That lemma is therefore needed-only-by-a-proof-I-did-not-write, and is retained solely because its shape
-is what the `outOfMemory` half of this arm wants. If that half lands without it, it should be deleted
-rather than left looking load-bearing. -/
+**A prediction that did not hold, and the lemma it produced has been deleted.** I expected this to need
+a fact that the three oracle-shaped field meanings cannot raise `unknownFork` either, in order to locate
+the error at `meaningChainConfig`, and wrote one. It is not needed: the conclusion is only about the
+offset check, so *which* field decode raised the error is irrelevant. It was kept for one commit on the
+theory that the `outOfMemory` half would want its shape — and that half turned out to be four lines
+routed through `outOfMemoryUnreachableBelowBound_holds`, wanting nothing of the sort. So it was
+needed-only-by-proofs-nobody-wrote, twice over, and is gone. An unused lemma in a proof file reads as
+content; leaving it would have overstated what this section establishes. -/
 
 /-- The error counterpart of `except_bind_ok`. -/
 theorem except_bind_error {α β : Type} (e : SszDecodeError) (f : α → Except SszDecodeError β) :
@@ -2516,6 +2499,20 @@ theorem unknownFork_forces_canonical_prefix {bytes : ByteArray} (h : rootComplia
     exact readU32LE?_of_meaningReadOffset (bytes.extract 2 bytes.size) 0 16 r0
   · rw [hcan, except_bind_error] at herr
     exact absurd herr (by simp)
+
+/-- **The `outOfMemory` half of arm 2.** The source's raw decode never demands an allocation failure,
+so the oracle's retry has nothing to be matched against on that constructor.
+
+Routed through `outOfMemoryUnreachableBelowBound_holds` rather than proved again structurally:
+`meaningDecode` propagates every non-`invalidSsz` raw error unchanged, so the raw-level statement is
+the outer one read backwards. Four lines, and it is why the lemma this section previously carried for
+the purpose is gone. -/
+theorem meaningDecodeRaw_ne_outOfMemory {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    meaningDecodeRaw bytes ≠ .error .outOfMemory := by
+  intro hoom
+  have hne := outOfMemoryUnreachableBelowBound_holds bytes h
+  rw [meaningDecode, hoom] at hne
+  exact hne rfl
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
