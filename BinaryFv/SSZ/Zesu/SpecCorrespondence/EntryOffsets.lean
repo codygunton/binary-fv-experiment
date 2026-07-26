@@ -2381,6 +2381,88 @@ theorem quarantined_of_rawOrQuarantine {bytes : ByteArray} (hs : rootComplianceS
   · assumption
   · exact absurd h (decodeRawV4_ne_quarantined hs)
 
+/-! ### Arm 3's condition, and arm 2's groundwork
+
+Arm 3 turned out to be transcription rather than content, which was the prediction recorded before
+checking it: the source tests `size >= 4 && declared == size - 4` and the oracle tests only
+`declared == size - 4`, and the extra conjunct is already implied by `readU32LE?` returning `some`.
+Recorded as a confirmed prediction rather than silently, because a predicted-easy step is where this
+row has been wrong before.
+
+Arm 2 needs the opposite kind of fact, and the lemmas below are what make `unknownFork` *locate its own
+cause*: every step of `meaningDecodeRaw` before the four field decodes fails only with `invalidSsz`,
+and so do the three oracle-shaped field meanings, because `sszToDecodeError` is the constant function.
+So an `unknownFork` can only have come from `meaningChainConfig`, which pins how far the decode got —
+and that is exactly what supplies `oracle_retry_rejects`' two hypotheses. -/
+
+/-- A successful `readU32LE?` at offset 0 already forces four bytes. -/
+theorem readU32LE?_fits {bytes : ByteArray} {d : Nat}
+    (h : SszBridge.readU32LE? bytes 0 = some d) : 4 ≤ bytes.size := by
+  rw [SszBridge.readU32LE?] at h
+  split at h
+  · exact absurd h (by simp)
+  · omega
+
+/-- **The two retry conditions are the same condition.** -/
+theorem meaningHasExactErePrefix_eq (bytes : ByteArray) {d : Nat}
+    (hd : SszBridge.readU32LE? bytes 0 = some d) :
+    meaningHasExactErePrefix bytes = (d == bytes.size - 4) := by
+  rw [meaningHasExactErePrefix, hd]
+  simp [readU32LE?_fits hd]
+
+/-- With no readable length prefix neither side retries. -/
+theorem meaningHasExactErePrefix_none {bytes : ByteArray}
+    (hd : SszBridge.readU32LE? bytes 0 = none) : meaningHasExactErePrefix bytes = false := by
+  rw [meaningHasExactErePrefix, hd]
+
+/-! ### The offset check cannot raise `unknownFork`
+
+Needed for arm 2, and it is the fact that makes `unknownFork` *locate* its own cause: if every step of
+`meaningDecodeRaw` before the four field decodes can only fail with `invalidSsz`, then an
+`unknownFork` pins down how far the decode got, which is what supplies `oracle_retry_rejects`'
+hypotheses. -/
+
+theorem canonicalOffsets_walk_only_invalidSsz (bytes : ByteArray) :
+    ∀ (offs : List Nat) (prev : Nat),
+      meaningRequireCanonicalOffsets.walk bytes prev offs = .ok () ∨
+        meaningRequireCanonicalOffsets.walk bytes prev offs = .error .invalidSsz := by
+  intro offs
+  induction offs with
+  | nil => intro prev; exact .inl rfl
+  | cons o rest ih =>
+      intro prev
+      rw [meaningRequireCanonicalOffsets.walk]
+      split
+      · exact .inr rfl
+      · exact ih o
+
+theorem meaningRequireCanonicalOffsets_only_invalidSsz (bytes : ByteArray) (fixedSize : Nat)
+    (offs : List Nat) :
+    meaningRequireCanonicalOffsets bytes fixedSize offs = .ok () ∨
+      meaningRequireCanonicalOffsets bytes fixedSize offs = .error .invalidSsz := by
+  rw [meaningRequireCanonicalOffsets]
+  split
+  · exact .inr rfl
+  · exact canonicalOffsets_walk_only_invalidSsz bytes offs fixedSize
+
+/-- The three oracle-shaped field meanings can only fail with `invalidSsz`, because
+`sszToDecodeError` is the constant function. So `unknownFork` out of `meaningDecodeRaw` can only have
+come from `meaningChainConfig`. -/
+theorem oracleShaped_only_invalidSsz (b : ByteArray) :
+    (meaningNewPayloadRequest b = .error .unknownFork → False) ∧
+      (meaningExecutionWitness b = .error .unknownFork → False) ∧
+      (meaningPublicKeys b = .error .unknownFork → False) := by
+  refine ⟨?_, ?_, ?_⟩
+  · intro h
+    rw [meaningNewPayloadRequest] at h
+    split at h <;> exact absurd h (by simp [sszToDecodeError])
+  · intro h
+    rw [meaningExecutionWitness] at h
+    split at h <;> exact absurd h (by simp [sszToDecodeError])
+  · intro h
+    rw [meaningPublicKeys] at h
+    split at h <;> exact absurd h (by simp [sszToDecodeError])
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
