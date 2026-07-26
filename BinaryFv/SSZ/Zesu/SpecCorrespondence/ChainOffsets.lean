@@ -1,4 +1,5 @@
 import BinaryFv.SSZ.Zesu.SpecCorrespondence.EntryOffsets
+import SizzLean.Proofs.SizeBound
 
 /-!
 # The activation / forkConfig / chainConfig chain
@@ -1970,5 +1971,185 @@ theorem chainConfig_acceptance_agrees (b : ByteArray) (hu32 : b.size < UInt32.si
         have hrej := decodeCanonical_chainConfig_rejects_noncanonical b o hoffs hbad
         rw [hdc] at hrej
         exact absurd hrej (by simp [Except.toOption])
+
+/-! ## Size bounds for the three chain schemas
+
+Item 6.3. What makes this section short is a division of labour worth recording, because the
+opposite conclusion was reached twice before the evidence was checked.
+
+`SizzLean.Proofs.encode_size_le_max` is gated on `SSZType.BasicSupported`, and
+`BasicSupported chainConfigType` is **false** — a container with variable-size fields has no
+`BasicSupported` constructor. That much is right, and it is why no bound for these three types falls
+out of the pin directly. But the predicate is *not* "all-fixed containers only": `BasicSupported`
+carries a `listFixed` constructor (`Spec/BasicSupported.lean:96`) admitting `.list t cap` for any
+fixed, `BasicSupported`, positively-sized `t`. So the gate does not bite at the two list leaves at
+all. It bites at exactly the three variable-field containers, and nowhere else in this chain.
+
+That leaves one structural fact to supply per container — serialization is the fixed section
+followed by the concatenated children — and this module already proved it three times, for a
+different purpose, in `serialize_forkActivation` / `serialize_forkConfig` / `serialize_chainConfig`.
+So the bounds below are assembly: expand, `ByteArray.size_append`, discharge the leaves upstream,
+`omega`.
+
+Every statement is against `SSZType.maxByteLength`, never against a numeral. The `hmax` steps
+decompose a cap into its constituent caps and offset widths by `decide`, so the concrete byte counts
+are derived by the kernel at each use and appear nowhere in the source. Changing a cap in
+`SszBridge` changes what these theorems say, rather than falsifying them silently. -/
+
+/-- `blobScheduleType` is an all-fixed container of three `u64`s, so it is inside the gate. -/
+theorem blobScheduleType_basicSupported :
+    SSZType.BasicSupported SszBridge.blobScheduleType :=
+  .containerFixed (.cons .uintN64 rfl (.cons .uintN64 rfl (.cons .uintN64 rfl .nil)))
+
+/-- A list of fixed elements is itself `BasicSupported` — the constructor that makes the leaves free.
+The third argument is the `0 < t.fixedByteSize` side condition that rules out the `.container []`
+element pathology; for `u64` it is `decide`-able. -/
+theorem optionalU64List_basicSupported :
+    SSZType.BasicSupported
+      (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) :=
+  .listFixed .uintN64 rfl (by decide)
+
+theorem blobScheduleList_basicSupported :
+    SSZType.BasicSupported
+      (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork) :=
+  .listFixed blobScheduleType_basicSupported rfl (by decide)
+
+theorem optionalU64List_size_le
+    (v : (SSZType.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues).interp) :
+    (SSZType.serialize
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) v).size
+      ≤ SSZType.maxByteLength
+          (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) :=
+  SizzLean.Proofs.encode_size_le_max optionalU64List_basicSupported v
+
+theorem blobScheduleList_size_le
+    (v : (SSZType.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork).interp) :
+    (SSZType.serialize
+        (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork) v).size
+      ≤ SSZType.maxByteLength
+          (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork) :=
+  SizzLean.Proofs.encode_size_le_max blobScheduleList_basicSupported v
+
+/-- Named rather than inlined so `omega` gets the offset width as an equation instead of an opaque
+atom; the alternative is writing `4` into each bound proof. -/
+theorem bytesPerLengthOffset_eq : BYTES_PER_LENGTH_OFFSET = 4 := rfl
+
+/-- **Base of the induction.** Two variable fields, so the fixed section is two offsets and the cap
+is two offset widths plus the two list caps. -/
+theorem forkActivation_size_le (v : SszBridge.forkActivationType.interp) :
+    (SSZType.serialize SszBridge.forkActivationType v).size
+      ≤ SSZType.maxByteLength SszBridge.forkActivationType := by
+  have hmax : SSZType.maxByteLength SszBridge.forkActivationType
+      = BYTES_PER_LENGTH_OFFSET + BYTES_PER_LENGTH_OFFSET
+        + SSZType.maxByteLength (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues)
+        + SSZType.maxByteLength (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) :=
+    by decide
+  have h0 := optionalU64List_size_le v.1
+  have h1 := optionalU64List_size_le v.2.1
+  have hb := bytesPerLengthOffset_eq
+  show (SSZType.serialize (.container forkActivationFields) v).size ≤ _
+  rw [serialize_forkActivation v _ _ rfl rfl]
+  simp only [ByteArray.size_append, uint32LE_size]
+  omega
+
+/-- **Inductive step, first application.** The leading fixed `u64` contributes its own bytes inline
+rather than an offset, which is why `hu` is needed and why the cap has one `maxByteLength u64` term
+where `forkActivation`'s has none. -/
+theorem forkConfig_size_le (v : SszBridge.forkConfigType.interp) :
+    (SSZType.serialize SszBridge.forkConfigType v).size
+      ≤ SSZType.maxByteLength SszBridge.forkConfigType := by
+  have hmax : SSZType.maxByteLength SszBridge.forkConfigType
+      = SSZType.maxByteLength SszBridge.u64
+        + BYTES_PER_LENGTH_OFFSET + BYTES_PER_LENGTH_OFFSET
+        + SSZType.maxByteLength SszBridge.forkActivationType
+        + SSZType.maxByteLength
+            (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork) := by decide
+  have hu : SSZType.maxByteLength SszBridge.u64 = 8 := by decide
+  have h0 := serialize_u64_size v.1
+  have h1 := forkActivation_size_le v.2.1
+  have h2 := blobScheduleList_size_le v.2.2.1
+  have hb := bytesPerLengthOffset_eq
+  show (SSZType.serialize (.container forkConfigFields) v).size ≤ _
+  rw [serialize_forkConfig v _ _ _ rfl rfl rfl]
+  simp only [ByteArray.size_append, uint32LE_size]
+  omega
+
+/-- **Inductive step, second application — the bound 6.3 is after.** One inline fixed field and one
+offset, so the cap is `maxByteLength u64 + BYTES_PER_LENGTH_OFFSET + maxByteLength forkConfigType`.
+Stated against `maxByteLength chainConfigType`: the numeral it evaluates to is deliberately absent. -/
+theorem chainConfig_size_le (v : SszBridge.chainConfigType.interp) :
+    (SSZType.serialize SszBridge.chainConfigType v).size
+      ≤ SSZType.maxByteLength SszBridge.chainConfigType := by
+  have hmax : SSZType.maxByteLength SszBridge.chainConfigType
+      = SSZType.maxByteLength SszBridge.u64 + BYTES_PER_LENGTH_OFFSET
+        + SSZType.maxByteLength SszBridge.forkConfigType := by decide
+  have hu : SSZType.maxByteLength SszBridge.u64 = 8 := by decide
+  have h0 := serialize_u64_size v.1
+  have h1 := forkConfig_size_le v.2.1
+  have hb := bytesPerLengthOffset_eq
+  show (SSZType.serialize (.container chainConfigFields) v).size ≤ _
+  rw [serialize_chainConfig v _ _ rfl rfl]
+  simp only [ByteArray.size_append, uint32LE_size]
+  omega
+
+/-! ### Rejection above the bound
+
+The payoff. `decodeCanonical` is a *canonical* decoder: `decodeCanonical_inv` extracts from any
+success the fact that the input is literally the re-serialization of the decoded value. So a buffer
+longer than the schema's maximum serialization cannot be one, and acceptance is impossible — no
+appeal to the decoder's internals, only to the bound above.
+
+This is what subsumes the `hu32` hypothesis threaded through the chain's acceptance joins: a
+`b.size < 2^32` side condition is implied by `b.size ≤ maxByteLength chainConfigType` on every
+accepted buffer, and on rejected ones the join no longer needs it. -/
+
+theorem decodeCanonical_forkActivation_rejects_oversized {b : ByteArray}
+    (hb : SSZType.maxByteLength SszBridge.forkActivationType < b.size) :
+    (SszBridge.decodeCanonical SszBridge.forkActivationType b).toOption.isSome = false := by
+  cases hdc : SszBridge.decodeCanonical SszBridge.forkActivationType b with
+  | error e => simp [Except.toOption]
+  | ok x =>
+      obtain ⟨-, hser⟩ := decodeCanonical_inv hdc
+      have hle := forkActivation_size_le x
+      rw [hser] at hle
+      omega
+
+theorem decodeCanonical_forkConfig_rejects_oversized {b : ByteArray}
+    (hb : SSZType.maxByteLength SszBridge.forkConfigType < b.size) :
+    (SszBridge.decodeCanonical SszBridge.forkConfigType b).toOption.isSome = false := by
+  cases hdc : SszBridge.decodeCanonical SszBridge.forkConfigType b with
+  | error e => simp [Except.toOption]
+  | ok x =>
+      obtain ⟨-, hser⟩ := decodeCanonical_inv hdc
+      have hle := forkConfig_size_le x
+      rw [hser] at hle
+      omega
+
+/-- **Both sides reject above the bound**, oracle side. -/
+theorem decodeCanonical_chainConfig_rejects_oversized {b : ByteArray}
+    (hb : SSZType.maxByteLength SszBridge.chainConfigType < b.size) :
+    (SszBridge.decodeCanonical SszBridge.chainConfigType b).toOption.isSome = false := by
+  cases hdc : SszBridge.decodeCanonical SszBridge.chainConfigType b with
+  | error e => simp [Except.toOption]
+  | ok x =>
+      obtain ⟨-, hser⟩ := decodeCanonical_inv hdc
+      have hle := chainConfig_size_le x
+      rw [hser] at hle
+      omega
+
+/-- Every accepted `chainConfig` buffer is within the schema's maximum, hence well inside `2^32`.
+This is the form the acceptance joins consume: it turns `hu32` from a hypothesis that has to be
+supplied into a consequence of acceptance. -/
+theorem decodeCanonical_chainConfig_size_lt_u32 {b : ByteArray}
+    (h : (SszBridge.decodeCanonical SszBridge.chainConfigType b).toOption.isSome = true) :
+    b.size < 2 ^ 32 := by
+  have hcap : SSZType.maxByteLength SszBridge.chainConfigType < 2 ^ 32 := by decide
+  cases hdc : SszBridge.decodeCanonical SszBridge.chainConfigType b with
+  | error e => rw [hdc] at h; simp [Except.toOption] at h
+  | ok x =>
+      obtain ⟨-, hser⟩ := decodeCanonical_inv hdc
+      have hle := chainConfig_size_le x
+      rw [hser] at hle
+      omega
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
