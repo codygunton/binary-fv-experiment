@@ -1686,6 +1686,42 @@ theorem v3ShapeExcludesCanonicalV4_holds : v3ShapeExcludesCanonicalV4 := by
         exact absurd h528 (by decide)
       · exact absurd hext (by simp)
 
+/-! ## The `tooLarge` gate is dead inside the root's scope
+
+`decodeStatelessInput` opens with `size ≥ 2 ^ 32 → tooLarge`, and `decodeRawV4` repeats it. Inside
+`rootComplianceScope` — `size < 2 * 1024 * 1024` — neither can fire, because 2 MiB is three orders of
+magnitude below 2^32.
+
+This is why the scope hypothesis is on the obligation rather than being an incidental convenience:
+`ereGateDivergesAboveU32` exhibits a witness *above* the bound where the two sides genuinely disagree,
+so the agreement is true because of the scope, not despite it. Recording the gate as unreachable in
+scope is what connects those two facts. -/
+
+theorem tooLarge_gate_unreachable_in_scope {bytes : ByteArray}
+    (h : rootComplianceScope bytes) : ¬ (bytes.size ≥ 2 ^ 32) := by
+  rw [rootComplianceScope] at h
+  omega
+
+/-- `decodeStatelessInput` with the dead gate removed: inside scope it *is* the
+raw-or-quarantine path plus the ERE retry. -/
+theorem decodeStatelessInput_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    SszBridge.decodeStatelessInput bytes =
+      match SszBridge.decodeRawOrQuarantineV3 bytes with
+      | .ok value => .ok value
+      | .error rawError =>
+          match rawError with
+          | .v3Quarantined => .error rawError
+          | _ =>
+              match SszBridge.readU32LE? bytes 0 with
+              | some declaredLength =>
+                  if declaredLength == bytes.size - 4 then
+                    SszBridge.decodeRawOrQuarantineV3 (bytes.extract 4 bytes.size)
+                  else .error rawError
+              | none => .error rawError := by
+  rw [SszBridge.decodeStatelessInput, if_neg (tooLarge_gate_unreachable_in_scope h)]
+  -- Same match on both sides, differing motives: reduce the scrutinee on both rather than the left.
+  cases SszBridge.decodeRawOrQuarantineV3 bytes <;> rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
