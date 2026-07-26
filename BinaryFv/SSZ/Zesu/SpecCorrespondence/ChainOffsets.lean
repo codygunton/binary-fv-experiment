@@ -576,4 +576,74 @@ theorem requireCanonicalOffsets_chainConfig (b : ByteArray) (o : Nat) :
     subst hmem
     omega
 
+/-! ### The rejection side of the `forkActivation` join
+
+The three places the two sides differ, at this schema, closed the same way as at the entry: the
+eight-byte test (source explicit, oracle via the derived `fixedSectionSizeFields`), the table's existence
+above eight bytes, and the offset discipline — which again has to be run *backwards*, from a successful
+walk to the inequalities it must have passed, because the oracle has no single counterpart check.
+
+**One application of `deserializeVarFields_var_guard` suffices here where the entry needed three.** At
+arity two the first application already reads `o1 ≤ b.size` off the last offset's sentinel, so both
+conjuncts fall out at once. That is the arity-free guard paying off a third time — it was written for the
+entry, reused at `chainConfig`, and here it collapses the whole iteration.
+
+**Not gated.** Lead's differential gate is on the join to `meaningChainConfig` specifically, which is where
+`sourceShapedContainersAgreeWithOracle` is stated and where a false statement gets expensive. Nothing here
+touches that obligation: `forkActivation` carries no fork bound and no obligation is stated at it.
+
+**Still owed for this join:** the accepting case — the value-level decomposition and the re-serialization
+equality at arity two, which is what `serialize_entry` and the `append4_*` family did for the entry. That
+is the larger half. -/
+
+theorem decodeCanonical_forkActivation_short {b : ByteArray} (h : b.size < 8) :
+    SszBridge.decodeCanonical SszBridge.forkActivationType b = .error .tooShort := by
+  have hdes : SSZType.deserialize SszBridge.forkActivationType b = .error .tooShort := by
+    show SSZType.deserialize (.container forkActivationFields) b = _
+    rw [SSZType.deserialize, if_neg (by rw [forkActivationFields_not_allFixed]; simp)]
+    simp only []
+    rw [if_pos (by rw [forkActivationFields_fixedSection]; omega)]
+  rw [SszBridge.decodeCanonical, hdes]
+  rfl
+
+theorem forkActivation_offsets_of_eight (b : ByteArray) (h : 8 ≤ b.size) :
+    ∃ o0 o1, extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1] := by
+  obtain ⟨w0, e0⟩ := readUInt32LE_exists b 0 (by omega)
+  obtain ⟨w1, e1⟩ := readUInt32LE_exists b 4 (by omega)
+  exact ⟨w0.toNat, w1.toNat, by rw [extractFieldOffsets_forkActivation, e0, e1]⟩
+
+/-- A successful `forkActivation` walk forces the source's monotonicity conjuncts. One application of
+the arity-free guard lemma suffices here, where the entry needed three: at arity two the first
+application already reads `o1 <= b.size` off the last offset's sentinel. -/
+theorem deserializeVarFields_forkActivation_offsets_sound {b : ByteArray} {o0 o1 : Nat}
+    {v : SSZType.interpFields forkActivationFields}
+    (h : SSZType.deserializeVarFields forkActivationFields b 0 [o0, o1] b.size = .ok v) :
+    o0 ≤ o1 ∧ o1 ≤ b.size := by
+  have h0 : SSZType.deserializeVarFields
+      (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues ::
+        [.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues])
+      b 0 [o0, o1] b.size = .ok v := h
+  obtain ⟨a01, a1, -, -⟩ := deserializeVarFields_var_guard optionalU64Field_not_fixed h0
+  simp only [List.head?_cons, Option.getD_some] at a01 a1
+  exact ⟨a01, a1⟩
+
+/-- **The oracle rejects exactly the `forkActivation` tables the source rejects.** -/
+theorem decodeCanonical_forkActivation_rejects_noncanonical (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1])
+    (hbad : ¬ (o0 = 8 ∧ o0 ≤ o1 ∧ o1 ≤ b.size)) :
+    (SszBridge.decodeCanonical SszBridge.forkActivationType b).toOption.isSome = false := by
+  cases hdc : SszBridge.decodeCanonical SszBridge.forkActivationType b with
+  | error e => rfl
+  | ok v =>
+      exfalso
+      obtain ⟨hdes, -⟩ := decodeCanonical_inv hdc
+      have hdes' : SSZType.deserialize (.container forkActivationFields) b = .ok (v, b.size) := hdes
+      obtain ⟨offs, hext, hhead, hwalk⟩ :=
+        deserialize_container_parts forkActivationFields_not_allFixed hdes'
+      rw [hoffs] at hext
+      have hoff : [o0, o1] = offs := by injection hext
+      subst hoff
+      rw [forkActivationFields_fixedSection, List.head?_cons, Option.some.injEq] at hhead
+      exact hbad ⟨hhead, deserializeVarFields_forkActivation_offsets_sound hwalk⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
