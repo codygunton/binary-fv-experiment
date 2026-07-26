@@ -1477,6 +1477,57 @@ theorem deserialize_container_parts {fs : List SSZType} {b : ByteArray}
                 exact Classical.byContradiction fun hc => hfirst hc
               · rw [hwalk, h.1]
 
+/-! ### What the V3 classifier actually asserts
+
+`hasV3PayloadShape` is nested `if`s and `match`es over three levels of slice. This extracts its
+content in the form the exclusion consumes: the schema id, the two body offsets with the first pinned
+to 16, the two request offsets with the first pinned to 44, and the payload byte 436 demanded to be
+528.
+
+The two pinned constants are stated as literals rather than variables because the classifier tests
+them with `!=` and rejects otherwise — so a buffer that passes has exactly those values, and carrying
+them as variables would lose the fact the exclusion turns on. -/
+
+theorem hasV3PayloadShape_parts {bytes : ByteArray}
+    (h : SszBridge.hasV3PayloadShape bytes = true) :
+    ∃ hashesOffset payloadEnd,
+      SszBridge.hasSchemaId bytes = true ∧
+      SszBridge.readU32LE? (bytes.extract 2 bytes.size) 0 = some 16 ∧
+      SszBridge.readU32LE? (bytes.extract 2 bytes.size) 4 = some hashesOffset ∧
+      SszBridge.readU32LE? ((bytes.extract 2 bytes.size).extract 16 hashesOffset) 0 = some 44 ∧
+      SszBridge.readU32LE? ((bytes.extract 2 bytes.size).extract 16 hashesOffset) 4
+        = some payloadEnd ∧
+      SszBridge.readU32LE?
+        (((bytes.extract 2 bytes.size).extract 16 hashesOffset).extract 44 payloadEnd) 436
+          = some 528 := by
+  rw [SszBridge.hasV3PayloadShape] at h
+  split at h
+  · exact absurd h (by simp)
+  · rename_i hschema
+    simp only [Bool.not_eq_true'] at hschema
+    simp only [] at h
+    split at h
+    · rename_i req hashes hr hh
+      split at h
+      · exact absurd h (by simp)
+      · rename_i hbad
+        simp only [Bool.not_or, Bool.not_eq_true, bne_iff_ne, ne_eq, Decidable.not_not,
+          decide_eq_true_eq, Bool.decide_or, Bool.or_eq_false_iff] at hbad
+        split at h
+        · rename_i po pe hp hpe
+          split at h
+          · exact absurd h (by simp)
+          · rename_i hbad2
+            simp only [Bool.not_or, Bool.not_eq_true, bne_iff_ne, ne_eq, Decidable.not_not,
+              decide_eq_true_eq, Bool.decide_or, Bool.or_eq_false_iff] at hbad2
+            have hreq : req = 16 := by simpa using hbad.1.1
+            have hpo : po = 44 := by simpa using hbad2.1.1
+            subst hreq
+            subst hpo
+            exact ⟨hashes, pe, by simpa using hschema, hr, hh, hp, hpe, by simpa using h⟩
+        · exact absurd h (by simp)
+    · exact absurd h (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
