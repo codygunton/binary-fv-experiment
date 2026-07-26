@@ -1806,6 +1806,34 @@ theorem decodeRawV4_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes)
     · cases SszBridge.decodeCanonical SszBridge.statelessInputV4Type (bytes.extract 2 bytes.size) <;>
         rfl
 
+/-! ### The fork bound, matched across the layer boundary
+
+The source checks `fork > 20` *inside* `meaningChainConfig`; the oracle checks it in `decodeRawV4`,
+after a complete canonical decode of the whole body. These two lemmas are the join.
+
+`chainConfig_acceptance_is_fork_bound` reads the container obligation on an accepting slice, giving the
+source's chainConfig acceptance as the bound on that field's decoded value.
+`rawV4_fork_eq_field_fork` says the oracle's whole-body projection *is* that field projection. Together
+the two checks are the same predicate applied at two layers — which is the fact the row derived three
+times independently and can now cite. -/
+
+theorem chainConfig_acceptance_is_fork_bound
+    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    {slice : ByteArray} {value : SszBridge.chainConfigType.interp}
+    (hdec : SszBridge.decodeCanonical SszBridge.chainConfigType slice = .ok value) :
+    isAccepted (meaningChainConfig slice)
+      = decide ((SszBridge.rawChainConfigOf value).activeFork.fork ≤ 20) := by
+  rw [containersAgree slice, hdec]
+
+/-- The same bound, stated against the whole-body value the oracle actually reads it from. -/
+theorem chainConfig_acceptance_is_rawV4_fork_bound
+    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    {slice : ByteArray} {v : SszBridge.statelessInputV4Type.interp}
+    (hdec : SszBridge.decodeCanonical SszBridge.chainConfigType slice = .ok v.2.2.1) :
+    isAccepted (meaningChainConfig slice)
+      = decide ((SszBridge.rawV4OfInterp v).chainConfig.activeFork.fork ≤ 20) := by
+  rw [chainConfig_acceptance_is_fork_bound containersAgree hdec, rawV4_fork_eq_field_fork]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
