@@ -836,4 +836,44 @@ theorem meaningOptionalU64_accepted (b : ByteArray) :
   cases h : SszBridge.decodeCanonical optionalU64Type b <;>
     simp [meaningOptionalU64, isAccepted, Except.toOption, h]
 
+/-! ### Acceptance granularity, in the form the composition holds
+
+Two corollaries rather than one, and the second is the one that gets used. The composition's backward
+direction arrives carrying `isSome` *facts* about the two fields, not *witnesses* for them — the values
+were discarded by whatever produced the acceptance. `except_isSome_iff` recovers them, so
+`_of_accepted` is `_of_fields` with that step folded in.
+
+Stating both is deliberate: the value-level form is what the *proof* needs internally (the offset
+arithmetic is about the serialized widths, which only exist once you have the values), while the
+acceptance form is what the *caller* can supply. Collapsing them into one would force every call site to
+produce witnesses it does not have. Same split as `decodeCanonical_entry_of_fields` versus the `mpr`
+branch of `decodeCanonical_entry_iff_fields` at the entry. -/
+
+/-- Acceptance-granularity corollary of the value-level statement. -/
+theorem decodeCanonical_forkActivation_of_fields (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1])
+    (h0 : o0 = 8) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) (hu32 : b.size < UInt32.size)
+    {x0 x1 : (SSZType.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues).interp}
+    (a0 : SszBridge.decodeCanonical
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) (b.extract o0 o1) = .ok x0)
+    (a1 : SszBridge.decodeCanonical
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues)
+        (b.extract o1 b.size) = .ok x1) :
+    (SszBridge.decodeCanonical SszBridge.forkActivationType b).toOption.isSome = true := by
+  rw [decodeCanonical_forkActivation_eq_of_fields b o0 o1 hoffs h0 h01 h1 hu32 a0 a1]
+  rfl
+
+/-- The same, from *acceptance* of the two fields rather than from named values — the form the
+composition's backward direction actually holds, since it arrives with `isSome` facts rather than
+witnesses. `except_isSome_iff` supplies the witnesses. -/
+theorem decodeCanonical_forkActivation_of_accepted (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1])
+    (h0 : o0 = 8) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) (hu32 : b.size < UInt32.size)
+    (a0 : (SszBridge.decodeCanonical optionalU64Type (b.extract o0 o1)).toOption.isSome = true)
+    (a1 : (SszBridge.decodeCanonical optionalU64Type (b.extract o1 b.size)).toOption.isSome = true) :
+    (SszBridge.decodeCanonical SszBridge.forkActivationType b).toOption.isSome = true := by
+  obtain ⟨x0, e0⟩ := except_isSome_iff.mp a0
+  obtain ⟨x1, e1⟩ := except_isSome_iff.mp a1
+  exact decodeCanonical_forkActivation_of_fields b o0 o1 hoffs h0 h01 h1 hu32 e0 e1
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
