@@ -2463,6 +2463,60 @@ theorem oracleShaped_only_invalidSsz (b : ByteArray) :
     rw [meaningPublicKeys] at h
     split at h <;> exact absurd h (by simp [sszToDecodeError])
 
+/-! ### Arm 2: `unknownFork` pins how far the decode got
+
+`oracle_retry_rejects` needs `hasSchemaId bytes` and a first offset of exactly 16. Both follow from the
+source having raised `unknownFork` at all, and the reason is the offset check: it can only fail with
+`invalidSsz`, so an `unknownFork` proves it *succeeded*, and a successful check pins the first offset to
+16 by equality rather than by bound.
+
+**A prediction that did not hold, recorded because the lemma is still in the file.** I expected this to
+need `oracleShaped_only_invalidSsz` — that the three oracle-shaped field meanings cannot raise
+`unknownFork` either — in order to locate the error at `meaningChainConfig`. It does not: the conclusion
+is only about the offset check, so knowing *which* field decode raised the error is not required.
+That lemma is therefore needed-only-by-a-proof-I-did-not-write, and is retained solely because its shape
+is what the `outOfMemory` half of this arm wants. If that half lands without it, it should be deleted
+rather than left looking load-bearing. -/
+
+/-- The error counterpart of `except_bind_ok`. -/
+theorem except_bind_error {α β : Type} (e : SszDecodeError) (f : α → Except SszDecodeError β) :
+    (Except.error e : Except SszDecodeError α) >>= f = .error e := rfl
+
+theorem unknownFork_forces_canonical_prefix {bytes : ByteArray} (h : rootComplianceScope bytes)
+    (herr : meaningDecodeRaw bytes = .error .unknownFork) :
+    SszBridge.hasSchemaId bytes = true ∧
+      SszBridge.readU32LE? (bytes.extract 2 bytes.size) 0 = some 16 := by
+  rw [meaningDecodeRaw_in_scope h] at herr
+  by_cases hsize : bytes.size < 2
+  · rw [if_pos hsize] at herr; exact absurd herr (by simp)
+  have hschemaTrue : SszBridge.hasSchemaId bytes = true := by
+    cases hb : SszBridge.hasSchemaId bytes with
+    | true => rfl
+    | false =>
+        have hT : (!SszBridge.hasSchemaId bytes) = true := by simp [hb]
+        rw [if_neg hsize, if_pos hT] at herr
+        exact absurd herr (by simp)
+  have hnot : ¬ ((!SszBridge.hasSchemaId bytes) = true) := by simp [hschemaTrue]
+  rw [if_neg hsize, if_neg hnot] at herr
+  simp only [] at herr
+  refine ⟨hschemaTrue, ?_⟩
+  by_cases h16 : (bytes.extract 2 bytes.size).size < 16
+  · rw [if_pos h16] at herr; exact absurd herr (by simp)
+  rw [if_neg h16] at herr
+  obtain ⟨o0, o1, o2, o3, hoffs⟩ := entry_offsets_of_sixteen (bytes.extract 2 bytes.size) (by omega)
+  obtain ⟨r0, r1, r2, r3⟩ :=
+    (extractFieldOffsets_eq_meaningReads (bytes.extract 2 bytes.size) o0 o1 o2 o3).mp hoffs
+  simp only [r0, r1, r2, r3, except_bind_ok] at herr
+  -- The offset check cannot have failed: it only raises `invalidSsz`.
+  rcases meaningRequireCanonicalOffsets_only_invalidSsz (bytes.extract 2 bytes.size) 16
+      [o0, o1, o2, o3] with hcan | hcan
+  · obtain ⟨-, hc0, -, -, -, -⟩ :=
+      (requireCanonicalOffsets_entry (bytes.extract 2 bytes.size) o0 o1 o2 o3).mp hcan
+    subst hc0
+    exact readU32LE?_of_meaningReadOffset (bytes.extract 2 bytes.size) 0 16 r0
+  · rw [hcan, except_bind_error] at herr
+    exact absurd herr (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
