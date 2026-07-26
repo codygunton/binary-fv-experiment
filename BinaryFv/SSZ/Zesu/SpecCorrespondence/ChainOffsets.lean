@@ -715,4 +715,47 @@ theorem forkActivation_offsetBytes_iff (b : ByteArray) (o0 o1 : Nat)
   subst e0; subst e1
   exact ⟨uint32LE_eq_extract_iff b 0 n w0 r0 hn, uint32LE_eq_extract_iff b 4 n w1 r1 hn⟩
 
+/-! ### The join condition at arity two
+
+`serialize_entry_eq_body_iff` at arity two: the re-serialization equality splits into the two
+offset-table slots plus the variable region.
+
+**A mechanical trap distinct from the defeq family, worth its own note.** The natural move is
+`rw [← extract_split b 8 h8]` to open `b` up on the left of the iff. It does that — and *also* rewrites
+every `b` under `b.extract` on the right, producing a goal where both sides have been split and no
+subsequent lemma matches. `rw` has no notion of which side of an `Iff` you meant. The fix is
+`conv => lhs` to scope it, and note `conv_lhs` is **not** available here — only the block form. Two
+further wrinkles on the same lemma: rewriting to the *two-part* concatenation over-splits (the next
+lemma wants `b.extract 0 b.size`, so rewrite with `ByteArray.extract_zero_size` instead), and that
+lemma takes its buffer *implicitly*, so it needs `(b := b)` rather than a positional argument.
+
+Four iterations, against first-try for everything else in this section. The difference is that all of
+those were shape-preserving specialisations of an existing lemma, while this one had to *restructure* an
+`Iff` — and rewriting inside an `Iff` is where scoping starts to matter. -/
+
+/-- **The `forkActivation` join condition.** `serialize_entry_eq_body_iff` at arity two: the
+re-serialization equality splits into the two offset-table slots plus the variable region. -/
+theorem serialize_forkActivation_eq_body_iff (b : ByteArray)
+    (v : SSZType.interpFields forkActivationFields) (s0 s1 : ByteArray)
+    (e0 : SSZType.serialize
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) v.1 = s0)
+    (e1 : SSZType.serialize
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) v.2.1 = s1)
+    (h8 : 8 ≤ b.size) :
+    SSZType.serialize (.container forkActivationFields) v = b ↔
+      (uint32LE (Nat.toUInt32 8) = b.extract 0 4 ∧
+        uint32LE (Nat.toUInt32 (8 + s0.size)) = b.extract 4 8 ∧
+        s0 ++ s1 = b.extract 8 b.size) := by
+  rw [serialize_forkActivation v s0 s1 e0 e1]
+  have hp : (uint32LE (Nat.toUInt32 8) ++ uint32LE (Nat.toUInt32 (8 + s0.size))).size = 8 := by
+    rw [ByteArray.size_append, uint32LE_size, uint32LE_size]
+  -- Only the `b` on the right of the LEFT equation may be split; a bare `rw` rewrites the
+  -- occurrences under `b.extract` on the other side of the iff too.
+  conv =>
+    lhs
+    rw [← ByteArray.extract_zero_size (b := b)]
+  rw [append_eq_extract_iff b 0 8 b.size (by omega) h8 h8 (by rw [hp])]
+  rw [append_eq_extract_iff b 0 4 8 (by omega) (by omega) (by omega) (by rw [uint32LE_size])]
+  rw [and_assoc]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
