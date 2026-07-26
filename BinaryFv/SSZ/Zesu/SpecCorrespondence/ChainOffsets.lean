@@ -169,4 +169,22 @@ theorem deserialize_u64_extract (b : ByteArray) (i : Nat) (h : i + 8 ≤ b.size)
   rw [SSZType.deserialize]
   simp only [hlocal]
 
+/-- **The oracle slices `chainConfig` where the source does**, and reads its fixed field from the
+prefix. Consumes `deserialize_u64_extract`: the `u64` arrives as a slice on the oracle side and as an
+in-place read on the source side, and this is where those two meet. -/
+theorem deserializeVarFields_chainConfig (b : ByteArray) (o : Nat)
+    (h8 : 8 ≤ b.size) (ho : o ≤ b.size) {v : UInt64} (hv : readUInt64LE b 0 = some v) :
+    SSZType.deserializeVarFields chainConfigFields b 0 [o] b.size =
+      match SSZType.deserialize SszBridge.forkConfigType (b.extract o b.size) with
+      | .error e => .error e
+      | .ok (x, _) => .ok (v, x, PUnit.unit) := by
+  have no : ¬ (o > b.size) := by omega
+  have nend : ¬ (b.size > b.size) := by omega
+  simp only [chainConfigFields, SSZType.deserializeVarFields, u64_isFixed, u64_fixedByteSize,
+    forkConfigType_not_fixed, List.head?_nil, Option.getD_none,
+    no, nend, decide_false, Bool.or_false, if_false, Bool.false_eq_true, if_true]
+  rw [deserialize_u64_extract b 0 (by omega) hv]
+  simp only [ne_eq, not_true_eq_false, if_false]
+  cases SSZType.deserialize SszBridge.forkConfigType (b.extract o b.size) <;> rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
