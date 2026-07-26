@@ -1486,7 +1486,12 @@ to 16, the two request offsets with the first pinned to 44, and the payload byte
 
 The two pinned constants are stated as literals rather than variables because the classifier tests
 them with `!=` and rejects otherwise — so a buffer that passes has exactly those values, and carrying
-them as variables would lose the fact the exclusion turns on. -/
+them as variables would lose the fact the exclusion turns on.
+
+**Do not helpfully generalise them.** The instinct that a statement quantified over its constants is
+stronger fails here: `16` and `44` are what meet the derived fixed-section sizes, so a version with
+variables would not be weaker-but-safer, it would be about something else. That is the
+not-about-this-layer failure appearing as over-generalisation rather than as a spurious hypothesis. -/
 
 theorem hasV3PayloadShape_parts {bytes : ByteArray}
     (h : SszBridge.hasV3PayloadShape bytes = true) :
@@ -1527,6 +1532,41 @@ theorem hasV3PayloadShape_parts {bytes : ByteArray}
             exact ⟨hashes, pe, by simpa using hschema, hr, hh, hp, hpe, by simpa using h⟩
         · exact absurd h (by simp)
     · exact absurd h (by simp)
+
+/-! ### The sharp end: byte 436 must read 540
+
+This is where the exclusion actually bites, and where the **second `bv_decide` door** enters, exactly
+as pre-announced: the classifier reads with `SszBridge.readU32LE?` while canonicality constrains
+`readUInt32LE`, and `readU32LE?_eq_map_readUInt32LE` is the only bridge general enough in offset and
+value to cross that. The zero-specific bridge does not apply.
+
+Everything else here is already proved: `deserialize_container_parts` pins the first offset to the
+fixed section size, `extractFieldOffsets_head_position` puts it at the leading-fixed width, and both
+numbers come from `decide` on the field list. -/
+
+theorem executionPayloadFields_not_allFixed :
+    SSZType.allFixedSize executionPayloadFields = false := by decide
+
+/-- The leading-fixed width in the exact form `extractFieldOffsets_head_position` produces. -/
+theorem executionPayloadFields_takeWhile_fixed :
+    SSZType.fixedSectionSizeFields
+      (executionPayloadFields.takeWhile SSZType.isFixedSize) = 436 := by decide
+
+/-- **A canonical execution-payload decode forces byte 436 to read 540**, which is exactly what the
+V3 classifier demands be 528. -/
+theorem executionPayload_byte436_eq_540 {payload : ByteArray}
+    {y : SSZType.interpFields executionPayloadFields} {u : Nat}
+    (h : SSZType.deserialize (.container executionPayloadFields) payload = .ok (y, u)) :
+    SszBridge.readU32LE? payload 436 = some 540 := by
+  obtain ⟨offs, hext, hhead, _⟩ := deserialize_container_parts executionPayloadFields_not_allFixed h
+  have hne : offs ≠ [] := by
+    intro hc; rw [hc] at hhead; exact absurd hhead (by simp)
+  have hpos := extractFieldOffsets_head_position payload executionPayloadFields 0 offs hext hne
+  rw [executionPayloadFields_takeWhile_fixed, Nat.zero_add] at hpos
+  rw [hhead, executionPayloadFields_fixedSection] at hpos
+  -- `hpos : some 540 = (readUInt32LE payload 436).map UInt32.toNat`; the bridge turns the classifier's
+  -- reader into that same expression.
+  rw [readU32LE?_eq_map_readUInt32LE, ← hpos]
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
