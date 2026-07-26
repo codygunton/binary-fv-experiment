@@ -166,6 +166,15 @@ theorem uint32LE_eq_literal (value : UInt32) :
     uint32LE value = ⟨#[value.toUInt8, (value >>> 8).toUInt8, (value >>> 16).toUInt8,
       (value >>> 24).toUInt8]⟩ := rfl
 
+/-- The `u64` counterpart, placed beside its sibling rather than in `ChainOffsets` where it is consumed:
+the `uintNLE` family belongs together, and a reader checking one width against the other should not have
+to cross modules. `rfl`, and it is the one prerequisite of the `u64` `eq_extract_iff` chain that carries
+no `bv_decide` -- the round trip and injectivity above it do. -/
+theorem uint64LE_eq_literal (value : UInt64) :
+    uint64LE value = ⟨#[value.toUInt8, (value >>> 8).toUInt8, (value >>> 16).toUInt8,
+      (value >>> 24).toUInt8, (value >>> 32).toUInt8, (value >>> 40).toUInt8,
+      (value >>> 48).toUInt8, (value >>> 56).toUInt8]⟩ := rfl
+
 theorem readUInt32LE_uint32LE (value : UInt32) : readUInt32LE (uint32LE value) 0 = some value := by
   rw [uint32LE_eq_literal, readUInt32LE, dif_pos (by simp [ByteArray.size])]
   show some (value.toUInt8.toUInt32 ||| (value >>> 8).toUInt8.toUInt32 <<< 8
