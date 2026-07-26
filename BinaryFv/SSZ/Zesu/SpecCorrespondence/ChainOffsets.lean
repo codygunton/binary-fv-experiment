@@ -1903,22 +1903,72 @@ theorem decodeCanonical_chainConfig_fields_of (b : ByteArray) (o : Nat)
         rfl
     · exact absurd hacc (by simp [Except.toOption])
 
-/-- The match-shaped failing-child fact at `chainConfig`, the `entry_forkGuard_false` analogue its join
-needs. One disjunct, not a disjunction -- there is only one child to fail. -/
-theorem chainConfig_forkGuard_false (b : ByteArray) (o : Nat)
-    (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o])
-    (h0 : o = 12) (h1 : o ≤ b.size) (hu32 : b.size < UInt32.size)
-    {x : UInt64} (ha0 : readUInt64LE b 0 = some x)
-    (hbad : (SszBridge.decodeCanonical SszBridge.forkConfigType
-      (b.extract o b.size)).toOption.isSome = false) :
-    (match SszBridge.decodeCanonical SszBridge.chainConfigType b with
-      | .ok v => decide ((SszBridge.rawChainConfigOf v).activeFork.fork ≤ 20)
-      | .error _ => false) = false := by
-  cases hdc : SszBridge.decodeCanonical SszBridge.chainConfigType b with
-  | error e => rfl
-  | ok v =>
-      have hp := decodeCanonical_chainConfig_fields_of b o hoffs h0 h1 hu32 ha0 (by rw [hdc]; rfl)
-      rw [hp] at hbad
-      exact absurd hbad (by simp)
+/-- `chainConfig`'s single child meaning: no conjunction at all, since one child cannot disagree with
+itself. The `chainId` is already bound when the child runs, so it is a parameter. -/
+theorem isAccepted_chainConfig_join (chainId : UInt64) (s : ByteArray) :
+    isAccepted (do
+        let activeFork ← meaningForkConfig s
+        return ({ chainId := chainId, activeFork := activeFork } : SszBridge.RawChainConfig))
+      = isAccepted (meaningForkConfig s) := by
+  cases meaningForkConfig s <;> rfl
+
+/-- **The `chainConfig` link, closed -- third of three.** And this statement is
+`sourceShapedContainersAgreeWithOracle`'s body verbatim, restricted to `b.size < UInt32.size`.
+
+The parent's bound and the child's are the SAME projection, definitionally: `rawChainConfigOf` sets
+`activeFork := rawForkConfigOf value.2.1` (`Core.lean:343-347`), so once
+`forkConfig_acceptance_agrees` supplies the child agreement there is nothing left to relate. -/
+theorem chainConfig_acceptance_agrees (b : ByteArray) (hu32 : b.size < UInt32.size) :
+    isAccepted (meaningChainConfig b)
+      = (match SszBridge.decodeCanonical SszBridge.chainConfigType b with
+          | .ok v => decide ((SszBridge.rawChainConfigOf v).activeFork.fork ≤ 20)
+          | .error _ => false) := by
+  have husz : UInt32.size = 4294967296 := rfl
+  rw [meaningChainConfig]
+  by_cases h12 : b.size < 12
+  · rw [if_pos h12, decodeCanonical_chainConfig_short h12]
+    rfl
+  rw [if_neg h12]
+  obtain ⟨o, hoffs⟩ := chainConfig_offsets_of_twelve b (by omega)
+  have r0 := (extractFieldOffsets_chainConfig_eq_meaningReads b o).mp hoffs
+  simp only [r0, except_bind_ok]
+  by_cases hcan : meaningRequireCanonicalOffsets b 12 [o] = .ok ()
+  · obtain ⟨-, hc0, hc1⟩ := (requireCanonicalOffsets_chainConfig b o).mp hcan
+    rw [hcan, except_bind_pure]
+    obtain ⟨x, hx⟩ := meaningReadU64_exists b 0 (by omega)
+    have ha0 : readUInt64LE b 0 = some x := meaningReadU64_eq_some hx
+    simp only [hx, except_bind_ok]
+    have hslice : (b.extract o b.size).size < UInt32.size := by
+      rw [ByteArray.size_extract]; omega
+    rw [isAccepted_chainConfig_join, forkConfig_acceptance_agrees _ hslice]
+    cases hd : SszBridge.decodeCanonical SszBridge.forkConfigType (b.extract o b.size) with
+    | error e =>
+        -- Destructure rather than rewrite through the match, as at `forkConfig`.
+        cases hdc : SszBridge.decodeCanonical SszBridge.chainConfigType b with
+        | error e' => rfl
+        | ok v =>
+            have hp := decodeCanonical_chainConfig_fields_of b o hoffs hc0 hc1 hu32 ha0
+              (by rw [hdc]; rfl)
+            rw [hd] at hp
+            exact absurd hp (by simp [Except.toOption])
+    | ok y =>
+        rw [decodeCanonical_chainConfig_eq_of_fields b o hoffs hc0 hc1 hu32 ha0 hd]
+        rfl
+  · have herr : ∃ e, meaningRequireCanonicalOffsets b 12 [o] = .error e := by
+      cases hc : meaningRequireCanonicalOffsets b 12 [o] with
+      | error e => exact ⟨e, rfl⟩
+      | ok u => exact absurd (by rw [hc]) hcan
+    obtain ⟨e, he⟩ := herr
+    rw [he, except_bind_error]
+    have hbad : ¬ (o = 12 ∧ o ≤ b.size) := by
+      intro hgood
+      exact hcan ((requireCanonicalOffsets_chainConfig b o).mpr
+        ⟨by omega, hgood.1, hgood.2⟩)
+    cases hdc : SszBridge.decodeCanonical SszBridge.chainConfigType b with
+    | error e' => rfl
+    | ok v =>
+        have hrej := decodeCanonical_chainConfig_rejects_noncanonical b o hoffs hbad
+        rw [hdc] at hrej
+        exact absurd hrej (by simp [Except.toOption])
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
