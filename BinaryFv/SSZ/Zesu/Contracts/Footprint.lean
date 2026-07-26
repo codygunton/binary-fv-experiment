@@ -775,7 +775,15 @@ alone is not — `heapWithdrawalArray_with_presence_tight` below proves exactly 
 
 That bounds the policy's cost a second time, and in the opposite direction from the chain-layer
 result: there the record boundary cost real padding and the bound was that nesting does not compound
-it; here the record boundary costs nothing at all. -/
+it; here the record boundary costs nothing at all.
+
+**So the policy's cost is layer-dependent, and neither layer's experience predicts the other's.** The
+chain layer's padding comes from option leaves — a tag at +8 in a 16-byte record — and is idle because
+nothing else claims those bytes. The heap layer's records are padded too, by the same kind of
+alignment, and it costs nothing only because a *different conjunct* happens to claim every byte. That
+is a fact about how these representations are written, not a consequence of being a record, and it
+has to be looked at again for each layer rather than generalised from either. `ExecutionRequests`
+below is a third answer: its record has no padding at all. -/
 
 theorem fixedByteVector_footprint {length : Nat} (base : Nat)
     (value : SszBridge.RawByteVector length) :
@@ -1255,5 +1263,247 @@ theorem heapWithdrawalArray_with_presence_tight (base offset : Nat) (hoffset : o
     rw [show ({ (default : State) with mem := (zeroBytes base 48).erase (base + offset) }
         : State).mem.get? (base + offset) = _ from hnone] at hsome
     exact absurd hsome (by simp)
+
+/-! # The container layer
+
+`ExecutionRequests` first: three slice descriptors, three heap arrays, no borrowed input slices. That
+is the machinery unconfounded — every ingredient the four allocating containers need, and none of the
+input aliasing that only `ExecutionWitness` and above introduce.
+
+## Why the statement has this shape, and why the two obvious ones do not work
+
+`Ownership.LocalTo` takes `region : Nat → Region`, the read set as a function of the result base. Here
+the read set includes three allocator-chosen array bases, bound **existentially inside the
+representation**. So:
+
+* **The witnesses cannot be theorem parameters.** A caller holds a *proof* that the representation
+  holds, not three numbers. A theorem taking `depositsBase` as an argument would be asking the caller
+  for something it does not have and cannot compute.
+* **The region cannot be a function of `base`.** No bounded region derived from `base` covers a
+  witness `base` does not determine — `Footprint.representation_survives_sibling_witnessed` exists
+  precisely for this case.
+
+What works is to take the representation at `s1` as a hypothesis, **extract** the witnesses from it,
+and return a transport valid at every `s2` agreeing on the region they name. The caller then owes
+disjointness against bases it received rather than bases it guessed. -/
+
+theorem sliceDescriptor_footprint (base data count : Nat) :
+    MemDeterminedOn (range base 16) (fun s => SliceDescriptorRep s base data count) := by
+  refine memDeterminedOn_and memDeterminedOn_const
+    (memDeterminedOn_and memDeterminedOn_const (memDeterminedOn_and ?_ ?_))
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩) (word64_footprint base data)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (word64_footprint (base + 8) count)
+
+/-- **The 48-byte record is exactly its three descriptor ranges, with nothing left over.**
+
+An `↔`, not an inclusion: the reverse direction is containment and would hold for any record size at
+least 48, but the forward direction fails the moment the record has a byte no descriptor covers. So
+this is the statement that would break if `RawExecutionRequests` were padded, which is what makes
+"there is no padding in this record" checkable instead of prose.
+
+It matters because the chain layer's record footprints all *were* padded. Nothing about being a
+record implies being packed; it has to be looked at each time. -/
+theorem executionRequests_record_exactly_covered (base : Nat) :
+    ∀ address, range base 48 address ↔
+      (range base 16 address ∨ range (base + 16) 16 address ∨ range (base + 32) 16 address) := by
+  intro address
+  constructor
+  · rintro ⟨hl, hr⟩
+    by_cases hfirst : address < base + 16
+    · exact Or.inl ⟨by omega, by omega⟩
+    · by_cases hsecond : address < base + 32
+      · exact Or.inr (Or.inl ⟨by omega, by omega⟩)
+      · exact Or.inr (Or.inr ⟨by omega, by omega⟩)
+  · rintro (⟨hl, hr⟩ | ⟨hl, hr⟩ | ⟨hl, hr⟩) <;> exact ⟨by omega, by omega⟩
+
+/-- A zero slice descriptor: null pointer, zero count. Both side conditions (`< 2 ^ 64`) hold. -/
+theorem sliceDescriptorZero_rep {s : State} {base count : Nat}
+    (bytes : ∀ index, index < count → s.mem.get? (base + index) = some (BitVec.ofNat 8 0))
+    (fits : 16 ≤ count) : SliceDescriptorRep s base 0 0 :=
+  ⟨by decide, by decide, word64_of_zeroBytes (offset := 0) bytes (by omega),
+    word64_of_zeroBytes (offset := 8) bytes (by omega)⟩
+
+/-- **Every address of a descriptor's 16 bytes is load-bearing.** Uniform in the offset, so the
+record region of `ExecutionRequests` — which `executionRequests_record_exactly_covered` shows is
+exactly three of these — carries no padding anywhere. -/
+theorem sliceDescriptor_footprint_tight (base offset : Nat) (hoffset : offset < 16) :
+    ∃ s1 s2 : State,
+      (∀ address, address ≠ base + offset → s1.mem.get? address = s2.mem.get? address) ∧
+        SliceDescriptorRep s1 base 0 0 ∧ ¬ SliceDescriptorRep s2 base 0 0 := by
+  refine ⟨{ (default : State) with mem := zeroBytes base 16 },
+          { (default : State) with
+            mem := (zeroBytes base 16).insert (base + offset) (BitVec.ofNat 8 1) },
+          ?_, sliceDescriptorZero_rep (fun index hindex => zeroBytes_inside hindex) (by omega), ?_⟩
+  · intro address hne
+    show (zeroBytes base 16).get? address
+        = ((zeroBytes base 16).insert (base + offset) (BitVec.ofNat 8 1)).get? address
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (fun heq => hne heq.symm)]
+  · intro hrep
+    have hclobbered : ((zeroBytes base 16).insert (base + offset) (BitVec.ofNat 8 1)).get?
+        (base + offset) = some (BitVec.ofNat 8 1) := by
+      simp [Std.ExtHashMap.get?_eq_getElem?]
+    have hzero : ((zeroBytes base 16).insert (base + offset) (BitVec.ofNat 8 1)).get?
+        (base + offset) = some (BitVec.ofNat 8 0) := by
+      by_cases hlow : offset < 8
+      · simpa using hrep.2.2.1 offset hlow
+      · have h8 := hrep.2.2.2 (offset - 8) (by omega)
+        rw [show base + 8 + (offset - 8) = base + offset by omega] at h8
+        simp at h8
+    rw [hclobbered] at hzero
+    exact absurd hzero (by decide)
+
+/-- The read set of `ExecutionRequestsRep`: the record, plus the three heap arrays it points at.
+
+The array bases are **parameters** of the region rather than functions of `base`, because the
+representation binds them existentially. The extents are `count * elementSize` in the order
+`HeapArrayRep` uses. -/
+def executionRequestsRegion (base recordSize depositsBase withdrawalsBase consolidationsBase
+    depositCount withdrawalCount consolidationCount depositSize withdrawalSize
+    consolidationSize : Nat) : Region :=
+  Region.union (range base recordSize)
+    (Region.union (range depositsBase (depositCount * depositSize))
+      (Region.union (range withdrawalsBase (withdrawalCount * withdrawalSize))
+        (range consolidationsBase (consolidationCount * consolidationSize))))
+
+/-- **The witnessed footprint of `ExecutionRequestsRep`.**
+
+Read the shape from the module note above: the representation at `s1` goes in, the three
+allocator-chosen bases come out, and what comes back is a transport valid at any `s2` agreeing on the
+region those bases name.
+
+Nine conjuncts, three regions, and no input component — the `InputSliceRep` question does not arise
+until `ExecutionWitness`. -/
+theorem executionRequests_footprint (base : Nat) (value : SszBridge.RawExecutionRequests)
+    (s1 : State) (established : ExecutionRequestsRep s1 base value) :
+    ∃ depositsBase withdrawalsBase consolidationsBase,
+      ∀ s2 : State,
+        (∀ address, executionRequestsRegion base 48 depositsBase withdrawalsBase consolidationsBase
+            value.deposits.size value.withdrawals.size value.consolidations.size 192 80 116
+            address →
+          s1.mem.get? address = s2.mem.get? address) →
+        ExecutionRequestsRep s2 base value := by
+  obtain ⟨depositsBase, withdrawalsBase, consolidationsBase,
+    hDepositDescriptor, hDepositArray, hDepositContents,
+    hWithdrawalDescriptor, hWithdrawalArray, hWithdrawalContents,
+    hConsolidationDescriptor, hConsolidationArray, hConsolidationContents⟩ := established
+  refine ⟨depositsBase, withdrawalsBase, consolidationsBase, fun s2 agree => ?_⟩
+  have agreeRecord : ∀ address, range base 48 address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inl ha)
+  have agreeDeposits : ∀ address, range depositsBase (value.deposits.size * 192) address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inr (Or.inl ha))
+  have agreeWithdrawals : ∀ address, range withdrawalsBase (value.withdrawals.size * 80) address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inr (Or.inr (Or.inl ha)))
+  have agreeConsolidations :
+      ∀ address, range consolidationsBase (value.consolidations.size * 116) address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inr (Or.inr (Or.inr ha)))
+  exact ⟨depositsBase, withdrawalsBase, consolidationsBase,
+    sliceDescriptor_footprint base _ _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hDepositDescriptor,
+    heapArray_footprint depositsBase _ 192 s1 s2 agreeDeposits hDepositArray,
+    heapDepositRequestArray_footprint depositsBase _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeDeposits _ ⟨by omega, by omega⟩) hDepositContents,
+    sliceDescriptor_footprint (base + 16) _ _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hWithdrawalDescriptor,
+    heapArray_footprint withdrawalsBase _ 80 s1 s2 agreeWithdrawals hWithdrawalArray,
+    heapWithdrawalRequestArray_footprint withdrawalsBase _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeWithdrawals _ ⟨by omega, by omega⟩) hWithdrawalContents,
+    sliceDescriptor_footprint (base + 32) _ _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hConsolidationDescriptor,
+    heapArray_footprint consolidationsBase _ 116 s1 s2 agreeConsolidations hConsolidationArray,
+    heapConsolidationRequestArray_footprint consolidationsBase _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeConsolidations _ ⟨by omega, by omega⟩) hConsolidationContents⟩
+
+/-- The same at manifest-derived sizes: the record boundary and all three element strides come from
+`Artifact`, so a layout change moves the region instead of leaving it silently describing the wrong
+bytes. Four size hypotheses because the region genuinely depends on four numbers. -/
+theorem executionRequests_footprint_abi (base : Nat) (value : SszBridge.RawExecutionRequests)
+    (s1 : State) (established : ExecutionRequestsRep s1 base value)
+    {recordSize depositSize withdrawalSize consolidationSize : Nat}
+    (hrecord : BinaryFv.SSZ.Zesu.Artifact.executionRequestsSize = some recordSize)
+    (hdeposit : BinaryFv.SSZ.Zesu.Artifact.rawDepositRequestSize = some depositSize)
+    (hwithdrawal : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalRequestSize = some withdrawalSize)
+    (hconsolidation :
+      BinaryFv.SSZ.Zesu.Artifact.rawConsolidationRequestSize = some consolidationSize) :
+    ∃ depositsBase withdrawalsBase consolidationsBase,
+      ∀ s2 : State,
+        (∀ address, executionRequestsRegion base recordSize depositsBase withdrawalsBase
+            consolidationsBase value.deposits.size value.withdrawals.size
+            value.consolidations.size depositSize withdrawalSize consolidationSize address →
+          s1.mem.get? address = s2.mem.get? address) →
+        ExecutionRequestsRep s2 base value := by
+  have h48 : recordSize = 48 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.allocating_container_size_layout.1
+    rw [hrecord] at hlayout
+    exact Option.some.inj hlayout
+  have h192 : depositSize = 192 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.heap_element_size_layout.2.1
+    rw [hdeposit] at hlayout
+    exact Option.some.inj hlayout
+  have h80 : withdrawalSize = 80 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.heap_element_size_layout.2.2.1
+    rw [hwithdrawal] at hlayout
+    exact Option.some.inj hlayout
+  have h116 : consolidationSize = 116 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.heap_element_size_layout.2.2.2
+    rw [hconsolidation] at hlayout
+    exact Option.some.inj hlayout
+  subst h48; subst h192; subst h80; subst h116
+  exact executionRequests_footprint base value s1 established
+
+/-- **The form the ownership discipline consumes.**
+
+The caller holds a representation and a confined sibling; it receives the three array bases, owes
+disjointness against *those*, and gets the representation back at the later state. That the bases
+arrive from the representation rather than being supplied to it is the whole content of the witnessed
+shape — a caller cannot name what the allocator chose.
+
+This is `representation_survives_sibling_witnessed` specialised; the general lemma already had the
+right force, and what was missing was a container whose footprint it could be applied to. -/
+theorem executionRequests_survives_sibling (base : Nat) (value : SszBridge.RawExecutionRequests)
+    (s1 s2 : State) (ownedSibling : Region)
+    (established : ExecutionRequestsRep s1 base value)
+    (writes : WritesOnlyWithin ownedSibling s1 s2) :
+    ∃ depositsBase withdrawalsBase consolidationsBase,
+      (∀ address, executionRequestsRegion base 48 depositsBase withdrawalsBase consolidationsBase
+          value.deposits.size value.withdrawals.size value.consolidations.size 192 80 116 address →
+        ¬ ownedSibling address) →
+      ExecutionRequestsRep s2 base value := by
+  obtain ⟨depositsBase, withdrawalsBase, consolidationsBase, transport⟩ :=
+    executionRequests_footprint base value s1 established
+  exact ⟨depositsBase, withdrawalsBase, consolidationsBase, fun disjoint =>
+    transport s2 fun address hregion =>
+      (writes address (disjoint address hregion)).symm⟩
+
+/-- The container layer's manifest-derived footprints, gathered for the axiom-hygiene anchor. Same
+reason as `heapLayer_footprints_abi`: an anchor sees only what its declaration reaches, so a layer is
+anchored by one statement reaching the layer.
+
+It has one conjunct today and grows as `ExecutionWitness`, `ExecutionPayload`, `NewPayloadRequest`
+and `RawV4Rep` land. **A footprint added to the layer and not added here is invisible to the guard** —
+that gap is real and is recorded beside the door set in `BinaryFv/SSZ/AxiomHygiene.lean`, together
+with why it closes when the composition's entry point is anchored. -/
+theorem containerLayer_footprints_abi (base : Nat) (value : SszBridge.RawExecutionRequests)
+    (s1 : State) (established : ExecutionRequestsRep s1 base value)
+    {recordSize depositSize withdrawalSize consolidationSize : Nat}
+    (hrecord : BinaryFv.SSZ.Zesu.Artifact.executionRequestsSize = some recordSize)
+    (hdeposit : BinaryFv.SSZ.Zesu.Artifact.rawDepositRequestSize = some depositSize)
+    (hwithdrawal : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalRequestSize = some withdrawalSize)
+    (hconsolidation :
+      BinaryFv.SSZ.Zesu.Artifact.rawConsolidationRequestSize = some consolidationSize) :
+    ∃ depositsBase withdrawalsBase consolidationsBase,
+      ∀ s2 : State,
+        (∀ address, executionRequestsRegion base recordSize depositsBase withdrawalsBase
+            consolidationsBase value.deposits.size value.withdrawals.size
+            value.consolidations.size depositSize withdrawalSize consolidationSize address →
+          s1.mem.get? address = s2.mem.get? address) →
+        ExecutionRequestsRep s2 base value :=
+  executionRequests_footprint_abi base value s1 established hrecord hdeposit hwithdrawal
+    hconsolidation
 
 end BinaryFv.SSZ.Zesu.Contracts.Footprint

@@ -141,10 +141,33 @@ manifest can drift; one cannot.
 **And one anchor covering the layer, not one theorem.** The anchor is a conjunction reaching all five
 manifest-derived footprints here, because an anchor only sees what its declaration reaches — the
 chain layer above already needed two anchors for one door, and that does not survive `RawV4Rep`.
-Whether the discipline adopts this shape generally is the parked collapse question, not settled
-here. -/
+
+**The gap this shape inherits, named rather than left to be discovered.** A footprint added to the
+layer and *not* added to the conjunction is invisible to the guard: the anchor's coverage is the
+conjunction's cone, not the module's contents, and nothing forces the two to agree. So the
+conjunction is not a complete guard standing alone. What closes it is the per-layer rule already in
+force above: when such a sibling becomes load-bearing it enters the composition's cone, and the
+composition's entry point carries its own anchor, so the transition to load-bearing fires the guard
+rather than passing silently. **The conjunction is the right shape given that the entry-point anchor
+lands later — it is not a substitute for it.** -/
 def heapFootprintDoors : List Name :=
   [``BinaryFv.SSZ.Zesu.Artifact.raw_v4_heap_element_sizes_valid]
+
+/-- `containerLayer_footprints_abi` — the allocating containers' footprints. **Two** doors:
+`allocating_container_sizes_valid` for the record boundary, and `raw_v4_heap_element_sizes_valid`
+for the three element strides its region is measured in.
+
+**I drafted this pin with one door and the guard refused the build.** A container footprint spans the
+record *and* the heap arrays it points at, so it inherits the layer below it — obvious once stated,
+and I had not stated it. That is the guard doing the job it was built for: the axiom set is identical
+either way, so nothing but the door check could have objected.
+
+Anchored at the layer conjunction, which today reaches only `ExecutionRequests` and grows as each
+remaining container lands. The coverage gap recorded under `heapFootprintDoors` applies here too, and
+more sharply — this layer is the one still being written. -/
+def containerFootprintDoors : List Name :=
+  [``BinaryFv.SSZ.Zesu.Artifact.allocating_container_sizes_valid,
+   ``BinaryFv.SSZ.Zesu.Artifact.raw_v4_heap_element_sizes_valid]
 
 /-- `catalogSemanticObligations_of_oracleAgreement` — a single door, through the `u64` primitive.
 See the module docstring: the recorded provenance claimed two. -/
@@ -208,6 +231,8 @@ def anchors : List (Name × List Name) :=
    (``BinaryFv.SSZ.Zesu.Contracts.Footprint.localTo_canonicalRepForkConfig_record,
      chainFootprintDoors),
    (``BinaryFv.SSZ.Zesu.Contracts.Footprint.heapLayer_footprints_abi, heapFootprintDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.Footprint.containerLayer_footprints_abi,
+     containerFootprintDoors),
    (``BinaryFv.SSZ.root_compliance, rootDoors)]
 
 run_cmd do

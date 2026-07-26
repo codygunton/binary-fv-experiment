@@ -149,6 +149,33 @@ def rawV4FixedFieldOffsetsValid : Bool :=
 theorem raw_v4_fixed_field_offsets_valid : rawV4FixedFieldOffsetsValid = true := by
   native_decide
 
+/-! ### The four allocating containers' record sizes
+
+One reflection covering all four, for the same reason `heap_element_size_layout` derives rather than
+re-asserts: four separate `native_decide`s over one manifest are four things that can drift apart,
+and a footprint stating the wrong record boundary proves exactly as easily as one stating the right
+boundary. -/
+
+def allocatingContainerSizesValid : Bool :=
+  abiDatum "ssz_raw.RawExecutionRequests|size" == some 48 &&
+    abiDatum "ssz_raw.RawExecutionWitness|size" == some 48 &&
+      abiDatum "ssz_raw.RawExecutionPayload|size" == some 592 &&
+        abiDatum "ssz_raw.RawNewPayloadRequest|size" == some 688
+
+theorem allocating_container_sizes_valid : allocatingContainerSizesValid = true := by native_decide
+
+def executionRequestsSize : Option Nat := abiDatum "ssz_raw.RawExecutionRequests|size"
+def executionWitnessSize : Option Nat := abiDatum "ssz_raw.RawExecutionWitness|size"
+def executionPayloadSize : Option Nat := abiDatum "ssz_raw.RawExecutionPayload|size"
+def newPayloadRequestSize : Option Nat := abiDatum "ssz_raw.RawNewPayloadRequest|size"
+
+theorem allocating_container_size_layout :
+    executionRequestsSize = some 48 ∧ executionWitnessSize = some 48 ∧
+      executionPayloadSize = some 592 ∧ newPayloadRequestSize = some 688 := by
+  have h := allocating_container_sizes_valid
+  simp only [allocatingContainerSizesValid, Bool.and_eq_true, beq_iff_eq] at h
+  exact ⟨h.1.1.1, h.1.1.2, h.1.2, h.2⟩
+
 /-- Every queried member is produced by Zig reflection over every field of each raw result type. -/
 def completeRawV4AbiManifest : Bool :=
   ZesuSszAbi.manifest.size == 96 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024
