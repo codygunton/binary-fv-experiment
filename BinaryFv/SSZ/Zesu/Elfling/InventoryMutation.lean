@@ -1,4 +1,5 @@
 import BinaryFv.SSZ.Zesu.Elfling.ManifestCheck
+import BinaryFv.SSZ.Zesu.Elfling.GeneratedBoundaryInventory
 
 /-!
 # Mutation tests: removing a required function instance must break something
@@ -34,6 +35,31 @@ and everything downstream of it depend on that conjunct rather than on the row-b
 `manifest_payload_check_misses_last_removal` records the limitation as a theorem on purpose. If
 someone later strengthens `manifestMatchesProgramB` so that it does catch truncation, that theorem
 stops compiling and forces this note to be revisited, which a comment would not.
+
+## The boundary inventory admits no such test, and that is a theorem here rather than an observation
+
+The same mutation was attempted against `boundaryInventoryCompleteB` and **cannot work**. All three of
+its conjuncts have the shape `nodes.all fun n => …`, with bodies depending only on the individual
+node and on the global `ownedOrExcludedPC` — never on which nodes are *present*. So the predicate is
+**monotone under removal**: deleting a node deletes conjuncts from three `.all`s and can only make it
+easier to satisfy. `boundaryInventory_monotone_under_removal` proves exactly that, so "this check
+cannot detect a missing node" is checked by the kernel instead of resting on a reading of three
+definitions. An exhaustive sweep over all 3984 nodes would have spent ~40 minutes confirming what the
+predicate's shape settles immediately.
+
+Its name is therefore wider than its content: `boundaryInventoryComplete` asserts something about the
+node *set*, while its body constrains each node individually. **That is not a soundness gap**, and the
+reason is worth recording where the tempting fix would be applied. `controlFlow?` is
+`decodedWords?.map controlFlowNodes` — the node array is *derived by decoding the pinned image*, not a
+hand-maintained table. "A node went missing" is not a failure mode the artifact can exhibit; it would
+require changing the image, which `binary_is_canonical` and `Artifact.programImage.matchesMemory`
+pin. Set-completeness is inherited from image pinning, and this check's job is to constrain the nodes
+that exist.
+
+The contrast with the manifest is the whole point: `generatedManifest` *is* a generated table that can
+lose a row, which is why the size conjunct above is load-bearing there and why the mutation test is
+meaningful there and impossible here. One checklist item, two artifacts, only one of which can
+exhibit the failure the item describes.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Elfling.Validation
@@ -79,5 +105,37 @@ theorem manifest_removal_breaks_some_check :
       (manifestIndexedB (manifestWithout k) && manifestMatchesProgramB (manifestWithout k))
         == false) = true := by
   native_decide
+
+/-! ## Why the boundary inventory cannot be mutation-tested -/
+
+/-- Removing an element from a list cannot falsify a `List.all`: the survivors are a sublist, so every
+one of them already satisfied the predicate. -/
+theorem list_all_eraseIdx {α : Type} (p : α → Bool) (l : List α) (k : Nat)
+    (h : l.all p = true) : (l.eraseIdx k).all p = true := by
+  rw [List.all_eq_true] at h ⊢
+  intro x hx
+  exact h x ((List.eraseIdx_sublist l k).mem hx)
+
+/-- The same for arrays, in the form the mutation helpers produce. -/
+theorem array_all_eraseIdx {α : Type} (p : α → Bool) (a : Array α) (k : Nat)
+    (h : a.all p = true) : ((a.toList.eraseIdx k).toArray).all p = true := by
+  have hl : a.toList.all p = true := by simpa using h
+  simpa using list_all_eraseIdx p a.toList k hl
+
+/-- **The boundary inventory check is monotone under node removal, hence incapable of detecting a
+missing node.** Not a sampled observation and not a reading of three definitions — the three conjuncts
+are per-node `.all`s, so removal only discards conjuncts.
+
+This is the honest discharge of the boundary half of the "removing a required function instance breaks
+a check" item: the requested mutation test is impossible against this predicate, and unnecessary,
+because the node array is derived by decoding the pinned image rather than maintained by hand. See the
+module docstring for why that is not a soundness gap. -/
+theorem boundaryInventory_monotone_under_removal (nodes : Array BinaryFv.RiscV.ControlFlowNode)
+    (k : Nat) (h : boundaryInventoryCompleteB nodes = true) :
+    boundaryInventoryCompleteB ((nodes.toList.eraseIdx k).toArray) = true := by
+  simp only [boundaryInventoryCompleteB, Bool.and_eq_true] at h ⊢
+  obtain ⟨⟨h1, h2⟩, h3⟩ := h
+  exact ⟨⟨array_all_eraseIdx _ nodes k h1, array_all_eraseIdx _ nodes k h2⟩,
+    array_all_eraseIdx _ nodes k h3⟩
 
 end BinaryFv.SSZ.Zesu.Elfling.Validation
