@@ -1480,6 +1480,224 @@ theorem executionRequests_survives_sibling (base : Nat) (value : SszBridge.RawEx
     transport s2 fun address hregion =>
       (writes address (disjoint address hregion)).symm⟩
 
+/-! ## `ExecutionWitness`, and the input slices
+
+The prediction on record before this container was written: **borrowed input slices need no witnessed
+region at all.** It holds, and `inputSlice_footprint` is the reason — but the reason is worth stating
+exactly, because it is not "the input contribution is small".
+
+`InputSliceRep` is
+```
+sliceBase = inputBase + inputOffset ∧
+  ∀ index < length, get? (sliceBase + index) = get? (inputBase + inputOffset + index)
+```
+The first conjunct is a pure address equation with no state in it. Substituting it into the second
+turns that one into `x = x`. So the aliasing claim **reads no memory whatsoever**: it is a statement
+about where the pointer points, not about what is there. Its footprint is the *empty* region, which
+is the strongest footprint a claim can have, not a degenerate one — see `memDeterminedOn_empty_iff`.
+
+### What this settles, and the part it does not
+
+The recorded disconfirming condition was: if input slices *do* need a witnessed region, then the
+"wrong determinant" unification is weaker than claimed and the pattern is really about existential
+binding. They do not, so the unification stands — but the alternative is worth refuting directly
+rather than by elimination, because `InputSliceDescriptorArrayRep` **is** existentially bound
+(`∀ index, ∃ inputOffset sliceBase, …`) and is nonetheless `MemDeterminedOn` a region computed from
+its base alone.
+
+So existential binding is neither necessary nor sufficient for needing the witnessed shape. What
+forces it is an existential over something that **contributes a region** — the heap array bases do,
+`inputOffset` and `sliceBase` do not. The determinant is the right axis; the binder is not. -/
+
+/-- The empty region: no address at all. -/
+def Region.empty : Region := fun _ => False
+
+/-- **A footprint on the empty region is the strongest possible claim, not a vacuous one.** It says
+the predicate transports between *any* two states — that it does not depend on memory at all. Worth
+stating because "footprint is empty" reads like a degenerate result and is the opposite: the empty
+region is where `memDeterminedOn_mono` starts, not where it ends. -/
+theorem memDeterminedOn_empty_iff {P : State → Prop} :
+    MemDeterminedOn Region.empty P ↔ ∀ s1 s2, P s1 → P s2 :=
+  ⟨fun h s1 s2 => h s1 s2 (fun _ hfalse => hfalse.elim), fun h s1 s2 _ => h s1 s2⟩
+
+/-- **The scored prediction: a borrowed input slice reads no memory.**
+
+Not "reads little" — reads *nothing*. The address equation is what makes the aliasing claim true, and
+once it is substituted the pointwise claim is a tautology. So a container that borrows from the
+caller's input adds **no** input component to its footprint, and a sibling writing anywhere in the
+input buffer cannot disturb the aliasing fact.
+
+That is a statement about `InputSliceRep` as written, and it is worth being explicit that this is a
+*weakness* of the representation as much as a convenience for the discipline: the predicate does not
+say the slice's bytes equal the input's bytes at the later state, because it does not say anything
+about bytes. `InputBytesAt`, the conjunct beside it in `InputSliceDescriptorRep`, is what relates the
+decoded array to the input — and it mentions no state either. -/
+theorem inputSlice_footprint (inputBase inputOffset length sliceBase : Nat) :
+    MemDeterminedOn Region.empty
+      (fun s => InputSliceRep s inputBase inputOffset length sliceBase) := by
+  rintro s1 s2 - ⟨haddress, -⟩
+  exact ⟨haddress, fun index hindex => by rw [haddress]⟩
+
+/-- A borrowed slice's whole footprint is its own descriptor: sixteen bytes, the pointer and the
+count. The aliasing conjunct contributes nothing and `InputBytesAt` mentions no state. -/
+theorem inputSliceDescriptor_footprint (inputBase : Nat) (input : ByteArray)
+    (descriptorBase inputOffset sliceBase : Nat) (bytes : Array UInt8) :
+    MemDeterminedOn (range descriptorBase 16)
+      (fun s => InputSliceDescriptorRep s inputBase input descriptorBase inputOffset sliceBase
+        bytes) :=
+  memDeterminedOn_and (sliceDescriptor_footprint descriptorBase sliceBase bytes.size)
+    (memDeterminedOn_and
+      (memDeterminedOn_mono (fun _ hfalse => hfalse.elim)
+        (inputSlice_footprint inputBase inputOffset bytes.size sliceBase))
+      memDeterminedOn_const)
+
+/-- **Existentially bound, and still `MemDeterminedOn` a base-computed region.** The per-index
+`inputOffset` and `sliceBase` are extracted from the `s1` proof and handed straight back at `s2`;
+neither names an address, so neither enlarges the region. This is the direct refutation of
+"existential binding is what forces the witnessed shape". -/
+theorem inputSliceDescriptorArray_footprint (inputBase : Nat) (input : ByteArray)
+    (descriptorBase : Nat) (slices : Array (Array UInt8)) :
+    MemDeterminedOn (range descriptorBase (16 * slices.size))
+      (fun s => InputSliceDescriptorArrayRep s inputBase input descriptorBase slices) := by
+  intro s1 s2 agree h index hindex
+  obtain ⟨inputOffset, sliceBase, hslice⟩ := h index hindex
+  have hstride : 16 * index + 16 ≤ 16 * slices.size := by
+    have hle : 16 * (index + 1) ≤ 16 * slices.size := Nat.mul_le_mul_left 16 (by omega)
+    omega
+  exact ⟨inputOffset, sliceBase,
+    inputSliceDescriptor_footprint inputBase input (descriptorBase + 16 * index) inputOffset
+      sliceBase slices[index] s1 s2 (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) hslice⟩
+
+/-- The read set of `ExecutionWitnessRep`: structurally identical to `ExecutionRequests`, because the
+input contributes nothing. Three descriptors in the record, three heap arrays of descriptors.
+
+`descriptorSize` is 16, and **that number is not a manifest datum** — unlike the record boundaries and
+element strides, no ABI entry names it. It is the width of `SliceDescriptorRep` itself, two
+`Word64LERep`s at `+0` and `+8`. That is a stronger justification than a reflected constant rather
+than a weaker one: `sliceDescriptor_footprint` and `sliceDescriptor_footprint_tight` together prove
+the 16 exact, where a manifest lookup would only assert it. -/
+def executionWitnessRegion (base recordSize stateBase codesBase headersBase
+    stateCount codesCount headersCount descriptorSize : Nat) : Region :=
+  Region.union (range base recordSize)
+    (Region.union (range stateBase (stateCount * descriptorSize))
+      (Region.union (range codesBase (codesCount * descriptorSize))
+        (range headersBase (headersCount * descriptorSize))))
+
+/-- **The witnessed footprint of `ExecutionWitnessRep`.** Same shape as `ExecutionRequests`, and
+carrying neither `inputBase` nor `input` in its region — which is the prediction, discharged at the
+container rather than at the primitive. -/
+theorem executionWitness_footprint (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawExecutionWitness) (s1 : State)
+    (established : ExecutionWitnessRep s1 inputBase input base value) :
+    ∃ stateBase codesBase headersBase,
+      ∀ s2 : State,
+        (∀ address, executionWitnessRegion base 48 stateBase codesBase headersBase
+            value.state.size value.codes.size value.headers.size 16 address →
+          s1.mem.get? address = s2.mem.get? address) →
+        ExecutionWitnessRep s2 inputBase input base value := by
+  obtain ⟨stateBase, codesBase, headersBase,
+    hStateDescriptor, hStateArray, hStateContents,
+    hCodesDescriptor, hCodesArray, hCodesContents,
+    hHeadersDescriptor, hHeadersArray, hHeadersContents⟩ := established
+  refine ⟨stateBase, codesBase, headersBase, fun s2 agree => ?_⟩
+  have agreeRecord : ∀ address, range base 48 address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inl ha)
+  have agreeState : ∀ address, range stateBase (value.state.size * 16) address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inr (Or.inl ha))
+  have agreeCodes : ∀ address, range codesBase (value.codes.size * 16) address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inr (Or.inr (Or.inl ha)))
+  have agreeHeaders : ∀ address, range headersBase (value.headers.size * 16) address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inr (Or.inr (Or.inr ha)))
+  exact ⟨stateBase, codesBase, headersBase,
+    sliceDescriptor_footprint base _ _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hStateDescriptor,
+    heapArray_footprint stateBase _ 16 s1 s2 agreeState hStateArray,
+    inputSliceDescriptorArray_footprint inputBase input stateBase _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeState _ ⟨by omega, by omega⟩) hStateContents,
+    sliceDescriptor_footprint (base + 16) _ _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hCodesDescriptor,
+    heapArray_footprint codesBase _ 16 s1 s2 agreeCodes hCodesArray,
+    inputSliceDescriptorArray_footprint inputBase input codesBase _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeCodes _ ⟨by omega, by omega⟩) hCodesContents,
+    sliceDescriptor_footprint (base + 32) _ _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hHeadersDescriptor,
+    heapArray_footprint headersBase _ 16 s1 s2 agreeHeaders hHeadersArray,
+    inputSliceDescriptorArray_footprint inputBase input headersBase _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeHeaders _ ⟨by omega, by omega⟩) hHeadersContents⟩
+
+/-- The consumable form, identical in shape to `executionRequests_survives_sibling`. Deliberately
+says nothing about the input: the input claim is `inputSlice_survives_clobber_of_its_own_bytes`
+below, and mixing the two is how the near-miss recorded there happened. -/
+theorem executionWitness_survives_sibling (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawExecutionWitness) (s1 s2 : State) (ownedSibling : Region)
+    (established : ExecutionWitnessRep s1 inputBase input base value)
+    (writes : WritesOnlyWithin ownedSibling s1 s2) :
+    ∃ stateBase codesBase headersBase,
+      (∀ address, executionWitnessRegion base 48 stateBase codesBase headersBase
+          value.state.size value.codes.size value.headers.size 16 address →
+        ¬ ownedSibling address) →
+      ExecutionWitnessRep s2 inputBase input base value := by
+  obtain ⟨stateBase, codesBase, headersBase, transport⟩ :=
+    executionWitness_footprint inputBase input base value s1 established
+  exact ⟨stateBase, codesBase, headersBase, fun disjoint =>
+    transport s2 fun address hregion => (writes address (disjoint address hregion)).symm⟩
+
+/-- **The power half of the prediction: a sibling may overwrite the aliased bytes themselves.**
+
+The slice's bytes lie *inside* the caller's input buffer, at `inputBase + inputOffset`. A naive
+footprint would therefore include them. This exhibits, for every offset the slice covers, two states
+differing exactly there with the aliasing claim holding at both. If `InputSliceRep` carried any
+content about byte values, this would be false.
+
+**Written because the obvious corollary could not fail.** The first version of this was a statement
+that the witness representation survives a sibling owning the input buffer, *given* the footprint is
+disjoint from that buffer. That proves identically whether or not the input is in the footprint — if
+it were, the disjointness premise would simply be unsatisfiable and the theorem vacuously true. It
+had the shape of evidence and the power of none, which is the defect this module was written to
+catch, drafted by the person writing the module. This one distinguishes the two cases. -/
+theorem inputSlice_survives_clobber_of_its_own_bytes
+    (inputBase inputOffset length offset : Nat) (hoffset : offset < length) (byte : BitVec 8) :
+    ∃ s1 s2 : State,
+      range (inputBase + inputOffset) length (inputBase + inputOffset + offset) ∧
+        s1.mem.get? (inputBase + inputOffset + offset)
+          ≠ s2.mem.get? (inputBase + inputOffset + offset) ∧
+        InputSliceRep s1 inputBase inputOffset length (inputBase + inputOffset) ∧
+        InputSliceRep s2 inputBase inputOffset length (inputBase + inputOffset) := by
+  refine ⟨{ (default : State) with mem := ∅ },
+          { (default : State) with
+            mem := (∅ : Std.ExtHashMap Nat (BitVec 8)).insert
+              (inputBase + inputOffset + offset) byte },
+          ⟨by omega, by omega⟩, ?_, ⟨rfl, fun _ _ => rfl⟩, ⟨rfl, fun _ _ => rfl⟩⟩
+  show (∅ : Std.ExtHashMap Nat (BitVec 8)).get? (inputBase + inputOffset + offset)
+      ≠ ((∅ : Std.ExtHashMap Nat (BitVec 8)).insert
+          (inputBase + inputOffset + offset) byte).get? (inputBase + inputOffset + offset)
+  simp [Std.ExtHashMap.get?_eq_getElem?]
+
+/-- The manifest-derived form. `ExecutionWitness` has the same 48-byte record as
+`ExecutionRequests`, and the two are separate manifest entries rather than one shared constant, so
+this derives its own. -/
+theorem executionWitness_footprint_abi (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawExecutionWitness) (s1 : State)
+    (established : ExecutionWitnessRep s1 inputBase input base value)
+    {recordSize : Nat}
+    (hrecord : BinaryFv.SSZ.Zesu.Artifact.executionWitnessSize = some recordSize) :
+    ∃ stateBase codesBase headersBase,
+      ∀ s2 : State,
+        (∀ address, executionWitnessRegion base recordSize stateBase codesBase headersBase
+            value.state.size value.codes.size value.headers.size 16 address →
+          s1.mem.get? address = s2.mem.get? address) →
+        ExecutionWitnessRep s2 inputBase input base value := by
+  have h48 : recordSize = 48 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.allocating_container_size_layout.2.1
+    rw [hrecord] at hlayout
+    exact Option.some.inj hlayout
+  subst h48
+  exact executionWitness_footprint inputBase input base value s1 established
+
 /-- The container layer's manifest-derived footprints, gathered for the axiom-hygiene anchor. Same
 reason as `heapLayer_footprints_abi`: an anchor sees only what its declaration reaches, so a layer is
 anchored by one statement reaching the layer.
@@ -1488,22 +1706,32 @@ It has one conjunct today and grows as `ExecutionWitness`, `ExecutionPayload`, `
 and `RawV4Rep` land. **A footprint added to the layer and not added here is invisible to the guard** —
 that gap is real and is recorded beside the door set in `BinaryFv/SSZ/AxiomHygiene.lean`, together
 with why it closes when the composition's entry point is anchored. -/
-theorem containerLayer_footprints_abi (base : Nat) (value : SszBridge.RawExecutionRequests)
+theorem containerLayer_footprints_abi (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawExecutionRequests) (witness : SszBridge.RawExecutionWitness)
     (s1 : State) (established : ExecutionRequestsRep s1 base value)
-    {recordSize depositSize withdrawalSize consolidationSize : Nat}
+    (witnessEstablished : ExecutionWitnessRep s1 inputBase input base witness)
+    {recordSize witnessSize depositSize withdrawalSize consolidationSize : Nat}
     (hrecord : BinaryFv.SSZ.Zesu.Artifact.executionRequestsSize = some recordSize)
+    (hwitness : BinaryFv.SSZ.Zesu.Artifact.executionWitnessSize = some witnessSize)
     (hdeposit : BinaryFv.SSZ.Zesu.Artifact.rawDepositRequestSize = some depositSize)
     (hwithdrawal : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalRequestSize = some withdrawalSize)
     (hconsolidation :
       BinaryFv.SSZ.Zesu.Artifact.rawConsolidationRequestSize = some consolidationSize) :
-    ∃ depositsBase withdrawalsBase consolidationsBase,
-      ∀ s2 : State,
-        (∀ address, executionRequestsRegion base recordSize depositsBase withdrawalsBase
-            consolidationsBase value.deposits.size value.withdrawals.size
-            value.consolidations.size depositSize withdrawalSize consolidationSize address →
-          s1.mem.get? address = s2.mem.get? address) →
-        ExecutionRequestsRep s2 base value :=
-  executionRequests_footprint_abi base value s1 established hrecord hdeposit hwithdrawal
-    hconsolidation
+    (∃ depositsBase withdrawalsBase consolidationsBase,
+        ∀ s2 : State,
+          (∀ address, executionRequestsRegion base recordSize depositsBase withdrawalsBase
+              consolidationsBase value.deposits.size value.withdrawals.size
+              value.consolidations.size depositSize withdrawalSize consolidationSize address →
+            s1.mem.get? address = s2.mem.get? address) →
+          ExecutionRequestsRep s2 base value) ∧
+      (∃ stateBase codesBase headersBase,
+        ∀ s2 : State,
+          (∀ address, executionWitnessRegion base witnessSize stateBase codesBase headersBase
+              witness.state.size witness.codes.size witness.headers.size 16 address →
+            s1.mem.get? address = s2.mem.get? address) →
+          ExecutionWitnessRep s2 inputBase input base witness) :=
+  ⟨executionRequests_footprint_abi base value s1 established hrecord hdeposit hwithdrawal
+      hconsolidation,
+    executionWitness_footprint_abi inputBase input base witness s1 witnessEstablished hwitness⟩
 
 end BinaryFv.SSZ.Zesu.Contracts.Footprint
