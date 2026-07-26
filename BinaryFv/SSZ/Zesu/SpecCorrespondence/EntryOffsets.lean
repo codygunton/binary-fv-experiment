@@ -1436,6 +1436,47 @@ theorem deserializeVarFields_first_field {t : SSZType} {ts : List SSZType} {b : 
     · rename_i x u hpair
       exact ⟨x, u, hpair⟩
 
+/-! ### The container arm's parts, in one extraction
+
+`deserialize_container_firstOffset` returns the offset fact and drops the walk; the descent needs the
+walk. Returning both from one traversal is what lets the V3 argument chain levels **without any
+specialised decomposition** — each level yields its offset table, its pinned first offset, and the
+walk that the next level's first field comes out of, all from the same generic lemma.
+
+That is the whole of item 4's structural content. The remaining work is arithmetic on three field
+lists, which is already `decide`d. -/
+
+theorem deserialize_container_parts {fs : List SSZType} {b : ByteArray}
+    (hvar : SSZType.allFixedSize fs = false)
+    {v : SSZType.interpFields fs} {u : Nat}
+    (h : SSZType.deserialize (.container fs) b = .ok (v, u)) :
+    ∃ offs, extractFieldOffsets b fs 0 = .ok offs ∧
+      offs.head? = some (SSZType.fixedSectionSizeFields fs) ∧
+      SSZType.deserializeVarFields fs b 0 offs b.size = .ok v := by
+  rw [SSZType.deserialize, if_neg (by simp [hvar])] at h
+  simp only [] at h
+  split at h
+  · simp at h
+  · split at h
+    · simp at h
+    · rename_i offs hext
+      have hne := extractFieldOffsets_ne_nil b fs 0 offs hvar hext
+      cases offs with
+      | nil => exact absurd rfl hne
+      | cons first rest =>
+          simp only [List.head?_cons] at h
+          split at h
+          · simp at h
+          · rename_i hfirst
+            split at h
+            · simp at h
+            · rename_i w hwalk
+              simp only [Except.ok.injEq, Prod.mk.injEq] at h
+              refine ⟨first :: rest, hext, ?_, ?_⟩
+              · simp only [List.head?_cons, Option.some.injEq]
+                exact Classical.byContradiction fun hc => hfirst hc
+              · rw [hwalk, h.1]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
