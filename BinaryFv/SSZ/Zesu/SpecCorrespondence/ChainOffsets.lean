@@ -964,4 +964,36 @@ theorem isAccepted_forkActivation_join (s0 s1 : ByteArray) :
       = (isAccepted (meaningOptionalU64 s0) && isAccepted (meaningOptionalU64 s1)) := by
   cases meaningOptionalU64 s0 <;> cases meaningOptionalU64 s1 <;> rfl
 
+/-! ### The last ingredient: one failing field
+
+The contrapositive of the forward direction, in the disjunctive form the join's case analysis actually
+produces. `entry_forkGuard_false` at arity two — **minus the fork-bound conjunct, which has no analogue
+here.** At the entry that lemma had to carry a fourth disjunct whose shape differed from the other three,
+because `meaningChainConfig` is source-shaped and its acceptance is not plain `isSome`. `forkActivation`
+has no such field, so the disjunction is homogeneous.
+
+That difference is the whole reason this link can be finished without
+`sourceShapedContainersAgreeWithOracle` while the other two cannot, and it is visible right here in the
+shape of the hypothesis rather than only in the prose. -/
+
+/-- One failing field decode kills the whole `forkActivation` decode. The contrapositive of
+`decodeCanonical_forkActivation_fields_of`, in the disjunctive form the join's case analysis produces —
+`entry_forkGuard_false` at arity two, minus the fork-bound conjunct, which has no analogue here. -/
+theorem decodeCanonical_forkActivation_rejects_of_field (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1])
+    (h0 : o0 = 8) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) (hu32 : b.size < UInt32.size)
+    (hbad :
+      (SszBridge.decodeCanonical optionalU64Type (b.extract o0 o1)).toOption.isSome = false ∨
+        (SszBridge.decodeCanonical optionalU64Type
+          (b.extract o1 b.size)).toOption.isSome = false) :
+    (SszBridge.decodeCanonical SszBridge.forkActivationType b).toOption.isSome = false := by
+  cases hacc : (SszBridge.decodeCanonical SszBridge.forkActivationType b).toOption.isSome with
+  | false => rfl
+  | true =>
+      obtain ⟨p0, p1⟩ :=
+        decodeCanonical_forkActivation_fields_of b o0 o1 hoffs h0 h01 h1 hu32 hacc
+      rcases hbad with hb | hb
+      · rw [p0] at hb; exact absurd hb (by simp)
+      · rw [p1] at hb; exact absurd hb (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
