@@ -90,7 +90,20 @@ def postAlloc (env : DecoderEnvironment) (args : AllocArgs)
       ∃ cursorBefore cursorAfter,
         env.cursor? before = some cursorBefore ∧ env.cursor? after = some cursorAfter ∧
         cursorBefore ≤ cursorAfter ∧
-        cursorAfter - cursorBefore ≤ (args.alignment - 1) + args.bytes
+        cursorAfter - cursorBefore ≤ (args.alignment - 1) + args.bytes ∧
+        -- **The allocation is where the cursor moved.** Without this, `address` and the cursor pair
+        -- appear in this same postcondition and are never related: the contract would permit an
+        -- allocator that advances the cursor correctly and returns an aligned address *anywhere*.
+        --
+        -- Load-bearing, not tidiness. The ownership discipline needs `record ⊆ its own interval` to
+        -- collapse sibling disjointness from quadratic to linear; that fact is true of
+        -- `Runtime.allocate` (`BumpAllocator.lean:16-22` returns `position + padding` and sets
+        -- `position' = address + bytes`) but was **not derivable from this contract**, so a
+        -- composition consuming contracts could not use it.
+        --
+        -- Stated with `≤` rather than the equality the model happens to give, so an allocator that
+        -- pads *after* the block still satisfies it.
+        cursorBefore ≤ address ∧ address + args.bytes ≤ cursorAfter
   | .error error =>
       error = SszDecodeError.outOfMemory ∧
       after.regs.get? x10 = some (BitVec.ofNat 64 0) ∧
