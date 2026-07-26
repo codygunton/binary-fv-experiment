@@ -153,21 +153,24 @@ lands later — it is not a substitute for it.** -/
 def heapFootprintDoors : List Name :=
   [``BinaryFv.SSZ.Zesu.Artifact.raw_v4_heap_element_sizes_valid]
 
-/-- `containerLayer_footprints_abi` — the allocating containers' footprints. **Two** doors:
-`allocating_container_sizes_valid` for the record boundary, and `raw_v4_heap_element_sizes_valid`
-for the three element strides its region is measured in.
+/-- `containerLayer_footprints_abi` — the allocating containers' footprints, all five including the
+root. **Three** doors: `allocating_container_sizes_valid` for the four container record boundaries,
+`raw_v4_heap_element_sizes_valid` for the element strides their regions are measured in, and
+`raw_stateless_input_layout` for the root record.
 
-**I drafted this pin with one door and the guard refused the build.** A container footprint spans the
-record *and* the heap arrays it points at, so it inherits the layer below it — obvious once stated,
-and I had not stated it. That is the guard doing the job it was built for: the axiom set is identical
-either way, so nothing but the door check could have objected.
+**The guard refused this pin twice, and both times I was the one who was wrong.** First with one
+door: a container footprint spans the record *and* the heap arrays it points at, so it inherits the
+layer below. Then with two, when `RawV4Rep` landed and brought the root record size with it. Neither
+is subtle in hindsight and neither changes the axiom set, so nothing but the door check could have
+objected — which is the property this guard exists for, demonstrated twice in one sitting.
 
-Anchored at the layer conjunction, which today reaches only `ExecutionRequests` and grows as each
-remaining container lands. The coverage gap recorded under `heapFootprintDoors` applies here too, and
-more sharply — this layer is the one still being written. -/
+Anchored at the layer conjunction. The coverage gap recorded under `heapFootprintDoors` applies here
+too: a footprint added to the layer and not to the conjunction is invisible until it enters the
+composition's cone. -/
 def containerFootprintDoors : List Name :=
   [``BinaryFv.SSZ.Zesu.Artifact.allocating_container_sizes_valid,
-   ``BinaryFv.SSZ.Zesu.Artifact.raw_v4_heap_element_sizes_valid]
+   ``BinaryFv.SSZ.Zesu.Artifact.raw_v4_heap_element_sizes_valid,
+   ``BinaryFv.SSZ.Zesu.Artifact.raw_stateless_input_layout]
 
 /-- `catalogSemanticObligations_of_oracleAgreement` — a single door, through the `u64` primitive.
 See the module docstring: the recorded provenance claimed two. -/

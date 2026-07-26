@@ -1571,11 +1571,20 @@ theorem inputSliceDescriptorArray_footprint (inputBase : Nat) (input : ByteArray
 /-- The read set of `ExecutionWitnessRep`: structurally identical to `ExecutionRequests`, because the
 input contributes nothing. Three descriptors in the record, three heap arrays of descriptors.
 
-`descriptorSize` is 16, and **that number is not a manifest datum** — unlike the record boundaries and
-element strides, no ABI entry names it. It is the width of `SliceDescriptorRep` itself, two
-`Word64LERep`s at `+0` and `+8`. That is a stronger justification than a reflected constant rather
-than a weaker one: `sliceDescriptor_footprint` and `sliceDescriptor_footprint_tight` together prove
-the 16 exact, where a manifest lookup would only assert it. -/
+`descriptorSize` is 16, and **that number is deliberately not a manifest datum** — unlike the record
+boundaries and element strides, no ABI entry names it, and it should not acquire one.
+
+A *record size* is a fact about the **binary's layout**: a footprint has no independent access to it,
+so it comes from generated data or it is a guess. The stride 16 is the width of `SliceDescriptorRep`,
+a **Lean definition in this tree**, and `sliceDescriptor_footprint` with
+`sliceDescriptor_footprint_tight` *prove* it exact. Pinning it would conflate two different
+obligations and substitute an assertion for a proof already in hand.
+
+**The boundary that creates, stated rather than omitted.** If the binary's descriptor layout changed
+and `SliceDescriptorRep` were not updated, every footprint here would remain correct — about a
+representation that had become wrong. This module's job is fidelity to the representation; fidelity
+of the representation to the binary is audited in the Row A/B/C validation layer, and nothing here
+can substitute for it. -/
 def executionWitnessRegion (base recordSize stateBase codesBase headersBase
     stateCount codesCount headersCount descriptorSize : Nat) : Region :=
   Region.union (range base recordSize)
@@ -1698,6 +1707,581 @@ theorem executionWitness_footprint_abi (inputBase : Nat) (input : ByteArray) (ba
   subst h48
   exact executionWitness_footprint inputBase input base value s1 established
 
+/-! ## `ExecutionPayload`, and a fourth answer on padding
+
+592 bytes, nineteen inline fields and four descriptors. Laying the read set out end to end:
+
+```
+[0,32)    baseFeePerGas      [64,80)   extraData descriptor    [144,152) slotNumber
+[32,40)   blockNumber        [80,96)   transactions descriptor [152,184) parentHash
+[40,48)   gasLimit           [96,112)  withdrawals descriptor  [184,204) feeRecipient
+[48,56)   gasUsed            [112,120) blobGasUsed             [204,236) stateRoot
+[56,64)   timestamp          [120,128) excessBlobGas           [236,268) receiptsRoot
+                             [128,144) blockAccessList desc    [268,524) logsBloom
+                                                               [524,556) prevRandao
+                                                               [556,588) blockHash
+```
+
+Contiguous from 0 to 588 with no interior hole, against an ABI record of 592: **four bytes of tail
+padding**, and nothing else. A fourth distinct answer, after padded-and-idle at the chain layer,
+padded-but-claimed at the heap layer, and unpadded at `ExecutionRequests`.
+
+**The fixed-field representation on its own is not contiguous.** It leaves `[64,112)` and `[128,144)`
+open — the four descriptors — and those are supplied by the other conjuncts of `ExecutionPayloadRep`.
+So `executionPayloadFixed_footprint` below is stated at `range base 588` and genuinely
+over-approximates; it is a helper, and the claim that carries weight is the container's. -/
+
+theorem bitVectorLE_of_zeroBytes {s : State} {base count offset width : Nat}
+    (bytes : ∀ index, index < count → s.mem.get? (base + index) = some (BitVec.ofNat 8 0))
+    (fits : offset + width / 8 ≤ count) : BitVectorLERep s (base + offset) (0 : BitVec width) := by
+  intro index hindex
+  rw [show base + offset + index = base + (offset + index) by omega,
+    bytes (offset + index) (by omega)]
+  simp
+
+/-- Helper only: over-approximates by the four descriptor holes, which the container's other
+conjuncts fill. See the section note. -/
+theorem executionPayloadFixed_footprint (base : Nat) (value : SszBridge.RawExecutionPayload) :
+    MemDeterminedOn (range base 588) (fun s => ExecutionPayloadFixedRep s base value) :=
+  fun s1 s2 agree h =>
+    { baseFeePerGas := bitVectorLE_footprint base _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.baseFeePerGas
+      parentHash := fixedByteVector_footprint (base + 152) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.parentHash
+      feeRecipient := fixedByteVector_footprint (base + 184) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.feeRecipient
+      stateRoot := fixedByteVector_footprint (base + 204) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.stateRoot
+      receiptsRoot := fixedByteVector_footprint (base + 236) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.receiptsRoot
+      logsBloom := fixedByteVector_footprint (base + 268) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.logsBloom
+      prevRandao := fixedByteVector_footprint (base + 524) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.prevRandao
+      blockHash := fixedByteVector_footprint (base + 556) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.blockHash
+      blockNumber := word64_footprint (base + 32) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.blockNumber
+      gasLimit := word64_footprint (base + 40) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.gasLimit
+      gasUsed := word64_footprint (base + 48) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.gasUsed
+      timestamp := word64_footprint (base + 56) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.timestamp
+      blobGasUsed := word64_footprint (base + 112) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.blobGasUsed
+      excessBlobGas := word64_footprint (base + 120) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.excessBlobGas
+      slotNumber := word64_footprint (base + 144) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.slotNumber }
+
+/-- The read set of `ExecutionPayloadRep`: the record, the transaction descriptor array, and the
+withdrawal record array. The two borrowed single slices (`extraData`, `blockAccessList`) add nothing —
+their descriptors are inside the record and their aliasing claims read no memory. -/
+def executionPayloadRegion (base recordSize transactionsBase withdrawalsBase
+    transactionCount withdrawalCount descriptorSize withdrawalSize : Nat) : Region :=
+  Region.union (range base recordSize)
+    (Region.union (range transactionsBase (transactionCount * descriptorSize))
+      (range withdrawalsBase (withdrawalCount * withdrawalSize)))
+
+theorem executionPayload_footprint (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawExecutionPayload) (s1 : State)
+    (established : ExecutionPayloadRep s1 inputBase input base value) :
+    ∃ transactionsBase withdrawalsBase,
+      ∀ s2 : State,
+        (∀ address, executionPayloadRegion base 592 transactionsBase withdrawalsBase
+            value.transactions.size value.withdrawals.size 16 48 address →
+          s1.mem.get? address = s2.mem.get? address) →
+        ExecutionPayloadRep s2 inputBase input base value := by
+  obtain ⟨hFixed, ⟨extraOffset, extraSlice, hExtra⟩, ⟨balOffset, balSlice, hBal⟩,
+    ⟨transactionsBase, hTxDescriptor, hTxArray, hTxContents⟩,
+    ⟨withdrawalsBase, hWdDescriptor, hWdArray, hWdContents⟩⟩ := established
+  refine ⟨transactionsBase, withdrawalsBase, fun s2 agree => ?_⟩
+  have agreeRecord : ∀ address, range base 592 address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inl ha)
+  have agreeTransactions : ∀ address, range transactionsBase (value.transactions.size * 16) address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inr (Or.inl ha))
+  have agreeWithdrawals : ∀ address, range withdrawalsBase (value.withdrawals.size * 48) address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inr (Or.inr ha))
+  exact ⟨executionPayloadFixed_footprint base value s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hFixed,
+    ⟨extraOffset, extraSlice,
+      inputSliceDescriptor_footprint inputBase input (base + 64) _ _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hExtra⟩,
+    ⟨balOffset, balSlice,
+      inputSliceDescriptor_footprint inputBase input (base + 128) _ _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hBal⟩,
+    ⟨transactionsBase,
+      sliceDescriptor_footprint (base + 80) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hTxDescriptor,
+      heapArray_footprint transactionsBase _ 16 s1 s2 agreeTransactions hTxArray,
+      inputSliceDescriptorArray_footprint inputBase input transactionsBase _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agreeTransactions _ ⟨by omega, by omega⟩) hTxContents⟩,
+    ⟨withdrawalsBase,
+      sliceDescriptor_footprint (base + 96) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hWdDescriptor,
+      heapArray_footprint withdrawalsBase _ 48 s1 s2 agreeWithdrawals hWdArray,
+      heapWithdrawalArray_footprint withdrawalsBase _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agreeWithdrawals _ ⟨by omega, by omega⟩) hWdContents⟩⟩
+
+/-- Every inline field zero. The collection fields are empty; none of them appears in
+`ExecutionPayloadFixedRep`, so their values are irrelevant to the witness below. -/
+def zeroExecutionPayload : SszBridge.RawExecutionPayload where
+  parentHash := Vector.replicate 32 0
+  feeRecipient := Vector.replicate 20 0
+  stateRoot := Vector.replicate 32 0
+  receiptsRoot := Vector.replicate 32 0
+  logsBloom := Vector.replicate 256 0
+  prevRandao := Vector.replicate 32 0
+  blockNumber := 0
+  gasLimit := 0
+  gasUsed := 0
+  timestamp := 0
+  extraData := #[]
+  baseFeePerGas := 0
+  blockHash := Vector.replicate 32 0
+  transactions := #[]
+  withdrawals := #[]
+  blobGasUsed := 0
+  excessBlobGas := 0
+  blockAccessList := #[]
+  slotNumber := 0
+
+theorem zeroExecutionPayload_fixedRep {s : State} {base count : Nat}
+    (bytes : ∀ index, index < count → s.mem.get? (base + index) = some (BitVec.ofNat 8 0))
+    (fits : 588 ≤ count) : ExecutionPayloadFixedRep s base zeroExecutionPayload where
+  baseFeePerGas := bitVectorLE_of_zeroBytes (offset := 0) (width := 256) bytes (by omega)
+  parentHash := fixedByteVector_of_zeroBytes (offset := 152) (length := 32) bytes (by omega)
+  feeRecipient := fixedByteVector_of_zeroBytes (offset := 184) (length := 20) bytes (by omega)
+  stateRoot := fixedByteVector_of_zeroBytes (offset := 204) (length := 32) bytes (by omega)
+  receiptsRoot := fixedByteVector_of_zeroBytes (offset := 236) (length := 32) bytes (by omega)
+  logsBloom := fixedByteVector_of_zeroBytes (offset := 268) (length := 256) bytes (by omega)
+  prevRandao := fixedByteVector_of_zeroBytes (offset := 524) (length := 32) bytes (by omega)
+  blockHash := fixedByteVector_of_zeroBytes (offset := 556) (length := 32) bytes (by omega)
+  blockNumber := word64_of_zeroBytes (offset := 32) bytes (by omega)
+  gasLimit := word64_of_zeroBytes (offset := 40) bytes (by omega)
+  gasUsed := word64_of_zeroBytes (offset := 48) bytes (by omega)
+  timestamp := word64_of_zeroBytes (offset := 56) bytes (by omega)
+  blobGasUsed := word64_of_zeroBytes (offset := 112) bytes (by omega)
+  excessBlobGas := word64_of_zeroBytes (offset := 120) bytes (by omega)
+  slotNumber := word64_of_zeroBytes (offset := 144) bytes (by omega)
+
+/-- **The record's last four bytes are idle: byte 588 is not load-bearing.** The read set stops at
+588 and the ABI record is 592.
+
+Witnessed on `ExecutionPayloadFixedRep` rather than on the whole container, and the scope of that is
+worth being exact about: it shows byte 588 is read by none of the nineteen inline fields. The four
+descriptors all sit below 144, so no conjunct of `ExecutionPayloadRep` reaches it either — but that
+is an argument from the offsets, and only the inline half is witnessed here. -/
+theorem executionPayload_range592_not_tight (base : Nat) :
+    ∃ (value : SszBridge.RawExecutionPayload) (s1 s2 : State),
+      range base 592 (base + 588) ∧
+        s1.mem.get? (base + 588) ≠ s2.mem.get? (base + 588) ∧
+        ExecutionPayloadFixedRep s1 base value ∧ ExecutionPayloadFixedRep s2 base value := by
+  refine ⟨zeroExecutionPayload,
+          { (default : State) with mem := zeroBytes base 588 },
+          { (default : State) with
+            mem := (zeroBytes base 588).insert (base + 588) (BitVec.ofNat 8 7) },
+          ⟨by omega, by omega⟩, ?_, ?_, ?_⟩
+  · show (zeroBytes base 588).get? (base + 588)
+        ≠ ((zeroBytes base 588).insert (base + 588) (BitVec.ofNat 8 7)).get? (base + 588)
+    rw [zeroBytes_outside (fun index hindex => by omega)]
+    simp [Std.ExtHashMap.get?_eq_getElem?]
+  · exact zeroExecutionPayload_fixedRep (fun index hindex => zeroBytes_inside hindex) (by omega)
+  · refine zeroExecutionPayload_fixedRep (count := 588) (fun index hindex => ?_) (by omega)
+    show ((zeroBytes base 588).insert (base + 588) (BitVec.ofNat 8 7)).get? (base + index) = _
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (by omega)]
+    simpa [Std.ExtHashMap.get?_eq_getElem?] using zeroBytes_inside (base := base) hindex
+
+theorem executionPayload_footprint_abi (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawExecutionPayload) (s1 : State)
+    (established : ExecutionPayloadRep s1 inputBase input base value)
+    {recordSize withdrawalSize : Nat}
+    (hrecord : BinaryFv.SSZ.Zesu.Artifact.executionPayloadSize = some recordSize)
+    (hwithdrawal : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalSize = some withdrawalSize) :
+    ∃ transactionsBase withdrawalsBase,
+      ∀ s2 : State,
+        (∀ address, executionPayloadRegion base recordSize transactionsBase withdrawalsBase
+            value.transactions.size value.withdrawals.size 16 withdrawalSize address →
+          s1.mem.get? address = s2.mem.get? address) →
+        ExecutionPayloadRep s2 inputBase input base value := by
+  have h592 : recordSize = 592 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.allocating_container_size_layout.2.2.1
+    rw [hrecord] at hlayout
+    exact Option.some.inj hlayout
+  have h48 : withdrawalSize = 48 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.heap_element_size_layout.1
+    rw [hwithdrawal] at hlayout
+    exact Option.some.inj hlayout
+  subst h592; subst h48
+  exact executionPayload_footprint inputBase input base value s1 established
+
+/-! ## `NewPayloadRequest`: the first footprint assembled from other footprints
+
+688 bytes: an `ExecutionPayload` inline at 0, the versioned-hash array descriptor at 592, an
+`ExecutionRequests` inline at 608, and `parentBeaconBlockRoot` at 656.
+
+**This is where the witnessed shape pays for itself.** The payload and the requests each contribute
+allocator-chosen bases that this container never names; their transports are *obtained* from their own
+theorems and composed, rather than the nine-plus conjuncts being re-derived here. Six existential
+bases come out — two from the payload, three from the requests, one of its own — and the region is
+literally the union of the two sub-regions with the record and the versioned-hash array.
+
+The only padding is the four bytes inherited from the payload at `[588, 592)`; everything from 592 to
+688 is descriptors and the beacon root, contiguous. -/
+
+/-- The read set, assembled from the sub-container regions rather than re-flattened. -/
+def newPayloadRequestRegion (base recordSize transactionsBase payloadWithdrawalsBase
+    versionedHashesBase depositsBase requestWithdrawalsBase consolidationsBase : Nat)
+    (value : SszBridge.RawNewPayloadRequest) : Region :=
+  Region.union (range base recordSize)
+    (Region.union
+      (executionPayloadRegion base 592 transactionsBase payloadWithdrawalsBase
+        value.executionPayload.transactions.size value.executionPayload.withdrawals.size 16 48)
+      (Region.union
+        (executionRequestsRegion (base + 608) 48 depositsBase requestWithdrawalsBase
+          consolidationsBase value.executionRequests.deposits.size
+          value.executionRequests.withdrawals.size value.executionRequests.consolidations.size
+          192 80 116)
+        (range versionedHashesBase (value.versionedHashes.size * 32))))
+
+theorem newPayloadRequest_footprint (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawNewPayloadRequest) (s1 : State)
+    (established : NewPayloadRequestRep s1 inputBase input base value) :
+    ∃ transactionsBase payloadWithdrawalsBase versionedHashesBase depositsBase
+      requestWithdrawalsBase consolidationsBase,
+      ∀ s2 : State,
+        (∀ address, newPayloadRequestRegion base 688 transactionsBase payloadWithdrawalsBase
+            versionedHashesBase depositsBase requestWithdrawalsBase consolidationsBase value
+            address →
+          s1.mem.get? address = s2.mem.get? address) →
+        NewPayloadRequestRep s2 inputBase input base value := by
+  obtain ⟨hPayload, ⟨versionedHashesBase, hVhDescriptor, hVhArray, hVhContents⟩,
+    hBeaconRoot, hRequests⟩ := established
+  obtain ⟨transactionsBase, payloadWithdrawalsBase, payloadTransport⟩ :=
+    executionPayload_footprint inputBase input base value.executionPayload s1 hPayload
+  obtain ⟨depositsBase, requestWithdrawalsBase, consolidationsBase, requestsTransport⟩ :=
+    executionRequests_footprint (base + 608) value.executionRequests s1 hRequests
+  refine ⟨transactionsBase, payloadWithdrawalsBase, versionedHashesBase, depositsBase,
+    requestWithdrawalsBase, consolidationsBase, fun s2 agree => ?_⟩
+  have agreeRecord : ∀ address, range base 688 address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inl ha)
+  have agreeVersionedHashes :
+      ∀ address, range versionedHashesBase (value.versionedHashes.size * 32) address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inr (Or.inr (Or.inr ha)))
+  exact ⟨payloadTransport s2 (fun address ha => agree address (Or.inr (Or.inl ha))),
+    ⟨versionedHashesBase,
+      sliceDescriptor_footprint (base + 592) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hVhDescriptor,
+      heapArray_footprint versionedHashesBase _ 32 s1 s2 agreeVersionedHashes hVhArray,
+      heapFixedVectorArray_footprint versionedHashesBase _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agreeVersionedHashes _ ⟨by omega, by omega⟩) hVhContents⟩,
+    fixedByteVector_footprint (base + 656) _ s1 s2
+      (fun _ ⟨hl, hr⟩ => agreeRecord _ ⟨by omega, by omega⟩) hBeaconRoot,
+    requestsTransport s2 (fun address ha => agree address (Or.inr (Or.inr (Or.inl ha))))⟩
+
+theorem newPayloadRequest_footprint_abi (inputBase : Nat) (input : ByteArray) (base : Nat)
+    (value : SszBridge.RawNewPayloadRequest) (s1 : State)
+    (established : NewPayloadRequestRep s1 inputBase input base value)
+    {recordSize : Nat}
+    (hrecord : BinaryFv.SSZ.Zesu.Artifact.newPayloadRequestSize = some recordSize) :
+    ∃ transactionsBase payloadWithdrawalsBase versionedHashesBase depositsBase
+      requestWithdrawalsBase consolidationsBase,
+      ∀ s2 : State,
+        (∀ address, newPayloadRequestRegion base recordSize transactionsBase
+            payloadWithdrawalsBase versionedHashesBase depositsBase requestWithdrawalsBase
+            consolidationsBase value address →
+          s1.mem.get? address = s2.mem.get? address) →
+        NewPayloadRequestRep s2 inputBase input base value := by
+  have h688 : recordSize = 688 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.allocating_container_size_layout.2.2.2
+    rw [hrecord] at hlayout
+    exact Option.some.inj hlayout
+  subst h688
+  exact newPayloadRequest_footprint inputBase input base value s1 established
+
+/-! ## `RawV4Rep`, the root
+
+One 832-byte record and **ten** separately-based heap arrays. This is the case the union combinator
+was introduced for at the top of the module: no choice of policy makes eleven allocator-chosen
+regions contiguous.
+
+Everything else is inside the root record — all ten slice descriptors (the last at `+816`, ending
+exactly at 832), the two borrowed single slices at `+64` and `+128`, and every fixed field including
+the whole chain config at `+736`. So the region is the record plus ten arrays, and nothing more.
+
+**The root record size is a hypothesis, not a manifest read.** `rawV4_footprint` takes
+`rawStatelessInputSize = some rootSize` as a premise and therefore opens **no trust door of its own**;
+`rawV4_footprint_abi` discharges it and carries the door. The split matters because
+`RawStatelessInputRep` binds its size existentially — the premise is what identifies the existential
+witness with the region's bound, which is a proof step rather than a lookup. -/
+
+/-- The root record's footprint. The size is supplied by the caller and matched against the
+representation's own existential witness, so this transports without consulting the manifest. -/
+theorem rawStatelessInput_footprint (base recordSize : Nat)
+    (hsize : BinaryFv.SSZ.Zesu.Artifact.rawStatelessInputSize = some recordSize) :
+    MemDeterminedOn (range base recordSize) (fun s => RawStatelessInputRep s base) := by
+  intro s1 s2 agree h
+  obtain ⟨size, hwitness, harray⟩ := h
+  have hmatch : recordSize = size := by
+    rw [hsize] at hwitness
+    exact Option.some.inj hwitness
+  subst hmatch
+  exact ⟨recordSize, hwitness,
+    heapArray_footprint base 1 recordSize s1 s2
+      (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) harray⟩
+
+/-- The root's read set: the record and the ten heap arrays its descriptors point at. -/
+def rawV4Region (rootBase rootSize : Nat) (value : SszBridge.RawV4)
+    (bases : RawV4DescriptorBases) : Region :=
+  Region.union (range rootBase rootSize)
+    (Region.union
+      (range bases.versionedHashesBase (value.newPayloadRequest.versionedHashes.size * 32))
+      (Region.union
+        (range bases.transactionsBase
+          (value.newPayloadRequest.executionPayload.transactions.size * 16))
+        (Region.union
+          (range bases.withdrawalsBase
+            (value.newPayloadRequest.executionPayload.withdrawals.size * 48))
+          (Region.union
+            (range bases.depositsBase
+              (value.newPayloadRequest.executionRequests.deposits.size * 192))
+            (Region.union
+              (range bases.withdrawalRequestsBase
+                (value.newPayloadRequest.executionRequests.withdrawals.size * 80))
+              (Region.union
+                (range bases.consolidationRequestsBase
+                  (value.newPayloadRequest.executionRequests.consolidations.size * 116))
+                (Region.union (range bases.witnessStateBase (value.witness.state.size * 16))
+                  (Region.union (range bases.witnessCodesBase (value.witness.codes.size * 16))
+                    (Region.union
+                      (range bases.witnessHeadersBase (value.witness.headers.size * 16))
+                      (range bases.publicKeysBase (value.publicKeys.size * 65)))))))))))
+
+theorem rawV4Descriptor_footprint (rootBase rootSize : Nat) (value : SszBridge.RawV4)
+    (bases : RawV4DescriptorBases) (fits : 832 ≤ rootSize) :
+    MemDeterminedOn (range rootBase rootSize)
+      (fun s => RawV4DescriptorRep s rootBase value bases) :=
+  fun s1 s2 agree h =>
+    { versionedHashes := sliceDescriptor_footprint (rootBase + 592) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.versionedHashes
+      transactions := sliceDescriptor_footprint (rootBase + 80) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.transactions
+      withdrawals := sliceDescriptor_footprint (rootBase + 96) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.withdrawals
+      deposits := sliceDescriptor_footprint (rootBase + 608) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.deposits
+      withdrawalRequests := sliceDescriptor_footprint (rootBase + 624) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.withdrawalRequests
+      consolidationRequests := sliceDescriptor_footprint (rootBase + 640) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.consolidationRequests
+      witnessState := sliceDescriptor_footprint (rootBase + 688) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.witnessState
+      witnessCodes := sliceDescriptor_footprint (rootBase + 704) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.witnessCodes
+      witnessHeaders := sliceDescriptor_footprint (rootBase + 720) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.witnessHeaders
+      publicKeys := sliceDescriptor_footprint (rootBase + 816) _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.publicKeys }
+
+/-- The fixed inline fields. The chain config at `+736` is 80 bytes, ending at 816 — the last thing
+before the public-key descriptor, and the reason the record is 832 rather than 816. -/
+theorem rawV4FixedFields_footprint (rootBase rootSize : Nat) (value : SszBridge.RawV4)
+    (fits : 832 ≤ rootSize) :
+    MemDeterminedOn (range rootBase rootSize)
+      (fun s => RawV4FixedFieldsRep s rootBase value) :=
+  fun s1 s2 agree h =>
+    { baseFeePerGas := bitVectorLE_footprint rootBase _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.baseFeePerGas
+      parentHash := fixedByteVector_footprint (rootBase + 152) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.parentHash
+      feeRecipient := fixedByteVector_footprint (rootBase + 184) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.feeRecipient
+      stateRoot := fixedByteVector_footprint (rootBase + 204) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.stateRoot
+      receiptsRoot := fixedByteVector_footprint (rootBase + 236) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.receiptsRoot
+      logsBloom := fixedByteVector_footprint (rootBase + 268) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.logsBloom
+      prevRandao := fixedByteVector_footprint (rootBase + 524) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.prevRandao
+      blockHash := fixedByteVector_footprint (rootBase + 556) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.blockHash
+      parentBeaconBlockRoot := fixedByteVector_footprint (rootBase + 656) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.parentBeaconBlockRoot
+      blockNumber := word64_footprint (rootBase + 32) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.blockNumber
+      gasLimit := word64_footprint (rootBase + 40) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.gasLimit
+      gasUsed := word64_footprint (rootBase + 48) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.gasUsed
+      timestamp := word64_footprint (rootBase + 56) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.timestamp
+      blobGasUsed := word64_footprint (rootBase + 112) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.blobGasUsed
+      excessBlobGas := word64_footprint (rootBase + 120) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.excessBlobGas
+      slotNumber := word64_footprint (rootBase + 144) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.slotNumber
+      chainConfig := chainConfig_footprint (rootBase + 736) _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.chainConfig }
+
+/-- The borrowed slices, transported against the `s2` descriptor witness rather than the `s1` one.
+
+Same shape the audit needed: `RawV4InputSlicesRep`'s `descriptors` argument has a type that mentions
+the state, so the combinators cannot see through it. It is used by no field, so the two witnesses are
+interchangeable once both exist — a fact about this definition, not something structural. -/
+theorem rawV4InputSlices_footprint (inputBase : Nat) (input : ByteArray) (rootBase rootSize : Nat)
+    (value : SszBridge.RawV4) (bases : RawV4DescriptorBases) (fits : 832 ≤ rootSize)
+    {s1 s2 : State}
+    (agree : ∀ address, rawV4Region rootBase rootSize value bases address →
+      s1.mem.get? address = s2.mem.get? address)
+    (d1 : RawV4DescriptorRep s1 rootBase value bases)
+    (d2 : RawV4DescriptorRep s2 rootBase value bases)
+    (h : RawV4InputSlicesRep s1 inputBase input rootBase value bases d1) :
+    RawV4InputSlicesRep s2 inputBase input rootBase value bases d2 :=
+  { extraData := h.extraData.imp fun _ h' => h'.imp fun _ h'' =>
+      inputSliceDescriptor_footprint inputBase input (rootBase + 64) _ _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ (Or.inl ⟨by omega, by omega⟩)) h''
+    blockAccessList := h.blockAccessList.imp fun _ h' => h'.imp fun _ h'' =>
+      inputSliceDescriptor_footprint inputBase input (rootBase + 128) _ _ _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ (Or.inl ⟨by omega, by omega⟩)) h''
+    transactions := inputSliceDescriptorArray_footprint inputBase input bases.transactionsBase _
+      s1 s2 (fun _ ⟨hl, hr⟩ =>
+        agree _ (Or.inr (Or.inr (Or.inl ⟨by omega, by omega⟩)))) h.transactions
+    witnessState := inputSliceDescriptorArray_footprint inputBase input bases.witnessStateBase _
+      s1 s2 (fun _ ⟨hl, hr⟩ =>
+        agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
+          (Or.inl ⟨by omega, by omega⟩))))))))) h.witnessState
+    witnessCodes := inputSliceDescriptorArray_footprint inputBase input bases.witnessCodesBase _
+      s1 s2 (fun _ ⟨hl, hr⟩ =>
+        agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
+          (Or.inl ⟨by omega, by omega⟩)))))))))) h.witnessCodes
+    witnessHeaders := inputSliceDescriptorArray_footprint inputBase input bases.witnessHeadersBase _
+      s1 s2 (fun _ ⟨hl, hr⟩ =>
+        agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
+          (Or.inl ⟨by omega, by omega⟩))))))))))) h.witnessHeaders }
+
+/-- **The root's witnessed footprint.** Ten allocator-chosen bases come out in one
+`RawV4DescriptorBases`, which is the shape the representation already binds them in — so the caller
+receives exactly the record the composition allocated, not a tuple this module invented.
+
+Takes the root record size as a premise and therefore opens no trust door; `rawV4_footprint_abi`
+supplies it. -/
+theorem rawV4_footprint (inputBase : Nat) (input : ByteArray) (rootBase rootSize : Nat)
+    (value : SszBridge.RawV4) (s1 : State) (fits : 832 ≤ rootSize)
+    (hsize : BinaryFv.SSZ.Zesu.Artifact.rawStatelessInputSize = some rootSize)
+    (established : RawV4Rep s1 inputBase input rootBase value) :
+    ∃ bases : RawV4DescriptorBases,
+      ∀ s2 : State,
+        (∀ address, rawV4Region rootBase rootSize value bases address →
+          s1.mem.get? address = s2.mem.get? address) →
+        RawV4Rep s2 inputBase input rootBase value := by
+  obtain ⟨bases, allocation, descriptors, slices⟩ := established.layout
+  refine ⟨bases, fun s2 agree => ?_⟩
+  have agreeRecord : ∀ address, range rootBase rootSize address →
+      s1.mem.get? address = s2.mem.get? address :=
+    fun address ha => agree address (Or.inl ha)
+  have publicKeyContents :
+      MemDeterminedOn (range bases.publicKeysBase (65 * value.publicKeys.size))
+        (fun s => HeapFixedVectorArrayRep s bases.publicKeysBase value.publicKeys) :=
+    heapFixedVectorArray_footprint _ _
+  have descriptors2 : RawV4DescriptorRep s2 rootBase value bases :=
+    rawV4Descriptor_footprint rootBase rootSize value bases fits s1 s2 agreeRecord descriptors
+  refine
+    { layout := ⟨bases, ?_, descriptors2,
+        rawV4InputSlices_footprint inputBase input rootBase rootSize value bases fits agree
+          descriptors descriptors2 slices⟩
+      fixedFields := rawV4FixedFields_footprint rootBase rootSize value fits s1 s2 agreeRecord
+        established.fixedFields }
+  exact
+    { root := rawStatelessInput_footprint rootBase rootSize hsize s1 s2 agreeRecord allocation.root
+      versionedHashes := heapArray_footprint bases.versionedHashesBase _ 32 s1 s2
+        (fun address ha => agree address (Or.inr (Or.inl ha))) allocation.versionedHashes
+      versionedHashContents := heapFixedVectorArray_footprint bases.versionedHashesBase _ s1 s2
+        (fun _ ⟨hl, hr⟩ => agree _ (Or.inr (Or.inl ⟨by omega, by omega⟩)))
+        allocation.versionedHashContents
+      transactions := heapArray_footprint bases.transactionsBase _ 16 s1 s2
+        (fun address ha => agree address (Or.inr (Or.inr (Or.inl ha)))) allocation.transactions
+      withdrawals := heapArray_footprint bases.withdrawalsBase _ 48 s1 s2
+        (fun address ha => agree address (Or.inr (Or.inr (Or.inr (Or.inl ha)))))
+        allocation.withdrawals
+      withdrawalContents := heapWithdrawalArray_footprint bases.withdrawalsBase _ s1 s2
+        (fun _ ⟨hl, hr⟩ =>
+          agree _ (Or.inr (Or.inr (Or.inr (Or.inl ⟨by omega, by omega⟩)))))
+        allocation.withdrawalContents
+      deposits := heapArray_footprint bases.depositsBase _ 192 s1 s2
+        (fun address ha => agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ha))))))
+        allocation.deposits
+      depositContents := heapDepositRequestArray_footprint bases.depositsBase _ s1 s2
+        (fun _ ⟨hl, hr⟩ =>
+          agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨by omega, by omega⟩))))))
+        allocation.depositContents
+      withdrawalRequests := heapArray_footprint bases.withdrawalRequestsBase _ 80 s1 s2
+        (fun address ha =>
+          agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ha)))))))
+        allocation.withdrawalRequests
+      withdrawalRequestContents :=
+        heapWithdrawalRequestArray_footprint bases.withdrawalRequestsBase _ s1 s2
+          (fun _ ⟨hl, hr⟩ =>
+            agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨by omega, by omega⟩)))))))
+          allocation.withdrawalRequestContents
+      consolidationRequests := heapArray_footprint bases.consolidationRequestsBase _ 116 s1 s2
+        (fun address ha =>
+          agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ha))))))))
+        allocation.consolidationRequests
+      consolidationRequestContents :=
+        heapConsolidationRequestArray_footprint bases.consolidationRequestsBase _ s1 s2
+          (fun _ ⟨hl, hr⟩ =>
+            agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
+              (Or.inl ⟨by omega, by omega⟩))))))))
+          allocation.consolidationRequestContents
+      witnessState := heapArray_footprint bases.witnessStateBase _ 16 s1 s2
+        (fun address ha =>
+          agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
+            (Or.inl ha)))))))))
+        allocation.witnessState
+      witnessCodes := heapArray_footprint bases.witnessCodesBase _ 16 s1 s2
+        (fun address ha =>
+          agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
+            (Or.inl ha))))))))))
+        allocation.witnessCodes
+      witnessHeaders := heapArray_footprint bases.witnessHeadersBase _ 16 s1 s2
+        (fun address ha =>
+          agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
+            (Or.inl ha)))))))))))
+        allocation.witnessHeaders
+      publicKeys := heapArray_footprint bases.publicKeysBase _ 65 s1 s2
+        (fun address ha =>
+          agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
+            (Or.inr ha)))))))))))
+        allocation.publicKeys
+      publicKeyContents := publicKeyContents s1 s2
+        (fun _ ⟨hl, hr⟩ =>
+          agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
+            (Or.inr ⟨by omega, by omega⟩))))))))))) allocation.publicKeyContents }
+
+theorem rawV4_footprint_abi (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    (value : SszBridge.RawV4) (s1 : State) {rootSize : Nat}
+    (hsize : BinaryFv.SSZ.Zesu.Artifact.rawStatelessInputSize = some rootSize)
+    (established : RawV4Rep s1 inputBase input rootBase value) :
+    ∃ bases : RawV4DescriptorBases,
+      ∀ s2 : State,
+        (∀ address, rawV4Region rootBase rootSize value bases address →
+          s1.mem.get? address = s2.mem.get? address) →
+        RawV4Rep s2 inputBase input rootBase value := by
+  have h832 : rootSize = 832 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.raw_stateless_input_layout.1
+    rw [hsize] at hlayout
+    exact Option.some.inj hlayout
+  exact rawV4_footprint inputBase input rootBase rootSize value s1 (by omega) hsize established
+
 /-- The container layer's manifest-derived footprints, gathered for the axiom-hygiene anchor. Same
 reason as `heapLayer_footprints_abi`: an anchor sees only what its declaration reaches, so a layer is
 anchored by one statement reaching the layer.
@@ -1705,33 +2289,77 @@ anchored by one statement reaching the layer.
 It has one conjunct today and grows as `ExecutionWitness`, `ExecutionPayload`, `NewPayloadRequest`
 and `RawV4Rep` land. **A footprint added to the layer and not added here is invisible to the guard** —
 that gap is real and is recorded beside the door set in `BinaryFv/SSZ/AxiomHygiene.lean`, together
-with why it closes when the composition's entry point is anchored. -/
-theorem containerLayer_footprints_abi (inputBase : Nat) (input : ByteArray) (base : Nat)
-    (value : SszBridge.RawExecutionRequests) (witness : SszBridge.RawExecutionWitness)
-    (s1 : State) (established : ExecutionRequestsRep s1 base value)
-    (witnessEstablished : ExecutionWitnessRep s1 inputBase input base witness)
-    {recordSize witnessSize depositSize withdrawalSize consolidationSize : Nat}
-    (hrecord : BinaryFv.SSZ.Zesu.Artifact.executionRequestsSize = some recordSize)
-    (hwitness : BinaryFv.SSZ.Zesu.Artifact.executionWitnessSize = some witnessSize)
-    (hdeposit : BinaryFv.SSZ.Zesu.Artifact.rawDepositRequestSize = some depositSize)
-    (hwithdrawal : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalRequestSize = some withdrawalSize)
-    (hconsolidation :
-      BinaryFv.SSZ.Zesu.Artifact.rawConsolidationRequestSize = some consolidationSize) :
-    (∃ depositsBase withdrawalsBase consolidationsBase,
+with why it closes when the composition's entry point is anchored.
+
+**This anchor is a reachability vehicle, not a claim about the containers.** Every conjunct is a
+result proved elsewhere; the point is that one declaration's proof term names all five, so the
+guard's cone is the layer's. Each container gets its own base so the premises are jointly
+satisfiable — an anchor whose hypotheses could not all hold would still work for the guard, and would
+still be the shape this row keeps rejecting. -/
+theorem containerLayer_footprints_abi (inputBase : Nat) (input : ByteArray)
+    (requestsBase witnessBase payloadBase newPayloadBase rootBase : Nat)
+    (requests : SszBridge.RawExecutionRequests) (witness : SszBridge.RawExecutionWitness)
+    (payload : SszBridge.RawExecutionPayload) (newPayload : SszBridge.RawNewPayloadRequest)
+    (root : SszBridge.RawV4) (s1 : State)
+    (hRequests : ExecutionRequestsRep s1 requestsBase requests)
+    (hWitness : ExecutionWitnessRep s1 inputBase input witnessBase witness)
+    (hPayload : ExecutionPayloadRep s1 inputBase input payloadBase payload)
+    (hNewPayload : NewPayloadRequestRep s1 inputBase input newPayloadBase newPayload)
+    (hRoot : RawV4Rep s1 inputBase input rootBase root)
+    {requestsSize witnessSize payloadSize newPayloadSize rootSize
+      depositSize requestWithdrawalSize consolidationSize withdrawalSize : Nat}
+    (hRequestsSize : BinaryFv.SSZ.Zesu.Artifact.executionRequestsSize = some requestsSize)
+    (hWitnessSize : BinaryFv.SSZ.Zesu.Artifact.executionWitnessSize = some witnessSize)
+    (hPayloadSize : BinaryFv.SSZ.Zesu.Artifact.executionPayloadSize = some payloadSize)
+    (hNewPayloadSize : BinaryFv.SSZ.Zesu.Artifact.newPayloadRequestSize = some newPayloadSize)
+    (hRootSize : BinaryFv.SSZ.Zesu.Artifact.rawStatelessInputSize = some rootSize)
+    (hDeposit : BinaryFv.SSZ.Zesu.Artifact.rawDepositRequestSize = some depositSize)
+    (hRequestWithdrawal :
+      BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalRequestSize = some requestWithdrawalSize)
+    (hConsolidation :
+      BinaryFv.SSZ.Zesu.Artifact.rawConsolidationRequestSize = some consolidationSize)
+    (hWithdrawal : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalSize = some withdrawalSize) :
+    (∃ depositsBase requestWithdrawalsBase consolidationsBase,
         ∀ s2 : State,
-          (∀ address, executionRequestsRegion base recordSize depositsBase withdrawalsBase
-              consolidationsBase value.deposits.size value.withdrawals.size
-              value.consolidations.size depositSize withdrawalSize consolidationSize address →
+          (∀ address, executionRequestsRegion requestsBase requestsSize depositsBase
+              requestWithdrawalsBase consolidationsBase requests.deposits.size
+              requests.withdrawals.size requests.consolidations.size depositSize
+              requestWithdrawalSize consolidationSize address →
             s1.mem.get? address = s2.mem.get? address) →
-          ExecutionRequestsRep s2 base value) ∧
+          ExecutionRequestsRep s2 requestsBase requests) ∧
       (∃ stateBase codesBase headersBase,
         ∀ s2 : State,
-          (∀ address, executionWitnessRegion base witnessSize stateBase codesBase headersBase
-              witness.state.size witness.codes.size witness.headers.size 16 address →
+          (∀ address, executionWitnessRegion witnessBase witnessSize stateBase codesBase
+              headersBase witness.state.size witness.codes.size witness.headers.size 16 address →
             s1.mem.get? address = s2.mem.get? address) →
-          ExecutionWitnessRep s2 inputBase input base witness) :=
-  ⟨executionRequests_footprint_abi base value s1 established hrecord hdeposit hwithdrawal
-      hconsolidation,
-    executionWitness_footprint_abi inputBase input base witness s1 witnessEstablished hwitness⟩
+          ExecutionWitnessRep s2 inputBase input witnessBase witness) ∧
+      (∃ transactionsBase withdrawalsBase,
+        ∀ s2 : State,
+          (∀ address, executionPayloadRegion payloadBase payloadSize transactionsBase
+              withdrawalsBase payload.transactions.size payload.withdrawals.size 16
+              withdrawalSize address →
+            s1.mem.get? address = s2.mem.get? address) →
+          ExecutionPayloadRep s2 inputBase input payloadBase payload) ∧
+      (∃ transactionsBase payloadWithdrawalsBase versionedHashesBase depositsBase
+          requestWithdrawalsBase consolidationsBase,
+        ∀ s2 : State,
+          (∀ address, newPayloadRequestRegion newPayloadBase newPayloadSize transactionsBase
+              payloadWithdrawalsBase versionedHashesBase depositsBase requestWithdrawalsBase
+              consolidationsBase newPayload address →
+            s1.mem.get? address = s2.mem.get? address) →
+          NewPayloadRequestRep s2 inputBase input newPayloadBase newPayload) ∧
+      (∃ bases : RawV4DescriptorBases,
+        ∀ s2 : State,
+          (∀ address, rawV4Region rootBase rootSize root bases address →
+            s1.mem.get? address = s2.mem.get? address) →
+          RawV4Rep s2 inputBase input rootBase root) :=
+  ⟨executionRequests_footprint_abi requestsBase requests s1 hRequests hRequestsSize hDeposit
+      hRequestWithdrawal hConsolidation,
+    executionWitness_footprint_abi inputBase input witnessBase witness s1 hWitness hWitnessSize,
+    executionPayload_footprint_abi inputBase input payloadBase payload s1 hPayload hPayloadSize
+      hWithdrawal,
+    newPayloadRequest_footprint_abi inputBase input newPayloadBase newPayload s1 hNewPayload
+      hNewPayloadSize,
+    rawV4_footprint_abi inputBase input rootBase root s1 hRootSize hRoot⟩
 
 end BinaryFv.SSZ.Zesu.Contracts.Footprint
