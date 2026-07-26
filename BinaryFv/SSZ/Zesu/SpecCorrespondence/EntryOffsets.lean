@@ -36,6 +36,15 @@ well-founded, which together account for most of the list.
 * **Two syntactically identical `match` terms can fail `rfl`** when they carry different motives.
   `cases` on the scrutinee reduces both sides; `split` reduces only the left, which looks like
   progress and is not.
+* **When a tactic cannot find a pattern that is visibly present, ask whether the terms are *spelled*
+  alike, not whether they are equal.** Defeq is not syntactic equality and most tactics want the
+  latter. Four failures in one proof, all this cause: a hypothesis stated at `publicKeysType` against
+  a goal showing the unfolded `.list (byteVector 65) maxPublicKeys`; `omega` reading
+  `(x0, x1, x2, x3, unit).fst` as an atom distinct from `x0`; `omega` reading `UInt32.size` as an
+  atom rather than `4294967296`; and `match`es on `Except.ok` literals staying unreduced so the bound
+  variable never became the tuple. The crossings are `simp only []` (beta/iota/projection), a
+  restatement `have h' : <other spelling> := h` (defeq coercion), and `have : UInt32.size = 4294967296
+  := rfl` to give `omega` the link. `rw` crosses none of them.
 * **Anything reading through the LSP inherits its staleness, so `lake` is authoritative.** Two
   symptoms of one root cause, worth stating together because they look unrelated:
   - a *stale unknown identifier* for a declaration added to an imported module in the same session;
@@ -1016,6 +1025,85 @@ theorem decodeCanonical_entry_of_fields
   rw [hser, byteArray_beq_self]
   rfl
 
+/-! ## The entry composition, forward direction
+
+From the oracle's acceptance of the whole body to the four per-field canonical decodes. The same
+pieces as the backward direction, run the other way: the re-serialization equality is *given* here
+and has to be taken apart, rather than assembled. -/
+
+/-- **A canonical entry decode makes all four field decodes canonical.** -/
+theorem decodeCanonical_entry_fields_of
+    (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h12 : o1 ≤ o2) (h23 : o2 ≤ o3) (h3 : o3 ≤ body.size)
+    (hu32 : body.size < UInt32.size)
+    (hacc : (SszBridge.decodeCanonical SszBridge.statelessInputV4Type body).toOption.isSome = true) :
+    (SszBridge.decodeCanonical SszBridge.newPayloadRequestType (body.extract o0 o1)).toOption.isSome
+        = true ∧
+      (SszBridge.decodeCanonical SszBridge.witnessType (body.extract o1 o2)).toOption.isSome = true ∧
+      (SszBridge.decodeCanonical SszBridge.chainConfigType (body.extract o2 o3)).toOption.isSome
+        = true ∧
+      (SszBridge.decodeCanonical publicKeysType (body.extract o3 body.size)).toOption.isSome
+        = true := by
+  have husz : UInt32.size = 4294967296 := rfl
+  subst h0
+  rw [decodeCanonical_entry_unfold body 16 o1 o2 o3 hoffs rfl,
+    deserializeVarFields_entry body 16 o1 o2 o3 h01 h12 h23 h3] at hacc
+  split at hacc
+  · exact absurd hacc (by simp [Except.toOption])
+  · rename_i v heq
+    split at hacc
+    · rename_i hser
+      -- Unpack the four field deserializes out of `heq`.
+      split at heq
+      · exact absurd heq (by simp)
+      · rename_i x0 u0 hd0
+        split at heq
+        · exact absurd heq (by simp)
+        · rename_i x1 u1 hd1
+          split at heq
+          · exact absurd heq (by simp)
+          · rename_i x2 u2 hd2
+            split at heq
+            · exact absurd heq (by simp)
+            · rename_i x3 u3 hd3
+              simp only [Except.ok.injEq] at heq
+              subst heq
+              have hu0 := deserialize_newPayloadRequest_used hd0
+              have hu1 := deserialize_witness_used hd1
+              have hu2 := deserialize_chainConfig_used hd2
+              have hu3 := deserialize_publicKeys_used hd3
+              subst hu0; subst hu1; subst hu2; subst hu3
+              have hb : SSZType.serialize SszBridge.statelessInputV4Type
+                  ((x0, x1, x2, x3, PUnit.unit) : SSZType.interpFields entryFields) = body :=
+                byteArray_eq_of_beq hser
+              have hsplit := (serialize_entry_eq_body_iff body (x0, x1, x2, x3, PUnit.unit)
+                _ _ _ _ rfl rfl rfl rfl (by omega)).mp hb
+              simp only [] at hsplit
+              obtain ⟨q0, q1, q2, q3, qr⟩ := hsplit
+              -- The region equality bounds every cumulative sum by `body.size`, which is what the
+              -- wrap-bound side conditions below need.
+              have hsz := congrArg ByteArray.size qr
+              simp only [ByteArray.size_append, ByteArray.size_extract] at hsz
+              have c1 := ((entry_offsetBytes_iff body 16 o1 o2 o3 hoffs _ (by omega)).2.1).mp q1
+              have c2 := ((entry_offsetBytes_iff body 16 o1 o2 o3 hoffs _ (by omega)).2.2.1).mp q2
+              have c3 := ((entry_offsetBytes_iff body 16 o1 o2 o3 hoffs _ (by omega)).2.2.2).mp q3
+              obtain ⟨r0, r1, r2, r3⟩ :=
+                (append4_eq_extract_region_iff body o1 o2 o3 h01 h12 h23 h3
+                  (by omega) (by omega) (by omega)).mp qr
+              refine ⟨?_, ?_, ?_, ?_⟩
+              · rw [decodeCanonical_of_used_eq _ _ x0 _ hd0 rfl, r0, byteArray_beq_self]; rfl
+              · rw [decodeCanonical_of_used_eq _ _ x1 _ hd1 rfl, r1, byteArray_beq_self]; rfl
+              · rw [decodeCanonical_of_used_eq _ _ x2 _ hd2 rfl, r2, byteArray_beq_self]; rfl
+              · -- Defeq-not-syntactic again: goal at `publicKeysType`, hypotheses at the unfolded
+                -- list type. `show` crosses it.
+                show (SszBridge.decodeCanonical
+                    (.list (SszBridge.byteVector SszBridge.publicKeyBytes) SszBridge.maxPublicKeys)
+                    (body.extract o3 body.size)).toOption.isSome = true
+                rw [decodeCanonical_of_used_eq _ _ x3 _ hd3 rfl, r3, byteArray_beq_self]; rfl
+    · exact absurd hacc (by simp [Except.toOption])
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
+
 
 
