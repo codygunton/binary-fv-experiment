@@ -1744,4 +1744,33 @@ theorem decodeCanonical_forkConfig_rejects_of_field (b : ByteArray) (o0 o1 : Nat
       · rw [p0] at hb; exact absurd hb (by simp)
       · rw [p1] at hb; exact absurd hb (by simp)
 
+/-- **`entry_forkGuard_false` at `forkConfig`.** The match-shaped counterpart of
+`decodeCanonical_forkConfig_rejects_of_field`, which concludes about `toOption.isSome` and therefore cannot
+rewrite the acceptance join's goal -- that goal is a `match` carrying the fork bound.
+
+Two shapes are needed because `forkConfig` has two right siblings: `forkActivation` is the structural
+analogue for the FILE, and its obligation target is plain `isSome` because it carries no bound; the ENTRY is
+the analogue for any lemma whose consumer's target carries one. Porting the `isSome` shape here was a
+faithful port from the wrong sibling. -/
+theorem forkConfig_forkGuard_false (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1])
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) (hu32 : b.size < UInt32.size)
+    {x : UInt64} (ha0 : readUInt64LE b 0 = some x)
+    (hbad :
+      (SszBridge.decodeCanonical SszBridge.forkActivationType
+          (b.extract o0 o1)).toOption.isSome = false ∨
+        (SszBridge.decodeCanonical
+          (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork)
+          (b.extract o1 b.size)).toOption.isSome = false) :
+    (match SszBridge.decodeCanonical SszBridge.forkConfigType b with
+      | .ok v => decide ((SszBridge.rawForkConfigOf v).fork ≤ 20)
+      | .error _ => false) = false := by
+  have hrej :=
+    decodeCanonical_forkConfig_rejects_of_field b o0 o1 hoffs h0 h01 h1 hu32 ha0 hbad
+  cases hdc : SszBridge.decodeCanonical SszBridge.forkConfigType b with
+  | error e => rfl
+  | ok v =>
+      rw [hdc] at hrej
+      exact absurd hrej (by simp [Except.toOption])
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
