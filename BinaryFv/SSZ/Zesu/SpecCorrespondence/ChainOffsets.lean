@@ -1274,4 +1274,22 @@ theorem chainConfig_offsetBytes_iff (b : ByteArray) (o : Nat)
   subst e
   exact uint32LE_eq_extract_iff b 8 n w r hn
 
+/-- **The `forkConfig` container's serialization, expanded.** The shape `serialize_forkActivation` could
+not supply: with a leading fixed field the prefix is the field's own bytes *inline*, then the two offsets.
+So `s0` sits before the table rather than the table starting at byte 0, and the derived 16 is
+`u64.fixedByteSize + 2 * BYTES_PER_LENGTH_OFFSET` rather than `2 * BYTES_PER_LENGTH_OFFSET`. -/
+theorem serialize_forkConfig (v : SSZType.interpFields forkConfigFields) (s0 s1 s2 : ByteArray)
+    (e0 : SSZType.serialize SszBridge.u64 v.1 = s0)
+    (e1 : SSZType.serialize SszBridge.forkActivationType v.2.1 = s1)
+    (e2 : SSZType.serialize
+        (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork) v.2.2.1 = s2) :
+    SSZType.serialize (.container forkConfigFields) v =
+      s0 ++ (uint32LE (Nat.toUInt32 16) ++ uint32LE (Nat.toUInt32 (16 + s1.size)))
+        ++ (s1 ++ s2) := by
+  rw [SSZType.serialize]
+  simp only [forkConfigFields, SSZType.serializeFieldsAux, u64_isFixed, u64_fixedByteSize,
+    forkActivationType_not_fixed, blobScheduleListField_not_fixed,
+    Bool.false_eq_true, if_false, if_true, e0, e1, e2, ByteArray.append_empty,
+    SSZType.fixedSectionSizeFields, SSZType.fixedSectionSize, BYTES_PER_LENGTH_OFFSET]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
