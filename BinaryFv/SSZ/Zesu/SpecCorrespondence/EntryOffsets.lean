@@ -1760,6 +1760,29 @@ theorem oracle_retry_rejects {bytes : ByteArray}
       · rw [if_pos (by simp [htail])]
         rfl
 
+/-! ## Envelope alignment at the raw level
+
+Before the four-field content can be used, the two entry points' *envelope* checks have to be matched.
+The source runs `requireU32Length`, then `size < 2`, then `hasSchemaId`, then `body.size < 16`. The
+oracle runs `size ≥ 2 ^ 32`, then `size < 2`, then `hasSchemaId`, then hands the body to
+`decodeCanonical`, whose container arm rejects when the body is shorter than the sixteen-byte prefix.
+
+Inside scope the first check on each side is dead — `requireU32Length` always succeeds and the
+`tooLarge` gate never fires — so the two envelopes reduce to the same three tests in the same order.
+The differing error constructors do not matter: the obligation compares acceptance. -/
+
+/-- The source's `requireU32Length` is free inside the root's scope. -/
+theorem meaningRequireU32Length_ok_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    meaningRequireU32Length bytes = .ok () := by
+  rw [rootComplianceScope] at h
+  rw [meaningRequireU32Length, if_pos (by omega)]
+
+/-- Both `tooLarge`-class gates are dead in scope: the oracle's `2 ^ 32` test and the source's
+`requireU32Length` are the same bound seen from the two sides, and neither fires below 2 MiB. -/
+theorem both_size_gates_dead_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    meaningRequireU32Length bytes = .ok () ∧ ¬ (bytes.size ≥ 2 ^ 32) :=
+  ⟨meaningRequireU32Length_ok_in_scope h, tooLarge_gate_unreachable_in_scope h⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
