@@ -1695,7 +1695,15 @@ magnitude below 2^32.
 This is why the scope hypothesis is on the obligation rather than being an incidental convenience:
 `ereGateDivergesAboveU32` exhibits a witness *above* the bound where the two sides genuinely disagree,
 so the agreement is true because of the scope, not despite it. Recording the gate as unreachable in
-scope is what connects those two facts. -/
+scope is what connects those two facts, which otherwise sit in different files with nothing linking
+them.
+
+**The strong form: remove the scope hypothesis and the obligation is FALSE at an exhibited witness**,
+not merely unproved. That is the difference between a narrowing a later reader might tidy away and one
+that cannot be. It is also the mirror of the not-about-this-layer category — that is a hypothesis which
+*looks* discharged and is not; this is one that *looks* incidental and is essential. Both are
+signature-versus-content mismatches with opposite signs, which is why the audit has to run in both
+directions. -/
 
 theorem tooLarge_gate_unreachable_in_scope {bytes : ByteArray}
     (h : rootComplianceScope bytes) : ¬ (bytes.size ≥ 2 ^ 32) := by
@@ -1721,6 +1729,36 @@ theorem decodeStatelessInput_in_scope {bytes : ByteArray} (h : rootComplianceSco
   rw [SszBridge.decodeStatelessInput, if_neg (tooLarge_gate_unreachable_in_scope h)]
   -- Same match on both sides, differing motives: reduce the scrutinee on both rather than the left.
   cases SszBridge.decodeRawOrQuarantineV3 bytes <;> rfl
+
+/-! ## Item 5: the ERE retry arm
+
+The source retries only on `invalidSsz`; the oracle retries on any non-quarantine error. So the two
+disagree about *whether to retry* exactly when the source's error is `unknownFork` or `outOfMemory`,
+and the agreement survives only if the oracle's retry then fails.
+
+`outOfMemory` is excluded in scope by `outOfMemoryUnreachableBelowBound`. `unknownFork` is this lemma:
+for the source to raise it at all, `meaningForkConfig` must have been reached, which means
+`meaningDecodeRaw` got past `hasSchemaId` *and* past `requireCanonicalOffsets`, and that check demands
+the first offset equal 16. Those are exactly `retryTailNeverSchemaValid`'s two hypotheses — so the
+lemma stated about the *source* retry is what kills the *oracle* one. -/
+
+/-- **The oracle's ERE retry rejects** whenever the body's first offset is canonical. -/
+theorem oracle_retry_rejects {bytes : ByteArray}
+    (hschema : SszBridge.hasSchemaId bytes = true)
+    (hfirst : SszBridge.readU32LE? (bytes.extract 2 bytes.size) 0 = some 16) :
+    (SszBridge.decodeRawOrQuarantineV3 (bytes.extract 4 bytes.size)).toOption = none := by
+  have htail : SszBridge.hasSchemaId (bytes.extract 4 bytes.size) = false :=
+    retryTailNeverSchemaValid_holds bytes hschema hfirst
+  rw [SszBridge.decodeRawOrQuarantineV3]
+  split
+  · rfl
+  · rw [SszBridge.decodeRawV4]
+    split
+    · rfl
+    · split
+      · rfl
+      · rw [if_pos (by simp [htail])]
+        rfl
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
