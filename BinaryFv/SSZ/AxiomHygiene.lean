@@ -106,6 +106,22 @@ def rawIntermediateDoors : List Name :=
   [``BinaryFv.SSZ.Zesu.SpecCorrespondence.uint32LE_of_readUInt32LE,
    ``BinaryFv.SSZ.Zesu.SpecCorrespondence.readUInt32LE_uint32LE]
 
+/-- `forkActivation_footprint_abi` — the ownership discipline's footprint layer. Its single door is
+the ABI layout reflection, `native_decide` by design, the same one `container_field_offsets_valid`
+opens for the representation offsets.
+
+**Pinned before it is load-bearing, deliberately.** Nothing depends on this corollary yet, and none of
+the four older anchors reaches `Contracts/Footprint` — so without this entry a door opened here is
+invisible to the guard, and would stay invisible right up to the moment the discipline is wired into
+the real obligations. That moment is the *least* visible one available: the guard would have been
+green across the whole intervening period. Pinning now makes the transition to load-bearing a diff
+rather than a silence.
+
+The parametric `forkActivation_footprint_record` deliberately carries **no** door; only the
+manifest-instantiated form does. That split is what this pin records. -/
+def ownershipFootprintDoors : List Name :=
+  [``BinaryFv.SSZ.Zesu.Artifact.fork_activation_layout]
+
 /-- `catalogSemanticObligations_of_oracleAgreement` — a single door, through the `u64` primitive.
 See the module docstring: the recorded provenance claimed two. -/
 def catalogObligationDoors : List Name :=
@@ -162,6 +178,7 @@ def anchors : List (Name × List Name) :=
    (``BinaryFv.SSZ.Zesu.Contracts.catalogSemanticObligations_of_oracleAgreement,
      catalogObligationDoors),
    (``BinaryFv.SSZ.Zesu.Elfling.Validation.sszComplianceObligations_of_residue, residueDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.Footprint.forkActivation_footprint_abi, ownershipFootprintDoors),
    (``BinaryFv.SSZ.root_compliance, rootDoors)]
 
 run_cmd do
