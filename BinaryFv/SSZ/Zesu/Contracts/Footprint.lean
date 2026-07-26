@@ -58,6 +58,25 @@ theorem memDeterminedOn_and {r : Region} {P Q : State → Prop}
 theorem memDeterminedOn_const {r : Region} {p : Prop} : MemDeterminedOn r (fun _ => p) :=
   fun _ _ _ h => h
 
+/-- Union of two regions. Needed under **either** footprint policy: a container's read set is not one
+contiguous range once heap arrays and borrowed input slices are involved — `RawV4Rep` touches the root
+allocation, ten separately-based heap arrays, a descriptor table and input-relative slices, and no
+choice of "tight" versus "record boundary" makes those contiguous. -/
+def Region.union (r1 r2 : Region) : Region := fun address => r1 address ∨ r2 address
+
+/-- **The assembly combinator.** Two claims, each determined on its own region, are jointly determined
+on the union — which is where a container footprint actually comes from.
+
+Contrast `memDeterminedOn_and`, which requires both conjuncts on the *same* region and so forces the
+caller to widen each side to cover the other. That widening is how padding enters at the assembly step,
+which is exactly where `forkActivation`'s `range base 32` went wrong. -/
+theorem memDeterminedOn_and_union {r1 r2 : Region} {P Q : State → Prop}
+    (hp : MemDeterminedOn r1 P) (hq : MemDeterminedOn r2 Q) :
+    MemDeterminedOn (Region.union r1 r2) (fun s => P s ∧ Q s) :=
+  fun s1 s2 agree h =>
+    ⟨hp s1 s2 (fun address ha => agree address (Or.inl ha)) h.1,
+      hq s1 s2 (fun address ha => agree address (Or.inr ha)) h.2⟩
+
 /-! ## Primitive footprints -/
 
 theorem word64_footprint (base value : Nat) :
@@ -100,6 +119,19 @@ ownership discipline consumes. -/
 theorem localTo_canonicalRepForkActivation_range32 :
     LocalTo canonicalRepForkActivation (fun base => range base 32) :=
   fun _ _ value s1 s2 base agree h => forkActivation_footprint base value s1 s2 agree h
+
+/-- **The tight read set**, assembled through the union combinator instead of by widening both
+conjuncts to a common range: `[base, base+9)` for `blockNumber` and `[base+16, base+25)` for
+`timestamp`. Eighteen bytes in two runs, against the record's thirty-two.
+
+Both this and `forkActivation_footprint` are correct; they are different policies, not a right and a
+wrong answer, and `forkActivation_range32_not_tight` below measures the gap between them. -/
+theorem forkActivation_footprint_tightRegion (base : Nat)
+    (value : SszBridge.RawForkActivation) :
+    MemDeterminedOn (Region.union (range base 9) (range (base + 16) 9))
+      (fun s => ForkActivationRep s base value) :=
+  memDeterminedOn_and_union (optionU64_footprint base value.blockNumber)
+    (optionU64_footprint (base + 16) value.timestamp)
 
 /-! ## Tightness
 
@@ -207,6 +239,81 @@ theorem word64_footprint_tight (base offset : Nat) (hoffset : offset < 8) :
       simp [Std.ExtHashMap.get?_eq_getElem?]
     rw [hget] at h
     simp at h
+
+/-- Byte values making `ForkActivationRep` hold at a base: two zero `u64` payloads with their
+presence tags at offsets 8 and 24. The bytes between are irrelevant, which is the point. -/
+def forkActivationWitnessBytes : Nat → BitVec 8 :=
+  fun i => if i = 8 ∨ i = 24 then BitVec.ofNat 8 1 else BitVec.ofNat 8 0
+
+/-- **`range base 32` is genuinely padded: byte 12 is not load-bearing.** Two states differing exactly
+there, both satisfying `ForkActivationRep`.
+
+Previously this was asserted in prose — "bytes 9–15 and 25–31 are structure padding" — on the strength
+of reading the conjuncts. That is the same unproved-negative shape the module warns about, so it is a
+theorem now. The proof consumes `forkActivation_footprint_tightRegion`: the two states agree on the
+tight read set, so the representation transports, and the byte they differ at is therefore idle. -/
+theorem forkActivation_range32_not_tight (base : Nat) :
+    ∃ (value : SszBridge.RawForkActivation) (s1 s2 : State),
+      range base 32 (base + 12) ∧
+        s1.mem.get? (base + 12) ≠ s2.mem.get? (base + 12) ∧
+        ForkActivationRep s1 base value ∧ ForkActivationRep s2 base value := by
+  refine ⟨⟨some 0, some 0⟩,
+          { (default : State) with mem := withBytes (default : State).mem base forkActivationWitnessBytes 25 },
+          { (default : State) with
+            mem := (withBytes (default : State).mem base forkActivationWitnessBytes 25).insert (base + 12)
+              (BitVec.ofNat 8 7) },
+          ⟨by omega, by omega⟩, ?_, ?_, ?_⟩
+  · show (withBytes (default : State).mem base forkActivationWitnessBytes 25).get? (base + 12)
+        ≠ ((withBytes (default : State).mem base forkActivationWitnessBytes 25).insert (base + 12)
+            (BitVec.ofNat 8 7)).get? (base + 12)
+    rw [withBytes_inside _ _ _ (by omega : 12 < 25)]
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    simp [forkActivationWitnessBytes]
+  · refine ⟨?_, ?_⟩
+    · refine ⟨?_, ?_⟩
+      · intro index hindex
+        show (withBytes (default : State).mem base forkActivationWitnessBytes 25).get? (base + index) = _
+        rw [withBytes_inside _ _ _ (by omega : index < 25)]
+        simp [forkActivationWitnessBytes, show ¬ (index = 8 ∨ index = 24) by omega]
+      · show (withBytes (default : State).mem base forkActivationWitnessBytes 25).get? (base + 8) = _
+        rw [withBytes_inside _ _ _ (by omega : 8 < 25)]
+        simp [forkActivationWitnessBytes]
+    · refine ⟨?_, ?_⟩
+      · intro index hindex
+        show (withBytes (default : State).mem base forkActivationWitnessBytes 25).get? (base + 16 + index) = _
+        rw [show base + 16 + index = base + (16 + index) by omega,
+          withBytes_inside _ _ _ (by omega : 16 + index < 25)]
+        simp [forkActivationWitnessBytes, show ¬ (16 + index = 8 ∨ 16 + index = 24) by omega]
+      · show (withBytes (default : State).mem base forkActivationWitnessBytes 25).get? (base + 16 + 8) = _
+        rw [show base + 16 + 8 = base + 24 by omega, withBytes_inside _ _ _ (by omega : 24 < 25)]
+        simp [forkActivationWitnessBytes]
+  · refine forkActivation_footprint_tightRegion base ⟨some 0, some 0⟩
+      { (default : State) with
+        mem := withBytes (default : State).mem base forkActivationWitnessBytes 25 } _ ?_ ?_
+    · rintro address (⟨hl, hr⟩ | ⟨hl, hr⟩) <;>
+        · show (withBytes (default : State).mem base forkActivationWitnessBytes 25).get? address
+              = ((withBytes (default : State).mem base forkActivationWitnessBytes 25).insert (base + 12)
+                  (BitVec.ofNat 8 7)).get? address
+          simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+          rw [if_neg (by omega)]
+    · refine ⟨?_, ?_⟩
+      · refine ⟨?_, ?_⟩
+        · intro index hindex
+          show (withBytes (default : State).mem base forkActivationWitnessBytes 25).get? (base + index) = _
+          rw [withBytes_inside _ _ _ (by omega : index < 25)]
+          simp [forkActivationWitnessBytes, show ¬ (index = 8 ∨ index = 24) by omega]
+        · show (withBytes (default : State).mem base forkActivationWitnessBytes 25).get? (base + 8) = _
+          rw [withBytes_inside _ _ _ (by omega : 8 < 25)]
+          simp [forkActivationWitnessBytes]
+      · refine ⟨?_, ?_⟩
+        · intro index hindex
+          show (withBytes (default : State).mem base forkActivationWitnessBytes 25).get? (base + 16 + index) = _
+          rw [show base + 16 + index = base + (16 + index) by omega,
+            withBytes_inside _ _ _ (by omega : 16 + index < 25)]
+          simp [forkActivationWitnessBytes, show ¬ (16 + index = 8 ∨ 16 + index = 24) by omega]
+        · show (withBytes (default : State).mem base forkActivationWitnessBytes 25).get? (base + 16 + 8) = _
+          rw [show base + 16 + 8 = base + 24 by omega, withBytes_inside _ _ _ (by omega : 24 < 25)]
+          simp [forkActivationWitnessBytes]
 
 /-! ### What tightness is NOT yet proved for, and why it is listed rather than assumed
 
