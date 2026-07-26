@@ -876,4 +876,69 @@ theorem decodeCanonical_forkActivation_of_accepted (b : ByteArray) (o0 o1 : Nat)
   obtain ⟨x1, e1⟩ := except_isSome_iff.mp a1
   exact decodeCanonical_forkActivation_of_fields b o0 o1 hoffs h0 h01 h1 hu32 e0 e1
 
+/-! ### The forward direction, and `forkActivation`'s composition is both-ways
+
+From the oracle's acceptance of the whole `forkActivation` body to the two per-field canonical decodes.
+The same pieces as the backward direction run the other way: the re-serialization equality is *given*
+here and has to be taken apart rather than assembled.
+
+The one failure worth recording is the recurring family, arriving exactly where the module notes predict:
+the goal carries `optionalU64Type` while `decodeCanonical_of_used_eq` produces the unfolded
+`.list u64 maxOptionalForkActivationValues`. Defeq, not syntactically equal, so `rw` cannot see it and
+`simp only [optionalU64Type]` crosses it. That is the fifth instance of this family in the project and the
+first where the note was consulted *before* guessing — which is the only reason it cost one line instead
+of a round trip.
+
+With this and `_of_accepted`, `forkActivation`'s oracle-side composition holds in both directions. What
+remains for the link is the join to `meaningForkActivation`, which now has both halves available. -/
+
+theorem decodeCanonical_forkActivation_fields_of (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1])
+    (h0 : o0 = 8) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) (hu32 : b.size < UInt32.size)
+    (hacc : (SszBridge.decodeCanonical SszBridge.forkActivationType b).toOption.isSome = true) :
+    (SszBridge.decodeCanonical optionalU64Type (b.extract o0 o1)).toOption.isSome = true ∧
+      (SszBridge.decodeCanonical optionalU64Type (b.extract o1 b.size)).toOption.isSome = true := by
+  have husz : UInt32.size = 4294967296 := rfl
+  subst h0
+  rw [decodeCanonical_forkActivation_unfold b 8 o1 hoffs rfl,
+    deserializeVarFields_forkActivation b 8 o1 h01 h1] at hacc
+  split at hacc
+  · exact absurd hacc (by simp [Except.toOption])
+  · rename_i v heq
+    split at hacc
+    · rename_i hser
+      split at heq
+      · exact absurd heq (by simp)
+      · rename_i x0 u0 hd0
+        split at heq
+        · exact absurd heq (by simp)
+        · rename_i x1 u1 hd1
+          simp only [Except.ok.injEq] at heq
+          subst heq
+          have hu0 := deserialize_optionalU64_used hd0
+          have hu1 := deserialize_optionalU64_used hd1
+          subst hu0
+          subst hu1
+          have hb : SSZType.serialize SszBridge.forkActivationType
+              ((x0, x1, PUnit.unit) : SSZType.interpFields forkActivationFields) = b :=
+            byteArray_eq_of_beq hser
+          have hsplit := (serialize_forkActivation_eq_body_iff b (x0, x1, PUnit.unit)
+            _ _ rfl rfl (by omega)).mp hb
+          simp only [] at hsplit
+          obtain ⟨-, q1, qr⟩ := hsplit
+          have hsz := congrArg ByteArray.size qr
+          simp only [ByteArray.size_append, ByteArray.size_extract] at hsz
+          have c1 := ((forkActivation_offsetBytes_iff b 8 o1 hoffs _ (by omega)).2).mp q1
+          obtain ⟨r0, r1⟩ :=
+            (append_eq_extract_iff b 8 o1 b.size h01 h1 h1 (by omega)).mp qr
+          -- Goal carries the abbreviation, the lemma produces the unfolded list form: the
+          -- defeq-not-spelled family. `simp only` on the abbreviation crosses it; `rw` does not.
+          simp only [optionalU64Type]
+          refine ⟨?_, ?_⟩
+          · rw [decodeCanonical_of_used_eq _ _ x0 _ hd0 rfl, r0, byteArray_beq_self]
+            rfl
+          · rw [decodeCanonical_of_used_eq _ _ x1 _ hd1 rfl, r1, byteArray_beq_self]
+            rfl
+    · exact absurd hacc (by simp [Except.toOption])
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
