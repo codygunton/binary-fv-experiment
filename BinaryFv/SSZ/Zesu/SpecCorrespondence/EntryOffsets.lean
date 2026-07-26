@@ -1103,7 +1103,56 @@ theorem decodeCanonical_entry_fields_of
                 rw [decodeCanonical_of_used_eq _ _ x3 _ hd3 rfl, r3, byteArray_beq_self]; rfl
     · exact absurd hacc (by simp [Except.toOption])
 
+/-! ## The entry composition theorem
+
+Both directions together. This is what item 6 was sized around: the oracle's canonical decode of the
+whole body and the four per-field canonical decodes accept **the same inputs**, not merely one
+implying the other.
+
+**Where the container obligation does *not* enter, and why that is not an omission.**
+`sourceShapedContainersAgreeWithOracle` equates `isAccepted (meaningChainConfig bytes)` with
+`decodeCanonical chainConfigType bytes` succeeding *and* `fork ≤ 20`. That bound is not part of the
+schema: `chainConfigType` types `fork` as an unbounded `u64`, and the oracle applies the bound one
+layer up in `decodeRawV4`, after a complete canonical decode. So at *this* layer — `decodeCanonical`
+against `decodeCanonical` — neither side applies it, and stating the theorem with the container
+hypothesis would be stating a hypothesis it does not use.
+
+The bound enters when this decomposition is composed towards `decodeRawV4` and `meaningDecodeRaw`,
+where the oracle's post-decode `fork > 20` check has to be matched against the source's check inside
+`meaningChainConfig`. That is exactly the layering `sourceShapedContainersAgreeWithOracle` was
+corrected for (`d652aff`), and it is why the container fact is an *ingredient* of the entry agreement
+rather than a corollary of it. -/
+
+theorem except_isSome_iff {α ε : Type} {e : Except ε α} :
+    e.toOption.isSome = true ↔ ∃ x, e = .ok x := by
+  cases e <;> simp [Except.toOption]
+
+/-- **The entry composition theorem, both directions.** -/
+theorem decodeCanonical_entry_iff_fields
+    (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h12 : o1 ≤ o2) (h23 : o2 ≤ o3) (h3 : o3 ≤ body.size)
+    (hu32 : body.size < UInt32.size) :
+    (SszBridge.decodeCanonical SszBridge.statelessInputV4Type body).toOption.isSome = true ↔
+      ((SszBridge.decodeCanonical SszBridge.newPayloadRequestType
+            (body.extract o0 o1)).toOption.isSome = true ∧
+        (SszBridge.decodeCanonical SszBridge.witnessType (body.extract o1 o2)).toOption.isSome
+            = true ∧
+        (SszBridge.decodeCanonical SszBridge.chainConfigType (body.extract o2 o3)).toOption.isSome
+            = true ∧
+        (SszBridge.decodeCanonical publicKeysType (body.extract o3 body.size)).toOption.isSome
+            = true) := by
+  constructor
+  · exact decodeCanonical_entry_fields_of body o0 o1 o2 o3 hoffs h0 h01 h12 h23 h3 hu32
+  · rintro ⟨a0, a1, a2, a3⟩
+    obtain ⟨x0, e0⟩ := except_isSome_iff.mp a0
+    obtain ⟨x1, e1⟩ := except_isSome_iff.mp a1
+    obtain ⟨x2, e2⟩ := except_isSome_iff.mp a2
+    obtain ⟨x3, e3⟩ := except_isSome_iff.mp a3
+    exact decodeCanonical_entry_of_fields body o0 o1 o2 o3 hoffs h0 h01 h12 h23 h3 hu32 e0 e1 e2 e3
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
+
 
 
 
