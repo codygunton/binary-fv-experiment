@@ -1616,4 +1616,18 @@ Stated so the acceptance join can move between the two without an unremarked ste
 theorem fork_bound_toNat_iff (x : UInt64) : x.toNat ≤ 20 ↔ x ≤ 20 := by
   rw [UInt64.le_iff_toNat_le, show ((20 : UInt64)).toNat = 20 from by decide]
 
+/-- Above eight bytes the inline read succeeds. `readUInt32LE_exists` one width up, and the piece the
+acceptance joins need to name the `fork`/`chainId` value before knowing anything about it. -/
+theorem readUInt64LE_exists (bytes : ByteArray) (offset : Nat) (fits : offset + 8 ≤ bytes.size) :
+    ∃ w, readUInt64LE bytes offset = some w := by
+  rw [readUInt64LE, dif_pos fits]
+  exact ⟨_, rfl⟩
+
+/-- The source's inline read succeeds too, in `meaningReadU64` terms. Pairs with
+`meaningReadU64_eq_some` to move between the two spellings in either direction. -/
+theorem meaningReadU64_exists (b : ByteArray) (i : Nat) (fits : i + 8 ≤ b.size) :
+    ∃ x, meaningReadU64 b i = .ok x := by
+  obtain ⟨w, hw⟩ := readUInt64LE_exists b i fits
+  exact ⟨w, by rw [meaningReadU64, hw]; rfl⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
