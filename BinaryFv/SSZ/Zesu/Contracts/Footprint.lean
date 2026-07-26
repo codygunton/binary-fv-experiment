@@ -1218,6 +1218,157 @@ theorem rawWithdrawalRequest_range80_not_tight (base : Nat) :
     rw [if_neg (by omega)]
     simpa [Std.ExtHashMap.get?_eq_getElem?] using zeroBytes_inside (base := base) hindex
 
+/-! ### The two exactly-packed records, witnessed rather than computed
+
+`RawConsolidationRequest` (116) and `RawDepositRequest` (192) were called "exactly packed" from their
+offset arithmetic: `20 + 48 + 48` and `8 + 8 + 48 + 32 + 96` land on the manifest sizes. That is an
+argument, not a proof, and the module's own standard says a soundness result cannot distinguish it
+from a padded footprint — so both get uniform tightness here, over **every** address of the record.
+
+The witnesses are cheap because the value is the zero record: every byte the representation pins is
+`0x00`, so the case split over five field ranges only has to name which conjunct covers the offset,
+not compute what it holds. -/
+
+/-- Every field zero. -/
+def zeroDepositRequest : SszBridge.RawDepositRequest where
+  pubkey := Vector.replicate 48 0
+  withdrawalCredentials := Vector.replicate 32 0
+  amount := 0
+  signature := Vector.replicate 96 0
+  index := 0
+
+theorem zeroDepositRequest_rep {s : State} {base count : Nat}
+    (bytes : ∀ index, index < count → s.mem.get? (base + index) = some (BitVec.ofNat 8 0))
+    (fits : 192 ≤ count) : RawDepositRequestRep s base zeroDepositRequest :=
+  ⟨word64_of_zeroBytes (offset := 0) bytes (by omega),
+    word64_of_zeroBytes (offset := 8) bytes (by omega),
+    fixedByteVector_of_zeroBytes (offset := 16) (length := 48) bytes (by omega),
+    fixedByteVector_of_zeroBytes (offset := 64) (length := 32) bytes (by omega),
+    fixedByteVector_of_zeroBytes (offset := 96) (length := 96) bytes (by omega)⟩
+
+/-- **The converse, and the half that makes tightness possible.** The representation *forces* every
+byte of `[base, base + 192)` to be zero — so no address in the record is unconstrained. -/
+theorem zeroDepositRequest_reads {s : State} {base offset : Nat} (hoffset : offset < 192)
+    (hrep : RawDepositRequestRep s base zeroDepositRequest) :
+    s.mem.get? (base + offset) = some (BitVec.ofNat 8 0) := by
+  rcases Nat.lt_or_ge offset 8 with h | h
+  · simpa [zeroDepositRequest] using hrep.1 offset h
+  rcases Nat.lt_or_ge offset 16 with h2 | h2
+  · have hx := hrep.2.1 (offset - 8) (by omega)
+    rw [show base + 8 + (offset - 8) = base + offset by omega] at hx
+    simpa [zeroDepositRequest] using hx
+  rcases Nat.lt_or_ge offset 64 with h3 | h3
+  · have hx := hrep.2.2.1 (offset - 16) (by omega)
+    rw [show base + 16 + (offset - 16) = base + offset by omega] at hx
+    simpa [zeroDepositRequest] using hx
+  rcases Nat.lt_or_ge offset 96 with h4 | h4
+  · have hx := hrep.2.2.2.1 (offset - 64) (by omega)
+    rw [show base + 64 + (offset - 64) = base + offset by omega] at hx
+    simpa [zeroDepositRequest] using hx
+  · have hx := hrep.2.2.2.2 (offset - 96) (by omega)
+    rw [show base + 96 + (offset - 96) = base + offset by omega] at hx
+    simpa [zeroDepositRequest] using hx
+
+/-- **`range base 192` is exactly tight: every one of its addresses is load-bearing.** Uniform in the
+offset. With `rawDepositRequest_footprint` this pins the region on both sides — shrink it and
+soundness breaks, pad it and this breaks. -/
+theorem rawDepositRequest_footprint_tight (base offset : Nat) (hoffset : offset < 192) :
+    ∃ s1 s2 : State,
+      (∀ address, address ≠ base + offset → s1.mem.get? address = s2.mem.get? address) ∧
+        RawDepositRequestRep s1 base zeroDepositRequest ∧
+        ¬ RawDepositRequestRep s2 base zeroDepositRequest := by
+  refine ⟨{ (default : State) with mem := zeroBytes base 192 },
+          { (default : State) with
+            mem := (zeroBytes base 192).insert (base + offset) (BitVec.ofNat 8 1) },
+          ?_, zeroDepositRequest_rep (fun index hindex => zeroBytes_inside hindex) (by omega), ?_⟩
+  · intro address hne
+    show (zeroBytes base 192).get? address
+        = ((zeroBytes base 192).insert (base + offset) (BitVec.ofNat 8 1)).get? address
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (fun heq => hne heq.symm)]
+  · intro hrep
+    have hzero := zeroDepositRequest_reads hoffset hrep
+    have hone : ((zeroBytes base 192).insert (base + offset) (BitVec.ofNat 8 1)).get?
+        (base + offset) = some (BitVec.ofNat 8 1) := by
+      simp [Std.ExtHashMap.get?_eq_getElem?]
+    rw [show ({ (default : State) with
+        mem := (zeroBytes base 192).insert (base + offset) (BitVec.ofNat 8 1) } : State).mem.get?
+          (base + offset) = _ from hone] at hzero
+    exact absurd hzero (by decide)
+
+/-- Every field zero. -/
+def zeroConsolidationRequest : SszBridge.RawConsolidationRequest where
+  sourceAddress := Vector.replicate 20 0
+  sourcePubkey := Vector.replicate 48 0
+  targetPubkey := Vector.replicate 48 0
+
+theorem zeroConsolidationRequest_rep {s : State} {base count : Nat}
+    (bytes : ∀ index, index < count → s.mem.get? (base + index) = some (BitVec.ofNat 8 0))
+    (fits : 116 ≤ count) : RawConsolidationRequestRep s base zeroConsolidationRequest :=
+  ⟨fixedByteVector_of_zeroBytes (offset := 0) (length := 20) bytes (by omega),
+    fixedByteVector_of_zeroBytes (offset := 20) (length := 48) bytes (by omega),
+    fixedByteVector_of_zeroBytes (offset := 68) (length := 48) bytes (by omega)⟩
+
+theorem zeroConsolidationRequest_reads {s : State} {base offset : Nat} (hoffset : offset < 116)
+    (hrep : RawConsolidationRequestRep s base zeroConsolidationRequest) :
+    s.mem.get? (base + offset) = some (BitVec.ofNat 8 0) := by
+  rcases Nat.lt_or_ge offset 20 with h | h
+  · simpa [zeroConsolidationRequest] using hrep.1 offset h
+  rcases Nat.lt_or_ge offset 68 with h2 | h2
+  · have hx := hrep.2.1 (offset - 20) (by omega)
+    rw [show base + 20 + (offset - 20) = base + offset by omega] at hx
+    simpa [zeroConsolidationRequest] using hx
+  · have hx := hrep.2.2 (offset - 68) (by omega)
+    rw [show base + 68 + (offset - 68) = base + offset by omega] at hx
+    simpa [zeroConsolidationRequest] using hx
+
+/-- **`range base 116` is exactly tight.** -/
+theorem rawConsolidationRequest_footprint_tight (base offset : Nat) (hoffset : offset < 116) :
+    ∃ s1 s2 : State,
+      (∀ address, address ≠ base + offset → s1.mem.get? address = s2.mem.get? address) ∧
+        RawConsolidationRequestRep s1 base zeroConsolidationRequest ∧
+        ¬ RawConsolidationRequestRep s2 base zeroConsolidationRequest := by
+  refine ⟨{ (default : State) with mem := zeroBytes base 116 },
+          { (default : State) with
+            mem := (zeroBytes base 116).insert (base + offset) (BitVec.ofNat 8 1) },
+          ?_, zeroConsolidationRequest_rep (fun index hindex => zeroBytes_inside hindex)
+            (by omega), ?_⟩
+  · intro address hne
+    show (zeroBytes base 116).get? address
+        = ((zeroBytes base 116).insert (base + offset) (BitVec.ofNat 8 1)).get? address
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (fun heq => hne heq.symm)]
+  · intro hrep
+    have hzero := zeroConsolidationRequest_reads hoffset hrep
+    have hone : ((zeroBytes base 116).insert (base + offset) (BitVec.ofNat 8 1)).get?
+        (base + offset) = some (BitVec.ofNat 8 1) := by
+      simp [Std.ExtHashMap.get?_eq_getElem?]
+    rw [show ({ (default : State) with
+        mem := (zeroBytes base 116).insert (base + offset) (BitVec.ofNat 8 1) } : State).mem.get?
+          (base + offset) = _ from hone] at hzero
+    exact absurd hzero (by decide)
+
+/-- **The heap layer is now tight at every level**, which is the summary the module could not make
+before: `Word64LERep` and `OptionTagRep` at the leaves, `HeapArrayRep` over its whole extent, and two
+of the four record shapes over theirs. The other two are *not* tight and are witnessed as such
+(`rawWithdrawal_range48_not_tight`, `rawWithdrawalRequest_range80_not_tight`) — and even there the
+padding is claimed by the `HeapArrayRep` the containers conjoin, which
+`heapWithdrawalArray_with_presence_tight` proves.
+
+So no region in this layer is padded in the representation a container actually states, and that is
+now a theorem at every level rather than an argument from offsets at two of them. -/
+theorem heapLayer_no_unwitnessed_padding (base : Nat) :
+    (∀ offset, offset < 192 → ∃ s1 s2 : State,
+        (∀ address, address ≠ base + offset → s1.mem.get? address = s2.mem.get? address) ∧
+          RawDepositRequestRep s1 base zeroDepositRequest ∧
+          ¬ RawDepositRequestRep s2 base zeroDepositRequest) ∧
+      (∀ offset, offset < 116 → ∃ s1 s2 : State,
+        (∀ address, address ≠ base + offset → s1.mem.get? address = s2.mem.get? address) ∧
+          RawConsolidationRequestRep s1 base zeroConsolidationRequest ∧
+          ¬ RawConsolidationRequestRep s2 base zeroConsolidationRequest) :=
+  ⟨fun offset h => rawDepositRequest_footprint_tight base offset h,
+    fun offset h => rawConsolidationRequest_footprint_tight base offset h⟩
+
 /-- **The padding is not idle in the representation the containers actually use.**
 
 `ExecutionPayloadRep` states `HeapArrayRep … 48 ∧ HeapWithdrawalArrayRep …`, never the contents alone.
