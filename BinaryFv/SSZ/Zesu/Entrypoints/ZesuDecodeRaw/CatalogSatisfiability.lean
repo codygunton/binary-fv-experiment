@@ -374,17 +374,18 @@ theorem canonical_catalog_satisfiability :
 `catalogSatisfiability` as a premise because it sits below the runner's state builder, which is where
 a state carrying real code lives. This restates it without that premise.
 
-What remains: four oracle-agreement facts, the two recorded binary/oracle divergences, and the 141
+What remains: THREE oracle-agreement facts (`v3ShapeExcludesCanonicalV4` is now proved, not assumed),
+the two recorded binary/oracle divergences, and the 141
 local function instance proofs. Plus — not visible in this signature and not reduced by it — the two live-run
 scaffolds in `Execution.lean`, which the root theorem consumes alongside this obligation. -/
 theorem sszComplianceObligations_of_residue
     (entryAgrees : sourceShapedDecodeAgreesWithOracle)
     (containersAgree : sourceShapedContainersAgreeWithOracle)
-    (v3Excluded : v3ShapeExcludesCanonicalV4) (zeroAlias : zeroFirstOffsetAliasRejected)
+    (zeroAlias : zeroFirstOffsetAliasRejected)
     (divergences : knownDivergences)
     (locals : Elfling.Validation.LocalContractAssumptions) :
     sszComplianceObligations Elfling.Generated.generatedProgram :=
-  Elfling.Validation.sszComplianceObligations_of_residue entryAgrees containersAgree v3Excluded
+  Elfling.Validation.sszComplianceObligations_of_residue entryAgrees containersAgree
     zeroAlias canonical_catalog_satisfiability divergences locals
 
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
