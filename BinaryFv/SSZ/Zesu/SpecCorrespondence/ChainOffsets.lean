@@ -1366,4 +1366,13 @@ theorem serialize_chainConfig_eq_body_iff (b : ByteArray)
   rw [append_eq_extract_iff b 0 8 12 (by omega) (by omega) (by omega) (by rw [hs0])]
   simp only [and_assoc]
 
+/-- The two vocabularies for eight little-endian bytes meet. `uint64LE` is the local spelling used by
+`uint64LE_of_readUInt64LE`; `SSZType.serialize SszBridge.u64` is what the container serializer emits for
+the inline field. Nothing forces them to agree until it is stated -- the same shape as the
+`readU32LE?`-versus-`readUInt32LE` mismatch (R2), one width up and on the *write* side rather than the
+read side. -/
+theorem serialize_u64_eq_uint64LE (x : SszBridge.u64.interp) :
+    SSZType.serialize SszBridge.u64 x = uint64LE x := by
+  simp [SSZType.serialize, uint64LE]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
