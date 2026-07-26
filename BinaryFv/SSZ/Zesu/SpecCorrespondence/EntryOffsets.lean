@@ -1872,6 +1872,29 @@ theorem meaningDecodeRaw_in_scope {bytes : ByteArray} (h : rootComplianceScope b
   rw [meaningDecodeRaw, meaningRequireU32Length_ok_in_scope h]
   rfl
 
+/-! ### The envelope cases, disposed of on both sides at once
+
+With both entry points reduced, the first two tests are literally the same conditions in the same
+order — `size < 2` then `hasSchemaId` — differing only in which error they raise. Since the obligation
+compares acceptance, a single lemma retires those cases for both directions, leaving the raw-level
+intermediate to reason only about bodies that pass the envelope.
+
+Supplied-versus-proved: nothing here is assumed. Both sides come from their definitions and the scope
+hypothesis. -/
+
+theorem raw_envelope_rejects_both {bytes : ByteArray} (h : rootComplianceScope bytes)
+    (henv : bytes.size < 2 ∨ SszBridge.hasSchemaId bytes = false) :
+    isAccepted (meaningDecodeRaw bytes) = false ∧
+      (SszBridge.decodeRawV4 bytes).toOption.isSome = false := by
+  rw [meaningDecodeRaw_in_scope h, decodeRawV4_in_scope h]
+  by_cases hsize : bytes.size < 2
+  · rw [if_pos hsize, if_pos hsize]
+    exact ⟨rfl, rfl⟩
+  · rcases henv with h2 | hschema
+    · exact absurd h2 hsize
+    · rw [if_neg hsize, if_neg hsize, if_pos (by simp [hschema]), if_pos (by simp [hschema])]
+      exact ⟨rfl, rfl⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
