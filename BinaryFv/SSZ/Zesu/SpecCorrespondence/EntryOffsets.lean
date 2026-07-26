@@ -1407,6 +1407,35 @@ theorem extractFieldOffsets_head_position (b : ByteArray) :
             simp only [List.head?_cons, Nat.add_zero, hread, Option.map_some]
           · exact absurd hext (by simp)
 
+/-! ### Descending one level: the first field's slice
+
+The V3 exclusion only needs the *first* field at each level, never the others, so this is deliberately
+weaker than a full decomposition: a successful walk decodes its first field on `[o0, o1)`, and that is
+all. Writing the whole mixed-arity decomposition for `newPayloadRequestType` would be the specialised
+work we agreed not to generalise — and for this argument it would also be work nothing consumes.
+
+Stated over an arbitrary field list whose first field is variable, so it serves the entry level and
+the request level alike. -/
+
+@[simp] theorem executionPayloadType_not_fixed :
+    SszBridge.executionPayloadType.isFixedSize = false := by decide
+
+/-- A successful variable-first field walk decodes its first field on the slice between the first two
+offsets. -/
+theorem deserializeVarFields_first_field {t : SSZType} {ts : List SSZType} {b : ByteArray}
+    (hvar : t.isFixedSize = false) (o0 o1 : Nat) (rest : List Nat) (bufEnd : Nat)
+    {v : SSZType.interpFields (t :: ts)}
+    (h : SSZType.deserializeVarFields (t :: ts) b 0 (o0 :: o1 :: rest) bufEnd = .ok v) :
+    ∃ x u, SSZType.deserialize t (b.extract o0 o1) = .ok (x, u) := by
+  rw [SSZType.deserializeVarFields, if_neg (by simp [hvar])] at h
+  simp only [List.head?_cons, Option.getD_some] at h
+  split at h
+  · simp at h
+  · split at h
+    · simp at h
+    · rename_i x u hpair
+      exact ⟨x, u, hpair⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
