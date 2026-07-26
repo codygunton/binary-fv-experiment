@@ -445,6 +445,57 @@ def cases() -> list[Case]:
     ):
         malformed.append(Case(f"offset-mutation-{name}", set_u32(rich, offset, 0), False))
 
+    # ------------------------------------------------------------------
+    # Read-position offset mutations.
+    #
+    # WHY ZERO IS NOT ENOUGH, AND WHY THE GAP WAS INVISIBLE.
+    #
+    # Every mutation above writes the value 0. Each mixed container carries TWO
+    # CONFUSABLE NUMBERS -- the byte position its first offset is READ AT, and the
+    # value that offset must EQUAL (see `chain_config` above):
+    #
+    #     chainConfig     read at 8, must equal 12
+    #     forkConfig      read at 8, must equal 16
+    #     forkActivation  read at 0, must equal 8
+    #
+    # The failure worth having power against is not "an offset is garbage" but
+    # "the two implementations disagree about WHICH of those numbers the first
+    # offset must equal" -- the leading-fixed skip. Against that hypothesis:
+    #
+    #     o0 = 0   both sides reject whichever number they use  -> NO POWER
+    #     o0 = 20  both sides reject whichever number they use  -> NO POWER
+    #     o0 = 8   separates: one side accepts, the other rejects
+    #
+    # So the discriminating value is the READ POSITION, not an arbitrary padding
+    # value. And here is why nobody noticed: for `forkActivation` the read
+    # position IS 0, so the plain zero mutation is -- by coincidence -- exactly
+    # the discriminating input for that container. The set therefore has full
+    # power on the shape where read position equals zero, which is the
+    # ALL-VARIABLE shape, and none on the two mixed containers.
+    #
+    # That is the same blind spot the proof machinery had: both were built
+    # against a schema whose fixed section and first read position coincide, and
+    # neither generalises to the leading-fixed case. Do not treat the zero
+    # mutation as standing in for offset coverage.
+    # ------------------------------------------------------------------
+    for name, offset, value in (
+        # o0 = its own read position: the discriminating value above.
+        ("chain-fork-reads-at-8", rich_layout["chain"] + 8, 8),
+        ("fork-activation-reads-at-8", rich_layout["fork"] + 8, 8),
+        # Padding past the fixed section. Kept as coverage of the EQUALITY (both
+        # sides demand equality, not a bound), though it has no power on the
+        # which-number question above.
+        ("chain-fork-padded", rich_layout["chain"] + 8, 20),
+        ("fork-activation-padded", rich_layout["fork"] + 8, 24),
+        # Non-monotonic WITHOUT also being out of range. Setting the second
+        # offset to 0 makes it non-monotonic AND under the fixed section at once,
+        # so a rejection there cannot be attributed to the monotonicity arm.
+        ("fork-blob-schedule-non-monotonic", rich_layout["fork"] + 12, 12),
+        # Over-large: past the end of the enclosing slice rather than short of it.
+        ("chain-fork-over-large", rich_layout["chain"] + 8, 4096),
+    ):
+        malformed.append(Case(f"offset-value-{name}", set_u32(rich, offset, value), False))
+
     return [
         Case("valid-v4-raw", basic, True),
         Case("valid-v4-ere", u32(len(basic)) + basic, True),
