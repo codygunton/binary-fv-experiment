@@ -208,7 +208,15 @@ is exactly the confusion the separate module was meant to prevent. -/
 
 /-- **The oracle slices `forkActivation` where the source does.** Both fields are variable, so this is
 `deserializeVarFields_entry` at arity two; the source's two slices are `bytes.extract first second` and
-`bytes.extract second bytes.size`. -/
+`bytes.extract second bytes.size`.
+
+**What this lemma pins that its statement does not advertise: first-error-wins ORDERING.** Established
+by a must-fail probe (run and reverted, per the transient-probe rule) that swapped the two slices. It
+fails — but the informative part is *where*. In the `error.error` case the two sides disagree about
+*which* error surfaces, not merely about which field a slice feeds. So the nested `match` is load-bearing
+for error order and a flattened version would be strictly weaker while still looking equivalent. Recorded
+here rather than only in the probe's report, because a reader checking whether this lemma is strong enough
+to compose cannot see it from the statement. -/
 theorem deserializeVarFields_forkActivation (b : ByteArray) (o0 o1 : Nat)
     (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) :
     SSZType.deserializeVarFields forkActivationFields b 0 [o0, o1] b.size =
