@@ -1577,7 +1577,11 @@ read at byte 4. `newPayloadRequestFields` puts its three offsets at 0, 4 and 40 
 a uniform stride and the reduction cannot come from an arity-free lemma.
 
 This is exactly the mixed-interleaving case the generalise-versus-parallel decision put on the
-specialised side, and it is the whole of that side for item 4: one table reduction, no decomposition. -/
+specialised side, and it is the whole of that side for item 4: one table reduction, no decomposition.
+
+The extra `isFixedSize` facts below are not friction, they are the content: needing
+`(byteVector 32).isFixedSize = true` *positively* is precisely what makes the stride non-uniform, so
+the lemma is harder to prove for the same reason it cannot be generic. -/
 
 theorem newPayloadRequestFields_not_allFixed :
     SSZType.allFixedSize newPayloadRequestFields = false := by decide
@@ -1606,6 +1610,40 @@ theorem extractFieldOffsets_newPayloadRequest (b : ByteArray) :
       | _, _, _ => .error .tooShort := by
   simp [newPayloadRequestFields, extractFieldOffsets, BYTES_PER_LENGTH_OFFSET]
   cases readUInt32LE b 0 <;> cases readUInt32LE b 4 <;> cases readUInt32LE b 40 <;> rfl
+
+/-! ### Chaining the request level to the payload level -/
+
+/-- **A canonical `newPayloadRequest` decode forces byte 436 of its payload slice to read 540.**
+
+The middle link: `parts` pins this level's first offset to 44, the table reduction identifies the
+second offset with the classifier's `payloadEnd`, the descent hands over the payload slice, and the
+sharp end applies there. -/
+theorem newPayloadRequest_payload_byte436_eq_540 {request : ByteArray}
+    {x : SSZType.interpFields newPayloadRequestFields} {u : Nat}
+    (h : SSZType.deserialize (.container newPayloadRequestFields) request = .ok (x, u))
+    {pe : Nat} (hpe : SszBridge.readU32LE? request 4 = some pe) :
+    SszBridge.readU32LE? (request.extract 44 pe) 436 = some 540 := by
+  obtain ⟨offs, hext, hhead, hwalk⟩ :=
+    deserialize_container_parts newPayloadRequestFields_not_allFixed h
+  rw [extractFieldOffsets_newPayloadRequest] at hext
+  split at hext
+  · rename_i p0 p1 p2 h0 h1 h2
+    simp only [Except.ok.injEq] at hext
+    subst hext
+    simp only [List.head?_cons, Option.some.injEq] at hhead
+    rw [newPayloadRequestFields_fixedSection] at hhead
+    have hb : SszBridge.readU32LE? request 4 = some p1.toNat := by
+      rw [readU32LE?_eq_map_readUInt32LE, h1]; rfl
+    rw [hb, Option.some.injEq] at hpe
+    obtain ⟨y, u', hy⟩ := deserializeVarFields_first_field
+      (t := SszBridge.executionPayloadType) executionPayloadType_not_fixed
+      p0.toNat p1.toNat _ _ hwalk
+    rw [hhead, hpe] at hy
+    -- Defeq-not-syntactic: `hy` is at `executionPayloadType`, the sharp end at its field list.
+    have hy' : SSZType.deserialize (.container executionPayloadFields) (request.extract 44 pe)
+        = .ok (y, u') := hy
+    exact executionPayload_byte436_eq_540 hy'
+  · exact absurd hext (by simp)
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
