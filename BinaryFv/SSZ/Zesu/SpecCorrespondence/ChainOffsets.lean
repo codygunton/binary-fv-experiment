@@ -28,6 +28,38 @@ schema, so it has no leading fixed field and no skip. Its fixed-section size of 
 accident. An earlier draft of this preamble asserted the skip at all three; reading the `8`s as the same
 quantity is exactly the confusion that motivated a separate module.
 
+## Why this module exists, with five independent confirmations
+
+The separate module was originally argued on readability. That argument was weak; the real one is
+structural, and it is that **the all-variable entry schema never reads or writes a field inside the fixed
+prefix**, so every place the prefix is touched needs its own bridge between the schema vocabulary and the
+byte-level one. Five independent pieces turned out not to port from `EntryOffsets`:
+
+1. `deserialize_u64_extract` — the oracle reads the prefix field as a *slice* while the source reads it
+   *in place*; a new reader pairing the entry never needed.
+2. `deserializeVarFields_fixed_step` — the arity-free `_var_guard` is stated for a *variable* head and
+   cannot step over a prefix-read field.
+3. `serialize_forkConfig` / `serialize_chainConfig` — the fixed field's bytes sit *inline before* the
+   offsets, where the all-variable case had offsets only.
+4. `forkConfig_offsetBytes_iff` / `chainConfig_offsetBytes_iff` — the table is *displaced* to 8/12 and 8.
+5. `serialize_u64_eq_uint64LE` — two definitions of "write eight little-endian bytes" that are **not**
+   definitionally equal, so nothing forces them to agree until proved.
+
+Five independent failures-to-port at the same structural feature is well past coincidence.
+
+## The structural tell: which links carry an assumption
+
+Visible in a *signature* rather than in prose, which makes it the most durable documentation here.
+Compare the failing-field lemmas: `decodeCanonical_forkActivation_rejects_of_field`'s disjunction is
+**homogeneous** — two conjuncts of the same `isSome = false` form — while the entry's
+`entry_forkGuard_false` carries a fourth disjunct of *different shape*, because `meaningChainConfig` is
+source-shaped and its acceptance is a match carrying `fork ≤ 20` rather than plain `isSome`.
+
+So: **a homogeneous disjunction means the link rests on no oracle-agreement assumption; an inhomogeneous
+one means it does.** `forkActivation` is homogeneous and is closed unconditionally; `forkConfig` and
+`chainConfig` are not, and their acceptance joins consume
+`sourceShapedContainersAgreeWithOracle`. A reader can check which is which without reading any comment.
+
 The three fixed-section sizes are *derived* by `decide` from the field lists rather than quoted, exactly
 as `entryFields_fixedSectionSize` is: 8, 16 and 12 are what the source hard-codes at each level, so if a
 field is ever added the mismatch surfaces here instead of silently. -/
