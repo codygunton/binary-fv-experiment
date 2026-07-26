@@ -2514,6 +2514,98 @@ theorem meaningDecodeRaw_ne_outOfMemory {bytes : ByteArray} (h : rootComplianceS
   rw [meaningDecode, hoom] at hne
   exact hne rfl
 
+/-! ## The outer assembly, complete: `sourceShapedDecodeAgreesWithOracle`
+
+The three arms joined. What makes this provable at all is that the two entry points agree on
+*acceptance* while disagreeing about *when to retry* in both directions at once:
+
+* on `v3Quarantined` the oracle refuses to retry and the source retries — closed from the source side
+  by `retryTailNeverSchemaValid`;
+* on `unknownFork` the oracle retries and the source refuses — closed from the oracle side by
+  `oracle_retry_rejects`, whose two hypotheses the error constructor itself supplies;
+* on `outOfMemory` the question does not arise, because the source cannot raise it;
+* on `invalidSsz` both retry on the same condition, and the intermediate applies again at the tail.
+
+**Supplied versus proved.** Two hypotheses: `sourceShapedContainersAgreeWithOracle`, which carries the
+`fork ≤ 20` bound the schema does not, and `retryTailNeverSchemaValid`. Everything else is proved —
+both envelopes, the sixteen-byte test, the offset table, the four field slices, the four-field
+composition, the V3 exclusion, and all three retry arms.
+
+**A dead lemma removed on the spot rather than left in.** The proof was written expecting to need an
+explicit collapse of the oracle's six-way error match once `v3Quarantined` was excluded; `simp only []`
+reduces it without help, so the lemma was deleted before this landed. Third dead lemma this session,
+all three predicted-necessary and none necessary — the pattern being that I over-estimate how much
+case analysis an error-taxonomy argument needs. -/
+
+theorem tail_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    rootComplianceScope (bytes.extract 4 bytes.size) := by
+  have hb : bytes.size < 2 * 1024 * 1024 := h
+  rw [rootComplianceScope, ByteArray.size_extract]
+  omega
+
+/-- **`sourceShapedDecodeAgreesWithOracle`.** -/
+theorem sourceShapedDecodeAgreesWithOracle_holds
+    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (retryTail : retryTailNeverSchemaValid) :
+    sourceShapedDecodeAgreesWithOracle := by
+  intro bytes h
+  by_cases hv3 : SszBridge.hasV3PayloadShape bytes = true
+  · obtain ⟨hs, ho⟩ := v3_arm_rejects_both containersAgree retryTail h hv3
+    rw [hs, ho]
+  rw [decodeStatelessInput_in_scope h, meaningDecode]
+  have hagree := rawOrQuarantine_acceptance_agrees containersAgree h
+  have htail := rawOrQuarantine_acceptance_agrees containersAgree (tail_scope h)
+  cases hA : meaningDecodeRaw bytes with
+  | ok v =>
+      rw [hA] at hagree
+      cases hW : SszBridge.decodeRawOrQuarantineV3 bytes with
+      | ok w => rfl
+      | error rawError =>
+          rw [hW] at hagree
+          exact absurd hagree (by simp [isAccepted, Except.toOption])
+  | error e =>
+      cases hW : SszBridge.decodeRawOrQuarantineV3 bytes with
+      | ok w =>
+          rw [hA, hW] at hagree
+          exact absurd hagree (by simp [isAccepted, Except.toOption])
+      | error rawError =>
+          have hne : rawError ≠ .v3Quarantined := by
+            intro hq
+            exact hv3 (quarantined_of_rawOrQuarantine h (by rw [hW, hq]))
+          -- Iota-reduce both outer matches on `Except.error _` so the inner ones are reachable.
+          simp only []
+          -- Both sides are now: retry when the length prefix matches, reject otherwise.
+          cases hd : SszBridge.readU32LE? bytes 0 with
+          | none =>
+              -- Neither side retries.
+              have hpre : meaningHasExactErePrefix bytes = false :=
+                meaningHasExactErePrefix_none hd
+              cases e with
+              | invalidSsz => rw [if_neg (by simp [hpre])]; rfl
+              | unknownFork => rfl
+              | outOfMemory => rfl
+          | some d =>
+              have hpre : meaningHasExactErePrefix bytes = (d == bytes.size - 4) :=
+                meaningHasExactErePrefix_eq bytes hd
+              -- Reduce `match some d with …` so the length test is reachable.
+              simp only []
+              by_cases hmatch : (d == bytes.size - 4) = true
+              · rw [if_pos hmatch]
+                cases e with
+                | invalidSsz => rw [if_pos (by rw [hpre]; exact hmatch)]; exact htail
+                | unknownFork =>
+                    -- The oracle retries and the source does not; the oracle's retry must fail.
+                    obtain ⟨hschema, hfirst⟩ := unknownFork_forces_canonical_prefix h hA
+                    have := oracle_retry_rejects hschema hfirst
+                    rw [this]
+                    rfl
+                | outOfMemory => exact absurd hA (meaningDecodeRaw_ne_outOfMemory h)
+              · rw [if_neg hmatch]
+                cases e with
+                | invalidSsz => rw [if_neg (by rw [hpre]; exact hmatch)]; rfl
+                | unknownFork => rfl
+                | outOfMemory => rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 

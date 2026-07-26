@@ -112,12 +112,21 @@ def catalogObligationDoors : List Name :=
   [``BinaryFv.SSZ.Zesu.SpecCorrespondence.uint64LE_of_readUInt64LE]
 
 /-- `sszComplianceObligations_of_residue` — the generated-data validation checks, which are
-`native_decide` by design, plus `or_shifts_toNat` and the two pinned canonical layouts. -/
+`native_decide` by design, plus `or_shifts_toNat`, the two pinned canonical layouts, and the two `u32`
+`bv_decide` primitives.
+
+The last two arrived when `sourceShapedDecodeAgreesWithOracle_holds` was threaded in, and the guard
+**caught the change and refused the build** rather than absorbing it silently. That is the intended
+behaviour on a legitimate change too: no new *kind* of trust was introduced — both doors were already
+carried by `raw_acceptance_agrees` — but they became reachable from a deeper anchor, and that is a fact
+worth being made to confirm rather than one to discover later. -/
 def residueDoors : List Name :=
   [``BinaryFv.SSZ.Zesu.Contracts.canonicalOptionalBlobSchedule_pinned,
    ``BinaryFv.SSZ.Zesu.Contracts.canonicalOptionalU64_pinned,
    ``BinaryFv.SSZ.Zesu.Contracts.or_shifts_toNat,
    ``BinaryFv.SSZ.Zesu.SpecCorrespondence.uint64LE_of_readUInt64LE,
+   ``BinaryFv.SSZ.Zesu.SpecCorrespondence.uint32LE_of_readUInt32LE,
+   ``BinaryFv.SSZ.Zesu.SpecCorrespondence.readUInt32LE_uint32LE,
    ``BinaryFv.SSZ.Zesu.Elfling.Validation.allBytesReadable_true,
    ``BinaryFv.SSZ.Zesu.Elfling.Validation.callGraphRanked_check,
    ``BinaryFv.SSZ.Zesu.Elfling.Validation.callees_resolve_check,
