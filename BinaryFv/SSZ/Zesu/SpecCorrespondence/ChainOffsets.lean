@@ -1109,4 +1109,46 @@ theorem chainConfig_offsets_of_twelve (b : ByteArray) (h : 12 ≤ b.size) :
   obtain ⟨w, e⟩ := readUInt32LE_exists b 8 (by omega)
   exact ⟨w.toNat, by rw [extractFieldOffsets_chainConfig, e]⟩
 
+/-- **Stepping past a leading FIXED field.** What `deserializeVarFields_var_guard` cannot provide: that
+lemma is stated for a variable head and yields offset inequalities, while this steps over a prefix-read
+field and yields *no* inequality — a fixed field consumes no offset, so there is nothing to constrain.
+
+`cases varOffs` is load-bearing and is the whole reason the obvious proof fails. `deserializeVarFields`
+matches on the field list *and* on `varOffs`, so the generated equation lemmas are indexed by BOTH
+scrutinees: there is no equation for an unconstrained `varOffs`, and `rw [SSZType.deserializeVarFields]`
+reports "failed to rewrite using equation theorems" without saying which scrutinee was at fault. The
+variable-head sibling never hits this because its statement already fixes `varOffs` to `curOff ::
+restOffs`. Splitting first makes both equations available; the two branches are then identical, because a
+fixed field does not look at the offsets. -/
+theorem deserializeVarFields_fixed_step {t : SSZType} {ts : List SSZType} {b : ByteArray}
+    {prefixOff : Nat} {varOffs : List Nat} {bufEnd : Nat}
+    (hfix : t.isFixedSize = true)
+    {v : SSZType.interpFields (t :: ts)}
+    (h : SSZType.deserializeVarFields (t :: ts) b prefixOff varOffs bufEnd = .ok v) :
+    ∃ v', SSZType.deserializeVarFields ts b (prefixOff + t.fixedByteSize) varOffs bufEnd
+      = .ok v' := by
+  cases varOffs with
+  | nil =>
+      rw [SSZType.deserializeVarFields, if_pos hfix] at h
+      simp only [] at h
+      split at h
+      · exact absurd h (by simp)
+      · split at h
+        · exact absurd h (by simp)
+        · split at h
+          · exact absurd h (by simp)
+          · rename_i hrec
+            exact ⟨_, hrec⟩
+  | cons c rest =>
+      rw [SSZType.deserializeVarFields, if_pos hfix] at h
+      simp only [] at h
+      split at h
+      · exact absurd h (by simp)
+      · split at h
+        · exact absurd h (by simp)
+        · split at h
+          · exact absurd h (by simp)
+          · rename_i hrec
+            exact ⟨_, hrec⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
