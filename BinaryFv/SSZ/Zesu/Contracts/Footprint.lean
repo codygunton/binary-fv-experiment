@@ -596,4 +596,74 @@ theorem localTo_canonicalRepChainConfig_record {recordSize : Nat}
   subst h80
   exact fun _ _ value s1 s2 base agree h => chainConfig_footprint base value s1 s2 agree h
 
+/-! ## Heap-allocated children: the allocation interval
+
+The ruled shape for the four non-chain containers and for `RawV4Rep`. A heap-allocated child's
+footprint is its **record/descriptor range** together with the **allocation interval it consumed** —
+and nothing else. There is no input component: `InputSliceRep` is an address equation, not a memory
+claim (`subst` its first conjunct and the second becomes `x = x`), so a borrowed-input descriptor's
+whole footprint is its own descriptor, which already lies inside the parent's allocation.
+
+**The interval is a parameter, never read from the state.** That is what keeps the discipline
+non-circular: a region computed from memory a sibling may write cannot guard against that sibling.
+The numbers arrive from the composition — `Runtime.CursorChain` is successive cursor values, which is
+the shape a composed trace already hands over.
+
+**And that is where sibling disjointness comes from, for free.** `CursorChain.step` carries
+`advances : before ≤ middle` structurally, so successive intervals cannot overlap. No appeal to the
+allocator's implementation, and no extra hypothesis — which is why this works where an arena-wide
+footprint does not: ten sibling arrays all allocate from one arena and would all overlap, but their
+cursor intervals are pairwise disjoint by monotonicity alone. -/
+
+/-- A half-open cursor interval: the bytes one allocation consumed. -/
+def interval (before after : Nat) : Region := fun address => before ≤ address ∧ address < after
+
+/-- What a heap-allocated child owns: its record, plus what it allocated. -/
+def allocatedRegion (recordBase recordSize before after : Nat) : Region :=
+  Region.union (range recordBase recordSize) (interval before after)
+
+/-- **Successive allocation intervals are disjoint, from monotonicity alone.**
+
+This is the load-bearing fact of the whole policy, and it needs only `before ≤ middle` — exactly what
+`CursorChain.step` carries. Stated on bare bounds rather than on a `CursorChain` so it applies to any
+two adjacent steps however the chain is destructured. -/
+theorem interval_disjoint {before middle after : Nat} (monotone : before ≤ middle) :
+    ∀ address, interval before middle address → ¬ interval middle after address := by
+  rintro address ⟨_, hlt⟩ ⟨hge, _⟩
+  omega
+
+/-- The same fact in the form `representation_survives_sibling` consumes.
+
+**Three of the four cases are parent obligations, and only one is free.** Expanding
+`allocatedRegion` on both sides gives record-vs-record, record-vs-interval, interval-vs-record and
+interval-vs-interval. Monotonicity discharges **only the last**. The other three are facts about where
+the parent placed the records, and no property of the allocator supplies them:
+
+* `records` — the two record ranges do not overlap. Placement.
+* `recordBelowSibling` — the earlier child's record is not inside the later sibling's allocation.
+  Non-trivial: a record placed on the heap *could* fall inside a later allocation if the parent
+  reused the region.
+* `siblingRecordOutside` — the later sibling's record is not inside the earlier child's allocation.
+  The mirror image, and the one I initially omitted; the case analysis is what surfaced it.
+
+So "sibling disjointness comes free from bump monotonicity" is true of the **allocations** and not of
+the records. Worth stating in that form, because the free half is the memorable one and a reader who
+generalises it would believe the obligation is discharged when three quarters of it is not. -/
+theorem allocatedRegion_disjoint_of_later {recordBase recordSize siblingBase siblingSize
+    before middle after : Nat}
+    (monotone : before ≤ middle)
+    (records : ∀ address, range recordBase recordSize address →
+      ¬ range siblingBase siblingSize address)
+    (recordBelowSibling : ∀ address, range recordBase recordSize address →
+      ¬ interval middle after address)
+    (siblingRecordOutside : ∀ address, interval before middle address →
+      ¬ range siblingBase siblingSize address) :
+    ∀ address, allocatedRegion recordBase recordSize before middle address →
+      ¬ allocatedRegion siblingBase siblingSize middle after address := by
+  rintro address (hrec | hint) (hsrec | hsint)
+  · exact records address hrec hsrec
+  · exact recordBelowSibling address hrec hsint
+  · exact siblingRecordOutside address hint hsrec
+  · exact interval_disjoint monotone address hint hsint
+
 end BinaryFv.SSZ.Zesu.Contracts.Footprint
