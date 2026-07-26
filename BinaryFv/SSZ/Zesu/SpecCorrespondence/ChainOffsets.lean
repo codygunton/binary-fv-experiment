@@ -1605,4 +1605,15 @@ theorem meaningReadU64_eq_some {b : ByteArray} {i : Nat} {x : UInt64}
       simp only [Option.toDecodeResult, Except.ok.injEq] at h
       exact congrArg some h
 
+/-- **The fork bound is spelled two ways and they agree.** The source tests `fork.toNat > 20` -- a `Nat`
+comparison on the widened value -- while `sourceShapedContainersAgreeWithOracle` states the bound as
+`… .fork ≤ 20` at `UInt64`. Nothing forces those to coincide until it is proved: this is the same
+two-spellings hazard as `readU32LE?`-versus-`readUInt32LE` (R2) and the `u64` write vocabularies, now on
+the *comparison* rather than on a read or a write.
+
+They do agree, because `UInt64`'s order is its `toNat` order and `20 < 2 ^ 64` so no wrapping intervenes.
+Stated so the acceptance join can move between the two without an unremarked step. -/
+theorem fork_bound_toNat_iff (x : UInt64) : x.toNat ≤ 20 ↔ x ≤ 20 := by
+  rw [UInt64.le_iff_toNat_le, show ((20 : UInt64)).toNat = 20 from by decide]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
