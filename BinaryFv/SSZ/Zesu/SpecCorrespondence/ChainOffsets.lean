@@ -1457,4 +1457,49 @@ theorem decodeCanonical_chainConfig_eq_of_fields (b : ByteArray) (o : Nat)
   rw [hser, byteArray_beq_self]
   rfl
 
+/-- **`forkConfig`'s value-level decomposition.** The last of the three, and it carries the same
+hypothesis asymmetry as `chainConfig`'s: the inline `fork` field arrives as a raw `readUInt64LE`, the two
+variable children as `decodeCanonical`s.
+
+**No `fork > 20` anywhere, deliberately.** This is pure oracle at the schema, and `forkConfigType` types
+`fork` as an unbounded `u64`. The bound is the *source*'s, applied inside `meaningForkConfig` between the
+offset check and the child decodes, and it enters only at the acceptance join. -/
+theorem decodeCanonical_forkConfig_eq_of_fields (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1])
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) (hu32 : b.size < UInt32.size)
+    {x0 : SszBridge.u64.interp} {x1 : SszBridge.forkActivationType.interp}
+    {x2 : (SSZType.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork).interp}
+    (a0 : readUInt64LE b 0 = some x0)
+    (a1 : SszBridge.decodeCanonical SszBridge.forkActivationType (b.extract o0 o1) = .ok x1)
+    (a2 : SszBridge.decodeCanonical
+        (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork)
+        (b.extract o1 b.size) = .ok x2) :
+    SszBridge.decodeCanonical SszBridge.forkConfigType b = .ok (x0, x1, x2, PUnit.unit) := by
+  have husz : UInt32.size = 4294967296 := rfl
+  obtain ⟨d1, s1eq⟩ := decodeCanonical_inv a1
+  obtain ⟨d2, s2eq⟩ := decodeCanonical_inv a2
+  subst h0
+  have h16 : 16 ≤ b.size := extractFieldOffsets_forkConfig_fits b 16 o1 hoffs
+  have w1 : (SSZType.serialize SszBridge.forkActivationType x1).size = o1 - 16 := by
+    rw [s1eq, ByteArray.size_extract]; omega
+  have hcum : 16 + (SSZType.serialize SszBridge.forkActivationType x1).size = o1 := by
+    rw [w1]; omega
+  rw [decodeCanonical_forkConfig_unfold b 16 o1 hoffs rfl,
+    deserializeVarFields_forkConfig b 16 o1 (by omega) h01 h1 a0, d1, d2]
+  have hser : SSZType.serialize SszBridge.forkConfigType
+      ((x0, x1, x2, PUnit.unit) : SSZType.interpFields forkConfigFields) = b := by
+    show SSZType.serialize (.container forkConfigFields) _ = b
+    rw [serialize_forkConfig_eq_body_iff b (x0, x1, x2, PUnit.unit) _ _ _ rfl rfl rfl h16]
+    simp only []
+    refine ⟨?_, ?_, ?_, ?_⟩
+    · rw [serialize_u64_eq_uint64LE]
+      exact uint64LE_of_readUInt64LE _ x0 (by rw [ByteArray.size_extract]; omega)
+        (by rw [readUInt64LE_extract b 0 (by omega)]; exact a0)
+    · exact ((forkConfig_offsetBytes_iff b 16 o1 hoffs 16 (by omega)).1).mpr rfl
+    · exact ((forkConfig_offsetBytes_iff b 16 o1 hoffs _ (by omega)).2).mpr hcum
+    · exact (append_eq_extract_iff b 16 o1 b.size h01 h1 h1 (by rw [w1])).mpr ⟨s1eq, s2eq⟩
+  simp only []
+  rw [hser, byteArray_beq_self]
+  rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
