@@ -1151,6 +1151,35 @@ theorem decodeCanonical_entry_iff_fields
     obtain ⟨x3, e3⟩ := except_isSome_iff.mp a3
     exact decodeCanonical_entry_of_fields body o0 o1 o2 o3 hoffs h0 h01 h12 h23 h3 hu32 e0 e1 e2 e3
 
+/-! ## Arity-free slicing
+
+The `extract_four` / `append4_*` family above is generic over offsets but hard-coded at **four**
+regions, so none of it reaches the chain containers: `forkActivation` has two variable fields,
+`forkConfig` two, `chainConfig` one. Rather than three parallel copies, these two atoms cover every
+arity by iteration — `extract_four` and `extract_sixteen` are just their arity-4 compositions.
+
+Kept alongside the arity-4 lemmas rather than replacing them: those are already consumed by the entry
+proofs, and rewriting working proofs to route through the atoms would be churn with no proof content. -/
+
+/-- Two consecutive slices reassemble the span they cover. The atom behind every `extract_*`
+reassembly at any arity. -/
+theorem extract_pair (body : ByteArray) (a b c : Nat) (hab : a ≤ b) (hbc : b ≤ c) :
+    body.extract a b ++ body.extract b c = body.extract a c := by
+  rw [ByteArray.extract_append_extract, show min a b = a by omega, show max b c = c by omega]
+
+/-- **Splitting a concatenation against a span at one point.** Iterating this gives the `n`-way split
+at any arity; the width hypothesis is what fixes where the cut falls. -/
+theorem append_eq_extract_iff (body : ByteArray) (a b c : Nat) {s t : ByteArray}
+    (hab : a ≤ b) (hbc : b ≤ c) (hb : b ≤ body.size) (hs : s.size = b - a) :
+    s ++ t = body.extract a c ↔ (s = body.extract a b ∧ t = body.extract b c) := by
+  have hw : (body.extract a b).size = b - a := by rw [ByteArray.size_extract]; omega
+  constructor
+  · intro h
+    rw [← extract_pair body a b c hab hbc] at h
+    exact append_inj_of_size_eq (by rw [hs, hw]) h
+  · rintro ⟨rfl, rfl⟩
+    exact extract_pair body a b c hab hbc
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
