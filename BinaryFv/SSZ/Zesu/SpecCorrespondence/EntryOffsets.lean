@@ -45,6 +45,22 @@ well-founded, which together account for most of the list.
   variable never became the tuple. The crossings are `simp only []` (beta/iota/projection), a
   restatement `have h' : <other spelling> := h` (defeq coercion), and `have : UInt32.size = 4294967296
   := rfl` to give `omega` the link. `rw` crosses none of them.
+* **Match the diagnosis to the signal, not to your recent history with it.** The failure mode is
+  *having a favourite explanation*: once a diagnosis has worked several times it starts getting
+  applied to signals it does not fit. The defence is to ask what the signal specifically says.
+  `omega` failing has at least three distinct causes here, and they are told apart by **what it
+  printed**, not by which is most familiar:
+  - *constraints listed, but the one you need is absent* — a hypothesis genuinely is not there. This
+    caught a real gap in a case analysis: `raw_envelope_rejects_both` cased on the disjunction before
+    the size, and in the `hasSchemaId` branch `2 ≤ bytes.size` does not hold, because a buffer can
+    fail both tests. Reordering the split is the fix.
+  - *constraints listed, and the one you need looks present* — the terms are spelled differently, the
+    defeq family below. `simp only []` or a restatement crosses it.
+  - *"No usable constraints found" with an empty atom list* — the goal is not `Nat`/`Int` arithmetic
+    at all. `fork : UInt64` in `raw_acceptance_agrees`; the fix is `UInt64.not_le`, not a rewrite.
+
+  The first two produce the same *words* and want opposite fixes, which is exactly why reading the
+  atom list rather than pattern-matching the message is the discipline.
 * **Anything reading through the LSP inherits its staleness, so `lake` is authoritative.** Two
   symptoms of one root cause, worth stating together because they look unrelated:
   - a *stale unknown identifier* for a declaration added to an imported module in the same session;
@@ -1516,15 +1532,13 @@ theorem hasV3PayloadShape_parts {bytes : ByteArray}
       split at h
       · exact absurd h (by simp)
       · rename_i hbad
-        simp only [Bool.not_or, Bool.not_eq_true, bne_iff_ne, ne_eq, Decidable.not_not,
-          decide_eq_true_eq, Bool.decide_or, Bool.or_eq_false_iff] at hbad
+        simp only [Bool.not_eq_true, Bool.or_eq_false_iff] at hbad
         split at h
         · rename_i po pe hp hpe
           split at h
           · exact absurd h (by simp)
           · rename_i hbad2
-            simp only [Bool.not_or, Bool.not_eq_true, bne_iff_ne, ne_eq, Decidable.not_not,
-              decide_eq_true_eq, Bool.decide_or, Bool.or_eq_false_iff] at hbad2
+            simp only [Bool.not_eq_true, Bool.or_eq_false_iff] at hbad2
             have hreq : req = 16 := by simpa using hbad.1.1
             have hpo : po = 44 := by simpa using hbad2.1.1
             subst hreq
@@ -1894,6 +1908,339 @@ theorem raw_envelope_rejects_both {bytes : ByteArray} (h : rootComplianceScope b
     · exact absurd h2 hsize
     · rw [if_neg hsize, if_neg hsize, if_pos (by simp [hschema]), if_pos (by simp [hschema])]
       exact ⟨rfl, rfl⟩
+
+/-! ### Bodies too short for the offset table
+
+The source tests `body.size < 16` explicitly. The oracle has no such test: sixteen is the container
+arm's `b.size < prefixSize` guard, and `prefixSize` is `fixedSectionSizeFields entryFields`, *derived*
+from the schema rather than written down. So the two sides reach the same number by different routes,
+and `entryFields_fixedSectionSize` being a `decide` rather than a numeral is what makes the agreement
+a check instead of a coincidence. -/
+
+theorem decodeCanonical_entry_short {body : ByteArray} (h : body.size < 16) :
+    SszBridge.decodeCanonical SszBridge.statelessInputV4Type body = .error .tooShort := by
+  have hdes : SSZType.deserialize SszBridge.statelessInputV4Type body = .error .tooShort := by
+    show SSZType.deserialize (.container entryFields) body = _
+    rw [SSZType.deserialize, if_neg (by rw [entryFields_not_allFixed]; simp)]
+    simp only []
+    rw [if_pos (by rw [entryFields_fixedSectionSize]; omega)]
+  rw [SszBridge.decodeCanonical, hdes]
+  rfl
+
+/-- Above sixteen bytes all four table reads succeed, so the table always *exists*. This is what lets
+the body-passing case name `o0 … o3` before knowing anything about them. -/
+theorem readUInt32LE_exists (bytes : ByteArray) (offset : Nat) (fits : offset + 4 ≤ bytes.size) :
+    ∃ w, readUInt32LE bytes offset = some w := by
+  rw [readUInt32LE, dif_pos fits]
+  exact ⟨_, rfl⟩
+
+theorem entry_offsets_of_sixteen (body : ByteArray) (h : 16 ≤ body.size) :
+    ∃ o0 o1 o2 o3, extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3] := by
+  obtain ⟨w0, e0⟩ := readUInt32LE_exists body 0 (by omega)
+  obtain ⟨w1, e1⟩ := readUInt32LE_exists body 4 (by omega)
+  obtain ⟨w2, e2⟩ := readUInt32LE_exists body 8 (by omega)
+  obtain ⟨w3, e3⟩ := readUInt32LE_exists body 12 (by omega)
+  exact ⟨w0.toNat, w1.toNat, w2.toNat, w3.toNat, by
+    rw [extractFieldOffsets_entry, e0, e1, e2, e3]⟩
+
+/-! ### The oracle's offset discipline, recovered from a successful walk
+
+The source rejects a non-canonical table with `requireCanonicalOffsets`, one explicit check. The
+oracle has no such check: its discipline is spread across the container arm's first-offset test and
+`deserializeVarFields`' per-field `curOff > nextOff || nextOff > bufEnd` guard. To match a *rejection*
+the argument therefore has to run backwards — from a successful walk to the inequalities it must have
+passed — which is why this is stated as soundness of the walk rather than as a rejection lemma.
+
+Stated over an arbitrary head field rather than four times at the entry's concrete fields: the guard
+is per-field and identical each time, so one arity-free step iterated three times covers the table.
+Three, not four — the third application already reads `o3 ≤ body.size` off the last offset's sentinel,
+so the fourth field's guard adds nothing. -/
+
+theorem deserializeVarFields_var_guard {t : SSZType} {ts : List SSZType} {b : ByteArray}
+    {prefixOff curOff : Nat} {restOffs : List Nat} {bufEnd : Nat}
+    (hvar : t.isFixedSize = false)
+    {v : SSZType.interpFields (t :: ts)}
+    (h : SSZType.deserializeVarFields (t :: ts) b prefixOff (curOff :: restOffs) bufEnd = .ok v) :
+    curOff ≤ restOffs.head?.getD bufEnd ∧ restOffs.head?.getD bufEnd ≤ bufEnd ∧
+      ∃ v', SSZType.deserializeVarFields ts b (prefixOff + BYTES_PER_LENGTH_OFFSET) restOffs bufEnd
+        = .ok v' := by
+  rw [SSZType.deserializeVarFields, if_neg (by simp [hvar])] at h
+  -- Zeta-reduce `let nextOff := …` so `split` reaches the guard.
+  simp only [] at h
+  split at h
+  · exact absurd h (by simp)
+  · rename_i hguard
+    have hle : curOff ≤ restOffs.head?.getD bufEnd ∧ restOffs.head?.getD bufEnd ≤ bufEnd := by
+      by_cases hc : curOff > restOffs.head?.getD bufEnd
+      · simp [hc] at hguard
+      · by_cases hd : restOffs.head?.getD bufEnd > bufEnd
+        · simp [hd] at hguard
+        · omega
+    split at h
+    · exact absurd h (by simp)
+    · split at h
+      · exact absurd h (by simp)
+      · rename_i hrec
+        exact ⟨hle.1, hle.2, _, hrec⟩
+
+/-- **A successful entry walk forces the source's monotonicity conjuncts.** -/
+theorem deserializeVarFields_entry_offsets_sound {body : ByteArray} {o0 o1 o2 o3 : Nat}
+    {v : SSZType.interpFields entryFields}
+    (h : SSZType.deserializeVarFields entryFields body 0 [o0, o1, o2, o3] body.size = .ok v) :
+    o0 ≤ o1 ∧ o1 ≤ o2 ∧ o2 ≤ o3 ∧ o3 ≤ body.size := by
+  -- `entryFields` is the cons literal the guard lemma is stated at; defeq, so a restatement crosses.
+  have h0 : SSZType.deserializeVarFields
+      (SszBridge.newPayloadRequestType :: SszBridge.witnessType :: SszBridge.chainConfigType ::
+        [.list (SszBridge.byteVector SszBridge.publicKeyBytes) SszBridge.maxPublicKeys])
+      body 0 [o0, o1, o2, o3] body.size = .ok v := h
+  obtain ⟨a01, -, v1, h1⟩ := deserializeVarFields_var_guard newPayloadRequestType_not_fixed h0
+  simp only [List.head?_cons, Option.getD_some] at a01
+  obtain ⟨a12, -, v2, h2⟩ := deserializeVarFields_var_guard witnessType_not_fixed h1
+  simp only [List.head?_cons, Option.getD_some] at a12
+  obtain ⟨a23, a3, -, -⟩ := deserializeVarFields_var_guard chainConfigType_not_fixed h2
+  simp only [List.head?_cons, Option.getD_some] at a23 a3
+  exact ⟨a01, a12, a23, a3⟩
+
+/-- **The oracle rejects exactly the tables `requireCanonicalOffsets` rejects.**
+
+The `16 ≤ body.size` conjunct of the source's check is absent from the hypothesis because a successful
+table read already forces it (`extractFieldOffsets_entry_fits`) — the fifth already-implied hypothesis
+in this module, found by the same audit rather than by noticing it. -/
+theorem decodeCanonical_entry_rejects_noncanonical (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
+    (hbad : ¬ (o0 = 16 ∧ o0 ≤ o1 ∧ o1 ≤ o2 ∧ o2 ≤ o3 ∧ o3 ≤ body.size)) :
+    (SszBridge.decodeCanonical SszBridge.statelessInputV4Type body).toOption.isSome = false := by
+  cases hdc : SszBridge.decodeCanonical SszBridge.statelessInputV4Type body with
+  | error e => rfl
+  | ok v =>
+      exfalso
+      obtain ⟨hdes, -⟩ := decodeCanonical_inv hdc
+      have hdes' : SSZType.deserialize (.container entryFields) body = .ok (v, body.size) := hdes
+      obtain ⟨offs, hext, hhead, hwalk⟩ :=
+        deserialize_container_parts entryFields_not_allFixed hdes'
+      rw [hoffs] at hext
+      have hoff : [o0, o1, o2, o3] = offs := by injection hext
+      subst hoff
+      rw [entryFields_fixedSectionSize, List.head?_cons, Option.some.injEq] at hhead
+      exact hbad ⟨hhead, deserializeVarFields_entry_offsets_sound hwalk⟩
+
+/-! ## The raw-level intermediate
+
+`meaningDecodeRaw` against `decodeRawV4`, at acceptance granularity, inside the root's scope. This is
+the lower half of `sourceShapedDecodeAgreesWithOracle`: everything above this point is machinery, and
+everything below the outer assembly's two retry arms consumes it.
+
+The two sides are *not* the same shape, and the whole difficulty is in the three places they differ.
+
+* **The sixteen-byte test.** The source tests `body.size < 16` explicitly; the oracle reaches the same
+  number as `fixedSectionSizeFields entryFields` inside the container arm.
+* **The offset discipline.** The source has one check, `requireCanonicalOffsets`. The oracle spreads it
+  across the container arm's first-offset equality and `deserializeVarFields`' per-field guard, so
+  matching a *rejection* runs backwards — from a successful walk to the inequalities it must have
+  passed.
+* **The fork bound.** The source applies it inside `meaningChainConfig`, before decoding children; the
+  oracle applies it in `decodeRawV4`, after a complete canonical decode. This is the one place an
+  assumption enters: `sourceShapedContainersAgreeWithOracle` is what carries the bound, and it is
+  consumed here through `containersAgree`.
+
+**Supplied versus proved.** `containersAgree` is a hypothesis, so the fork-bound half of the agreement
+is *assumed*, not established. Everything else — both envelopes, the sixteen-byte test, the offset
+table, the four field slices, and the four-field composition — is proved. A reader must not read the
+theorem as discharging the container obligation; it consumes it. -/
+
+/-- Reducing a `>>=` whose left argument is already `.ok`. Stated rather than unfolding `bind`, because
+unfolding turns the remaining `do` block into raw `Except.bind` matches and then no `do`-shaped lemma
+matches it any more. -/
+theorem except_bind_ok {α β : Type} (a : α) (f : α → Except SszDecodeError β) :
+    (Except.ok a : Except SszDecodeError α) >>= f = f a := rfl
+
+/-- The four field meanings join by conjunction: the decoded values feed only the returned record, so
+acceptance of the whole depends on the four fields' acceptance alone. -/
+theorem isAccepted_entry_join (s0 s1 s2 s3 : ByteArray) :
+    isAccepted (do
+        let newPayloadRequest ← meaningNewPayloadRequest s0
+        let witness ← meaningExecutionWitness s1
+        let chainConfig ← meaningChainConfig s2
+        let publicKeys ← meaningPublicKeys s3
+        return ({ newPayloadRequest := newPayloadRequest
+                  witness := witness
+                  chainConfig := chainConfig
+                  publicKeys := publicKeys } : SszBridge.RawV4))
+      = (isAccepted (meaningNewPayloadRequest s0) && isAccepted (meaningExecutionWitness s1) &&
+          isAccepted (meaningChainConfig s2) && isAccepted (meaningPublicKeys s3)) := by
+  cases meaningNewPayloadRequest s0 <;> cases meaningExecutionWitness s1 <;>
+    cases meaningChainConfig s2 <;> cases meaningPublicKeys s3 <;> rfl
+
+/-- One failing field decode kills the whole entry decode, so the oracle's post-decode fork test never
+runs. The `chainConfig` disjunct is included even though its *meaning* can reject a body the oracle's
+field decode accepts (`fork > 20`): that case is not this lemma's, and is handled by the fork bound. -/
+theorem entry_forkGuard_false (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h12 : o1 ≤ o2) (h23 : o2 ≤ o3) (h3 : o3 ≤ body.size)
+    (hu32 : body.size < UInt32.size)
+    (hbad :
+      (SszBridge.decodeCanonical SszBridge.newPayloadRequestType
+          (body.extract o0 o1)).toOption.isSome = false ∨
+      (SszBridge.decodeCanonical SszBridge.witnessType (body.extract o1 o2)).toOption.isSome
+          = false ∨
+      (SszBridge.decodeCanonical SszBridge.chainConfigType (body.extract o2 o3)).toOption.isSome
+          = false ∨
+      (SszBridge.decodeCanonical publicKeysType (body.extract o3 body.size)).toOption.isSome
+          = false) :
+    (match SszBridge.decodeCanonical SszBridge.statelessInputV4Type body with
+      | .ok value => decide ((SszBridge.rawV4OfInterp value).chainConfig.activeFork.fork ≤ 20)
+      | .error _ => false) = false := by
+  cases hdc : SszBridge.decodeCanonical SszBridge.statelessInputV4Type body with
+  | error e => rfl
+  | ok v =>
+      obtain ⟨p0, p1, p2, p3⟩ :=
+        decodeCanonical_entry_fields_of body o0 o1 o2 o3 hoffs h0 h01 h12 h23 h3 hu32
+          (by rw [hdc]; rfl)
+      rcases hbad with hb | hb | hb | hb
+      · rw [p0] at hb; exact absurd hb (by simp)
+      · rw [p1] at hb; exact absurd hb (by simp)
+      · rw [p2] at hb; exact absurd hb (by simp)
+      · rw [p3] at hb; exact absurd hb (by simp)
+
+/-- **The body-passing case of the raw-level intermediate.**
+
+Stated about the body alone, with the oracle side written as the fork-bounded acceptance of the whole
+container rather than as `decodeRawV4`'s `Result`. That keeps the oracle's error taxonomy out of a
+statement whose whole point is that acceptance agrees while the taxonomies do not.
+
+Both halves of the statement have been shown load-bearing by must-fail probes: replacing the RHS's
+`fork ≤ 20` with `true` breaks the proof, and moving the source's threshold from sixteen to twelve
+breaks it too. Neither probe is kept — a check that must fail cannot also be a regression guard. -/
+theorem raw_body_agrees (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (body : ByteArray) (hu32 : body.size < UInt32.size) :
+    isAccepted
+        (if body.size < 16 then (.error .invalidSsz : Except SszDecodeError SszBridge.RawV4)
+          else do
+            let zeroth ← meaningReadOffset body 0
+            let first ← meaningReadOffset body 4
+            let second ← meaningReadOffset body 8
+            let third ← meaningReadOffset body 12
+            let _ ← meaningRequireCanonicalOffsets body 16 [zeroth, first, second, third]
+            let newPayloadRequest ← meaningNewPayloadRequest (body.extract zeroth first)
+            let witness ← meaningExecutionWitness (body.extract first second)
+            let chainConfig ← meaningChainConfig (body.extract second third)
+            let publicKeys ← meaningPublicKeys (body.extract third body.size)
+            return {
+              newPayloadRequest := newPayloadRequest
+              witness := witness
+              chainConfig := chainConfig
+              publicKeys := publicKeys
+            })
+      = (match SszBridge.decodeCanonical SszBridge.statelessInputV4Type body with
+          | .ok value => decide ((SszBridge.rawV4OfInterp value).chainConfig.activeFork.fork ≤ 20)
+          | .error _ => false) := by
+  by_cases h16 : body.size < 16
+  · rw [if_pos h16, decodeCanonical_entry_short h16]
+    rfl
+  rw [if_neg h16]
+  obtain ⟨o0, o1, o2, o3, hoffs⟩ := entry_offsets_of_sixteen body (by omega)
+  obtain ⟨r0, r1, r2, r3⟩ := (extractFieldOffsets_eq_meaningReads body o0 o1 o2 o3).mp hoffs
+  simp only [r0, r1, r2, r3, except_bind_ok]
+  by_cases hcan : meaningRequireCanonicalOffsets body 16 [o0, o1, o2, o3] = .ok ()
+  · obtain ⟨-, hc0, hc01, hc12, hc23, hc3⟩ :=
+      (requireCanonicalOffsets_entry body o0 o1 o2 o3).mp hcan
+    rw [hcan, except_bind_ok, isAccepted_entry_join, meaningNewPayloadRequest_accepted,
+      meaningExecutionWitness_accepted, meaningPublicKeys_accepted, containersAgree]
+    cases hd0 : SszBridge.decodeCanonical SszBridge.newPayloadRequestType (body.extract o0 o1) with
+    | error e0 =>
+        rw [entry_forkGuard_false body o0 o1 o2 o3 hoffs hc0 hc01 hc12 hc23 hc3 hu32
+          (.inl (by rw [hd0]; rfl))]
+        rfl
+    | ok x0 =>
+      cases hd1 : SszBridge.decodeCanonical SszBridge.witnessType (body.extract o1 o2) with
+      | error e1 =>
+          rw [entry_forkGuard_false body o0 o1 o2 o3 hoffs hc0 hc01 hc12 hc23 hc3 hu32
+            (.inr (.inl (by rw [hd1]; rfl)))]
+          rfl
+      | ok x1 =>
+        cases hd2 : SszBridge.decodeCanonical SszBridge.chainConfigType (body.extract o2 o3) with
+        | error e2 =>
+            rw [entry_forkGuard_false body o0 o1 o2 o3 hoffs hc0 hc01 hc12 hc23 hc3 hu32
+              (.inr (.inr (.inl (by rw [hd2]; rfl))))]
+            rfl
+        | ok x2 =>
+          cases hd3 : SszBridge.decodeCanonical publicKeysType (body.extract o3 body.size) with
+          | error e3 =>
+              rw [entry_forkGuard_false body o0 o1 o2 o3 hoffs hc0 hc01 hc12 hc23 hc3 hu32
+                (.inr (.inr (.inr (by rw [hd3]; rfl))))]
+              -- Only the *last* conjunct fails to short-circuit, which is why the three branches
+              -- above close by `rfl` and this one needs `Bool.and_false`.
+              simp [Except.toOption]
+          | ok x3 =>
+              rw [decodeCanonical_entry_eq_of_fields body o0 o1 o2 o3 hoffs hc0 hc01 hc12 hc23 hc3
+                hu32 hd0 hd1 hd2 hd3]
+              simp [rawV4_fork_eq_field_fork, Except.toOption]
+  · -- The source's offset check fails; the oracle's spread-out discipline has to reject too.
+    have herr : ∃ e, meaningRequireCanonicalOffsets body 16 [o0, o1, o2, o3] = .error e := by
+      cases hc : meaningRequireCanonicalOffsets body 16 [o0, o1, o2, o3] with
+      | error e => exact ⟨e, rfl⟩
+      | ok u => exact absurd (by rw [hc]) hcan
+    obtain ⟨e, he⟩ := herr
+    rw [he]
+    have hbad : ¬ (o0 = 16 ∧ o0 ≤ o1 ∧ o1 ≤ o2 ∧ o2 ≤ o3 ∧ o3 ≤ body.size) := by
+      intro hgood
+      exact hcan ((requireCanonicalOffsets_entry body o0 o1 o2 o3).mpr
+        ⟨extractFieldOffsets_entry_fits body o0 o1 o2 o3 hoffs, hgood.1, hgood.2.1, hgood.2.2.1,
+          hgood.2.2.2.1, hgood.2.2.2.2⟩)
+    cases hdc : SszBridge.decodeCanonical SszBridge.statelessInputV4Type body with
+    | error e' => rfl
+    | ok v =>
+        have hrej := decodeCanonical_entry_rejects_noncanonical body o0 o1 o2 o3 hoffs hbad
+        rw [hdc] at hrej
+        exact absurd hrej (by simp [Except.toOption])
+
+/-- **The raw-level intermediate.** `meaningDecodeRaw` and `decodeRawV4` accept the same buffers inside
+the root's scope, given the container obligation.
+
+The scope hypothesis is load-bearing in the strong sense recorded above: `ereGateDivergesAboveU32`
+exhibits a witness beyond the bound where the two genuinely disagree, so this is not a narrowing a
+later reader can tidy away. -/
+theorem raw_acceptance_agrees (containersAgree : sourceShapedContainersAgreeWithOracle)
+    {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    isAccepted (meaningDecodeRaw bytes) = (SszBridge.decodeRawV4 bytes).toOption.isSome := by
+  have hscope : bytes.size < 2 * 1024 * 1024 := h
+  have hu32 : (bytes.extract 2 bytes.size).size < UInt32.size := by
+    have husz : UInt32.size = 4294967296 := rfl
+    rw [ByteArray.size_extract, husz]
+    omega
+  have hb := raw_body_agrees containersAgree (bytes.extract 2 bytes.size) hu32
+  rw [meaningDecodeRaw_in_scope h, decodeRawV4_in_scope h]
+  by_cases hsize : bytes.size < 2
+  · rw [if_pos hsize, if_pos hsize]; rfl
+  by_cases hschema : SszBridge.hasSchemaId bytes = false
+  · have hschemaT : (!SszBridge.hasSchemaId bytes) = true := by simp [hschema]
+    rw [if_neg hsize, if_neg hsize, if_pos hschemaT, if_pos hschemaT]
+    rfl
+  -- The condition must be pinned by a named hypothesis: with `if_neg (by simp …)` the `c`
+  -- metavariable is solved from whichever `ite` the traversal reaches first, which here is the
+  -- source's *inner* `body.size < 16` rather than the oracle's schema test.
+  have hschema' : ¬ ((!SszBridge.hasSchemaId bytes) = true) := by simp [hschema]
+  rw [if_neg hsize, if_neg hsize, if_neg hschema', if_neg hschema']
+  simp only []
+  cases hdc : SszBridge.decodeCanonical SszBridge.statelessInputV4Type
+      (bytes.extract 2 bytes.size) with
+  | error e =>
+      rw [hdc] at hb
+      rw [hb]
+      rfl
+  | ok v =>
+      rw [hdc] at hb
+      rw [hb]
+      -- Both sides still show `match Except.ok v with …`; iota-reduce so the fork test is reachable.
+      simp only []
+      by_cases hf : (SszBridge.rawV4OfInterp v).chainConfig.activeFork.fork > 20
+      -- `fork : UInt64`, so `omega` cannot see this comparison at all.
+      · rw [if_pos hf]
+        simp only [Except.toOption, Option.isSome_none, decide_eq_false_iff_not]
+        exact UInt64.not_le.mpr hf
+      · rw [if_neg hf]
+        simp only [Except.toOption, Option.isSome_some, decide_eq_true_eq]
+        exact UInt64.not_lt.mp hf
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
