@@ -1716,4 +1716,32 @@ theorem decodeCanonical_forkConfig_fields_of (b : ByteArray) (o0 o1 : Nat)
             rfl
     · exact absurd hacc (by simp [Except.toOption])
 
+/-- One failing child decode kills the whole `forkConfig` decode. Contrapositive of the forward direction,
+in the disjunctive form the acceptance join's case analysis produces.
+
+**The disjunction is homogeneous** -- two conjuncts of the same `isSome = false` form -- even though
+`forkConfig` is a link that DOES rest on an assumption. So the homogeneity tell recorded in the module
+preamble is about the *acceptance join's* failing-field shape at the source level, not about every
+`rejects_of_field` lemma: here both children are compared oracle-to-oracle, and the assumption enters
+later, at the join, through `meaningForkActivation`. Worth stating so the tell is not over-read. -/
+theorem decodeCanonical_forkConfig_rejects_of_field (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1])
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) (hu32 : b.size < UInt32.size)
+    {x : UInt64} (ha0 : readUInt64LE b 0 = some x)
+    (hbad :
+      (SszBridge.decodeCanonical SszBridge.forkActivationType
+          (b.extract o0 o1)).toOption.isSome = false ∨
+        (SszBridge.decodeCanonical
+          (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork)
+          (b.extract o1 b.size)).toOption.isSome = false) :
+    (SszBridge.decodeCanonical SszBridge.forkConfigType b).toOption.isSome = false := by
+  cases hacc : (SszBridge.decodeCanonical SszBridge.forkConfigType b).toOption.isSome with
+  | false => rfl
+  | true =>
+      obtain ⟨p0, p1⟩ :=
+        decodeCanonical_forkConfig_fields_of b o0 o1 hoffs h0 h01 h1 hu32 ha0 hacc
+      rcases hbad with hb | hb
+      · rw [p0] at hb; exact absurd hb (by simp)
+      · rw [p1] at hb; exact absurd hb (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
