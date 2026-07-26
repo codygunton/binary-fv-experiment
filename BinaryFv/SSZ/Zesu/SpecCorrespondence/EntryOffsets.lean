@@ -1288,6 +1288,43 @@ theorem deserialize_container_firstOffset {fs : List SSZType} {b : ByteArray}
             simp only [List.head?_cons, Option.some.injEq]
             exact Classical.byContradiction fun hc => hfirst hc
 
+/-! ### The 540 and the 436, machine-checked
+
+The derivation above is prose; these make it a fact the compiler holds. If a field is added to
+`executionPayloadType`, one of these `decide`s fails and the V3 exclusion argument is forced open
+rather than quietly becoming wrong. That is the point of deriving the constants instead of quoting
+them. -/
+
+/-- `executionPayloadType`'s field list, named so the sizes below can be stated about it. -/
+def executionPayloadFields : List SSZType :=
+  [SszBridge.byteVector 32, SszBridge.byteVector 20, SszBridge.byteVector 32,
+    SszBridge.byteVector 32, SszBridge.byteVector 256, SszBridge.byteVector 32,
+    SszBridge.u64, SszBridge.u64, SszBridge.u64, SszBridge.u64,
+    SszBridge.byteList SszBridge.maxExtraDataBytes,
+    SszBridge.u256,
+    SszBridge.byteVector 32,
+    .list (SszBridge.byteList SszBridge.maxBytesPerTransaction) SszBridge.maxTransactionsPerPayload,
+    .list SszBridge.withdrawalType SszBridge.maxWithdrawalsPerPayload,
+    SszBridge.u64, SszBridge.u64,
+    SszBridge.byteList SszBridge.maxBytesPerTransaction,
+    SszBridge.u64]
+
+theorem executionPayloadType_eq :
+    SszBridge.executionPayloadType = .container executionPayloadFields := rfl
+
+/-- **540 is derived.** The fixed section size canonicality forces the first variable offset to
+equal. -/
+theorem executionPayloadFields_fixedSection :
+    SSZType.fixedSectionSizeFields executionPayloadFields = 540 := by decide
+
+/-- **436 is derived.** The ten leading fixed fields occupy exactly that much, which is where the
+first variable field's offset slot falls — the byte the V3 classifier reads. -/
+theorem executionPayloadFields_leadingFixed :
+    SSZType.fixedSectionSizeFields (executionPayloadFields.take 10) = 436 := by decide
+
+/-- And the two constants genuinely conflict: the V3 classifier's `528` is neither of them. -/
+theorem v3Constant_ne_v4FixedSection : (528 : Nat) ≠ 540 := by decide
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
