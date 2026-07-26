@@ -1783,6 +1783,29 @@ theorem both_size_gates_dead_in_scope {bytes : ByteArray} (h : rootComplianceSco
     meaningRequireU32Length bytes = .ok () ∧ ¬ (bytes.size ≥ 2 ^ 32) :=
   ⟨meaningRequireU32Length_ok_in_scope h, tooLarge_gate_unreachable_in_scope h⟩
 
+/-- `decodeRawV4` with its dead `tooLarge` gate removed — the oracle-side reduction at the raw level,
+the analogue of `decodeStatelessInput_in_scope` one layer up. What is left is exactly the three
+envelope tests the source also runs, then the canonical decode, then the fork bound. -/
+theorem decodeRawV4_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    SszBridge.decodeRawV4 bytes =
+      (if bytes.size < 2 then .error .tooShort
+        else if !(SszBridge.hasSchemaId bytes) then .error .badSchema
+        else
+          match SszBridge.decodeCanonical SszBridge.statelessInputV4Type
+              (bytes.extract 2 bytes.size) with
+          | .ok value =>
+              if (SszBridge.rawV4OfInterp value).chainConfig.activeFork.fork > 20 then
+                .error .unknownFork
+              else .ok (SszBridge.rawV4OfInterp value)
+          | .error error => .error (.ssz error)) := by
+  rw [SszBridge.decodeRawV4, if_neg (tooLarge_gate_unreachable_in_scope h)]
+  split
+  · rfl
+  · split
+    · rfl
+    · cases SszBridge.decodeCanonical SszBridge.statelessInputV4Type (bytes.extract 2 bytes.size) <;>
+        rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
