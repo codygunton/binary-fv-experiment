@@ -1060,4 +1060,53 @@ theorem forkActivation_acceptance_agrees (b : ByteArray) (hu32 : b.size < UInt32
     rw [decodeCanonical_forkActivation_rejects_noncanonical b o0 o1 hoffs hbad]
     rfl
 
+/-! ## Toward the other two links: short buffers and table existence
+
+Direct ports of the `forkActivation` pair to the two mixed containers, and they port cleanly because
+neither depends on the leading-fixed skip: the short-buffer case is the container arm's `b.size <
+prefixSize` guard at the derived constant, and table existence only needs the reads to succeed at their
+positions.
+
+**Where the port will stop, flagged now rather than discovered later.** The next step for both is walk
+soundness, and `deserializeVarFields_var_guard` does **not** apply at their heads — it is stated for a
+*variable* head field, while `forkConfig` and `chainConfig` both begin with a fixed `u64` that
+`deserializeVarFields` reads from the prefix before touching any offset. So a fixed-head step lemma is
+genuinely new work, not another instance of the arity-free guard.
+
+That is the same boundary as `forkActivation_offsetBytes_iff`: the arity-free machinery covers walks over
+*variable* fields, and the leading-fixed shape sits outside it. Two independent places now where the
+entry-derived toolkit stops exactly at the mixed containers, which is the structural reason this chain was
+worth a separate module. -/
+
+theorem decodeCanonical_forkConfig_short {b : ByteArray} (h : b.size < 16) :
+    SszBridge.decodeCanonical SszBridge.forkConfigType b = .error .tooShort := by
+  have hdes : SSZType.deserialize SszBridge.forkConfigType b = .error .tooShort := by
+    show SSZType.deserialize (.container forkConfigFields) b = _
+    rw [SSZType.deserialize, if_neg (by rw [forkConfigFields_not_allFixed]; simp)]
+    simp only []
+    rw [if_pos (by rw [forkConfigFields_fixedSection]; omega)]
+  rw [SszBridge.decodeCanonical, hdes]
+  rfl
+
+theorem decodeCanonical_chainConfig_short {b : ByteArray} (h : b.size < 12) :
+    SszBridge.decodeCanonical SszBridge.chainConfigType b = .error .tooShort := by
+  have hdes : SSZType.deserialize SszBridge.chainConfigType b = .error .tooShort := by
+    show SSZType.deserialize (.container chainConfigFields) b = _
+    rw [SSZType.deserialize, if_neg (by rw [chainConfigFields_not_allFixed]; simp)]
+    simp only []
+    rw [if_pos (by rw [chainConfigFields_fixedSection]; omega)]
+  rw [SszBridge.decodeCanonical, hdes]
+  rfl
+
+theorem forkConfig_offsets_of_sixteen (b : ByteArray) (h : 16 ≤ b.size) :
+    ∃ o0 o1, extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1] := by
+  obtain ⟨w0, e0⟩ := readUInt32LE_exists b 8 (by omega)
+  obtain ⟨w1, e1⟩ := readUInt32LE_exists b 12 (by omega)
+  exact ⟨w0.toNat, w1.toNat, by rw [extractFieldOffsets_forkConfig, e0, e1]⟩
+
+theorem chainConfig_offsets_of_twelve (b : ByteArray) (h : 12 ≤ b.size) :
+    ∃ o, extractFieldOffsets b chainConfigFields 0 = .ok [o] := by
+  obtain ⟨w, e⟩ := readUInt32LE_exists b 8 (by omega)
+  exact ⟨w.toNat, by rw [extractFieldOffsets_chainConfig, e]⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
