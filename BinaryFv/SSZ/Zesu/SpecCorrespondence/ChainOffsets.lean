@@ -15,11 +15,18 @@ open BinaryFv.SSZ.Zesu.Contracts
 
 /-! # Item 6.2: the activation / forkConfig / chainConfig chain
 
-Three nested source-shaped containers. Structurally these are **not** the entry schema repeated:
-`entryFields` is all-variable, so its fixed section is exactly its offset table. Each of these three has
-**leading fixed fields**, which `extractFieldOffsets` skips by advancing `off` by `fixedByteSize` rather
-than reading, and which `deserializeVarFields` reads out of the prefix. That skip is the new mechanism,
-and it is why the entry's offset-table lemma does not generalise by substitution.
+Three nested source-shaped containers. Structurally these are **not** uniformly the entry schema
+repeated: `entryFields` is all-variable, so its fixed section is exactly its offset table, whereas
+`forkConfig` and `chainConfig` have **leading fixed fields**, which `extractFieldOffsets` skips by
+advancing `off` by `fixedByteSize` rather than reading, and which `deserializeVarFields` reads out of
+the prefix. That skip is the new mechanism, and it is why the entry's offset-table lemma does not
+generalise by substitution.
+
+**`forkActivation` is the exception and is worth naming as one:** it is all-variable, like the entry
+schema, so it has no leading fixed field and no skip. Its fixed-section size of 8 is
+`2 * BYTES_PER_LENGTH_OFFSET` — two offsets — and coincides with `chainConfig`'s leading `u64` width by
+accident. An earlier draft of this preamble asserted the skip at all three; reading the `8`s as the same
+quantity is exactly the confusion that motivated a separate module.
 
 The three fixed-section sizes are *derived* by `decide` from the field lists rather than quoted, exactly
 as `entryFields_fixedSectionSize` is: 8, 16 and 12 are what the source hard-codes at each level, so if a
