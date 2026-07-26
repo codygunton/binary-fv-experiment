@@ -1424,4 +1424,37 @@ theorem uint64LE_eq_extract_iff (body : ByteArray) (i n : Nat) (o : UInt64)
     subst h
     rw [show Nat.toUInt64 o.toNat = o from UInt64.ofNat_toNat]
 
+/-- **A canonical `forkConfig` child plus the inline `chainId` read make the `chainConfig` decode
+canonical.** Note the asymmetry in the hypotheses: the variable field arrives as a `decodeCanonical`, the
+fixed field as a raw `readUInt64LE`. That is not a stylistic choice -- the oracle reads the prefix field
+directly rather than through `decodeCanonical`, so a `decodeCanonical` hypothesis there would be about a
+function the oracle never calls at that position. -/
+theorem decodeCanonical_chainConfig_eq_of_fields (b : ByteArray) (o : Nat)
+    (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o])
+    (h0 : o = 12) (h1 : o ≤ b.size) (hu32 : b.size < UInt32.size)
+    {x0 : SszBridge.u64.interp} {x1 : SszBridge.forkConfigType.interp}
+    (a0 : readUInt64LE b 0 = some x0)
+    (a1 : SszBridge.decodeCanonical SszBridge.forkConfigType (b.extract o b.size) = .ok x1) :
+    SszBridge.decodeCanonical SszBridge.chainConfigType b = .ok (x0, x1, PUnit.unit) := by
+  have husz : UInt32.size = 4294967296 := rfl
+  obtain ⟨d1, s1eq⟩ := decodeCanonical_inv a1
+  subst h0
+  have h12 : 12 ≤ b.size := extractFieldOffsets_chainConfig_fits b 12 hoffs
+  rw [decodeCanonical_chainConfig_unfold b 12 hoffs rfl,
+    deserializeVarFields_chainConfig b 12 (by omega) h1 a0, d1]
+  have hser : SSZType.serialize SszBridge.chainConfigType
+      ((x0, x1, PUnit.unit) : SSZType.interpFields chainConfigFields) = b := by
+    show SSZType.serialize (.container chainConfigFields) _ = b
+    rw [serialize_chainConfig_eq_body_iff b (x0, x1, PUnit.unit) _ _ rfl rfl h12]
+    simp only []
+    refine ⟨?_, ?_, ?_⟩
+    · rw [serialize_u64_eq_uint64LE]
+      exact uint64LE_of_readUInt64LE _ x0 (by rw [ByteArray.size_extract]; omega)
+        (by rw [readUInt64LE_extract b 0 (by omega)]; exact a0)
+    · exact (chainConfig_offsetBytes_iff b 12 hoffs 12 (by omega)).mpr rfl
+    · exact s1eq
+  simp only []
+  rw [hser, byteArray_beq_self]
+  rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
