@@ -371,4 +371,47 @@ theorem executeDecode_rejected_forces_checks {input : ByteArray}
       exact ⟨final, steps, rawResult, rawError, hcode, hnull, htag, ⟨status, herror, hstatus⟩,
         hclass⟩
 
+/-! ## Where each direction is proved
+
+Both directions of both outcomes, by layer. The forward direction says *these checks produce this
+answer*; the converse says *this answer could only have come from those checks*, which is what makes
+the answer trustworthy rather than merely produced.
+
+| layer                | accepted forward               | accepted converse | rejected forward               | rejected converse                      |
+| -------------------- | ------------------------------ | ----------------- | ------------------------------ | -------------------------------------- |
+| `classifyWrapperRun` | `classifyWrapperRun_accepted`  | **OPEN**          | `classifyWrapperRun_rejected`  | `wrapper_rejection_forces_checks`      |
+| `executeDecode`      | `executeDecode_accepted_of_run`| **OPEN**          | `executeDecode_rejected_of_run`| `executeDecode_rejected_forces_checks` |
+| `executeChecked`     | (gate is transparent)          | **OPEN**          | (gate is transparent)          | `executeChecked_rejected_forces_gate`  |
+| `RiscvSpec.execute`  | `Root.execute_accepts_of_…`    | **OPEN**          | `Root.execute_rejects_of_…`    | `Root.execute_rejected_forces_checks`  |
+
+The table is kept because it is what found the gaps, and the `OPEN` cells are written as open rather
+than omitted: an empty cell in a grid you are forced to fill is a different object from an absence
+nobody happened to look for. Two findings came straight off it.
+
+**The whole `accepted` converse column is missing.** "The runner never invents a rejection" is a
+theorem; "the runner never invents an acceptance, and the value it reports is the one memory
+represented" is not. Since `classifyWrapperRun` returns whatever `observeValue final` says, that
+converse is what would tie the reported value to the observation rather than leaving the tie
+asserted.
+
+**Both converses stopped one layer below the public API** — closed for `rejected` by the two lemmas
+below and in `Root.lean`, and it mattered because `RiscvSpec.execute`'s own docstring makes the
+"no failure mode becomes a rejection" claim *at the `execute` level* while the proof reached only
+`executeDecode`. Neither gap was visible from reading the rejection proofs, which are correct.
+-/
+
+/-- **The preflight gate cannot manufacture a rejection.** `executeChecked` either returns the gate's
+error or defers entirely to `executeDecode`, so a `rejected` answer forces the gate to have passed
+*and* the machine run itself to have rejected. The gate contributes only `.invalidArtifact`, so it
+can turn an acceptance into an error but never an error into an acceptance or a rejection. -/
+theorem executeChecked_rejected_forces_gate {binary : RiscvSpec.ValidatedElf} {input : ByteArray}
+    (h : executeChecked binary input = .ok .rejected) :
+    preflight binary input = .ok () ∧ executeDecode input = .ok .rejected := by
+  unfold executeChecked at h
+  match hp : preflight binary input with
+  | .error e => rw [hp] at h; exact absurd h (by simp)
+  | .ok u =>
+      rw [hp] at h
+      exact ⟨by cases u; rfl, h⟩
+
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw

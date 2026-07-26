@@ -59,11 +59,21 @@ theorem binary_is_canonical :
 `program` and `obligations` are genuine premises, not manufactured by the root: they are produced by
 `successful_trace_of_spec_accepts` and threaded in here, so the trace this consumes cannot exist
 without Elfling program correctness. The machine reasoning itself is entirely
-`executeDecode_accepted_of_run`'s — the root reconstructs none of it. -/
+`executeDecode_accepted_of_run`'s — the root reconstructs none of it.
+
+**`_canonical` and `_obligations` are deliberately unused, and the underscore is the honest form.**
+Checked rather than assumed: the identical statement without them is provable, so they contribute
+nothing to *this* proof. They are kept because the force lives in the **producer** —
+`successful_trace_of_spec_accepts` returns them, so `root_compliance` cannot obtain a trace without
+also obtaining program correctness — and keeping them here makes a later restructuring that drops
+that threading break visibly instead of silently. What they are *not* is a dependency of the machine
+bridge, and a reader who inferred one from the signature would be wrong; hence the rename rather than
+a comment. Same treatment, and same reasoning, as the dead `before` binders on the four
+postconditions. -/
 theorem execute_accepts_of_successful_trace (input : ByteArray)
     (inputBound : input.size < Zesu.Runtime.maximumInputBytes) (value : SszBridge.RawV4)
-    (program : Program) (canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
-    (obligations : Zesu.Contracts.sszComplianceObligations program)
+    (program : Program) (_canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
+    (_obligations : Zesu.Contracts.sszComplianceObligations program)
     (execution : Zesu.Entrypoints.ZesuDecodeRaw.SuccessfulRun input value) :
     RiscvSpec.execute binary input = .ok (.accepted value) := by
   rw [RiscvSpec.execute_eq_executeChecked,
@@ -73,11 +83,12 @@ theorem execute_accepts_of_successful_trace (input : ByteArray)
     execution.returnCode execution.storedPresent execution.inputPreserved execution.storedValue
 
 /-- A run recording a spec-producible rejection status gives the public rejection, given the same
-canonical program and obligation. -/
+canonical program and obligation. `_canonical` and `_obligations` are dead here for the same reason,
+and kept for the same reason, as in `execute_accepts_of_successful_trace` above. -/
 theorem execute_rejects_of_rejected_trace (input : ByteArray)
     (inputBound : input.size < Zesu.Runtime.maximumInputBytes)
-    (program : Program) (canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
-    (obligations : Zesu.Contracts.sszComplianceObligations program)
+    (program : Program) (_canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
+    (_obligations : Zesu.Contracts.sszComplianceObligations program)
     (execution : Zesu.Entrypoints.ZesuDecodeRaw.RejectedRun input) :
     RiscvSpec.execute binary input = .ok .rejected := by
   rw [RiscvSpec.execute_eq_executeChecked,
@@ -85,6 +96,32 @@ theorem execute_rejects_of_rejected_trace (input : ByteArray)
   exact Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_rejected_of_run input
     execution.builds execution.trace execution.withinStepBound execution.accessors
     execution.returnCode execution.specRejection execution.storedAbsent
+
+/-- **No failure mode becomes a rejection — proved at the layer where that is claimed.**
+
+`RiscvSpec.execute`'s own docstring says "every failure mode keeps its own error; none of them
+becomes a rejection". That claim is made about `execute`; until now the theorem backing it
+(`executeDecode_rejected_forces_checks`) stopped one layer below, at `executeDecode`. The claim was
+true — `execute` is `executeChecked` by `rfl`, and the preflight gate can only contribute
+`.invalidArtifact` — but true-and-unproved-at-the-level-it-is-stated is the shape of every defect the
+reachability pass turned up, so it is worth the twenty lines to close rather than to argue.
+
+Stated over an arbitrary `ValidatedElf` rather than `binary`, so it constrains the public API itself
+and not merely the proof's own instance of it. -/
+theorem execute_rejected_forces_checks {b : RiscvSpec.ValidatedElf} {input : ByteArray}
+    (h : RiscvSpec.execute b input = .ok .rejected) :
+    Zesu.Entrypoints.ZesuDecodeRaw.preflight b input = .ok () ∧
+      ∃ (final : BinaryFv.RiscV.State)
+        (rawResult rawError : Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome),
+        Zesu.Entrypoints.ZesuDecodeRaw.observeReturnCode? final = some 0 ∧
+        rawResult = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned 0 ∧
+        (∃ status, rawError = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned status ∧
+          Zesu.Entrypoints.ZesuDecodeRaw.statusCategory status = .specRejection) := by
+  rw [RiscvSpec.execute_eq_executeChecked] at h
+  obtain ⟨hgate, hdec⟩ := Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_rejected_forces_gate h
+  obtain ⟨final, _steps, rawResult, rawError, hcode, hnull, _htag, hstatus, -⟩ :=
+    Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_rejected_forces_checks hdec
+  exact ⟨hgate, final, rawResult, rawError, hcode, hnull, hstatus⟩
 
 /-- The final Amsterdam V4 compliance statement.  Its dependency spine is intentionally visible:
 spec classification, the canonical Elfling program and its compliance obligation, live Sail traces,
