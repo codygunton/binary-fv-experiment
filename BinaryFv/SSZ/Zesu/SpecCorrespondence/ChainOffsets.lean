@@ -1534,4 +1534,43 @@ theorem decodeCanonical_forkConfig_eq_of_fields (b : ByteArray) (o0 o1 : Nat)
   rw [hser, byteArray_beq_self]
   rfl
 
+/-! ## The acceptance joins, and why `fork > 20` needs no commuting
+
+Lead's standing instruction is to stop and escalate if a decomposition wants to commute the source's
+`fork > 20` test *past* the child decodes, since that ordering is what makes `forkErrorOrderingDiffers`
+true. **It does not want to, and the reason is worth stating before the proof rather than discovered
+inside it.**
+
+The source checks the bound *before* decoding children; the oracle-shaped right-hand side decodes
+everything and then applies it. Those differ in *which error* surfaces, and agree on *acceptance*, case by
+case:
+
+| buffer | source | oracle-shaped RHS |
+|---|---|---|
+| `fork > 20`, children fine | `unknownFork` | decodes, bound fails → `false` |
+| `fork > 20`, child malformed | `unknownFork` | decode fails → `false` |
+| `fork ≤ 20`, child malformed | child's error | decode fails → `false` |
+| `fork ≤ 20`, children fine | accepts | decodes, bound holds → `true` |
+
+Every row agrees on acceptance, and the two middle rows are exactly where the *error* differs. So no
+commuting is required — the ordering is unobservable at acceptance granularity, which is precisely what
+the obligation being acceptance-only buys, and precisely why stating it with error constructors would make
+it and `forkErrorOrderingDiffers` jointly false.
+
+Escalation therefore not triggered. Recorded here rather than only reported, because the next author to
+look at this will be tempted by exactly the rearrangement lead warned about. -/
+
+/-- `forkConfig`'s two child meanings join by conjunction. Note the `fork` value is already in hand by
+this point in `meaningForkConfig` -- it is read and bound *before* the children -- so it appears as a
+parameter rather than as a third conjunct. That asymmetry in the join mirrors the asymmetry in the
+decomposition's hypotheses, and for the same reason: the fixed field is not decoded, it is read. -/
+theorem isAccepted_forkConfig_join (fork : UInt64) (s1 s2 : ByteArray) :
+    isAccepted (do
+        let activation ← meaningForkActivation s1
+        let blobSchedule ← meaningOptionalBlobSchedule s2
+        return ({ fork := fork, activation := activation,
+                  blobSchedule := blobSchedule } : SszBridge.RawForkConfig))
+      = (isAccepted (meaningForkActivation s1) && isAccepted (meaningOptionalBlobSchedule s2)) := by
+  cases meaningForkActivation s1 <;> cases meaningOptionalBlobSchedule s2 <;> rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
