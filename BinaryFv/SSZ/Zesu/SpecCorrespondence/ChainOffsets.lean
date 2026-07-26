@@ -1662,4 +1662,58 @@ theorem decodeCanonical_forkConfig_fork_eq (b : ByteArray) (o0 o1 : Nat)
           rfl
         · exact absurd hdc (by simp)
 
+/-- **A canonical `forkConfig` decode makes both child decodes canonical.** The forward direction, owed
+because the `fork ≤ 20` branch of the acceptance join needs decode-succeeds to be *equivalent* to
+children-accept, not merely implied by it. Arity-three port of
+`decodeCanonical_forkActivation_fields_of`, with the inline field stepped over. -/
+theorem decodeCanonical_forkConfig_fields_of (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1])
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) (hu32 : b.size < UInt32.size)
+    {x : UInt64} (ha0 : readUInt64LE b 0 = some x)
+    (hacc : (SszBridge.decodeCanonical SszBridge.forkConfigType b).toOption.isSome = true) :
+    (SszBridge.decodeCanonical SszBridge.forkActivationType (b.extract o0 o1)).toOption.isSome = true ∧
+      (SszBridge.decodeCanonical
+        (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork)
+        (b.extract o1 b.size)).toOption.isSome = true := by
+  have husz : UInt32.size = 4294967296 := rfl
+  subst h0
+  have h16 : 16 ≤ b.size := extractFieldOffsets_forkConfig_fits b 16 o1 hoffs
+  rw [decodeCanonical_forkConfig_unfold b 16 o1 hoffs rfl,
+    deserializeVarFields_forkConfig b 16 o1 (by omega) h01 h1 ha0] at hacc
+  split at hacc
+  · exact absurd hacc (by simp [Except.toOption])
+  · rename_i v heq
+    split at hacc
+    · rename_i hser
+      split at heq
+      · exact absurd heq (by simp)
+      · rename_i x0 u0 hd0
+        split at heq
+        · exact absurd heq (by simp)
+        · rename_i x1 u1 hd1
+          simp only [Except.ok.injEq] at heq
+          subst heq
+          have hu0 := deserialize_forkActivation_used hd0
+          have hu1 := deserialize_blobScheduleList_used hd1
+          subst hu0
+          subst hu1
+          have hb : SSZType.serialize SszBridge.forkConfigType
+              ((x, x0, x1, PUnit.unit) : SSZType.interpFields forkConfigFields) = b :=
+            byteArray_eq_of_beq hser
+          have hsplit := (serialize_forkConfig_eq_body_iff b (x, x0, x1, PUnit.unit)
+            _ _ _ rfl rfl rfl h16).mp hb
+          simp only [] at hsplit
+          obtain ⟨-, -, q2, qr⟩ := hsplit
+          have hsz := congrArg ByteArray.size qr
+          simp only [ByteArray.size_append, ByteArray.size_extract] at hsz
+          have c1 := ((forkConfig_offsetBytes_iff b 16 o1 hoffs _ (by omega)).2).mp q2
+          obtain ⟨r0, r1⟩ :=
+            (append_eq_extract_iff b 16 o1 b.size h01 h1 h1 (by omega)).mp qr
+          refine ⟨?_, ?_⟩
+          · rw [decodeCanonical_of_used_eq _ _ x0 _ hd0 rfl, r0, byteArray_beq_self]
+            rfl
+          · rw [decodeCanonical_of_used_eq _ _ x1 _ hd1 rfl, r1, byteArray_beq_self]
+            rfl
+    · exact absurd hacc (by simp [Except.toOption])
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
