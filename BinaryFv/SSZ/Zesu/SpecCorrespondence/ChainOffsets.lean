@@ -1864,4 +1864,61 @@ theorem forkConfig_acceptance_agrees (b : ByteArray) (hu32 : b.size < UInt32.siz
         rw [hdc] at hrej
         exact absurd hrej (by simp [Except.toOption])
 
+/-- **A canonical `chainConfig` decode makes its child decode canonical.** Forward direction, one child.
+Port of `decodeCanonical_forkConfig_fields_of`; the conclusion is a single conjunct rather than a pair
+because `chainConfig` has one variable field -- the fifth place arity one drops a component outright rather
+than specialising. -/
+theorem decodeCanonical_chainConfig_fields_of (b : ByteArray) (o : Nat)
+    (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o])
+    (h0 : o = 12) (h1 : o ≤ b.size) (hu32 : b.size < UInt32.size)
+    {x : UInt64} (ha0 : readUInt64LE b 0 = some x)
+    (hacc : (SszBridge.decodeCanonical SszBridge.chainConfigType b).toOption.isSome = true) :
+    (SszBridge.decodeCanonical SszBridge.forkConfigType (b.extract o b.size)).toOption.isSome
+      = true := by
+  have husz : UInt32.size = 4294967296 := rfl
+  subst h0
+  have h12 : 12 ≤ b.size := extractFieldOffsets_chainConfig_fits b 12 hoffs
+  rw [decodeCanonical_chainConfig_unfold b 12 hoffs rfl,
+    deserializeVarFields_chainConfig b 12 (by omega) h1 ha0] at hacc
+  split at hacc
+  · exact absurd hacc (by simp [Except.toOption])
+  · rename_i v heq
+    split at hacc
+    · rename_i hser
+      split at heq
+      · exact absurd heq (by simp)
+      · rename_i y u hd
+        simp only [Except.ok.injEq] at heq
+        subst heq
+        have hu := deserialize_forkConfig_used hd
+        subst hu
+        have hb : SSZType.serialize SszBridge.chainConfigType
+            ((x, y, PUnit.unit) : SSZType.interpFields chainConfigFields) = b :=
+          byteArray_eq_of_beq hser
+        have hsplit :=
+          (serialize_chainConfig_eq_body_iff b (x, y, PUnit.unit) _ _ rfl rfl h12).mp hb
+        simp only [] at hsplit
+        obtain ⟨-, -, qr⟩ := hsplit
+        rw [decodeCanonical_of_used_eq _ _ y _ hd rfl, qr, byteArray_beq_self]
+        rfl
+    · exact absurd hacc (by simp [Except.toOption])
+
+/-- The match-shaped failing-child fact at `chainConfig`, the `entry_forkGuard_false` analogue its join
+needs. One disjunct, not a disjunction -- there is only one child to fail. -/
+theorem chainConfig_forkGuard_false (b : ByteArray) (o : Nat)
+    (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o])
+    (h0 : o = 12) (h1 : o ≤ b.size) (hu32 : b.size < UInt32.size)
+    {x : UInt64} (ha0 : readUInt64LE b 0 = some x)
+    (hbad : (SszBridge.decodeCanonical SszBridge.forkConfigType
+      (b.extract o b.size)).toOption.isSome = false) :
+    (match SszBridge.decodeCanonical SszBridge.chainConfigType b with
+      | .ok v => decide ((SszBridge.rawChainConfigOf v).activeFork.fork ≤ 20)
+      | .error _ => false) = false := by
+  cases hdc : SszBridge.decodeCanonical SszBridge.chainConfigType b with
+  | error e => rfl
+  | ok v =>
+      have hp := decodeCanonical_chainConfig_fields_of b o hoffs h0 h1 hu32 ha0 (by rw [hdc]; rfl)
+      rw [hp] at hbad
+      exact absurd hbad (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
