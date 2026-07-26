@@ -58,6 +58,22 @@ theorem segments_below_ceiling :
 theorem runtime_below_ceiling : heapCeiling ≤ loadedCeiling ∧ globalsCeiling ≤ loadedCeiling := by
   constructor <;> decide
 
+/-- **The arena and the decoder's private globals do not overlap.** Arena `[86048, 67194912)`,
+BSS `[69292064, 69292928)`, so the arena ends about 2.1 MB below the globals begin.
+
+Needed by the ownership discipline: a container whose record lives in the globals — the
+`stored_result` object at `canonicalResultBuffer` — must be shown disjoint from every heap-allocated
+sibling, and that cannot come from allocator monotonicity because the record is not in the arena at
+all. This is the one global fact that discharges it, rather than an obligation per sibling pair.
+
+**Stated as ceiling-of-one ≤ base-of-other, and it must be.** The tempting neighbour —
+`heapCeiling ≤ globalsCeiling`, ordering the two *ceilings* — is also true and also closes by
+`decide`, and it does **not** give disjointness: two regions can stand in any ceiling ordering while
+one starts below the other's base and swallows it. A lemma in that form would prove cleanly and be
+weaker than its name. -/
+theorem arena_disjoint_from_globals :
+    heapCeiling ≤ Elfling.GeneratedDecoderGlobals.bssBase := by decide
+
 /-! ## The layout -/
 
 /-- Where the runner puts the things the image does not contain. Sizes are in bytes; `sentinel` is a
