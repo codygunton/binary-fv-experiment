@@ -758,4 +758,56 @@ theorem serialize_forkActivation_eq_body_iff (b : ByteArray)
   rw [append_eq_extract_iff b 0 4 8 (by omega) (by omega) (by omega) (by rw [uint32LE_size])]
   rw [and_assoc]
 
+/-! ### The accepting case, and `forkActivation`'s oracle-side decomposition is complete
+
+Two canonical field decodes make the whole `forkActivation` decode canonical. This is where every piece
+above meets: the unfold, the walk, the join condition, the bytes-to-values step, and the per-field `used`
+redundancy.
+
+It compiled first try, which is worth contrasting with the four iterations the join condition took one
+section up. The difference is not difficulty but *kind*: the join condition had to restructure an `Iff`,
+while this assembles named lemmas in the order the entry's proof already established. Porting a completed
+argument is cheap; discovering the shape is not — and both were mostly the same amount of *content*.
+
+**What remains for item 6.2** is now only the source-side halves: `forkActivation`'s two directions joined
+into an acceptance statement about `meaningForkActivation`, then the same for `forkConfig` — where the
+`fork > 20` test has to be placed and must not be commuted past the child decodes — and then
+`chainConfig`, whose join is the one gated on the gate-level differential. -/
+
+/-- **Two canonical field decodes make the `forkActivation` decode canonical.** -/
+theorem decodeCanonical_forkActivation_eq_of_fields (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1])
+    (h0 : o0 = 8) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) (hu32 : b.size < UInt32.size)
+    {x0 x1 : (SSZType.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues).interp}
+    (a0 : SszBridge.decodeCanonical
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) (b.extract o0 o1) = .ok x0)
+    (a1 : SszBridge.decodeCanonical
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues)
+        (b.extract o1 b.size) = .ok x1) :
+    SszBridge.decodeCanonical SszBridge.forkActivationType b = .ok (x0, x1, PUnit.unit) := by
+  have husz : UInt32.size = 4294967296 := rfl
+  obtain ⟨d0, s0eq⟩ := decodeCanonical_inv a0
+  obtain ⟨d1, s1eq⟩ := decodeCanonical_inv a1
+  subst h0
+  have w0 : (SSZType.serialize
+      (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) x0).size = o1 - 8 := by
+    rw [s0eq, ByteArray.size_extract]; omega
+  have hcum : 8 + (SSZType.serialize
+      (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) x0).size = o1 := by
+    rw [w0]; omega
+  rw [decodeCanonical_forkActivation_unfold b 8 o1 hoffs rfl,
+    deserializeVarFields_forkActivation b 8 o1 h01 h1, d0, d1]
+  have hser : SSZType.serialize SszBridge.forkActivationType
+      ((x0, x1, PUnit.unit) : SSZType.interpFields forkActivationFields) = b := by
+    show SSZType.serialize (.container forkActivationFields) _ = b
+    rw [serialize_forkActivation_eq_body_iff b (x0, x1, PUnit.unit) _ _ rfl rfl (by omega)]
+    simp only []
+    refine ⟨?_, ?_, ?_⟩
+    · exact ((forkActivation_offsetBytes_iff b 8 o1 hoffs 8 (by omega)).1).mpr rfl
+    · exact ((forkActivation_offsetBytes_iff b 8 o1 hoffs _ (by omega)).2).mpr hcum
+    · exact (append_eq_extract_iff b 8 o1 b.size h01 h1 h1 (by rw [w0])).mpr ⟨s0eq, s1eq⟩
+  simp only []
+  rw [hser, byteArray_beq_self]
+  rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
