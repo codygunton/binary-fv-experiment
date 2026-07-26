@@ -107,8 +107,10 @@ The half that can fail. Soundness above would hold just as well for a padded foo
 address the footprint claims must be shown to *matter*: two states agreeing everywhere except there,
 disagreeing on the representation.
 
-Proved for `OptionTagRep`. Its footprint is a single address, so the witness is a single-insert pair
-and the result is complete rather than gestured at. -/
+Proved for both primitives: `OptionTagRep` (one address, single-insert witness) and `Word64LERep`
+(eight addresses, via `withBytes` below). Since every container footprint here is assembled from those
+two, a padded container footprint would now have to be padded at the assembly step rather than at a
+leaf — which narrows where the remaining risk can live. -/
 
 /-- **`OptionTagRep`'s footprint address is load-bearing.** Two states differing only at `base`, one
 satisfying the representation and one not.
@@ -134,14 +136,90 @@ theorem optionTag_footprint_tight (base : Nat) :
     simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]
     simp
 
+/-! ### Multi-byte witnesses
+
+The obstacle to tightness beyond a single address was construction: a witness must exhibit a state
+that *satisfies* the representation, and an eight-byte word needs eight writes whose lookups can then
+be separated. `withBytes` supplies exactly that, once, for every multi-byte footprint. -/
+
+/-- Memory with `count` bytes written from `base`, byte `i` taking value `f i`. -/
+def withBytes (m : Std.ExtHashMap Nat (BitVec 8)) (base : Nat) (f : Nat → BitVec 8) :
+    Nat → Std.ExtHashMap Nat (BitVec 8)
+  | 0 => m
+  | n + 1 => (withBytes m base f n).insert (base + n) (f n)
+
+theorem withBytes_inside (m : Std.ExtHashMap Nat (BitVec 8)) (base : Nat) (f : Nat → BitVec 8)
+    {count i : Nat} (h : i < count) :
+    (withBytes m base f count).get? (base + i) = some (f i) := by
+  induction count with
+  | zero => exact absurd h (by omega)
+  | succ n ih =>
+      show ((withBytes m base f n).insert (base + n) (f n)).get? (base + i) = some (f i)
+      simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+      by_cases hi : i = n
+      · subst hi; simp
+      · rw [if_neg (by omega : ¬ (base + n = base + i))]
+        simpa [Std.ExtHashMap.get?_eq_getElem?] using ih (by omega : i < n)
+
+theorem withBytes_outside (m : Std.ExtHashMap Nat (BitVec 8)) (base : Nat) (f : Nat → BitVec 8)
+    {count a : Nat} (h : ∀ i, i < count → a ≠ base + i) :
+    (withBytes m base f count).get? a = m.get? a := by
+  induction count with
+  | zero => rfl
+  | succ n ih =>
+      show ((withBytes m base f n).insert (base + n) (f n)).get? a = m.get? a
+      simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+      rw [if_neg (fun heq => h n (by omega) heq.symm)]
+      simpa [Std.ExtHashMap.get?_eq_getElem?] using ih (fun i hi => h i (by omega))
+
+/-- **Every address in a `Word64LERep`'s footprint is load-bearing.** For each of the eight bytes,
+two states agreeing everywhere else and disagreeing on the representation.
+
+This is the half that can fail, and it is what makes `word64_footprint` a claim rather than a
+formality: shrink `range base 8` and soundness breaks; pad it and this breaks. Since every container
+footprint here is assembled from `Word64LERep` and `OptionTagRep`, padding a container footprint would
+now have to happen at the assembly step rather than at a leaf. -/
+theorem word64_footprint_tight (base offset : Nat) (hoffset : offset < 8) :
+    ∃ s1 s2 : State,
+      (∀ address, address ≠ base + offset → s1.mem.get? address = s2.mem.get? address) ∧
+        Word64LERep s1 base 0 ∧ ¬ Word64LERep s2 base 0 := by
+  refine ⟨{ (default : State) with
+            mem := withBytes (default : State).mem base (fun _ => BitVec.ofNat 8 0) 8 },
+          { (default : State) with
+            mem := (withBytes (default : State).mem base (fun _ => BitVec.ofNat 8 0) 8).insert
+              (base + offset) (BitVec.ofNat 8 1) },
+          ?_, ?_, ?_⟩
+  · intro address hne
+    show (withBytes (default : State).mem base (fun _ => BitVec.ofNat 8 0) 8).get? address
+        = ((withBytes (default : State).mem base (fun _ => BitVec.ofNat 8 0) 8).insert
+            (base + offset) (BitVec.ofNat 8 1)).get? address
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (fun heq => hne heq.symm)]
+  · intro index hindex
+    show (withBytes (default : State).mem base (fun _ => BitVec.ofNat 8 0) 8).get? (base + index)
+        = some (BitVec.ofNat 8 ((0 / 256 ^ index) % 256))
+    rw [withBytes_inside _ _ _ hindex]
+    simp
+  · intro hrep
+    have h := hrep offset hoffset
+    have hget : ((withBytes (default : State).mem base (fun _ => BitVec.ofNat 8 0) 8).insert
+        (base + offset) (BitVec.ofNat 8 1)).get? (base + offset) = some (BitVec.ofNat 8 1) := by
+      simp [Std.ExtHashMap.get?_eq_getElem?]
+    rw [hget] at h
+    simp at h
+
 /-! ### What tightness is NOT yet proved for, and why it is listed rather than assumed
 
-`Word64LERep` and the container footprints have **no** tightness result yet. The obstacle is
-construction, not doubt: a witness must exhibit a state that *satisfies* the representation, and for
-an eight-byte word that is eight `insert`s whose `get?`s must then be separated pairwise. Nothing
-suggests those footprints are padded — the ranges are read straight off the layouts — but "nothing
-suggests" is not a proof, and by the argument at the top of this module a soundness proof alone
-cannot distinguish a tight footprint from a padded one.
+Both **primitives** are now tight. The **containers** are not: `ForkActivationRep`'s `range base 32`
+has no witness that each of its thirty-two addresses is load-bearing, and in fact **it is not tight** —
+the two `OptionU64Rep`s occupy `[base, base+9)` and `[base+16, base+25)`, so bytes `9–15` and `25–31`
+are structure padding that no conjunct reads. The 32 is the ABI record size, not the read set.
+
+That is exactly the padding the module warns about, and it is benign only because it is *deliberate*:
+a footprint may legitimately over-approximate to a record boundary, provided the over-approximation is
+stated rather than mistaken for tightness. What must not happen is a disjointness obligation being
+discharged against `range base 32` while someone believes it was tight. The precise read set is
+`range base 9 ∪ range (base+16) 9`, and a tight container footprint should be stated that way.
 
 So the container result is named `localTo_canonicalRepForkActivation_range32`, **not** `…_tight`. It
 is sound and unwitnessed, and its name now says only what it proves: the representation transports
