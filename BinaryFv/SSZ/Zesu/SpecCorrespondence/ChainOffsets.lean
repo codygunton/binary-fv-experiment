@@ -513,4 +513,67 @@ theorem decodeCanonical_chainConfig_unfold (b : ByteArray) (o : Nat)
   cases SSZType.deserializeVarFields chainConfigFields b 0 [o] b.size <;>
     simp [bind, Except.bind] <;> rfl
 
+/-! ### The source's offset check at the three chain tables
+
+`requireCanonicalOffsets_entry` at the chain's arities. Each is `canonicalOffsetsCharacterization_holds`
+specialised to the concrete call the source makes, and in each the first offset is pinned by **equality**
+to the derived fixed-section size — 8, 16, 12 — not merely bounded by it. That equality is what forbids
+padding between the fixed section and the first variable field.
+
+**Arity one is not arity two with a conjunct deleted, which is the trap here.** For `chainConfig`'s
+single-offset table `Nondecreasing` holds vacuously — there is no pair to compare — so `simp` discharges
+that conjunct outright and the characterization has *three* components where the other two have four. The
+destructuring patterns therefore differ, and writing the arity-two pattern at arity one fails with
+"not an inductive datatype" rather than with anything that suggests the real cause. Noted in the proof.
+
+These are what the joins will consume to turn "the source accepted the table" into the `o0 = fixedSection`
+and monotonicity facts the unfold lemmas require. -/
+
+theorem requireCanonicalOffsets_forkActivation (b : ByteArray) (o0 o1 : Nat) :
+    meaningRequireCanonicalOffsets b 8 [o0, o1] = .ok () ↔
+      (8 ≤ b.size ∧ o0 = 8 ∧ o0 ≤ o1 ∧ o1 ≤ b.size) := by
+  rw [canonicalOffsetsCharacterization_holds b 8 [o0, o1]]
+  simp only [Nondecreasing, List.mem_cons, List.not_mem_nil, List.headD_cons,
+    ne_eq, reduceCtorEq, not_false_eq_true, true_and]
+  constructor
+  · rintro ⟨hfix, hhead, ⟨h01, -⟩, hall⟩
+    exact ⟨hfix, hhead, h01, hall o1 (by simp)⟩
+  · rintro ⟨hfix, hhead, h01, h1⟩
+    refine ⟨hfix, hhead, ⟨h01, trivial⟩, ?_⟩
+    intro offset hmem
+    simp only [or_false] at hmem
+    rcases hmem with rfl | rfl <;> omega
+
+theorem requireCanonicalOffsets_forkConfig (b : ByteArray) (o0 o1 : Nat) :
+    meaningRequireCanonicalOffsets b 16 [o0, o1] = .ok () ↔
+      (16 ≤ b.size ∧ o0 = 16 ∧ o0 ≤ o1 ∧ o1 ≤ b.size) := by
+  rw [canonicalOffsetsCharacterization_holds b 16 [o0, o1]]
+  simp only [Nondecreasing, List.mem_cons, List.not_mem_nil, List.headD_cons,
+    ne_eq, reduceCtorEq, not_false_eq_true, true_and]
+  constructor
+  · rintro ⟨hfix, hhead, ⟨h01, -⟩, hall⟩
+    exact ⟨hfix, hhead, h01, hall o1 (by simp)⟩
+  · rintro ⟨hfix, hhead, h01, h1⟩
+    refine ⟨hfix, hhead, ⟨h01, trivial⟩, ?_⟩
+    intro offset hmem
+    simp only [or_false] at hmem
+    rcases hmem with rfl | rfl <;> omega
+
+theorem requireCanonicalOffsets_chainConfig (b : ByteArray) (o : Nat) :
+    meaningRequireCanonicalOffsets b 12 [o] = .ok () ↔ (12 ≤ b.size ∧ o = 12 ∧ o ≤ b.size) := by
+  rw [canonicalOffsetsCharacterization_holds b 12 [o]]
+  simp only [Nondecreasing, List.mem_cons, List.not_mem_nil, List.headD_cons,
+    ne_eq, reduceCtorEq, not_false_eq_true, true_and]
+  constructor
+  -- Arity one: `Nondecreasing` on a singleton is trivially true, so `simp` has already discharged
+  -- that conjunct and only three remain -- unlike the two-offset cases above.
+  · rintro ⟨hfix, hhead, hall⟩
+    exact ⟨hfix, hhead, hall o (by simp)⟩
+  · rintro ⟨hfix, hhead, h1⟩
+    refine ⟨hfix, hhead, ?_⟩
+    intro offset hmem
+    simp only [or_false] at hmem
+    subst hmem
+    omega
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
