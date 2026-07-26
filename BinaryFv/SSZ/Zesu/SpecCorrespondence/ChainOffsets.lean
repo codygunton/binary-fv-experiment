@@ -298,9 +298,22 @@ that as their *content* being disjoint, which is false.
 container cases one-liners — the arity-free form written for the entry paying off rather than needing a
 chain-specific repeat.
 
-**Still owed here:** `forkConfig`'s third field, `.list blobScheduleType M`. It is another fixed-element
-list (`blobScheduleType` is all-fixed), so it wants the same treatment as `optionalU64` below rather than
-either container lemma. Not done; this section is not complete. -/
+**Coverage, enumerated so the claim is checkable rather than asserted.** Every field of all three chain
+containers is now accounted for:
+
+| container        | field                      | discharged by                           |
+|------------------|----------------------------|-----------------------------------------|
+| `forkActivation` | `.list u64 N` (x2)         | `deserialize_optionalU64_used`           |
+| `forkConfig`     | `u64` (prefix)             | `deserialize_u64_extract` (`used = 8 = sz`) |
+| `forkConfig`     | `forkActivationType`       | `deserialize_forkActivation_used`        |
+| `forkConfig`     | `.list blobScheduleType M` | `deserialize_blobScheduleList_used`      |
+| `chainConfig`    | `u64` (prefix)             | `deserialize_u64_extract` (`used = 8 = sz`) |
+| `chainConfig`    | `forkConfigType`           | `deserialize_forkConfig_used`            |
+
+The two `u64`s are a different obligation from the rest and it is worth not eliding: they sit in the
+*prefix*, where `deserializeVarFields` checks `used ≠ sz` against the field width 8 rather than against
+`b.size`, so `deserialize_u64_extract`'s `.ok (v, 8)` is what discharges them. Reading the table as six
+instances of one lemma shape would be wrong. -/
 
 theorem deserialize_forkActivation_used {b : ByteArray}
     {x : SszBridge.forkActivationType.interp} {u : Nat}
@@ -319,6 +332,33 @@ theorem deserialize_optionalU64_used {b : ByteArray}
     {x : (SSZType.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues).interp} {u : Nat}
     (h : SSZType.deserialize
         (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) b = .ok (x, u)) :
+    u = b.size := by
+  rw [SSZType.deserialize, if_pos (by decide)] at h
+  simp only [] at h
+  split at h
+  · exact absurd h (by simp)
+  · split at h
+    · exact absurd h (by simp)
+    · split at h
+      · exact absurd h (by simp)
+      · rename_i hcount
+        split at h
+        · exact absurd h (by simp)
+        · rename_i xs used hfixed
+          split at h
+          · simp only [Except.ok.injEq, Prod.mk.injEq] at h
+            have := deserializeFixedElems_size _ _ b 0 _ [] 0 xs used hfixed
+            omega
+          · exact absurd h (by simp)
+
+/-- `forkConfig`'s third field. `blobScheduleType` is `.container [u64, u64, u64]`, all-fixed, so this
+is a **fixed**-element list and takes the `deserializeFixedElems` arm — the same shape as
+`optionalU64` and the entry's public-keys field, and not reachable by either container lemma. -/
+theorem deserialize_blobScheduleList_used {b : ByteArray}
+    {x : (SSZType.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork).interp}
+    {u : Nat}
+    (h : SSZType.deserialize
+        (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork) b = .ok (x, u)) :
     u = b.size := by
   rw [SSZType.deserialize, if_pos (by decide)] at h
   simp only [] at h
