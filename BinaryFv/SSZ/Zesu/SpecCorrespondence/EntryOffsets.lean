@@ -1363,6 +1363,50 @@ theorem v3Classifier_constants_derived :
   ⟨entryFields_fixedSectionSize, newPayloadRequestFields_fixedSection,
     executionPayloadFields_fixedSection, by decide⟩
 
+/-! ### Where a container's first offset is read
+
+`deserialize_container_firstOffset` says what the first offset must *equal*; this says where it is
+*read from*. Together they are the pincer the V3 exclusion closes with: at each nesting level the
+byte at the leading-fixed width must hold the fixed section size, and the classifier demands a
+different value at exactly that byte.
+
+Stated over an arbitrary field list, so the same lemma gives 0 for `entryFields` and
+`newPayloadRequestFields` — whose first fields are variable — and 436 for `executionPayloadFields`,
+whose ten leading fixed fields push the first offset slot that far in. The `436` in the docstrings
+above is this lemma applied, not a separate observation. -/
+
+theorem extractFieldOffsets_head_position (b : ByteArray) :
+    ∀ (fs : List SSZType) (off : Nat) (offs : List Nat),
+      extractFieldOffsets b fs off = .ok offs → offs ≠ [] →
+        offs.head? =
+          (readUInt32LE b (off + SSZType.fixedSectionSizeFields
+            (fs.takeWhile SSZType.isFixedSize))).map UInt32.toNat := by
+  intro fs
+  induction fs with
+  | nil =>
+      intro off offs hext hne
+      rw [extractFieldOffsets] at hext
+      simp only [Except.ok.injEq] at hext
+      exact absurd hext.symm hne
+  | cons t ts ih =>
+      intro off offs hext hne
+      by_cases hfix : t.isFixedSize
+      · rw [extractFieldOffsets, if_pos hfix] at hext
+        have := ih (off + t.fixedByteSize) offs hext hne
+        rw [this, List.takeWhile_cons_of_pos (by simpa using hfix),
+          SSZType.fixedSectionSizeFields, SSZType.fixedSectionSize, if_pos hfix, Nat.add_assoc]
+      · rw [extractFieldOffsets, if_neg hfix] at hext
+        rw [List.takeWhile_cons_of_neg (by simpa using hfix), SSZType.fixedSectionSizeFields]
+        split at hext
+        · exact absurd hext (by simp)
+        · rename_i o hread
+          split at hext
+          · rename_i rest hrest
+            simp only [Except.ok.injEq] at hext
+            subst hext
+            simp only [List.head?_cons, Nat.add_zero, hread, Option.map_some]
+          · exact absurd hext (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
