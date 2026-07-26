@@ -518,4 +518,82 @@ theorem optionU64_readSet_not_tight_at_none (base : Nat) :
     rw [if_neg (by omega)]
     simp
 
+/-! ## The nesting containers, and where the padding actually lives
+
+`forkConfig` (72 bytes) and `chainConfig` (80). Under the record-boundary policy each child
+contributes its **record** range rather than its read set, so composition is `memDeterminedOn_and`
+into the parent's record — the union combinator is not needed here, because record ranges of adjacent
+fields are contiguous by construction.
+
+**Both records are exactly packed:** `72 = 8 + 32 + 32` and `80 = 8 + 72`, confirmed against the
+manifest in `Artifact.fork_chain_config_layout`. So the nesting introduces **no padding of its own** —
+every padding byte in the whole chain lives inside an option leaf, where `optionU64`'s tag sits at +8
+in a 16-byte record and `optionBlobSchedule`'s at +24 in a 32-byte one.
+
+That is worth stating because it bounds the cost of the policy: the record-versus-read-set gap does
+*not* compound with nesting depth, which is what I expected it to do. It is fixed at the leaves. -/
+
+theorem blobSchedule_footprint (base : Nat) (value : SszBridge.RawBlobSchedule) :
+    MemDeterminedOn (range base 24) (fun s => BlobScheduleRep s base value) := by
+  refine memDeterminedOn_and ?_ (memDeterminedOn_and ?_ ?_)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩) (word64_footprint base _)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (word64_footprint (base + 8) _)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (word64_footprint (base + 16) _)
+
+theorem optionBlobSchedule_footprint (base : Nat)
+    (value : Option SszBridge.RawBlobSchedule) :
+    MemDeterminedOn (range base 32) (fun s => OptionBlobScheduleRep s base value) := by
+  cases value with
+  | none =>
+      exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+        (optionTag_footprint (base + 24) false)
+  | some v =>
+      refine memDeterminedOn_and ?_ ?_
+      · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+          (blobSchedule_footprint base v)
+      · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+          (optionTag_footprint (base + 24) true)
+
+/-- **Containment is a real obligation here, not arithmetic.** `forkConfig` holds a `u64`, a whole
+`forkActivation` record and a whole `optionBlobSchedule` record, so this is the first footprint whose
+children are themselves records with their own footprints. -/
+theorem forkConfig_footprint (base : Nat) (value : SszBridge.RawForkConfig) :
+    MemDeterminedOn (range base 72) (fun s => ForkConfigRep s base value) := by
+  refine memDeterminedOn_and ?_ (memDeterminedOn_and ?_ ?_)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩) (word64_footprint base _)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (forkActivation_footprint (base + 8) value.activation)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (optionBlobSchedule_footprint (base + 40) value.blobSchedule)
+
+theorem chainConfig_footprint (base : Nat) (value : SszBridge.RawChainConfig) :
+    MemDeterminedOn (range base 80) (fun s => ChainConfigRep s base value) := by
+  refine memDeterminedOn_and ?_ ?_
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩) (word64_footprint base _)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (forkConfig_footprint (base + 8) value.activeFork)
+
+/-- The consumable forms, sizes taken from the manifest rather than written. -/
+theorem localTo_canonicalRepForkConfig_record {recordSize : Nat}
+    (hsize : BinaryFv.SSZ.Zesu.Artifact.forkConfigSize = some recordSize) :
+    LocalTo canonicalRepForkConfig (fun base => range base recordSize) := by
+  have h72 : recordSize = 72 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.fork_chain_config_layout.1
+    rw [hsize] at hlayout
+    exact Option.some.inj hlayout
+  subst h72
+  exact fun _ _ value s1 s2 base agree h => forkConfig_footprint base value s1 s2 agree h
+
+theorem localTo_canonicalRepChainConfig_record {recordSize : Nat}
+    (hsize : BinaryFv.SSZ.Zesu.Artifact.chainConfigSize = some recordSize) :
+    LocalTo canonicalRepChainConfig (fun base => range base recordSize) := by
+  have h80 : recordSize = 80 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.fork_chain_config_layout.2.2.2.2.1
+    rw [hsize] at hlayout
+    exact Option.some.inj hlayout
+  subst h80
+  exact fun _ _ value s1 s2 base agree h => chainConfig_footprint base value s1 s2 agree h
+
 end BinaryFv.SSZ.Zesu.Contracts.Footprint

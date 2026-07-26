@@ -52,6 +52,25 @@ theorem fork_activation_layout :
       forkActivationBlockNumberOffset = some 0 ∧ forkActivationTimestampOffset = some 16 := by
   native_decide
 
+def forkConfigSize : Option Nat := abiDatum "ssz_raw.RawForkConfig|size"
+def forkConfigForkOffset : Option Nat := abiDatum "ssz_raw.RawForkConfig|fork"
+def forkConfigActivationOffset : Option Nat := abiDatum "ssz_raw.RawForkConfig|activation"
+def forkConfigBlobScheduleOffset : Option Nat := abiDatum "ssz_raw.RawForkConfig|blob_schedule"
+
+def chainConfigSize : Option Nat := abiDatum "ssz_raw.RawChainConfig|size"
+def chainConfigChainIdOffset : Option Nat := abiDatum "ssz_raw.RawChainConfig|chain_id"
+def chainConfigActiveForkOffset : Option Nat := abiDatum "ssz_raw.RawChainConfig|active_fork"
+
+/-- The two nesting containers. **Both are exactly packed**: `72 = 8 + 32 + 32` and `80 = 8 + 72`,
+so the nesting introduces no padding of its own — every padding byte in the chain lives inside an
+option leaf. Pinned here so a footprint stating either record boundary derives its size. -/
+theorem fork_chain_config_layout :
+    forkConfigSize = some 72 ∧ forkConfigForkOffset = some 0 ∧
+      forkConfigActivationOffset = some 8 ∧ forkConfigBlobScheduleOffset = some 40 ∧
+        chainConfigSize = some 80 ∧ chainConfigChainIdOffset = some 0 ∧
+          chainConfigActiveForkOffset = some 8 := by
+  native_decide
+
 theorem optional_blob_schedule_layout :
     optionalBlobScheduleSize = some 32 ∧ optionalBlobScheduleAlign = some 8 ∧
       optionalBlobSchedulePayloadOffset = some 0 ∧ optionalBlobScheduleTagOffset = some 24 := by

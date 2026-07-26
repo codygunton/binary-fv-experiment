@@ -122,6 +122,13 @@ manifest-instantiated form does. That split is what this pin records. -/
 def ownershipFootprintDoors : List Name :=
   [``BinaryFv.SSZ.Zesu.Artifact.fork_activation_layout]
 
+/-- The chain footprints' door: the `forkConfig`/`chainConfig` layout reflection. Added under the
+same rule as `ownershipFootprintDoors` — **a module introducing a trust door gets an anchor when the
+door is introduced, not when it becomes load-bearing** — applied here without being asked, because a
+remedy that depends on being reminded inherits the failure it is meant to prevent. -/
+def chainFootprintDoors : List Name :=
+  [``BinaryFv.SSZ.Zesu.Artifact.fork_chain_config_layout]
+
 /-- `catalogSemanticObligations_of_oracleAgreement` — a single door, through the `u64` primitive.
 See the module docstring: the recorded provenance claimed two. -/
 def catalogObligationDoors : List Name :=
@@ -179,6 +186,10 @@ def anchors : List (Name × List Name) :=
      catalogObligationDoors),
    (``BinaryFv.SSZ.Zesu.Elfling.Validation.sszComplianceObligations_of_residue, residueDoors),
    (``BinaryFv.SSZ.Zesu.Contracts.Footprint.forkActivation_footprint_abi, ownershipFootprintDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.Footprint.localTo_canonicalRepChainConfig_record,
+     chainFootprintDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.Footprint.localTo_canonicalRepForkConfig_record,
+     chainFootprintDoors),
    (``BinaryFv.SSZ.root_compliance, rootDoors)]
 
 run_cmd do
