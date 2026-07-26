@@ -622,21 +622,52 @@ def interval (before after : Nat) : Region := fun address => before ≤ address 
 def allocatedRegion (recordBase recordSize before after : Nat) : Region :=
   Region.union (range recordBase recordSize) (interval before after)
 
-/-- **Successive allocation intervals are disjoint, from monotonicity alone.**
+/-- **Allocation intervals are disjoint when the first ends at or before the second begins.**
 
-This is the load-bearing fact of the whole policy, and it needs only `before ≤ middle` — exactly what
-`CursorChain.step` carries. Stated on bare bounds rather than on a `CursorChain` so it applies to any
-two adjacent steps however the chain is destructured. -/
-theorem interval_disjoint {before middle after : Nat} (monotone : before ≤ middle) :
-    ∀ address, interval before middle address → ¬ interval middle after address := by
+`ordered` is what `CursorChain` supplies: successive cursor values are non-decreasing, so an earlier
+allocation ends at or before a later one starts.
+
+**Stated on four independent bounds, and it has to be.** The first version of this lemma wrote the
+two intervals as `[before, middle)` and `[middle, after)` — sharing an endpoint — and carried
+`before ≤ middle` as its hypothesis. That version is true, and its hypothesis is **never used**:
+naming the two intervals so they meet at one point already *is* the disjointness, so the premise
+about the allocator did no work while the docstring called it "the load-bearing fact of the whole
+policy". The compiler said so, as an unused-variable warning, and it shipped anyway.
+
+The repair is not to delete the hypothesis but to state the lemma where it earns its place. Adjacent
+siblings need nothing; **non-adjacent** ones — field 1 against field 3, which the four-field entry
+schema requires — have intervals `[c0, c1)` and `[c2, c3)` with a gap between, and there `c1 ≤ c2` is
+exactly the monotonicity of the chain. The old shape could not express that case at all. -/
+theorem interval_disjoint {first firstEnd second secondEnd : Nat} (ordered : firstEnd ≤ second) :
+    ∀ address, interval first firstEnd address → ¬ interval second secondEnd address := by
   rintro address ⟨_, hlt⟩ ⟨hge, _⟩
   omega
+
+/-- The adjacent instance, which is what one `CursorChain.step` hands over directly.
+
+Separated so that the general lemma is the one carrying a hypothesis that does work, and this one is
+visibly the special case that needs none — rather than the free fact wearing a premise it ignores. -/
+theorem interval_disjoint_adjacent {before middle after : Nat} :
+    ∀ address, interval before middle address → ¬ interval middle after address :=
+  interval_disjoint (Nat.le_refl middle)
+
+/-- **`ordered` is load-bearing, and this is the check the old statement could not run.** Drop it and
+the conclusion is false: `[0, 10)` and `[5, 15)` both contain `7`.
+
+The adjacent-only form admitted no such witness — its two intervals could not be put in the wrong
+order — which is precisely why its unused hypothesis went unnoticed. A premise that cannot be
+falsified is not evidence that it matters. -/
+theorem interval_disjoint_needs_ordered :
+    ∃ first firstEnd second secondEnd address,
+      ¬ firstEnd ≤ second ∧
+        interval first firstEnd address ∧ interval second secondEnd address :=
+  ⟨0, 10, 5, 15, 7, by omega, ⟨by omega, by omega⟩, ⟨by omega, by omega⟩⟩
 
 /-- The same fact in the form `representation_survives_sibling` consumes.
 
 **Three of the four cases are parent obligations, and only one is free.** Expanding
 `allocatedRegion` on both sides gives record-vs-record, record-vs-interval, interval-vs-record and
-interval-vs-interval. Monotonicity discharges **only the last**. The other three are facts about where
+interval-vs-interval. `ordered` discharges **only the last**. The other three are facts about where
 the parent placed the records, and no property of the allocator supplies them:
 
 * `records` — the two record ranges do not overlap. Placement.
@@ -648,23 +679,27 @@ the parent placed the records, and no property of the allocator supplies them:
 
 So "sibling disjointness comes free from bump monotonicity" is true of the **allocations** and not of
 the records. Worth stating in that form, because the free half is the memorable one and a reader who
-generalises it would believe the obligation is discharged when three quarters of it is not. -/
+generalises it would believe the obligation is discharged when three quarters of it is not.
+
+And the free quarter is free for a smaller reason than it first appears — see `interval_disjoint`:
+between *adjacent* siblings it needs nothing at all, and monotonicity only starts doing work between
+non-adjacent ones. This lemma takes the general `ordered` so it covers both. -/
 theorem allocatedRegion_disjoint_of_later {recordBase recordSize siblingBase siblingSize
-    before middle after : Nat}
-    (monotone : before ≤ middle)
+    first firstEnd second secondEnd : Nat}
+    (ordered : firstEnd ≤ second)
     (records : ∀ address, range recordBase recordSize address →
       ¬ range siblingBase siblingSize address)
     (recordBelowSibling : ∀ address, range recordBase recordSize address →
-      ¬ interval middle after address)
-    (siblingRecordOutside : ∀ address, interval before middle address →
+      ¬ interval second secondEnd address)
+    (siblingRecordOutside : ∀ address, interval first firstEnd address →
       ¬ range siblingBase siblingSize address) :
-    ∀ address, allocatedRegion recordBase recordSize before middle address →
-      ¬ allocatedRegion siblingBase siblingSize middle after address := by
+    ∀ address, allocatedRegion recordBase recordSize first firstEnd address →
+      ¬ allocatedRegion siblingBase siblingSize second secondEnd address := by
   rintro address (hrec | hint) (hsrec | hsint)
   · exact records address hrec hsrec
   · exact recordBelowSibling address hrec hsint
   · exact siblingRecordOutside address hint hsrec
-  · exact interval_disjoint monotone address hint hsint
+  · exact interval_disjoint ordered address hint hsint
 
 /-! ## Witnessed locality: when the read set is not a function of the base
 
@@ -710,5 +745,515 @@ theorem memDeterminedOn_of_localTo {α : Type} {rep : ContainerRepresentation α
     (base : Nat) (bytes : ByteArray) (value : α) (resultBase : Nat) :
     MemDeterminedOn (region resultBase) (fun s => rep base bytes value s resultBase) :=
   fun s1 s2 agree => local_ base bytes value s1 s2 resultBase agree
+
+/-! # The heap layer
+
+Everything above works at the chain containers, whose fields sit at fixed offsets from one base. The
+four remaining containers and `RawV4Rep` instead hold *heap arrays*: a slice descriptor pointing at an
+allocator-chosen base, a `HeapArrayRep` asserting the array's bytes exist, and a contents
+representation pinning the records inside it. This section computes the footprints of that layer, and
+it is the foundation the container footprints will be assembled from — so it carries its power half
+rather than deferring it.
+
+## Two leaf footprints the chain layer did not need
+
+`FixedByteVectorRep` and `BitVectorLERep` are the remaining primitives. Both are pointwise value
+claims like `Word64LERep`, so both are `range base <width>`.
+
+## The finding: at this layer the record-versus-read-set gap CLOSES
+
+At the chain layer a record footprint strictly over-approximates its read set — that is what
+`forkActivation_range32_not_tight` and `optionU64_range16_not_tight` measure, and the earlier result
+was that every padding byte in the chain lives inside an option leaf.
+
+Two of the four heap record shapes are padded the same way (`RawWithdrawal` reads 44 of 48 bytes,
+`RawWithdrawalRequest` 76 of 80; `RawConsolidationRequest` and `RawDepositRequest` are exactly
+packed). **But the padding is not idle in the representation the containers actually use.** Every
+container conjoins `HeapArrayRep`, which claims each byte of `count * elementSize` is *present*,
+padding included. So the pair is tight over the whole stride even where the contents representation
+alone is not — `heapWithdrawalArray_with_presence_tight` below proves exactly that.
+
+That bounds the policy's cost a second time, and in the opposite direction from the chain-layer
+result: there the record boundary cost real padding and the bound was that nesting does not compound
+it; here the record boundary costs nothing at all. -/
+
+theorem fixedByteVector_footprint {length : Nat} (base : Nat)
+    (value : SszBridge.RawByteVector length) :
+    MemDeterminedOn (range base length) (fun s => FixedByteVectorRep s base value) :=
+  fun _ _ agree h index hindex =>
+    (agree (base + index) ⟨Nat.le_add_right _ _, by omega⟩).symm.trans (h index hindex)
+
+theorem bitVectorLE_footprint {width : Nat} (base : Nat) (value : BitVec width) :
+    MemDeterminedOn (range base (width / 8)) (fun s => BitVectorLERep s base value) :=
+  fun _ _ agree h index hindex =>
+    (agree (base + index) ⟨Nat.le_add_right _ _, by omega⟩).symm.trans (h index hindex)
+
+/-- **The array's own footprint.** `HeapArrayRep` claims presence rather than a value, but presence is
+still a claim about `get?` at a named address, so it transports the same way.
+
+Unlike every other footprint in this module this one is **tight by construction**: the region is
+exactly the set of addresses the definition quantifies over. `heapArray_footprint_tight` proves it. -/
+theorem heapArray_footprint (base count elementSize : Nat) :
+    MemDeterminedOn (range base (count * elementSize))
+      (fun s => HeapArrayRep s base count elementSize) :=
+  fun _ _ agree h =>
+    ⟨h.1, fun index hindex =>
+      (agree (base + index) ⟨Nat.le_add_right _ _, by omega⟩) ▸ h.2 index hindex⟩
+
+theorem heapFixedVectorArray_footprint {length : Nat} (base : Nat)
+    (values : Array (SszBridge.RawByteVector length)) :
+    MemDeterminedOn (range base (length * values.size))
+      (fun s => HeapFixedVectorArrayRep s base values) := by
+  intro s1 s2 agree h index hindex
+  have hstride : length * index + length ≤ length * values.size := by
+    have hle : length * (index + 1) ≤ length * values.size :=
+      Nat.mul_le_mul_left length (by omega)
+    rw [Nat.mul_succ] at hle
+    exact hle
+  exact fixedByteVector_footprint (base + length * index) values[index] s1 s2
+    (fun address ⟨hl, hr⟩ => agree address ⟨by omega, by omega⟩) (h index hindex)
+
+/-! ## The four heap record shapes
+
+Each is a conjunction of `Word64LERep` and `FixedByteVectorRep` at fixed offsets, so each read set is
+one contiguous run starting at the record base. The runs are computed here rather than assumed:
+
+| record | read set | ABI record size | padding |
+| --- | --- | --- | --- |
+| `RawWithdrawal` | 44 | 48 | 4 |
+| `RawWithdrawalRequest` | 76 | 80 | 4 |
+| `RawConsolidationRequest` | 116 | 116 | none |
+| `RawDepositRequest` | 192 | 192 | none |
+
+The read-set footprints come first and the record footprints widen to them, so the containment is a
+proof rather than a restatement. -/
+
+theorem rawWithdrawal_footprint_readSet (base : Nat) (value : SszBridge.RawWithdrawal) :
+    MemDeterminedOn (range base 44) (fun s => RawWithdrawalRep s base value) := by
+  refine memDeterminedOn_and ?_ (memDeterminedOn_and ?_ (memDeterminedOn_and ?_ ?_))
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩) (word64_footprint base _)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (word64_footprint (base + 8) _)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (word64_footprint (base + 16) _)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (fixedByteVector_footprint (base + 24) value.address)
+
+theorem rawWithdrawal_footprint (base : Nat) (value : SszBridge.RawWithdrawal) :
+    MemDeterminedOn (range base 48) (fun s => RawWithdrawalRep s base value) :=
+  memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+    (rawWithdrawal_footprint_readSet base value)
+
+theorem rawWithdrawalRequest_footprint_readSet (base : Nat)
+    (value : SszBridge.RawWithdrawalRequest) :
+    MemDeterminedOn (range base 76) (fun s => RawWithdrawalRequestRep s base value) := by
+  refine memDeterminedOn_and ?_ (memDeterminedOn_and ?_ ?_)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩) (word64_footprint base _)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (fixedByteVector_footprint (base + 8) value.sourceAddress)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (fixedByteVector_footprint (base + 28) value.validatorPubkey)
+
+theorem rawWithdrawalRequest_footprint (base : Nat) (value : SszBridge.RawWithdrawalRequest) :
+    MemDeterminedOn (range base 80) (fun s => RawWithdrawalRequestRep s base value) :=
+  memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+    (rawWithdrawalRequest_footprint_readSet base value)
+
+/-- Exactly packed: `20 + 48 + 48 = 116`, the ABI record size. So this footprint *is* the read set,
+and there is no `_not_tight` companion to write. -/
+theorem rawConsolidationRequest_footprint (base : Nat)
+    (value : SszBridge.RawConsolidationRequest) :
+    MemDeterminedOn (range base 116) (fun s => RawConsolidationRequestRep s base value) := by
+  refine memDeterminedOn_and ?_ (memDeterminedOn_and ?_ ?_)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (fixedByteVector_footprint base value.sourceAddress)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (fixedByteVector_footprint (base + 20) value.sourcePubkey)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (fixedByteVector_footprint (base + 68) value.targetPubkey)
+
+/-- Exactly packed: `8 + 8 + 48 + 32 + 96 = 192`. -/
+theorem rawDepositRequest_footprint (base : Nat) (value : SszBridge.RawDepositRequest) :
+    MemDeterminedOn (range base 192) (fun s => RawDepositRequestRep s base value) := by
+  refine memDeterminedOn_and ?_ (memDeterminedOn_and ?_ (memDeterminedOn_and ?_
+    (memDeterminedOn_and ?_ ?_)))
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩) (word64_footprint base _)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (word64_footprint (base + 8) _)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (fixedByteVector_footprint (base + 16) value.pubkey)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (fixedByteVector_footprint (base + 64) value.withdrawalCredentials)
+  · exact memDeterminedOn_mono (fun _ ⟨hl, hr⟩ => ⟨by omega, by omega⟩)
+      (fixedByteVector_footprint (base + 96) value.signature)
+
+/-! ## The record arrays
+
+Each element footprint lands inside `range base (stride * count)` because `stride * index + stride =
+stride * (index + 1) ≤ stride * count`. With a literal stride that is linear arithmetic, so `omega`
+discharges it; `heapFixedVectorArray_footprint` above needed `Nat.mul_succ` only because its stride is
+a variable. -/
+
+theorem heapWithdrawalArray_footprint (base : Nat) (values : Array SszBridge.RawWithdrawal) :
+    MemDeterminedOn (range base (48 * values.size))
+      (fun s => HeapWithdrawalArrayRep s base values) := by
+  intro s1 s2 agree h index hindex
+  have hstride : 48 * index + 48 ≤ 48 * values.size := by
+    have hle : 48 * (index + 1) ≤ 48 * values.size := Nat.mul_le_mul_left 48 (by omega)
+    omega
+  exact rawWithdrawal_footprint (base + 48 * index) values[index] s1 s2
+    (fun address ⟨hl, hr⟩ => agree address ⟨by omega, by omega⟩) (h index hindex)
+
+theorem heapWithdrawalRequestArray_footprint (base : Nat)
+    (values : Array SszBridge.RawWithdrawalRequest) :
+    MemDeterminedOn (range base (80 * values.size))
+      (fun s => HeapWithdrawalRequestArrayRep s base values) := by
+  intro s1 s2 agree h index hindex
+  have hstride : 80 * index + 80 ≤ 80 * values.size := by
+    have hle : 80 * (index + 1) ≤ 80 * values.size := Nat.mul_le_mul_left 80 (by omega)
+    omega
+  exact rawWithdrawalRequest_footprint (base + 80 * index) values[index] s1 s2
+    (fun address ⟨hl, hr⟩ => agree address ⟨by omega, by omega⟩) (h index hindex)
+
+theorem heapConsolidationRequestArray_footprint (base : Nat)
+    (values : Array SszBridge.RawConsolidationRequest) :
+    MemDeterminedOn (range base (116 * values.size))
+      (fun s => HeapConsolidationRequestArrayRep s base values) := by
+  intro s1 s2 agree h index hindex
+  have hstride : 116 * index + 116 ≤ 116 * values.size := by
+    have hle : 116 * (index + 1) ≤ 116 * values.size := Nat.mul_le_mul_left 116 (by omega)
+    omega
+  exact rawConsolidationRequest_footprint (base + 116 * index) values[index] s1 s2
+    (fun address ⟨hl, hr⟩ => agree address ⟨by omega, by omega⟩) (h index hindex)
+
+theorem heapDepositRequestArray_footprint (base : Nat)
+    (values : Array SszBridge.RawDepositRequest) :
+    MemDeterminedOn (range base (192 * values.size))
+      (fun s => HeapDepositRequestArrayRep s base values) := by
+  intro s1 s2 agree h index hindex
+  have hstride : 192 * index + 192 ≤ 192 * values.size := by
+    have hle : 192 * (index + 1) ≤ 192 * values.size := Nat.mul_le_mul_left 192 (by omega)
+    omega
+  exact rawDepositRequest_footprint (base + 192 * index) values[index] s1 s2
+    (fun address ⟨hl, hr⟩ => agree address ⟨by omega, by omega⟩) (h index hindex)
+
+/-! ## The strides, taken from the manifest
+
+The literal strides above appear in the *representations* (`HeapWithdrawalArrayRep` is defined with
+`base + 48 * index`) and are already pinned there by `Artifact.raw_v4_heap_element_sizes_valid`. That
+pinning does **not** carry to the region, for the same reason `range base 4096` proves as easily as
+`range base 32`: a footprint may over-state its size and nothing objects. So the consumable forms take
+the stride from `Artifact.heap_element_size_layout` instead. -/
+
+theorem rawWithdrawal_footprint_abi (base : Nat) (value : SszBridge.RawWithdrawal)
+    {recordSize : Nat} (hsize : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalSize = some recordSize) :
+    MemDeterminedOn (range base recordSize) (fun s => RawWithdrawalRep s base value) := by
+  have h48 : recordSize = 48 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.heap_element_size_layout.1
+    rw [hsize] at hlayout
+    exact Option.some.inj hlayout
+  subst h48
+  exact rawWithdrawal_footprint base value
+
+theorem heapWithdrawalArray_footprint_abi (base : Nat) (values : Array SszBridge.RawWithdrawal)
+    {elementSize : Nat} (hsize : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalSize = some elementSize) :
+    MemDeterminedOn (range base (elementSize * values.size))
+      (fun s => HeapWithdrawalArrayRep s base values) := by
+  have h48 : elementSize = 48 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.heap_element_size_layout.1
+    rw [hsize] at hlayout
+    exact Option.some.inj hlayout
+  subst h48
+  exact heapWithdrawalArray_footprint base values
+
+theorem heapWithdrawalRequestArray_footprint_abi (base : Nat)
+    (values : Array SszBridge.RawWithdrawalRequest) {elementSize : Nat}
+    (hsize : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalRequestSize = some elementSize) :
+    MemDeterminedOn (range base (elementSize * values.size))
+      (fun s => HeapWithdrawalRequestArrayRep s base values) := by
+  have h80 : elementSize = 80 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.heap_element_size_layout.2.2.1
+    rw [hsize] at hlayout
+    exact Option.some.inj hlayout
+  subst h80
+  exact heapWithdrawalRequestArray_footprint base values
+
+theorem heapConsolidationRequestArray_footprint_abi (base : Nat)
+    (values : Array SszBridge.RawConsolidationRequest) {elementSize : Nat}
+    (hsize : BinaryFv.SSZ.Zesu.Artifact.rawConsolidationRequestSize = some elementSize) :
+    MemDeterminedOn (range base (elementSize * values.size))
+      (fun s => HeapConsolidationRequestArrayRep s base values) := by
+  have h116 : elementSize = 116 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.heap_element_size_layout.2.2.2
+    rw [hsize] at hlayout
+    exact Option.some.inj hlayout
+  subst h116
+  exact heapConsolidationRequestArray_footprint base values
+
+theorem heapDepositRequestArray_footprint_abi (base : Nat)
+    (values : Array SszBridge.RawDepositRequest) {elementSize : Nat}
+    (hsize : BinaryFv.SSZ.Zesu.Artifact.rawDepositRequestSize = some elementSize) :
+    MemDeterminedOn (range base (elementSize * values.size))
+      (fun s => HeapDepositRequestArrayRep s base values) := by
+  have h192 : elementSize = 192 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.heap_element_size_layout.2.1
+    rw [hsize] at hlayout
+    exact Option.some.inj hlayout
+  subst h192
+  exact heapDepositRequestArray_footprint base values
+
+/-- **One declaration reaching every manifest-derived footprint in this layer.**
+
+The content is nothing new — it is the five `_abi` results conjoined. Its purpose is the axiom-hygiene
+guard: an anchor's coverage is whatever that one declaration reaches, so anchoring a single theorem
+leaves a door added to any of its siblings invisible. The chain layer already needed two anchors for
+one door, and per-theorem anchoring does not survive `RawV4Rep`.
+
+Offered as a candidate answer to the open anchor-collapse question rather than a decision on it — the
+question is whether a *layer* can be anchored at one declaration, and a conjunction that reaches the
+whole layer is the cheapest way to make that true. Whether the discipline adopts it is not this
+module's call. -/
+theorem heapLayer_footprints_abi (base : Nat) (withdrawal : SszBridge.RawWithdrawal)
+    (withdrawals : Array SszBridge.RawWithdrawal)
+    (withdrawalRequests : Array SszBridge.RawWithdrawalRequest)
+    (consolidations : Array SszBridge.RawConsolidationRequest)
+    (deposits : Array SszBridge.RawDepositRequest) {sizeW sizeR sizeC sizeD : Nat}
+    (hw : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalSize = some sizeW)
+    (hr : BinaryFv.SSZ.Zesu.Artifact.rawWithdrawalRequestSize = some sizeR)
+    (hc : BinaryFv.SSZ.Zesu.Artifact.rawConsolidationRequestSize = some sizeC)
+    (hd : BinaryFv.SSZ.Zesu.Artifact.rawDepositRequestSize = some sizeD) :
+    MemDeterminedOn (range base sizeW) (fun s => RawWithdrawalRep s base withdrawal) ∧
+      MemDeterminedOn (range base (sizeW * withdrawals.size))
+        (fun s => HeapWithdrawalArrayRep s base withdrawals) ∧
+      MemDeterminedOn (range base (sizeR * withdrawalRequests.size))
+        (fun s => HeapWithdrawalRequestArrayRep s base withdrawalRequests) ∧
+      MemDeterminedOn (range base (sizeC * consolidations.size))
+        (fun s => HeapConsolidationRequestArrayRep s base consolidations) ∧
+      MemDeterminedOn (range base (sizeD * deposits.size))
+        (fun s => HeapDepositRequestArrayRep s base deposits) :=
+  ⟨rawWithdrawal_footprint_abi base withdrawal hw,
+    heapWithdrawalArray_footprint_abi base withdrawals hw,
+    heapWithdrawalRequestArray_footprint_abi base withdrawalRequests hr,
+    heapConsolidationRequestArray_footprint_abi base consolidations hc,
+    heapDepositRequestArray_footprint_abi base deposits hd⟩
+
+/-! ## The power half
+
+Witnesses for this layer need something the chain-layer witnesses did not: a byte that is genuinely
+**absent**. `HeapArrayRep` claims presence, so the only way to break it is to remove a byte, and the
+only base memory that supplies absence is `∅`.
+
+That also retires a hazard the chain-layer witnesses carried. Those started from
+`(default : State).mem`, which nothing asserts is empty — two drafts silently depended on it being so
+and had to be rewritten to write every byte they named. Starting from `∅` makes the dependency a
+theorem instead of an assumption. -/
+
+/-- Memory holding `count` zero bytes from `base`, and nothing anywhere else. -/
+def zeroBytes (base count : Nat) : Std.ExtHashMap Nat (BitVec 8) :=
+  withBytes ∅ base (fun _ => BitVec.ofNat 8 0) count
+
+theorem zeroBytes_inside {base count index : Nat} (h : index < count) :
+    (zeroBytes base count).get? (base + index) = some (BitVec.ofNat 8 0) :=
+  withBytes_inside _ _ _ h
+
+theorem zeroBytes_outside {base count address : Nat}
+    (h : ∀ index, index < count → address ≠ base + index) :
+    (zeroBytes base count).get? address = none := by
+  rw [zeroBytes, withBytes_outside _ _ _ h]
+  simp [Std.ExtHashMap.get?_eq_getElem?]
+
+/-- Any all-zero byte run satisfies `Word64LERep … 0` at any offset it covers. -/
+theorem word64_of_zeroBytes {s : State} {base count offset : Nat}
+    (bytes : ∀ index, index < count → s.mem.get? (base + index) = some (BitVec.ofNat 8 0))
+    (fits : offset + 8 ≤ count) : Word64LERep s (base + offset) 0 := by
+  intro index hindex
+  rw [show base + offset + index = base + (offset + index) by omega,
+    bytes (offset + index) (by omega)]
+  simp
+
+/-- The same for a zero fixed-width vector. -/
+theorem fixedByteVector_of_zeroBytes {s : State} {base count offset length : Nat}
+    (bytes : ∀ index, index < count → s.mem.get? (base + index) = some (BitVec.ofNat 8 0))
+    (fits : offset + length ≤ count) :
+    FixedByteVectorRep s (base + offset) (Vector.replicate length 0) := by
+  intro index hindex
+  rw [show base + offset + index = base + (offset + index) by omega,
+    bytes (offset + index) (by omega)]
+  simp
+
+/-- **Every address of `range base (count * elementSize)` is load-bearing for `HeapArrayRep`.**
+
+Uniform in `offset`, not a single-address exhibit: the statement quantifies over every byte the
+footprint claims. So `heapArray_footprint` is exactly tight — shrink the region and soundness breaks,
+widen it and this breaks.
+
+That matters more than a leaf tightness result, because `HeapArrayRep` is the conjunct every heap
+container carries, and it is what makes the record-boundary footprint tight at this layer
+(`heapWithdrawalArray_with_presence_tight`). -/
+theorem heapArray_footprint_tight (base count elementSize offset : Nat)
+    (hoffset : offset < count * elementSize) (hwrap : base + count * elementSize ≤ 2 ^ 64) :
+    ∃ s1 s2 : State,
+      (∀ address, address ≠ base + offset → s1.mem.get? address = s2.mem.get? address) ∧
+        HeapArrayRep s1 base count elementSize ∧ ¬ HeapArrayRep s2 base count elementSize := by
+  refine ⟨{ (default : State) with mem := zeroBytes base (count * elementSize) },
+          { (default : State) with
+            mem := (zeroBytes base (count * elementSize)).erase (base + offset) },
+          ?_, ⟨hwrap, ?_⟩, ?_⟩
+  · intro address hne
+    show (zeroBytes base (count * elementSize)).get? address
+        = ((zeroBytes base (count * elementSize)).erase (base + offset)).get? address
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_erase, beq_iff_eq]
+    rw [if_neg (fun heq => hne heq.symm)]
+  · intro index hindex
+    show ((zeroBytes base (count * elementSize)).get? (base + index)).isSome
+    rw [zeroBytes_inside hindex]
+    rfl
+  · intro hrep
+    have hsome := hrep.2 offset hoffset
+    have hnone : ((zeroBytes base (count * elementSize)).erase (base + offset)).get?
+        (base + offset) = none := by
+      simp [Std.ExtHashMap.get?_eq_getElem?]
+    rw [show ({ (default : State) with
+        mem := (zeroBytes base (count * elementSize)).erase (base + offset) } : State).mem.get?
+          (base + offset) = _ from hnone] at hsome
+    exact absurd hsome (by simp)
+
+/-- The tightness hypotheses are satisfiable, so the result above is not an existential under
+premises that cannot all hold. One line, and the recurring defect in this row is exactly a statement
+nobody checked could apply. -/
+theorem heapArray_footprint_tight_hypotheses_satisfiable :
+    ∃ base count elementSize offset : Nat,
+      offset < count * elementSize ∧ base + count * elementSize ≤ 2 ^ 64 :=
+  ⟨0, 1, 1, 0, by omega, by decide⟩
+
+/-! ### The two padded record shapes
+
+`RawWithdrawal` reads 44 of its 48 bytes and `RawWithdrawalRequest` 76 of its 80, so each has four
+tail bytes no conjunct touches. Both are witnessed rather than asserted, for the reason the chain
+layer learned the hard way: an unproved negative in a module about unproved negatives.
+
+The witnesses are cleaner than the chain-layer ones because `∅` supplies absence directly — the two
+states differ at the padding byte as `none` against `some 7`, with no ambient memory to reason
+about. -/
+
+/-- Every field zero, so every byte of the 44-byte read set is `0x00`. -/
+def zeroWithdrawal : SszBridge.RawWithdrawal where
+  index := 0
+  validatorIndex := 0
+  address := Vector.replicate 20 0
+  amount := 0
+
+theorem zeroWithdrawal_rep {s : State} {base count : Nat}
+    (bytes : ∀ index, index < count → s.mem.get? (base + index) = some (BitVec.ofNat 8 0))
+    (fits : 44 ≤ count) : RawWithdrawalRep s base zeroWithdrawal := by
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · exact word64_of_zeroBytes (offset := 0) bytes (by omega)
+  · exact word64_of_zeroBytes (offset := 8) bytes (by omega)
+  · exact word64_of_zeroBytes (offset := 16) bytes (by omega)
+  · exact fixedByteVector_of_zeroBytes (offset := 24) (length := 20) bytes (by omega)
+
+/-- **`range base 48` is genuinely padded: byte 44 is not load-bearing.** -/
+theorem rawWithdrawal_range48_not_tight (base : Nat) :
+    ∃ (value : SszBridge.RawWithdrawal) (s1 s2 : State),
+      range base 48 (base + 44) ∧
+        s1.mem.get? (base + 44) ≠ s2.mem.get? (base + 44) ∧
+        RawWithdrawalRep s1 base value ∧ RawWithdrawalRep s2 base value := by
+  refine ⟨zeroWithdrawal,
+          { (default : State) with mem := zeroBytes base 44 },
+          { (default : State) with
+            mem := (zeroBytes base 44).insert (base + 44) (BitVec.ofNat 8 7) },
+          ⟨by omega, by omega⟩, ?_, ?_, ?_⟩
+  · show (zeroBytes base 44).get? (base + 44)
+        ≠ ((zeroBytes base 44).insert (base + 44) (BitVec.ofNat 8 7)).get? (base + 44)
+    rw [zeroBytes_outside (fun index hindex => by omega)]
+    simp [Std.ExtHashMap.get?_eq_getElem?]
+  · exact zeroWithdrawal_rep (fun index hindex => zeroBytes_inside hindex) (by omega)
+  · refine zeroWithdrawal_rep (count := 44) (fun index hindex => ?_) (by omega)
+    show ((zeroBytes base 44).insert (base + 44) (BitVec.ofNat 8 7)).get? (base + index) = _
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (by omega)]
+    simpa [Std.ExtHashMap.get?_eq_getElem?] using zeroBytes_inside (base := base) hindex
+
+/-- Every field zero, so every byte of the 76-byte read set is `0x00`. -/
+def zeroWithdrawalRequest : SszBridge.RawWithdrawalRequest where
+  sourceAddress := Vector.replicate 20 0
+  validatorPubkey := Vector.replicate 48 0
+  amount := 0
+
+theorem zeroWithdrawalRequest_rep {s : State} {base count : Nat}
+    (bytes : ∀ index, index < count → s.mem.get? (base + index) = some (BitVec.ofNat 8 0))
+    (fits : 76 ≤ count) : RawWithdrawalRequestRep s base zeroWithdrawalRequest := by
+  refine ⟨?_, ?_, ?_⟩
+  · exact word64_of_zeroBytes (offset := 0) bytes (by omega)
+  · exact fixedByteVector_of_zeroBytes (offset := 8) (length := 20) bytes (by omega)
+  · exact fixedByteVector_of_zeroBytes (offset := 28) (length := 48) bytes (by omega)
+
+/-- **`range base 80` is genuinely padded: byte 76 is not load-bearing.** -/
+theorem rawWithdrawalRequest_range80_not_tight (base : Nat) :
+    ∃ (value : SszBridge.RawWithdrawalRequest) (s1 s2 : State),
+      range base 80 (base + 76) ∧
+        s1.mem.get? (base + 76) ≠ s2.mem.get? (base + 76) ∧
+        RawWithdrawalRequestRep s1 base value ∧ RawWithdrawalRequestRep s2 base value := by
+  refine ⟨zeroWithdrawalRequest,
+          { (default : State) with mem := zeroBytes base 76 },
+          { (default : State) with
+            mem := (zeroBytes base 76).insert (base + 76) (BitVec.ofNat 8 7) },
+          ⟨by omega, by omega⟩, ?_, ?_, ?_⟩
+  · show (zeroBytes base 76).get? (base + 76)
+        ≠ ((zeroBytes base 76).insert (base + 76) (BitVec.ofNat 8 7)).get? (base + 76)
+    rw [zeroBytes_outside (fun index hindex => by omega)]
+    simp [Std.ExtHashMap.get?_eq_getElem?]
+  · exact zeroWithdrawalRequest_rep (fun index hindex => zeroBytes_inside hindex) (by omega)
+  · refine zeroWithdrawalRequest_rep (count := 76) (fun index hindex => ?_) (by omega)
+    show ((zeroBytes base 76).insert (base + 76) (BitVec.ofNat 8 7)).get? (base + index) = _
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (by omega)]
+    simpa [Std.ExtHashMap.get?_eq_getElem?] using zeroBytes_inside (base := base) hindex
+
+/-- **The padding is not idle in the representation the containers actually use.**
+
+`ExecutionPayloadRep` states `HeapArrayRep … 48 ∧ HeapWithdrawalArrayRep …`, never the contents alone.
+`rawWithdrawal_range48_not_tight` shows the contents leave bytes 44–47 of each element idle; this
+shows the **pair** reads every byte of `range base (48 * count)`, padding included, because
+`HeapArrayRep` claims presence there.
+
+So the record-boundary policy — which costs real padding at the chain layer — costs nothing at the
+heap layer. Stated at one element, since interior padding repeats per element and a witness at
+element zero is a witness at the stride. -/
+theorem heapWithdrawalArray_with_presence_tight (base offset : Nat) (hoffset : offset < 48)
+    (hwrap : base + 48 ≤ 2 ^ 64) :
+    ∃ (values : Array SszBridge.RawWithdrawal) (s1 s2 : State),
+      values.size = 1 ∧ range base (48 * values.size) (base + offset) ∧
+        (∀ address, address ≠ base + offset → s1.mem.get? address = s2.mem.get? address) ∧
+        (HeapArrayRep s1 base values.size 48 ∧ HeapWithdrawalArrayRep s1 base values) ∧
+        ¬ (HeapArrayRep s2 base values.size 48 ∧ HeapWithdrawalArrayRep s2 base values) := by
+  refine ⟨#[zeroWithdrawal],
+          { (default : State) with mem := zeroBytes base 48 },
+          { (default : State) with mem := (zeroBytes base 48).erase (base + offset) },
+          rfl, ⟨Nat.le_add_right _ _, by simpa using hoffset⟩, ?_, ⟨⟨?_, ?_⟩, ?_⟩, ?_⟩
+  · intro address hne
+    show (zeroBytes base 48).get? address
+        = ((zeroBytes base 48).erase (base + offset)).get? address
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_erase, beq_iff_eq]
+    rw [if_neg (fun heq => hne heq.symm)]
+  · simpa using hwrap
+  · intro index hindex
+    show ((zeroBytes base 48).get? (base + index)).isSome
+    rw [zeroBytes_inside (by simpa using hindex : index < 48)]
+    rfl
+  · intro index hindex
+    have hone : index < 1 := by simpa using hindex
+    have hzero : index = 0 := by omega
+    subst hzero
+    show RawWithdrawalRep _ (base + 48 * 0) _
+    rw [show base + 48 * 0 = base by omega]
+    exact zeroWithdrawal_rep (count := 48) (fun index hindex => zeroBytes_inside hindex) (by omega)
+  · rintro ⟨harray, -⟩
+    have hsome := harray.2 offset (by simpa using hoffset)
+    have hnone : ((zeroBytes base 48).erase (base + offset)).get? (base + offset) = none := by
+      simp [Std.ExtHashMap.get?_eq_getElem?]
+    rw [show ({ (default : State) with mem := (zeroBytes base 48).erase (base + offset) }
+        : State).mem.get? (base + offset) = _ from hnone] at hsome
+    exact absurd hsome (by simp)
 
 end BinaryFv.SSZ.Zesu.Contracts.Footprint

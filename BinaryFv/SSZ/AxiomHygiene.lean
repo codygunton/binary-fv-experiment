@@ -129,6 +129,23 @@ remedy that depends on being reminded inherits the failure it is meant to preven
 def chainFootprintDoors : List Name :=
   [``BinaryFv.SSZ.Zesu.Artifact.fork_chain_config_layout]
 
+/-- `heapLayer_footprints_abi` — the heap layer's footprints. Its single door is
+`raw_v4_heap_element_sizes_valid`, the compiler-reflected element sizes, already `native_decide` by
+design for the guarded native observers.
+
+**One door, where the obvious drafting would have opened two.**
+`Artifact.heap_element_size_layout` derives the four sizes *from* that existing check instead of
+running a second `native_decide` asserting the same four facts. Two independent reflections of one
+manifest can drift; one cannot.
+
+**And one anchor covering the layer, not one theorem.** The anchor is a conjunction reaching all five
+manifest-derived footprints here, because an anchor only sees what its declaration reaches — the
+chain layer above already needed two anchors for one door, and that does not survive `RawV4Rep`.
+Whether the discipline adopts this shape generally is the parked collapse question, not settled
+here. -/
+def heapFootprintDoors : List Name :=
+  [``BinaryFv.SSZ.Zesu.Artifact.raw_v4_heap_element_sizes_valid]
+
 /-- `catalogSemanticObligations_of_oracleAgreement` — a single door, through the `u64` primitive.
 See the module docstring: the recorded provenance claimed two. -/
 def catalogObligationDoors : List Name :=
@@ -190,6 +207,7 @@ def anchors : List (Name × List Name) :=
      chainFootprintDoors),
    (``BinaryFv.SSZ.Zesu.Contracts.Footprint.localTo_canonicalRepForkConfig_record,
      chainFootprintDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.Footprint.heapLayer_footprints_abi, heapFootprintDoors),
    (``BinaryFv.SSZ.root_compliance, rootDoors)]
 
 run_cmd do
