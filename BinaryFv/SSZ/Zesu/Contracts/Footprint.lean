@@ -408,4 +408,114 @@ across agreement on a 32-byte range. A `_tight` suffix would have promised the m
 the name-versus-content defect this row keeps finding — cheaper to avoid in the name than to annotate
 afterwards. The suffix becomes available when the witness does. -/
 
+/-! ## `optionU64`: the same split one level down, plus a complication the container did not have
+
+`?u64|size = 16` in the manifest against a 9-byte read set, so `range base 9` is the read set and 16
+is the record — structurally identical to `forkActivation`.
+
+**But `optionU64`'s read set depends on the VALUE, which `forkActivation`'s did not.** At `some v` the
+representation reads the payload at `[base, base+8)` and the tag at `base+8`: nine bytes, all
+load-bearing. At `none` it reads **only the tag** — one byte — and `range base 9` is padded by eight.
+
+That matters for the discipline rather than being a curiosity: a parent discharging disjointness knows
+the record it allocated, not the value that ended up in it. So a value-dependent footprint is not
+usable at a call site, and over-approximating past it is not laziness — it is what makes the footprint
+a statement about the allocation. It is another argument for the record-boundary policy, arrived at
+from a direction the ruling did not consider. -/
+
+/-- Containment of the read set in the record. -/
+theorem optionU64_readSet_contained (base : Nat) :
+    ∀ address, range base 9 address → range base 16 address := by
+  rintro address ⟨hl, hr⟩; exact ⟨hl, by omega⟩
+
+/-- **The record-boundary footprint, size taken from the manifest.** `optionalU64Size` rather than a
+written 16, for the same reason as `forkActivation`. -/
+theorem optionU64_footprint_abi (base : Nat) (value : Option UInt64)
+    {recordSize : Nat} (hsize : BinaryFv.SSZ.Zesu.Artifact.optionalU64Size = some recordSize) :
+    MemDeterminedOn (range base recordSize) (fun s => OptionU64Rep s base value) := by
+  have h16 : recordSize = 16 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.optional_u64_layout.1
+    rw [hsize] at hlayout
+    exact Option.some.inj hlayout
+  subst h16
+  exact memDeterminedOn_mono (optionU64_readSet_contained base) (optionU64_footprint base value)
+
+/-- **The record footprint is padded**: byte 12 lies in `range base 16` and is read by nothing, at
+either value. Same obligation as `forkActivation_range32_not_tight`, discharged the same way. -/
+theorem optionU64_range16_not_tight (base : Nat) :
+    ∃ (value : Option UInt64) (s1 s2 : State),
+      range base 16 (base + 12) ∧
+        s1.mem.get? (base + 12) ≠ s2.mem.get? (base + 12) ∧
+        OptionU64Rep s1 base value ∧ OptionU64Rep s2 base value := by
+  refine ⟨some 0,
+          { (default : State) with
+            mem := withBytes (default : State).mem base forkActivationWitnessBytes 16 },
+          { (default : State) with
+            mem := (withBytes (default : State).mem base forkActivationWitnessBytes 16).insert
+              (base + 12) (BitVec.ofNat 8 7) },
+          ⟨by omega, by omega⟩, ?_, ?_, ?_⟩
+  · show (withBytes (default : State).mem base forkActivationWitnessBytes 16).get? (base + 12) ≠ _
+    rw [withBytes_inside _ _ _ (by omega : 12 < 16)]
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    simp [forkActivationWitnessBytes]
+  · refine ⟨?_, ?_⟩
+    · intro index hindex
+      show (withBytes (default : State).mem base forkActivationWitnessBytes 16).get? (base + index) = _
+      rw [withBytes_inside _ _ _ (by omega : index < 16)]
+      simp [forkActivationWitnessBytes, show ¬ (index = 8 ∨ index = 24) by omega]
+    · show (withBytes (default : State).mem base forkActivationWitnessBytes 16).get? (base + 8) = _
+      rw [withBytes_inside _ _ _ (by omega : 8 < 16)]
+      simp [forkActivationWitnessBytes]
+  · refine optionU64_footprint base (some 0)
+      { (default : State) with
+        mem := withBytes (default : State).mem base forkActivationWitnessBytes 16 } _ ?_ ?_
+    · rintro address ⟨hl, hr⟩
+      show (withBytes (default : State).mem base forkActivationWitnessBytes 16).get? address = _
+      simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+      rw [if_neg (by omega)]
+    · refine ⟨?_, ?_⟩
+      · intro index hindex
+        show (withBytes (default : State).mem base forkActivationWitnessBytes 16).get?
+            (base + index) = _
+        rw [withBytes_inside _ _ _ (by omega : index < 16)]
+        simp [forkActivationWitnessBytes, show ¬ (index = 8 ∨ index = 24) by omega]
+      · show (withBytes (default : State).mem base forkActivationWitnessBytes 16).get? (base + 8) = _
+        rw [withBytes_inside _ _ _ (by omega : 8 < 16)]
+        simp [forkActivationWitnessBytes]
+
+/-- **Even the read set is padded at `none`, and this one is not a policy choice.**
+
+At `value = none` the representation reads only the tag, so byte 0 lies in `range base 9` and is
+load-bearing for nothing. `forkActivation` had no analogue: its read set was the same shape whatever
+the values were.
+
+Recorded because it is the reason a footprint must not be stated per-value: the parent knows the
+record it allocated, not what was decoded into it. -/
+theorem optionU64_readSet_not_tight_at_none (base : Nat) :
+    ∃ s1 s2 : State,
+      range base 9 base ∧
+        s1.mem.get? base ≠ s2.mem.get? base ∧
+        OptionU64Rep s1 base none ∧ OptionU64Rep s2 base none := by
+  refine ⟨{ (default : State) with
+            mem := ((default : State).mem.insert (base + 8) (BitVec.ofNat 8 0)).insert base
+              (BitVec.ofNat 8 3) },
+          { (default : State) with
+            mem := ((default : State).mem.insert (base + 8) (BitVec.ofNat 8 0)).insert base
+              (BitVec.ofNat 8 5) },
+          ⟨by omega, by omega⟩, ?_, ?_, ?_⟩
+  · show (((default : State).mem.insert (base + 8) (BitVec.ofNat 8 0)).insert base
+        (BitVec.ofNat 8 3)).get? base ≠ _
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    simp
+  · show (((default : State).mem.insert (base + 8) (BitVec.ofNat 8 0)).insert base
+        (BitVec.ofNat 8 3)).get? (base + 8) = _
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (by omega)]
+    simp
+  · show (((default : State).mem.insert (base + 8) (BitVec.ofNat 8 0)).insert base
+        (BitVec.ofNat 8 5)).get? (base + 8) = _
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (by omega)]
+    simp
+
 end BinaryFv.SSZ.Zesu.Contracts.Footprint
