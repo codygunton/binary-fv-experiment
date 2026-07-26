@@ -1218,4 +1218,60 @@ theorem decodeCanonical_chainConfig_rejects_noncanonical (b : ByteArray) (o : Na
       rw [chainConfigFields_fixedSection, List.head?_cons, Option.some.injEq] at hhead
       exact hbad ⟨hhead, deserializeVarFields_chainConfig_offsets_sound hwalk⟩
 
+/-! ## Bytes to values at the mixed containers' table positions
+
+The `forkActivation` pair ported to positions 8/12 and 8, where the leading `u64` has displaced the
+table. `uint32LE_eq_extract_iff` is generic in the position, so the ports are mechanical — this is the
+step whose *arity* is fixed by the schema but whose *position* is not, which is why it generalises along
+one axis and not the other.
+
+Still owed for both accepting cases: the serialization shape. `serialize_forkActivation` will **not**
+port, because with a leading fixed field the prefix is `serialize u64 v.1 ++ uint32LE o0 ++ uint32LE o1`
+— the fixed field's own bytes sit *before* the offsets, inline, where the all-variable case had offsets
+only. That is a third genuinely new shape at the mixed containers, after the reader bridge and the
+fixed-head walk step. -/
+
+/-- The two reads behind a `forkConfig` table, recovered from the table itself. Positions 8 and 12 rather
+than 0 and 4 — the leading `u64` occupies the first eight bytes. -/
+theorem forkConfig_offset_reads (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1]) :
+    ∃ w0 w1, readUInt32LE b 8 = some w0 ∧ readUInt32LE b 12 = some w1 ∧
+      o0 = w0.toNat ∧ o1 = w1.toNat := by
+  rw [extractFieldOffsets_forkConfig] at hoffs
+  split at hoffs
+  · rename_i w0 w1 r0 r1
+    simp only [Except.ok.injEq, List.cons.injEq] at hoffs
+    exact ⟨w0, w1, r0, r1, hoffs.1.symm, hoffs.2.1.symm⟩
+  · exact absurd hoffs (by simp)
+
+/-- The single read behind a `chainConfig` table. -/
+theorem chainConfig_offset_read (b : ByteArray) (o : Nat)
+    (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o]) :
+    ∃ w, readUInt32LE b 8 = some w ∧ o = w.toNat := by
+  rw [extractFieldOffsets_chainConfig] at hoffs
+  split at hoffs
+  · rename_i w r
+    simp only [Except.ok.injEq, List.cons.injEq] at hoffs
+    exact ⟨w, r, hoffs.1.symm⟩
+  · exact absurd hoffs (by simp)
+
+/-- Offset bytes to offset values at `forkConfig`'s table positions. -/
+theorem forkConfig_offsetBytes_iff (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1])
+    (n : Nat) (hn : n < UInt32.size) :
+    (uint32LE (Nat.toUInt32 n) = b.extract 8 12 ↔ n = o0) ∧
+      (uint32LE (Nat.toUInt32 n) = b.extract 12 16 ↔ n = o1) := by
+  obtain ⟨w0, w1, r0, r1, e0, e1⟩ := forkConfig_offset_reads b o0 o1 hoffs
+  subst e0; subst e1
+  exact ⟨uint32LE_eq_extract_iff b 8 n w0 r0 hn, uint32LE_eq_extract_iff b 12 n w1 r1 hn⟩
+
+/-- The same at `chainConfig`: one slot, at 8. -/
+theorem chainConfig_offsetBytes_iff (b : ByteArray) (o : Nat)
+    (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o])
+    (n : Nat) (hn : n < UInt32.size) :
+    uint32LE (Nat.toUInt32 n) = b.extract 8 12 ↔ n = o := by
+  obtain ⟨w, r, e⟩ := chainConfig_offset_read b o hoffs
+  subst e
+  exact uint32LE_eq_extract_iff b 8 n w r hn
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
