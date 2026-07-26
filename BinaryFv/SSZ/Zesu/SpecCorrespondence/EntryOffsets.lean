@@ -1159,7 +1159,13 @@ regions, so none of it reaches the chain containers: `forkActivation` has two va
 arity by iteration — `extract_four` and `extract_sixteen` are just their arity-4 compositions.
 
 Kept alongside the arity-4 lemmas rather than replacing them: those are already consumed by the entry
-proofs, and rewriting working proofs to route through the atoms would be churn with no proof content. -/
+proofs, and rewriting working proofs to route through the atoms would be churn with no proof content.
+
+**Two routes to one proposition is not the duplication this row rejects elsewhere.** We refused a
+second source for the manifest step bound because a proof-relevant *constant* with two sources can
+drift silently. `extract_four` and its atom-composed equivalent are two *proofs* of one proposition,
+each kernel-checked, and neither is a source of truth for a value — the proposition is. Nothing can
+drift. -/
 
 /-- Two consecutive slices reassemble the span they cover. The atom behind every `extract_*`
 reassembly at any arity. -/
@@ -1179,6 +1185,33 @@ theorem append_eq_extract_iff (body : ByteArray) (a b c : Nat) {s t : ByteArray}
     exact append_inj_of_size_eq (by rw [hs, hw]) h
   · rintro ⟨rfl, rfl⟩
     exact extract_pair body a b c hab hbc
+
+/-! ## The four field meanings in oracle terms
+
+**This is where `sourceShapedContainersAgreeWithOracle` is consumed.** Three of the four field
+meanings are `decodeCanonical` plus a projection, so their acceptance equals the oracle's by
+construction. The fourth, `meaningChainConfig`, is source-shaped and its acceptance carries the
+`fork ≤ 20` bound that the schema does not — which is exactly what the container obligation states,
+and why its conjunct below has a different shape from the other three.
+
+That asymmetry is the whole content of this step. A reader looking for where the container fact is
+discharged should find it here, and should see that it is *not* discharged by the four-field
+decomposition, which is pure oracle on both sides. -/
+
+theorem entry_field_meanings_in_oracle_terms
+    (containersAgree : sourceShapedContainersAgreeWithOracle) (b : ByteArray) :
+    isAccepted (meaningNewPayloadRequest b)
+        = (SszBridge.decodeCanonical SszBridge.newPayloadRequestType b).toOption.isSome ∧
+      isAccepted (meaningExecutionWitness b)
+        = (SszBridge.decodeCanonical SszBridge.witnessType b).toOption.isSome ∧
+      isAccepted (meaningPublicKeys b)
+        = (SszBridge.decodeCanonical publicKeysType b).toOption.isSome ∧
+      isAccepted (meaningChainConfig b)
+        = (match SszBridge.decodeCanonical SszBridge.chainConfigType b with
+            | .ok value => decide ((SszBridge.rawChainConfigOf value).activeFork.fork ≤ 20)
+            | .error _ => false) :=
+  ⟨meaningNewPayloadRequest_accepted b, meaningExecutionWitness_accepted b,
+    meaningPublicKeys_accepted b, containersAgree b⟩
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
