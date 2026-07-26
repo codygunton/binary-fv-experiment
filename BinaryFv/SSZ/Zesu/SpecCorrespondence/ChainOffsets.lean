@@ -810,4 +810,30 @@ theorem decodeCanonical_forkActivation_eq_of_fields (b : ByteArray) (o0 o1 : Nat
   rw [hser, byteArray_beq_self]
   rfl
 
+/-! ### Wiring to the source's field meanings
+
+The source side of `forkActivation` is easier than the entry's was, and for a structural reason worth
+naming: **both** its fields are `meaningOptionalU64`, which is `decodeCanonical` plus a projection. So both
+agree with the oracle *by construction* rather than by theorem, and unlike the entry there is no
+source-shaped field here at all — no `meaningChainConfig` analogue, no fork bound. The asymmetry that made
+`entry_field_meanings_in_oracle_terms` interesting is simply absent at this schema.
+
+That is also why `forkActivation` is where the chain should have been started: it is the one link whose
+source side carries no assumption. -/
+
+/-- `forkActivation`'s two field types are exactly the schema `meaningOptionalU64` decodes against.
+Checked rather than assumed: the entry work needed the same check at `publicKeysType`, and "two
+spellings of one schema" is where a source-side bridge silently fails to apply. -/
+theorem optionalU64Type_eq_forkActivation_field :
+    optionalU64Type = .list SszBridge.u64 SszBridge.maxOptionalForkActivationValues := rfl
+
+/-- `meaningOptionalU64` is oracle-shaped: `decodeCanonical` plus a projection, so its acceptance is the
+oracle's by construction. The projection is applied only on the `.ok` arm and cannot turn acceptance into
+rejection or back. -/
+theorem meaningOptionalU64_accepted (b : ByteArray) :
+    isAccepted (meaningOptionalU64 b)
+      = (SszBridge.decodeCanonical optionalU64Type b).toOption.isSome := by
+  cases h : SszBridge.decodeCanonical optionalU64Type b <;>
+    simp [meaningOptionalU64, isAccepted, Except.toOption, h]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
