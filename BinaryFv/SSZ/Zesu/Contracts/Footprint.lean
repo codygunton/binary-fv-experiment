@@ -666,4 +666,49 @@ theorem allocatedRegion_disjoint_of_later {recordBase recordSize siblingBase sib
   · exact siblingRecordOutside address hint hsrec
   · exact interval_disjoint monotone address hint hsint
 
+/-! ## Witnessed locality: when the read set is not a function of the base
+
+`Ownership.LocalTo` takes `region : Nat → Region` — the read set as a function of the result base.
+That fits every container whose fields sit at fixed offsets, and **fails for the four whose heap
+arrays are at allocator-chosen bases bound existentially inside the representation**. No bounded
+region computed from `base` can cover a witness `base` does not determine.
+
+**The fix needs no new definition**, which is worth saying because I expected it to. `MemDeterminedOn`
+already takes an arbitrary `Region`, so the caller — the composition, which allocated the arrays and
+therefore holds their bases — supplies the region directly. What was missing is only the composition
+lemma stated against an arbitrary region rather than against `LocalTo`'s base-indexed family.
+
+So this is an **addition beside** `Ownership.representation_survives_sibling`, not a change to it. The
+approved core keeps its shape and gains a sibling for the case it cannot express.
+
+**The general pattern, since this is its second instance:** the read set is not a function of the
+thing you would expect to determine it. At `optionU64` it depended on the *value*, which the caller
+does not know; here it depends on the *allocation*, which the base does not determine. Both resolve
+the same way — supply the missing determinant as a parameter, from whoever actually knows it. -/
+
+/-- **The composition lemma for a witnessed footprint.** Identical in force to
+`Ownership.representation_survives_sibling`, but the earlier child's region is supplied by the caller
+rather than computed from its result base — so it can name allocator-chosen addresses.
+
+`confined` is `MemDeterminedOn` at that region, which is exactly what the container footprint theorems
+produce once their existential witnesses are destructured. -/
+theorem representation_survives_sibling_witnessed {α : Type} {rep : ContainerRepresentation α}
+    {region ownedSibling : Region} {s1 s2 : State}
+    {base resultBase : Nat} {bytes : ByteArray} {value : α}
+    (confined : MemDeterminedOn region (fun s => rep base bytes value s resultBase))
+    (disjoint : ∀ address, region address → ¬ ownedSibling address)
+    (writes : WritesOnlyWithin ownedSibling s1 s2)
+    (established : rep base bytes value s1 resultBase) :
+    rep base bytes value s2 resultBase :=
+  confined s1 s2 (fun address hregion => (writes address (disjoint address hregion)).symm) established
+
+/-- The witnessed form subsumes the base-indexed one: a `LocalTo` fact is a witnessed fact whose
+region happens to be computable from the result base. Recorded so the two are known to be one
+mechanism rather than two, and so a future consumer can be written against the witnessed form alone. -/
+theorem memDeterminedOn_of_localTo {α : Type} {rep : ContainerRepresentation α}
+    {region : Nat → Region} (local_ : LocalTo rep region)
+    (base : Nat) (bytes : ByteArray) (value : α) (resultBase : Nat) :
+    MemDeterminedOn (region resultBase) (fun s => rep base bytes value s resultBase) :=
+  fun s1 s2 agree => local_ base bytes value s1 s2 resultBase agree
+
 end BinaryFv.SSZ.Zesu.Contracts.Footprint
