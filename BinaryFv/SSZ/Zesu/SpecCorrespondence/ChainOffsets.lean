@@ -187,4 +187,81 @@ theorem deserializeVarFields_chainConfig (b : ByteArray) (o : Nat)
   simp only [ne_eq, not_true_eq_false, if_false]
   cases SSZType.deserialize SszBridge.forkConfigType (b.extract o b.size) <;> rfl
 
+/-! ## The `forkActivation` walk
+
+The one container in the chain with **no** leading fixed field: `forkActivationFields` is all-variable,
+so its fixed section *is* its offset table and its 8 is `2 * BYTES_PER_LENGTH_OFFSET`, not a `u64`. That
+makes it the entry schema's shape at arity two rather than a new mechanism — no reader bridge is
+involved, and `prefixOff` again never reaches the result.
+
+Worth stating explicitly because the module's own preamble overreaches: it says all three chain
+containers have leading fixed fields, and this one does not. The `8` coinciding with `chainConfig`'s
+`u64` width is a numerical accident of two four-byte offsets, and reading it as "the same skip again"
+is exactly the confusion the separate module was meant to prevent. -/
+
+/-- **The oracle slices `forkActivation` where the source does.** Both fields are variable, so this is
+`deserializeVarFields_entry` at arity two; the source's two slices are `bytes.extract first second` and
+`bytes.extract second bytes.size`. -/
+theorem deserializeVarFields_forkActivation (b : ByteArray) (o0 o1 : Nat)
+    (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size) :
+    SSZType.deserializeVarFields forkActivationFields b 0 [o0, o1] b.size =
+      match SSZType.deserialize
+          (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) (b.extract o0 o1) with
+      | .error e => .error e
+      | .ok (x0, _) =>
+        match SSZType.deserialize
+            (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues)
+            (b.extract o1 b.size) with
+        | .error e => .error e
+        | .ok (x1, _) => .ok (x0, x1, PUnit.unit) := by
+  have n01 : ¬ (o0 > o1) := by omega
+  have n1 : ¬ (o1 > b.size) := by omega
+  have nend : ¬ (b.size > b.size) := by omega
+  simp only [forkActivationFields, SSZType.deserializeVarFields, optionalU64Field_not_fixed,
+    List.head?_cons, List.head?_nil, Option.getD_some, Option.getD_none,
+    n01, n1, nend, decide_false, Bool.or_false, if_false, Bool.false_eq_true]
+  cases SSZType.deserialize
+      (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) (b.extract o0 o1) <;>
+    cases SSZType.deserialize
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues)
+        (b.extract o1 b.size) <;> rfl
+
+/-! ## The `forkConfig` walk
+
+`chainConfig`'s shape with one more variable field: the leading `u64` comes out of the prefix through
+`deserialize_u64_extract`, then two variable fields are walked from the offset table.
+
+**The `fork > 20` test is deliberately absent here.** In the source it sits *between* the offset-table
+check and the child decodes, and that ordering is what makes `forkErrorOrderingDiffers` true and the
+obligation acceptance-only. This lemma is about the oracle's walk alone, so the test has no place in it;
+it enters at the schema-level join, on the source side, in the position the source puts it. Commuting it
+past the child decodes to make the join cheaper would be a statement defect, not a simplification. -/
+
+/-- **The oracle slices `forkConfig` where the source does**, reading `fork` from the prefix. -/
+theorem deserializeVarFields_forkConfig (b : ByteArray) (o0 o1 : Nat)
+    (h8 : 8 ≤ b.size) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size)
+    {v : UInt64} (hv : readUInt64LE b 0 = some v) :
+    SSZType.deserializeVarFields forkConfigFields b 0 [o0, o1] b.size =
+      match SSZType.deserialize SszBridge.forkActivationType (b.extract o0 o1) with
+      | .error e => .error e
+      | .ok (x0, _) =>
+        match SSZType.deserialize
+            (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork)
+            (b.extract o1 b.size) with
+        | .error e => .error e
+        | .ok (x1, _) => .ok (v, x0, x1, PUnit.unit) := by
+  have n01 : ¬ (o0 > o1) := by omega
+  have n1 : ¬ (o1 > b.size) := by omega
+  have nend : ¬ (b.size > b.size) := by omega
+  simp only [forkConfigFields, SSZType.deserializeVarFields, u64_isFixed, u64_fixedByteSize,
+    forkActivationType_not_fixed, blobScheduleListField_not_fixed,
+    List.head?_cons, List.head?_nil, Option.getD_some, Option.getD_none,
+    n01, n1, nend, decide_false, Bool.or_false, if_false, Bool.false_eq_true, if_true]
+  rw [deserialize_u64_extract b 0 (by omega) hv]
+  simp only [ne_eq, not_true_eq_false, if_false]
+  cases SSZType.deserialize SszBridge.forkActivationType (b.extract o0 o1) <;>
+    cases SSZType.deserialize
+        (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork)
+        (b.extract o1 b.size) <;> rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence

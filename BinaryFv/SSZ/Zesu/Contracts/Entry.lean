@@ -125,10 +125,23 @@ form would say nothing more. Checked against each `pre` rather than assumed.
 *What that does mean, and it is a real limitation rather than a tidy result.* A frame condition over
 memory the precondition does **not** pin — "nothing outside the result buffer and the arena is
 touched" — is **not expressible** in this form, and is not stated anywhere. Nothing in these contracts
-forbids the decoder scribbling on unrelated memory. That does not make `root_compliance` false, because
-it observes only the classification `RiscvSpec.execute` returns and never reads memory; but it does mean
-these `post` predicates frame less than the word "post" suggests. Recorded so a later reader does not
-mistake the dead binder for an oversight, nor the absolute form for a general frame. -/
+forbids the decoder scribbling on unrelated memory.
+
+**Why that is survivable here, corrected.** An earlier version of this note said `root_compliance` is
+unaffected because it "observes only the classification and never reads memory". *That is false.*
+`MemoryRepresentation.observeRawV4?` reads memory extensively — dozens of `observe*?` calls across the
+result buffer and the heap descriptors. The argument that actually holds is different: the
+representation is established **at the final state** (`rep … after …` here, `observeRawV4? state
+canonicalResultBuffer` at the runner) rather than *preserved* from an intermediate one. Nothing has to
+survive a later routine, so no frame condition is needed to connect two states.
+
+**The question is OPEN, not closed, and it is not ours to close.** That argument covers this layer only.
+It becomes load-bearing at *composition*: once a Rows E–I local proof establishes "this routine wrote
+field 3 at offset X" and a later routine runs, concluding field 3 still holds at the sentinel **is** a
+frame condition — and D4's composed-local-summaries item asks exactly that, so this sits inside an open
+item rather than outside the row. Adding a relative frame clause here would be a change to a reviewed
+contract meaning and is the human's call; it is also far cheaper to decide before 141 local proofs are
+written against the current shape than after. Do not add one on the strength of this note. -/
 def postEntry (env : DecoderEnvironment) (args : EntryArgs)
     (rep : ContainerRepresentation SszBridge.RawV4)
     (result : Except SszDecodeError SszBridge.RawV4) (_before after : State) : Prop :=
