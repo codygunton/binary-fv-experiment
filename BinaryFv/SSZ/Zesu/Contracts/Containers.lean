@@ -157,7 +157,7 @@ def postFixedContainer {α : Type} (env : DecoderEnvironment) (args : ContainerA
 /-- An allocating container: its children allocate, so out-of-memory is reachable. -/
 def postAllocatingContainer {α : Type} (env : DecoderEnvironment) (args : ContainerArgs)
     (representation : ContainerRepresentation α)
-    (result : Except SszDecodeError α) (before after : State) : Prop :=
+    (result : Except SszDecodeError α) (_before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   match result with

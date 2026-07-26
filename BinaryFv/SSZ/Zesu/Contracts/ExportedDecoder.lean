@@ -262,7 +262,7 @@ preserved input and code. Allocation effects and preserved frames are added when
 def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
-    (result : Except SszDecodeError SszBridge.RawV4) (before after : State) : Prop :=
+    (result : Except SszDecodeError SszBridge.RawV4) (_before after : State) : Prop :=
   MemoryBytes after args.inputBase args.bytes ∧
   env.CodeIntact after ∧
   after.regs.get? x10 = some (BitVec.ofNat 64 (callOutcome incoming result).returnCode) ∧

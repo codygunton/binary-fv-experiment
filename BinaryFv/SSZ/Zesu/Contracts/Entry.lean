@@ -111,9 +111,27 @@ def preEntry (env : DecoderEnvironment) (args : EntryArgs) (state : State) : Pro
   state.regs.get? x12 = some (BitVec.ofNat 64 args.base) ∧
   state.regs.get? x13 = some (BitVec.ofNat 64 args.bytes.size)
 
+/-- The entry postcondition.
+
+**`before` is deliberately unused, and the reason is worth stating because it is the same reason in all
+four postconditions that take it** (`postAllocatingContainer`, `postCollection`, `postZesuDecodeRaw`).
+The binder is required by `FunctionContract`'s shape, not by these predicates.
+
+*Why it is not needed.* Preservation is stated **absolutely** — `MemoryBytes after args.base
+args.bytes` and `env.CodeIntact after` — against values the precondition already pins to exactly the
+same terms. So "unchanged from `before`" and "equal to `args.bytes`" coincide here, and the relative
+form would say nothing more. Checked against each `pre` rather than assumed.
+
+*What that does mean, and it is a real limitation rather than a tidy result.* A frame condition over
+memory the precondition does **not** pin — "nothing outside the result buffer and the arena is
+touched" — is **not expressible** in this form, and is not stated anywhere. Nothing in these contracts
+forbids the decoder scribbling on unrelated memory. That does not make `root_compliance` false, because
+it observes only the classification `RiscvSpec.execute` returns and never reads memory; but it does mean
+these `post` predicates frame less than the word "post" suggests. Recorded so a later reader does not
+mistake the dead binder for an oversight, nor the absolute form for a general frame. -/
 def postEntry (env : DecoderEnvironment) (args : EntryArgs)
     (rep : ContainerRepresentation SszBridge.RawV4)
-    (result : Except SszDecodeError SszBridge.RawV4) (before after : State) : Prop :=
+    (result : Except SszDecodeError SszBridge.RawV4) (_before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   match result with

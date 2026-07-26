@@ -149,7 +149,7 @@ reads a fork index.
 -/
 def postCollection {α : Type} (env : DecoderEnvironment) (args : CollectionArgs)
     (elementSize : Nat) (count : α → Nat)
-    (result : Except SszDecodeError α) (before after : State) : Prop :=
+    (result : Except SszDecodeError α) (_before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   match result with
