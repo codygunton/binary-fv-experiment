@@ -189,6 +189,27 @@ theorem uint32LE_injective {a b : UInt32} (h : uint32LE a = uint32LE b) : a = b 
   rw [h, readUInt32LE_uint32LE b] at ha
   exact (Option.some.injEq _ _).mp ha.symm
 
+theorem readUInt64LE_uint64LE (value : UInt64) :
+    readUInt64LE (uint64LE value) 0 = some value := by
+  rw [uint64LE_eq_literal, readUInt64LE, dif_pos (by simp [ByteArray.size])]
+  -- `show` to the element-wise form rather than rewriting: ByteArray indexing lemmas do not exist
+  -- under guessable names (module note), and the u32 sibling crosses this the same way. Defeq, so the
+  -- restatement typechecks where a rewrite has nothing to fire on.
+  show some (value.toUInt8.toUInt64 ||| (value >>> 8).toUInt8.toUInt64 <<< 8
+      ||| (value >>> 16).toUInt8.toUInt64 <<< 16 ||| (value >>> 24).toUInt8.toUInt64 <<< 24
+      ||| (value >>> 32).toUInt8.toUInt64 <<< 32 ||| (value >>> 40).toUInt8.toUInt64 <<< 40
+      ||| (value >>> 48).toUInt8.toUInt64 <<< 48 ||| (value >>> 56).toUInt8.toUInt64 <<< 56)
+    = some value
+  simp only [Option.some.injEq]
+  bv_decide
+
+/-- **`uint64LE` is injective**, so it can be cancelled from both sides of an equation. Two lines off the
+round trip, exactly as at `u32`. -/
+theorem uint64LE_injective {a b : UInt64} (h : uint64LE a = uint64LE b) : a = b := by
+  have ha := readUInt64LE_uint64LE a
+  rw [h, readUInt64LE_uint64LE b] at ha
+  exact (Option.some.injEq _ _).mp ha.symm
+
 /-! ### The `u32` arm is not vacuous, and says something
 
 A conditional equation can be true because its hypotheses are unsatisfiable, or because its
