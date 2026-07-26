@@ -133,6 +133,58 @@ theorem forkActivation_footprint_tightRegion (base : Nat)
   memDeterminedOn_and_union (optionU64_footprint base value.blockNumber)
     (optionU64_footprint (base + 16) value.timestamp)
 
+/-! ## Record-boundary footprints
+
+The ruled policy. A parent discharges disjointness against what the *allocator* gave it — records, not
+read sets — so record-versus-record is the fact that exists at the call site.
+
+A record-boundary footprint **cannot have a tightness half**: its padding bytes are not load-bearing by
+construction. Two obligations replace it, and both are enforced structurally here rather than by
+convention.
+
+* **Containment is a HYPOTHESIS, not a side note.** `forkActivation_footprint_record` cannot be stated
+  without exhibiting the read set inside the claimed record, so a footprint that drifts free of what it
+  describes does not typecheck. This is where the leaf tightness earns its keep: containment would be
+  vacuous for a container whose children read nothing, and `word64_footprint_tight` /
+  `optionTag_footprint_tight` are what rule that out.
+* **The size is DERIVED, never a literal.** `range base 32` with a hand-written 32 is unfalsifiable —
+  `range base 4096` proves just as smoothly and nothing objects. The corollary below takes its size
+  from `BinaryFv.SSZ.Zesu.Artifact.fork_activation_layout`, the same compiler-reflected manifest the ABI and allocator
+  use. My original 32 came off a layout *comment*, and a comment is not a constant. -/
+
+/-- The read set: what `ForkActivationRep`'s conjuncts actually touch. -/
+def forkActivationReadSet (base : Nat) : Region :=
+  Region.union (range base 9) (range (base + 16) 9)
+
+/-- **The record-boundary footprint, with containment as a proof obligation.**
+
+`recordSize` is a parameter and `contained` must be discharged for it, so this cannot be instantiated
+at an unrelated size — the containment premise is what ties the region to the representation. -/
+theorem forkActivation_footprint_record (base recordSize : Nat)
+    (value : SszBridge.RawForkActivation)
+    (contained : ∀ address, forkActivationReadSet base address → range base recordSize address) :
+    MemDeterminedOn (range base recordSize) (fun s => ForkActivationRep s base value) :=
+  memDeterminedOn_mono contained (forkActivation_footprint_tightRegion base value)
+
+/-- Containment at the manifest's record size. Discharged arithmetically against the read set rather
+than assumed from the layout. -/
+theorem forkActivation_readSet_contained (base : Nat) :
+    ∀ address, forkActivationReadSet base address → range base 32 address := by
+  rintro address (⟨hl, hr⟩ | ⟨hl, hr⟩) <;> exact ⟨by omega, by omega⟩
+
+/-- **The footprint at the ABI-derived record size.** The `32` is obtained from
+`BinaryFv.SSZ.Zesu.Artifact.fork_activation_layout` rather than written down, so a layout change surfaces here instead
+of silently widening the footprint. -/
+theorem forkActivation_footprint_abi (base : Nat) (value : SszBridge.RawForkActivation)
+    {recordSize : Nat} (hsize : BinaryFv.SSZ.Zesu.Artifact.forkActivationSize = some recordSize) :
+    MemDeterminedOn (range base recordSize) (fun s => ForkActivationRep s base value) := by
+  have h32 : recordSize = 32 := by
+    have hlayout := BinaryFv.SSZ.Zesu.Artifact.fork_activation_layout.1
+    rw [hsize] at hlayout
+    exact Option.some.inj hlayout
+  subst h32
+  exact forkActivation_footprint_record base 32 value (forkActivation_readSet_contained base)
+
 /-! ## Tightness
 
 The half that can fail. Soundness above would hold just as well for a padded footprint, so each

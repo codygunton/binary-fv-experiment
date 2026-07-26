@@ -38,6 +38,20 @@ theorem optional_u64_layout :
       optionalU64PayloadOffset = some 0 ∧ optionalU64TagOffset = some 8 := by
   native_decide
 
+def forkActivationSize : Option Nat := abiDatum "ssz_raw.RawForkActivation|size"
+def forkActivationAlign : Option Nat := abiDatum "ssz_raw.RawForkActivation|align"
+def forkActivationBlockNumberOffset : Option Nat :=
+  abiDatum "ssz_raw.RawForkActivation|block_number"
+def forkActivationTimestampOffset : Option Nat := abiDatum "ssz_raw.RawForkActivation|timestamp"
+
+/-- `RawForkActivation`: two 16-byte `?u64`s. Pinned here so a footprint stating the record boundary
+takes its size from the compiler-reflected manifest rather than from a hand-written literal — a
+literal size is unfalsifiable, since an over-large one proves exactly as easily. -/
+theorem fork_activation_layout :
+    forkActivationSize = some 32 ∧ forkActivationAlign = some 8 ∧
+      forkActivationBlockNumberOffset = some 0 ∧ forkActivationTimestampOffset = some 16 := by
+  native_decide
+
 theorem optional_blob_schedule_layout :
     optionalBlobScheduleSize = some 32 ∧ optionalBlobScheduleAlign = some 8 ∧
       optionalBlobSchedulePayloadOffset = some 0 ∧ optionalBlobScheduleTagOffset = some 24 := by
