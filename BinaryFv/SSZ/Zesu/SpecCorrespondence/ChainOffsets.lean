@@ -1292,4 +1292,18 @@ theorem serialize_forkConfig (v : SSZType.interpFields forkConfigFields) (s0 s1 
     Bool.false_eq_true, if_false, if_true, e0, e1, e2, ByteArray.append_empty,
     SSZType.fixedSectionSizeFields, SSZType.fixedSectionSize, BYTES_PER_LENGTH_OFFSET]
 
+/-- **The `chainConfig` container's serialization, expanded.** One inline fixed field, one offset, one
+body — the simplest of the three shapes, and the only one with no `++` nesting in its variable part at
+all, because a single variable field needs no concatenation. -/
+theorem serialize_chainConfig (v : SSZType.interpFields chainConfigFields) (s0 s1 : ByteArray)
+    (e0 : SSZType.serialize SszBridge.u64 v.1 = s0)
+    (e1 : SSZType.serialize SszBridge.forkConfigType v.2.1 = s1) :
+    SSZType.serialize (.container chainConfigFields) v
+      = s0 ++ uint32LE (Nat.toUInt32 12) ++ s1 := by
+  rw [SSZType.serialize]
+  simp only [chainConfigFields, SSZType.serializeFieldsAux, u64_isFixed, u64_fixedByteSize,
+    forkConfigType_not_fixed, Bool.false_eq_true, if_false, if_true, e0, e1,
+    ByteArray.append_empty, SSZType.fixedSectionSizeFields, SSZType.fixedSectionSize,
+    BYTES_PER_LENGTH_OFFSET]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
