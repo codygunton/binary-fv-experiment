@@ -25,22 +25,17 @@ So a container appearing below is eligible for the discipline, not yet protected
 
 ## Audit status
 
-**Memory-determined, proved below — seven of eight:** `canonicalRepForkActivation`,
+**All eight are memory-determined, proved below.** `canonicalRepForkActivation`,
 `canonicalRepForkConfig`, `canonicalRepChainConfig`, `canonicalRepExecutionRequests`,
-`canonicalRepExecutionWitness`, `canonicalRepExecutionPayload`, `canonicalRepNewPayloadRequest`.
+`canonicalRepExecutionWitness`, `canonicalRepExecutionPayload`, `canonicalRepNewPayloadRequest`,
+`canonicalRepRawV4`. So the `localTo_is_a_real_obligation` hole is closed for every representation
+the root actually uses, and no representation reads outside memory.
 
-**Not yet audited — one:** `canonicalRepRawV4`. It is the outlier by construction rather than by
-oversight: `RawV4Rep` and its `RawV4AllocationRep` / `RawV4DescriptorRep` / `RawV4InputSlicesRep` /
-`RawV4FixedFieldsRep` sublayers are *structures*, so each transports field by field — the
-`ExecutionPayloadFixedRep` treatment below, repeated across the root allocation, ten heap arrays, the
-descriptor table and every borrowed input slice. Every primitive it is built from is already proved
-memory-determined here, so what remains is volume, not difficulty.
-
-A mechanical scan finds no reference to `regs`, `pc`, `choiceState`, `tags`, `cycleCount` or
-`sailOutput` anywhere under `MemoryRepresentation/`, so `canonicalRepRawV4` is *expected* to be
-memory-determined too — but a grep over definitions does not verify what those definitions call, and
-this row has repeatedly been bitten by exactly that substitution. It stays listed as open rather than
-assumed.
+The earlier mechanical scan — no reference to `regs`, `pc`, `choiceState`, `tags`, `cycleCount` or
+`sailOutput` under `MemoryRepresentation/` — predicted this, but is now superseded by proof rather
+than relied on. Keeping the distinction visible is the point: the grep was evidence, not a result,
+and one field (`RawV4FixedFieldsRep.chainConfig`) was in fact missed by the field-extraction grep used
+to draft these proofs and surfaced only when the compiler demanded it.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Contracts.RepresentationAudit
@@ -314,6 +309,117 @@ theorem memDetermined_newPayloadRequest (inputBase : Nat) (input : ByteArray) (b
       (memDetermined_and (memDetermined_fixedByteVector _ _)
         (memDetermined_executionRequests _ _)))
 
+/-! ## The root object
+
+`RawV4Rep` is the last one and the only one that needed a shape the combinators do not reach. See
+`memDetermined_rawV4` for why. -/
+
+theorem memDetermined_rawStatelessInput (base : Nat) :
+    MemDetermined (fun s => RawStatelessInputRep s base) :=
+  memDetermined_exists fun _ =>
+    memDetermined_and memDetermined_const (memDetermined_heapArray _ _ _)
+
+theorem memDetermined_rawV4Allocation (rootBase : Nat) (value : SszBridge.RawV4)
+    (bases : RawV4DescriptorBases) :
+    MemDetermined (fun s => RawV4AllocationRep s rootBase value bases) :=
+  fun s1 s2 agree h =>
+    { root := memDetermined_rawStatelessInput _ s1 s2 agree h.root
+      versionedHashes := memDetermined_heapArray _ _ _ s1 s2 agree h.versionedHashes
+      versionedHashContents :=
+        memDetermined_heapFixedVectorArray _ _ s1 s2 agree h.versionedHashContents
+      transactions := memDetermined_heapArray _ _ _ s1 s2 agree h.transactions
+      withdrawals := memDetermined_heapArray _ _ _ s1 s2 agree h.withdrawals
+      withdrawalContents := memDetermined_heapWithdrawalArray _ _ s1 s2 agree h.withdrawalContents
+      deposits := memDetermined_heapArray _ _ _ s1 s2 agree h.deposits
+      depositContents := memDetermined_heapDepositRequestArray _ _ s1 s2 agree h.depositContents
+      withdrawalRequests := memDetermined_heapArray _ _ _ s1 s2 agree h.withdrawalRequests
+      withdrawalRequestContents :=
+        memDetermined_heapWithdrawalRequestArray _ _ s1 s2 agree h.withdrawalRequestContents
+      consolidationRequests := memDetermined_heapArray _ _ _ s1 s2 agree h.consolidationRequests
+      consolidationRequestContents :=
+        memDetermined_heapConsolidationRequestArray _ _ s1 s2 agree h.consolidationRequestContents
+      witnessState := memDetermined_heapArray _ _ _ s1 s2 agree h.witnessState
+      witnessCodes := memDetermined_heapArray _ _ _ s1 s2 agree h.witnessCodes
+      witnessHeaders := memDetermined_heapArray _ _ _ s1 s2 agree h.witnessHeaders
+      publicKeys := memDetermined_heapArray _ _ _ s1 s2 agree h.publicKeys
+      publicKeyContents := memDetermined_heapFixedVectorArray _ _ s1 s2 agree h.publicKeyContents }
+
+theorem memDetermined_rawV4Descriptor (rootBase : Nat) (value : SszBridge.RawV4)
+    (bases : RawV4DescriptorBases) :
+    MemDetermined (fun s => RawV4DescriptorRep s rootBase value bases) :=
+  fun s1 s2 agree h =>
+    { versionedHashes := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.versionedHashes
+      transactions := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.transactions
+      withdrawals := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.withdrawals
+      deposits := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.deposits
+      withdrawalRequests := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.withdrawalRequests
+      consolidationRequests :=
+        memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.consolidationRequests
+      witnessState := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.witnessState
+      witnessCodes := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.witnessCodes
+      witnessHeaders := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.witnessHeaders
+      publicKeys := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.publicKeys }
+
+theorem memDetermined_rawV4InputSlices (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    (value : SszBridge.RawV4) (bases : RawV4DescriptorBases)
+    {s1 s2 : State} (agree : ∀ address, s1.mem.get? address = s2.mem.get? address)
+    (d1 : RawV4DescriptorRep s1 rootBase value bases)
+    (d2 : RawV4DescriptorRep s2 rootBase value bases)
+    (h : RawV4InputSlicesRep s1 inputBase input rootBase value bases d1) :
+    RawV4InputSlicesRep s2 inputBase input rootBase value bases d2 :=
+  { extraData := h.extraData.imp fun _ h' => h'.imp fun _ h'' =>
+      memDetermined_inputSliceDescriptor _ _ _ _ _ _ s1 s2 agree h''
+    blockAccessList := h.blockAccessList.imp fun _ h' => h'.imp fun _ h'' =>
+      memDetermined_inputSliceDescriptor _ _ _ _ _ _ s1 s2 agree h''
+    transactions := memDetermined_inputSliceDescriptorArray _ _ _ _ s1 s2 agree h.transactions
+    witnessState := memDetermined_inputSliceDescriptorArray _ _ _ _ s1 s2 agree h.witnessState
+    witnessCodes := memDetermined_inputSliceDescriptorArray _ _ _ _ s1 s2 agree h.witnessCodes
+    witnessHeaders := memDetermined_inputSliceDescriptorArray _ _ _ _ s1 s2 agree h.witnessHeaders }
+
+theorem memDetermined_rawV4FixedFields (rootBase : Nat) (value : SszBridge.RawV4) :
+    MemDetermined (fun s => RawV4FixedFieldsRep s rootBase value) :=
+  fun s1 s2 agree h =>
+    { baseFeePerGas := memDetermined_bitVectorLE _ _ s1 s2 agree h.baseFeePerGas
+      parentHash := memDetermined_fixedByteVector _ _ s1 s2 agree h.parentHash
+      feeRecipient := memDetermined_fixedByteVector _ _ s1 s2 agree h.feeRecipient
+      stateRoot := memDetermined_fixedByteVector _ _ s1 s2 agree h.stateRoot
+      receiptsRoot := memDetermined_fixedByteVector _ _ s1 s2 agree h.receiptsRoot
+      logsBloom := memDetermined_fixedByteVector _ _ s1 s2 agree h.logsBloom
+      prevRandao := memDetermined_fixedByteVector _ _ s1 s2 agree h.prevRandao
+      blockHash := memDetermined_fixedByteVector _ _ s1 s2 agree h.blockHash
+      parentBeaconBlockRoot :=
+        memDetermined_fixedByteVector _ _ s1 s2 agree h.parentBeaconBlockRoot
+      blockNumber := memDetermined_word64 _ _ s1 s2 agree h.blockNumber
+      gasLimit := memDetermined_word64 _ _ s1 s2 agree h.gasLimit
+      gasUsed := memDetermined_word64 _ _ s1 s2 agree h.gasUsed
+      timestamp := memDetermined_word64 _ _ s1 s2 agree h.timestamp
+      blobGasUsed := memDetermined_word64 _ _ s1 s2 agree h.blobGasUsed
+      excessBlobGas := memDetermined_word64 _ _ s1 s2 agree h.excessBlobGas
+      slotNumber := memDetermined_word64 _ _ s1 s2 agree h.slotNumber
+      chainConfig := memDetermined_chainConfig _ _ s1 s2 agree h.chainConfig }
+
+/-- **The root object, and the one case the combinators did not reach.**
+
+`RawV4Rep.layout` is `∃ bases, RawV4AllocationRep … ∧ ∃ descriptors : RawV4DescriptorRep …,
+RawV4InputSlicesRep … descriptors` — an existential over a **proof**, whose type mentions the state.
+`memDetermined_exists` cannot apply: it quantifies over an `α` fixed independently of the state,
+and here the binder's type changes as the state does.
+
+So the transport is written by hand: build the descriptor witness at `s2` first, then carry the
+input-slice facts across against *that* witness rather than the original. `RawV4InputSlicesRep` does
+not use its `descriptors` argument in any field, so the two are interchangeable once both exist —
+but that is a fact about this definition, not something the combinator could have known. -/
+theorem memDetermined_rawV4 (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    (value : SszBridge.RawV4) :
+    MemDetermined (fun s => RawV4Rep s inputBase input rootBase value) :=
+  fun s1 s2 agree h =>
+    { layout := by
+        obtain ⟨bases, halloc, d1, hslices⟩ := h.layout
+        have d2 := memDetermined_rawV4Descriptor rootBase value bases s1 s2 agree d1
+        exact ⟨bases, memDetermined_rawV4Allocation rootBase value bases s1 s2 agree halloc, d2,
+          memDetermined_rawV4InputSlices inputBase input rootBase value bases agree d1 d2 hslices⟩
+      fixedFields := memDetermined_rawV4FixedFields _ _ s1 s2 agree h.fixedFields }
+
 /-! ## The audit results, stated as `LocalTo`
 
 `LocalTo` at the universal region is the eligibility fact the discipline needs. Stated on the
@@ -354,5 +460,10 @@ theorem localTo_canonicalRepNewPayloadRequest :
     LocalTo canonicalRepNewPayloadRequest (fun _ _ => True) :=
   fun inputBase input value s1 s2 base agree h =>
     memDetermined_newPayloadRequest inputBase input base value s1 s2 (fun a => agree a trivial) h
+
+theorem localTo_canonicalRepRawV4 :
+    LocalTo canonicalRepRawV4 (fun _ _ => True) :=
+  fun inputBase input value s1 s2 base agree h =>
+    memDetermined_rawV4 inputBase input base value s1 s2 (fun a => agree a trivial) h
 
 end BinaryFv.SSZ.Zesu.Contracts.RepresentationAudit
