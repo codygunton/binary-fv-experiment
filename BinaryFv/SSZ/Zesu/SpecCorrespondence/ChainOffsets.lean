@@ -996,4 +996,68 @@ theorem decodeCanonical_forkActivation_rejects_of_field (b : ByteArray) (o0 o1 :
       · rw [p0] at hb; exact absurd hb (by simp)
       · rw [p1] at hb; exact absurd hb (by simp)
 
+/-! ## The first chain link is CLOSED
+
+`forkActivation_acceptance_agrees`: the source-shaped `meaningForkActivation` and the oracle's
+`decodeCanonical forkActivationType` accept the same buffers — **with no assumption at all.** Both fields
+are oracle-shaped, so nothing here rests on `sourceShapedContainersAgreeWithOracle`, which makes this the
+one link of the three that is unconditionally true rather than conditionally.
+
+The only new lemma the assembly needed was `except_bind_pure`, and it is the defeq family a sixth time:
+`let _ ← …` leaves a `pure PUnit.unit` bind, which is `Except.ok PUnit.unit` only up to defeq, so
+`except_bind_ok` could not match it. One `rfl` lemma. Worth noting that the entry's assembly never hit
+this because its offset check is followed immediately by a *value*-binding `let`, not a discarded one —
+the same construct, differing only in whether the bound name is used. -/
+
+/-- `except_bind_ok`'s `pure`-shaped twin. `let _ <- ...` leaves a `pure PUnit.unit` bind, which is
+`Except.ok PUnit.unit` only up to defeq -- so `except_bind_ok` cannot match it. -/
+theorem except_bind_pure {α β : Type} (a : α) (f : α → Except SszDecodeError β) :
+    (pure a : Except SszDecodeError α) >>= f = f a := rfl
+
+/-- **The `forkActivation` link, closed.** Acceptance agreement between the source-shaped
+`meaningForkActivation` and the oracle's `decodeCanonical`, with **no assumption** -- both fields are
+oracle-shaped, so nothing here rests on `sourceShapedContainersAgreeWithOracle`. -/
+theorem forkActivation_acceptance_agrees (b : ByteArray) (hu32 : b.size < UInt32.size) :
+    isAccepted (meaningForkActivation b)
+      = (SszBridge.decodeCanonical SszBridge.forkActivationType b).toOption.isSome := by
+  rw [meaningForkActivation]
+  by_cases h8 : b.size < 8
+  · rw [if_pos h8, decodeCanonical_forkActivation_short h8]
+    rfl
+  rw [if_neg h8]
+  obtain ⟨o0, o1, hoffs⟩ := forkActivation_offsets_of_eight b (by omega)
+  obtain ⟨r0, r1⟩ := (extractFieldOffsets_forkActivation_eq_meaningReads b o0 o1).mp hoffs
+  simp only [r0, r1, except_bind_ok]
+  by_cases hcan : meaningRequireCanonicalOffsets b 8 [o0, o1] = .ok ()
+  · obtain ⟨-, hc0, hc01, hc1⟩ := (requireCanonicalOffsets_forkActivation b o0 o1).mp hcan
+    rw [hcan, except_bind_ok, except_bind_pure, isAccepted_forkActivation_join,
+      meaningOptionalU64_accepted, meaningOptionalU64_accepted]
+    cases hd0 : SszBridge.decodeCanonical optionalU64Type (b.extract o0 o1) with
+    | error e0 =>
+        rw [decodeCanonical_forkActivation_rejects_of_field b o0 o1 hoffs hc0 hc01 hc1 hu32
+          (.inl (by rw [hd0]; rfl))]
+        rfl
+    | ok x0 =>
+      cases hd1 : SszBridge.decodeCanonical optionalU64Type (b.extract o1 b.size) with
+      | error e1 =>
+          rw [decodeCanonical_forkActivation_rejects_of_field b o0 o1 hoffs hc0 hc01 hc1 hu32
+            (.inr (by rw [hd1]; rfl))]
+          simp [Except.toOption]
+      | ok x1 =>
+          rw [decodeCanonical_forkActivation_of_accepted b o0 o1 hoffs hc0 hc01 hc1 hu32
+            (by rw [hd0]; rfl) (by rw [hd1]; rfl)]
+          simp [Except.toOption]
+  · have herr : ∃ e, meaningRequireCanonicalOffsets b 8 [o0, o1] = .error e := by
+      cases hc : meaningRequireCanonicalOffsets b 8 [o0, o1] with
+      | error e => exact ⟨e, rfl⟩
+      | ok u => exact absurd (by rw [hc]) hcan
+    obtain ⟨e, he⟩ := herr
+    rw [he, except_bind_error]
+    have hbad : ¬ (o0 = 8 ∧ o0 ≤ o1 ∧ o1 ≤ b.size) := by
+      intro hgood
+      exact hcan ((requireCanonicalOffsets_forkActivation b o0 o1).mpr
+        ⟨by omega, hgood.1, hgood.2.1, hgood.2.2⟩)
+    rw [decodeCanonical_forkActivation_rejects_noncanonical b o0 o1 hoffs hbad]
+    rfl
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
