@@ -1375,4 +1375,31 @@ theorem serialize_u64_eq_uint64LE (x : SszBridge.u64.interp) :
     SSZType.serialize SszBridge.u64 x = uint64LE x := by
   simp [SSZType.serialize, uint64LE]
 
+/-! ## The `u64` read bridges
+
+`readUInt32LE_fits` and `readUInt32LE_extract` one width up. Both port line for line — the `u32`
+originals are generic in the offset and specific only in the width, so raising the width is textual.
+
+That is the counterpart to the write-side surprise above: on the WRITE side the two vocabularies were not
+definitionally equal and needed a real bridge, while on the READ side the machinery lifts mechanically.
+The asymmetry is worth naming because it predicts where the remaining work is — the value-level
+decompositions need `uint64LE_eq_extract_iff`, which composes these two with the `bv_decide` primitive
+exactly as `uint32LE_eq_extract_iff` does, and so should also be a port rather than new content. -/
+
+/-- A successful eight-byte read forces the room for it. `readUInt32LE_fits` one width up. -/
+theorem readUInt64LE_fits {body : ByteArray} {i : Nat} {o : UInt64}
+    (h : readUInt64LE body i = some o) : i + 8 ≤ body.size := by
+  rw [readUInt64LE] at h
+  split at h
+  · assumption
+  · exact absurd h (by simp)
+
+/-- Reading a `uint64` at `i` is reading it at 0 in the eight-byte slice starting at `i`. -/
+theorem readUInt64LE_extract (body : ByteArray) (i : Nat) (h : i + 8 ≤ body.size) :
+    readUInt64LE (body.extract i (i + 8)) 0 = readUInt64LE body i := by
+  have hslice : (body.extract i (i + 8)).size = 8 := by rw [ByteArray.size_extract]; omega
+  rw [readUInt64LE, readUInt64LE, dif_pos (by omega : 0 + 8 ≤ (body.extract i (i + 8)).size),
+    dif_pos h]
+  simp [ByteArray.getElem_extract]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
