@@ -46,6 +46,7 @@ import BinaryFv.SSZ.Zesu.Contracts.CatalogAudit
 import BinaryFv.SSZ.Zesu.Contracts.CompositionTests
 import BinaryFv.SSZ.Zesu.Contracts.FrameGap
 import BinaryFv.SSZ.Zesu.Contracts.Ownership
+import BinaryFv.SSZ.Zesu.Contracts.RepresentationAudit
 import BinaryFv.SSZ.Zesu.Contracts.Runtime
 import BinaryFv.SSZ.Zesu.Contracts.Entry
 import BinaryFv.SSZ.Zesu.Contracts.ExportedDecoder
