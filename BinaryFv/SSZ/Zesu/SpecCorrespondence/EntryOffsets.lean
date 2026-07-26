@@ -1809,7 +1809,7 @@ theorem decodeRawV4_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes)
 /-! ### The fork bound, matched across the layer boundary
 
 The source checks `fork > 20` *inside* `meaningChainConfig`; the oracle checks it in `decodeRawV4`,
-after a complete canonical decode of the whole body. These two lemmas are the join.
+after a complete canonical decode of the whole body. These two lemmas move the bound across the layer boundary.
 
 **Nothing here is discharged, and the wording matters.** `sourceShapedContainersAgreeWithOracle`
 already states the `fork ≤ 20` bound in the oracle's terms — the bound is written into the obligation
@@ -1834,6 +1834,43 @@ theorem chainConfig_acceptance_is_rawV4_fork_bound
     isAccepted (meaningChainConfig slice)
       = decide ((SszBridge.rawV4OfInterp v).chainConfig.activeFork.fork ≤ 20) := by
   rw [chainConfig_acceptance_is_fork_bound containersAgree hdec, rawV4_fork_eq_field_fork]
+
+/-- **The source side at the raw level, with its length check eliminated.**
+
+In scope `requireU32Length` always succeeds, so `meaningDecodeRaw` is its own body: three envelope
+tests, four offset reads, the canonical-offsets check, then the four field meanings.
+
+The right-hand side is a transcription of the definition, which is why the equation is worth stating
+even though it looks like a restatement — if it were mistranscribed the equation would not hold, so
+the compiler is the check on it, the same guard `executionPayloadType_eq` gives the field list.
+
+Supplied-versus-proved, per the standing rule: nothing here comes from an assumption. Every conjunct
+is the definition, and the only input is the scope hypothesis, which kills the first bind. -/
+theorem meaningDecodeRaw_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    meaningDecodeRaw bytes =
+      (if bytes.size < 2 then .error .invalidSsz
+        else if !(SszBridge.hasSchemaId bytes) then .error .invalidSsz
+        else
+          let body := bytes.extract 2 bytes.size
+          if body.size < 16 then .error .invalidSsz
+          else do
+            let zeroth ← meaningReadOffset body 0
+            let first ← meaningReadOffset body 4
+            let second ← meaningReadOffset body 8
+            let third ← meaningReadOffset body 12
+            let _ ← meaningRequireCanonicalOffsets body 16 [zeroth, first, second, third]
+            let newPayloadRequest ← meaningNewPayloadRequest (body.extract zeroth first)
+            let witness ← meaningExecutionWitness (body.extract first second)
+            let chainConfig ← meaningChainConfig (body.extract second third)
+            let publicKeys ← meaningPublicKeys (body.extract third body.size)
+            return {
+              newPayloadRequest := newPayloadRequest
+              witness := witness
+              chainConfig := chainConfig
+              publicKeys := publicKeys
+            }) := by
+  rw [meaningDecodeRaw, meaningRequireU32Length_ok_in_scope h]
+  rfl
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
