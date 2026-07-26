@@ -397,6 +397,14 @@ converse is what ties the reported value to the observation rather than leaving 
 `RiscvSpec.execute`'s own docstring makes the "no failure mode becomes a rejection" claim *at the
 `execute` level* while the proof reached only `executeDecode`. Neither gap was visible from reading
 the rejection proofs, which are correct.
+
+**The converse column carries *less* trust than the forward one, which is the opposite of what a
+reader will assume.** The forward lemmas consume `runnerSymbols_isSome` and
+`canonicalResultBuffer_ne_zero`, both `native_decide`, so they carry
+`Lean.ofReduceBool`/`Lean.trustCompiler`. The converses match on `runnerSymbols` directly and never
+need either witness, so all four are `propext`/`Classical.choice`/`Quot.sound` only. The
+harder-looking direction is the cleaner one; noted because "the inversion must be at least as
+expensive" is the natural and wrong guess.
 -/
 
 /-- **The preflight gate cannot manufacture a rejection.** `executeChecked` either returns the gate's

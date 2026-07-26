@@ -3,6 +3,7 @@ import BinaryFv.RiscV
 import BinaryFv.Keccak
 import BinaryFv.SSZ
 import BinaryFv.SSZ.AxiomHygiene
+import BinaryFv.SSZ.ImportHygiene
 
 /-!
 # `BinaryFv`
