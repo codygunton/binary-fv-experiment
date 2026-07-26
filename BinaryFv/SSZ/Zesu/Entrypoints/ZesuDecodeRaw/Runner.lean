@@ -379,25 +379,24 @@ the answer trustworthy rather than merely produced.
 
 | layer                | accepted forward               | accepted converse | rejected forward               | rejected converse                      |
 | -------------------- | ------------------------------ | ----------------- | ------------------------------ | -------------------------------------- |
-| `classifyWrapperRun` | `classifyWrapperRun_accepted`  | **OPEN**          | `classifyWrapperRun_rejected`  | `wrapper_rejection_forces_checks`      |
-| `executeDecode`      | `executeDecode_accepted_of_run`| **OPEN**          | `executeDecode_rejected_of_run`| `executeDecode_rejected_forces_checks` |
-| `executeChecked`     | (gate is transparent)          | **OPEN**          | (gate is transparent)          | `executeChecked_rejected_forces_gate`  |
-| `RiscvSpec.execute`  | `Root.execute_accepts_of_…`    | **OPEN**          | `Root.execute_rejects_of_…`    | `Root.execute_rejected_forces_checks`  |
+| `classifyWrapperRun` | `classifyWrapperRun_accepted`  | `wrapper_acceptance_forces_checks`     | `classifyWrapperRun_rejected`  | `wrapper_rejection_forces_checks`      |
+| `executeDecode`      | `executeDecode_accepted_of_run`| `executeDecode_accepted_forces_checks` | `executeDecode_rejected_of_run`| `executeDecode_rejected_forces_checks` |
+| `executeChecked`     | (gate is transparent)          | `executeChecked_accepted_forces_gate`  | (gate is transparent)          | `executeChecked_rejected_forces_gate`  |
+| `RiscvSpec.execute`  | `Root.execute_accepts_of_…`    | `Root.execute_accepted_forces_checks`  | `Root.execute_rejects_of_…`    | `Root.execute_rejected_forces_checks`  |
 
-The table is kept because it is what found the gaps, and the `OPEN` cells are written as open rather
-than omitted: an empty cell in a grid you are forced to fill is a different object from an absence
-nobody happened to look for. Two findings came straight off it.
+The table is complete, and it is kept because filling it is what found the two gaps it now records
+as closed. An empty cell in a grid you are forced to fill is a different object from an absence
+nobody happened to look for.
 
-**The whole `accepted` converse column is missing.** "The runner never invents a rejection" is a
+**The whole `accepted` converse column was missing.** "The runner never invents a rejection" was a
 theorem; "the runner never invents an acceptance, and the value it reports is the one memory
-represented" is not. Since `classifyWrapperRun` returns whatever `observeValue final` says, that
-converse is what would tie the reported value to the observation rather than leaving the tie
-asserted.
+represented" was not. Since `classifyWrapperRun` returns whatever `observeValue final` says, that
+converse is what ties the reported value to the observation rather than leaving the tie asserted.
 
-**Both converses stopped one layer below the public API** — closed for `rejected` by the two lemmas
-below and in `Root.lean`, and it mattered because `RiscvSpec.execute`'s own docstring makes the
-"no failure mode becomes a rejection" claim *at the `execute` level* while the proof reached only
-`executeDecode`. Neither gap was visible from reading the rejection proofs, which are correct.
+**Both converses stopped one layer below the public API**, which mattered because
+`RiscvSpec.execute`'s own docstring makes the "no failure mode becomes a rejection" claim *at the
+`execute` level* while the proof reached only `executeDecode`. Neither gap was visible from reading
+the rejection proofs, which are correct.
 -/
 
 /-- **The preflight gate cannot manufacture a rejection.** `executeChecked` either returns the gate's
@@ -413,5 +412,49 @@ theorem executeChecked_rejected_forces_gate {binary : RiscvSpec.ValidatedElf} {i
   | .ok u =>
       rw [hp] at h
       exact ⟨by cases u; rfl, h⟩
+
+/-- **The acceptance converse, lifted to the executable entry.** An `accepted value` answer really
+came from a machine that reached the sentinel with `a0 = 1`, an executed `zesu_raw_error` reporting
+`ok`, an executed `zesu_raw_result` returning the canonical non-null buffer, a discriminant reading
+`present` — and, the conjunct that matters, an observation of **that same value**. -/
+theorem executeDecode_accepted_forces_checks {input : ByteArray} {value : SszBridge.RawV4}
+    (h : executeDecode input = .ok (.accepted value)) :
+    ∃ (final : State) (steps : Nat) (rawResult rawError : AccessorOutcome),
+      observeReturnCode? final = some 1 ∧
+      rawError = AccessorOutcome.returned Contracts.DecodeStatus.ok.code ∧
+      rawResult = AccessorOutcome.returned Elfling.canonicalResultBuffer ∧
+      observeOptionTag? final storedResultDiscriminantAddr = some true ∧
+      observeDecodedValue final = some value ∧
+      classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+        Elfling.canonicalResultBuffer rawResult rawError (.reached steps) final
+        = .ok (.accepted value) := by
+  unfold executeDecode at h
+  match hsym : runnerSymbols with
+  | none => simp only [hsym] at h; exact absurd h (by simp)
+  | some symbols =>
+    simp only [hsym, runAnswer] at h
+    match hrun : (runZesuDecodeRaw symbols input).run initialState with
+    | .error e s => simp only [hrun] at h; exact absurd h (by simp)
+    | .ok result s =>
+      simp only [hrun] at h
+      obtain ⟨outcome, final, rawResult, rawError, hresult⟩ :=
+        runZesuDecodeRaw_classifies symbols input hrun
+      have hclass : classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+          Elfling.canonicalResultBuffer rawResult rawError outcome final
+          = .ok (.accepted value) := by
+        rw [← hresult]; exact h
+      obtain ⟨⟨steps, hsteps⟩, hcode, herror, hnull, -, htag, hvalue⟩ := wrapper_acceptance_forces_checks hclass
+      subst hsteps
+      exact ⟨final, steps, rawResult, rawError, hcode, herror, hnull, htag, hvalue, hclass⟩
+
+/-- **The preflight gate cannot manufacture an acceptance either.** Same two-way match as the
+rejection version; the gate contributes only `.invalidArtifact`. -/
+theorem executeChecked_accepted_forces_gate {binary : RiscvSpec.ValidatedElf} {input : ByteArray}
+    {value : SszBridge.RawV4} (h : executeChecked binary input = .ok (.accepted value)) :
+    preflight binary input = .ok () ∧ executeDecode input = .ok (.accepted value) := by
+  unfold executeChecked at h
+  match hp : preflight binary input with
+  | .error e => rw [hp] at h; exact absurd h (by simp)
+  | .ok u => rw [hp] at h; exact ⟨by cases u; rfl, h⟩
 
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw

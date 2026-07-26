@@ -123,6 +123,34 @@ theorem execute_rejected_forces_checks {b : RiscvSpec.ValidatedElf} {input : Byt
     Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_rejected_forces_checks hdec
   exact ⟨hgate, final, rawResult, rawError, hcode, hnull, hstatus⟩
 
+/-- **The public API never invents an acceptance, and the value it reports is the one memory held.**
+
+The twin of `execute_rejected_forces_checks`, and the sharper of the two. Rejection has one shape, so
+its converse mostly rules failure modes out. Acceptance carries a *value*, and `classifyWrapperRun`
+takes that value from `observeDecodedValue final` — so without this, nothing at the public layer ties
+the reported value to the observation. The final conjunct is that tie: an `accepted value` answer
+forces `observeDecodedValue final = some value`, the same `value`.
+
+Stated over an arbitrary `ValidatedElf`, like its twin. -/
+theorem execute_accepted_forces_checks {b : RiscvSpec.ValidatedElf} {input : ByteArray}
+    {value : SszBridge.RawV4} (h : RiscvSpec.execute b input = .ok (.accepted value)) :
+    Zesu.Entrypoints.ZesuDecodeRaw.preflight b input = .ok () ∧
+      ∃ (final : BinaryFv.RiscV.State)
+        (rawResult rawError : Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome),
+        Zesu.Entrypoints.ZesuDecodeRaw.observeReturnCode? final = some 1 ∧
+        rawError = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned
+          Zesu.Contracts.DecodeStatus.ok.code ∧
+        rawResult = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned
+          Zesu.Elfling.canonicalResultBuffer ∧
+        Zesu.MemoryRepresentation.observeOptionTag? final
+          Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr = some true ∧
+        Zesu.Entrypoints.ZesuDecodeRaw.observeDecodedValue final = some value := by
+  rw [RiscvSpec.execute_eq_executeChecked] at h
+  obtain ⟨hgate, hdec⟩ := Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_accepted_forces_gate h
+  obtain ⟨final, _steps, rawResult, rawError, hcode, herror, hnull, htag, hvalue, -⟩ :=
+    Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_accepted_forces_checks hdec
+  exact ⟨hgate, final, rawResult, rawError, hcode, herror, hnull, htag, hvalue⟩
+
 /-- The final Amsterdam V4 compliance statement.  Its dependency spine is intentionally visible:
 spec classification, the canonical Elfling program and its compliance obligation, live Sail traces,
 runner/result observation, and the public execution API. -/

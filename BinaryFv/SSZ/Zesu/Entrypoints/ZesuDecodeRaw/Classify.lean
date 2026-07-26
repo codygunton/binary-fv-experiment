@@ -384,6 +384,98 @@ theorem wrapper_rejection_forces_checks {observeValue : State → Option SszBrid
       | .noReturn => exact absurd h (by simp)
     | some (n + 2) => rw [hcode] at h; exact absurd h (by simp)
 
+/-- **And no failure mode is ever reported as `accepted` — the twin of the lemma above.**
+
+The rejection converse was written first because rejection is where a misclassification is most
+plausible: an exhausted arena and a refused second call are both nonzero and neither is a rejection.
+But the acceptance side needs a converse for a different and arguably sharper reason.
+`classifyWrapperRun` returns **whatever `observeValue final` says**, so without this lemma nothing
+ties the value the runner reports to the value memory actually held — the tie would be asserted by
+the forward lemma's hypotheses rather than forced by the answer.
+
+So the last conjunct is the point: an `accepted value` answer forces `observeValue final = some
+value`, the *same* `value`. The rest forces the four checks that had to pass to get there — return
+code `1`, the `ok` status from the executed `zesu_raw_error`, the non-null canonical buffer from the
+executed `zesu_raw_result`, and a discriminant reading `present`.
+
+Power, checked rather than assumed (three probes, run and reverted): concluding the discriminant
+reads `absent` fails, concluding `rawResult = .returned 0` fails, and replacing the value tie with
+`observeValue final = none` fails. A fourth probe was written and **discarded as void** — its `sed`
+anchor matched nothing, so it "passed" without changing the file. A probe that cannot fail proves
+nothing, and the only way to know is to diff it. -/
+theorem wrapper_acceptance_forces_checks {observeValue : State → Option SszBridge.RawV4}
+    {discriminantAddr resultBase : Nat} {rawResult rawError : AccessorOutcome}
+    {outcome : SentinelOutcome} {final : State} {value : SszBridge.RawV4}
+    (h : classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError
+      outcome final = .ok (.accepted value)) :
+    (∃ steps, outcome = .reached steps) ∧ observeReturnCode? final = some 1 ∧
+      rawError = .returned DecodeStatus.ok.code ∧
+      rawResult = .returned resultBase ∧ resultBase ≠ 0 ∧
+      observeOptionTag? final discriminantAddr = some true ∧
+      observeValue final = some value := by
+  unfold classifyWrapperRun at h
+  match outcome with
+  | .exhausted => exact absurd h (by simp)
+  | .trapped => exact absurd h (by simp)
+  | .reached steps =>
+    simp only at h
+    match hcode : observeReturnCode? final with
+    | none => rw [hcode] at h; exact absurd h (by simp)
+    | some 0 =>
+      rw [hcode] at h
+      match rawError with
+      | .returned status =>
+        match hcat : statusCategory status with
+        | .specRejection =>
+          simp only [hcat] at h
+          match rawResult with
+          | .returned 0 =>
+            match htag : observeOptionTag? final discriminantAddr with
+            | some false => rw [htag] at h; exact absurd h (by simp)
+            | some true => rw [htag] at h; exact absurd h (by simp)
+            | none => rw [htag] at h; exact absurd h (by simp)
+          | .returned (n + 1) => exact absurd h (by simp)
+          | .trapped => exact absurd h (by simp)
+          | .exhausted => exact absurd h (by simp)
+          | .noReturn => exact absurd h (by simp)
+        | .arenaExhausted => exact absurd h (by simp [hcat])
+        | .undocumented => exact absurd h (by simp [hcat])
+      | .trapped => exact absurd h (by simp)
+      | .exhausted => exact absurd h (by simp)
+      | .noReturn => exact absurd h (by simp)
+    | some 1 =>
+      rw [hcode] at h
+      match rawError with
+      | .returned status =>
+        by_cases hstatus : status = DecodeStatus.ok.code
+        · simp [hstatus] at h
+          match rawResult with
+          | .returned pointer =>
+            by_cases hptr : pointer = resultBase ∧ pointer ≠ 0
+            · simp [hptr] at h
+              match htag : observeOptionTag? final discriminantAddr with
+              | some true =>
+                rw [htag] at h
+                match hv : observeValue final with
+                | some v =>
+                  rw [hv] at h
+                  have hnonnull : resultBase ≠ 0 := hptr.1 ▸ hptr.2
+                  simp [hnonnull] at h
+                  subst h
+                  exact ⟨⟨steps, rfl⟩, rfl, by rw [hstatus], by rw [hptr.1], hnonnull, rfl, rfl⟩
+                | none => rw [hv] at h; exact absurd h (by simp)
+              | some false => rw [htag] at h; exact absurd h (by simp)
+              | none => rw [htag] at h; exact absurd h (by simp)
+            · simp [hptr] at h
+          | .trapped => exact absurd h (by simp)
+          | .exhausted => exact absurd h (by simp)
+          | .noReturn => exact absurd h (by simp)
+        · simp [hstatus] at h
+      | .trapped => exact absurd h (by simp)
+      | .exhausted => exact absurd h (by simp)
+      | .noReturn => exact absurd h (by simp)
+    | some (n + 2) => rw [hcode] at h; exact absurd h (by simp)
+
 /-! ### The two success paths -/
 
 /-- A run that returned `1`, whose executed accessors returned the `ok` code and the canonical
