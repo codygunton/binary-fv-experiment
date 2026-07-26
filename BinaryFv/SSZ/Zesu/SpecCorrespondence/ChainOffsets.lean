@@ -1151,4 +1151,32 @@ theorem deserializeVarFields_fixed_step {t : SSZType} {ts : List SSZType} {b : B
           · rename_i hrec
             exact ⟨_, hrec⟩
 
+/-- A successful `forkConfig` walk forces the source's monotonicity conjuncts: step over the fixed `u64`,
+then one variable-guard application. -/
+theorem deserializeVarFields_forkConfig_offsets_sound {b : ByteArray} {o0 o1 : Nat}
+    {v : SSZType.interpFields forkConfigFields}
+    (h : SSZType.deserializeVarFields forkConfigFields b 0 [o0, o1] b.size = .ok v) :
+    o0 ≤ o1 ∧ o1 ≤ b.size := by
+  have h0 : SSZType.deserializeVarFields
+      (SszBridge.u64 :: SszBridge.forkActivationType ::
+        [.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork])
+      b 0 [o0, o1] b.size = .ok v := h
+  obtain ⟨v1, h1⟩ := deserializeVarFields_fixed_step u64_isFixed h0
+  obtain ⟨a01, a1, -, -⟩ := deserializeVarFields_var_guard forkActivationType_not_fixed h1
+  simp only [List.head?_cons, Option.getD_some] at a01 a1
+  exact ⟨a01, a1⟩
+
+/-- The same at `chainConfig`, whose table is a single offset — so the guard's sentinel supplies
+`o ≤ b.size` directly and there is no monotonicity pair to recover. -/
+theorem deserializeVarFields_chainConfig_offsets_sound {b : ByteArray} {o : Nat}
+    {v : SSZType.interpFields chainConfigFields}
+    (h : SSZType.deserializeVarFields chainConfigFields b 0 [o] b.size = .ok v) :
+    o ≤ b.size := by
+  have h0 : SSZType.deserializeVarFields
+      (SszBridge.u64 :: [SszBridge.forkConfigType]) b 0 [o] b.size = .ok v := h
+  obtain ⟨v1, h1⟩ := deserializeVarFields_fixed_step u64_isFixed h0
+  obtain ⟨a0, -, -, -⟩ := deserializeVarFields_var_guard forkConfigType_not_fixed h1
+  simp only [List.head?_nil, Option.getD_none] at a0
+  exact a0
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
