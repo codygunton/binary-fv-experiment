@@ -678,4 +678,41 @@ theorem serialize_forkActivation (v : SSZType.interpFields forkActivationFields)
     Bool.false_eq_true, if_false, e0, e1, ByteArray.append_empty,
     SSZType.fixedSectionSizeFields, SSZType.fixedSectionSize, BYTES_PER_LENGTH_OFFSET]
 
+/-! ### Recovering the reads behind the `forkActivation` table
+
+`uint32LE_eq_extract_iff` is stated against a *read* at a position, while the decomposition carries the
+table as a list of `Nat`s. These recover the two reads that produced them, which is what turns each
+offset-**bytes** condition from the re-serialization equality into an offset-**value** condition the
+canonicality check can discharge.
+
+Note this pair is genuinely arity-specific and could not be made arity-free the way the walk and
+concatenation lemmas were: `uint32LE_eq_extract_iff` is generic in the position, but the *number* of reads
+is fixed by the schema's variable-field count, and the conclusion is a tuple of that many iffs. Worth
+saying because the arity-free default earned four returns today and it would be easy to over-apply it —
+the distinction is that a walk recurses over the list while this destructures it. -/
+
+/-- The two reads behind a `forkActivation` table, recovered from the table itself. -/
+theorem forkActivation_offset_reads (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1]) :
+    ∃ w0 w1, readUInt32LE b 0 = some w0 ∧ readUInt32LE b 4 = some w1 ∧
+      o0 = w0.toNat ∧ o1 = w1.toNat := by
+  rw [extractFieldOffsets_forkActivation] at hoffs
+  split at hoffs
+  · rename_i w0 w1 r0 r1
+    simp only [Except.ok.injEq, List.cons.injEq] at hoffs
+    exact ⟨w0, w1, r0, r1, hoffs.1.symm, hoffs.2.1.symm⟩
+  · exact absurd hoffs (by simp)
+
+/-- Offset **bytes** to offset **values**, at `forkActivation`'s two table positions. The arity-two
+analogue of `entry_offsetBytes_iff`, and the last piece the accepting case needs before the value-level
+decomposition itself. -/
+theorem forkActivation_offsetBytes_iff (b : ByteArray) (o0 o1 : Nat)
+    (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1])
+    (n : Nat) (hn : n < UInt32.size) :
+    (uint32LE (Nat.toUInt32 n) = b.extract 0 4 ↔ n = o0) ∧
+      (uint32LE (Nat.toUInt32 n) = b.extract 4 8 ↔ n = o1) := by
+  obtain ⟨w0, w1, r0, r1, e0, e1⟩ := forkActivation_offset_reads b o0 o1 hoffs
+  subst e0; subst e1
+  exact ⟨uint32LE_eq_extract_iff b 0 n w0 r0 hn, uint32LE_eq_extract_iff b 4 n w1 r1 hn⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
