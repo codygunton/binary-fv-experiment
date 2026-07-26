@@ -646,4 +646,36 @@ theorem decodeCanonical_forkActivation_rejects_noncanonical (b : ByteArray) (o0 
       rw [forkActivationFields_fixedSection, List.head?_cons, Option.some.injEq] at hhead
       exact hbad ⟨hhead, deserializeVarFields_forkActivation_offsets_sound hwalk⟩
 
+/-! ### The re-serialization side at arity two, and a lemma that turned out not to be needed
+
+`serialize_entry` at arity two: the fixed prefix is two `uint32LE` offsets, the first pinned at the derived
+8 and the second at `8 + |s0|`.
+
+**The arity-two slice reassembly needs no new lemma, and that is the point of the arity-free atoms rather
+than a lucky break.** The entry's join needed `extract_four` and the `append4_*` family — four regions
+hard-coded. Here the requirement is `s0 ++ s1 = b.extract o0 b.size ↔ (s0 = b.extract o0 o1 ∧ s1 = b.extract
+o1 b.size)`, which is exactly `append_eq_extract_iff b o0 o1 b.size` with its width hypothesis. That lemma
+was written in `EntryOffsets` under the argument that three parallel arity-specific copies would be worse
+than two atoms iterated; this is the case it was written for, and the arity-2 instance is the atom itself
+with nothing to iterate.
+
+So the remaining gap in the accepting case is narrower than the entry's was: the value-level decomposition,
+with the offset arithmetic and the reassembly both already in hand. -/
+
+/-- **The `forkActivation` container's serialization, expanded.** `serialize_entry` at arity two: the
+fixed prefix is two `uint32LE` offsets, the first pinned at the derived 8 and the second at
+`8 + |s0|`. -/
+theorem serialize_forkActivation (v : SSZType.interpFields forkActivationFields)
+    (s0 s1 : ByteArray)
+    (e0 : SSZType.serialize
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) v.1 = s0)
+    (e1 : SSZType.serialize
+        (.list SszBridge.u64 SszBridge.maxOptionalForkActivationValues) v.2.1 = s1) :
+    SSZType.serialize (.container forkActivationFields) v =
+      (uint32LE (Nat.toUInt32 8) ++ uint32LE (Nat.toUInt32 (8 + s0.size))) ++ (s0 ++ s1) := by
+  rw [SSZType.serialize]
+  simp only [forkActivationFields, SSZType.serializeFieldsAux, optionalU64Field_not_fixed,
+    Bool.false_eq_true, if_false, e0, e1, ByteArray.append_empty,
+    SSZType.fixedSectionSizeFields, SSZType.fixedSectionSize, BYTES_PER_LENGTH_OFFSET]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
