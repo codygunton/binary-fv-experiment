@@ -1325,6 +1325,44 @@ theorem executionPayloadFields_leadingFixed :
 /-- And the two constants genuinely conflict: the V3 classifier's `528` is neither of them. -/
 theorem v3Constant_ne_v4FixedSection : (528 : Nat) ≠ 540 := by decide
 
+/-- `newPayloadRequestType`'s field list, the middle level of the V3 classifier's descent. -/
+def newPayloadRequestFields : List SSZType :=
+  [SszBridge.executionPayloadType,
+    .list (SszBridge.byteVector 32) SszBridge.maxBlobCommitmentsPerBlock,
+    SszBridge.byteVector 32,
+    SszBridge.executionRequestsType]
+
+theorem newPayloadRequestType_eq :
+    SszBridge.newPayloadRequestType = .container newPayloadRequestFields := rfl
+
+/-- **44 is derived too** — offsets at 0 and 4, the fixed `byteVector 32` across bytes 8–39, the
+last offset at 40. -/
+theorem newPayloadRequestFields_fixedSection :
+    SSZType.fixedSectionSizeFields newPayloadRequestFields = 44 := by decide
+
+/-! ### Why the V3 classifier looks like it should discriminate, and does not until the last test
+
+All three constants the classifier keys on are now derived from field lists rather than quoted, and
+laid out together the story is legible: **the first two agree with V4 and only the third conflicts.**
+
+* `requestOffset = 16` — and `entryFields`' fixed section is 16, so V4 passes.
+* `payloadOffset = 44` — and `newPayloadRequestFields`' fixed section is 44, so V4 passes again.
+* the `u32` at payload byte 436 must be `528` — but `executionPayloadFields`' fixed section is 540,
+  and canonicality *forces* that byte to be the fixed section size. V4 cannot pass.
+
+So the exclusion is not "the shapes obviously differ". A V4 buffer satisfies two thirds of the
+classifier exactly, and the conflict is one decidable inequality deep — which is why it is invisible
+by eye, and why 528 being itself a plausible intermediate offset in the same fixed section makes it
+more so. -/
+
+theorem v3Classifier_constants_derived :
+    SSZType.fixedSectionSizeFields entryFields = 16 ∧
+      SSZType.fixedSectionSizeFields newPayloadRequestFields = 44 ∧
+      SSZType.fixedSectionSizeFields executionPayloadFields = 540 ∧
+      (528 : Nat) ≠ 540 :=
+  ⟨entryFields_fixedSectionSize, newPayloadRequestFields_fixedSection,
+    executionPayloadFields_fixedSection, by decide⟩
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
