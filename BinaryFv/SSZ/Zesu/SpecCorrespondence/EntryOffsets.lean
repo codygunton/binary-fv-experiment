@@ -968,7 +968,7 @@ direction that has to *construct* the accepted value and show its re-serializati
 buffer, so it is where every piece built above finally meets. -/
 
 /-- **Four canonical field decodes make the entry decode canonical.** -/
-theorem decodeCanonical_entry_of_fields
+theorem decodeCanonical_entry_eq_of_fields
     (body : ByteArray) (o0 o1 o2 o3 : Nat)
     (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
     (h0 : o0 = 16) (h01 : o0 ≤ o1) (h12 : o1 ≤ o2) (h23 : o2 ≤ o3) (h3 : o3 ≤ body.size)
@@ -979,7 +979,8 @@ theorem decodeCanonical_entry_of_fields
     (a1 : SszBridge.decodeCanonical SszBridge.witnessType (body.extract o1 o2) = .ok x1)
     (a2 : SszBridge.decodeCanonical SszBridge.chainConfigType (body.extract o2 o3) = .ok x2)
     (a3 : SszBridge.decodeCanonical publicKeysType (body.extract o3 body.size) = .ok x3) :
-    (SszBridge.decodeCanonical SszBridge.statelessInputV4Type body).toOption.isSome = true := by
+    SszBridge.decodeCanonical SszBridge.statelessInputV4Type body
+      = .ok (x0, x1, x2, x3, PUnit.unit) := by
   -- `omega` treats `UInt32.size` as an atom; this links it to the numeral.
   have husz : UInt32.size = 4294967296 := rfl
   obtain ⟨d0, s0eq⟩ := decodeCanonical_inv a0
@@ -1024,6 +1025,39 @@ theorem decodeCanonical_entry_of_fields
   simp only []
   rw [hser, byteArray_beq_self]
   rfl
+
+/-- Acceptance-granularity corollary of the value-level statement. -/
+theorem decodeCanonical_entry_of_fields
+    (body : ByteArray) (o0 o1 o2 o3 : Nat)
+    (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
+    (h0 : o0 = 16) (h01 : o0 ≤ o1) (h12 : o1 ≤ o2) (h23 : o2 ≤ o3) (h3 : o3 ≤ body.size)
+    (hu32 : body.size < UInt32.size)
+    {x0 : SszBridge.newPayloadRequestType.interp} {x1 : SszBridge.witnessType.interp}
+    {x2 : SszBridge.chainConfigType.interp} {x3 : publicKeysType.interp}
+    (a0 : SszBridge.decodeCanonical SszBridge.newPayloadRequestType (body.extract o0 o1) = .ok x0)
+    (a1 : SszBridge.decodeCanonical SszBridge.witnessType (body.extract o1 o2) = .ok x1)
+    (a2 : SszBridge.decodeCanonical SszBridge.chainConfigType (body.extract o2 o3) = .ok x2)
+    (a3 : SszBridge.decodeCanonical publicKeysType (body.extract o3 body.size) = .ok x3) :
+    (SszBridge.decodeCanonical SszBridge.statelessInputV4Type body).toOption.isSome = true := by
+  rw [decodeCanonical_entry_eq_of_fields body o0 o1 o2 o3 hoffs h0 h01 h12 h23 h3 hu32 a0 a1 a2 a3]
+  rfl
+
+/-! ### The fork bound is the same projection on both sides
+
+`decodeRawV4` throws `unknownFork` on `raw.chainConfig.activeFork.fork > 20`, where
+`raw = rawV4OfInterp value`. `sourceShapedContainersAgreeWithOracle` bounds
+`(rawChainConfigOf value').activeFork.fork` for the chainConfig *field's* decode. Those are the same
+number, and the reason is definitional rather than analogous: `rawV4OfInterp` sets
+`chainConfig := rawChainConfigOf value.2.2.1`, so the whole-body projection *is* the field
+projection applied to the third component.
+
+This is why the value-level decomposition matters and the acceptance-level one does not suffice: the
+bound is a predicate on the decoded VALUE, so matching it needs to know the entry decode's third
+component is exactly what the chainConfig field decode returned. -/
+
+theorem rawV4_fork_eq_field_fork (value : SszBridge.statelessInputV4Type.interp) :
+    (SszBridge.rawV4OfInterp value).chainConfig.activeFork.fork
+      = (SszBridge.rawChainConfigOf value.2.2.1).activeFork.fork := rfl
 
 /-! ## The entry composition, forward direction
 
