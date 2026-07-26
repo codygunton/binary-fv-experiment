@@ -1402,4 +1402,26 @@ theorem readUInt64LE_extract (body : ByteArray) (i : Nat) (h : i + 8 ≤ body.si
     dif_pos h]
   simp [ByteArray.getElem_extract]
 
+/-- Offset bytes to offset values at `u64` width. A line-for-line port of `uint32LE_eq_extract_iff`,
+written from the sibling rather than reconstructed -- which is the lesson the previous two commits paid
+for twice.
+
+`hn` is load-bearing for TRUTH here as it is at `u32`: `Nat.toUInt64` wraps at `2 ^ 64`, so without the
+bound two different `n` write the same eight bytes and the equivalence is false. -/
+theorem uint64LE_eq_extract_iff (body : ByteArray) (i n : Nat) (o : UInt64)
+    (hread : readUInt64LE body i = some o) (hn : n < UInt64.size) :
+    uint64LE (Nat.toUInt64 n) = body.extract i (i + 8) ↔ n = o.toNat := by
+  have hfits : i + 8 ≤ body.size := readUInt64LE_fits hread
+  have hslice : (body.extract i (i + 8)).size = 8 := by rw [ByteArray.size_extract]; omega
+  have hcanon : uint64LE o = body.extract i (i + 8) :=
+    uint64LE_of_readUInt64LE _ o hslice (by rw [readUInt64LE_extract body i hfits]; exact hread)
+  rw [← hcanon]
+  constructor
+  · intro h
+    rw [← uint64LE_injective h]
+    exact (UInt64.toNat_ofNat_of_lt hn).symm
+  · intro h
+    subst h
+    rw [show Nat.toUInt64 o.toNat = o from UInt64.ofNat_toNat]
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
