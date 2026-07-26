@@ -1773,4 +1773,95 @@ theorem forkConfig_forkGuard_false (b : ByteArray) (o0 o1 : Nat)
       rw [hdc] at hrej
       exact absurd hrej (by simp [Except.toOption])
 
+/-- **The `forkConfig` link, closed.** Acceptance agreement between the source-shaped `meaningForkConfig`
+and the oracle's canonical decode with the fork bound applied after it.
+
+The `fork > 20` test stays exactly where the source puts it -- between the offset-table check and the child
+decodes -- and is never commuted past them. The four-row acceptance table at the head of this section is why
+that costs nothing.
+
+**Every leaf that faces the oracle's match destructures the scrutinee rather than rewriting through it.**
+`rw` will not cross two `match` terms elaborated in different contexts even when they print identically; the
+obstruction dissolves once the scrutinee is a constructor. Same lesson as the fixed-head walk step, where
+`cases varOffs` had to come before the unfold. -/
+theorem forkConfig_acceptance_agrees (b : ByteArray) (hu32 : b.size < UInt32.size) :
+    isAccepted (meaningForkConfig b)
+      = (match SszBridge.decodeCanonical SszBridge.forkConfigType b with
+          | .ok v => decide ((SszBridge.rawForkConfigOf v).fork ≤ 20)
+          | .error _ => false) := by
+  have husz : UInt32.size = 4294967296 := rfl
+  rw [meaningForkConfig]
+  by_cases h16 : b.size < 16
+  · rw [if_pos h16, decodeCanonical_forkConfig_short h16]
+    rfl
+  rw [if_neg h16]
+  obtain ⟨o0, o1, hoffs⟩ := forkConfig_offsets_of_sixteen b (by omega)
+  obtain ⟨r0, r1⟩ := (extractFieldOffsets_forkConfig_eq_meaningReads b o0 o1).mp hoffs
+  simp only [r0, r1, except_bind_ok]
+  by_cases hcan : meaningRequireCanonicalOffsets b 16 [o0, o1] = .ok ()
+  · obtain ⟨-, hc0, hc01, hc1⟩ := (requireCanonicalOffsets_forkConfig b o0 o1).mp hcan
+    rw [hcan, except_bind_pure]
+    obtain ⟨x, hx⟩ := meaningReadU64_exists b 0 (by omega)
+    have ha0 : readUInt64LE b 0 = some x := meaningReadU64_eq_some hx
+    simp only [hx, except_bind_ok]
+    by_cases hf : x.toNat > 20
+    · rw [if_pos hf]
+      cases hdc : SszBridge.decodeCanonical SszBridge.forkConfigType b with
+      | error e => rfl
+      | ok v =>
+          have hv : (SszBridge.rawForkConfigOf v).fork = x :=
+            decodeCanonical_forkConfig_fork_eq b o0 o1 hoffs hc0 hc01 hc1 ha0 hdc
+          show (false : Bool) = decide ((SszBridge.rawForkConfigOf v).fork ≤ 20)
+          rw [hv]
+          refine (decide_eq_false ?_).symm
+          intro hle
+          exact absurd ((fork_bound_toNat_iff x).mpr hle) (by omega)
+    · rw [if_neg hf, except_bind_pure]
+      have hslice1 : (b.extract o0 o1).size < UInt32.size := by
+        rw [ByteArray.size_extract]; omega
+      rw [isAccepted_forkConfig_join, forkActivation_acceptance_agrees _ hslice1,
+        meaningOptionalBlobSchedule_accepted]
+      simp only [optionalBlobScheduleType]
+      cases hd1 : SszBridge.decodeCanonical SszBridge.forkActivationType (b.extract o0 o1) with
+      | error e1 =>
+          cases hdc : SszBridge.decodeCanonical SszBridge.forkConfigType b with
+          | error e' => rfl
+          | ok v =>
+              have hrej := decodeCanonical_forkConfig_rejects_of_field b o0 o1 hoffs hc0 hc01 hc1
+                hu32 ha0 (.inl (by rw [hd1]; rfl))
+              rw [hdc] at hrej
+              exact absurd hrej (by simp [Except.toOption])
+      | ok y0 =>
+        cases hd2 : SszBridge.decodeCanonical
+            (.list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork)
+            (b.extract o1 b.size) with
+        | error e2 =>
+            cases hdc : SszBridge.decodeCanonical SszBridge.forkConfigType b with
+            | error e' => simp [Except.toOption]
+            | ok v =>
+                have hrej := decodeCanonical_forkConfig_rejects_of_field b o0 o1 hoffs hc0 hc01 hc1
+                  hu32 ha0 (.inr (by rw [hd2]; rfl))
+                rw [hdc] at hrej
+                exact absurd hrej (by simp [Except.toOption])
+        | ok y1 =>
+            have hle : x ≤ 20 := (fork_bound_toNat_iff x).mp (by omega)
+            rw [decodeCanonical_forkConfig_eq_of_fields b o0 o1 hoffs hc0 hc01 hc1 hu32 ha0 hd1 hd2]
+            simp [Except.toOption, SszBridge.rawForkConfigOf, hle]
+  · have herr : ∃ e, meaningRequireCanonicalOffsets b 16 [o0, o1] = .error e := by
+      cases hc : meaningRequireCanonicalOffsets b 16 [o0, o1] with
+      | error e => exact ⟨e, rfl⟩
+      | ok u => exact absurd (by rw [hc]) hcan
+    obtain ⟨e, he⟩ := herr
+    rw [he, except_bind_error]
+    have hbad : ¬ (o0 = 16 ∧ o0 ≤ o1 ∧ o1 ≤ b.size) := by
+      intro hgood
+      exact hcan ((requireCanonicalOffsets_forkConfig b o0 o1).mpr
+        ⟨by omega, hgood.1, hgood.2.1, hgood.2.2⟩)
+    cases hdc : SszBridge.decodeCanonical SszBridge.forkConfigType b with
+    | error e' => rfl
+    | ok v =>
+        have hrej := decodeCanonical_forkConfig_rejects_noncanonical b o0 o1 hoffs hbad
+        rw [hdc] at hrej
+        exact absurd hrej (by simp [Except.toOption])
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
