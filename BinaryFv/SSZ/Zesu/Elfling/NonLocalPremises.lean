@@ -1,6 +1,7 @@
 import BinaryFv.SSZ.Zesu.Elfling.ManifestCheck
 import BinaryFv.SSZ.Zesu.Contracts.SemanticObligations
 import BinaryFv.SSZ.Zesu.SpecCorrespondence.EntryOffsets
+import BinaryFv.SSZ.Zesu.SpecCorrespondence.ChainOffsets
 
 /-!
 # Assembling the non-local premises of the root obligation
@@ -113,25 +114,26 @@ theorem generated_function_instances_implement_of_locals (semantic : catalogSema
 
 `Contracts.SemanticObligations` discharges sixteen of the twenty semantic conjuncts, so the premises
 here are the complete list of what the root obligation still rests on. Read top to bottom they are:
-TWO oracle-agreement facts (the binary's per-container canonicality discipline versus the oracle's
-re-serialization test), no cataloged precondition being impossible, the two recorded binary/oracle
-divergences, and the 141 local function instance proofs.
+ONE oracle-agreement fact (`zeroFirstOffsetAliasRejected`), no cataloged precondition being
+impossible, the two recorded binary/oracle divergences, and the 141 local function instance proofs.
 
-Two of the original four oracle-agreement premises are now PROVED rather than assumed, and both are
-supplied here: `v3ShapeExcludesCanonicalV4_holds`, and — the central one —
-`sourceShapedDecodeAgreesWithOracle_holds`, which takes `containersAgree` and the already-proved
-`retryTailNeverSchemaValid_holds`. Note what that means for the two survivors:
-`sourceShapedContainersAgreeWithOracle` is now load-bearing *twice*, once directly and once through the
-entry agreement, so it is the single premise the whole oracle-agreement story rests on. It is discharged at this layer rather than in
-`SemanticObligations` because the proof imports that module, so the general lemma there stays
-parameterised and the top of the chain supplies the fact.
+**Three of the original four oracle-agreement premises are now PROVED rather than assumed**, and all
+three are supplied here: `v3ShapeExcludesCanonicalV4_holds`,
+`sourceShapedDecodeAgreesWithOracle_holds`, and — as of item 6.3 —
+`sourceShapedContainersAgreeWithOracle_holds`, which appears **twice** in the term below because it
+is consumed both directly and through the entry agreement. That double occurrence is the reason it
+was the premise the whole oracle-agreement story rested on, and it is why discharging it is the
+single largest reduction of the residue in Row D.
+
+The three are discharged at this layer rather than in `SemanticObligations` because their proofs
+import that module, so the general lemma there stays parameterised and the top of the chain supplies
+the facts.
 
 Keeping this beside the coarser `sszComplianceObligations_of_locals` is deliberate: that one names
 the *shape* of the obligation, this one names the *work*. When a premise disappears from here, that
 is what progress on Row D looks like. (`catalogSatisfiability` is discharged one layer up, in
 `CatalogSatisfiability.lean`, which restates this without it.) -/
 theorem sszComplianceObligations_of_residue
-    (containersAgree : sourceShapedContainersAgreeWithOracle)
     (zeroAlias : zeroFirstOffsetAliasRejected)
     (satisfiable : catalogSatisfiability canonicalContractParams)
     (divergences : knownDivergences) (locals : LocalContractAssumptions) :
@@ -139,8 +141,9 @@ theorem sszComplianceObligations_of_residue
   sszComplianceObligations_of_locals
     (catalogSemanticObligations_of_oracleAgreement
       (BinaryFv.SSZ.Zesu.SpecCorrespondence.sourceShapedDecodeAgreesWithOracle_holds
-        containersAgree retryTailNeverSchemaValid_holds)
-      containersAgree
+        BinaryFv.SSZ.Zesu.SpecCorrespondence.sourceShapedContainersAgreeWithOracle_holds
+        retryTailNeverSchemaValid_holds)
+      BinaryFv.SSZ.Zesu.SpecCorrespondence.sourceShapedContainersAgreeWithOracle_holds
       BinaryFv.SSZ.Zesu.SpecCorrespondence.v3ShapeExcludesCanonicalV4_holds zeroAlias)
     satisfiable divergences locals
 

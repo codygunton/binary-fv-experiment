@@ -2152,4 +2152,224 @@ theorem decodeCanonical_chainConfig_size_lt_u32 {b : ByteArray}
       rw [hser] at hle
       omega
 
+/-! ### The source side above the bound, and the obligation it discharges
+
+The oracle side bounds acceptance because `decodeCanonical` re-serializes. The source-shaped side has
+no such property -- `meaningChainConfig` never re-serializes anything -- so its bound has to be built
+from the shape of the source itself. It bounds out to the *same* number, and the reason is worth
+stating: at the leaves the source is not source-shaped at all. `meaningOptionalU64` and
+`meaningOptionalBlobSchedule` are **defined as** `decodeCanonical` on `optionalU64Type` /
+`optionalBlobScheduleType`, which are definitionally the two list types bounded above. So the leaf
+bounds transfer verbatim and only the two variable-field containers need unfolding.
+
+The mechanism of each unfolding is the same: acceptance forces the offset table canonical
+(`requireCanonicalOffsets_*` gives `o0 = fixedSize` and monotonicity), which pins each child's slice
+to a contiguous span, and the child bounds cap each span. The spans partition the buffer, so the sum
+caps the buffer.
+
+**Why this closes the obligation rather than merely supporting it.** `chainConfig_acceptance_agrees`
+is the obligation's body verbatim but carries `hu32 : b.size < UInt32.size`. Above `2 ^ 32` neither
+side can accept -- the oracle by `decodeCanonical_chainConfig_rejects_oversized`, the source by the
+bound below -- so both sides are `false` and the equation holds for a different reason than in the
+small case. Two branches, two mechanisms, one theorem, and `hu32` disappears entirely. -/
+
+/-- Restatements at the names the source uses. `optionalU64Type` is *definitionally*
+`.list u64 maxOptionalForkActivationValues`, so these are the same theorems -- but `rw` is
+syntactic, and a consumer holding `serialize optionalU64Type v = b` cannot rewrite with a lemma
+spelled the other way. Naming both spellings is cheaper than unfolding at each use. -/
+theorem optionalU64Type_size_le (v : optionalU64Type.interp) :
+    (SSZType.serialize optionalU64Type v).size ≤ SSZType.maxByteLength optionalU64Type :=
+  optionalU64List_size_le v
+
+theorem optionalBlobScheduleType_size_le (v : optionalBlobScheduleType.interp) :
+    (SSZType.serialize optionalBlobScheduleType v).size
+      ≤ SSZType.maxByteLength optionalBlobScheduleType :=
+  blobScheduleList_size_le v
+
+/-- The leaves, where the source **is** the oracle: `meaningOptionalU64` is defined as
+`decodeCanonical optionalU64Type`, so acceptance re-serializes and the upstream bound applies. -/
+theorem meaningOptionalU64_accepted_size_le {b : ByteArray}
+    (h : isAccepted (meaningOptionalU64 b) = true) :
+    b.size ≤ SSZType.maxByteLength optionalU64Type := by
+  rw [meaningOptionalU64_accepted] at h
+  cases hdc : SszBridge.decodeCanonical optionalU64Type b with
+  | error e => rw [hdc] at h; simp [Except.toOption] at h
+  | ok v =>
+      obtain ⟨-, hser⟩ := decodeCanonical_inv hdc
+      have hle := optionalU64Type_size_le v
+      rw [hser] at hle
+      exact hle
+
+theorem meaningOptionalBlobSchedule_accepted_size_le {b : ByteArray}
+    (h : isAccepted (meaningOptionalBlobSchedule b) = true) :
+    b.size ≤ SSZType.maxByteLength optionalBlobScheduleType := by
+  rw [meaningOptionalBlobSchedule_accepted] at h
+  cases hdc : SszBridge.decodeCanonical optionalBlobScheduleType b with
+  | error e => rw [hdc] at h; simp [Except.toOption] at h
+  | ok v =>
+      obtain ⟨-, hser⟩ := decodeCanonical_inv hdc
+      have hle := optionalBlobScheduleType_size_le v
+      rw [hser] at hle
+      exact hle
+
+/-- **Base of the source-side induction.** Acceptance forces `first = 8` and `8 ≤ second ≤ size`,
+so the two optional-`u64` slices are `[8, second)` and `[second, size)` -- a partition of everything
+past the offset table. Each is capped by the leaf bound, so the buffer is capped by their sum plus
+the table. -/
+theorem meaningForkActivation_accepted_size_le {b : ByteArray}
+    (h : isAccepted (meaningForkActivation b) = true) :
+    b.size ≤ SSZType.maxByteLength SszBridge.forkActivationType := by
+  have hmax : SSZType.maxByteLength SszBridge.forkActivationType
+      = BYTES_PER_LENGTH_OFFSET + BYTES_PER_LENGTH_OFFSET
+        + SSZType.maxByteLength optionalU64Type
+        + SSZType.maxByteLength optionalU64Type := by decide
+  have hb := bytesPerLengthOffset_eq
+  rw [meaningForkActivation] at h
+  by_cases h8 : b.size < 8
+  · rw [if_pos h8] at h; simp [bind, Except.bind, isAccepted] at h
+  rw [if_neg h8] at h
+  cases hr0 : meaningReadOffset b 0 with
+  | error e => rw [hr0, except_bind_error] at h; simp [isAccepted] at h
+  | ok o0 =>
+    cases hr1 : meaningReadOffset b 4 with
+    | error e => rw [hr0, hr1, except_bind_ok, except_bind_error] at h; simp [isAccepted] at h
+    | ok o1 =>
+      by_cases hcan : meaningRequireCanonicalOffsets b 8 [o0, o1] = .ok ()
+      · obtain ⟨-, hc0, hc01, hc1⟩ := (requireCanonicalOffsets_forkActivation b o0 o1).mp hcan
+        rw [hr0, hr1, except_bind_ok, except_bind_ok, hcan, except_bind_ok, except_bind_pure,
+          isAccepted_forkActivation_join, Bool.and_eq_true] at h
+        obtain ⟨ha0, ha1⟩ := h
+        have b0 := meaningOptionalU64_accepted_size_le ha0
+        have b1 := meaningOptionalU64_accepted_size_le ha1
+        have e0 : (b.extract o0 o1).size = o1 - o0 := by
+          simp [ByteArray.size_extract]; omega
+        have e1 : (b.extract o1 b.size).size = b.size - o1 := by
+          simp [ByteArray.size_extract]
+        rw [e0] at b0
+        rw [e1] at b1
+        omega
+      · cases hc : meaningRequireCanonicalOffsets b 8 [o0, o1] with
+        | error e =>
+            simp [hr0, hr1, hc, bind, Except.bind, pure, Except.pure, isAccepted] at h
+        | ok u => cases u; exact absurd hc hcan
+
+/-- **Inductive step.** Same shape one level up, with two differences that both come from the
+leading fixed field: the `u64` occupies the first eight bytes inline rather than an offset slot, and
+the `fork > 20` test sits between the table check and the child decodes. The test is irrelevant to
+the bound -- it can only *reject* -- but it has to be stepped over in the right place, because
+commuting it past the child decodes is the statement defect `forkErrorOrderingDiffers` records. -/
+theorem meaningForkConfig_accepted_size_le {b : ByteArray}
+    (h : isAccepted (meaningForkConfig b) = true) :
+    b.size ≤ SSZType.maxByteLength SszBridge.forkConfigType := by
+  have hmax : SSZType.maxByteLength SszBridge.forkConfigType
+      = SSZType.maxByteLength SszBridge.u64
+        + BYTES_PER_LENGTH_OFFSET + BYTES_PER_LENGTH_OFFSET
+        + SSZType.maxByteLength SszBridge.forkActivationType
+        + SSZType.maxByteLength optionalBlobScheduleType := by decide
+  have hu : SSZType.maxByteLength SszBridge.u64 = 8 := by decide
+  have hb := bytesPerLengthOffset_eq
+  rw [meaningForkConfig] at h
+  by_cases h16 : b.size < 16
+  · rw [if_pos h16] at h; simp [bind, Except.bind, isAccepted] at h
+  rw [if_neg h16] at h
+  cases hr0 : meaningReadOffset b 8 with
+  | error e => rw [hr0, except_bind_error] at h; simp [isAccepted] at h
+  | ok o0 =>
+    cases hr1 : meaningReadOffset b 12 with
+    | error e => rw [hr0, hr1, except_bind_ok, except_bind_error] at h; simp [isAccepted] at h
+    | ok o1 =>
+      by_cases hcan : meaningRequireCanonicalOffsets b 16 [o0, o1] = .ok ()
+      · obtain ⟨-, hc0, hc01, hc1⟩ := (requireCanonicalOffsets_forkConfig b o0 o1).mp hcan
+        simp only [hr0, hr1, except_bind_ok, hcan, except_bind_pure] at h
+        cases hf : meaningReadU64 b 0 with
+        | error e => simp [hf, bind, Except.bind, isAccepted] at h
+        | ok fork =>
+          simp only [hf, except_bind_ok] at h
+          by_cases hfk : fork.toNat > 20
+          · simp [if_pos hfk, bind, Except.bind, isAccepted] at h
+          simp only [if_neg hfk, isAccepted_forkConfig_join, Bool.and_eq_true] at h
+          obtain ⟨ha0, ha1⟩ := h
+          have b0 := meaningForkActivation_accepted_size_le ha0
+          have b1 := meaningOptionalBlobSchedule_accepted_size_le ha1
+          have e0 : (b.extract o0 o1).size = o1 - o0 := by
+            simp [ByteArray.size_extract]; omega
+          have e1 : (b.extract o1 b.size).size = b.size - o1 := by
+            simp [ByteArray.size_extract]
+          rw [e0] at b0
+          rw [e1] at b1
+          omega
+      · cases hc : meaningRequireCanonicalOffsets b 16 [o0, o1] with
+        | error e =>
+            simp [hr0, hr1, hc, bind, Except.bind, pure, Except.pure, isAccepted] at h
+        | ok u => cases u; exact absurd hc hcan
+
+/-- **The source-side bound.** One offset, so the single child slice is all of `[12, size)` and the
+buffer is twelve bytes plus a `forkConfig`. -/
+theorem meaningChainConfig_accepted_size_le {b : ByteArray}
+    (h : isAccepted (meaningChainConfig b) = true) :
+    b.size ≤ SSZType.maxByteLength SszBridge.chainConfigType := by
+  have hmax : SSZType.maxByteLength SszBridge.chainConfigType
+      = SSZType.maxByteLength SszBridge.u64 + BYTES_PER_LENGTH_OFFSET
+        + SSZType.maxByteLength SszBridge.forkConfigType := by decide
+  have hu : SSZType.maxByteLength SszBridge.u64 = 8 := by decide
+  have hb := bytesPerLengthOffset_eq
+  rw [meaningChainConfig] at h
+  by_cases h12 : b.size < 12
+  · rw [if_pos h12] at h; simp [bind, Except.bind, isAccepted] at h
+  rw [if_neg h12] at h
+  cases hr0 : meaningReadOffset b 8 with
+  | error e => rw [hr0, except_bind_error] at h; simp [isAccepted] at h
+  | ok o =>
+    by_cases hcan : meaningRequireCanonicalOffsets b 12 [o] = .ok ()
+    · obtain ⟨-, hc0, hc1⟩ := (requireCanonicalOffsets_chainConfig b o).mp hcan
+      simp only [hr0, except_bind_ok, hcan, except_bind_pure] at h
+      cases hi : meaningReadU64 b 0 with
+      | error e => simp [hi, bind, Except.bind, isAccepted] at h
+      | ok chainId =>
+        simp only [hi, except_bind_ok, isAccepted_chainConfig_join] at h
+        have b0 := meaningForkConfig_accepted_size_le h
+        have e0 : (b.extract o b.size).size = b.size - o := by
+          simp [ByteArray.size_extract]
+        rw [e0] at b0
+        omega
+    · cases hc : meaningRequireCanonicalOffsets b 12 [o] with
+      | error e =>
+          simp [hr0, hc, bind, Except.bind, pure, Except.pure, isAccepted] at h
+      | ok u => cases u; exact absurd hc hcan
+
+/-- **ITEM 6.3. The obligation is discharged.**
+
+`sourceShapedContainersAgreeWithOracle` was the single premise the whole oracle-agreement story
+rested on -- load-bearing twice over, directly and through `sourceShapedDecodeAgreesWithOracle`.
+It is now a theorem.
+
+Below `2 ^ 32` this is `chainConfig_acceptance_agrees` verbatim. Above it, both sides reject and the
+equation holds vacuously-in-the-useful-sense: the oracle cannot accept because acceptance would make
+the buffer a re-serialization, and the source cannot accept because acceptance would make it a
+partition of bounded spans. Neither branch subsumes the other, which is why the size bound was
+needed on both sides rather than only on the oracle. -/
+theorem sourceShapedContainersAgreeWithOracle_holds :
+    sourceShapedContainersAgreeWithOracle := by
+  intro bytes
+  have husz : UInt32.size = 4294967296 := rfl
+  by_cases hu32 : bytes.size < UInt32.size
+  · exact chainConfig_acceptance_agrees bytes hu32
+  have hcap : SSZType.maxByteLength SszBridge.chainConfigType < UInt32.size := by decide
+  have hsrc : isAccepted (meaningChainConfig bytes) = false := by
+    cases hs : isAccepted (meaningChainConfig bytes) with
+    | false => rfl
+    | true =>
+        exfalso
+        have := meaningChainConfig_accepted_size_le hs
+        omega
+  rw [hsrc]
+  cases hdc : SszBridge.decodeCanonical SszBridge.chainConfigType bytes with
+  | error e => rfl
+  | ok v =>
+      exfalso
+      obtain ⟨-, hser⟩ := decodeCanonical_inv hdc
+      have hle := chainConfig_size_le v
+      rw [hser] at hle
+      omega
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
