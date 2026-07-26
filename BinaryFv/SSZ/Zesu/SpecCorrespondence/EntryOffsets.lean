@@ -1645,6 +1645,47 @@ theorem newPayloadRequest_payload_byte436_eq_540 {request : ByteArray}
     exact executionPayload_byte436_eq_540 hy'
   · exact absurd hext (by simp)
 
+/-! ## The V3 exclusion
+
+The top link, and item 4 closed. A V3-shaped buffer never decodes canonically as V4 — not because
+the shapes differ at the offsets the classifier checks first, which they do not, but because the byte
+it checks last is forced to a different value by canonicality. -/
+
+/-- **`v3ShapeExcludesCanonicalV4`.** -/
+theorem v3ShapeExcludesCanonicalV4_holds : v3ShapeExcludesCanonicalV4 := by
+  intro bytes hv3
+  obtain ⟨hashes, pe, hschema, hr16, hh, hp44, hpe, h528⟩ := hasV3PayloadShape_parts hv3
+  cases hdc : SszBridge.decodeCanonical SszBridge.statelessInputV4Type
+      (bytes.extract 2 bytes.size) with
+  | error e => simp [Except.toOption]
+  | ok v =>
+      exfalso
+      obtain ⟨hdes, _⟩ := decodeCanonical_inv hdc
+      have hdes' : SSZType.deserialize (.container entryFields) (bytes.extract 2 bytes.size)
+          = .ok (v, (bytes.extract 2 bytes.size).size) := hdes
+      obtain ⟨offs, hext, hhead, hwalk⟩ :=
+        deserialize_container_parts entryFields_not_allFixed hdes'
+      rw [extractFieldOffsets_entry] at hext
+      split at hext
+      · rename_i w0 w1 w2 w3 r0 r1 r2 r3
+        simp only [Except.ok.injEq] at hext
+        subst hext
+        simp only [List.head?_cons, Option.some.injEq] at hhead
+        rw [entryFields_fixedSectionSize] at hhead
+        -- The classifier's `hashesOffset` is the entry table's second offset.
+        have hb : SszBridge.readU32LE? (bytes.extract 2 bytes.size) 4 = some w1.toNat := by
+          rw [readU32LE?_eq_map_readUInt32LE, r1]; rfl
+        rw [hb, Option.some.injEq] at hh
+        obtain ⟨x, u, hx⟩ := deserializeVarFields_first_field
+          (t := SszBridge.newPayloadRequestType) newPayloadRequestType_not_fixed
+          w0.toNat w1.toNat _ _ hwalk
+        rw [hhead, hh] at hx
+        have hx' : SSZType.deserialize (.container newPayloadRequestFields)
+            ((bytes.extract 2 bytes.size).extract 16 hashes) = .ok (x, u) := hx
+        rw [newPayloadRequest_payload_byte436_eq_540 hx' hpe] at h528
+        exact absurd h528 (by decide)
+      · exact absurd hext (by simp)
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 
 
