@@ -625,6 +625,9 @@ def main() -> int:
             raise SystemExit(f"required path does not exist or is not a file: {path}")
 
     failures: list[str] = []
+    # Which classified divergences actually fired. An entry that never fires is STALE -- see the
+    # staleness notice after the loop.
+    fired: set[str] = set()
     for case in cases():
         outcomes = {
             "python": run([str(args.reference_python), str(args.reference_program)], case.data),
@@ -652,11 +655,28 @@ def main() -> int:
             reason = REFERENCE_SIDE_DIVERGENCES.get(case.name)
             if reason is not None and accepted == ["python"]:
                 # Classified: the reference alone accepts, and it is the one that is wrong.
+                fired.add(case.name)
                 print(f"  classified reference-side divergence: {reason}")
             else:
                 failures.append(
                     f"{case.name}: malformed input accepted by {', '.join(accepted)}"
                 )
+
+    # STALENESS NOTICE, the counterpart of the axiom sweep's "absent (pin is stale)" report.
+    #
+    # A classified divergence that stops occurring -- because the reference was FIXED -- makes its entry a
+    # dead record citing a defect that no longer exists, and the `elif` branch never runs, so nothing
+    # reports it. Silence is the failure mode: a future reader would find the citation and believe it.
+    #
+    # Deliberately NOT a hard failure. A fixed dependency should not break the build; it should be
+    # noticed. Note a RENAMED case fails loudly by a different route -- its new name is unclassified, so
+    # the `else` fires -- so between the two, an entry cannot drift out of correspondence quietly.
+    for name, reason in REFERENCE_SIDE_DIVERGENCES.items():
+        if name not in fired:
+            print(
+                f"NOTICE: classified divergence '{name}' did not occur -- the entry may be STALE. "
+                f"If the reference was fixed, remove it. Recorded reason: {reason}"
+            )
 
     if failures:
         print("strict V4 differential failed:", file=sys.stderr)
