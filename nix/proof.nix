@@ -612,6 +612,15 @@ COMPAT
       echo "Local-obligation ledger drifted; review and apply the diff above." >&2
       exit 1
     fi
+    # Pre-repair entry-PC placement measurement. Every source-selected entry predicate is proved
+    # independent of PC by exhaustive RoutineTag cases. Since each generated selection has a
+    # satisfiable precondition but the entered-trace consumer requires the initial PC to equal one
+    # fixed occurrence entry, changing only PC refutes all 141 closed obligations. The local theorem
+    # is deliberately conditional on an inhabited ChildSummariesAvailable premise and therefore
+    # preserves the ledger's 0/28/16/97 split. A private PC-sensitive mutation proves the
+    # independence check has negative teeth; no production contract or extractor is changed.
+    # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.EntryPcPlacement
     # Contract ground truth: RUNS the pinned ELF in the Sail model with the step loop instrumented to
     # snapshot every function instance's entry state and its first subsequent declared-exit state,
     # then applies the REAL handwritten predicates to those states -- not a Python mirror of them.

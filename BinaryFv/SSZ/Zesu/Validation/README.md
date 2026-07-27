@@ -65,6 +65,12 @@ Row D½ measures what the conditional local premise actually says:
   tail-call target. It also measures the 3.315× instruction-occurrence cost of proving every nested
   appearance again with `ownStep`; [LocalObligationLedger.lean](LocalObligationLedger.lean) checks
   that the seven tail-call exits are reported but deliberately excluded from structural blockers.
+- [EntryPcPlacement.lean](EntryPcPlacement.lean) proves that every source-selected entry predicate
+  ignores `PC`, then joins that fact to the trace consumer's fixed-entry requirement and
+  per-instance pre-satisfiability. The result is an exact pre-repair blast radius: all 141 closed
+  obligations are false. For local obligations it proves only the conditional join and retains the
+  ledger's 0/28/16/97 provable/false/vacuous/unknown split; a private PC-sensitive mutation is the
+  negative control for the measurement.
 - [LocalObligationRefutations.lean](LocalObligationRefutations.lean) joins both hypothesis layers and
   proves 28 individual local obligations false: 16 with no callees and 12 whose `bytesAt`/`readU32`
   callee exits make the outer premise inhabitable. It also proves that the copy contracts admit a
