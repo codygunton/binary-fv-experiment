@@ -32,8 +32,9 @@ instances. Unlike the trace reports alone, it distinguishes logical `pre` satisf
 captured-state mismatch and includes the outer `ChildSummariesAvailable` premise before deriving a
 verdict. It is emitted from Lean by `tools/emit_local_obligation_ledger.lean` and byte-diffed in the
 Nix proof gate. Its current red result is 28 checked-false obligations, 13 obligations proved only
-by an impossible copy-callee premise, and 100 unknowns. Among the 33 entry-is-exit instances, the
-split is 28 false, two vacuous, and three unknown.
+by an impossible copy-callee premise, three more proved only by an impossible result-callee premise,
+and 97 unknowns. Among the 33 entry-is-exit instances, the split is fully settled: 28 false and five
+vacuous.
 
 Committed evidence contains no host-specific stack addresses. Fixed ELF addresses remain exact;
 stack-relative values are normalized by one common delta so regeneration is stable across machines.

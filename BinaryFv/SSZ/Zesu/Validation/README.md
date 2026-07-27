@@ -60,7 +60,9 @@ Row D½ measures what the conditional local premise actually says:
   callee exits make the outer premise inhabitable. It also proves that the copy contracts admit a
   pre-state from which no post-state can preserve both copied bytes and `CodeIntact`; this makes the
   outer premise impossible for 13 parents with a `memcpy` or `memmove` callee, and proves those
-  obligations only by vacuity.
+  obligations only by vacuity. Three further parents are vacuous because unconstrained result bases
+  make accepted `forkConfig`, `optionalU64`, and `optionalBlobSchedule` representations conflict
+  with file-backed code.
 - [LocalObligationLedger.lean](LocalObligationLedger.lean) classifies all 141 instances without
   treating gaps as passes. Its committed
   [Markdown ledger](../../../../targets/ssz/zesu/trace/LOCAL_OBLIGATION_LEDGER.md) is regenerated and

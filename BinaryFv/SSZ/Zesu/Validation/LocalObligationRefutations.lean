@@ -18,10 +18,11 @@ bindings, so the universal relation realizes the demanded child summaries.
 The converse matters too. The current copy contracts permit a destination inside file-backed code,
 but their postcondition requires both that destination to contain the copied bytes and that all code
 remain intact. A concrete satisfiable precondition makes those clauses disagree, so no child-summary
-relation can realize a `memcpy` or `memmove` callee. This proves 13 parent obligations only by
-vacuity. Catalog satisfiability supplies each refutation's parent `pre`, and the final negative proof
-uses `functionInstanceExitPred` itself. This is deliberately red validation evidence and is not
-imported by the theorem graph.
+relation can realize a `memcpy` or `memmove` callee. The same unconstrained-placement defect makes
+`forkConfig`, `optionalU64`, and `optionalBlobSchedule` exits unrealizable. Together these prove 16
+parent obligations only by vacuity. Catalog satisfiability supplies each refutation's parent `pre`,
+and the final negative proof uses `functionInstanceExitPred` itself. This is deliberately red
+validation evidence and is not imported by the theorem graph.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation.LocalObligationRefutations
@@ -239,6 +240,248 @@ theorem childSummariesUnavailable_of_copy_callee
   | some entry =>
       exact childSummariesUnavailable_of_unrealizable_callee hcallee found
         (exit_not_realizable_of_unrealizableCopyCalleeB hbad entry found)
+
+/-! ## Unrealizable result-record exits
+
+The same missing disjointness appears on result records. Option decoders accept empty input but let
+`resultBase` place their required zero-or-one discriminant on a file-backed byte. `forkConfig`
+accepts the concrete canonical value below and lets its result record place the nested
+blob-schedule discriminant on that byte. In all three cases code says 19 while the representation
+says zero or one.
+-/
+
+private theorem codeByte19_ne_optionTag (tag : Nat) (htag : tag = 0 ∨ tag = 1) :
+    (some (BitVec.ofNat 8 tag) : Option (BitVec 8)) ≠
+      some (BitVec.ofNat 8 (19 : UInt8).toNat) := by
+  rcases htag with rfl | rfl <;> native_decide
+
+theorem optionalU64_empty_accepted :
+    isAccepted (meaningOptionalU64 ByteArray.empty) = true := by
+  native_decide
+
+private def badOptionalU64Args : SliceToResultArgs :=
+  { base := 0, bytes := ByteArray.empty, resultBase := 0x1043c }
+
+private noncomputable def badOptionalU64State : State :=
+  withArgumentRegisters canonicalWitnessState badOptionalU64Args.resultBase badOptionalU64Args.base
+    badOptionalU64Args.bytes.size 0
+
+private theorem badOptionalU64State_pre :
+    preSliceToResult canonicalEnvironment badOptionalU64Args badOptionalU64State := by
+  refine
+    ⟨memoryBytes_empty _ _,
+      codeIntact_withArgumentRegisters canonicalWitnessState_codeIntact, ?_, ?_, ?_⟩
+  all_goals simp [badOptionalU64State, badOptionalU64Args]
+
+private theorem badOptionalU64Post_impossible (result : Option UInt64) (after : State) :
+    ¬ postOptionalU64 canonicalEnvironment badOptionalU64Args (.ok result)
+      badOptionalU64State after := by
+  intro hpost
+  have hcode := hpost.2.1 0x10444 (19 : UInt8) (by native_decide)
+  cases result with
+  | none =>
+      have htag : after.mem.get? 0x10444 = some (BitVec.ofNat 8 0) := by
+        simpa [OptionNoneRep, badOptionalU64Args, canonicalEnvironment,
+          canonicalOptionalU64_pinned] using hpost.2.2.2.2
+      exact codeByte19_ne_optionTag 0 (Or.inl rfl) (htag.symm.trans hcode)
+  | some value =>
+      have htag : after.mem.get? 0x10444 = some (BitVec.ofNat 8 1) := by
+        simpa [OptionSomeRep, badOptionalU64Args, canonicalEnvironment,
+          canonicalOptionalU64_pinned] using hpost.2.2.2.2.1
+      exact codeByte19_ne_optionTag 1 (Or.inr rfl) (htag.symm.trans hcode)
+
+/-- Empty input is accepted, but an unconstrained result base can make `optionalU64`'s required
+discriminant conflict with file-backed code. -/
+theorem optionalU64_exit_not_realizable (function : FunctionId) :
+    ¬ ExitRealizable (routineContract canonicalContractParams function .optionalU64) := by
+  intro hexit
+  obtain ⟨after, hpost⟩ :=
+    hexit badOptionalU64Args badOptionalU64State badOptionalU64State_pre
+  change postOptionalU64 canonicalEnvironment badOptionalU64Args
+    (meaningOptionalU64 badOptionalU64Args.bytes) badOptionalU64State after at hpost
+  have haccepted : isAccepted (meaningOptionalU64 badOptionalU64Args.bytes) = true := by
+    simpa [badOptionalU64Args] using optionalU64_empty_accepted
+  cases hmeaning : meaningOptionalU64 badOptionalU64Args.bytes with
+  | error error => simp [isAccepted, hmeaning] at haccepted
+  | ok result =>
+      rw [hmeaning] at hpost
+      exact badOptionalU64Post_impossible result after hpost
+
+theorem optionalBlobSchedule_empty_accepted :
+    isAccepted (meaningOptionalBlobSchedule ByteArray.empty) = true := by
+  native_decide
+
+private def badOptionalBlobScheduleArgs : SliceToResultArgs :=
+  { base := 0, bytes := ByteArray.empty, resultBase := 0x1042c }
+
+private noncomputable def badOptionalBlobScheduleState : State :=
+  withArgumentRegisters canonicalWitnessState badOptionalBlobScheduleArgs.resultBase
+    badOptionalBlobScheduleArgs.base badOptionalBlobScheduleArgs.bytes.size 0
+
+private theorem badOptionalBlobScheduleState_pre :
+    preSliceToResult canonicalEnvironment badOptionalBlobScheduleArgs
+      badOptionalBlobScheduleState := by
+  refine
+    ⟨memoryBytes_empty _ _,
+      codeIntact_withArgumentRegisters canonicalWitnessState_codeIntact, ?_, ?_, ?_⟩
+  all_goals simp [badOptionalBlobScheduleState, badOptionalBlobScheduleArgs]
+
+private theorem badOptionalBlobSchedulePost_impossible
+    (result : Option SszBridge.RawBlobSchedule) (after : State) :
+    ¬ postOptionalBlobSchedule canonicalEnvironment badOptionalBlobScheduleArgs (.ok result)
+      badOptionalBlobScheduleState after := by
+  intro hpost
+  have hcode := hpost.2.1 0x10444 (19 : UInt8) (by native_decide)
+  cases result with
+  | none =>
+      have htag : after.mem.get? 0x10444 = some (BitVec.ofNat 8 0) := by
+        simpa [OptionNoneRep, badOptionalBlobScheduleArgs, canonicalEnvironment,
+          canonicalOptionalBlobSchedule_pinned] using hpost.2.2.2.2
+      exact codeByte19_ne_optionTag 0 (Or.inl rfl) (htag.symm.trans hcode)
+  | some value =>
+      have htag : after.mem.get? 0x10444 = some (BitVec.ofNat 8 1) := by
+        simpa [OptionSomeRep, badOptionalBlobScheduleArgs, canonicalEnvironment,
+          canonicalOptionalBlobSchedule_pinned] using hpost.2.2.2.2.1
+      exact codeByte19_ne_optionTag 1 (Or.inr rfl) (htag.symm.trans hcode)
+
+/-- Empty input is accepted, but an unconstrained result base can make
+`optionalBlobSchedule`'s required discriminant conflict with file-backed code. -/
+theorem optionalBlobSchedule_exit_not_realizable (function : FunctionId) :
+    ¬ ExitRealizable
+      (routineContract canonicalContractParams function .optionalBlobSchedule) := by
+  intro hexit
+  obtain ⟨after, hpost⟩ :=
+    hexit badOptionalBlobScheduleArgs badOptionalBlobScheduleState
+      badOptionalBlobScheduleState_pre
+  change postOptionalBlobSchedule canonicalEnvironment badOptionalBlobScheduleArgs
+    (meaningOptionalBlobSchedule badOptionalBlobScheduleArgs.bytes)
+      badOptionalBlobScheduleState after at hpost
+  have haccepted :
+      isAccepted (meaningOptionalBlobSchedule badOptionalBlobScheduleArgs.bytes) = true := by
+    simpa [badOptionalBlobScheduleArgs] using optionalBlobSchedule_empty_accepted
+  cases hmeaning : meaningOptionalBlobSchedule badOptionalBlobScheduleArgs.bytes with
+  | error error => simp [isAccepted, hmeaning] at haccepted
+  | ok result =>
+      rw [hmeaning] at hpost
+      exact badOptionalBlobSchedulePost_impossible result after hpost
+
+/-- A minimal accepted `forkConfig`: fork zero, a canonical activation slice with two empty optional
+fields, and an empty blob schedule. -/
+def forkConfigCollisionWitnessBytes : ByteArray := ByteArray.mk #[
+  0, 0, 0, 0, 0, 0, 0, 0,
+  16, 0, 0, 0, 24, 0, 0, 0,
+  8, 0, 0, 0, 8, 0, 0, 0]
+
+theorem forkConfig_collision_witness_accepted :
+    isAccepted (meaningForkConfig forkConfigCollisionWitnessBytes) = true := by
+  native_decide
+
+private noncomputable def forkConfigInputState : State :=
+  (buildZesuEntryState_entry_binding forkConfigCollisionWitnessBytes).choose
+
+private def badForkConfigArgs : ContainerArgs :=
+  { base := canonicalRunnerLayout.inputBase
+    bytes := forkConfigCollisionWitnessBytes
+    allocatorBase := 0
+    resultBase := 0x10404 }
+
+private noncomputable def badForkConfigState : State :=
+  withArgumentRegisters forkConfigInputState badForkConfigArgs.resultBase
+    badForkConfigArgs.allocatorBase badForkConfigArgs.base badForkConfigArgs.bytes.size
+
+private theorem badForkConfigState_pre :
+    preContainer canonicalEnvironment badForkConfigArgs badForkConfigState := by
+  have hentry :=
+    (buildZesuEntryState_entry_binding forkConfigCollisionWitnessBytes).choose_spec.2
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+  · simpa only [badForkConfigState, badForkConfigArgs, withArgumentRegisters_mem] using hentry.1
+  · exact codeIntact_withArgumentRegisters hentry.2.1
+  all_goals simp [badForkConfigState, badForkConfigArgs]
+
+private theorem badForkConfigPost_impossible
+    (result : SszBridge.RawForkConfig) (after : State) :
+    ¬ postFixedContainer canonicalEnvironment badForkConfigArgs canonicalRepForkConfig
+      canonicalEnvironment.record.forkConfig (.ok result) badForkConfigState after := by
+  intro hpost
+  have hcode := hpost.2.1 0x10444 (19 : UInt8) (by native_decide)
+  have hblobRep := hpost.2.2.2.2.2.2
+  cases hblob : result.blobSchedule with
+  | none =>
+      rw [hblob] at hblobRep
+      have htag : after.mem.get? 0x10444 = some (BitVec.ofNat 8 0) := by
+        simpa [OptionTagRep, badForkConfigArgs] using hblobRep
+      exact codeByte19_ne_optionTag 0 (Or.inl rfl) (htag.symm.trans hcode)
+  | some schedule =>
+      rw [hblob] at hblobRep
+      have htag : after.mem.get? 0x10444 = some (BitVec.ofNat 8 1) := by
+        simpa [OptionTagRep, badForkConfigArgs] using hblobRep.2
+      exact codeByte19_ne_optionTag 1 (Or.inr rfl) (htag.symm.trans hcode)
+
+/-- A valid input does not help: an unconstrained result base can make `forkConfig`'s nested
+blob-schedule discriminant conflict with file-backed code. -/
+theorem forkConfig_exit_not_realizable (function : FunctionId) :
+    ¬ ExitRealizable (routineContract canonicalContractParams function .forkConfig) := by
+  intro hexit
+  obtain ⟨after, hpost⟩ :=
+    hexit badForkConfigArgs badForkConfigState badForkConfigState_pre
+  change postFixedContainer canonicalEnvironment badForkConfigArgs canonicalRepForkConfig
+    canonicalEnvironment.record.forkConfig (meaningForkConfig badForkConfigArgs.bytes)
+      badForkConfigState after at hpost
+  have haccepted : isAccepted (meaningForkConfig badForkConfigArgs.bytes) = true := by
+    simpa [badForkConfigArgs] using forkConfig_collision_witness_accepted
+  cases hmeaning : meaningForkConfig badForkConfigArgs.bytes with
+  | error error => simp [isAccepted, hmeaning] at haccepted
+  | ok result =>
+      rw [hmeaning] at hpost
+      exact badForkConfigPost_impossible result after hpost
+
+private def unrealizableResultCalleeB (callee : FunctionInstance) : Bool :=
+  match catalogEntryFor callee.id.function with
+  | some entry =>
+      entry.tag == .forkConfig || entry.tag == .optionalU64 ||
+        entry.tag == .optionalBlobSchedule
+  | none => false
+
+/-- An actual callee dispatches to one of the three checked-unrealizable result-record exits. -/
+def unrealizableResultSummaryPremiseB
+    (program : Program) (functionInstance : FunctionInstance) : Bool :=
+  (calleeFunctionInstances program functionInstance).any unrealizableResultCalleeB
+
+private theorem exit_not_realizable_of_unrealizableResultCalleeB
+    {callee : FunctionInstance}
+    (hresult : unrealizableResultCalleeB callee = true) :
+    ∀ entry, catalogEntryFor callee.id.function = some entry →
+      ¬ ExitRealizable
+        (routineContract canonicalContractParams callee.id.function entry.tag) := by
+  intro entry found
+  unfold unrealizableResultCalleeB at hresult
+  rw [found] at hresult
+  have htag :
+      entry.tag = .forkConfig ∨ entry.tag = .optionalU64 ∨
+        entry.tag = .optionalBlobSchedule := by
+    simpa [Bool.or_eq_true, beq_iff_eq, or_assoc] using hresult
+  rcases htag with htag | htag | htag
+  · rw [htag]
+    exact forkConfig_exit_not_realizable _
+  · rw [htag]
+    exact optionalU64_exit_not_realizable _
+  · rw [htag]
+    exact optionalBlobSchedule_exit_not_realizable _
+
+/-- A parent selected by the exact result-callee predicate has no possible
+`ChildSummariesAvailable` witness under the canonical contracts. -/
+theorem childSummariesUnavailable_of_result_callee
+    {program : Program} {parent : FunctionInstance}
+    (hresult : unrealizableResultSummaryPremiseB program parent = true) :
+    ∀ childSummary,
+      ¬ ChildSummariesAvailable canonicalContractParams program parent childSummary := by
+  unfold unrealizableResultSummaryPremiseB at hresult
+  obtain ⟨callee, hcallee, hbad⟩ := Array.any_eq_true'.mp hresult
+  cases found : catalogEntryFor callee.id.function with
+  | none => simp [unrealizableResultCalleeB, found] at hbad
+  | some entry =>
+      exact childSummariesUnavailable_of_unrealizable_callee hcallee found
+        (exit_not_realizable_of_unrealizableResultCalleeB hbad entry found)
 
 /-- If the outer summary premise has no inhabitant, the catalog-present local obligation is true,
 but only vacuously. -/
@@ -598,6 +841,50 @@ theorem copy_callee_obligations_vacuously_true :
     apply localTraceObligation_of_no_child_summaries (found := by rfl)
     exact hno
 
+/-! ### Parents with an unrealizable result-record callee -/
+
+/-- All generated parents whose actual callee set contains one of the three checked result-record
+collisions. -/
+def resultCollisionParentIndices : List Nat :=
+  (generatedProgram.functionInstances.zipIdx.filterMap fun (functionInstance, index) =>
+    if unrealizableResultSummaryPremiseB generatedProgram functionInstance then
+      some index
+    else none).toList
+
+/-- The exact affected population is precisely the three entry-is-exit rows left unresolved after
+the copy-callee pass. -/
+theorem result_collision_parent_indices :
+    resultCollisionParentIndices = [102, 105, 111] := by
+  native_decide
+
+/-- Every candidate summary relation fails for each measured result-collision parent. -/
+theorem result_collision_summary_premises_unsatisfiable :
+    ∀ i ∈ resultCollisionParentIndices, ∀ childSummary,
+      ¬ ChildSummariesAvailable canonicalContractParams generatedProgram
+        generatedProgram.functionInstances[i]! childSummary := by
+  intro i hi
+  rw [result_collision_parent_indices] at hi
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
+  rcases hi with rfl | rfl | rfl
+  all_goals
+    apply childSummariesUnavailable_of_result_callee
+    native_decide
+
+/-- The final three disputed obligations are theorems, but only because their outer
+`ChildSummariesAvailable` premise is false. -/
+theorem result_collision_obligations_vacuously_true :
+    ∀ i ∈ resultCollisionParentIndices,
+      functionInstanceLocalTraceObligation canonicalContractParams generatedProgram
+        generatedProgram.functionInstances[i]! := by
+  intro i hi
+  have hno := result_collision_summary_premises_unsatisfiable i hi
+  rw [result_collision_parent_indices] at hi
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
+  rcases hi with rfl | rfl | rfl
+  all_goals
+    apply localTraceObligation_of_no_child_summaries (found := by rfl)
+    exact hno
+
 /-! ## Stable ledger keys -/
 
 /-- A row key. `entryPc` alone is not unique; the fully qualified routine name completes it. -/
@@ -629,11 +916,22 @@ def copyCalleeParentKeys : List InstanceKey :=
     { entryPc := generatedManifest[index]!.entryPc
       routine := generatedManifest[index]!.qualifiedName }
 
+/-- Stable keys for all three parents whose summary premise is refuted by a result-record callee. -/
+def resultCollisionParentKeys : List InstanceKey :=
+  resultCollisionParentIndices.map fun index =>
+    { entryPc := generatedManifest[index]!.entryPc
+      routine := generatedManifest[index]!.qualifiedName }
+
 /-- All checked-refutation keys in manifest order. Filtering the complete stable-key population
 keeps the public ledger identity independent of array-index ordering. -/
 def checkedEntryExitKeys : List InstanceKey :=
   ledgerKeys.filter fun key =>
     noCalleeEntryExitKeys.contains key || simpleCalleeEntryExitKeys.contains key
+
+/-- All checked-vacuous keys in manifest order. -/
+def checkedVacuousKeys : List InstanceKey :=
+  ledgerKeys.filter fun key =>
+    copyCalleeParentKeys.contains key || resultCollisionParentKeys.contains key
 
 /-- The requested key is unique for all 141 rows. This prevents a ledger from silently collapsing
 two instances that share an entry PC. -/
@@ -700,6 +998,14 @@ theorem copy_callee_parent_keys :
        { entryPc := 77500, routine := "ssz_raw.decodePublicKeys" }] := by
   native_decide
 
+/-- The three result-collision parents are pinned by the ledger's stable key. -/
+theorem result_collision_parent_keys :
+    resultCollisionParentKeys =
+      [{ entryPc := 76108, routine := "ssz_raw.decodeChainConfig" },
+       { entryPc := 76224, routine := "ssz_raw.decodeForkConfig" },
+       { entryPc := 76592, routine := "ssz_raw.decodeForkActivation" }] := by
+  native_decide
+
 /-- The combined checked-key population remains duplicate-free despite the shared entry PC. -/
 theorem checked_entry_exit_keys_complete_and_unique :
     checkedEntryExitKeys.length = 28 ∧ checkedEntryExitKeys.Nodup := by
@@ -708,6 +1014,11 @@ theorem checked_entry_exit_keys_complete_and_unique :
 /-- The vacuous population is complete and duplicate-free under the same stable row key. -/
 theorem copy_callee_parent_keys_complete_and_unique :
     copyCalleeParentKeys.length = 13 ∧ copyCalleeParentKeys.Nodup := by
+  native_decide
+
+/-- The complete vacuous population is stable-keyed and duplicate-free. -/
+theorem checked_vacuous_keys_complete_and_unique :
+    checkedVacuousKeys.length = 16 ∧ checkedVacuousKeys.Nodup := by
   native_decide
 
 end BinaryFv.SSZ.Zesu.Validation.LocalObligationRefutations

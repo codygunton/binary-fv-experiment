@@ -580,7 +580,10 @@ COMPAT
     # `preCopy` state makes the copy postcondition inconsistent with `CodeIntact`; the same consumer
     # join proves no `ChildSummariesAvailable` relation exists for the exact 13 generated parents
     # with a `memcpy` or `memmove` callee. Their positive obligations are pinned as vacuous, not as
-    # compliance evidence.
+    # compliance evidence. The same checked join covers the final three disputed parents:
+    # unconstrained result bases make accepted `forkConfig`, `optionalU64`, and
+    # `optionalBlobSchedule` representations conflict with file-backed code. Thus all 33
+    # entry-is-exit rows are settled as 28 false and 5 vacuous.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.LocalObligationRefutations
     # The 141-row ledger composes logical pre-satisfiability, the outer child-summary premise,

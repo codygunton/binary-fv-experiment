@@ -18,10 +18,10 @@ The child-summary premise is a second logical gate on the final verdict: a struc
 with an unknown child-summary premise stays `unknown`, never `false`.
 
 The current ledger is intentionally red. Twenty-eight rows have a checked proof of the negated
-individual obligation. Thirteen others are checked theorems only because a copy callee makes their
-outer summary premise unsatisfiable; they are classified as vacuous, not compliant. No repair is
-attempted here. Captured-state `pre` and `post` failures remain evidence that the contract
-misdescribes the binary, but they do not derive the logical verdict.
+individual obligation. Sixteen others are checked theorems only because an unrealizable callee exit
+makes their outer summary premise unsatisfiable; they are classified as vacuous, not compliant.
+No repair is attempted here. Captured-state `pre` and `post` failures remain evidence that the
+contract misdescribes the binary, but they do not derive the logical verdict.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation.LocalObligationLedger
@@ -168,6 +168,9 @@ def summaryPremiseSatisfiability (functionInstance : FunctionInstance) : Satisfi
   else if LocalObligationRefutations.unrealizableCopySummaryPremiseB
       generatedProgram functionInstance then
     .no "copy callee: permitted code destination makes postCopy inconsistent with CodeIntact"
+  else if LocalObligationRefutations.unrealizableResultSummaryPremiseB
+      generatedProgram functionInstance then
+    .no "result callee: unconstrained resultBase makes representation conflict with CodeIntact"
   else if LocalObligationRefutations.simpleExitSummaryPremiseB
       generatedProgram functionInstance then
     .yes "universal relation; every callee exit is realizable (bytesAt/readU32)"
@@ -309,6 +312,8 @@ deriving Repr, DecidableEq, Inhabited
 private def checkedProofStatus (index : Nat) : ProofStatus :=
   if LocalObligationRefutations.copyCalleeParentIndices.contains index then
     .proved "copy_callee_obligations_vacuously_true"
+  else if LocalObligationRefutations.resultCollisionParentIndices.contains index then
+    .proved "result_collision_obligations_vacuously_true"
   else if LocalObligationRefutations.noCalleeEntryExitIndices.contains index then
     .refuted "no_callee_entry_exit_obligations_false"
   else if LocalObligationRefutations.simpleCalleeEntryExitIndices.contains index then
@@ -409,25 +414,25 @@ theorem pre_satisfiability_totals :
 
 /-- The outer premise is exhibited for 76 no-callee rows and another 44 whose callees all have
 checked-realizable `bytesAt`/`readU32` exits. It is refuted for 13 parents with an unrealizable copy
-callee and remains unknown for eight. -/
+callee and three with an unrealizable result-record callee; five remain unknown. -/
 theorem summary_premise_satisfiability_totals :
     ((summaryValues.filter isSatYes).size,
      (summaryValues.filter isSatNo).size,
-     (summaryValues.filter isSatUnknown).size) = (120, 13, 8) := by
+     (summaryValues.filter isSatUnknown).size) = (120, 16, 5) := by
   native_decide
 
-/-- The red result: 28 checked false obligations, 13 vacuous theorems caused by an inconsistent
-copy contract, and 100 honest unknowns. Nothing is called `provable` merely because no
+/-- The red result: 28 checked false obligations, 16 vacuous theorems caused by inconsistent callee
+contracts, and 97 honest unknowns. Nothing is called `provable` merely because no
 contradiction was measured. -/
 theorem verdict_totals :
     ((ledgerRows.filter fun row => row.verdict == .provable).size,
      (ledgerRows.filter fun row => row.verdict == .false).size,
      (ledgerRows.filter fun row => row.verdict == .vacuous).size,
-     (ledgerRows.filter fun row => row.verdict == .unknown).size) = (0, 28, 13, 100) := by
+     (ledgerRows.filter fun row => row.verdict == .unknown).size) = (0, 28, 16, 97) := by
   native_decide
 
 /-- This is the disputed join stated over exactly the 33 entry-is-exit rows: 28 are checked false,
-two are checked vacuous because of a copy callee, and three remain unknown. -/
+and all five others are checked vacuous because of an unrealizable callee exit. -/
 theorem entry_is_exit_verdict_totals :
     let rows := ledgerRows.filter fun row =>
       generatedProgram.functionInstances[row.index]!.exitPcs.contains row.key.entryPc
@@ -435,7 +440,7 @@ theorem entry_is_exit_verdict_totals :
      (rows.filter fun row => row.verdict == .provable).size,
      (rows.filter fun row => row.verdict == .false).size,
      (rows.filter fun row => row.verdict == .vacuous).size,
-     (rows.filter fun row => row.verdict == .unknown).size) = (33, 0, 28, 2, 3) := by
+     (rows.filter fun row => row.verdict == .unknown).size) = (33, 0, 28, 5, 0) := by
   native_decide
 
 theorem false_rows_are_exactly_the_checked_refutations :
@@ -444,20 +449,18 @@ theorem false_rows_are_exactly_the_checked_refutations :
         LocalObligationRefutations.checkedEntryExitKeys := by
   native_decide
 
-theorem vacuous_rows_are_exactly_the_copy_callee_parents :
+theorem vacuous_rows_are_exactly_the_checked_vacuous_keys :
     (ledgerRows.filterMap fun row =>
       if row.verdict == .vacuous then some row.key else none).toList =
-        LocalObligationRefutations.copyCalleeParentKeys := by
+        LocalObligationRefutations.checkedVacuousKeys := by
   native_decide
 
-/-- The three unresolved entry-is-exit rows are pinned by stable key rather than index. -/
+/-- No entry-is-exit row remains unresolved. -/
 theorem unknown_entry_is_exit_keys :
     (ledgerRows.filterMap fun row =>
       if generatedProgram.functionInstances[row.index]!.exitPcs.contains row.key.entryPc &&
           row.verdict == .unknown then some row.key else none).toList =
-      [{ entryPc := 76108, routine := "ssz_raw.decodeChainConfig" },
-       { entryPc := 76224, routine := "ssz_raw.decodeForkConfig" },
-       { entryPc := 76592, routine := "ssz_raw.decodeForkActivation" }] := by
+      [] := by
   native_decide
 
 /-! ## Deterministic report -/
@@ -514,12 +517,12 @@ def report : String :=
         "lower",
       "bound (`≥`), never a claim of coverage.",
       "`summaryPremise = no` is a checked refutation of every possible child-summary relation.",
-      "The 13 copy-callee obligations proved through that false premise are VACUOUS, never " ++
+      "The 16 obligations proved through such a false premise are VACUOUS, never " ++
         "compliant.",
       "",
-      "Totals: pre yes/no/unknown = 141/0/0; summary yes/no/unknown = 120/13/8;",
-      "verdict provable/false/vacuous/unknown = 0/28/13/100.",
-      "Among the disputed 33 entry-is-exit rows: 28 false, 2 vacuous, 3 unknown.",
+      "Totals: pre yes/no/unknown = 141/0/0; summary yes/no/unknown = 120/16/5;",
+      "verdict provable/false/vacuous/unknown = 0/28/16/97.",
+      "Among the disputed 33 entry-is-exit rows: 28 false, 5 vacuous, 0 unknown.",
       "",
       "| entryPc | routine | idx | tag | preSatisfiable | summaryPremise | structure | " ++
         "evidence | conjunctsUnevaluated | proof | verdict |",
