@@ -10,6 +10,7 @@ The numbers it prints are produced by the same definitions the modules pin with 
 the text cannot disagree with the kernel-checked constants without the build failing first.
 -/
 import BinaryFv.SSZ.Zesu.Validation.BoundarySatisfiability
+import BinaryFv.SSZ.Zesu.Validation.ContractGroundTruth
 
 open BinaryFv.SSZ.Zesu.Validation
 
@@ -26,7 +27,8 @@ def preamble : String := String.intercalate "\n"
   , "This is **falsification evidence about the pinned artifact**, never a proof premise. Every"
   , "number below is computed by a definition that a `native_decide` theorem in the same module also"
   , "pins to an exact value, so this file cannot drift from the kernel-checked constants without"
-  , "`lake build BinaryFv.SSZ.Zesu.Validation.BoundarySatisfiability` failing."
+  , "`lake build BinaryFv.SSZ.Zesu.Validation.BoundarySatisfiability` or"
+  , "`… .ContractGroundTruth` failing."
   , ""
   , "A `gap` is never a pass. It means the row was not decided, and the reason is printed with it."
   , ""
@@ -35,5 +37,6 @@ def preamble : String := String.intercalate "\n"
 def emitReport : IO Unit := do
   IO.println preamble
   IO.println Boundary.report
+  IO.println GroundTruth.report
 
 #eval emitReport

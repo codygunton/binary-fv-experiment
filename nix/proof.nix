@@ -571,6 +571,22 @@ COMPAT
     # observed pass is indistinguishable from a check that cannot pass.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.BoundarySatisfiability
+    # Contract ground truth: RUNS the pinned ELF in the Sail model with the step loop instrumented to
+    # snapshot every function instance's entry state and its first subsequent declared-exit state,
+    # then applies the REAL handwritten predicates to those states -- not a Python mirror of them.
+    # Each executable mirror is tied to its predicate by a theorem in the refuting direction
+    # (`preReadAtB_of_preReadAt`, `postScalarReadCheckedB_of_postScalarRead`), so `false` is a
+    # genuine refutation and no conjunct can be silently dropped: `WritesOnlyWithinOwnRecord` is the
+    # one clause NOT evaluated (unbounded quantifier over the complement of a region, and
+    # `Std.ExtHashMap` has no key enumerator), and the implication theorem is what makes that
+    # omission safe rather than invisible. Findings pinned as exact values: 100 of 141 instances
+    # REFUTE `preReadAt` on its `x12 = offset` conjunct against Row A's own binding for that
+    # parameter; `postScalarRead` is decidable for only 4 instances and fails all 4 on
+    # `x10 = value`; one `readArray` retires 233 steps against a `stepBound` of 160. Both columns
+    # carry a mutation that flips them, because `post` passes nowhere and a column with no observed
+    # pass is indistinguishable from a check that cannot pass.
+    # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.ContractGroundTruth
     touch "$out"
   '';
 
