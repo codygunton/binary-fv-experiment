@@ -2,6 +2,7 @@ import BinaryFv.SSZ.Zesu.Contracts.Catalog
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals
 import BinaryFv.SSZ.Zesu.MemoryRepresentation.Containers
 import BinaryFv.SSZ.Zesu.Runtime.BumpAllocator
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Layout
 
 /-!
 # The concrete binary and ABI used by every contract
@@ -100,7 +101,8 @@ def canonicalRecordSizes : ResultRecordSizes :=
     executionPayload := executionPayloadSize.getD 0,
     newPayloadRequest := newPayloadRequestSize.getD 0,
     entryResult := storedResultSize.getD 0,
-    sliceDescriptor := 16 }
+    sliceDescriptor := 16,
+    allocatorObject := 16 }
 
 /-- Per-size mutation guard: the record sizes are exactly the reflected 32/72/80/48/48/592/688/848.
 
@@ -111,8 +113,117 @@ theorem canonicalRecordSizes_pinned :
     canonicalRecordSizes =
       { forkActivation := 32, forkConfig := 72, chainConfig := 80,
         executionRequests := 48, executionWitness := 48, executionPayload := 592,
-        newPayloadRequest := 688, entryResult := 848, sliceDescriptor := 16 } := by
+        newPayloadRequest := 688, entryResult := 848, sliceDescriptor := 16,
+        allocatorObject := 16 } := by
   native_decide
+
+/-! ## The machine stack
+
+`DecoderEnvironment.stack` is the last region the ownership clause needs and the only one that is not
+a fact about the ELF: the linked image contains no stack, the runner supplies one. So it is read from
+the *same* `canonicalRunnerLayout` the runner builds its state from, rather than restated here — a
+second copy of `0x3000_0000_0000` would be exactly the silent drift `Entrypoints/…/Layout.lean`'s
+opening docstring calls a silent unsoundness, and would let a relocated stack leave the contracts
+protecting an address range nothing runs in.
+
+That import is the reason this module names an `Entrypoints` module at all. It is a genuine
+dependency and not a layering slip: which memory a contract may permit a routine to scribble is a
+fact about the machine the contracts are interpreted in, and the runner is what fixes it — the same
+status `image` and `allocatorState` already have. -/
+
+/-- The canonical machine stack: the runner's 1 MiB stack, as a region. -/
+def canonicalStack : Region :=
+  range Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.stackBase
+    Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.stackSize
+
+/-- Per-address mutation guard on the region the ownership clause permits: the canonical stack is
+exactly `[0x3000_0000_0000, 0x3000_0010_0000)`.
+
+The same role `canonicalRecordSizes_pinned` plays for the record sizes, and it matters in the same
+direction. The stack is the one component of the owned region that is pure *permission* with no
+countervailing conjunct: a stack accidentally relocated downward into the arena would weaken every
+ownership clause in the catalog and break no proof, because a wider permission is easier to satisfy.
+Proved by `decide` rather than `native_decide`: this opens no trust door. -/
+theorem canonicalStack_pinned :
+    Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.stackBase = 0x3000_0000_0000 ∧
+      Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.stackSize = 1024 * 1024 := by
+  constructor <;> rfl
+
+/-! ### The stack is disjoint from everything the discipline protects
+
+Item four of what the clause must still do. A wider permission is only safe if nothing the ownership
+composition transports lives inside it, and that has to be *proved* — `arena_disjoint_from_globals`
+is the existing shape and this is the same argument against a third region.
+
+All of it reduces to one comparison, because the runner deliberately places every range it owns above
+`loadedCeiling`, one address above everything the ELF loads. So the arena and the decoder's private
+globals are excluded together rather than one at a time. -/
+
+/-- **Nothing the image loads is in the stack.** The single fact the three below are corollaries
+of. -/
+theorem canonicalStack_above_loaded (address : Nat)
+    (below : address < Entrypoints.ZesuDecodeRaw.loadedCeiling) : ¬ canonicalStack address := by
+  rintro ⟨hlo, _⟩
+  have : Entrypoints.ZesuDecodeRaw.loadedCeiling
+      ≤ Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.stackBase := by decide
+  omega
+
+/-- **The arena is not in the stack.** So an allocated sibling's record and the heap arrays it points
+at are outside every routine's stack permission, which is what keeps `chain_agrees_on_region` usable
+after the widening. -/
+theorem canonicalStack_disjoint_from_arena (address : Nat)
+    (inArena : address < Entrypoints.ZesuDecodeRaw.heapCeiling) : ¬ canonicalStack address :=
+  canonicalStack_above_loaded address
+    (Nat.lt_of_lt_of_le inArena Entrypoints.ZesuDecodeRaw.runtime_below_ceiling.1)
+
+/-- **The decoder's private globals are not in the stack.** This is the one that covers
+`stored_result`, the record the exported accessors publish and the root theorem reads: it sits in the
+decoder `.bss` block, which `GeneratedDecoderGlobals.withinBss` checks and `globalsCeiling` bounds. -/
+theorem canonicalStack_disjoint_from_globals (address : Nat)
+    (inGlobals : address < Entrypoints.ZesuDecodeRaw.globalsCeiling) : ¬ canonicalStack address :=
+  canonicalStack_above_loaded address
+    (Nat.lt_of_lt_of_le inGlobals Entrypoints.ZesuDecodeRaw.runtime_below_ceiling.2)
+
+/-- **The allocator's own mutable state is not in the stack.** `ZKVM_HEAP_POS` and `ZKVM_HEAP_TOP`
+live just below the arena, so the two halves of an allocating routine's permission stay distinct
+rather than one swallowing the other. -/
+theorem canonicalStack_disjoint_from_allocatorState (address : Nat)
+    (inAllocator : canonicalAllocatorState address) : ¬ canonicalStack address := by
+  refine canonicalStack_above_loaded address ?_
+  have hpos : Elfling.canonicalHeapPosAddr + 8 ≤ Entrypoints.ZesuDecodeRaw.loadedCeiling := by decide
+  have htop : Elfling.canonicalHeapTopAddr + 8 ≤ Entrypoints.ZesuDecodeRaw.loadedCeiling := by decide
+  rcases inAllocator with ⟨_, h⟩ | ⟨_, h⟩ <;> omega
+
+/-- **The exported result buffer is not in the stack**, byte for byte across the whole 848-byte
+`stored_result` object.
+
+The corollary that matters, because `stored_result` is the one record the root theorem actually
+reads: without it "the globals are not in the stack" is a statement about a ceiling and not yet about
+the object. -/
+theorem canonicalResultBuffer_not_in_stack (index : Nat) (h : index < 848) :
+    ¬ canonicalStack (Elfling.canonicalResultBuffer + index) := by
+  refine canonicalStack_disjoint_from_globals _ ?_
+  have : Elfling.canonicalResultBuffer + 848 ≤ Entrypoints.ZesuDecodeRaw.globalsCeiling := by decide
+  omega
+
+/-- **No address of the 64 MiB arena is in the stack**, stated at `canonicalHeapLimit` — the bound the
+allocator contracts are written against — rather than at the fold `heapCeiling` computes. -/
+theorem canonicalArena_not_in_stack (address : Nat) (h : address < Elfling.canonicalHeapLimit) :
+    ¬ canonicalStack address := by
+  refine canonicalStack_disjoint_from_arena address ?_
+  have : Elfling.canonicalHeapLimit ≤ Entrypoints.ZesuDecodeRaw.heapCeiling := by decide
+  omega
+
+/-- **The borrowed input buffer is not in the stack either.** Not needed by the composition — the
+input is pinned absolutely by `MemoryBytes`, not transported — but recorded because "the callee may
+write its whole stack" is only harmless if the caller's input is somewhere else, and that is a runner
+placement fact rather than something a contract could establish. -/
+theorem canonicalStack_disjoint_from_input (address : Nat)
+    (inInput : address < Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.inputStop) :
+    ¬ canonicalStack address := by
+  rintro ⟨hlo, _⟩
+  have := Entrypoints.ZesuDecodeRaw.layout_pairwise_disjoint.1
+  omega
 
 /-- The canonical decoder environment: the pinned image, the checked allocator state, and the ABI
 option/aggregate layouts. -/
@@ -124,7 +235,8 @@ def canonicalEnvironment : DecoderEnvironment :=
     optionalBlobSchedule := canonicalOptionalBlobSchedule
     blobSchedule := canonicalBlobScheduleLayout
     optionalU64 := canonicalOptionalU64
-    record := canonicalRecordSizes }
+    record := canonicalRecordSizes
+    stack := canonicalStack }
 
 /-- **The cursor address really is allocator state.** Without this the environment could name a
 `heapPosAddr` outside the range `NoAllocation` pins, and a non-allocating routine could move the

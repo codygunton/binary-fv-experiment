@@ -24,6 +24,11 @@ overlap" is not a property of either child — it is a property of how the **par
 result buffers, so it cannot be stated in a child's postcondition without putting a caller's
 obligation in a callee's contract.
 
+*The first sentence there was written as a warning and had to be applied twice before the contracts
+matched it.* `DecoderEnvironment.ownedRegion` now names all four things a routine owns — record,
+allocation interval, allocator state, stack — and the arithmetic of that is what
+`fixed_container_cannot_clobber_sibling`'s second hypothesis below reflects.
+
 Hence two separate pieces, composed at the boundary:
 
 * `WritesOnlyWithin` — a *callee* fact: writes are confined to an owned region.
@@ -164,9 +169,20 @@ theorem unowned_hypothesis_is_necessary :
 `FrameGap.sibling_clobber_permitted_historical`, stated against the live `postFixedContainer` rather
 than against an abstract region.
 
-The only hypothesis beyond the contract is `outside`: A's result byte is not inside B's record. That
-is the *parent's* obligation — where it placed the two result buffers — and it is the one thing the
-callee cannot be asked to know, which is why the discipline is split this way in the first place.
+Two hypotheses beyond the contract, and both are the *parent's* obligation — facts about where things
+were placed, which is the one kind of thing a callee cannot be asked to know, and the reason the
+discipline is split this way in the first place:
+
+* `outside` — A's result byte is not inside B's record;
+* `notStack` — A's result byte is not in the machine stack.
+
+**`notStack` is the price of making the clause satisfiable, and it is a placement fact, not a
+weakening of the theorem.** `postFixedContainer` permits B to write its stack frame, because a clause
+that did not would be false of every compiled routine; so a record that lived *in* the stack really
+would be unprotected, and the discipline has to be told it does not. At the canonical parameters this
+discharges from the layout with no per-sibling work at all —
+`CanonicalParams.canonicalStack_disjoint_from_arena` and `…_from_globals` cover every address any
+real record occupies, because the runner puts the stack above everything the ELF loads.
 
 **Why the exhibit specifically dies.** It quantified over any `rA ≠ rB`, so it had to work for
 `rA < rB`, where `¬ range rB size rA` holds for every `size`. No choice of record size rescues it: an
@@ -176,12 +192,15 @@ theorem fixed_container_cannot_clobber_sibling {α : Type} {env : DecoderEnviron
     {argsA argsB : ContainerArgs} {rep : ContainerRepresentation α} {recordSize : Nat}
     {result : Except SszDecodeError α} {value : BitVec 8} {s1 s2 : State}
     (outside : ¬ range argsB.resultBase recordSize argsA.resultBase)
+    (notStack : ¬ env.stack argsA.resultBase)
     (postB : postFixedContainer env argsB rep recordSize result s1 s2)
     (established : bytePinned value argsA.base argsA.bytes () s1 argsA.resultBase) :
     bytePinned value argsA.base argsA.bytes () s2 argsA.resultBase :=
   no_sibling_clobber_under_ownership
-    (ownedSibling := allocatedRegion argsB.resultBase recordSize 0 0)
-    (fun h => h.elim outside (fun hint => absurd hint.2 (Nat.not_lt_zero _)))
+    (ownedSibling := Region.union (allocatedRegion argsB.resultBase recordSize 0 0) env.stack)
+    (fun h => h.elim
+      (fun hrecord => hrecord.elim outside (fun hint => absurd hint.2 (Nat.not_lt_zero _)))
+      notStack)
     postB.2.2.2.1 established
 
 /-- The refutation form, which is the shape a regression test wants: the exhibit's conclusion and the
@@ -193,11 +212,12 @@ theorem strengthened_contract_and_clobber_incompatible {α : Type} {env : Decode
     {argsA argsB : ContainerArgs} {rep : ContainerRepresentation α} {recordSize : Nat}
     {result : Except SszDecodeError α} {value : BitVec 8} {s1 s2 : State} :
     ¬ (¬ range argsB.resultBase recordSize argsA.resultBase ∧
+        ¬ env.stack argsA.resultBase ∧
         postFixedContainer env argsB rep recordSize result s1 s2 ∧
         bytePinned value argsA.base argsA.bytes () s1 argsA.resultBase ∧
         ¬ bytePinned value argsA.base argsA.bytes () s2 argsA.resultBase) := by
-  rintro ⟨outside, postB, established, broken⟩
-  exact broken (fixed_container_cannot_clobber_sibling outside postB established)
+  rintro ⟨outside, notStack, postB, established, broken⟩
+  exact broken (fixed_container_cannot_clobber_sibling outside notStack postB established)
 
 /-- **The exhibit's own run is now refuted, not merely unproven**, and the distinction is the whole
 value of this theorem.
@@ -210,18 +230,42 @@ environment and every record size B could claim.
 
 `rA < rB` is what does it, and no record size rescues it, since a record only reaches upward from its
 base. `FrameGap.frame_gap_is_real` realises the same conjunction against the historical predicate, so
-the pair is a genuine before/after rather than two unrelated statements. -/
-theorem exhibit_run_is_refuted (env : DecoderEnvironment) (recordSizeB : Nat) :
+the pair is a genuine before/after rather than two unrelated statements.
+
+**The one hypothesis on `env` is the placement fact, and it is discharged rather than assumed.**
+`notStack` says A's byte is not in the machine stack — necessary once the clause permits a callee its
+frame, and *not* a hole through which the clobber returns: `exhibit_run_is_refuted_at_gapEnv` below
+discharges it outright, and at the canonical parameters
+`CanonicalParams.canonicalStack_disjoint_from_arena` / `…_from_globals` discharge it for every
+address a real record occupies. -/
+theorem exhibit_run_is_refuted (env : DecoderEnvironment) (recordSizeB : Nat)
+    (notStack : ¬ env.stack 0) :
     ¬ ∃ (s1 s2 : State) (argsA argsB : ContainerArgs),
         argsA.resultBase = 0 ∧ argsB.resultBase = 1 ∧
         postFixedContainer env argsB (bytePinned 3) recordSizeB (.ok ()) s1 s2 ∧
         bytePinned 7 argsA.base argsA.bytes () s1 argsA.resultBase ∧
         ¬ bytePinned 7 argsA.base argsA.bytes () s2 argsA.resultBase := by
   rintro ⟨s1, s2, argsA, argsB, hA, hB, postB, established, broken⟩
-  refine strengthened_contract_and_clobber_incompatible ⟨?_, postB, established, broken⟩
-  rw [hA, hB]
-  rintro ⟨hlo, _⟩
-  omega
+  refine strengthened_contract_and_clobber_incompatible ⟨?_, ?_, postB, established, broken⟩
+  · rw [hA, hB]
+    rintro ⟨hlo, _⟩
+    omega
+  · rw [hA]; exact notStack
+
+/-- The exhibit's run at the very environment that realised it. `FrameGap.frame_gap_is_real` builds
+the clobber at `gapEnv` against the historical predicate; against the live one, at the same
+environment and the same addresses, the situation is contradictory — with no hypothesis left to
+supply.
+
+This is what stops `exhibit_run_is_refuted`'s `notStack` premise from being read as the place the
+clobber escaped to. -/
+theorem exhibit_run_is_refuted_at_gapEnv (recordSizeB : Nat) :
+    ¬ ∃ (s1 s2 : State) (argsA argsB : ContainerArgs),
+        argsA.resultBase = 0 ∧ argsB.resultBase = 1 ∧
+        postFixedContainer FrameGap.gapEnv argsB (bytePinned 3) recordSizeB (.ok ()) s1 s2 ∧
+        bytePinned 7 argsA.base argsA.bytes () s1 argsA.resultBase ∧
+        ¬ bytePinned 7 argsA.base argsA.bytes () s2 argsA.resultBase :=
+  exhibit_run_is_refuted FrameGap.gapEnv recordSizeB id
 
 /-- **`outside` is necessary, and this is the check the abstract version could not run.** Drop it and
 the conclusion is false *for a contract-satisfying sibling*: a container whose own record covers A's
@@ -247,13 +291,74 @@ theorem outside_hypothesis_is_necessary :
   · intro address houtside
     have hlo : address ≠ 0 := by
       intro heq
-      refine houtside (Or.inl ?_)
+      refine houtside (Or.inl (Or.inl ?_))
       show (0 : Nat) ≤ address ∧ address < 0 + 2
       omega
     have hhi : address ≠ 1 := by
       intro heq
-      refine houtside (Or.inl ?_)
+      refine houtside (Or.inl (Or.inl ?_))
       show (0 : Nat) ≤ address ∧ address < 0 + 2
+      omega
+    show ((((default : State).mem.insert 1 7).insert 0 3).insert 1 0).get? address
+        = ((default : State).mem.insert 1 7).get? address
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (fun heq => hhi heq.symm), if_neg (fun heq => hlo heq.symm)]
+  · show ((((default : State).mem.insert 1 7).insert 0 3).insert 1 0).get? 0 = some 3
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]
+    simp
+  · show ((default : State).mem.insert 1 7).get? 1 = some 7
+    simp [Std.ExtHashMap.get?_eq_getElem?]
+  · show ¬ ((((default : State).mem.insert 1 7).insert 0 3).insert 1 0).get? 1 = some 7
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]
+    simp
+
+/-- `gapEnv` with a one-byte stack, at exactly the address the sibling below clobbers. Local to the
+theorem after it; nothing else may state an obligation in terms of it. -/
+def stackGapEnv : DecoderEnvironment := { FrameGap.gapEnv with stack := range 1 1 }
+
+theorem stackGapEnv_readFileByte (address : Nat) :
+    stackGapEnv.image.readFileByte? address = none := rfl
+
+/-- **`notStack` is necessary too, and this is the check that says so.**
+
+Drop it and the conclusion is false *for a contract-satisfying sibling whose record is placed
+correctly*: `outside` holds — B's one-byte record at `0` does not reach A's byte at `1` — and B still
+destroys A's representation, because A's byte is in the machine stack and the clause permits a callee
+its frame.
+
+Written because the alternative is a hypothesis nobody can tell from padding. `notStack` was added to
+`fixed_container_cannot_clobber_sibling` in the same change that made the clause satisfiable, and a
+reader is entitled to ask whether it was added because it was needed or because it was convenient.
+This is the answer: needed. It also states, in the sharpest available form, exactly what widening the
+owned region gave away — a record that lives in the stack is no longer protected — which is why
+`CanonicalParams.canonicalStack_disjoint_from_arena` / `…_from_globals` are proved rather than
+assumed. -/
+theorem notStack_hypothesis_is_necessary :
+    ∃ (argsA argsB : ContainerArgs) (recordSize : Nat) (s1 s2 : State),
+      ¬ range argsB.resultBase recordSize argsA.resultBase ∧
+      postFixedContainer stackGapEnv argsB (bytePinned 3) recordSize (.ok ()) s1 s2 ∧
+        bytePinned 7 argsA.base argsA.bytes () s1 argsA.resultBase ∧
+        ¬ bytePinned 7 argsA.base argsA.bytes () s2 argsA.resultBase := by
+  refine ⟨⟨0, ByteArray.empty, 0, 1⟩, ⟨0, ByteArray.empty, 0, 0⟩, 1,
+          { (default : State) with mem := (default : State).mem.insert 1 7 },
+          { (default : State) with
+            mem := (((default : State).mem.insert 1 7).insert 0 3).insert 1 0 },
+          ?_, ⟨?_, ?_, ?_, ?_, ?_⟩, ?_, ?_⟩
+  · show ¬ ((0 : Nat) ≤ 1 ∧ (1 : Nat) < 0 + 1)
+    omega
+  · intro index h; exact absurd h (by simp)
+  · intro a b h; exact absurd h (by rw [stackGapEnv_readFileByte]; simp)
+  · intro _ h; exact h.elim
+  · intro address houtside
+    have hlo : address ≠ 0 := by
+      intro heq
+      refine houtside (Or.inl (Or.inl ?_))
+      show (0 : Nat) ≤ address ∧ address < 0 + 1
+      omega
+    have hhi : address ≠ 1 := by
+      intro heq
+      refine houtside (Or.inr ?_)
+      show (1 : Nat) ≤ address ∧ address < 1 + 1
       omega
     show ((((default : State).mem.insert 1 7).insert 0 3).insert 1 0).get? address
         = ((default : State).mem.insert 1 7).get? address

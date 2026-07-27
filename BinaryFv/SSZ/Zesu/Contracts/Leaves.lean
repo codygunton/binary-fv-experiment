@@ -133,18 +133,19 @@ The last conjunct is the ownership clause (`Contracts/Environment.lean`). It is 
 than repeated in seven postconditions because every leaf has the same shape: no allocation, so the
 allocation interval is empty, and a result record that is either a caller-supplied slot
 (`readU256`, `readArray`) or nothing at all. `recordSize = 0` is the *strongest* instance of the
-clause, not a placeholder for one — it says the routine writes no memory whatsoever, which is the
-right claim for a reader that returns its value in `a0`.
+clause, not a placeholder for one — it says the routine writes nothing outside its own stack frame,
+which is the right claim for a reader that returns its value in `a0`.
 
 Two things follow that are easy to get backwards. First, a wider record is a **weaker** promise, so
 the sizes here are the ones a parent can rely on and must not be padded. Second, `recordSize = 0`
-being the strongest instance is also why it is the first thing a Rows E–I local proof will fail on if
-the compiled reader spills to its stack frame: see `WritesOnlyWithinOwnAllocation`'s docstring for
-the stack region this vocabulary cannot yet name. -/
+does **not** mean "writes no memory whatsoever", and it must not: a compiled reader spills to its
+stack frame, so a clause forbidding that would be unsatisfiable rather than strong. `env.stack` is
+what makes the difference, and `OwnershipComposition.stack_writing_routine_satisfies_the_clause` is
+the witness that a routine of this shape can meet it. -/
 def LeafFrame (env : DecoderEnvironment) (base : Nat) (bytes : ByteArray)
     (recordBase recordSize : Nat) (before after : State) : Prop :=
   MemoryBytes after base bytes ∧ env.CodeIntact after ∧ env.NoAllocation before after ∧
-    WritesOnlyWithinRecord recordBase recordSize before after
+    env.WritesOnlyWithinOwnRecord recordBase recordSize before after
 
 /-- A scalar read returns its value zero-extended in `a0`; failure is always `invalidSsz`. -/
 def postScalarRead (env : DecoderEnvironment) (args : ReadAtArgs) (width : Nat)

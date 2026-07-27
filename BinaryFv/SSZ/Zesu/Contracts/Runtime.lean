@@ -105,21 +105,20 @@ def postAlloc (env : DecoderEnvironment) (args : AllocArgs)
         -- pads *after* the block still satisfies it.
         cursorBefore ≤ address ∧ address + args.bytes ≤ cursorAfter ∧
         -- **The ownership clause, at the one place the cursor pair was already bound.** The
-        -- allocator's permitted region is the interval it just consumed together with its own
-        -- mutable state — and the second half is not slack: advancing `ZKVM_HEAP_POS` is the only
-        -- memory write `Runtime.allocate` performs, and that address is in `allocatorState`, not in
-        -- the interval. The record component is empty because `zesu_raw_alloc` hands back a block it
-        -- does not initialize; the block itself is inside the interval anyway, by the containment
-        -- clause immediately above.
-        WritesOnlyWithin
-          (Region.union (allocatedRegion 0 0 cursorBefore cursorAfter) env.allocatorState)
-          before after
+        -- allocator's permitted region is the interval it just consumed, its own mutable state, and
+        -- its stack frame. Neither of the last two is slack: advancing `ZKVM_HEAP_POS` is the memory
+        -- write `Runtime.allocate` models and that address is in `allocatorState` rather than in the
+        -- interval, and the compiled `zesu_raw_alloc` writes a frame like any other routine. The
+        -- record component is empty because `zesu_raw_alloc` hands back a block it does not
+        -- initialize; the block itself is inside the interval anyway, by the containment clause
+        -- immediately above.
+        WritesOnlyWithin (env.ownedRegion 0 0 cursorBefore cursorAfter) before after
   | .error error =>
       error = SszDecodeError.outOfMemory ∧
       after.regs.get? x10 = some (BitVec.ofNat 64 0) ∧
       env.NoAllocation before after ∧
-      -- Exhaustion writes nothing at all: no cursor move, no block.
-      WritesOnlyWithinRecord 0 0 before after
+      -- Exhaustion allocates nothing and produces no block: the permission is its stack frame alone.
+      env.WritesOnlyWithinOwnRecord 0 0 before after
 
 def contractAlloc (env : DecoderEnvironment) (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap) :
     FunctionContract SszDecodeError AllocArgs Nat where
@@ -147,8 +146,9 @@ def postCopy (env : DecoderEnvironment) (args : CopyArgs)
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
   -- A copy's record is its destination block, and its length is a genuine runtime argument, so this
-  -- is the one place the ownership clause needed no new ABI fact at all.
-  WritesOnlyWithinRecord args.destination args.length before after ∧
+  -- is the one place the ownership clause needed no new ABI fact at all. The stack frame the compiled
+  -- `memcpy` uses is permitted by `WritesOnlyWithinOwnRecord`, not by the destination range.
+  env.WritesOnlyWithinOwnRecord args.destination args.length before after ∧
   match result with
   | .ok contents => MemoryBytes after args.destination contents
   | .error _ => False
@@ -214,8 +214,10 @@ def postRawError (env : DecoderEnvironment) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
   -- An accessor reads the globals and returns in `a0`; it owns no record, so the clause is at the
-  -- empty region — its strongest instance, not a placeholder.
-  WritesOnlyWithinRecord 0 0 before after ∧
+  -- empty record — its strongest instance, not a placeholder. It still permits the stack frame the
+  -- compiled accessor writes, which is the difference between a strong clause and an unsatisfiable
+  -- one.
+  env.WritesOnlyWithinOwnRecord 0 0 before after ∧
   match result with
   | .ok code => code = model.status.code ∧ after.regs.get? x10 = some (BitVec.ofNat 64 code)
   | .error _ => False
@@ -232,9 +234,9 @@ and null otherwise. -/
 def postRawResult (env : DecoderEnvironment) (resultBuffer : Nat) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
-  -- Returns the *address* of the stored result, and writes nothing: the clause is at the empty
-  -- region even though `resultBuffer` is in scope.
-  WritesOnlyWithinRecord 0 0 before after ∧
+  -- Returns the *address* of the stored result and produces no record: the clause is at the empty
+  -- record even though `resultBuffer` is in scope, so it permits nothing but the stack frame.
+  env.WritesOnlyWithinOwnRecord 0 0 before after ∧
   match result with
   | .ok pointer =>
       pointer = (if model.stored.isSome then resultBuffer else 0) ∧
@@ -296,15 +298,23 @@ def contractAllocatorRemap (env : DecoderEnvironment) :
       result = .ok 0 ∧ after.regs.get? x10 = some (BitVec.ofNat 64 0)
   stepBound := fun _ => 8
 
-/-- `allocatorFree` is a no-op: it returns nothing and leaves all memory, including the allocator
-state, exactly as it was. -/
+/-- `allocatorFree` is a no-op: it returns nothing and leaves every byte outside its own stack frame,
+the allocator state included, exactly as it was.
+
+**This used to state an unrestricted total memory frame, and that was the same defect the ownership
+clause was added to remove.** A total frame is satisfiable only by a routine that never touches the
+stack — true of a compiled `ret`, false the moment the compiler emits any prologue — so it was one
+recompilation away from being an *unsatisfiable* conjunct on an assumed hypothesis, which is how a
+conditional root goes vacuous. `env.WritesOnlyWithinOwnRecord 0 0` is the strongest clause a compiled
+routine can satisfy, and it still says the allocator state and every caller-visible byte survive
+untouched, which is the whole content of "free is a no-op" here. -/
 def contractAllocatorFree (env : DecoderEnvironment) :
     FunctionContract SszDecodeError Unit Unit where
   meaning := fun _ => .ok ()
   pre := fun _ state => env.CodeIntact state
   post := fun _ result before after =>
-    env.CodeIntact after ∧ (∀ address, after.mem.get? address = before.mem.get? address) ∧
-      result = .ok ()
+    env.CodeIntact after ∧ env.NoAllocation before after ∧
+      env.WritesOnlyWithinOwnRecord 0 0 before after ∧ result = .ok ()
   stepBound := fun _ => 8
 
 /-- `allocatorAlloc(len, alignment)` is the vtable thunk that forwards to `zesu_raw_alloc`, so its
@@ -320,12 +330,20 @@ structure AllocatorCtorArgs where
   vtableBase : Nat
   resultBase : Nat
 
+/-- **The ownership clause, at the one contract in the layer that was writing a record without
+one.** `allocator()` publishes the two-word `std.mem.Allocator` value at `args.resultBase` and its
+postcondition said nothing about anything else it might write — the hole `postFixedContainer` and the
+leaf readers had closed and this had not. The record is `env.record.allocatorObject`, exactly the
+span `AllocatorObjectRep` pins, so the size is the one the representation already commits to rather
+than a fresh guess. -/
 def contractAllocatorCtor (env : DecoderEnvironment) :
     FunctionContract SszDecodeError AllocatorCtorArgs Unit where
   meaning := fun _ => .ok ()
   pre := fun _ state => env.CodeIntact state
   post := fun args result before after =>
-    env.CodeIntact after ∧ env.NoAllocation before after ∧ result = .ok () ∧
+    env.CodeIntact after ∧ env.NoAllocation before after ∧
+      env.WritesOnlyWithinOwnRecord args.resultBase env.record.allocatorObject before after ∧
+      result = .ok () ∧
       AllocatorObjectRep after args.resultBase args.contextBase args.vtableBase
   stepBound := fun _ => 16
 

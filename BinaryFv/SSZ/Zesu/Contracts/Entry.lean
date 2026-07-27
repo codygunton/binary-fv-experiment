@@ -146,10 +146,13 @@ The call was made (`DECISIONS.md`, Row D): the settling fact is
 children. The reasoning above is otherwise unchanged and still describes why this layer survived
 without it.
 
-**What is still true of the limitation above.** The clause confines writes to the entry's own record
-and its own allocation, which is a frame condition over memory the precondition does not pin — so the
-"not expressible in this form" paragraph no longer holds as written *for this predicate*. What it
-still does not cover is the callee's stack frame; see `DecoderEnvironment.WritesOnlyWithinOwnAllocation`. -/
+**What is still true of the limitation above.** The clause confines writes to the entry's own record,
+its own allocation, the allocator's state and the machine stack, which is a frame condition over
+memory the precondition does not pin — so the "not expressible in this form" paragraph no longer holds
+as written *for this predicate*. The stack is in that list because a compiled routine writes its
+frame and a clause omitting it would be false of the binary; see
+`DecoderEnvironment.ownedRegion` for why each of the four is there and what permitting the stack gives
+away. -/
 def postEntry (env : DecoderEnvironment) (args : EntryArgs)
     (rep : ContainerRepresentation SszBridge.RawV4)
     (result : Except SszDecodeError SszBridge.RawV4) (before after : State) : Prop :=

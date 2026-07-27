@@ -94,7 +94,8 @@ success arm.
 
 The four conjuncts before the `match` hold on *every* path: the borrowed input is untouched, the
 code image is intact, no allocation occurred, and every write landed inside the `?T` object at
-`args.resultBase`. The option layouts are the one family where the record size was already in scope —
+`args.resultBase` or the routine's own stack frame. The option layouts are the one family where the
+record size was already in scope —
 `env.optionalBlobSchedule.size` is the reflected `@sizeOf(?RawBlobSchedule)` — so the ownership clause
 costs no new parameter here. -/
 def postOptionalBlobSchedule (env : DecoderEnvironment) (args : SliceToResultArgs)
@@ -103,7 +104,7 @@ def postOptionalBlobSchedule (env : DecoderEnvironment) (args : SliceToResultArg
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
-  WritesOnlyWithinRecord args.resultBase env.optionalBlobSchedule.size before after ∧
+  env.WritesOnlyWithinOwnRecord args.resultBase env.optionalBlobSchedule.size before after ∧
   match result with
   | .ok none => OptionNoneRep env.optionalBlobSchedule after args.resultBase
   | .ok (some schedule) =>
@@ -119,7 +120,7 @@ def postOptionalU64 (env : DecoderEnvironment) (args : SliceToResultArgs)
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
-  WritesOnlyWithinRecord args.resultBase env.optionalU64.size before after ∧
+  env.WritesOnlyWithinOwnRecord args.resultBase env.optionalU64.size before after ∧
   match result with
   | .ok none => OptionNoneRep env.optionalU64 after args.resultBase
   | .ok (some value) =>

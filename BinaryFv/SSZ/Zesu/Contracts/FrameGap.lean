@@ -46,9 +46,9 @@ any other address.
 
 `sibling_clobber_permitted` was the settling fact for D4's composition item, and it settled it in the
 negative, so `DECISIONS.md` (Row D) ruled the ownership clause into the `post*` predicates.
-`postFixedContainer` now carries `WritesOnlyWithinRecord args.resultBase recordSize`, and against that
-predicate **the exhibit below no longer proves** — which is the regression signal the plan named, fired
-as designed.
+`postFixedContainer` now carries `env.WritesOnlyWithinOwnRecord args.resultBase recordSize`, and
+against that predicate **the exhibit below no longer proves** — which is the regression signal the
+plan named, fired as designed.
 
 The exhibit is therefore restated, not weakened. `postFixedContainerHistorical` is the predicate as it
 stood *before* the strengthening, spelled out here so the countermodel keeps its evidentiary value: it
@@ -60,6 +60,14 @@ to this module and is not a contract.
 the positive halves: the same situation is now impossible, and the strengthened postcondition is still
 satisfiable by a sibling that genuinely writes, so the impossibility is not an artefact of a contract
 nothing can satisfy.
+
+**`gapEnv.stack` is empty, and every statement in this module depends on that.** The clause now
+permits a callee its stack frame, so at an environment with a real stack `postFixedContainer` would be
+weaker than the predicate these theorems were written against — the two bracketing checks would still
+pass, for a reason having nothing to do with what they check. The empty region keeps them meaning what
+they meant. `OwnershipComposition.stack_writing_routine_satisfies_the_clause` is where a nonempty
+stack is exercised, and `Ownership.notStack_hypothesis_is_necessary` is where widening the region is
+shown to cost something real.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Contracts.FrameGap
@@ -98,8 +106,8 @@ theorem frame_conjuncts_survive_write {env : DecoderEnvironment} {state : State}
 Kept verbatim — input region, code image, allocator state, own result — so that
 `sibling_clobber_permitted_historical` remains a countermodel to *the predicate that had the gap*,
 rather than being quietly re-pointed at a different claim. The live `postFixedContainer` differs from
-this in exactly one conjunct, `WritesOnlyWithinRecord args.resultBase recordSize`, and that one
-conjunct is what makes the exhibit stop proving.
+this in exactly one conjunct, `env.WritesOnlyWithinOwnRecord args.resultBase recordSize`, and that
+one conjunct is what makes the exhibit stop proving.
 
 Deliberately **not** a contract and deliberately local: nothing outside this module may state an
 obligation in terms of it. -/
@@ -244,6 +252,13 @@ def gapEnv : DecoderEnvironment where
   -- `postFixedContainer` explicitly, so a zeroed table here cannot make an exhibit easier: a
   -- record size of 0 is the *strongest* instance of the ownership clause, not the weakest.
   record := default
+  -- **Empty, and that is what keeps this module's statements meaning what they meant.** The
+  -- ownership clause now permits `env.stack`, so a nonempty stack here would weaken every
+  -- `postFixedContainer gapEnv …` in the file — including the two bracketing checks, which would
+  -- then be satisfiable for a reason having nothing to do with what they were written to show. The
+  -- empty region makes `postFixedContainer gapEnv` definitionally the predicate these theorems were
+  -- written against. `OwnershipComposition.frameEnv` is where a real stack is exercised.
+  stack := fun _ => False
 
 theorem gapEnv_readFileByte (address : Nat) : gapEnv.image.readFileByte? address = none := rfl
 
@@ -304,7 +319,7 @@ theorem strengthened_post_is_satisfiable :
   · intro address houtside
     have hne : address ≠ 1 := by
       intro heq
-      refine houtside (Or.inl ?_)
+      refine houtside (Or.inl (Or.inl ?_))
       show (1 : Nat) ≤ address ∧ address < 1 + 1
       omega
     show (((default : State).mem.insert 1 0).insert 1 3).get? address

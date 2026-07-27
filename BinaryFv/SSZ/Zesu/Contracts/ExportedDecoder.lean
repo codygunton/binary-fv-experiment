@@ -261,20 +261,25 @@ preserved input and code. Allocation effects and preserved frames are added when
 (Row D); this fixes the observable interface.
 
 **This is the one `post*` of the eighteen that does NOT carry the ownership clause, and the reason is
-its shape rather than an omission.** `WritesOnlyWithinAllocation` names one contiguous record range
-plus one allocation interval. The wrapper's owned set is *three separately addressed globals* —
-`globals.attempted`, `globals.status`, and the 848-byte `globals.storedResult` object — plus the
-arena. `DecoderGlobalsLayout` carries the three addresses and no span relating them, so no choice of
-`recordBase`/`recordSize` covers them; and a clause naming only `storedResult` would be **false**,
-because the wrapper certainly writes `attempted`. Since the permission clause is consumed only
-through an assumed `LocalContractAssumptions`, a false conjunct here would be a step toward a vacuous
-root, which is strictly worse than a missing one.
+its shape rather than an omission.** `DecoderEnvironment.ownedRegion` names one contiguous record
+range plus one allocation interval, the allocator state and the stack. The wrapper's owned set adds
+*three separately addressed globals* — `globals.attempted`, `globals.status`, and the 848-byte
+`globals.storedResult` object. `DecoderGlobalsLayout` carries the three addresses and no span relating
+them, so no choice of `recordBase`/`recordSize` covers them; and a clause naming only `storedResult`
+would be **false**, because the wrapper certainly writes `attempted`. Since the permission clause is
+consumed only through an assumed `LocalContractAssumptions`, a false conjunct here would be a step
+toward a vacuous root, which is strictly worse than a missing one.
+
+**Re-examined when the stack region was added, and the exclusion stands.** The stack made the *other*
+seventeen clauses satisfiable; it does nothing for this one, because what this predicate cannot name
+is the private-globals block, not the frame. The clean fix is a span field on `DecoderGlobalsLayout`,
+and that structure is instantiated by `Elfling/GeneratedDecoderGlobals.lean` from the generated
+artifact — the same `bssBase`/`bssSize` the block already has — so it is a generated-layout change
+rather than a contracts change, and inventing a span here would be guessing at it.
 
 Nothing is lost at the composition either: the wrapper is the top-level routine with no siblings, so
 no `SiblingChain` is ever built from its postcondition. `DECISIONS.md` records the same scope fact
-from the other direction — the root's accepted branch closes without any ownership clause. Adding the
-clause here needs `DecoderGlobalsLayout` to gain a span for the private-globals block, which is a
-generated-layout change and not this change. -/
+from the other direction — the root's accepted branch closes without any ownership clause. -/
 def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)

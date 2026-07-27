@@ -146,11 +146,14 @@ describe input-relative borrowed slices.
 
 **The ownership clause, and why it is the whole point of `recordSize`.** These containers do not
 allocate, so the clause takes the empty allocation interval and reduces to "writes only within
-`[resultBase, resultBase + recordSize)`". That is what makes a parent able to conclude an *earlier*
-sibling's representation still holds after this one ran — the gap `FrameGap` exhibits. The size is
-`recordSize` rather than a literal because a wider record is a weaker promise: an over-large size
-would satisfy this postcondition just as easily and quietly hand a sibling permission to scribble.
-It comes from `env.record`, whose fields are reflected from the ABI manifest.
+`[resultBase, resultBase + recordSize)` and its own stack frame". That is what makes a parent able to
+conclude an *earlier* sibling's representation still holds after this one ran — the gap `FrameGap`
+exhibits — provided the earlier record is neither inside this one nor inside the stack, which is what
+`Ownership.fixed_container_cannot_clobber_sibling`'s two hypotheses ask for and what
+`CanonicalParams.canonicalStack_disjoint_from_arena` / `…_from_globals` discharge at the real layout.
+The size is `recordSize` rather than a literal because a wider record is a weaker promise: an
+over-large size would satisfy this postcondition just as easily and quietly hand a sibling permission
+to scribble. It comes from `env.record`, whose fields are reflected from the ABI manifest.
 
 `FrameGap.sibling_clobber_permitted` is the regression signal for this conjunct and no longer proves;
 `FrameGap.sibling_clobber_permitted_historical` records what it exhibited about the unstrengthened
@@ -161,7 +164,7 @@ def postFixedContainer {α : Type} (env : DecoderEnvironment) (args : ContainerA
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
-  WritesOnlyWithinRecord args.resultBase recordSize before after ∧
+  env.WritesOnlyWithinOwnRecord args.resultBase recordSize before after ∧
   match result with
   | .ok value => representation args.base args.bytes value after args.resultBase
   | .error error =>
@@ -169,8 +172,8 @@ def postFixedContainer {α : Type} (env : DecoderEnvironment) (args : ContainerA
 
 /-- An allocating container: its children allocate, so out-of-memory is reachable.
 
-The ownership clause therefore takes the allocating form — record, arena interval, allocator state —
-rather than the fixed containers' empty interval. -/
+The ownership clause therefore takes the allocating form — record, arena interval, allocator state,
+stack — rather than the fixed containers' empty interval. -/
 def postAllocatingContainer {α : Type} (env : DecoderEnvironment) (args : ContainerArgs)
     (representation : ContainerRepresentation α) (recordSize : Nat)
     (result : Except SszDecodeError α) (before after : State) : Prop :=

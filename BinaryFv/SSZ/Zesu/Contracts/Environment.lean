@@ -59,6 +59,12 @@ structure ResultRecordSizes where
   `?RawStatelessInput` object, 832-byte payload plus discriminant. -/
   entryResult : Nat
   sliceDescriptor : Nat
+  /-- The two-word Zig `std.mem.Allocator` value the `allocator()` constructor writes at its result
+  base: a context pointer followed by a vtable pointer, exactly the span
+  `MemoryRepresentation.AllocatorObjectRep` pins. Unreflected for the same reason
+  `sliceDescriptor` is — the manifest has no key for a `std.mem` type — and 16 for the same reason
+  too: two pointers on this target. -/
+  allocatorObject : Nat
   deriving DecidableEq, Repr, Inhabited
 
 /-- The pinned facts every decoder contract is stated against. -/
@@ -83,6 +89,32 @@ structure DecoderEnvironment where
   optionalU64 : OptionLayout
   /-- Result-record sizes, so the ownership clause names no literal. -/
   record : ResultRecordSizes
+  /-- **The machine stack the routines' frames live in.**
+
+  The same kind of fact as `allocatorState` — a region of the machine that the contracts must be able
+  to name but must not spell as a literal — and it is here for the same reason: without it the
+  ownership clause is *false of every compiled routine*, because a compiled routine writes its stack
+  frame and no other field of this record can name one.
+
+  Note what makes this expressible where "the frame" is not. A frame is `[sp_final, sp_entry)`, and
+  `sp` is restored by the epilogue, so the frame is unrecoverable from a `before`/`after` pair. The
+  *stack* is not: it is a fixed region the caller of the whole program chose, it contains every frame
+  of every routine in the run, and — the part that makes it useful rather than decorative — it is
+  disjoint from the arena, from the decoder's globals, and from the input buffer, because the runner
+  places it far above everything the ELF loads. `CanonicalParams` pins it to the runner's stack and
+  proves those disjointnesses; "everything below the caller's `sp`" would have swallowed the arena and
+  bought nothing.
+
+  **What permitting the whole stack gives away, stated because it is a real cost.** A callee may now
+  scribble the *caller's* frame as far as these contracts are concerned, and a result record that is
+  itself a stack temporary gets no protection from the ownership discipline. Neither loss touches
+  anything the discipline currently protects — every representation it transports lives in the arena
+  or in the decoder's globals — but both would be recovered by the sharper region
+  `interval stackBase sp_before`, which is expressible here (`before.regs` is in scope) and is the
+  obvious future strengthening. It is not taken now because it is only sound if no routine ever writes
+  at or above its entry `sp`, and that is a claim about the compiled code that is not yet checked;
+  taking it on faith would risk re-introducing exactly the unsatisfiable clause this field removes. -/
+  stack : Nat → Prop
 
 /-! ## Memory ownership vocabulary
 
@@ -115,23 +147,26 @@ requirement, so a routine that writes nothing satisfies it for any region. -/
 def WritesOnlyWithin (owned : Region) (before after : State) : Prop :=
   ∀ address, ¬ owned address → after.mem.get? address = before.mem.get? address
 
-/-- **The exact clause the composition consumes.** A routine that produces a record at `recordBase`
-and allocates from `cursorBefore` to `cursorAfter` writes nowhere outside those two regions.
+/-- **The data half of what a routine owns.** A routine that produces a record at `recordBase` and
+allocates from `cursorBefore` to `cursorAfter` writes nowhere outside those two regions *plus the
+machine's own bookkeeping* — the allocator's state and the stack — which is why this is a component
+of the contract clauses rather than one of them.
 
 `OwnershipComposition.siblingChain_of_writesOnlyWithinAllocation` turns one of these into a
 `SiblingChain` step; that is the only reason the clause has this exact shape rather than a bare
-`WritesOnlyWithin` at a hand-named region. -/
+`WritesOnlyWithin` at a hand-named region.
+
+**This form is stated of no compiled routine and must not be.** It was the clause 17 `post*`
+predicates carried until the stack region existed, and it is false of every one of them: a compiled
+routine writes its frame. It survives as the region-only core the composition consumes and as the
+thing `DecoderEnvironment.WritesOnlyWithinOwnRecord` / `…OwnAllocation` are built from. -/
 def WritesOnlyWithinAllocation (recordBase recordSize cursorBefore cursorAfter : Nat)
     (before after : State) : Prop :=
   WritesOnlyWithin (allocatedRegion recordBase recordSize cursorBefore cursorAfter) before after
 
-/-- The clause a **non-allocating** routine carries: the allocation interval is empty, so the
-permission is exactly "writes only within my own result record".
-
-The empty interval is justified rather than assumed. Every routine carrying this also carries
-`env.NoAllocation`, and `cursor_eq_of_noAllocation` below turns that into `cursor? after =
-cursor? before` — the routine really did consume no arena, so an empty interval gives away nothing.
-Definitionally `WritesOnlyWithinAllocation … 0 0`, so the composition lemma applies unchanged. -/
+/-- The same at an empty allocation interval: "writes only within my own result record". Retained for
+the same reason as `WritesOnlyWithinAllocation`, and carrying the same warning — this is not the
+clause any contract states. -/
 def WritesOnlyWithinRecord (recordBase recordSize : Nat) (before after : State) : Prop :=
   WritesOnlyWithinAllocation recordBase recordSize 0 0 before after
 
@@ -173,36 +208,68 @@ theorem cursor_eq_of_noAllocation {env : DecoderEnvironment} {before after : Sta
   simp only [Nat.add_zero] at h0
   rw [h0, h1, h2, h3, h4, h5, h6, h7]
 
-/-- The clause an **allocating** routine carries: its own result record, the arena interval its
-allocations consumed, **and the allocator's own mutable state**.
+/-- **Everything an allocating routine may write:** its result record, the arena interval its
+allocations consumed, the allocator's own mutable state, and the machine stack its frame lives in.
+
+The four are here for one reason each, and none of them is slack:
+
+* the **record** is the routine's output — the only part a caller cares about;
+* the **interval** is what it allocated, and `postAlloc`'s `cursorBefore ≤ address ∧
+  address + bytes ≤ cursorAfter` is what makes the blocks it handed out lie inside it;
+* **`env.allocatorState`** because `zesu_raw_alloc` advances `ZKVM_HEAP_POS`, which is in neither of
+  the two above — a clause omitting it is *false of every allocating routine in the decoder*;
+* **`env.stack`** because a compiled routine writes its frame, which is in none of the three — a
+  clause omitting it is *false of every compiled routine whatsoever*.
+
+The last two entries were added by the same argument at two sittings, and the argument is the one
+that matters here: a permission clause that no implementation can satisfy is worse than no clause,
+because these are consumed only through the assumed `LocalContractAssumptions` and an unsatisfiable
+assumed hypothesis makes everything downstream vacuously true while looking stronger. -/
+def ownedRegion (env : DecoderEnvironment) (recordBase recordSize cursorBefore cursorAfter : Nat) :
+    Region :=
+  Region.union (allocatedRegion recordBase recordSize cursorBefore cursorAfter)
+    (Region.union env.allocatorState env.stack)
+
+/-- The clause a **non-allocating** routine carries: its own result record and its stack frame.
+
+**`env.allocatorState` is deliberately absent, and that is a strengthening rather than an
+oversight.** Every routine carrying this also carries `env.NoAllocation`, which pins every
+allocator-state byte to its old value, so admitting those addresses here would be strictly weaker for
+no gain. The empty allocation interval is justified the same way: `cursor_eq_of_noAllocation` turns
+`NoAllocation` into `cursor? after = cursor? before`, so the routine really did consume no arena.
+
+`recordSize = 0` is therefore the *strongest* instance — "writes nothing outside its own stack frame"
+— and it is what the leaf readers and the exported accessors carry. -/
+def WritesOnlyWithinOwnRecord (env : DecoderEnvironment) (recordBase recordSize : Nat)
+    (before after : State) : Prop :=
+  WritesOnlyWithin (Region.union (allocatedRegion recordBase recordSize 0 0) env.stack) before after
+
+/-- The clause an **allocating** routine carries: `ownedRegion`, at the cursor pair read off the two
+states.
 
 *Why the cursor pair is read from the machine rather than taken as a ghost parameter.* An allocating
 container does not receive the cursor; it is a fact about the two states, and stating it as
 `env.cursor?` is what lets a caller line the interval up with `postAlloc`'s bounds — the same numbers,
-read the same way — instead of relating a ghost to a memory word.
-
-*Why `env.allocatorState` is in the region, and it is not slack.* `zesu_raw_alloc` advances
-`ZKVM_HEAP_POS`, which lies outside both `range recordBase recordSize` and
-`interval cursorBefore cursorAfter`. A clause omitting it would be **false of every allocating
-routine in the decoder**, not merely weak — and false clauses on an assumed hypothesis are how a
-conditional root goes vacuous. This corrects `OwnershipComposition`'s wording, which said an
-allocating routine "writes nowhere outside those two regions".
-
-*What it still does not cover, stated because it is the reason this is not yet dischargeable.* A
-compiled routine also writes its **stack frame**, and no contract here names one: `sp` is restored
-by the epilogue, so the frame is not recoverable from `before`/`after`, and a region large enough to
-contain any frame ("everything below the caller's `sp`") would swallow the arena and make the clause
-decorative. So this clause — like `WritesOnlyWithinRecord` — is currently *stronger* than the binary
-satisfies. It is consumed only through `LocalContractAssumptions`, which is assumed and proved
-nowhere, so nothing in the tree is broken today; the Rows E–I local proofs are where the stack region
-has to be added, and until it is, no local proof can discharge this. -/
+read the same way — instead of relating a ghost to a memory word. -/
 def WritesOnlyWithinOwnAllocation (env : DecoderEnvironment) (recordBase recordSize : Nat)
     (before after : State) : Prop :=
   ∃ cursorBefore cursorAfter,
     env.cursor? before = some cursorBefore ∧ env.cursor? after = some cursorAfter ∧
-      WritesOnlyWithin
-        (Region.union (allocatedRegion recordBase recordSize cursorBefore cursorAfter)
-          env.allocatorState) before after
+      WritesOnlyWithin (env.ownedRegion recordBase recordSize cursorBefore cursorAfter) before after
+
+/-- **The non-allocating clause is the allocating one at an empty interval, minus the allocator
+state.** Stated so the relationship between the two is a checked fact rather than a naming
+convention: anything that satisfies the record clause satisfies the wider allocating region, which is
+what lets one composition lemma serve both. -/
+theorem writesOnlyWithinOwnRecord_le_ownedRegion (env : DecoderEnvironment)
+    {recordBase recordSize cursorBefore cursorAfter : Nat} (address : Nat)
+    (h : Region.union (allocatedRegion recordBase recordSize 0 0) env.stack address) :
+    env.ownedRegion recordBase recordSize cursorBefore cursorAfter address := by
+  rcases h with hrec | hstack
+  · rcases hrec with hrange | hint
+    · exact Or.inl (Or.inl hrange)
+    · exact absurd hint.2 (Nat.not_lt_zero _)
+  · exact Or.inr (Or.inr hstack)
 
 /-- The loaded code and read-only constant data were not modified.
 
