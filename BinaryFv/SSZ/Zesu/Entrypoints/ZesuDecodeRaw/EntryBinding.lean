@@ -156,6 +156,112 @@ theorem fetchPlatformPresent_frame {s s' : State}
     rw [hframe _ (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)] <;>
     assumption
 
+/-! ### The two registers the exit fetch reads *at their value*
+
+For four of `FetchPlatformPresent`'s five registers presence is the whole story: the premise binds
+the contents existentially and never inspects them. Two registers are not like that, and a presence
+claim about either is worth nothing to a fetch:
+
+* `pma_regions` — `FetchPmaAllows` **evaluates** `matching_pma_region` on the table;
+* `htif_tohost_base` — `FetchMemoryNoMMIO` **evaluates** `within_htif_readable` on it, and the `none`
+  branch is the one that makes the dispatch miss MMIO.
+
+So they get a predicate of their own rather than a sixth and seventh conjunct of a predicate whose
+name promises presence. It is parameterized by the fetch addresses because the PMA lookup is
+per-address, and *which* addresses matter is not this module's business: the check is closed once the
+list is, so a caller supplies a `native_decide` at its own addresses and no exit address is named
+here.
+
+The check never compares two `PMA_Region`s — they carry no `DecidableEq`, which is why pinning the
+table by equation is not available — it reads the matched region's `executable` flag instead, which
+is exactly what the premise consumes.
+
+`FetchPmaAllows` (`RiscV/Platform/Fetch.lean`) is spelled out rather than imported: this module sits
+below the fetch layer and pulling it in would enlarge the root's import closure for one definition.
+The two are the same conjunction, and `SentinelAssembly.lean` re-packs one into the other in a
+line. -/
+
+/-- Whether a PMA table grants an executable four-byte instruction fetch at `pc`. Phrased on the
+matched region's `executable` flag rather than on an equation between regions: `PMA_Region` carries
+no `DecidableEq`, so pinning the table itself is not something a check can do — and the flag is what
+the premise consumes anyway. -/
+def pmaExecutableAtB (regions : List PMA_Region) (pc : Nat) : Bool :=
+  match matching_pma_region regions (physaddr.Physaddr (BitVec.ofNat 64 pc)) 4 with
+  | some region => region.attributes.executable
+  | none => false
+
+theorem pmaExecutableAt_of_check {regions : List PMA_Region} {pc : Nat}
+    (h : pmaExecutableAtB regions pc = true) :
+    ∃ region, matching_pma_region regions (physaddr.Physaddr (BitVec.ofNat 64 pc)) 4 = some region ∧
+      region.attributes.executable = true := by
+  unfold pmaExecutableAtB at h
+  split at h
+  · next region hmatch => exact ⟨region, hmatch, h⟩
+  · next => exact absurd h (by simp)
+
+/-- The generated PMA lookup at `pc`, read off the state. -/
+def fetchPmaAllowsB (state : State) (pc : Nat) : Bool :=
+  match state.regs.get? pma_regions with
+  | some regions => pmaExecutableAtB regions pc
+  | none => false
+
+/-- The two value dependencies of a four-byte instruction fetch, at the addresses a caller fetches
+from. The first conjunct is `FetchPmaAllows state (BitVec.ofNat 64 pc)` written out. -/
+def FetchPlatformPinned (state : State) (addresses : List Nat) : Prop :=
+  (∀ pc ∈ addresses, ∃ (regions : List PMA_Region) (region : PMA_Region),
+      state.regs.get? pma_regions = some regions ∧
+        matching_pma_region regions (physaddr.Physaddr (BitVec.ofNat 64 pc)) 4 = some region ∧
+          region.attributes.executable = true) ∧
+    state.regs.get? htif_tohost_base = some none
+
+/-- The decidable form. The `htif_tohost_base` conjunct is a `match` rather than a `decide` for the
+same reason three of `normalExecutionB`'s are: its register type is an `Option`, not an equation
+type with an instance to hand. -/
+def fetchPlatformPinnedB (state : State) (addresses : List Nat) : Bool :=
+  addresses.all (fetchPmaAllowsB state) &&
+    (match state.regs.get? htif_tohost_base with | some none => true | _ => false)
+
+theorem fetchPlatformPinned_of_check {s : State} {addresses : List Nat}
+    (h : fetchPlatformPinnedB s addresses = true) : FetchPlatformPinned s addresses := by
+  unfold fetchPlatformPinnedB at h
+  simp only [Bool.and_eq_true] at h
+  refine ⟨?_, ?_⟩
+  · intro pc hpc
+    have hrow := List.all_eq_true.mp h.1 pc hpc
+    unfold fetchPmaAllowsB at hrow
+    split at hrow
+    · next regions hregions =>
+        obtain ⟨region, hmatch, hexec⟩ := pmaExecutableAt_of_check hrow
+        exact ⟨regions, region, hregions, hmatch, hexec⟩
+    · next => exact absurd hrow (by simp)
+  · have hhtif := h.2
+    split at hhtif
+    · next base hbase => exact hbase
+    · next => exact absurd hhtif (by simp)
+
+/-- `FetchPlatformPinned` reads none of the six registers the builder's ABI block writes. -/
+theorem fetchPlatformPinned_frame {s s' : State} {addresses : List Nat}
+    (hframe : ∀ r : Register, r ≠ x1 → r ≠ x2 → r ≠ x10 → r ≠ x11 → r ≠ PC → r ≠ nextPC →
+      s'.regs.get? r = s.regs.get? r)
+    (h : FetchPlatformPinned s addresses) : FetchPlatformPinned s' addresses := by
+  obtain ⟨hpma, hhtif⟩ := h
+  refine ⟨?_, ?_⟩
+  · intro pc hpc
+    obtain ⟨regions, region, hregions, hmatch, hexec⟩ := hpma pc hpc
+    exact ⟨regions, region,
+      (hframe pma_regions (by decide) (by decide) (by decide) (by decide) (by decide)
+        (by decide)).trans hregions, hmatch, hexec⟩
+  · rw [hframe htif_tohost_base (by decide) (by decide) (by decide) (by decide) (by decide)
+      (by decide)]
+    exact hhtif
+
+/-- Whether the configured machine's PMA table grants an executable four-byte instruction fetch at
+every listed address and leaves the HTIF window disabled. Closed and finite once `addresses` is. -/
+def configureFetchPinnedB (addresses : List Nat) : Bool :=
+  match configureZesuMachine.run initialState with
+  | .ok _ s => fetchPlatformPinnedB s addresses
+  | .error _ _ => false
+
 /-- Whether the configuration program both succeeds and leaves a normal execution state with the five
 fetch registers present. Closed and finite, like `configureSucceedsB`, so `native_decide` settles
 it. -/
@@ -170,9 +276,15 @@ theorem configure_normal : configureNormalB = true := by native_decide
 
 Its ABI register values are still deliberately left abstract — the builder's final `writeReg` block
 pins the ones the entry binding reads. What is *no longer* abstract is the platform state, because
-nothing downstream can retire a single instruction without it. -/
+nothing downstream can retire a single instruction without it.
+
+The last conjunct is an implication rather than a fact because the addresses are the caller's: this
+module proves the configured machine's PMA table and HTIF base are whatever `configureZesuMachine`
+left them, and hands back the consequence for any address list a caller can `native_decide`. -/
 theorem configure_runs : ∃ mid, Runs configureZesuMachine initialState mid () ∧
-    NormalExecutionState mid ∧ FetchPlatformPresent mid := by
+    NormalExecutionState mid ∧ FetchPlatformPresent mid ∧
+    ∀ addresses : List Nat, configureFetchPinnedB addresses = true →
+      FetchPlatformPinned mid addresses := by
   have h := configure_normal
   unfold configureNormalB at h
   cases hr : configureZesuMachine.run initialState with
@@ -180,9 +292,13 @@ theorem configure_runs : ∃ mid, Runs configureZesuMachine initialState mid () 
   | ok u s =>
     rw [hr] at h
     simp only [Bool.and_eq_true] at h
-    refine ⟨s, ?_, normalExecutionState_of_check h.1, fetchPlatformPresent_of_check h.2⟩
-    show configureZesuMachine.run initialState = .ok () s
-    rw [hr]
+    refine ⟨s, ?_, normalExecutionState_of_check h.1, fetchPlatformPresent_of_check h.2, ?_⟩
+    · show configureZesuMachine.run initialState = .ok () s
+      rw [hr]
+    · intro addresses hchecked
+      unfold configureFetchPinnedB at hchecked
+      rw [hr] at hchecked
+      exact fetchPlatformPinned_of_check hchecked
 
 /-- **`NormalExecutionState` reads none of the six registers the builder's ABI block writes**, so it
 transports across that block verbatim. The six disequalities are the whole content: `x1`, `x2`,
@@ -277,20 +393,19 @@ those postconditions carry `x1 = x1` and `NormalExecutionState after`. Both are 
 `CalleeFrame` still has no SSZ call site, and `ExportedDecoderAudit.calleeFrame_is_not_the_vocabulary`
 records why the clause was not spelled with it.)
 
-**Two entry-side gaps this leaves, stated so they are not rediscovered.** `FetchPlatformPresent`
-above and `platformPreserved` are not the same list, deliberately and imperfectly:
+**One entry-side gap this leaves, and one that is now closed.** `FetchPlatformPresent` above and
+`platformPreserved` are not the same list, deliberately:
 
 * `htif_tohost_base` is in `platformPreserved` (the MMIO dispatch is a run of `within_mmio_readable`,
-  which reads exactly that register) and is **not** in `FetchPlatformPresent`. Agreement preserves
-  whatever the entry state holds, so the exit-side `FetchMemoryNoMMIO` is only reachable once the
-  entry state is shown to carry it. `configureZesuMachine` does leave it at `some none` — the value
-  `Platform/FetchMmio.lean`'s `fetchMemoryNoMMIO_of_state_layout_excluded` consumes — so this is a
-  conjunct `fetchPlatformPresentB` can simply gain, not an obstacle. It is recorded rather than done
-  here because it is a claim about the *builder*, and adding it should come with the same
-  `native_decide` discharge the other five got.
+  which reads exactly that register) and is **not** in `FetchPlatformPresent`. That gap is now closed
+  from the other side: `FetchPlatformPinned` carries it at its *value*, `some none`, which is what
+  `Platform/FetchMmio.lean`'s `fetchMemoryNoMMIO_of_state_layout_excluded` consumes, and it is
+  discharged by the same `native_decide` over `configureZesuMachine.run initialState` the other five
+  registers got. `pma_regions` moved with it, for the sharper reason that its *presence* was never
+  enough — `FetchPmaAllows` evaluates `matching_pma_region` on the table.
 * `minstret` is in `FetchPlatformPresent`, which is right *here* — the entry state does have it — but
   it cannot be carried across the call by agreement, which is why the contract asks for
-  `RetiredCounterPresent` at the exit instead. -/
+  `RetiredCounterPresent` at the exit instead. That one is still open by design, not by omission. -/
 theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
     ∃ s, Runs (buildZesuEntryState input) initialState s () ∧
       preZesuDecodeRaw canonicalEnvironment canonicalDecoderGlobalsLayout canonicalResultBuffer
@@ -298,12 +413,14 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       s.regs.get? x1 = some (BitVec.ofNat 64 canonicalRunnerLayout.sentinel) ∧
       s.regs.get? x2 = some (BitVec.ofNat 64 canonicalRunnerLayout.stackStop) ∧
       NormalExecutionState s ∧ FetchPlatformPresent s ∧
+      (∀ addresses : List Nat, configureFetchPinnedB addresses = true →
+        FetchPlatformPinned s addresses) ∧
       ∃ entrySym, Artifact.zesuDecodeRaw.toOption = some entrySym ∧
         s.regs.get? PC = some (BitVec.ofNat 64 entrySym.value) ∧
         s.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) := by
   -- Stage the loaders.
   obtain ⟨seg, hsingle⟩ := programImage_single
-  obtain ⟨s1, hrun1, hnormal1, hfetch1⟩ := configure_runs
+  obtain ⟨s1, hrun1, hnormal1, hfetch1, hpinned1⟩ := configure_runs
   obtain ⟨s2, hrun2, hregs2, _hlow2, _hhigh2, hfile2⟩ :=
     loadFileBackedImage_single_establishes hsingle s1
   obtain ⟨sstack, hrunstack, hregsstack, hframestack, _hwinstack⟩ :=
@@ -351,7 +468,9 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       sf.regs.get? x2 = some (BitVec.ofNat 64 canonicalRunnerLayout.stackStop) ∧
       sf.regs.get? PC = some (BitVec.ofNat 64 entrySym.value) ∧
       sf.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) ∧
-      NormalExecutionState sf ∧ FetchPlatformPresent sf := by
+      NormalExecutionState sf ∧ FetchPlatformPresent sf ∧
+      (∀ addresses : List Nat, configureFetchPinnedB addresses = true →
+        FetchPlatformPinned sf addresses) := by
     have hrunR : Runs
         (writeReg x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase) >>= fun _ =>
          writeReg x11 (BitVec.ofNat 64 input.size) >>= fun _ =>
@@ -363,7 +482,7 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
         (Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
           (Runs.bind (by rw [Runs, writeReg_run]) (by rw [Runs, writeReg_run])))))
-    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · unfold buildZesuEntryState initStack
       simp only [hentry]
       exact Runs.bind hrun1 (Runs.bind hrun2 (Runs.bind hrunstack (Runs.bind hrun3 (Runs.bind hrun4
@@ -388,8 +507,16 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       refine fetchPlatformPresent_frame (fun r h1 h2 h10 h11 hpc hnext => ?_) hfetch1
       simp [Std.ExtDHashMap.get?_insert, Ne.symm h1, Ne.symm h2, Ne.symm h10, Ne.symm h11,
         Ne.symm hpc, Ne.symm hnext, hchain]
-  obtain ⟨sf, hrunsf, hmemsf, hx10, hx11, hx1, hx2, hpc, hnextpc, hnormal, hfetchsf⟩ := hbuilt
-  refine ⟨sf, hrunsf, ?_, hx1, hx2, hnormal, hfetchsf, entrySym, hentry, hpc, hnextpc⟩
+    · -- And once more for the two registers the fetch reads at their value.
+      have hchain : s6.regs = s1.regs := by
+        rw [hregs6, hregs5, hregs4, hregs3, hregsstack, hregs2]
+      intro addresses hchecked
+      refine fetchPlatformPinned_frame (fun r h1 h2 h10 h11 hpc hnext => ?_) (hpinned1 addresses hchecked)
+      simp [Std.ExtDHashMap.get?_insert, Ne.symm h1, Ne.symm h2, Ne.symm h10, Ne.symm h11,
+        Ne.symm hpc, Ne.symm hnext, hchain]
+  obtain ⟨sf, hrunsf, hmemsf, hx10, hx11, hx1, hx2, hpc, hnextpc, hnormal, hfetchsf, hpinnedsf⟩ :=
+    hbuilt
+  refine ⟨sf, hrunsf, ?_, hx1, hx2, hnormal, hfetchsf, hpinnedsf, entrySym, hentry, hpc, hnextpc⟩
   -- Reduce the argument projections once, then discharge each entry-binding conjunct.
   show MemoryBytes sf canonicalRunnerLayout.inputBase input ∧
       canonicalEnvironment.CodeIntact sf ∧
