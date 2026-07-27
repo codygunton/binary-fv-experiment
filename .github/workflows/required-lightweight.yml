@@ -27,7 +27,6 @@ jobs:
       - name: Build RV64 targets and stats
         run: |
           nix build --print-build-logs --no-link \
-            .#reth-keccak \
             .#zesuProductionObject \
             .#zesuRawObject \
             .#zesu-ssz \
