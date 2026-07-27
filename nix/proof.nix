@@ -462,6 +462,39 @@ COMPAT
       exit 1
     fi
 
+    # Artifact boundary. `BinaryFv/SSZ/Zesu/Artifact/` is immutable binary data and closed static
+    # facts about the pinned ELF: parsing, symbols, ranges, encoded words, image bytes. Decoding
+    # those words needs a configured machine, so anything decode-dependent belongs beside the
+    # decoder in `ControlFlow/` (which owns `decodedWords?`), not here. Grep the import graph, not
+    # the word "Decode": the violation is the dependency, not the spelling.
+    #
+    # This audit existed for the removed Keccak target and was DELETED rather than retargeted when
+    # that target went, because the SSZ tree violated it: `Artifact/PrimitiveReadInventory.lean`
+    # imported `ControlFlow.Decode`. That file has been moved to `ControlFlow/`, so the rule is true
+    # here and can be enforced again.
+    #
+    # Scoped by EXCLUSION, in the strict direction: it lists what `Artifact/` MAY import and flags
+    # every other import line. The obvious phrasing instead lists the sibling directories it may not
+    # import, and that list covers everything only by accident of today's layout -- a decode-dependent
+    # directory added tomorrow escapes silently while the audit keeps reporting success. Fail-closed
+    # is the intended cost: a genuinely static new dependency also trips this, and the fix is then to
+    # widen the allowlist deliberately, in a diff a reviewer can see.
+    #
+    # Anti-vacuity: a grep over a directory that no longer exists passes forever, so the audit fails
+    # when it is looking at nothing rather than reporting a pass it did not earn.
+    if [ ! -f BinaryFv/SSZ/Zesu/Artifact/Image.lean ]; then
+      echo "Artifact boundary: BinaryFv/SSZ/Zesu/Artifact/ is not where this audit expects it, so the scan is vacuous -- reported as a failure rather than a pass." >&2
+      exit 1
+    fi
+    artifactLeaks=$(grep -rn --include='*.lean' '^import ' BinaryFv/SSZ/Zesu/Artifact/ 2>/dev/null \
+      | grep -v -E ':import (BinaryFv\.SSZ\.Zesu\.Artifact\.|BinaryFv\.RiscV\.ELF\.|ZesuSszElf$|ZesuSszAbi$)' \
+      || true)
+    if [ -n "$artifactLeaks" ]; then
+      echo "Artifact boundary: Artifact/ holds closed static facts about the pinned ELF and may not depend on decoding them." >&2
+      echo "$artifactLeaks" >&2
+      exit 1
+    fi
+
     lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
 
     # Row B validation, co-located ONLY to reuse this derivation's fully-built toolchain (the module
