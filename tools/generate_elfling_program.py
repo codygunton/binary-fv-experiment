@@ -305,8 +305,10 @@ def reachable_witnesses(entry, insns):
 
 def compute_function_instance_cfg(function_instances_sorted, insns):
     """Fill each function instance with generated CFG data proposed from the disassembly:
-      exits          — PCs whose control leaves the function instance's regions (return/terminal or a target
-                       outside the regions); the real exits, never `max(endpoints)`;
+      exits          — PCs whose control leaves the function instance's regions (return/terminal, or a
+                       CONTINUATION outside the regions); the real exits, never `max(endpoints)`. A
+                       resolved call's continuation is its FALL-THROUGH, not its callee: control comes
+                       back, so a call is an exit only in tail position;
       blocks         — an exact basic-block partition of the function instance's regions, split at fragment
                        starts, branch/jump/call/terminal successors, and in-region branch targets;
       edges          — every direct successor edge from a DEEPEST-owned PC (each edge attributed once);
@@ -325,7 +327,11 @@ def compute_function_instance_cfg(function_instances_sorted, insns):
         for pc in sorted(R):
             if pc not in insns: continue
             kind, tgts, _ = classify(pc, insns)
-            if kind in ('return', 'terminal') or any(t not in R for t in tgts):
+            # A resolved call's continuation is its fall-through: control comes back. Counting the
+            # callee edge here would make EVERY call site an exit, and `FunctionTrace.step` carries
+            # `¬ exit pc`, so the caller's trace could never run past its own first call.
+            cont = [pc + 4] if kind == 'call' else tgts
+            if kind in ('return', 'terminal') or any(t not in R for t in cont):
                 exits.append(pc)
         function_instance["exits"] = exits
 

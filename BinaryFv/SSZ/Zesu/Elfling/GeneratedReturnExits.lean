@@ -12,17 +12,44 @@ is, and the sentinel bridge needs exactly that: `tryStepRetRetires` wants four f
 exit pc together with a `Runs (ext_decode …) … (.JALR (0#12, rs1, zreg))`, i.e. `jalr x0, 0(rs1)`.
 Nothing in the tree produced that decode for any exit address. This module does.
 
-## Correction: an exit pc is usually *not* a `ret`
+## An exit pc is usually *not* a `ret`
 
 The natural-sounding fact — "for every generated function instance, the word at each of its exit pcs
 decodes to `ret`" — is **false on this artifact**, and it is worth stating why rather than weakening
-it silently. `tools/generate_elfling_program.py` defines an exit as a pc "whose control leaves the
-function instance's regions (return/terminal or a target outside the regions)". So the exit inventory
-also contains far calls (`auipc ra, …; jalr ra, …`), branches whose taken edge leaves the regions,
-and the last instruction of a fragment that simply falls through into the next one — arithmetic,
-loads and stores among them. Of the 642 exit rows across the 141 function instances, **16** are
-returns; `zesu_decode_raw` has six exits of which exactly one is. 128 of the 141 function instances
-have no return exit at all, so for them the sentinel bridge is not applicable in the first place.
+it silently. `tools/generate_elfling_program.py` defines an exit as a pc whose control leaves the
+function instance's regions: a return/terminal, or a *continuation* outside the regions. So the exit
+inventory also contains tail calls, branches whose taken edge leaves the regions, and the last
+instruction of a fragment that simply falls through into the next one — arithmetic, loads and stores
+among them. Of the 469 exit rows across the 141 function instances, **16** are returns. 128 of the
+141 function instances have no return exit at all, so for them the sentinel bridge is not applicable
+in the first place.
+
+### What changed since this module was written, and why
+
+This module was first written against an exit rule that counted a resolved call's **callee** edge as
+a way of leaving the caller, so *every* call site was an exit: 642 rows, 180 of them calls. That rule
+contradicted `FunctionInstance.exitPcs`' own docstring — "returns and **tail-calls** that leave this
+function instance" — and it made the conditional root theorem **vacuous**. `FunctionTrace.step`
+carries `hnotExit : ¬ exit pc`, so a trace must halt at the first exit it reaches; `zesu_decode_raw`'s
+trace therefore halted at its call to `decodeRaw` (`0x1031c`), where `status` and `storedResult` are
+still unwritten and `postZesuDecodeRaw` is false. `LocalContractAssumptions` was consequently an
+assumption nothing could satisfy. `CallTransfer.callNotExit` was unsatisfiable at all 180 call rows
+for the same reason, which left `ScopedTrace.callStep` dead code against this artifact.
+
+The generator now tests a resolved call's **fall-through** instead: control comes back from a call, so
+a call site leaves its caller only in tail position. 642 exit rows became **469** — the 173 non-tail
+call rows dropped, the 7 tail-position ones kept. The 16 returns are untouched: the rule never
+concerned returns, which is why every count in this module about *returns* is unchanged and only the
+totals moved. `zesu_decode_raw` went from six exits to **one, its `ret` at `0x10378`**, recorded below
+as `entry_function_instance_exit_is_its_return` — so "the entry run ends at its return" is now a
+definite description read off the data, with no contract clause supplying it.
+
+The narrowing is checked from both sides. `GeneratedProgramCfg.leavesFunctionInstance` mirrors the new
+rule and `exitsValid` re-decides both inclusions against the Sail-decoded CFG; and, because trading
+vacuity for unprovability would be no better,
+`GeneratedProgramCfg.generated_every_function_instance_reaches_an_exit` checks that all 141 instances
+can still reach a declared exit, with the naive "drop every call exit" rule run as a mutant that
+strands the `readArray` instance at `0x10fbc`.
 
 What *is* true, and is what the bridge needs, is the conditional form: **an exit the decoded CFG
 classifies as a return is a `ret` through `ra`**, encoded exactly `0x00008067`. The classification is
@@ -185,13 +212,14 @@ def generatedReturnExitPcs : Array Nat :=
 does — unlike the per-row checks above, which are blind to removal. -/
 theorem generatedReturnExitPcs_size : generatedReturnExitPcs.size = 16 := by native_decide
 
-/-- Total declared exit rows across the 141 function instances. Recorded so that the correction in
-the module docstring — most exits are not returns — is a checked number rather than a claim: 642
-rows, 16 of them returns. -/
+/-- Total declared exit rows across the 141 function instances. Recorded so that the docstring's
+claim — most exits are not returns — is a checked number rather than an assertion: 469 rows, 16 of
+them returns. It was 642 before the generator's exit rule stopped counting a resolved call's callee
+edge as a way of leaving the caller. -/
 def totalExitRows (program : Program) : Nat :=
   program.functionInstances.foldl (fun n functionInstance => n + functionInstance.exitPcs.size) 0
 
-theorem totalExitRows_generated : totalExitRows generatedProgram = 642 := by native_decide
+theorem totalExitRows_generated : totalExitRows generatedProgram = 469 := by native_decide
 
 /-- Only 13 of the 141 function instances declare a return exit at all; for the other 128 the
 sentinel bridge has nothing to attach to, because the machine never leaves them by a `ret`. -/
@@ -221,6 +249,27 @@ theorem entry_function_instance_has_one_return_exit :
       ((Program.find? generatedProgram generatedProgram.entry).map
         (fun e => (returnExitPcs ns e).size)).getD 0).getD 0 = 1 := by native_decide
   rw [hn, he] at this; simpa using this
+
+/-- **`zesu_decode_raw` has exactly one exit, and it is its `ret`.** Strictly stronger than the
+theorem above, which left open whether the entry had *other*, non-return exits — it had five, and a
+`FunctionTrace` had to stop at whichever came first, which for the entry was the call at `0x1031c`.
+Now the entry's whole exit inventory is the singleton `#[0x10378]` and every element of it is a
+decoded return site, so "the entry trace ends at the entry's return" is forced by the artifact:
+`FunctionTrace` halts at an exit, there is only one, and `returnExit_fetch_and_decode` reads a
+`jalr x0, 0(ra)` there. The literal is load-bearing on purpose — a moved exit fails here rather than
+silently re-describing which instruction the top-level run ends on. -/
+theorem entry_function_instance_exit_is_its_return :
+    ∀ nodes, controlFlow? = some nodes →
+      ∀ entry, Program.find? generatedProgram generatedProgram.entry = some entry →
+        entry.exitPcs = #[0x10378] ∧ returnExitPcs nodes entry = entry.exitPcs := by
+  intro nodes hn entry he
+  have h : (controlFlow?.map fun ns =>
+      ((Program.find? generatedProgram generatedProgram.entry).map
+        (fun e => (e.exitPcs == #[0x10378]) && (returnExitPcs ns e == e.exitPcs))).getD
+        false).getD false = true := by native_decide
+  rw [hn, he] at h
+  simp only [Option.map_some, Option.getD_some, Bool.and_eq_true, beq_iff_eq] at h
+  exact h
 
 /-! ## What the assembly consumes
 
@@ -326,7 +375,7 @@ theorem adding_non_ra_return_exit_breaks_check :
 A check that rejects everything is as uninformative as one that rejects nothing, so the complement is
 recorded too: adding a decoded **non**-return pc to every exit inventory leaves `returnExitsAreRetB`
 satisfied. It constrains returns; it does not claim the exit inventory contains only returns — which
-it must not, since 626 of the 642 exit rows are calls, branches and fall-throughs. -/
+it must not, since 453 of the 469 exit rows are tail calls, branches and fall-throughs. -/
 
 /-- A decoded pc that is not a return site, taken from the CFG rather than written down. -/
 def someNonReturnPc : Nat :=
