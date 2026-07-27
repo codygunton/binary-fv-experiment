@@ -44,18 +44,103 @@ def configureSucceedsB : Bool :=
 
 theorem configure_succeeds : configureSucceedsB = true := by native_decide
 
-/-- The machine configuration runs to some state. Its register/CSR values are deliberately left
-abstract — the builder's final `writeReg` block pins the ABI registers the entry binding reads, and
-the loaders set the memory, so nothing downstream needs the post-configuration register values. -/
-theorem configure_runs : ∃ mid, Runs configureZesuMachine initialState mid () := by
-  have h := configure_succeeds
-  unfold configureSucceedsB at h
+/-! ### The configured machine is a *normal* execution state
+
+`NormalExecutionState` (`RiscV/Platform/NormalState.lean`) bundles the twelve platform reads a
+retiring step depends on: hart state, privilege, `satp`, the delegation/interrupt words, the PMP
+tables, the two counter-control CSRs, the landing-pad expectation, and the `misa` bit that enables
+compressed instructions. Until now it was a predicate **no theorem in the tree mentioned**, so
+nothing established that any state the runner produces satisfies it.
+
+It matters because it is exactly the hypothesis set `Step/ControlFlow.lean`'s retirement lemmas take
+apart — `tryStepRetRetires` alone wants `hartRead`, `inhibitRead`, `configRead`, `notInhibited`,
+`machineEnabled`, `InterruptDisabled`, `FetchBasePlatform`, `FetchMemoryNoMMIO`,
+`LandingPadNotExpected` and the `Zca` read, every one of which is a consequence of these twelve. So
+"the machine is configured normally" is the missing currency between the state builder and the single
+`ret` that the sentinel bridge needs, and this section makes it a proved fact about the state the
+runner really calls `zesu_decode_raw` from rather than an assumption. -/
+
+/-- `NormalExecutionState` as a decidable check. Written out rather than `decide`d because three of
+its conjuncts have no `Decidable` instance: `HartState` and `Privilege` carry no `DecidableEq`, and
+the `misa` conjunct is a `match` on an `Option`, not an equation. -/
+def normalExecutionB (s : State) : Bool :=
+  (match s.regs.get? hart_state with | some (HartState.HART_ACTIVE ()) => true | _ => false) &&
+  (match s.regs.get? cur_privilege with | some Privilege.Machine => true | _ => false) &&
+  decide (s.regs.get? satp = some (0 : BitVec 64)) &&
+  decide (s.regs.get? mideleg = some (0 : BitVec 64)) &&
+  decide (s.regs.get? mie = some (0 : BitVec 64)) &&
+  decide (s.regs.get? mip = some (0 : BitVec 64)) &&
+  decide (s.regs.get? pmpcfg_n = some (default : Vector (BitVec 8) 64)) &&
+  decide (s.regs.get? pmpaddr_n = some (default : Vector (BitVec 64) 64)) &&
+  decide (s.regs.get? mcountinhibit = some (0 : BitVec 32)) &&
+  decide (s.regs.get? minstretcfg = some (0 : BitVec 64)) &&
+  decide (s.regs.get? elp = some
+    (landing_pad_bits_backwards landing_pad_expectation.NO_LP_EXPECTED)) &&
+  (match s.regs.get? misa with
+    | some m => decide (Sail.BitVec.access m 12 = 1#1)
+    | none => false)
+
+/-- The check discharges the predicate. The three `match` conjuncts are inverted by case analysis on
+the register read: every branch but the intended one reduces the check to `false = true`. -/
+theorem normalExecutionState_of_check {s : State} (h : normalExecutionB s = true) :
+    NormalExecutionState s := by
+  unfold normalExecutionB at h
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hhart, hpriv⟩, hsatp⟩, hmideleg⟩, hmie⟩, hmip⟩, hpmpcfg⟩, hpmpaddr⟩,
+    hinhibit⟩, hcfg⟩, help⟩, hmisa⟩ := h
+  refine ⟨?_, ?_, hsatp, hmideleg, hmie, hmip, hpmpcfg, hpmpaddr, hinhibit, hcfg, help, ?_⟩
+  · cases hread : s.regs.get? hart_state with
+    | none => rw [hread] at hhart; simp at hhart
+    | some hs =>
+      cases hs with
+      | HART_ACTIVE u => cases u; rfl
+      | HART_WAITING w => rw [hread] at hhart; simp at hhart
+  · cases hread : s.regs.get? cur_privilege with
+    | none => rw [hread] at hpriv; simp at hpriv
+    | some p =>
+      cases p <;> first | rfl | (rw [hread] at hpriv; simp at hpriv)
+  · cases hread : s.regs.get? misa with
+    | none => rw [hread] at hmisa; simp at hmisa
+    | some m => rw [hread] at hmisa; exact of_decide_eq_true hmisa
+
+/-- Whether the configuration program both succeeds and leaves a normal execution state. Closed and
+finite, like `configureSucceedsB`, so `native_decide` settles it. -/
+def configureNormalB : Bool :=
+  match configureZesuMachine.run initialState with
+  | .ok _ s => normalExecutionB s
+  | .error _ _ => false
+
+theorem configure_normal : configureNormalB = true := by native_decide
+
+/-- **The machine configuration runs to a normal execution state.**
+
+Its ABI register values are still deliberately left abstract — the builder's final `writeReg` block
+pins the ones the entry binding reads. What is *no longer* abstract is the platform state, because
+nothing downstream can retire a single instruction without it. -/
+theorem configure_runs : ∃ mid, Runs configureZesuMachine initialState mid () ∧
+    NormalExecutionState mid := by
+  have h := configure_normal
+  unfold configureNormalB at h
   cases hr : configureZesuMachine.run initialState with
   | error e s => rw [hr] at h; simp at h
   | ok u s =>
-    refine ⟨s, ?_⟩
+    refine ⟨s, ?_, normalExecutionState_of_check (by rw [hr] at h; exact h)⟩
     show configureZesuMachine.run initialState = .ok () s
     rw [hr]
+
+/-- **`NormalExecutionState` reads none of the six registers the builder's ABI block writes**, so it
+transports across that block verbatim. The six disequalities are the whole content: `x1`, `x2`,
+`x10`, `x11`, `PC` and `nextPC` are general-purpose or program-counter registers, and every register
+this predicate names is a platform CSR or the hart/privilege state. -/
+theorem normalExecutionState_frame {s s' : State}
+    (hframe : ∀ r : Register, r ≠ x1 → r ≠ x2 → r ≠ x10 → r ≠ x11 → r ≠ PC → r ≠ nextPC →
+      s'.regs.get? r = s.regs.get? r)
+    (h : NormalExecutionState s) : NormalExecutionState s' := by
+  obtain ⟨hhart, hpriv, hsatp, hmideleg, hmie, hmip, hpmpcfg, hpmpaddr, hinhibit, hcfg, help,
+    hmisa⟩ := h
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    rw [hframe _ (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)] <;>
+    assumption
 
 /-! ## Loader helpers -/
 
@@ -107,26 +192,50 @@ then the ABI register block. The three memory facts (`MemoryBytes`, `CodeIntact`
 `DecoderGlobalsRep`) each survive the later loaders because the runner's ranges are pairwise disjoint:
 file bytes below `86028`, the input at `0x2000…`, and the decoder globals in `[0x421D1A0, 0x421D4E0)`,
 all disjoint from the heap-global windows at `[0x1503?, …)`. -/
+
 set_option maxRecDepth 10000 in
-theorem buildZesuEntryState_entry_binding (input : ByteArray) :
+/-- **The built state is a valid decoder entry, and the runner's own ABI registers are exposed.**
+
+**The four ABI registers the builder writes are exposed, not merely used.** `preZesuDecodeRaw` pins
+only `a0` and `a1`, because those are the two the *decoder's* contract reads. The builder also writes
+`ra := canonicalRunnerLayout.sentinel`, `sp := stackStop`, and `PC`/`nextPC := zesu_decode_raw`, and
+those three are what the **runner's** side of the proof needs: the sentinel bridge
+(`RiscV/Elfling/SentinelBridge.lean`) can only turn a function trace into a `TraceToSentinel` if the
+final `ret` lands on the sentinel, which is a fact about `ra`; and the entry `FunctionTrace` starts at
+the entry pc, which is a fact about `PC`. Both were already *proved* here — they are literal `insert`s
+in the state this proof constructs — and were simply discarded by the old conclusion, so a caller had
+to re-derive facts this theorem had in hand. `buildZesuEntryState_entry_binding` below is the old
+statement, derived from this one, so the three existing callers are untouched.
+
+This exposes the register values **at the entry state only**. It does *not* say `ra` survives the
+call: nothing in the contract layer constrains callee-saved registers (`CalleeFrame` exists in
+`RiscV/Elfling/Contract.lean` and is used by no SSZ contract, and no `post*` in `Contracts/` mentions
+`x1`), so the exit-side half of the bridge's obligation remains open. -/
+theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
     ∃ s, Runs (buildZesuEntryState input) initialState s () ∧
       preZesuDecodeRaw canonicalEnvironment canonicalDecoderGlobalsLayout canonicalResultBuffer
-        canonicalRepRawV4 DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ s := by
+        canonicalRepRawV4 DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ s ∧
+      s.regs.get? x1 = some (BitVec.ofNat 64 canonicalRunnerLayout.sentinel) ∧
+      s.regs.get? x2 = some (BitVec.ofNat 64 canonicalRunnerLayout.stackStop) ∧
+      NormalExecutionState s ∧
+      ∃ entrySym, Artifact.zesuDecodeRaw.toOption = some entrySym ∧
+        s.regs.get? PC = some (BitVec.ofNat 64 entrySym.value) ∧
+        s.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) := by
   -- Stage the loaders.
   obtain ⟨seg, hsingle⟩ := programImage_single
-  obtain ⟨s1, hrun1⟩ := configure_runs
-  obtain ⟨s2, hrun2, _hregs2, _hlow2, _hhigh2, hfile2⟩ :=
+  obtain ⟨s1, hrun1, hnormal1⟩ := configure_runs
+  obtain ⟨s2, hrun2, hregs2, _hlow2, _hhigh2, hfile2⟩ :=
     loadFileBackedImage_single_establishes hsingle s1
-  obtain ⟨sstack, hrunstack, _hregsstack, hframestack, _hwinstack⟩ :=
+  obtain ⟨sstack, hrunstack, hregsstack, hframestack, _hwinstack⟩ :=
     loadZeroBytes_establishes canonicalRunnerLayout.stackBase canonicalRunnerLayout.stackSize s2
-  obtain ⟨s3, hrun3, _hregs3, hframe3, hwin3⟩ :=
+  obtain ⟨s3, hrun3, hregs3, hframe3, hwin3⟩ :=
     loadBytes_establishes canonicalRunnerLayout.inputBase input sstack
-  obtain ⟨s4, hrun4, _hregs4, hframe4, hwin4⟩ :=
+  obtain ⟨s4, hrun4, hregs4, hframe4, hwin4⟩ :=
     loadZeroBytes_establishes decoderBssBase GeneratedDecoderGlobals.bssSize s3
-  obtain ⟨s5, hrun5, _hregs5, hframe5⟩ :=
+  obtain ⟨s5, hrun5, hregs5, hframe5⟩ :=
     storeU64_establishes zkvmHeapPos
       ((GeneratedDecoderGlobals.runtimeGlobals.find? (·.1 == "heap")).elim 0 (·.2.1)) s4
-  obtain ⟨s6, hrun6, _hregs6, hframe6⟩ :=
+  obtain ⟨s6, hrun6, hregs6, hframe6⟩ :=
     storeU64_establishes zkvmHeapTop
       ((GeneratedDecoderGlobals.runtimeGlobals.find? (·.1 == "heap")).elim 0 (fun g => g.2.1 + g.2.2)) s5
   -- The entry symbol resolves, so the builder's final match reduces to the two PC writes.
@@ -157,7 +266,12 @@ theorem buildZesuEntryState_entry_binding (input : ByteArray) :
   have hbuilt : ∃ sf, Runs (buildZesuEntryState input) initialState sf () ∧
       sf.mem = s6.mem ∧
       sf.regs.get? x10 = some (BitVec.ofNat 64 canonicalRunnerLayout.inputBase) ∧
-      sf.regs.get? x11 = some (BitVec.ofNat 64 input.size) := by
+      sf.regs.get? x11 = some (BitVec.ofNat 64 input.size) ∧
+      sf.regs.get? x1 = some (BitVec.ofNat 64 canonicalRunnerLayout.sentinel) ∧
+      sf.regs.get? x2 = some (BitVec.ofNat 64 canonicalRunnerLayout.stackStop) ∧
+      sf.regs.get? PC = some (BitVec.ofNat 64 entrySym.value) ∧
+      sf.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) ∧
+      NormalExecutionState sf := by
     have hrunR : Runs
         (writeReg x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase) >>= fun _ =>
          writeReg x11 (BitVec.ofNat 64 input.size) >>= fun _ =>
@@ -169,15 +283,27 @@ theorem buildZesuEntryState_entry_binding (input : ByteArray) :
       Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
         (Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
           (Runs.bind (by rw [Runs, writeReg_run]) (by rw [Runs, writeReg_run])))))
-    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_⟩
+    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · unfold buildZesuEntryState initStack
       simp only [hentry]
       exact Runs.bind hrun1 (Runs.bind hrun2 (Runs.bind hrunstack (Runs.bind hrun3 (Runs.bind hrun4
         (Runs.bind (Runs.bind hrun5 hrun6) hrunR)))))
     · simp [Std.ExtDHashMap.get?_insert]
     · simp [Std.ExtDHashMap.get?_insert]
-  obtain ⟨sf, hrunsf, hmemsf, hx10, hx11⟩ := hbuilt
-  refine ⟨sf, hrunsf, ?_⟩
+    · simp [Std.ExtDHashMap.get?_insert]
+    · simp [Std.ExtDHashMap.get?_insert]
+    · simp [Std.ExtDHashMap.get?_insert]
+    · -- `nextPC` is the outermost write, so no frame step is needed.
+      simp
+    · -- The platform state survives every loader (each frames `regs`) and the ABI block (which
+      -- writes only general-purpose registers and the two program counters).
+      have hchain : s6.regs = s1.regs := by
+        rw [hregs6, hregs5, hregs4, hregs3, hregsstack, hregs2]
+      refine normalExecutionState_frame (fun r h1 h2 h10 h11 hpc hnext => ?_) hnormal1
+      simp [Std.ExtDHashMap.get?_insert, Ne.symm h1, Ne.symm h2, Ne.symm h10, Ne.symm h11,
+        Ne.symm hpc, Ne.symm hnext, hchain]
+  obtain ⟨sf, hrunsf, hmemsf, hx10, hx11, hx1, hx2, hpc, hnextpc, hnormal⟩ := hbuilt
+  refine ⟨sf, hrunsf, ?_, hx1, hx2, hnormal, entrySym, hentry, hpc, hnextpc⟩
   -- Reduce the argument projections once, then discharge each entry-binding conjunct.
   show MemoryBytes sf canonicalRunnerLayout.inputBase input ∧
       canonicalEnvironment.CodeIntact sf ∧
@@ -230,5 +356,15 @@ theorem buildZesuEntryState_entry_binding (input : ByteArray) :
       simpa [DecoderGlobalsModel.fresh] using hwin4 848 (by omega)
     · -- No stored value.
       simp [DecoderGlobalsModel.fresh]
+
+/-- The entry binding alone, which is what the three satisfiability callers consume. Derived from
+`buildZesuEntryState_entry_binding_abi` rather than proved again, so there is one construction of the
+entry state and one place a change to the builder has to be reflected. -/
+theorem buildZesuEntryState_entry_binding (input : ByteArray) :
+    ∃ s, Runs (buildZesuEntryState input) initialState s () ∧
+      preZesuDecodeRaw canonicalEnvironment canonicalDecoderGlobalsLayout canonicalResultBuffer
+        canonicalRepRawV4 DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ s := by
+  obtain ⟨s, hrun, hbind, -⟩ := buildZesuEntryState_entry_binding_abi input
+  exact ⟨s, hrun, hbind⟩
 
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw

@@ -84,6 +84,23 @@ def observeDecodedValue (state : State) : Option SszBridge.RawV4 :=
 cannot be a real instruction fetch. -/
 def sentinelWord : BitVec 64 := BitVec.ofNat 64 canonicalRunnerLayout.sentinel
 
+/-- **A pc the image can read back is not the sentinel.** The sentinel-bridge avoidance condition, at
+the runner's own word.
+
+`RiscV/Elfling/SentinelBridge.lean` takes `regionAvoidsSentinel` and `exitAvoidsSentinel` as
+hypotheses precisely because they cannot be discharged at a generic layer; this discharges them for
+any address set whose members are loaded, which is the only property of the generated regions the
+condition depends on. What it does *not* do is supply that property for
+`functionInstanceExecutionPcs`: `IsCanonicalGeneratedProgram` asserts readability for each function
+instance's own `regions` only, while the execution set also contains `Program.extentRanges` — the
+transfer closure, which pulls in `ownedRanges` (own regions plus *absorbed* excluded-routine ranges)
+and `rangesOf` for unresolved ids. Readability of those is a generated-data fact that
+`bytesReadableIn` does not currently check, so the caller still owes it. -/
+theorem loaded_ne_sentinelWord (pc : BitVec 64)
+    (loaded : ∃ byte, Artifact.programImage.readByte? pc.toNat = some byte) :
+    pc ≠ sentinelWord :=
+  loaded_word_ne_sentinel pc loaded
+
 /-! ## Running one call -/
 
 /-- Call a zero-argument exported accessor from the current state and report how it ended.

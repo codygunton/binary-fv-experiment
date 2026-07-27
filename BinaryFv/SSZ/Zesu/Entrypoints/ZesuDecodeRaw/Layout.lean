@@ -165,6 +165,35 @@ theorem loaded_disjoint_from_runner (address : Nat)
   have habove := layout_above_loaded
   refine ⟨?_, ?_, ?_⟩ <;> omega
 
+/-- **No loaded address is the sentinel**, as a disequality rather than a strict bound.
+
+This is the `Nat`-level half of what `RiscV/Elfling/SentinelBridge.lean` calls
+`regionAvoidsSentinel`/`exitAvoidsSentinel`: the bridge's two avoidance hypotheses are `pc ≠ sentinel`
+for every pc the run retires at and every exit pc, and it says explicitly that neither can be
+discharged generically — "the sentinel is chosen outside every mapped range, and every region and
+exit address is inside one" is a target fact, and this is that fact.
+
+Stated separately from `loaded_disjoint_from_runner` because the bridge wants `≠`, not `<`: deriving
+one from the other is one `Nat.ne_of_lt`, and doing it once here is what keeps the per-region
+avoidance proofs from each re-deriving it in a slightly different shape. -/
+theorem loaded_ne_sentinel (address : Nat)
+    (loaded : ∃ byte, Artifact.programImage.readByte? address = some byte) :
+    address ≠ canonicalRunnerLayout.sentinel :=
+  Nat.ne_of_lt (loaded_disjoint_from_runner address loaded).2.2
+
+/-- The same fact about a machine word, which is the form the bridge's hypotheses are stated in.
+
+The `toNat` round trip is the whole content: `canonicalRunnerLayout.sentinel` is below `2 ^ 64`
+(`layout_no_wrap`), so `BitVec.ofNat 64` of it reads back as itself, and a pc whose `toNat` is a
+loaded address therefore cannot be that word. -/
+theorem loaded_word_ne_sentinel (pc : BitVec 64)
+    (loaded : ∃ byte, Artifact.programImage.readByte? pc.toNat = some byte) :
+    pc ≠ BitVec.ofNat 64 canonicalRunnerLayout.sentinel := by
+  intro hpc
+  refine loaded_ne_sentinel pc.toNat loaded ?_
+  rw [hpc]
+  simpa using Nat.mod_eq_of_lt layout_no_wrap.2.2
+
 /-- The input bound the public theorem states is exactly the buffer's capacity, so an admissible
 input always fits and there is no second, looser bound anywhere in the runner. -/
 theorem layout_input_capacity_is_theorem_bound :
