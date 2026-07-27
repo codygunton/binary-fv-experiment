@@ -902,8 +902,11 @@ let
       s = json.load(open(sys.argv[1]))["summary"]
       assert s["totalMissingInternalEdges"] == 0, "generated CFG is MISSING real control transfers"
       assert s["totalDeclaredNotReal"] == 0, "generated CFG declares edges the binary does not have"
-      assert s["totalDeclaredNotLeaving"] == 0, "an exit is declared for a pc that does not leave the function instance -- the over-declaration that made the root theorem vacuous (see DECISIONS.md, the exit-rule entry); `cfg_audit.py` also exits non-zero on this, but it is asserted here beside its three siblings so a reader sees all four directions in one place"
-assert s["totalLeavingSourcesNotInExits"] == 0, "a leaving transfer departs at an undeclared exit"
+      # An exit declared for a pc that does not leave: the over-declaration that made the root
+      # theorem vacuous until 112b2ca. `cfg_audit.py` also exits non-zero on it; asserted here
+      # beside its siblings so all four directions are visible in one place.
+      assert s["totalDeclaredNotLeaving"] == 0, "an exit is declared for a pc that does not leave"
+      assert s["totalLeavingSourcesNotInExits"] == 0, "a leaving transfer departs at an undeclared exit"
       print("cfg audit: generated edges == real control transfers, exits complete")
       PY
 
