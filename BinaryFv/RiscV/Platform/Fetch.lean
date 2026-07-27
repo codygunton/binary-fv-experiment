@@ -45,6 +45,35 @@ def FetchPmpDisabled (state : State) : Prop :=
   state.regs.get? pmpcfg_n = some (default : Vector (BitVec 8) 64) ∧
     state.regs.get? pmpaddr_n = some (default : Vector (BitVec 64) 64)
 
+/--
+The generated `Ext_Zca` gate, as a function of `misa` alone.
+
+`currentlyEnabled Ext_Zca` is `hartSupports Ext_Zca && (currentlyEnabled Ext_C || not (hartSupports
+Ext_C))`, and both `hartSupports` cases are configuration constants, so the whole gate collapses to
+the `misa` C bit. That is why the `hzca` premise of the control-flow rules is discharged by a single
+register read rather than by a platform predicate of its own: `misa` is in `platformPreserved`, so
+agreement carries the read, and the read carries the run.
+-/
+theorem currentlyEnabledZca_run (state : State) (misaBits : BitVec 64)
+    (misaRead : state.regs.get? misa = some misaBits) :
+    Runs (currentlyEnabled Ext_Zca) state state (_get_Misa_C misaBits == 1#1) := by
+  unfold Runs
+  simp [currentlyEnabled, hartSupports, PreSail.readReg, EStateM.run, EStateM.bind,
+    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
+    instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+    LeanRV64DExecutable.Functions.not, LeanRV64DExecutable.Functions.xlen, misaRead]
+
+/-- **The `misa` read is load-bearing.** Without it the gate does not merely fail to be provable at
+some value — it returns no value at all, because the generated read throws. -/
+theorem not_currentlyEnabledZca_run_of_misa_absent (state : State) (enabled : Bool)
+    (absent : state.regs.get? misa = none) :
+    ¬ Runs (currentlyEnabled Ext_Zca) state state enabled := by
+  intro run
+  unfold Runs at run
+  simp [currentlyEnabled, hartSupports, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
+    EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf, getThe, absent,
+    throw, throwThe, MonadExceptOf.throw, EStateM.throw] at run
+
 /-- State facts required by the generated direct Machine-mode base-fetch path. -/
 def FetchBasePlatform (state : State) (pc : BitVec 64) : Prop :=
   ∃ (misaBits mstatusBits : BitVec 64),
@@ -161,12 +190,8 @@ theorem fetch_base_of_fetchBytes (state : State) (pc : BitVec 64)
   have notRvc := baseInstructionEncoding_notRVC byte0 byte1 byte2 byte3 base
   have hReadPc : Runs (Sail.readReg PC) state state pc :=
     readReg_run state PC pc pcRead
-  have hZca : Runs (currentlyEnabled Ext_Zca) state state (_get_Misa_C misaBits == 1#1) := by
-    unfold Runs
-    simp [currentlyEnabled, hartSupports, PreSail.readReg, EStateM.run, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      LeanRV64DExecutable.Functions.not, LeanRV64DExecutable.Functions.xlen, misaRead]
+  have hZca : Runs (currentlyEnabled Ext_Zca) state state (_get_Misa_C misaBits == 1#1) :=
+    currentlyEnabledZca_run state misaBits misaRead
   have hZiccif : Runs (currentlyEnabled Ext_Ziccif) state state true := by
     unfold Runs currentlyEnabled hartSupports
     rfl
@@ -210,16 +235,150 @@ theorem fetch_base_of_fetchBytes (state : State) (pc : BitVec 64)
   simp
   rfl
 
+/-! ## The base-fetch platform, split at the `PC` read
+
+`FetchBasePlatform state pc` bundles ten facts, and exactly one of them — `state.regs.get? PC = some
+pc` — says *where the machine is*. The other nine say what the machine is configured like, plus what
+is true of the address `pc` as a number. That distinction is the whole content of this section: a
+contract about a callee can carry the nine, and cannot carry the one, because a call moves `PC`.
+
+`FetchBasePlatformOffPC` is those nine. It is not a weakening for its own sake: a transport lemma
+that asks for the full bundle at the *entry* state is unusable at the exit, since its hypothesis
+already asserts the entry state is at the exit pc. -/
+
+/--
+`FetchBasePlatform` with the `PC` register read removed.
+
+Everything here is either a platform register (preserved across a call) or a fact about the address
+`pc` as a number (independent of any state). Nothing here constrains where the machine currently is,
+which is what makes it the right hypothesis for a state that has not arrived at `pc` yet.
+-/
+def FetchBasePlatformOffPC (state : State) (pc : BitVec 64) : Prop :=
+  ∃ (misaBits mstatusBits : BitVec 64),
+    state.regs.get? misa = some misaBits ∧
+      state.regs.get? mstatus = some mstatusBits ∧
+        state.regs.get? cur_privilege = some Privilege.Machine ∧
+          Sail.BitVec.access pc 0 = 0#1 ∧
+            Sail.BitVec.access pc 1 = 0#1 ∧
+              is_aligned_vaddr (virtaddr.Virtaddr pc) 4 = true ∧
+                is_aligned_paddr (physaddr.Physaddr pc) 4 = true ∧
+                  FetchPmpDisabled state ∧ FetchPmaAllows state pc
+
+/-- The split is exact: the bundle is the `PC` read and nothing else, plus the rest. -/
+theorem fetchBasePlatform_iff {state : State} {pc : BitVec 64} :
+    FetchBasePlatform state pc ↔
+      state.regs.get? PC = some pc ∧ FetchBasePlatformOffPC state pc := by
+  constructor
+  · rintro ⟨misaBits, mstatusBits, pcRead, rest⟩
+    exact ⟨pcRead, misaBits, mstatusBits, rest⟩
+  · rintro ⟨pcRead, misaBits, mstatusBits, rest⟩
+    exact ⟨misaBits, mstatusBits, pcRead, rest⟩
+
+theorem FetchBasePlatform.offPC {state : State} {pc : BitVec 64}
+    (h : FetchBasePlatform state pc) : FetchBasePlatformOffPC state pc :=
+  (fetchBasePlatform_iff.mp h).2
+
+theorem fetchBasePlatform_of_offPC {state : State} {pc : BitVec 64}
+    (pcRead : state.regs.get? PC = some pc) (h : FetchBasePlatformOffPC state pc) :
+    FetchBasePlatform state pc :=
+  fetchBasePlatform_iff.mpr ⟨pcRead, h⟩
+
+/-! ### Constructors
+
+The predicates above are anonymous conjunctions, so `⟨…⟩` builds them and nothing records *what a
+caller must supply*. These name it. Each is generic: the register values, the region table and the
+alignment are parameters, because which values a particular machine holds is a target fact. -/
+
+/-- The four alignment conjuncts follow from one arithmetic fact about the address.
+
+`Sail.BitVec.access` is bit extraction and `is_aligned_*` is `tmod` against the width, so all four
+are the same statement twice over; a caller should not have to discharge them separately. -/
+theorem fetchAligned_of_mod_four {pc : BitVec 64} (aligned : pc.toNat % 4 = 0) :
+    Sail.BitVec.access pc 0 = 0#1 ∧ Sail.BitVec.access pc 1 = 0#1 ∧
+      is_aligned_vaddr (virtaddr.Virtaddr pc) 4 = true ∧
+        is_aligned_paddr (physaddr.Physaddr pc) 4 = true := by
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · simp [Sail.BitVec.access, BitVec.getElem_eq_testBit_toNat, Nat.testBit,
+      show pc.toNat % 2 = 0 by omega]
+  · simp [Sail.BitVec.access, BitVec.getElem_eq_testBit_toNat, Nat.testBit,
+      show pc.toNat >>> 1 % 2 = 0 by omega]
+  · simp only [is_aligned_vaddr, Sail.BitVec.toNatInt, Int.ofNat_eq_natCast, ← Int.ofNat_tmod,
+      aligned]
+    rfl
+  · simp only [is_aligned_paddr, Sail.BitVec.toNatInt, Int.ofNat_eq_natCast, ← Int.ofNat_tmod,
+      aligned]
+    rfl
+
+/-- `FetchPmaAllows` from the region table and the region that matches. Which table a machine holds,
+and that it matches, is a target fact; that they are what the premise wants is not. -/
+theorem fetchPmaAllows_of_region {state : State} {pc : BitVec 64} {regions : List PMA_Region}
+    {region : PMA_Region} (regionsRead : state.regs.get? pma_regions = some regions)
+    (matched : matching_pma_region regions (physaddr.Physaddr pc) 4 = some region)
+    (executable : region.attributes.executable = true) : FetchPmaAllows state pc :=
+  ⟨regions, region, regionsRead, matched, executable⟩
+
+/-- `FetchPmpDisabled` is two of `NormalExecutionState`'s twelve pins. -/
+theorem fetchPmpDisabled_of_normal {state : State} (normal : NormalExecutionState state) :
+    FetchPmpDisabled state :=
+  ⟨normal.2.2.2.2.2.2.1, normal.2.2.2.2.2.2.2.1⟩
+
+/-- The off-`PC` platform from register reads and one alignment fact. -/
+theorem fetchBasePlatformOffPC_of_reads {state : State} {pc misaBits mstatusBits : BitVec 64}
+    (misaRead : state.regs.get? misa = some misaBits)
+    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
+    (privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine)
+    (aligned : pc.toNat % 4 = 0) (pmpDisabled : FetchPmpDisabled state)
+    (pmaAllows : FetchPmaAllows state pc) : FetchBasePlatformOffPC state pc :=
+  ⟨misaBits, mstatusBits, misaRead, mstatusRead, privilegeRead,
+    (fetchAligned_of_mod_four aligned).1, (fetchAligned_of_mod_four aligned).2.1,
+    (fetchAligned_of_mod_four aligned).2.2.1, (fetchAligned_of_mod_four aligned).2.2.2,
+    pmpDisabled, pmaAllows⟩
+
+/-- **What `NormalExecutionState` already buys.** Four of the nine off-`PC` conjuncts (`misa`
+presence, `cur_privilege`, and both PMP tables) come straight out of it; a caller supplies only
+`mstatus`, the alignment, and the PMA lookup. -/
+theorem fetchBasePlatformOffPC_of_normal {state : State} {pc mstatusBits : BitVec 64}
+    (normal : NormalExecutionState state)
+    (mstatusRead : state.regs.get? mstatus = some mstatusBits) (aligned : pc.toNat % 4 = 0)
+    (pmaAllows : FetchPmaAllows state pc) : FetchBasePlatformOffPC state pc := by
+  have misaClause := normal.2.2.2.2.2.2.2.2.2.2.2
+  cases misaRead : state.regs.get? misa with
+  | none => rw [misaRead] at misaClause; exact absurd misaClause (by simp)
+  | some misaBits =>
+    exact fetchBasePlatformOffPC_of_reads misaRead mstatusRead normal.2.1 aligned
+      (fetchPmpDisabled_of_normal normal) pmaAllows
+
+/-- `InterruptDisabled` from `NormalExecutionState` plus the two registers it does not pin.
+
+`sig_meip` is asked for as presence rather than a value because the premise only needs the read to
+succeed — `mie = 0` already kills the dispatch. -/
+theorem interruptDisabled_of_normal {state : State} {mstatusBits : BitVec 64}
+    (normal : NormalExecutionState state)
+    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
+    (meip : ∃ b : BitVec 1, state.regs.get? sig_meip = some b) : InterruptDisabled state := by
+  obtain ⟨b, meipRead⟩ := meip
+  have misaClause := normal.2.2.2.2.2.2.2.2.2.2.2
+  cases misaRead : state.regs.get? misa with
+  | none => rw [misaRead] at misaClause; exact absurd misaClause (by simp)
+  | some misaBits =>
+    exact ⟨misaBits, mstatusBits, 0, b, misaRead, normal.2.2.2.2.2.1, normal.2.2.2.2.1,
+      normal.2.2.2.1, meipRead, mstatusRead⟩
+
 /-! ## Transporting the retirement's platform premises across a call
 
 `platformPreserved` (`Platform/NormalState.lean`) names the registers a callee owes its caller
-unchanged. These four lemmas are what that clause *buys*: each premise of `tryStepRetRetires` that is
+unchanged. These lemmas are what that clause *buys*: each premise of `tryStepRetRetires` that is
 a claim about platform registers, carried from a state where it is established to the exit state.
 
 They are stated at the same `pc` where a pc appears, because the pc is not something a callee
 preserves — it is supplied by the trace. `fetchBasePlatform_of_agree` therefore takes the exit pc
 read as a separate hypothesis, which is exactly the split between what a contract can say and what
-only the run can. -/
+only the run can — **and takes `FetchBasePlatformOffPC` rather than `FetchBasePlatform` on the entry
+side, so that split is real.** With the full bundle as the hypothesis the lemma was unusable at the
+site it was written for: `FetchBasePlatform before pc` already asserts `before.regs.get? PC = some
+pc`, so the only `before` admitting it is one already sitting on the exit, where `Agree` is
+reflexivity and the conclusion is the hypothesis. `Step/AbstractPremise.lean` instantiates the
+narrowed form at a `before` that is provably *not* at `pc`, which the old form could not state. -/
 
 /-- `FetchPmpDisabled` reads the two PMP tables, both preserved. -/
 theorem fetchPmpDisabled_of_agree {before after : State}
@@ -252,18 +411,26 @@ theorem interruptDisabled_of_agree {before after : State}
     (platformPreserved_sigMeip agree).trans meipRead,
     (platformPreserved_mstatus agree).trans mstatusRead⟩
 
-/-- The whole base-fetch platform, given the exit pc the trace lands on. Everything but the `PC` read
-is either preserved or a fact about `pc` alone. -/
-theorem fetchBasePlatform_of_agree {before after : State} {pc : BitVec 64}
-    (agree : Agree platformPreserved before after) (landed : after.regs.get? PC = some pc)
-    (h : FetchBasePlatform before pc) : FetchBasePlatform after pc := by
-  obtain ⟨misaBits, mstatusBits, _pcRead, misaRead, mstatusRead, privilegeRead, pcLow0, pcLow1,
+/-- Every off-`PC` conjunct is preserved: three register reads, the two PMP tables, the PMA table at
+its value, and four facts about `pc` that mention no state at all. -/
+theorem fetchBasePlatformOffPC_of_agree {before after : State} {pc : BitVec 64}
+    (agree : Agree platformPreserved before after) (h : FetchBasePlatformOffPC before pc) :
+    FetchBasePlatformOffPC after pc := by
+  obtain ⟨misaBits, mstatusBits, misaRead, mstatusRead, privilegeRead, pcLow0, pcLow1,
     alignedVaddr, alignedPaddr, pmpDisabled, pmaAllows⟩ := h
-  exact ⟨misaBits, mstatusBits, landed,
+  exact ⟨misaBits, mstatusBits,
     (agree misa (by simp [platformPreserved])).trans misaRead,
     (platformPreserved_mstatus agree).trans mstatusRead,
     (agree cur_privilege (by simp [platformPreserved])).trans privilegeRead,
     pcLow0, pcLow1, alignedVaddr, alignedPaddr,
     fetchPmpDisabled_of_agree agree pmpDisabled, fetchPmaAllows_of_agree agree pmaAllows⟩
+
+/-- The whole base-fetch platform at the exit, from the preserved configuration at the entry and the
+exit pc the trace lands on. The entry side is the off-`PC` bundle, so `before` is free to be anywhere
+— which is the only way this applies across a call. -/
+theorem fetchBasePlatform_of_agree {before after : State} {pc : BitVec 64}
+    (agree : Agree platformPreserved before after) (landed : after.regs.get? PC = some pc)
+    (h : FetchBasePlatformOffPC before pc) : FetchBasePlatform after pc :=
+  fetchBasePlatform_of_offPC landed (fetchBasePlatformOffPC_of_agree agree h)
 
 end BinaryFv.RiscV
