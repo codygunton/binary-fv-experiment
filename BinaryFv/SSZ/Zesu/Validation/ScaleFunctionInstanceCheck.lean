@@ -10,7 +10,10 @@ fourteen checks:
 
   entryReached          the first in-region PC is the declared entry PC
   controlFlowIntegrity  every executed transfer from an OWNED pc is a declared CFG edge (exact)
-  exitsRespected        every leaving / dynamic transfer departs at a declared exit PC
+  exitsRespected        `exits` agrees with the run at every observed transfer out, both ways: every
+                        observed DEPARTURE (a transfer out that did not come back to that pc's own
+                        fall-through) is a declared exit, and no call site observed to come back is
+                        declared as one
   withinStepBound       max per-invocation instruction count ≤ the contract step bound (gap if the
                         bound is input-dependent)
   allocationConsistent  a non-allocating routine never bumps the allocator cursor
@@ -249,8 +252,13 @@ def evaluateFunctionInstance (ev : FunctionInstanceScaleEvidence) : ScaleChecks 
       allocationLedger := allocationLedgerOf ev
       entryReached := some (ev.firstInRegion == ev.entryPc)
       controlFlowIntegrity := some (ev.executedOwnedEdges.all (fun e => ev.declaredEdges.contains e))
+      -- Both directions of `exits` against the run. A call LEAVES the regions but comes back, so it
+      -- is not a departure and must NOT be a declared exit — that over-declaration is what made the
+      -- entry functionInstance's `FunctionTrace` (which carries `¬ exit pc`) stop at its first call.
+      -- Checking only the first conjunct would pass just as happily with the defect restored.
       exitsRespected := some (ev.leavingSources.all (fun s => ev.exits.contains s) &&
-                              ev.dynamicTransferSources.all (fun s => ev.exits.contains s))
+                              ev.dynamicTransferSources.all (fun s => ev.exits.contains s) &&
+                              ev.returningCallSites.all (fun s => !ev.exits.contains s))
       withinStepBound := ev.stepBound.map (fun b => ev.maxInsnPerInvocation ≤ b)
       allocationConsistent := some (ev.allocates || !(classes.contains "allocator-cursor"))
       inputPreserved := some (!(classes.contains "input"))
@@ -471,6 +479,15 @@ theorem negative_undeclared_edge :
 theorem negative_undeclared_exit :
     (evaluateFunctionInstance { sample with
         leavingSources := 999999 :: sample.leavingSources }).exitsRespected
+      = some false := by native_decide
+
+/-- OVER-declared exit: a call site the trace observed coming back to its own fall-through is listed
+as an exit. This is the defect the extractor fix removed — every resolved call site counted as an
+exit of its caller — and it must be rejected here too, or `exitsRespected` would certify it. -/
+theorem negative_returning_call_declared_exit :
+    (evaluateFunctionInstance { sample with
+        returningCallSites := sample.entryPc :: sample.returningCallSites,
+        exits := sample.entryPc :: sample.exits }).exitsRespected
       = some false := by native_decide
 
 /-- spurious allocation: a store bumping the allocator cursor in a non-allocating routine. -/

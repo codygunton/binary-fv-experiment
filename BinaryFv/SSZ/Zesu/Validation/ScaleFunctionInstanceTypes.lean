@@ -98,10 +98,17 @@ structure FunctionInstanceScaleEvidence where
   executedOwnedEdges : List (Nat × Nat)
   /-- the declared exit PCs. -/
   exits : List Nat
-  /-- owned PCs from which execution actually left the functionInstance's regions. -/
+  /-- owned PCs at which execution DEPARTED the functionInstance's regions — it left and did not come
+  back to that pc's own fall-through. Leaving and departing are not the same: a call leaves and
+  returns, so a call site departs only in tail position. -/
   leavingSources : List Nat
-  /-- owned PCs whose transfer is dynamic (ret / unresolved indirect call). -/
+  /-- owned PCs whose transfer is dynamic (ret / unresolved indirect call), less any observed to
+  return into these regions. -/
   dynamicTransferSources : List Nat
+  /-- owned CALL sites that left the regions and were OBSERVED, in the trace, to resume at their own
+  in-region fall-through. These are the sites `leavingSources` excludes, carried so the exclusion is
+  auditable: none of them may appear in `exits`, or `exitPcs` is over-declared again. -/
+  returningCallSites : List Nat
   /-- the resolved contract step bound, or `none` if input-dependent/unknown (an explicit gap). -/
   stepBound : Option Nat
   /-- whether the source routine allocates (bumps the allocator cursor). -/

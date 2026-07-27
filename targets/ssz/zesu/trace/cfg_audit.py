@@ -9,11 +9,22 @@ compares that ground truth to the function instance's declared `edges`. It repor
   missingInternal   a real transfer whose SOURCE and TARGET are both inside the function instance's blocks but
                     which is absent from `edges` — a genuine hole in the generated CFG;
   declaredNotReal   a declared edge that is not a real successor of its source instruction;
-  exitsOk           whether every real transfer leaving the function instance's blocks has its source in `exits`.
+  leavingSourcesNotInExits  a region PC that really leaves the function instance but is absent from `exits`;
+  declaredNotLeaving        a declared exit that does NOT leave — the over-declaration direction.
+
+`exits` and `edges` are computed from DIFFERENT successor sets, and this audit must keep them apart.
+An edge is a direct successor; an exit is a CONTINUATION — where control goes and STAYS. A resolved
+call has both successors `[callee, pc + 4]` (two declared edges) and the single continuation `pc + 4`,
+so a call site is an exit only in tail position. That rule lives once, in
+`riscv_transfers.leaves_region`, mirroring the extractor and Lean's `leavesFunctionInstance`; this
+audit re-derives it from the disassembly and compares it to the generated `exits` in BOTH directions,
+so neither under- nor OVER-declared exits can survive. (Over-declaration is not cosmetic: an exit at
+every call site is what made the entry function instance's `FunctionTrace` stop at its first call.)
 
 This exists because the scaled validator must check the EXACT generated edges, not merely that transfer
 targets land on block starts. Where the generated data is wrong, the extractor is the thing to repair —
 the validator must not be weakened to accommodate it. Diagnostic-only; never imported by the proof.
+Exits non-zero on any defect, so it gates on its own rather than relying on its caller to read the JSON.
 """
 from __future__ import annotations
 
@@ -26,7 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 # The direct-vs-dynamic transfer rule is shared with the scaled checker and mirrors the extractor:
 # objdump's `#` comment alone does NOT make a `jalr` direct (it prints one for a bare `jalr a5` too).
-from riscv_transfers import COND, RET, disassemble, resolved_target  # noqa: E402
+from riscv_transfers import COND, RET, disassemble, leaves_region, resolved_target  # noqa: E402
 
 UNCOND = {"j", "jr"}
 CALL = {"jal", "jalr"}
@@ -99,7 +110,7 @@ def main() -> int:
     rpcs = [region_pcs(function_instance) for function_instance in function_instances]
 
     report = []
-    tot_missing = tot_bogus = tot_exitbad = 0
+    tot_missing = tot_bogus = tot_exitbad = tot_overdeclared = 0
     for i, function_instance in enumerate(function_instances):
         children = set()
         for c in function_instance["children"]:
@@ -121,16 +132,23 @@ def main() -> int:
                     real.add((pc, t))
         missing = sorted(e for e in real if e not in declared)
         bogus = sorted(e for e in declared if e not in real)
-        # every real transfer leaving the function instance's own regions must have its source in `exits`
-        leaving_src = {pc for (pc, t) in real if t not in region}
-        exit_bad = sorted(leaving_src - exits)
-        tot_missing += len(missing); tot_bogus += len(bogus); tot_exitbad += len(exit_bad)
+        # `exits` is re-derived from the disassembly by the SHARED continuation rule and compared in
+        # both directions. The domain is the whole region, not just the owned PCs: the extractor
+        # declares an exit for every region PC that leaves, child-owned ones included.
+        really_leaves = {pc for pc in sorted(region)
+                         if pc in insns and leaves_region(pc, insns, region.__contains__, nxt.get(pc))}
+        exit_bad = sorted(really_leaves - exits)             # under-declared: a real departure is not an exit
+        over_declared = sorted(exits - really_leaves)        # over-declared: an exit that does not leave
+        tot_missing += len(missing); tot_bogus += len(bogus)
+        tot_exitbad += len(exit_bad); tot_overdeclared += len(over_declared)
         report.append({
             "index": i, "qualified": function_instance["qualified"],
             "realOwned": len(real), "declared": len(declared),
             "missingInternal": missing[:20], "missingCount": len(missing),
             "declaredNotReal": bogus[:20], "declaredNotRealCount": len(bogus),
             "leavingSourcesNotInExits": exit_bad[:20], "indirectSites": len(indirect_sites),
+            "declaredNotLeaving": over_declared[:20], "declaredNotLeavingCount": len(over_declared),
+            "exitsDeclared": len(exits), "exitsReal": len(really_leaves),
         })
 
     out = {
@@ -141,6 +159,7 @@ def main() -> int:
             "function_instancesWithDeclaredNotReal": sum(1 for r in report if r["declaredNotRealCount"]),
             "totalDeclaredNotReal": tot_bogus,
             "totalLeavingSourcesNotInExits": tot_exitbad,
+            "totalDeclaredNotLeaving": tot_overdeclared,
         },
         "function_instances": report,
     }
@@ -152,7 +171,10 @@ def main() -> int:
     print(f"  with declared-but-not-real edges: {s['function_instancesWithDeclaredNotReal']} "
           f"(total {s['totalDeclaredNotReal']})")
     print(f"  leaving-transfer sources absent from `exits`: {s['totalLeavingSourcesNotInExits']}")
-    return 0
+    print(f"  declared exits that do NOT leave: {s['totalDeclaredNotLeaving']}")
+    # Gate here rather than leaving it to whoever reads the JSON: an over-declared exit (every call
+    # site, say) is exactly the defect this audit exists to stop, and it must not pass silently.
+    return 1 if (tot_missing or tot_bogus or tot_exitbad or tot_overdeclared) else 0
 
 
 if __name__ == "__main__":

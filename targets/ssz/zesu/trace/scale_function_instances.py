@@ -22,8 +22,17 @@ The generic per-function-instance checks (apply to all function instances, trace
                         inference that `edges` was non-exhaustive — it is not; that comparison had simply
                         ignored child-owned PCs. `cfg_audit.py` verifies the declared edges against the
                         control transfers decoded from the disassembly.)
-  exitsRespected        every executed transfer that LEAVES the function instance's regions departs from a PC
-                        listed in the declared `exits`.
+  exitsRespected        the declared `exits` agree with the run at every observed transfer OUT of the
+                        function instance's regions, in BOTH directions. Leaving and DEPARTING are not the
+                        same thing: a call leaves and control comes back, so a call site is an exit
+                        only in tail position — and whether it came back is OBSERVED here (`call_returns`
+                        pairs the trace's calls and returns), not assumed from the disassembly. So:
+                        every observed departure (a transfer out that did not resume at that pc's own
+                        in-region fall-through) departs at a declared exit, AND no call site seen to
+                        come back is declared as one. The second half is not decoration — an exit at
+                        every call site is exactly the over-declaration that made the entry function
+                        instance's trace (`FunctionTrace.step` carries `¬ exit pc`) halt at its first
+                        call, and a check without it would certify that defect.
   withinStepBound       max per-invocation instruction count <= the routine's contract step bound
                         (const bounds + readArray's specialization width; input-dependent bounds = gap)
   allocationConsistent  a NON-allocating routine never bumps the allocator cursor (.sbss); the
@@ -454,8 +463,16 @@ def reduce_function_instance(function_instance, short, catalog, executed, loads,
     # EXACT control-flow validation against the generated CFG.
     # The generator attributes each PC's edges to the DEEPEST function instance owning it
     # (`owned = regions - children's regions`), so every executed transfer FROM an owned PC must appear
-    # verbatim in this function instance's declared `edges` — not merely land on a block start. Every executed
-    # transfer that LEAVES the function instance's regions must have its source in the declared `exits`.
+    # verbatim in this function instance's declared `edges` — not merely land on a block start.
+    #
+    # DEPARTURE vs call. Leaving the regions and DEPARTING from them are different things, and
+    # `exits` means the second: a call transfers out but control comes back, so a call site is an exit
+    # only in TAIL position. (`exits` said otherwise until the extractor was corrected; since
+    # `FunctionTrace.step` carries `¬ exit pc`, an exit at every call site stopped the entry function
+    # instance's trace at its first call, where its postcondition is false.) The static rule is
+    # `riscv_transfers.leaves_region`; the dynamic rule here does not merely assume it — `call_returns`
+    # OBSERVES, from the trace, whether each call came back to its own fall-through, so a call site
+    # that really departs is still required to be a declared exit.
     owned = set()
     for a, b in ranges:
         owned |= set(range(a, b, 2))
@@ -463,25 +480,38 @@ def reduce_function_instance(function_instance, short, catalog, executed, loads,
     declared_edges = sorted([e["source"], e["target"]] for e in function_instance["edges"])
     declared_set = {(e["source"], e["target"]) for e in function_instance["edges"]}
     exits = sorted(function_instance.get("exits") or [])
-    exec_owned, leaving_src, dyn_src = set(), set(), set()
+    call_pcs = (ctx or {}).get("callPcs") or frozenset()
+    resumed = (ctx or {}).get("callResumes") or {}
+    exec_owned, leaving_src, dyn_src, came_back = set(), set(), set(), set()
     for i in range(len(executed) - 1):
         s, t = executed[i], executed[i + 1]
-        if s in owned:
-            if s in dynamic_pcs:
-                dyn_src.add(s)          # dynamic return/indirect: validated via `exits`, not `edges`
-            else:
-                exec_owned.add((s, t))
-            if not in_region(t):
-                leaving_src.add(s)
+        if s not in owned:
+            continue
+        if s in dynamic_pcs:
+            dyn_src.add(s)              # dynamic return/indirect: validated via `exits`, not `edges`
+        else:
+            exec_owned.add((s, t))
+        if in_region(t):
+            continue                    # never left: nothing for the exit rule to say
+        if s in call_pcs and resumed.get(i) == s + 4 and in_region(s + 4):
+            came_back.add(s)            # a CALL, observed to resume inside these regions: not a departure
+            continue
+        (dyn_src if s in dynamic_pcs else leaving_src).add(s)
+    # A site that departed on ANY invocation is a departure, even if another invocation came back.
+    came_back -= leaving_src | dyn_src
     f["blockStarts"] = block_starts
     f["declaredEdges"] = declared_edges
     f["executedOwnedEdges"] = sorted([s, t] for (s, t) in exec_owned)
     f["undeclaredExecutedEdges"] = sorted([s, t] for (s, t) in exec_owned if (s, t) not in declared_set)
     f["exits"] = exits
     f["leavingSources"] = sorted(leaving_src)
-    f["leavingSourcesNotInExits"] = sorted(s for s in leaving_src if s not in set(exits))
     f["dynamicTransferSources"] = sorted(dyn_src)
-    f["dynamicSourcesNotInExits"] = sorted(s for s in dyn_src if s not in set(exits))
+    # The exempted call sites, carried so the narrowing is auditable in the pinned evidence rather
+    # than an invisible subtraction: each left the regions and was observed to resume at its own
+    # in-region fall-through. None of them may be a declared exit — that is the over-declaration the
+    # extractor fix removed.
+    f["returningCallSites"] = sorted(came_back)
+    exit_agreement(f)
 
     tie = f["meaningTieKind"]
 
@@ -580,6 +610,41 @@ def reduce_function_instance(function_instance, short, catalog, executed, loads,
                          entry_idxs)
         _reduce_ledger(f, meta, ctx, extents, ctx["functionInstanceChain"][f["index"]])
     return f
+
+
+def exit_agreement(f):
+    """Recompute the three exit-rule residues from `exits` and the observed transfer-out facts.
+
+    Split out of the reduction so `scale_negative_tests.py` can re-derive them on CORRUPTED copies of
+    the real evidence — mutating `exits` has to move these, or the mutation would be invisible and the
+    check unfalsifiable."""
+    exits = set(f.get("exits") or [])
+    f["leavingSourcesNotInExits"] = sorted(s for s in f.get("leavingSources") or [] if s not in exits)
+    f["dynamicSourcesNotInExits"] = sorted(s for s in f.get("dynamicTransferSources") or []
+                                           if s not in exits)
+    f["returningCallSitesInExits"] = sorted(s for s in f.get("returningCallSites") or [] if s in exits)
+    return f
+
+
+def call_returns(executed, call_pcs, ret_pcs):
+    """`trace index of a CALL -> the pc control resumed at when that call returned`, from the trace.
+
+    This is what makes the exit rule's "control comes back" an OBSERVATION rather than an assumption.
+    A shadow call stack over the whole run: a call pushes, a `ret` pops. Tail transfers (`j`/`jr` into
+    another routine) deliberately do not push, so the tail-callee's `ret` pops the ORIGINAL call —
+    which is the frame it really returns to. Same call/return pairing `dynamic_extents` uses.
+
+    A call absent from the result never returned in this run; one present but resumed somewhere other
+    than its own `pc + 4` did not come back to its caller. Either way the site is treated as a real
+    departure and must be a declared exit."""
+    stack, resumed = [], {}
+    for i in range(len(executed) - 1):
+        pc = executed[i]
+        if pc in call_pcs:
+            stack.append(i)
+        elif pc in ret_pcs and stack:
+            resumed[stack.pop()] = executed[i + 1]
+    return resumed
 
 
 def dynamic_extents(entry_idxs, executed, in_region, call_pcs, ret_pcs, function_entries):
@@ -865,9 +930,15 @@ def evaluate_facts(f):
     checks["entryReached"] = f["firstInRegion"] == f["entryPc"]
     # EXACT generated-CFG conformance: every executed transfer from an owned PC is a declared edge.
     checks["controlFlowIntegrity"] = len(f["undeclaredExecutedEdges"]) == 0
-    # every executed transfer leaving the function instance's regions departs at a declared exit PC.
+    # `exits` agrees with what the run actually did at every observed transfer out of the regions,
+    # in BOTH directions: every observed DEPARTURE (a transfer out that did not come back to this
+    # function instance's own fall-through) departs at a declared exit, and no call site observed to
+    # come back is declared as one. The second half is not decoration — an exit at every call site is
+    # exactly the over-declaration that made the entry function instance's trace halt at its first call,
+    # and without it this check would pass just as happily with the defect restored.
     checks["exitsRespected"] = (len(f["leavingSourcesNotInExits"]) == 0
-                                and len(f["dynamicSourcesNotInExits"]) == 0)
+                                and len(f["dynamicSourcesNotInExits"]) == 0
+                                and len(f["returningCallSitesInExits"]) == 0)
 
     bound = f["stepBound"]
     if bound is None:
@@ -1008,6 +1079,7 @@ def function_instance_to_lean(rec) -> str:
         f"exits := {_ln(f.get('exits', []))}, "
         f"leavingSources := {_ln(f.get('leavingSources', []))}, "
         f"dynamicTransferSources := {_ln(f.get('dynamicTransferSources', []))}, "
+        f"returningCallSites := {_ln(f.get('returningCallSites', []))}, "
         f"stepBound := {_oi(f.get('stepBound'))}, allocates := {_b(f.get('allocates', False))}, "
         f"meaningTieKind := {_str(f.get('meaningTieKind', 'structural'))}, "
         f"storesSummarized := {_b(f.get('storesSummarized', False))}, "
@@ -1356,6 +1428,7 @@ def main() -> int:
             "functionInstanceChain": function_instance_chain,
             "callPcs": call_pcs,
             "retPcs": ret_pcs,
+            "callResumes": call_returns(ex, call_pcs, ret_pcs),
             "functionEntries": function_entries,
         }
         arm_ledgers[name] = {
