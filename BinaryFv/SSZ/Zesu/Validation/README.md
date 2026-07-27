@@ -57,9 +57,14 @@ Row D½ measures what the conditional local premise actually says:
   [ContractGroundTruth.lean](ContractGroundTruth.lean) provide structural and captured-run evidence.
 - [RepairBlastRadius.lean](RepairBlastRadius.lean) pins the populations behind the three human
   rulings without changing the extractor or contracts: 108 occurrence-local offset bindings, the
-  exact loss and residue of entry-PC deduplication/removal/relocation, and the ordinary,
-  same-entry, ancestor-entry, and shared-exit inline-boundary cases. It also measures the 3.315×
-  instruction-occurrence cost of proving every nested appearance again with `ownStep`.
+  exact loss and residue of entry-PC deduplication/removal/relocation, the 46/73/8 inline-start and
+  82/45 inline-finish partitions, their exact cross-product, and checked paths for all eight
+  ancestor-entry pairs whose borrowed PCs lie outside the old parent scopes. It preserves the old
+  inventory-only counts, demonstrates that empty `InlineBoundary.entries` were accepted and
+  operationally unused, and pins the remaining 180/173/7 resolved-call split and common `memcpy`
+  tail-call target. It also measures the 3.315× instruction-occurrence cost of proving every nested
+  appearance again with `ownStep`; [LocalObligationLedger.lean](LocalObligationLedger.lean) checks
+  that the seven tail-call exits are reported but deliberately excluded from structural blockers.
 - [LocalObligationRefutations.lean](LocalObligationRefutations.lean) joins both hypothesis layers and
   proves 28 individual local obligations false: 16 with no callees and 12 whose `bytesAt`/`readU32`
   callee exits make the outer premise inhabitable. It also proves that the copy contracts admit a

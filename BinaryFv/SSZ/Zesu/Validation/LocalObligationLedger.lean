@@ -211,6 +211,35 @@ def structureStatus (row : Boundary.BoundaryRow) : String :=
   if row.offendingCallPcs.isEmpty then base
   else base ++ ";tail-call-exits(stop-not-splice)=" ++ natList row.offendingCallPcs
 
+/-- `callNotExit` is deliberately informational in the ledger. Changing only that verdict from
+passing to violated cannot change `structureStatus`; the offending PCs are reported separately as
+tail-call exits. -/
+theorem structureStatus_ignores_callNotExit (row : Boundary.BoundaryRow) :
+    structureStatus { row with callNotExit := .violated "CallTransfer.callNotExit" } =
+      structureStatus { row with callNotExit := .ok } := by
+  rfl
+
+/-- The actual four generated rows carrying the seven resolved tail-call exits. -/
+def generatedTailCallBoundaryRows : Array Boundary.BoundaryRow :=
+  match BinaryFv.SSZ.Zesu.ControlFlow.controlFlow? with
+  | none => #[]
+  | some nodes =>
+      (generatedProgram.functionInstances.zipIdx.map fun (functionInstance, index) =>
+        Boundary.boundaryRow nodes generatedProgram index functionInstance).filter fun row =>
+          !row.offendingCallPcs.isEmpty
+
+/-- The consumer-side join: the exact four/seven generated population has a violated
+`callNotExit` verdict, but replacing only that verdict with `.ok` leaves `structureStatus`
+unchanged. The PCs remain visible through the separate tail-call annotation. -/
+theorem generated_tail_call_exits_are_informational :
+    generatedTailCallBoundaryRows.map (·.index) = #[3, 16, 23, 37] ∧
+      generatedTailCallBoundaryRows.foldl
+        (fun count row => count + row.offendingCallPcs.length) 0 = 7 ∧
+      generatedTailCallBoundaryRows.all (fun row =>
+        row.callNotExit.isViolated &&
+          structureStatus row == structureStatus { row with callNotExit := .ok }) = true := by
+  native_decide
+
 def evidenceStatus (row : GroundTruth.GroundTruthRow) : String :=
   let facts :=
     [("entered", row.entered), ("pre@capture", row.pre), ("exit@capture", row.exited),

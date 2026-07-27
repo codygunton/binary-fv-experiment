@@ -574,8 +574,11 @@ COMPAT
     # Row D-half repair blast radius: exact checked inputs for the three human rulings, with no
     # extractor or contract mutation. This joins the six `preReadAt` catalog tags to all 108
     # occurrence-local offset bindings; measures what same-entry deduplication, exit removal, and
-    # entry relocation delete or leave broken; classifies all 127 inline pairs using the complete
-    # validated edge pool, including same-entry, ancestor-entry, and shared-exit cases; and pins the
+    # entry relocation delete or leave broken; pins the exact 46/73/8 inline-start and 82/45
+    # inline-finish partitions, their cross-product, and decoded paths for all eight ancestor-entry
+    # pairs whose borrowed sources lie outside the old parent scopes; and demonstrates that the old
+    # entry array was empty-valid and unconsumed. It also joins the 180/173/7 resolved-call split to
+    # the exact four tail-call instances and their common memcpy target, and pins the
     # 10,593-versus-3,195 instruction-occurrence cost of replacing composition with repeated
     # `ownStep` proofs. These are red measurements, so movement in either direction fails the build.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
@@ -597,9 +600,11 @@ COMPAT
     lake build BinaryFv.SSZ.Zesu.Validation.LocalObligationRefutations
     # The 141-row ledger composes logical pre-satisfiability, the outer child-summary premise,
     # structural inhabitance, captured-run evidence, unevaluated conjunct groups, and checked proof
-    # status. Regenerate the committed Markdown from those Lean definitions and require an exact
-    # byte match. On drift, `diff` is itself the pin-ready replacement; accepting it is an explicit
-    # reviewed source diff, never an automatic recoloring of a red measurement.
+    # status. It also joins the exact four/seven tail-call population to `structureStatus`, proving
+    # that `callNotExit` is informational while the offending PCs remain rendered. Regenerate the
+    # committed Markdown from those Lean definitions and require an exact byte match. On drift,
+    # `diff` is itself the pin-ready replacement; accepting it is an explicit reviewed source diff,
+    # never an automatic recoloring of a red measurement.
     lake build BinaryFv.SSZ.Zesu.Validation.LocalObligationLedger
     ledgerActual="$TMPDIR/LOCAL_OBLIGATION_LEDGER.md"
     lake env lean tools/emit_local_obligation_ledger.lean > "$ledgerActual"
