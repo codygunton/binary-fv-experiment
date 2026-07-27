@@ -247,15 +247,24 @@ equation one can only conclude `meaningDecode input = .ok v'` for **some** `v'`;
 acceptance equation is still available — it is a corollary
 (`SemanticObligations.sourceShapedDecodeAgreesOnAcceptance`), not the obligation.
 
-**The scope hypothesis is load-bearing, and its absence made the whole catalog unsatisfiable.**
-Without `rootComplianceScope` this contradicts `ereGateDivergesAboveU32`, which asserts a witness —
-outside the bound — that the composition accepts and the oracle rejects as `tooLarge`. At that
-witness the unscoped biconditional makes the oracle return a value it does not, so
-`catalogSemanticObligations ∧ knownDivergences` was jointly unsatisfiable and `root_compliance` was
-vacuous. That is not an argument in a comment: `unscopedAgreement_contradicts_ereGate` in
-`Contracts/SemanticObligations.lean` proves it **at this statement's own shape**, so the hypothesis
-cannot be tidied away without breaking the build. `root_compliance` is itself stated under
-`input.size < 2 * 1024 * 1024`, so nothing it consumes is lost. See `DECISIONS.md`. -/
+**The scope hypothesis is load-bearing: without it this obligation is FALSE, not merely unproved.**
+Dropped, it contradicts `ereGateDivergesAboveU32`, which asserts a witness — outside the bound — that
+the composition accepts and the oracle rejects as `tooLarge`. At that witness the unscoped
+biconditional makes the oracle return a value it does not. That is not an argument in a comment:
+`unscopedAgreement_contradicts_ereGate` in `Contracts/SemanticObligations.lean` proves it **at this
+statement's own shape**, so the hypothesis cannot be tidied away without breaking the build.
+`root_compliance` is itself stated under `input.size < 2 * 1024 * 1024`, so nothing it consumes is
+lost. See `DECISIONS.md`.
+
+*Corrected once, and the correction is the reason the negative tests are worded the way they are.*
+An earlier version of this note said the unscoped form made `catalogSemanticObligations ∧
+knownDivergences` **jointly unsatisfiable**. That reading was only ever available because
+`knownDivergences` then conjoined `ereGateDivergesAboveU32` itself; it now conjoins the weaker
+`ereRetryReachedAboveU32Gate` (see the section note at the foot of this file), so the formal
+conjunction is no longer the vehicle. The refutation above is unaffected, because it never went
+through `knownDivergences` — it is a direct contradiction with the recorded acceptance-level
+divergence, which is exactly why the two negative tests must keep citing that `Prop` and not the
+provable one. -/
 def sourceShapedDecodeAgreesWithOracle : Prop :=
   ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : SszBridge.RawV4),
     meaningDecode bytes = .ok value ↔ SszBridge.decodeStatelessInput bytes = .ok value
@@ -299,8 +308,44 @@ def v3ShapeExcludesCanonicalV4 : Prop :=
       (SszBridge.decodeCanonical SszBridge.statelessInputV4Type
         (bytes.extract 2 bytes.size)).toOption = none
 
+/-!
+## The ERE-gate divergence, recorded twice
+
+`decode`'s ERE retry sits above the oracle's `size ≥ 2 ^ 32` gate, and the divergence there is
+recorded at **two** strengths. That is deliberate, and this is the one place the relationship between
+them is stated.
+
+* `ereGateDivergesAboveU32` — the **acceptance-level** form: some oversized buffer the composition
+  *accepts* while the oracle rejects it as `tooLarge`. **True, and deliberately unproved**; its own
+  docstring carries the evidence and the cost.
+* `ereRetryReachedAboveU32Gate` — the **gate-level** form: some oversized buffer on which the binary
+  *reaches* the ERE retry while the oracle has already answered `tooLarge` without one. **Proved**,
+  on an exhibited `2 ^ 32`-byte witness, in `Contracts/SemanticObligations`.
+
+The gate-level form is strictly weaker: it says the two sides take different *paths*, not that they
+arrive at different *answers*. That is not a hedge, it is a fact about the exhibited witness — at it
+the retry does run and then fails on the stripped tail, so the composition rejects
+(`ereGateWitness_not_accepted`), and no acceptance disagreement is available from that witness at all.
+
+**Which one goes where, and why the weaker one is the one in `knownDivergences`.** A recorded
+divergence carried as an *unproved conjunct* of the root's residue is a premise entering the residue
+rather than leaving it. `knownDivergences` therefore conjoins the gate-level form, which can be
+discharged (`knownDivergences_holds`), and the acceptance-level form is documented here rather than
+assumed anywhere.
+
+**And why the acceptance-level form must nevertheless stay.** The two negative tests in
+`Contracts/SemanticObligations` — `unscopedAgreement_contradicts_ereGate` and
+`unscopedGrounds_contradicts_ereGate` — need *acceptance*: they contradict an unscoped agreement by
+pitting "the source accepts here" against an oracle that rejects. The gate-level form supplies none,
+and that is checked rather than asserted: at the witness discharging it the source rejects. So the
+weaker fact was given a **new name** instead of being written over the old one. Restating
+`ereGateDivergesAboveU32` in place would have left those two theorems reading identically while their
+content collapsed to something strictly weaker — a check disarmed by a change made elsewhere, with
+nothing to announce it. Both `Prop`s exist, and neither is redundant.
+-/
+
 /--
-A **known, bounded divergence** outside the root theorem's scope.
+A **known, bounded divergence** outside the root theorem's scope, at acceptance granularity.
 
 For `bytes.size ∈ [2^32, 2^32 + 3]` with an exact ERE prefix and a valid stripped tail, the binary
 rejects the oversized buffer, then still passes `hasExactErePrefix` and accepts via the retry, while
@@ -308,11 +353,57 @@ rejects the oversized buffer, then still passes `hasExactErePrefix` and accepts 
 
 `root_compliance` remains true — but *because of* `rootComplianceScope`, not incidentally. Recording
 this as a `Prop` keeps the size bound's load-bearing role visible instead of looking like a
-convenience. -/
+convenience.
+
+**TRUE, and deliberately left unproved. It has no `_holds` and is not scheduled to get one.**
+Recording why here, because "unproved" and "doubtful" are different states and only one of them is
+the case:
+
+* *It is satisfiable, so nothing downstream is vacuous.* `maxBytesPerTransaction = 2 ^ 30` and
+  `maxTransactionsPerPayload = 2 ^ 20` (`targets/ssz/zesu/spec/SszBridge/Core.lean:31-32`), so
+  accepted encodings reach roughly `2 ^ 50` — a factor of `2 ^ 18` above the `2 ^ 32` gate. The
+  buffers this asserts to exist are admitted by the schema; they are merely enormous.
+* *What a proof would cost.* The witness must be at least `2 ^ 32` bytes and, since
+  `decodeStatelessInput` answers `tooLarge` exactly at `size ≥ 2 ^ 32`, its bulk has to sit inside a
+  **mixed variable-size container**. The pinned spec's `SSZType.BasicSupported` has no such arm: its
+  composite constructors are `vectorFixed`, `listFixed` and `containerFixed`, each demanding
+  fixed-size elements or fields, and its own docstring puts mixed-field containers *outside* the
+  predicate — "the offset-table decode path sits outside `Supported` itself; admitting it here is
+  separate spec-layer work". `native_decide` is not an escape either: `decodeCanonical` re-serializes
+  to check canonicality, and `SSZType.serializeFixedElems` is `serialize t x ++ serializeFixedElems t
+  xs` — recursion depth proportional to the element count. The earlier investigation recorded
+  evaluation dying near 170 KB, four orders of magnitude short of `2 ^ 32`. The estimate was one to
+  three weeks, for documentation value about a divergence outside the root theorem's scope by
+  construction.
+
+So this stays a named `Prop`: consumed by the two negative tests, which need its acceptance content,
+and by nothing that has to be discharged. -/
 def ereGateDivergesAboveU32 : Prop :=
   ∃ (bytes : ByteArray),
     ¬ rootComplianceScope bytes ∧
     isAccepted (meaningDecode bytes) = true ∧
     SszBridge.decodeStatelessInput bytes = .error .tooLarge
+
+/-- The same ERE/`tooLarge` divergence observed at the **gate** rather than at acceptance, stated
+pointwise so a candidate witness can be refuted as well as exhibited.
+
+Read as a description of one buffer: it is outside the root's scope; the binary's `decodeRaw` rejects
+it as `invalidSsz` (its own `requireU32Length` is what fires); it nevertheless carries an exact ERE
+prefix, so `decode` proceeds into the retry on the four-byte-stripped tail; and the oracle has
+already answered `tooLarge` at its outer gate, with no retry of any kind.
+
+**The two sides therefore take different paths at the same buffer**, which is the whole of what this
+records. It says nothing about which answers they end at — see the section note above. -/
+def ereRetryAboveGateAt (bytes : ByteArray) : Prop :=
+  ¬ rootComplianceScope bytes ∧
+  meaningHasExactErePrefix bytes = true ∧
+  meaningDecodeRaw bytes = .error .invalidSsz ∧
+  meaningDecode bytes = meaningDecodeRaw (bytes.extract 4 bytes.size) ∧
+  SszBridge.decodeStatelessInput bytes = .error .tooLarge
+
+/-- **A known, bounded divergence at the ERE gate — the provable half.** Conjoined into
+`knownDivergences`, and discharged by `ereRetryReachedAboveU32Gate_holds`. -/
+def ereRetryReachedAboveU32Gate : Prop :=
+  ∃ (bytes : ByteArray), ereRetryAboveGateAt bytes
 
 end BinaryFv.SSZ.Zesu.Contracts

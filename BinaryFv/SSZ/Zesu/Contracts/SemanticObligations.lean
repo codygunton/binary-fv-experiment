@@ -908,7 +908,23 @@ obligation makes this file's claim false and the build fails.
 were written against the acceptance-granularity wording; when the obligations were strengthened to
 carry the value, a guard left at the old shape would have gone on passing while constraining
 something the catalog no longer states — a check that can no longer fail. So they were restated with
-the obligations rather than left alone. -/
+the obligations rather than left alone.
+
+**They cite `ereGateDivergesAboveU32`, the acceptance-level divergence, and must keep doing so.**
+`knownDivergences` no longer conjoins that `Prop` — it conjoins the provable gate-level
+`ereRetryReachedAboveU32Gate` (below) — and the tempting tidy-up is to follow it here so that
+everything in this file cites one divergence. **The tidy-up is not available, and the reason is
+machine-checked rather than argued.** Each test works by pitting "the source *accepts* this buffer"
+against an unscoped agreement with an oracle that rejects it. The gate-level form supplies no
+acceptance at all: it says the binary reaches the retry, and at the witness that discharges it the
+retry then fails, so the source rejects — `ereGateWitness_not_accepted`, below, is exactly that fact.
+A version of these tests re-based on the gate-level `Prop` would therefore be guarding strictly less
+than the one thing they exist to guard, whatever else it managed to state.
+
+The corresponding danger at the *definition* is worse and is why the weaker fact was given a new name
+rather than written over this one: restating `ereGateDivergesAboveU32` in place would leave both
+theorems reading identically while their content collapsed, and the reader here would have nothing to
+notice. Keeping two names is what makes the difference visible in the citation. -/
 
 /-- `sourceShapedDecodeAgreesWithOracle` without its scope hypothesis. Deliberately unused except by
 the theorem below. -/
@@ -1065,5 +1081,180 @@ theorem decodeCanonical_forkOrderingWitness :
 constructors agree. -/
 theorem forkErrorOrderingDiffers_holds : forkErrorOrderingDiffers :=
   ⟨forkOrderingWitness, meaningForkConfig_forkOrderingWitness, decodeCanonical_forkOrderingWitness⟩
+
+/-! ## The ERE-gate divergence
+
+`ereRetryReachedAboveU32Gate` is the other half of `knownDivergences`. Like the fork one it is an
+existential, so it needs a witness and all five of the witness's facts. `Contracts/Entry` carries the
+statement of *why* this is the gate-level form and not the acceptance-level `ereGateDivergesAboveU32`;
+what follows is how it is discharged.
+
+**The witness is a `2 ^ 32`-byte buffer, and the whole proof is arranged so that the kernel never
+builds it.** Stated directly at the numeral, every fact about it dies on deep recursion: nothing here
+may reduce `Array.replicate 4294967296`. So the witness is defined as a **family** `ereGateWitnessOf
+n`, every lemma below is proved for an arbitrary `n` under arithmetic side conditions, and the
+numeral enters only in `ereRetryAboveGateAt_ereGateWitness`, where it meets `omega` and `Nat` literal
+arithmetic rather than an array. That is not an optimisation; it is the difference between a proof
+and a timeout.
+
+**The size window is forced, not chosen.** `meaningHasExactErePrefix` needs the leading `u32` to be
+exactly `size - 4`, so `size ≤ 2 ^ 32 + 3`; `decodeStatelessInput`'s outer gate needs `size ≥ 2 ^ 32`.
+Both bounds bite, which is why the window is `[2 ^ 32, 2 ^ 32 + 3]` and why the retry's stripped tail
+is always *inside* the `u32` length limit — the tail has to be rejected on its content, not on its
+size. `2 ^ 32` is picked from the window; the four leading bytes are `FC FF FF FF`, little-endian for
+`2 ^ 32 - 4`.
+
+**Axioms.** `propext`, `Classical.choice`, `Quot.sound` only — no `native_decide` anywhere in this
+section, unlike the fork half above. -/
+
+/-- `a.get! i` at an in-bounds index, as the `GetElem` form the array lemmas are stated in. Proved by
+`cases` on the structure, so it never forces the underlying array. -/
+private theorem byteArray_get!_eq_getElem (a : ByteArray) (i : Nat) (h : i < a.size) :
+    a.get! i = a[i] := by
+  cases a with
+  | mk d =>
+    have h' : i < d.size := h
+    simp [ByteArray.get!, getElem!_pos d i h', ByteArray.getElem_eq_getElem_data]
+
+/-- Reading an extract is reading the original at the shifted index. Needed because the ERE retry's
+argument is `bytes.extract 4 bytes.size` and `ByteArray.extract` is defined through `copySlice`, which
+must not be unfolded on a buffer this size. -/
+private theorem byteArray_get!_extract (a : ByteArray) (s e i : Nat)
+    (h : i < (a.extract s e).size) : (a.extract s e).get! i = a.get! (s + i) := by
+  have h2 : s + i < a.size := by rw [ByteArray.size_extract] at h; omega
+  rw [byteArray_get!_eq_getElem _ _ h, ByteArray.getElem_extract h,
+    byteArray_get!_eq_getElem _ _ h2]
+
+/-- `decodeRaw` rejects anything without the schema id, once the `u32` length check has passed.
+Stated separately because the retry's tail is rejected here rather than at the length gate. -/
+theorem meaningDecodeRaw_of_not_schemaId (bytes : ByteArray) (fits : bytes.size ≤ 4294967295)
+    (noSchema : SszBridge.hasSchemaId bytes = false) :
+    meaningDecodeRaw bytes = .error .invalidSsz := by
+  have hreq : meaningRequireU32Length bytes = .ok () := by
+    simp [meaningRequireU32Length, fits]
+  unfold meaningDecodeRaw
+  rw [hreq]
+  simp only [bind, Except.bind, noSchema, Bool.not_false, if_true]
+  split <;> rfl
+
+/-- The witness **family**: `n` bytes, `FC FF FF … FF`. Every fact below is about this, for a general
+`n`; see the section note for why that is load-bearing rather than tidy. -/
+def ereGateWitnessOf (n : Nat) : ByteArray :=
+  ByteArray.mk ((Array.replicate n (0xFF : UInt8)).set! 0 0xFC)
+
+/-- The witness: `2 ^ 32` bytes, whose leading `FC FF FF FF` is little-endian `2 ^ 32 - 4`. -/
+def ereGateWitness : ByteArray := ereGateWitnessOf 4294967296
+
+theorem size_ereGateWitnessOf (n : Nat) : (ereGateWitnessOf n).size = n := by
+  simp [ereGateWitnessOf, ByteArray.size]
+
+theorem get_ereGateWitnessOf_zero (n : Nat) (h : 0 < n) :
+    (ereGateWitnessOf n).get! 0 = 0xFC := by
+  simp [ereGateWitnessOf, ByteArray.get!, getElem!_pos, h]
+
+theorem get_ereGateWitnessOf_pos (n i : Nat) (positive : 0 < i) (h : i < n) :
+    (ereGateWitnessOf n).get! i = 0xFF := by
+  simp [ereGateWitnessOf, ByteArray.get!, getElem!_pos, h, Nat.ne_of_lt positive]
+
+/-- The declared ERE length, read by the bridge's own framing reader. -/
+theorem readU32LE_ereGateWitnessOf (n : Nat) (h : 4 ≤ n) :
+    SszBridge.readU32LE? (ereGateWitnessOf n) 0 = some 4294967292 := by
+  have inBounds : ¬ (0 + 4 > (ereGateWitnessOf n).size) := by
+    rw [size_ereGateWitnessOf]; omega
+  simp [SszBridge.readU32LE?, inBounds, get_ereGateWitnessOf_zero n (by omega),
+    get_ereGateWitnessOf_pos n 1 (by omega) (by omega),
+    get_ereGateWitnessOf_pos n 2 (by omega) (by omega),
+    get_ereGateWitnessOf_pos n 3 (by omega) (by omega)]
+
+/-- The prefix is exact **exactly at `n = 2 ^ 32`** among the lengths this family offers, which is
+what pins the numeral. -/
+theorem erePrefix_ereGateWitnessOf (n : Nat) (h : 4 ≤ n) :
+    meaningHasExactErePrefix (ereGateWitnessOf n) = (4294967292 == n - 4) := by
+  simp [meaningHasExactErePrefix, readU32LE_ereGateWitnessOf n h, size_ereGateWitnessOf, h]
+
+/-- The binary's side of the gate: `decodeRaw` rejects at its own `requireU32Length`. -/
+theorem decodeRaw_ereGateWitnessOf (n : Nat) (h : 4294967295 < n) :
+    meaningDecodeRaw (ereGateWitnessOf n) = .error .invalidSsz := by
+  have hreq : meaningRequireU32Length (ereGateWitnessOf n) = .error .invalidSsz := by
+    simp [meaningRequireU32Length, size_ereGateWitnessOf, Nat.not_le.mpr h]
+  unfold meaningDecodeRaw
+  rw [hreq]
+  rfl
+
+/-- The oracle's side: `tooLarge` at the outer gate, with no retry of any kind. -/
+theorem oracle_ereGateWitnessOf (n : Nat) (h : 2 ^ 32 ≤ n) :
+    SszBridge.decodeStatelessInput (ereGateWitnessOf n) = .error .tooLarge := by
+  simp [SszBridge.decodeStatelessInput, size_ereGateWitnessOf, h]
+
+/-- **The divergence itself**: `decode` proceeds into the ERE retry, because `decodeRaw` failed with
+`invalidSsz` *and* the prefix is exact. -/
+theorem decode_ereGateWitnessOf (n : Nat) (h : 4294967295 < n) (exact : 4294967292 = n - 4) :
+    meaningDecode (ereGateWitnessOf n)
+      = meaningDecodeRaw ((ereGateWitnessOf n).extract 4 (ereGateWitnessOf n).size) := by
+  simp [meaningDecode, decodeRaw_ereGateWitnessOf n h,
+    erePrefix_ereGateWitnessOf n (by omega), ← exact]
+
+theorem size_ereGateWitnessOf_tail (n : Nat) (h : 4 ≤ n) :
+    ((ereGateWitnessOf n).extract 4 (ereGateWitnessOf n).size).size = n - 4 := by
+  rw [ByteArray.size_extract, size_ereGateWitnessOf]; omega
+
+theorem get_ereGateWitnessOf_tail_zero (n : Nat) (h : 4 < n) :
+    ((ereGateWitnessOf n).extract 4 (ereGateWitnessOf n).size).get! 0 = 0xFF := by
+  rw [byteArray_get!_extract _ _ _ _ (by rw [size_ereGateWitnessOf_tail n (by omega)]; omega)]
+  simpa using get_ereGateWitnessOf_pos n 4 (by omega) h
+
+theorem hasSchemaId_ereGateWitnessOf_tail (n : Nat) (h : 4 < n) :
+    SszBridge.hasSchemaId ((ereGateWitnessOf n).extract 4 (ereGateWitnessOf n).size) = false := by
+  simp [SszBridge.hasSchemaId, get_ereGateWitnessOf_tail_zero n h]
+
+/-- **The retry runs and fails.** The stripped tail is inside the `u32` length limit — forced, see the
+section note — so it is rejected on its first byte instead: `FF`, not the schema id `00 01`. -/
+theorem decodeRaw_ereGateWitnessOf_tail (n : Nat) (h : 4 < n) (window : n ≤ 4294967299) :
+    meaningDecodeRaw ((ereGateWitnessOf n).extract 4 (ereGateWitnessOf n).size)
+      = .error .invalidSsz :=
+  meaningDecodeRaw_of_not_schemaId _ (by rw [size_ereGateWitnessOf_tail n (by omega)]; omega)
+    (hasSchemaId_ereGateWitnessOf_tail n h)
+
+/-- All five facts at the witness. The numeral appears here and nowhere above it. -/
+theorem ereRetryAboveGateAt_ereGateWitness : ereRetryAboveGateAt ereGateWitness := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  · rw [rootComplianceScope, ereGateWitness, size_ereGateWitnessOf]; omega
+  · rw [ereGateWitness, erePrefix_ereGateWitnessOf 4294967296 (by omega)]; rfl
+  · exact decodeRaw_ereGateWitnessOf 4294967296 (by omega)
+  · exact decode_ereGateWitnessOf 4294967296 (by omega) (by omega)
+  · exact oracle_ereGateWitnessOf 4294967296 (by omega)
+
+/-- **The binary reaches the ERE retry where the oracle has already answered `tooLarge`.** -/
+theorem ereRetryReachedAboveU32Gate_holds : ereRetryReachedAboveU32Gate :=
+  ⟨ereGateWitness, ereRetryAboveGateAt_ereGateWitness⟩
+
+/-- **Anti-vacuity, and the exact reason the acceptance-level `Prop` cannot be retired.**
+
+The witness that discharges the gate-level divergence is *rejected* by the composition: the retry it
+reaches then fails on the stripped tail. So this witness exhibits no acceptance disagreement, and the
+two unscoped-agreement negative tests above — which need one — cannot be re-based on the gate-level
+fact. Stated as a theorem because the whole point of keeping two `Prop`s is that the weaker one is
+genuinely weaker, and an unchecked claim of weakness is worth as much as an unchecked claim of
+strength. -/
+theorem ereGateWitness_not_accepted : isAccepted (meaningDecode ereGateWitness) = false := by
+  rw [ereGateWitness, decode_ereGateWitnessOf 4294967296 (by omega) (by omega),
+    decodeRaw_ereGateWitnessOf_tail 4294967296 (by omega) (by omega)]
+  rfl
+
+/-- **Anti-vacuity, the other direction: the conjunction is not satisfied by anything at hand.** The
+empty buffer fails it at the second conjunct — it has no ERE prefix at all — as well as at the first,
+since it is comfortably inside the root's scope. Recorded so that "there exists a buffer such that …"
+cannot be read as a claim that is cheap to satisfy. -/
+theorem not_ereRetryAboveGateAt_empty : ¬ ereRetryAboveGateAt ByteArray.empty := by
+  rintro ⟨-, prefixExact, -, -, -⟩
+  exact absurd prefixExact (by simp [meaningHasExactErePrefix, SszBridge.readU32LE?])
+
+/-- **Both recorded divergences, proved.**
+
+This is what the split bought: `knownDivergences` is a theorem rather than a hypothesis, so it leaves
+the root's residue instead of sitting in it. The acceptance-level `ereGateDivergesAboveU32` is still
+recorded, still true, still unproved — and no longer load-bearing anywhere. -/
+theorem knownDivergences_holds : knownDivergences :=
+  ⟨forkErrorOrderingDiffers_holds, ereRetryReachedAboveU32Gate_holds⟩
 
 end BinaryFv.SSZ.Zesu.Contracts

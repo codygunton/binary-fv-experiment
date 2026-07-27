@@ -621,8 +621,21 @@ def catalogSemanticObligations : Prop :=
   meaningNeverForkOrMemory
 
 /-- The two known asymmetries between the binary and the oracle, conjoined so the navigation surfaces
-them rather than letting them read as oversights. -/
+them rather than letting them read as oversights.
+
+**Both conjuncts are proved** — `knownDivergences_holds` in `Contracts/SemanticObligations`. That is
+the point of the second one's shape. It used to be `ereGateDivergesAboveU32`, the acceptance-level
+ERE divergence, which is true but whose proof needs a `2 ^ 32`-byte witness inside a mixed
+variable-size container that the pinned spec does not support; carried here it was an unproved
+premise *entering* the root's residue rather than leaving it. `ereRetryReachedAboveU32Gate` records
+the same divergence at the gate — the binary reaches the ERE retry where the oracle has already
+answered `tooLarge` — and is discharged on an exhibited witness.
+
+`ereGateDivergesAboveU32` has not gone anywhere: it is still a named `Prop` in `Contracts/Entry`,
+documented as true-but-unproved, and it is still what the two unscoped-agreement negative tests
+contradict, since those need acceptance and the gate-level form does not supply it. The relationship
+between the two is stated once, at the foot of `Contracts/Entry`. -/
 def knownDivergences : Prop :=
-  forkErrorOrderingDiffers ∧ ereGateDivergesAboveU32
+  forkErrorOrderingDiffers ∧ ereRetryReachedAboveU32Gate
 
 end BinaryFv.SSZ.Zesu.Contracts
