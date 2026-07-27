@@ -1,7 +1,6 @@
 { pkgs
 , source
 , repo
-, reth
 , zesu
 , zesuRepaired
 , rv64
@@ -20,153 +19,6 @@ let
 
   zesuProductionRevision = "aa6c94339987d278acb8b7fa409c864dbd3d05aa";
   zesuRepairedRevision = "96f1621468ba54755d653f19cbc9704e789be001";
-
-  # Cargo's build-std mode insists that the Rust source and vendored dependency lock live
-  # inside its sysroot. Keep that sysroot derivation separate from the target archive so
-  # both the compiler and its source provenance stay pinned by nixpkgs.
-  rustBuildStdSysroot = pkgs.symlinkJoin {
-    name = "rustc-with-build-std-src";
-    paths = [ pkgs.rustc.unwrapped ];
-    postBuild = ''
-      mkdir -p "$out/lib/rustlib/src"
-      cp -rs ${pkgs.rustPlatform.rustcSrc} "$out/lib/rustlib/src/rust"
-      chmod -R u+w "$out/lib/rustlib/src/rust/.cargo"
-      rm "$out/lib/rustlib/src/rust/.cargo/config.toml"
-      cat > "$out/lib/rustlib/src/rust/.cargo/config.toml" <<EOF
-      [source.crates-io]
-      replace-with = "vendored-sources"
-
-      [source."git+https://github.com/rust-lang/team"]
-      git = "https://github.com/rust-lang/team"
-      replace-with = "vendored-sources"
-
-      [source.vendored-sources]
-      directory = "${pkgs.rustPlatform.rustVendorSrc}"
-      EOF
-    '';
-  };
-  rustcWithBuildStd = pkgs.rustc.override { sysroot = rustBuildStdSysroot; };
-
-  rethProvenance = pkgs.runCommand "reth-v2.3.0-provenance" {
-    nativeBuildInputs = [ pkgs.coreutils ];
-  } ''
-    actual="$(${pkgs.coreutils}/bin/sha256sum ${reth}/Cargo.lock | cut -d ' ' -f 1)"
-    test "$actual" = "39867b4a9bae8c97872ce4f51ae184c13ba3db2c57b9c6772e31e83711866b97"
-    mkdir -p "$out"
-    printf '%s\n' "reth=9384bc53d8c0c77e59cac83fdaaf3b372c6d2216" > "$out/provenance.txt"
-    printf '%s\n' "cargo-lock-sha256=$actual" >> "$out/provenance.txt"
-  '';
-
-  rethKeccakRust = pkgs.rustPlatform.buildRustPackage {
-    pname = "reth-keccak-rustcrypto-rv64im";
-    version = "2.3.0";
-    src = repo + "/targets/keccak/reth-rustcrypto/wrapper";
-    cargoHash = "sha256-MmGOI6g2PWXNbL55+Q+v6+OYIRBtjTbMT7D+OmyLoJQ=";
-    nativeBuildInputs = [ pkgs.cargo rustcWithBuildStd rethProvenance ];
-    RUSTC = "${rustcWithBuildStd}/bin/rustc";
-    RUSTC_BOOTSTRAP = "1";
-    RUSTFLAGS = "-C target-feature=+m,+zicclsm";
-    doCheck = false;
-    buildPhase = ''
-      runHook preBuild
-      test -f ${rethProvenance}/provenance.txt
-      mkdir -p .cargo
-
-      # cargoSetupHook vendors this wrapper's crates beside the source. build-std also
-      # resolves Rust's own workspace crates, so combine the two immutable vendor trees
-      # before replacing Cargo's wrapper-only source configuration.
-      wrapper_vendor="$(find "$NIX_BUILD_TOP" -maxdepth 1 -type d -name '*-vendor' -print -quit)"
-      test -n "$wrapper_vendor"
-      wrapper_vendor="$wrapper_vendor/source-registry-0"
-      test -d "$wrapper_vendor"
-      mkdir -p combined-vendor
-      for vendor in ${pkgs.rustPlatform.rustVendorSrc} "$wrapper_vendor"; do
-        for directory in "$vendor"/*; do
-          name="$(basename "$directory")"
-          if [ "$name" != "Cargo.lock" ] && [ "$name" != ".cargo" ] \
-            && [ ! -e "combined-vendor/$name" ]; then
-            ln -s "$directory" "combined-vendor/$name"
-          fi
-        done
-      done
-      cat > .cargo/config.toml <<EOF
-      [source.crates-io]
-      replace-with = "merged-vendor"
-
-      [source."git+https://github.com/rust-lang/team"]
-      git = "https://github.com/rust-lang/team"
-      replace-with = "merged-vendor"
-
-      [source.merged-vendor]
-      directory = "$(pwd)/combined-vendor"
-      EOF
-      cargo build --locked --release -Zbuild-std=core,compiler_builtins \
-        --target riscv64im-unknown-none-elf
-      runHook postBuild
-    '';
-    installPhase = ''
-      runHook preInstall
-      mkdir -p "$out/lib"
-      cp target/riscv64im-unknown-none-elf/release/libreth_keccak_wrapper.a \
-        "$out/lib/libreth_keccak_wrapper.a"
-      runHook postInstall
-    '';
-  };
-
-  rethKeccak = pkgs.stdenvNoCC.mkDerivation {
-    pname = "reth-keccak-rv64im-zicclsm";
-    version = "2.3.0";
-    src = source;
-
-    nativeBuildInputs = [
-      pkgs.python3
-      pkgs.qemu-user
-      riscvPkgs.stdenv.cc
-      riscvBinutils
-    ];
-
-    hardeningDisable = [ "all" ];
-    dontConfigure = true;
-    dontBuild = true;
-    dontFixup = true;
-
-    installPhase = ''
-      runHook preInstall
-
-      mkdir -p "$out/bin" "$out/obj" "$out/meta"
-      export NIX_HARDENING_ENABLE=""
-      cp ${rethProvenance}/provenance.txt "$out/meta/provenance.txt"
-
-      ${riscvCc} ${cflags} -c ${repo}/targets/keccak/reth-rustcrypto/adapter/main.c \
-        -o "$out/obj/reth-keccak-main.o"
-      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_runtime.c \
-        -o "$out/obj/riscv64_runtime.o"
-      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_start.S \
-        -o "$out/obj/riscv64_start.o"
-
-      ${riscvCc} ${cflags} -nostdlib -static -no-pie \
-        "$out/obj/riscv64_start.o" \
-        "$out/obj/reth-keccak-main.o" \
-        "${rethKeccakRust}/lib/libreth_keccak_wrapper.a" \
-        "$out/obj/riscv64_runtime.o" \
-        -lgcc \
-        -Wl,--gc-sections \
-        -Wl,-e,_start \
-        -Wl,-Map,"$out/meta/reth-keccak.map" \
-        -o "$out/bin/reth-keccak"
-
-      printf '%s\n' reth_keccak256 main > "$out/meta/selected-symbols"
-      ${riscvReadelf} -h "$out/bin/reth-keccak" > "$out/meta/elf-header.txt"
-      ${riscvReadelf} -A "$out/bin/reth-keccak" > "$out/meta/elf-attributes.txt"
-      ${riscvNm} -S --size-sort --radix=d "$out/bin/reth-keccak" > "$out/meta/symbols.txt"
-      ${pkgs.python3}/bin/python ${repo}/targets/keccak/reth-rustcrypto/tests/check_vectors.py \
-        --qemu ${qemuRiscv64} \
-        --binary "$out/bin/reth-keccak" \
-        --vectors ${repo}/targets/keccak/reth-rustcrypto/tests/vectors.json
-
-      runHook postInstall
-    '';
-  };
 
   zesuProductionObject = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-production-rv64im-object";
@@ -1271,14 +1123,6 @@ let
     '';
   };
 
-  rethKeccakRun = pkgs.writeShellApplication {
-    name = "reth-keccak";
-    runtimeInputs = [ pkgs.qemu-user ];
-    text = ''
-      exec qemu-riscv64 ${rethKeccak}/bin/reth-keccak "$@"
-    '';
-  };
-
   zesuSszRun = pkgs.writeShellApplication {
     name = "zesu-ssz";
     runtimeInputs = [ pkgs.qemu-user ];
@@ -1290,8 +1134,6 @@ in
 {
   public = {
     inherit
-      rethKeccak
-      rethKeccakRun
       zesuNativeSuite
       zesuProductionObject
       zesuRawObject
@@ -1314,7 +1156,6 @@ in
       zesuSszRun
       zesuValue;
 
-    reth-keccak = rethKeccak;
     zesu-value = zesuValue;
     zesu-ssz = zesuSsz;
     zesu-raw-ssz-sidecar = zesuRawSidecar;
@@ -1333,9 +1174,5 @@ in
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;
-  };
-
-  internal = {
-    inherit rethKeccakRust;
   };
 }

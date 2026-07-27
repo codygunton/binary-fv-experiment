@@ -1,6 +1,5 @@
-{ etheorem, pkgs, repo, rv64, sailRiscv, scrollFv, targets }:
+{ etheorem, pkgs, repo, rv64, sailRiscv, targets }:
 let
-  rethKeccak = targets.public.rethKeccak;
   zesuSsz = targets.public.zesuSsz;
   zesuAbiManifest = targets.public.zesuAbiManifest;
   elflingProgram = targets.public.elflingProgram;
@@ -81,51 +80,6 @@ let
       runHook postInstall
     '';
   };
-
-  rethKeccakElfLean = pkgs.runCommand "binary-fv-reth-keccak-elf-lean" {
-    nativeBuildInputs = [ pkgs.coreutils pkgs.gawk ];
-  } ''
-    mkdir -p "$out"
-    {
-      printf '%s\n' 'namespace BinaryFv.Keccak.RethKeccakElf'
-      printf '\n'
-      printf '%s\n' 'set_option maxRecDepth 100000'
-      printf '%s\n' '/-- Generated from the canonical Nix-built Reth RustCrypto Keccak ELF. -/'
-      printf '%s\n' 'def bytes : ByteArray := ByteArray.mk #['
-      ${pkgs.coreutils}/bin/od -An -v -tu1 ${rethKeccak}/bin/reth-keccak |
-        ${pkgs.gawk}/bin/awk '
-          {
-            for (i = 1; i <= NF; i++) {
-              if (count % 12 == 0) {
-                printf "  "
-              }
-              printf "0x%02x, ", $i
-              count++
-              if (count % 12 == 0) {
-                printf "\n"
-              }
-            }
-          }
-          END {
-            if (count % 12 != 0) {
-              printf "\n"
-            }
-          }
-        '
-      printf '%s\n' ']'
-      printf '\n'
-      printf '%s\n' 'end BinaryFv.Keccak.RethKeccakElf'
-    } > "$out/RethKeccakElf.lean"
-  '';
-
-  keccakSpecLean = pkgs.runCommand "binary-fv-keccak-spec-lean" {
-    nativeBuildInputs = [ pkgs.coreutils ];
-  } ''
-    actual="$(${pkgs.coreutils}/bin/sha256sum ${scrollFv}/Spec/Keccak/Keccak256.lean | cut -d ' ' -f 1)"
-    test "$actual" = "76d306102ccee991f08adca3e1597fc4362ce1e05b0a3cfabb2724927c133885"
-    mkdir -p "$out/Spec/Keccak"
-    cp ${scrollFv}/Spec/Keccak/Keccak256.lean "$out/Spec/Keccak/Keccak256.lean"
-  '';
 
   zesuSszElfLean = pkgs.runCommand "binary-fv-zesu-ssz-elf-lean" {
     nativeBuildInputs = [ pkgs.coreutils pkgs.gawk ];
@@ -413,8 +367,6 @@ COMPAT
 
     mkdir -p build .lake/packages/repl "$TMPDIR/home"
     ln -s ${sailRiscvLean} build/sail-riscv-lean
-    ln -s ${rethKeccakElfLean} build/reth-keccak-elf-lean
-    ln -s ${keccakSpecLean} build/keccak-spec-lean
     ln -s ${sszSpecLean} build/ssz-spec-lean
     ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
     ln -s ${zesuAbiManifest} build/zesu-abi-lean
@@ -444,21 +396,20 @@ COMPAT
     export HOME="$TMPDIR/home"
 
     # Layer audit. The RISC-V and Binary layers are generic over the binary under analysis; a
-    # dependency on the Keccak target would make them a lie. A docstring cannot enforce this, and an
-    # ^import-only check misses dangling prose references to deleted Keccak constants, so match the
-    # bare strings. The two exemptions are the docstrings that state the rule itself.
-    layerViolations=$(grep -rn "Keccak\|Reth" BinaryFv/RiscV/ BinaryFv/Binary/ \
-      BinaryFv/RiscV.lean BinaryFv/Binary.lean 2>/dev/null \
-      | grep -v "^BinaryFv/RiscV.lean:[0-9]*:Nothing in this layer may depend on" \
-      | grep -v "^BinaryFv/Binary.lean:[0-9]*:may depend on" || true)
+    # dependency on the SSZ target would make them a lie. A docstring cannot enforce this, so audit
+    # the import graph: no generic module may import the target umbrella or anything beneath it.
+    # Prose that motivates a generic rule by naming the Zesu artifact is not a dependency and is
+    # deliberately not matched -- the violation is the import, not the spelling.
+    layerViolations=$(grep -rn "^import BinaryFv\.SSZ" BinaryFv/RiscV/ BinaryFv/Binary/ \
+      BinaryFv/RiscV.lean BinaryFv/Binary.lean 2>/dev/null || true)
     if [ -n "$layerViolations" ]; then
-      echo "Layer violation: the RISC-V/Binary layers must not mention the Keccak target." >&2
+      echo "Layer violation: the RISC-V/Binary layers must not import the SSZ target." >&2
       echo "$layerViolations" >&2
       exit 1
     fi
 
     # The approved fixed-artifact native_decide exception covers closed facts about the pinned ELF.
-    # Those are Keccak-target facts by construction, so no generic module may use native_decide.
+    # Those are SSZ-target facts by construction, so no generic module may use native_decide.
     nativeInGeneric=$(grep -rn "native_decide" BinaryFv/RiscV/ BinaryFv/Binary/ 2>/dev/null || true)
     if [ -n "$nativeInGeneric" ]; then
       echo "native_decide is not permitted in the generic RISC-V/Binary layers." >&2
@@ -466,8 +417,8 @@ COMPAT
       exit 1
     fi
 
-    # Exactly two SSZ scaffolds are authorized, plus the one Keccak root scaffold. Keep the check
-    # declaration-scoped by pinning both the file and the count; all helper proofs remain sorry-free.
+    # Exactly two SSZ scaffolds are authorized. Keep the check declaration-scoped by pinning both
+    # the file and the count; all helper proofs remain sorry-free.
     #
     # The SSZ two are the live-trace obligations in `Entrypoints/ZesuDecodeRaw/Execution.lean`:
     # producing a complete run of the wrapper from a spec acceptance, and from a spec rejection.
@@ -480,27 +431,14 @@ COMPAT
     # instead of silently fitting under a budget.
     sorrySites=$(grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/ || true)
     unexpectedSorries=$(printf '%s\n' "$sorrySites" | grep -v -E \
-      '^BinaryFv/Keccak/Reth/Root\.lean:[0-9]+:.*sorry$|^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:[0-9]+:.*sorry$' \
+      '^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:[0-9]+:.*sorry$' \
       || true)
     if [ -n "$unexpectedSorries" ]; then
-      echo "Only the declaration-allowlisted Keccak root and SSZ live-trace scaffolds may contain sorry." >&2
+      echo "Only the declaration-allowlisted SSZ live-trace scaffolds may contain sorry." >&2
       echo "$unexpectedSorries" >&2
       exit 1
     fi
-    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Keccak/Reth/Root\.lean:')" = 1
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
-
-    # Artifact boundary. `Reth/Artifact/` is immutable binary data and closed static facts about
-    # the pinned ELF: parsing, symbols, ranges, encoded words, image bytes. Decoding those words
-    # needs a configured machine, so anything decode-dependent belongs in `Reth/Analysis/`, not here.
-    # Grep the import graph, not the word "State": the violation is the dependency, not the spelling.
-    artifactLeaks=$(grep -rn "^import BinaryFv.Keccak.Reth.\(Execution\|Proof\|Analysis\)" \
-      BinaryFv/Keccak/Reth/Artifact/ 2>/dev/null || true)
-    if [ -n "$artifactLeaks" ]; then
-      echo "Artifact boundary violation: Reth/Artifact/ must not depend on Execution, Proof, or Analysis." >&2
-      echo "$artifactLeaks" >&2
-      exit 1
-    fi
 
     # Validation-import guard. The Row B `Validation/` modules are falsification evidence, never proof
     # premises: no file OUTSIDE `Validation/` may import one, so no root theorem (nor the `BinaryFv`
@@ -581,8 +519,6 @@ COMPAT
 
     mkdir -p build .lake/packages/repl "$TMPDIR/home"
     ln -s ${sailRiscvLean} build/sail-riscv-lean
-    ln -s ${rethKeccakElfLean} build/reth-keccak-elf-lean
-    ln -s ${keccakSpecLean} build/keccak-spec-lean
     ln -s ${sszSpecLean} build/ssz-spec-lean
     ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
     ln -s ${zesuAbiManifest} build/zesu-abi-lean
@@ -658,12 +594,10 @@ COMPAT
 in
 {
   public = {
-    inherit binaryFvLean keccakSpecLean rethKeccakElfLean sailRiscvLean sszSpecLean zesuSszElfLean
+    inherit binaryFvLean sailRiscvLean sszSpecLean zesuSszElfLean
       sszContractRunner sszContractAgreement;
 
     binary-fv-lean = binaryFvLean;
-    keccak-spec-lean = keccakSpecLean;
-    reth-keccak-elf-lean = rethKeccakElfLean;
     sail-riscv-lean = sailRiscvLean;
     ssz-spec-lean = sszSpecLean;
     zesu-ssz-elf-lean = zesuSszElfLean;

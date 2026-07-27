@@ -1,15 +1,10 @@
 {
-  description = "Reproducible RV64 binary compliance proofs for Keccak and SSZ";
+  description = "Reproducible RV64 binary compliance proofs for SSZ";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
     # Target and audit sources are pinned independently of the proof stack.
-    reth = {
-      url = "github:paradigmxyz/reth/9384bc53d8c0c77e59cac83fdaaf3b372c6d2216";
-      flake = false;
-    };
-
     # Preserve the unmodified upstream source for the production baseline.
     zesu = {
       url = "github:Consensys/zesu/aa6c94339987d278acb8b7fa409c864dbd3d05aa";
@@ -19,11 +14,6 @@
     # The selected lossless Amsterdam V4 decoder lives in the user's repaired fork.
     zesuRepaired = {
       url = "github:codygunton/zesu/96f1621468ba54755d653f19cbc9704e789be001";
-      flake = false;
-    };
-
-    scrollFv = {
-      url = "github:trailofbits/scroll-fv/0c3927ba4d6773b4cfd1d949cba342268b104d91";
       flake = false;
     };
 
@@ -46,10 +36,8 @@
   outputs = {
     self,
     nixpkgs,
-    reth,
     zesu,
     zesuRepaired,
-    scrollFv,
     sailRiscv,
     etheorem,
     executionSpecs,
@@ -70,14 +58,14 @@
             inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit pkgs repo reth rv64 zesu zesuRepaired;
+            inherit pkgs repo rv64 zesu zesuRepaired;
             source = self;
           };
           analysis = import ./nix/analysis.nix {
             inherit pkgs repo rv64 targets;
           };
           proof = import ./nix/proof.nix {
-            inherit etheorem pkgs repo rv64 sailRiscv scrollFv targets;
+            inherit etheorem pkgs repo rv64 sailRiscv targets;
           };
         in
         targets.public // analysis.public // proof.public;
@@ -102,11 +90,11 @@
             inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit pkgs repo reth rv64 zesu zesuRepaired;
+            inherit pkgs repo rv64 zesu zesuRepaired;
             source = self;
           };
           proof = import ./nix/proof.nix {
-            inherit etheorem pkgs repo rv64 sailRiscv scrollFv targets;
+            inherit etheorem pkgs repo rv64 sailRiscv targets;
           };
         in
         {
