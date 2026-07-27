@@ -103,11 +103,65 @@ theorem normalExecutionState_of_check {s : State} (h : normalExecutionB s = true
     | none => rw [hread] at hmisa; simp at hmisa
     | some m => rw [hread] at hmisa; exact of_decide_eq_true hmisa
 
-/-- Whether the configuration program both succeeds and leaves a normal execution state. Closed and
-finite, like `configureSucceedsB`, so `native_decide` settles it. -/
+/-! ### The five machine registers a retiring *fetch* needs that `NormalExecutionState` omits
+
+`NormalExecutionState` pins twelve registers. Working backwards from `tryStepRetRetires` through its
+premises turns up **five more**, and not one of them is among the twelve:
+
+* `minstret` — `retiredRead`, the counter the retirement increments;
+* `mstatus` and `sig_meip` — `InterruptDisabled` (`RiscV/Logic/Framing.lean`);
+* `mstatus` again and `pma_regions` — `FetchBasePlatform` (`RiscV/Platform/Fetch.lean`), through
+  `FetchPmaAllows`;
+* `mseccfg` — `Elfling.returnExit_fetch_and_decode`, which needs it to decode the exit instruction.
+
+They are *presence* claims at existentially bound values, not value pins, which is why they cannot be
+conjuncts of `NormalExecutionState` — every conjunct there fixes a value. So they are a separate
+predicate. Grouping all five is deliberate: `minstret` is not special. It sits in exactly the same
+category as the other four — a machine register that exists at the state the runner builds and that
+no contract clause says still exists after the call — and splitting it out would suggest four of them
+are settled when none is.
+
+This module proves the predicate holds at the state `zesu_decode_raw` is entered from. It does **not**
+hold at the exit for anything proved anywhere: that is the remaining gap, and it is a contract
+question, not a runner question. -/
+
+/-- The five registers `tryStepRetRetires` and its premises read that `NormalExecutionState` does not
+mention. Presence, not value: each is consumed at an existentially bound value. -/
+def FetchPlatformPresent (state : State) : Prop :=
+  (∃ v, state.regs.get? minstret = some v) ∧
+  (∃ v, state.regs.get? mstatus = some v) ∧
+  (∃ v, state.regs.get? sig_meip = some v) ∧
+  (∃ v, state.regs.get? pma_regions = some v) ∧
+  (∃ v, state.regs.get? mseccfg = some v)
+
+/-- The decidable form. -/
+def fetchPlatformPresentB (state : State) : Bool :=
+  (state.regs.get? minstret).isSome && (state.regs.get? mstatus).isSome &&
+  (state.regs.get? sig_meip).isSome && (state.regs.get? pma_regions).isSome &&
+  (state.regs.get? mseccfg).isSome
+
+theorem fetchPlatformPresent_of_check {s : State} (h : fetchPlatformPresentB s = true) :
+    FetchPlatformPresent s := by
+  unfold fetchPlatformPresentB at h
+  simp only [Bool.and_eq_true, Option.isSome_iff_exists] at h
+  exact ⟨h.1.1.1.1, h.1.1.1.2, h.1.1.2, h.1.2, h.2⟩
+
+/-- `FetchPlatformPresent` reads none of the six registers the builder's ABI block writes. -/
+theorem fetchPlatformPresent_frame {s s' : State}
+    (hframe : ∀ r : Register, r ≠ x1 → r ≠ x2 → r ≠ x10 → r ≠ x11 → r ≠ PC → r ≠ nextPC →
+      s'.regs.get? r = s.regs.get? r)
+    (h : FetchPlatformPresent s) : FetchPlatformPresent s' := by
+  obtain ⟨h1, h2, h3, h4, h5⟩ := h
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
+    rw [hframe _ (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)] <;>
+    assumption
+
+/-- Whether the configuration program both succeeds and leaves a normal execution state with the five
+fetch registers present. Closed and finite, like `configureSucceedsB`, so `native_decide` settles
+it. -/
 def configureNormalB : Bool :=
   match configureZesuMachine.run initialState with
-  | .ok _ s => normalExecutionB s
+  | .ok _ s => normalExecutionB s && fetchPlatformPresentB s
   | .error _ _ => false
 
 theorem configure_normal : configureNormalB = true := by native_decide
@@ -118,13 +172,15 @@ Its ABI register values are still deliberately left abstract — the builder's f
 pins the ones the entry binding reads. What is *no longer* abstract is the platform state, because
 nothing downstream can retire a single instruction without it. -/
 theorem configure_runs : ∃ mid, Runs configureZesuMachine initialState mid () ∧
-    NormalExecutionState mid := by
+    NormalExecutionState mid ∧ FetchPlatformPresent mid := by
   have h := configure_normal
   unfold configureNormalB at h
   cases hr : configureZesuMachine.run initialState with
   | error e s => rw [hr] at h; simp at h
   | ok u s =>
-    refine ⟨s, ?_, normalExecutionState_of_check (by rw [hr] at h; exact h)⟩
+    rw [hr] at h
+    simp only [Bool.and_eq_true] at h
+    refine ⟨s, ?_, normalExecutionState_of_check h.1, fetchPlatformPresent_of_check h.2⟩
     show configureZesuMachine.run initialState = .ok () s
     rw [hr]
 
@@ -222,13 +278,13 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
         canonicalRepRawV4 DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ s ∧
       s.regs.get? x1 = some (BitVec.ofNat 64 canonicalRunnerLayout.sentinel) ∧
       s.regs.get? x2 = some (BitVec.ofNat 64 canonicalRunnerLayout.stackStop) ∧
-      NormalExecutionState s ∧
+      NormalExecutionState s ∧ FetchPlatformPresent s ∧
       ∃ entrySym, Artifact.zesuDecodeRaw.toOption = some entrySym ∧
         s.regs.get? PC = some (BitVec.ofNat 64 entrySym.value) ∧
         s.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) := by
   -- Stage the loaders.
   obtain ⟨seg, hsingle⟩ := programImage_single
-  obtain ⟨s1, hrun1, hnormal1⟩ := configure_runs
+  obtain ⟨s1, hrun1, hnormal1, hfetch1⟩ := configure_runs
   obtain ⟨s2, hrun2, hregs2, _hlow2, _hhigh2, hfile2⟩ :=
     loadFileBackedImage_single_establishes hsingle s1
   obtain ⟨sstack, hrunstack, hregsstack, hframestack, _hwinstack⟩ :=
@@ -276,7 +332,7 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       sf.regs.get? x2 = some (BitVec.ofNat 64 canonicalRunnerLayout.stackStop) ∧
       sf.regs.get? PC = some (BitVec.ofNat 64 entrySym.value) ∧
       sf.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) ∧
-      NormalExecutionState sf := by
+      NormalExecutionState sf ∧ FetchPlatformPresent sf := by
     have hrunR : Runs
         (writeReg x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase) >>= fun _ =>
          writeReg x11 (BitVec.ofNat 64 input.size) >>= fun _ =>
@@ -288,7 +344,7 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
         (Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
           (Runs.bind (by rw [Runs, writeReg_run]) (by rw [Runs, writeReg_run])))))
-    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · unfold buildZesuEntryState initStack
       simp only [hentry]
       exact Runs.bind hrun1 (Runs.bind hrun2 (Runs.bind hrunstack (Runs.bind hrun3 (Runs.bind hrun4
@@ -307,8 +363,14 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       refine normalExecutionState_frame (fun r h1 h2 h10 h11 hpc hnext => ?_) hnormal1
       simp [Std.ExtDHashMap.get?_insert, Ne.symm h1, Ne.symm h2, Ne.symm h10, Ne.symm h11,
         Ne.symm hpc, Ne.symm hnext, hchain]
-  obtain ⟨sf, hrunsf, hmemsf, hx10, hx11, hx1, hx2, hpc, hnextpc, hnormal⟩ := hbuilt
-  refine ⟨sf, hrunsf, ?_, hx1, hx2, hnormal, entrySym, hentry, hpc, hnextpc⟩
+    · -- The same frame, for the five registers the fetch reads.
+      have hchain : s6.regs = s1.regs := by
+        rw [hregs6, hregs5, hregs4, hregs3, hregsstack, hregs2]
+      refine fetchPlatformPresent_frame (fun r h1 h2 h10 h11 hpc hnext => ?_) hfetch1
+      simp [Std.ExtDHashMap.get?_insert, Ne.symm h1, Ne.symm h2, Ne.symm h10, Ne.symm h11,
+        Ne.symm hpc, Ne.symm hnext, hchain]
+  obtain ⟨sf, hrunsf, hmemsf, hx10, hx11, hx1, hx2, hpc, hnextpc, hnormal, hfetchsf⟩ := hbuilt
+  refine ⟨sf, hrunsf, ?_, hx1, hx2, hnormal, hfetchsf, entrySym, hentry, hpc, hnextpc⟩
   -- Reduce the argument projections once, then discharge each entry-binding conjunct.
   show MemoryBytes sf canonicalRunnerLayout.inputBase input ∧
       canonicalEnvironment.CodeIntact sf ∧
