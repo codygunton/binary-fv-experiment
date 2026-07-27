@@ -63,7 +63,7 @@ in
       riscvBinutils
     ];
     shellHook = ''
-      echo "Run: nix run .#reth-keccak -- 616263, nix run .#zesu-ssz, or nix run .#dump -- TARGET"
+      echo "Run: nix run .#zesu-ssz, or nix run .#dump -- TARGET"
     '';
   };
 }
