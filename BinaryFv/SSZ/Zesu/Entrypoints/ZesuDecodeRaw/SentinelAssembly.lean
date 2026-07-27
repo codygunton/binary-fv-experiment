@@ -228,6 +228,97 @@ theorem exitPlatform_of_agree {before after : State} {pc : Nat}
   link := (platformPreserved_link agree).trans h.link
   code := code
 
+/-! ## What the exit `ret` leaves alone
+
+**The two halves of the capstone do not meet without this, and the gap was invisible from either
+side.** Every contract postcondition speaks about the state the exit instruction is reached *in*;
+every observation the runner makes — `SuccessfulRun.returnCode`, `storedPresent`, `inputPreserved`,
+`storedValue`, and both accessor return codes — is made at the state the trace *ends* in, which is
+one retirement later. Nothing related the two, and `exitRetRetires` hid its post-state behind an
+existential, so the mismatch could not even be stated at the point of use.
+
+The content is entirely mechanical — the retirement is four register writes (`minstret_increment`,
+`nextPC`, `PC`, `minstret`) over an untouched memory — which is exactly why it went unwritten. It is
+still load-bearing: without the memory equation the decode's stored value is a fact about a state the
+runner never observes, and without the `a0` equation the return code the wrapper computed is not the
+one the runner reads back. -/
+
+/-- Everything the exit `ret` preserves, in the currency the layers above already trade in.
+
+Memory verbatim rather than as an agreement, because that is what makes the transports `rfl`-cheap;
+the platform frame, so `exitPlatform_of_agree` applies again at the post-state and the *next*
+attachment has its bundle; the retired counter as presence, since the retirement is precisely what
+writes it; and `a0`, which is the wrapper's and each accessor's whole observable result. -/
+structure ExitRetFrame (before after : State) : Prop where
+  /-- The retirement writes only registers, so every memory predicate survives it unchanged. -/
+  mem : after.mem = before.mem
+  /-- The eighteen registers a further `ret` needs, so `ExitPlatform` transports across it. -/
+  agree : Agree platformPreserved before after
+  /-- The counter the retirement itself just wrote — present, never preserved. -/
+  retired : RetiredCounterPresent after
+  /-- The return register the runner reads each call's outcome out of. -/
+  returnValue : after.regs.get? x10 = before.regs.get? x10
+
+/-- Every register a control-flow retirement does not write reads back unchanged. The four it does
+write are named in the hypotheses rather than left to the reader. -/
+theorem retiredJump_regs_frame (state : State) (pc target retired : BitVec 64) {r : Register}
+    (hpc : r ≠ PC) (hnext : r ≠ nextPC) (hcounter : r ≠ minstret)
+    (hinc : r ≠ minstret_increment) :
+    (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target)
+        target retired).regs.get? r = state.regs.get? r := by
+  simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
+    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
+    Ne.symm hpc, Ne.symm hnext, Ne.symm hcounter, Ne.symm hinc]
+
+/-- **The frame holds at the concrete post-state of a control-flow retirement.** `platformPreserved`
+names eighteen registers and none of them is one of the four the retirement writes, which is what the
+`decide`s below check — one per register, so a register moving into `platformPreserved` that the
+retirement *does* write fails here rather than silently weakening the transport. -/
+theorem exitRetFrame_retiredJump (state : State) (pc target retired : BitVec 64) :
+    ExitRetFrame state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target)
+        target retired) where
+  mem := rfl
+  agree := by
+    rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl) <;>
+      exact retiredJump_regs_frame state pc target retired (by decide) (by decide) (by decide)
+        (by decide)
+  retired := by
+    refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
+    simp [tryStepControlFlowAfterRetired]
+  returnValue :=
+    retiredJump_regs_frame state pc target retired (by decide) (by decide) (by decide) (by decide)
+
+/-- **The runner's accessor prologue preserves the whole callee frame**, given that the link register
+already held the sentinel.
+
+`accessorSetup` writes `x1`, and `x1` is in `platformPreserved`, so this is not the vacuous framing
+argument the other three writes get: the agreement holds because the prologue writes *the value that
+is already there*. That is only true where the runner has kept the sentinel in `ra`, which is why the
+hypothesis is the exit bundle's own `link` field rather than something assumed. -/
+theorem agree_accessorSetup {state : State} (entryPc : Nat)
+    (hlink : state.regs.get? x1 = some sentinelWord) :
+    Agree platformPreserved state (accessorSetup entryPc state) := by
+  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl)
+  · exact (accessorSetup_ra entryPc state).trans hlink.symm
+  all_goals
+    exact accessorSetup_regs_frame entryPc state _ (by decide) (by decide) (by decide) (by decide)
+
+/-- **The exit bundle survives entering an accessor.** So a bundle established once, at the state the
+builder produces, is still available at each of the two accessor calls — which is what lets the whole
+chain of attachments run off a single `buildZesuEntryState_exitPlatform`. -/
+theorem exitPlatform_accessorSetup {state : State} {pc : Nat} (entryPc : Nat)
+    (h : ExitPlatform state pc) : ExitPlatform (accessorSetup entryPc state) pc :=
+  exitPlatform_of_agree (agree_accessorSetup entryPc h.link)
+    (h.retired.imp fun _ hv =>
+      (accessorSetup_regs_frame entryPc state minstret (by decide) (by decide) (by decide)
+        (by decide)).trans hv)
+    h.code h
+
 /-! ## The `ret` retirement
 
 Every premise of `tryStepRetRetires` discharged. The three that are genuinely about the *target* —
@@ -252,7 +343,7 @@ theorem exitRetRetires {nodes : Array ControlFlowNode} (hn : controlFlow? = some
     {state : State} (platform : ExitPlatform state pc)
     (atExit : state.regs.get? PC = some (BitVec.ofNat 64 pc)) (stepNo : Nat) :
     ∃ final : State, Runs (try_step stepNo false) state final false ∧
-      final.regs.get? PC = some sentinelWord := by
+      final.regs.get? PC = some sentinelWord ∧ ExitRetFrame state final := by
   obtain ⟨hhart, hpriv, hsatp, hmideleg, hmie, hmip, hpmpcfg, hpmpaddr, hinhibit, hcfg, help,
     hmisa⟩ := platform.normal
   obtain ⟨mstatusBits, hmstatus⟩ := platform.mstatusRead
@@ -323,7 +414,7 @@ theorem exitRetRetires {nodes : Array ControlFlowNode} (hn : controlFlow? = some
     (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) sentinelWord 0 0 byte0 byte1 byte2 byte3 _
     hplatform hnoMMIO hbytes hinterrupts hbase hdecode hnotExpected helpElp hlink hrs1 hbit1 hzca
     hhart hinhibit hcfg (by decide) (by decide) hretired
-  refine ⟨_, hretires, ?_⟩
+  refine ⟨_, hretires, ?_, exitRetFrame_retiredJump state (BitVec.ofNat 64 pc) _ retiredVal⟩
   rw [hupdate]
   exact Elfling.tryStepControlFlowAfterRetired_pc _ _ _
 
@@ -426,6 +517,68 @@ theorem rawError_function_instance_exits {fi : FunctionInstance}
   have hrow := forall_mem_of_all h fi hmem
   simpa [hentry] using hrow
 
+/-! ## Which contract each of the three instances owes
+
+The compliance obligation dispatches on `catalogEntryFor functionInstance.id.function`, so
+"`zesu_decode_raw`'s instance owes `functionInstanceZesuDecodeRaw`" is a fact about the generated
+identity and the address-free catalog, not something a caller may choose. Each of the three is read
+off the same way `BlobScheduleMapping.blobSchedule_identity_matches_catalog` reads its own — through
+the catalog, at the identity, never by name. -/
+
+/-- **The wrapper's instance dispatches to the exported-wrapper contract.** -/
+theorem entry_function_instance_tag :
+    ∀ fi, Program.find? generatedProgram generatedProgram.entry = some fi →
+      (catalogEntryFor fi.id.function).map (·.tag) = some RoutineTag.zesuDecodeRaw := by
+  intro fi hfind
+  have h : ((Program.find? generatedProgram generatedProgram.entry).map
+      fun i => (catalogEntryFor i.id.function).map (·.tag) == some RoutineTag.zesuDecodeRaw).getD
+      false = true := by native_decide
+  rw [hfind] at h
+  simpa using h
+
+/-- **`zesu_raw_result`'s instance dispatches to `contractRawResult`.** Selected by its pinned entry
+address, because that is what `runAccessor` writes into `PC`. -/
+theorem rawResult_function_instance_tag {fi : FunctionInstance}
+    (hmem : fi ∈ generatedProgram.functionInstances)
+    (hentry : fi.entryPc = resolvedSymbols.rawResult) :
+    (catalogEntryFor fi.id.function).map (·.tag) = some RoutineTag.rawResult := by
+  have h : generatedProgram.functionInstances.all (fun i =>
+      !(i.entryPc == resolvedSymbols.rawResult) ||
+        ((catalogEntryFor i.id.function).map (·.tag) == some RoutineTag.rawResult)) = true := by
+    native_decide
+  have hrow := forall_mem_of_all h fi hmem
+  simpa [hentry] using hrow
+
+/-- **`zesu_raw_error`'s instance dispatches to `contractRawError`.** -/
+theorem rawError_function_instance_tag {fi : FunctionInstance}
+    (hmem : fi ∈ generatedProgram.functionInstances)
+    (hentry : fi.entryPc = resolvedSymbols.rawError) :
+    (catalogEntryFor fi.id.function).map (·.tag) = some RoutineTag.rawError := by
+  have h : generatedProgram.functionInstances.all (fun i =>
+      !(i.entryPc == resolvedSymbols.rawError) ||
+        ((catalogEntryFor i.id.function).map (·.tag) == some RoutineTag.rawError)) = true := by
+    native_decide
+  have hrow := forall_mem_of_all h fi hmem
+  simpa [hentry] using hrow
+
+/-- **Each accessor's instance exists.** `accessor_function_instances_selected` counts them; this
+produces one, which is what an obligation quantified over `functionInstances` has to be applied to.
+Without it the three lemmas above would be conditional on a membership nothing supplies. -/
+theorem rawResult_function_instance_found :
+    ∃ fi, fi ∈ generatedProgram.functionInstances ∧ fi.entryPc = resolvedSymbols.rawResult := by
+  have h : (generatedProgram.functionInstances.find?
+      (fun i => i.entryPc == resolvedSymbols.rawResult)).isSome = true := by native_decide
+  obtain ⟨fi, hfi⟩ := Option.isSome_iff_exists.mp h
+  exact ⟨fi, Array.mem_of_find?_eq_some hfi, by simpa using Array.find?_some hfi⟩
+
+/-- The `zesu_raw_error` twin. -/
+theorem rawError_function_instance_found :
+    ∃ fi, fi ∈ generatedProgram.functionInstances ∧ fi.entryPc = resolvedSymbols.rawError := by
+  have h : (generatedProgram.functionInstances.find?
+      (fun i => i.entryPc == resolvedSymbols.rawError)).isSome = true := by native_decide
+  obtain ⟨fi, hfi⟩ := Option.isSome_iff_exists.mp h
+  exact ⟨fi, Array.mem_of_find?_eq_some hfi, by simpa using Array.find?_some hfi⟩
+
 /-! ## One attachment, in general
 
 The three theorems below differ only in how they identify their function instance and pin its exit;
@@ -445,7 +598,7 @@ theorem traceToSentinel_of_singleReturnExit {nodes : Array ControlFlowNode}
     (run : Elfling.EnteredFunctionTrace (functionInstanceExecutionPcs generatedProgram fi)
       (functionInstanceExitPred fi) entryWord 0 count entryState atExit) :
     ∃ final : State, TraceToSentinel sentinelWord 0 (count + 1) entryState final ∧
-      2 ≤ count + 1 ∧ final.regs.get? PC = some sentinelWord := by
+      2 ≤ count + 1 ∧ final.regs.get? PC = some sentinelWord ∧ ExitRetFrame atExit final := by
   -- Where the run stopped: the only exit there is.
   obtain ⟨stopped, hstopped, hstoppedExit⟩ := run.trace.final_at_exit
   have hstoppedNat : stopped.toNat = exitPc := by
@@ -461,12 +614,12 @@ theorem traceToSentinel_of_singleReturnExit {nodes : Array ControlFlowNode}
   obtain ⟨node, hnode, hret⟩ := sentinelExitPcs_are_return_sites nodes hn exitPc hlisted
   have hmemExit : exitPc ∈ fi.exitPcs := by simp [hexits]
   -- The `ret` retires and lands on the sentinel.
-  obtain ⟨final, hretires, hlanded⟩ :=
+  obtain ⟨final, hretires, hlanded, hframe⟩ :=
     exitRetRetires hn hmem hmemExit hnode hret (sentinelExitPcs_aligned exitPc hlisted)
       (sentinelExitPcs_belowClint exitPc hlisted) (sentinelExitPcs_belowSig exitPc hlisted)
       platform hpcRead (0 + count)
   -- The bridge's two avoidance conditions, at this instance.
-  refine ⟨final, ?_, ?_, hlanded⟩
+  refine ⟨final, ?_, ?_, hlanded, hframe⟩
   · exact (Elfling.traceToSentinel_of_enteredFunctionTrace
       (generated_execution_pcs_avoid_sentinel fi hmem)
       (generated_exit_pcs_avoid_sentinel fi hmem) run hretires hlanded).1
@@ -490,7 +643,7 @@ theorem entryTraceToSentinel_of_enteredFunctionTrace {nodes : Array ControlFlowN
     (run : Elfling.EnteredFunctionTrace (functionInstanceExecutionPcs generatedProgram fi)
       (functionInstanceExitPred fi) (functionInstanceEntryWord fi) 0 count entryState atExit) :
     ∃ final : State, TraceToSentinel sentinelWord 0 (count + 1) entryState final ∧
-      2 ≤ count + 1 ∧ final.regs.get? PC = some sentinelWord :=
+      2 ≤ count + 1 ∧ final.regs.get? PC = some sentinelWord ∧ ExitRetFrame atExit final :=
   traceToSentinel_of_singleReturnExit hn (entry_function_instance_mem hfind)
     (entry_function_instance_exit_is_its_return nodes hn fi hfind).1 (by decide) platform run
 
@@ -512,11 +665,11 @@ theorem rawResultReachesSentinel_of_enteredFunctionTrace {nodes : Array ControlF
       TraceToSentinel sentinelWord 0 (count + 1)
         (accessorSetup resolvedSymbols.rawResult before) after ∧
       AccessorReachesSentinel resolvedSymbols.rawResult rawResultStepBound before after ∧
-      after.regs.get? PC = some sentinelWord := by
-  obtain ⟨after, htrace, -, hlanded⟩ :=
+      after.regs.get? PC = some sentinelWord ∧ ExitRetFrame atExit after := by
+  obtain ⟨after, htrace, -, hlanded, hframe⟩ :=
     traceToSentinel_of_singleReturnExit hn hmem (rawResult_function_instance_exits hmem hentry)
       (by decide) platform run
-  exact ⟨after, htrace, ⟨count + 1, by omega, htrace⟩, hlanded⟩
+  exact ⟨after, htrace, ⟨count + 1, by omega, htrace⟩, hlanded, hframe⟩
 
 /-- **`zesu_raw_error`'s sentinel trace, in the runner's own packaging.** -/
 theorem rawErrorReachesSentinel_of_enteredFunctionTrace {nodes : Array ControlFlowNode}
@@ -532,11 +685,11 @@ theorem rawErrorReachesSentinel_of_enteredFunctionTrace {nodes : Array ControlFl
       TraceToSentinel sentinelWord 0 (count + 1)
         (accessorSetup resolvedSymbols.rawError before) after ∧
       AccessorReachesSentinel resolvedSymbols.rawError rawErrorStepBound before after ∧
-      after.regs.get? PC = some sentinelWord := by
-  obtain ⟨after, htrace, -, hlanded⟩ :=
+      after.regs.get? PC = some sentinelWord ∧ ExitRetFrame atExit after := by
+  obtain ⟨after, htrace, -, hlanded, hframe⟩ :=
     traceToSentinel_of_singleReturnExit hn hmem (rawError_function_instance_exits hmem hentry)
       (by decide) platform run
-  exact ⟨after, htrace, ⟨count + 1, by omega, htrace⟩, hlanded⟩
+  exact ⟨after, htrace, ⟨count + 1, by omega, htrace⟩, hlanded, hframe⟩
 
 /-! ## Anti-vacuity
 
@@ -624,7 +777,7 @@ theorem exitRet_retires_at_built_state :
     change (s.regs.insert PC (BitVec.ofNat 64 0x10378)).get? PC = _
     rw [Std.ExtDHashMap.get?_insert]
     simp
-  obtain ⟨final, hretires, hlanded⟩ :=
+  obtain ⟨final, hretires, hlanded, -⟩ :=
     exitRetRetires hn (entry_function_instance_mem hfind) (by simp [hexits]) hnode hret
       (by decide) (by decide) (by decide) hmoved hpcRead 0
   exact ⟨s, final, hrun, hretires, hlanded⟩

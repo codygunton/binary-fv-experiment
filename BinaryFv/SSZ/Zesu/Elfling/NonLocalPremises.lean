@@ -8,13 +8,12 @@ import BinaryFv.SSZ.Zesu.SpecCorrespondence.ZeroOffsetAlias
 # Assembling the non-local premises of the root obligation
 
 `sszComplianceObligations generatedProgram` is **one of two things** the root theorem consumes, and
-the distinction matters for reading this module. `root_compliance` descends through
-`successful_trace_of_spec_accepts` / `rejected_trace_of_spec_rejects`, and each of those produces a
-canonical program together with `sszComplianceObligations` *and* a `Nonempty` live run
-(`SuccessfulRun` / `RejectedRun`). The run-existence half is the pair of authorized scaffolds in
-`Entrypoints/ZesuDecodeRaw/Execution.lean` — the only two `sorry`s left in the SSZ proof — and it is
-**not** reduced here. So the premise list below is Row D's remaining *obligation* scope, not the
-whole of what stands between the project and an unconditional root theorem.
+the distinction matters for reading this module. `root_compliance` needs that obligation *and* a
+`Nonempty` live run (`SuccessfulRun` / `RejectedRun`), and the run half is **not** reduced here — it
+is `Entrypoints/ZesuDecodeRaw/Assembly.lean`'s, from the same `LocalContractAssumptions` this module
+ends at. So the premise list below is Row D's *obligation* scope, not the whole of what stands
+between the project and an unconditional root theorem; the two halves happen to meet at one premise,
+which is why the capstone closes on a single `sorry`.
 
 Within that scope, this module is the join. It collects the facts already discharged against the
 generated data — coverage, canonical provenance, the address geometry, the acyclic rank, callee
@@ -111,6 +110,24 @@ theorem generated_function_instances_implement_of_locals (semantic : catalogSema
       functionInstanceObligation canonicalContractParams generatedProgram functionInstance :=
   sszProgramCorrectness_perFunctionInstance (sszProgramCorrectness_of_locals semantic satisfiable locals)
 
+/-- **The twenty semantic conjuncts, discharged.** Named rather than inlined into the residue theorem
+below because the capstone needs one of them — `catalogGroundsInSpec`, the value-carrying spec link —
+on its own, to turn the wrapper's recorded outcome into the `SszSpec.decode` answer the root claims.
+Building it twice would be two chances for the two uses to drift onto different oracle-agreement
+proofs. -/
+theorem catalogSemanticObligations_holds : catalogSemanticObligations :=
+  catalogSemanticObligations_of_oracleAgreement
+    (BinaryFv.SSZ.Zesu.SpecCorrespondence.sourceShapedDecodeAgreesWithOracle_holds
+      BinaryFv.SSZ.Zesu.SpecCorrespondence.sourceShapedContainersAgreeWithOracle_holds
+      retryTailNeverSchemaValid_holds)
+    BinaryFv.SSZ.Zesu.SpecCorrespondence.sourceShapedContainersAgreeWithOracle_holds
+    BinaryFv.SSZ.Zesu.SpecCorrespondence.v3ShapeExcludesCanonicalV4_holds
+    BinaryFv.SSZ.Zesu.SpecCorrespondence.zeroFirstOffsetAliasRejected_holds
+
+/-- The value-carrying spec link, projected out of the bundle above. -/
+theorem catalogGroundsInSpec_holds : catalogGroundsInSpec :=
+  catalogSemanticObligations_holds.2.1
+
 /-- **The whole residue, in one signature.**
 
 `Contracts.SemanticObligations` discharges sixteen of the twenty semantic conjuncts, so the premises
@@ -147,32 +164,25 @@ theorem sszComplianceObligations_of_residue
     (satisfiable : catalogSatisfiability canonicalContractParams)
     (locals : LocalContractAssumptions) :
     sszComplianceObligations generatedProgram :=
-  sszComplianceObligations_of_locals
-    (catalogSemanticObligations_of_oracleAgreement
-      (BinaryFv.SSZ.Zesu.SpecCorrespondence.sourceShapedDecodeAgreesWithOracle_holds
-        BinaryFv.SSZ.Zesu.SpecCorrespondence.sourceShapedContainersAgreeWithOracle_holds
-        retryTailNeverSchemaValid_holds)
-      BinaryFv.SSZ.Zesu.SpecCorrespondence.sourceShapedContainersAgreeWithOracle_holds
-      BinaryFv.SSZ.Zesu.SpecCorrespondence.v3ShapeExcludesCanonicalV4_holds
-      BinaryFv.SSZ.Zesu.SpecCorrespondence.zeroFirstOffsetAliasRejected_holds)
+  sszComplianceObligations_of_locals catalogSemanticObligations_holds
     satisfiable knownDivergences_holds locals
 
-/-- **Both obligation conjuncts of the D5 scaffolds, from the residue alone.**
+/-- **Both obligation-side premises the root theorem takes, from the residue alone.**
 
-`Entrypoints/ZesuDecodeRaw/Execution.lean`'s two scaffolds each claim three things: a canonical
-generated program, `sszComplianceObligations` for it, and a live run. This is the first two of the
-three, proved — so what those scaffolds still owe is *only* the run.
+`root_compliance_of_local_contracts` hands `execute_accepts_of_successful_trace` three things: a
+canonical generated program, `sszComplianceObligations` for it, and a live run. This is the first two
+of the three.
 
 Worth stating separately from `sszComplianceObligations_of_residue` because the pairing is the part
 that is easy to assume and was never written down: `isCanonicalGeneratedProgram_holds` is a conjunct
 of `sszProgramCorrectness` and therefore already inside the obligation, so a reader could reasonably
-believe the scaffold's first conjunct needs no separate proof. It does — the scaffold states it
-*outside* the obligation as well — and this is it.
+believe the first conjunct needs no separate proof. It does — the root's lemmas state it *outside*
+the obligation as well — and this is it.
 
-**It is not the whole scaffold and does not pretend to be.** The third conjunct,
-`Nonempty (SuccessfulRun …)` / `Nonempty (RejectedRun …)`, is untouched here and is not reducible to
-`locals` alone: constructing it needs a `TraceToSentinel`, which needs the exit `ret` to retire and `ra`
-to still hold the sentinel at the exit.
+**The third conjunct is not here and does not pretend to be.** `Nonempty (SuccessfulRun …)` /
+`Nonempty (RejectedRun …)` is `Entrypoints/ZesuDecodeRaw/Assembly.lean`'s, from the same `locals`:
+constructing it needs a `TraceToSentinel`, which needs the exit `ret` to retire and `ra` to still hold
+the sentinel at the exit.
 
 *This paragraph used to end "and no contract in the catalog constrains a callee-saved register at all."
 **That is no longer true**, and the correction is recorded rather than quietly deleted because the

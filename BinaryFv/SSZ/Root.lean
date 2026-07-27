@@ -1,6 +1,6 @@
 import BinaryFv.SSZ.Zesu.Artifact.Layout
 import BinaryFv.SSZ.Zesu.Interface
-import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
 import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
 
 namespace BinaryFv.SSZ
@@ -20,17 +20,17 @@ noncomputable def binary : RiscvSpec.ValidatedElf := {
 ## Navigation from the root theorem to the source-oriented catalog
 
 `root_compliance` descends through the generated Elfling program's correctness rather than around it.
-The two authorized trace-construction theorems each *produce* a canonical generated program together
-with `Zesu.Contracts.sszComplianceObligations program`, and the two runner/result theorems below
-*consume* that program and obligation. So the spine is literal: no witness exists without program
-correctness, and the root claim is built only from witnesses.
+`root_compliance_of_local_contracts` *produces* a canonical generated program together with
+`Zesu.Contracts.sszComplianceObligations program`, and the two runner/result theorems below *consume*
+that program and obligation. So the spine is literal: the root claim is built only from witnesses, and
+no witness is reachable without program correctness.
 
-**This file contains no `sorry`.** Its two lemmas used to be scaffolds bridging a trace witness to
-the public API; that bridge is now a real proof in `Entrypoints/ZesuDecodeRaw/Runner.lean`
-(`executeDecode_accepted_of_run`, `executeDecode_rejected_of_run`), so the root only opens the
-preflight gate and hands each witness's fields straight over. The two remaining holes in the whole
-SSZ proof are the live-trace obligations in `Entrypoints/ZesuDecodeRaw/Execution.lean` — *constructing*
-a run of the machine from a specification outcome. Everything downstream of a run existing is proved.
+**This file contains exactly one `sorry`, in `assumedAllLocalContracts`**, and that is the whole of
+what the SSZ proof assumes. `root_compliance_of_local_contracts` proves the public claim from it and
+carries no `sorry` at all; `#print axioms` on the two differs by exactly `sorryAx`. Both halves the
+root needs — the compliance obligation and a live run of the machine — now close on that one premise:
+the obligation through `Entrypoints/ZesuDecodeRaw/CatalogSatisfiability.lean`, the run through
+`Entrypoints/ZesuDecodeRaw/Assembly.lean`.
 
 Read the spine outward from the root:
 
@@ -56,20 +56,18 @@ theorem binary_is_canonical :
 
 /-- A successful run of the exported wrapper gives the public acceptance.
 
-`program` and `obligations` are genuine premises, not manufactured by the root: they are produced by
-`successful_trace_of_spec_accepts` and threaded in here, so the trace this consumes cannot exist
-without Elfling program correctness. The machine reasoning itself is entirely
-`executeDecode_accepted_of_run`'s — the root reconstructs none of it.
+`program` and `obligations` are genuine premises, not manufactured by the root: they are supplied by
+`canonicalProgram_and_obligations_of_residue` and threaded in here. The machine reasoning itself is
+entirely `executeDecode_accepted_of_run`'s — the root reconstructs none of it.
 
 **`_canonical` and `_obligations` are deliberately unused, and the underscore is the honest form.**
 Checked rather than assumed: the identical statement without them is provable, so they contribute
-nothing to *this* proof. They are kept because the force lives in the **producer** —
-`successful_trace_of_spec_accepts` returns them, so `root_compliance` cannot obtain a trace without
-also obtaining program correctness — and keeping them here makes a later restructuring that drops
-that threading break visibly instead of silently. What they are *not* is a dependency of the machine
-bridge, and a reader who inferred one from the signature would be wrong; hence the rename rather than
-a comment. Same treatment, and same reasoning, as the dead `before` binders on the four
-postconditions. -/
+nothing to *this* proof. They are kept because they are what forces `root_compliance_of_local_contracts`
+to produce program correctness at all — the run half no longer carries it, so dropping them here would
+detach the obligation from the root's cone entirely, which `DependencyReport.lean`'s reachability check
+would then report. What they are *not* is a dependency of the machine bridge, and a reader who inferred
+one from the signature would be wrong; hence the rename rather than a comment. Same treatment, and same
+reasoning, as the dead `before` binders on the four postconditions. -/
 theorem execute_accepts_of_successful_trace (input : ByteArray)
     (inputBound : input.size < Zesu.Runtime.maximumInputBytes) (value : SszBridge.RawV4)
     (program : Program) (_canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
@@ -212,26 +210,65 @@ theorem accepted_checks_determine_classification {final : BinaryFv.RiscV.State}
   Zesu.Entrypoints.ZesuDecodeRaw.classifyWrapperRun_accepted _ _ _ steps _ _ final value hcode rfl
     rfl Zesu.Entrypoints.ZesuDecodeRaw.canonicalResultBuffer_ne_zero htag hvalue
 
+/-- **The Amsterdam V4 compliance statement, conditional on the local contract proofs and nothing
+else.**
+
+Read the hypothesis list, because the point of this theorem is what is *absent* from it. It does not
+take `sszComplianceObligations`, a successful or rejected trace, a runner correspondence, or an
+observation. Each of those was a premise of some earlier version of this claim and each is now
+*derived*: the obligation from `canonicalProgram_and_obligations_of_residue`, the runs from
+`Assembly.lean`'s two witnesses, and everything downstream of a run existing from the runner. What is
+left is `LocalContractAssumptions` — the 141 per-function-instance trace obligations — which is Rows
+E–I by design.
+
+The spine is still literal rather than asserted. `execute_accepts_of_successful_trace` and its twin
+take the canonical program and its compliance obligation as genuine premises, so this proof has to
+produce them; `DependencyReport.lean` checks that `sszComplianceObligations` is reachable from
+`root_compliance` and fails rather than passing if a restructure ever detaches it. -/
+theorem root_compliance_of_local_contracts
+    (locals : Zesu.Elfling.Validation.LocalContractAssumptions) :
+    ∀ input : ByteArray,
+      input.size < 2 * 1024 * 1024 →
+        RiscvSpec.execute binary input = .ok (SszSpec.decode input) := by
+  intro input inputBound
+  obtain ⟨canonical, obligations⟩ :=
+    Zesu.Entrypoints.ZesuDecodeRaw.canonicalProgram_and_obligations_of_residue locals
+  cases specResult : SszSpec.decode input with
+  | accepted value =>
+      obtain ⟨execution⟩ :=
+        Zesu.Entrypoints.ZesuDecodeRaw.successfulRun_of_locals locals inputBound specResult
+      exact execute_accepts_of_successful_trace input inputBound value _ canonical obligations
+        execution
+  | rejected =>
+      obtain ⟨execution⟩ :=
+        Zesu.Entrypoints.ZesuDecodeRaw.rejectedRun_of_locals locals inputBound specResult
+      exact execute_rejects_of_rejected_trace input inputBound _ canonical obligations execution
+
+/-- **The one assumed obligation in the whole SSZ proof**, and the only `sorry` in the tree.
+
+It is not a convenience: `LocalContractAssumptions` quantifies
+`functionInstanceLocalTraceObligation` over all 141 generated function instances, and
+`Elfling/ManifestCheck.lean`'s `localContractAssumptions_iff_manifest` proves it is the *same*
+statement as the row-by-row backlog — so this cannot silently omit an instance the root needs, and
+the backlog cannot silently list one it does not.
+
+Every trust question about `root_compliance` reduces to this declaration. `AxiomHygiene.lean` pins it
+as the only permitted `sorry` site over the whole environment, and `DependencyReport.lean` pins it as
+the entire seam of the root's cone — so the day a second hole appears, or this one moves, the build
+says so. -/
+theorem assumedAllLocalContracts : Zesu.Elfling.Validation.LocalContractAssumptions := by
+  sorry
+
 /-- The final Amsterdam V4 compliance statement.  Its dependency spine is intentionally visible:
 spec classification, the canonical Elfling program and its compliance obligation, live Sail traces,
-runner/result observation, and the public execution API. -/
+runner/result observation, and the public execution API.
+
+It is now literally the conditional theorem applied to the one assumed premise, so "what does the
+root rest on" is answered by reading this line. -/
 theorem root_compliance :
     forall input : ByteArray,
       input.size < 2 * 1024 * 1024 ->
-        RiscvSpec.execute binary input = .ok (SszSpec.decode input) := by
-  intro input inputBound
-  cases specResult : SszSpec.decode input with
-  | accepted value =>
-      obtain ⟨program, canonical, obligations, ⟨execution⟩⟩ :=
-        Zesu.Entrypoints.ZesuDecodeRaw.successful_trace_of_spec_accepts
-          input inputBound value specResult
-      exact execute_accepts_of_successful_trace input inputBound value program canonical
-        obligations execution
-  | rejected =>
-      obtain ⟨program, canonical, obligations, ⟨execution⟩⟩ :=
-        Zesu.Entrypoints.ZesuDecodeRaw.rejected_trace_of_spec_rejects
-          input inputBound specResult
-      exact execute_rejects_of_rejected_trace input inputBound program canonical obligations
-        execution
+        RiscvSpec.execute binary input = .ok (SszSpec.decode input) :=
+  root_compliance_of_local_contracts assumedAllLocalContracts
 
 end BinaryFv.SSZ

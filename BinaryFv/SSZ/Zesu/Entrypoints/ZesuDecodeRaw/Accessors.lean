@@ -479,8 +479,9 @@ theorem accessors_rejected_of_traces {final : State} {status : Nat} (steps : Nat
 
 The point of the residue being *only* the two accessor trace obligations is checkable rather than
 asserted: here are `SuccessfulRun` and `RejectedRun` built from the decode-side facts plus
-`AcceptedAccessorTraces`/`RejectedAccessorTraces` and nothing else. Whatever else the D5 scaffolds
-still owe, the accessor half of them is now one named premise apiece. -/
+`AcceptedAccessorTraces`/`RejectedAccessorTraces` and nothing else. `Assembly.lean`'s
+`accessorTraces_of_locals` is what discharges that pair, from the two accessors' own contract
+obligations. -/
 
 /-- **A successful run, assembled.** Every field but the accessors comes from the decode; the
 accessors come from the named residue. -/

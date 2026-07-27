@@ -380,23 +380,24 @@ all four (`v3ShapeExcludesCanonicalV4`, `sourceShapedDecodeAgreesWithOracle`,
 assumed; no satisfiability premise, discharged by `canonical_catalog_satisfiability` in this module;
 and no divergence premise either, since `knownDivergences_holds` proves that outright.
 
-**Plus — not visible in this signature and not reduced by it — the two live-run scaffolds in
-`Execution.lean`**, which the root theorem consumes alongside this obligation. That gap is the reason
-the root is not yet `root_compliance_of_local_contracts assumedAllLocalContracts`: this signature
-being down to one premise says the *obligation* half of the root's dependency is conditional on the
-local proofs alone, and says nothing about the *run* half. -/
+**Plus — not visible in this signature and not reduced by it — the live run**, which the root theorem
+consumes alongside this obligation. That half is `Assembly.lean`'s, and it closed on the *same*
+premise, which is what let `root_compliance` become
+`root_compliance_of_local_contracts assumedAllLocalContracts`. Read this signature as saying only
+that the *obligation* half is conditional on the local proofs alone. -/
 theorem sszComplianceObligations_of_residue
     (locals : Elfling.Validation.LocalContractAssumptions) :
     sszComplianceObligations Elfling.Generated.generatedProgram :=
   Elfling.Validation.sszComplianceObligations_of_residue
     canonical_catalog_satisfiability locals
 
-/-- **The pair the two `Execution.lean` scaffolds each claim before the run**, from the local proofs
-alone: a canonical generated program, and the compliance obligation for it.
+/-- **The pair the root's two public lemmas take before the run**, from the local proofs alone: a
+canonical generated program, and the compliance obligation for it.
 
 This is `Elfling.Validation.canonicalProgram_and_obligations_of_residue` with satisfiability
-discharged, so it is the exact shape of the scaffolds' first two conjuncts. What is left of those
-scaffolds after this is `Nonempty (SuccessfulRun …)` / `Nonempty (RejectedRun …)` and nothing else. -/
+discharged, so it is the exact shape `root_compliance_of_local_contracts` hands
+`execute_accepts_of_successful_trace`. What that lemma still wants beyond it is
+`SuccessfulRun` / `RejectedRun` and nothing else. -/
 theorem canonicalProgram_and_obligations_of_residue
     (locals : Elfling.Validation.LocalContractAssumptions) :
     Contracts.IsCanonicalGeneratedProgram Elfling.Generated.generatedProgram ∧

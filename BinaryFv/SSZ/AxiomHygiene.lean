@@ -41,10 +41,14 @@ and is not reachable from that theorem at all. The axiom set is the same either 
   is renumbered by unrelated edits and pinning it would produce spurious failures.
 
 Anchors are chosen so that the row's load-bearing content is actually covered. **The root alone is
-not enough, and assuming it would have been a green check with almost no power.** `root_compliance`
-takes `sszComplianceObligations` as a *hypothesis*, so its cone contains none of the theorems that
-discharge those obligations — not the residue theorem, and nothing in `SpecCorrespondence`. Each layer
-therefore needs its own anchor.
+not enough**, and the reason changed under this guard rather than going away. It used to be that
+`root_compliance` reached the obligations only through a `sorry`-carrying scaffold, whose cone is
+empty — so none of the theorems discharging those obligations was reachable from the root at all. That
+is no longer true: the root now descends through the real assembly and its cone is 18,000
+declarations. But a single anchor over a cone that large is a coarse instrument — one pin covering
+forty-eight doors cannot say *which layer* acquired a new one — so the per-layer anchors are kept, and
+they are what make a new door in `SpecCorrespondence` or the footprint layer land as a failure naming
+that layer.
 -/
 
 open Lean Elab Command
@@ -237,22 +241,93 @@ def residueDoors : List Name :=
    ``BinaryFv.SSZ.Zesu.Elfling.Validation.readArrayWidthsPresentB_true,
    ``BinaryFv.SSZ.Zesu.Elfling.Validation.sourceProvenanceRecordedB_true]
 
-/-- `root_compliance` — four pinned-artifact `native_decide` facts plus the **two** live-run
-scaffolds. Those two are the whole of D5's remaining `sorry` obligation, and they are visible here
-rather than only in a grep. -/
-def rootDoors : List Name :=
-  [``BinaryFv.SSZ.Zesu.Artifact.layout_is_valid,
-   ``BinaryFv.SSZ.Zesu.Artifact.parsed_is_ok,
-   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.canonicalResultBuffer_ne_zero,
-   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.runnerSymbols_isSome,
-   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.successful_trace_of_spec_accepts,
-   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.rejected_trace_of_spec_rejects]
+/-- **`root_compliance_of_local_contracts` — every trust door the conditional root opens, and no
+`sorry`.**
 
-/-- The only declarations permitted to contain `sorry` in their own proof term. Both are the live-run
-scaffolds in `Entrypoints/ZesuDecodeRaw/Execution.lean`; D5 removes them. -/
-def allowedSorrySites : List Name :=
-  [``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.successful_trace_of_spec_accepts,
-   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.rejected_trace_of_spec_rejects]
+The list grew from four to forty-eight in one commit, and the growth is the point rather than a
+regression: the root used to reach the machine layer through two `sorry`s, which are *opaque* — a
+scaffold's cone is empty, so the doors below it were invisible to this guard. Now the root descends
+through the real assembly, and every `native_decide` the generated program, the pinned image, the
+CFG, the entry state builder and the three exit inventories rest on is named here.
+
+Read as three groups. The **generated-program validation** facts (`Elfling.Validation.*`) were always
+under the obligation half and are unchanged. The **artifact and layout** facts (the two `Artifact`
+entries, `programImage_single`, `segments_below_ceiling`, `file_addr_lt`, `configure_normal`,
+`configureFetchPinned_sentinelExits`, `buildZesuEntryState_entry_binding_abi`) are the runner's entry
+state over the pinned bytes. The **attachment** facts (`controlFlow_some`, the three
+`*_function_instance_found`/`_tag`/`_exits` families, `sentinelExitPcs_are_return_sites`,
+`retWord_low_byte`, `baseInstructionEncoding_notRVC`) are what the run half needs: which instance the
+runner enters, which contract it owes, and where its single exit is.
+
+Discovered by walking the anchor's cone, never asserted — this list is the guard's own output pasted
+back. -/
+def conditionalRootDoors : List Name :=
+  [-- the pinned artifact and the runner's entry state over it
+   ``BinaryFv.SSZ.Zesu.Artifact.layout_is_valid,
+   ``BinaryFv.SSZ.Zesu.Artifact.parsed_is_ok,
+   ``BinaryFv.SSZ.Zesu.Artifact.raw_stateless_input_layout,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.buildZesuEntryState_entry_binding_abi,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.configureFetchPinned_sentinelExits,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.configure_normal,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.file_addr_lt,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.programImage_single,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.runnerSymbols_isSome,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.segments_below_ceiling,
+   -- the decoder's private globals, as addresses
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.canonicalResultBuffer_below_ceiling,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.canonicalResultBuffer_ne_zero,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.decoderGlobals_below_ceiling,
+   -- the three sentinel attachments: which instance, which contract, which exit
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.controlFlow_some,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.entry_function_instance_tag,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.rawError_function_instance_exits,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.rawError_function_instance_found,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.rawError_function_instance_tag,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.rawResult_function_instance_exits,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.rawResult_function_instance_found,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.rawResult_function_instance_tag,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.retWord_low_byte,
+   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.sentinelExitPcs_are_return_sites,
+   ``BinaryFv.RiscV.baseInstructionEncoding_notRVC,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.entry_function_instance_exit_is_its_return,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.entry_function_instance_found,
+   -- the generated program's own validation
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.allBytesReadable_true,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.callGraphRanked_check,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.callees_resolve_check,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.catalogIdsNodup_true,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.dispatchB_true,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.everyFunctionInstanceIsCatalogedB_true,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.everyRoutineHasFunctionInstanceB_true,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.excludedRoutinesAbsentB_true,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.executionExtentReadable_true,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.exitPcsInOwnRegions_true,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.functionInstanceIdsNodup_true,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.programGeometry_check,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.readArrayWidthsPresentB_true,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.returnExitsAreRet_check,
+   ``BinaryFv.SSZ.Zesu.Elfling.Validation.sourceProvenanceRecordedB_true,
+   -- the semantic layer's own doors, inherited unchanged
+   ``BinaryFv.SSZ.Zesu.Contracts.canonicalOptionalBlobSchedule_pinned,
+   ``BinaryFv.SSZ.Zesu.Contracts.canonicalOptionalU64_pinned,
+   ``BinaryFv.SSZ.Zesu.Contracts.decodeCanonical_forkOrderingWitness,
+   ``BinaryFv.SSZ.Zesu.Contracts.or_shifts_toNat,
+   ``BinaryFv.SSZ.Zesu.SpecCorrespondence.readUInt32LE_uint32LE,
+   ``BinaryFv.SSZ.Zesu.SpecCorrespondence.uint32LE_of_readUInt32LE,
+   ``BinaryFv.SSZ.Zesu.SpecCorrespondence.uint64LE_of_readUInt64LE]
+
+/-- **`root_compliance` — the conditional root's doors, plus exactly one more.**
+
+Written as a `::` rather than as a second literal list, so "the public claim adds nothing to the
+conditional one except the assumption" is enforced by the guard rather than by a reader comparing two
+lists. If the root ever picks up a door the conditional theorem does not have, this pin fails. -/
+def rootDoors : List Name :=
+  ``BinaryFv.SSZ.assumedAllLocalContracts :: conditionalRootDoors
+
+/-- The only declaration permitted to contain `sorry` in its own proof term, over the whole
+environment: the 141 per-function-instance local trace obligations, assumed as one premise in
+`BinaryFv/SSZ/Root.lean`. -/
+def allowedSorrySites : List Name := [``BinaryFv.SSZ.assumedAllLocalContracts]
 
 def anchors : List (Name × List Name) :=
   [(``BinaryFv.SSZ.Zesu.SpecCorrespondence.raw_acceptance_agrees, rawIntermediateDoors),
@@ -268,6 +343,7 @@ def anchors : List (Name × List Name) :=
    (``BinaryFv.SSZ.Zesu.Contracts.Footprint.containerLayer_footprints_abi,
      containerFootprintDoors),
    (``BinaryFv.SSZ.Zesu.Contracts.OwnershipComposition.rawV4_survives_chain, compositionDoors),
+   (``BinaryFv.SSZ.root_compliance_of_local_contracts, conditionalRootDoors),
    (``BinaryFv.SSZ.root_compliance, rootDoors)]
 
 run_cmd do

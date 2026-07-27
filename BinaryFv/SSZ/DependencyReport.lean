@@ -115,11 +115,11 @@ moves them.
 
 ## When this fails
 
-It is *meant* to fail on a restructure. The seam today is the two live-run scaffolds in
-`Entrypoints/ZesuDecodeRaw/Execution.lean`; the work in flight replaces them with a single assumed
-local-contracts premise, and this pin will refuse that change until someone writes the new seam down.
-That is the point: the seam is the one thing about this proof that must never move quietly. On drift
-the failure prints the discovered set in pin-ready form, so an intended change costs one paste.
+It is *meant* to fail on a restructure. The seam was the two live-run scaffolds in
+`Entrypoints/ZesuDecodeRaw/Execution.lean` and is now the single assumed local-contracts premise; the
+pin refused that change until the new seam was written down, which is exactly its job. The seam is the
+one thing about this proof that must never move quietly. On drift the failure prints the discovered
+set in pin-ready form, so an intended change costs one paste.
 
 The three small environment helpers below are duplicated from `AxiomHygiene` rather than shared.
 Three guards that can fail independently are worth more than three guards sharing a helper whose edit
@@ -302,15 +302,13 @@ def obligationConstant : Name := ``BinaryFv.SSZ.Zesu.Contracts.sszComplianceObli
 /-! ## The pins — the report itself -/
 
 /-- **The seam.** Every declaration reachable from `root_compliance` whose own proof term contains
-`sorryAx`. Both are the live-run scaffolds in `Entrypoints/ZesuDecodeRaw/Execution.lean`: they assert
-that a specification outcome has a corresponding live run of the machine.
+`sorryAx`. It is one declaration: `assumedAllLocalContracts`, the 141 per-function-instance local
+trace obligations assumed as a single premise in `BinaryFv/SSZ/Root.lean`.
 
-Discovered, not asserted — the check walks the root's cone and compares. The restructure in flight
-replaces these two with a single assumed local-contracts premise, and this pin is what makes that
-land as a reviewed diff instead of a silent change in what the root rests on. -/
-def rootSeam : List Name :=
-  [``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.successful_trace_of_spec_accepts,
-   ``BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.rejected_trace_of_spec_rejects]
+Discovered, not asserted — the check walks the root's cone and compares. It previously held the two
+live-run scaffolds, and this pin is what made their replacement land as a reviewed diff instead of a
+silent change in what the root rests on. -/
+def rootSeam : List Name := [``BinaryFv.SSZ.assumedAllLocalContracts]
 
 /-- **The conditional theorem carries no seam at all, and that is the claim.**
 
@@ -344,10 +342,10 @@ were premises once and are now discharged inside the anchor itself, which is why
 `provedNonLocal` below instead.
 
 **What this list is about, stated so it is not over-read.** It is the residue of the *obligation*
-anchor — what `sszComplianceObligations generatedProgram` still rests on. It is not the residue of the
-root: `root_compliance` also consumes a live **run** of the machine, and that half is `rootSeam`
-above, which is still two `sorry`s. A reader who took "one assumed obligation, no witness" as "one
-hole left in the proof" would be wrong by exactly those two. -/
+anchor — what `sszComplianceObligations generatedProgram` still rests on. It is not, in general, the
+residue of the root: `root_compliance` also consumes a live **run** of the machine, and that half is
+`rootSeam` above. The two now coincide — the run half closed on the same local-contracts premise — but
+they coincide as a fact about today's tree, not by construction, which is why both are pinned. -/
 def assumedResidue : List (Name × Option Name) :=
   [(``BinaryFv.SSZ.Zesu.Contracts.functionInstanceLocalTraceObligation, none)]
 

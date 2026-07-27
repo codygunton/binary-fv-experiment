@@ -34,10 +34,13 @@ wrong thing**. The exact condition is that `BinaryFv.SSZ.Root` is itself in the 
 this module ever stops importing the root, the leak scan becomes vacuous and the guard says so
 instead of passing. That is a direct test of the premise rather than a threshold, so it cannot drift
 as the module count changes — an earlier version used a count floor, which sat 9 modules above the
-true count of 59 and would have started false-alarming on any real pruning.
+true count at the time and would have started false-alarming on any real pruning. That the count has
+since gone 59 → 117, in one commit, because the root stopped reaching the machine layer through a
+`sorry` and started reaching it through the proof, is the concrete reason not to have kept a
+threshold.
 
 The count is still printed on success, for the reason a bare `0` is never evidence: "0 leaks out of
-59 modules" can be checked by a reader, "0 leaks" cannot.
+117 modules" can be checked by a reader, "0 leaks" cannot.
 
 This matters more here than almost anywhere else in the project: the whole point of the guard is to
 stop validation evidence entering the proof, so a version of it that could not fail would be the most

@@ -111,31 +111,16 @@ structure RejectedRun (input : ByteArray) where
   accessors : Runs (runAccessorsIfReached resolvedSymbols (.reached stepCount))
     finalState afterAccessors (.returned 0, .returned status)
 
-/-- Authorized navigation scaffold: an accepted SizzLean input has a canonical generated Elfling
-program that satisfies the whole compliance obligation, together with a complete live Sail execution
-whose final state represents the same value.
+/-! ## What used to be here
 
-Bundling the program obligation into the witness of this theorem is what makes the root theorem
-descend through Elfling program correctness rather than bypass it: the successful trace cannot be
-produced without also producing `sszComplianceObligations`, so the eventual proof owes it. -/
-theorem successful_trace_of_spec_accepts (input : ByteArray)
-    (inputBound : input.size < 2 * 1024 * 1024) (value : SszBridge.RawV4)
-    (specAccepts : SszSpec.decode input = .accepted value) :
-    ∃ program : Program,
-      Contracts.IsCanonicalGeneratedProgram program ∧
-      Contracts.sszComplianceObligations program ∧
-      Nonempty (SuccessfulRun input value) := by
-  sorry
+Two `sorry`-carrying scaffolds — `successful_trace_of_spec_accepts` and
+`rejected_trace_of_spec_rejects` — each asserting that a specification outcome has a corresponding
+live run of the machine, bundled with the canonical program and its compliance obligation.
 
-/-- Authorized navigation scaffold: a rejected SizzLean input likewise has the canonical program
-obligation and a classified live Sail path recording a spec-producible rejection status. -/
-theorem rejected_trace_of_spec_rejects (input : ByteArray)
-    (inputBound : input.size < 2 * 1024 * 1024)
-    (specRejects : SszSpec.decode input = .rejected) :
-    ∃ program : Program,
-      Contracts.IsCanonicalGeneratedProgram program ∧
-      Contracts.sszComplianceObligations program ∧
-      Nonempty (RejectedRun input) := by
-  sorry
+They are **deleted**, not weakened: `Assembly.lean`'s `successfulRun_of_locals` and
+`rejectedRun_of_locals` prove exactly those runs from `LocalContractAssumptions`, and
+`CatalogSatisfiability.lean`'s `canonicalProgram_and_obligations_of_residue` proves the other two
+conjuncts from the same premise. Keeping the scaffolds alongside would leave a second, unconditional
+route to the root, which is the shape a reader could not distinguish from progress. -/
 
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
