@@ -2,6 +2,7 @@ import BinaryFv.Binary
 import BinaryFv.RiscV
 import BinaryFv.SSZ
 import BinaryFv.SSZ.AxiomHygiene
+import BinaryFv.SSZ.DependencyReport
 import BinaryFv.SSZ.ImportHygiene
 
 /-!
