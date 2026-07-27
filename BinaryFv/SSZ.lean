@@ -74,6 +74,7 @@ import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Classify
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.CodeIntactRegression
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.CatalogSatisfiability
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Accessors
 import BinaryFv.SSZ.Zesu.Interface
 import BinaryFv.SSZ.Root
 
