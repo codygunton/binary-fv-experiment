@@ -90,16 +90,31 @@ def indirectSitesAreVtableDispatchB (nodes : Array ControlFlowNode) : Bool :=
        | .indirectCall _ (regidx.Regidx link) => link == 1
        | _ => false)
 
-/-- The whole inventory, over explicit decoded nodes. -/
-def boundaryInventoryCompleteB (nodes : Array ControlFlowNode) : Bool :=
+/-- **Every owned node's transfers are accounted for.** Renamed from `boundaryInventoryCompleteB`,
+which asserted more than it checks: all three conjuncts are `nodes.all fun n => …` whose bodies read
+only the individual node, so this says nothing whatever about *which* nodes are present. It is in fact
+**monotone under node removal** — see `boundaryInventory_monotone_under_removal` — hence structurally
+incapable of detecting a missing node.
+
+**Where set-completeness actually lives.** `controlFlow?` is `decodedWords?.map controlFlowNodes`: the
+node array is *derived by decoding the pinned image*, not maintained by hand. A missing node is not a
+failure mode the artifact can exhibit; it would require a different image, and the image is pinned by
+`binary_is_canonical` together with `Artifact.programImage.matchesMemory`. So completeness is inherited
+from image pinning, and this predicate's job is the other half: constraining the nodes that do exist.
+
+The one set-level fact in this module is `(indirectSites nodes).size = 3`, a conjunct of
+`boundary_inventory_complete` below rather than of this predicate — and `indirectSites` is a *filter*,
+so that conjunct **is** removal-sensitive, for exactly the three matching nodes. Which is why the
+theorem keeps `complete` in its name and this predicate does not. -/
+def boundaryTransfersResolvedB (nodes : Array ControlFlowNode) : Bool :=
   directSuccessorsMappedB nodes && noUnresolvedDirectB nodes && indirectSitesAreVtableDispatchB nodes
 
 /-! ## The checked facts -/
 
 theorem boundary_inventory_complete_check :
-    ∀ nodes, controlFlow? = some nodes → boundaryInventoryCompleteB nodes = true := by
+    ∀ nodes, controlFlow? = some nodes → boundaryTransfersResolvedB nodes = true := by
   intro nodes hn
-  have : (controlFlow?.map (fun ns => boundaryInventoryCompleteB ns)).getD false = true := by
+  have : (controlFlow?.map (fun ns => boundaryTransfersResolvedB ns)).getD false = true := by
     native_decide
   rw [hn] at this; simpa using this
 
@@ -162,7 +177,7 @@ theorem boundary_inventory_complete :
       (indirectSites nodes).size = 3 := by
   obtain ⟨nodes, hn⟩ := controlFlow_isSome
   have hc := boundary_inventory_complete_check nodes hn
-  simp only [boundaryInventoryCompleteB, Bool.and_eq_true] at hc
+  simp only [boundaryTransfersResolvedB, Bool.and_eq_true] at hc
   exact ⟨nodes, hn, hc.1.1, hc.1.2, hc.2, indirect_sites_count nodes hn⟩
 
 end BinaryFv.SSZ.Zesu.Elfling.Validation

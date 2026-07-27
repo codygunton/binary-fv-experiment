@@ -38,7 +38,7 @@ stops compiling and forces this note to be revisited, which a comment would not.
 
 ## The boundary inventory admits no such test, and that is a theorem here rather than an observation
 
-The same mutation was attempted against `boundaryInventoryCompleteB` and **cannot work**. All three of
+The same mutation was attempted against `boundaryTransfersResolvedB` and **cannot work**. All three of
 its conjuncts have the shape `nodes.all fun n => …`, with bodies depending only on the individual
 node and on the global `ownedOrExcludedPC` — never on which nodes are *present*. So the predicate is
 **monotone under removal**: deleting a node deletes conjuncts from three `.all`s and can only make it
@@ -47,8 +47,15 @@ cannot detect a missing node" is checked by the kernel instead of resting on a r
 definitions. An exhaustive sweep over all 3984 nodes would have spent ~40 minutes confirming what the
 predicate's shape settles immediately.
 
-Its name is therefore wider than its content: `boundaryInventoryComplete` asserts something about the
-node *set*, while its body constrains each node individually. **That is not a soundness gap**, and the
+Its name was therefore wider than its content, and it is now `boundaryTransfersResolvedB`: the old
+name asserted something about the node *set*, while its body constrains each node individually.
+
+**One refinement, found by reading `indirectSites` rather than trusting my own summary.** The
+monotonicity result is about the *Bool predicate*. The recorded theorem `boundary_inventory_complete`
+carries an extra conjunct, `(indirectSites nodes).size = 3`, and `indirectSites` is a `filter`, so that
+conjunct is anti-monotone: removing any of those three nodes falsifies it. So the boundary side is not
+uniformly blind to removal — it detects 3 of 3984 nodes and nothing else. "The check cannot detect a
+missing node" is true of the predicate and too strong for the theorem. **That is not a soundness gap**, and the
 reason is worth recording where the tempting fix would be applied. `controlFlow?` is
 `decodedWords?.map controlFlowNodes` — the node array is *derived by decoding the pinned image*, not a
 hand-maintained table. "A node went missing" is not a failure mode the artifact can exhibit; it would
@@ -131,9 +138,9 @@ a check" item: the requested mutation test is impossible against this predicate,
 because the node array is derived by decoding the pinned image rather than maintained by hand. See the
 module docstring for why that is not a soundness gap. -/
 theorem boundaryInventory_monotone_under_removal (nodes : Array BinaryFv.RiscV.ControlFlowNode)
-    (k : Nat) (h : boundaryInventoryCompleteB nodes = true) :
-    boundaryInventoryCompleteB ((nodes.toList.eraseIdx k).toArray) = true := by
-  simp only [boundaryInventoryCompleteB, Bool.and_eq_true] at h ⊢
+    (k : Nat) (h : boundaryTransfersResolvedB nodes = true) :
+    boundaryTransfersResolvedB ((nodes.toList.eraseIdx k).toArray) = true := by
+  simp only [boundaryTransfersResolvedB, Bool.and_eq_true] at h ⊢
   obtain ⟨⟨h1, h2⟩, h3⟩ := h
   exact ⟨⟨array_all_eraseIdx _ nodes k h1, array_all_eraseIdx _ nodes k h2⟩,
     array_all_eraseIdx _ nodes k h3⟩
