@@ -60,8 +60,26 @@ structure SuccessfulRun (input : ByteArray) (value : SszBridge.RawV4) where
   stepCount : Nat
   builds : Runs (buildZesuEntryState input) initialState entryState ()
   trace : TraceToSentinel sentinelWord 0 stepCount entryState finalState
-  /-- The exported function instance contract's own bound; the runner's fuel strictly exceeds it. -/
-  withinStepBound : stepCount ≤ entryStepBound input.size
+  /-- The exported function instance contract's own bound, **plus the one retirement that reaches the
+  sentinel**; the runner's fuel strictly exceeds it.
+
+  The `+ 1` is forced, not slack taken for comfort. The contract bounds the wrapper's *own*
+  retirements by `entryStepBound`, and its `EnteredFunctionTrace` stops **on** the exit instruction —
+  the sentinel is reached only by the `ret` that follows it, so
+  `Elfling.traceToSentinel_of_functionTrace` yields a trace of length `count + 1`. Stated at
+  `≤ entryStepBound` this field was unsatisfiable from any contract: no function-instance obligation
+  could ever supply it.
+
+  It read as correct for as long as it did because **nothing in the tree constructed a
+  `TraceToSentinel`** — a hypothesis nothing supplies is never tested, so the tightness never bound
+  anything. It became a contradiction the moment the first constructor existed.
+
+  `zesuFuel = entryStepBound + 2` was already sized for exactly this: its own docstring reads "one
+  slack step to retire the return that lands on the sentinel, and one to make the budget *strictly*
+  exceed the composed trace length". The design always accounted for the retirement; this field did
+  not. The accessor side carries the same `stepBound + 1` shape for the same reason
+  (`Accessors.AccessorReachesSentinel`). -/
+  withinStepBound : stepCount ≤ entryStepBound input.size + 1
   returnCode : observeReturnCode? finalState = some 1
   storedPresent : observeOptionTag? finalState storedResultDiscriminantAddr = some true
   inputPreserved : MemoryBytes finalState canonicalRunnerLayout.inputBase input
@@ -83,7 +101,7 @@ structure RejectedRun (input : ByteArray) where
   status : Nat
   builds : Runs (buildZesuEntryState input) initialState entryState ()
   trace : TraceToSentinel sentinelWord 0 stepCount entryState finalState
-  withinStepBound : stepCount ≤ entryStepBound input.size
+  withinStepBound : stepCount ≤ entryStepBound input.size + 1
   returnCode : observeReturnCode? finalState = some 0
   storedAbsent : observeOptionTag? finalState storedResultDiscriminantAddr = some false
   /-- Not merely "nonzero": an exhausted arena and a refused second call are also nonzero, and

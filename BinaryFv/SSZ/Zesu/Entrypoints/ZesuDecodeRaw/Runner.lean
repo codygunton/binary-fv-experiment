@@ -226,7 +226,7 @@ is never a free parameter that could be enlarged to make a proof go through. -/
 turns it into the strict inequality the generic correspondence requires. -/
 theorem runToOutcome_of_entry_trace (input : ByteArray) {count : Nat} {entry final : State}
     (htrace : TraceToSentinel sentinelWord 0 count entry final)
-    (hbound : count ≤ entryStepBound input.size) :
+    (hbound : count ≤ entryStepBound input.size + 1) :
     Runs (runToOutcome sentinelWord (zesuFuel input.size) 0) entry final (.reached count) := by
   have := runToOutcome_of_traceToSentinel sentinelWord count (zesuFuel input.size) 0 entry final
     htrace (count_lt_zesuFuel hbound)
@@ -245,7 +245,7 @@ theorem runZesuDecodeRaw_of_trace (symbols : RunnerSymbols) (input : ByteArray) 
     {entry final after : State} {accessors : AccessorOutcome × AccessorOutcome}
     (hbuild : Runs (buildZesuEntryState input) initialState entry ())
     (htrace : TraceToSentinel sentinelWord 0 count entry final)
-    (hbound : count ≤ entryStepBound input.size)
+    (hbound : count ≤ entryStepBound input.size + 1)
     (haccessors : Runs (runAccessorsIfReached symbols (.reached count)) final after accessors) :
     Runs (runZesuDecodeRaw symbols input) initialState after
       (classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
@@ -261,7 +261,7 @@ theorem executeDecode_of_trace {symbols : RunnerSymbols} (input : ByteArray) {co
     (hsymbols : runnerSymbols = some symbols)
     (hbuild : Runs (buildZesuEntryState input) initialState entry ())
     (htrace : TraceToSentinel sentinelWord 0 count entry final)
-    (hbound : count ≤ entryStepBound input.size)
+    (hbound : count ≤ entryStepBound input.size + 1)
     (haccessors : Runs (runAccessorsIfReached symbols (.reached count)) final after accessors) :
     executeDecode input =
       classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
@@ -289,7 +289,7 @@ theorem executeDecode_accepted_of_run (input : ByteArray) (value : SszBridge.Raw
     {entry final after : State} {count : Nat}
     (hbuild : Runs (buildZesuEntryState input) initialState entry ())
     (htrace : TraceToSentinel sentinelWord 0 count entry final)
-    (hbound : count ≤ entryStepBound input.size)
+    (hbound : count ≤ entryStepBound input.size + 1)
     (haccessors : Runs (runAccessorsIfReached resolvedSymbols (.reached count)) final after
       (.returned Elfling.canonicalResultBuffer, .returned Contracts.DecodeStatus.ok.code))
     (hcode : observeReturnCode? final = some 1)
@@ -311,7 +311,7 @@ theorem executeDecode_rejected_of_run (input : ByteArray) {entry final after : S
     {count status : Nat}
     (hbuild : Runs (buildZesuEntryState input) initialState entry ())
     (htrace : TraceToSentinel sentinelWord 0 count entry final)
-    (hbound : count ≤ entryStepBound input.size)
+    (hbound : count ≤ entryStepBound input.size + 1)
     (haccessors : Runs (runAccessorsIfReached resolvedSymbols (.reached count)) final after
       (.returned 0, .returned status))
     (hcode : observeReturnCode? final = some 0)

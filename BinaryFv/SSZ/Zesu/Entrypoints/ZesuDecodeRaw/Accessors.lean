@@ -483,7 +483,7 @@ theorem successfulRun_of_acceptedAccessorTraces (input : ByteArray) (value : Ssz
     {entryState finalState : State} {stepCount : Nat}
     (hbuild : Runs (buildZesuEntryState input) initialState entryState ())
     (htrace : TraceToSentinel sentinelWord 0 stepCount entryState finalState)
-    (hbound : stepCount ≤ entryStepBound input.size)
+    (hbound : stepCount ≤ entryStepBound input.size + 1)
     (hcode : observeReturnCode? finalState = some 1)
     (htag : observeOptionTag? finalState storedResultDiscriminantAddr = some true)
     (hinput : MemoryBytes finalState canonicalRunnerLayout.inputBase input)
@@ -510,7 +510,7 @@ theorem rejectedRun_of_rejectedAccessorTraces (input : ByteArray)
     {entryState finalState : State} {stepCount status : Nat}
     (hbuild : Runs (buildZesuEntryState input) initialState entryState ())
     (htrace : TraceToSentinel sentinelWord 0 stepCount entryState finalState)
-    (hbound : stepCount ≤ entryStepBound input.size)
+    (hbound : stepCount ≤ entryStepBound input.size + 1)
     (hcode : observeReturnCode? finalState = some 0)
     (htag : observeOptionTag? finalState storedResultDiscriminantAddr = some false)
     (hstatus : statusCategory status = .specRejection)

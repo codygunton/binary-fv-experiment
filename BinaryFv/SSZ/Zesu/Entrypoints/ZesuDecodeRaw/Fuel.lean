@@ -47,10 +47,18 @@ theorem zesuFuel_no_wrap {inputSize : Nat} (h : inputSize < Runtime.maximumInput
 theorem zesuFuel_exceeds_bound (inputSize : Nat) : entryStepBound inputSize < zesuFuel inputSize := by
   unfold zesuFuel; omega
 
-/-- Consequently, any trace whose length is bounded by the entry step bound fits within the fuel. -/
-theorem count_lt_zesuFuel {inputSize count : Nat} (h : count ≤ entryStepBound inputSize) :
-    count < zesuFuel inputSize :=
-  Nat.lt_of_le_of_lt h (zesuFuel_exceeds_bound inputSize)
+/-- Consequently, any trace whose length is bounded by the entry step bound **plus the retirement that
+reaches the sentinel** fits within the fuel.
+
+The `+ 1` is the composed length, not a looser premise adopted for convenience. A function-instance
+contract bounds the wrapper's own retirements by `entryStepBound` and its `EnteredFunctionTrace` stops
+*on* the exit instruction; `Elfling.traceToSentinel_of_functionTrace` appends the `ret` that lands on
+the sentinel, so the `TraceToSentinel` handed to `runToOutcome` has length `count + 1`. This is exactly
+the first of the two slack steps `zesuFuel` was defined with, so the arithmetic still closes with one
+to spare — which is what keeps the budget *strictly* exceeding the trace. -/
+theorem count_lt_zesuFuel {inputSize count : Nat} (h : count ≤ entryStepBound inputSize + 1) :
+    count < zesuFuel inputSize := by
+  unfold zesuFuel; omega
 
 /-! ## The exported accessors' budgets
 
