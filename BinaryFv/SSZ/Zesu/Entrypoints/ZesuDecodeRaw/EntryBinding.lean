@@ -207,10 +207,15 @@ in the state this proof constructs — and were simply discarded by the old conc
 to re-derive facts this theorem had in hand. `buildZesuEntryState_entry_binding` below is the old
 statement, derived from this one, so the three existing callers are untouched.
 
-This exposes the register values **at the entry state only**. It does *not* say `ra` survives the
-call: nothing in the contract layer constrains callee-saved registers (`CalleeFrame` exists in
-`RiscV/Elfling/Contract.lean` and is used by no SSZ contract, and no `post*` in `Contracts/` mentions
-`x1`), so the exit-side half of the bridge's obligation remains open. -/
+This exposes the register values **at the entry state only**; the exit-side half is now supplied from
+the other end. `Contracts/ExportedDecoder.lean`'s `postZesuDecodeRaw` and `Contracts/Runtime.lean`'s
+two accessor postconditions carry `after.regs.get? x1 = before.regs.get? x1` and
+`NormalExecutionState after` — the first composes with the `x1 := sentinel` exposed here to give the
+bridge's `linkIsSentinel`, and the second is the register/CSR part of `tryStepRetRetires`'
+hypotheses. (An earlier version of this note said no `post*` in `Contracts/` mentioned `x1` and that
+`CalleeFrame` had no SSZ call site. The first is no longer true; the second still is, and
+`ExportedDecoderAudit.calleeFrame_is_not_the_vocabulary` records why the clause was not spelled with
+it.) -/
 theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
     ∃ s, Runs (buildZesuEntryState input) initialState s () ∧
       preZesuDecodeRaw canonicalEnvironment canonicalDecoderGlobalsLayout canonicalResultBuffer

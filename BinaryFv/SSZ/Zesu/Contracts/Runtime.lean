@@ -209,7 +209,13 @@ input, neither allocates, and neither can fail: their `meaning` is total. These 
 ABI arguments — they name what the shared globals already hold.
 -/
 
-/-- `zesu_raw_error` returns the recorded 32-bit status held in the decoder globals. -/
+/-- `zesu_raw_error` returns the recorded 32-bit status held in the decoder globals.
+
+The two callee-frame clauses — `ra` preserved and `NormalExecutionState after` — are explained once
+in `Contracts.ExportedDecoder`'s "The callee-frame clauses" note; they are here for the same reason
+they are on the wrapper, and they are true of this routine for a sharper reason than of the wrapper:
+the compiled `zesu_raw_error` is three instructions, a leaf with no prologue and no store, so it
+cannot touch `ra` or any CSR at all. -/
 def postRawError (env : DecoderEnvironment) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
@@ -218,6 +224,8 @@ def postRawError (env : DecoderEnvironment) (model : DecoderGlobalsModel)
   -- compiled accessor writes, which is the difference between a strong clause and an unsatisfiable
   -- one.
   env.WritesOnlyWithinOwnRecord 0 0 before after ∧
+  after.regs.get? x1 = before.regs.get? x1 ∧
+  NormalExecutionState after ∧
   match result with
   | .ok code => code = model.status.code ∧ after.regs.get? x10 = some (BitVec.ofNat 64 code)
   | .error _ => False
@@ -230,13 +238,19 @@ def contractRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
   stepBound := fun _ => 16
 
 /-- `zesu_raw_result` returns the address of the inline stored-result payload when a value is present,
-and null otherwise. -/
+and null otherwise.
+
+Carries the two callee-frame clauses for the reason `postRawError` does; see
+`Contracts.ExportedDecoder`'s "The callee-frame clauses" note. The compiled `zesu_raw_result` is
+eight instructions, likewise a leaf with no prologue and no store. -/
 def postRawResult (env : DecoderEnvironment) (resultBuffer : Nat) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
   -- Returns the *address* of the stored result and produces no record: the clause is at the empty
   -- record even though `resultBuffer` is in scope, so it permits nothing but the stack frame.
   env.WritesOnlyWithinOwnRecord 0 0 before after ∧
+  after.regs.get? x1 = before.regs.get? x1 ∧
+  NormalExecutionState after ∧
   match result with
   | .ok pointer =>
       pointer = (if model.stored.isSome then resultBuffer else 0) ∧

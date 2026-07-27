@@ -116,8 +116,9 @@ def preEntry (env : DecoderEnvironment) (args : EntryArgs) (state : State) : Pro
 **`before` USED to be unused here, and the reason is worth keeping because it is what the ownership
 clause changed.** It was ignored in all four postconditions that take it (`postEntry`,
 `postAllocatingContainer`, `postCollection`, `postZesuDecodeRaw`) — the binder was required by
-`FunctionContract`'s shape, not by the predicates. Three of the four now use it; `postZesuDecodeRaw`
-alone still does not, for the reason its own docstring gives.
+`FunctionContract`'s shape, not by the predicates. All four now use it: three through the ownership
+clause, and `postZesuDecodeRaw` — which still carries no ownership clause, for the reason its own
+docstring gives — through its `ra`-preservation clause, which is relative by nature.
 
 *Why it was not needed.* Preservation is stated **absolutely** — `MemoryBytes after args.base
 args.bytes` and `env.CodeIntact after` — against values the precondition already pins to exactly the

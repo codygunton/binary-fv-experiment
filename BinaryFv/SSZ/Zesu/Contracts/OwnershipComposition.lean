@@ -561,7 +561,7 @@ Counted rather than estimated, and now counted after the fact rather than before
   why (its owned set is three separately-addressed globals, which the single-range shape cannot name,
   and it has no siblings).
 * **37 post-supplying sites**, not 36. The earlier count came from `grep '^  post :='`, which sees 36
-  `FunctionContract` records and misses `ExportedDecoder.lean:280` — the exported wrapper supplies
+  `FunctionContract` records and misses `ExportedDecoder.lean:365` — the exported wrapper supplies
   `exit := postZesuDecodeRaw …` on a `FunctionInstanceContract`, whose binding field is named `exit`
   rather than `post`. The number is fixed here rather than the grep.
 * **The record size was *not* already in scope**, contrary to the estimate. `args.resultBase` and

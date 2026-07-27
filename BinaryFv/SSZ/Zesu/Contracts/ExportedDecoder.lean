@@ -1,4 +1,5 @@
 import BinaryFv.SSZ.Zesu.Contracts.Entry
+import BinaryFv.RiscV.Platform.NormalState
 
 namespace BinaryFv.SSZ.Zesu.Contracts
 
@@ -236,6 +237,60 @@ internal contracts use. Its binding is the real one: the C ABI on entry, and the
 globals plus the return code on exit, read against an incoming ghost globals model. The catalog
 instantiates it at `DecoderGlobalsModel.fresh`; a second call is the same binding at an already
 `attempted` model.
+
+### The callee-frame clauses, and why these two exactly
+
+`postZesuDecodeRaw` here and `postRawResult`/`postRawError` in `Contracts.Runtime` each carry
+
+```
+after.regs.get? x1 = before.regs.get? x1     -- `ra` preserved across the call
+NormalExecutionState after                    -- platform/CSR state survives the call
+```
+
+and this is the one place the reasoning is written out; the accessors' docstrings point here.
+
+**What consumes them.** A `TraceToSentinel` — what the runner's fuel argument and the root theorem
+are stated against — is built from a contract's `EnteredFunctionTrace` by
+`RiscV/Elfling/SentinelBridge.lean`, which appends the function's final `ret`. That bridge has two
+demands at the *exit* state, and they are not the same demand:
+
+* `traceToSentinel_of_functionTrace_ret`'s `linkIsSentinel` needs the value `ret` reads out of the
+  link register to be the sentinel. The runner put the sentinel there
+  (`buildZesuEntryState_entry_binding_abi` exposes `x1 := canonicalRunnerLayout.sentinel` at the
+  entry state), so what is missing is that the *call* did not disturb it — the `x1` clause.
+* `tryStepRetRetires`, which supplies that bridge's `ret` premise, wants ~20 hypotheses about the
+  exit state; `NormalExecutionState after` is the register/CSR-valued part of them.
+
+Before this change the contract layer supplied **neither**: no `post*` predicate in this directory
+mentioned `x1` at all, and `NormalExecutionState` was reachable only at the state the runner builds.
+
+**Preservation, not equality with the sentinel.** The clause is deliberately *not*
+`after.regs.get? x1 = some sentinelWord`. The sentinel is the **runner's** choice of an unmapped
+address, and a contract in this layer may not name it — that is the same address-freedom rule the
+rest of the file follows. Preservation is also the form that composes: it is what turns the entry
+state's `x1 := sentinel` into the exit state's, and it stays true of a routine called from anywhere
+else, which an equation naming one caller's sentinel would not.
+
+**`NormalExecutionState` rather than a list of CSR reads.** It is `RiscV/Platform/NormalState.lean`'s
+twelve-conjunct bundle — hart state, privilege, `satp`, `mideleg`/`mie`/`mip`, the PMP tables,
+`mcountinhibit`, `minstretcfg`, the landing-pad expectation and the `misa` `Zca` bit — and spelling
+those out per predicate would be the same clause written longer. It is a **value**-pinning predicate,
+which is worth noting because one register read `tryStepRetRetires` wants is *not* of that kind:
+`retiredRead : state.regs.get? minstret = some retired` is a presence claim at an existentially bound
+value, so it is not expressible as a conjunct here and is not covered by this change.
+
+**True of the binary, established before the clauses were accepted rather than after.** `ra` is
+callee-saved under RV64 LP64; the whole-program disassembly found `zesu_raw_result` (8 instructions)
+and `zesu_raw_error` (3) are leaves with no prologue and zero stores, so they cannot disturb `ra` or
+any CSR, and `zesu_decode_raw` saves and restores `ra` conventionally. The decoder writes no CSRs.
+
+**Satisfiability is exhibited, not argued.** `ExportedDecoderAudit` carries a run for each of the
+three predicates that satisfies the strengthened form *and* refutes the unstrengthened one, plus
+`normalExecutionState_of_agree`, the transport that carries `NormalExecutionState` from a state where
+it is established to the `after` state these clauses assert it of. That order matters here: a
+strengthening of an assumed hypothesis that is *false* of the implementation makes the root vacuous,
+which is strictly worse than a missing clause, and "free because nothing discharges it yet" is the
+same fact as "unverified" seen twice.
 -/
 
 /-- The shared specification of `zesu_decode_raw`: the pure `decode` outcome. Shared by every
@@ -279,14 +334,23 @@ rather than a contracts change, and inventing a span here would be guessing at i
 
 Nothing is lost at the composition either: the wrapper is the top-level routine with no siblings, so
 no `SiblingChain` is ever built from its postcondition. `DECISIONS.md` records the same scope fact
-from the other direction — the root's accepted branch closes without any ownership clause. -/
+from the other direction — the root's accepted branch closes without any ownership clause.
+
+**`before` is now used, and this predicate is no longer the exception to that.** It was the last of
+the four `before`-taking postconditions to ignore its `before` binder; the `ra` clause below is a
+relative claim and cannot be stated absolutely, which is exactly the shape `Entry.lean`'s note said
+was missing. -/
 def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
-    (result : Except SszDecodeError SszBridge.RawV4) (_before after : State) : Prop :=
+    (result : Except SszDecodeError SszBridge.RawV4) (before after : State) : Prop :=
   MemoryBytes after args.inputBase args.bytes ∧
   env.CodeIntact after ∧
   after.regs.get? x10 = some (BitVec.ofNat 64 (callOutcome incoming result).returnCode) ∧
+  -- **The two callee-frame clauses.** See the section note above: `ra` preserved across the call,
+  -- and the platform/CSR state still normal at the exit.
+  after.regs.get? x1 = before.regs.get? x1 ∧
+  NormalExecutionState after ∧
   DecoderGlobalsRep globals rep args.inputBase args.bytes resultBuffer (resultingGlobals incoming result) after
 
 /-- The wrapper as a full function instance contract: the shared spec paired with the real exported binding
