@@ -4,8 +4,8 @@ import BinaryFv.SSZ.Zesu.Artifact.AbiManifest
 import BinaryFv.SSZ.Zesu.Artifact.Layout
 import BinaryFv.SSZ.Zesu.Artifact.Symbols
 import BinaryFv.SSZ.Zesu.Artifact.AllocatorCalls
-import BinaryFv.SSZ.Zesu.Artifact.PrimitiveReadInventory
 import BinaryFv.SSZ.Zesu.ControlFlow.Decode
+import BinaryFv.SSZ.Zesu.ControlFlow.PrimitiveReadInventory
 import BinaryFv.SSZ.Zesu.ControlFlow.FunctionWords
 import BinaryFv.SSZ.Zesu.Elfling.BlobScheduleFunctionInstance
 import BinaryFv.SSZ.Zesu.Elfling.BlobScheduleMapping

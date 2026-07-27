@@ -3,9 +3,13 @@
 The directory names describe the subject of each definition or theorem; there is no catch-all
 `Proof` namespace.
 
-- [`Artifact`](Artifact): the pinned ELF, symbols, compiler-reflected ABI data, and closed instruction
-  inventories.
-- [`ControlFlow`](ControlFlow): decoded functions, basic-block/control-flow facts, and reachability.
+- [`Artifact`](Artifact): the pinned ELF, symbols, compiler-reflected ABI data, and closed static
+  facts about the image — parsing, ranges, encoded words, image bytes. **Artifact is the bottom of
+  the target: it may not depend on anything that decodes those words.** Decoding needs a configured
+  machine, so a fact derived from `decodedWords?` belongs in `ControlFlow`, not here. The `nix`
+  proof derivation audits this as an import-graph rule, not a naming convention.
+- [`ControlFlow`](ControlFlow): the decoder itself and everything downstream of it — decoded
+  functions, decoded-instruction inventories, basic-block/control-flow facts, and reachability.
 - [`MachineExecution`](MachineExecution): generated-Sail instruction behavior and composed block
   traces.
 - [`MemoryRepresentation`](MemoryRepresentation): predicates and observers connecting Sail memory to

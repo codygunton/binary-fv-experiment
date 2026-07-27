@@ -2,7 +2,7 @@ import BinaryFv.RiscV.Logic.BlockStep
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.RiscV.Instruction.Execute.ShiftOr
 import BinaryFv.RiscV.Instruction.Execute.StoreByte
-import BinaryFv.SSZ.Zesu.Artifact.PrimitiveReadInventory
+import BinaryFv.SSZ.Zesu.ControlFlow.PrimitiveReadInventory
 import BinaryFv.SSZ.Zesu.MachineExecution.DecodeTactic
 import BinaryFv.SSZ.Zesu.MachineExecution.RegisterRuns
 import SizzLean.Spec.Deserialize
