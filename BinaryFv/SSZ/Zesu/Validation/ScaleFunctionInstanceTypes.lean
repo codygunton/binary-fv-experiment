@@ -98,12 +98,18 @@ structure FunctionInstanceScaleEvidence where
   executedOwnedEdges : List (Nat × Nat)
   /-- the declared exit PCs. -/
   exits : List Nat
-  /-- owned PCs at which execution DEPARTED the functionInstance's regions — it left and did not come
-  back to that pc's own fall-through. Leaving and departing are not the same: a call leaves and
-  returns, so a call site departs only in tail position. -/
+  /-- owned STATIC-transfer PCs at which execution DEPARTED the functionInstance's regions — it left and
+  did not come back to that pc's own in-region fall-through. Leaving and departing are not the same:
+  a call leaves and returns, so a call site departs only in tail position. A departing `ret` is
+  carried by `dynamicTransferSources`, not here; the two lists partition the departure sources by
+  whether the transfer's target is statically known, and BOTH must be declared exits. -/
   leavingSources : List Nat
-  /-- owned PCs whose transfer is dynamic (ret / unresolved indirect call), less any observed to
-  return into these regions. -/
+  /-- owned PCs whose transfer is dynamic (`ret` / unresolved indirect jump or call), every one that
+  executed — not only those seen to leave. That is deliberately STRICTER than the static exit rule,
+  which declares a `ret` an exit but declares neither kind of unresolved indirect transfer one: such a
+  transfer has neither a declared edge nor a declared exit, so the generated CFG models it not at all,
+  and requiring it to be declared is the conservative alarm. (One such site exists in the binary, an
+  allocator vtable `jalr`; it does not execute on any arm, so the strictness costs nothing today.) -/
   dynamicTransferSources : List Nat
   /-- owned CALL sites that left the regions and were OBSERVED, in the trace, to resume at their own
   in-region fall-through. These are the sites `leavingSources` excludes, carried so the exclusion is

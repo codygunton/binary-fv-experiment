@@ -32,7 +32,9 @@ The generic per-function-instance checks (apply to all function instances, trace
                         come back is declared as one. The second half is not decoration — an exit at
                         every call site is exactly the over-declaration that made the entry function
                         instance's trace (`FunctionTrace.step` carries `¬ exit pc`) halt at its first
-                        call, and a check without it would certify that defect.
+                        call, and a check without it would certify that defect. A DYNAMIC transfer
+                        (`ret` / unresolved indirect) is held to `exits` whether or not it was seen
+                        to leave — the generated CFG models its target not at all.
   withinStepBound       max per-invocation instruction count <= the routine's contract step bound
                         (const bounds + readArray's specialization width; input-dependent bounds = gap)
   allocationConsistent  a NON-allocating routine never bumps the allocator cursor (.sbss); the
@@ -488,7 +490,12 @@ def reduce_function_instance(function_instance, short, catalog, executed, loads,
         if s not in owned:
             continue
         if s in dynamic_pcs:
-            dyn_src.add(s)              # dynamic return/indirect: validated via `exits`, not `edges`
+            # A dynamic transfer's target is unknown to the generated CFG, so it can only be accounted
+            # for by `exits` — and it is required to be there whether or not it was seen to leave.
+            # That is stricter than the static rule (which declares a `ret` an exit but not an
+            # unresolved indirect jump/call, since neither has a decoded target to test); the strictness
+            # is deliberate, and the one indirect call site in the binary never executes.
+            dyn_src.add(s)
         else:
             exec_owned.add((s, t))
         if in_region(t):
@@ -496,7 +503,8 @@ def reduce_function_instance(function_instance, short, catalog, executed, loads,
         if s in call_pcs and resumed.get(i) == s + 4 and in_region(s + 4):
             came_back.add(s)            # a CALL, observed to resume inside these regions: not a departure
             continue
-        (dyn_src if s in dynamic_pcs else leaving_src).add(s)
+        if s not in dynamic_pcs:
+            leaving_src.add(s)          # a static transfer that really departed
     # A site that departed on ANY invocation is a departure, even if another invocation came back.
     came_back -= leaving_src | dyn_src
     f["blockStarts"] = block_starts
