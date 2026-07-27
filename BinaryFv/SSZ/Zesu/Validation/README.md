@@ -68,6 +68,15 @@ Row D½ measures what the conditional local premise actually says:
   tail-call target. It also measures the 3.315× instruction-occurrence cost of proving every nested
   appearance again with `ownStep`; [LocalObligationLedger.lean](LocalObligationLedger.lean) checks
   that the seven tail-call exits are reported but deliberately excluded from structural blockers.
+- [ExitPathMeasurement.lean](ExitPathMeasurement.lean) replaces the existential finish inventory
+  with decoded, successor-specific evidence. It pins 469 stable-keyed exit sources, 589 static
+  alternatives plus 16 dynamic returns, and 588 inline paths split
+  `97 stay-child / 341 resume-parent / 150 propagate`, including 108 sources whose alternatives
+  have different outcomes. The seven tail calls carry their exact child-return-parent joins, and
+  the `allocatorAlloc → raw_alloc` jump is recorded as the sole no-link generated tail delegate.
+  Consumer-shaped mutations reject a dropped or swapped conditional arm, confusing a call's
+  immediate callee with its completion address, and corrupting either the allocator tail target or
+  its semantic tag.
 - [EntryPcPlacement.lean](EntryPcPlacement.lean) proves that every source-selected entry predicate
   ignores `PC`, then joins that fact to the trace consumer's fixed-entry requirement and
   per-instance pre-satisfiability. The result is an exact pre-repair blast radius: all 141 closed

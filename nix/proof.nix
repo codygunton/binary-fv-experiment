@@ -583,6 +583,16 @@ COMPAT
     # `ownStep` proofs. These are red measurements, so movement in either direction fails the build.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.RepairBlastRadius
+    # Row D-half actual-successor measurement: joins every one of 469 stable-keyed exit sources to
+    # its canonical decoded completion and exact execution extent. It pins 589 static alternatives
+    # plus 16 dynamic returns; 588 inline paths split 97 stay-child / 341 resume-parent /
+    # 150 propagate, with 108 mixed sources; the seven composite memcpy tail calls; and the one
+    # allocatorAlloc -> raw_alloc no-link tail delegate. Negative controls preserve cardinality
+    # while swapping conditional-arm meanings, confuse a call's callee with its return address, and
+    # independently corrupt the allocator tail target and tag. These are pre-repair measurements:
+    # red movement is reported rather than normalized away.
+    # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.ExitPathMeasurement
     # Complete premise joins for the measured local-obligation defect. This builds an actual
     # `¬ functionInstanceLocalTraceObligation` for 16 no-callee offenders and 12 more whose actual
     # callees all dispatch to checked-realizable `bytesAt`/`readU32` exit bindings. Each proof
