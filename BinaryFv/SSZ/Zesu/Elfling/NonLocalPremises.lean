@@ -171,9 +171,23 @@ believe the scaffold's first conjunct needs no separate proof. It does — the s
 
 **It is not the whole scaffold and does not pretend to be.** The third conjunct,
 `Nonempty (SuccessfulRun …)` / `Nonempty (RejectedRun …)`, is untouched here and is not reducible to
-`locals`: constructing it needs a `TraceToSentinel`, which needs the exit `ret` to retire and `ra` to
-still hold the sentinel at the exit, and no contract in the catalog constrains a callee-saved
-register at all. -/
+`locals` alone: constructing it needs a `TraceToSentinel`, which needs the exit `ret` to retire and `ra`
+to still hold the sentinel at the exit.
+
+*This paragraph used to end "and no contract in the catalog constrains a callee-saved register at all."
+**That is no longer true**, and the correction is recorded rather than quietly deleted because the
+sentence was the standing justification for treating the third conjunct as out of reach.* Three
+postconditions now carry `after.regs.get? x1 = before.regs.get? x1` and `NormalExecutionState after`
+(`Contracts/ExportedDecoder.lean`, `Contracts/Runtime.lean`; satisfiability exhibited first, in
+`Contracts/ExportedDecoderAudit.lean`). The `ra` clause is spelled as **preservation** rather than
+`= sentinelWord` precisely so the contract layer never names the runner's sentinel; it composes with
+`buildZesuEntryState_entry_binding_abi`, which exposes the `x1 := sentinel` the builder always proved
+and discarded.
+
+What is still owed for that conjunct, stated so the next reader does not re-derive it: `tryStepRetRetires`
+has an eleventh register premise, `retiredRead` on `minstret`, which `NormalExecutionState` cannot carry —
+it is a *presence* claim at an existentially bound value, while every conjunct of `NormalExecutionState`
+pins a value — so it must come from the trace rather than from a contract. -/
 theorem canonicalProgram_and_obligations_of_residue
     (satisfiable : catalogSatisfiability canonicalContractParams)
     (locals : LocalContractAssumptions) :
