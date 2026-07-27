@@ -557,6 +557,20 @@ COMPAT
     # promises about it, and it proves the checks detect real dependence rather than noise.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.ObserverMutation
+    # Static boundary satisfiability: native_decide over `generatedProgram` that pins, by ADDRESS,
+    # every place where a per-function-instance local obligation is not even INHABITABLE — the 33
+    # instances whose `entryPc` is one of their own `exitPcs` (so `EnteredScopedTrace.entryNotExit`
+    # is false and the trace type is empty), the 7 resolved-call rows across 4 callers that are
+    # declared exits of their own caller (so `CallTransfer.callNotExit` fails there), and all 127
+    # inline pairs for which no PARENT edge crosses out of the child, which leaves
+    # `InlineTransfer.exitEdgeMem` without a witness and makes `ScopedTrace.inlineStep` dead code
+    # against this artifact. All three are RED and are pinned as exact values, not as `= true`
+    # goals: this is a measurement, so the build fails when the numbers MOVE, in either direction.
+    # The 127-of-127 column carries its own anti-vacuity witness (`inline_exit_edge_repairable_pairs`,
+    # 56 pairs inhabited under a deliberately invalid re-attribution), because a column with no
+    # observed pass is indistinguishable from a check that cannot pass.
+    # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.BoundarySatisfiability
     touch "$out"
   '';
 
