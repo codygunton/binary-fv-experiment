@@ -113,11 +113,13 @@ def preEntry (env : DecoderEnvironment) (args : EntryArgs) (state : State) : Pro
 
 /-- The entry postcondition.
 
-**`before` is deliberately unused, and the reason is worth stating because it is the same reason in all
-four postconditions that take it** (`postAllocatingContainer`, `postCollection`, `postZesuDecodeRaw`).
-The binder is required by `FunctionContract`'s shape, not by these predicates.
+**`before` USED to be unused here, and the reason is worth keeping because it is what the ownership
+clause changed.** It was ignored in all four postconditions that take it (`postEntry`,
+`postAllocatingContainer`, `postCollection`, `postZesuDecodeRaw`) — the binder was required by
+`FunctionContract`'s shape, not by the predicates. Three of the four now use it; `postZesuDecodeRaw`
+alone still does not, for the reason its own docstring gives.
 
-*Why it is not needed.* Preservation is stated **absolutely** — `MemoryBytes after args.base
+*Why it was not needed.* Preservation is stated **absolutely** — `MemoryBytes after args.base
 args.bytes` and `env.CodeIntact after` — against values the precondition already pins to exactly the
 same terms. So "unchanged from `before`" and "equal to `args.bytes`" coincide here, and the relative
 form would say nothing more. Checked against each `pre` rather than assumed.
@@ -135,18 +137,25 @@ representation is established **at the final state** (`rep … after …` here, 
 canonicalResultBuffer` at the runner) rather than *preserved* from an intermediate one. Nothing has to
 survive a later routine, so no frame condition is needed to connect two states.
 
-**The question is OPEN, not closed, and it is not ours to close.** That argument covers this layer only.
-It becomes load-bearing at *composition*: once a Rows E–I local proof establishes "this routine wrote
-field 3 at offset X" and a later routine runs, concluding field 3 still holds at the sentinel **is** a
-frame condition — and D4's composed-local-summaries item asks exactly that, so this sits inside an open
-item rather than outside the row. Adding a relative frame clause here would be a change to a reviewed
-contract meaning and is the human's call; it is also far cheaper to decide before 141 local proofs are
-written against the current shape than after. Do not add one on the strength of this note. -/
+**That question is now CLOSED, and this note is kept because it is the record of how.** The last
+paragraph of the previous wording said a relative frame clause "would be a change to a reviewed
+contract meaning and is the human's call", and asked that none be added on the strength of the note.
+The call was made (`DECISIONS.md`, Row D): the settling fact is
+`FrameGap.sibling_clobber_permitted_historical`, which made the clobber a theorem rather than a worry. So the clause is here —
+`env.WritesOnlyWithinOwnAllocation`, the allocating form, since the entry allocates through its
+children. The reasoning above is otherwise unchanged and still describes why this layer survived
+without it.
+
+**What is still true of the limitation above.** The clause confines writes to the entry's own record
+and its own allocation, which is a frame condition over memory the precondition does not pin — so the
+"not expressible in this form" paragraph no longer holds as written *for this predicate*. What it
+still does not cover is the callee's stack frame; see `DecoderEnvironment.WritesOnlyWithinOwnAllocation`. -/
 def postEntry (env : DecoderEnvironment) (args : EntryArgs)
     (rep : ContainerRepresentation SszBridge.RawV4)
-    (result : Except SszDecodeError SszBridge.RawV4) (_before after : State) : Prop :=
+    (result : Except SszDecodeError SszBridge.RawV4) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
+  env.WritesOnlyWithinOwnAllocation args.resultBase env.record.entryResult before after ∧
   match result with
   | .ok value => rep args.base args.bytes value after args.resultBase
   | .error error =>

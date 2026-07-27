@@ -142,24 +142,41 @@ def preContainer (env : DecoderEnvironment) (args : ContainerArgs) (state : Stat
 `representation` is supplied per container because each has its own field layout; making it a
 parameter keeps this shared shape honest instead of collapsing distinct records into one vague
 claim. It is applied at the result base with the caller's input base/bytes, so a representation may
-describe input-relative borrowed slices. -/
+describe input-relative borrowed slices.
+
+**The ownership clause, and why it is the whole point of `recordSize`.** These containers do not
+allocate, so the clause takes the empty allocation interval and reduces to "writes only within
+`[resultBase, resultBase + recordSize)`". That is what makes a parent able to conclude an *earlier*
+sibling's representation still holds after this one ran — the gap `FrameGap` exhibits. The size is
+`recordSize` rather than a literal because a wider record is a weaker promise: an over-large size
+would satisfy this postcondition just as easily and quietly hand a sibling permission to scribble.
+It comes from `env.record`, whose fields are reflected from the ABI manifest.
+
+`FrameGap.sibling_clobber_permitted` is the regression signal for this conjunct and no longer proves;
+`FrameGap.sibling_clobber_permitted_historical` records what it exhibited about the unstrengthened
+predicate, and `Ownership.fixed_container_cannot_clobber_sibling` is the positive replacement. -/
 def postFixedContainer {α : Type} (env : DecoderEnvironment) (args : ContainerArgs)
-    (representation : ContainerRepresentation α)
+    (representation : ContainerRepresentation α) (recordSize : Nat)
     (result : Except SszDecodeError α) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
+  WritesOnlyWithinRecord args.resultBase recordSize before after ∧
   match result with
   | .ok value => representation args.base args.bytes value after args.resultBase
   | .error error =>
       error = SszDecodeError.invalidSsz ∨ error = SszDecodeError.unknownFork
 
-/-- An allocating container: its children allocate, so out-of-memory is reachable. -/
+/-- An allocating container: its children allocate, so out-of-memory is reachable.
+
+The ownership clause therefore takes the allocating form — record, arena interval, allocator state —
+rather than the fixed containers' empty interval. -/
 def postAllocatingContainer {α : Type} (env : DecoderEnvironment) (args : ContainerArgs)
-    (representation : ContainerRepresentation α)
-    (result : Except SszDecodeError α) (_before after : State) : Prop :=
+    (representation : ContainerRepresentation α) (recordSize : Nat)
+    (result : Except SszDecodeError α) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
+  env.WritesOnlyWithinOwnAllocation args.resultBase recordSize before after ∧
   match result with
   | .ok value => representation args.base args.bytes value after args.resultBase
   | .error error =>
@@ -175,7 +192,7 @@ def contractForkActivation (env : DecoderEnvironment)
     FunctionContract SszDecodeError ContainerArgs SszBridge.RawForkActivation where
   meaning := fun args => meaningForkActivation args.bytes
   pre := preContainer env
-  post := fun args => postFixedContainer env args rep
+  post := fun args => postFixedContainer env args rep env.record.forkActivation
   stepBound := fun _ => 512
 
 def contractForkConfig (env : DecoderEnvironment)
@@ -183,7 +200,7 @@ def contractForkConfig (env : DecoderEnvironment)
     FunctionContract SszDecodeError ContainerArgs SszBridge.RawForkConfig where
   meaning := fun args => meaningForkConfig args.bytes
   pre := preContainer env
-  post := fun args => postFixedContainer env args rep
+  post := fun args => postFixedContainer env args rep env.record.forkConfig
   stepBound := fun _ => 1024
 
 def contractChainConfig (env : DecoderEnvironment)
@@ -191,7 +208,7 @@ def contractChainConfig (env : DecoderEnvironment)
     FunctionContract SszDecodeError ContainerArgs SszBridge.RawChainConfig where
   meaning := fun args => meaningChainConfig args.bytes
   pre := preContainer env
-  post := fun args => postFixedContainer env args rep
+  post := fun args => postFixedContainer env args rep env.record.chainConfig
   stepBound := fun _ => 2048
 
 def contractExecutionWitness (env : DecoderEnvironment)
@@ -199,7 +216,7 @@ def contractExecutionWitness (env : DecoderEnvironment)
     FunctionContract SszDecodeError ContainerArgs SszBridge.RawExecutionWitness where
   meaning := fun args => meaningExecutionWitness args.bytes
   pre := preContainer env
-  post := fun args => postAllocatingContainer env args rep
+  post := fun args => postAllocatingContainer env args rep env.record.executionWitness
   stepBound := fun args => 1024 + 256 * args.bytes.size
 
 def contractExecutionRequests (env : DecoderEnvironment)
@@ -207,7 +224,7 @@ def contractExecutionRequests (env : DecoderEnvironment)
     FunctionContract SszDecodeError ContainerArgs SszBridge.RawExecutionRequests where
   meaning := fun args => meaningExecutionRequests args.bytes
   pre := preContainer env
-  post := fun args => postAllocatingContainer env args rep
+  post := fun args => postAllocatingContainer env args rep env.record.executionRequests
   stepBound := fun args => 1024 + 256 * args.bytes.size
 
 def contractExecutionPayload (env : DecoderEnvironment)
@@ -215,7 +232,7 @@ def contractExecutionPayload (env : DecoderEnvironment)
     FunctionContract SszDecodeError ContainerArgs SszBridge.RawExecutionPayload where
   meaning := fun args => meaningExecutionPayload args.bytes
   pre := preContainer env
-  post := fun args => postAllocatingContainer env args rep
+  post := fun args => postAllocatingContainer env args rep env.record.executionPayload
   stepBound := fun args => 4096 + 256 * args.bytes.size
 
 def contractNewPayloadRequest (env : DecoderEnvironment)
@@ -223,7 +240,7 @@ def contractNewPayloadRequest (env : DecoderEnvironment)
     FunctionContract SszDecodeError ContainerArgs SszBridge.RawNewPayloadRequest where
   meaning := fun args => meaningNewPayloadRequest args.bytes
   pre := preContainer env
-  post := fun args => postAllocatingContainer env args rep
+  post := fun args => postAllocatingContainer env args rep env.record.newPayloadRequest
   stepBound := fun args => 8192 + 256 * args.bytes.size
 
 /-!

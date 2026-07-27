@@ -146,12 +146,24 @@ discipline means elements of a byte-list collection *alias* the caller's input r
 
 The error arm admits `invalidSsz` and `outOfMemory` and excludes `unknownFork`: no collection decoder
 reads a fork index.
+
+**The ownership clause.** Every collection allocates, so it takes the allocating form: its permitted
+region is the slice descriptor it publishes at `args.resultBase`, the arena interval its allocations
+consumed, and the allocator's own state. The heap array itself needs no separate mention — it was
+allocated by the same call, so it is inside the interval, which is precisely the containment
+`postAlloc`'s `cursorBefore ≤ address ∧ address + bytes ≤ cursorAfter` was added to make derivable.
+The record is the descriptor, not the array, and `env.record.sliceDescriptor` is its ABI size.
+
+Note `_before` is no longer unused: the clause is the first thing in this predicate that relates the
+two states rather than describing `after` absolutely. The docstring on `postEntry` explaining why the
+binder was decorative describes the shape these predicates *used* to have.
 -/
 def postCollection {α : Type} (env : DecoderEnvironment) (args : CollectionArgs)
     (elementSize : Nat) (count : α → Nat)
-    (result : Except SszDecodeError α) (_before after : State) : Prop :=
+    (result : Except SszDecodeError α) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
+  env.WritesOnlyWithinOwnAllocation args.resultBase env.record.sliceDescriptor before after ∧
   match result with
   | .ok value =>
       ∃ dataBase,

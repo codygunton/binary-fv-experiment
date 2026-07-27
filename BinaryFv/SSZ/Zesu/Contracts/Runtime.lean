@@ -103,11 +103,23 @@ def postAlloc (env : DecoderEnvironment) (args : AllocArgs)
         --
         -- Stated with `≤` rather than the equality the model happens to give, so an allocator that
         -- pads *after* the block still satisfies it.
-        cursorBefore ≤ address ∧ address + args.bytes ≤ cursorAfter
+        cursorBefore ≤ address ∧ address + args.bytes ≤ cursorAfter ∧
+        -- **The ownership clause, at the one place the cursor pair was already bound.** The
+        -- allocator's permitted region is the interval it just consumed together with its own
+        -- mutable state — and the second half is not slack: advancing `ZKVM_HEAP_POS` is the only
+        -- memory write `Runtime.allocate` performs, and that address is in `allocatorState`, not in
+        -- the interval. The record component is empty because `zesu_raw_alloc` hands back a block it
+        -- does not initialize; the block itself is inside the interval anyway, by the containment
+        -- clause immediately above.
+        WritesOnlyWithin
+          (Region.union (allocatedRegion 0 0 cursorBefore cursorAfter) env.allocatorState)
+          before after
   | .error error =>
       error = SszDecodeError.outOfMemory ∧
       after.regs.get? x10 = some (BitVec.ofNat 64 0) ∧
-      env.NoAllocation before after
+      env.NoAllocation before after ∧
+      -- Exhaustion writes nothing at all: no cursor move, no block.
+      WritesOnlyWithinRecord 0 0 before after
 
 def contractAlloc (env : DecoderEnvironment) (heap : BinaryFv.SSZ.Zesu.Runtime.BumpHeap) :
     FunctionContract SszDecodeError AllocArgs Nat where
@@ -134,6 +146,9 @@ def postCopy (env : DecoderEnvironment) (args : CopyArgs)
     (result : Except SszDecodeError ByteArray) (before after : State) : Prop :=
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
+  -- A copy's record is its destination block, and its length is a genuine runtime argument, so this
+  -- is the one place the ownership clause needed no new ABI fact at all.
+  WritesOnlyWithinRecord args.destination args.length before after ∧
   match result with
   | .ok contents => MemoryBytes after args.destination contents
   | .error _ => False
@@ -198,6 +213,9 @@ ABI arguments — they name what the shared globals already hold.
 def postRawError (env : DecoderEnvironment) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
+  -- An accessor reads the globals and returns in `a0`; it owns no record, so the clause is at the
+  -- empty region — its strongest instance, not a placeholder.
+  WritesOnlyWithinRecord 0 0 before after ∧
   match result with
   | .ok code => code = model.status.code ∧ after.regs.get? x10 = some (BitVec.ofNat 64 code)
   | .error _ => False
@@ -214,6 +232,9 @@ and null otherwise. -/
 def postRawResult (env : DecoderEnvironment) (resultBuffer : Nat) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
+  -- Returns the *address* of the stored result, and writes nothing: the clause is at the empty
+  -- region even though `resultBuffer` is in scope.
+  WritesOnlyWithinRecord 0 0 before after ∧
   match result with
   | .ok pointer =>
       pointer = (if model.stored.isSome then resultBuffer else 0) ∧

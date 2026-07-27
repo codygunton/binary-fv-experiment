@@ -74,6 +74,46 @@ theorem canonicalOptionalBlobSchedule_pinned :
 def canonicalBlobScheduleLayout : BlobScheduleLayout :=
   { targetOffset := 0, maxOffset := 8, baseFeeUpdateFractionOffset := 16 }
 
+open BinaryFv.SSZ.Zesu.Artifact in
+/-- The result-record sizes the ownership clause states its permission over, every one of them read
+from the compiler-reflected manifest.
+
+`entryResult` is the internal `decodeRaw`/`decode` result/error union — the `?RawStatelessInput`
+object, whose 832-byte payload sits at offset 0 with the discriminant above it — which is why it is
+`storedResultSize` and not `rawStatelessInputSize`. Writing the payload size here would understate
+the record by the discriminant and hand a sibling permission to overwrite the tag.
+
+`sliceDescriptor` is the only entry not reflected: a Zig `[]T` is a pointer/length pair, 16 bytes on
+this target, and the manifest has no key for it. It is the same 16 that `contractByteListList`
+already passes as its element size, for the same reason — a descriptor array's stride *is* the
+descriptor size.
+
+The `getD 0` fallbacks are never taken, and taking one would fail closed rather than open:
+`canonicalRecordSizes_pinned` proves every field equals its exact reflected value, and a zero size
+would make the clause demand the routine write nothing at all. -/
+def canonicalRecordSizes : ResultRecordSizes :=
+  { forkActivation := forkActivationSize.getD 0,
+    forkConfig := forkConfigSize.getD 0,
+    chainConfig := chainConfigSize.getD 0,
+    executionRequests := executionRequestsSize.getD 0,
+    executionWitness := executionWitnessSize.getD 0,
+    executionPayload := executionPayloadSize.getD 0,
+    newPayloadRequest := newPayloadRequestSize.getD 0,
+    entryResult := storedResultSize.getD 0,
+    sliceDescriptor := 16 }
+
+/-- Per-size mutation guard: the record sizes are exactly the reflected 32/72/80/48/48/592/688/848.
+
+The same role `canonicalOptionalU64_pinned` plays for the option layouts. It matters more here than
+it looks: the clause is a *permission*, so an over-large record proves exactly as easily while giving
+a sibling room to clobber — a wrong size is invisible at the use site in the weakening direction. -/
+theorem canonicalRecordSizes_pinned :
+    canonicalRecordSizes =
+      { forkActivation := 32, forkConfig := 72, chainConfig := 80,
+        executionRequests := 48, executionWitness := 48, executionPayload := 592,
+        newPayloadRequest := 688, entryResult := 848, sliceDescriptor := 16 } := by
+  native_decide
+
 /-- The canonical decoder environment: the pinned image, the checked allocator state, and the ABI
 option/aggregate layouts. -/
 def canonicalEnvironment : DecoderEnvironment :=
@@ -83,7 +123,8 @@ def canonicalEnvironment : DecoderEnvironment :=
     arenaBase := canonicalHeapBase
     optionalBlobSchedule := canonicalOptionalBlobSchedule
     blobSchedule := canonicalBlobScheduleLayout
-    optionalU64 := canonicalOptionalU64 }
+    optionalU64 := canonicalOptionalU64
+    record := canonicalRecordSizes }
 
 /-- **The cursor address really is allocator state.** Without this the environment could name a
 `heapPosAddr` outside the range `NoAllocation` pins, and a non-allocating routine could move the

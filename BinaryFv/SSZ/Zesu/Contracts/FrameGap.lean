@@ -38,9 +38,28 @@ plainly, so it can be checked rather than trusted:
   claim about the input region, the clobbered address lies outside it, and carrying a nonempty input
   through the construction changes nothing but the arithmetic.
 
-What the exhibit *does* rely on is the one real fact: `postFixedContainer` constrains the input
-region, the code image, `allocatorState`, and its own `resultBase`, and says nothing whatever about
+What the exhibit *does* rely on is the one real fact: `postFixedContainer` constrained the input
+region, the code image, `allocatorState`, and its own `resultBase`, and said nothing whatever about
 any other address.
+
+## The gap is CLOSED, and this module is now the record of it rather than the report of it
+
+`sibling_clobber_permitted` was the settling fact for D4's composition item, and it settled it in the
+negative, so `DECISIONS.md` (Row D) ruled the ownership clause into the `post*` predicates.
+`postFixedContainer` now carries `WritesOnlyWithinRecord args.resultBase recordSize`, and against that
+predicate **the exhibit below no longer proves** — which is the regression signal the plan named, fired
+as designed.
+
+The exhibit is therefore restated, not weakened. `postFixedContainerHistorical` is the predicate as it
+stood *before* the strengthening, spelled out here so the countermodel keeps its evidentiary value: it
+records that the gap was real, and it is the thing a reader compares against to see what the clause
+bought. Nothing in the tree uses the historical predicate for anything else — it is deliberately local
+to this module and is not a contract.
+
+`strengthened_post_is_satisfiable` below and `Ownership.fixed_container_cannot_clobber_sibling` are
+the positive halves: the same situation is now impossible, and the strengthened postcondition is still
+satisfiable by a sibling that genuinely writes, so the impossibility is not an artefact of a contract
+nothing can satisfy.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Contracts.FrameGap
@@ -74,16 +93,42 @@ theorem frame_conjuncts_survive_write {env : DecoderEnvironment} {state : State}
   simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]
   simp [hne.symm]
 
-/-- **Two children's postconditions are simultaneously satisfiable in a run where the second
-destroys the first's representation.**
+/-- **`postFixedContainer` as it stood before the ownership clause was added.**
 
-This is the settling fact for D4's composition question. `repA` holds at `s1`, child B's contract is
+Kept verbatim — input region, code image, allocator state, own result — so that
+`sibling_clobber_permitted_historical` remains a countermodel to *the predicate that had the gap*,
+rather than being quietly re-pointed at a different claim. The live `postFixedContainer` differs from
+this in exactly one conjunct, `WritesOnlyWithinRecord args.resultBase recordSize`, and that one
+conjunct is what makes the exhibit stop proving.
+
+Deliberately **not** a contract and deliberately local: nothing outside this module may state an
+obligation in terms of it. -/
+def postFixedContainerHistorical {α : Type} (env : DecoderEnvironment) (args : ContainerArgs)
+    (representation : ContainerRepresentation α)
+    (result : Except SszDecodeError α) (before after : State) : Prop :=
+  MemoryBytes after args.base args.bytes ∧
+  env.CodeIntact after ∧
+  env.NoAllocation before after ∧
+  match result with
+  | .ok value => representation args.base args.bytes value after args.resultBase
+  | .error error =>
+      error = SszDecodeError.invalidSsz ∨ error = SszDecodeError.unknownFork
+
+/-- **Two children's *historical* postconditions were simultaneously satisfiable in a run where the
+second destroyed the first's representation.**
+
+This was the settling fact for D4's composition question. `repA` holds at `s1`, child B's contract is
 satisfied from `s1` to `s2` *with its own representation intact at `s2`*, and `repA` is false at `s2`.
 
-Therefore a parent cannot conclude its own `representation … after …` from its children's
-postconditions: the information it needs about child A has been discarded by the time child B is
-done, and nothing in the contract layer preserves it. -/
-theorem sibling_clobber_permitted
+Therefore a parent could not conclude its own `representation … after …` from its children's
+postconditions: the information it needed about child A had been discarded by the time child B was
+done, and nothing in the contract layer preserved it.
+
+**Read the tense.** Every statement here is about `postFixedContainerHistorical`. Against the live
+`postFixedContainer` the same construction fails, and it fails for the right reason: child B writes at
+`rA`, `rA` is outside `[rB, rB + recordSize)` whenever `rA < rB`, and the ownership clause forbids it.
+`Ownership.fixed_container_cannot_clobber_sibling` proves that in general. -/
+theorem sibling_clobber_permitted_historical
     (env : DecoderEnvironment) (s0 : State) (inputBase allocBase rA rB : Nat)
     (hne : rA ≠ rB)
     (code : env.CodeIntact s0)
@@ -94,9 +139,9 @@ theorem sibling_clobber_permitted
     ∃ (s1 s2 : State) (argsA argsB : ContainerArgs),
       argsA.resultBase = rA ∧ argsB.resultBase = rB ∧
       -- child A succeeds, establishing its representation at `s1`
-      postFixedContainer env argsA (bytePinned 7) (.ok ()) s0 s1 ∧
+      postFixedContainerHistorical env argsA (bytePinned 7) (.ok ()) s0 s1 ∧
       -- child B succeeds from `s1`, establishing its OWN representation at `s2`
-      postFixedContainer env argsB (bytePinned 3) (.ok ()) s1 s2 ∧
+      postFixedContainerHistorical env argsB (bytePinned 3) (.ok ()) s1 s2 ∧
       -- and A's representation is destroyed at `s2`
       ¬ bytePinned 7 argsA.base argsA.bytes () s2 argsA.resultBase := by
   classical
@@ -171,7 +216,7 @@ theorem representation_may_read_beyond_memory :
 
 /-! ## The exhibit is not vacuous
 
-`sibling_clobber_permitted` is an existential under hypotheses. If those hypotheses were
+`sibling_clobber_permitted_historical` is an existential under hypotheses. If those hypotheses were
 contradictory it would be vacuously true and would establish nothing — which is precisely the
 "check that cannot fail" this row keeps finding in other guises. So they are discharged against a
 concrete environment here.
@@ -181,9 +226,9 @@ hypotheses are *consistent*, which is all that is needed to rule out vacuity. It
 hold at the canonical environment. That is a separate and stronger claim, it is not proved here, and
 it should not be inferred from this: a proof over `canonicalEnvironment` would have to establish that
 the relevant arena addresses are neither file-backed nor in `canonicalAllocatorState`, which is real
-work. What makes the exhibit bite regardless is that `sibling_clobber_permitted` quantifies over
-`env` — the clobber is permitted by the contract *shape*, so the canonical environment would have to
-rule it out by some means the contracts do not currently provide. -/
+work. What made the exhibit bite regardless is that it quantifies over `env` — the clobber was
+permitted by the contract *shape*, so the canonical environment would have had to rule it out by some
+means the contracts did not then provide. -/
 
 /-- An environment carrying no file bytes and no allocator state. Deliberately minimal: its only job
 is to witness that the exhibit's hypotheses can be met at once. -/
@@ -195,11 +240,15 @@ def gapEnv : DecoderEnvironment where
   optionalBlobSchedule := default
   blobSchedule := ⟨0, 0, 0⟩
   optionalU64 := default
+  -- All zero, like the option layouts above. The record sizes this module needs are passed to
+  -- `postFixedContainer` explicitly, so a zeroed table here cannot make an exhibit easier: a
+  -- record size of 0 is the *strongest* instance of the ownership clause, not the weakest.
+  record := default
 
 theorem gapEnv_readFileByte (address : Nat) : gapEnv.image.readFileByte? address = none := rfl
 
-/-- **The hypotheses of `sibling_clobber_permitted` are jointly satisfiable**, so the exhibit is a
-genuine countermodel rather than a vacuous implication. -/
+/-- **The hypotheses of `sibling_clobber_permitted_historical` are jointly satisfiable**, so the
+exhibit is a genuine countermodel rather than a vacuous implication. -/
 theorem sibling_clobber_hypotheses_satisfiable (s0 : State) :
     ∃ (env : DecoderEnvironment) (rA rB : Nat),
       rA ≠ rB ∧ env.CodeIntact s0 ∧
@@ -208,17 +257,64 @@ theorem sibling_clobber_hypotheses_satisfiable (s0 : State) :
   ⟨gapEnv, 0, 1, by decide, by intro a b h; exact absurd h (by rw [gapEnv_readFileByte]; simp),
     gapEnv_readFileByte 0, gapEnv_readFileByte 1, id, id⟩
 
-/-- The two combined: at `gapEnv` the clobber is not merely permitted in the abstract, it is
-realised. This is the statement to read if only one is read. -/
+/-- The two combined: at `gapEnv` the clobber was not merely permitted in the abstract, it was
+realised. This is the statement to read if only one is read.
+
+`rA = 0` and `rB = 1`, so `rA < rB` — the case no record size can rescue, which is exactly why the
+strengthened `postFixedContainer` refuses it. -/
 theorem frame_gap_is_real (s0 : State) :
     ∃ (s1 s2 : State) (argsA argsB : ContainerArgs),
-      postFixedContainer gapEnv argsA (bytePinned 7) (.ok ()) s0 s1 ∧
-      postFixedContainer gapEnv argsB (bytePinned 3) (.ok ()) s1 s2 ∧
+      postFixedContainerHistorical gapEnv argsA (bytePinned 7) (.ok ()) s0 s1 ∧
+      postFixedContainerHistorical gapEnv argsB (bytePinned 3) (.ok ()) s1 s2 ∧
       ¬ bytePinned 7 argsA.base argsA.bytes () s2 argsA.resultBase := by
   obtain ⟨s1, s2, argsA, argsB, _, _, hA, hB, hbroken⟩ :=
-    sibling_clobber_permitted gapEnv s0 0 0 0 1 (by decide)
+    sibling_clobber_permitted_historical gapEnv s0 0 0 0 1 (by decide)
       (by intro a b h; exact absurd h (by rw [gapEnv_readFileByte]; simp))
       (gapEnv_readFileByte 0) (gapEnv_readFileByte 1) id id
   exact ⟨s1, s2, argsA, argsB, hA, hB, hbroken⟩
+
+/-! ## The strengthened predicate is satisfiable, by a sibling that really writes
+
+The other half of the regression, and the half that is easy to skip. Showing the clobber is now
+impossible is worth nothing if the strengthened postcondition is impossible too: an unsatisfiable
+`post` forbids every clobber for the same reason it forbids everything else, and it would turn the
+assumed `LocalContractAssumptions` into a false hypothesis — a vacuous root, which is strictly worse
+than the gap it was closing.
+
+So the witness below is **discriminating**: the sibling's memory genuinely changes across the step
+(`s1.mem.get? ≠ s2.mem.get?` at its own result byte), and it satisfies the full strengthened
+predicate including the ownership clause. A no-op sibling would satisfy the clause for any region and
+would prove nothing. -/
+
+/-- **A sibling that writes its own record satisfies the strengthened `postFixedContainer`.**
+
+One byte of record at address `1`, written from absent to `3`. Concrete rather than abstract for the
+same reason `OwnershipComposition.sibling_chain_is_real` is: abstract bases let a hidden arithmetic
+obstruction survive. -/
+theorem strengthened_post_is_satisfiable :
+    ∃ (s1 s2 : State) (args : ContainerArgs),
+      postFixedContainer gapEnv args (bytePinned 3) 1 (.ok ()) s1 s2 ∧
+        s1.mem.get? args.resultBase ≠ s2.mem.get? args.resultBase := by
+  refine ⟨{ (default : State) with mem := (default : State).mem.insert 1 0 },
+          { (default : State) with mem := ((default : State).mem.insert 1 0).insert 1 3 },
+          ⟨0, ByteArray.empty, 0, 1⟩, ⟨?_, ?_, ?_, ?_, ?_⟩, ?_⟩
+  · intro index h; exact absurd h (by simp)
+  · intro a b h; exact absurd h (by rw [gapEnv_readFileByte]; simp)
+  · intro _ h; exact h.elim
+  · intro address houtside
+    have hne : address ≠ 1 := by
+      intro heq
+      refine houtside (Or.inl ?_)
+      show (1 : Nat) ≤ address ∧ address < 1 + 1
+      omega
+    show (((default : State).mem.insert 1 0).insert 1 3).get? address
+        = ((default : State).mem.insert 1 0).get? address
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (fun heq => hne heq.symm)]
+  · show (((default : State).mem.insert 1 0).insert 1 3).get? 1 = some 3
+    simp [Std.ExtHashMap.get?_eq_getElem?]
+  · show ((default : State).mem.insert 1 0).get? 1
+        ≠ (((default : State).mem.insert 1 0).insert 1 3).get? 1
+    simp [Std.ExtHashMap.get?_eq_getElem?]
 
 end BinaryFv.SSZ.Zesu.Contracts.FrameGap

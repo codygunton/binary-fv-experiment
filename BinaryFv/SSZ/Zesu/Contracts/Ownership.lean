@@ -48,16 +48,10 @@ namespace BinaryFv.SSZ.Zesu.Contracts.Ownership
 open BinaryFv.RiscV
 open BinaryFv.SSZ.Zesu.Contracts.FrameGap
 
-/-- A set of addresses. Kept as a predicate rather than a range because owned regions are not
-contiguous in general — a container owns its result buffer and whatever it allocated. -/
-abbrev Region := Nat → Prop
-
-/-- **The callee's obligation:** every write lands inside `owned`.
-
-Note the direction. This is *not* "the routine writes all of `owned`" — it is permission, not
-requirement, so a routine that writes nothing satisfies it for any region. -/
-def WritesOnlyWithin (owned : Region) (before after : State) : Prop :=
-  ∀ address, ¬ owned address → after.mem.get? address = before.mem.get? address
+/-! `Region` and `WritesOnlyWithin` are **not** defined here any more. They moved down to
+`Contracts/Environment.lean` — unchanged — because the `post*` predicates now carry the clause and
+every contract module sits below this one in the import order. They resolve here by name from the
+enclosing `Contracts` namespace, so there is still exactly one definition of each. -/
 
 /-- **The representation's obligation:** `rep` at result base `r` is determined by `region r`.
 
@@ -72,8 +66,9 @@ def LocalTo {α : Type} (rep : ContainerRepresentation α) (region : Nat → Reg
 sibling's execution, given the three pieces: the representation is local, the sibling's writes are
 confined, and the two regions are disjoint.
 
-This is the fact `FrameGap.sibling_clobber_permitted` shows is *missing*. Nothing here is proved
-about any particular contract — it is the statement of what a boundary must supply. -/
+This is the fact `FrameGap.sibling_clobber_permitted_historical` shows was *missing*. Nothing here is
+proved about any particular contract — it is the statement of what a boundary must supply, and
+`fixed_container_cannot_clobber_sibling` below is where it is finally run against one. -/
 theorem representation_survives_sibling {α : Type} {rep : ContainerRepresentation α}
     {region : Nat → Region} {ownedSibling : Region} {s1 s2 : State}
     {base resultBase : Nat} {bytes : ByteArray} {value : α}
@@ -103,9 +98,13 @@ theorem writesOnlyWithin_mono {owned wider : Region} {s1 s2 : State}
 
 /-! ## The discipline closes the exhibit
 
-The regression lead asked for: with the discipline in place, `FrameGap.sibling_clobber_permitted`'s
-conclusion becomes unreachable. These two theorems are the *target*, and if a future change lets the
-clobber back in, they are what fails. -/
+The regression lead asked for: with the discipline in place, the conclusion of
+`FrameGap.sibling_clobber_permitted_historical` becomes unreachable. These theorems are the *target*,
+and if a future change lets the clobber back in, they are what fails.
+
+The first three are stated at an abstract `ownedSibling`, which is what the composition consumes.
+`fixed_container_cannot_clobber_sibling` is the same fact run against the **actual strengthened
+contract** — the step that was missing while the clause lived only in `OwnershipComposition`. -/
 
 /-- `bytePinned` is local to the single byte at its result base — the smallest possible region, and
 the reason it is the right witness for both directions. -/
@@ -117,9 +116,9 @@ theorem bytePinned_localTo (value : BitVec 8) :
 
 /-- **Under ownership, the clobber `FrameGap` exhibits cannot happen.**
 
-Read against `FrameGap.sibling_clobber_permitted`, which produces exactly this situation *without*
-the confinement hypothesis. The single added premise — the sibling does not own A's result byte — is
-the entire content of the fix. -/
+Read against `FrameGap.sibling_clobber_permitted_historical`, which produces exactly this situation
+*without* the confinement hypothesis. The single added premise — the sibling does not own A's result
+byte — is the entire content of the fix. -/
 theorem no_sibling_clobber_under_ownership {value : BitVec 8} {ownedSibling : Region}
     {s1 s2 : State} {base resultBase : Nat} {bytes : ByteArray}
     (unowned : ¬ ownedSibling resultBase)
@@ -158,6 +157,114 @@ theorem unowned_hypothesis_is_necessary :
   · show ((default : State).mem.insert 0 7).get? 0 = some 7
     simp [Std.ExtHashMap.get?_eq_getElem?]
   · show ¬ (((default : State).mem.insert 0 7).insert 0 0).get? 0 = some 7
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]
+    simp
+
+/-- **A fixed container cannot clobber an earlier sibling's byte.** The positive replacement for
+`FrameGap.sibling_clobber_permitted_historical`, stated against the live `postFixedContainer` rather
+than against an abstract region.
+
+The only hypothesis beyond the contract is `outside`: A's result byte is not inside B's record. That
+is the *parent's* obligation — where it placed the two result buffers — and it is the one thing the
+callee cannot be asked to know, which is why the discipline is split this way in the first place.
+
+**Why the exhibit specifically dies.** It quantified over any `rA ≠ rB`, so it had to work for
+`rA < rB`, where `¬ range rB size rA` holds for every `size`. No choice of record size rescues it: an
+over-large record only reaches *upward*. That is the sense in which the regression fired for the right
+reason rather than by accident of the witness. -/
+theorem fixed_container_cannot_clobber_sibling {α : Type} {env : DecoderEnvironment}
+    {argsA argsB : ContainerArgs} {rep : ContainerRepresentation α} {recordSize : Nat}
+    {result : Except SszDecodeError α} {value : BitVec 8} {s1 s2 : State}
+    (outside : ¬ range argsB.resultBase recordSize argsA.resultBase)
+    (postB : postFixedContainer env argsB rep recordSize result s1 s2)
+    (established : bytePinned value argsA.base argsA.bytes () s1 argsA.resultBase) :
+    bytePinned value argsA.base argsA.bytes () s2 argsA.resultBase :=
+  no_sibling_clobber_under_ownership
+    (ownedSibling := allocatedRegion argsB.resultBase recordSize 0 0)
+    (fun h => h.elim outside (fun hint => absurd hint.2 (Nat.not_lt_zero _)))
+    postB.2.2.2.1 established
+
+/-- The refutation form, which is the shape a regression test wants: the exhibit's conclusion and the
+strengthened contract are jointly unsatisfiable.
+
+Compare `FrameGap.frame_gap_is_real`, which realises exactly this conjunction against the *historical*
+predicate. The two together are the before/after of the strengthening. -/
+theorem strengthened_contract_and_clobber_incompatible {α : Type} {env : DecoderEnvironment}
+    {argsA argsB : ContainerArgs} {rep : ContainerRepresentation α} {recordSize : Nat}
+    {result : Except SszDecodeError α} {value : BitVec 8} {s1 s2 : State} :
+    ¬ (¬ range argsB.resultBase recordSize argsA.resultBase ∧
+        postFixedContainer env argsB rep recordSize result s1 s2 ∧
+        bytePinned value argsA.base argsA.bytes () s1 argsA.resultBase ∧
+        ¬ bytePinned value argsA.base argsA.bytes () s2 argsA.resultBase) := by
+  rintro ⟨outside, postB, established, broken⟩
+  exact broken (fixed_container_cannot_clobber_sibling outside postB established)
+
+/-- **The exhibit's own run is now refuted, not merely unproven**, and the distinction is the whole
+value of this theorem.
+
+A strengthening that made `FrameGap.sibling_clobber_permitted` stop compiling would be consistent with
+the clause being unusable — "I could not reproduce the proof" is not "the situation is impossible". So
+the regression is recorded in the form that can only hold for the right reason: at the exhibit's own
+numbers (`rA = 0`, `rB = 1`) the conjunction it used to realise is **contradictory**, for every
+environment and every record size B could claim.
+
+`rA < rB` is what does it, and no record size rescues it, since a record only reaches upward from its
+base. `FrameGap.frame_gap_is_real` realises the same conjunction against the historical predicate, so
+the pair is a genuine before/after rather than two unrelated statements. -/
+theorem exhibit_run_is_refuted (env : DecoderEnvironment) (recordSizeB : Nat) :
+    ¬ ∃ (s1 s2 : State) (argsA argsB : ContainerArgs),
+        argsA.resultBase = 0 ∧ argsB.resultBase = 1 ∧
+        postFixedContainer env argsB (bytePinned 3) recordSizeB (.ok ()) s1 s2 ∧
+        bytePinned 7 argsA.base argsA.bytes () s1 argsA.resultBase ∧
+        ¬ bytePinned 7 argsA.base argsA.bytes () s2 argsA.resultBase := by
+  rintro ⟨s1, s2, argsA, argsB, hA, hB, postB, established, broken⟩
+  refine strengthened_contract_and_clobber_incompatible ⟨?_, postB, established, broken⟩
+  rw [hA, hB]
+  rintro ⟨hlo, _⟩
+  omega
+
+/-- **`outside` is necessary, and this is the check the abstract version could not run.** Drop it and
+the conclusion is false *for a contract-satisfying sibling*: a container whose own record covers A's
+byte may overwrite it and still satisfy `postFixedContainer` in full.
+
+`unowned_hypothesis_is_necessary` above makes the same point about an abstract region, where the
+counterexample is a sibling owning literally everything and is easy to dismiss as degenerate. Here the
+sibling is a two-byte record at address 0 that writes inside itself — the ordinary case, which is what
+makes the parent's placement obligation real rather than a formality. -/
+theorem outside_hypothesis_is_necessary :
+    ∃ (argsA argsB : ContainerArgs) (recordSize : Nat) (s1 s2 : State),
+      postFixedContainer FrameGap.gapEnv argsB (bytePinned 3) recordSize (.ok ()) s1 s2 ∧
+        bytePinned 7 argsA.base argsA.bytes () s1 argsA.resultBase ∧
+        ¬ bytePinned 7 argsA.base argsA.bytes () s2 argsA.resultBase := by
+  refine ⟨⟨0, ByteArray.empty, 0, 1⟩, ⟨0, ByteArray.empty, 0, 0⟩, 2,
+          { (default : State) with mem := (default : State).mem.insert 1 7 },
+          { (default : State) with
+            mem := (((default : State).mem.insert 1 7).insert 0 3).insert 1 0 },
+          ⟨?_, ?_, ?_, ?_, ?_⟩, ?_, ?_⟩
+  · intro index h; exact absurd h (by simp)
+  · intro a b h; exact absurd h (by rw [FrameGap.gapEnv_readFileByte]; simp)
+  · intro _ h; exact h.elim
+  · intro address houtside
+    have hlo : address ≠ 0 := by
+      intro heq
+      refine houtside (Or.inl ?_)
+      show (0 : Nat) ≤ address ∧ address < 0 + 2
+      omega
+    have hhi : address ≠ 1 := by
+      intro heq
+      refine houtside (Or.inl ?_)
+      show (0 : Nat) ≤ address ∧ address < 0 + 2
+      omega
+    show ((((default : State).mem.insert 1 7).insert 0 3).insert 1 0).get? address
+        = ((default : State).mem.insert 1 7).get? address
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg (fun heq => hhi heq.symm), if_neg (fun heq => hlo heq.symm)]
+  · show ((((default : State).mem.insert 1 7).insert 0 3).insert 1 0).get? 0 = some 3
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]
+    simp
+  · show ((default : State).mem.insert 1 7).get? 1 = some 7
+    simp [Std.ExtHashMap.get?_eq_getElem?]
+  · show ¬ ((((default : State).mem.insert 1 7).insert 0 3).insert 1 0).get? 1 = some 7
     simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]
     simp
 

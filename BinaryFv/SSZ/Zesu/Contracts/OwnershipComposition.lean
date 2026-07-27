@@ -8,21 +8,20 @@ promise (`WritesOnlyWithin`) and what a parent must discharge (disjointness). No
 them together over a *run*, which is the only thing that makes either useful: a parent does not face
 one sibling, it faces every sibling that executes after its child returns.
 
-## This module changes no contract, and that is the design rather than a limitation
+## The contracts now supply the clause
 
-`WritesOnlyWithin` is a fact about a callee, so wiring it looks like it needs a clause added to
-`postEntry`, `postAllocatingContainer`, `postCollection` or `postZesuDecodeRaw`. Those are reviewed
-contract meanings and are the human's call; they are untouched.
+This module used to say it changed no contract, and that the ownership promises were left as explicit
+hypotheses because `postEntry`, `postAllocatingContainer`, `postCollection` and `postZesuDecodeRaw`
+were reviewed meanings and the human's call. That call has since been made: `WritesOnlyWithinAllocation`
+lives in `Contracts/Environment.lean` and 17 of the 18 `post*` predicates carry it as a conjunct.
 
-Row D's existing style supplies the alternative. `root_compliance_of_local_contracts` takes
-`LocalContractAssumptions` as a *premise* rather than proving it. The same shape here: the ownership
-promises are **explicit hypotheses**, the theorems prove they suffice, and no contract moves.
+The theorems here are unchanged, and their shape is why the wiring was cheap when it came: the clause
+they consume is *the* clause, so what the contracts state is exactly what the composition eats —
+`siblingChain_of_writesOnlyWithinAllocation` is the join, and a mismatch would show up there.
 
-What that produces is more useful than the wiring would be. `WritesOnlyWithinAllocation` below is not
-a sketch of a clause — it is the exact predicate the composition theorems consume, so the question
-put to the human stops being "should the contracts be strengthened, in some shape" and becomes "here
-is the formula, here is the theorem that needs it, here is what it costs." A decision with its
-consequence attached.
+`root_compliance_of_local_contracts` still takes `LocalContractAssumptions` as a premise rather than
+proving it, which is what made the strengthening free today and is also why nothing here has yet been
+run against a real callee.
 
 ## The shape every container footprint already has
 
@@ -108,23 +107,19 @@ theorem witnessed_survives_chain {Witness : Type} {P : State → Prop} {region :
 
 /-! ## The clause, written once
 
-This is the whole of what a callee contract would have to add. It is stated here and consumed by the
-theorems below; **it is not added to any contract**, and `Contracts/Containers.lean`,
-`Contracts/Collections.lean` and `Contracts/Entry.lean` are unmodified. -/
+**This section is no longer hypothetical.** `WritesOnlyWithinAllocation` moved down to
+`Contracts/Environment.lean` and every `post*` predicate now carries it — `WritesOnlyWithinRecord`
+(the clause at an empty allocation interval) for the non-allocating routines,
+`DecoderEnvironment.WritesOnlyWithinOwnAllocation` for the allocating ones. The earlier wording here
+— "it is not added to any contract, and `Containers.lean`, `Collections.lean` and `Entry.lean` are
+unmodified" — described the state of the tree before that change and is retained nowhere.
 
-/-- **The exact clause.** A routine that produces a record at `recordBase` and allocates from
-`cursorBefore` to `cursorAfter` writes nowhere outside those two regions.
-
-Two things about its shape are worth stating, because both were arrived at rather than assumed:
-
-* **It is permission, not obligation.** A routine that writes nothing satisfies it for any region, so
-  the clause costs nothing to the leaves that only read.
-* **"Writes nowhere else" is the wrong shape and this is not it.** Any routine using scratch stack or
-  allocating would violate that. The allocation interval is in the region precisely so a real
-  allocator satisfies the clause. -/
-def WritesOnlyWithinAllocation (recordBase recordSize cursorBefore cursorAfter : Nat)
-    (before after : State) : Prop :=
-  WritesOnlyWithin (allocatedRegion recordBase recordSize cursorBefore cursorAfter) before after
+One thing that wording got **wrong** is worth keeping visible, because the correction is now baked
+into the contracts: it said an allocating routine "writes nowhere outside those two regions". A bump
+allocator also advances `ZKVM_HEAP_POS`, which is in neither region, so the two-region clause is false
+of every allocating routine in the decoder. `WritesOnlyWithinOwnAllocation` therefore adds
+`env.allocatorState`, and `siblingChain_of_writesOnlyWithinOwnAllocation` below is its join with the
+run. The clause still does not cover a callee's stack frame — see that definition's docstring. -/
 
 /-- The clause as a `SiblingStep`, which is the form the run consumes. -/
 def allocationStep (recordBase recordSize cursorBefore cursorAfter : Nat) (after : State) :
@@ -139,6 +134,36 @@ theorem siblingChain_of_writesOnlyWithinAllocation
       before after) :
     SiblingChain before [allocationStep recordBase recordSize cursorBefore cursorAfter after] :=
   ⟨clause, trivial⟩
+
+/-- A non-allocating routine's clause is the same step at an empty interval, so it needs no separate
+lemma — only the observation that `WritesOnlyWithinRecord` is definitionally the clause at `0 0`. -/
+theorem siblingChain_of_writesOnlyWithinRecord {recordBase recordSize : Nat} {before after : State}
+    (clause : WritesOnlyWithinRecord recordBase recordSize before after) :
+    SiblingChain before [allocationStep recordBase recordSize 0 0 after] :=
+  siblingChain_of_writesOnlyWithinAllocation clause
+
+/-- The allocating routine's step: its record, its arena interval, and the allocator's own state. -/
+def allocatingStep (env : DecoderEnvironment) (recordBase recordSize cursorBefore cursorAfter : Nat)
+    (after : State) : SiblingStep :=
+  (after, Region.union (allocatedRegion recordBase recordSize cursorBefore cursorAfter)
+    env.allocatorState)
+
+/-- **The join for an allocating callee.** The cursor pair is existential in the contract — the
+callee reports where the cursor was, it is not told — so the step it produces is existential too, and
+a parent that already knows the cursor values (from `postAlloc` or a `Runtime.CursorChain`) reads
+them off here rather than guessing.
+
+A parent consuming this owes disjointness against `env.allocatorState` as well as against the record
+and the interval. That is not extra work in practice — a representation that lived in the allocator's
+own state could not survive any allocation at all — but it is an extra conjunct, and it exists
+because the narrow clause was false rather than because the discipline wanted it. -/
+theorem siblingChain_of_writesOnlyWithinOwnAllocation {env : DecoderEnvironment}
+    {recordBase recordSize : Nat} {before after : State}
+    (clause : env.WritesOnlyWithinOwnAllocation recordBase recordSize before after) :
+    ∃ cursorBefore cursorAfter,
+      SiblingChain before [allocatingStep env recordBase recordSize cursorBefore cursorAfter after] :=
+  let ⟨cursorBefore, cursorAfter, _, _, writes⟩ := clause
+  ⟨cursorBefore, cursorAfter, writes, trivial⟩
 
 /-! ## The five containers
 
@@ -306,24 +331,38 @@ theorem allocation_clause_yields_a_real_step :
     rw [zeroBytes_outside (fun index hindex => by omega)]
     simp [Std.ExtHashMap.get?_eq_getElem?]
 
-/-! ## What the clause would cost
+/-! ## What the clause cost
 
-Counted rather than estimated, so the escalation carries a number the human can check.
+Counted rather than estimated, and now counted after the fact rather than before it.
 
 * **18 `post*` predicates** in `Contracts/`. The clause is a conjunct on `post`, so this is the
-  number of *places* it would be written.
-* **36 contract records** instantiate them, so that is the number of instantiation sites that would
-  have to supply the record base, record size and cursor pair — three of which each contract already
-  has in scope (`args.resultBase`, the ABI size, and `postAlloc`'s cursor pair).
-* **`contractAllocatorFree` needs nothing**: `Runtime.lean:285` already states an unrestricted total
-  frame, which implies the clause for every region. It is the one contract in the layer that does —
+  number of *places* it is written. 17 carry it; `postZesuDecodeRaw` does not, and its docstring says
+  why (its owned set is three separately-addressed globals, which the single-range shape cannot name,
+  and it has no siblings).
+* **37 post-supplying sites**, not 36. The earlier count came from `grep '^  post :='`, which sees 36
+  `FunctionContract` records and misses `ExportedDecoder.lean:280` — the exported wrapper supplies
+  `exit := postZesuDecodeRaw …` on a `FunctionInstanceContract`, whose binding field is named `exit`
+  rather than `post`. The number is fixed here rather than the grep.
+* **The record size was *not* already in scope**, contrary to the estimate. `args.resultBase` and
+  `postAlloc`'s cursor pair were; the ABI record size was in scope only for the options
+  (`env.optionalU64.size`), `readArray` (its `length`) and `memcpy` (`args.length`). The seven
+  containers and the entry had nothing, so `DecoderEnvironment` gained a `record : ResultRecordSizes`
+  field sourced from the manifest — a literal per contract site was rejected for the reason
+  `Artifact.AbiManifest` already gives about footprints, with the sign flipped: an over-large
+  permission weakens the clause and proves exactly as easily.
+* **`contractAllocatorFree` needs nothing**: `Runtime.lean` already states an unrestricted total
+  frame, which implies the clause for every region. It is the one contract in the layer that did —
   and it is also the proof that the vocabulary and the ability to state a frame were available here
-  all along, so the absence elsewhere is a choice or an oversight rather than a framework limit.
+  all along, so the absence elsewhere was a choice or an oversight rather than a framework limit.
 
-The obligation is **linear, not quadratic**, and that is the load-bearing fact for the cost. Each
-callee promises confinement to its own region — one clause per contract — and disjointness between
-two siblings is derived by the parent from `Footprint.allocatedRegion_disjoint_of_later`, not stated
-pairwise. Three of that lemma's four cases are placement facts the parent supplies and the fourth
-follows from cursor ordering; none of them is a clause in any contract. -/
+**On "linear, not quadratic" — true of the contracts, and only a quarter true of the discharge.**
+Each callee promises confinement to its own region, one clause per contract, and that side really is
+linear: 17 clauses, not 17² sibling pairs. But the parent's side is not free.
+`Footprint.allocatedRegion_disjoint_of_later` has **four** hypotheses, and only `ordered` comes from
+bump monotonicity. `records`, `recordBelowSibling` and `siblingRecordOutside` are placement facts the
+parent supplies **per sibling pair** — so three quarters of each pairwise discharge is parent work
+that no contract clause removes. `Footprint.lean`'s own docstring on that lemma says exactly this
+("sibling disjointness comes free from bump monotonicity is true of the **allocations** and not of
+the records"); the summary here used to contradict it, which is how the claim survived. -/
 
 end BinaryFv.SSZ.Zesu.Contracts.OwnershipComposition

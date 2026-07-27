@@ -69,10 +69,14 @@ def preCanonicalOffsets (env : DecoderEnvironment) (args : CanonicalOffsetsArgs)
   state.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) ∧
   state.regs.get? x12 = some (BitVec.ofNat 64 args.fixedSize)
 
-/-- The check reads only: it returns a status and disturbs nothing. -/
+/-- The check reads only: it returns a status and disturbs nothing.
+
+`CanonicalOffsetsArgs` has no result base — there is no record — so the ownership clause inside
+`LeafFrame` is taken at the empty region, which is the clause's strongest instance rather than its
+weakest. -/
 def postCanonicalOffsets (env : DecoderEnvironment) (args : CanonicalOffsetsArgs)
     (result : Except SszDecodeError Unit) (before after : State) : Prop :=
-  LeafFrame env args.base args.bytes before after ∧
+  LeafFrame env args.base args.bytes 0 0 before after ∧
   match result with
   | .ok () => after.regs.get? x10 = some (BitVec.ofNat 64 0)
   | .error error => error = SszDecodeError.invalidSsz

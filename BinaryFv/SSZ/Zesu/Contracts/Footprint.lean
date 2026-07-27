@@ -34,8 +34,9 @@ open BinaryFv.SSZ.Zesu.MemoryRepresentation
 open BinaryFv.SSZ.Zesu.Contracts.Ownership
 open BinaryFv.SSZ.Zesu.Contracts.RepresentationAudit
 
-/-- A half-open byte range, the shape every container footprint takes. -/
-def range (base size : Nat) : Region := fun address => base ≤ address ∧ address < base + size
+/-! `range`, `interval`, `Region.union` and `allocatedRegion` are **not** defined here any more.
+They moved down to `Contracts/Environment.lean` — unchanged — so the `post*` predicates can name the
+ownership clause; they resolve here by name from the enclosing `Contracts` namespace. -/
 
 /-- Determinacy relative to a region rather than to all of memory. `MemDetermined` is this at the
 universal region. -/
@@ -58,11 +59,11 @@ theorem memDeterminedOn_and {r : Region} {P Q : State → Prop}
 theorem memDeterminedOn_const {r : Region} {p : Prop} : MemDeterminedOn r (fun _ => p) :=
   fun _ _ _ h => h
 
-/-- Union of two regions. Needed under **either** footprint policy: a container's read set is not one
+/-! `Region.union` is needed under **either** footprint policy: a container's read set is not one
 contiguous range once heap arrays and borrowed input slices are involved — `RawV4Rep` touches the root
 allocation, ten separately-based heap arrays, a descriptor table and input-relative slices, and no
-choice of "tight" versus "record boundary" makes those contiguous. -/
-def Region.union (r1 r2 : Region) : Region := fun address => r1 address ∨ r2 address
+choice of "tight" versus "record boundary" makes those contiguous. It is defined in
+`Contracts/Environment.lean` with the rest of the ownership vocabulary. -/
 
 /-- **The assembly combinator.** Two claims, each determined on its own region, are jointly determined
 on the union — which is where a container footprint actually comes from.
@@ -615,12 +616,10 @@ allocator's implementation, and no extra hypothesis — which is why this works 
 footprint does not: ten sibling arrays all allocate from one arena and would all overlap, but their
 cursor intervals are pairwise disjoint by monotonicity alone. -/
 
-/-- A half-open cursor interval: the bytes one allocation consumed. -/
-def interval (before after : Nat) : Region := fun address => before ≤ address ∧ address < after
-
-/-- What a heap-allocated child owns: its record, plus what it allocated. -/
-def allocatedRegion (recordBase recordSize before after : Nat) : Region :=
-  Region.union (range recordBase recordSize) (interval before after)
+/-! `interval` (a half-open cursor interval: the bytes one allocation consumed) and `allocatedRegion`
+(what a heap-allocated child owns: its record, plus what it allocated) are defined in
+`Contracts/Environment.lean`, because the `post*` predicates now state the clause over
+`allocatedRegion`. -/
 
 /-- **Allocation intervals are disjoint when the first ends at or before the second begins.**
 

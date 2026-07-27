@@ -37,6 +37,30 @@ structure BlobScheduleLayout where
   baseFeeUpdateFractionOffset : Nat
   deriving DecidableEq, Repr
 
+/-- The size of the result record each routine family writes at its `resultBase`.
+
+The ownership clause below needs `range resultBase recordSize`, and the size is a Zig layout fact.
+It arrives here for the reason every other layout fact does: a size written inline in a contract
+would be an unchecked guess, and — because the clause is a *permission* — an over-large guess weakens
+it silently while proving exactly as easily. `Artifact.AbiManifest` records the same warning about
+footprints; it applies with the sign flipped here.
+
+`sliceDescriptor` is the Zig `[]T` descriptor (pointer + length) every collection publishes at its
+result base; it is the only entry that is not a named `ssz_raw.*` record. -/
+structure ResultRecordSizes where
+  forkActivation : Nat
+  forkConfig : Nat
+  chainConfig : Nat
+  executionRequests : Nat
+  executionWitness : Nat
+  executionPayload : Nat
+  newPayloadRequest : Nat
+  /-- The internal `decodeRaw`/`decode` result/error union written at `EntryArgs.resultBase`: the
+  `?RawStatelessInput` object, 832-byte payload plus discriminant. -/
+  entryResult : Nat
+  sliceDescriptor : Nat
+  deriving DecidableEq, Repr, Inhabited
+
 /-- The pinned facts every decoder contract is stated against. -/
 structure DecoderEnvironment where
   /-- The canonical loaded code image. Contracts assert it is unmodified; none of them names it. -/
@@ -57,6 +81,59 @@ structure DecoderEnvironment where
   optionalBlobSchedule : OptionLayout
   blobSchedule : BlobScheduleLayout
   optionalU64 : OptionLayout
+  /-- Result-record sizes, so the ownership clause names no literal. -/
+  record : ResultRecordSizes
+
+/-! ## Memory ownership vocabulary
+
+`Contracts.Ownership` and `Contracts.Footprint` are where this vocabulary is *used*, but they sit
+above every contract module in the import order, so the definitions live here — at the one point
+every `post*` predicate can see them. Those modules pick these up by name resolution from the
+enclosing `Contracts` namespace; there is exactly one definition of each.
+-/
+
+/-- A set of addresses. Kept as a predicate rather than a range because owned regions are not
+contiguous in general — a container owns its result buffer and whatever it allocated. -/
+abbrev Region := Nat → Prop
+
+def Region.union (r1 r2 : Region) : Region := fun address => r1 address ∨ r2 address
+
+/-- A half-open byte range, the shape every container record takes. -/
+def range (base size : Nat) : Region := fun address => base ≤ address ∧ address < base + size
+
+/-- A half-open cursor interval: the bytes one allocation consumed. -/
+def interval (before after : Nat) : Region := fun address => before ≤ address ∧ address < after
+
+/-- What a heap-allocated child owns: its record, plus what it allocated. -/
+def allocatedRegion (recordBase recordSize before after : Nat) : Region :=
+  Region.union (range recordBase recordSize) (interval before after)
+
+/-- **The callee's obligation:** every write lands inside `owned`.
+
+Note the direction. This is *not* "the routine writes all of `owned`" — it is permission, not
+requirement, so a routine that writes nothing satisfies it for any region. -/
+def WritesOnlyWithin (owned : Region) (before after : State) : Prop :=
+  ∀ address, ¬ owned address → after.mem.get? address = before.mem.get? address
+
+/-- **The exact clause the composition consumes.** A routine that produces a record at `recordBase`
+and allocates from `cursorBefore` to `cursorAfter` writes nowhere outside those two regions.
+
+`OwnershipComposition.siblingChain_of_writesOnlyWithinAllocation` turns one of these into a
+`SiblingChain` step; that is the only reason the clause has this exact shape rather than a bare
+`WritesOnlyWithin` at a hand-named region. -/
+def WritesOnlyWithinAllocation (recordBase recordSize cursorBefore cursorAfter : Nat)
+    (before after : State) : Prop :=
+  WritesOnlyWithin (allocatedRegion recordBase recordSize cursorBefore cursorAfter) before after
+
+/-- The clause a **non-allocating** routine carries: the allocation interval is empty, so the
+permission is exactly "writes only within my own result record".
+
+The empty interval is justified rather than assumed. Every routine carrying this also carries
+`env.NoAllocation`, and `cursor_eq_of_noAllocation` below turns that into `cursor? after =
+cursor? before` — the routine really did consume no arena, so an empty interval gives away nothing.
+Definitionally `WritesOnlyWithinAllocation … 0 0`, so the composition lemma applies unchanged. -/
+def WritesOnlyWithinRecord (recordBase recordSize : Nat) (before after : State) : Prop :=
+  WritesOnlyWithinAllocation recordBase recordSize 0 0 before after
 
 namespace DecoderEnvironment
 
@@ -95,6 +172,37 @@ theorem cursor_eq_of_noAllocation {env : DecoderEnvironment} {before after : Sta
   have h7 := hbytes 7 (by omega)
   simp only [Nat.add_zero] at h0
   rw [h0, h1, h2, h3, h4, h5, h6, h7]
+
+/-- The clause an **allocating** routine carries: its own result record, the arena interval its
+allocations consumed, **and the allocator's own mutable state**.
+
+*Why the cursor pair is read from the machine rather than taken as a ghost parameter.* An allocating
+container does not receive the cursor; it is a fact about the two states, and stating it as
+`env.cursor?` is what lets a caller line the interval up with `postAlloc`'s bounds — the same numbers,
+read the same way — instead of relating a ghost to a memory word.
+
+*Why `env.allocatorState` is in the region, and it is not slack.* `zesu_raw_alloc` advances
+`ZKVM_HEAP_POS`, which lies outside both `range recordBase recordSize` and
+`interval cursorBefore cursorAfter`. A clause omitting it would be **false of every allocating
+routine in the decoder**, not merely weak — and false clauses on an assumed hypothesis are how a
+conditional root goes vacuous. This corrects `OwnershipComposition`'s wording, which said an
+allocating routine "writes nowhere outside those two regions".
+
+*What it still does not cover, stated because it is the reason this is not yet dischargeable.* A
+compiled routine also writes its **stack frame**, and no contract here names one: `sp` is restored
+by the epilogue, so the frame is not recoverable from `before`/`after`, and a region large enough to
+contain any frame ("everything below the caller's `sp`") would swallow the arena and make the clause
+decorative. So this clause — like `WritesOnlyWithinRecord` — is currently *stronger* than the binary
+satisfies. It is consumed only through `LocalContractAssumptions`, which is assumed and proved
+nowhere, so nothing in the tree is broken today; the Rows E–I local proofs are where the stack region
+has to be added, and until it is, no local proof can discharge this. -/
+def WritesOnlyWithinOwnAllocation (env : DecoderEnvironment) (recordBase recordSize : Nat)
+    (before after : State) : Prop :=
+  ∃ cursorBefore cursorAfter,
+    env.cursor? before = some cursorBefore ∧ env.cursor? after = some cursorAfter ∧
+      WritesOnlyWithin
+        (Region.union (allocatedRegion recordBase recordSize cursorBefore cursorAfter)
+          env.allocatorState) before after
 
 /-- The loaded code and read-only constant data were not modified.
 
