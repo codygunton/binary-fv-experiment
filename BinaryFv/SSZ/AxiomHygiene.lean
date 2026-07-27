@@ -106,6 +106,93 @@ def rawIntermediateDoors : List Name :=
   [``BinaryFv.SSZ.Zesu.SpecCorrespondence.uint32LE_of_readUInt32LE,
    ``BinaryFv.SSZ.Zesu.SpecCorrespondence.readUInt32LE_uint32LE]
 
+/-- `forkActivation_footprint_abi` — the ownership discipline's footprint layer. Its single door is
+the ABI layout reflection, `native_decide` by design, the same one `container_field_offsets_valid`
+opens for the representation offsets.
+
+**Pinned before it is load-bearing, deliberately.** Nothing depends on this corollary yet, and none of
+the four older anchors reaches `Contracts/Footprint` — so without this entry a door opened here is
+invisible to the guard, and would stay invisible right up to the moment the discipline is wired into
+the real obligations. That moment is the *least* visible one available: the guard would have been
+green across the whole intervening period. Pinning now makes the transition to load-bearing a diff
+rather than a silence.
+
+The parametric `forkActivation_footprint_record` deliberately carries **no** door; only the
+manifest-instantiated form does. That split is what this pin records. -/
+def ownershipFootprintDoors : List Name :=
+  [``BinaryFv.SSZ.Zesu.Artifact.fork_activation_layout]
+
+/-- The chain footprints' door: the `forkConfig`/`chainConfig` layout reflection. Added under the
+same rule as `ownershipFootprintDoors` — **a module introducing a trust door gets an anchor when the
+door is introduced, not when it becomes load-bearing** — applied here without being asked, because a
+remedy that depends on being reminded inherits the failure it is meant to prevent. -/
+def chainFootprintDoors : List Name :=
+  [``BinaryFv.SSZ.Zesu.Artifact.fork_chain_config_layout]
+
+/-- `heapLayer_footprints_abi` — the heap layer's footprints. Its single door is
+`raw_v4_heap_element_sizes_valid`, the compiler-reflected element sizes, already `native_decide` by
+design for the guarded native observers.
+
+**One door, where the obvious drafting would have opened two.**
+`Artifact.heap_element_size_layout` derives the four sizes *from* that existing check instead of
+running a second `native_decide` asserting the same four facts. Two independent reflections of one
+manifest can drift; one cannot.
+
+**And one anchor covering the layer, not one theorem.** The anchor is a conjunction reaching all five
+manifest-derived footprints here, because an anchor only sees what its declaration reaches — the
+chain layer above already needed two anchors for one door, and that does not survive `RawV4Rep`.
+
+**The gap this shape inherits, named rather than left to be discovered.** A footprint added to the
+layer and *not* added to the conjunction is invisible to the guard: the anchor's coverage is the
+conjunction's cone, not the module's contents, and nothing forces the two to agree. So the
+conjunction is not a complete guard standing alone. What closes it is the per-layer rule already in
+force above: when such a sibling becomes load-bearing it enters the composition's cone, and the
+composition's entry point carries its own anchor, so the transition to load-bearing fires the guard
+rather than passing silently. **The conjunction is the right shape given that the entry-point anchor
+lands later — it is not a substitute for it.** -/
+def heapFootprintDoors : List Name :=
+  [``BinaryFv.SSZ.Zesu.Artifact.raw_v4_heap_element_sizes_valid]
+
+/-- `containerLayer_footprints_abi` — the allocating containers' footprints, all five including the
+root. **Three** doors: `allocating_container_sizes_valid` for the four container record boundaries,
+`raw_v4_heap_element_sizes_valid` for the element strides their regions are measured in, and
+`raw_stateless_input_layout` for the root record.
+
+**The guard refused this pin twice, and both times I was the one who was wrong.** First with one
+door: a container footprint spans the record *and* the heap arrays it points at, so it inherits the
+layer below. Then with two, when `RawV4Rep` landed and brought the root record size with it. Neither
+is subtle in hindsight and neither changes the axiom set, so nothing but the door check could have
+objected — which is the property this guard exists for, demonstrated twice in one sitting.
+
+Anchored at the layer conjunction. The coverage gap recorded under `heapFootprintDoors` applies here
+too: a footprint added to the layer and not to the conjunction is invisible until it enters the
+composition's cone. -/
+def containerFootprintDoors : List Name :=
+  [``BinaryFv.SSZ.Zesu.Artifact.allocating_container_sizes_valid,
+   ``BinaryFv.SSZ.Zesu.Artifact.raw_v4_heap_element_sizes_valid,
+   ``BinaryFv.SSZ.Zesu.Artifact.raw_stateless_input_layout]
+
+/-- `rawV4_survives_chain` — the ownership composition layer. **An empty door set, and that is the
+claim.**
+
+The layer is conditional: it takes the ownership promises and the root record size as premises and
+proves they suffice, so it appeals to the compiler nowhere. Pinning that as `[]` makes it checkable —
+the guard reports any door reachable from here as `unexpected`, so the day this layer picks up a
+`native_decide`, directly or through something it starts consuming, the build says so.
+
+It matters more here than elsewhere because **this layer is the artefact going to the human.** A
+conditional theorem that quietly acquired a compiler appeal would still be conditional and still be
+true, and no downstream axiom set would change — the one situation `#print axioms` cannot see and
+this guard can.
+
+**Coverage, stated rather than implied.** The anchor's cone is `rawV4_survives_chain`'s: the root
+corollary, `chain_agrees_on_region`, and the whole `Footprint` chain beneath them. It does **not**
+reach the four sibling corollaries or the satisfiability witnesses. That is the same gap recorded
+under `heapFootprintDoors`, and it is acceptable for the same reason plus one more: those four are
+the same three lines as the root's, so a door could only reach them through machinery this anchor
+already covers. -/
+def compositionDoors : List Name := []
+
 /-- `catalogSemanticObligations_of_oracleAgreement` — a single door, through the `u64` primitive.
 See the module docstring: the recorded provenance claimed two. -/
 def catalogObligationDoors : List Name :=
@@ -162,6 +249,15 @@ def anchors : List (Name × List Name) :=
    (``BinaryFv.SSZ.Zesu.Contracts.catalogSemanticObligations_of_oracleAgreement,
      catalogObligationDoors),
    (``BinaryFv.SSZ.Zesu.Elfling.Validation.sszComplianceObligations_of_residue, residueDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.Footprint.forkActivation_footprint_abi, ownershipFootprintDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.Footprint.localTo_canonicalRepChainConfig_record,
+     chainFootprintDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.Footprint.localTo_canonicalRepForkConfig_record,
+     chainFootprintDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.Footprint.heapLayer_footprints_abi, heapFootprintDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.Footprint.containerLayer_footprints_abi,
+     containerFootprintDoors),
+   (``BinaryFv.SSZ.Zesu.Contracts.OwnershipComposition.rawV4_survives_chain, compositionDoors),
    (``BinaryFv.SSZ.root_compliance, rootDoors)]
 
 run_cmd do
