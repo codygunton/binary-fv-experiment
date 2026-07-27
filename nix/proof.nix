@@ -427,28 +427,31 @@ COMPAT
       exit 1
     fi
 
-    # Exactly two SSZ scaffolds are authorized. Keep the check declaration-scoped by pinning both
-    # the file and the count; all helper proofs remain sorry-free.
+    # Exactly ONE SSZ hole is authorized. Keep the check declaration-scoped by pinning both the file
+    # and the count; all helper proofs remain sorry-free.
     #
-    # The SSZ two are the live-trace obligations in `Entrypoints/ZesuDecodeRaw/Execution.lean`:
-    # producing a complete run of the wrapper from a spec acceptance, and from a spec rejection.
+    # The one is `assumedAllLocalContracts` in `SSZ/Root.lean`: the 141 per-function-instance local
+    # trace obligations, assumed as a single premise. `root_compliance_of_local_contracts` proves the
+    # whole compliance claim from it and carries no `sorry` at all -- checked semantically by
+    # `BinaryFv/SSZ/AxiomHygiene.lean`, and independently by `BinaryFv/SSZ/DependencyReport.lean`,
+    # which walks the root's proof term and reports the seam as exactly this one declaration.
     #
-    # `SSZ/Root.lean` is deliberately NOT on this allowlist any more. It used to hold two scaffolds
-    # bridging a trace witness to the public API; Row D's runner made that bridge a real proof
-    # (`executeDecode_accepted_of_run` / `executeDecode_rejected_of_run`), so the root now derives
-    # its two lemmas and contains no `sorry` at all. Dropping the file from the allowlist rather than
-    # setting its count to zero is the stricter choice: a future `sorry` there fails as *unexpected*
-    # instead of silently fitting under a budget.
+    # `Entrypoints/ZesuDecodeRaw/Execution.lean` is deliberately NOT on this allowlist any more. It
+    # used to hold the two live-run scaffolds; `Entrypoints/ZesuDecodeRaw/Assembly.lean` now proves
+    # both runs from the local contracts, so the scaffolds are DELETED rather than weakened -- keeping
+    # them would leave a second, unconditional route to the root, which a reader cannot distinguish
+    # from progress. Dropping the file from the allowlist rather than setting its count to zero is the
+    # stricter choice: a future `sorry` there fails as *unexpected* instead of fitting under a budget.
     sorrySites=$(grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/ || true)
     unexpectedSorries=$(printf '%s\n' "$sorrySites" | grep -v -E \
-      '^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:[0-9]+:.*sorry$' \
+      '^BinaryFv/SSZ/Root\.lean:[0-9]+:.*sorry$' \
       || true)
     if [ -n "$unexpectedSorries" ]; then
-      echo "Only the declaration-allowlisted SSZ live-trace scaffolds may contain sorry." >&2
+      echo "Only the declaration-allowlisted SSZ local-contracts assumption may contain sorry." >&2
       echo "$unexpectedSorries" >&2
       exit 1
     fi
-    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
+    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Root\.lean:')" = 1
 
     # Validation-import guard. The Row B `Validation/` modules are falsification evidence, never proof
     # premises: no file OUTSIDE `Validation/` may import one, so no root theorem (nor the `BinaryFv`
