@@ -527,6 +527,14 @@ COMPAT
     # sequence the fixture requires (`arm_ledgers_hold`, `allocating_function_instances_match_expected_ledger`);
     # and that mutating the sampled evidence — a derived row's index/stride/constant/register, or the
     # ledger's event count, order, size, alignment or returned block — flips the responsible check.
+    #
+    # It also carries the two exit-departure mutations, which matter more than their size suggests:
+    # `negative_undeclared_exit` (a declared exit removed) and `negative_returning_call_declared_exit`
+    # (a call site that was OBSERVED to come back, declared as an exit anyway). The second is the
+    # kernel-checked refusal of the over-declaration that made the root theorem **vacuous** until
+    # `112b2ca` — every resolved call site counted as an exit, so a `FunctionTrace` had to halt at its
+    # caller's first call, where the postcondition is false. It needs its own conjunct because that
+    # mutation only *grows* `exits`, which leaves the other two departure checks true.
     # Coverage is per function instance, gaps explicit.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.ScaleFunctionInstanceCheck
