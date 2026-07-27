@@ -395,24 +395,34 @@ COMPAT
 
     export HOME="$TMPDIR/home"
 
-    # Layer audit. The RISC-V and Binary layers are generic over the binary under analysis; a
-    # dependency on the SSZ target would make them a lie. A docstring cannot enforce this, so audit
+    # Layer audit. Every layer except the SSZ target is generic over the binary under analysis; a
+    # dependency on the SSZ target would make that a lie. A docstring cannot enforce this, so audit
     # the import graph: no generic module may import the target umbrella or anything beneath it.
     # Prose that motivates a generic rule by naming the Zesu artifact is not a dependency and is
     # deliberately not matched -- the violation is the import, not the spelling.
-    layerViolations=$(grep -rn "^import BinaryFv\.SSZ" BinaryFv/RiscV/ BinaryFv/Binary/ \
-      BinaryFv/RiscV.lean BinaryFv/Binary.lean 2>/dev/null || true)
+    #
+    # Scoped by EXCLUSION, deliberately. The obvious phrasing lists the generic directories
+    # (`BinaryFv/RiscV/ BinaryFv/Binary/`), and that list happens to equal "everything but SSZ"
+    # only because of today's layout: a generic layer added tomorrow under any new directory would
+    # escape the audit silently, and the audit would keep reporting success. Defining the generic
+    # layers as `BinaryFv/` minus the target makes new directories covered by construction. This
+    # matters more since the Keccak target was removed -- a second target used to make cross-target
+    # leakage visible another way, and that redundancy is gone.
+    layerViolations=$(grep -rn --include='*.lean' "^import BinaryFv\.SSZ" BinaryFv/ 2>/dev/null \
+      | grep -v -E "^BinaryFv/(SSZ/|SSZ\.lean:)" || true)
     if [ -n "$layerViolations" ]; then
-      echo "Layer violation: the RISC-V/Binary layers must not import the SSZ target." >&2
+      echo "Layer violation: only the SSZ target may import the SSZ target." >&2
       echo "$layerViolations" >&2
       exit 1
     fi
 
     # The approved fixed-artifact native_decide exception covers closed facts about the pinned ELF.
     # Those are SSZ-target facts by construction, so no generic module may use native_decide.
-    nativeInGeneric=$(grep -rn "native_decide" BinaryFv/RiscV/ BinaryFv/Binary/ 2>/dev/null || true)
+    # Scoped by exclusion for the same reason as the layer audit above.
+    nativeInGeneric=$(grep -rn --include='*.lean' "native_decide" BinaryFv/ 2>/dev/null \
+      | grep -v -E "^BinaryFv/(SSZ/|SSZ\.lean:)" || true)
     if [ -n "$nativeInGeneric" ]; then
-      echo "native_decide is not permitted in the generic RISC-V/Binary layers." >&2
+      echo "native_decide is not permitted outside the SSZ target." >&2
       echo "$nativeInGeneric" >&2
       exit 1
     fi
