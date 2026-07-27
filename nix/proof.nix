@@ -623,6 +623,12 @@ COMPAT
     # pass is indistinguishable from a check that cannot pass.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.ContractGroundTruth
+    groundTruthActual="$TMPDIR/CONTRACT_GROUND_TRUTH.md"
+    lake env lean tools/emit_ground_truth_report.lean > "$groundTruthActual"
+    if ! diff -u targets/ssz/zesu/trace/CONTRACT_GROUND_TRUTH.md "$groundTruthActual"; then
+      echo "Contract-ground-truth report drifted; review and apply the diff above." >&2
+      exit 1
+    fi
     touch "$out"
   '';
 
@@ -681,7 +687,7 @@ COMPAT
   '';
 
   # Row B full differential in CI: the pinned oracle runner and the host source probe must both agree
-  # with the corpus expectation, and with each other, on ALL 49 cases — including the ~1 MiB collision
+  # with the corpus expectation, and with each other, on ALL 57 cases — including the ~1 MiB collision
   # fixtures that `native_decide` omits. This closes the oracle-side residual that the kernel check
   # leaves open on the large cases (see DECISIONS.md); the value fidelity of those cases stays covered
   # by the preserved three-way `ssz-value-v1` audit.

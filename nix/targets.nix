@@ -441,13 +441,26 @@ let
     gen() {
       python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; }} \
         --fixtures ${builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; }} \
-        --out "$1"
+        --out "$1.jsonl" \
+        --out-lean "$1.lean"
     }
-    gen run1.jsonl
-    gen run2.jsonl
+    gen run1
+    gen run2
     cmp -s run1.jsonl run2.jsonl \
       || { echo "CORPUS NON-DETERMINISTIC: contract corpus differs between two runs" >&2; exit 1; }
+    cmp -s run1.lean run2.lean \
+      || { echo "CORPUS NON-DETERMINISTIC: generated Lean corpus differs between two runs" >&2; exit 1; }
+    cmp -s run1.lean ${builtins.path {
+      path = repo + "/BinaryFv/SSZ/Zesu/Validation/GeneratedCorpus.lean";
+      name = "GeneratedCorpus.lean";
+    }} \
+      || { echo "DRIFT: committed GeneratedCorpus.lean differs from --out-lean; regenerate it" >&2; \
+           diff -u ${builtins.path {
+             path = repo + "/BinaryFv/SSZ/Zesu/Validation/GeneratedCorpus.lean";
+             name = "GeneratedCorpus.lean";
+           }} run1.lean >&2; exit 1; }
     cp run1.jsonl "$out/corpus.jsonl"
+    cp run1.lean "$out/GeneratedCorpus.lean"
     printf 'cases=%s (byte-identical across two runs)\n' "$(wc -l < run1.jsonl)" | tee "$out/summary.txt"
   '';
 

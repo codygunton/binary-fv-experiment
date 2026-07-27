@@ -369,6 +369,11 @@ def layout(data: bytes) -> dict[str, int]:
 
 def cases() -> list[Case]:
     basic = make_v4()
+    blob_schedule_absent = make_v4(chain_bytes=chain_config(blob_schedule=None))
+    activation = fork_activation(None, 0)
+    short_blob_schedule = u64(22) + u64(23)
+    fork = u64(20) + u32(16) + u32(16 + len(activation)) + activation + short_blob_schedule
+    malformed_blob_schedule = make_v4(chain_bytes=u64(1) + u32(12) + fork)
     empty = make_v4(
         payload_kwargs={"extra_data": b"", "transactions": (), "withdrawals": (), "block_access_list": b""},
         versioned_hashes=b"",
@@ -391,6 +396,7 @@ def cases() -> list[Case]:
 
     malformed: list[Case] = [
         Case("bad-schema-id", b"\x00\x02" + basic[2:], False),
+        Case("blob-schedule-malformed-length", malformed_blob_schedule, False),
         Case("truncated", basic[:-1], False),
         Case("ere-declared-length-mismatch", u32(len(basic) + 1) + basic, False),
         Case("top-first-offset-inside-fixed", set_u32(basic, 2, 1), False),
@@ -500,6 +506,7 @@ def cases() -> list[Case]:
         Case("valid-v4-raw", basic, True),
         Case("valid-v4-ere", u32(len(basic)) + basic, True),
         Case("valid-v4-empty-variable-lists", empty, True),
+        Case("valid-v4-blob-schedule-absent", blob_schedule_absent, True),
         Case("valid-v4-rich-raw", rich, True),
         Case("valid-v4-rich-ere", u32(len(rich)) + rich, True),
         Case("raw-ere-prefix-collision", collision, True),
