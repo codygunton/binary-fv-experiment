@@ -211,11 +211,13 @@ ABI arguments — they name what the shared globals already hold.
 
 /-- `zesu_raw_error` returns the recorded 32-bit status held in the decoder globals.
 
-The two callee-frame clauses — `ra` preserved and `NormalExecutionState after` — are explained once
-in `Contracts.ExportedDecoder`'s "The callee-frame clauses" note; they are here for the same reason
-they are on the wrapper, and they are true of this routine for a sharper reason than of the wrapper:
-the compiled `zesu_raw_error` is three instructions, a leaf with no prologue and no store, so it
-cannot touch `ra` or any CSR at all. -/
+The two callee-frame clauses — `Agree platformPreserved` and `RetiredCounterPresent after` — are
+explained once in `Contracts.ExportedDecoder`'s "The callee-frame clauses" note; they are here for
+the same reason they are on the wrapper, and the frame clause is true of this routine for a sharper
+reason than of the wrapper: the compiled `zesu_raw_error` is three instructions, a leaf with no
+prologue and no store, so it cannot touch `ra` or any CSR at all. The counter clause is not sharper
+here — three retired instructions move `minstret` exactly as the wrapper's thousands do, which is why
+it is presence rather than preservation. -/
 def postRawError (env : DecoderEnvironment) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
@@ -224,8 +226,8 @@ def postRawError (env : DecoderEnvironment) (model : DecoderGlobalsModel)
   -- compiled accessor writes, which is the difference between a strong clause and an unsatisfiable
   -- one.
   env.WritesOnlyWithinOwnRecord 0 0 before after ∧
-  after.regs.get? x1 = before.regs.get? x1 ∧
-  NormalExecutionState after ∧
+  Agree platformPreserved before after ∧
+  RetiredCounterPresent after ∧
   match result with
   | .ok code => code = model.status.code ∧ after.regs.get? x10 = some (BitVec.ofNat 64 code)
   | .error _ => False
@@ -249,8 +251,8 @@ def postRawResult (env : DecoderEnvironment) (resultBuffer : Nat) (model : Decod
   -- Returns the *address* of the stored result and produces no record: the clause is at the empty
   -- record even though `resultBuffer` is in scope, so it permits nothing but the stack frame.
   env.WritesOnlyWithinOwnRecord 0 0 before after ∧
-  after.regs.get? x1 = before.regs.get? x1 ∧
-  NormalExecutionState after ∧
+  Agree platformPreserved before after ∧
+  RetiredCounterPresent after ∧
   match result with
   | .ok pointer =>
       pointer = (if model.stored.isSome then resultBuffer else 0) ∧

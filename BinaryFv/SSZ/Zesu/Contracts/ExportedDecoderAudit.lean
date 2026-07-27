@@ -138,76 +138,52 @@ theorem stored_object_unchanged_after_second_call (globals : DecoderGlobalsLayou
     StoredResultRep globals rep inputBase input resultBase incoming state := by
   rwa [(second_call_is_alreadyDecoded incoming result h).2.2.2] at hrep
 
-/-! ## `NormalExecutionState` transports to an exit state
-
-`ExportedDecoder`'s callee-frame note asserts `NormalExecutionState after`, and the only place the
-tree establishes that predicate at all is `EntryBinding.configure_runs`, at the state the runner
-*builds*. Those are not the same claim, and the gap between them is exactly this lemma: the predicate
-reads twelve platform registers and nothing else, so it survives any step that leaves those twelve
-alone — every memory write, and every write to a general-purpose register or program counter.
-
-Stated with `Agree`, which is the register half of `RiscV/Elfling/Contract.lean`'s `CalleeFrame`.
-That is the reuse question answered in the affirmative for one half; the other half is answered in
-the negative at the end of this file. -/
-
-/-- The twelve registers `NormalExecutionState` reads. -/
-def platformRegisters : Register → Prop := fun r =>
-  r = hart_state ∨ r = cur_privilege ∨ r = satp ∨ r = mideleg ∨ r = mie ∨ r = mip ∨
-    r = pmpcfg_n ∨ r = pmpaddr_n ∨ r = mcountinhibit ∨ r = minstretcfg ∨ r = elp ∨ r = misa
-
-/-- **`NormalExecutionState` transports across any step that preserves the twelve platform
-registers.** This is what carries the predicate from the state where it is established to the `after`
-state the three postconditions assert it of. -/
-theorem normalExecutionState_of_agree {before after : State}
-    (agree : Agree platformRegisters before after) (h : NormalExecutionState before) :
-    NormalExecutionState after := by
-  obtain ⟨hhart, hpriv, hsatp, hmideleg, hmie, hmip, hpmpcfg, hpmpaddr, hinhibit, hcfg, help,
-    hmisa⟩ := h
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?misa⟩
-  case misa =>
-    rw [agree misa (by simp [platformRegisters])]
-    exact hmisa
-  all_goals
-    first
-      | (rw [agree hart_state (by simp [platformRegisters])]; exact hhart)
-      | (rw [agree cur_privilege (by simp [platformRegisters])]; exact hpriv)
-      | (rw [agree satp (by simp [platformRegisters])]; exact hsatp)
-      | (rw [agree mideleg (by simp [platformRegisters])]; exact hmideleg)
-      | (rw [agree mie (by simp [platformRegisters])]; exact hmie)
-      | (rw [agree mip (by simp [platformRegisters])]; exact hmip)
-      | (rw [agree pmpcfg_n (by simp [platformRegisters])]; exact hpmpcfg)
-      | (rw [agree pmpaddr_n (by simp [platformRegisters])]; exact hpmpaddr)
-      | (rw [agree mcountinhibit (by simp [platformRegisters])]; exact hinhibit)
-      | (rw [agree minstretcfg (by simp [platformRegisters])]; exact hcfg)
-      | (rw [agree elp (by simp [platformRegisters])]; exact help)
-
 /-! ## The callee-frame clauses, exhibited
 
-`postZesuDecodeRaw`, `postRawResult` and `postRawError` each gained `after.regs.get? x1 =
-before.regs.get? x1` and `NormalExecutionState after`. They are consumed only through the **assumed**
+`postZesuDecodeRaw`, `postRawResult` and `postRawError` each carry `Agree platformPreserved before
+after` and `RetiredCounterPresent after`. They are consumed only through the **assumed**
 `LocalContractAssumptions`, so the build stays green whatever they say — which is precisely why the
 build is not evidence. This row has already had one clause approved on that reasoning turn out to be
 *false* of every allocating routine, and a false conjunct inside an assumed hypothesis makes the root
 vacuous rather than merely under-specified.
 
-So each strengthened predicate gets a run here that satisfies it, and then **two** clobbering runs
-that the unstrengthened predicate accepted and the strengthened one refuses — one per clause, because
-a single run breaking both would leave each refutation derivable from the other clause and so would
-test neither. The clobbers are what stop a redundant clause from looking exactly like a load-bearing
-one: satisfiability alone would prove just as easily if the clauses said nothing.
+So each strengthened predicate gets a run here that satisfies it, and then **four** clobbering runs
+that the predicate refuses. One run breaking everything at once would prove less than it appears to:
+every refutation would be discharged from every other clause, so none would be tested. Each clobber
+below therefore disturbs exactly one register and leaves the rest of the frame intact.
+
+The four are one per distinguishable capability of the clause:
+
+| clobber | register | what it tests |
+| --- | --- | --- |
+| `raClobberRegs` | `x1` | the callee returned to the wrong address |
+| `platformClobberRegs` | `mie` | it came back with interrupts enabled — a `NormalExecutionState` register |
+| `fetchClobberRegs` | `pma_regions` | one of the **five** `NormalExecutionState` never mentioned, at its *value*, which is the form `FetchPmaAllows` consumes |
+| `mmioClobberRegs` | `htif_tohost_base` | the MMIO dispatch's only register — the one whose coverage was not obvious from `FetchMemoryNoMMIO`'s shape |
+
+The last two are the ones that make this change have content. The clause it replaced was
+`after.regs.get? x1 = before.regs.get? x1 ∧ NormalExecutionState after`, written down here as
+`postRawErrorTwoClause` and `postZesuDecodeRawTwoClause` so that "the previous form permitted this
+run" is a checkable statement rather than a claim about what the source used to say. Both clobbers
+satisfy that previous form — so it **permitted** a callee that rewrote the PMA table or turned on the
+HTIF window under its caller, and the exit `ret` would then have been unprovable at a state the
+contract certified. `accessor_fetch_and_mmio_clobbers_permitted_by_the_old_pair` and its wrapper
+counterpart say exactly that.
 
 The three `post*_eq_historical_and_clauses` equivalences close the loop by proving that each
-`…Historical` predicate is the live one *minus exactly these two conjuncts*, so "all the old
-conjuncts hold, the other new one holds, and the strengthened predicate fails" identifies which
-clause did the refusing rather than leaving it to be read off the source.
+`…Historical` predicate is the live one *minus exactly these two conjuncts*, so a refutation
+identifies which clause did the refusing rather than leaving it to be read off the source.
 
 The runs are shaped like the routines they stand for rather than doing nothing. Each writes its stack
 frame — a routine that touched no memory would satisfy the memory clauses for a reason having nothing
-to do with these two — and the wrapper's additionally writes the two decoder globals a rejected
-decode really writes. Deliberately the *rejection* path: it is a real path of the real wrapper, and
-its stored-result arm is `True`, so the witness holds for **every** container representation rather
-than for a convenient one. The success arm would additionally have to realise a `RawV4` in memory,
-which is orthogonal to the two clauses under test.
+to do with these clauses — and **advances `minstret`**, which every retired instruction does. That
+last detail is load-bearing in the other direction: it is what makes a future edit that folds the
+retired counter into `platformPreserved` fail here instead of silently making all three
+postconditions false. The wrapper's run additionally writes the two decoder globals a rejected decode
+really writes. Deliberately the *rejection* path: it is a real path of the real wrapper, and its
+stored-result arm is `True`, so the witness holds for **every** container representation rather than
+for a convenient one. The success arm would additionally have to realise a `RawV4` in memory, which
+is orthogonal to the clauses under test.
 -/
 
 namespace CalleeFrameExhibit
@@ -267,6 +243,14 @@ def calleeFrameGlobals : DecoderGlobalsLayout where
 preservation, and naming a *particular* value here would be the mistake the contract avoids. -/
 def calleeLink : BitVec 64 := BitVec.ofNat 64 4660
 
+/-! ### The register files
+
+Three layers, because each is doing a different job. `normalRegs` is the twelve
+`NormalExecutionState` demands plus `x1`. `machineRegs` adds the six a retiring `ret` reads that
+`NormalExecutionState` never mentions — the five plus the HTIF base. `returnedRegs` is what a
+well-behaved callee hands back: `machineRegs` with a return value in `a0` and the retired counter
+advanced. -/
+
 /-- The twelve platform registers at the values `NormalExecutionState` demands, plus `x1`. -/
 def normalRegs (ra : BitVec 64) : Std.ExtDHashMap Register RegisterType :=
   (default : State).regs
@@ -311,49 +295,259 @@ theorem normalRegs_normal (ra : BitVec 64) :
       unfold normalRegs
       simp [Std.ExtDHashMap.get?_insert]
 
+/-- The retired-instruction counter as the caller left it. -/
+def retiredBefore : BitVec 64 := BitVec.ofNat 64 7
+
+/-- …and after the callee ran. Different, deliberately: see `returnedRegs`. -/
+def retiredAfter : BitVec 64 := BitVec.ofNat 64 10
+
+/-- `normalRegs` plus the six registers a retiring `ret` reads that `NormalExecutionState` never
+mentions: `minstret`, `mstatus`, `sig_meip`, `pma_regions`, `mseccfg`, and the HTIF base its MMIO
+dispatch consults. The values are arbitrary-but-fixed — the clause under test is agreement, so a
+witness that pinned *meaningful* values would be exercising something else. -/
+def machineRegs (ra : BitVec 64) : Std.ExtDHashMap Register RegisterType :=
+  (normalRegs ra)
+    |>.insert minstret retiredBefore
+    |>.insert mstatus (0 : BitVec 64)
+    |>.insert sig_meip (0 : BitVec 1)
+    |>.insert pma_regions ([] : List PMA_Region)
+    |>.insert mseccfg (0 : BitVec 64)
+    |>.insert htif_tohost_base (none : Option physaddrbits)
+
+/-- **The register file a well-behaved callee hands back**: the caller's whole platform frame, the
+return value in `a0`, and `minstret` *advanced*.
+
+The advance is not decoration. The machine writes `minstret` on every retirement, so a witness that
+left it alone would be a witness for a routine that executed nothing — and, worse, it would satisfy a
+`platformPreserved` that wrongly included the counter, hiding the fact that such a clause is false of
+every real routine. With the advance in place, adding `minstret` to `platformPreserved` breaks
+`raw_error_run_satisfies_the_clauses` rather than passing quietly. -/
+def returnedRegs (code : Nat) : Std.ExtDHashMap Register RegisterType :=
+  ((machineRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert minstret retiredAfter
+
+theorem machineRegs_x1 (ra : BitVec 64) : (machineRegs ra).get? x1 = some ra := by
+  unfold machineRegs
+  simp [Std.ExtDHashMap.get?_insert, normalRegs_x1]
+
+theorem machineRegs_pmaRegions (ra : BitVec 64) :
+    (machineRegs ra).get? pma_regions = some ([] : List PMA_Region) := by
+  unfold machineRegs
+  simp [Std.ExtDHashMap.get?_insert]
+
+theorem machineRegs_htifBase (ra : BitVec 64) :
+    (machineRegs ra).get? htif_tohost_base = some (none : Option physaddrbits) := by
+  unfold machineRegs
+  simp
+
+theorem machineRegs_minstret (ra : BitVec 64) :
+    (machineRegs ra).get? minstret = some retiredBefore := by
+  unfold machineRegs
+  simp [Std.ExtDHashMap.get?_insert]
+
+/-- The six extra writes touch none of `NormalExecutionState`'s twelve, so the bigger register file is
+still a normal machine. -/
+theorem machineRegs_normal (ra : BitVec 64) :
+    NormalExecutionState { (default : State) with regs := machineRegs ra } := by
+  refine normalExecutionState_of_agree (before := { (default : State) with regs := normalRegs ra })
+    ?_ (normalRegs_normal ra)
+  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;>
+    · show (machineRegs ra).get? _ = (normalRegs ra).get? _
+      unfold machineRegs
+      simp [Std.ExtDHashMap.get?_insert]
+
+/-- **The callee returned the whole frame.** Eighteen registers, checked one at a time. -/
+theorem returnedRegs_agree (code : Nat) :
+    ∀ r : Register, platformPreserved r →
+      (returnedRegs code).get? r = (machineRegs calleeLink).get? r := by
+  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl) <;>
+    · show (((machineRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert minstret
+        retiredAfter).get? _ = (machineRegs calleeLink).get? _
+      simp [Std.ExtDHashMap.get?_insert]
+
+theorem returnedRegs_x10 (code : Nat) :
+    (returnedRegs code).get? x10 = some (BitVec.ofNat 64 code) := by
+  unfold returnedRegs
+  simp [Std.ExtDHashMap.get?_insert]
+
+theorem returnedRegs_minstret (code : Nat) :
+    (returnedRegs code).get? minstret = some retiredAfter := by
+  unfold returnedRegs
+  simp
+
+/-- **The retired counter moved**, which is why the contract asks for its presence rather than its
+preservation. -/
+theorem returnedRegs_minstret_moved (code : Nat) :
+    (returnedRegs code).get? minstret ≠ (machineRegs calleeLink).get? minstret := by
+  rw [returnedRegs_minstret, machineRegs_minstret]
+  show ¬ (some retiredAfter = some retiredBefore)
+  simp [retiredAfter, retiredBefore]
+
+/-! ### The four clobbered register files
+
+Each disturbs exactly one register of the frame and leaves the other seventeen alone. That is what
+makes each refutation below a statement about the register it names. -/
+
+/-- A callee that returns to the wrong address. -/
+def raClobberRegs (code : Nat) : Std.ExtDHashMap Register RegisterType :=
+  (returnedRegs code).insert x1 (BitVec.ofNat 64 5)
+
+/-- A callee that comes back with interrupts enabled — a `NormalExecutionState` register. -/
+def platformClobberRegs (code : Nat) : Std.ExtDHashMap Register RegisterType :=
+  (returnedRegs code).insert mie (1 : BitVec 64)
+
+/-- A callee that rewrites the PMA table. `NormalExecutionState` says nothing about `pma_regions`,
+and `FetchPmaAllows` reads it at its *value*. -/
+def fetchClobberRegs (code : Nat) : Std.ExtDHashMap Register RegisterType :=
+  (returnedRegs code).insert pma_regions [(default : PMA_Region)]
+
+/-- A callee that turns on the HTIF window under its caller — the one register the MMIO dispatch
+reads. -/
+def mmioClobberRegs (code : Nat) : Std.ExtDHashMap Register RegisterType :=
+  (returnedRegs code).insert htif_tohost_base (some (0 : physaddrbits))
+
+theorem raClobberRegs_x10 (code : Nat) :
+    (raClobberRegs code).get? x10 = some (BitVec.ofNat 64 code) := by
+  unfold raClobberRegs
+  simp [Std.ExtDHashMap.get?_insert, returnedRegs_x10]
+
+theorem platformClobberRegs_x10 (code : Nat) :
+    (platformClobberRegs code).get? x10 = some (BitVec.ofNat 64 code) := by
+  unfold platformClobberRegs
+  simp [Std.ExtDHashMap.get?_insert, returnedRegs_x10]
+
+theorem fetchClobberRegs_x10 (code : Nat) :
+    (fetchClobberRegs code).get? x10 = some (BitVec.ofNat 64 code) := by
+  unfold fetchClobberRegs
+  simp [Std.ExtDHashMap.get?_insert, returnedRegs_x10]
+
+theorem mmioClobberRegs_x10 (code : Nat) :
+    (mmioClobberRegs code).get? x10 = some (BitVec.ofNat 64 code) := by
+  unfold mmioClobberRegs
+  simp [Std.ExtDHashMap.get?_insert, returnedRegs_x10]
+
+theorem raClobberRegs_minstret (code : Nat) :
+    (raClobberRegs code).get? minstret = some retiredAfter := by
+  unfold raClobberRegs
+  simp [Std.ExtDHashMap.get?_insert, returnedRegs_minstret]
+
+theorem platformClobberRegs_minstret (code : Nat) :
+    (platformClobberRegs code).get? minstret = some retiredAfter := by
+  unfold platformClobberRegs
+  simp [Std.ExtDHashMap.get?_insert, returnedRegs_minstret]
+
+theorem fetchClobberRegs_minstret (code : Nat) :
+    (fetchClobberRegs code).get? minstret = some retiredAfter := by
+  unfold fetchClobberRegs
+  simp [Std.ExtDHashMap.get?_insert, returnedRegs_minstret]
+
+theorem mmioClobberRegs_minstret (code : Nat) :
+    (mmioClobberRegs code).get? minstret = some retiredAfter := by
+  unfold mmioClobberRegs
+  simp [Std.ExtDHashMap.get?_insert, returnedRegs_minstret]
+
+/-- **The `ra` clobber leaves the machine perfectly normal**, so the old platform clause could not
+have been what refused it. -/
+theorem raClobberRegs_normalAgree (code : Nat) :
+    ∀ r : Register, normalRegisters r →
+      (raClobberRegs code).get? r = (machineRegs calleeLink).get? r := by
+  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;>
+    · show ((((machineRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert minstret
+        retiredAfter).insert x1 (BitVec.ofNat 64 5)).get? _ = (machineRegs calleeLink).get? _
+      simp [Std.ExtDHashMap.get?_insert]
+
+/-- The PMA clobber is normal too: `pma_regions` is one of the five `NormalExecutionState` omits. -/
+theorem fetchClobberRegs_normalAgree (code : Nat) :
+    ∀ r : Register, normalRegisters r →
+      (fetchClobberRegs code).get? r = (machineRegs calleeLink).get? r := by
+  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;>
+    · show ((((machineRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert minstret
+        retiredAfter).insert pma_regions [(default : PMA_Region)]).get? _
+        = (machineRegs calleeLink).get? _
+      simp [Std.ExtDHashMap.get?_insert]
+
+/-- And so is the HTIF clobber. -/
+theorem mmioClobberRegs_normalAgree (code : Nat) :
+    ∀ r : Register, normalRegisters r →
+      (mmioClobberRegs code).get? r = (machineRegs calleeLink).get? r := by
+  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;>
+    · show ((((machineRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert minstret
+        retiredAfter).insert htif_tohost_base (some (0 : physaddrbits))).get? _
+        = (machineRegs calleeLink).get? _
+      simp [Std.ExtDHashMap.get?_insert]
+
+/-- The PMA and HTIF clobbers both return to the right address, so the old `x1` clause could not have
+been what refused them either. -/
+theorem fetchClobberRegs_x1 (code : Nat) :
+    (fetchClobberRegs code).get? x1 = (machineRegs calleeLink).get? x1 := by
+  show ((((machineRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert minstret
+    retiredAfter).insert pma_regions [(default : PMA_Region)]).get? x1
+    = (machineRegs calleeLink).get? x1
+  simp [Std.ExtDHashMap.get?_insert]
+
+theorem mmioClobberRegs_x1 (code : Nat) :
+    (mmioClobberRegs code).get? x1 = (machineRegs calleeLink).get? x1 := by
+  show ((((machineRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert minstret
+    retiredAfter).insert htif_tohost_base (some (0 : physaddrbits))).get? x1
+    = (machineRegs calleeLink).get? x1
+  simp [Std.ExtDHashMap.get?_insert]
+
+theorem platformClobberRegs_x1 (code : Nat) :
+    (platformClobberRegs code).get? x1 = (machineRegs calleeLink).get? x1 := by
+  show ((((machineRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert minstret
+    retiredAfter).insert mie (1 : BitVec 64)).get? x1 = (machineRegs calleeLink).get? x1
+  simp [Std.ExtDHashMap.get?_insert]
+
+theorem platformClobberRegs_mie (code : Nat) :
+    (platformClobberRegs code).get? mie = some (1 : BitVec 64) := by
+  unfold platformClobberRegs
+  simp
+
+theorem raClobberRegs_x1 (code : Nat) :
+    (raClobberRegs code).get? x1 = some (BitVec.ofNat 64 5) := by
+  unfold raClobberRegs
+  simp
+
+theorem fetchClobberRegs_pmaRegions (code : Nat) :
+    (fetchClobberRegs code).get? pma_regions = some [(default : PMA_Region)] := by
+  unfold fetchClobberRegs
+  simp
+
+theorem mmioClobberRegs_htifBase (code : Nat) :
+    (mmioClobberRegs code).get? htif_tohost_base = some (some (0 : physaddrbits)) := by
+  unfold mmioClobberRegs
+  simp
+
 /-! ### The accessors
 
 `zesu_raw_result` and `zesu_raw_error` are leaves: no prologue, no store. The run below is the
 strongest thing that is still shaped like a compiled routine — it touches exactly one byte, in its
-own stack frame, and returns a value in `a0`. -/
+own stack frame, returns a value in `a0`, and retires instructions. -/
 
 def accessorBefore : State :=
   { (default : State) with
-    regs := normalRegs calleeLink
+    regs := machineRegs calleeLink
     mem := (∅ : Std.ExtHashMap Nat (BitVec 8)).insert 1016 (BitVec.ofNat 8 0) }
 
-/-- The accessor returned: `a0` holds the code, one byte of its stack frame changed, `x1` and every
-platform register are untouched. -/
+/-- The accessor returned: `a0` holds the code, `minstret` has advanced, one byte of its stack frame
+changed, and every register of the frame is untouched. -/
 def accessorAfter (code : Nat) : State :=
   { (default : State) with
-    regs := (normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)
+    regs := returnedRegs code
     mem := ((∅ : Std.ExtHashMap Nat (BitVec 8)).insert 1016 (BitVec.ofNat 8 0)).insert 1016
       (BitVec.ofNat 8 9) }
 
-/-! Two clobbering runs, and they are deliberately **separate**.
-
-A single run that broke both clauses at once would prove less than it appears to: the refutation
-could be discharged from either conjunct, so deleting one clause would leave the exhibit compiling
-and guarding the other. Each run below therefore violates exactly one of the two clauses and
-satisfies the other, which makes each `¬ post…` conclusion derivable **only** from the clause it is
-about. Delete either clause and the corresponding theorem stops compiling. -/
-
-/-- A callee that returns to the wrong address. Memory-wise, and platform-wise, it is
-indistinguishable from `accessorAfter`: `NormalExecutionState` still holds of it. -/
 def accessorRaClobber (code : Nat) : State :=
-  { (default : State) with
-    regs := ((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert x1
-      (BitVec.ofNat 64 5)
-    mem := ((∅ : Std.ExtHashMap Nat (BitVec 8)).insert 1016 (BitVec.ofNat 8 0)).insert 1016
-      (BitVec.ofNat 8 9) }
+  { accessorAfter code with regs := raClobberRegs code }
 
-/-- A callee that restores `ra` faithfully but comes back with interrupts enabled — a state no `ret`
-can be shown to retire from, because `InterruptDisabled` is one of `tryStepRetRetires`' hypotheses. -/
 def accessorPlatformClobber (code : Nat) : State :=
-  { (default : State) with
-    regs := ((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert mie (1 : BitVec 64)
-    mem := ((∅ : Std.ExtHashMap Nat (BitVec 8)).insert 1016 (BitVec.ofNat 8 0)).insert 1016
-      (BitVec.ofNat 8 9) }
+  { accessorAfter code with regs := platformClobberRegs code }
+
+def accessorFetchClobber (code : Nat) : State :=
+  { accessorAfter code with regs := fetchClobberRegs code }
+
+def accessorMmioClobber (code : Nat) : State :=
+  { accessorAfter code with regs := mmioClobberRegs code }
 
 theorem accessorBefore_frame : accessorBefore.mem.get? 1016 = some (BitVec.ofNat 8 0) := by
   simp [accessorBefore]
@@ -376,64 +570,22 @@ theorem accessorRaClobber_mem (code address : Nat) :
 theorem accessorPlatformClobber_mem (code address : Nat) :
     (accessorPlatformClobber code).mem.get? address = (accessorAfter code).mem.get? address := rfl
 
+theorem accessorFetchClobber_mem (code address : Nat) :
+    (accessorFetchClobber code).mem.get? address = (accessorAfter code).mem.get? address := rfl
+
+theorem accessorMmioClobber_mem (code address : Nat) :
+    (accessorMmioClobber code).mem.get? address = (accessorAfter code).mem.get? address := rfl
+
+theorem accessorBefore_normal : NormalExecutionState accessorBefore := machineRegs_normal calleeLink
+
+theorem accessorAfter_agree (code : Nat) :
+    Agree platformPreserved accessorBefore (accessorAfter code) := returnedRegs_agree code
+
+theorem accessorAfter_retired (code : Nat) : RetiredCounterPresent (accessorAfter code) :=
+  ⟨retiredAfter, returnedRegs_minstret code⟩
+
 theorem accessorAfter_x10 (code : Nat) :
-    (accessorAfter code).regs.get? x10 = some (BitVec.ofNat 64 code) := by
-  simp [accessorAfter]
-
-theorem accessorRaClobber_x10 (code : Nat) :
-    (accessorRaClobber code).regs.get? x10 = some (BitVec.ofNat 64 code) := by
-  show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert x1
-    (BitVec.ofNat 64 5)).get? x10 = _
-  simp [Std.ExtDHashMap.get?_insert]
-
-theorem accessorPlatformClobber_x10 (code : Nat) :
-    (accessorPlatformClobber code).regs.get? x10 = some (BitVec.ofNat 64 code) := by
-  show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert
-    mie (1 : BitVec 64)).get? x10 = _
-  simp [Std.ExtDHashMap.get?_insert]
-
-theorem accessorRaClobber_x1 (code : Nat) :
-    (accessorRaClobber code).regs.get? x1 = some (BitVec.ofNat 64 5) := by
-  show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert x1
-    (BitVec.ofNat 64 5)).get? x1 = _
-  simp
-
-/-- **The `ra` clobber leaves the machine perfectly normal**, so the platform clause cannot be what
-refuses it. This is what makes `accessor_ra_clobber_permitted_historical`'s last conjunct a test of
-the `x1` clause specifically. -/
-theorem accessorRaClobber_normal (code : Nat) : NormalExecutionState (accessorRaClobber code) := by
-  refine normalExecutionState_of_agree (before := accessorBefore) ?_ (normalRegs_normal calleeLink)
-  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;>
-    · show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert x1
-        (BitVec.ofNat 64 5)).get? _ = (normalRegs calleeLink).get? _
-      simp [Std.ExtDHashMap.get?_insert]
-
-/-- **The platform clobber returns to the right address**, so the `x1` clause cannot be what refuses
-it. The mirror of `accessorRaClobber_normal`. -/
-theorem accessorPlatformClobber_x1 (code : Nat) :
-    (accessorPlatformClobber code).regs.get? x1 = accessorBefore.regs.get? x1 := by
-  show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert
-    mie (1 : BitVec 64)).get? x1 = (normalRegs calleeLink).get? x1
-  simp [Std.ExtDHashMap.get?_insert]
-
-theorem accessorPlatformClobber_mie (code : Nat) :
-    (accessorPlatformClobber code).regs.get? mie = some (1 : BitVec 64) := by
-  show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).insert
-    mie (1 : BitVec 64)).get? mie = _
-  simp
-
-theorem accessorAfter_x1 (code : Nat) :
-    (accessorAfter code).regs.get? x1 = accessorBefore.regs.get? x1 := by
-  show ((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).get? x1
-    = (normalRegs calleeLink).get? x1
-  simp [Std.ExtDHashMap.get?_insert]
-
-theorem accessorAfter_normal (code : Nat) : NormalExecutionState (accessorAfter code) := by
-  refine normalExecutionState_of_agree (before := accessorBefore) ?_ (normalRegs_normal calleeLink)
-  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;>
-    · show ((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 code)).get? _
-        = (normalRegs calleeLink).get? _
-      simp [Std.ExtDHashMap.get?_insert]
+    (accessorAfter code).regs.get? x10 = some (BitVec.ofNat 64 code) := returnedRegs_x10 code
 
 /-- Away from its stack frame the accessor changed nothing — the content of both memory clauses at
 this environment. -/
@@ -450,24 +602,30 @@ theorem accessor_writes_only_its_frame (code : Nat) :
     exact houtside (Or.inr (show (1000 : Nat) ≤ 1016 ∧ (1016 : Nat) < 1000 + 64 by omega))
 
 /-- **`zesu_raw_error`'s strengthened postcondition is satisfiable by a run shaped like the compiled
-routine.** It wrote its stack frame, returned the status in `a0`, and came back with the caller's
-`ra` and a normal machine. -/
+routine.** It wrote its stack frame, returned the status in `a0`, retired instructions, and came back
+with the caller's whole register frame intact. -/
 theorem raw_error_run_satisfies_the_clauses (model : DecoderGlobalsModel) :
     postRawError calleeFrameEnv model (.ok model.status.code) accessorBefore
         (accessorAfter model.status.code) ∧
       -- it really wrote its frame: not a routine that does nothing
       accessorBefore.mem.get? 1016 ≠ (accessorAfter model.status.code).mem.get? 1016 ∧
       calleeFrameEnv.stack 1016 ∧
-      -- and `ra` came back holding the caller's value
+      -- it really retired instructions, so the counter is *not* preserved
+      (accessorAfter model.status.code).regs.get? minstret ≠ accessorBefore.regs.get? minstret ∧
+      -- and the caller's platform state, `ra` included, came back
+      NormalExecutionState (accessorAfter model.status.code) ∧
       (accessorAfter model.status.code).regs.get? x1 = some calleeLink := by
   obtain ⟨hnoalloc, howned⟩ := accessor_writes_only_its_frame model.status.code
-  refine ⟨⟨calleeFrameEnv_codeIntact _, hnoalloc, howned, accessorAfter_x1 _,
-      accessorAfter_normal _, rfl, accessorAfter_x10 _⟩, ?_, ?_, ?_⟩
+  refine ⟨⟨calleeFrameEnv_codeIntact _, hnoalloc, howned, accessorAfter_agree _,
+      accessorAfter_retired _, rfl, accessorAfter_x10 _⟩, ?_, ?_, ?_, ?_, ?_⟩
   · rw [accessorBefore_frame, accessorAfter_frame]
     simp
   · show (1000 : Nat) ≤ 1016 ∧ (1016 : Nat) < 1000 + 64
     omega
-  · rw [accessorAfter_x1]; exact normalRegs_x1 _
+  · exact returnedRegs_minstret_moved _
+  · exact normalExecutionState_of_platformPreserved (accessorAfter_agree _) accessorBefore_normal
+  · rw [platformPreserved_link (accessorAfter_agree _)]
+    exact machineRegs_x1 _
 
 /-- **`zesu_raw_result`'s strengthened postcondition is satisfiable**, by the same run at the pointer
 its meaning prescribes. -/
@@ -477,20 +635,24 @@ theorem raw_result_run_satisfies_the_clauses (resultBuffer : Nat) (model : Decod
         (accessorAfter (if model.stored.isSome then resultBuffer else 0)) ∧
       accessorBefore.mem.get? 1016
         ≠ (accessorAfter (if model.stored.isSome then resultBuffer else 0)).mem.get? 1016 ∧
+      (accessorAfter (if model.stored.isSome then resultBuffer else 0)).regs.get? minstret
+        ≠ accessorBefore.regs.get? minstret ∧
       (accessorAfter (if model.stored.isSome then resultBuffer else 0)).regs.get? x1
         = some calleeLink := by
   obtain ⟨hnoalloc, howned⟩ :=
     accessor_writes_only_its_frame (if model.stored.isSome then resultBuffer else 0)
-  refine ⟨⟨calleeFrameEnv_codeIntact _, hnoalloc, howned, accessorAfter_x1 _,
-      accessorAfter_normal _, rfl, accessorAfter_x10 _⟩, ?_, ?_⟩
+  refine ⟨⟨calleeFrameEnv_codeIntact _, hnoalloc, howned, accessorAfter_agree _,
+      accessorAfter_retired _, rfl, accessorAfter_x10 _⟩, ?_, ?_, ?_⟩
   · rw [accessorBefore_frame, accessorAfter_frame]
     simp
-  · rw [accessorAfter_x1]; exact normalRegs_x1 _
+  · exact returnedRegs_minstret_moved _
+  · rw [platformPreserved_link (accessorAfter_agree _)]
+    exact machineRegs_x1 _
 
-/-- **`postRawError` as it stood before the callee-frame clauses.** Kept verbatim so the clobber
-below remains a countermodel to *the predicate that had the gap*, rather than being quietly
-re-pointed at a different claim. Deliberately local: nothing outside this section may state an
-obligation in terms of it. -/
+/-- **`postRawError` as it stood before the callee-frame clauses.** Kept verbatim so the clobbers
+below remain countermodels to *the predicate that had the gap*, rather than being quietly re-pointed
+at a different claim. Deliberately local: nothing outside this section may state an obligation in
+terms of it. -/
 def postRawErrorHistorical (env : DecoderEnvironment) (model : DecoderGlobalsModel)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
   env.CodeIntact after ∧ env.NoAllocation before after ∧
@@ -511,39 +673,52 @@ def postRawResultHistorical (env : DecoderEnvironment) (resultBuffer : Nat)
       after.regs.get? x10 = some (BitVec.ofNat 64 pointer)
   | .error _ => False
 
+/-- **`postRawError` as it stood under the two clauses this change replaced**: the historical
+predicate plus `ra` preserved and `NormalExecutionState after`.
+
+This is a named object rather than an inlined conjunction on purpose. The claim the clobbers below
+make is *the previous form permitted this run*, and that claim is only checkable if the previous form
+is written down; spelled inline it would be a claim about the reader's memory of what the source used
+to say. -/
+def postRawErrorTwoClause (env : DecoderEnvironment) (model : DecoderGlobalsModel)
+    (result : Except SszDecodeError Nat) (before after : State) : Prop :=
+  postRawErrorHistorical env model result before after ∧
+    after.regs.get? x1 = before.regs.get? x1 ∧ NormalExecutionState after
+
 /-! **The historical predicates really are the live ones minus exactly the two clauses**, and that is
 a theorem rather than a claim about how the copies were made.
 
 It is what turns each clobber below into a proof about a *named* clause. "All the old conjuncts hold,
-`NormalExecutionState` holds, and the strengthened predicate fails" pins the failure on the `x1`
-clause only if nothing else was added; these equivalences are what say nothing else was. They are
-also the guard against the trap `DECISIONS.md` records as *restating in place is silent*: edit either
-copy and they stop compiling. -/
+the counter is present, and the strengthened predicate fails" pins the failure on the `Agree` clause
+only if nothing else was added; these equivalences are what say nothing else was. They are also the
+guard against the trap `DECISIONS.md` records as *restating in place is silent*: edit either copy and
+they stop compiling. -/
 
 theorem postRawError_eq_historical_and_clauses (env : DecoderEnvironment)
     (model : DecoderGlobalsModel) (result : Except SszDecodeError Nat) (before after : State) :
     postRawError env model result before after ↔
       postRawErrorHistorical env model result before after ∧
-        after.regs.get? x1 = before.regs.get? x1 ∧ NormalExecutionState after := by
+        Agree platformPreserved before after ∧ RetiredCounterPresent after := by
   constructor
-  · rintro ⟨hcode, hnoalloc, howned, hx1, hnormal, hrest⟩
-    exact ⟨⟨hcode, hnoalloc, howned, hrest⟩, hx1, hnormal⟩
-  · rintro ⟨⟨hcode, hnoalloc, howned, hrest⟩, hx1, hnormal⟩
-    exact ⟨hcode, hnoalloc, howned, hx1, hnormal, hrest⟩
+  · rintro ⟨hcode, hnoalloc, howned, hagree, hretired, hrest⟩
+    exact ⟨⟨hcode, hnoalloc, howned, hrest⟩, hagree, hretired⟩
+  · rintro ⟨⟨hcode, hnoalloc, howned, hrest⟩, hagree, hretired⟩
+    exact ⟨hcode, hnoalloc, howned, hagree, hretired, hrest⟩
 
 theorem postRawResult_eq_historical_and_clauses (env : DecoderEnvironment) (resultBuffer : Nat)
     (model : DecoderGlobalsModel) (result : Except SszDecodeError Nat) (before after : State) :
     postRawResult env resultBuffer model result before after ↔
       postRawResultHistorical env resultBuffer model result before after ∧
-        after.regs.get? x1 = before.regs.get? x1 ∧ NormalExecutionState after := by
+        Agree platformPreserved before after ∧ RetiredCounterPresent after := by
   constructor
-  · rintro ⟨hcode, hnoalloc, howned, hx1, hnormal, hrest⟩
-    exact ⟨⟨hcode, hnoalloc, howned, hrest⟩, hx1, hnormal⟩
-  · rintro ⟨⟨hcode, hnoalloc, howned, hrest⟩, hx1, hnormal⟩
-    exact ⟨hcode, hnoalloc, howned, hx1, hnormal, hrest⟩
+  · rintro ⟨hcode, hnoalloc, howned, hagree, hretired, hrest⟩
+    exact ⟨⟨hcode, hnoalloc, howned, hrest⟩, hagree, hretired⟩
+  · rintro ⟨⟨hcode, hnoalloc, howned, hrest⟩, hagree, hretired⟩
+    exact ⟨hcode, hnoalloc, howned, hagree, hretired, hrest⟩
 
-/-- The historical predicates hold of *any* after-state that writes what `accessorAfter` writes.
-Both clobbers do, which is what leaves the register clauses as the only difference. -/
+/-- The historical predicates hold of *any* after-state that writes what `accessorAfter` writes and
+returns the same code. All four clobbers do, which is what leaves the register frame as the only
+difference. -/
 theorem accessor_historical_of_same_memory {code : Nat} {after : State}
     (hmem : ∀ address, after.mem.get? address = (accessorAfter code).mem.get? address) :
     calleeFrameEnv.CodeIntact after ∧
@@ -558,10 +733,10 @@ theorem accessor_historical_of_same_memory {code : Nat} {after : State}
 strengthened ones refuse that very run.
 
 This is the half a satisfiability witness cannot supply. `accessorRaClobber` writes exactly what
-`accessorAfter` writes, so every memory conjunct of both predicates is satisfied identically — and it
-is `NormalExecutionState` too, so the *other* new clause is satisfied as well. The only difference
-from the good run is the one register the old form said nothing about, which is what makes the last
-two conjuncts a test of the `x1` clause and of nothing else. -/
+`accessorAfter` writes, so every memory conjunct of both predicates is satisfied identically; its
+retired counter has advanced, so the counter clause is satisfied too; and it is a
+`NormalExecutionState`, so the *old* platform clause is satisfied as well. The only difference from
+the good run is the one register that carries the return address. -/
 theorem accessor_ra_clobber_permitted_historical (resultBuffer : Nat)
     (model : DecoderGlobalsModel) :
     postRawErrorHistorical calleeFrameEnv model (.ok model.status.code) accessorBefore
@@ -571,8 +746,10 @@ theorem accessor_ra_clobber_permitted_historical (resultBuffer : Nat)
         (accessorRaClobber (if model.stored.isSome then resultBuffer else 0)) ∧
       -- it returned to a different address …
       (accessorRaClobber model.status.code).regs.get? x1 ≠ accessorBefore.regs.get? x1 ∧
-      -- … while leaving the machine entirely normal, so the platform clause is not what bites …
+      -- … while leaving the machine entirely normal, so no platform clause is what bites …
       NormalExecutionState (accessorRaClobber model.status.code) ∧
+      -- … and the counter clause is satisfied too …
+      RetiredCounterPresent (accessorRaClobber model.status.code) ∧
       -- … and yet both strengthened postconditions refuse it.
       ¬ postRawError calleeFrameEnv model (.ok model.status.code) accessorBefore
           (accessorRaClobber model.status.code) ∧
@@ -582,27 +759,32 @@ theorem accessor_ra_clobber_permitted_historical (resultBuffer : Nat)
   have hne : ∀ code : Nat,
       (accessorRaClobber code).regs.get? x1 ≠ accessorBefore.regs.get? x1 := by
     intro code
-    rw [accessorRaClobber_x1, show accessorBefore.regs.get? x1 = some calleeLink from normalRegs_x1 _]
+    rw [show (accessorRaClobber code).regs.get? x1 = some (BitVec.ofNat 64 5) from
+        raClobberRegs_x1 code,
+      show accessorBefore.regs.get? x1 = some calleeLink from machineRegs_x1 _]
     show ¬ (some (BitVec.ofNat 64 5) = some calleeLink)
     simp [calleeLink]
+  have hnormal : ∀ code : Nat, NormalExecutionState (accessorRaClobber code) := fun code =>
+    normalExecutionState_of_agree (before := accessorBefore) (raClobberRegs_normalAgree code)
+      accessorBefore_normal
   obtain ⟨hcode, hnoalloc, howned⟩ :=
     accessor_historical_of_same_memory (accessorRaClobber_mem model.status.code)
   obtain ⟨hcode', hnoalloc', howned'⟩ :=
     accessor_historical_of_same_memory
       (accessorRaClobber_mem (if model.stored.isSome then resultBuffer else 0))
-  exact ⟨⟨hcode, hnoalloc, howned, rfl, accessorRaClobber_x10 _⟩,
-    ⟨hcode', hnoalloc', howned', rfl, accessorRaClobber_x10 _⟩, hne _,
-    accessorRaClobber_normal _,
-    fun h => hne _ ((postRawError_eq_historical_and_clauses _ _ _ _ _).mp h).2.1,
-    fun h => hne _ ((postRawResult_eq_historical_and_clauses _ _ _ _ _ _).mp h).2.1⟩
+  exact ⟨⟨hcode, hnoalloc, howned, rfl, raClobberRegs_x10 _⟩,
+    ⟨hcode', hnoalloc', howned', rfl, raClobberRegs_x10 _⟩, hne _, hnormal _,
+    ⟨retiredAfter, raClobberRegs_minstret _⟩,
+    fun h => hne _ (platformPreserved_link
+      ((postRawError_eq_historical_and_clauses _ _ _ _ _).mp h).2.1),
+    fun h => hne _ (platformPreserved_link
+      ((postRawResult_eq_historical_and_clauses _ _ _ _ _ _).mp h).2.1)⟩
 
 /-- **The accessor contracts used to permit a callee that came back with interrupts enabled**, and
-the strengthened ones refuse that run too — through the *other* clause.
+the strengthened ones refuse that run too — through a different register of the same frame.
 
-The mirror of the theorem above, and the pair is the point. Here `ra` is preserved, so the `x1`
-clause is satisfied and cannot be what refuses the run; the refutation can only come from
-`NormalExecutionState after`. Delete either clause and exactly one of these two theorems stops
-compiling. -/
+`ra` is preserved here, so the return-address half of the frame is satisfied and cannot be what
+refuses the run; the refutation comes from `mie`. -/
 theorem accessor_platform_clobber_permitted_historical (resultBuffer : Nat)
     (model : DecoderGlobalsModel) :
     postRawErrorHistorical calleeFrameEnv model (.ok model.status.code) accessorBefore
@@ -610,7 +792,7 @@ theorem accessor_platform_clobber_permitted_historical (resultBuffer : Nat)
       postRawResultHistorical calleeFrameEnv resultBuffer model
         (.ok (if model.stored.isSome then resultBuffer else 0)) accessorBefore
         (accessorPlatformClobber (if model.stored.isSome then resultBuffer else 0)) ∧
-      -- `ra` is intact, so the `x1` clause is not what bites …
+      -- `ra` is intact, so the return address is not what bites …
       (accessorPlatformClobber model.status.code).regs.get? x1 = accessorBefore.regs.get? x1 ∧
       -- … the machine is not one a `ret` can be shown to retire from …
       ¬ NormalExecutionState (accessorPlatformClobber model.status.code) ∧
@@ -623,25 +805,95 @@ theorem accessor_platform_clobber_permitted_historical (resultBuffer : Nat)
   have hnotnormal : ∀ code : Nat, ¬ NormalExecutionState (accessorPlatformClobber code) := by
     intro code hnormal
     have hread := hnormal.2.2.2.2.1
-    rw [accessorPlatformClobber_mie] at hread
+    rw [show (accessorPlatformClobber code).regs.get? mie = some (1 : BitVec 64) from
+      platformClobberRegs_mie code] at hread
     exact absurd hread (by simp)
   obtain ⟨hcode, hnoalloc, howned⟩ :=
     accessor_historical_of_same_memory (accessorPlatformClobber_mem model.status.code)
   obtain ⟨hcode', hnoalloc', howned'⟩ :=
     accessor_historical_of_same_memory
       (accessorPlatformClobber_mem (if model.stored.isSome then resultBuffer else 0))
-  exact ⟨⟨hcode, hnoalloc, howned, rfl, accessorPlatformClobber_x10 _⟩,
-    ⟨hcode', hnoalloc', howned', rfl, accessorPlatformClobber_x10 _⟩,
-    accessorPlatformClobber_x1 _, hnotnormal _,
-    fun h => hnotnormal _ ((postRawError_eq_historical_and_clauses _ _ _ _ _).mp h).2.2,
-    fun h => hnotnormal _ ((postRawResult_eq_historical_and_clauses _ _ _ _ _ _).mp h).2.2⟩
+  exact ⟨⟨hcode, hnoalloc, howned, rfl, platformClobberRegs_x10 _⟩,
+    ⟨hcode', hnoalloc', howned', rfl, platformClobberRegs_x10 _⟩,
+    platformClobberRegs_x1 _, hnotnormal _,
+    fun h => hnotnormal _ (normalExecutionState_of_platformPreserved
+      ((postRawError_eq_historical_and_clauses _ _ _ _ _).mp h).2.1 accessorBefore_normal),
+    fun h => hnotnormal _ (normalExecutionState_of_platformPreserved
+      ((postRawResult_eq_historical_and_clauses _ _ _ _ _ _).mp h).2.1 accessorBefore_normal)⟩
+
+/-- **The two clauses this change replaced permitted a callee that rewrote the PMA table, and one
+that opened the HTIF window** — and the frame clause refuses both.
+
+This is the theorem that gives the change its content, and it is stated against the *old pair* rather
+than against the pre-clause predicate: for each run, `after.regs.get? x1 = before.regs.get? x1` and
+`NormalExecutionState after` are listed as explicit conjuncts and are proved. So neither of the two
+clauses that used to be here could have refused these runs, and both would have certified an exit
+state at which `tryStepRetRetires` is not provable — `FetchPmaAllows` evaluates `matching_pma_region`
+on `pma_regions`, and `FetchMemoryNoMMIO` runs `within_htif_readable` on `htif_tohost_base`.
+
+The two are kept in one theorem because they are the same claim about two registers; they are
+separate *runs* because a single run breaking both would make each refutation derivable from the
+other. -/
+theorem accessor_fetch_and_mmio_clobbers_permitted_by_the_old_pair (model : DecoderGlobalsModel) :
+    -- the PMA clobber: the previous form of the contract accepts it …
+    postRawErrorTwoClause calleeFrameEnv model (.ok model.status.code) accessorBefore
+        (accessorFetchClobber model.status.code) ∧
+      RetiredCounterPresent (accessorFetchClobber model.status.code) ∧
+      -- … and yet the frame clause refuses it, at `pma_regions`
+      (accessorFetchClobber model.status.code).regs.get? pma_regions
+        ≠ accessorBefore.regs.get? pma_regions ∧
+      ¬ postRawError calleeFrameEnv model (.ok model.status.code) accessorBefore
+          (accessorFetchClobber model.status.code) ∧
+    -- the HTIF clobber: the previous form accepts it too …
+    postRawErrorTwoClause calleeFrameEnv model (.ok model.status.code) accessorBefore
+        (accessorMmioClobber model.status.code) ∧
+      RetiredCounterPresent (accessorMmioClobber model.status.code) ∧
+      -- … and yet the frame clause refuses it, at `htif_tohost_base`
+      (accessorMmioClobber model.status.code).regs.get? htif_tohost_base
+        ≠ accessorBefore.regs.get? htif_tohost_base ∧
+      ¬ postRawError calleeFrameEnv model (.ok model.status.code) accessorBefore
+          (accessorMmioClobber model.status.code) := by
+  have hpma : (accessorFetchClobber model.status.code).regs.get? pma_regions
+      ≠ accessorBefore.regs.get? pma_regions := by
+    rw [show (accessorFetchClobber model.status.code).regs.get? pma_regions
+        = some [(default : PMA_Region)] from fetchClobberRegs_pmaRegions _,
+      show accessorBefore.regs.get? pma_regions = some ([] : List PMA_Region) from
+        machineRegs_pmaRegions _]
+    simp
+  have hhtif : (accessorMmioClobber model.status.code).regs.get? htif_tohost_base
+      ≠ accessorBefore.regs.get? htif_tohost_base := by
+    rw [show (accessorMmioClobber model.status.code).regs.get? htif_tohost_base
+        = some (some (0 : physaddrbits)) from mmioClobberRegs_htifBase _,
+      show accessorBefore.regs.get? htif_tohost_base = some (none : Option physaddrbits) from
+        machineRegs_htifBase _]
+    simp
+  obtain ⟨hcode, hnoalloc, howned⟩ :=
+    accessor_historical_of_same_memory (accessorFetchClobber_mem model.status.code)
+  obtain ⟨hcode', hnoalloc', howned'⟩ :=
+    accessor_historical_of_same_memory (accessorMmioClobber_mem model.status.code)
+  exact ⟨⟨⟨hcode, hnoalloc, howned, rfl, fetchClobberRegs_x10 _⟩,
+      fetchClobberRegs_x1 _,
+      normalExecutionState_of_agree (before := accessorBefore) (fetchClobberRegs_normalAgree _)
+        accessorBefore_normal⟩,
+    ⟨retiredAfter, fetchClobberRegs_minstret _⟩,
+    hpma,
+    (fun h => hpma (platformPreserved_pmaRegions
+      ((postRawError_eq_historical_and_clauses _ _ _ _ _).mp h).2.1)),
+    ⟨⟨hcode', hnoalloc', howned', rfl, mmioClobberRegs_x10 _⟩,
+      mmioClobberRegs_x1 _,
+      normalExecutionState_of_agree (before := accessorBefore) (mmioClobberRegs_normalAgree _)
+        accessorBefore_normal⟩,
+    ⟨retiredAfter, mmioClobberRegs_minstret _⟩,
+    hhtif,
+    (fun h => hhtif (platformPreserved_htifBase
+      ((postRawError_eq_historical_and_clauses _ _ _ _ _).mp h).2.1))⟩
 
 /-! ### The wrapper
 
 `zesu_decode_raw` is not a leaf: it writes its stack frame *and* two of the three private globals.
 The run below is its rejection path — `attempted` set, `last_status` recorded, the stored-result
-discriminant left absent, `0` in `a0` — with `ra` restored, which is what the compiled wrapper does
-with a conventional save/restore. -/
+discriminant left absent, `0` in `a0` — with the register frame restored, which is what the compiled
+wrapper does with a conventional save/restore. -/
 
 def wrapperMemBefore : Std.ExtHashMap Nat (BitVec 8) :=
   (∅ : Std.ExtHashMap Nat (BitVec 8))
@@ -661,27 +913,24 @@ def wrapperMemAfter : Std.ExtHashMap Nat (BitVec 8) :=
     |>.insert 1016 (BitVec.ofNat 8 9)
 
 def wrapperBefore : State :=
-  { (default : State) with regs := normalRegs calleeLink, mem := wrapperMemBefore }
+  { (default : State) with regs := machineRegs calleeLink, mem := wrapperMemBefore }
 
 def wrapperAfter : State :=
-  { (default : State) with
-    regs := (normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)
-    mem := wrapperMemAfter }
+  { (default : State) with regs := returnedRegs 0, mem := wrapperMemAfter }
 
 /-- The wrapper's `ra` clobber: same globals, same return code, same frame, wrong return address —
-and a perfectly normal machine, so only the `x1` clause can refuse it. -/
-def wrapperRaClobber : State :=
-  { (default : State) with
-    regs := ((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)).insert x1
-      (BitVec.ofNat 64 5)
-    mem := wrapperMemAfter }
+and a perfectly normal machine, so only the return-address register can refuse it. -/
+def wrapperRaClobber : State := { wrapperAfter with regs := raClobberRegs 0 }
 
-/-- The wrapper's platform clobber: `ra` faithfully restored, interrupts enabled — so only the
-`NormalExecutionState` clause can refuse it. -/
-def wrapperPlatformClobber : State :=
-  { (default : State) with
-    regs := ((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)).insert mie (1 : BitVec 64)
-    mem := wrapperMemAfter }
+/-- The wrapper's platform clobber: `ra` faithfully restored, interrupts enabled. -/
+def wrapperPlatformClobber : State := { wrapperAfter with regs := platformClobberRegs 0 }
+
+/-- The wrapper's PMA clobber: `ra` restored *and* a normal machine, so the two clauses this change
+replaced both hold of it. -/
+def wrapperFetchClobber : State := { wrapperAfter with regs := fetchClobberRegs 0 }
+
+/-- The wrapper's HTIF clobber, likewise. -/
+def wrapperMmioClobber : State := { wrapperAfter with regs := mmioClobberRegs 0 }
 
 theorem wrapperAfter_attempted : wrapperAfter.mem.get? 10 = some (BitVec.ofNat 8 1) := by
   show wrapperMemAfter.get? 10 = _
@@ -704,26 +953,23 @@ theorem wrapperAfter_zero {address : Nat}
     · simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]
       simp
 
-theorem wrapperAfter_x1 : wrapperAfter.regs.get? x1 = wrapperBefore.regs.get? x1 := by
-  show ((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)).get? x1
-    = (normalRegs calleeLink).get? x1
-  simp [Std.ExtDHashMap.get?_insert]
+theorem wrapperBefore_normal : NormalExecutionState wrapperBefore := machineRegs_normal calleeLink
 
-theorem wrapperAfter_x10 : wrapperAfter.regs.get? x10 = some (BitVec.ofNat 64 0) := by
-  simp [wrapperAfter]
+theorem wrapperAfter_agree : Agree platformPreserved wrapperBefore wrapperAfter :=
+  returnedRegs_agree 0
 
-theorem wrapperAfter_normal : NormalExecutionState wrapperAfter := by
-  refine normalExecutionState_of_agree (before := wrapperBefore) ?_ (normalRegs_normal calleeLink)
-  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;>
-    · show ((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)).get? _
-        = (normalRegs calleeLink).get? _
-      simp [Std.ExtDHashMap.get?_insert]
+theorem wrapperAfter_retired : RetiredCounterPresent wrapperAfter :=
+  ⟨retiredAfter, returnedRegs_minstret 0⟩
+
+theorem wrapperAfter_x10 : wrapperAfter.regs.get? x10 = some (BitVec.ofNat 64 0) :=
+  returnedRegs_x10 0
 
 /-- **The wrapper's strengthened postcondition is satisfiable by its own rejection path**, and it
 holds for every container representation because the rejected arm stores no value.
 
 The conjuncts after the postcondition are what make the run non-degenerate: it wrote its record (the
-`attempted` byte moved) and its stack frame, and `ra` still holds the caller's address. -/
+`attempted` byte moved) and its stack frame, it retired instructions (so `minstret` moved), and the
+caller's frame — `ra` and the platform state included — came back. -/
 theorem wrapper_run_satisfies_the_clauses (rep : ContainerRepresentation SszBridge.RawV4)
     (inputBase resultBuffer : Nat) :
     postZesuDecodeRaw calleeFrameEnv calleeFrameGlobals resultBuffer rep DecoderGlobalsModel.fresh
@@ -732,10 +978,13 @@ theorem wrapper_run_satisfies_the_clauses (rep : ContainerRepresentation SszBrid
       wrapperBefore.mem.get? 10 ≠ wrapperAfter.mem.get? 10 ∧
       -- … and its stack frame …
       wrapperBefore.mem.get? 1016 ≠ wrapperAfter.mem.get? 1016 ∧
-      -- … and still came back with the caller's `ra`.
+      -- … and retired instructions, so the counter is not preserved …
+      wrapperAfter.regs.get? minstret ≠ wrapperBefore.regs.get? minstret ∧
+      -- … and still came back with the caller's platform state and `ra`.
+      NormalExecutionState wrapperAfter ∧
       wrapperAfter.regs.get? x1 = some calleeLink := by
-  refine ⟨⟨?_, calleeFrameEnv_codeIntact _, ?_, wrapperAfter_x1, wrapperAfter_normal, ⟨?_, ?_⟩,
-    ?_, ?_⟩, ?_, ?_, ?_⟩
+  refine ⟨⟨?_, calleeFrameEnv_codeIntact _, ?_, wrapperAfter_agree, wrapperAfter_retired,
+    ⟨?_, ?_⟩, ?_, ?_⟩, ?_, ?_, ?_, ?_, ?_⟩
   · intro index hindex; exact absurd hindex (by simp)
   · show wrapperAfter.regs.get? x10 = some (BitVec.ofNat 64 0)
     exact wrapperAfter_x10
@@ -763,7 +1012,10 @@ theorem wrapper_run_satisfies_the_clauses (rep : ContainerRepresentation SszBrid
     unfold wrapperMemAfter wrapperMemBefore
     simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]
     simp
-  · rw [wrapperAfter_x1]; exact normalRegs_x1 _
+  · exact returnedRegs_minstret_moved 0
+  · exact normalExecutionState_of_platformPreserved wrapperAfter_agree wrapperBefore_normal
+  · rw [platformPreserved_link wrapperAfter_agree]
+    exact machineRegs_x1 _
 
 /-- **`postZesuDecodeRaw` as it stood before the callee-frame clauses.** -/
 def postZesuDecodeRawHistorical (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
@@ -776,6 +1028,15 @@ def postZesuDecodeRawHistorical (env : DecoderEnvironment) (globals : DecoderGlo
   DecoderGlobalsRep globals rep args.inputBase args.bytes resultBuffer
     (resultingGlobals incoming result) after
 
+/-- **`postZesuDecodeRaw` as it stood under the two clauses this change replaced**, named for the
+reason `postRawErrorTwoClause` is. -/
+def postZesuDecodeRawTwoClause (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+    (resultBuffer : Nat) (rep : ContainerRepresentation SszBridge.RawV4)
+    (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
+    (result : Except SszDecodeError SszBridge.RawV4) (before after : State) : Prop :=
+  postZesuDecodeRawHistorical env globals resultBuffer rep incoming args result before after ∧
+    after.regs.get? x1 = before.regs.get? x1 ∧ NormalExecutionState after
+
 /-- The wrapper's historical predicate is likewise the live one minus exactly the two clauses. -/
 theorem postZesuDecodeRaw_eq_historical_and_clauses (env : DecoderEnvironment)
     (globals : DecoderGlobalsLayout) (resultBuffer : Nat)
@@ -784,15 +1045,15 @@ theorem postZesuDecodeRaw_eq_historical_and_clauses (env : DecoderEnvironment)
     (before after : State) :
     postZesuDecodeRaw env globals resultBuffer rep incoming args result before after ↔
       postZesuDecodeRawHistorical env globals resultBuffer rep incoming args result before after ∧
-        after.regs.get? x1 = before.regs.get? x1 ∧ NormalExecutionState after := by
+        Agree platformPreserved before after ∧ RetiredCounterPresent after := by
   constructor
-  · rintro ⟨hbytes, hcode, ha0, hx1, hnormal, hglobals⟩
-    exact ⟨⟨hbytes, hcode, ha0, hglobals⟩, hx1, hnormal⟩
-  · rintro ⟨⟨hbytes, hcode, ha0, hglobals⟩, hx1, hnormal⟩
-    exact ⟨hbytes, hcode, ha0, hx1, hnormal, hglobals⟩
+  · rintro ⟨hbytes, hcode, ha0, hagree, hretired, hglobals⟩
+    exact ⟨⟨hbytes, hcode, ha0, hglobals⟩, hagree, hretired⟩
+  · rintro ⟨⟨hbytes, hcode, ha0, hglobals⟩, hagree, hretired⟩
+    exact ⟨hbytes, hcode, ha0, hagree, hretired, hglobals⟩
 
 /-- The historical wrapper postcondition holds of any after-state with `wrapperAfter`'s memory and
-return code — which both clobbers have. -/
+return code — which all four clobbers have. -/
 theorem wrapper_historical_of_same_memory (rep : ContainerRepresentation SszBridge.RawV4)
     (inputBase resultBuffer : Nat) {after : State}
     (hmem : ∀ address, after.mem.get? address = wrapperAfter.mem.get? address)
@@ -800,7 +1061,7 @@ theorem wrapper_historical_of_same_memory (rep : ContainerRepresentation SszBrid
     postZesuDecodeRawHistorical calleeFrameEnv calleeFrameGlobals resultBuffer rep
       DecoderGlobalsModel.fresh ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz)
       wrapperBefore after := by
-  obtain ⟨⟨hbytes, -, -, -, -, hglobals⟩, -, -, -⟩ :=
+  obtain ⟨⟨hbytes, -, -, -, -, hglobals⟩, -, -, -, -, -⟩ :=
     wrapper_run_satisfies_the_clauses rep inputBase resultBuffer
   obtain ⟨⟨hflag, hstatus⟩, hdisc, hstored⟩ := hglobals
   exact ⟨fun index hindex => (hmem _).trans (hbytes index hindex), calleeFrameEnv_codeIntact _,
@@ -809,9 +1070,9 @@ theorem wrapper_historical_of_same_memory (rep : ContainerRepresentation SszBrid
 
 /-- **The wrapper contract used to permit a decode that never came back to its caller.**
 
-Same globals, same return code, same stack frame, and a normal machine — the old postcondition
-cannot tell `wrapperRaClobber` from `wrapperAfter`, and neither can the platform clause. Only the
-`x1` clause refuses it. -/
+Same globals, same return code, same stack frame, an advanced counter, and a normal machine — the old
+postcondition cannot tell `wrapperRaClobber` from `wrapperAfter`, and neither can the platform
+clause. Only the return-address register refuses it. -/
 theorem wrapper_ra_clobber_permitted_historical (rep : ContainerRepresentation SszBridge.RawV4)
     (inputBase resultBuffer : Nat) :
     postZesuDecodeRawHistorical calleeFrameEnv calleeFrameGlobals resultBuffer rep
@@ -819,34 +1080,27 @@ theorem wrapper_ra_clobber_permitted_historical (rep : ContainerRepresentation S
         wrapperBefore wrapperRaClobber ∧
       wrapperRaClobber.regs.get? x1 ≠ wrapperBefore.regs.get? x1 ∧
       NormalExecutionState wrapperRaClobber ∧
+      RetiredCounterPresent wrapperRaClobber ∧
       ¬ postZesuDecodeRaw calleeFrameEnv calleeFrameGlobals resultBuffer rep
           DecoderGlobalsModel.fresh ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz)
           wrapperBefore wrapperRaClobber := by
-  have hx10 : wrapperRaClobber.regs.get? x10 = some (BitVec.ofNat 64 0) := by
-    show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)).insert x1
-      (BitVec.ofNat 64 5)).get? x10 = _
-    simp [Std.ExtDHashMap.get?_insert]
   have hne : wrapperRaClobber.regs.get? x1 ≠ wrapperBefore.regs.get? x1 := by
-    have hx1 : wrapperRaClobber.regs.get? x1 = some (BitVec.ofNat 64 5) := by
-      show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)).insert x1
-        (BitVec.ofNat 64 5)).get? x1 = _
-      simp
-    rw [hx1, show wrapperBefore.regs.get? x1 = some calleeLink from normalRegs_x1 _]
+    rw [show wrapperRaClobber.regs.get? x1 = some (BitVec.ofNat 64 5) from raClobberRegs_x1 0,
+      show wrapperBefore.regs.get? x1 = some calleeLink from machineRegs_x1 _]
     show ¬ (some (BitVec.ofNat 64 5) = some calleeLink)
     simp [calleeLink]
-  have hnormal : NormalExecutionState wrapperRaClobber := by
-    refine normalExecutionState_of_agree (before := wrapperBefore) ?_ (normalRegs_normal calleeLink)
-    rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;>
-      · show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)).insert x1
-          (BitVec.ofNat 64 5)).get? _ = (normalRegs calleeLink).get? _
-        simp [Std.ExtDHashMap.get?_insert]
-  exact ⟨wrapper_historical_of_same_memory rep inputBase resultBuffer (fun _ => rfl) hx10,
-    hne, hnormal,
-    fun h => hne ((postZesuDecodeRaw_eq_historical_and_clauses _ _ _ _ _ _ _ _ _).mp h).2.1⟩
+  exact ⟨wrapper_historical_of_same_memory rep inputBase resultBuffer (fun _ => rfl)
+      (raClobberRegs_x10 0),
+    hne,
+    normalExecutionState_of_agree (before := wrapperBefore) (raClobberRegs_normalAgree 0)
+      wrapperBefore_normal,
+    ⟨retiredAfter, raClobberRegs_minstret 0⟩,
+    fun h => hne (platformPreserved_link
+      ((postZesuDecodeRaw_eq_historical_and_clauses _ _ _ _ _ _ _ _ _).mp h).2.1)⟩
 
 /-- **The wrapper contract used to permit a decode that came back with interrupts enabled**, refused
-by the other clause. `ra` is intact here, so the `x1` clause is satisfied and the refutation can only
-come from `NormalExecutionState after`. -/
+through a different register of the same frame. `ra` is intact here, so the return-address half is
+satisfied and the refutation can only come from `mie`. -/
 theorem wrapper_platform_clobber_permitted_historical
     (rep : ContainerRepresentation SszBridge.RawV4) (inputBase resultBuffer : Nat) :
     postZesuDecodeRawHistorical calleeFrameEnv calleeFrameGlobals resultBuffer rep
@@ -857,40 +1111,82 @@ theorem wrapper_platform_clobber_permitted_historical
       ¬ postZesuDecodeRaw calleeFrameEnv calleeFrameGlobals resultBuffer rep
           DecoderGlobalsModel.fresh ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz)
           wrapperBefore wrapperPlatformClobber := by
-  have hx10 : wrapperPlatformClobber.regs.get? x10 = some (BitVec.ofNat 64 0) := by
-    show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)).insert
-      mie (1 : BitVec 64)).get? x10 = _
-    simp [Std.ExtDHashMap.get?_insert]
-  have hx1 : wrapperPlatformClobber.regs.get? x1 = wrapperBefore.regs.get? x1 := by
-    show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)).insert
-      mie (1 : BitVec 64)).get? x1 = (normalRegs calleeLink).get? x1
-    simp [Std.ExtDHashMap.get?_insert]
   have hnotnormal : ¬ NormalExecutionState wrapperPlatformClobber := by
     intro hnormal
     have hread := hnormal.2.2.2.2.1
-    rw [show wrapperPlatformClobber.regs.get? mie = some (1 : BitVec 64) by
-      show (((normalRegs calleeLink).insert x10 (BitVec.ofNat 64 0)).insert
-        mie (1 : BitVec 64)).get? mie = _
-      simp] at hread
+    rw [show wrapperPlatformClobber.regs.get? mie = some (1 : BitVec 64) from
+      platformClobberRegs_mie 0] at hread
     exact absurd hread (by simp)
-  exact ⟨wrapper_historical_of_same_memory rep inputBase resultBuffer (fun _ => rfl) hx10,
-    hx1, hnotnormal,
-    fun h => hnotnormal ((postZesuDecodeRaw_eq_historical_and_clauses _ _ _ _ _ _ _ _ _).mp h).2.2⟩
+  exact ⟨wrapper_historical_of_same_memory rep inputBase resultBuffer (fun _ => rfl)
+      (platformClobberRegs_x10 0),
+    platformClobberRegs_x1 0, hnotnormal,
+    fun h => hnotnormal (normalExecutionState_of_platformPreserved
+      ((postZesuDecodeRaw_eq_historical_and_clauses _ _ _ _ _ _ _ _ _).mp h).2.1
+      wrapperBefore_normal)⟩
+
+/-- **The wrapper contract, under the two clauses this change replaced, permitted a decode that
+rewrote the PMA table or opened the HTIF window** — and the frame clause refuses both.
+
+The wrapper counterpart of `accessor_fetch_and_mmio_clobbers_permitted_by_the_old_pair`, and it is
+here rather than delegated to the accessors because `postZesuDecodeRaw` is a different predicate:
+`postZesuDecodeRaw_eq_historical_and_clauses` is what names the clause in *its* conjunction, and a
+theorem about `postRawError` says nothing about it. -/
+theorem wrapper_fetch_and_mmio_clobbers_permitted_by_the_old_pair
+    (rep : ContainerRepresentation SszBridge.RawV4) (inputBase resultBuffer : Nat) :
+    postZesuDecodeRawTwoClause calleeFrameEnv calleeFrameGlobals resultBuffer rep
+        DecoderGlobalsModel.fresh ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz)
+        wrapperBefore wrapperFetchClobber ∧
+      ¬ postZesuDecodeRaw calleeFrameEnv calleeFrameGlobals resultBuffer rep
+          DecoderGlobalsModel.fresh ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz)
+          wrapperBefore wrapperFetchClobber ∧
+    postZesuDecodeRawTwoClause calleeFrameEnv calleeFrameGlobals resultBuffer rep
+        DecoderGlobalsModel.fresh ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz)
+        wrapperBefore wrapperMmioClobber ∧
+      ¬ postZesuDecodeRaw calleeFrameEnv calleeFrameGlobals resultBuffer rep
+          DecoderGlobalsModel.fresh ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz)
+          wrapperBefore wrapperMmioClobber := by
+  have hpma : wrapperFetchClobber.regs.get? pma_regions ≠ wrapperBefore.regs.get? pma_regions := by
+    rw [show wrapperFetchClobber.regs.get? pma_regions = some [(default : PMA_Region)] from
+        fetchClobberRegs_pmaRegions 0,
+      show wrapperBefore.regs.get? pma_regions = some ([] : List PMA_Region) from
+        machineRegs_pmaRegions _]
+    simp
+  have hhtif : wrapperMmioClobber.regs.get? htif_tohost_base
+      ≠ wrapperBefore.regs.get? htif_tohost_base := by
+    rw [show wrapperMmioClobber.regs.get? htif_tohost_base = some (some (0 : physaddrbits)) from
+        mmioClobberRegs_htifBase 0,
+      show wrapperBefore.regs.get? htif_tohost_base = some (none : Option physaddrbits) from
+        machineRegs_htifBase _]
+    simp
+  exact ⟨⟨wrapper_historical_of_same_memory rep inputBase resultBuffer (fun _ => rfl)
+        (fetchClobberRegs_x10 0),
+      fetchClobberRegs_x1 0,
+      normalExecutionState_of_agree (before := wrapperBefore) (fetchClobberRegs_normalAgree 0)
+        wrapperBefore_normal⟩,
+    (fun h => hpma (platformPreserved_pmaRegions
+      ((postZesuDecodeRaw_eq_historical_and_clauses _ _ _ _ _ _ _ _ _).mp h).2.1)),
+    ⟨wrapper_historical_of_same_memory rep inputBase resultBuffer (fun _ => rfl)
+        (mmioClobberRegs_x10 0),
+      mmioClobberRegs_x1 0,
+      normalExecutionState_of_agree (before := wrapperBefore) (mmioClobberRegs_normalAgree 0)
+        wrapperBefore_normal⟩,
+    (fun h => hhtif (platformPreserved_htifBase
+      ((postZesuDecodeRaw_eq_historical_and_clauses _ _ _ _ _ _ _ _ _).mp h).2.1))⟩
 
 /-! ### `CalleeFrame` is not the vocabulary for these clauses
 
 `RiscV/Elfling/Contract.lean` defines `CalleeFrame preserved image before after :=
 Agree preserved before after ∧ image.matchesMemory after.mem`, and it has **no call site tree-wide**.
-The register half is right and is reused above (`normalExecutionState_of_agree` is stated with
-`Agree`). The memory half is the retired defect: `image.matchesMemory` is the *full*-image match that
-`DecoderEnvironment.CodeIntact` was corrected away from, because it pins every BSS byte to its static
-zero and the decoder's globals are in the BSS.
+The register half is exactly right and is now what the clause is spelled with. The memory half is the
+retired defect: `image.matchesMemory` is the *full*-image match that `DecoderEnvironment.CodeIntact`
+was corrected away from, because it pins every BSS byte to its static zero and the decoder's globals
+are in the BSS.
 
-So writing the `ra` clause as `CalleeFrame` would not have been a tidier spelling of the same thing —
-it would have added a conjunct that the wrapper's own rejection path makes **false**, on a predicate
+So writing the clause as `CalleeFrame` would not have been a tidier spelling of the same thing — it
+would have added a conjunct that the wrapper's own rejection path makes **false**, on a predicate
 consumed only through an assumed hypothesis. That is the vacuous-root failure mode, and the theorem
 below is it in one line: the same run that satisfies the strengthened `postZesuDecodeRaw` refutes
-`CalleeFrame` at any register set whatsoever. -/
+`CalleeFrame` at any register set whatsoever — `platformPreserved` included. -/
 
 theorem calleeFrame_is_not_the_vocabulary (preserved : Register → Prop)
     (rep : ContainerRepresentation SszBridge.RawV4) (inputBase resultBuffer : Nat) :

@@ -1,4 +1,5 @@
 import BinaryFv.RiscV.Step.Hart
+import BinaryFv.RiscV.Platform.NormalState
 
 namespace BinaryFv.RiscV
 
@@ -208,5 +209,61 @@ theorem fetch_base_of_fetchBytes (state : State) (pc : BitVec 64)
   unfold Runs Sail.SailME.run PreSail.PreSailME.run
   simp
   rfl
+
+/-! ## Transporting the retirement's platform premises across a call
+
+`platformPreserved` (`Platform/NormalState.lean`) names the registers a callee owes its caller
+unchanged. These four lemmas are what that clause *buys*: each premise of `tryStepRetRetires` that is
+a claim about platform registers, carried from a state where it is established to the exit state.
+
+They are stated at the same `pc` where a pc appears, because the pc is not something a callee
+preserves — it is supplied by the trace. `fetchBasePlatform_of_agree` therefore takes the exit pc
+read as a separate hypothesis, which is exactly the split between what a contract can say and what
+only the run can. -/
+
+/-- `FetchPmpDisabled` reads the two PMP tables, both preserved. -/
+theorem fetchPmpDisabled_of_agree {before after : State}
+    (agree : Agree platformPreserved before after) (h : FetchPmpDisabled before) :
+    FetchPmpDisabled after :=
+  ⟨(agree pmpcfg_n (by simp [platformPreserved])).trans h.1,
+    (agree pmpaddr_n (by simp [platformPreserved])).trans h.2⟩
+
+/-- `FetchPmaAllows` needs `pma_regions` **at its value** — the premise evaluates
+`matching_pma_region` on the list — which is why the clause is agreement rather than presence. -/
+theorem fetchPmaAllows_of_agree {before after : State} {pc : BitVec 64}
+    (agree : Agree platformPreserved before after) (h : FetchPmaAllows before pc) :
+    FetchPmaAllows after pc := by
+  obtain ⟨regions, region, regionsRead, matched, executable⟩ := h
+  exact ⟨regions, region, (platformPreserved_pmaRegions agree).trans regionsRead, matched,
+    executable⟩
+
+/-- `InterruptDisabled` reads `misa`, `mip`, `mie`, `mideleg` — the four `NormalExecutionState`
+already pins — plus `sig_meip` and `mstatus`, which it does not. All six are preserved. -/
+theorem interruptDisabled_of_agree {before after : State}
+    (agree : Agree platformPreserved before after) (h : InterruptDisabled before) :
+    InterruptDisabled after := by
+  obtain ⟨misaBits, mstatusBits, mipBits, meip, misaRead, mipRead, mieRead, midelegRead, meipRead,
+    mstatusRead⟩ := h
+  exact ⟨misaBits, mstatusBits, mipBits, meip,
+    (agree misa (by simp [platformPreserved])).trans misaRead,
+    (agree mip (by simp [platformPreserved])).trans mipRead,
+    (agree mie (by simp [platformPreserved])).trans mieRead,
+    (agree mideleg (by simp [platformPreserved])).trans midelegRead,
+    (platformPreserved_sigMeip agree).trans meipRead,
+    (platformPreserved_mstatus agree).trans mstatusRead⟩
+
+/-- The whole base-fetch platform, given the exit pc the trace lands on. Everything but the `PC` read
+is either preserved or a fact about `pc` alone. -/
+theorem fetchBasePlatform_of_agree {before after : State} {pc : BitVec 64}
+    (agree : Agree platformPreserved before after) (landed : after.regs.get? PC = some pc)
+    (h : FetchBasePlatform before pc) : FetchBasePlatform after pc := by
+  obtain ⟨misaBits, mstatusBits, _pcRead, misaRead, mstatusRead, privilegeRead, pcLow0, pcLow1,
+    alignedVaddr, alignedPaddr, pmpDisabled, pmaAllows⟩ := h
+  exact ⟨misaBits, mstatusBits, landed,
+    (agree misa (by simp [platformPreserved])).trans misaRead,
+    (platformPreserved_mstatus agree).trans mstatusRead,
+    (agree cur_privilege (by simp [platformPreserved])).trans privilegeRead,
+    pcLow0, pcLow1, alignedVaddr, alignedPaddr,
+    fetchPmpDisabled_of_agree agree pmpDisabled, fetchPmaAllows_of_agree agree pmaAllows⟩
 
 end BinaryFv.RiscV

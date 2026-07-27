@@ -285,7 +285,8 @@ theorem observeReturnCode_of_postRawResult {env : DecoderEnvironment} {resultBuf
     (h : postRawResult env resultBuffer model result before after) :
     observeReturnCode? after = some pointer := by
   subst hresult
-  -- code, allocation, ownership, `ra`, platform state, the pointer value, then `a0`.
+  -- code, allocation, ownership, the register frame, the retired counter, the pointer value,
+  -- then `a0`.
   obtain ⟨-, -, -, -, -, -, ha0⟩ := h
   exact observeReturnCode_of_a0 hbound ha0
 
@@ -296,7 +297,8 @@ theorem observeReturnCode_of_postRawError {env : DecoderEnvironment} {model : De
     (h : postRawError env model result before after) :
     observeReturnCode? after = some code := by
   subst hresult
-  -- code, allocation, ownership, `ra`, platform state, the status value, then `a0`.
+  -- code, allocation, ownership, the register frame, the retired counter, the status value,
+  -- then `a0`.
   obtain ⟨-, -, -, -, -, -, ha0⟩ := h
   exact observeReturnCode_of_a0 hbound ha0
 

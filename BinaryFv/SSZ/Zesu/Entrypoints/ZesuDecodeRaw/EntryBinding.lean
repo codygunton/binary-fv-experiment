@@ -265,13 +265,32 @@ statement, derived from this one, so the three existing callers are untouched.
 
 This exposes the register values **at the entry state only**; the exit-side half is now supplied from
 the other end. `Contracts/ExportedDecoder.lean`'s `postZesuDecodeRaw` and `Contracts/Runtime.lean`'s
-two accessor postconditions carry `after.regs.get? x1 = before.regs.get? x1` and
-`NormalExecutionState after` — the first composes with the `x1 := sentinel` exposed here to give the
-bridge's `linkIsSentinel`, and the second is the register/CSR part of `tryStepRetRetires`'
-hypotheses. (An earlier version of this note said no `post*` in `Contracts/` mentioned `x1` and that
-`CalleeFrame` had no SSZ call site. The first is no longer true; the second still is, and
-`ExportedDecoderAudit.calleeFrame_is_not_the_vocabulary` records why the clause was not spelled with
-it.) -/
+two accessor postconditions carry `Agree platformPreserved before after` and
+`RetiredCounterPresent after` — the frame clause composes with the `x1 := sentinel` exposed here to
+give the bridge's `linkIsSentinel` (`platformPreserved_link`) and with `NormalExecutionState s` to
+give it at the exit (`normalExecutionState_of_platformPreserved`), and it additionally carries the
+five registers `NormalExecutionState` omits. The counter is separate because the machine writes
+`minstret` on every retirement, so preservation of it would be false of every routine.
+
+(An earlier version of this note said no `post*` in `Contracts/` mentioned `x1`, and a later one said
+those postconditions carry `x1 = x1` and `NormalExecutionState after`. Both are superseded;
+`CalleeFrame` still has no SSZ call site, and `ExportedDecoderAudit.calleeFrame_is_not_the_vocabulary`
+records why the clause was not spelled with it.)
+
+**Two entry-side gaps this leaves, stated so they are not rediscovered.** `FetchPlatformPresent`
+above and `platformPreserved` are not the same list, deliberately and imperfectly:
+
+* `htif_tohost_base` is in `platformPreserved` (the MMIO dispatch is a run of `within_mmio_readable`,
+  which reads exactly that register) and is **not** in `FetchPlatformPresent`. Agreement preserves
+  whatever the entry state holds, so the exit-side `FetchMemoryNoMMIO` is only reachable once the
+  entry state is shown to carry it. `configureZesuMachine` does leave it at `some none` — the value
+  `Platform/FetchMmio.lean`'s `fetchMemoryNoMMIO_of_state_layout_excluded` consumes — so this is a
+  conjunct `fetchPlatformPresentB` can simply gain, not an obstacle. It is recorded rather than done
+  here because it is a claim about the *builder*, and adding it should come with the same
+  `native_decide` discharge the other five got.
+* `minstret` is in `FetchPlatformPresent`, which is right *here* — the entry state does have it — but
+  it cannot be carried across the call by agreement, which is why the contract asks for
+  `RetiredCounterPresent` at the exit instead. -/
 theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
     ∃ s, Runs (buildZesuEntryState input) initialState s () ∧
       preZesuDecodeRaw canonicalEnvironment canonicalDecoderGlobalsLayout canonicalResultBuffer
