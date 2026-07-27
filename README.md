@@ -1,16 +1,16 @@
 # Binary FV Experiment
 
 This repository proves properties of concrete Ethereum-related RV64 binaries against executable
-Lean specifications. It retains two targets:
+Lean specifications. It retains one target:
 
-- **Reth RustCrypto Keccak-256:** a freestanding C ABI around the portable `Keccak256` dependency
-  versions locked by Reth.
 - **Zesu Amsterdam V4 SSZ:** the repaired lossless raw decoder at
   `codygunton/zesu@96f1621468ba54755d653f19cbc9704e789be001`, with the original upstream
   revision retained as its preservation baseline.
 
-The former tiny-SHA3 and miniz/tinfl measurement baselines are historical only and are no longer
-built. Their results remain in [the target evaluation](docs/evaluations/ethereum-target-evaluation.md).
+The former Reth RustCrypto Keccak-256, tiny-SHA3, and miniz/tinfl targets are historical only and
+are no longer built. Their measurements remain in
+[the target evaluation](docs/evaluations/ethereum-target-evaluation.md), and the Keccak proof tree
+remains in Git history.
 
 ## Repository map
 
@@ -23,17 +23,15 @@ This is a curated `tree -L 2`: comments describe ownership rather than every gen
 ├── BinaryFv/
 │   ├── Binary/             # architecture-independent addresses and program images
 │   ├── RiscV/              # reusable Sail model, ELF, execution, logic, and proof layers
-│   ├── Keccak/             # Keccak spec bridge and the Reth-specific compliance proof
 │   └── SSZ/                # Zesu SSZ decoder proof: contracts, deterministic Elfling scaffold, root
 ├── docs/
 │   └── evaluations/        # durable design/evaluation records; docs/ai is local and ignored
 ├── nix/
-│   ├── targets.nix         # exact Keccak and SSZ target builds
-│   ├── analysis.nix        # objdump, CFG, size, and target-comparison artifacts
+│   ├── targets.nix         # exact SSZ target builds
+│   ├── analysis.nix        # objdump, CFG, size, and summary-statistics artifacts
 │   └── proof.nix           # generated Lean inputs and hermetic root-library build
 ├── targets/
 │   ├── common/             # shared freestanding RV64 startup and runtime
-│   ├── keccak/             # exact Reth wrapper, ABI adapter, and adjacent vector tests
 │   └── ssz/                # exact Zesu adapter, Lean bridge, audits, and correspondence
 ├── tools/
 │   ├── analyze_rv64.py              # target-independent static RV64 analysis
@@ -58,18 +56,14 @@ only a development/conformance runner; the Lean proof enters each exported proto
 ```sh
 mkdir -p build
 
-nix build .#reth-keccak --out-link build/reth-keccak
-nix run .#reth-keccak -- 616263
-
 nix build .#zesu-ssz --out-link build/zesu-ssz
 nix build .#stats --out-link build/stats
-nix run .#dump -- reth-keccak
 nix run .#dump -- zesu-ssz
 ```
 
-`reth-keccak` accepts one hexadecimal message. `zesu-ssz` reads raw bytes from standard input and
-intentionally rejects empty input. `build/stats/stats.md` compares both protocol entries and retains
-their full `_start` compositions for context.
+`zesu-ssz` reads raw bytes from standard input and intentionally rejects empty input.
+`build/stats/stats.md` reports the protocol entry and retains the full `_start` composition for
+context.
 
 ## SSZ conformance
 
@@ -101,36 +95,30 @@ checks, not default local checks.
 The import direction is one-way:
 
 ```text
-Binary  ->  RiscV  ->  Keccak.Reth
-Binary  +  Spec.Keccak  ->  Keccak.SpecBridge
-RiscV  +  Reth.Artifact  +  SpecBridge  ->  Reth correlation proofs
-everything  ->  Keccak.Reth.Root
+Binary  ->  RiscV  ->  SSZ.Zesu
+Binary  +  SszSpec  ->  SSZ.SpecBridge
+RiscV  +  Zesu.Artifact  +  SpecBridge  ->  Zesu correspondence proofs
+everything  ->  SSZ.Root
 ```
 
-`BinaryFv/RiscV/` is generic over the loaded binary. `BinaryFv/Keccak/SpecBridge/` contains only pure
-lane/byte correspondence. Under `BinaryFv/Keccak/Reth/`, `Artifact/` contains immutable bytes,
-symbols, ranges, and closed static facts; `Analysis/` contains decode-dependent inventory;
-`Execution/` configures the machine and runner; `Proof/` connects those objects to generated Sail
-semantics.
-
-The generated Sail decoder reads machine CSRs while checking enabled extensions, so decoded
-instructions are deliberately in `Reth/Analysis/`, not static `Reth/Artifact/` data.
+`BinaryFv/RiscV/` is generic over the loaded binary; the import audit in `nix/proof.nix` enforces
+that it never imports the target. Under `BinaryFv/SSZ/Zesu/`, `Artifact/` contains immutable bytes,
+symbols, ranges, and closed static facts; `ControlFlow/` contains decode-dependent inventory;
+`Contracts/` holds handwritten, address-free per-routine contracts; `Elfling/` holds the
+deterministically generated address-bearing scaffold validated against the canonical ELF and
+Sail-decoded control flow; `MachineExecution/` and `Entrypoints/` configure the machine and runner.
+All of it composes into `BinaryFv/SSZ/Root.lean`.
 
 The intended public theorem remains:
 
 ```lean
-theorem root_compliance :
-    forall msg : ByteArray,
-      msg.size < RiscvSpec.maxMessageSize ->
-      RiscvSpec.execute binary msg = .ok (Spec.Keccak.keccak256 msg)
+theorem ssz_root_compliance :
+    forall input : ByteArray,
+      input.size < 2 ^ 32 ->
+      RiscvSpec.execute zesuSszBinary input = .ok (SszSpec.decodeStatelessInput input)
 ```
 
-The Zesu SSZ target has a parallel structure under `BinaryFv/SSZ/`: handwritten, address-free
-per-routine contracts (`Zesu/Contracts/`), the deterministically generated address-bearing Elfling
-scaffold validated against the canonical ELF and Sail-decoded control flow (`Zesu/Elfling/`),
-composed into `BinaryFv/SSZ/Root.lean`.
-
-The canonical proof inputs for both targets are regenerated with pinned Nix derivations — see
+The canonical proof inputs are regenerated with pinned Nix derivations — see
 [Regenerating deterministic artifacts](#regenerating-deterministic-artifacts).
 
 ## Regenerating deterministic artifacts
@@ -142,9 +130,7 @@ and the audit LLVM IR additionally require byte-identical output across two inde
 Lean proof inputs (consumed by `.#binary-fv-lean`):
 
 ```sh
-nix build .#sail-riscv-lean          # Sail RV64 model as Lean (shared by both targets)
-nix build .#reth-keccak-elf-lean     # Reth Keccak ELF image as Lean
-nix build .#keccak-spec-lean         # Keccak specification as Lean
+nix build .#sail-riscv-lean          # Sail RV64 model as Lean
 nix build .#zesu-ssz-elf-lean        # Zesu SSZ decoder ELF image as Lean
 nix build .#ssz-spec-lean            # SizzLean SSZ bridge specification as Lean
 nix build .#zesu-abi-manifest        # compiler-reflected Zesu ABI layout
@@ -183,7 +169,7 @@ build unless the regenerated file is byte-identical to the committed copy (a dri
 
 ## Trust boundary
 
-For this spike, closed facts extracted from the pinned Reth ELF may use `native_decide`. This covers
+For this spike, closed facts extracted from the pinned Zesu ELF may use `native_decide`. This covers
 artifact identity, layout, bytes at fixed addresses, symbols, decoded words, and static call/stack
 summaries. It does not cover Sail execution, control flow, functional correctness, framing, or
 specification correspondence.
@@ -191,8 +177,9 @@ specification correspondence.
 The approved `bv_decide` certificate checker independently contributes `Lean.ofReduceBool` and
 `Lean.trustCompiler` when it reaches the SAT backend. Therefore compliance capstones may report
 `[propext, Classical.choice, Lean.ofReduceBool, Lean.trustCompiler, Quot.sound]`; issue #26 tracks
-that decision. The single `sorry` in `BinaryFv/Keccak/Reth/Root.lean` remains the authorized
-root-compliance scaffold and must be removed before claiming compliance.
+that decision. The four allowlisted `sorry`s — two in `BinaryFv/SSZ/Root.lean` and two in
+`BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution.lean` — remain the authorized
+root-compliance scaffolds and must be removed before claiming compliance.
 
 ## Validation policy
 
