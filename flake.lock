@@ -50,31 +50,12 @@
         "type": "github"
       }
     },
-    "reth": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1781085323,
-        "narHash": "sha256-Zq3EyaUt7kIpwt9Hp809pss9xwEjV9f7d6VKctACoXg=",
-        "owner": "paradigmxyz",
-        "repo": "reth",
-        "rev": "9384bc53d8c0c77e59cac83fdaaf3b372c6d2216",
-        "type": "github"
-      },
-      "original": {
-        "owner": "paradigmxyz",
-        "repo": "reth",
-        "rev": "9384bc53d8c0c77e59cac83fdaaf3b372c6d2216",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
         "etheorem": "etheorem",
         "executionSpecs": "executionSpecs",
         "nixpkgs": "nixpkgs",
-        "reth": "reth",
         "sailRiscv": "sailRiscv",
-        "scrollFv": "scrollFv",
         "zesu": "zesu",
         "zesuRepaired": "zesuRepaired"
       }
@@ -93,23 +74,6 @@
         "owner": "riscv",
         "repo": "sail-riscv",
         "rev": "65ddde80ee2b131bf46c20e6e748343c336c4071",
-        "type": "github"
-      }
-    },
-    "scrollFv": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1778157959,
-        "narHash": "sha256-9GAVAR8B2eNCffr2fY9ccxfKlHiv0NMkO3Y5046Pf3g=",
-        "owner": "trailofbits",
-        "repo": "scroll-fv",
-        "rev": "0c3927ba4d6773b4cfd1d949cba342268b104d91",
-        "type": "github"
-      },
-      "original": {
-        "owner": "trailofbits",
-        "repo": "scroll-fv",
-        "rev": "0c3927ba4d6773b4cfd1d949cba342268b104d91",
         "type": "github"
       }
     },

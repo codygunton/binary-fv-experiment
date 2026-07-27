@@ -9,14 +9,6 @@ lean_lib LeanRV64DExecutable where
   srcDir := "build/sail-riscv-lean"
   moreLeanArgs := #["--tstack=4000000"]
 
-lean_lib RethKeccakElf where
-  srcDir := "build/reth-keccak-elf-lean"
-  roots := #[`RethKeccakElf]
-
-lean_lib KeccakSpec where
-  srcDir := "build/keccak-spec-lean"
-  roots := #[`Spec.Keccak.Keccak256]
-
 /-
 The specification closure is copied and content-checked by the Nix derivation rather than added as a
 Lake dependency. It is deliberately restricted to SizzLean's pure SSZ decoder modules and the local
