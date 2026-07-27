@@ -3,6 +3,7 @@ import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.EntryBinding
 import BinaryFv.SSZ.Zesu.Contracts.Runtime
 import BinaryFv.SSZ.Zesu.Contracts.Footprint
+import BinaryFv.SSZ.Zesu.Elfling.GeneratedReturnExits
 
 /-!
 # The exported accessors' calling sequence, threaded
@@ -533,6 +534,50 @@ theorem rejectedRun_of_rejectedAccessorTraces (input : ByteArray)
             storedAbsent := htag
             specRejection := hstatus
             accessors := hruns }⟩
+
+/-! ## Where each accessor's sentinel trace ends
+
+The bridge attaches at one pc per call, and which pc that is has to be a definite description rather
+than a choice among exits — the same requirement `entry_function_instance_exit_is_its_return` settles
+for the wrapper. These are its two accessor analogues, and they hold for the same reason: after the
+exit rule was corrected so that a resolved call is an exit only in tail position, each exported
+accessor's whole exit inventory collapsed to its own `ret`.
+
+Checked for exactly the two instances the runner calls, selected by their **pinned entry addresses**
+rather than by routine name, because it is the address `runAccessor` writes into `PC` that decides
+which instance executes. -/
+
+/-- The two accessor instances exist and are distinct, so the theorem below is not a statement about
+an empty selection. Stated first because a `List.all` over nothing is `true`. -/
+theorem accessor_function_instances_found :
+    (BinaryFv.SSZ.Zesu.Elfling.Generated.generatedProgram.functionInstances.filter
+      (fun i => i.entryPc == resolvedSymbols.rawResult || i.entryPc == resolvedSymbols.rawError)).size
+      = 2 := by native_decide
+
+/-- **Each exported accessor has exactly one exit, and it is its `ret`.**
+
+So `runAccessor`'s `EnteredFunctionTrace` ends on the return, `returnExit_fetch_and_decode` applies
+there, and `accessorReachesSentinel_of_enteredFunctionTrace` has a definite pc to attach at — the
+accessor half of what the wrapper already has. Without it the accessor traces could halt at some
+other exit where there is no `ret` to retire, which is exactly the defect the exit-rule fix removed
+from the entry. -/
+theorem accessor_function_instances_exit_is_their_return :
+    ∀ nodes, BinaryFv.SSZ.Zesu.ControlFlow.controlFlow? = some nodes →
+      (BinaryFv.SSZ.Zesu.Elfling.Generated.generatedProgram.functionInstances.filter
+        (fun i => i.entryPc == resolvedSymbols.rawResult
+          || i.entryPc == resolvedSymbols.rawError)).all
+        (fun i => (i.exitPcs.size == 1) &&
+          (BinaryFv.SSZ.Zesu.Elfling.Validation.returnExitPcs nodes i == i.exitPcs)) = true := by
+  intro nodes hn
+  have h : (BinaryFv.SSZ.Zesu.ControlFlow.controlFlow?.map fun ns =>
+      (BinaryFv.SSZ.Zesu.Elfling.Generated.generatedProgram.functionInstances.filter
+        (fun i => i.entryPc == resolvedSymbols.rawResult
+          || i.entryPc == resolvedSymbols.rawError)).all
+        (fun i => (i.exitPcs.size == 1) &&
+          (BinaryFv.SSZ.Zesu.Elfling.Validation.returnExitPcs ns i == i.exitPcs))).getD false
+      = true := by native_decide
+  rw [hn] at h
+  simpa using h
 
 /-! ## Anti-vacuity
 
