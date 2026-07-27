@@ -2,6 +2,7 @@ import BinaryFv.RiscV.Elfling.FunctionTrace
 import BinaryFv.RiscV.Elfling.Contract
 import BinaryFv.RiscV.Elfling.Boundary
 import BinaryFv.RiscV.Elfling.BoundaryTests
+import BinaryFv.RiscV.Elfling.SuccessorTrace
 import BinaryFv.RiscV.Elfling.SentinelBridge
 import BinaryFv.RiscV.Elfling.SentinelBridgeWitness
 
