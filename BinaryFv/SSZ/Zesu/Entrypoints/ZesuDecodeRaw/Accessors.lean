@@ -1,3 +1,4 @@
+import BinaryFv.RiscV.Elfling.SentinelBridge
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.EntryBinding
 import BinaryFv.SSZ.Zesu.Contracts.Runtime
@@ -20,10 +21,12 @@ The split is clean because `runAccessor` has exactly two halves:
 
 So every theorem here takes the trace as a premise and does the rest. `runToOutcome_of_traceToSentinel`
 already turns a `TraceToSentinel` into a `Runs` of the body; what was missing was the prologue, the
-inversion of `a0` into `AccessorOutcome.returned`, and the sequencing of the two calls. Once the
-generic `Trace`→`TraceToSentinel` bridge lands, `AcceptedAccessorTraces`/`RejectedAccessorTraces`
-below are its consumers, and the two accessor fields are constructed with no further machine
-reasoning.
+inversion of `a0` into `AccessorOutcome.returned`, and the sequencing of the two calls.
+`accessorReachesSentinel_of_enteredFunctionTrace` joins this to
+`Elfling.traceToSentinel_of_enteredFunctionTrace`, so an accessor contract's own
+`ImplementsFunctionInstance` obligation plus its `ret` is all that
+`AcceptedAccessorTraces`/`RejectedAccessorTraces` still want, and the two accessor fields are then
+constructed with no further machine reasoning.
 
 ## What is *not* here, deliberately
 
@@ -282,7 +285,8 @@ theorem observeReturnCode_of_postRawResult {env : DecoderEnvironment} {resultBuf
     (h : postRawResult env resultBuffer model result before after) :
     observeReturnCode? after = some pointer := by
   subst hresult
-  exact observeReturnCode_of_a0 hbound h.2.2.2
+  obtain ⟨-, -, -, -, ha0⟩ := h
+  exact observeReturnCode_of_a0 hbound ha0
 
 /-- `zesu_raw_error`'s postcondition, read as the runner reads it. -/
 theorem observeReturnCode_of_postRawError {env : DecoderEnvironment} {model : DecoderGlobalsModel}
@@ -291,7 +295,8 @@ theorem observeReturnCode_of_postRawError {env : DecoderEnvironment} {model : De
     (h : postRawError env model result before after) :
     observeReturnCode? after = some code := by
   subst hresult
-  exact observeReturnCode_of_a0 hbound h.2.2.2
+  obtain ⟨-, -, -, -, ha0⟩ := h
+  exact observeReturnCode_of_a0 hbound ha0
 
 /-! ## One accessor call, threaded end to end -/
 
@@ -319,15 +324,22 @@ theorem runAccessor_returned_of_trace (entryPc fuel : Nat) {before exit : State}
   rfl
 
 /-- The same, with the fuel premise supplied from the accessor's own contract step bound rather than
-from a free number. This is the form the assembly uses: a contract that says the call retires at most
-`stepBound` steps meets the runner's `accessorFuel stepBound` exactly. -/
+from a free number. This is the form the assembly uses.
+
+**The premise is `stepBound + 1`, not `stepBound`, and the `+ 1` is not slack taken for comfort.** A
+contract's `EnteredFunctionTrace` retires `count ≤ stepBound` steps and stops *on* the exit; the
+sentinel is only reached by the `ret` that follows, and `traceToSentinel_of_functionTrace` accordingly
+returns a trace of length `count + 1`. So the tighter premise would not compose with the bridge at
+all. `accessorFuel stepBound = stepBound + 2` was sized for exactly this — one step to retire the
+return onto the sentinel, one to keep the budget strictly greater — and this is where the first of
+those two is spent. The tighter `count ≤ stepBound` is a special case, so nothing is lost. -/
 theorem runAccessor_returned_of_bound (entryPc stepBound : Nat) {before exit : State}
     {count code : Nat}
     (htrace : TraceToSentinel sentinelWord 0 count (accessorSetup entryPc before) exit)
-    (hbound : count ≤ stepBound) (hcode : observeReturnCode? exit = some code) :
+    (hbound : count ≤ stepBound + 1) (hcode : observeReturnCode? exit = some code) :
     Runs (runAccessor entryPc (accessorFuel stepBound)) before exit (.returned code) :=
   runAccessor_returned_of_trace entryPc (accessorFuel stepBound) htrace
-    (Nat.lt_of_le_of_lt hbound (accessorFuel_exceeds_bound stepBound)) hcode
+    (by have := accessorFuel_exceeds_bound stepBound; unfold accessorFuel at *; omega) hcode
 
 /-! ## Both accessor calls, sequenced
 
@@ -340,11 +352,11 @@ theorem runAccessorsIfReached_returned_of_traces (symbols : RunnerSymbols) (step
     {final middle after : State} {resultCount errorCount resultCode errorCode : Nat}
     (hresultTrace : TraceToSentinel sentinelWord 0 resultCount
       (accessorSetup symbols.rawResult final) middle)
-    (hresultBound : resultCount ≤ rawResultStepBound)
+    (hresultBound : resultCount ≤ rawResultStepBound + 1)
     (hresultCode : observeReturnCode? middle = some resultCode)
     (herrorTrace : TraceToSentinel sentinelWord 0 errorCount
       (accessorSetup symbols.rawError middle) after)
-    (herrorBound : errorCount ≤ rawErrorStepBound)
+    (herrorBound : errorCount ≤ rawErrorStepBound + 1)
     (herrorCode : observeReturnCode? after = some errorCode) :
     Runs (runAccessorsIfReached symbols (.reached steps)) final after
       (.returned resultCode, .returned errorCode) := by
@@ -360,26 +372,56 @@ Everything above takes the accessor traces as premises. These are the premises, 
 definitions rather than `sorry`s, following `Contracts/Options.lean`'s rule that an unfinished
 obligation must exist as a statement before it exists as a proof.
 
-The generic `Trace`→`TraceToSentinel` bridge, plus the two accessor contracts'
-`ImplementsFunctionInstance` obligations, are what will discharge them. Note precisely what each
-demands, because it is not merely "a trace exists":
+The generic `traceToSentinel_of_enteredFunctionTrace` bridge, plus the two accessor contracts'
+`ImplementsFunctionInstance` obligations, are what discharge them —
+`accessorReachesSentinel_of_enteredFunctionTrace` below is that join, so what is left is per-accessor
+and target-specific. Note precisely what it demands, because it is not merely "a trace exists":
 
 * the trace must start at `accessorSetup entryPc before` — the state *after* the runner's prologue,
-  not at the accessor's entry with arbitrary registers, so the bridge must be applied at a state whose
-  `ra`/`sp`/`PC`/`nextPC` are the runner's;
+  not at the accessor's entry with arbitrary registers, so the contract's entry binding has to be
+  established at a state whose `ra`/`sp`/`PC`/`nextPC` are the runner's. That is exactly what
+  `contractRawResult_entry_accessorSetup` / `contractRawError_entry_accessorSetup` do;
 * its length must be within the accessor's **own contract** step bound (`rawResultStepBound = 32`,
-  `rawErrorStepBound = 16`, by `accessor_step_bounds`), not within some other budget;
+  `rawErrorStepBound = 16`, by `accessor_step_bounds`) plus the single `ret` the bridge appends —
+  never within some other budget;
 * the exit state's `a0` must read back as the expected code, which
   `observeReturnCode_of_postRawResult` / `observeReturnCode_of_postRawError` supply from the
-  contracts' own postconditions.
+  contracts' own postconditions;
+* the bridge's two avoidance conditions must hold of the accessor's own address set: no address it
+  executes at is the sentinel. `Layout.lean`'s `loaded_disjoint_from_runner` is the fact that settles
+  it, and supplying it is a per-accessor obligation this module does not attempt.
 -/
 
 /-- **One accessor's residual obligation.** The exported accessor at `entryPc`, entered from `before`
-by the runner's own prologue, retires at most `stepBound` steps and reaches the return sentinel in
-`after`. This is exactly `runAccessor_returned_of_bound`'s two trace premises, packaged. -/
+by the runner's own prologue, reaches the return sentinel in `after` within its contract's step bound
+plus the one `ret` that lands on the sentinel. This is exactly `runAccessor_returned_of_bound`'s two
+trace premises, packaged; see its docstring for why the bound is `stepBound + 1`. -/
 def AccessorReachesSentinel (entryPc stepBound : Nat) (before after : State) : Prop :=
-  ∃ count, count ≤ stepBound ∧
+  ∃ count, count ≤ stepBound + 1 ∧
     TraceToSentinel sentinelWord 0 count (accessorSetup entryPc before) after
+
+/-- **The join with the generic sentinel bridge, in one step.** An `EnteredFunctionTrace` of the
+accessor from the runner's own setup state — which is what its `ImplementsFunctionInstance`
+obligation produces once `contractRawResult_entry_accessorSetup` /
+`contractRawError_entry_accessorSetup` discharge the entry binding — plus the `ret` that lands on the
+sentinel, *is* the residual obligation.
+
+This is the seam, and the arithmetic is the whole content of it: the contract bounds the function's
+own retirements by `stepBound`, `traceToSentinel_of_enteredFunctionTrace` appends the `ret`, and the
+result is admitted because `AccessorReachesSentinel` allows `stepBound + 1`. -/
+theorem accessorReachesSentinel_of_enteredFunctionTrace {region exit : BitVec 64 → Prop}
+    {entryPc stepBound count : Nat} {before atExit after : State}
+    (regionAvoidsSentinel : ∀ pc, region pc → pc ≠ sentinelWord)
+    (exitAvoidsSentinel : ∀ pc, exit pc → pc ≠ sentinelWord)
+    (run : Elfling.EnteredFunctionTrace region exit (BitVec.ofNat 64 entryPc) 0 count
+      (accessorSetup entryPc before) atExit)
+    (hbound : count ≤ stepBound)
+    (ret : Runs (try_step (0 + count) false) atExit after false)
+    (landed : after.regs.get? PC = some sentinelWord) :
+    AccessorReachesSentinel entryPc stepBound before after :=
+  ⟨count + 1, by omega,
+    (Elfling.traceToSentinel_of_enteredFunctionTrace regionAvoidsSentinel exitAvoidsSentinel run ret
+      landed).1⟩
 
 /-- The packaged obligation is enough: an `AccessorReachesSentinel` plus the exit code is a complete
 `runAccessor` run. -/
