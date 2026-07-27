@@ -13,8 +13,7 @@ let
     riscvReadelf
     riscvSize
     riscvTarget;
-  inherit (targets.internal) rethKeccakRust;
-  inherit (targets.public) rethKeccak zesuRawObject zesuSsz;
+  inherit (targets.public) zesuRawObject zesuSsz;
 
   stats = pkgs.stdenvNoCC.mkDerivation {
     pname = "sha-fv-binary-stats-rv64im-zicclsm";
@@ -45,18 +44,6 @@ let
         "$out/rv64/meta" \
         "$out/rv64/obj"
 
-      cp ${rethKeccak}/bin/reth-keccak "$out/rv64/bin/reth-keccak"
-      cp ${rethKeccakRust}/lib/libreth_keccak_wrapper.a \
-        "$out/rv64/obj/reth-keccak-rustcrypto.a"
-      cp ${rethKeccak}/obj/reth-keccak-main.o "$out/rv64/obj/reth-keccak-main.o"
-      cp ${rethKeccak}/meta/elf-attributes.txt \
-        "$out/rv64/meta/reth-keccak-elf-attributes.txt"
-      cp ${rethKeccak}/meta/selected-symbols \
-        "$out/rv64/meta/reth-keccak-selected-symbols.txt"
-      cp ${rethKeccak}/meta/reth-keccak.map "$out/rv64/meta/reth-keccak.map"
-      cp ${rethKeccak}/meta/symbols.txt "$out/rv64/meta/reth-keccak-symbols.txt"
-      cp ${rethKeccak}/meta/provenance.txt "$out/rv64/meta/reth-keccak-provenance.txt"
-
       cp ${zesuSsz}/bin/zesu-ssz "$out/rv64/bin/zesu-ssz"
       cp ${zesuSsz}/obj/zesu-raw-ssz-allocator.o \
         "$out/rv64/obj/zesu-raw-ssz-allocator.o"
@@ -81,8 +68,6 @@ let
         cp "${zesuRawObject}/meta/$raw_object-undefined-symbols.txt" \
           "$out/rv64/meta/zesu-raw-ssz-$raw_object-undefined-symbols.txt"
       done
-      printf '%s\n' reth_keccak256 \
-        > "$out/rv64/meta/reth-keccak-protocol-selected-symbols.txt"
       printf '%s\n' zesu_decode_raw > "$out/rv64/meta/zesu-ssz-parser-selected-symbols.txt"
 
       count_symbol_instructions() {
@@ -286,28 +271,12 @@ let
           >> "$out/stats.md"
       }
 
-      ${riscvObjdump} -d "$out/rv64/bin/reth-keccak" > "$out/objdump/reth-keccak.txt"
       ${riscvObjdump} -d "$out/rv64/bin/zesu-ssz" > "$out/objdump/zesu-ssz.txt"
-      ${riscvObjdump} -d --disassemble=reth_keccak256 "$out/rv64/bin/reth-keccak" \
-        > "$out/objdump/reth-keccak-protocol.txt"
       ${riscvObjdump} -d --disassemble=zesu_decode_raw "$out/rv64/bin/zesu-ssz" \
         > "$out/objdump/zesu-ssz-parser.txt"
 
-      # Retain each freestanding adapter composition for context. The
-      # protocol-entry analyses below are the uniformly rooted metrics
-      # used for target-selection comparisons.
-      analyze_target reth-keccak "$out/rv64/bin/reth-keccak" _start \
-        --owner 'reth_keccak256=protocol' \
-        --owner '*Keccak*=protocol' \
-        --owner '*keccak*=protocol' \
-        --owner '*sha3*=protocol' \
-        --owner 'main=adapter' \
-        --owner '_start=runtime' \
-        --owner '*mem*=runtime' \
-        --owner '_R*=rust-runtime' \
-        --owner '*=rust-runtime'
       # Keep the complete adapter/allocator/decoder/sink composition as
-      # a distinct `_start`-rooted analysis. The protocol-entry comparison
+      # a distinct `_start`-rooted analysis. The protocol-entry analysis
       # below is decision-facing and does not replace this artifact.
       analyze_target zesu-ssz "$out/rv64/bin/zesu-ssz" _start \
         --owner 'zesu_raw_sink_checksum=adapter' \
@@ -329,19 +298,9 @@ let
         --owner '*=zig-runtime'
 
       # Every decision-facing metric starts at the exported protocol
-      # boundary in its linked ELF and shares the corresponding full
-      # composition ownership map above.
-      analyze_target reth-keccak-protocol "$out/rv64/bin/reth-keccak" reth_keccak256 \
-        --owner 'reth_keccak256=protocol' \
-        --owner '*Keccak*=protocol' \
-        --owner '*keccak*=protocol' \
-        --owner '*sha3*=protocol' \
-        --owner 'main=adapter' \
-        --owner '_start=runtime' \
-        --owner '*mem*=runtime' \
-        --owner '_R*=rust-runtime' \
-        --owner '*=rust-runtime'
-
+      # boundary in the linked ELF and shares the full composition
+      # ownership map above.
+      #
       # Zesu's protocol entry publishes its raw result for a separate
       # anti-DCE sink. Allocator vtable calls remain explicit unresolved
       # indirect calls, never protocol instructions.
@@ -360,9 +319,6 @@ let
         --owner '*Alloc*=allocator' \
         --owner '*=zig-runtime'
 
-      reth_output="$(${qemuRiscv64} "$out/rv64/bin/reth-keccak" 616263)"
-      test "$reth_output" = 4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45
-
       set +e
       zesu_output="$(${qemuRiscv64} "$out/rv64/bin/zesu-ssz" < /dev/null)"
       zesu_status=$?
@@ -371,19 +327,15 @@ let
       test "$zesu_output" = invalid
 
       ${riscvSize} \
-        "$out/rv64/obj/reth-keccak-rustcrypto.a" \
         "$out/rv64/obj/zesu-raw-ssz-allocator.o" \
         "$out/rv64/obj/zesu-raw-ssz-decoder.o" \
         "$out/rv64/obj/zesu-raw-ssz-sink.o" \
-        "$out/rv64/bin/reth-keccak" \
         "$out/rv64/bin/zesu-ssz" > "$out/size.txt"
 
       ${riscvNm} -S --size-sort --radix=d \
-        "$out/rv64/obj/reth-keccak-rustcrypto.a" \
         "$out/rv64/obj/zesu-raw-ssz-allocator.o" \
         "$out/rv64/obj/zesu-raw-ssz-decoder.o" \
         "$out/rv64/obj/zesu-raw-ssz-sink.o" \
-        "$out/rv64/bin/reth-keccak" \
         "$out/rv64/bin/zesu-ssz" > "$out/symbols.txt"
 
       {
@@ -403,11 +355,10 @@ let
       EOF
 
       cat > "$out/stats.md" <<EOF
-      # RV64 Target Evaluation Stats
+      # RV64 Target Stats
 
       ## Inputs
 
-      - Reth provenance: \`paradigmxyz/reth\` at \`9384bc53d8c0c77e59cac83fdaaf3b372c6d2216\`
       - Zesu preservation baseline: \`Consensys/zesu\` at \`aa6c94339987d278acb8b7fa409c864dbd3d05aa\`
       - Zesu selected raw decoder: \`codygunton/zesu\` at \`96f1621468ba54755d653f19cbc9704e789be001\`
 
@@ -424,25 +375,16 @@ let
 
       ## ${riscvTarget}
 
-      ## Decision-facing protocol-entry comparison
+      ## Decision-facing protocol-entry row
 
-      Selection rows use the exported protocol root in the linked ELF:
-      \`reth_keccak256\` or \`zesu_decode_raw\`.
-      In \`stats.tsv\`, filter \`analysis_scope=protocol-entry\` for the uniformly rooted
-      inputs to the size and structural comparison.
+      The selection row uses the exported protocol root in the linked ELF,
+      \`zesu_decode_raw\`. In \`stats.tsv\`, filter \`analysis_scope=protocol-entry\` for the
+      uniformly rooted inputs to the size and structural measurement.
 
       | Target | Scope | Entry symbol | Measured artifact | Object \`.text\` | Linked \`.text\` | Full instrs | Reachable instrs | Protocol reachable | Reachable funcs | Protocol funcs | Blocks | CFG edges | Conditional branches | Calls | Loop SCCs |
       |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
       EOF
 
-      append_target reth-keccak-protocol \
-        'Reth RustCrypto Keccak-256 wrapper (protocol entry)' \
-        'libreth_keccak_wrapper.a' \
-        "$out/rv64/obj/reth-keccak-rustcrypto.a" \
-        "$out/rv64/bin/reth-keccak" \
-        "$out/rv64/meta/reth-keccak-protocol-selected-symbols.txt" \
-        reth_keccak256 \
-        protocol-entry
       append_target zesu-ssz-parser \
         'Zesu raw parser rooted at zesu_decode_raw' \
         'zesu-raw-ssz-decoder.o' \
@@ -456,21 +398,13 @@ let
 
       ## Full \`_start\` composition context
 
-      These retained context rows include each freestanding adapter composition. They do
-      not feed the decision gates; use the protocol-entry rows above instead.
+      This retained context row includes the freestanding adapter composition. It does
+      not feed the decision gates; use the protocol-entry row above instead.
 
       | Target | Scope | Entry symbol | Measured artifact | Object \`.text\` | Linked \`.text\` | Full instrs | Reachable instrs | Protocol reachable | Reachable funcs | Protocol funcs | Blocks | CFG edges | Conditional branches | Calls | Loop SCCs |
       |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
       EOF
 
-      append_target reth-keccak \
-        'Reth RustCrypto Keccak-256 wrapper' \
-        'libreth_keccak_wrapper.a' \
-        "$out/rv64/obj/reth-keccak-rustcrypto.a" \
-        "$out/rv64/bin/reth-keccak" \
-        "$out/rv64/meta/reth-keccak-selected-symbols.txt" \
-        _start \
-        full-composition
       append_target zesu-ssz \
         'Zesu full adapter + allocator + decoder + sink composition' \
         'zesu-ssz (full linked ELF)' \
@@ -482,13 +416,12 @@ let
 
       cat >> "$out/stats.md" <<EOF
 
-      The measured-artifact column identifies the protocol object (or Rust static archive)
-      for compact targets and the decoder object for Zesu's protocol entry; \`zesu-ssz\`
-      deliberately names the complete linked ELF. Direct reachability is conservative:
-      the analyzer follows direct-call fallthroughs even when a callee is noreturn, so the
-      Reth protocol root can retain explicitly labeled adapter or runtime code. Ownership
-      maps are shared with the matching full-composition rows and are never stripped based
-      on inferred behavior.
+      The measured-artifact column identifies the decoder object for Zesu's protocol
+      entry; \`zesu-ssz\` deliberately names the complete linked ELF. Direct reachability
+      is conservative: the analyzer follows direct-call fallthroughs even when a callee is
+      noreturn, so a protocol root can retain explicitly labeled adapter or runtime code.
+      Ownership maps are shared with the matching full-composition row and are never
+      stripped based on inferred behavior.
 
       ## Structural analysis
 
@@ -496,15 +429,13 @@ let
       functions, basic blocks, CFG edges, conditional branches, direct calls, loop SCCs,
       maximum direct-call depth, opcode classes, ISA violations, unresolved indirect calls,
       and ownership buckets. The matching Markdown files render the core metrics and ISA
-      gate. Complete linked \`objdump -d\` output is in \`objdump/\`; entry-symbol
-      disassemblies are \`objdump/reth-keccak-protocol.txt\` and
-      \`objdump/zesu-ssz-parser.txt\`. Raw size and symbol output is in \`size.txt\` and
-      \`symbols.txt\`.
+      gate. Complete linked \`objdump -d\` output is in \`objdump/\`; the entry-symbol
+      disassembly is \`objdump/zesu-ssz-parser.txt\`. Raw size and symbol output is in
+      \`size.txt\` and \`symbols.txt\`.
 
       ## Sanity
 
-      Reth Keccak-256 produced the independent Ethereum Keccak-256 vector for \`abc\`, and
-      the raw Zesu adapter rejected empty input with its expected \`invalid\` exit.
+      The raw Zesu adapter rejected empty input with its expected \`invalid\` exit.
       EOF
 
       cat > "$out/bin/show-stats" <<EOF
@@ -521,21 +452,20 @@ let
     name = "dump";
     text = ''
       if [ "$#" -eq 0 ]; then
-        target=reth-keccak
+        target=zesu-ssz
       else
         target="$1"
         shift
       fi
       if [ "$#" -ne 0 ]; then
-        echo "usage: dump [reth-keccak|zesu-ssz]" >&2
+        echo "usage: dump [zesu-ssz]" >&2
         exit 64
       fi
       case "$target" in
-        reth-keccak) binary=${rethKeccak}/bin/reth-keccak ;;
         zesu-ssz) binary=${zesuSsz}/bin/zesu-ssz ;;
         *)
           echo "unknown target: $target" >&2
-          echo "usage: dump [reth-keccak|zesu-ssz]" >&2
+          echo "usage: dump [zesu-ssz]" >&2
           exit 64
           ;;
       esac
