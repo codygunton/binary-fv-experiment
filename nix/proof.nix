@@ -571,6 +571,15 @@ COMPAT
     # observed pass is indistinguishable from a check that cannot pass.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.BoundarySatisfiability
+    # Row D-half repair blast radius: exact checked inputs for the three human rulings, with no
+    # extractor or contract mutation. This joins the six `preReadAt` catalog tags to all 108
+    # occurrence-local offset bindings; measures what same-entry deduplication, exit removal, and
+    # entry relocation delete or leave broken; classifies all 127 inline pairs using the complete
+    # validated edge pool, including same-entry, ancestor-entry, and shared-exit cases; and pins the
+    # 10,593-versus-3,195 instruction-occurrence cost of replacing composition with repeated
+    # `ownStep` proofs. These are red measurements, so movement in either direction fails the build.
+    # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.RepairBlastRadius
     # Complete premise joins for the measured local-obligation defect. This builds an actual
     # `¬ functionInstanceLocalTraceObligation` for 16 no-callee offenders and 12 more whose actual
     # callees all dispatch to checked-realizable `bytesAt`/`readU32` exit bindings. Each proof

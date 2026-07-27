@@ -55,6 +55,11 @@ Row D½ measures what the conditional local premise actually says:
 
 - [BoundarySatisfiability.lean](BoundarySatisfiability.lean) and
   [ContractGroundTruth.lean](ContractGroundTruth.lean) provide structural and captured-run evidence.
+- [RepairBlastRadius.lean](RepairBlastRadius.lean) pins the populations behind the three human
+  rulings without changing the extractor or contracts: 108 occurrence-local offset bindings, the
+  exact loss and residue of entry-PC deduplication/removal/relocation, and the ordinary,
+  same-entry, ancestor-entry, and shared-exit inline-boundary cases. It also measures the 3.315×
+  instruction-occurrence cost of proving every nested appearance again with `ownStep`.
 - [LocalObligationRefutations.lean](LocalObligationRefutations.lean) joins both hypothesis layers and
   proves 28 individual local obligations false: 16 with no callees and 12 whose `bytesAt`/`readU32`
   callee exits make the outer premise inhabitable. It also proves that the copy contracts admit a
