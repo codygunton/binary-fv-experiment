@@ -77,6 +77,14 @@ Row D½ measures what the conditional local premise actually says:
   Consumer-shaped mutations reject a dropped or swapped conditional arm, confusing a call's
   immediate callee with its completion address, and corrupting either the allocator tail target or
   its semantic tag.
+- [SuccessorTraceTests.lean](SuccessorTraceTests.lean) exercises the generic successor-classified
+  trace API on closed executions of a tiny RISC-V image. One decoded conditional source takes both
+  an internal and a leaving arm; an entry-exit trace has a zero-step body but a real pending
+  retirement; nested resumption consumes that transfer exactly once; and propagation retains the
+  identical transfer. Mutations reject the old entry-not-exit rule, swapped stay/leave
+  classifications, a dropped resume transfer, and treating propagation as resumption. The file
+  lives here because these executable `try_step` checks require target-validation
+  `native_decide`; the generic module remains native-free.
 - [EntryPcPlacement.lean](EntryPcPlacement.lean) proves that every source-selected entry predicate
   ignores `PC`, then joins that fact to the trace consumer's fixed-entry requirement and
   per-instance pre-satisfiability. The result is an exact pre-repair blast radius: all 141 closed

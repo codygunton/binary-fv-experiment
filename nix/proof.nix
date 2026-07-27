@@ -593,6 +593,16 @@ COMPAT
     # red movement is reported rather than normalized away.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.ExitPathMeasurement
+    # Row D-half successor-trace semantics: closed `try_step` executions over a tiny RISC-V image
+    # exercise the new generic API without importing any SSZ contract. The same decoded conditional
+    # source has an internal arm and a leaving arm; entry=exit admits a zero-body trace carrying one
+    # real pending retirement; nested resume consumes that transfer exactly once; and propagation
+    # retains the identical transfer. Negative controls reject the old entry-not-exit rule, wrong
+    # stay/leave classifications, a dropped resume transfer, and propagation-as-resume. Native
+    # evaluation is deliberately confined to this Validation target; the generic layer remains
+    # covered by the native-in-generic audit above.
+    # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.SuccessorTraceTests
     # Complete premise joins for the measured local-obligation defect. This builds an actual
     # `¬ functionInstanceLocalTraceObligation` for 16 no-callee offenders and 12 more whose actual
     # callees all dispatch to checked-realizable `bytesAt`/`readU32` exit bindings. Each proof
