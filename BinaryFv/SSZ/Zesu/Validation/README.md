@@ -50,3 +50,14 @@ accessors, observes the full value, and compares the result with the same SSZ or
 cases are compared field for field through the canonical value rendering. Additional cases establish
 that a short budget is fuel exhaustion, a misplaced observer is a malformed result, and a refused
 second call is a bad return rather than a rejection.
+
+Row D½ measures what the conditional local premise actually says:
+
+- [BoundarySatisfiability.lean](BoundarySatisfiability.lean) and
+  [ContractGroundTruth.lean](ContractGroundTruth.lean) provide structural and captured-run evidence.
+- [LocalObligationRefutations.lean](LocalObligationRefutations.lean) joins both hypothesis layers and
+  proves 16 individual local obligations false.
+- [LocalObligationLedger.lean](LocalObligationLedger.lean) classifies all 141 instances without
+  treating gaps as passes. Its committed
+  [Markdown ledger](../../../../targets/ssz/zesu/trace/LOCAL_OBLIGATION_LEDGER.md) is regenerated and
+  byte-diffed by `nix/proof.nix`.

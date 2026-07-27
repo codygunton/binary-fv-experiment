@@ -27,5 +27,11 @@ reaches; its generated report is [STATIC_REACHABILITY.md](STATIC_REACHABILITY.md
 captured evidence to show that the checks can fail. The full per-function-instance results and documented
 gaps are in [SCALE_COVERAGE.md](SCALE_COVERAGE.md).
 
+[LOCAL_OBLIGATION_LEDGER.md](LOCAL_OBLIGATION_LEDGER.md) is the Row D½ composition over all 141
+instances. Unlike the trace reports alone, it distinguishes logical `pre` satisfiability from a
+captured-state mismatch and includes the outer `ChildSummariesAvailable` premise before deriving a
+verdict. It is emitted from Lean by `tools/emit_local_obligation_ledger.lean` and byte-diffed in the
+Nix proof gate.
+
 Committed evidence contains no host-specific stack addresses. Fixed ELF addresses remain exact;
 stack-relative values are normalized by one common delta so regeneration is stable across machines.

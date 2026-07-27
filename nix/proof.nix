@@ -578,6 +578,18 @@ COMPAT
     # both by index and by the unique `(entryPc, qualifiedName)` ledger key.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.LocalObligationRefutations
+    # The 141-row ledger composes logical pre-satisfiability, the outer child-summary premise,
+    # structural inhabitance, captured-run evidence, unevaluated conjunct groups, and checked proof
+    # status. Regenerate the committed Markdown from those Lean definitions and require an exact
+    # byte match. On drift, `diff` is itself the pin-ready replacement; accepting it is an explicit
+    # reviewed source diff, never an automatic recoloring of a red measurement.
+    lake build BinaryFv.SSZ.Zesu.Validation.LocalObligationLedger
+    ledgerActual="$TMPDIR/LOCAL_OBLIGATION_LEDGER.md"
+    lake env lean tools/emit_local_obligation_ledger.lean > "$ledgerActual"
+    if ! diff -u targets/ssz/zesu/trace/LOCAL_OBLIGATION_LEDGER.md "$ledgerActual"; then
+      echo "Local-obligation ledger drifted; review and apply the diff above." >&2
+      exit 1
+    fi
     # Contract ground truth: RUNS the pinned ELF in the Sail model with the step loop instrumented to
     # snapshot every function instance's entry state and its first subsequent declared-exit state,
     # then applies the REAL handwritten predicates to those states -- not a Python mirror of them.
