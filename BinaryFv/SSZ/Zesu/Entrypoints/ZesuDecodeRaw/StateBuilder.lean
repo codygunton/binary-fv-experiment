@@ -17,9 +17,8 @@ The builder configures the Sail RISC-V model, loads the pinned file-backed image
 caller's input, initializes decoder and allocator globals, and writes the public C ABI registers. The
 resulting program then runs until it reaches the return sentinel.
 
-Machine configuration follows the already proved Keccak direct-call runner. Zicclsm is always enabled
-in this Sail build, so only the model initialization, M extension, PMA region, and CSR setup are
-required here.
+Zicclsm is always enabled in this Sail build, so only the model initialization, M extension, PMA
+region, and CSR setup are required here.
 
 Everything address-bearing comes from one place: `canonicalRunnerLayout` for the runner-added ranges,
 and the generated `DecoderGlobals` table for the decoder's own globals and the 64 MiB arena. Nothing
@@ -71,9 +70,9 @@ def storedResultSize : Nat :=
 
 /-! ## Machine configuration
 
-`configureZesuMachine` mirrors the proven Keccak `configureDirectCallMachine`, differing only in the
-PMA regions: the decoder accesses the loaded image (code + BSS + the 64 MiB arena) and the runner's
-input and stack ranges, so main-memory PMA must cover all of them. Every one of the runner's ranges
+`configureZesuMachine` sets up a direct-call entry into the decoder. The PMA regions are what make
+it specific to this target: the decoder accesses the loaded image (code + BSS + the 64 MiB arena)
+and the runner's input and stack ranges, so main-memory PMA must cover all of them. Every one of the runner's ranges
 lies below `2 ^ 63` (`canonicalRunnerLayout`'s bases are `0x2000…`/`0x3000…`/`0x4000…`), so a single
 `[0, 2 ^ 63)` main-memory region covers the image, the arena, the input buffer, the stack, and the
 sentinel at once. -/
