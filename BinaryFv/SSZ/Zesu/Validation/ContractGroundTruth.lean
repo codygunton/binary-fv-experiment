@@ -3,6 +3,7 @@ import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Runner
 import BinaryFv.SSZ.Zesu.Validation.MeaningAgreement
 import BinaryFv.SSZ.Zesu.Contracts.CanonicalParams
 import BinaryFv.SSZ.Zesu.Elfling.BindingInventory
+import Std.Data.ExtHashMap.Lemmas
 
 /-!
 # Contract ground truth — the handwritten `pre`/`post` against real machine states
@@ -27,12 +28,12 @@ Everything here is falsification evidence. Nothing in the theorem graph imports 
 | 1 | does the machine enter at the declared `entryPc`? | the instrumented run | 135 entered, 6 never reached |
 | 2 | does `pre` hold at that state? | the real `preReadAt`, at Row A's `offset` | 102 decided, **100 refuted**, 2 pass `@witness-args` |
 | 3 | does it leave at a declared exit, and is `entryPc` among the exits? | the run + `BoundarySatisfiability` | 136 decided, **33 refuted** |
-| 4 | does `post` hold at the exit state? | the checked part of the real `postScalarRead` | 4 decided, **4 refuted**, 0 pass |
+| 4 | does `post` hold at the exit state? | the full real `postScalarRead` | 5 decided, **5 refuted**, 0 pass |
 | 5 | real retired steps vs `stepBound args` | `exitStep - entryStep` against the contract's own field | 105 decided, **1 refuted** |
 
 Everything outside those counts is an explicit `gap` carrying its reason. **A gap is never a pass**,
-and the gap counts are large: column 4 in particular is undecidable for 137 of 141 instances, which
-is itself the finding recorded in `post_is_decidable_for_four_instances_and_fails_all_four`.
+and the gap counts are large: column 4 in particular is undecidable for 136 of 141 instances, which
+is itself the finding recorded in `post_refutations_include_exact_frame_violation`.
 
 ## Where the arguments come from, and why that is the whole measurement
 
@@ -62,13 +63,14 @@ so a mismatch there refutes `preReadAt` at every `base`/`bytes`. That is why col
 decided rows while column 4 reaches only 4.
 
 `postScalarRead` has, expanded, six: `MemoryBytes after`, `CodeIntact after`, `NoAllocation`,
-`WritesOnlyWithinOwnRecord`, `value < 2 ^ width`, and `after.regs x10 = value`. **Five are
-evaluated; `WritesOnlyWithinOwnRecord` is NOT** — it is `∀ address, ¬ owned address → …`, an
-unbounded quantifier over the complement of a region, and `State.mem : Std.ExtHashMap` exposes no
-key enumerator, so the difference set cannot be computed. `postScalarReadCheckedB` therefore omits
-it, and `postScalarReadCheckedB_of_postScalarRead` proves the omission is in the safe direction:
-the real `post` implies the checked part, so `false` refutes the real `post` and `true` says nothing
-about the omitted clause. The report renders a passing `post` as `ok-partial` for that reason.
+`WritesOnlyWithinOwnRecord`, `value < 2 ^ width`, and `after.regs x10 = value`. **All six are now
+evaluated.** `WritesOnlyWithinOwnRecord` is an unbounded quantifier, while `State.mem` is an
+extensional hash map that deliberately exposes no order-dependent iterator. `memorySupportAll`
+resolves that mismatch without weakening the clause: it quotient-lifts a permutation-invariant
+Boolean fold over each representation's keys, and `writesOnlyWithinB_iff` proves that checking both
+finite supports is equivalent to the original universal predicate. A byte absent from both
+supports reads `none` in both maps, which is exactly why the finite check is complete rather than
+sampled.
 
 ## What is not covered at all
 
@@ -96,6 +98,7 @@ open BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
 open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram generatedManifest)
 open BinaryFv.SSZ.Zesu.Validation.Boundary (Verdict)
 open PreSail LeanRV64DExecutable.Functions Register
+open Std
 
 /-! ## Executable mirrors of the predicate primitives
 
@@ -167,6 +170,158 @@ theorem noAllocationB_of_noAllocation {before after : State}
     canonicalAllocatorAddresses_are_allocator_state address hmem
   simpa using h address this
 
+/-! ### Exact support enumeration for the universal write-frame clause
+
+`ExtHashMap` is a quotient by extensional equality, so an arbitrary bucket-order traversal cannot
+be exposed as a list. A Boolean conjunction over the keys *is* representation-independent:
+equivalent representatives have permuted key lists, and `List.all` is invariant under permutation.
+The executable definition uses the map's direct fold, avoiding both sorting and materializing a
+million-element key list for the canonical stack; its proof relates that fold to `List.all`. -/
+
+private theorem foldl_and_eq_all {α : Type} (p : α → Bool) (xs : List α) (init : Bool) :
+    xs.foldl (fun acc x => acc && p x) init = (init && xs.all p) := by
+  induction xs generalizing init with
+  | nil => simp
+  | cons x xs ih =>
+    simp only [List.foldl_cons, List.all_cons]
+    rw [ih]
+    exact Bool.and_assoc _ _ _
+
+/-- Apply a Boolean predicate to every key of an extensional hash map, in linear time. -/
+def memorySupportAll {β : Type} (m : ExtHashMap Nat β) (p : Nat → Bool) : Bool :=
+  m.inner.lift
+    (fun raw => raw.fold (fun acc address _ => acc && p address) true)
+    (by
+      intro a b h
+      change a.fold (fun acc address _ => acc && p address) true =
+        b.fold (fun acc address _ => acc && p address) true
+      rw [Std.DHashMap.fold_eq_foldl_keys, Std.DHashMap.fold_eq_foldl_keys,
+        foldl_and_eq_all, foldl_and_eq_all]
+      simp only [Bool.true_and]
+      apply Bool.eq_iff_iff.mpr
+      simp only [List.all_eq_true]
+      constructor
+      · intro ha address hmem
+        exact ha address ((Std.DHashMap.Equiv.keys_perm h).mem_iff.mpr hmem)
+      · intro hb address hmem
+        exact hb address ((Std.DHashMap.Equiv.keys_perm h).mem_iff.mp hmem))
+
+/-- The lifted fold checks exactly the present keys, despite the quotient representation. -/
+theorem memorySupportAll_eq_true_iff
+    {β : Type} {m : ExtHashMap Nat β} {p : Nat → Bool} :
+    memorySupportAll m p = true ↔
+      ∀ address, (m.get? address).isSome → p address = true := by
+  rcases m with ⟨inner⟩
+  induction inner using ExtDHashMap.inductionOn with
+  | mk raw =>
+    unfold memorySupportAll ExtDHashMap.lift ExtHashMap.get? ExtDHashMap.Const.get? ExtDHashMap.mk
+    change raw.fold (fun acc address _ => acc && p address) true = true ↔ ∀ address,
+      (Std.DHashMap.Const.get? raw address).isSome → p address = true
+    rw [Std.DHashMap.fold_eq_foldl_keys, foldl_and_eq_all]
+    simp only [Bool.true_and, List.all_eq_true]
+    constructor
+    · intro hall address hsome
+      apply hall address
+      rw [Std.DHashMap.mem_keys]
+      exact Std.DHashMap.Const.mem_iff_isSome_get?.mpr hsome
+    · intro hall address hmem
+      apply hall address
+      exact Std.DHashMap.Const.mem_iff_isSome_get?.mp
+        (Std.DHashMap.mem_keys.mp hmem)
+
+private def minimumWhereStep (p : Nat → Bool) (acc address : Nat) : Nat :=
+  if p address then min acc address else acc
+
+private theorem minimumWhereStep_comm (p : Nat → Bool) (acc first second : Nat) :
+    minimumWhereStep p (minimumWhereStep p acc first) second =
+      minimumWhereStep p (minimumWhereStep p acc second) first := by
+  simp only [minimumWhereStep]
+  by_cases hfirst : p first <;> by_cases hsecond : p second <;>
+    simp [hfirst, hsecond, Nat.min_comm, Nat.min_left_comm]
+
+/-- The least support key satisfying `p`, or `sentinel` when none does. The minimum makes the result
+permutation-invariant, while the executable path still folds the hash buckets directly. -/
+def memorySupportMinimumWhere {β : Type} (m : ExtHashMap Nat β) (p : Nat → Bool)
+    (sentinel : Nat) : Nat :=
+  m.inner.lift
+    (fun raw => raw.fold (fun acc address _ => minimumWhereStep p acc address) sentinel)
+    (by
+      intro a b h
+      change a.fold (fun acc address _ => minimumWhereStep p acc address) sentinel =
+        b.fold (fun acc address _ => minimumWhereStep p acc address) sentinel
+      rw [Std.DHashMap.fold_eq_foldl_keys, Std.DHashMap.fold_eq_foldl_keys]
+      exact (Std.DHashMap.Equiv.keys_perm h).foldl_eq'
+        (fun x _ y _ z => minimumWhereStep_comm p z x y) sentinel)
+
+/-- The least changed address outside `ownedB` across the two finite supports. Machine addresses are
+64-bit, so `2^64` is the distinguished no-violation result for captured Sail states. -/
+def firstWriteFrameViolation (ownedB : Nat → Bool) (before after : State) : Nat :=
+  let violates := fun address =>
+    !ownedB address && decide (after.mem.get? address ≠ before.mem.get? address)
+  min (memorySupportMinimumWhere before.mem violates (2 ^ 64))
+    (memorySupportMinimumWhere after.mem violates (2 ^ 64))
+
+/-- Finite mirror of `WritesOnlyWithin`, parameterized by an executable owned-region predicate. -/
+def writesOnlyWithinB (ownedB : Nat → Bool) (before after : State) : Bool :=
+  let check := fun address =>
+    ownedB address || decide (after.mem.get? address = before.mem.get? address)
+  memorySupportAll before.mem check && memorySupportAll after.mem check
+
+/-- The finite support check is exactly the original universal write-frame predicate.
+
+Both supports are checked. If an address is in neither, both map lookups are `none`, so the required
+equality follows without inspecting an infinite complement. -/
+theorem writesOnlyWithinB_iff {owned : Region} {ownedB : Nat → Bool}
+    (howned : ∀ address, ownedB address = true ↔ owned address) (before after : State) :
+    writesOnlyWithinB ownedB before after = true ↔ WritesOnlyWithin owned before after := by
+  simp only [writesOnlyWithinB, Bool.and_eq_true, memorySupportAll_eq_true_iff]
+  constructor
+  · rintro ⟨hbefore, hafter⟩ address hnot
+    have resolve (hrow :
+        (ownedB address ||
+          decide (after.mem.get? address = before.mem.get? address)) = true) :
+        after.mem.get? address = before.mem.get? address := by
+      simp only [Bool.or_eq_true, decide_eq_true_eq] at hrow
+      exact hrow.resolve_left (fun hb => hnot ((howned address).mp hb))
+    by_cases hb : (before.mem.get? address).isSome = true
+    · exact resolve (hbefore address hb)
+    · by_cases ha : (after.mem.get? address).isSome = true
+      · exact resolve (hafter address ha)
+      · rw [Option.not_isSome_iff_eq_none.mp ha, Option.not_isSome_iff_eq_none.mp hb]
+  · intro h
+    constructor
+    · intro address _
+      simp only [Bool.or_eq_true, decide_eq_true_eq]
+      by_cases hown : owned address
+      · exact Or.inl ((howned address).mpr hown)
+      · exact Or.inr (h address hown)
+    · intro address _
+      simp only [Bool.or_eq_true, decide_eq_true_eq]
+      by_cases hown : owned address
+      · exact Or.inl ((howned address).mpr hown)
+      · exact Or.inr (h address hown)
+
+/-- The executable region owned by a scalar reader: no result bytes, only the canonical stack. -/
+def scalarReaderOwnedB (address : Nat) : Bool :=
+  decide (Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.stackBase ≤ address ∧
+    address < Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.stackBase +
+      Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.stackSize)
+
+theorem scalarReaderOwnedB_iff (address : Nat) :
+    scalarReaderOwnedB address = true ↔
+      (Region.union (allocatedRegion 0 0 0 0) canonicalEnvironment.stack) address := by
+  simp [scalarReaderOwnedB, canonicalEnvironment, canonicalStack, Region.union, allocatedRegion,
+    range, interval]
+
+/-- Exact executable form of the scalar reader's ownership conjunct. -/
+def scalarWritesOnlyWithinB (before after : State) : Bool :=
+  writesOnlyWithinB scalarReaderOwnedB before after
+
+theorem scalarWritesOnlyWithinB_iff (before after : State) :
+    scalarWritesOnlyWithinB before after = true ↔
+      canonicalEnvironment.WritesOnlyWithinOwnRecord 0 0 before after :=
+  writesOnlyWithinB_iff scalarReaderOwnedB_iff before after
+
 /-! ## `preReadAt`, mirrored in full
 
 All five conjuncts. -/
@@ -213,33 +368,34 @@ theorem preReadAt_failing_conjunct_agrees_with_mirror (env : DecoderEnvironment)
     by_cases h5 : s.regs.get? x12 = some (BitVec.ofNat 64 args.offset) <;>
     simp_all
 
-/-! ## `postScalarRead`, mirrored minus the ownership clause
+/-! ## `postScalarRead`, mirrored in full
 
 `LeafFrame` expands to `MemoryBytes after ∧ CodeIntact after ∧ NoAllocation ∧
-WritesOnlyWithinOwnRecord 0 0`. The last is the one clause that is not decidable against a captured
-state and it is omitted; the theorem below is what makes the omission safe rather than silent. -/
+WritesOnlyWithinOwnRecord 0 0`. `scalarWritesOnlyWithinB` decides the last conjunct exactly, so the
+mirror below now covers the full scalar postcondition rather than a one-way projection. -/
 
 def postScalarReadCheckedB (env : DecoderEnvironment) (args : ReadAtArgs) (width : Nat)
     (result : Except SszDecodeError Nat) (before after : State) : Bool :=
   memoryBytesB after args.base args.bytes &&
     codeIntactB env.image after &&
     noAllocationB before after &&
+    scalarWritesOnlyWithinB before after &&
     (match result with
      | .ok value => decide (value < 2 ^ width) &&
          (after.regs.get? x10 == some (BitVec.ofNat 64 value))
      | .error error => error == SszDecodeError.invalidSsz)
 
-/-- **The checked part is implied by the real postcondition**, at the canonical environment. So
-`postScalarReadCheckedB = false` refutes `postScalarRead`, while `= true` establishes nothing about
-`WritesOnlyWithinOwnRecord`, which is not evaluated. -/
+/-- **The executable mirror is implied by the real postcondition**, at the canonical environment.
+Together with `scalarWritesOnlyWithinB_iff`, every expanded conjunct is evaluated. -/
 theorem postScalarReadCheckedB_of_postScalarRead {args : ReadAtArgs} {width : Nat}
     {result : Except SszDecodeError Nat} {before after : State}
     (h : postScalarRead canonicalEnvironment args width result before after) :
     postScalarReadCheckedB canonicalEnvironment args width result before after = true := by
-  obtain ⟨⟨hmem, hcode, hnoalloc, _⟩, harm⟩ := h
+  obtain ⟨⟨hmem, hcode, hnoalloc, hwrites⟩, harm⟩ := h
   simp only [postScalarReadCheckedB, Bool.and_eq_true]
-  refine ⟨⟨⟨memoryBytesB_of_memoryBytes hmem, codeIntactB_of_fileBytesMatchMemory hcode⟩,
-    noAllocationB_of_noAllocation hnoalloc⟩, ?_⟩
+  refine ⟨⟨⟨⟨memoryBytesB_of_memoryBytes hmem, codeIntactB_of_fileBytesMatchMemory hcode⟩,
+    noAllocationB_of_noAllocation hnoalloc⟩,
+    (scalarWritesOnlyWithinB_iff before after).mpr hwrites⟩, ?_⟩
   cases result with
   | ok value =>
       obtain ⟨hlt, hx10⟩ := harm
@@ -247,13 +403,14 @@ theorem postScalarReadCheckedB_of_postScalarRead {args : ReadAtArgs} {width : Na
       exact ⟨hlt, hx10⟩
   | error error => simpa using harm
 
-/-- The first checked `postScalarRead` conjunct that fails, by name. The unchecked ownership clause
-is never named here because it is never consulted. -/
+/-- The first checked `postScalarRead` conjunct that fails, by name. -/
 def postScalarReadFailure? (env : DecoderEnvironment) (args : ReadAtArgs) (width : Nat)
     (result : Except SszDecodeError Nat) (before after : State) : Option String :=
   if !memoryBytesB after args.base args.bytes then some "LeafFrame.MemoryBytes(after)"
   else if !codeIntactB env.image after then some "LeafFrame.CodeIntact(after)"
   else if !noAllocationB before after then some "LeafFrame.NoAllocation"
+  else if !scalarWritesOnlyWithinB before after then
+    some "LeafFrame.WritesOnlyWithinOwnRecord"
   else
     match result with
     | .ok value =>
@@ -513,7 +670,7 @@ structure GroundTruthRow where
   pre : Verdict
   /-- Q3: the run left at a declared exit, and the entry is not itself an exit. -/
   exited : Verdict
-  /-- Q4: the checked part of `postScalarRead` at the captured exit state. -/
+  /-- Q4: the full `postScalarRead` at the captured exit state. -/
   post : Verdict
   /-- Q5: retired steps within the contract's `stepBound`. -/
   steps : Verdict
@@ -628,9 +785,8 @@ private def renderPre : Verdict → String
   | .ok => "ok@witness-args"
   | v => v.render
 
-/-- `post`'s pass is rendered distinctly, because `WritesOnlyWithinOwnRecord` is not evaluated. -/
+/-- The scalar `post` mirror evaluates every expanded conjunct. -/
 private def renderPost : Verdict → String
-  | .ok => "ok-partial"
   | v => v.render
 
 def GroundTruthRow.render (r : GroundTruthRow) : String :=
@@ -675,8 +831,8 @@ def report : String :=
      , ""
      , "Legend. `ok@witness-args` — `preReadAt` evaluated true, but `base`/`bytes` were taken from"
      , "the state (`x10`, memory at `[x10, x10+x11)`), so three of its five conjuncts are true by"
-     , "construction. Only a FAIL is conclusive. `ok-partial` — the five evaluated conjuncts of"
-     , "`postScalarRead` hold; `WritesOnlyWithinOwnRecord` was NOT evaluated and is not claimed."
+     , "construction. Only a FAIL is conclusive. A post `ok` covers all six expanded"
+     , "`postScalarRead` conjuncts, including the exact finite-support ownership check."
      , "A `gap` is never a pass."
      , ""
      , "```"
@@ -719,7 +875,7 @@ theorem ground_truth_column_totals :
      (groundTruthRows.filter fun r => r.post.isViolated).size,
      (groundTruthRows.filter fun r => r.steps.isOk).size,
      (groundTruthRows.filter fun r => r.steps.isViolated).size] =
-      [135, 0, 2, 100, 103, 33, 0, 4, 104, 1] := by native_decide
+      [135, 0, 2, 100, 103, 33, 0, 5, 104, 1] := by native_decide
 
 /-- **Q1.** Six instances are never entered on this arm. Five are the statically dead allocator and
 error paths; `hasExactErePrefix` is live only on the ERE-prefixed envelope, which this fixture is
@@ -741,16 +897,39 @@ theorem pre_refutations_are_all_the_x12_clause :
      (groundTruthRows.filterMap fun r => if r.pre.isOk then some r.entryPc else none)) =
       (100, #[76600, 76600]) := by native_decide
 
-/-- **Q4.** `postScalarRead` could be decided for exactly four instances — the ones whose borrowed
-slice the harness could materialise — and **all four fail, on the same conjunct**: the contract
-requires the read value in `x10` and the compiled code leaves it elsewhere. Every other instance is a
-gap, dominated by `base`/`bytes` being pinned by nothing in the artifact. Zero passes in this column
-is why the anti-vacuity witness below exists. -/
-theorem post_is_decidable_for_four_instances_and_fails_all_four :
+/-- **Q4.** Five scalar posts are refuted. Four are the previously visible `x10 = value`
+disagreement. The fifth is index 49, `readU64` at entry `72232`: once the exact universal frame is
+evaluated, its captured invocation writes outside the scalar reader's owned stack. This is the
+specific red result hidden by the old partial checker. Every other instance remains a gap, dominated
+by argument/result carriers absent from the generated binding artifact. -/
+theorem post_refutations_include_exact_frame_violation :
     (groundTruthRows.filterMap fun r =>
-      if r.post.isViolated then some (r.entryPc, r.post == Verdict.violated "postScalarRead.x10=value")
-      else none) =
-      #[(73904, true), (73904, true), (73952, true), (73952, true)] := by native_decide
+      if r.post.isViolated then some (r.index, r.routineTag, r.entryPc, r.post) else none) =
+      #[(49, "readU64", 72232, .violated "LeafFrame.WritesOnlyWithinOwnRecord"),
+        (66, "readOffset", 73904, .violated "postScalarRead.x10=value"),
+        (67, "readU32", 73904, .violated "postScalarRead.x10=value"),
+        (68, "readOffset", 73952, .violated "postScalarRead.x10=value"),
+        (69, "readU32", 73952, .violated "postScalarRead.x10=value")] := by
+  native_decide
+
+/-- Concrete address-level evidence for the newly visible frame failure. The two-step captured span
+for index 49 starts with heap address `0x15040` absent and ends with byte `11` stored there. This is
+the canonical heap's second allocation base, not the scalar reader's owned stack. Because index 49's
+entry is itself a declared exit, this is evidence that the current generated stop boundary includes
+a parent heap store—not yet evidence that the source `readU64` body itself performed the write. -/
+def index49FrameViolation? :
+    Option (Nat × Option (BitVec 8) × Option (BitVec 8) × Bool × Bool) := do
+  let before ← captures[49]!.entryState
+  let after ← captures[49]!.exitState
+  let address := firstWriteFrameViolation scalarReaderOwnedB before after
+  pure (address, before.mem.get? address, after.mem.get? address,
+    scalarReaderOwnedB address,
+    decide (BinaryFv.SSZ.Zesu.Elfling.canonicalHeapBase ≤ address ∧
+      address < BinaryFv.SSZ.Zesu.Elfling.canonicalHeapLimit))
+
+theorem index49_frame_violation_is_heap_byte :
+    index49FrameViolation? = some (86080, none, some (BitVec.ofNat 8 11), false, true) := by
+  native_decide
 
 /-- **Q5.** One step bound is refuted by the real run: the `readArray` instance entered at `0x11fd8`
 retires 233 steps between its entry and its first declared exit, against a `stepBound` of 160.
@@ -771,6 +950,39 @@ theorem step_bound_refutation :
 `pre` is exhibited passing on the real artifact (2 rows), so its column is not a constant. `post`
 passes nowhere, which is exactly the shape of a check that cannot pass — so it is exhibited flipping
 under a mutation instead. -/
+
+/-- Minimal states used to test both directions of the exact ownership evaluator. -/
+def frameMutationBefore : State := default
+
+def frameMutationOutside : State :=
+  { frameMutationBefore with
+    mem := frameMutationBefore.mem.insert 0 (BitVec.ofNat 8 1) }
+
+def frameMutationInside : State :=
+  { frameMutationBefore with
+    mem := frameMutationBefore.mem.insert canonicalRunnerLayout.stackBase (BitVec.ofNat 8 1) }
+
+/-- **The finite-support ownership check has teeth in both directions.** A new byte at address zero
+is outside the scalar reader's owned stack and is rejected; the identical write at the canonical
+stack base is accepted. The final two conjuncts transport those executable results through
+`scalarWritesOnlyWithinB_iff`, so the mutation test probes the original universal predicate too. -/
+theorem scalar_ownership_check_discriminates :
+    scalarWritesOnlyWithinB frameMutationBefore frameMutationOutside = false ∧
+      scalarWritesOnlyWithinB frameMutationBefore frameMutationInside = true ∧
+      ¬ canonicalEnvironment.WritesOnlyWithinOwnRecord 0 0
+          frameMutationBefore frameMutationOutside ∧
+      canonicalEnvironment.WritesOnlyWithinOwnRecord 0 0
+        frameMutationBefore frameMutationInside := by
+  have hout :
+      scalarWritesOnlyWithinB frameMutationBefore frameMutationOutside = false := by
+    native_decide
+  have hin :
+      scalarWritesOnlyWithinB frameMutationBefore frameMutationInside = true := by
+    native_decide
+  refine ⟨hout, hin, ?_, (scalarWritesOnlyWithinB_iff _ _).mp hin⟩
+  intro houtside
+  have := (scalarWritesOnlyWithinB_iff _ _).mpr houtside
+  simp_all
 
 /-- The instance the two mutations are run on: the `readU32` at `0x12110` (index 66), whose entry and
 exit states were both captured and whose borrowed slice the harness could materialise. -/
@@ -799,10 +1011,11 @@ def sampleExitWithResultInX10? : Option State := do
   | .ok value => pure { exit with regs := exit.regs.insert x10 (BitVec.ofNat 64 value) }
   | .error _ => none
 
+set_option maxHeartbeats 1000000 in
 /-- **The `post` check can return `none`; the machine is what makes it fail.** On the real exit state
 the sample fails `postScalarRead.x10=value`; on the same state with the read value placed in `x10`
-the same function reports no failure. A column that is `violated` 4 times and `ok` 0 times is
-indistinguishable from a check incapable of passing, and this is the witness that it is not. -/
+the same function reports no failure. The exact ownership mutation above separately tests the newly
+visible fifth refutation, so both failure mechanisms have a positive and negative control. -/
 theorem post_check_flips_when_the_result_is_placed_in_x10 :
     (do
       let entry ← captures[sampleIndex]!.entryState

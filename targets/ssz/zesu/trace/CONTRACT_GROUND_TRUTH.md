@@ -187,8 +187,8 @@ Run: corpus case `valid-v4-rich-raw`, 1486 input bytes, outcome reached the sent
 
 Legend. `ok@witness-args` — `preReadAt` evaluated true, but `base`/`bytes` were taken from
 the state (`x10`, memory at `[x10, x10+x11)`), so three of its five conjuncts are true by
-construction. Only a FAIL is conclusive. `ok-partial` — the five evaluated conjuncts of
-`postScalarRead` hold; `WritesOnlyWithinOwnRecord` was NOT evaluated and is not claimed.
+construction. Only a FAIL is conclusive. A post `ok` covers all six expanded
+`postScalarRead` conjuncts, including the exact finite-support ownership check.
 A `gap` is never a pass.
 
 ```
@@ -243,7 +243,7 @@ idx | routineTag             | entry  | 1 entered                          | 2 p
 46  | bytesAt                | 72132  | ok                                 | FAIL preReadAt.x12=offset                      | FAIL entryPc is itself a declared exit       | gap(arguments not reconstructible)                 | ok                             | 2      | 32     | 88                    | 29999999              | 30000000              | 0           
 47  | readU64                | 72132  | ok                                 | FAIL preReadAt.x12=offset                      | FAIL entryPc is itself a declared exit       | gap(arguments not reconstructible)                 | ok                             | 2      | 96     | 88                    | 29999999              | 30000000              | 0           
 48  | bytesAt                | 72232  | ok                                 | FAIL preReadAt.x12=offset                      | FAIL entryPc is itself a declared exit       | gap(post shape for bytesAt needs a resultBase Row A does not pin) | ok                             | 2      | 32     | 11                    | 0                     | 0                     | 8           
-49  | readU64                | 72232  | ok                                 | FAIL preReadAt.x12=offset                      | FAIL entryPc is itself a declared exit       | gap(meaning errors at the witness args; postScalarRead's error arm is then               trivially satisfied and says nothing about the run) | ok                             | 2      | 96     | 11                    | 0                     | 0                     | 8           
+49  | readU64                | 72232  | ok                                 | FAIL preReadAt.x12=offset                      | FAIL entryPc is itself a declared exit       | FAIL LeafFrame.WritesOnlyWithinOwnRecord           | ok                             | 2      | 96     | 11                    | 0                     | 0                     | 8           
 50  | bytesAt                | 72332  | ok                                 | FAIL preReadAt.x12=offset                      | FAIL entryPc is itself a declared exit       | gap(post shape for bytesAt needs a resultBase Row A does not pin) | ok                             | 3      | 32     | 12                    | 0                     | 0                     | 16          
 51  | readArray              | 72332  | ok                                 | FAIL preReadAt.x12=offset                      | FAIL entryPc is itself a declared exit       | gap(post shape for readArray needs a resultBase Row A does not pin) | ok                             | 3      | 112    | 12                    | 0                     | 0                     | 16          
 52  | bytesAt                | 72372  | ok                                 | FAIL preReadAt.x12=offset                      | ok                                           | gap(arguments not reconstructible)                 | ok                             | 1      | 32     | 86104                 | 35184372089480        | 20                    | 36          
@@ -342,7 +342,7 @@ totals (ok / violated / gap):
   1 entered : 135 / 0 / 6
   2 pre     : 2 / 100 / 39
   3 exited  : 103 / 33 / 5
-  4 post    : 0 / 4 / 137
+  4 post    : 0 / 5 / 136
   5 steps   : 104 / 1 / 36
 ```
 

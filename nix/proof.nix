@@ -626,15 +626,15 @@ COMPAT
     # then applies the REAL handwritten predicates to those states -- not a Python mirror of them.
     # Each executable mirror is tied to its predicate by a theorem in the refuting direction
     # (`preReadAtB_of_preReadAt`, `postScalarReadCheckedB_of_postScalarRead`), so `false` is a
-    # genuine refutation and no conjunct can be silently dropped: `WritesOnlyWithinOwnRecord` is the
-    # one clause NOT evaluated (unbounded quantifier over the complement of a region, and
-    # `Std.ExtHashMap` has no key enumerator), and the implication theorem is what makes that
-    # omission safe rather than invisible. Findings pinned as exact values: 100 of 141 instances
-    # REFUTE `preReadAt` on its `x12 = offset` conjunct against Row A's own binding for that
-    # parameter; `postScalarRead` is decidable for only 4 instances and fails all 4 on
-    # `x10 = value`; one `readArray` retires 233 steps against a `stepBound` of 160. Both columns
-    # carry a mutation that flips them, because `post` passes nowhere and a column with no observed
-    # pass is indistinguishable from a check that cannot pass.
+    # genuine refutation and no conjunct can be silently dropped. The universal
+    # `WritesOnlyWithinOwnRecord` clause is now decided exactly by a quotient-lifted,
+    # permutation-invariant direct hash-map fold, proved equivalent to the Prop and probed by
+    # outside-fails/inside-stack-passes mutations. Findings pinned as exact values: 100 of 141
+    # instances REFUTE `preReadAt` on its `x12 = offset` conjunct against Row A's own binding;
+    # five scalar posts are refuted -- four on `x10 = value`, plus one newly visible ownership-frame
+    # violation -- and one `readArray` retires 233 steps against a `stepBound` of 160. The checks
+    # carry positive and negative controls because no observed pass could otherwise mean a
+    # structurally incapable evaluator.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.ContractGroundTruth
     groundTruthActual="$TMPDIR/CONTRACT_GROUND_TRUTH.md"

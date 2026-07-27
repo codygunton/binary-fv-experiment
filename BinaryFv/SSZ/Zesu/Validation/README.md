@@ -55,6 +55,9 @@ Row D½ measures what the conditional local premise actually says:
 
 - [BoundarySatisfiability.lean](BoundarySatisfiability.lean) and
   [ContractGroundTruth.lean](ContractGroundTruth.lean) provide structural and captured-run evidence.
+  The latter now decides the universal `WritesOnlyWithinOwnRecord` clause exactly by a
+  quotient-lifted direct hash-map fold; its Boolean–Prop equivalence and outside/inside mutations
+  expose a fifth scalar-post refutation that the old partial checker hid.
 - [RepairBlastRadius.lean](RepairBlastRadius.lean) pins the populations behind the three human
   rulings without changing the extractor or contracts: 108 occurrence-local offset bindings, the
   exact loss and residue of entry-PC deduplication/removal/relocation, the 46/73/8 inline-start and
