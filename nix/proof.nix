@@ -571,11 +571,12 @@ COMPAT
     # observed pass is indistinguishable from a check that cannot pass.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.BoundarySatisfiability
-    # Complete anti-vacuity join for the entry-is-exit defect. This builds an actual
-    # `¬ functionInstanceLocalTraceObligation` for every no-callee offender by combining catalog
-    # pre-satisfiability, an inhabited `ChildSummariesAvailable` premise, and the generated
-    # `functionInstanceExitPred` contradiction. The exact result is 16 false obligations, pinned
-    # both by index and by the unique `(entryPc, qualifiedName)` ledger key.
+    # Complete anti-vacuity joins for the measured entry-is-exit defect. This builds an actual
+    # `¬ functionInstanceLocalTraceObligation` for 16 no-callee offenders and 12 more whose actual
+    # callees all dispatch to checked-realizable `bytesAt`/`readU32` exit bindings. Each proof
+    # combines catalog pre-satisfiability, an inhabited `ChildSummariesAvailable` premise, and the
+    # generated `functionInstanceExitPred` contradiction. The exact 28 are pinned both by index and
+    # by the unique `(entryPc, qualifiedName)` ledger key.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.LocalObligationRefutations
     # The 141-row ledger composes logical pre-satisfiability, the outer child-summary premise,

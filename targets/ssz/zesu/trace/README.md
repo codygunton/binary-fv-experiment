@@ -31,7 +31,8 @@ gaps are in [SCALE_COVERAGE.md](SCALE_COVERAGE.md).
 instances. Unlike the trace reports alone, it distinguishes logical `pre` satisfiability from a
 captured-state mismatch and includes the outer `ChildSummariesAvailable` premise before deriving a
 verdict. It is emitted from Lean by `tools/emit_local_obligation_ledger.lean` and byte-diffed in the
-Nix proof gate.
+Nix proof gate. Its current red result is 28 checked-false obligations, no demonstrated vacuity, and
+five still-unknown rows among the 33 entry-is-exit instances.
 
 Committed evidence contains no host-specific stack addresses. Fixed ELF addresses remain exact;
 stack-relative values are normalized by one common delta so regeneration is stable across machines.

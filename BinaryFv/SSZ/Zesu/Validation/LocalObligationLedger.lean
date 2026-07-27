@@ -17,7 +17,7 @@ so an unsatisfiable or unknown `pre` cannot accidentally acquire a structural or
 The child-summary premise is a second logical gate on the final verdict: a structural contradiction
 with an unknown child-summary premise stays `unknown`, never `false`.
 
-The current ledger is intentionally red. Sixteen rows have a checked proof of the negated
+The current ledger is intentionally red. Twenty-eight rows have a checked proof of the negated
 individual obligation; no repair is attempted here. Captured-state `pre` and `post` failures remain
 evidence that the contract misdescribes the binary, but they do not derive the logical verdict.
 -/
@@ -163,8 +163,11 @@ def summaryPremiseSatisfiability (functionInstance : FunctionInstance) : Satisfi
   let callees := calleeFunctionInstances generatedProgram functionInstance
   if callees.isEmpty then
     .yes "empty relation; calleeFunctionInstances=[]"
+  else if LocalObligationRefutations.simpleExitSummaryPremiseB
+      generatedProgram functionInstance then
+    .yes "universal relation; every callee exit is realizable (bytesAt/readU32)"
   else
-    .unknown (toString callees.size ++ " callee(s); no ChildSummariesAvailable witness")
+    .unknown (toString callees.size ++ " callee(s); no checked ChildSummariesAvailable witness")
 
 /-! ## Structural and captured evidence -/
 
@@ -298,16 +301,20 @@ structure LedgerRow where
   verdict : LedgerVerdict
 deriving Repr, DecidableEq, Inhabited
 
-private def isCheckedRefutation (index : Nat) : Bool :=
-  LocalObligationRefutations.noCalleeEntryExitIndices.contains index
+private def checkedRefutationTheorem? (index : Nat) : Option String :=
+  if LocalObligationRefutations.noCalleeEntryExitIndices.contains index then
+    some "no_callee_entry_exit_obligations_false"
+  else if LocalObligationRefutations.simpleCalleeEntryExitIndices.contains index then
+    some "simple_callee_entry_exit_obligations_false"
+  else none
 
 private def checkedSuffix (index : Nat) (functionInstance : FunctionInstance)
     (boundary : Boundary.BoundaryRow) (groundTruth : GroundTruth.GroundTruthRow) : RowSuffix :=
   let summary := summaryPremiseSatisfiability functionInstance
   let proof :=
-    if isCheckedRefutation index then
-      ProofStatus.refuted "no_callee_entry_exit_obligations_false"
-    else .absent
+    match checkedRefutationTheorem? index with
+    | some theoremName => ProofStatus.refuted theoremName
+    | none => .absent
   let verdict :=
     match summary, proof with
     | .no _, _ => LedgerVerdict.vacuous
@@ -396,24 +403,25 @@ theorem pre_satisfiability_totals :
      countSat (·.preSatisfiable) isSatUnknown) = (141, 0, 0) := by
   native_decide
 
-/-- The outer premise is exhibited for 76 no-callee rows and remains unknown for 65. -/
+/-- The outer premise is exhibited for 76 no-callee rows and another 44 whose callees all have
+checked-realizable `bytesAt`/`readU32` exits. It remains unknown for 21. -/
 theorem summary_premise_satisfiability_totals :
     ((summaryValues.filter isSatYes).size,
      (summaryValues.filter isSatNo).size,
-     (summaryValues.filter isSatUnknown).size) = (76, 0, 65) := by
+     (summaryValues.filter isSatUnknown).size) = (120, 0, 21) := by
   native_decide
 
-/-- The red result: 16 checked false obligations and 125 honest unknowns. Nothing is called
+/-- The red result: 28 checked false obligations and 113 honest unknowns. Nothing is called
 `provable` merely because no contradiction was measured. -/
 theorem verdict_totals :
     ((ledgerRows.filter fun row => row.verdict == .provable).size,
      (ledgerRows.filter fun row => row.verdict == .false).size,
      (ledgerRows.filter fun row => row.verdict == .vacuous).size,
-     (ledgerRows.filter fun row => row.verdict == .unknown).size) = (0, 16, 0, 125) := by
+     (ledgerRows.filter fun row => row.verdict == .unknown).size) = (0, 28, 0, 113) := by
   native_decide
 
-/-- This is the disputed join stated over exactly the 33 entry-is-exit rows: 16 are checked false;
-the other 17 are unknown because their child-summary premise has not been inhabited. None is called
+/-- This is the disputed join stated over exactly the 33 entry-is-exit rows: 28 are checked false;
+the other five are unknown because their child-summary premise has not been inhabited. None is called
 vacuous merely because that premise is still unknown. -/
 theorem entry_is_exit_verdict_totals :
     let rows := ledgerRows.filter fun row =>
@@ -422,13 +430,13 @@ theorem entry_is_exit_verdict_totals :
      (rows.filter fun row => row.verdict == .provable).size,
      (rows.filter fun row => row.verdict == .false).size,
      (rows.filter fun row => row.verdict == .vacuous).size,
-     (rows.filter fun row => row.verdict == .unknown).size) = (33, 0, 16, 0, 17) := by
+     (rows.filter fun row => row.verdict == .unknown).size) = (33, 0, 28, 0, 5) := by
   native_decide
 
 theorem false_rows_are_exactly_the_checked_refutations :
     (ledgerRows.filterMap fun row =>
       if row.verdict == .false then some row.key else none).toList =
-        LocalObligationRefutations.noCalleeEntryExitKeys := by
+        LocalObligationRefutations.checkedEntryExitKeys := by
   native_decide
 
 /-! ## Deterministic report -/
@@ -485,9 +493,9 @@ def report : String :=
         "lower",
       "bound (`≥`), never a claim of coverage.",
       "",
-      "Totals: pre yes/no/unknown = 141/0/0; summary yes/no/unknown = 76/0/65;",
-      "verdict provable/false/vacuous/unknown = 0/16/0/125.",
-      "Among the disputed 33 entry-is-exit rows: 16 false, 0 vacuous, 17 unknown.",
+      "Totals: pre yes/no/unknown = 141/0/0; summary yes/no/unknown = 120/0/21;",
+      "verdict provable/false/vacuous/unknown = 0/28/0/113.",
+      "Among the disputed 33 entry-is-exit rows: 28 false, 0 vacuous, 5 unknown.",
       "",
       "| entryPc | routine | idx | tag | preSatisfiable | summaryPremise | structure | " ++
         "evidence | conjunctsUnevaluated | proof | verdict |",

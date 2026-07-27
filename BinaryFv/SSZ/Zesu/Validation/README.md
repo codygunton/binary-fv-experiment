@@ -56,7 +56,8 @@ Row D½ measures what the conditional local premise actually says:
 - [BoundarySatisfiability.lean](BoundarySatisfiability.lean) and
   [ContractGroundTruth.lean](ContractGroundTruth.lean) provide structural and captured-run evidence.
 - [LocalObligationRefutations.lean](LocalObligationRefutations.lean) joins both hypothesis layers and
-  proves 16 individual local obligations false.
+  proves 28 individual local obligations false: 16 with no callees and 12 whose `bytesAt`/`readU32`
+  callee exits make the outer premise inhabitable.
 - [LocalObligationLedger.lean](LocalObligationLedger.lean) classifies all 141 instances without
   treating gaps as passes. Its committed
   [Markdown ledger](../../../../targets/ssz/zesu/trace/LOCAL_OBLIGATION_LEDGER.md) is regenerated and
