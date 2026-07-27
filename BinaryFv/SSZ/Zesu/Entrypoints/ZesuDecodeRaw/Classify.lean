@@ -541,4 +541,95 @@ theorem classifyWrapperRun_alreadyDecoded (observeValue : State → Option SszBr
   rw [hcode, herror]
   simp [show statusCategory DecodeStatus.alreadyDecoded.code = .undocumented by decide]
 
+/-! ### A malformed representation is exactly `malformedResult`
+
+`wrapper_acceptance_forces_checks` says an acceptance *implies* a successful observation. What was
+missing is the other half — that a **failed** observation lands on a specific, non-rejecting error.
+Until now the only evidence for that was a `native_decide` corpus fixture
+(`Validation/RunnerExecution.lean`'s `misplaced_observer_is_malformed`, one input observed at one
+wrong address). A fixture is falsification evidence, not a theorem: it cannot say what happens for
+the inputs nobody ran.
+
+**The unconditional form of this claim is false, and the shape of the false version is worth
+recording.** "`observeValue final = none` implies `classifyWrapperRun … = .error .malformedResult`"
+does *not* hold: the return-`0` branch of `classifyWrapperRun` never consults `observeValue` at all,
+so a rejection stays a rejection under an observer that reads nothing.
+`rejection_ignores_the_value_observer` below exhibits exactly that, on a concrete state rather than
+under hypotheses that might be vacuous. The true statement is conditional on the run being
+*success-shaped* — return code `1` with both accessors agreeing — which is the only branch where the
+observation is reached. -/
+
+/-- **A success-shaped run whose memory represents no value is `malformedResult`.** Every check that
+`classifyWrapperRun_accepted` requires holds except the observation, and the answer is the distinct
+malformed-representation error: not an acceptance of some other value, and not a rejection.
+
+Read together with `classifyWrapperRun_accepted` this is a dichotomy on the success branch — the
+observation succeeding or failing is the *only* thing left to decide, and it decides between exactly
+those two answers. -/
+theorem classifyWrapperRun_malformedResult_of_unobservable
+    (observeValue : State → Option SszBridge.RawV4)
+    (discriminantAddr resultBase steps : Nat) (rawResult rawError : AccessorOutcome)
+    (final : State)
+    (hcode : observeReturnCode? final = some 1)
+    (herror : rawError = AccessorOutcome.returned DecodeStatus.ok.code)
+    (hresult : rawResult = AccessorOutcome.returned resultBase) (hnonnull : resultBase ≠ 0)
+    (htag : observeOptionTag? final discriminantAddr = some true)
+    (hobserve : observeValue final = none) :
+    classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError
+      (.reached steps) final = .error .malformedResult := by
+  unfold classifyWrapperRun
+  rw [hcode, herror, hresult]
+  simp [hnonnull, htag, hobserve]
+
+/-- **And a failed observation is never an acceptance — on any branch, for any value.** The
+unconditional half of the claim above: this one needs no premise about the return code or the
+accessors, because the acceptance converse already forces the observation to have succeeded. So the
+classifier cannot report a value that memory does not represent, however the run ended. -/
+theorem classifyWrapperRun_ne_accepted_of_unobservable
+    {observeValue : State → Option SszBridge.RawV4} {discriminantAddr resultBase : Nat}
+    {rawResult rawError : AccessorOutcome} {outcome : SentinelOutcome} {final : State}
+    {value : SszBridge.RawV4} (hobserve : observeValue final = none) :
+    classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError outcome final
+      ≠ .ok (.accepted value) := by
+  intro h
+  have hsome := (wrapper_acceptance_forces_checks h).2.2.2.2.2.2
+  rw [hobserve] at hsome
+  exact Option.noConfusion hsome
+
+/-! ### Witnessing what a set of checks does *not* force
+
+Several claims in this file and in `Runner.lean` are independence claims: *these* checks do not imply
+*that* one. A hypothesis-shaped independence claim is worthless if its hypotheses are unsatisfiable,
+so the claims below are made against a concrete state instead. `observedShape` is that state — the
+smallest thing that pins the two observations the classifier dispatches on. Nothing runs to produce
+it and nothing in the proof spine consumes it; it exists so that "the old statement was weaker" is a
+theorem rather than an assertion. -/
+
+/-- A state showing `a0` in the C-ABI return register and an option discriminant of `present` at
+`discriminantAddr`. Every other register and byte is absent, which is all the independence witnesses
+need. -/
+def observedShape (a0 : BitVec 64) (discriminantAddr : Nat) (present : Bool) : State :=
+  { initialState with
+      regs := initialState.regs.insert x10 a0
+      mem := initialState.mem.insert discriminantAddr (BitVec.ofNat 8 (if present then 1 else 0)) }
+
+@[simp] theorem observedShape_code (a0 : BitVec 64) (discriminantAddr : Nat) (present : Bool) :
+    observeReturnCode? (observedShape a0 discriminantAddr present) = some a0.toNat := by
+  simp [observeReturnCode?, observedShape]
+
+@[simp] theorem observedShape_tag (a0 : BitVec 64) (discriminantAddr : Nat) (present : Bool) :
+    observeOptionTag? (observedShape a0 discriminantAddr present) discriminantAddr
+      = some present := by
+  cases present <;> simp [observeOptionTag?, observedShape]
+
+/-- **The rejection branch never consults the value observer.** The witness for the paragraph above:
+an observer that reads nothing still yields `.ok .rejected`, so no unconditional
+"failed observation implies `malformedResult`" lemma can exist. The observer being a *parameter* of
+`classifyWrapperRun` is what makes this instantiable at `fun _ => none` at all. -/
+theorem rejection_ignores_the_value_observer (discriminantAddr resultBase steps : Nat) :
+    classifyWrapperRun (fun _ => none) discriminantAddr resultBase
+      (.returned 0) (.returned DecodeStatus.invalidSsz.code) (.reached steps)
+      (observedShape 0 discriminantAddr false) = .ok .rejected :=
+  classifyWrapperRun_rejected _ _ _ _ _ _ _ _ (by simp) rfl (by decide) rfl (by simp)
+
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw

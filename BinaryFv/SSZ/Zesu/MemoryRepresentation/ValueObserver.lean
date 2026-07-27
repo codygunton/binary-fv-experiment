@@ -414,4 +414,23 @@ theorem observe_raw_v4_isSome_of_rep (state : State) (inputBase : Nat) (input : 
   rw [observe_raw_v4_of_rep state inputBase input rootBase value inputMemory representation]
   rfl
 
+/-- **A memory state represents at most one value.** `RawV4Rep` is a big conjunction of reads, and
+nothing in its *definition* says two values cannot both satisfy it — that fact comes from the
+observer: both would have to equal `observeRawV4? state rootBase`, which is a function.
+
+It matters for reading `executeDecode_accepted_of_run`, whose `value` is a premise. Without this,
+"the machine accepted *the* value memory represents" is only "…*a* value memory represents", and a
+second representation of the same memory would be an equally licensed answer.
+
+The `MemoryBytes` hypothesis is inherited from `observe_raw_v4_of_rep` and cannot be dropped: the
+borrowed input slices are represented by an offset into the caller's `input`, so a state that does
+not hold `input` at `inputBase` does not determine their contents. -/
+theorem raw_v4_rep_unique (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    {first second : SszBridge.RawV4} (inputMemory : MemoryBytes state inputBase input)
+    (firstRep : RawV4Rep state inputBase input rootBase first)
+    (secondRep : RawV4Rep state inputBase input rootBase second) : first = second :=
+  Option.some.inj
+    ((observe_raw_v4_of_rep state inputBase input rootBase first inputMemory firstRep).symm.trans
+      (observe_raw_v4_of_rep state inputBase input rootBase second inputMemory secondRep))
+
 end BinaryFv.SSZ.Zesu.MemoryRepresentation

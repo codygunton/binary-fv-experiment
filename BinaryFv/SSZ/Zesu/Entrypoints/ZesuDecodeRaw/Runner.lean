@@ -187,6 +187,29 @@ theorem executeChecked_eq_executeDecode {binary : RiscvSpec.ValidatedElf}
   unfold executeChecked
   rw [preflight_ok hcanon h]
 
+/-! ## A Sail-level fault stays a trap
+
+`runAnswer`'s docstring says a fault escaping the Sail run is `.trapped`. That was true by
+definition and stated nowhere as a theorem, which is the same shape of gap the converse column
+records below: a claim made in prose at a layer where nothing checks it. It is one line, and it is
+the *forward* half of the trap story — the classifier's `classifyWrapperRun_trapped` covers a run
+that stalled and came back, this covers a run that never came back at all. -/
+
+/-- **A run the Sail model could not complete answers `.error .trapped`.** An access outside
+materialized memory, a failed model assertion or an unreachable model branch escapes as an
+`EStateM` error, and `runAnswer` maps every one of them to the same trap — in particular to *an
+execution error*, never to `.ok .rejected` or `.ok (.accepted _)`.
+
+The symbol resolution is a premise rather than `runnerSymbols_eq_resolved`, so this lemma needs no
+`native_decide` witness — the same discipline the converses below follow. -/
+theorem executeDecode_trapped_of_sail_fault {input : ByteArray} {symbols : RunnerSymbols}
+    {fault : Sail.Error exception} {faulted : State}
+    (hsymbols : runnerSymbols = some symbols)
+    (h : (runZesuDecodeRaw symbols input).run initialState = .error fault faulted) :
+    executeDecode input = .error .trapped := by
+  unfold executeDecode runAnswer
+  simp only [hsymbols, h]
+
 /-! ## Following a real trace
 
 The correspondence in the other direction: given a composed Sail trace from the built entry state to
@@ -371,6 +394,38 @@ theorem executeDecode_rejected_forces_checks {input : ByteArray}
       exact ⟨final, steps, rawResult, rawError, hcode, hnull, htag, ⟨status, herror, hstatus⟩,
         hclass⟩
 
+/-- **What the discriminant conjunct and the classification equation add** — an independence witness,
+recorded because `Root.execute_rejected_forces_checks` used to drop both of them and the loss was
+invisible from reading either statement.
+
+The first bracket is exactly the weaker body that public statement carried: return code `0`, a null
+`zesu_raw_result`, and a spec-producible status from `zesu_raw_error`. Those three are satisfied here
+by a state whose stored-result discriminant reads **present** — the shape a *refused second call*
+leaves behind, since `alreadyDecoded` keeps the previous result in place. So they do not force the
+discriminant to read `absent`, and they do not force the run to classify as a rejection at all: on
+this state the classifier answers `.error .badReturn`, for every step count.
+
+That is the whole content of the strengthening. A reader given only the weaker three conjuncts could
+not rule out this state; a reader given the strengthened statement can, because the last conjunct
+*is* the classification. Note the direction the implication runs once the discriminant is restored:
+`classifyWrapperRun_rejected` then derives the classification from the checks, so the two added
+conjuncts are independent of the old body but not of each other. -/
+theorem rejection_checks_without_discriminant_admit_a_non_rejection :
+    ∃ (final : State) (rawResult rawError : AccessorOutcome),
+      (observeReturnCode? final = some 0 ∧
+        rawResult = AccessorOutcome.returned 0 ∧
+        (∃ status, rawError = AccessorOutcome.returned status ∧
+          statusCategory status = .specRejection)) ∧
+      observeOptionTag? final storedResultDiscriminantAddr ≠ some false ∧
+      ∀ steps, classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+        Elfling.canonicalResultBuffer rawResult rawError (.reached steps) final
+        = .error .badReturn := by
+  refine ⟨observedShape 0 storedResultDiscriminantAddr true, .returned 0,
+    .returned Contracts.DecodeStatus.invalidSsz.code,
+    ⟨by simp, rfl, ⟨_, rfl, by decide⟩⟩, by simp, fun steps => ?_⟩
+  unfold classifyWrapperRun
+  simp [show statusCategory Contracts.DecodeStatus.invalidSsz.code = .specRejection from by decide]
+
 /-! ## Where each direction is proved
 
 Both directions of both outcomes, by layer. The forward direction says *these checks produce this
@@ -387,6 +442,17 @@ the answer trustworthy rather than merely produced.
 The table is complete, and it is kept because filling it is what found the two gaps it now records
 as closed. An empty cell in a grid you are forced to fill is a different object from an absence
 nobody happened to look for.
+
+**A filled cell can still be filled with something weaker than its neighbour, which the table does
+not show.** `Root.execute_rejected_forces_checks` occupied its cell while carrying strictly less
+than `executeDecode_rejected_forces_checks` handed it: the discriminant conjunct and the
+classification equation were destructured and dropped. The table said "covered" throughout.
+`rejection_checks_without_discriminant_admit_a_non_rejection` above is the missing measurement —
+what the cell's *contents* fail to force, as opposed to whether the cell is occupied.
+
+**The trap and malformed-representation paths are not converses and so have no column here.** Their
+forward lemmas are `executeDecode_trapped_of_sail_fault` above and
+`classifyWrapperRun_malformedResult_of_unobservable` in `Classify.lean`.
 
 **The whole `accepted` converse column was missing.** "The runner never invents a rejection" was a
 theorem; "the runner never invents an acceptance, and the value it reports is the one memory
