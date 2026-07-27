@@ -2372,4 +2372,246 @@ theorem sourceShapedContainersAgreeWithOracle_holds :
       rw [hser] at hle
       omega
 
+/-! ## The chain, with the value
+
+`sourceShapedContainersAgreeWithOracle` is acceptance-only **by construction** — it has to be, since
+the source applies the fork bound before decoding children and the oracle after, so the two disagree
+about the error constructor and only agree about acceptance (`forkErrorOrderingDiffers` records
+exactly that). But `root_compliance`'s accepted branch needs the entry's *value*, and the entry's
+third field is a `chainConfig`. So the acceptance-only obligation is not enough here and a genuinely
+new statement is owed: **on the accepting branch the two produce the same `RawChainConfig`.**
+
+That is the one place in this row's strengthening where new field-level content was required rather
+than a restatement. The entry needed none: its other three fields are `decodeCanonical` plus a
+projection, and its composition was already value-level backwards. Recorded plainly because the
+prediction going in was that nothing new would be needed anywhere.
+
+**What makes it cheap anyway.** Each link is the same three-line move as at the entry: the *backward*
+composition is already value-level (`decodeCanonical_*_eq_of_fields` conclude `= .ok (…)`), the
+*forward* one is already available at `isSome`, and injectivity of `.ok` closes the gap between
+them. What is genuinely new is only the last step of each link — rewriting the source-shaped `do`
+block with the children's values instead of with their acceptance — and the fork bound has to be
+threaded down one level, from `rawChainConfigOf`'s projection to `rawForkConfigOf`'s, where it is the
+same number by `rfl`. Nothing is commuted past the `fork > 20` test: it stays exactly where the
+source puts it, and on this branch it simply does not fire. -/
+
+/-- An accepted `forkActivation` buffer is well inside `2 ^ 32`, in the `UInt32.size` spelling the
+decompositions want. `decodeCanonical_forkActivation_rejects_oversized` read forwards. -/
+theorem forkActivation_size_lt_u32_of_ok {b : ByteArray}
+    {x : SszBridge.forkActivationType.interp}
+    (h : SszBridge.decodeCanonical SszBridge.forkActivationType b = .ok x) :
+    b.size < UInt32.size := by
+  have hcap : SSZType.maxByteLength SszBridge.forkActivationType < UInt32.size := by decide
+  obtain ⟨-, hser⟩ := decodeCanonical_inv h
+  have hle := forkActivation_size_le x
+  rw [hser] at hle
+  omega
+
+theorem forkConfig_size_lt_u32_of_ok {b : ByteArray} {x : SszBridge.forkConfigType.interp}
+    (h : SszBridge.decodeCanonical SszBridge.forkConfigType b = .ok x) :
+    b.size < UInt32.size := by
+  have hcap : SSZType.maxByteLength SszBridge.forkConfigType < UInt32.size := by decide
+  obtain ⟨-, hser⟩ := decodeCanonical_inv h
+  have hle := forkConfig_size_le x
+  rw [hser] at hle
+  omega
+
+theorem chainConfig_size_lt_u32_of_ok {b : ByteArray} {x : SszBridge.chainConfigType.interp}
+    (h : SszBridge.decodeCanonical SszBridge.chainConfigType b = .ok x) :
+    b.size < UInt32.size := by
+  have hcap : SSZType.maxByteLength SszBridge.chainConfigType < UInt32.size := by decide
+  obtain ⟨-, hser⟩ := decodeCanonical_inv h
+  have hle := chainConfig_size_le x
+  rw [hser] at hle
+  omega
+
+/-- The two option leaves need no theorem: their meanings *are* `decodeCanonical` plus the bridge's
+projection, so a canonical decode rewrites them outright. Stated so the joins below can `rw` rather
+than unfold a meaning inside a `do` block. -/
+theorem meaningOptionalU64_value {b : ByteArray} {x : optionalU64Type.interp}
+    (h : SszBridge.decodeCanonical optionalU64Type b = .ok x) :
+    meaningOptionalU64 b = .ok x.1[0]? := by
+  rw [meaningOptionalU64, h]
+
+theorem meaningOptionalBlobSchedule_value {b : ByteArray} {x : optionalBlobScheduleType.interp}
+    (h : SszBridge.decodeCanonical optionalBlobScheduleType b = .ok x) :
+    meaningOptionalBlobSchedule b = .ok ((x.1[0]?).map SszBridge.rawBlobScheduleOf) := by
+  rw [meaningOptionalBlobSchedule, h]
+
+/-- **The `forkActivation` link, with the value.** Unconditional, like its acceptance twin and for
+the same reason: both fields are oracle-shaped, so nothing here rests on an assumption. -/
+theorem meaningForkActivation_value_agrees {b : ByteArray}
+    {x : SszBridge.forkActivationType.interp}
+    (hdc : SszBridge.decodeCanonical SszBridge.forkActivationType b = .ok x) :
+    meaningForkActivation b = .ok (SszBridge.rawForkActivationOf x) := by
+  have hu32 := forkActivation_size_lt_u32_of_ok hdc
+  have hacc : (SszBridge.decodeCanonical SszBridge.forkActivationType b).toOption.isSome = true := by
+    rw [hdc]; rfl
+  have h8 : ¬ b.size < 8 := by
+    intro hlt
+    rw [decodeCanonical_forkActivation_short hlt] at hdc
+    exact absurd hdc (by simp)
+  obtain ⟨o0, o1, hoffs⟩ := forkActivation_offsets_of_eight b (by omega)
+  obtain ⟨r0, r1⟩ := (extractFieldOffsets_forkActivation_eq_meaningReads b o0 o1).mp hoffs
+  have hcan : meaningRequireCanonicalOffsets b 8 [o0, o1] = .ok () := by
+    cases hc : meaningRequireCanonicalOffsets b 8 [o0, o1] with
+    | ok u => cases u; rfl
+    | error e =>
+        exfalso
+        have hbad : ¬ (o0 = 8 ∧ o0 ≤ o1 ∧ o1 ≤ b.size) := by
+          intro hgood
+          have hok := (requireCanonicalOffsets_forkActivation b o0 o1).mpr
+            ⟨by omega, hgood.1, hgood.2.1, hgood.2.2⟩
+          rw [hc] at hok
+          exact absurd hok (by simp)
+        rw [decodeCanonical_forkActivation_rejects_noncanonical b o0 o1 hoffs hbad] at hacc
+        exact absurd hacc (by simp)
+  obtain ⟨-, hc0, hc01, hc1⟩ := (requireCanonicalOffsets_forkActivation b o0 o1).mp hcan
+  obtain ⟨p0, p1⟩ := decodeCanonical_forkActivation_fields_of b o0 o1 hoffs hc0 hc01 hc1 hu32 hacc
+  obtain ⟨x0, e0⟩ := except_isSome_iff.mp p0
+  obtain ⟨x1, e1⟩ := except_isSome_iff.mp p1
+  have hx : x = (x0, x1, PUnit.unit) := by
+    have heq := decodeCanonical_forkActivation_eq_of_fields b o0 o1 hoffs hc0 hc01 hc1 hu32 e0 e1
+    rw [hdc] at heq
+    injection heq
+  subst hx
+  rw [meaningForkActivation, if_neg h8]
+  simp only [r0, r1, except_bind_ok, hcan, except_bind_pure]
+  rw [meaningOptionalU64_value e0, meaningOptionalU64_value e1]
+  rfl
+
+/-- **The `forkConfig` link, with the value.** The bound is a hypothesis rather than a case split:
+this statement is only about the accepting branch, and there the source's `fork > 20` test does not
+fire — `decodeCanonical_forkConfig_fork_eq` is what says the test is looking at the same number the
+hypothesis bounds. -/
+theorem meaningForkConfig_value_agrees {b : ByteArray} {x : SszBridge.forkConfigType.interp}
+    (hdc : SszBridge.decodeCanonical SszBridge.forkConfigType b = .ok x)
+    (hfork : (SszBridge.rawForkConfigOf x).fork ≤ 20) :
+    meaningForkConfig b = .ok (SszBridge.rawForkConfigOf x) := by
+  have hu32 := forkConfig_size_lt_u32_of_ok hdc
+  have hacc : (SszBridge.decodeCanonical SszBridge.forkConfigType b).toOption.isSome = true := by
+    rw [hdc]; rfl
+  have h16 : ¬ b.size < 16 := by
+    intro hlt
+    rw [decodeCanonical_forkConfig_short hlt] at hdc
+    exact absurd hdc (by simp)
+  obtain ⟨o0, o1, hoffs⟩ := forkConfig_offsets_of_sixteen b (by omega)
+  obtain ⟨r0, r1⟩ := (extractFieldOffsets_forkConfig_eq_meaningReads b o0 o1).mp hoffs
+  have hcan : meaningRequireCanonicalOffsets b 16 [o0, o1] = .ok () := by
+    cases hc : meaningRequireCanonicalOffsets b 16 [o0, o1] with
+    | ok u => cases u; rfl
+    | error e =>
+        exfalso
+        have hbad : ¬ (o0 = 16 ∧ o0 ≤ o1 ∧ o1 ≤ b.size) := by
+          intro hgood
+          have hok := (requireCanonicalOffsets_forkConfig b o0 o1).mpr
+            ⟨by omega, hgood.1, hgood.2.1, hgood.2.2⟩
+          rw [hc] at hok
+          exact absurd hok (by simp)
+        rw [decodeCanonical_forkConfig_rejects_noncanonical b o0 o1 hoffs hbad] at hacc
+        exact absurd hacc (by simp)
+  obtain ⟨-, hc0, hc01, hc1⟩ := (requireCanonicalOffsets_forkConfig b o0 o1).mp hcan
+  obtain ⟨fork, hfx⟩ := meaningReadU64_exists b 0 (by omega)
+  have ha0 : readUInt64LE b 0 = some fork := meaningReadU64_eq_some hfx
+  have hforkeq : x.1 = fork :=
+    decodeCanonical_forkConfig_fork_eq b o0 o1 hoffs hc0 hc01 hc1 ha0 hdc
+  have hnf : ¬ (fork.toNat > 20) := by
+    have hle : x.1 ≤ 20 := hfork
+    rw [hforkeq] at hle
+    have := (fork_bound_toNat_iff fork).mpr hle
+    omega
+  obtain ⟨p0, p1⟩ := decodeCanonical_forkConfig_fields_of b o0 o1 hoffs hc0 hc01 hc1 hu32 ha0 hacc
+  obtain ⟨y0, e0⟩ := except_isSome_iff.mp p0
+  obtain ⟨y1, e1⟩ := except_isSome_iff.mp p1
+  have hx : x = (fork, y0, y1, PUnit.unit) := by
+    have heq := decodeCanonical_forkConfig_eq_of_fields b o0 o1 hoffs hc0 hc01 hc1 hu32 ha0 e0 e1
+    rw [hdc] at heq
+    injection heq
+  subst hx
+  rw [meaningForkConfig, if_neg h16]
+  simp only [r0, r1, except_bind_ok, hcan, except_bind_pure, hfx, if_neg hnf]
+  rw [meaningForkActivation_value_agrees e0, meaningOptionalBlobSchedule_value e1]
+  rfl
+
+/-- **The `chainConfig` link, with the value — third of three, and the one the entry consumes.**
+
+The parent's bound and the child's are the same projection definitionally (`rawChainConfigOf` sets
+`activeFork := rawForkConfigOf value.2.1`), so the hypothesis passes straight down to
+`meaningForkConfig_value_agrees` with no step. -/
+theorem meaningChainConfig_value_agrees {b : ByteArray} {x : SszBridge.chainConfigType.interp}
+    (hdc : SszBridge.decodeCanonical SszBridge.chainConfigType b = .ok x)
+    (hfork : (SszBridge.rawChainConfigOf x).activeFork.fork ≤ 20) :
+    meaningChainConfig b = .ok (SszBridge.rawChainConfigOf x) := by
+  have hu32 := chainConfig_size_lt_u32_of_ok hdc
+  have hacc : (SszBridge.decodeCanonical SszBridge.chainConfigType b).toOption.isSome = true := by
+    rw [hdc]; rfl
+  have h12 : ¬ b.size < 12 := by
+    intro hlt
+    rw [decodeCanonical_chainConfig_short hlt] at hdc
+    exact absurd hdc (by simp)
+  obtain ⟨o, hoffs⟩ := chainConfig_offsets_of_twelve b (by omega)
+  have r0 := (extractFieldOffsets_chainConfig_eq_meaningReads b o).mp hoffs
+  have hcan : meaningRequireCanonicalOffsets b 12 [o] = .ok () := by
+    cases hc : meaningRequireCanonicalOffsets b 12 [o] with
+    | ok u => cases u; rfl
+    | error e =>
+        exfalso
+        have hbad : ¬ (o = 12 ∧ o ≤ b.size) := by
+          intro hgood
+          have hok := (requireCanonicalOffsets_chainConfig b o).mpr ⟨by omega, hgood.1, hgood.2⟩
+          rw [hc] at hok
+          exact absurd hok (by simp)
+        rw [decodeCanonical_chainConfig_rejects_noncanonical b o hoffs hbad] at hacc
+        exact absurd hacc (by simp)
+  obtain ⟨-, hc0, hc1⟩ := (requireCanonicalOffsets_chainConfig b o).mp hcan
+  obtain ⟨chainId, hcx⟩ := meaningReadU64_exists b 0 (by omega)
+  have ha0 : readUInt64LE b 0 = some chainId := meaningReadU64_eq_some hcx
+  have p := decodeCanonical_chainConfig_fields_of b o hoffs hc0 hc1 hu32 ha0 hacc
+  obtain ⟨y, e⟩ := except_isSome_iff.mp p
+  have hx : x = (chainId, y, PUnit.unit) := by
+    have heq := decodeCanonical_chainConfig_eq_of_fields b o hoffs hc0 hc1 hu32 ha0 e
+    rw [hdc] at heq
+    injection heq
+  subst hx
+  have hforky : (SszBridge.rawForkConfigOf y).fork ≤ 20 := hfork
+  rw [meaningChainConfig, if_neg h12]
+  simp only [r0, except_bind_ok, hcan, except_bind_pure, hcx]
+  rw [meaningForkConfig_value_agrees e hforky]
+  rfl
+
+/-- The entry's chain-side hypothesis, discharged. -/
+theorem chainConfigValue_holds : ChainConfigValueHypothesis :=
+  fun _ _ hdc hfork => meaningChainConfig_value_agrees hdc hfork
+
+/-! ## The obligation, joined
+
+`EntryOffsets` proves the two halves separately — acceptance in one direction, value in the other —
+and this is the two-line join. The `mp` direction is where the split pays off: a source success
+implies *some* oracle success by the acceptance half, and the value half then names it, so
+injectivity of `.ok` identifies the two. Neither half is a special case of the other, which is why
+the obligation is a biconditional rather than an implication. -/
+
+/-- **`sourceShapedDecodeAgreesWithOracle`, at value granularity.**
+
+Its two explicit premises are unchanged from when this was the acceptance-only statement: the chain's
+value agreement is *not* a third premise, because it is proved outright above. Stated here rather
+than in `EntryOffsets` for exactly that reason — that module cannot see `meaningChainConfig`'s value
+agreement, since the chain imports it. -/
+theorem sourceShapedDecodeAgreesWithOracle_holds
+    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (retryTail : retryTailNeverSchemaValid) :
+    sourceShapedDecodeAgreesWithOracle := by
+  intro bytes h value
+  constructor
+  · intro hm
+    have hacc : isAccepted (meaningDecode bytes) = true := by rw [hm]; rfl
+    rw [meaningDecode_acceptance_agrees containersAgree retryTail bytes h] at hacc
+    obtain ⟨w, hw⟩ := except_isSome_iff.mp hacc
+    have hmw := meaningDecode_value_agrees containersAgree chainConfigValue_holds h hw
+    rw [hm] at hmw
+    have hvw : value = w := by injection hmw
+    subst hvw
+    exact hw
+  · exact meaningDecode_value_agrees containersAgree chainConfigValue_holds h
+
 end BinaryFv.SSZ.Zesu.SpecCorrespondence

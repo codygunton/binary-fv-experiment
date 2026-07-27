@@ -2514,7 +2514,7 @@ theorem meaningDecodeRaw_ne_outOfMemory {bytes : ByteArray} (h : rootComplianceS
   rw [meaningDecode, hoom] at hne
   exact hne rfl
 
-/-! ## The outer assembly, complete: `sourceShapedDecodeAgreesWithOracle`
+/-! ## The outer assembly: the acceptance half of `sourceShapedDecodeAgreesWithOracle`
 
 The three arms joined. What makes this provable at all is that the two entry points agree on
 *acceptance* while disagreeing about *when to retry* in both directions at once:
@@ -2543,11 +2543,22 @@ theorem tail_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
   rw [rootComplianceScope, ByteArray.size_extract]
   omega
 
-/-- **`sourceShapedDecodeAgreesWithOracle`.** -/
-theorem sourceShapedDecodeAgreesWithOracle_holds
+/-- **The acceptance half of `sourceShapedDecodeAgreesWithOracle`.**
+
+This *was* the obligation, and is now half of it: the obligation carries the decoded value, and this
+says only that the two entry points accept the same buffers. The value half is
+`meaningDecode_value_agrees` below, and `ChainOffsets.sourceShapedDecodeAgreesWithOracle_holds`
+joins them.
+
+Why the split rather than one proof of the biconditional: the three retry arms below are a case
+analysis on *errors*, which is a `Bool` argument end to end, and re-running it carrying a value would
+duplicate it for no content. The value half runs the other way — from an oracle success — and shares
+none of this case analysis. -/
+theorem meaningDecode_acceptance_agrees
     (containersAgree : sourceShapedContainersAgreeWithOracle)
     (retryTail : retryTailNeverSchemaValid) :
-    sourceShapedDecodeAgreesWithOracle := by
+    ∀ (bytes : ByteArray), rootComplianceScope bytes →
+      isAccepted (meaningDecode bytes) = (SszBridge.decodeStatelessInput bytes).toOption.isSome := by
   intro bytes h
   by_cases hv3 : SszBridge.hasV3PayloadShape bytes = true
   · obtain ⟨hs, ho⟩ := v3_arm_rejects_both containersAgree retryTail h hv3
@@ -2605,6 +2616,212 @@ theorem sourceShapedDecodeAgreesWithOracle_holds
                 | invalidSsz => rw [if_neg (by rw [hpre]; exact hmatch)]; rfl
                 | unknownFork => rfl
                 | outOfMemory => rfl
+
+/-! ## The value half: the two sides produce the *same* `RawV4`
+
+Acceptance agreement is not what `root_compliance` needs. Its accepted branch has
+`SszSpec.decode input = .accepted value`, which *is* `decodeStatelessInput input = .ok value`, and it
+must produce that exact `value` — while the machine stores `meaningDecode input`'s. An acceptance
+equation gives only `meaningDecode input = .ok v'` for some `v'`. So the obligation carries the
+value, and this section is the direction that supplies it: **from an oracle success to the same
+success on the source side.**
+
+Only one direction is proved here. The converse — meaning-accepts-with-`v` implies
+oracle-returns-`v` — is a two-line consequence of this one plus the acceptance half, since the two
+values must then coincide by injectivity of `.ok`; `ChainOffsets.sourceShapedDecodeAgreesWithOracle_holds`
+does that join.
+
+**What was already available and what was not, recorded because the estimate was tested.** The
+machinery above turned out to be value-level *in the backward direction only*
+(`decodeCanonical_entry_eq_of_fields` concludes `= .ok (x0, x1, x2, x3, unit)`), with every forward
+decomposition stated at `isSome`. That is enough: forward-with-values is backward-with-values plus
+forward-at-`isSome` plus injectivity of `.ok`, and every step below is that three-line move. So no
+new decomposition of the oracle was needed at the entry. It was **not** enough at the chain: the
+container obligation is acceptance-only by construction, so `meaningChainConfig` had to gain a
+genuinely new value-level agreement, and that is `ChainOffsets.meaningChainConfig_value_agrees`.
+This module consumes it as a hypothesis, exactly as it consumes the acceptance-level container fact. -/
+
+/-- The chain-side hypothesis this module consumes: a canonical `chainConfig` decode inside the fork
+bound is reproduced *with its value* by the source-shaped meaning.
+
+A hypothesis rather than a theorem for the same reason `sourceShapedContainersAgreeWithOracle` is:
+the chain lives in `ChainOffsets`, which imports this module. It is discharged there by
+`chainConfigValue_holds`. -/
+abbrev ChainConfigValueHypothesis : Prop :=
+  ∀ (slice : ByteArray) (value : SszBridge.chainConfigType.interp),
+    SszBridge.decodeCanonical SszBridge.chainConfigType slice = .ok value →
+    (SszBridge.rawChainConfigOf value).activeFork.fork ≤ 20 →
+    meaningChainConfig slice = .ok (SszBridge.rawChainConfigOf value)
+
+/-- **The raw level, with the value.** `decodeRawV4` and `meaningDecodeRaw` return the same `RawV4`.
+
+The three oracle-shaped fields need no lemma: each meaning *is* `decodeCanonical` at its schema
+followed by the bridge's own projection, so a field decode `= .ok xᵢ` rewrites the meaning to
+`.ok (rawᵢOf xᵢ)` by definition. Only `meaningChainConfig` needs `containersMatch`, and the fork
+bound it needs is the one the oracle's own `fork > 20` guard just failed — the same projection on
+both sides by `rawV4_fork_eq_field_fork`. -/
+theorem meaningDecodeRaw_value_agrees (containersMatch : ChainConfigValueHypothesis)
+    {bytes : ByteArray} (h : rootComplianceScope bytes) {value : SszBridge.RawV4}
+    (hdec : SszBridge.decodeRawV4 bytes = .ok value) :
+    meaningDecodeRaw bytes = .ok value := by
+  rw [decodeRawV4_in_scope h] at hdec
+  by_cases hsize : bytes.size < 2
+  · rw [if_pos hsize] at hdec; exact absurd hdec (by simp)
+  by_cases hschema : SszBridge.hasSchemaId bytes = false
+  · rw [if_neg hsize, if_pos (by simp [hschema])] at hdec
+    exact absurd hdec (by simp)
+  have hschema' : ¬ ((!SszBridge.hasSchemaId bytes) = true) := by simp [hschema]
+  rw [if_neg hsize, if_neg hschema'] at hdec
+  have hu32 : (bytes.extract 2 bytes.size).size < UInt32.size := by
+    have hscope : bytes.size < 2 * 1024 * 1024 := h
+    have husz : UInt32.size = 4294967296 := rfl
+    rw [ByteArray.size_extract, husz]; omega
+  cases hdc : SszBridge.decodeCanonical SszBridge.statelessInputV4Type
+      (bytes.extract 2 bytes.size) with
+  | error e => rw [hdc] at hdec; exact absurd hdec (by simp)
+  | ok v =>
+      rw [hdc] at hdec
+      -- Iota-reduce `match Except.ok v with …` so the fork guard is reachable.
+      simp only [] at hdec
+      by_cases hf : (SszBridge.rawV4OfInterp v).chainConfig.activeFork.fork > 20
+      · rw [if_pos hf] at hdec; exact absurd hdec (by simp)
+      rw [if_neg hf] at hdec
+      have hval : SszBridge.rawV4OfInterp v = value := by injection hdec
+      subst hval
+      have hacc : (SszBridge.decodeCanonical SszBridge.statelessInputV4Type
+          (bytes.extract 2 bytes.size)).toOption.isSome = true := by rw [hdc]; rfl
+      have h16 : ¬ (bytes.extract 2 bytes.size).size < 16 := by
+        intro hlt
+        rw [decodeCanonical_entry_short hlt] at hdc
+        exact absurd hdc (by simp)
+      obtain ⟨o0, o1, o2, o3, hoffs⟩ :=
+        entry_offsets_of_sixteen (bytes.extract 2 bytes.size) (by omega)
+      obtain ⟨r0, r1, r2, r3⟩ :=
+        (extractFieldOffsets_eq_meaningReads (bytes.extract 2 bytes.size) o0 o1 o2 o3).mp hoffs
+      have hcan : meaningRequireCanonicalOffsets (bytes.extract 2 bytes.size) 16
+          [o0, o1, o2, o3] = .ok () := by
+        cases hc : meaningRequireCanonicalOffsets (bytes.extract 2 bytes.size) 16
+            [o0, o1, o2, o3] with
+        | ok u => cases u; rfl
+        | error e =>
+            exfalso
+            have hbad : ¬ (o0 = 16 ∧ o0 ≤ o1 ∧ o1 ≤ o2 ∧ o2 ≤ o3 ∧
+                o3 ≤ (bytes.extract 2 bytes.size).size) := by
+              intro hgood
+              have hok := (requireCanonicalOffsets_entry (bytes.extract 2 bytes.size)
+                o0 o1 o2 o3).mpr
+                ⟨extractFieldOffsets_entry_fits (bytes.extract 2 bytes.size) o0 o1 o2 o3 hoffs,
+                  hgood.1, hgood.2.1, hgood.2.2.1, hgood.2.2.2.1, hgood.2.2.2.2⟩
+              rw [hc] at hok
+              exact absurd hok (by simp)
+            rw [decodeCanonical_entry_rejects_noncanonical (bytes.extract 2 bytes.size)
+              o0 o1 o2 o3 hoffs hbad] at hacc
+            exact absurd hacc (by simp)
+      obtain ⟨-, hc0, hc01, hc12, hc23, hc3⟩ :=
+        (requireCanonicalOffsets_entry (bytes.extract 2 bytes.size) o0 o1 o2 o3).mp hcan
+      obtain ⟨q0, q1, q2, q3⟩ :=
+        decodeCanonical_entry_fields_of (bytes.extract 2 bytes.size) o0 o1 o2 o3 hoffs
+          hc0 hc01 hc12 hc23 hc3 hu32 hacc
+      obtain ⟨x0, e0⟩ := except_isSome_iff.mp q0
+      obtain ⟨x1, e1⟩ := except_isSome_iff.mp q1
+      obtain ⟨x2, e2⟩ := except_isSome_iff.mp q2
+      obtain ⟨x3, e3⟩ := except_isSome_iff.mp q3
+      -- Forward-with-values: the backward value-level composition pins `v` to the four witnesses.
+      have hv : v = (x0, x1, x2, x3, PUnit.unit) := by
+        have heq := decodeCanonical_entry_eq_of_fields (bytes.extract 2 bytes.size) o0 o1 o2 o3
+          hoffs hc0 hc01 hc12 hc23 hc3 hu32 e0 e1 e2 e3
+        rw [hdc] at heq
+        injection heq
+      subst hv
+      have hfork : (SszBridge.rawChainConfigOf x2).activeFork.fork ≤ 20 := UInt64.not_lt.mp hf
+      rw [meaningDecodeRaw_in_scope h, if_neg hsize, if_neg hschema']
+      simp only []
+      rw [if_neg h16]
+      simp only [r0, r1, r2, r3, except_bind_ok, hcan]
+      rw [show meaningNewPayloadRequest ((bytes.extract 2 bytes.size).extract o0 o1)
+            = .ok (SszBridge.rawNewPayloadRequestOf x0) from by rw [meaningNewPayloadRequest, e0],
+        show meaningExecutionWitness ((bytes.extract 2 bytes.size).extract o1 o2)
+            = .ok (SszBridge.rawWitnessOf x1) from by rw [meaningExecutionWitness, e1],
+        containersMatch ((bytes.extract 2 bytes.size).extract o2 o3) x2 e2 hfork,
+        show meaningPublicKeys ((bytes.extract 2 bytes.size).extract o3
+              (bytes.extract 2 bytes.size).size) = .ok x3.1 from by rw [meaningPublicKeys, e3]]
+      rfl
+
+/-- The quarantine wrapper, with the value. A quarantined buffer never returns `.ok`, so the arm
+that made `rawOrQuarantine_acceptance_agrees` interesting collapses outright here. -/
+theorem rawOrQuarantine_value_agrees (containersMatch : ChainConfigValueHypothesis)
+    {bytes : ByteArray} (h : rootComplianceScope bytes) {value : SszBridge.RawV4}
+    (hdec : SszBridge.decodeRawOrQuarantineV3 bytes = .ok value) :
+    meaningDecodeRaw bytes = .ok value := by
+  rw [SszBridge.decodeRawOrQuarantineV3] at hdec
+  split at hdec
+  · exact absurd hdec (by simp)
+  · exact meaningDecodeRaw_value_agrees containersMatch h hdec
+
+/-- **The outer assembly, with the value.** An oracle success is reproduced by `meaningDecode`, value
+and all.
+
+The retry arms enter differently from the acceptance proof and it is worth saying how. Here the
+oracle has *succeeded*, so the only live question is which of its two routes it took. On the direct
+route the source's raw decode succeeds with the same value and `meaningDecode` returns it
+unchanged. On the retry route the source's raw decode must have failed — that is the acceptance
+half — and its error must be `invalidSsz`: `unknownFork` would force the oracle's own retry to
+reject (`oracle_retry_rejects`), contradicting its success, and `outOfMemory` is unreachable in
+scope. So the source retries on exactly the same condition, at exactly the same tail, and the raw
+lemma applies a second time. -/
+theorem meaningDecode_value_agrees
+    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (containersMatch : ChainConfigValueHypothesis)
+    {bytes : ByteArray} (h : rootComplianceScope bytes) {value : SszBridge.RawV4}
+    (hdec : SszBridge.decodeStatelessInput bytes = .ok value) :
+    meaningDecode bytes = .ok value := by
+  rw [decodeStatelessInput_in_scope h] at hdec
+  have hagree := rawOrQuarantine_acceptance_agrees containersAgree h
+  cases hW : SszBridge.decodeRawOrQuarantineV3 bytes with
+  | ok w =>
+      rw [hW] at hdec
+      have hwv : w = value := by injection hdec
+      subst hwv
+      rw [meaningDecode, rawOrQuarantine_value_agrees containersMatch h hW]
+  | error e =>
+      rw [hW] at hdec
+      simp only [] at hdec
+      rw [hW] at hagree
+      have hraw : ∃ e', meaningDecodeRaw bytes = .error e' := by
+        cases hA : meaningDecodeRaw bytes with
+        | ok v => rw [hA] at hagree; exact absurd hagree (by simp [isAccepted, Except.toOption])
+        | error e' => exact ⟨e', rfl⟩
+      obtain ⟨e', hA⟩ := hraw
+      cases e with
+      | v3Quarantined => exact absurd hdec (by simp)
+      | tooLarge | tooShort | badSchema | unknownFork | ssz _ =>
+        all_goals (
+          simp only [] at hdec
+          cases hd : SszBridge.readU32LE? bytes 0 with
+          | none => rw [hd] at hdec; exact absurd hdec (by simp)
+          | some d =>
+              rw [hd] at hdec
+              simp only [] at hdec
+              by_cases hmatch : (d == bytes.size - 4) = true
+              · rw [if_pos hmatch] at hdec
+                have hpre : meaningHasExactErePrefix bytes = true := by
+                  rw [meaningHasExactErePrefix_eq bytes hd]; exact hmatch
+                have hinv : e' = SszDecodeError.invalidSsz := by
+                  cases e' with
+                  | invalidSsz => rfl
+                  | unknownFork =>
+                      exfalso
+                      obtain ⟨hs, hfirst⟩ := unknownFork_forces_canonical_prefix h hA
+                      have hrej := oracle_retry_rejects hs hfirst
+                      rw [hdec] at hrej
+                      exact absurd hrej (by simp [Except.toOption])
+                  | outOfMemory => exact absurd hA (meaningDecodeRaw_ne_outOfMemory h)
+                rw [meaningDecode, hA, hinv]
+                simp only []
+                rw [if_pos hpre]
+                exact rawOrQuarantine_value_agrees containersMatch (tail_scope h) hdec
+              · rw [if_neg hmatch] at hdec
+                exact absurd hdec (by simp))
 
 end BinaryFv.SSZ.Zesu.SpecCorrespondence
 

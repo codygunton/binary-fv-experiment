@@ -580,8 +580,10 @@ misleading.** They fall into three kinds:
   `v3ShapeExcludesCanonicalV4`, `zeroFirstOffsetAliasRejected`, `meaningTwentyFourIsSome`. These say
   the binary's per-container offset discipline coincides with the oracle's global re-serialization
   equality. All the difficulty is here. `catalogGroundsInSpec` looks like a sixth but is *derived*
-  from the first (`catalogGroundsInSpec_of_agreement`), because `SszSpec.decode` is
-  `decodeStatelessInput` with the value forgotten.
+  from the first (`catalogGroundsInSpec_of_agreement`): the two are the same value-level agreement,
+  one spelled against `SszBridge.decodeStatelessInput` and one against the public `SszSpec.decode`.
+  (It used to be that agreement *with the value forgotten*, which is why the two were not equivalent
+  and why the root's accepted branch was unprovable from this list; both now carry the value.)
 * **Real but self-contained (8).** `retryTailNeverSchemaValid`, `canonicalOffsetsCharacterization`,
   `bytesAtSucceedsIffFits`, `readOffsetIsWidenedReadU32`, `leafReadsOnlyFailInvalid`,
   `collectionsNeverUnknownFork`, `onlyForkConfigRaisesUnknownFork`, `fixedContainersNeverAllocate`,

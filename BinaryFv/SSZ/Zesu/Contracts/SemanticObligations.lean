@@ -15,9 +15,10 @@ difficulty actually lives:
   meanings, and the machinery below (`FailsOnly` and its bind/ite combinators) is what makes them
   compose instead of being re-derived by hand for each of the twenty-odd meanings.
 * **Characterizations.** The exact acceptance condition of one routine, stated over all inputs.
-* **Oracle agreement.** That the source-shaped composition and the pinned oracle agree on
-  acceptance. This is the hard content: it is stated over `SszBridge.decodeCanonical`, whose
-  canonicality test is a global re-serialization equality the binary never performs.
+* **Oracle agreement.** That the source-shaped composition and the pinned oracle agree on the
+  decoded *value*, not merely on acceptance. This is the hard content: it is stated over
+  `SszBridge.decodeCanonical`, whose canonicality test is a global re-serialization equality the
+  binary never performs.
 
 Everything proved here is proved over *all* inputs; nothing is decided on a fixture.
 
@@ -851,24 +852,24 @@ theorem meaningTwentyFourIsSome_holds : meaningTwentyFourIsSome := by
 
 The two obligations the navigation calls out as carrying the root theorem —
 `sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` — are not independent, and saying so
-is worth a theorem rather than a comment: the second follows from the first, because `SszSpec.decode`
-is exactly `decodeStatelessInput` with its value forgotten. So the catalog's remaining semantic
-content is one agreement claim about the entry, one about the fixed containers, and three
-byte-level facts. -/
+is worth a theorem rather than a comment: the second follows from the first, because
+`SszSpec.decode bytes = .accepted value` *is* `decodeStatelessInput bytes = .ok value`. So the
+catalog's remaining semantic content is one agreement claim about the entry, one about the fixed
+containers, and three byte-level facts. -/
 
 /-- **The catalog's meanings are grounded in the pinned oracle** — given that the source-shaped
-composition and the oracle agree on acceptance. `SszSpec.decode` accepts exactly when
-`decodeStatelessInput` returns a value, so the two statements differ only in how they spell
-"accepted". The scope hypothesis threads straight through, which is what it means for the two to be
-scoped for the same reason. -/
+composition and the oracle agree on the decoded *value*. `SszSpec.decode` returns `.accepted value`
+exactly when `decodeStatelessInput` returns `.ok value`, so the two statements differ only in how
+they spell "accepted with this value". The scope hypothesis threads straight through, which is what
+it means for the two to be scoped for the same reason. -/
 theorem catalogGroundsInSpec_of_agreement (agrees : sourceShapedDecodeAgreesWithOracle) :
     catalogGroundsInSpec := by
-  intro bytes scope
-  rw [agrees bytes scope]
+  intro bytes scope value
+  rw [agrees bytes scope value]
   unfold SszSpec.decode
   cases SszBridge.decodeStatelessInput bytes with
-  | ok value => simp [Except.toOption]
-  | error error => simp [Except.toOption]
+  | ok value => simp
+  | error error => simp
 
 /-- **The catalog's semantic obligations, reduced to the oracle-agreement content.**
 
@@ -895,19 +896,25 @@ theorem catalogSemanticObligations_of_oracleAgreement
 `sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` carry `rootComplianceScope`, and a
 reader tidying up might reasonably take that for defensive noise. It is not: **without it the
 catalog is unsatisfiable and the root theorem is vacuous.** `ereGateDivergesAboveU32` asserts a
-witness, outside the bound, that the composition accepts and the oracle rejects as `tooLarge`, and an
-unscoped equality of acceptance reads `true = false` there.
+witness, outside the bound, that the composition accepts and the oracle rejects as `tooLarge`; at
+that witness the unscoped agreement makes the oracle return a value it demonstrably does not.
 
-Stating that in a comment would let it rot, so it is a theorem. The unscoped form is defined here,
-used nowhere else, purely so its inconsistency with the recorded divergence is machine-checked —
+Stating that in a comment would let it rot, so it is a theorem. The unscoped forms are defined here,
+used nowhere else, purely so their inconsistency with the recorded divergence is machine-checked —
 the same device as D1's excluded-CFG negative test. Anyone who removes the hypothesis from the real
-obligation makes this file's claim false and the build fails. -/
+obligation makes this file's claim false and the build fails.
 
-/-- `sourceShapedDecodeAgreesWithOracle` as it was written before the scope hypothesis was added.
-Deliberately unused except by the theorem below. -/
+**These two track the obligations' current shape, which is the only reason they still bite.** They
+were written against the acceptance-granularity wording; when the obligations were strengthened to
+carry the value, a guard left at the old shape would have gone on passing while constraining
+something the catalog no longer states — a check that can no longer fail. So they were restated with
+the obligations rather than left alone. -/
+
+/-- `sourceShapedDecodeAgreesWithOracle` without its scope hypothesis. Deliberately unused except by
+the theorem below. -/
 def unscopedDecodeAgreesWithOracle : Prop :=
-  ∀ (bytes : ByteArray),
-    isAccepted (meaningDecode bytes) = (SszBridge.decodeStatelessInput bytes).toOption.isSome
+  ∀ (bytes : ByteArray) (value : SszBridge.RawV4),
+    meaningDecode bytes = .ok value ↔ SszBridge.decodeStatelessInput bytes = .ok value
 
 /-- **The unscoped obligation contradicts the recorded ERE divergence.**
 
@@ -915,23 +922,117 @@ So `rootComplianceScope` is not a convenience: it is what makes the catalog sati
 theorem unscopedAgreement_contradicts_ereGate :
     ¬ (unscopedDecodeAgreesWithOracle ∧ ereGateDivergesAboveU32) := by
   rintro ⟨agree, bytes, _, accepts, tooLarge⟩
-  have h := agree bytes
-  rw [accepts, tooLarge] at h
-  simp [Except.toOption] at h
+  cases hm : meaningDecode bytes with
+  | error error => rw [hm] at accepts; exact absurd accepts (by simp [isAccepted])
+  | ok value =>
+      have h := (agree bytes value).mp hm
+      rw [tooLarge] at h
+      exact absurd h (by simp)
 
-/-- The same for `catalogGroundsInSpec`, which is the obligation above with the value forgotten and
-so fails the same way. -/
+/-- The same for `catalogGroundsInSpec`, which is the obligation above in the public spelling and so
+fails the same way. -/
 def unscopedGroundsInSpec : Prop :=
-  ∀ (bytes : ByteArray),
-    isAccepted (meaningDecode bytes) = true ↔
-      ∃ value, BinaryFv.SSZ.SszSpec.decode bytes = .accepted value
+  ∀ (bytes : ByteArray) (value : SszBridge.RawV4),
+    meaningDecode bytes = .ok value ↔ BinaryFv.SSZ.SszSpec.decode bytes = .accepted value
 
 theorem unscopedGrounds_contradicts_ereGate :
     ¬ (unscopedGroundsInSpec ∧ ereGateDivergesAboveU32) := by
   rintro ⟨grounds, bytes, _, accepts, tooLarge⟩
-  obtain ⟨value, hv⟩ := (grounds bytes).mp accepts
-  rw [BinaryFv.SSZ.SszSpec.decode, tooLarge] at hv
-  simp at hv
+  cases hm : meaningDecode bytes with
+  | error error => rw [hm] at accepts; exact absurd accepts (by simp [isAccepted])
+  | ok value =>
+      have h := (grounds bytes value).mp hm
+      rw [BinaryFv.SSZ.SszSpec.decode, tooLarge] at h
+      exact absurd h (by simp)
+
+/-! ## Negative test: the strengthening is a real strengthening
+
+A strengthening that cannot be exhibited as a *difference* is not one, so the gap between the two
+granularities is machine-checked here rather than asserted. Both statements are re-expressed as
+predicates on an arbitrary source-shaped decode, and tied back to the real obligation by `rfl`, so
+the separation cannot drift into being about some other pair of propositions.
+
+**The unconditional half.** Post-compose the source with *any* relabelling of the decoded value and
+the acceptance predicate is unchanged — `isAccepted` is a `Bool`, and a `Bool` cannot carry a
+`RawV4`. So no amount of acceptance agreement constrains which value comes out.
+
+**The conditional half, and why it cannot be made unconditional here.** The relabelled source
+violates the value predicate — but only at a buffer the oracle actually accepts. That hypothesis is
+not removable: if the oracle rejected every in-scope buffer, acceptance agreement would force the
+source to reject them all too and the value agreement would hold vacuously, so "acceptance implies
+value" would be *true*. The separation is therefore equivalent to the existence of an accepted
+in-scope buffer, and exhibiting one means importing a decoding fixture — which lives under
+`Validation/` and is barred from the root's import closure by `ImportHygiene`. So the hypothesis is
+stated rather than discharged, and that is a property of the statement, not a gap in the proof. -/
+
+/-- The obligation's shape, as a predicate on an arbitrary source-shaped decode. -/
+def ValueAgreement (source : ByteArray → Except SszDecodeError SszBridge.RawV4) : Prop :=
+  ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : SszBridge.RawV4),
+    source bytes = .ok value ↔ SszBridge.decodeStatelessInput bytes = .ok value
+
+/-- The obligation's shape **before** this strengthening, as the same kind of predicate. -/
+def AcceptanceAgreement (source : ByteArray → Except SszDecodeError SszBridge.RawV4) : Prop :=
+  ∀ (bytes : ByteArray), rootComplianceScope bytes →
+    isAccepted (source bytes) = (SszBridge.decodeStatelessInput bytes).toOption.isSome
+
+/-- The abstraction is the obligation, not a lookalike. -/
+theorem valueAgreement_meaningDecode :
+    ValueAgreement meaningDecode = sourceShapedDecodeAgreesWithOracle := rfl
+
+/-- The new obligation entails the old one at every source, so the change is a strengthening in the
+strict sense and not a replacement. -/
+theorem acceptanceAgreement_of_valueAgreement
+    {source : ByteArray → Except SszDecodeError SszBridge.RawV4}
+    (agrees : ValueAgreement source) : AcceptanceAgreement source := by
+  intro bytes scope
+  cases hm : source bytes with
+  | ok value => rw [(agrees bytes scope value).mp hm]; rfl
+  | error error =>
+      cases ho : SszBridge.decodeStatelessInput bytes with
+      | error e => rfl
+      | ok value =>
+          have := (agrees bytes scope value).mpr ho
+          rw [hm] at this
+          exact absurd this (by simp)
+
+/-- **Acceptance agreement is blind to the value.** Relabel every decoded value however you like and
+the predicate is untouched — which is exactly why it could not entail the value agreement. -/
+theorem acceptanceAgreement_invariant_under_relabelling
+    {source : ByteArray → Except SszDecodeError SszBridge.RawV4}
+    (f : SszBridge.RawV4 → SszBridge.RawV4) (agrees : AcceptanceAgreement source) :
+    AcceptanceAgreement (fun bytes => (source bytes).map f) := by
+  intro bytes scope
+  show isAccepted ((source bytes).map f) = (SszBridge.decodeStatelessInput bytes).toOption.isSome
+  rw [← agrees bytes scope]
+  cases source bytes <;> rfl
+
+/-- **The difference, exhibited.** The relabelled source still satisfies the old obligation and no
+longer satisfies the new one, so the old cannot imply the new. See the section note for why the
+accepted witness is a hypothesis rather than a fixture. -/
+theorem acceptanceAgreement_does_not_imply_valueAgreement
+    {source : ByteArray → Except SszDecodeError SszBridge.RawV4}
+    (f : SszBridge.RawV4 → SszBridge.RawV4) (agrees : AcceptanceAgreement source)
+    {witness : SszBridge.RawV4} {buffer : ByteArray} (scope : rootComplianceScope buffer)
+    (decoded : source buffer = .ok witness) (moved : f witness ≠ witness)
+    (oracle : SszBridge.decodeStatelessInput buffer = .ok witness) :
+    AcceptanceAgreement (fun bytes => (source bytes).map f) ∧
+      ¬ ValueAgreement (fun bytes => (source bytes).map f) := by
+  refine ⟨acceptanceAgreement_invariant_under_relabelling f agrees, ?_⟩
+  intro values
+  have h : (source buffer).map f = Except.ok witness := (values buffer scope witness).mpr oracle
+  rw [decoded] at h
+  exact moved (by simpa [Except.map] using h)
+
+/-- **The acceptance equation, as a corollary rather than as the obligation.**
+
+This is exactly what `sourceShapedDecodeAgreesWithOracle` said before it was strengthened, and
+everything that only needs "the two accept the same buffers" should cite this rather than restating
+it. Keeping it available is what lets the strengthening be a pure addition: no consumer of the old
+granularity loses anything. -/
+theorem sourceShapedDecodeAgreesOnAcceptance (agrees : sourceShapedDecodeAgreesWithOracle)
+    (bytes : ByteArray) (scope : rootComplianceScope bytes) :
+    isAccepted (meaningDecode bytes) = (SszBridge.decodeStatelessInput bytes).toOption.isSome :=
+  acceptanceAgreement_of_valueAgreement (source := meaningDecode) agrees bytes scope
 
 /-! ## The fork-ordering divergence
 

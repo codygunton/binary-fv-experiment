@@ -215,8 +215,8 @@ owes a Lean proof.
 def rootComplianceScope (bytes : ByteArray) : Prop :=
   bytes.size < 2 * 1024 * 1024
 
-/-- **The catalog's central obligation.** The source-shaped composition agrees with the oracle on
-acceptance, at the granularity `root_compliance` observes.
+/-- **The catalog's central obligation.** The source-shaped composition agrees with the oracle on the
+**decoded value**, at the granularity `root_compliance` observes.
 
 The binary decides canonicality by per-container offset checks plus `decodeByteListList`'s
 zero-first-offset rejection; the oracle decides it globally by re-serializing. This says the two
@@ -224,29 +224,45 @@ coincide on the pinned V4 schema. If it were false, every individual contract wo
 provable — the machine faithfully implements its own weaker discipline — while the root theorem
 quietly failed.
 
+**Why this is an equality of results and not of acceptance, corrected.** It used to be
+`isAccepted (meaningDecode bytes) = (decodeStatelessInput bytes).toOption.isSome`, justified as "the
+granularity `root_compliance` observes". That justification was **false about the accepted branch**.
+`root_compliance` concludes `RiscvSpec.execute binary input = .ok (SszSpec.decode input)`, and
+`SszSpec.decode input = .accepted value` *is* `decodeStatelessInput input = .ok value` — so the root
+must produce that exact `value`, while the machine stores `meaningDecode input`'s. From an acceptance
+equation one can only conclude `meaningDecode input = .ok v'` for **some** `v'`; nothing tied `v'` to
+`value`, and the accepted branch was therefore not provable from the catalog as it stood. The
+acceptance equation is still available — it is a corollary
+(`SemanticObligations.sourceShapedDecodeAgreesOnAcceptance`), not the obligation.
+
 **The scope hypothesis is load-bearing, and its absence made the whole catalog unsatisfiable.**
 Without `rootComplianceScope` this contradicts `ereGateDivergesAboveU32`, which asserts a witness —
 outside the bound — that the composition accepts and the oracle rejects as `tooLarge`. At that
-witness the unscoped equation reads `true = false`, so `catalogSemanticObligations ∧
-knownDivergences` was jointly unsatisfiable and `root_compliance` was vacuous. That is not an
-argument in a comment: `unscopedAgreement_contradicts_ereGate` in
-`Contracts/SemanticObligations.lean` proves it, so the hypothesis cannot be tidied away without
-breaking the build. `root_compliance` is itself stated under `input.size < 2 * 1024 * 1024`, so
-nothing it consumes is lost. See `DECISIONS.md`. -/
+witness the unscoped biconditional makes the oracle return a value it does not, so
+`catalogSemanticObligations ∧ knownDivergences` was jointly unsatisfiable and `root_compliance` was
+vacuous. That is not an argument in a comment: `unscopedAgreement_contradicts_ereGate` in
+`Contracts/SemanticObligations.lean` proves it **at this statement's own shape**, so the hypothesis
+cannot be tidied away without breaking the build. `root_compliance` is itself stated under
+`input.size < 2 * 1024 * 1024`, so nothing it consumes is lost. See `DECISIONS.md`. -/
 def sourceShapedDecodeAgreesWithOracle : Prop :=
-  ∀ (bytes : ByteArray), rootComplianceScope bytes →
-    isAccepted (meaningDecode bytes) = (SszBridge.decodeStatelessInput bytes).toOption.isSome
+  ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : SszBridge.RawV4),
+    meaningDecode bytes = .ok value ↔ SszBridge.decodeStatelessInput bytes = .ok value
 
 /-- The catalog's meanings are grounded in the pinned oracle, not in a private re-implementation:
-the entry meaning determines exactly the public `SszSpec.decode` outcome.
+the entry meaning determines exactly the public `SszSpec.decode` outcome — **including which value it
+carries**.
 
-Scoped for the same reason as `sourceShapedDecodeAgreesWithOracle`, and it is the same defect: this
-is that obligation with the value forgotten, so the `ereGateDivergesAboveU32` witness refutes the
-unscoped form here too. -/
+This is `sourceShapedDecodeAgreesWithOracle` in the public spelling, and the two are now the same
+statement rather than the same statement with the value dropped. The spelling is not cosmetic: it is
+the one `root_compliance`'s accepted branch arrives holding, since that branch case-splits on
+`SszSpec.decode input` and gets `= .accepted value` — so a consumer needs no unfolding of the bridge
+to apply it.
+
+Scoped for the same reason as `sourceShapedDecodeAgreesWithOracle`, and refuted unscoped by the same
+`ereGateDivergesAboveU32` witness (`unscopedGrounds_contradicts_ereGate`). -/
 def catalogGroundsInSpec : Prop :=
-  ∀ (bytes : ByteArray), rootComplianceScope bytes →
-    (isAccepted (meaningDecode bytes) = true ↔
-      ∃ value, BinaryFv.SSZ.SszSpec.decode bytes = .accepted value)
+  ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : SszBridge.RawV4),
+    meaningDecode bytes = .ok value ↔ BinaryFv.SSZ.SszSpec.decode bytes = .accepted value
 
 /--
 Why the asymmetric ERE retry is unobservable.
