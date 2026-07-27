@@ -40,14 +40,22 @@ theorem activeHartStep_active (stepNo : Nat) (exitWait : Bool) (before after : S
     PreSail.readReg, EStateM.get, EStateM.pure, MonadState.get, MonadStateOf.get, getThe, hHart]
   exact hActive
 
-/-- Lift a normal generated active-hart retirement through the authoritative `try_step` postlude. -/
-theorem tryStepRetires (stepNo : Nat) (before afterInc afterActive afterPc afterRetired : State)
+/--
+The authoritative `try_step` postlude for a **retiring** step, taking the hart-state selector's own
+run as a premise.
+
+This is `tryStepRetires` with its two active-hart hypotheses replaced by the one fact they were only
+ever used to build. Nothing after the selector inspects *which* branch produced the retirement, so
+the postlude is genuinely branch-agnostic: the wait-wakeup branch (`run_hart_waiting` returning
+`Retire_Success` after clearing `hart_state`) retires through exactly this lemma.
+-/
+theorem tryStepRetiresOfSelected (stepNo : Nat)
+    (before afterInc afterActive afterPc afterRetired : State)
     (privilege : Privilege) (retired : BitVec 64) (instbits : BitVec 32)
     (hPrivilege : before.regs.get? cur_privilege = some privilege)
     (hShouldInc : Runs (should_inc_minstret privilege) before before true)
     (hInc : Runs (Sail.writeReg minstret_increment true) before afterInc PUnit.unit)
-    (hHartPre : afterInc.regs.get? hart_state = some (.HART_ACTIVE ()))
-    (hActive : Runs (run_hart_active stepNo) afterInc afterActive
+    (hSelected : Runs (activeHartStep stepNo false) afterInc afterActive
       (.Step_Execute (.Retire_Success (), instbits)))
     (hHartPost : afterActive.regs.get? hart_state = some (.HART_ACTIVE ()))
     (hTick : Runs (tick_pc ()) afterActive afterPc ())
@@ -60,9 +68,6 @@ theorem tryStepRetires (stepNo : Nat) (before afterInc afterActive afterPc after
     unfold Runs
     simp only [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.instMonad,
       EStateM.get, EStateM.pure, MonadState.get, MonadStateOf.get, getThe, hPrivilege]
-  have hSelected : Runs (activeHartStep stepNo false) afterInc afterActive
-      (.Step_Execute (.Retire_Success (), instbits)) :=
-    activeHartStep_active stepNo false afterInc afterActive _ hHartPre hActive
   change Runs (do
     let currentPrivilege ← Sail.readReg cur_privilege
     let shouldIncrement ← should_inc_minstret currentPrivilege
@@ -101,5 +106,26 @@ theorem tryStepRetires (stepNo : Nat) (before afterInc afterActive afterPc after
   apply Runs.bind hWriteRetired
   unfold Runs
   simp [get_config_rvfi, EStateM.run, EStateM.instMonad, EStateM.pure]
+
+/-- Lift a normal generated active-hart retirement through the authoritative `try_step` postlude. -/
+theorem tryStepRetires (stepNo : Nat) (before afterInc afterActive afterPc afterRetired : State)
+    (privilege : Privilege) (retired : BitVec 64) (instbits : BitVec 32)
+    (hPrivilege : before.regs.get? cur_privilege = some privilege)
+    (hShouldInc : Runs (should_inc_minstret privilege) before before true)
+    (hInc : Runs (Sail.writeReg minstret_increment true) before afterInc PUnit.unit)
+    (hHartPre : afterInc.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (hActive : Runs (run_hart_active stepNo) afterInc afterActive
+      (.Step_Execute (.Retire_Success (), instbits)))
+    (hHartPost : afterActive.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (hTick : Runs (tick_pc ()) afterActive afterPc ())
+    (hIncrement : afterPc.regs.get? minstret_increment = some true)
+    (hRetired : afterPc.regs.get? minstret = some retired)
+    (hWriteRetired : Runs (Sail.writeReg minstret (Sail.BitVec.addInt retired 1))
+      afterPc afterRetired PUnit.unit) :
+    Runs (try_step stepNo false) before afterRetired false :=
+  tryStepRetiresOfSelected stepNo before afterInc afterActive afterPc afterRetired privilege
+    retired instbits hPrivilege hShouldInc hInc
+    (activeHartStep_active stepNo false afterInc afterActive _ hHartPre hActive)
+    hHartPost hTick hIncrement hRetired hWriteRetired
 
 end BinaryFv.RiscV
