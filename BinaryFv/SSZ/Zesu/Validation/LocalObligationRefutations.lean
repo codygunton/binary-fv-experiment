@@ -13,9 +13,15 @@ This module performs that complete join for generated entry-is-exit instances wh
 premise can be inhabited. For the first 16, the empty child-summary relation works exactly because
 the consumer `calleeFunctionInstances` returns `#[]`. For another 12, every actual callee dispatches
 to `bytesAt` or `readU32`; their exit bindings are realizable from every state satisfying their entry
-bindings, so the universal relation realizes the demanded child summaries. Catalog satisfiability
-supplies a model of each parent's `pre`, and the final proof uses `functionInstanceExitPred` itself.
-This is deliberately red validation evidence and is not imported by the theorem graph.
+bindings, so the universal relation realizes the demanded child summaries.
+
+The converse matters too. The current copy contracts permit a destination inside file-backed code,
+but their postcondition requires both that destination to contain the copied bytes and that all code
+remain intact. A concrete satisfiable precondition makes those clauses disagree, so no child-summary
+relation can realize a `memcpy` or `memmove` callee. This proves 13 parent obligations only by
+vacuity. Catalog satisfiability supplies each refutation's parent `pre`, and the final negative proof
+uses `functionInstanceExitPred` itself. This is deliberately red validation evidence and is not
+imported by the theorem graph.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation.LocalObligationRefutations
@@ -94,6 +100,158 @@ def ExitRealizable (contract : TaggedContract) : Prop :=
     contract.contract.binding.entry args before →
       ∃ after,
         contract.contract.binding.exit args (contract.contract.spec.meaning args) before after
+
+/-! ## An unrealizable copy exit
+
+This is a contract countermodel, not a machine-execution claim. The source byte lives at the
+non-file-backed heap-position word and is zero. The permitted destination is file-backed byte
+`0x10444`, whose pinned artifact value is 19. `preCopy` admits the state, but `postCopy` requires the
+destination to be both zero (`MemoryBytes`) and 19 (`CodeIntact`).
+-/
+
+private def badCopyArgs : CopyArgs :=
+  { destination := 0x10444
+    source := zkvmHeapPos
+    length := 1
+    contents := ByteArray.mk #[0] }
+
+private noncomputable def badCopyMemoryState : State :=
+  { canonicalWitnessState with
+      mem := canonicalWitnessState.mem.insert zkvmHeapPos (BitVec.ofNat 8 0) }
+
+private noncomputable def badCopyState : State :=
+  withArgumentRegisters badCopyMemoryState badCopyArgs.destination badCopyArgs.source
+    badCopyArgs.length 0
+
+private theorem badCopyState_codeIntact :
+    canonicalEnvironment.CodeIntact badCopyState := by
+  apply codeIntact_withArgumentRegisters
+  exact BinaryFv.Binary.ProgramImage.fileBytesMatchMemory_insert_non_file
+    (by native_decide) canonicalWitnessState_codeIntact
+
+private theorem badCopyState_memoryBytes :
+    MemoryBytes badCopyState badCopyArgs.source badCopyArgs.contents := by
+  intro index hindex
+  have hsize : badCopyArgs.contents.size = 1 := by native_decide
+  rw [hsize] at hindex
+  have hzero : index = 0 := by omega
+  subst index
+  have hbyte : badCopyArgs.contents[0]'hindex = 0 := by rfl
+  rw [hbyte]
+  simp [badCopyState, badCopyMemoryState, badCopyArgs, withArgumentRegisters,
+    Std.ExtHashMap.get?_eq_getElem?]
+
+private theorem badCopyState_preCopy :
+    preCopy canonicalEnvironment badCopyArgs badCopyState := by
+  refine ⟨badCopyState_memoryBytes, rfl, badCopyState_codeIntact, ?_, ?_, ?_⟩
+  all_goals simp [badCopyState, badCopyArgs]
+
+private theorem badCopyPost_impossible (after : State) :
+    ¬ postCopy canonicalEnvironment badCopyArgs (.ok badCopyArgs.contents)
+      badCopyState after := by
+  intro hpost
+  have hzero := hpost.2.2.2 0
+    (show 0 < badCopyArgs.contents.size by native_decide)
+  have hcode := hpost.1 0x10444 (19 : UInt8) (by native_decide)
+  have hbyte :
+      badCopyArgs.contents[0]'(show 0 < badCopyArgs.contents.size by native_decide) = 0 := by
+    rfl
+  have hzero' : after.mem.get? 0x10444 = some (BitVec.ofNat 8 0) := by
+    simpa only [badCopyArgs, Nat.add_zero, hbyte, UInt8.toNat_zero] using hzero
+  have heq := hzero'.symm.trans hcode
+  have hne : (some (BitVec.ofNat 8 0) : Option (BitVec 8)) ≠
+      some (BitVec.ofNat 8 (19 : UInt8).toNat) := by
+    native_decide
+  exact hne heq
+
+/-- The canonical `memcpy` exit binding is not realizable from every state satisfying its entry
+binding. Non-overlap holds for this witness; overlap is not the source of the contradiction. -/
+theorem memcpy_exit_not_realizable (function : FunctionId) :
+    ¬ ExitRealizable (routineContract canonicalContractParams function .memcpy) := by
+  intro hexit
+  have hpre : (contractMemcpy canonicalEnvironment).pre badCopyArgs badCopyState :=
+    ⟨badCopyState_preCopy, by native_decide⟩
+  obtain ⟨after, hpost⟩ := hexit badCopyArgs badCopyState hpre
+  exact badCopyPost_impossible after hpost
+
+/-- The same satisfiable entry state makes the canonical `memmove` exit binding unrealizable. -/
+theorem memmove_exit_not_realizable (function : FunctionId) :
+    ¬ ExitRealizable (routineContract canonicalContractParams function .memmove) := by
+  intro hexit
+  obtain ⟨after, hpost⟩ := hexit badCopyArgs badCopyState badCopyState_preCopy
+  exact badCopyPost_impossible after hpost
+
+private def unrealizableCopyCalleeB (callee : FunctionInstance) : Bool :=
+  match catalogEntryFor callee.id.function with
+  | some entry => entry.tag == .memcpy || entry.tag == .memmove
+  | none => false
+
+/-- The exact consumer-side predicate: an actual callee selected by
+`calleeFunctionInstances` dispatches to an unrealizable copy exit. -/
+def unrealizableCopySummaryPremiseB
+    (program : Program) (functionInstance : FunctionInstance) : Bool :=
+  (calleeFunctionInstances program functionInstance).any unrealizableCopyCalleeB
+
+private theorem exit_not_realizable_of_unrealizableCopyCalleeB
+    {callee : FunctionInstance}
+    (hcopy : unrealizableCopyCalleeB callee = true) :
+    ∀ entry, catalogEntryFor callee.id.function = some entry →
+      ¬ ExitRealizable
+        (routineContract canonicalContractParams callee.id.function entry.tag) := by
+  intro entry found
+  unfold unrealizableCopyCalleeB at hcopy
+  rw [found] at hcopy
+  have htag : entry.tag = .memcpy ∨ entry.tag = .memmove := by
+    simpa [Bool.or_eq_true, beq_iff_eq] using hcopy
+  rcases htag with htag | htag
+  · rw [htag]
+    exact memcpy_exit_not_realizable _
+  · rw [htag]
+    exact memmove_exit_not_realizable _
+
+/-- One unrealizable callee exit is enough to make every candidate child-summary relation fail the
+outer premise. The relation fact itself is irrelevant: the demanded exit state cannot exist. -/
+theorem childSummariesUnavailable_of_unrealizable_callee
+    {p : ContractParams} {program : Program} {parent callee : FunctionInstance}
+    {entry : CatalogEntry}
+    (hcallee : callee ∈ calleeFunctionInstances program parent)
+    (found : catalogEntryFor callee.id.function = some entry)
+    (hunrealizable : ¬ ExitRealizable (routineContract p callee.id.function entry.tag)) :
+    ∀ childSummary, ¬ ChildSummariesAvailable p program parent childSummary := by
+  intro childSummary havailable
+  apply hunrealizable
+  intro args before hpre
+  obtain ⟨used, after, hbound, hsummary, hpost⟩ :=
+    havailable callee hcallee entry found args 0 before hpre
+  exact ⟨after, hpost⟩
+
+/-- A parent selected by the exact copy-callee predicate has no possible
+`ChildSummariesAvailable` witness under the canonical contracts. -/
+theorem childSummariesUnavailable_of_copy_callee
+    {program : Program} {parent : FunctionInstance}
+    (hcopy : unrealizableCopySummaryPremiseB program parent = true) :
+    ∀ childSummary,
+      ¬ ChildSummariesAvailable canonicalContractParams program parent childSummary := by
+  unfold unrealizableCopySummaryPremiseB at hcopy
+  obtain ⟨callee, hcallee, hbad⟩ := Array.any_eq_true'.mp hcopy
+  cases found : catalogEntryFor callee.id.function with
+  | none => simp [unrealizableCopyCalleeB, found] at hbad
+  | some entry =>
+      exact childSummariesUnavailable_of_unrealizable_callee hcallee found
+        (exit_not_realizable_of_unrealizableCopyCalleeB hbad entry found)
+
+/-- If the outer summary premise has no inhabitant, the catalog-present local obligation is true,
+but only vacuously. -/
+theorem localTraceObligation_of_no_child_summaries
+    {p : ContractParams} {program : Program} {functionInstance : FunctionInstance}
+    {entry : CatalogEntry}
+    (found : catalogEntryFor functionInstance.id.function = some entry)
+    (hno : ∀ childSummary, ¬ ChildSummariesAvailable p program functionInstance childSummary) :
+    functionInstanceLocalTraceObligation p program functionInstance := by
+  unfold functionInstanceLocalTraceObligation
+  rw [found]
+  intro childSummary havailable
+  exact False.elim (hno childSummary havailable)
 
 /-- Updating result registers leaves all four memory-frame clauses of a leaf postcondition true. -/
 private theorem leafFrame_withArgumentRegisters
@@ -396,6 +554,50 @@ theorem simple_callee_entry_exit_obligations_false :
         simp only [functionInstanceExitPred, functionInstanceEntryWord, FunctionInstance.isExit]
         native_decide)
 
+/-! ### Parents with an unrealizable copy callee -/
+
+/-- All generated parents whose actual callee set contains a `memcpy` or `memmove` instance. This
+uses the same `calleeFunctionInstances` consumer as `ChildSummariesAvailable`. -/
+def copyCalleeParentIndices : List Nat :=
+  (generatedProgram.functionInstances.zipIdx.filterMap fun (functionInstance, index) =>
+    if unrealizableCopySummaryPremiseB generatedProgram functionInstance then
+      some index
+    else none).toList
+
+/-- The exact affected population. This is not restricted to entry-is-exit rows. -/
+theorem copy_callee_parent_indices :
+    copyCalleeParentIndices = [1, 3, 6, 16, 23, 37, 45, 58, 62, 70, 81, 88, 120] := by
+  native_decide
+
+/-- Every candidate summary relation fails for every measured copy-callee parent. This is the
+consumer-side join between the generated callee list and the copy-exit countermodel. -/
+theorem copy_callee_summary_premises_unsatisfiable :
+    ∀ i ∈ copyCalleeParentIndices, ∀ childSummary,
+      ¬ ChildSummariesAvailable canonicalContractParams generatedProgram
+        generatedProgram.functionInstances[i]! childSummary := by
+  intro i hi
+  rw [copy_callee_parent_indices] at hi
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
+  rcases hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  all_goals
+    apply childSummariesUnavailable_of_copy_callee
+    native_decide
+
+/-- The 13 individual parent obligations are theorems, but only because their outer
+`ChildSummariesAvailable` premise is false. -/
+theorem copy_callee_obligations_vacuously_true :
+    ∀ i ∈ copyCalleeParentIndices,
+      functionInstanceLocalTraceObligation canonicalContractParams generatedProgram
+        generatedProgram.functionInstances[i]! := by
+  intro i hi
+  have hno := copy_callee_summary_premises_unsatisfiable i hi
+  rw [copy_callee_parent_indices] at hi
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
+  rcases hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  all_goals
+    apply localTraceObligation_of_no_child_summaries (found := by rfl)
+    exact hno
+
 /-! ## Stable ledger keys -/
 
 /-- A row key. `entryPc` alone is not unique; the fully qualified routine name completes it. -/
@@ -418,6 +620,12 @@ def noCalleeEntryExitKeys : List InstanceKey :=
 /-- Stable keys for the 12 checked callee-bearing refutations. -/
 def simpleCalleeEntryExitKeys : List InstanceKey :=
   simpleCalleeEntryExitIndices.map fun index =>
+    { entryPc := generatedManifest[index]!.entryPc
+      routine := generatedManifest[index]!.qualifiedName }
+
+/-- Stable keys for all 13 parents whose summary premise is refuted by a copy callee. -/
+def copyCalleeParentKeys : List InstanceKey :=
+  copyCalleeParentIndices.map fun index =>
     { entryPc := generatedManifest[index]!.entryPc
       routine := generatedManifest[index]!.qualifiedName }
 
@@ -473,9 +681,33 @@ theorem simple_callee_entry_exit_keys :
        { entryPc := 78868, routine := "ssz_raw.readU32" }] := by
   native_decide
 
+/-- The vacuous set is pinned by stable key. The two entry-is-exit members are the `readArray` row
+at 73688 and the `publicKeys` row at 77500. -/
+theorem copy_callee_parent_keys :
+    copyCalleeParentKeys =
+      [{ entryPc := 66224, routine := "raw_decoder_root.zesu_decode_raw" },
+       { entryPc := 66312, routine := "ssz_raw.decode" },
+       { entryPc := 66628, routine := "ssz_raw.decodeRaw" },
+       { entryPc := 67084, routine := "ssz_raw.decodeNewPayloadRequest" },
+       { entryPc := 67352, routine := "ssz_raw.decodeExecutionPayload" },
+       { entryPc := 69564, routine := "ssz_raw.readArray" },
+       { entryPc := 71012, routine := "ssz_raw.decodeWithdrawals" },
+       { entryPc := 73444, routine := "ssz_raw.decodeVersionedHashes" },
+       { entryPc := 73688, routine := "ssz_raw.readArray" },
+       { entryPc := 74072, routine := "ssz_raw.decodeDepositRequests" },
+       { entryPc := 74656, routine := "ssz_raw.decodeWithdrawalRequests" },
+       { entryPc := 75072, routine := "ssz_raw.decodeConsolidationRequests" },
+       { entryPc := 77500, routine := "ssz_raw.decodePublicKeys" }] := by
+  native_decide
+
 /-- The combined checked-key population remains duplicate-free despite the shared entry PC. -/
 theorem checked_entry_exit_keys_complete_and_unique :
     checkedEntryExitKeys.length = 28 ∧ checkedEntryExitKeys.Nodup := by
+  native_decide
+
+/-- The vacuous population is complete and duplicate-free under the same stable row key. -/
+theorem copy_callee_parent_keys_complete_and_unique :
+    copyCalleeParentKeys.length = 13 ∧ copyCalleeParentKeys.Nodup := by
   native_decide
 
 end BinaryFv.SSZ.Zesu.Validation.LocalObligationRefutations

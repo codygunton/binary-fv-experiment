@@ -57,7 +57,10 @@ Row D½ measures what the conditional local premise actually says:
   [ContractGroundTruth.lean](ContractGroundTruth.lean) provide structural and captured-run evidence.
 - [LocalObligationRefutations.lean](LocalObligationRefutations.lean) joins both hypothesis layers and
   proves 28 individual local obligations false: 16 with no callees and 12 whose `bytesAt`/`readU32`
-  callee exits make the outer premise inhabitable.
+  callee exits make the outer premise inhabitable. It also proves that the copy contracts admit a
+  pre-state from which no post-state can preserve both copied bytes and `CodeIntact`; this makes the
+  outer premise impossible for 13 parents with a `memcpy` or `memmove` callee, and proves those
+  obligations only by vacuity.
 - [LocalObligationLedger.lean](LocalObligationLedger.lean) classifies all 141 instances without
   treating gaps as passes. Its committed
   [Markdown ledger](../../../../targets/ssz/zesu/trace/LOCAL_OBLIGATION_LEDGER.md) is regenerated and
