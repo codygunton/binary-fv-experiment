@@ -571,6 +571,13 @@ COMPAT
     # observed pass is indistinguishable from a check that cannot pass.
     # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
     lake build BinaryFv.SSZ.Zesu.Validation.BoundarySatisfiability
+    # Complete anti-vacuity join for the entry-is-exit defect. This builds an actual
+    # `¬ functionInstanceLocalTraceObligation` for every no-callee offender by combining catalog
+    # pre-satisfiability, an inhabited `ChildSummariesAvailable` premise, and the generated
+    # `functionInstanceExitPred` contradiction. The exact result is 16 false obligations, pinned
+    # both by index and by the unique `(entryPc, qualifiedName)` ledger key.
+    # Also outside the theorem graph (validation-import guard forbids any proof module from importing it).
+    lake build BinaryFv.SSZ.Zesu.Validation.LocalObligationRefutations
     # Contract ground truth: RUNS the pinned ELF in the Sail model with the step loop instrumented to
     # snapshot every function instance's entry state and its first subsequent declared-exit state,
     # then applies the REAL handwritten predicates to those states -- not a Python mirror of them.
