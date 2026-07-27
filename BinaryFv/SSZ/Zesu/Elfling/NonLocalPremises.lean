@@ -177,17 +177,30 @@ to still hold the sentinel at the exit.
 *This paragraph used to end "and no contract in the catalog constrains a callee-saved register at all."
 **That is no longer true**, and the correction is recorded rather than quietly deleted because the
 sentence was the standing justification for treating the third conjunct as out of reach.* Three
-postconditions now carry `after.regs.get? x1 = before.regs.get? x1` and `NormalExecutionState after`
+postconditions now carry `Agree platformPreserved before after ∧ RetiredCounterPresent after`
 (`Contracts/ExportedDecoder.lean`, `Contracts/Runtime.lean`; satisfiability exhibited first, in
-`Contracts/ExportedDecoderAudit.lean`). The `ra` clause is spelled as **preservation** rather than
-`= sentinelWord` precisely so the contract layer never names the runner's sentinel; it composes with
+`Contracts/ExportedDecoderAudit.lean`). The register clause is spelled as **preservation** rather than
+`x1 = sentinelWord` precisely so the contract layer never names the runner's sentinel; it composes with
 `buildZesuEntryState_entry_binding_abi`, which exposes the `x1 := sentinel` the builder always proved
 and discarded.
 
-What is still owed for that conjunct, stated so the next reader does not re-derive it: `tryStepRetRetires`
-has an eleventh register premise, `retiredRead` on `minstret`, which `NormalExecutionState` cannot carry —
-it is a *presence* claim at an existentially bound value, while every conjunct of `NormalExecutionState`
-pins a value — so it must come from the trace rather than from a contract. -/
+*This paragraph twice said something that was true when written and false a commit later, so the history
+is kept rather than smoothed over.* It first said no contract constrains a callee-saved register; then
+that the three carry `x1` preservation plus `NormalExecutionState after`, with `minstret` still owed
+"from the trace rather than from a contract". **Both intermediate readings were superseded**, and the
+second was wrong about `minstret` in an instructive way: `minstret` is **not** preservable at all.
+`tryStepControlFlowAfterRetired` (`RiscV/Step/ControlFlow.lean:140`) *is* `writeReg minstret
+(retired + 1)` — the machine advances the counter on every retirement — so a clause saying the callee
+left it unchanged would be **false of any routine that executes a single instruction**. That is why it is
+carried as `RetiredCounterPresent after` (`∃ v, get? minstret = some v`), exactly the form `retiredRead`
+consumes, and why the shape is two clauses rather than the one originally approved: the second exists
+because the first would otherwise be a lie.
+
+The eighteen registers in `platformPreserved` are `x1`, `NormalExecutionState`'s twelve, and `mstatus`,
+`sig_meip`, `pma_regions`, `mseccfg`, `htif_tohost_base`. `pma_regions` is carried by **value**, not
+presence, because `FetchPmaAllows` evaluates `matching_pma_region` over it; and the one `Agree` clause is
+proved to cover the MMIO dispatch, since `within_clint`/`within_sig` read no register at all and
+`within_htif_readable` reads only `htif_tohost_base`. -/
 theorem canonicalProgram_and_obligations_of_residue
     (satisfiable : catalogSatisfiability canonicalContractParams)
     (locals : LocalContractAssumptions) :
