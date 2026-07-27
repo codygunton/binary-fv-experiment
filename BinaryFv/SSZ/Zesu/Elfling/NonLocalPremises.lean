@@ -115,8 +115,15 @@ theorem generated_function_instances_implement_of_locals (semantic : catalogSema
 
 `Contracts.SemanticObligations` discharges sixteen of the twenty semantic conjuncts, so the premises
 here are the complete list of what the root obligation still rests on. Read top to bottom they are:
-**no oracle-agreement fact at all**, no cataloged precondition being impossible, the two recorded
-binary/oracle divergences, and the 141 local function instance proofs.
+**no oracle-agreement fact at all**, **no divergence premise either**, no cataloged precondition being
+impossible, and the 141 local function instance proofs.
+
+**`knownDivergences` has left the residue.** It used to be a premise here, recorded-and-intended
+rather than outstanding; `Contracts.SemanticObligations.knownDivergences_holds` now proves it with no
+hypotheses, so it is supplied in the term below instead of being asked for. Two premises remain:
+`catalogSatisfiability`, discharged one layer up in `CatalogSatisfiability.lean`, and
+`LocalContractAssumptions`, which is Rows E–I by design and the whole point of the conditional
+capstone.
 
 **All four of the original oracle-agreement premises are now PROVED rather than assumed**, and all
 four are supplied here: `v3ShapeExcludesCanonicalV4_holds`,
@@ -125,9 +132,7 @@ appears **twice** in the term below because it is consumed both directly and thr
 agreement, and was therefore the single point of failure the whole story rested on — and
 `zeroFirstOffsetAliasRejected_holds`.
 
-That empties the oracle-agreement component of the residue. What is left is `knownDivergences`, which
-is *recorded and intended* rather than outstanding, `catalogSatisfiability`, discharged one layer up,
-and `LocalContractAssumptions`, which is Rows E–I by design. In other words the residue no longer
+That empties the oracle-agreement component of the residue. In other words the residue no longer
 contains anything that was supposed to be proved here and was not.
 
 The four are discharged at this layer rather than in `SemanticObligations` because their proofs
@@ -140,7 +145,7 @@ is what progress on Row D looks like. (`catalogSatisfiability` is discharged one
 `CatalogSatisfiability.lean`, which restates this without it.) -/
 theorem sszComplianceObligations_of_residue
     (satisfiable : catalogSatisfiability canonicalContractParams)
-    (divergences : knownDivergences) (locals : LocalContractAssumptions) :
+    (locals : LocalContractAssumptions) :
     sszComplianceObligations generatedProgram :=
   sszComplianceObligations_of_locals
     (catalogSemanticObligations_of_oracleAgreement
@@ -150,6 +155,30 @@ theorem sszComplianceObligations_of_residue
       BinaryFv.SSZ.Zesu.SpecCorrespondence.sourceShapedContainersAgreeWithOracle_holds
       BinaryFv.SSZ.Zesu.SpecCorrespondence.v3ShapeExcludesCanonicalV4_holds
       BinaryFv.SSZ.Zesu.SpecCorrespondence.zeroFirstOffsetAliasRejected_holds)
-    satisfiable divergences locals
+    satisfiable knownDivergences_holds locals
+
+/-- **Both obligation conjuncts of the D5 scaffolds, from the residue alone.**
+
+`Entrypoints/ZesuDecodeRaw/Execution.lean`'s two scaffolds each claim three things: a canonical
+generated program, `sszComplianceObligations` for it, and a live run. This is the first two of the
+three, proved — so what those scaffolds still owe is *only* the run.
+
+Worth stating separately from `sszComplianceObligations_of_residue` because the pairing is the part
+that is easy to assume and was never written down: `isCanonicalGeneratedProgram_holds` is a conjunct
+of `sszProgramCorrectness` and therefore already inside the obligation, so a reader could reasonably
+believe the scaffold's first conjunct needs no separate proof. It does — the scaffold states it
+*outside* the obligation as well — and this is it.
+
+**It is not the whole scaffold and does not pretend to be.** The third conjunct,
+`Nonempty (SuccessfulRun …)` / `Nonempty (RejectedRun …)`, is untouched here and is not reducible to
+`locals`: constructing it needs a `TraceToSentinel`, which needs the exit `ret` to retire and `ra` to
+still hold the sentinel at the exit, and no contract in the catalog constrains a callee-saved
+register at all. -/
+theorem canonicalProgram_and_obligations_of_residue
+    (satisfiable : catalogSatisfiability canonicalContractParams)
+    (locals : LocalContractAssumptions) :
+    IsCanonicalGeneratedProgram generatedProgram ∧ sszComplianceObligations generatedProgram :=
+  ⟨isCanonicalGeneratedProgram_holds,
+    sszComplianceObligations_of_residue satisfiable locals⟩
 
 end BinaryFv.SSZ.Zesu.Elfling.Validation

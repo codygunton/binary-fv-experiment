@@ -374,17 +374,34 @@ theorem canonical_catalog_satisfiability :
 `catalogSatisfiability` as a premise because it sits below the runner's state builder, which is where
 a state carrying real code lives. This restates it without that premise.
 
-What remains: **no oracle-agreement fact at all** — all four
-(`v3ShapeExcludesCanonicalV4`, `sourceShapedDecodeAgreesWithOracle`,
-`sourceShapedContainersAgreeWithOracle` and `zeroFirstOffsetAliasRejected`) are now proved rather
-than assumed — leaving the two recorded binary/oracle divergences and the 141
-local function instance proofs. Plus — not visible in this signature and not reduced by it — the two live-run
-scaffolds in `Execution.lean`, which the root theorem consumes alongside this obligation. -/
+What remains: **exactly one premise, `LocalContractAssumptions`.** No oracle-agreement fact at all —
+all four (`v3ShapeExcludesCanonicalV4`, `sourceShapedDecodeAgreesWithOracle`,
+`sourceShapedContainersAgreeWithOracle` and `zeroFirstOffsetAliasRejected`) are proved rather than
+assumed; no satisfiability premise, discharged by `canonical_catalog_satisfiability` in this module;
+and no divergence premise either, since `knownDivergences_holds` proves that outright.
+
+**Plus — not visible in this signature and not reduced by it — the two live-run scaffolds in
+`Execution.lean`**, which the root theorem consumes alongside this obligation. That gap is the reason
+the root is not yet `root_compliance_of_local_contracts assumedAllLocalContracts`: this signature
+being down to one premise says the *obligation* half of the root's dependency is conditional on the
+local proofs alone, and says nothing about the *run* half. -/
 theorem sszComplianceObligations_of_residue
-    (divergences : knownDivergences)
     (locals : Elfling.Validation.LocalContractAssumptions) :
     sszComplianceObligations Elfling.Generated.generatedProgram :=
   Elfling.Validation.sszComplianceObligations_of_residue
-    canonical_catalog_satisfiability divergences locals
+    canonical_catalog_satisfiability locals
+
+/-- **The pair the two `Execution.lean` scaffolds each claim before the run**, from the local proofs
+alone: a canonical generated program, and the compliance obligation for it.
+
+This is `Elfling.Validation.canonicalProgram_and_obligations_of_residue` with satisfiability
+discharged, so it is the exact shape of the scaffolds' first two conjuncts. What is left of those
+scaffolds after this is `Nonempty (SuccessfulRun …)` / `Nonempty (RejectedRun …)` and nothing else. -/
+theorem canonicalProgram_and_obligations_of_residue
+    (locals : Elfling.Validation.LocalContractAssumptions) :
+    Contracts.IsCanonicalGeneratedProgram Elfling.Generated.generatedProgram ∧
+      sszComplianceObligations Elfling.Generated.generatedProgram :=
+  Elfling.Validation.canonicalProgram_and_obligations_of_residue
+    canonical_catalog_satisfiability locals
 
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw

@@ -206,9 +206,19 @@ The last two arrived when `sourceShapedDecodeAgreesWithOracle_holds` was threade
 **caught the change and refused the build** rather than absorbing it silently. That is the intended
 behaviour on a legitimate change too: no new *kind* of trust was introduced — both doors were already
 carried by `raw_acceptance_agrees` — but they became reachable from a deeper anchor, and that is a fact
-worth being made to confirm rather than one to discover later. -/
+worth being made to confirm rather than one to discover later.
+
+**It happened again, for the same reason, when `knownDivergences` stopped being a premise.**
+Threading `knownDivergences_holds` in made `decodeCanonical_forkOrderingWitness` — the `native_decide`
+exhibiting the fork-ordering divergence — reachable from this anchor, and the guard refused the build
+until it was recorded. No new kind of trust: the module docstring above notes that this very door was
+already carried by `forkErrorOrderingDiffers_holds` and was *not* reachable from here, which was the
+recorded provenance the first run of this check corrected. Making a premise into a proof is exactly
+the change that moves such a door into the cone, so the door list growing here is the signal that the
+residue shrank. -/
 def residueDoors : List Name :=
-  [``BinaryFv.SSZ.Zesu.Contracts.canonicalOptionalBlobSchedule_pinned,
+  [``BinaryFv.SSZ.Zesu.Contracts.decodeCanonical_forkOrderingWitness,
+   ``BinaryFv.SSZ.Zesu.Contracts.canonicalOptionalBlobSchedule_pinned,
    ``BinaryFv.SSZ.Zesu.Contracts.canonicalOptionalU64_pinned,
    ``BinaryFv.SSZ.Zesu.Contracts.or_shifts_toNat,
    ``BinaryFv.SSZ.Zesu.SpecCorrespondence.uint64LE_of_readUInt64LE,

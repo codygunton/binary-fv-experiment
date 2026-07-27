@@ -331,23 +331,25 @@ def obligationConjuncts : Nat := 50
 /-- **The residue: what the conditional theorem still assumes.**
 
 Each entry carries the closed theorem that already discharges it, or `none` when nothing does — and
-the difference is the whole point of the list. Three of the four are the recorded binary/oracle
-divergences, and all three are *proved*; they remain premises of this anchor only because it has not
-been re-threaded through `knownDivergences_holds`. **The fourth has no witness, and it is the one
-local seam:** the per-function-instance local trace obligation, which is the remaining row work by
-design.
+the difference is the whole point of the list.
+
+**The list is now one entry long, and it has no witness.** The three recorded binary/oracle
+divergences used to sit here as premises-with-witnesses, purely because the anchor had not been
+re-threaded through `knownDivergences_holds`; it has been, so they moved into `provedNonLocal`. What
+is left is the per-function-instance local trace obligation — the one local seam D5 is aiming at, and
+the remaining row work by design.
 
 Nothing else is here — in particular no oracle-agreement fact and no satisfiability obligation. Those
 were premises once and are now discharged inside the anchor itself, which is why they appear in
-`provedNonLocal` below instead. -/
+`provedNonLocal` below instead.
+
+**What this list is about, stated so it is not over-read.** It is the residue of the *obligation*
+anchor — what `sszComplianceObligations generatedProgram` still rests on. It is not the residue of the
+root: `root_compliance` also consumes a live **run** of the machine, and that half is `rootSeam`
+above, which is still two `sorry`s. A reader who took "one assumed obligation, no witness" as "one
+hole left in the proof" would be wrong by exactly those two. -/
 def assumedResidue : List (Name × Option Name) :=
-  [(``BinaryFv.SSZ.Zesu.Contracts.knownDivergences,
-     some ``BinaryFv.SSZ.Zesu.Contracts.knownDivergences_holds),
-   (``BinaryFv.SSZ.Zesu.Contracts.forkErrorOrderingDiffers,
-     some ``BinaryFv.SSZ.Zesu.Contracts.forkErrorOrderingDiffers_holds),
-   (``BinaryFv.SSZ.Zesu.Contracts.ereRetryReachedAboveU32Gate,
-     some ``BinaryFv.SSZ.Zesu.Contracts.ereRetryReachedAboveU32Gate_holds),
-   (``BinaryFv.SSZ.Zesu.Contracts.functionInstanceLocalTraceObligation, none)]
+  [(``BinaryFv.SSZ.Zesu.Contracts.functionInstanceLocalTraceObligation, none)]
 
 /-- **Every proved non-local dependency**: the named components of `sszComplianceObligations
 generatedProgram` that `sszComplianceObligations_of_residue` discharges rather than assumes.
@@ -395,6 +397,10 @@ def provedNonLocal : List Name :=
    ``BinaryFv.SSZ.Zesu.Contracts.meaningTwentyFourIsSome,
    ``BinaryFv.SSZ.Zesu.Contracts.meaningOtherLengthIsInvalid,
    ``BinaryFv.SSZ.Zesu.Contracts.meaningNeverForkOrMemory,
+   -- the two recorded binary/oracle divergences, proved and now threaded in rather than assumed
+   ``BinaryFv.SSZ.Zesu.Contracts.knownDivergences,
+   ``BinaryFv.SSZ.Zesu.Contracts.forkErrorOrderingDiffers,
+   ``BinaryFv.SSZ.Zesu.Contracts.ereRetryReachedAboveU32Gate,
    -- precondition satisfiability, discharged in `CatalogSatisfiability.lean`
    ``BinaryFv.SSZ.Zesu.Contracts.catalogSatisfiability,
    -- the local-to-global composition, minus its local premise
