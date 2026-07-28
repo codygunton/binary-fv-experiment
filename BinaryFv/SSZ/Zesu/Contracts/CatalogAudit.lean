@@ -1,4 +1,4 @@
-import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.SSZ.Zesu.Contracts.ElflingCorrectness
 
 namespace BinaryFv.SSZ.Zesu.Contracts
 
@@ -63,12 +63,12 @@ theorem exclusions_disjoint_from_catalog : exclusionsDisjoint = true := by nativ
 /-- (4b) Every excluded routine is classified with a machine-checkable reason. -/
 theorem exclusions_all_classified : exclusionsAllClassified = true := by native_decide
 
-/-- (5) `sszProgramCorrectness` genuinely references the per-function-instance implementation predicate:
+/-- (5) `sszElflingCorrectness` genuinely references the per-function-instance implementation predicate:
 program correctness entails that the function instance at any cataloged identity implements its routine's
 `correctnessClaim`. Ordinary kernel proof, no artifact trust. -/
 theorem program_correctness_references_per_function_instance
-    {program : Program} {p : ContractParams}
-    (correct : sszProgramCorrectness program p)
+    {program : Elfling} {p : ContractParams}
+    (correct : sszElflingCorrectness program p)
     {functionInstance : FunctionInstance} (mem : functionInstance ∈ program.functionInstances)
     {entry : CatalogEntry} (found : catalogEntryFor functionInstance.id.function = some entry) :
     routineObligation p functionInstance entry.tag :=
@@ -79,7 +79,7 @@ theorem program_correctness_references_per_function_instance
 `canonicalContractParams` (which in particular witnesses the `∃ p` the old statement used). Ordinary
 kernel proof. -/
 theorem root_dependency_is_real :
-    ∀ program : Program, sszComplianceObligations program → (∃ p, sszProgramCorrectness program p) :=
+    ∀ program : Elfling, sszComplianceObligations program → (∃ p, sszElflingCorrectness program p) :=
   fun _ obligations => ⟨canonicalContractParams, obligations.1⟩
 
 end BinaryFv.SSZ.Zesu.Contracts

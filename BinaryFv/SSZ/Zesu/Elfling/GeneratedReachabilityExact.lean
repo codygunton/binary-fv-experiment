@@ -1,7 +1,7 @@
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
 import BinaryFv.RiscV.Analysis.ReachabilityComplete
 import BinaryFv.SSZ.Zesu.ControlFlow.Decode
-import GeneratedProgram
+import GeneratedElfling
 
 /-!
 # The generated reachable set is EXACTLY `directReachable` (area #5, both directions)

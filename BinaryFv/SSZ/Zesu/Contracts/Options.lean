@@ -35,7 +35,7 @@ def optionalU64Type : SSZType :=
 /--
 Address-free arguments of a borrowed-slice decoder returning an aggregate indirectly.
 
-`base` and `resultBase` are genuine runtime arguments of the routine, so they belong here. Program
+`base` and `resultBase` are genuine runtime arguments of the routine, so they belong here. Elfling
 counters and instruction words are not arguments and never appear in this module.
 -/
 structure SliceToResultArgs where

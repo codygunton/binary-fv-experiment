@@ -1,20 +1,20 @@
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
-import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
-import GeneratedProgram
+import BinaryFv.SSZ.Zesu.Contracts.ElflingCorrectness
+import GeneratedElfling
 
 /-!
 # Discharging the row-1 program obligations for the generated program
 
-The deterministic generator emitted `GeneratedProgram.lean` (untrusted, address-bearing). This module
+The deterministic generator emitted `GeneratedElfling.lean` (untrusted, address-bearing). This module
 proves the three row-1 obligations for it against the canonical ELF:
 
-* `coverage generatedProgram` — every live catalog routine has a function instance, every function instance is
+* `coverage generatedElfling` — every live catalog routine has a function instance, every function instance is
   cataloged, the exclusions stay absent, dispatch is unique (function instance ids and catalog identities are
   duplicate-free, and every identity resolves), the required `readArray` widths are present, and the
   extraction is defect-free.
-* `sourceProvenanceRecorded generatedProgram` — every function instance's recorded content hash equals the
+* `sourceProvenanceRecorded generatedElfling` — every function instance's recorded content hash equals the
   pinned-source manifest entry for its file, and its declaration line is real (`> 0`).
-* `IsCanonicalGeneratedProgram generatedProgram` — the entry is the emitted `zesu_decode_raw`
+* `IsCanonicalGeneratedElfling generatedElfling` — the entry is the emitted `zesu_decode_raw`
   function instance, **every byte of every claimed region reads back from the canonical `Artifact.programImage`**,
   provenance is recorded, and no attribution defect remains.
 
@@ -30,18 +30,18 @@ namespace BinaryFv.SSZ.Zesu.Elfling.Validation
 
 open BinaryFv.Binary.Elfling
 open BinaryFv.SSZ.Zesu.Contracts
-open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram)
+open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedElfling)
 
 /-! ## Coverage: both matching directions -/
 
 /-- Every live catalog entry has a generated function instance with its identity. -/
 def everyRoutineHasFunctionInstanceB : Bool :=
   catalog.all fun e =>
-    !e.isLive || generatedProgram.functionInstances.any fun i => decide (i.id.function = e.functionId)
+    !e.isLive || generatedElfling.functionInstances.any fun i => decide (i.id.function = e.functionId)
 
 theorem everyRoutineHasFunctionInstanceB_true : everyRoutineHasFunctionInstanceB = true := by native_decide
 
-theorem everyRoutineHasFunctionInstance_holds : everyRoutineHasFunctionInstance generatedProgram := by
+theorem everyRoutineHasFunctionInstance_holds : everyRoutineHasFunctionInstance generatedElfling := by
   intro e he hlive
   have hall := forall_mem_of_all everyRoutineHasFunctionInstanceB_true e he
   rw [hlive] at hall
@@ -51,12 +51,12 @@ theorem everyRoutineHasFunctionInstance_holds : everyRoutineHasFunctionInstance 
 
 /-- Every generated function instance carries a live catalog entry's identity. -/
 def everyFunctionInstanceIsCatalogedB : Bool :=
-  generatedProgram.functionInstances.all fun i =>
+  generatedElfling.functionInstances.all fun i =>
     catalog.any fun e => e.isLive && decide (i.id.function = e.functionId)
 
 theorem everyFunctionInstanceIsCatalogedB_true : everyFunctionInstanceIsCatalogedB = true := by native_decide
 
-theorem everyFunctionInstanceIsCataloged_holds : everyFunctionInstanceIsCataloged generatedProgram := by
+theorem everyFunctionInstanceIsCataloged_holds : everyFunctionInstanceIsCataloged generatedElfling := by
   intro i hi
   have hany := forall_mem_of_all everyFunctionInstanceIsCatalogedB_true i hi
   obtain ⟨e, he, hb⟩ := exists_mem_of_any hany
@@ -65,12 +65,12 @@ theorem everyFunctionInstanceIsCataloged_holds : everyFunctionInstanceIsCataloge
 
 /-- No excluded routine is matched by any generated function instance. -/
 def excludedRoutinesAbsentB : Bool :=
-  generatedProgram.functionInstances.all fun i =>
+  generatedElfling.functionInstances.all fun i =>
     excludedRoutines.all fun x => decide (i.id.function ≠ x.functionId)
 
 theorem excludedRoutinesAbsentB_true : excludedRoutinesAbsentB = true := by native_decide
 
-theorem excludedRoutinesAbsent_holds : excludedRoutinesAbsent generatedProgram := by
+theorem excludedRoutinesAbsent_holds : excludedRoutinesAbsent generatedElfling := by
   intro i hi x hx
   have h1 := forall_mem_of_all excludedRoutinesAbsentB_true i hi
   have h2 := forall_mem_of_all h1 x hx
@@ -80,11 +80,11 @@ theorem excludedRoutinesAbsent_holds : excludedRoutinesAbsent generatedProgram :
 
 /-- The generated function instance identities are duplicate-free. -/
 theorem functionInstanceIdsNodup_true :
-    (decide ((generatedProgram.functionInstances.toList.map (·.id)).Nodup)) = true := by native_decide
+    (decide ((generatedElfling.functionInstances.toList.map (·.id)).Nodup)) = true := by native_decide
 
-theorem functionInstanceIdsDistinct_holds : generatedProgram.functionInstanceIdsDistinct := by
+theorem functionInstanceIdsDistinct_holds : generatedElfling.functionInstanceIdsDistinct := by
   intro i j hi hj heq
-  exact array_key_index_inj generatedProgram.functionInstances (·.id)
+  exact array_key_index_inj generatedElfling.functionInstances (·.id)
     (nodup_of_decide functionInstanceIdsNodup_true) hi hj heq
 
 /-- The catalog identities are duplicate-free. -/
@@ -98,16 +98,16 @@ theorem catalogIdentitiesDistinct_holds : catalogIdentitiesDistinct := by
 
 /-- Every generated function instance identity resolves through the catalog dispatch. -/
 def dispatchB : Bool :=
-  generatedProgram.functionInstances.all fun i => (catalogEntryFor i.id.function).isSome
+  generatedElfling.functionInstances.all fun i => (catalogEntryFor i.id.function).isSome
 
 theorem dispatchB_true : dispatchB = true := by native_decide
 
 theorem dispatch_holds :
-    ∀ i ∈ generatedProgram.functionInstances, ∃ e, catalogEntryFor i.id.function = some e := by
+    ∀ i ∈ generatedElfling.functionInstances, ∃ e, catalogEntryFor i.id.function = some e := by
   intro i hi
   exact Option.isSome_iff_exists.mp (forall_mem_of_all dispatchB_true i hi)
 
-theorem functionInstancesDispatchUniquely_holds : functionInstancesDispatchUniquely generatedProgram :=
+theorem functionInstancesDispatchUniquely_holds : functionInstancesDispatchUniquely generatedElfling :=
   ⟨functionInstanceIdsDistinct_holds, catalogIdentitiesDistinct_holds, dispatch_holds⟩
 
 /-! ## Required specializations present -/
@@ -129,7 +129,7 @@ theorem readArrayWidthsPresent_holds : readArrayWidthsPresent := by
 
 /-! ## The full coverage obligation -/
 
-theorem coverage_holds : coverage generatedProgram :=
+theorem coverage_holds : coverage generatedElfling :=
   ⟨everyRoutineHasFunctionInstance_holds, everyFunctionInstanceIsCataloged_holds, excludedRoutinesAbsent_holds,
    functionInstancesDispatchUniquely_holds, catalogIdentitiesDistinct_holds, readArrayWidthsPresent_holds,
    rfl⟩
@@ -140,13 +140,13 @@ theorem coverage_holds : coverage generatedProgram :=
 its declaring file, and its declaration line is real. This is the strengthened provenance check: the
 generated hash must match the pinned source, not merely be non-empty. -/
 def sourceProvenanceRecordedB : Bool :=
-  generatedProgram.functionInstances.all fun i =>
+  generatedElfling.functionInstances.all fun i =>
     decide (pinnedSourceHash i.id.function.declaration.file = some i.declProvenance.sourceFileHash) &&
       decide (0 < i.declProvenance.declSpan.line)
 
 theorem sourceProvenanceRecordedB_true : sourceProvenanceRecordedB = true := by native_decide
 
-theorem sourceProvenanceRecorded_holds : sourceProvenanceRecorded generatedProgram := by
+theorem sourceProvenanceRecorded_holds : sourceProvenanceRecorded generatedElfling := by
   intro i hi
   have h := forall_mem_of_all sourceProvenanceRecordedB_true i hi
   rw [Bool.and_eq_true] at h
@@ -158,9 +158,9 @@ theorem sourceProvenanceRecorded_holds : sourceProvenanceRecorded generatedProgr
 the `native_decide` that ties the generated ranges to the real code; the kernel-side bridge below is
 generic in the image. -/
 theorem allBytesReadable_true :
-    bytesReadableIn Artifact.programImage generatedProgram = true := by native_decide
+    bytesReadableIn Artifact.programImage generatedElfling = true := by native_decide
 
-theorem isCanonicalGeneratedProgram_holds : IsCanonicalGeneratedProgram generatedProgram := by
+theorem isCanonicalGeneratedElfling_holds : IsCanonicalGeneratedElfling generatedElfling := by
   refine ⟨by decide, rfl, ?_, sourceProvenanceRecorded_holds, rfl⟩
   intro functionInstance hFunctionInstance r hr address hlo hhi
   exact bytesReadableIn_elim allBytesReadable_true hFunctionInstance hr hlo hhi

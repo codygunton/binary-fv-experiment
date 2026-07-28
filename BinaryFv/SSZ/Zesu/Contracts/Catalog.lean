@@ -395,19 +395,19 @@ def excludedEntryFor (function : FunctionId) : Option CatalogEntry :=
 /-! ## Coverage and uniqueness obligations -/
 
 /-- Every live catalog entry has at least one generated function instance carrying its exact identity. -/
-def everyRoutineHasFunctionInstance (program : Program) : Prop :=
+def everyRoutineHasFunctionInstance (program : Elfling) : Prop :=
   ∀ entry ∈ catalog, entry.isLive = true →
     ∃ functionInstance ∈ program.functionInstances, functionInstance.id.function = entry.functionId
 
 /-- Every generated function instance carries the identity of exactly one live catalog entry. This is the
 direction that forbids an unproved region — including an un-accounted compiler/runtime routine —
 hiding inside a "complete" proof. -/
-def everyFunctionInstanceIsCataloged (program : Program) : Prop :=
+def everyFunctionInstanceIsCataloged (program : Elfling) : Prop :=
   ∀ functionInstance ∈ program.functionInstances,
     ∃ entry ∈ catalog, entry.isLive = true ∧ functionInstance.id.function = entry.functionId
 
 /-- No excluded routine has any generated function instance: the exclusions are honest. -/
-def excludedRoutinesAbsent (program : Program) : Prop :=
+def excludedRoutinesAbsent (program : Elfling) : Prop :=
   ∀ functionInstance ∈ program.functionInstances, ∀ excluded ∈ excludedRoutines,
     functionInstance.id.function ≠ excluded.functionId
 
@@ -423,7 +423,7 @@ function instance cannot slip through.
 Uniqueness of the matched entry is `catalogEntryFor` returning `some` (a single entry from
 `Array.find?`) together with `catalogIdentitiesDistinct`, which rules out a second entry with the
 same identity. -/
-def functionInstancesDispatchUniquely (program : Program) : Prop :=
+def functionInstancesDispatchUniquely (program : Elfling) : Prop :=
   program.functionInstanceIdsDistinct ∧
   catalogIdentitiesDistinct ∧
   ∀ functionInstance ∈ program.functionInstances,
@@ -436,7 +436,7 @@ def readArrayWidthsPresent : Prop :=
 
 /-- The full coverage obligation: both matching directions, honest exclusions, unique dispatch, the
 required specializations, and a defect-free extraction. -/
-def coverage (program : Program) : Prop :=
+def coverage (program : Elfling) : Prop :=
   everyRoutineHasFunctionInstance program ∧
   everyFunctionInstanceIsCataloged program ∧
   excludedRoutinesAbsent program ∧
@@ -446,7 +446,7 @@ def coverage (program : Program) : Prop :=
   extractionDefectFree program
 where
   /-- The extraction reported no unresolved attribution. -/
-  extractionDefectFree (program : Program) : Prop := program.defects = #[]
+  extractionDefectFree (program : Elfling) : Prop := program.defects = #[]
 
 /-! ## The catalog's semantic obligations -/
 

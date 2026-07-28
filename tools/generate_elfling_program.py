@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Deterministic ELF/DWARF/CFG -> Elfling Program generator (milestone 4, generator+emission chunk).
+Deterministic ELF/DWARF/CFG -> Elfling generator (milestone 4, generator+emission chunk).
 
 Reads the validated DWARF sidecars (decoder/allocator/sink built strip=false; runtime built -g, each
 byte-identical to the canonical stripped object), enumerates every emitted subprogram and every
@@ -8,7 +8,7 @@ inlined_subroutine, maps object-relative ranges to canonical-ELF PCs via the lin
 resolves readArray widths from DWARF call_line -> pinned source, matches function instances to live catalog
 FunctionIds, folds non-cataloged glue into the nearest cataloged ancestor (glue PCs already lie
 inside that ancestor's ranges), builds the inline nesting from the cataloged-ancestor chain, and
-emits deterministic JSON, a generated Lean `Program` module, and a Markdown source/function/CFG index.
+emits deterministic JSON, a generated Lean `Elfling` module, and a Markdown source/function/CFG index.
 
 Determinism: DWARF DIE order is fixed; ranges verbatim; PC map is a per-object constant add; catalog
 match is by pinned name/width; output ordering is sorted. The Nix derivation runs it twice and
@@ -1015,12 +1015,12 @@ def edges_lean(function_instance):
 
 def emit_lean(p):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py. DO NOT EDIT.",
-         "import BinaryFv.Binary.Elfling.Program", "",
-         "/-!", "# Generated Elfling program (milestone 4)", "",
+         "import BinaryFv.Binary.Elfling.Elfling", "",
+         "/-!", "# Generated Elfling (milestone 4)", "",
          "Deterministically generated from the validated DWARF sidecars by",
          "`tools/generate_elfling_program.py`. Address-bearing, UNTRUSTED: the Lean validation",
-         "(`ProgramValidation.lean`) checks every range/word against the canonical ELF and discharges",
-         "`coverage` / `sourceProvenanceRecorded` / `IsCanonicalGeneratedProgram`. Object `.text` bases,",
+         "(`ElflingValidation.lean`) checks every range/word against the canonical ELF and discharges",
+         "`coverage` / `sourceProvenanceRecorded` / `IsCanonicalGeneratedElfling`. Object `.text` bases,",
          "readArray widths (from `DW_AT_call_line` -> pinned source), and glue-folding are recorded in the",
          "companion JSON. Regenerating is byte-deterministic (checked twice in the derivation).", "-/", "",
          "-- the chunked reachability witness table is assembled by a many-fold `++`; elaborating it",
@@ -1061,13 +1061,13 @@ def emit_lean(p):
     L.append("  #[" + ", ".join(f'functionInstance{i}' for i in range(len(p["function_instances"]))) + "]")
     L.append("")
     ei = p["entryIndex"]
-    L.append(f'/-- The complete generated program: entry `zesu_decode_raw` (functionInstance {ei}), all reachable')
+    L.append(f'/-- The complete generated Elfling: entry `zesu_decode_raw` (functionInstance {ei}), all reachable')
     L.append("    function instances, and the surfaced attribution defects. -/")
     # Authoritative: the emitted defect list is exactly the generator's, never a hardcoded `#[]`. The
     # derivation additionally FAILS when this list is nonempty, so in a released program it is `#[]`
     # because there were no defects — not because emission discarded them.
     defects = "#[" + ", ".join(defect_lean(d) for d in p["defects"]) + "]"
-    L.append("def generatedProgram : Program :=")
+    L.append("def generatedElfling : Elfling :=")
     L.append(f'  {{ entry := functionInstance{ei}Id, functionInstances := generatedFunctionInstances, defects := {defects},')
     L.append(f'    provenance := {prov(p["function_instances"][ei])} }}')
     L.append("")
@@ -1158,7 +1158,7 @@ def emit_lean(p):
     return "\n".join(L)
 
 def emit_md(p):
-    M = ["# Generated Elfling program — source/function/CFG index", "",
+    M = ["# Generated Elfling — source/function/CFG index", "",
          f"Deterministically generated from the DWARF sidecars. {len(p['function_instances'])} function instances over "
          f"{len({(function_instance['qualified'],tuple(function_instance['specialization'])) for function_instance in p['function_instances']})}/43 catalog routines; "
          f"{len(p['defects'])} attribution defect(s).", ""]

@@ -1,5 +1,5 @@
 import BinaryFv.SSZ.Zesu.Contracts.Catalog
-import GeneratedProgram
+import GeneratedElfling
 
 /-!
 # Closing the provenance boundary against the independently generated manifest
@@ -22,7 +22,7 @@ namespace BinaryFv.SSZ.Zesu.Elfling.Validation
 open BinaryFv.Binary.Elfling
 open BinaryFv.SSZ.Zesu.Contracts (pinnedSourceManifest)
 open BinaryFv.SSZ.Zesu.Elfling.Generated
-  (generatedProgram generatedSourceManifest generatedDeclLines)
+  (generatedElfling generatedSourceManifest generatedDeclLines)
 
 /-! ## 1. The handwritten manifest is checked against the generated one -/
 
@@ -53,6 +53,6 @@ def functionInstanceDeclResolved (functionInstance : FunctionInstance) : Bool :=
 function instances of a routine disagree), this is the "declaration span matches the resolved source
 declaration" check the review asked for — strictly stronger than `declSpan.line > 0`. -/
 theorem every_function_instance_declSpan_matches_resolved :
-    generatedProgram.functionInstances.all functionInstanceDeclResolved = true := by native_decide
+    generatedElfling.functionInstances.all functionInstanceDeclResolved = true := by native_decide
 
 end BinaryFv.SSZ.Zesu.Elfling.Validation

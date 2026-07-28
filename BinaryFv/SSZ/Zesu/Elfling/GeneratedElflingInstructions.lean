@@ -1,6 +1,6 @@
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
 import BinaryFv.SSZ.Zesu.ControlFlow.Decode
-import GeneratedProgram
+import GeneratedElfling
 
 /-!
 # Byte-level instruction check: every generated PC decodes to a legal instruction
@@ -27,18 +27,18 @@ open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV
 open BinaryFv.SSZ.Zesu.ControlFlow
-open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram)
+open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedElfling)
 
 /-! ## Region word-alignment (so the word-PCs tile each region) -/
 
 /-- Every generated region has a size divisible by 4. -/
 def regionsWordAlignedB : Bool :=
-  generatedProgram.functionInstances.all fun functionInstance => functionInstance.regions.all fun r => r.size % 4 == 0
+  generatedElfling.functionInstances.all fun functionInstance => functionInstance.regions.all fun r => r.size % 4 == 0
 
 theorem regionsWordAlignedB_true : regionsWordAlignedB = true := by native_decide
 
 theorem generated_regions_word_aligned :
-    ∀ functionInstance ∈ generatedProgram.functionInstances, ∀ r ∈ functionInstance.regions, r.size % 4 = 0 := by
+    ∀ functionInstance ∈ generatedElfling.functionInstances, ∀ r ∈ functionInstance.regions, r.size % 4 = 0 := by
   intro functionInstance hFunctionInstance r hr
   have h := forall_mem_of_all (forall_mem_of_all regionsWordAlignedB_true functionInstance hFunctionInstance) r hr
   exact eq_of_beq h
@@ -46,7 +46,7 @@ theorem generated_regions_word_aligned :
 /-! ## The per-PC decode + legality check -/
 
 /-- At every word-PC of every region, the decoded CFG has a node whose instruction is legal. -/
-def regionPCsLegalIn (nodes : Array ControlFlowNode) (program : Program) : Bool :=
+def regionPCsLegalIn (nodes : Array ControlFlowNode) (program : Elfling) : Bool :=
   program.functionInstances.all fun functionInstance =>
     functionInstance.regions.all fun r =>
       (List.range (r.size / 4)).all fun i =>
@@ -57,7 +57,7 @@ def regionPCsLegalIn (nodes : Array ControlFlowNode) (program : Program) : Bool 
 /-- The check dispatched through the canonical decoded control flow. `Option.map`/`getD` (not a
 `match`) so the bridge below never forces the kernel to reduce `controlFlow?` (the full ELF decode). -/
 def regionPCsLegal : Bool :=
-  (controlFlow?.map (fun nodes => regionPCsLegalIn nodes generatedProgram)).getD false
+  (controlFlow?.map (fun nodes => regionPCsLegalIn nodes generatedElfling)).getD false
 
 theorem regionPCsLegal_true : regionPCsLegal = true := by native_decide
 
@@ -68,13 +68,13 @@ theorem controlFlow_exists : ∃ nodes, controlFlow? = some nodes :=
 /-- Specialise the dispatched check to explicit decoded `nodes` without reducing the decode. -/
 theorem regionPCsLegal_some {nodes : Array ControlFlowNode}
     (hn : controlFlow? = some nodes) (h : regionPCsLegal = true) :
-    regionPCsLegalIn nodes generatedProgram = true := by
+    regionPCsLegalIn nodes generatedElfling = true := by
   unfold regionPCsLegal at h
   rw [hn] at h
   simpa only [Option.map_some, Option.getD_some] using h
 
 /-- Extract the per-PC decode fact from the aggregate `Bool`. -/
-theorem regionPCsLegalIn_elim {nodes : Array ControlFlowNode} {program : Program}
+theorem regionPCsLegalIn_elim {nodes : Array ControlFlowNode} {program : Elfling}
     (h : regionPCsLegalIn nodes program = true)
     {functionInstance : FunctionInstance} (hFunctionInstance : functionInstance ∈ program.functionInstances)
     {r : AddressRange} (hr : r ∈ functionInstance.regions)
@@ -96,7 +96,7 @@ control-flow node *at that exact address* whose instruction is legal. DWARF prop
 confirms them against the ELF bytes. -/
 theorem generated_region_pcs_are_legal_instructions :
     ∃ nodes, controlFlow? = some nodes ∧
-      ∀ functionInstance ∈ generatedProgram.functionInstances, ∀ r ∈ functionInstance.regions, ∀ i, i < r.size / 4 →
+      ∀ functionInstance ∈ generatedElfling.functionInstances, ∀ r ∈ functionInstance.regions, ∀ i, i < r.size / 4 →
         ∃ node, ControlFlowNodeAt? nodes (r.start + 4 * i) = some node ∧
           node.word.encoded.address = r.start + 4 * i ∧ node.word.legal = true := by
   obtain ⟨nodes, hn⟩ := controlFlow_exists

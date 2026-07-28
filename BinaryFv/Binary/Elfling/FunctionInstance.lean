@@ -19,7 +19,7 @@ proposing a source-to-address mapping, and Lean
 validation checks every range and byte against the pinned ELF before a proof may rely on it.
 
 Contracts then use the address-free `FunctionInstanceId` to select a function instance. Concrete addresses
-enter later through extracted `FunctionInstance` and `Program` values.
+enter later through extracted `FunctionInstance` and `Elfling` values.
 
 For a real example, the generated Zesu data contains one inlined
 `decodeOptionalBlobSchedule` function instance split across three regions. It contains three

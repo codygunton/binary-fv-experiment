@@ -1,6 +1,6 @@
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
 import BinaryFv.SSZ.Zesu.ControlFlow.Decode
-import GeneratedProgram
+import GeneratedElfling
 
 /-!
 # Validating the generated control-flow interface against the canonical decoded CFG (area #2)
@@ -47,7 +47,7 @@ open BinaryFv.SSZ.Zesu.ControlFlow (controlFlow?)
 theorem controlFlow_isSome : ∃ nodes, controlFlow? = some nodes :=
   Option.isSome_iff_exists.mp (by native_decide)
 open BinaryFv.SSZ.Zesu.Elfling.Generated
-  (generatedProgram generatedExcludedFunctionInstances ExcludedFunctionInstance)
+  (generatedElfling generatedExcludedFunctionInstances ExcludedFunctionInstance)
 
 /-! ## FunctionInstance geometry -/
 
@@ -56,7 +56,7 @@ def inRegions (functionInstance : FunctionInstance) (pc : Nat) : Bool :=
   functionInstance.regions.any fun r => decide (r.start ≤ pc ∧ pc < r.stop)
 
 /-- A PC is DEEPEST-owned by `functionInstance` when `functionInstance` contains it and no child function instance does. -/
-def ownedBy (program : Program) (functionInstance : FunctionInstance) (pc : Nat) : Bool :=
+def ownedBy (program : Elfling) (functionInstance : FunctionInstance) (pc : Nat) : Bool :=
   inRegions functionInstance pc && functionInstance.children.all fun cid =>
     match program.find? cid with
     | some c => !inRegions c pc
@@ -68,7 +68,7 @@ def exclEntryPc (x : ExcludedFunctionInstance) : Nat :=
 
 /-- The entry PC a callee identity names — an emitted function instance's `entryPc` or an excluded routine's
 entry — or `none` if the identity resolves to no generated function instance. -/
-def calleeEntryPc? (program : Program) (id : FunctionInstanceId) : Option Nat :=
+def calleeEntryPc? (program : Elfling) (id : FunctionInstanceId) : Option Nat :=
   match program.functionInstances.find? (fun i => decide (i.id = id)) with
   | some i => some i.entryPc
   | none => (generatedExcludedFunctionInstances.find? (fun x => decide (x.id = id))).map exclEntryPc
@@ -90,7 +90,7 @@ def leavesFunctionInstance (nodes : Array ControlFlowNode) (functionInstance : F
 
 /-- Every region PC of every function instance is a decoded node. Blocks tile the regions, so this also ties
 every block byte to the decoded CFG. -/
-def regionsDecoded (nodes : Array ControlFlowNode) (program : Program) : Bool :=
+def regionsDecoded (nodes : Array ControlFlowNode) (program : Elfling) : Bool :=
   program.functionInstances.all fun functionInstance =>
     functionInstance.regions.all fun r => (List.range (r.size / 4)).all fun k =>
       hasControlFlowAddress nodes (r.start + 4 * k)
@@ -111,7 +111,7 @@ validated as a real CFG entry — control reaches it by a decoded edge from outs
 regions. (Emitted functions are reached at their `low_pc`; those called only through the allocator
 vtable have no decoded direct predecessor — an indirect call carries no direct edge — so the
 entered-from-outside check applies to inlined function instances, where it holds for every one.) -/
-def entriesValid (nodes : Array ControlFlowNode) (program : Program) : Bool :=
+def entriesValid (nodes : Array ControlFlowNode) (program : Elfling) : Bool :=
   program.functionInstances.all fun functionInstance =>
     hasControlFlowAddress nodes functionInstance.entryPc &&
     decide (functionInstance.entryPc = minRegionStart functionInstance) &&
@@ -120,7 +120,7 @@ def entriesValid (nodes : Array ControlFlowNode) (program : Program) : Bool :=
 /-- The `exitPcs` are EXACTLY the function instance's decoded control-transfer-out points: every listed exit
 lies in the regions and really leaves, and every region PC that leaves is listed. This is the "all
 exits, no `max(endpoint)`" check. -/
-def exitsValid (nodes : Array ControlFlowNode) (program : Program) : Bool :=
+def exitsValid (nodes : Array ControlFlowNode) (program : Elfling) : Bool :=
   program.functionInstances.all fun functionInstance =>
     (functionInstance.exitPcs.all fun pc => inRegions functionInstance pc && leavesFunctionInstance nodes functionInstance pc) &&
     functionInstance.regions.all fun r => (List.range (r.size / 4)).all fun k =>
@@ -129,7 +129,7 @@ def exitsValid (nodes : Array ControlFlowNode) (program : Program) : Bool :=
 
 /-- Every emitted direct edge is a real decoded direct successor of an in-region source
 (soundness: no invented edge). -/
-def edgesValid (nodes : Array ControlFlowNode) (program : Program) : Bool :=
+def edgesValid (nodes : Array ControlFlowNode) (program : Elfling) : Bool :=
   program.functionInstances.all fun functionInstance =>
     functionInstance.edges.all fun e =>
       inRegions functionInstance e.source && (directSuccessorsAt nodes e.source).contains e.target
@@ -139,7 +139,7 @@ region PC it DEEPEST-owns, and every decoded direct successor `t` of that PC, th
 `{ source := pc, target := t }` occurs in the function instance's emitted edge list. Together with `edgesValid`
 this pins `functionInstance.edges` to EXACTLY the decoded direct-successor edges out of the PCs `functionInstance` owns, so the
 untrusted artifact cannot silently drop a real edge and still validate. -/
-def edgesComplete (nodes : Array ControlFlowNode) (program : Program) : Bool :=
+def edgesComplete (nodes : Array ControlFlowNode) (program : Elfling) : Bool :=
   program.functionInstances.all fun functionInstance =>
     functionInstance.regions.all fun r => (List.range (r.size / 4)).all fun k =>
       let pc := r.start + 4 * k
@@ -150,7 +150,7 @@ def edgesComplete (nodes : Array ControlFlowNode) (program : Program) : Bool :=
 /-- External calls correspond to the decoded direct calls: every emitted callee resolves to a
 generated function instance and is the target of a real decoded direct call out of `functionInstance`, and every decoded
 direct call `functionInstance` DEEPEST-owns is emitted — so calls are neither invented nor dropped. -/
-def externalCallsValid (nodes : Array ControlFlowNode) (program : Program) : Bool :=
+def externalCallsValid (nodes : Array ControlFlowNode) (program : Elfling) : Bool :=
   let dce := directCallEdges nodes
   program.functionInstances.all fun functionInstance =>
     (functionInstance.externalCalls.all fun id =>
@@ -164,7 +164,7 @@ def externalCallsValid (nodes : Array ControlFlowNode) (program : Program) : Boo
 /-- Basic blocks exactly partition each function instance's regions: each block is contained in a region, the
 blocks are pairwise disjoint, the regions are pairwise disjoint, and the blocks' total size equals the
 regions' — so together they cover every region PC exactly once, with no gap and no overlap. -/
-def blocksPartition (program : Program) : Bool :=
+def blocksPartition (program : Elfling) : Bool :=
   program.functionInstances.all fun functionInstance =>
     (functionInstance.blocks.all fun b => functionInstance.regions.any fun r => decide (r.start ≤ b.range.start ∧ b.range.stop ≤ r.stop)) &&
     (List.range functionInstance.blocks.size).all (fun i => (List.range functionInstance.blocks.size).all fun j =>
@@ -183,7 +183,7 @@ def blocksPartition (program : Program) : Bool :=
 parse/decode failure is `false`). Uses `Option.map`/`getD` rather than a `match`, so the kernel bridge
 never reduces the ~3984-word decode (same reason as the reachability certificate). Parameterising over
 `program` lets the negative test run the SAME validation against a tampered program. -/
-def cfgInterfaceValidFor (program : Program) : Bool :=
+def cfgInterfaceValidFor (program : Elfling) : Bool :=
   (controlFlow?.map fun nodes =>
     regionsDecoded nodes program &&
     entriesValid nodes program &&
@@ -194,7 +194,7 @@ def cfgInterfaceValidFor (program : Program) : Bool :=
     blocksPartition program).getD false
 
 /-- The CFG-interface validation applied to the actual generated program. -/
-def cfgInterfaceValidC : Bool := cfgInterfaceValidFor generatedProgram
+def cfgInterfaceValidC : Bool := cfgInterfaceValidFor generatedElfling
 
 /-- **The generated control-flow interface corresponds to the canonical decoded CFG.** Every entry is a
 real entered-from-outside decoded node, every exit is exactly a decoded transfer-out point, every
@@ -208,13 +208,13 @@ theorem cfgInterfaceValidC_true : cfgInterfaceValidC = true := by native_decide
 /-- Specialise the dispatched check to explicit decoded `nodes` without reducing the decode. -/
 theorem cfgInterfaceValid_some {nodes : Array ControlFlowNode}
     (hn : controlFlow? = some nodes) :
-    regionsDecoded nodes generatedProgram = true ∧
-    entriesValid nodes generatedProgram = true ∧
-    exitsValid nodes generatedProgram = true ∧
-    edgesValid nodes generatedProgram = true ∧
-    edgesComplete nodes generatedProgram = true ∧
-    externalCallsValid nodes generatedProgram = true ∧
-    blocksPartition generatedProgram = true := by
+    regionsDecoded nodes generatedElfling = true ∧
+    entriesValid nodes generatedElfling = true ∧
+    exitsValid nodes generatedElfling = true ∧
+    edgesValid nodes generatedElfling = true ∧
+    edgesComplete nodes generatedElfling = true ∧
+    externalCallsValid nodes generatedElfling = true ∧
+    blocksPartition generatedElfling = true := by
   have h := cfgInterfaceValidC_true
   unfold cfgInterfaceValidC cfgInterfaceValidFor at h
   rw [hn] at h
@@ -230,13 +230,13 @@ area-#2 correspondence the later edge-classification (area #5) builds on. -/
 theorem generatedCfgInterfaceCertificate :
     ∃ nodes : Array ControlFlowNode,
       controlFlow? = some nodes ∧
-      regionsDecoded nodes generatedProgram = true ∧
-      entriesValid nodes generatedProgram = true ∧
-      exitsValid nodes generatedProgram = true ∧
-      edgesValid nodes generatedProgram = true ∧
-      edgesComplete nodes generatedProgram = true ∧
-      externalCallsValid nodes generatedProgram = true ∧
-      blocksPartition generatedProgram = true := by
+      regionsDecoded nodes generatedElfling = true ∧
+      entriesValid nodes generatedElfling = true ∧
+      exitsValid nodes generatedElfling = true ∧
+      edgesValid nodes generatedElfling = true ∧
+      edgesComplete nodes generatedElfling = true ∧
+      externalCallsValid nodes generatedElfling = true ∧
+      blocksPartition generatedElfling = true := by
   obtain ⟨nodes, hn⟩ := controlFlow_isSome
   exact ⟨nodes, hn, cfgInterfaceValid_some hn⟩
 
@@ -250,8 +250,8 @@ the generated edge inventory is a COMPLETE certificate of the decoded successor 
 sound one. -/
 theorem edgesComplete_holds {nodes : Array ControlFlowNode}
     (hn : controlFlow? = some nodes) :
-    ∀ functionInstance ∈ generatedProgram.functionInstances, ∀ r ∈ functionInstance.regions, ∀ k, k < r.size / 4 →
-      ownedBy generatedProgram functionInstance (r.start + 4 * k) = true →
+    ∀ functionInstance ∈ generatedElfling.functionInstances, ∀ r ∈ functionInstance.regions, ∀ k, k < r.size / 4 →
+      ownedBy generatedElfling functionInstance (r.start + 4 * k) = true →
         ∀ t ∈ directSuccessorsAt nodes (r.start + 4 * k),
           (functionInstance.edges.any fun e => e.source == r.start + 4 * k && e.target == t) = true := by
   have hcomplete := (cfgInterfaceValid_some hn).2.2.2.2.1
@@ -274,25 +274,25 @@ def droppedEdge : DirectEdge := { source := 66128, target := 66132 }
 
 /-- The dropped edge really is one the generator emitted, so the tamper removes something real. -/
 theorem droppedEdge_present :
-    (generatedProgram.functionInstances.any fun functionInstance => functionInstance.edges.any fun e => decide (e = droppedEdge)) = true := by
+    (generatedElfling.functionInstances.any fun functionInstance => functionInstance.edges.any fun e => decide (e = droppedEdge)) = true := by
   native_decide
 
-/-- `generatedProgram` with `droppedEdge` deleted from wherever it was emitted: a hand-tampered
+/-- `generatedElfling` with `droppedEdge` deleted from wherever it was emitted: a hand-tampered
 artifact that silently drops one real non-call edge. -/
-def edgeDroppedProgram : Program :=
-  { generatedProgram with
-    functionInstances := generatedProgram.functionInstances.map fun functionInstance =>
+def edgeDroppedElfling : Elfling :=
+  { generatedElfling with
+    functionInstances := generatedElfling.functionInstances.map fun functionInstance =>
       { functionInstance with edges := functionInstance.edges.filter fun e => decide (e ≠ droppedEdge) } }
 
 /-- **Completeness is not vacuous.** With one real non-call edge dropped, the reverse-inclusion check
 fails: the omitted decoded successor is detected. -/
 theorem edgeDropped_incomplete :
-    (controlFlow?.map fun nodes => edgesComplete nodes edgeDroppedProgram).getD true = false := by
+    (controlFlow?.map fun nodes => edgesComplete nodes edgeDroppedElfling).getD true = false := by
   native_decide
 
 /-- **The whole CFG-interface validation rejects the tampered program** — dropping a single generated
 non-call edge is caught, so the emitted edge list is enforced as a complete certificate. -/
-theorem edgeDropped_cfgInterface_invalid : cfgInterfaceValidFor edgeDroppedProgram = false := by
+theorem edgeDropped_cfgInterface_invalid : cfgInterfaceValidFor edgeDroppedElfling = false := by
   native_decide
 
 end BinaryFv.SSZ.Zesu.Elfling.Validation

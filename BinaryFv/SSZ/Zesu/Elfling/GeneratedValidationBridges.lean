@@ -1,10 +1,10 @@
-import BinaryFv.Binary.Elfling.Program
+import BinaryFv.Binary.Elfling.Elfling
 import BinaryFv.Binary.ProgramImage
 
 /-!
 # Bool-check → Prop bridge lemmas for the generated-program validation
 
-The row-1 obligations (`coverage`, `sourceProvenanceRecorded`, `IsCanonicalGeneratedProgram`) and the
+The row-1 obligations (`coverage`, `sourceProvenanceRecorded`, `IsCanonicalGeneratedElfling`) and the
 extraction-row checks (byte readability, instruction decode, nesting, reachable partition) are ∀/∃
 statements over `Array`/`List`, not auto-`Decidable` propositions. Following the reachability
 certificate pattern, each is discharged by computing a `Bool` (validated by `native_decide` over the
@@ -69,15 +69,15 @@ theorem array_key_index_inj {α β : Type} [DecidableEq β] (arr : Array α) (ke
 
 /-- Every byte of every claimed region reads back in `image`. `List.range r.size` walks the whole
 half-open range, so a `true` here certifies readability of every address the region claims. -/
-def bytesReadableIn (image : ProgramImage) (program : Program) : Bool :=
+def bytesReadableIn (image : ProgramImage) (program : Elfling) : Bool :=
   program.functionInstances.all fun functionInstance =>
     functionInstance.regions.all fun r =>
       (List.range r.size).all fun k => (image.readByte? (r.start + k)).isSome
 
-/-- The per-address readability the `IsCanonicalGeneratedProgram` byte clause demands, extracted from
+/-- The per-address readability the `IsCanonicalGeneratedElfling` byte clause demands, extracted from
 the aggregate `Bool`. Generic in `image`: instantiating at `Artifact.programImage` leaves the read
 symbolic, so the kernel never reduces the ELF parse. -/
-theorem bytesReadableIn_elim {image : ProgramImage} {program : Program}
+theorem bytesReadableIn_elim {image : ProgramImage} {program : Elfling}
     (h : bytesReadableIn image program = true)
     {functionInstance : FunctionInstance} (hFunctionInstance : functionInstance ∈ program.functionInstances)
     {r : AddressRange} (hr : r ∈ functionInstance.regions)

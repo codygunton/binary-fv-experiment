@@ -142,7 +142,7 @@ SSZ Elfling scaffold — deterministic ELF/DWARF/CFG -> Elfling code generation 
 ```sh
 nix build .#zesu-raw-ssz-sidecar     # byte-identical DWARF sidecar for the decoder .text
 nix build .#zesu-ssz-runtime-sidecar # DWARF sidecar for the linked runtime
-nix build .#elfling-program          # -> GeneratedProgram.lean, program.json, program.md, determinism.txt
+nix build .#elfling-program          # -> GeneratedElfling.lean, program.json, program.md, determinism.txt
 nix build .#blob-schedule-function-instance   # -> BlobScheduleFunctionInstance.lean (regenerated + verified vs committed)
 nix build .#elfling-decoder-llvm-ir  # audit-only optimized LLVM IR (never a proof input)
 ```
@@ -153,7 +153,7 @@ Build the root library hermetically end to end, or incrementally during developm
 nix build .#binary-fv-lean
 # or:
 lake build repl
-lake build BinaryFv GeneratedProgram
+lake build BinaryFv GeneratedElfling
 ```
 
 Determinism, relocation, and fault-injection gates (also run by `nix flake check`):
@@ -163,7 +163,7 @@ nix build .#elfling-relocation-check         # relink at a different base; ident
 nix build .#elfling-generator-defects-check  # fault-injection negative tests
 ```
 
-`GeneratedProgram.lean` is not committed — `.#elfling-program` regenerates it on every build.
+`GeneratedElfling.lean` is not committed — `.#elfling-program` regenerates it on every build.
 `BlobScheduleFunctionInstance.lean` is committed; `.#blob-schedule-function-instance` regenerates it and fails the
 build unless the regenerated file is byte-identical to the committed copy (a drift guard).
 

@@ -241,10 +241,10 @@ let
     '';
   };
 
-  # Deterministic ELF/DWARF/CFG -> Elfling Program generator (milestone 4). Reads the validated DWARF
+  # Deterministic ELF/DWARF/CFG -> Elfling generator (milestone 4). Reads the validated DWARF
   # sidecars, maps to canonical PCs, resolves readArray widths from DWARF call_line -> pinned source,
   # matches function instances to the live catalog, folds glue into the nearest cataloged ancestor, and emits
-  # deterministic JSON, a generated Lean `Program`, and a Markdown source/function/CFG index.
+  # deterministic JSON, a generated Lean `Elfling`, and a Markdown source/function/CFG index.
   #
   # Filtered inputs: only the generator script (via builtins.path, not the whole repo), the validated
   # sidecars, and the pinned source — so editing handwritten proofs never rebuilds it. Determinism is
@@ -269,7 +269,7 @@ let
         --elf ${zesuSsz}/bin/zesu-ssz \
         --objdump ${riscvObjdump} \
         --out-json "$1/program.json" \
-        --out-lean "$1/GeneratedProgram.lean" \
+        --out-lean "$1/GeneratedElfling.lean" \
         --out-md "$1/program.md" \
         --out-globals "$1/DecoderGlobals.lean" \
         --out-bindings "$1/GeneratedBindings.lean"
@@ -277,13 +277,13 @@ let
     mkdir -p run1 run2 "$out"
     gen run1
     gen run2
-    for f in program.json GeneratedProgram.lean program.md DecoderGlobals.lean GeneratedBindings.lean; do
+    for f in program.json GeneratedElfling.lean program.md DecoderGlobals.lean GeneratedBindings.lean; do
       cmp -s "run1/$f" "run2/$f" \
         || { echo "GENERATOR NON-DETERMINISTIC: $f differs between two runs" >&2; exit 1; }
     done
-    cp run1/program.json run1/GeneratedProgram.lean run1/program.md run1/DecoderGlobals.lean \
+    cp run1/program.json run1/GeneratedElfling.lean run1/program.md run1/DecoderGlobals.lean \
        run1/GeneratedBindings.lean "$out/"
-    printf '%s\n' "two independent runs produced byte-identical program.json/GeneratedProgram.lean/program.md/DecoderGlobals.lean/GeneratedBindings.lean" \
+    printf '%s\n' "two independent runs produced byte-identical program.json/GeneratedElfling.lean/program.md/DecoderGlobals.lean/GeneratedBindings.lean" \
       > "$out/determinism.txt"
   '';
 

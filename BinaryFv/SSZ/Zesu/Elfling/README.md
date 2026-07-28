@@ -16,7 +16,7 @@ The most useful entry points are:
 
 Do not infer editability from a `Generated` filename: some tracked `Generated*.lean` modules are
 handwritten validators for generated data. Generated files identify themselves with a `GENERATED
-FILE` header. The main `GeneratedProgram.lean`, `DecoderGlobals.lean`, and
+FILE` header. The main `GeneratedElfling.lean`, `DecoderGlobals.lean`, and
 `GeneratedBindings.lean` artifacts are outputs of `nix build .#elfling-program` and are not
 committed. The hermetic proof build links that output at `build/elfling-program-lean/`; for a manual
 build, the output is available through the Nix result link unless `--out-link` selects another path.

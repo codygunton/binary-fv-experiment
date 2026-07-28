@@ -1,4 +1,4 @@
-import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramCfg
+import BinaryFv.SSZ.Zesu.Elfling.GeneratedElflingCfg
 
 /-!
 # Total edge classification with nothing unclassified (area #5)
@@ -30,15 +30,15 @@ set_option maxRecDepth 8000
 open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV
 open BinaryFv.SSZ.Zesu.ControlFlow (controlFlow?)
-open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram generatedExcludedFunctionInstances)
+open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedElfling generatedExcludedFunctionInstances)
 
 /-! ## Ownership and inline-nesting over the generated function instances -/
 
 /-- The deepest-inline function instance containing `pc`: it contains `pc` and none of its children do. -/
 def deepestOwner? (pc : Nat) : Option FunctionInstance :=
-  generatedProgram.functionInstances.find? fun functionInstance =>
+  generatedElfling.functionInstances.find? fun functionInstance =>
     inRegions functionInstance pc && functionInstance.children.all fun cid =>
-      match generatedProgram.find? cid with
+      match generatedElfling.find? cid with
       | some c => !inRegions c pc
       | none => true
 
@@ -50,7 +50,7 @@ def inExcluded (pc : Nat) : Bool :=
 def ancestorIds : Nat → FunctionInstanceId → List FunctionInstanceId
   | 0, _ => []
   | fuel + 1, id =>
-    match generatedProgram.find? id with
+    match generatedElfling.find? id with
     | some functionInstance => match functionInstance.parent? with
       | some pid => pid :: ancestorIds fuel pid
       | none => []
@@ -58,8 +58,8 @@ def ancestorIds : Nat → FunctionInstanceId → List FunctionInstanceId
 
 /-- Two function instance identities are in an inline ancestor/descendant relationship. -/
 def inlineRelated (a b : FunctionInstanceId) : Bool :=
-  (ancestorIds generatedProgram.functionInstances.size a).any (fun x => decide (x = b)) ||
-  (ancestorIds generatedProgram.functionInstances.size b).any (fun x => decide (x = a))
+  (ancestorIds generatedElfling.functionInstances.size a).any (fun x => decide (x = b)) ||
+  (ancestorIds generatedElfling.functionInstances.size b).any (fun x => decide (x = a))
 
 /-! ## The five categories and the total classifier -/
 
@@ -92,14 +92,14 @@ def classifyEdge (functionInstance : FunctionInstance) (e : DirectEdge) : Option
 
 /-- Every edge of every function instance is classified into one of the five categories. -/
 def allClassifiedB : Bool :=
-  generatedProgram.functionInstances.all fun functionInstance => functionInstance.edges.all fun e => (classifyEdge functionInstance e).isSome
+  generatedElfling.functionInstances.all fun functionInstance => functionInstance.edges.all fun e => (classifyEdge functionInstance e).isSome
 
 theorem allClassifiedB_true : allClassifiedB = true := by native_decide
 
 /-- **No edge is left unclassified.** For every function instance and every one of its direct edges, the total
 classifier returns a category. -/
 theorem edges_all_classified :
-    ∀ functionInstance ∈ generatedProgram.functionInstances, ∀ e ∈ functionInstance.edges, (classifyEdge functionInstance e).isSome = true := by
+    ∀ functionInstance ∈ generatedElfling.functionInstances, ∀ e ∈ functionInstance.edges, (classifyEdge functionInstance e).isSome = true := by
   intro functionInstance ho e he
   exact forall_mem_of_all (forall_mem_of_all allClassifiedB_true functionInstance ho) e he
 
@@ -125,13 +125,13 @@ def edgeCategoryJustified (functionInstance : FunctionInstance) (e : DirectEdge)
   | none => false
 
 def classificationSoundB : Bool :=
-  generatedProgram.functionInstances.all fun functionInstance => functionInstance.edges.all fun e => edgeCategoryJustified functionInstance e
+  generatedElfling.functionInstances.all fun functionInstance => functionInstance.edges.all fun e => edgeCategoryJustified functionInstance e
 
 theorem classificationSoundB_true : classificationSoundB = true := by native_decide
 
 /-- **Every classification records the defining fact of its category** — the labels are not arbitrary. -/
 theorem classification_sound :
-    ∀ functionInstance ∈ generatedProgram.functionInstances, ∀ e ∈ functionInstance.edges, edgeCategoryJustified functionInstance e = true := by
+    ∀ functionInstance ∈ generatedElfling.functionInstances, ∀ e ∈ functionInstance.edges, edgeCategoryJustified functionInstance e = true := by
   intro functionInstance ho e he
   exact forall_mem_of_all (forall_mem_of_all classificationSoundB_true functionInstance ho) e he
 
@@ -146,8 +146,8 @@ categories. There is no decoded edge the classification silently omits. -/
 /-- Every decoded direct successor of every deepest-owned PC is an emitted edge that is classified. -/
 theorem decoded_successor_edges_classified {nodes : Array ControlFlowNode}
     (hn : controlFlow? = some nodes) :
-    ∀ functionInstance ∈ generatedProgram.functionInstances, ∀ r ∈ functionInstance.regions, ∀ k, k < r.size / 4 →
-      ownedBy generatedProgram functionInstance (r.start + 4 * k) = true →
+    ∀ functionInstance ∈ generatedElfling.functionInstances, ∀ r ∈ functionInstance.regions, ∀ k, k < r.size / 4 →
+      ownedBy generatedElfling functionInstance (r.start + 4 * k) = true →
         ∀ t ∈ directSuccessorsAt nodes (r.start + 4 * k),
           ∃ e ∈ functionInstance.edges,
             e.source = r.start + 4 * k ∧ e.target = t ∧ (classifyEdge functionInstance e).isSome = true := by

@@ -2,7 +2,7 @@ import BinaryFv.RiscV.Proof.RunnerCorrespondence
 import BinaryFv.SSZ.SpecBridge.Decode
 import BinaryFv.SSZ.Zesu.Artifact.Symbols
 import BinaryFv.SSZ.Zesu.MemoryRepresentation.Result
-import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.SSZ.Zesu.Contracts.ElflingCorrectness
 
 namespace BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
 
@@ -70,8 +70,8 @@ produced without also producing `sszComplianceObligations`, so the eventual proo
 theorem successful_trace_of_spec_accepts (input : ByteArray)
     (inputBound : input.size < 2 * 1024 * 1024) (value : SszBridge.RawV4)
     (specAccepts : SszSpec.decode input = .accepted value) :
-    ∃ program : Program,
-      Contracts.IsCanonicalGeneratedProgram program ∧
+    ∃ program : Elfling,
+      Contracts.IsCanonicalGeneratedElfling program ∧
       Contracts.sszComplianceObligations program ∧
       Nonempty (SuccessfulTraceWitness input value) := by
   sorry
@@ -81,8 +81,8 @@ obligation and a classified live Sail path to a nonzero Zesu result status. -/
 theorem rejected_trace_of_spec_rejects (input : ByteArray)
     (inputBound : input.size < 2 * 1024 * 1024)
     (specRejects : SszSpec.decode input = .rejected) :
-    ∃ program : Program,
-      Contracts.IsCanonicalGeneratedProgram program ∧
+    ∃ program : Elfling,
+      Contracts.IsCanonicalGeneratedElfling program ∧
       Contracts.sszComplianceObligations program ∧
       Nonempty (RejectedTraceWitness input) := by
   sorry

@@ -1,7 +1,7 @@
 import BinaryFv.SSZ.Zesu.Artifact.Layout
 import BinaryFv.SSZ.Zesu.Interface
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
-import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.SSZ.Zesu.Contracts.ElflingCorrectness
 
 namespace BinaryFv.SSZ
 
@@ -29,8 +29,8 @@ Read the spine outward from the root:
 
 * `root_compliance` — the public claim.
 * `Zesu.Contracts.sszComplianceObligations` — some canonical contract parameters make
-  `sszProgramCorrectness` hold, plus the two recorded divergences.
-* `Zesu.Contracts.sszProgramCorrectness` — canonical coverage, semantic correspondence, the
+  `sszElflingCorrectness` hold, plus the two recorded divergences.
+* `Zesu.Contracts.sszElflingCorrectness` — canonical coverage, semantic correspondence, the
   per-function-instance dispatch asserting each function instance's `correctnessClaim`, precondition satisfiability,
   and the explicit local-to-global composition.
 * `Zesu.Contracts.catalog` — the 43 live routines, address-free, matched by full identity.
@@ -47,7 +47,7 @@ live Sail trace, *given* the canonical generated program and its compliance obli
 `successful_trace_of_spec_accepts` and threaded in here, so the eventual proof of this theorem may —
 and must — use program correctness to establish the runner result. -/
 theorem execute_accepts_of_successful_trace (input : ByteArray) (value : SszBridge.RawV4)
-    (program : Program) (canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
+    (program : Elfling) (canonical : Zesu.Contracts.IsCanonicalGeneratedElfling program)
     (obligations : Zesu.Contracts.sszComplianceObligations program)
     (execution : Zesu.Entrypoints.ZesuDecodeRaw.SuccessfulTraceWitness input value) :
     RiscvSpec.execute binary input = .ok (.accepted value) := by
@@ -56,7 +56,7 @@ theorem execute_accepts_of_successful_trace (input : ByteArray) (value : SszBrid
 /-- Authorized navigation scaffold connecting a classified nonzero-status trace to the executable
 runner's normalized rejection result, given the same canonical program and obligation. -/
 theorem execute_rejects_of_rejected_trace (input : ByteArray)
-    (program : Program) (canonical : Zesu.Contracts.IsCanonicalGeneratedProgram program)
+    (program : Elfling) (canonical : Zesu.Contracts.IsCanonicalGeneratedElfling program)
     (obligations : Zesu.Contracts.sszComplianceObligations program)
     (execution : Zesu.Entrypoints.ZesuDecodeRaw.RejectedTraceWitness input) :
     RiscvSpec.execute binary input = .ok .rejected := by

@@ -1,5 +1,5 @@
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
-import GeneratedProgram
+import GeneratedElfling
 
 /-!
 # Nesting and disjointness over the whole generated program
@@ -24,7 +24,7 @@ set_option maxRecDepth 8000
 
 open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
-open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram)
+open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedElfling)
 
 /-! ## Region containment / disjointness predicates -/
 
@@ -44,11 +44,11 @@ def functionInstancesDisjoint (a b : FunctionInstance) : Bool :=
 
 /-- For each function instance with a parent, the parent function instance exists (by identity) and contains it. -/
 def allChildrenNestedB : Bool :=
-  generatedProgram.functionInstances.all fun functionInstance =>
+  generatedElfling.functionInstances.all fun functionInstance =>
     match functionInstance.parent? with
     | none => true
     | some pid =>
-      match generatedProgram.functionInstances.find? (fun q => q.id == pid) with
+      match generatedElfling.functionInstances.find? (fun q => q.id == pid) with
       | some parent => functionInstanceNestedIn functionInstance parent
       | none => false
 
@@ -57,13 +57,13 @@ theorem allChildrenNestedB_true : allChildrenNestedB = true := by native_decide
 /-- Every function instance with a parent has that parent among the program's function instances, and every one of
 its regions is contained in a region of the parent. -/
 theorem generated_children_nested :
-    ∀ functionInstance ∈ generatedProgram.functionInstances, ∀ pid, functionInstance.parent? = some pid →
-      ∃ parent ∈ generatedProgram.functionInstances, parent.id = pid ∧
+    ∀ functionInstance ∈ generatedElfling.functionInstances, ∀ pid, functionInstance.parent? = some pid →
+      ∃ parent ∈ generatedElfling.functionInstances, parent.id = pid ∧
         functionInstanceNestedIn functionInstance parent = true := by
   intro functionInstance hFunctionInstance pid hpid
   have h := forall_mem_of_all allChildrenNestedB_true functionInstance hFunctionInstance
   simp only [hpid] at h
-  cases hp : generatedProgram.functionInstances.find? (fun q => q.id == pid) with
+  cases hp : generatedElfling.functionInstances.find? (fun q => q.id == pid) with
   | none => simp only [hp] at h; exact absurd h (by decide)
   | some parent =>
     simp only [hp] at h
@@ -74,8 +74,8 @@ theorem generated_children_nested :
 
 /-- Distinct function instances that share a parent have disjoint regions. -/
 def allSiblingsDisjointB : Bool :=
-  generatedProgram.functionInstances.all fun a =>
-    generatedProgram.functionInstances.all fun b =>
+  generatedElfling.functionInstances.all fun a =>
+    generatedElfling.functionInstances.all fun b =>
       !(decide (a.id ≠ b.id) && (a.parent? == b.parent?) && a.parent?.isSome) ||
         functionInstancesDisjoint a b
 
@@ -84,7 +84,7 @@ theorem allSiblingsDisjointB_true : allSiblingsDisjointB = true := by native_dec
 /-- Any two distinct function instances with the same (present) parent have pairwise disjoint regions: no
 address is owned by two siblings. -/
 theorem generated_siblings_disjoint :
-    ∀ a ∈ generatedProgram.functionInstances, ∀ b ∈ generatedProgram.functionInstances,
+    ∀ a ∈ generatedElfling.functionInstances, ∀ b ∈ generatedElfling.functionInstances,
       a.id ≠ b.id → a.parent? = b.parent? → a.parent?.isSome = true →
         functionInstancesDisjoint a b = true := by
   intro a ha b hb hne hpar hsome

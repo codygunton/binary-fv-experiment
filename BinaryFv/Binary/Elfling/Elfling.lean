@@ -3,9 +3,9 @@ import BinaryFv.Binary.Elfling.FunctionInstance
 namespace BinaryFv.Binary.Elfling
 
 /-!
-# Extracted Elfling programs
+# Extracted Elflings
 
-A `Program` collects the function instances extracted from one binary, identifies the entry
+An `Elfling` collects the function instances extracted from one binary, identifies the entry
 function instance, and retains any unresolved attribution defects.
 -/
 
@@ -34,26 +34,26 @@ every attribution defect found while extracting it.
 `defects` being nonempty is not an error in the data; it is an error in the *program's* readiness,
 and the validity layer is what refuses it.
 -/
-structure Program where
+structure Elfling where
   entry : FunctionInstanceId
   functionInstances : Array FunctionInstance
   defects : Array AttributionDefect
   provenance : ExtractionProvenance
 deriving Repr, Inhabited
 
-namespace Program
+namespace Elfling
 
 /-- Look up a function instance by its address-free identity. -/
-def find? (program : Program) (id : FunctionInstanceId) : Option FunctionInstance :=
+def find? (program : Elfling) (id : FunctionInstanceId) : Option FunctionInstance :=
   program.functionInstances.find? fun functionInstance => decide (functionInstance.id = id)
 
 /-- Every function instance claiming `address`. More than one entry means either legitimate inline nesting
 or an overlapping-ownership defect; `Validity` is what distinguishes them. -/
-def functionInstancesAt (program : Program) (address : Nat) : Array FunctionInstance :=
+def functionInstancesAt (program : Elfling) (address : Nat) : Array FunctionInstance :=
   program.functionInstances.filter fun functionInstance => functionInstance.containsAddress address
 
 /-- The extraction reported no unresolved attributions. -/
-def defectFree (program : Program) : Bool :=
+def defectFree (program : Elfling) : Bool :=
   program.defects.isEmpty
 
 /-- No two distinct function instances share an identity.
@@ -61,10 +61,10 @@ def defectFree (program : Program) : Bool :=
 A `FunctionInstanceId` is a routine plus its inline call stack, so this forbids the extractor
 emitting the same function instance twice — the failure mode that would let a duplicated function
 instance pass unnoticed and be double-counted by any per-function-instance obligation. -/
-def functionInstanceIdsDistinct (program : Program) : Prop :=
+def functionInstanceIdsDistinct (program : Elfling) : Prop :=
   ∀ i j, (hi : i < program.functionInstances.size) → (hj : j < program.functionInstances.size) →
     (program.functionInstances[i]).id = (program.functionInstances[j]).id → i = j
 
-end Program
+end Elfling
 
 end BinaryFv.Binary.Elfling

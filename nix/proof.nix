@@ -251,7 +251,7 @@ let
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Root\.lean:')" = 2
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
 
-    lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
+    lake build repl BinaryFv GeneratedElfling BinaryFv.Binary.ProgramImageTest
     touch "$out"
   '';
 

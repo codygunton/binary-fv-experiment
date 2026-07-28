@@ -3,7 +3,7 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedReachabilityExact
 import BinaryFv.SSZ.Zesu.Contracts.Catalog
 import BinaryFv.SSZ.Zesu.Interface
 import BinaryFv.RiscV.Elfling.FunctionTrace
-import GeneratedProgram
+import GeneratedElfling
 
 /-!
 # Exhaustive reachable-coverage partition (option A with guardrails)
@@ -47,13 +47,13 @@ open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
 open BinaryFv.SSZ.Zesu.ControlFlow (controlFlow?)
 open BinaryFv.SSZ.Zesu.Elfling.Generated
-  (generatedProgram generatedExcludedFunctionInstances reachableAddresses reachableEntry)
+  (generatedElfling generatedExcludedFunctionInstances reachableAddresses reachableEntry)
 
 /-! ## Covered / excluded membership -/
 
 /-- A PC covered by some cataloged generated function instance. -/
 def isCoveredPC (a : Nat) : Bool :=
-  generatedProgram.functionInstances.any fun functionInstance => functionInstance.containsAddress a
+  generatedElfling.functionInstances.any fun functionInstance => functionInstance.containsAddress a
 
 /-- A PC inside some surfaced excluded routine's region. -/
 def isExcludedPC (a : Nat) : Bool :=
