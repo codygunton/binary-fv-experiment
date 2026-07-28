@@ -8,19 +8,18 @@ open BinaryFv.Binary
 /-!
 # Data model for compiled Elfling function instances
 
-This handwritten file defines the architecture-independent types used to describe how source
-functions appear in a compiled binary. Generated files supply their values for a particular binary.
+These types are used to describe how source functions appear in a compiled binary.
 
-A **function instance** is one compiled appearance of a source function. The compiler may leave a
+A "function instance" is one compiled appearance of a source function. The compiler may leave a
 function as a separately callable body, inline it into one or more callers, or split one appearance
 across discontiguous address ranges. `FunctionInstance` records one such appearance.
 
-The deterministic extractor creates address-bearing values of these types. Those values remain
-*untrusted*: debug information proposes the source-to-address mapping, and Lean validation checks
-the proposed ranges and bytes against the pinned ELF before a proof may rely on them.
+The idea is that a deterministic extractor creates address-bearing values of these types for a particular binary, 
+proposing a source-to-address mapping, and Lean
+validation checks every range and byte against the pinned ELF before a proof may rely on it.
 
-Handwritten contracts use only the address-free `FunctionInstanceId`; concrete addresses enter
-later through extracted and validated `FunctionInstance` and `Program` values.
+Contracts then use the address-free `FunctionInstanceId` to select a function instance. Concrete addresses
+enter later through extracted `FunctionInstance` and `Program` values.
 
 For a real example, the generated Zesu data contains one inlined
 `decodeOptionalBlobSchedule` function instance split across three regions. It contains three
