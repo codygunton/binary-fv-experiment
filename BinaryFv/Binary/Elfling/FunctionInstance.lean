@@ -8,20 +8,37 @@ open BinaryFv.Binary
 /-!
 # Data model for compiled Elfling function instances
 
-These types are used to describe how source functions appear in a compiled binary.
+This handwritten file defines the architecture-independent types used to describe how source
+functions appear in a compiled binary. Generated files supply their values for a particular binary.
 
-A "function instance" is one compiled appearance of a source function. The compiler may leave a
+A **function instance** is one compiled appearance of a source function. The compiler may leave a
 function as a separately callable body, inline it into one or more callers, or split one appearance
 across discontiguous address ranges. `FunctionInstance` records one such appearance.
 
-The idea is that a deterministic extractor creates address-bearing values of these types for a particular binary, 
-proposing a source-to-address mapping, and Lean
-validation checks every range and byte against the pinned ELF before a proof may rely on it.
+The deterministic extractor creates address-bearing values of these types. Those values remain
+*untrusted*: debug information proposes the source-to-address mapping, and Lean validation checks
+the proposed ranges and bytes against the pinned ELF before a proof may rely on them.
 
-Contracts then use the address-free `FunctionInstanceId` to select a function instance. Concrete addresses
-enter later through extracted `FunctionInstance` and `Program` values.
+Handwritten contracts use only the address-free `FunctionInstanceId`; concrete addresses enter
+later through extracted and validated `FunctionInstance` and `Program` values.
 
-[DOTHIS: insert a real, minimal example ullstrating the features with a schematic diagram to show the "graph" or other semantic relationships]
+For a real example, the generated Zesu data contains one inlined
+`decodeOptionalBlobSchedule` function instance split across three regions. It contains three
+inlined `readU64` children, one for each source call site:
+
+```
+decodeForkConfig
+└── decodeOptionalBlobSchedule  regions: [76888,76896), [76936,76984), [76988,77256)
+    ├── readU64 at line 400
+    ├── readU64 at line 401
+    └── readU64 at line 402
+```
+
+The parent/child edges record inline nesting, not machine calls. Each `readU64` has the same source
+function but a different `FunctionInstanceId` because its inline stack ends at a different call
+site. Its regions overlap the parent's ownership region by design; validation distinguishes this
+legitimate nesting from overlapping sibling ownership. Separately emitted callees would instead
+appear in `externalCalls`.
 -/
 
 /-- Where a generated fact came from, so a disputed mapping can be traced back to exact inputs.
