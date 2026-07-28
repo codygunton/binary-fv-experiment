@@ -47,19 +47,19 @@ def readU64Field0FunctionInstance : FunctionInstance :=
   { id := readU64Field0Id, regions := #[{ start := 76988, size := 32 }, { start := 77036, size := 28 }, { start := 77080, size := 8 }, { start := 77104, size := 4 }, { start := 77204, size := 8 }, { start := 77228, size := 4 }, { start := 77240, size := 4 }], entryPc := 76988, exitPcs := #[77244],
     parent? := some blobScheduleFunctionInstanceId, children := #[], externalCalls := #[],
     declProvenance := { sourceFileHash := "ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0f6783a1d131", declSpan := { line := 563, column := 1 } },
-    provenance := { sidecarHash := "f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b", entryOffset := 16441, extractorVersion := "blob-schedule-slice-v1" }, symbol? := none }
+    provenance := { sidecarHash := "f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b", entryOffset := 16441, extractorVersion := "blob-schedule-slice-v1" } }
 
 def readU64Field1FunctionInstance : FunctionInstance :=
   { id := readU64Field1Id, regions := #[{ start := 77020, size := 16 }, { start := 77064, size := 16 }, { start := 77088, size := 16 }, { start := 77108, size := 12 }, { start := 77136, size := 8 }, { start := 77156, size := 4 }, { start := 77212, size := 8 }, { start := 77232, size := 4 }, { start := 77244, size := 4 }], entryPc := 77020, exitPcs := #[77248],
     parent? := some blobScheduleFunctionInstanceId, children := #[], externalCalls := #[],
     declProvenance := { sourceFileHash := "ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0f6783a1d131", declSpan := { line := 563, column := 1 } },
-    provenance := { sidecarHash := "f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b", entryOffset := 16441, extractorVersion := "blob-schedule-slice-v1" }, symbol? := none }
+    provenance := { sidecarHash := "f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b", entryOffset := 16441, extractorVersion := "blob-schedule-slice-v1" } }
 
 def readU64Field2FunctionInstance : FunctionInstance :=
   { id := readU64Field2Id, regions := #[{ start := 77120, size := 16 }, { start := 77144, size := 12 }, { start := 77160, size := 44 }, { start := 77220, size := 8 }, { start := 77236, size := 4 }, { start := 77248, size := 8 }], entryPc := 77120, exitPcs := #[77256],
     parent? := some blobScheduleFunctionInstanceId, children := #[], externalCalls := #[],
     declProvenance := { sourceFileHash := "ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0f6783a1d131", declSpan := { line := 563, column := 1 } },
-    provenance := { sidecarHash := "f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b", entryOffset := 16441, extractorVersion := "blob-schedule-slice-v1" }, symbol? := none }
+    provenance := { sidecarHash := "f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b", entryOffset := 16441, extractorVersion := "blob-schedule-slice-v1" } }
 
 /-- The generated `decodeOptionalBlobSchedule` function instance: three discontiguous canonical-ELF
     fragments, three nested `readU64` field reads, inlined into `decodeForkConfig`. -/
@@ -67,7 +67,7 @@ def blobScheduleFunctionInstance : FunctionInstance :=
   { id := blobScheduleFunctionInstanceId, regions := #[{ start := 76888, size := 8 }, { start := 76936, size := 48 }, { start := 76988, size := 268 }], entryPc := 76888, exitPcs := #[77256],
     parent? := some blobScheduleParentId, children := #[readU64Field0Id, readU64Field1Id, readU64Field2Id], externalCalls := #[],
     declProvenance := { sourceFileHash := "ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0f6783a1d131", declSpan := { line := 396, column := 1 } },
-    provenance := { sidecarHash := "f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b", entryOffset := 16441, extractorVersion := "blob-schedule-slice-v1" }, symbol? := none }
+    provenance := { sidecarHash := "f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b", entryOffset := 16441, extractorVersion := "blob-schedule-slice-v1" } }
 
 /-- The function instance together with its nested children, as extracted. -/
 def blobScheduleFunctionInstances : Array FunctionInstance :=

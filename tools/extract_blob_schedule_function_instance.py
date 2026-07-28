@@ -198,7 +198,7 @@ def emit_lean(d, src_hash="ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0
         L.append(f'  {{ id := readU64Field{n}Id, regions := {regions(rs)}, entryPc := {entry}, exitPcs := #[{last}],')
         L.append(f'    parent? := some blobScheduleFunctionInstanceId, children := #[], externalCalls := #[],')
         L.append(f'    declProvenance := {{ sourceFileHash := "{src_hash}", declSpan := {{ line := 563, column := 1 }} }},')
-        L.append(f'    provenance := {prov}, symbol? := none }}')
+        L.append(f'    provenance := {prov} }}')
         L.append("")
     # primary function instance
     rs = d["regions"]; entry = min(r["start"] for r in rs); last = max(r["start"]+r["size"] for r in rs)
@@ -208,7 +208,7 @@ def emit_lean(d, src_hash="ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0
     L.append(f'  {{ id := blobScheduleFunctionInstanceId, regions := {regions(rs)}, entryPc := {entry}, exitPcs := #[{last}],')
     L.append(f'    parent? := some blobScheduleParentId, children := #[{", ".join(child_ids)}], externalCalls := #[],')
     L.append(f'    declProvenance := {{ sourceFileHash := "{src_hash}", declSpan := {{ line := 396, column := 1 }} }},')
-    L.append(f'    provenance := {prov}, symbol? := none }}')
+    L.append(f'    provenance := {prov} }}')
     L.append("")
     L.append("/-- The function instance together with its nested children, as extracted. -/")
     L.append(f'def blobScheduleFunctionInstances : Array FunctionInstance :=')

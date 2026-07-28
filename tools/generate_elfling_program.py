@@ -1054,7 +1054,7 @@ def emit_lean(p):
         L.append(f'    parent? := {parent}, children := {children}, externalCalls := {extcalls},')
         L.append(f'    blocks := {blocks_lean(function_instance)}, edges := {edges_lean(function_instance)},')
         L.append(f'    declProvenance := {{ sourceFileHash := {lean_str(function_instance["sourceFileHash"])}, declSpan := {{ line := {function_instance["declLine"]}, column := 1 }} }},')
-        L.append(f'    provenance := {prov(function_instance)}, symbol? := none }}')
+        L.append(f'    provenance := {prov(function_instance)} }}')
         L.append("")
     L.append("/-- Every generated function instance. -/")
     L.append("def generatedFunctionInstances : Array FunctionInstance :=")

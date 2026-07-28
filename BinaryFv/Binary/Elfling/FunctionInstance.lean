@@ -52,18 +52,6 @@ structure ExtractionProvenance where
 deriving DecidableEq, Repr, Inhabited
 
 /--
-A symbol name that happens to cover part of a function instance.
-
-**Annotation only.** In the pinned decoder object, 97% of the bytes carry no symbol at all, so
-symbol boundaries cannot define proof regions and nothing may branch on this field being present.
-It exists to make generated reports readable.
--/
-structure SymbolAnnotation where
-  name : String
-  range : AddressRange
-deriving DecidableEq, Repr
-
-/--
 A basic block: a maximal straight-line run of decoded instructions, as a single contiguous address
 range that stays inside one of the owning function instance's fragments.
 
@@ -130,7 +118,6 @@ structure FunctionInstance where
   rather than breaking identity matching. -/
   declProvenance : DeclarationProvenance
   provenance : ExtractionProvenance
-  symbol? : Option SymbolAnnotation
 deriving Repr, Inhabited
 
 namespace FunctionInstance
