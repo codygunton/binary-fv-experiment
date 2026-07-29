@@ -460,16 +460,25 @@ theorem verdict_totals :
      (ledgerRows.filter fun row => row.verdict == .unknown).size) = (0, 28, 16, 97) := by
   native_decide
 
+/-- The ledger rows whose entry PC is also an exit PC of the same function instance.
+
+Hoisted out of the statement of `entry_is_exit_verdict_totals` below, where it used to be a `let`.
+That is not cosmetic: a `let` in a `native_decide` statement whose value mentions `ledgerRows` forces
+the tactic's `isDefEq` check to do heartbeat-accounted elaborator work over the whole table and
+exhausts the 800000 budget, while the identical claim stated over a top-level definition is
+discharged by kernel evaluation, which is not heartbeat-accounted. The pinned tuple is unchanged. -/
+private def entryIsExitRows : Array LedgerRow :=
+  ledgerRows.filter fun row =>
+    generatedProgram.functionInstances[row.index]!.exitPcs.contains row.key.entryPc
+
 /-- This is the disputed join stated over exactly the 33 entry-is-exit rows: 28 are checked false,
 and all five others are checked vacuous because of an unrealizable callee exit. -/
 theorem entry_is_exit_verdict_totals :
-    let rows := ledgerRows.filter fun row =>
-      generatedProgram.functionInstances[row.index]!.exitPcs.contains row.key.entryPc
-    (rows.size,
-     (rows.filter fun row => row.verdict == .provable).size,
-     (rows.filter fun row => row.verdict == .false).size,
-     (rows.filter fun row => row.verdict == .vacuous).size,
-     (rows.filter fun row => row.verdict == .unknown).size) = (33, 0, 28, 5, 0) := by
+    (entryIsExitRows.size,
+     (entryIsExitRows.filter fun row => row.verdict == .provable).size,
+     (entryIsExitRows.filter fun row => row.verdict == .false).size,
+     (entryIsExitRows.filter fun row => row.verdict == .vacuous).size,
+     (entryIsExitRows.filter fun row => row.verdict == .unknown).size) = (33, 0, 28, 5, 0) := by
   native_decide
 
 theorem false_rows_are_exactly_the_checked_refutations :
