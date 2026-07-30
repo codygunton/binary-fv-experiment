@@ -5,6 +5,7 @@ import BinaryFv.RiscV.Elfling.BoundaryTests
 import BinaryFv.RiscV.Elfling.SentinelBridge
 import BinaryFv.RiscV.Elfling.SentinelBridgeWitness
 import BinaryFv.RiscV.Elfling.SequentialSplice
+import BinaryFv.RiscV.Elfling.ContractRefinement
 
 /-!
 # `BinaryFv.RiscV.Elfling`
