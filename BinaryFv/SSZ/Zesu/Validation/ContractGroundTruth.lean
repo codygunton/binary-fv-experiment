@@ -28,11 +28,11 @@ Everything here is falsification evidence. Nothing in the theorem graph imports 
 | 1 | does the machine enter at the declared `entryPc`? | the instrumented run | 135 entered, 6 never reached |
 | 2 | does `pre` hold at that state? | the real `preReadAt`, at Row A's `offset` | 102 decided, **100 refuted**, 2 pass `@witness-args` |
 | 3 | does it leave at a declared exit, and is `entryPc` among the exits? | the run + `BoundarySatisfiability` | 136 decided, **33 refuted** |
-| 4 | does `post` hold at the exit state? | the full real `postScalarRead` | 5 decided, **5 refuted**, 0 pass |
+| 4 | does `post` hold at the exit state? | the full real `postScalarRead` / `postBytesAt` | 10 decided, **10 refuted**, 0 pass |
 | 5 | real retired steps vs `stepBound args` | `exitStep - entryStep` against the contract's own field | 105 decided, **1 refuted** |
 
 Everything outside those counts is an explicit `gap` carrying its reason. **A gap is never a pass**,
-and the gap counts are large: column 4 in particular is undecidable for 136 of 141 instances, which
+and the gap counts are large: column 4 in particular is undecidable for 131 of 141 instances, which
 is itself the finding recorded in `post_refutations_include_exact_frame_violation`.
 
 ## Where the arguments come from, and why that is the whole measurement
@@ -60,7 +60,7 @@ offset in `x12`, and Row A binds it to `x9`/`x18`/`x19`/`x24`/`x27` or to a cons
 `preReadAtB_of_preReadAt`). The `x12 = offset` conjunct is additionally decided **on its own, first**,
 because it is the one that does not depend on the two unpinned arguments: `offset` is fixed by Row A,
 so a mismatch there refutes `preReadAt` at every `base`/`bytes`. That is why column 2 reaches 102
-decided rows while column 4 reaches only 4.
+decided rows while column 4 reaches only 10.
 
 `postScalarRead` has, expanded, six: `MemoryBytes after`, `CodeIntact after`, `NoAllocation`,
 `WritesOnlyWithinOwnRecord`, `value < 2 ^ width`, and `after.regs x10 = value`. **All six are now
@@ -71,6 +71,23 @@ Boolean fold over each representation's keys, and `writesOnlyWithinB_iff` proves
 finite supports is equivalent to the original universal predicate. A byte absent from both
 supports reads `none` in both maps, which is exactly why the finite check is complete rather than
 sampled.
+
+`postBytesAt` has, expanded, six as well: the same four `LeafFrame … 0 0` conjuncts — `bytesAt`
+returns a *borrowed* sub-slice and so has no result record either — plus
+`after.regs x10 = base + offset` and `after.regs x11 = length`. **All six are now evaluated.** The
+only argument beyond `preReadAt`'s is the runtime `len`, and Row A binds it (`lenBindingRow?`), so
+these rows need no witness the harness did not already have. Before task 6a-v they were reported as
+needing "a resultBase Row A does not pin", which was simply the wrong reason: `postBytesAt` mentions
+no `resultBase` at all.
+
+## The evaluation order, and why it matters
+
+`post` evaluates the three **record-independent** `LeafFrame` conjuncts *before* dispatching on the
+post shape. `leafFrameSharedB_of_leafFrame` quantifies over `recordBase`/`recordSize`, so refuting
+one of them refutes the postcondition whatever result slot the caller really used. That is what lets
+a `readU256`/`readArray` row be decided despite an unpinned `resultBase` — and on this arm none of
+them is (`readU256_and_readArray_leave_only_the_record_clauses_open`), which is a recorded negative
+result rather than an untried branch.
 
 ## What is not covered at all
 
@@ -368,18 +385,91 @@ theorem preReadAt_failing_conjunct_agrees_with_mirror (env : DecoderEnvironment)
     by_cases h5 : s.regs.get? x12 = some (BitVec.ofNat 64 args.offset) <;>
     simp_all
 
+/-! ## `LeafFrame`, mirrored, with the record split off
+
+`LeafFrame env base bytes recordBase recordSize` expands to `MemoryBytes after ∧ CodeIntact after ∧
+NoAllocation ∧ WritesOnlyWithinOwnRecord recordBase recordSize`. **Only the last conjunct mentions
+the record.** Splitting the first three out is what lets a row whose record is not pinned still be
+decided: `leafFrameSharedB` is implied by `LeafFrame` at *every* record, so its refutation refutes
+the postcondition whatever `resultBase` the caller really passed.
+
+Every read-family postcondition — `postScalarRead`, `postBytesAt`, `postReadU256`, `postReadArray` —
+opens with this same `LeafFrame`. The two whose record is `0 0` (`postScalarRead` and `postBytesAt`)
+additionally get the exact ownership clause via `scalarWritesOnlyWithinB`. -/
+
+/-- The three `LeafFrame` conjuncts that do not mention the result record. -/
+def leafFrameSharedB (env : DecoderEnvironment) (base : Nat) (bytes : ByteArray)
+    (before after : State) : Bool :=
+  memoryBytesB after base bytes && codeIntactB env.image after && noAllocationB before after
+
+/-- **Implied by `LeafFrame` at every record.** `recordBase`/`recordSize` are universally quantified
+here, which is exactly what makes this mirror sound to run on a `readU256`/`readArray` row whose
+`resultBase` Row A does not pin: whatever the real record was, a `false` here refutes the
+postcondition. -/
+theorem leafFrameSharedB_of_leafFrame {base : Nat} {bytes : ByteArray}
+    {recordBase recordSize : Nat} {before after : State}
+    (h : LeafFrame canonicalEnvironment base bytes recordBase recordSize before after) :
+    leafFrameSharedB canonicalEnvironment base bytes before after = true := by
+  obtain ⟨hmem, hcode, hnoalloc, _⟩ := h
+  simp only [leafFrameSharedB, Bool.and_eq_true]
+  exact ⟨⟨memoryBytesB_of_memoryBytes hmem, codeIntactB_of_fileBytesMatchMemory hcode⟩,
+    noAllocationB_of_noAllocation hnoalloc⟩
+
+/-- The first record-independent `LeafFrame` conjunct that fails, by name. -/
+def leafFrameSharedFailure? (env : DecoderEnvironment) (base : Nat) (bytes : ByteArray)
+    (before after : State) : Option String :=
+  if !memoryBytesB after base bytes then some "LeafFrame.MemoryBytes(after)"
+  else if !codeIntactB env.image after then some "LeafFrame.CodeIntact(after)"
+  else if !noAllocationB before after then some "LeafFrame.NoAllocation"
+  else none
+
+theorem leafFrameShared_failing_conjunct_agrees_with_mirror (env : DecoderEnvironment)
+    (base : Nat) (bytes : ByteArray) (before after : State) :
+    (leafFrameSharedFailure? env base bytes before after).isNone =
+      leafFrameSharedB env base bytes before after := by
+  simp only [leafFrameSharedFailure?, leafFrameSharedB]
+  by_cases h1 : memoryBytesB after base bytes <;>
+    by_cases h2 : codeIntactB env.image after <;>
+    by_cases h3 : noAllocationB before after <;> simp_all
+
+/-- The full `LeafFrame` mirror at the record a leaf with no caller slot uses, `0 0`. -/
+def leafFrameZeroRecordB (env : DecoderEnvironment) (base : Nat) (bytes : ByteArray)
+    (before after : State) : Bool :=
+  leafFrameSharedB env base bytes before after && scalarWritesOnlyWithinB before after
+
+theorem leafFrameZeroRecordB_of_leafFrame {base : Nat} {bytes : ByteArray} {before after : State}
+    (h : LeafFrame canonicalEnvironment base bytes 0 0 before after) :
+    leafFrameZeroRecordB canonicalEnvironment base bytes before after = true := by
+  simp only [leafFrameZeroRecordB, Bool.and_eq_true]
+  exact ⟨leafFrameSharedB_of_leafFrame h,
+    (scalarWritesOnlyWithinB_iff before after).mpr h.2.2.2⟩
+
+/-- The first `LeafFrame … 0 0` conjunct that fails, by name. -/
+def leafFrameZeroRecordFailure? (env : DecoderEnvironment) (base : Nat) (bytes : ByteArray)
+    (before after : State) : Option String :=
+  match leafFrameSharedFailure? env base bytes before after with
+  | some clause => some clause
+  | none =>
+      if !scalarWritesOnlyWithinB before after then some "LeafFrame.WritesOnlyWithinOwnRecord"
+      else none
+
+theorem leafFrameZeroRecord_failing_conjunct_agrees_with_mirror (env : DecoderEnvironment)
+    (base : Nat) (bytes : ByteArray) (before after : State) :
+    (leafFrameZeroRecordFailure? env base bytes before after).isNone =
+      leafFrameZeroRecordB env base bytes before after := by
+  simp only [leafFrameZeroRecordFailure?, leafFrameZeroRecordB,
+    ← leafFrameShared_failing_conjunct_agrees_with_mirror]
+  cases leafFrameSharedFailure? env base bytes before after <;>
+    by_cases h : scalarWritesOnlyWithinB before after <;> simp_all
+
 /-! ## `postScalarRead`, mirrored in full
 
-`LeafFrame` expands to `MemoryBytes after ∧ CodeIntact after ∧ NoAllocation ∧
-WritesOnlyWithinOwnRecord 0 0`. `scalarWritesOnlyWithinB` decides the last conjunct exactly, so the
-mirror below now covers the full scalar postcondition rather than a one-way projection. -/
+`scalarWritesOnlyWithinB` decides the ownership conjunct exactly, so the mirror below covers the full
+scalar postcondition rather than a one-way projection. -/
 
 def postScalarReadCheckedB (env : DecoderEnvironment) (args : ReadAtArgs) (width : Nat)
     (result : Except SszDecodeError Nat) (before after : State) : Bool :=
-  memoryBytesB after args.base args.bytes &&
-    codeIntactB env.image after &&
-    noAllocationB before after &&
-    scalarWritesOnlyWithinB before after &&
+  leafFrameZeroRecordB env args.base args.bytes before after &&
     (match result with
      | .ok value => decide (value < 2 ^ width) &&
          (after.regs.get? x10 == some (BitVec.ofNat 64 value))
@@ -391,11 +481,9 @@ theorem postScalarReadCheckedB_of_postScalarRead {args : ReadAtArgs} {width : Na
     {result : Except SszDecodeError Nat} {before after : State}
     (h : postScalarRead canonicalEnvironment args width result before after) :
     postScalarReadCheckedB canonicalEnvironment args width result before after = true := by
-  obtain ⟨⟨hmem, hcode, hnoalloc, hwrites⟩, harm⟩ := h
+  obtain ⟨hframe, harm⟩ := h
   simp only [postScalarReadCheckedB, Bool.and_eq_true]
-  refine ⟨⟨⟨⟨memoryBytesB_of_memoryBytes hmem, codeIntactB_of_fileBytesMatchMemory hcode⟩,
-    noAllocationB_of_noAllocation hnoalloc⟩,
-    (scalarWritesOnlyWithinB_iff before after).mpr hwrites⟩, ?_⟩
+  refine ⟨leafFrameZeroRecordB_of_leafFrame hframe, ?_⟩
   cases result with
   | ok value =>
       obtain ⟨hlt, hx10⟩ := harm
@@ -406,20 +494,100 @@ theorem postScalarReadCheckedB_of_postScalarRead {args : ReadAtArgs} {width : Na
 /-- The first checked `postScalarRead` conjunct that fails, by name. -/
 def postScalarReadFailure? (env : DecoderEnvironment) (args : ReadAtArgs) (width : Nat)
     (result : Except SszDecodeError Nat) (before after : State) : Option String :=
-  if !memoryBytesB after args.base args.bytes then some "LeafFrame.MemoryBytes(after)"
-  else if !codeIntactB env.image after then some "LeafFrame.CodeIntact(after)"
-  else if !noAllocationB before after then some "LeafFrame.NoAllocation"
-  else if !scalarWritesOnlyWithinB before after then
-    some "LeafFrame.WritesOnlyWithinOwnRecord"
-  else
-    match result with
-    | .ok value =>
-        if !decide (value < 2 ^ width) then some "postScalarRead.value<2^width"
-        else if after.regs.get? x10 != some (BitVec.ofNat 64 value) then
-          some "postScalarRead.x10=value"
-        else none
-    | .error error => if error != SszDecodeError.invalidSsz then
-        some "postScalarRead.error=invalidSsz" else none
+  match leafFrameZeroRecordFailure? env args.base args.bytes before after with
+  | some clause => some clause
+  | none =>
+      match result with
+      | .ok value =>
+          if !decide (value < 2 ^ width) then some "postScalarRead.value<2^width"
+          else if after.regs.get? x10 != some (BitVec.ofNat 64 value) then
+            some "postScalarRead.x10=value"
+          else none
+      | .error error => if error != SszDecodeError.invalidSsz then
+          some "postScalarRead.error=invalidSsz" else none
+
+/-- **The scalar failure-namer agrees with its Boolean mirror**, so the conjunct name printed in the
+report cannot drift from the verdict. (This tie was missing before task 6a-v: `postScalarReadFailure?`
+was maintained by hand alongside `postScalarReadCheckedB` with nothing forcing them to agree.) -/
+theorem postScalarRead_failing_conjunct_agrees_with_mirror (env : DecoderEnvironment)
+    (args : ReadAtArgs) (width : Nat) (result : Except SszDecodeError Nat) (before after : State) :
+    (postScalarReadFailure? env args width result before after).isNone =
+      postScalarReadCheckedB env args width result before after := by
+  simp only [postScalarReadFailure?, postScalarReadCheckedB,
+    ← leafFrameZeroRecord_failing_conjunct_agrees_with_mirror]
+  cases leafFrameZeroRecordFailure? env args.base args.bytes before after with
+  | some clause => simp
+  | none =>
+      cases result with
+      | ok value =>
+          by_cases h1 : value < 2 ^ width <;>
+            by_cases h2 : after.regs.get? x10 = some (BitVec.ofNat 64 value) <;> simp_all
+      | error error => by_cases h : error = SszDecodeError.invalidSsz <;> simp_all
+
+/-! ## `postBytesAt`, mirrored in full
+
+`postBytesAt`'s frame is `LeafFrame … 0 0` — **the same record `postScalarRead` uses**. `bytesAt`
+returns a borrowed sub-slice, so it has no result slot and therefore no `resultBase`; the only
+argument it needs beyond `ReadAtArgs` is the runtime `len`, and Row A *does* bind that
+(`lenBindingRow?`). The pre-6a-v harness reported these rows as needing "a resultBase Row A does not
+pin", which was simply the wrong reason. -/
+
+def postBytesAtCheckedB (env : DecoderEnvironment) (args : BytesAtArgs)
+    (result : Except SszDecodeError ByteArray) (before after : State) : Bool :=
+  leafFrameZeroRecordB env args.base args.bytes before after &&
+    (match result with
+     | .ok _ => (after.regs.get? x10 == some (BitVec.ofNat 64 (args.base + args.offset))) &&
+         (after.regs.get? x11 == some (BitVec.ofNat 64 args.length))
+     | .error error => error == SszDecodeError.invalidSsz)
+
+/-- **The executable mirror is implied by the real postcondition**, at the canonical environment.
+Every expanded `postBytesAt` conjunct is evaluated: the four `LeafFrame … 0 0` clauses and both
+result-register clauses. -/
+theorem postBytesAtCheckedB_of_postBytesAt {args : BytesAtArgs}
+    {result : Except SszDecodeError ByteArray} {before after : State}
+    (h : postBytesAt canonicalEnvironment args result before after) :
+    postBytesAtCheckedB canonicalEnvironment args result before after = true := by
+  obtain ⟨hframe, harm⟩ := h
+  simp only [postBytesAtCheckedB, Bool.and_eq_true]
+  refine ⟨leafFrameZeroRecordB_of_leafFrame hframe, ?_⟩
+  cases result with
+  | ok slice =>
+      obtain ⟨hx10, hx11⟩ := harm
+      simp only [Bool.and_eq_true, beq_iff_eq]
+      exact ⟨hx10, hx11⟩
+  | error error => simpa using harm
+
+/-- The first checked `postBytesAt` conjunct that fails, by name. -/
+def postBytesAtFailure? (env : DecoderEnvironment) (args : BytesAtArgs)
+    (result : Except SszDecodeError ByteArray) (before after : State) : Option String :=
+  match leafFrameZeroRecordFailure? env args.base args.bytes before after with
+  | some clause => some clause
+  | none =>
+      match result with
+      | .ok _ =>
+          if after.regs.get? x10 != some (BitVec.ofNat 64 (args.base + args.offset)) then
+            some "postBytesAt.x10=base+offset"
+          else if after.regs.get? x11 != some (BitVec.ofNat 64 args.length) then
+            some "postBytesAt.x11=length"
+          else none
+      | .error error => if error != SszDecodeError.invalidSsz then
+          some "postBytesAt.error=invalidSsz" else none
+
+theorem postBytesAt_failing_conjunct_agrees_with_mirror (env : DecoderEnvironment)
+    (args : BytesAtArgs) (result : Except SszDecodeError ByteArray) (before after : State) :
+    (postBytesAtFailure? env args result before after).isNone =
+      postBytesAtCheckedB env args result before after := by
+  simp only [postBytesAtFailure?, postBytesAtCheckedB,
+    ← leafFrameZeroRecord_failing_conjunct_agrees_with_mirror]
+  cases leafFrameZeroRecordFailure? env args.base args.bytes before after with
+  | some clause => simp
+  | none =>
+      cases result with
+      | ok slice =>
+          by_cases h1 :
+              after.regs.get? x10 = some (BitVec.ofNat 64 (args.base + args.offset)) <;>
+            by_cases h2 : after.regs.get? x11 = some (BitVec.ofNat 64 args.length) <;> simp_all
+      | error error => by_cases h : error = SszDecodeError.invalidSsz <;> simp_all
 
 /-! ## Reading a register and a Row A binding out of a captured state -/
 
@@ -603,6 +771,16 @@ def readAtArgs? (index : Nat) (s : State) : Option ReadAtArgs := do
   let bytes ← readSlice? s base size
   pure { base := base, bytes := bytes, offset := offset }
 
+/-- The reconstructed `BytesAtArgs`: the read-at args plus Row A's `len` binding, evaluated at the
+same captured entry state. Unlike `readU256`/`readArray`'s `resultBase`, this argument **is** pinned
+by the generated binding artifact, which is why `bytesAt`'s `post` needs no witness beyond the ones
+`preReadAt` already needed. -/
+def bytesAtArgs? (index : Nat) (s : State) : Option BytesAtArgs := do
+  let readArgs ← readAtArgs? index s
+  let row ← lenBindingRow? index
+  let length ← bindingValue? row s
+  pure { toReadAtArgs := readArgs, length := length }
+
 /-- The `readArray` width this instance instantiates, from the contract's own dispatch on the
 function identity — not a copy of the width table. -/
 def readArrayWidth (o : FunctionInstance) : Nat := readArrayWidthOf o.id.function
@@ -639,9 +817,13 @@ theorem read_family_stepBound_ignores_args (env : DecoderEnvironment) (length : 
       (contractReadArray env length).stepBound p = (contractReadArray env length).stepBound q :=
   ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
 
-/-- The three scalar readers, whose `post` is `postScalarRead` at a known width. The other three
-read-family members have a different postcondition shape (`postBytesAt`, `postReadU256`,
-`postReadArray`) whose `resultBase` argument Row A does not pin, so they are `post` gaps. -/
+/-- The three scalar readers, whose `post` is `postScalarRead` at a known width.
+
+The other three members have different post shapes, and they are **not** alike. `postBytesAt` needs
+only the runtime `len`, which Row A binds, so it is fully checked (`postBytesAtFailure?`).
+`postReadU256` and `postReadArray` write to a caller slot whose `resultBase` Row A does not pin, so
+for those two only the record-independent `LeafFrame` conjuncts are decidable and the rest is an
+explicitly named gap. -/
 def scalarWidth? (family : ReadFamily) : Option Nat :=
   match family with
   | .readU32 => some 32
@@ -757,7 +939,37 @@ def groundTruthRow (index : Nat) (o : FunctionInstance) : GroundTruthRow :=
           match result with
           | .error _ => .gap "meaning errors at the witness args; postScalarRead's error arm is then               trivially satisfied and says nothing about the run"
           | .ok _ => .ok
-      | _, _ => .gap ("post shape for " ++ tag ++ " needs a resultBase Row A does not pin")
+      | _, _ =>
+        -- Not a scalar reader. The shared `LeafFrame` conjuncts are the SAME three conjuncts in
+        -- every read-family post shape and depend on no unpinned argument, so they are decided
+        -- BEFORE any shape-specific dispatch. Before task 6a-v this whole branch was a gap.
+        match family with
+        | .bytesAt =>
+          -- `postBytesAt`'s record is `0 0`, so its first four conjuncts are exactly the scalar
+          -- reader's. The only extra argument is `len`, which Row A binds.
+          match capture.entryState.bind (bytesAtArgs? index) with
+          | none =>
+            match leafFrameSharedFailure? canonicalEnvironment args.base args.bytes before after with
+            | some clause => .violated clause
+            | none => .gap ("LeafFrame.MemoryBytes/CodeIntact/NoAllocation hold; Row A binds no"
+                ++ " evaluable len, leaving LeafFrame.WritesOnlyWithinOwnRecord and"
+                ++ " postBytesAt.x10=base+offset / postBytesAt.x11=length unevaluated")
+          | some bytesArgs =>
+            let result := (contractBytesAt canonicalEnvironment).meaning bytesArgs
+            match postBytesAtFailure? canonicalEnvironment bytesArgs result before after with
+            | some clause => .violated clause
+            | none =>
+              match result with
+              | .error _ => .gap "meaning errors at the witness args; postBytesAt's error arm is then               trivially satisfied and says nothing about the run"
+              | .ok _ => .ok
+        | _ =>
+          -- `readU256` / `readArray`: the result slot's `resultBase` is unpinned, so the ownership
+          -- clause and the result clause are both unevaluated. Named, not hidden.
+          match leafFrameSharedFailure? canonicalEnvironment args.base args.bytes before after with
+          | some clause => .violated clause
+          | none => .gap ("LeafFrame.MemoryBytes/CodeIntact/NoAllocation hold for " ++ tag
+              ++ "; LeafFrame.WritesOnlyWithinOwnRecord(resultBase,width) and the result-slot"
+              ++ " clause need a resultBase Row A does not pin")
   let steps : Verdict :=
     match realSteps, stepBound with
     | some real, some bound => if real ≤ bound then .ok else .violated "used > stepBound args"
@@ -832,8 +1044,10 @@ def report : String :=
      , "Legend. `ok@witness-args` — `preReadAt` evaluated true, but `base`/`bytes` were taken from"
      , "the state (`x10`, memory at `[x10, x10+x11)`), so three of its five conjuncts are true by"
      , "construction. Only a FAIL is conclusive. A post `ok` covers all six expanded"
-     , "`postScalarRead` conjuncts, including the exact finite-support ownership check."
-     , "A `gap` is never a pass."
+     , "`postScalarRead` / `postBytesAt` conjuncts, including the exact finite-support ownership"
+     , "check. A post FAIL naming a `LeafFrame.*` clause holds at every result record, so it does"
+     , "not depend on a `resultBase` the artifact leaves unpinned. A `gap` is never a pass, and"
+     , "each post gap now names the specific conjuncts left unevaluated."
      , ""
      , "```"
      , header
@@ -875,7 +1089,7 @@ theorem ground_truth_column_totals :
      (groundTruthRows.filter fun r => r.post.isViolated).size,
      (groundTruthRows.filter fun r => r.steps.isOk).size,
      (groundTruthRows.filter fun r => r.steps.isViolated).size] =
-      [135, 0, 2, 100, 103, 33, 0, 5, 104, 1] := by native_decide
+      [135, 0, 2, 100, 103, 33, 0, 10, 104, 1] := by native_decide
 
 /-- **Q1.** Six instances are never entered on this arm. Five are the statically dead allocator and
 error paths; `hasExactErePrefix` is live only on the ERE-prefixed envelope, which this fixture is
@@ -897,20 +1111,57 @@ theorem pre_refutations_are_all_the_x12_clause :
      (groundTruthRows.filterMap fun r => if r.pre.isOk then some r.entryPc else none)) =
       (100, #[76600, 76600]) := by native_decide
 
-/-- **Q4.** Five scalar posts are refuted. Four are the previously visible `x10 = value`
-disagreement. The fifth is index 49, `readU64` at entry `72232`: once the exact universal frame is
-evaluated, its captured invocation writes outside the scalar reader's owned stack. This is the
-specific red result hidden by the old partial checker. Every other instance remains a gap, dominated
-by argument/result carriers absent from the generated binding artifact. -/
+/-- **Q4.** Ten posts are refuted, none passes.
+
+Five are the scalar readers: four `x10 = value` disagreements and index 49's exact frame violation.
+
+Five are `bytesAt`, freed by task 6a-v with no new captured data at all — `postBytesAt`'s frame is
+`LeafFrame … 0 0`, the same record the scalar readers use, and its only extra argument is the runtime
+`len`, which Row A binds. They split two ways:
+
+* **48, 50, 77** fail `LeafFrame.WritesOnlyWithinOwnRecord`, which needs no argument beyond the
+  captured state pair. Index 48 shares `entryPc 0x11a28` with index 49, and
+  `indices_48_and_49_are_one_piece_of_frame_evidence` pins that the capture hands them the same
+  entry/exit steps and that both refute at the *same address* — so as **evidence** index 48's
+  refutation is not a second observation, it is index 49's byte again. As **obligations** the two are
+  distinct (different routine, different contract, different post shape), so the column count of 10
+  is right even though the underlying machine evidence is 9 distinct observations. Indices 50 and 77
+  are independent state pairs.
+* **59, 89** fail `postBytesAt.x11=length`, the borrowed slice's returned length. Both reach that
+  clause only because the four `LeafFrame` conjuncts *and* `postBytesAt.x10=base+offset` hold at
+  them — so this refutation is a genuine single-clause disagreement, not a frame failure in disguise.
+
+`readU256` and `readArray` are still undecided, but for a named reason and after a real evaluation:
+`readU256_and_readArray_leave_only_the_record_clauses_open` shows the three record-independent
+`LeafFrame` conjuncts hold on all five of their capturable rows. -/
 theorem post_refutations_include_exact_frame_violation :
     (groundTruthRows.filterMap fun r =>
       if r.post.isViolated then some (r.index, r.routineTag, r.entryPc, r.post) else none) =
-      #[(49, "readU64", 72232, .violated "LeafFrame.WritesOnlyWithinOwnRecord"),
+      #[(48, "bytesAt", 72232, .violated "LeafFrame.WritesOnlyWithinOwnRecord"),
+        (49, "readU64", 72232, .violated "LeafFrame.WritesOnlyWithinOwnRecord"),
+        (50, "bytesAt", 72332, .violated "LeafFrame.WritesOnlyWithinOwnRecord"),
+        (59, "bytesAt", 73620, .violated "postBytesAt.x11=length"),
         (66, "readOffset", 73904, .violated "postScalarRead.x10=value"),
         (67, "readU32", 73904, .violated "postScalarRead.x10=value"),
         (68, "readOffset", 73952, .violated "postScalarRead.x10=value"),
-        (69, "readU32", 73952, .violated "postScalarRead.x10=value")] := by
+        (69, "readU32", 73952, .violated "postScalarRead.x10=value"),
+        (77, "bytesAt", 74472, .violated "LeafFrame.WritesOnlyWithinOwnRecord"),
+        (89, "bytesAt", 75336, .violated "postBytesAt.x11=length")] := by
   native_decide
+
+/-- **The restructure is not hiding a `readU256`/`readArray` refutation.** All five of their rows with
+a capturable argument set are now *run* through the three record-independent `LeafFrame` conjuncts,
+and all three hold at every one of them. So what keeps those rows undecided is exactly the missing
+`resultBase` — `WritesOnlyWithinOwnRecord(resultBase, width)` and the result-slot clause — and
+nothing else. A negative result, recorded as one. -/
+theorem readU256_and_readArray_leave_only_the_record_clauses_open :
+    ([44, 51, 60, 78, 90].map fun index =>
+      (do
+        let before ← captures[index]!.entryState
+        let after ← captures[index]!.exitState
+        let args ← readAtArgs? index before
+        pure (leafFrameSharedFailure? canonicalEnvironment args.base args.bytes before after))) =
+      [some none, some none, some none, some none, some none] := by native_decide
 
 /-- Concrete address-level evidence for the newly visible frame failure. The two-step captured span
 for index 49 starts with heap address `0x15040` absent and ends with byte `11` stored there. This is
@@ -926,6 +1177,26 @@ def index49FrameViolation? :
     scalarReaderOwnedB address,
     decide (BinaryFv.SSZ.Zesu.Elfling.canonicalHeapBase ≤ address ∧
       address < BinaryFv.SSZ.Zesu.Elfling.canonicalHeapLimit))
+
+/-- Whether the capture handed indices 48 and 49 the same entry step, exit step and exit pc, plus the
+least out-of-frame changed address each one refutes at. -/
+def indices48And49FrameEvidence? : Option (Bool × Nat × Nat) := do
+  let before48 ← captures[48]!.entryState
+  let after48 ← captures[48]!.exitState
+  let before49 ← captures[49]!.entryState
+  let after49 ← captures[49]!.exitState
+  pure (decide ((captures[48]!.entryStep, captures[48]!.exitStep, captures[48]!.exitPc) =
+          (captures[49]!.entryStep, captures[49]!.exitStep, captures[49]!.exitPc)),
+        firstWriteFrameViolation scalarReaderOwnedB before48 after48,
+        firstWriteFrameViolation scalarReaderOwnedB before49 after49)
+
+/-- **Indices 48 and 49 are two obligations but one observation.** The instrumented run gives them the
+same entry step, the same exit step and the same exit pc, and their `WritesOnlyWithinOwnRecord`
+refutations bottom out at the *same* address `86080` — the heap byte
+`index49_frame_violation_is_heap_byte` already identifies. Reported so the pair is not read as two
+independent confirmations of the frame violation. -/
+theorem indices_48_and_49_are_one_piece_of_frame_evidence :
+    indices48And49FrameEvidence? = some (true, 86080, 86080) := by native_decide
 
 theorem index49_frame_violation_is_heap_byte :
     index49FrameViolation? = some (86080, none, some (BitVec.ofNat 8 11), false, true) := by
@@ -1026,5 +1297,99 @@ theorem post_check_flips_when_the_result_is_placed_in_x10 :
       pure (postScalarReadFailure? canonicalEnvironment args 32 result entry exit,
             postScalarReadFailure? canonicalEnvironment args 32 result entry patched)) =
       some (some "postScalarRead.x10=value", none) := by native_decide
+
+/-! ### Anti-vacuity for the clauses task 6a-v newly fires
+
+Two new failure mechanisms reach a verdict for the first time, and each is exercised in both
+directions here. -/
+
+/-- The `bytesAt` instance the `postBytesAt` mutations run on: index 59 at `0x11f94`, whose result
+arm is reached (its meaning is `.ok`) and which fails exactly one clause. -/
+def bytesAtSampleIndex : Nat := 59
+
+/-- What `postBytesAt` demands of the two result registers at the sample, beside what the machine
+actually left in them. Printed as values so the refutation can be read rather than trusted:
+`x10` is the clause that **holds**, `x11` the one that fails. -/
+def bytesAtSampleResultRegisters? : Option (Nat × Nat × Nat × Nat) := do
+  let entry ← captures[bytesAtSampleIndex]!.entryState
+  let exit ← captures[bytesAtSampleIndex]!.exitState
+  let args ← bytesAtArgs? bytesAtSampleIndex entry
+  let realX10 ← (registerValue? exit 10).map BitVec.toNat
+  let realX11 ← (registerValue? exit 11).map BitVec.toNat
+  pure (args.base + args.offset, realX10, args.length, realX11)
+
+/-- **Address-level evidence for the `postBytesAt` refutation, in both directions at once.** At index
+59 the contract demands `x10 = base + offset = 0x2000000002e4` and the machine leaves exactly that —
+so `postBytesAt.x10=base+offset` *holds*. It demands `x11 = len = 32`, Row A's `const` binding for
+this call's `len`, and the machine leaves `724`: the length of the whole borrowed input slice, not of
+the 32-byte sub-slice `bytesAt` was asked for. One clause of six disagrees, and the printed pair
+shows which. -/
+theorem bytesAt_sample_registers :
+    bytesAtSampleResultRegisters? = some (35184372089572, 35184372089572, 32, 724) := by
+  native_decide
+
+/-- `postBytesAtFailure?` at the sample on three exit states: the real captured one; the same state
+with the contract's demanded length written into `x11`; and that one with `x10` additionally moved
+off the demanded pointer. The last two are hand-built counterfactuals, not runs. -/
+def bytesAtSampleResultMutations? :
+    Option (Option String × Option String × Option String) := do
+  let entry ← captures[bytesAtSampleIndex]!.entryState
+  let exit ← captures[bytesAtSampleIndex]!.exitState
+  let args ← bytesAtArgs? bytesAtSampleIndex entry
+  let result := (contractBytesAt canonicalEnvironment).meaning args
+  let lengthFixed : State :=
+    { exit with regs := exit.regs.insert x11 (BitVec.ofNat 64 args.length) }
+  let pointerBroken : State :=
+    { lengthFixed with regs := lengthFixed.regs.insert x10 (BitVec.ofNat 64 0) }
+  pure (postBytesAtFailure? canonicalEnvironment args result entry exit,
+        postBytesAtFailure? canonicalEnvironment args result entry lengthFixed,
+        postBytesAtFailure? canonicalEnvironment args result entry pointerBroken)
+
+set_option maxHeartbeats 1000000 in
+/-- **`postBytesAt` can return `none`; the machine is what makes it fail — and its other result
+clause is not dead either.** On the real captured exit state the sample fails
+`postBytesAt.x11=length`. Writing Row A's `len` into `x11` and changing nothing else makes the *same*
+function report no failure at all, which also witnesses that the other five conjuncts (the four
+`LeafFrame` clauses and `postBytesAt.x10=base+offset`) already held. Zeroing `x10` on top of that
+brings back `postBytesAt.x10=base+offset` — the clause that holds on every row the harness reaches,
+and which would otherwise be a clause never observed failing. -/
+theorem bytesAt_post_check_flips_on_each_result_clause :
+    bytesAtSampleResultMutations? =
+      some (some "postBytesAt.x11=length", none, some "postBytesAt.x10=base+offset") := by
+  native_decide
+
+/-- Flip one byte of a captured state, by adding one to whatever is there. `255 + 1` wraps to `0`, so
+the mutated byte is never accidentally equal to the original and an absent byte becomes present. -/
+def bumpByte (s : State) (address : Nat) : State :=
+  let bumped : BitVec 8 := BitVec.ofNat 8 (((s.mem.get? address).getD 0).toNat + 1)
+  { s with mem := s.mem.insert address bumped }
+
+/-- The three record-independent `LeafFrame` conjuncts at the `bytesAt` sample: unmutated, and under
+one targeted byte flip per conjunct. The addresses are disjoint — the borrowed slice's first byte,
+the instance's own entry pc (in the file-backed text image), and the allocator cursor word — so each
+mutation reaches its own clause instead of tripping an earlier one. -/
+def leafFrameSharedMutations? : Option (Option String × Option String × Option String ×
+    Option String) := do
+  let entry ← captures[bytesAtSampleIndex]!.entryState
+  let exit ← captures[bytesAtSampleIndex]!.exitState
+  let args ← readAtArgs? bytesAtSampleIndex entry
+  let check := fun (after : State) =>
+    leafFrameSharedFailure? canonicalEnvironment args.base args.bytes entry after
+  pure (check exit,
+        check (bumpByte exit args.base),
+        check (bumpByte exit 73620),
+        check (bumpByte exit BinaryFv.SSZ.Zesu.Elfling.canonicalHeapPosAddr))
+
+/-- **The record-independent `LeafFrame` gate has teeth, and this is the only place that is visible.**
+It fires on none of the 141 captured rows — `readU256_and_readArray_leave_only_the_record_clauses_open`
+pins that it genuinely ran and genuinely passed — so a check that is never seen to fail would
+otherwise be indistinguishable from one that cannot. Each of its three conjuncts is therefore
+exhibited firing under a one-byte mutation of a real captured exit state, with the unmutated state
+reporting no failure. That is what licenses reading a `none` from this gate as information. -/
+theorem leaf_frame_shared_gate_discriminates :
+    leafFrameSharedMutations? = some (none,
+      some "LeafFrame.MemoryBytes(after)",
+      some "LeafFrame.CodeIntact(after)",
+      some "LeafFrame.NoAllocation") := by native_decide
 
 end BinaryFv.SSZ.Zesu.Validation.GroundTruth
