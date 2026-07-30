@@ -538,26 +538,58 @@ def frame_base_reg_of(d):
         p = p.parent
     return -1
 
+# ---- Binding PROVENANCE -------------------------------------------------------------------------
+#
+# HOW a raw binding row's location was obtained, recorded beside the row so a consumer can refuse one
+# it does not trust. The generator used to record all four of the located cases identically, which
+# made a SUBSTITUTED location indistinguishable from one DWARF actually stated at the entry PC.
+#
+# The substitution is real and load-bearing: when no location-list entry covers the function
+# instance's ENTRY PC, `resolve_binding` falls back to the earliest entry merely OVERLAPPING its
+# ranges. That expression is what the compiler said somewhere INSIDE the instance, not at its entry.
+# For a compile-time constant that is usually — but not provably — the same value; for a register
+# expression (`DW_OP_breg27 (s11): 88; DW_OP_stack_value`) the base register need not still hold the
+# same value at entry, so the row states a machine fact the artifact never established.
+#
+# These values are mutually exclusive and total over the raw table: every row carries exactly one.
+PROV_AT_ENTRY   = "dwarfLocationAtEntry"        # a location-list entry covers the entry PC
+PROV_SINGLE     = "dwarfSingleLocation"         # one DW_AT_location expression, valid over the whole scope
+PROV_NOT_AT_ENTRY = "dwarfLocationNotAtEntry"   # SUBSTITUTED: earliest merely-OVERLAPPING loclist entry
+PROV_LOCLIST_UNREADABLE = "dwarfLoclistUnreadable"  # DW_AT_location names a list this extractor read as empty
+PROV_LOCATION_ABSENT = "dwarfLocationAbsent"    # the concrete parameter DIE carries no DW_AT_location
+PROV_PARAMETER_ABSENT = "dwarfParameterAbsent"  # the concrete instance omits the parameter DIE entirely
+PROV_UNPARSED   = "dwarfLocationUnparsed"       # DW_AT_location present, neither a loclist nor a parsable block
+
+# The provenances under which the row carries NO location at all, i.e. exactly the `callerProvided`
+# rows. Kept here so the Lean inventory can check the two tables agree instead of assuming it.
+PROV_ABSENCES = (PROV_LOCLIST_UNREADABLE, PROV_LOCATION_ABSENT, PROV_PARAMETER_ABSENT, PROV_UNPARSED)
+
 def resolve_binding(loc_attr, locs, function_instance_ranges, frame_reg):
-    """(kind, reg, offset) of one parameter over the function instance. Prefer the location valid exactly at
-    the entry PC; else the earliest location overlapping the function instance's ranges; else `callerProvided`
-    (the optimizer emitted no location — the argument flows from the caller). `fbreg` is rewritten to
-    the enclosing frame-base register. `unresolved` is reserved for an undecodable expression."""
-    def finish(k, r, function_instance):
-        if k == "other": return ("unresolved", r, function_instance)
-        return (k, frame_reg if k == "fbreg" else r, function_instance)
+    """(kind, reg, offset, provenance) of one parameter over the function instance.
+
+    Prefer the location valid exactly at the entry PC; else the earliest location overlapping the
+    function instance's ranges; else `callerProvided` (the optimizer emitted no location — the
+    argument flows from the caller). `fbreg` is rewritten to the enclosing frame-base register.
+    `unresolved` is reserved for an undecodable expression.
+
+    The substituted case is NOT dropped and NOT silently promoted: it keeps whatever the overlapping
+    entry said, tagged `dwarfLocationNotAtEntry` so the count stays auditable and a consumer that
+    requires an entry-time fact can refuse it."""
+    def finish(k, r, function_instance, prov):
+        if k == "other": return ("unresolved", r, function_instance, prov)
+        return (k, frame_reg if k == "fbreg" else r, function_instance, prov)
     entry_obj = function_instance_ranges[0][0]
     if "location list" in loc_attr:
         entries = locs.get(int(loc_attr.split()[0], 0), [])
         covering = [x for (b, e, x) in entries if b <= entry_obj < e]
-        if covering: return finish(*decode_loc_expr(covering[0]))
+        if covering: return finish(*decode_loc_expr(covering[0]), PROV_AT_ENTRY)
         overlap = sorted([(b, x) for (b, e, x) in entries
                           if any(b < re2 and rb < e for (rb, re2) in function_instance_ranges)])
-        if overlap: return finish(*decode_loc_expr(overlap[0][1]))
-        return ("callerProvided", -1, 0)
+        if overlap: return finish(*decode_loc_expr(overlap[0][1]), PROV_NOT_AT_ENTRY)
+        return ("callerProvided", -1, 0, PROV_LOCLIST_UNREADABLE)
     m = re.search(r'\((DW_OP_[^)]*(?:\([^)]*\)[^)]*)*)\)\s*$', loc_attr)   # inline "N byte block: .. (DW_OP_..)"
-    if m: return finish(*decode_loc_expr(m.group(1)))
-    return ("callerProvided", -1, 0)
+    if m: return finish(*decode_loc_expr(m.group(1)), PROV_SINGLE)
+    return ("callerProvided", -1, 0, PROV_UNPARSED)
 
 def index_dies(dies):
     """(offset -> DIE, id(parent) -> [children]) so a function instance can reach its abstract origin's
@@ -599,13 +631,17 @@ def signature_params(d, dies_by_off, children_of, name_of_off):
 
 
 def function_instance_bindings(d, dies, name_of_off, locs, function_instance_ranges, dies_by_off=None, children_of=None):
-    """The entry-time (name, kind, reg, offset) of every formal parameter of the routine function instance `d`
-    REALIZES — one row per signature parameter, never a short table.
+    """The entry-time (name, kind, reg, offset, provenance) of every formal parameter of the routine
+    function instance `d` REALIZES — one row per signature parameter, never a short table.
 
     A parameter the concrete function instance located is resolved from `.debug_loc`. A parameter the concrete
     function instance carries WITHOUT a location is `callerProvided`. A parameter the concrete function instance omits
     entirely is ALSO `callerProvided` — a declared row the recovery pass can act on, rather than an
-    absence that later stages cannot distinguish from a genuinely paramless routine."""
+    absence that later stages cannot distinguish from a genuinely paramless routine.
+
+    The fifth field says HOW the location was obtained (see `PROV_*`). It is what separates a
+    location DWARF stated at the ENTRY PC from one substituted from elsewhere in the instance, and it
+    distinguishes the two shapes of absence the caller-provided rows collapse together."""
     frame_reg = frame_base_reg_of(d)
     out, seen = [], {}
     for i, c in enumerate(dies):
@@ -616,7 +652,7 @@ def function_instance_bindings(d, dies, name_of_off, locs, function_instance_ran
             if "DW_AT_abstract_origin" in c.attrs else f"arg{i}")
         loc = c.attrs.get("DW_AT_location")
         if loc is None:
-            row = (pname, "callerProvided", -1, 0)
+            row = (pname, "callerProvided", -1, 0, PROV_LOCATION_ABSENT)
         else:
             row = (pname, *resolve_binding(loc, locs, function_instance_ranges, frame_reg))
         seen[pname] = row
@@ -627,7 +663,7 @@ def function_instance_bindings(d, dies, name_of_off, locs, function_instance_ran
     sig = signature_params(d, dies_by_off, children_of, name_of_off)
     if not sig:
         return out
-    ordered = [seen.get(p, (p, "callerProvided", -1, 0)) for p in sig]
+    ordered = [seen.get(p, (p, "callerProvided", -1, 0, PROV_PARAMETER_ABSENT)) for p in sig]
     ordered += [r for r in out if r[0] not in sig]     # never drop a row DWARF did emit
     return ordered
 
@@ -1041,6 +1077,26 @@ def emit_bindings_lean(function_instances_sorted, effective, recoveries, derived
     rows = [f'({i}, {lean_str(p)}, {lean_str(reason)}, {lean_str(kind)}, {reg}, {off})'
             for (i, p, reason, kind, reg, off) in recoveries]
     L.append("  [" + ",\n   ".join(rows) + "]")
+    L.append("/-- **How each raw row's location was obtained**, in the SAME order as `rawBindings` and")
+    L.append("with the same `(function_instance, parameter)` key, so no row is dropped and the counts")
+    L.append("stay auditable. `dwarfLocationNotAtEntry` is the SUBSTITUTED case: no location-list entry")
+    L.append("covered the function instance's entry PC, so the extractor used the earliest entry merely")
+    L.append("OVERLAPPING its ranges. That is what the compiler said somewhere inside the instance, not")
+    L.append("at its entry — a consumer that needs an entry-time fact must refuse it rather than read")
+    L.append("it as DWARF evidence. -/")
+    L.append("def rawBindingProvenance : List (Nat × String × String) :=")
+    rows = [f'({i}, {lean_str(pname)}, {lean_str(prov)})'
+            for i, function_instance in enumerate(function_instances_sorted)
+            for (pname, prov) in function_instance.get("bindingProvenance", [])]
+    L.append("  [" + ",\n   ".join(rows) + "]")
+    L.append("/-- The provenances under which the row carries no location at all — exactly the")
+    L.append("`callerProvided` raw rows. -/")
+    L.append("def absenceProvenances : List String :=")
+    L.append("  [" + ", ".join(lean_str(p) for p in PROV_ABSENCES) + "]")
+    L.append("/-- The provenances under which DWARF stated the location AT the entry PC: a location-list")
+    L.append("entry covering it, or a single expression valid over the whole scope. -/")
+    L.append("def atEntryProvenances : List String :=")
+    L.append("  [" + ", ".join(lean_str(p) for p in (PROV_AT_ENTRY, PROV_SINGLE)) + "]")
     L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings")
     return "\n".join(L) + "\n"
 
@@ -1063,6 +1119,12 @@ def emit_bindings_json(function_instances_sorted, effective, recoveries, derived
                      "constant": const, "sourceExpr": expr, "strideConstant": sname,
                      "loopHeader": header, "loopLatch": latch}
                     for (i, p, reg, stride, const, expr, sname, header, latch) in derived],
+        # HOW each raw row's location was obtained, keyed the same way as `raw` and in the same
+        # order. `dwarfLocationNotAtEntry` marks a location the extractor SUBSTITUTED from elsewhere
+        # in the instance because none covered its entry PC.
+        "provenance": [{"function_instance": i, "name": p, "provenance": prov}
+                       for i, function_instance in enumerate(function_instances_sorted)
+                       for (p, prov) in function_instance.get("bindingProvenance", [])],
     }, indent=1, sort_keys=True) + "\n"
 
 def main():
@@ -1135,13 +1197,18 @@ def main():
             if cr is None:
                 defects.append({"kind":"unmappedRegion", "range":{"start":rs[0][0], "size":rs[0][1]-rs[0][0]},
                                 "name":name, "obj":objkind}); continue
+            # `bindings` keeps its four-field shape (every downstream consumer reads it positionally);
+            # `bindingProvenance` is the parallel, same-order record of HOW each row's location was
+            # obtained, so a substituted location can be refused without the row being dropped.
+            brows = function_instance_bindings(d, dies, name_of_off, locs, rs, dies_by_off, children_of)
             rec = {"objkind":objkind, "qualified":qual, "specialization":list(spec), "sourceFile":sf,
                    "sourceFileHash":file_hash.get(sf,""), "declLine":decl_line_of(d, declline_of_off),
                    "kind":("emitted" if d.tag=="DW_TAG_subprogram" else "inlined"),
                    "regions":cr, "entryPc":min(r["start"] for r in cr),
                    "exitPc":max(r["start"]+r["size"] for r in cr), "dieOffset":d.off,
                    "callLine":intof(d.attrs.get("DW_AT_call_line")), "callColumn":intof(d.attrs.get("DW_AT_call_column")),
-                   "bindings":function_instance_bindings(d, dies, name_of_off, locs, rs, dies_by_off, children_of),
+                   "bindings":[r[:4] for r in brows],
+                   "bindingProvenance":[(r[0], r[4]) for r in brows],
                    "_die":d}
             die_to_idx[id(d)] = len(function_instances); function_instances.append(rec)
 

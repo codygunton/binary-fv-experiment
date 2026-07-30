@@ -25,6 +25,13 @@ The raw binding table preserves DWARF exactly. A separate effective table fills 
 out of DWARF using narrow, checked rules based on pinned Zig call sites or the RISC-V C ABI.
 Generation fails instead of guessing when no rule applies.
 
+A third table, `rawBindingProvenance`, records HOW each raw location was obtained. It exists because
+"resolved from DWARF" was hiding two different things: a location DWARF stated at the function
+instance's ENTRY PC, and one the extractor SUBSTITUTED from elsewhere in the instance when no
+location-list entry covered the entry PC. The substituted rows are marked `dwarfLocationNotAtEntry`
+and named exactly in `BindingInventory.lean`, so a consumer that needs an entry-time fact can refuse
+them instead of reading them as DWARF evidence.
+
 FunctionInstance numbers such as `functionInstance140` are stable identifiers within the pinned generated program, not
 source routine names or runtime addresses.
 

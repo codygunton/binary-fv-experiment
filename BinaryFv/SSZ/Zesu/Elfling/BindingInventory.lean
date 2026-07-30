@@ -9,9 +9,10 @@ function while others are inlined into callers, and each functionInstance can re
 argument in a different register, stack slot, address, or constant. This file turns the generated
 location data into predicates over Sail machine state.
 
-`GeneratedBindings.lean` contains two tables:
+`GeneratedBindings.lean` contains three tables:
 
 - `rawBindings` preserves the DWARF information exactly;
+- `rawBindingProvenance` records, per raw row, HOW that location was obtained;
 - `bindings` is the table used by proofs after all missing DWARF locations have been recovered.
 
 The raw table has 148 parameter rows, one for each parameter in an functionInstance's DWARF
@@ -19,6 +20,11 @@ abstract-origin signature. It contains 61 `callerProvided` gaps where optimized 
 entry-time location. The generator recovers every gap with the five narrow rules below and refuses
 to produce the file if any parameter remains unknown. `recoveredBindings` records each change so the
 effective table never silently replaces compiler evidence.
+
+A resolved row is not automatically an *entry-time* fact. 39 of the 87 located rows carry a location
+the extractor SUBSTITUTED from elsewhere in the function instance because `.debug_loc` had none
+covering its entry PC. `rawBindingProvenance` marks those `dwarfLocationNotAtEntry`; see "Where each
+raw location came from" below, which names all 39.
 
 ## How to read a binding kind
 
@@ -139,6 +145,140 @@ theorem derived_constants_are_the_withdrawal_field_offsets :
 source's own terms, not merely asserted in machine terms. -/
 theorem derived_rows_have_source_expressions :
     derivedBindings.all (fun d => d.2.2.2.2.2.1 != "") = true := by native_decide
+
+/-! ## Where each raw location came from
+
+`rawBindings` says WHAT the location is. `rawBindingProvenance` says HOW the extractor obtained it,
+which is a different and load-bearing question: the extractor prefers the `.debug_loc` entry valid at
+the function instance's ENTRY PC, but when none covers it, it SUBSTITUTES the earliest entry merely
+*overlapping* the instance's ranges. That expression is what the compiler said somewhere inside the
+instance, not at its entry. For a compile-time constant it is usually — but never provably — the same
+value; for a register expression the base register need not still hold the same value at entry.
+
+Before this section the two cases were indistinguishable in the artifact, so a consumer that needs an
+entry-time fact could not tell one from the other. `dwarfLocationNotAtEntry` names the substituted
+case. The rows are NOT dropped: they keep their value and become countable.
+
+The absence side is split the same way: `dwarfLocationAbsent` (a parameter DIE with no
+`DW_AT_location`), `dwarfParameterAbsent` (no concrete parameter DIE at all), `dwarfLoclistUnreadable`
+(a `DW_AT_location` naming a location list this extractor read as empty) and `dwarfLocationUnparsed`.
+Their union is exactly the `callerProvided` rows, checked below rather than assumed. -/
+
+/-- **No row lost its provenance and none gained one.** Same length, same keys, same order as
+`rawBindings`, so the provenance table cannot hide a row by omitting it. -/
+theorem provenance_is_total_over_raw_bindings :
+    rawBindingProvenance.map (fun r => (r.1, r.2.1)) = rawBindings.map (fun r => (r.1, r.2.1)) := by
+  native_decide
+
+/-- The count of raw rows carrying a given provenance. -/
+def provenanceCount (provenance : String) : Nat :=
+  (rawBindingProvenance.filter fun r => r.2.2 == provenance).length
+
+/-- **The exact provenance distribution of the 148 raw rows.**
+
+14 rows have a `.debug_loc` entry covering the entry PC; 34 carry a single `DW_AT_location`
+expression valid over the whole scope; **39 are substituted from elsewhere in the instance**; 49 are
+parameter DIEs with no location; 11 are parameters the concrete instance omitted entirely; one names
+a location list this extractor read as empty; none is an unparsed `DW_AT_location`. -/
+theorem provenance_distribution :
+    (provenanceCount "dwarfLocationAtEntry", provenanceCount "dwarfSingleLocation",
+     provenanceCount "dwarfLocationNotAtEntry", provenanceCount "dwarfLocationAbsent",
+     provenanceCount "dwarfParameterAbsent", provenanceCount "dwarfLoclistUnreadable",
+     provenanceCount "dwarfLocationUnparsed") = (14, 34, 39, 49, 11, 1, 0) := by
+  native_decide
+
+/-- The distribution accounts for every raw row: no provenance outside the seven named values. -/
+theorem provenance_partitions_the_raw_table :
+    provenanceCount "dwarfLocationAtEntry" + provenanceCount "dwarfSingleLocation" +
+        provenanceCount "dwarfLocationNotAtEntry" + provenanceCount "dwarfLocationAbsent" +
+        provenanceCount "dwarfParameterAbsent" + provenanceCount "dwarfLoclistUnreadable" +
+        provenanceCount "dwarfLocationUnparsed" = rawBindings.length := by
+  native_decide
+
+/-- **`callerProvided` is exactly the absence provenances.** The 61 rows DWARF left without a
+location are precisely the rows whose provenance is one of the four absence kinds — the two tables
+agree row by row, so neither can drift into disagreeing about which rows are gaps. -/
+theorem callerProvided_iff_absence_provenance :
+    (rawBindings.zip rawBindingProvenance).all (fun p =>
+      (p.1.2.2.1 == "callerProvided") == absenceProvenances.contains p.2.2.2) = true := by
+  native_decide
+
+/-! ### The at-entry test discriminates, in both directions
+
+A check no row ever fails has not been tested. `atEntryProvenances` is exhibited failing (the 39
+substituted rows) and passing (the 48 genuinely at-entry ones), so it is neither a tautology nor a
+contradiction over the artifact actually emitted. -/
+
+/-- **NOT every located row is an at-entry location.** This is the red result: the check has teeth. -/
+theorem not_every_located_row_is_at_entry :
+    (rawBindingProvenance.filter fun r => !absenceProvenances.contains r.2.2).all
+      (fun r => atEntryProvenances.contains r.2.2) = false := by native_decide
+
+/-- …and it is not constantly false either: 48 located rows DO carry an entry-time location. -/
+theorem some_located_rows_are_at_entry :
+    (rawBindingProvenance.filter fun r => atEntryProvenances.contains r.2.2).length = 48 := by
+  native_decide
+
+/-- The `(function instance, parameter)` keys whose location the extractor SUBSTITUTED. -/
+def substitutedLocationKeys : List (Nat × String) :=
+  rawBindingProvenance.filterMap fun r =>
+    if r.2.2 == "dwarfLocationNotAtEntry" then some (r.1, r.2.1) else none
+
+/-- **The 39 substituted rows, named exactly.** 36 `offset` rows and 3 `len` rows, all in inlined
+reader function instances. Naming them rather than only counting them is what lets a consumer join
+this against its own verdicts and refuse the ones that rest on a substituted location. -/
+theorem substituted_location_keys_named :
+    substitutedLocationKeys =
+      [(10, "offset"), (11, "offset"), (12, "offset"), (13, "offset"), (14, "offset"),
+       (15, "offset"), (19, "offset"), (20, "offset"), (21, "offset"), (22, "offset"),
+       (26, "offset"), (27, "offset"), (28, "offset"), (29, "offset"), (30, "offset"),
+       (31, "offset"), (34, "offset"), (35, "offset"), (39, "offset"), (48, "len"),
+       (50, "len"), (57, "offset"), (66, "offset"), (67, "offset"), (68, "offset"),
+       (69, "offset"), (77, "offset"), (77, "len"), (78, "offset"), (98, "offset"),
+       (99, "offset"), (100, "offset"), (101, "offset"), (108, "offset"), (109, "offset"),
+       (114, "offset"), (115, "offset"), (118, "offset"), (119, "offset")] := by
+  native_decide
+
+theorem substituted_location_key_count :
+    substitutedLocationKeys.length = 39 ∧
+      (substitutedLocationKeys.filter fun k => k.2 == "offset").length = 36 ∧
+      (substitutedLocationKeys.filter fun k => k.2 == "len").length = 3 := by native_decide
+
+/-- **Two substituted rows are register expressions, not constants.** Both are `DW_OP_breg27 (s11):
+88; DW_OP_stack_value` — a value that depends on what `x27` holds. A constant substituted from
+elsewhere in the instance is at least a value; a register expression is a claim about the machine at
+the entry PC that the artifact never established there, because DWARF stated it somewhere else. -/
+theorem substituted_register_rows :
+    ((rawBindings.zip rawBindingProvenance).filterMap fun p =>
+      if p.2.2.2 == "dwarfLocationNotAtEntry" && p.1.2.2.1 != "const" then
+        some (p.1.1, p.1.2.1, p.1.2.2.1, p.1.2.2.2.1, p.1.2.2.2.2) else none) =
+      [(77, "offset", "bregValue", 27, 88), (78, "offset", "bregValue", 27, 88)] := by
+  native_decide
+
+theorem substituted_constant_rows_count :
+    ((rawBindings.zip rawBindingProvenance).filter fun p =>
+      p.2.2.2 == "dwarfLocationNotAtEntry" && p.1.2.2.1 == "const").length = 37 := by native_decide
+
+/-- **The substituted rows survive recovery unchanged into the effective table.** Recovery only
+rewrites `callerProvided` rows, so every substituted row is what `bindings` — the table Row C and the
+contract-ground-truth harness read — actually carries. The laundering is therefore not confined to
+the raw artifact. -/
+theorem substituted_rows_reach_the_effective_table :
+    ((rawBindings.zip rawBindingProvenance).filter fun p =>
+      p.2.2.2 == "dwarfLocationNotAtEntry" &&
+        bindings.contains (p.1.1, p.1.2.1, p.1.2.2.1, p.1.2.2.2.1, p.1.2.2.2.2)).length = 39 := by
+  native_decide
+
+/-- The function instances whose FIRST effective `offset` row — the row a consumer looking up
+"instance `i`'s `offset`" finds — rests on a substituted location. 36 of the 141. -/
+def substitutedOffsetInstances : List Nat :=
+  (List.range 141).filter fun i => substitutedLocationKeys.contains (i, "offset")
+
+theorem substituted_offset_instances_named :
+    substitutedOffsetInstances =
+      [10, 11, 12, 13, 14, 15, 19, 20, 21, 22, 26, 27, 28, 29, 30, 31, 34, 35, 39, 57,
+       66, 67, 68, 69, 77, 78, 98, 99, 100, 101, 108, 109, 114, 115, 118, 119] := by
+  native_decide
 
 /-! ## Recovery coverage -/
 
