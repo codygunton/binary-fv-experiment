@@ -16,12 +16,13 @@ noncomputable def binary : RiscvSpec.ValidatedElf := {
 }
 
 /-!
-## Navigation from the conditional root theorem
+## Navigation from the conditional compliance theorem
 
-`root_compliance_of_exported_contracts` is the foundation's conditional product theorem. It assumes
+`compliance_of_exported_contracts` is the foundation's conditional product theorem. It assumes
 the three exported machine contracts used by the runner, then derives the public Ethereum SSZ
-agreement claim through the concrete runner and observers. Later refinement levels belong in stacked
-PRs above this foundation.
+agreement claim through the concrete runner and observers. `root_compliance` is the sole public proof
+root; it obtains those exported contracts through the explicit Level 1 refinement edge. Later
+refinement levels belong in stacked PRs above this foundation.
 
 The active spine is the concrete wrapper/accessor run assembly and the public execution classifier.
 Canonical ELF and source-provenance checks remain available separately as decomposition-independent
@@ -150,10 +151,10 @@ theorem accepted_checks_determine_classification {final : BinaryFv.RiscV.State}
   Zesu.Entrypoints.ZesuDecodeRaw.classifyWrapperRun_accepted _ _ _ steps _ _ final value hcode rfl
     rfl Zesu.Entrypoints.ZesuDecodeRaw.canonicalResultBuffer_ne_zero htag hvalue
 
-/-- The foundation's conditional root theorem. Its premise is exactly the three exported contracts
-consumed by the concrete runner. Refinement PRs may prove or strengthen this premise without changing
-the public statement. -/
-theorem root_compliance_of_exported_contracts
+/-- The foundation's conditional compliance theorem. Its premise is exactly the three exported
+contracts consumed by the concrete runner. Refinement PRs may prove or strengthen this premise
+without changing the compliance conclusion. -/
+theorem compliance_of_exported_contracts
     (contracts : Zesu.Entrypoints.ZesuDecodeRaw.ExportedContractAssumptions) :
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
@@ -177,16 +178,16 @@ theorem root_compliance_of_exported_contracts
         execution.builds execution.trace execution.withinStepBound execution.accessors
         execution.returnCode execution.specRejection execution.storedAbsent
 
-/-- Level 1 form of the conditional root theorem. `exportedContracts_of_level1` is the explicit
+/-- The sole public root of the compliance proof. `exportedContracts_of_level1` is the explicit first
 refinement edge: it exposes the wrapper and two accessor contracts consumed by the concrete runner,
 while the remaining immediate-runtime obligations stay in the Level 1 bundle for bytecode coverage
 and the future derivation of the closed wrapper contract from local execution. -/
-theorem root_compliance_of_level1_contracts
+theorem root_compliance
     (contracts : Zesu.Entrypoints.ZesuDecodeRaw.Level1ContractAssumptions) :
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
         RiscvSpec.execute binary input = .ok (SszSpec.decode input) :=
-  root_compliance_of_exported_contracts
+  compliance_of_exported_contracts
     (Zesu.Entrypoints.ZesuDecodeRaw.exportedContracts_of_level1 contracts)
 
 end BinaryFv.SSZ
