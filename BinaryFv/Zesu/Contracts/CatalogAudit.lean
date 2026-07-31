@@ -1,8 +1,10 @@
 import BinaryFv.Zesu.Contracts.ContractComposition
+import BinaryFv.RiscV.Elfling.ProgramGeometry
 
 namespace BinaryFv.Zesu.Contracts
 
 open BinaryFv.Binary.Elfling
+open BinaryFv.RiscV.Elfling
 
 /-!
 # Structural audits of the catalog
@@ -63,15 +65,15 @@ theorem exclusions_disjoint_from_catalog : exclusionsDisjoint = true := by nativ
 /-- (4b) Every excluded source function is classified with a machine-checkable reason. -/
 theorem exclusions_all_classified : exclusionsAllClassified = true := by native_decide
 
-/-- (5) `sszProgramCorrectness` genuinely references the per-instance implementation predicate:
+/-- (5) `sszContractComposition` genuinely references the per-instance implementation predicate:
 program correctness entails that the occurrence at any cataloged identity implements its source function's
 `correctnessClaim`. Ordinary kernel proof, no artifact trust. -/
 theorem program_correctness_references_per_instance
     {program : Program} {p : ContractParams}
-    (correct : sszProgramCorrectness program p)
+    (correct : sszContractComposition program p)
     {instance_ : FunctionInstance} (mem : instance_ ∈ program.instances)
     {entry : CatalogEntry} (found : catalogEntryFor instance_.id.function = some entry) :
-    functionInstanceObligation p instance_ entry.tag :=
+    functionInstanceObligation p instance_ (functionInstanceReachedPcs program instance_) entry.tag :=
   instance_implements_its_contract correct mem found
 
 /-- (6) The runner/result theorems `root_compliance` is built from depend on
@@ -79,7 +81,7 @@ theorem program_correctness_references_per_instance
 `canonicalContractParams` (which in particular witnesses the `∃ p` the old statement used). Ordinary
 kernel proof. -/
 theorem root_dependency_is_real :
-    ∀ program : Program, sszComplianceObligations program → (∃ p, sszProgramCorrectness program p) :=
+    ∀ program : Program, sszComplianceObligations program → (∃ p, sszContractComposition program p) :=
   fun _ obligations => ⟨canonicalContractParams, obligations.1⟩
 
 end BinaryFv.Zesu.Contracts

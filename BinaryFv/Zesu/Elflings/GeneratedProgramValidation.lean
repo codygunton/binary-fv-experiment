@@ -1,12 +1,12 @@
 import BinaryFv.Zesu.Elflings.GeneratedValidationBridges
-import BinaryFv.Zesu.Contracts.ContractComposition
+import BinaryFv.Zesu.Contracts.CanonicalProgram
 import GeneratedProgram
 
 /-!
-# Discharging the generated-program obligations
+# Discharging the row-1 program obligations for the generated program
 
 The deterministic generator emitted `GeneratedProgram.lean` (untrusted, address-bearing). This module
-proves the three program obligations against the canonical ELF:
+proves the three row-1 obligations for it against the canonical ELF:
 
 * `coverage generatedProgram` — every live catalog source function has a function instance, every function instance is
   cataloged, the exclusions stay absent, dispatch is unique (function instance ids and catalog identities are

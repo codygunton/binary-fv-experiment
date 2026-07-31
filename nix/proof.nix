@@ -125,7 +125,7 @@ let
   # Keep the source-level pins here: `SizzLean`'s normal Lake package also pulls its SHA/OpenSSL
   # packages, which the decoder does not need and the BinaryFv proof must not link.
   sizzLeanClosure = pkgs.runCommand "binary-fv-sizzlean-closure" {
-    nativeBuildInputs = [ pkgs.coreutils ];
+    nativeBuildInputs = [ pkgs.coreutils pkgs.gnused pkgs.gnugrep ];
   } ''
     copy_checked() {
       source="$1"
@@ -136,8 +136,9 @@ let
       cp "$source" "$destination"
     }
 
-    mkdir -p "$out/SizzLean/Spec"
-    spec_root=${etheorem}/packages/SizzLean/SizzLean/Spec
+    mkdir -p "$out/SizzLean/Spec" "$out/SizzLean/Proofs"
+    sizzlean_root=${etheorem}/packages/SizzLean/SizzLean
+    spec_root="$sizzlean_root/Spec"
     copy_checked "$spec_root/Type.lean" \
       ef7fd929a536cf157808cb4ace0255e3992dda566f93b77737166c3fb9139711 \
       "$out/SizzLean/Spec/Type.lean"
@@ -156,6 +157,71 @@ let
     copy_checked "$spec_root/Deserialize.lean" \
       db05b7d663445dc79e563ef0095482544ff950a7b51fd89e14fcb301b4830ef5 \
       "$out/SizzLean/Spec/Deserialize.lean"
+    copy_checked "$spec_root/BasicSupported.lean" \
+      5c50a2609d3891ba32016b0dbea3af684e0161ca0960977ebe4e8fecd86719e0 \
+      "$out/SizzLean/Spec/BasicSupported.lean"
+    copy_checked "$spec_root/Supported.lean" \
+      50f32f78c5c0190812b480cf4e749fe9462a416da7667e82eb918db46f123bcc \
+      "$out/SizzLean/Spec/Supported.lean"
+    copy_checked "$spec_root/MaxByteLength.lean" \
+      95529cf63920db116500d12e8d7cf9e1eab6d0d37f21a714d143d8ab4dbd818d \
+      "$out/SizzLean/Spec/MaxByteLength.lean"
+    copy_checked "$sizzlean_root/Proofs/BitPack.lean" \
+      903cb8a62cac4f8a2444ec8b1ab7d270bb2561f7801f79e3fa0c4bc4cfd91cc5 \
+      "$out/SizzLean/Proofs/BitPack.lean"
+    copy_checked "$sizzlean_root/Proofs/Bool.lean" \
+      4f28e9300e5d582a986fc81398dfb1ba289f1e43551f0fba6791953229dafacf \
+      "$out/SizzLean/Proofs/Bool.lean"
+    copy_checked "$sizzlean_root/Proofs/ContainerFixed.lean" \
+      a4cfbbe8e33e9aaf8a2664e7b98a18425b5763b5bc8ee83f352e3c2673cf5f17 \
+      "$out/SizzLean/Proofs/ContainerFixed.lean"
+    copy_checked "$sizzlean_root/Proofs/FixedElems.lean" \
+      1173b8b1dc05a9b799872b4e1044e3debb3558e7228ef441367f23a2977f417c \
+      "$out/SizzLean/Proofs/FixedElems.lean"
+    copy_checked "$sizzlean_root/Proofs/ListFixed.lean" \
+      5912c1ce7e664cf4064d53e6e2a45b4c460b03d436a68f0fad05c6c46753c4f2 \
+      "$out/SizzLean/Proofs/ListFixed.lean"
+    copy_checked "$sizzlean_root/Proofs/SerializeSize.lean" \
+      22da51a02f5845b648d1ecf37efa754df8afc42963314318ccf76b221ee1d16f \
+      "$out/SizzLean/Proofs/SerializeSize.lean"
+    copy_checked "$sizzlean_root/Proofs/Simp.lean" \
+      ef266efca1c8730900c4b186383f0b2cac0677e6a608460cc9c670a61f3296e1 \
+      "$out/SizzLean/Proofs/Simp.lean"
+    copy_checked "$sizzlean_root/Proofs/SimpAttrs.lean" \
+      63006416cad34b6e65dc7a60a5cf62765c994e5fd806bb881abcbd62139d72ca \
+      "$out/SizzLean/Proofs/SimpAttrs.lean"
+    copy_checked "$sizzlean_root/Proofs/SizeBound.lean" \
+      a45050a4d9fed9c67f5e6da7a131854666e791048bf5e0c58423db16e493d60b \
+      "$out/SizzLean/Proofs/SizeBound.lean"
+    copy_checked "$sizzlean_root/Proofs/UInt.lean" \
+      629894b6385041763094118c1a16a2383fa4cb3f5af5f6f0f2ae693ef6b0cdae \
+      "$out/SizzLean/Proofs/UInt.lean"
+    copy_checked "$sizzlean_root/Proofs/VectorFixed.lean" \
+      1c7c7e11451beb845705769f2ddb073b87666ee9c01323a336d364f489a5a890 \
+      "$out/SizzLean/Proofs/VectorFixed.lean"
+
+    # The pinned proof files target SizzLean's Lean release, which provides this lemma. Restate it
+    # for this project's pinned nightly and import it only where upstream names it.
+    ${pkgs.coreutils}/bin/cat > "$out/SizzLean/Compat.lean" <<'COMPAT'
+theorem ByteArray.size_push (bytes : ByteArray) (byte : UInt8) :
+    (bytes.push byte).size = bytes.size + 1 := by
+  cases bytes
+  exact Array.size_push ..
+COMPAT
+    ${pkgs.gnused}/bin/sed -i '1i import SizzLean.Compat' "$out/SizzLean/Proofs/UInt.lean"
+    ${pkgs.gnused}/bin/sed -i '1i import SizzLean.Compat' "$out/SizzLean/Proofs/BitPack.lean"
+
+    # D′ proves facts about the pinned decoder's two offset-table walkers. Widen only their
+    # visibility after checking the pristine source hash above; their definitions are unchanged.
+    deserialize="$out/SizzLean/Spec/Deserialize.lean"
+    test "$(${pkgs.gnugrep}/bin/grep -c -x -F 'private def extractFieldOffsets (b : ByteArray) :' "$deserialize")" = 1
+    test "$(${pkgs.gnugrep}/bin/grep -c -x -F 'private def extractCollOffsets (b : ByteArray) :' "$deserialize")" = 1
+    ${pkgs.gnused}/bin/sed -i \
+      -e 's|^private def extractFieldOffsets (b : ByteArray) :$|def extractFieldOffsets (b : ByteArray) :|' \
+      -e 's|^private def extractCollOffsets (b : ByteArray) :$|def extractCollOffsets (b : ByteArray) :|' \
+      "$deserialize"
+    test "$(${pkgs.gnugrep}/bin/grep -c -x -F 'def extractFieldOffsets (b : ByteArray) :' "$deserialize")" = 1
+    test "$(${pkgs.gnugrep}/bin/grep -c -x -F 'def extractCollOffsets (b : ByteArray) :' "$deserialize")" = 1
     ${pkgs.coreutils}/bin/printf '%s\n' \
       etheorem=032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0 \
       SizzLean/Spec/Type.lean=ef7fd929a536cf157808cb4ace0255e3992dda566f93b77737166c3fb9139711 \
@@ -164,6 +230,11 @@ let
       SizzLean/Spec/SSZError.lean=0e8ddfb73dc7ac7d6a56a2943e950051abd9310b25465e2f415c8a64327c4448 \
       SizzLean/Spec/Serialize.lean=d830cb74ded4cddbba87e4400ebaef71060f527317c5783d9a4fe9d02e7c0ae2 \
       SizzLean/Spec/Deserialize.lean=db05b7d663445dc79e563ef0095482544ff950a7b51fd89e14fcb301b4830ef5 \
+      SizzLean/Spec/BasicSupported.lean=5c50a2609d3891ba32016b0dbea3af684e0161ca0960977ebe4e8fecd86719e0 \
+      SizzLean/Spec/Supported.lean=50f32f78c5c0190812b480cf4e749fe9462a416da7667e82eb918db46f123bcc \
+      SizzLean/Spec/MaxByteLength.lean=95529cf63920db116500d12e8d7cf9e1eab6d0d37f21a714d143d8ab4dbd818d \
+      proof-closure=size-bound \
+      patch=offset-walkers-public-visibility-only \
       > "$out/provenance.txt"
   '';
 
@@ -210,10 +281,10 @@ let
     # the import graph: no generic module may import the target umbrella or anything beneath it.
     # Prose that motivates a generic rule by naming the Zesu artifact is not a dependency and is
     # deliberately not matched -- the violation is the import, not the spelling.
-    layerViolations=$(grep -rn "^import BinaryFv\.SSZ" BinaryFv/RiscV/ BinaryFv/Binary/ \
+    layerViolations=$(grep -rn "^import BinaryFv\.Zesu" BinaryFv/RiscV/ BinaryFv/Binary/ \
       BinaryFv/RiscV.lean BinaryFv/Binary.lean 2>/dev/null || true)
     if [ -n "$layerViolations" ]; then
-      echo "Layer violation: the RISC-V/Binary layers must not import the SSZ target." >&2
+      echo "Layer violation: the RISC-V/Binary layers must not import the Zesu target." >&2
       echo "$layerViolations" >&2
       exit 1
     fi
@@ -227,31 +298,19 @@ let
       exit 1
     fi
 
-    # Exactly four SSZ scaffolds are authorized. Keep the check declaration-scoped by pinning both
-    # the file and the count; all helper proofs remain sorry-free.
-    #
-    # The four are the two root runner/API bridges in `Zesu/Root.lean` and the two live-trace
-    # holes in `Entrypoints/ZesuDecodeRaw/Execution.lean`. The allowlist previously named only
-    # `Zesu/Root.lean` and asserted a count of 1 there, which predated the root scaffold being split
-    # into two theorems plus two trace obligations — so this audit rejected its own tree. Pinning
-    # both files with exact counts is strictly tighter than the previous rule, not looser: the
-    # Execution.lean holes were formerly unlisted and are now explicitly bounded.
+    # The retained D′ assembly has no proof placeholders. Fail on any declaration whose proof is a
+    # standalone `sorry`; prose that discusses historical scaffolds does not match this audit.
     sorrySites=$(grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/ || true)
-    unexpectedSorries=$(printf '%s\n' "$sorrySites" | grep -v -E \
-      '^BinaryFv/Zesu/Root\.lean:[0-9]+:.*sorry$|^BinaryFv/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:[0-9]+:.*sorry$' \
-      || true)
-    if [ -n "$unexpectedSorries" ]; then
-      echo "Only the declaration-allowlisted SSZ root scaffolds may contain sorry." >&2
-      echo "$unexpectedSorries" >&2
+    if [ -n "$sorrySites" ]; then
+      echo "Lean proof declarations may not contain standalone sorry placeholders." >&2
+      echo "$sorrySites" >&2
       exit 1
     fi
-    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Zesu/Root\.lean:')" = 2
-    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
 
 
     lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
 
-    # Production-binary validation remains diagnostic-only.
+    # Zesu production-binary validation remains diagnostic-only.
     lake build ZesuVerificationTests
     touch "$out"
   '';

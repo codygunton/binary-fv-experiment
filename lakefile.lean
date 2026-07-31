@@ -24,6 +24,21 @@ lean_lib SizzLeanPinned where
     `SizzLean.Spec.SSZError,
     `SizzLean.Spec.Serialize,
     `SizzLean.Spec.Deserialize,
+    `SizzLean.Spec.BasicSupported,
+    `SizzLean.Spec.Supported,
+    `SizzLean.Spec.MaxByteLength,
+    `SizzLean.Compat,
+    `SizzLean.Proofs.SimpAttrs,
+    `SizzLean.Proofs.Simp,
+    `SizzLean.Proofs.SerializeSize,
+    `SizzLean.Proofs.UInt,
+    `SizzLean.Proofs.Bool,
+    `SizzLean.Proofs.FixedElems,
+    `SizzLean.Proofs.VectorFixed,
+    `SizzLean.Proofs.ListFixed,
+    `SizzLean.Proofs.ContainerFixed,
+    `SizzLean.Proofs.BitPack,
+    `SizzLean.Proofs.SizeBound,
   ]
 
 lean_lib ZesuSszElf where

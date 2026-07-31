@@ -19,7 +19,7 @@ implementation that scribbled over caller memory on the way to an error.
 
 `decodeOptionalBlobSchedule` is the first migration exemplar. The existing 66-step trace is a
 fragment of its inline instance; deliberately, no program counter appears anywhere in this module,
-because the binding lives in generated Elfling data and `ImplementsInstance` is the seam.
+because the binding lives in generated Elfling data and `ImplementsFunctionInstance` is the seam.
 -/
 
 /-- The SSZ schema `decodeOptionalBlobSchedule` decodes, as partial evaluation of the pinned specification's
@@ -54,13 +54,13 @@ byte-walker would always be provable and would say nothing about the oracle.
 /-- `decodeOptionalBlobSchedule`: canonical decoding of a zero-or-one-element blob-schedule list,
 converted to an `Option`. -/
 def meaningOptionalBlobSchedule (bytes : ByteArray) :
-    Except SszDecodeError (Option BinaryFv.Specs.SSZ.RawBlobSchedule) :=
+    Except DecodeError (Option BinaryFv.Specs.SSZ.RawBlobSchedule) :=
   match BinaryFv.Specs.SSZ.decodeCanonical optionalBlobScheduleType bytes with
   | .ok value => .ok ((value.1[0]?).map BinaryFv.Specs.SSZ.rawBlobScheduleOf)
   | .error error => .error (sszToDecodeError error)
 
 /-- `decodeOptionalU64`: canonical decoding of a zero-or-one-element `u64` list. -/
-def meaningOptionalU64 (bytes : ByteArray) : Except SszDecodeError (Option UInt64) :=
+def meaningOptionalU64 (bytes : ByteArray) : Except DecodeError (Option UInt64) :=
   match BinaryFv.Specs.SSZ.decodeCanonical optionalU64Type bytes with
   | .ok value => .ok (value.1[0]?)
   | .error error => .error (sszToDecodeError error)
@@ -86,20 +86,25 @@ def preSliceToResult (env : DecoderEnvironment) (args : SliceToResultArgs) (stat
 /-!
 ## Postconditions
 
-Each `post` is total over `Except SszDecodeError _`: the error arm is constrained as tightly as the
+Each `post` is total over `Except DecodeError _`: the error arm is constrained as tightly as the
 success arm.
 -/
 
 /-- The blob-schedule result as it must appear on return.
 
-The three conjuncts before the `match` hold on *every* path: the borrowed input is untouched, the
-code image is intact, and no allocation occurred. -/
+The four conjuncts before the `match` hold on *every* path: the borrowed input is untouched, the
+code image is intact, no allocation occurred, and every write landed inside the `?T` object at
+`args.resultBase` or the function instance's own stack frame. The option layouts are the one family where the
+record size was already in scope —
+`env.optionalBlobSchedule.size` is the reflected `@sizeOf(?RawBlobSchedule)` — so the ownership clause
+costs no new parameter here. -/
 def postOptionalBlobSchedule (env : DecoderEnvironment) (args : SliceToResultArgs)
-    (result : Except SszDecodeError (Option BinaryFv.Specs.SSZ.RawBlobSchedule))
+    (result : Except DecodeError (Option BinaryFv.Specs.SSZ.RawBlobSchedule))
     (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
+  env.WritesOnlyWithinOwnRecord args.resultBase env.optionalBlobSchedule.size before after ∧
   match result with
   | .ok none => OptionNoneRep env.optionalBlobSchedule after args.resultBase
   | .ok (some schedule) =>
@@ -108,19 +113,20 @@ def postOptionalBlobSchedule (env : DecoderEnvironment) (args : SliceToResultArg
         (args.resultBase + env.optionalBlobSchedule.payloadOffset) schedule
   | .error error =>
       -- Only `invalidSsz` is reachable: this source function neither allocates nor reads a fork index.
-      error = SszDecodeError.invalidSsz
+      error = DecodeError.invalidSsz
 
 def postOptionalU64 (env : DecoderEnvironment) (args : SliceToResultArgs)
-    (result : Except SszDecodeError (Option UInt64)) (before after : State) : Prop :=
+    (result : Except DecodeError (Option UInt64)) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
+  env.WritesOnlyWithinOwnRecord args.resultBase env.optionalU64.size before after ∧
   match result with
   | .ok none => OptionNoneRep env.optionalU64 after args.resultBase
   | .ok (some value) =>
       OptionSomeRep env.optionalU64 after args.resultBase ∧
       Word64LERep after (args.resultBase + env.optionalU64.payloadOffset) value.toNat
-  | .error error => error = SszDecodeError.invalidSsz
+  | .error error => error = DecodeError.invalidSsz
 
 /-!
 ## Contracts and correctness claims
@@ -135,32 +141,32 @@ count per file, so an unfinished obligation must not be spelled as a `sorry`.
 `stepBound` is a provisional magnitude until the generated instance fixes it. It is an upper bound,
 so tightening it later strengthens the claim rather than invalidating this statement. -/
 def contractOptionalBlobSchedule (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError SliceToResultArgs (Option BinaryFv.Specs.SSZ.RawBlobSchedule) where
+    FunctionContract DecodeError SliceToResultArgs (Option BinaryFv.Specs.SSZ.RawBlobSchedule) where
   meaning := fun args => meaningOptionalBlobSchedule args.bytes
   pre := preSliceToResult env
   post := postOptionalBlobSchedule env
   stepBound := fun _ => 256
 
 def contractOptionalU64 (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError SliceToResultArgs (Option UInt64) where
+    FunctionContract DecodeError SliceToResultArgs (Option UInt64) where
   meaning := fun args => meaningOptionalU64 args.bytes
   pre := preSliceToResult env
   post := postOptionalU64 env
   stepBound := fun _ => 128
 
-/-- The obligation that a generated Elfling occurrence implements the blob-schedule contract.
+/-- The obligation that a generated Elfling function instance implements the blob-schedule contract.
 
-This is the point of the layering: the statement names no address, and the occurrence supplies every
+This is the point of the layering: the statement names no address, and the function instance supplies every
 one of them. -/
 def correctnessClaimOptionalBlobSchedule (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractOptionalBlobSchedule env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractOptionalBlobSchedule env)
 
 def correctnessClaimOptionalU64 (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractOptionalU64 env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractOptionalU64 env)
 
 /-- The blob-schedule precondition is satisfiable for a well-formed environment, so its contract is
 not vacuous. Conditioned on `ValidEnvironment` rather than asserted unconditionally: the
@@ -182,7 +188,12 @@ has a specification-side target that is already fixed.
 def meaningEmptyIsNone : Prop :=
   meaningOptionalBlobSchedule ByteArray.empty = .ok none
 
-/-- Exactly 24 canonical bytes decode to a present schedule. -/
+/-- Exactly 24 bytes decode to a present schedule.
+
+No canonicality hypothesis, and none is needed: `blobScheduleType` is three fixed-width `u64`s, so
+*every* 24-byte buffer is the canonical encoding of exactly one schedule. That is stronger than it
+may look — it is the encode-after-decode direction, which is why it needs
+`uint64LE_of_readUInt64LE` rather than upstream's `decode_encode`. -/
 def meaningTwentyFourIsSome : Prop :=
   ∀ bytes : ByteArray, bytes.size = 24 →
     ∃ schedule, meaningOptionalBlobSchedule bytes = .ok (some schedule)

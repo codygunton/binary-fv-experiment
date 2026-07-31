@@ -1,58 +1,27 @@
 import BinaryFv.Zesu.MemoryRepresentation.RawV4
 
 /-!
-# Native RV64 representations of the seven decoder containers
+# The seven Zesu container types in RISC-V memory
 
-Each container decoder writes its result as a fixed Zig record at its own `resultBase`. These
-predicates say exactly how that record is laid out in generated Sail sparse memory, composing the
-leaf/collection representations from `RawV4.lean` at the compiler-reflected field offsets. Every
-literal offset here is pinned against the pinned ABI manifest by `containerFieldOffsetsValid`.
+Each predicate in this file says when bytes in Sail memory represent one decoded Zig container.
+Fields are combined from reusable word, vector, slice, and array predicates. The final offset audit
+checks the handwritten field offsets against the ABI manifest produced by the pinned Zig compiler.
 
-The four *allocating* containers borrow byte slices from the caller's input, so — like `RawV4Rep` —
-their predicates take the input base and bytes. The three *fixed* containers do not allocate and do
-not alias input; they accept the same arguments for a uniform `ContainerRepresentation` shape but
-ignore them.
+The first three containers contain only inline data. The other four include heap arrays or slices
+that borrow bytes from the caller's input, so those predicates also receive the input address and
+`ByteArray`. These definitions describe memory after decoding; they do not perform the decode.
 -/
 
 namespace BinaryFv.Zesu.MemoryRepresentation
 
 open BinaryFv.RiscV
 
-/-- A `?u64` (16 bytes): the `u64` payload at offset 0 and the discriminant byte at offset 8. When
-absent, only the discriminant is constrained; the payload bytes are undefined. -/
-def OptionU64Rep (state : State) (base : Nat) (value : Option UInt64) : Prop :=
-  match value with
-  | some v => Word64LERep state base v.toNat ∧ OptionTagRep state (base + 8) true
-  | none => OptionTagRep state (base + 8) false
+/-! ## The three fixed (non-allocating) containers
 
-/-- A `RawBlobSchedule` (24 bytes): three consecutive little-endian `u64` fields. -/
-def BlobScheduleRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawBlobSchedule) : Prop :=
-  Word64LERep state base value.target.toNat ∧
-    Word64LERep state (base + 8) value.max.toNat ∧
-      Word64LERep state (base + 16) value.baseFeeUpdateFraction.toNat
-
-/-- A `?RawBlobSchedule` (32 bytes): the 24-byte payload at offset 0 and the discriminant at 24. -/
-def OptionBlobScheduleRep (state : State) (base : Nat) (value : Option BinaryFv.Specs.SSZ.RawBlobSchedule) :
-    Prop :=
-  match value with
-  | some v => BlobScheduleRep state base v ∧ OptionTagRep state (base + 24) true
-  | none => OptionTagRep state (base + 24) false
-
-/-! ## The three fixed (non-allocating) containers -/
-
-/-- `RawForkActivation` (32 bytes): `block_number : ?u64` at 0, `timestamp : ?u64` at 16. -/
-def ForkActivationRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawForkActivation) : Prop :=
-  OptionU64Rep state base value.blockNumber ∧ OptionU64Rep state (base + 16) value.timestamp
-
-/-- `RawForkConfig` (72 bytes): `fork : u64` at 0, `activation` at 8, `blob_schedule : ?…` at 40. -/
-def ForkConfigRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawForkConfig) : Prop :=
-  Word64LERep state base value.fork.toNat ∧
-    ForkActivationRep state (base + 8) value.activation ∧
-      OptionBlobScheduleRep state (base + 40) value.blobSchedule
-
-/-- `RawChainConfig` (80 bytes): `chain_id : u64` at 0, `active_fork` at 8. -/
-def ChainConfigRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawChainConfig) : Prop :=
-  Word64LERep state base value.chainId.toNat ∧ ForkConfigRep state (base + 8) value.activeFork
+`OptionU64Rep`, `BlobScheduleRep`, `OptionBlobScheduleRep`, `ForkActivationRep`, `ForkConfigRep`, and
+`ChainConfigRep` now live in `RawV4.lean`. They were moved there unchanged so that
+`RawV4FixedFieldsRep` can state the chain config with `ChainConfigRep`; this file imports `RawV4`, so
+the definitions are still in scope here and every use below is unaffected. -/
 
 /-! ## The four allocating containers -/
 

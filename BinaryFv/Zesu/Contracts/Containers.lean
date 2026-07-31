@@ -19,7 +19,7 @@ records by value and **do not allocate**, so their postconditions deny allocatio
 allocate transitively through their collection children.
 
 By meaning: the four allocating containers are `decodeCanonical` at their pinned schema followed by
-the specification's `raw*Of` projection. The three non-allocating ones are **source-shaped**, because
+the bridge's own `raw*Of` projection. The three non-allocating ones are **source-shaped**, because
 their error ordering genuinely differs from the oracle's — see below.
 
 `decodeForkConfig` is the decoder's only source of `UnknownFork`, and the audit recorded on issue #39
@@ -38,7 +38,7 @@ structure ContainerArgs where
   resultBase : Nat
 
 /-- The representation obligation for a container result, to be discharged against the pinned ABI
-manifest during generated-program validation. Keeping it a parameter of the contract rather than a literal is what
+manifest in the extraction row. Keeping it a parameter of the contract rather than a literal is what
 lets these contracts stay address-free today.
 
 It is applied as `rep inputBase input value state resultBase`: carrying the caller's input base and
@@ -68,7 +68,7 @@ arithmetic, and `sourceShapedContainersAgreeWithOracle` below is the required eq
 
 /-- `decodeForkActivation`, source-shaped: fixed-size check, offset table, then two optional `u64`s. -/
 def meaningForkActivation (bytes : ByteArray) :
-    Except SszDecodeError BinaryFv.Specs.SSZ.RawForkActivation := do
+    Except DecodeError BinaryFv.Specs.SSZ.RawForkActivation := do
   if bytes.size < 8 then throw .invalidSsz
   let first ← meaningReadOffset bytes 0
   let second ← meaningReadOffset bytes 4
@@ -81,7 +81,7 @@ def meaningForkActivation (bytes : ByteArray) :
 
 The `fork > 20` test sits between the offset-table check and the child decodes, exactly where the
 source puts it. `LAST_PROTOCOL_FORK_INDEX` is pinned at the execution-specs Amsterdam revision. -/
-def meaningForkConfig (bytes : ByteArray) : Except SszDecodeError BinaryFv.Specs.SSZ.RawForkConfig := do
+def meaningForkConfig (bytes : ByteArray) : Except DecodeError BinaryFv.Specs.SSZ.RawForkConfig := do
   if bytes.size < 16 then throw .invalidSsz
   let first ← meaningReadOffset bytes 8
   let second ← meaningReadOffset bytes 12
@@ -93,7 +93,7 @@ def meaningForkConfig (bytes : ByteArray) : Except SszDecodeError BinaryFv.Specs
   return { fork := fork, activation := activation, blobSchedule := blobSchedule }
 
 /-- `decodeChainConfig`, source-shaped. -/
-def meaningChainConfig (bytes : ByteArray) : Except SszDecodeError BinaryFv.Specs.SSZ.RawChainConfig := do
+def meaningChainConfig (bytes : ByteArray) : Except DecodeError BinaryFv.Specs.SSZ.RawChainConfig := do
   if bytes.size < 12 then throw .invalidSsz
   let activeForkOffset ← meaningReadOffset bytes 8
   let _ ← meaningRequireCanonicalOffsets bytes 12 [activeForkOffset]
@@ -102,25 +102,25 @@ def meaningChainConfig (bytes : ByteArray) : Except SszDecodeError BinaryFv.Spec
   return { chainId := chainId, activeFork := activeFork }
 
 def meaningExecutionWitness (bytes : ByteArray) :
-    Except SszDecodeError BinaryFv.Specs.SSZ.RawExecutionWitness :=
+    Except DecodeError BinaryFv.Specs.SSZ.RawExecutionWitness :=
   match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.witnessType bytes with
   | .ok value => .ok (BinaryFv.Specs.SSZ.rawWitnessOf value)
   | .error error => .error (sszToDecodeError error)
 
 def meaningExecutionRequests (bytes : ByteArray) :
-    Except SszDecodeError BinaryFv.Specs.SSZ.RawExecutionRequests :=
+    Except DecodeError BinaryFv.Specs.SSZ.RawExecutionRequests :=
   match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.executionRequestsType bytes with
   | .ok value => .ok (BinaryFv.Specs.SSZ.rawExecutionRequestsOf value)
   | .error error => .error (sszToDecodeError error)
 
 def meaningExecutionPayload (bytes : ByteArray) :
-    Except SszDecodeError BinaryFv.Specs.SSZ.RawExecutionPayload :=
+    Except DecodeError BinaryFv.Specs.SSZ.RawExecutionPayload :=
   match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.executionPayloadType bytes with
   | .ok value => .ok (BinaryFv.Specs.SSZ.rawExecutionPayloadOf value)
   | .error error => .error (sszToDecodeError error)
 
 def meaningNewPayloadRequest (bytes : ByteArray) :
-    Except SszDecodeError BinaryFv.Specs.SSZ.RawNewPayloadRequest :=
+    Except DecodeError BinaryFv.Specs.SSZ.RawNewPayloadRequest :=
   match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.newPayloadRequestType bytes with
   | .ok value => .ok (BinaryFv.Specs.SSZ.rawNewPayloadRequestOf value)
   | .error error => .error (sszToDecodeError error)
@@ -142,29 +142,49 @@ def preContainer (env : DecoderEnvironment) (args : ContainerArgs) (state : Stat
 `representation` is supplied per container because each has its own field layout; making it a
 parameter keeps this shared shape honest instead of collapsing distinct records into one vague
 claim. It is applied at the result base with the caller's input base/bytes, so a representation may
-describe input-relative borrowed slices. -/
+describe input-relative borrowed slices.
+
+**The ownership clause, and why it is the whole point of `recordSize`.** These containers do not
+allocate, so the clause takes the empty allocation interval and reduces to "writes only within
+`[resultBase, resultBase + recordSize)` and its own stack frame". That is what makes a parent able to
+conclude an *earlier* sibling's representation still holds after this one ran — the gap `FrameGap`
+exhibits — provided the earlier record is neither inside this one nor inside the stack, which is what
+`Ownership.fixed_container_cannot_clobber_sibling`'s two hypotheses ask for and what
+`CanonicalParams.canonicalStack_disjoint_from_arena` / `…_from_globals` discharge at the real layout.
+The size is `recordSize` rather than a literal because a wider record is a weaker promise: an
+over-large size would satisfy this postcondition just as easily and quietly hand a sibling permission
+to scribble. It comes from `env.record`, whose fields are reflected from the ABI manifest.
+
+`FrameGap.sibling_clobber_permitted` is the regression signal for this conjunct and no longer proves;
+`FrameGap.sibling_clobber_permitted_historical` records what it exhibited about the unstrengthened
+predicate, and `Ownership.fixed_container_cannot_clobber_sibling` is the positive replacement. -/
 def postFixedContainer {α : Type} (env : DecoderEnvironment) (args : ContainerArgs)
-    (representation : ContainerRepresentation α)
-    (result : Except SszDecodeError α) (before after : State) : Prop :=
+    (representation : ContainerRepresentation α) (recordSize : Nat)
+    (result : Except DecodeError α) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
+  env.WritesOnlyWithinOwnRecord args.resultBase recordSize before after ∧
   match result with
   | .ok value => representation args.base args.bytes value after args.resultBase
   | .error error =>
-      error = SszDecodeError.invalidSsz ∨ error = SszDecodeError.unknownFork
+      error = DecodeError.invalidSsz ∨ error = DecodeError.unknownFork
 
-/-- An allocating container: its children allocate, so out-of-memory is reachable. -/
+/-- An allocating container: its children allocate, so out-of-memory is reachable.
+
+The ownership clause therefore takes the allocating form — record, arena interval, allocator state,
+stack — rather than the fixed containers' empty interval. -/
 def postAllocatingContainer {α : Type} (env : DecoderEnvironment) (args : ContainerArgs)
-    (representation : ContainerRepresentation α)
-    (result : Except SszDecodeError α) (before after : State) : Prop :=
+    (representation : ContainerRepresentation α) (recordSize : Nat)
+    (result : Except DecodeError α) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
+  env.WritesOnlyWithinOwnAllocation args.resultBase recordSize before after ∧
   match result with
   | .ok value => representation args.base args.bytes value after args.resultBase
   | .error error =>
-      error = SszDecodeError.invalidSsz ∨ error = SszDecodeError.unknownFork ∨
-        error = SszDecodeError.outOfMemory
+      error = DecodeError.invalidSsz ∨ error = DecodeError.unknownFork ∨
+        error = DecodeError.outOfMemory
 
 /-!
 ## Contracts
@@ -172,58 +192,58 @@ def postAllocatingContainer {α : Type} (env : DecoderEnvironment) (args : Conta
 
 def contractForkActivation (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkActivation) :
-    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawForkActivation where
+    FunctionContract DecodeError ContainerArgs BinaryFv.Specs.SSZ.RawForkActivation where
   meaning := fun args => meaningForkActivation args.bytes
   pre := preContainer env
-  post := fun args => postFixedContainer env args rep
+  post := fun args => postFixedContainer env args rep env.record.forkActivation
   stepBound := fun _ => 512
 
 def contractForkConfig (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkConfig) :
-    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawForkConfig where
+    FunctionContract DecodeError ContainerArgs BinaryFv.Specs.SSZ.RawForkConfig where
   meaning := fun args => meaningForkConfig args.bytes
   pre := preContainer env
-  post := fun args => postFixedContainer env args rep
+  post := fun args => postFixedContainer env args rep env.record.forkConfig
   stepBound := fun _ => 1024
 
 def contractChainConfig (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawChainConfig) :
-    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawChainConfig where
+    FunctionContract DecodeError ContainerArgs BinaryFv.Specs.SSZ.RawChainConfig where
   meaning := fun args => meaningChainConfig args.bytes
   pre := preContainer env
-  post := fun args => postFixedContainer env args rep
+  post := fun args => postFixedContainer env args rep env.record.chainConfig
   stepBound := fun _ => 2048
 
 def contractExecutionWitness (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionWitness) :
-    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawExecutionWitness where
+    FunctionContract DecodeError ContainerArgs BinaryFv.Specs.SSZ.RawExecutionWitness where
   meaning := fun args => meaningExecutionWitness args.bytes
   pre := preContainer env
-  post := fun args => postAllocatingContainer env args rep
+  post := fun args => postAllocatingContainer env args rep env.record.executionWitness
   stepBound := fun args => 1024 + 256 * args.bytes.size
 
 def contractExecutionRequests (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionRequests) :
-    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawExecutionRequests where
+    FunctionContract DecodeError ContainerArgs BinaryFv.Specs.SSZ.RawExecutionRequests where
   meaning := fun args => meaningExecutionRequests args.bytes
   pre := preContainer env
-  post := fun args => postAllocatingContainer env args rep
+  post := fun args => postAllocatingContainer env args rep env.record.executionRequests
   stepBound := fun args => 1024 + 256 * args.bytes.size
 
 def contractExecutionPayload (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionPayload) :
-    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawExecutionPayload where
+    FunctionContract DecodeError ContainerArgs BinaryFv.Specs.SSZ.RawExecutionPayload where
   meaning := fun args => meaningExecutionPayload args.bytes
   pre := preContainer env
-  post := fun args => postAllocatingContainer env args rep
+  post := fun args => postAllocatingContainer env args rep env.record.executionPayload
   stepBound := fun args => 4096 + 256 * args.bytes.size
 
 def contractNewPayloadRequest (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawNewPayloadRequest) :
-    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawNewPayloadRequest where
+    FunctionContract DecodeError ContainerArgs BinaryFv.Specs.SSZ.RawNewPayloadRequest where
   meaning := fun args => meaningNewPayloadRequest args.bytes
   pre := preContainer env
-  post := fun args => postAllocatingContainer env args rep
+  post := fun args => postAllocatingContainer env args rep env.record.newPayloadRequest
   stepBound := fun args => 8192 + 256 * args.bytes.size
 
 /-!
@@ -232,45 +252,45 @@ def contractNewPayloadRequest (env : DecoderEnvironment)
 
 def correctnessClaimForkActivation (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkActivation)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractForkActivation env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractForkActivation env rep)
 
 def correctnessClaimForkConfig (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkConfig)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractForkConfig env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractForkConfig env rep)
 
 def correctnessClaimChainConfig (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawChainConfig)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractChainConfig env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractChainConfig env rep)
 
 def correctnessClaimExecutionWitness (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionWitness)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractExecutionWitness env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractExecutionWitness env rep)
 
 def correctnessClaimExecutionRequests (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionRequests)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractExecutionRequests env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractExecutionRequests env rep)
 
 def correctnessClaimExecutionPayload (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionPayload)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractExecutionPayload env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractExecutionPayload env rep)
 
 def correctnessClaimNewPayloadRequest (env : DecoderEnvironment)
     (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawNewPayloadRequest)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractNewPayloadRequest env rep)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractNewPayloadRequest env rep)
 
 /-!
 ## Satisfiability
@@ -311,13 +331,24 @@ def satisfiableNewPayloadRequest (env : DecoderEnvironment)
 ## Characterizations
 -/
 
-/-- `decodeForkConfig` is the decoder's only source of `UnknownFork`. -/
+/-- **`decodeForkConfig` is the decoder's only source of `UnknownFork`.**
+
+Both halves, because "only" needs both: no other container meaning ever produces it, and
+`meaningForkConfig` does. Without the second conjunct the statement would be satisfied by a decoder
+that never raised `unknownFork` at all, which is not what the catalog is claiming.
+
+`meaningChainConfig` is absent from the first list deliberately, and its absence is not an oversight:
+it *can* return `unknownFork`, but only as the propagated result of the `meaningForkConfig` call in
+its body — it tests no fork index of its own. The collection meanings are covered separately by
+`collectionsNeverUnknownFork` and the leaf readers by `leafReadsOnlyFailInvalid`. -/
 def onlyForkConfigRaisesUnknownFork : Prop :=
-  ∀ (bytes : ByteArray),
+  (∀ (bytes : ByteArray),
     meaningForkActivation bytes ≠ .error .unknownFork ∧
     meaningExecutionWitness bytes ≠ .error .unknownFork ∧
     meaningExecutionRequests bytes ≠ .error .unknownFork ∧
-    meaningExecutionPayload bytes ≠ .error .unknownFork
+    meaningExecutionPayload bytes ≠ .error .unknownFork ∧
+    meaningNewPayloadRequest bytes ≠ .error .unknownFork) ∧
+  ∃ (bytes : ByteArray), meaningForkConfig bytes = .error .unknownFork
 
 /-- The three fixed containers never allocate, so out-of-memory is unreachable for them. -/
 def fixedContainersNeverAllocate : Prop :=
@@ -331,19 +362,47 @@ The source-shaped container meanings agree with the oracle on acceptance.
 
 They cannot agree on *error constructors* — that is the whole reason they are source-shaped — so the
 obligation is stated at the granularity `root_compliance` actually observes.
+
+**The oracle side is not `decodeCanonical chainConfigType` alone, and saying which layer applies the
+fork bound is the whole point of this docstring.** `chainConfigType` types `fork` as an unbounded
+`u64`; nothing in the *schema* rejects an unknown fork. The oracle applies that constraint one layer
+up, in `decodeRawV4` (`BinaryFv.Specs.SSZ/Core.lean:415-420`), which decodes the container canonically and
+*then* throws `unknownFork` on `raw.chainConfig.activeFork.fork > 20`. The binary applies the same
+constraint inside `meaningForkConfig`, which `meaningChainConfig` calls. So the oracle side here has
+to be that composite; against the bare schema decode the obligation is **false**, and was — see
+`DECISIONS.md`. Four zero-extra-work counterexamples exist: `chain_config(fork=21)` is
+`valid-v4-raw`'s own chainConfig with only the fork changed, and the schema decode accepts it while
+`meaningChainConfig` gives `unknownFork`.
+
+**Why acceptance-only, and why that keeps this consistent with `forkErrorOrderingDiffers`.** The two
+sides apply the bound at *different times*: the binary rejects `fork > 20` before decoding any child,
+while the composite above decodes the whole container first and checks after. So on a body that is
+both out-of-range and structurally malformed they disagree about *which* error — and that
+disagreement is exactly what `forkErrorOrderingDiffers` records. An equality of acceptance is
+insensitive to the ordering, so the two obligations describe the same decoder without contradicting
+each other. Stated with error constructors, they could not both be true.
 -/
 def sourceShapedContainersAgreeWithOracle : Prop :=
   ∀ (bytes : ByteArray),
     isAccepted (meaningChainConfig bytes) =
-      (BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.chainConfigType bytes).toOption.isSome
+      match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.chainConfigType bytes with
+      | .ok value => decide ((BinaryFv.Specs.SSZ.rawChainConfigOf value).activeFork.fork ≤ 20)
+      | .error _ => false
 
 /--
 The binary and the oracle classify a malformed unknown-fork payload differently.
 
-`meaningForkConfig` rejects on `fork > 20` before decoding children; the oracle decodes the whole
-container canonically first and only then checks the bound. On a payload with `fork = 21` *and* a
-malformed activation the source-shaped meaning yields `unknownFork` while the oracle yields a
-structural error.
+`meaningForkConfig` rejects on `fork > 20` before decoding children. The oracle applies that bound in
+`decodeRawV4` (`BinaryFv.Specs.SSZ/Core.lean:415-420`), *after* a successful canonical decode of the whole
+container — **not** in `decodeCanonical forkConfigType`, which never checks it at all. So on a
+payload with `fork = 21` *and* a malformed activation the source-shaped meaning yields `unknownFork`
+while the oracle never reaches the bound and yields a structural error.
+
+That the bound lives one layer above the schema decode is the same fact
+`sourceShapedContainersAgreeWithOracle` had to be corrected for; an earlier wording of this docstring
+said the oracle checks the bound "only then", which is true of `decodeRawV4` and false of
+`decodeCanonical forkConfigType`, and reading the two conjuncts against each other would have caught
+that.
 
 Both still reject, which is all `root_compliance` observes — but a container contract that claimed
 the error constructors agreed would be false. Naming this is what stops that claim being made by

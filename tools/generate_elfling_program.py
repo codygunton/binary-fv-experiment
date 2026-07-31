@@ -571,13 +571,13 @@ def index_dies(dies):
 
 
 def signature_params(d, dies_by_off, children_of, name_of_off):
-    """The COMPLETE formal parameter list of the function instance `d` realizes, in signature order,
+    """The COMPLETE formal parameter list of the source function realized by function instance `d`, in signature order,
     taken from its abstract-origin subprogram DIE.
 
     An optimized concrete function instance may omit a `DW_TAG_formal_parameter` child entirely — not merely
     leave it without a location. Enumerating only the concrete function instance's children therefore produced a
-    binding table that was silently SHORT: four `bytesAt` function_instances had no `offset` entry and the
-    `readU64`/`readArray` function_instances enclosing them had no entries at all, so the contract catalog recorded them as
+    binding table that was silently SHORT: four `bytesAt` function_instances had no `offset` row and the
+    `readU64`/`readArray` function_instances enclosing them had no rows at all, so Row A recorded them as
     "paramless" when their source functions plainly take parameters. The abstract origin always carries the
     full signature, so it is the authority for WHICH parameters exist; the concrete function instance is the
     authority for WHERE each one lives."""
@@ -599,7 +599,7 @@ def signature_params(d, dies_by_off, children_of, name_of_off):
 
 
 def function_instance_bindings(d, dies, name_of_off, locs, function_instance_ranges, dies_by_off=None, children_of=None):
-    """The entry-time (name, kind, reg, offset) of every formal parameter of the function instance `d`
+    """The entry-time (name, kind, reg, offset) of every formal parameter of the source function realized by function instance `d`
     REALIZES — one row per signature parameter, never a short table.
 
     A parameter the concrete function instance located is resolved from `.debug_loc`. A parameter the concrete
@@ -1049,7 +1049,7 @@ def emit_bindings_json(function_instances_sorted, effective, recoveries, derived
 
     `program.json`'s per-function-instance `bindings` are the RAW DWARF rows, which still carry the 61
     `callerProvided` gaps. Any consumer that wants the *effective* entry placement of a function instance's
-    parameters — including the production-ELF binding validator — must read the recovered table, not
+    parameters — Row C's production-ELF binding validator, for one — must read the recovered table, not
     the raw one, or it silently validates against a location DWARF never gave. Emitting it here keeps
     one generator as the single source of truth for both the Lean inventory and the binary evidence."""
     return json.dumps({
@@ -1077,8 +1077,7 @@ def main():
     # blocks/edges), proposed here and validated in Lean against the Sail-decoded CFG.
     ap.add_argument("--elf", required=True)
     ap.add_argument("--objdump", required=True)
-    for k in ["out-json","out-lean","out-md","out-globals","out-bindings","out-bindings-json",
-              "out-manifest","out-manifest-md"]:
+    for k in ["out-json","out-lean","out-md","out-globals","out-bindings","out-bindings-json"]:
         ap.add_argument("--"+k)
     a = ap.parse_args()
 
@@ -1171,8 +1170,8 @@ def main():
     for i, rec in enumerate(function_instances):
         if rec["parentIdx"] is not None: function_instances[rec["parentIdx"]]["children"].append(i)
 
-    # Regression oracle: the pinned `decodeOptionalBlobSchedule` geometry established during milestone 3.
-    # The whole-program generator must reproduce it exactly, so a silent drift
+    # Regression oracle: the independently hand-verified `decodeOptionalBlobSchedule`
+    # slice (BlobScheduleFunctionInstance.lean). The generator must reproduce it exactly, so a silent drift
     # in ranges/entry/exit/decl-line/inline-stack/nesting fails generation rather than the proof.
     #
     # Stated in RELOCATION-INVARIANT form: the object-relative entry (offset into the decoder `.text`),
@@ -1199,7 +1198,7 @@ def main():
            "nchildren": len(bs["children"]),
            "inlineStack": [(s["callerQualified"], s["line"], s["column"]) for s in bs["inlineStack"]]}
     if got != ORACLE:
-        raise SystemExit(f"REGRESSION: generated decodeOptionalBlobSchedule != pinned geometry.\n"
+        raise SystemExit(f"REGRESSION: generated decodeOptionalBlobSchedule changed unexpectedly.\n"
                          f"  expected {ORACLE}\n  got      {got}")
 
     # entry function instance — the program cannot be emitted without one (Lean references function_instances<entry>Id), so a
@@ -1256,7 +1255,7 @@ def main():
     region_pc_sets = compute_function_instance_cfg(function_instances_sorted, insns)   # fills function_instance["exits"], function_instance["edges"]
     for function_instance in function_instances_sorted:
         function_instance["blocks"] = function_instance_blocks(function_instance, insns)
-    # entry PC -> callee: only EMITTED function_instances and excluded function instances are call targets (inlined
+    # entry PC -> callee: only emitted and excluded function instances are call targets (inlined
     # callees are not "called"). Resolve each deepest-owned call site to the callee's emitted identity.
     entry_to_callee = {}
     for i, function_instance in enumerate(function_instances_sorted):
@@ -1288,7 +1287,7 @@ def main():
 
     # Independently generated pinned-source manifest: each cataloged source file mapped to the SHA-256
     # of its pinned content, computed here from the exact source the extractor read. The handwritten
-    # `pinnedSourceManifest` is CHECKED against this (review blocker #5) rather than trusted.
+    # row-1 `pinnedSourceManifest` is CHECKED against this (review blocker #5) rather than trusted.
     source_manifest = sorted(({"path": pth, "sha256": file_hash[pth]} for pth in set(file_hash)),
                              key=lambda e: e["path"])
 
@@ -1319,12 +1318,6 @@ def main():
             emit_bindings_json(
                 function_instances_sorted, effective_bindings, recovered_bindings, derived_bindings
             ))
-    if a.out_manifest or a.out_manifest_md:
-        mrows = manifest_rows(program, {"effective": effective_bindings})
-        if a.out_manifest:
-            open(a.out_manifest, "w").write(emit_manifest_lean(program, mrows))
-        if a.out_manifest_md:
-            open(a.out_manifest_md, "w").write(emit_manifest_md(program, mrows))
     source_functions = {
         (function_instance["qualified"], tuple(function_instance["specialization"]))
         for function_instance in function_instances_sorted
@@ -1370,7 +1363,7 @@ def lean_id(function_instance):
     return f'{{ function := {{ declaration := {decl}, specialization := {spec} }}, inlineStack := {stack} }}'
 
 def excl_id_lean(x):
-    """The emitted (non-inlined) FunctionInstanceId of an excluded function instance — it is a genuine call target, so
+    """The emitted (non-inlined) FunctionInstanceId of an excluded source function — it is a genuine call target, so
     externalCalls can reference it and the validation can resolve calls to it."""
     decl = f'{{ file := {{ path := {lean_str(x["sourceFile"])} }}, qualifiedName := {lean_str(x["qualified"])} }}'
     return f'{{ function := {{ declaration := {decl}, specialization := #[] }}, inlineStack := [] }}'
@@ -1469,10 +1462,10 @@ def emit_lean(p):
     ) + "]")
     L.append("")
     # Reachable-but-excluded taxonomy (auditable data the reachable-partition proof consumes).
-    L.append("/-! ### Reachable-but-excluded emitted source functions (auditable exclusion taxonomy). -/")
+    L.append("/-! ### Reachable-but-excluded emitted function instances (auditable exclusion taxonomy). -/")
     L.append("")
     L.append("/-- Every reachable-but-excluded emitted source function: emitted identity, DWARF name, category,")
-    L.append("canonical regions. The identity lets a resolved external call target an excluded function instance. -/")
+    L.append("canonical regions. The identity lets a resolved external call target an excluded source function. -/")
     L.append("def generatedExcludedFunctionInstances : Array Program.ExcludedFunctionInstance :=")
     if p["excludedFunctionInstances"]:
         items = []
@@ -1503,12 +1496,12 @@ def emit_lean(p):
     L.append("    excludedFunctionInstances := generatedExcludedFunctionInstances }")
     L.append("")
     # Independently generated pinned-source manifest (path -> content SHA-256), for cross-checking the
-    # handwritten `pinnedSourceManifest` rather than trusting it.
+    # handwritten row-1 `pinnedSourceManifest` rather than trusting it.
     L.append("/-! ### Independently generated pinned-source manifest. -/")
     L.append("")
     L.append("/-- Each cataloged source file's path mapped to the SHA-256 of its pinned content, computed")
     L.append("by the generator from the exact source it read. `GeneratedProvenanceCheck` proves the")
-    L.append("handwritten `pinnedSourceManifest` equals this, so the hashes are validated. -/")
+    L.append("handwritten `pinnedSourceManifest` equals this, so the row-1 hashes are validated. -/")
     L.append("def generatedSourceManifest : List (String × String) :=")
     sm = ", ".join(f'({lean_str(e["path"])}, {lean_str(e["sha256"])})' for e in p["sourceManifest"])
     L.append("  [" + sm + "]")
@@ -1609,337 +1602,6 @@ def emit_md(p):
     M.append("")
     return "\n".join(M)
 
-
-# ---------------------------------------------------------------------------
-# Function-instance manifest
-# ---------------------------------------------------------------------------
-#
-# The single source of both the Lean manifest and the Markdown work-assignment view, so the two can
-# never disagree. Everything emitted here is PROPOSED by the generator and CHECKED in Lean against
-# `generatedProgram` and the handwritten catalog (`GeneratedManifest.lean`): the source function tag against
-# `catalogEntryFor`, the kind/parent/children/calls/entry/exits against the function instance record, and
-# the row set against `generatedProgram.functionInstances` in both directions.
-#
-# Deliberately NOT emitted: the numeric step bound. It lives in exactly one place — the contract the
-# function instance's `ContractTag` selects through `functionContract` — and copying it into generated data
-# would create an unchecked second copy of a proof-relevant constant. The manifest carries the tag,
-# which is what determines it.
-
-# qualified name -> ContractTag constructor, PROPOSED here and checked in Lean against the catalog.
-CONTRACT_TAGS = {
-    "raw_decoder_root.zesu_decode_raw": "zesuDecodeRaw",
-    "ssz_raw.decode": "decode",
-    "ssz_raw.decodeRaw": "decodeRaw",
-    "ssz_raw.decodeNewPayloadRequest": "newPayloadRequest",
-    "ssz_raw.decodeExecutionPayload": "executionPayload",
-    "ssz_raw.decodeExecutionRequests": "executionRequests",
-    "ssz_raw.decodeExecutionWitness": "executionWitness",
-    "ssz_raw.decodeChainConfig": "chainConfig",
-    "ssz_raw.decodeForkConfig": "forkConfig",
-    "ssz_raw.decodeForkActivation": "forkActivation",
-    "ssz_raw.decodeOptionalU64": "optionalU64",
-    "ssz_raw.decodeOptionalBlobSchedule": "optionalBlobSchedule",
-    "ssz_raw.decodeVersionedHashes": "versionedHashes",
-    "ssz_raw.decodeWithdrawals": "withdrawals",
-    "ssz_raw.decodeDepositRequests": "depositRequests",
-    "ssz_raw.decodeWithdrawalRequests": "withdrawalRequests",
-    "ssz_raw.decodeConsolidationRequests": "consolidationRequests",
-    "ssz_raw.decodePublicKeys": "publicKeys",
-    "ssz_raw.decodeByteListList": "byteListList",
-    "ssz_raw.requireCanonicalOffsets": "requireCanonicalOffsets",
-    "ssz_raw.requireU32Length": "requireU32Length",
-    "ssz_raw.readOffset": "readOffset",
-    "ssz_raw.readU32": "readU32",
-    "ssz_raw.readU64": "readU64",
-    "ssz_raw.readU256": "readU256",
-    "ssz_raw.readArray": "readArray",
-    "ssz_raw.bytesAt": "bytesAt",
-    "ssz_raw.hasExactErePrefix": "hasExactErePrefix",
-    "raw_allocator.zesu_raw_alloc": "rawAlloc",
-    "memcpy": "memcpy",
-    "memmove": "memmove",
-    "raw_decoder_root.zesu_raw_result": "rawResult",
-    "raw_decoder_root.zesu_raw_error": "rawError",
-    "raw_decoder_root.allocatorAlloc": "allocatorAlloc",
-    "raw_decoder_root.allocatorResize": "allocatorResize",
-    "raw_decoder_root.allocatorRemap": "allocatorRemap",
-    "raw_decoder_root.allocatorFree": "allocatorFree",
-    "raw_decoder_root.allocator": "allocatorCtor",
-}
-
-# ContractTag -> the domain group that owns its local proofs. This is presentation metadata for the
-# generated backlog, not a proof input.
-PROOF_GROUP = {
-    "optionalBlobSchedule": "blob-schedule",
-    "optionalU64": "leaves-options-runtime", "requireCanonicalOffsets": "leaves-options-runtime",
-    "requireU32Length": "leaves-options-runtime", "readOffset": "leaves-options-runtime",
-    "readU32": "leaves-options-runtime", "readU64": "leaves-options-runtime",
-    "readU256": "leaves-options-runtime", "readArray": "leaves-options-runtime",
-    "bytesAt": "leaves-options-runtime", "hasExactErePrefix": "leaves-options-runtime",
-    "rawAlloc": "leaves-options-runtime", "memcpy": "leaves-options-runtime",
-    "memmove": "leaves-options-runtime", "rawResult": "leaves-options-runtime",
-    "rawError": "leaves-options-runtime", "allocatorAlloc": "leaves-options-runtime",
-    "allocatorResize": "leaves-options-runtime", "allocatorRemap": "leaves-options-runtime",
-    "allocatorFree": "leaves-options-runtime", "allocatorCtor": "leaves-options-runtime",
-    "versionedHashes": "collections", "withdrawals": "collections",
-    "depositRequests": "collections", "withdrawalRequests": "collections",
-    "consolidationRequests": "collections", "publicKeys": "collections",
-    "byteListList": "collections",
-    "newPayloadRequest": "containers-and-decoders", "executionPayload": "containers-and-decoders",
-    "executionRequests": "containers-and-decoders", "executionWitness": "containers-and-decoders",
-    "chainConfig": "containers-and-decoders", "forkConfig": "containers-and-decoders",
-    "forkActivation": "containers-and-decoders", "decodeRaw": "containers-and-decoders",
-    "decode": "containers-and-decoders",
-    "zesuDecodeRaw": "exported-entrypoint",
-}
-
-# Human-readable rendering of each source function's step bound, for the MANIFEST.md view ONLY. This is
-# DOCUMENTATION, not a proof input: it is never emitted into GeneratedManifest.lean and no proof or
-# check consumes it. The authoritative source of every step bound is the Lean contract the row's
-# ContractTag selects through `functionContract` (BinaryFv/Zesu/Contracts/*.lean); this dict mirrors
-# those `stepBound` fields for the human backlog view, and must be kept in step with them by hand.
-# `|input|` is the input byte size, `|offsets|`/`|len|` an argument length, `N` a readArray width.
-STEP_BOUND_EXPR = {
-    "zesuDecodeRaw": "2·(16384 + 512·|input|) + 1024",
-    "decode": "2·(16384 + 512·|input|)",
-    "decodeRaw": "16384 + 512·|input|",
-    "newPayloadRequest": "8192 + 256·|input|",
-    "executionPayload": "4096 + 256·|input|",
-    "executionRequests": "1024 + 256·|input|",
-    "executionWitness": "1024 + 256·|input|",
-    "chainConfig": "2048",
-    "forkConfig": "1024",
-    "forkActivation": "512",
-    "optionalU64": "128",
-    "optionalBlobSchedule": "256",
-    "versionedHashes": "128 + 64·(|input|/32 + 1)",
-    "withdrawals": "128 + 256·(|input|/44 + 1)",
-    "depositRequests": "128 + 512·(|input|/192 + 1)",
-    "withdrawalRequests": "128 + 256·(|input|/76 + 1)",
-    "consolidationRequests": "128 + 256·(|input|/116 + 1)",
-    "publicKeys": "128 + 128·(|input|/65 + 1)",
-    "byteListList": "256 + 256·(|input|/4 + 1)",
-    "requireCanonicalOffsets": "32 + 32·|offsets|",
-    "requireU32Length": "32",
-    "readOffset": "64",
-    "readU32": "64",
-    "readU64": "96",
-    "readU256": "128",
-    "readArray": "32 + 4·N",
-    "bytesAt": "32",
-    "hasExactErePrefix": "64",
-    "rawAlloc": "128",
-    "memcpy": "64 + 8·|len|",
-    "memmove": "64 + 16·|len|",
-    "rawResult": "32",
-    "rawError": "16",
-    "allocatorAlloc": "128",
-    "allocatorResize": "8",
-    "allocatorRemap": "8",
-    "allocatorFree": "8",
-    "allocatorCtor": "16",
-}
-
-
-def step_bound_expr(tag, specialization):
-    """Human step-bound string for a source function, substituting the concrete readArray width for N."""
-    expr = STEP_BOUND_EXPR.get(tag)
-    if expr is None:
-        raise SystemExit(f"MANIFEST: tag {tag} has no step-bound expression")
-    if tag == "readArray" and specialization:
-        expr = expr.replace("N", specialization[0])
-    return expr
-
-
-def manifest_rows(p, bindings):
-    """One row per generated function instance, in function-instance-index order."""
-    function_instances = p["function_instances"]
-    by_id = {}
-    for i, function_instance in enumerate(function_instances):
-        by_id[(
-            function_instance["qualified"],
-            tuple(function_instance["specialization"]),
-            tuple(
-                (s["callerQualified"], s["line"], s["column"])
-                for s in function_instance["inlineStack"]
-            ),
-        )] = i
-    # Binding rows keyed by function-instance index, from the same effective table Lean validates.
-    brows = {}
-    for i, bs in enumerate(bindings.get("effective", [])):
-        for (name, kind, _reg, _value) in bs:
-            brows.setdefault(i, []).append(f"{name}:{kind}")
-    rows = []
-    for i, function_instance in enumerate(function_instances):
-        tag = CONTRACT_TAGS.get(function_instance["qualified"])
-        if tag is None:
-            raise SystemExit(
-                f"MANIFEST: function instance {i} `{function_instance['qualified']}` "
-                "has no source function tag"
-            )
-        proof_group = PROOF_GROUP.get(tag)
-        if proof_group is None:
-            raise SystemExit(f"MANIFEST: tag {tag} has no proof group")
-        calls = [
-            callee[1]
-            for callee in function_instance["externalCalls"]
-            if callee[0] == "function_instance"
-        ]
-        absorbed = [
-            callee[1]
-            for callee in function_instance["externalCalls"]
-            if callee[0] != "function_instance"
-        ]
-        rows.append({
-            "index": i,
-            "qualified": function_instance["qualified"],
-            "specialization": list(function_instance["specialization"]),
-            "tag": tag,
-            "kind": function_instance["kind"],
-            "parent": function_instance.get("parentIdx"),
-            "children": list(function_instance["children"]),
-            "externalCalls": calls,
-            "absorbed": absorbed,
-            "entryPc": function_instance["entryPc"],
-            "exitPcs": list(function_instance["exits"]),
-            "bindingRows": sorted(brows.get(i, [])),
-            "dependencies": sorted(set(list(function_instance["children"]) + calls)),
-            "theoremName": f"localContract_functionInstance{i}",
-            "proofGroup": proof_group,
-            "proofStatus": "pending",
-        })
-    # Manifest integrity, enforced at generation time: one row per function instance, one function instance per
-    # row, in index order, with distinct theorem names. Any omission, duplication or reorder aborts.
-    if len(rows) != len(function_instances):
-        raise SystemExit("MANIFEST: row count does not match function-instance count")
-    if [r["index"] for r in rows] != list(range(len(function_instances))):
-        raise SystemExit("MANIFEST: rows are not in function-instance-index order")
-    if len({r["index"] for r in rows}) != len(rows):
-        raise SystemExit("MANIFEST: duplicated function-instance index")
-    if len({r["theoremName"] for r in rows}) != len(rows):
-        raise SystemExit("MANIFEST: duplicated theorem name")
-    for r in rows:
-        if r["qualified"] != function_instances[r["index"]]["qualified"]:
-            raise SystemExit(
-                f"MANIFEST: row {r['index']} names the wrong function instance"
-            )
-        for d in r["dependencies"]:
-            if not (0 <= d < len(function_instances)):
-                raise SystemExit(
-                    f"MANIFEST: row {r['index']} depends on nonexistent function instance {d}"
-                )
-    return rows
-
-
-def emit_manifest_lean(p, rows):
-    def nats(xs): return "#[" + ", ".join(str(x) for x in xs) + "]"
-    def strs(xs): return "#[" + ", ".join(lean_str(x) for x in xs) + "]"
-    L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-manifest). DO NOT EDIT.",
-         "import GeneratedProgram", "",
-         "/-!", "# The function-instance manifest", "",
-         "One row per generated function instance, in function-instance-index order. Emitted from the same data as",
-         "`MANIFEST.md`, so the work-assignment view and the Lean-visible backlog cannot drift.",
-         "",
-         "UNTRUSTED, like every generated artifact: `GeneratedManifest.lean` in the proof tree checks",
-         "each row against `generatedProgram` and the handwritten catalog, in both directions.",
-         "",
-         "The numeric step bound is deliberately absent: it lives in the contract the row's",
-         "`contractTag` selects, and a copy here would be an unchecked second source for a",
-         "proof-relevant constant.",
-         "-/", "",
-         "namespace BinaryFv.Zesu.Elflings.Generated", "",
-         "open BinaryFv.Binary.Elfling", "",
-         "/-- One manifest row. `contractTag` is the constructor name of the `ContractTag` the proof",
-         "layer checks against `catalogEntryFor`; keeping it a `String` here is what stops the",
-         "generated file from importing the handwritten catalog. -/",
-         "structure ManifestRow where",
-         "  index : Nat",
-         "  id : FunctionInstanceId",
-         "  qualifiedName : String",
-         "  contractTag : String",
-         "  kind : String",
-         "  parent : Option Nat",
-         "  children : Array Nat",
-         "  externalCalls : Array Nat",
-         "  absorbed : Array Nat",
-         "  entryPc : Nat",
-         "  exitPcs : Array Nat",
-         "  bindingRows : Array String",
-         "  dependencies : Array Nat",
-         "  theoremName : String",
-         "  proofGroup : String",
-         "  proofStatus : String",
-         "deriving Repr, Inhabited, DecidableEq", "",
-         "/-- The complete manifest: exactly one row per generated function instance, in index order. -/",
-         "def generatedManifest : Array ManifestRow :=", "  #["]
-    items = []
-    for r in rows:
-        parent = "none" if r["parent"] is None else f'some {r["parent"]}'
-        items.append(
-            f'    {{ index := {r["index"]}, id := functionInstance{r["index"]}Id, '
-            f'qualifiedName := {lean_str(r["qualified"])}, contractTag := {lean_str(r["tag"])},\n'
-            f'      kind := {lean_str(r["kind"])}, parent := {parent}, '
-            f'children := {nats(r["children"])}, externalCalls := {nats(r["externalCalls"])},\n'
-            f'      absorbed := {nats(r["absorbed"])}, entryPc := {r["entryPc"]}, '
-            f'exitPcs := {nats(r["exitPcs"])},\n'
-            f'      bindingRows := {strs(r["bindingRows"])}, '
-            f'dependencies := {nats(r["dependencies"])},\n'
-            f'      theoremName := {lean_str(r["theoremName"])}, '
-            f'proofGroup := {lean_str(r["proofGroup"])}, '
-            f'proofStatus := {lean_str(r["proofStatus"])} }}')
-    L.append(",\n".join(items))
-    L += ["  ]", "", "end BinaryFv.Zesu.Elflings.Generated", ""]
-    return "\n".join(L)
-
-
-def emit_manifest_md(p, rows):
-    function_instances = p["function_instances"]
-    by_group = {}
-    for r in rows:
-        by_group.setdefault(r["proofGroup"], []).append(r)
-    by_source_function = {}
-    for r in rows:
-        key = r["qualified"] + ("[" + ",".join(r["specialization"]) + "]" if r["specialization"] else "")
-        by_source_function.setdefault(key, []).append(r)
-    M = ["# Function-instance manifest — local-proof backlog", "",
-         "GENERATED by `tools/generate_elfling_program.py`. Do not edit; regenerate.",
-         "",
-         "Emitted from the same rows as `GeneratedManifest.lean`, so this view and the Lean-visible",
-         "backlog cannot drift. The Lean side checks every row against `generatedProgram` and the",
-         "handwritten catalog in both directions.",
-         "",
-         "The **step bound** shown per source function is a human-readable mirror of that source function's Lean",
-         "contract bound; the authoritative source is the contract the row's `ContractTag` selects",
-         "through `functionContract` (`BinaryFv/Zesu/Contracts/*.lean`). It is documentation only —",
-         "not emitted into `GeneratedManifest.lean` and not consumed by any proof — so nothing here",
-         "introduces a second proof-relevant source for the bound. `|input|` is the input byte size.",
-         "",
-         f"**{len(rows)} function instances** across **{len(by_source_function)} source functions**.",
-         "",
-         "## By proof group", "",
-         "| group | function instances | source functions |", "|---|--:|--:|"]
-    for proof_group in sorted(by_group):
-        rs = by_group[proof_group]
-        source_functions = {r["qualified"] for r in rs}
-        M.append(f"| {proof_group} | {len(rs)} | {len(source_functions)} |")
-    M += ["", "## By source function", "",
-          "Each group is one source function; every function instance of it must be proved locally, and no",
-          "function instance inherits its sibling's proof.", ""]
-    for key in sorted(by_source_function):
-        rs = by_source_function[key]
-        bound = step_bound_expr(rs[0]["tag"], rs[0]["specialization"])
-        M += [f"### `{key}` — {len(rs)} function instance(s), proof group `{rs[0]['proofGroup']}`", "",
-              f"Step bound (from `functionContract`, human mirror): `{bound}`", "",
-              "| function instance | kind | entry | exits | deps | binding rows | theorem | status |",
-              "|--:|---|---|--:|---|---|---|---|"]
-        for r in rs:
-            deps = ",".join(str(d) for d in r["dependencies"]) or "—"
-            brs = ", ".join(f"`{b}`" for b in r["bindingRows"]) or "—"
-            M.append(f'| {r["index"]} | {r["kind"]} | `0x{r["entryPc"]:x}` | {len(r["exitPcs"])} | '
-                     f'{deps} | {brs} | `{r["theoremName"]}` | {r["proofStatus"]} |')
-        M.append("")
-    del function_instances
-    return "\n".join(M) + "\n"
 
 if __name__ == "__main__":
     main()

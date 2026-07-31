@@ -283,6 +283,46 @@ structure RawV4InputSlicesRep (state : State) (inputBase : Nat) (input : ByteArr
   witnessHeaders : InputSliceDescriptorArrayRep state inputBase input bases.witnessHeadersBase
     value.witness.headers
 
+/-! ## The chain-config representation
+
+These six predicates were moved here unchanged from `Containers.lean` (which imports this file) so
+that `RawV4FixedFieldsRep` below can state the root's chain config with `ChainConfigRep` instead of
+pinning only two of its words. Every existing use in `Containers.lean` still resolves. -/
+
+/-- A `?u64` (16 bytes): the `u64` payload at offset 0 and the discriminant byte at offset 8. When
+absent, only the discriminant is constrained; the payload bytes are undefined. -/
+def OptionU64Rep (state : State) (base : Nat) (value : Option UInt64) : Prop :=
+  match value with
+  | some v => Word64LERep state base v.toNat ∧ OptionTagRep state (base + 8) true
+  | none => OptionTagRep state (base + 8) false
+
+/-- A `RawBlobSchedule` (24 bytes): three consecutive little-endian `u64` fields. -/
+def BlobScheduleRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawBlobSchedule) : Prop :=
+  Word64LERep state base value.target.toNat ∧
+    Word64LERep state (base + 8) value.max.toNat ∧
+      Word64LERep state (base + 16) value.baseFeeUpdateFraction.toNat
+
+/-- A `?RawBlobSchedule` (32 bytes): the 24-byte payload at offset 0 and the discriminant at 24. -/
+def OptionBlobScheduleRep (state : State) (base : Nat) (value : Option BinaryFv.Specs.SSZ.RawBlobSchedule) :
+    Prop :=
+  match value with
+  | some v => BlobScheduleRep state base v ∧ OptionTagRep state (base + 24) true
+  | none => OptionTagRep state (base + 24) false
+
+/-- `RawForkActivation` (32 bytes): `block_number : ?u64` at 0, `timestamp : ?u64` at 16. -/
+def ForkActivationRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawForkActivation) : Prop :=
+  OptionU64Rep state base value.blockNumber ∧ OptionU64Rep state (base + 16) value.timestamp
+
+/-- `RawForkConfig` (72 bytes): `fork : u64` at 0, `activation` at 8, `blob_schedule : ?…` at 40. -/
+def ForkConfigRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawForkConfig) : Prop :=
+  Word64LERep state base value.fork.toNat ∧
+    ForkActivationRep state (base + 8) value.activation ∧
+      OptionBlobScheduleRep state (base + 40) value.blobSchedule
+
+/-- `RawChainConfig` (80 bytes): `chain_id : u64` at 0, `active_fork` at 8. -/
+def ChainConfigRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawChainConfig) : Prop :=
+  Word64LERep state base value.chainId.toNat ∧ ForkConfigRep state (base + 8) value.activeFork
+
 /-- Inline fixed vectors and scalar fields in the root's nested execution payload. -/
 structure RawV4FixedFieldsRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) : Prop where
   baseFeePerGas : BitVectorLERep state rootBase value.newPayloadRequest.executionPayload.baseFeePerGas
@@ -305,8 +345,40 @@ structure RawV4FixedFieldsRep (state : State) (rootBase : Nat) (value : BinaryFv
   excessBlobGas : Word64LERep state (rootBase + 120)
     value.newPayloadRequest.executionPayload.excessBlobGas.toNat
   slotNumber : Word64LERep state (rootBase + 144) value.newPayloadRequest.executionPayload.slotNumber.toNat
-  chainId : Word64LERep state (rootBase + 736) value.chainConfig.chainId.toNat
-  activeFork : Word64LERep state (rootBase + 744) value.chainConfig.activeFork.fork.toNat
+  /-- The complete chain config at `rootBase + 736`.
+
+  This replaces two narrower clauses that pinned only `chainId` (at `+736`) and `activeFork.fork` (at
+  `+744`). `ChainConfigRep` subsumes both verbatim as its first two components and additionally pins
+  `activeFork.activation` at `[752, 784)` and `activeFork.blobSchedule` at `[784, 816)`, after which
+  the `publicKeys` slice descriptor at `+816` ends exactly at the pinned 832-byte root size.
+
+  The narrower version left `activation` and `blobSchedule` completely unconstrained, so a single
+  state satisfied `RawV4Rep` for values differing in those fields. That made any *total* value
+  observer impossible: `RawV4Rep → observeRawV4? = some value` would have forced two different values
+  to be observed from one state. Strengthening here is what makes the observer well-posed. -/
+  chainConfig : ChainConfigRep state (rootBase + 736) value.chainConfig
+
+/-- **Regression for the observer under-determination fix.** The representation now pins the fork
+activation and the optional blob schedule, at the exact offsets the pinned ABI gives them. Before the
+`chainConfig` clause replaced the two narrower `chainId`/`activeFork.fork` clauses, neither of these
+was constrained anywhere in `RawV4Rep`, so one state represented values differing in those fields and
+no total value observer could exist. If someone narrows the clause again, this fails. -/
+theorem rawV4FixedFields_pins_fork_activation_and_blob_schedule (state : State) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
+    ForkActivationRep state (rootBase + 752) value.chainConfig.activeFork.activation ∧
+      OptionBlobScheduleRep state (rootBase + 784) value.chainConfig.activeFork.blobSchedule := by
+  refine ⟨?_, ?_⟩
+  · simpa [Nat.add_assoc] using representation.chainConfig.2.2.1
+  · simpa [Nat.add_assoc] using representation.chainConfig.2.2.2
+
+/-- The strengthened clause still gives back the two words the narrower version pinned, at the same
+addresses — so the change is a strict strengthening and nothing downstream lost a fact. -/
+theorem rawV4FixedFields_still_pins_chain_id_and_fork (state : State) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
+    Word64LERep state (rootBase + 736) value.chainConfig.chainId.toNat ∧
+      Word64LERep state (rootBase + 744) value.chainConfig.activeFork.fork.toNat := by
+  refine ⟨representation.chainConfig.1, ?_⟩
+  simpa [Nat.add_assoc] using representation.chainConfig.2.1
 
 /-- Native `RawV4` ownership representation: root allocation, all heap arrays, and borrowed slices.
 

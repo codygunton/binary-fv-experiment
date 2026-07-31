@@ -45,4 +45,36 @@ theorem runToSentinel_of_traceToSentinel (sentinel : BitVec 64) :
     rw [harith]
     exact ih f (by omega)
 
+/-- The same correspondence for the outcome-returning runner: a bundled trace that reaches the
+sentinel makes `runToOutcome` return `.reached (steps + count)` — never `.trapped` or `.exhausted`.
+The trace's `hne`/`hstep false` invariants are exactly what rule out the stall and exhaustion arms, so
+a real sentinel-terminated execution is classified as a reach, not collapsed into a rejection. -/
+theorem runToOutcome_of_traceToSentinel (sentinel : BitVec 64) :
+    ∀ (count fuel steps : Nat) (s s' : State),
+      TraceToSentinel sentinel steps count s s' → count < fuel →
+      Runs (runToOutcome sentinel fuel steps) s s' (.reached (steps + count)) := by
+  intro count fuel steps s s' htrace
+  induction htrace generalizing fuel with
+  | done fromStep s h =>
+    intro hfuel
+    obtain ⟨f, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+    have hread : Runs (readReg PC) s s sentinel := readReg_run s PC sentinel h
+    unfold runToOutcome
+    refine Runs.bind hread ?_
+    simp only [beq_self_eq_true, if_true]
+    rfl
+  | step fromStep count v s s' s'' hpc hne hstep hrest ih =>
+    intro hfuel
+    obtain ⟨f, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+    have hread : Runs (readReg PC) s s v := readReg_run s PC v hpc
+    have hvne : (v == sentinel) = false := beq_eq_false_iff_ne.mpr hne
+    unfold runToOutcome
+    refine Runs.bind hread ?_
+    simp only [hvne, Bool.false_eq_true, if_false]
+    refine Runs.bind hstep ?_
+    simp only [Bool.false_eq_true, if_false]
+    have harith : fromStep + (count + 1) = fromStep + 1 + count := by omega
+    rw [harith]
+    exact ih f (by omega)
+
 end BinaryFv.RiscV

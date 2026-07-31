@@ -1,26 +1,27 @@
 import BinaryFv.Zesu.Contracts.Catalog.Entries
+import BinaryFv.RiscV.Elfling.ProgramGeometry
 
 namespace BinaryFv.Zesu.Contracts
 
 open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV.Elfling
 
-/-! ## Typed per-instance dispatch -/
+/-! ## Typed per-function-instance dispatch -/
 
 /--
-Everything a per-instance obligation needs beyond the instance itself: the pinned environment, the
+Everything a per-function-instance obligation needs beyond the instance itself: the pinned environment, the
 allocator heap, the status slot, and the container/RawV4 result representations.
 
-Bundling these keeps `instanceObligation` a total function while letting each container assert its own
+Bundling these keeps `functionInstanceObligation` a total function while letting each container assert its own
 result layout. -/
 structure ContractParams where
   env : DecoderEnvironment
   heap : BinaryFv.Zesu.Runtime.BumpHeap
   /-- The pinned addresses of the three private decoder globals (`attempted`, 32-bit `last_status`,
-  optional `stored_result` pointer), read back through the exported accessors. This replaces the
+  and the inline optional `stored_result` object), read back through the exported accessors. This replaces the
   previous free public 64-bit `statusBase` slot, which the wrapper never writes. -/
   globals : DecoderGlobalsLayout
-  /-- The canonical buffer the exported `stored_result` pointer points at on success. -/
+  /-- The payload address returned by `zesu_raw_result` when `stored_result` is present. -/
   resultBuffer : Nat
   repForkActivation : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkActivation
   repForkConfig : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkConfig
@@ -31,62 +32,103 @@ structure ContractParams where
   repNewPayloadRequest : ContainerRepresentation BinaryFv.Specs.SSZ.RawNewPayloadRequest
   repRawV4 : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4
 
-/--
-The correctness obligation a single generated occurrence owes, selected by its source function `tag`.
+/-- One source function's handwritten contract with its argument and outcome types packaged alongside it.
 
-The entry PC and exit predicate come from the occurrence's generated data, never from an existential,
-so a proof cannot pick a convenient entry or exit. Every branch returns the `correctnessClaim` for
-exactly the source function the identity names; heterogeneous `Args`/`Result` types are erased to `Prop`
-here, which is why one typed dispatch can cover the whole catalog. -/
-def functionInstanceObligation (p : ContractParams) (instance_ : FunctionInstance) (tag : ContractTag) : Prop :=
-  let entry : BitVec 64 := BitVec.ofNat 64 instance_.entryPc
-  let exit : BitVec 64 → Prop := fun pc => instance_.isExit pc.toNat
+Heterogeneity is the whole reason this exists. The decoder's leaves produce
+`Except DecodeError _` over half a dozen argument records, while the exported wrapper produces
+`DecodeCallOutcome`; there is no single `FunctionInstanceContract Args Outcome` the catalog could return.
+Packaging the types lets **one** total dispatch select the real typed contract, after which the
+closed and the local obligation are both formed from that same selection — so they cannot drift, and
+neither can be stated for a contract the other does not use. Erasure to `Prop` happens only after a
+branch has chosen its contract, never before. -/
+structure TaggedContract where
+  Args : Type
+  Outcome : Type
+  contract : FunctionInstanceContract Args Outcome
+
+/--
+The typed contract a generated function instance's source function `tag` selects.
+
+This is the single point at which a function instance's identity becomes a handwritten contract. A source function
+whose contract is source-shaped is projected through `FunctionContract.toFunctionInstance`; the exported
+wrapper, whose outcome is richer than `Except`, supplies its `FunctionInstanceContract` directly. -/
+def sourceFunctionContract (p : ContractParams) (function : FunctionId) (tag : ContractTag) :
+    TaggedContract :=
   match tag with
   | .zesuDecodeRaw =>
-      correctnessClaimZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4 instance_ entry exit
-  | .decode => correctnessClaimDecode p.env p.repRawV4 instance_ entry exit
-  | .decodeRaw => correctnessClaimDecodeRaw p.env p.repRawV4 instance_ entry exit
-  | .newPayloadRequest =>
-      correctnessClaimNewPayloadRequest p.env p.repNewPayloadRequest instance_ entry exit
-  | .executionPayload =>
-      correctnessClaimExecutionPayload p.env p.repExecutionPayload instance_ entry exit
-  | .executionRequests =>
-      correctnessClaimExecutionRequests p.env p.repExecutionRequests instance_ entry exit
-  | .executionWitness =>
-      correctnessClaimExecutionWitness p.env p.repExecutionWitness instance_ entry exit
-  | .chainConfig => correctnessClaimChainConfig p.env p.repChainConfig instance_ entry exit
-  | .forkConfig => correctnessClaimForkConfig p.env p.repForkConfig instance_ entry exit
-  | .forkActivation => correctnessClaimForkActivation p.env p.repForkActivation instance_ entry exit
-  | .optionalU64 => correctnessClaimOptionalU64 p.env instance_ entry exit
-  | .optionalBlobSchedule => correctnessClaimOptionalBlobSchedule p.env instance_ entry exit
-  | .versionedHashes => correctnessClaimVersionedHashes p.env instance_ entry exit
-  | .withdrawals => correctnessClaimWithdrawals p.env instance_ entry exit
-  | .depositRequests => correctnessClaimDepositRequests p.env instance_ entry exit
-  | .withdrawalRequests => correctnessClaimWithdrawalRequests p.env instance_ entry exit
-  | .consolidationRequests => correctnessClaimConsolidationRequests p.env instance_ entry exit
-  | .publicKeys => correctnessClaimPublicKeys p.env instance_ entry exit
-  | .byteListList => correctnessClaimByteListList p.env instance_ entry exit
-  | .requireCanonicalOffsets => correctnessClaimRequireCanonicalOffsets p.env instance_ entry exit
-  | .requireU32Length => correctnessClaimRequireU32Length p.env instance_ entry exit
-  | .readOffset => correctnessClaimReadOffset p.env instance_ entry exit
-  | .readU32 => correctnessClaimReadU32 p.env instance_ entry exit
-  | .readU64 => correctnessClaimReadU64 p.env instance_ entry exit
-  | .readU256 => correctnessClaimReadU256 p.env instance_ entry exit
-  | .readArray =>
-      correctnessClaimReadArray p.env (readArrayWidthOf instance_.id.function) instance_ entry exit
-  | .bytesAt => correctnessClaimBytesAt p.env instance_ entry exit
-  | .hasExactErePrefix => correctnessClaimHasExactErePrefix p.env instance_ entry exit
-  | .rawAlloc => correctnessClaimAlloc p.env p.heap instance_ entry exit
-  | .memcpy => correctnessClaimMemcpy p.env instance_ entry exit
-  | .memmove => correctnessClaimMemmove p.env instance_ entry exit
-  | .rawResult =>
-      correctnessClaimRawResult p.env p.globals p.resultBuffer instance_ entry exit
-  | .rawError => correctnessClaimRawError p.env p.globals instance_ entry exit
-  | .allocatorAlloc => correctnessClaimAllocatorAlloc p.env p.heap instance_ entry exit
-  | .allocatorResize => correctnessClaimAllocatorResize p.env instance_ entry exit
-  | .allocatorRemap => correctnessClaimAllocatorRemap p.env instance_ entry exit
-  | .allocatorFree => correctnessClaimAllocatorFree p.env instance_ entry exit
-  | .allocatorCtor => correctnessClaimAllocatorCtor p.env instance_ entry exit
+      ⟨_, _, functionInstanceZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4
+                DecoderGlobalsModel.fresh⟩
+  | .decode => ⟨_, _, (contractDecode p.env p.repRawV4).toFunctionInstance⟩
+  | .decodeRaw => ⟨_, _, (contractDecodeRaw p.env p.repRawV4).toFunctionInstance⟩
+  | .newPayloadRequest => ⟨_, _, (contractNewPayloadRequest p.env p.repNewPayloadRequest).toFunctionInstance⟩
+  | .executionPayload => ⟨_, _, (contractExecutionPayload p.env p.repExecutionPayload).toFunctionInstance⟩
+  | .executionRequests => ⟨_, _, (contractExecutionRequests p.env p.repExecutionRequests).toFunctionInstance⟩
+  | .executionWitness => ⟨_, _, (contractExecutionWitness p.env p.repExecutionWitness).toFunctionInstance⟩
+  | .chainConfig => ⟨_, _, (contractChainConfig p.env p.repChainConfig).toFunctionInstance⟩
+  | .forkConfig => ⟨_, _, (contractForkConfig p.env p.repForkConfig).toFunctionInstance⟩
+  | .forkActivation => ⟨_, _, (contractForkActivation p.env p.repForkActivation).toFunctionInstance⟩
+  | .optionalU64 => ⟨_, _, (contractOptionalU64 p.env).toFunctionInstance⟩
+  | .optionalBlobSchedule => ⟨_, _, (contractOptionalBlobSchedule p.env).toFunctionInstance⟩
+  | .versionedHashes => ⟨_, _, (contractVersionedHashes p.env).toFunctionInstance⟩
+  | .withdrawals => ⟨_, _, (contractWithdrawals p.env).toFunctionInstance⟩
+  | .depositRequests => ⟨_, _, (contractDepositRequests p.env).toFunctionInstance⟩
+  | .withdrawalRequests => ⟨_, _, (contractWithdrawalRequests p.env).toFunctionInstance⟩
+  | .consolidationRequests => ⟨_, _, (contractConsolidationRequests p.env).toFunctionInstance⟩
+  | .publicKeys => ⟨_, _, (contractPublicKeys p.env).toFunctionInstance⟩
+  | .byteListList => ⟨_, _, (contractByteListList p.env).toFunctionInstance⟩
+  | .requireCanonicalOffsets => ⟨_, _, (contractRequireCanonicalOffsets p.env).toFunctionInstance⟩
+  | .requireU32Length => ⟨_, _, (contractRequireU32Length p.env).toFunctionInstance⟩
+  | .readOffset => ⟨_, _, (contractReadOffset p.env).toFunctionInstance⟩
+  | .readU32 => ⟨_, _, (contractReadU32 p.env).toFunctionInstance⟩
+  | .readU64 => ⟨_, _, (contractReadU64 p.env).toFunctionInstance⟩
+  | .readU256 => ⟨_, _, (contractReadU256 p.env).toFunctionInstance⟩
+  | .readArray => ⟨_, _, (contractReadArray p.env (readArrayWidthOf function)).toFunctionInstance⟩
+  | .bytesAt => ⟨_, _, (contractBytesAt p.env).toFunctionInstance⟩
+  | .hasExactErePrefix => ⟨_, _, (contractHasExactErePrefix p.env).toFunctionInstance⟩
+  | .rawAlloc => ⟨_, _, (contractAlloc p.env p.heap).toFunctionInstance⟩
+  | .memcpy => ⟨_, _, (contractMemcpy p.env).toFunctionInstance⟩
+  | .memmove => ⟨_, _, (contractMemmove p.env).toFunctionInstance⟩
+  | .rawResult => ⟨_, _, (contractRawResult p.env p.globals p.resultBuffer).toFunctionInstance⟩
+  | .rawError => ⟨_, _, (contractRawError p.env p.globals).toFunctionInstance⟩
+  | .allocatorAlloc => ⟨_, _, (contractAllocatorAlloc p.env p.heap).toFunctionInstance⟩
+  | .allocatorResize => ⟨_, _, (contractAllocatorResize p.env).toFunctionInstance⟩
+  | .allocatorRemap => ⟨_, _, (contractAllocatorRemap p.env).toFunctionInstance⟩
+  | .allocatorFree => ⟨_, _, (contractAllocatorFree p.env).toFunctionInstance⟩
+  | .allocatorCtor => ⟨_, _, (contractAllocatorCtor p.env).toFunctionInstance⟩
+
+/-- The run one function instance supplies to whoever splices it, at this contract's own types.
+
+Every component the splice needs is present and typed: the arguments it was called with, its step
+bound, a confined entered run of *exactly* `used` machine steps from its generated entry to one of
+its generated exits, and its exit binding at the outcome its `meaning` prescribes. Nothing here is a
+bare state relation — the binding handoff survives into the summary rather than being erased before
+it is proved. -/
+def TaggedContract.summary (tc : TaggedContract) (region exit : BitVec 64 → Prop)
+    (entry : BitVec 64) (fromStep used : Nat) (s s' : BinaryFv.RiscV.State) : Prop :=
+  ∃ args : tc.Args,
+    tc.contract.binding.entry args s ∧
+    used ≤ tc.contract.binding.stepBound args ∧
+    EnteredFunctionTrace region exit entry fromStep used s s' ∧
+    tc.contract.binding.exit args (tc.contract.spec.meaning args) s s'
+
+/-- The entry PC of a generated function instance, as a machine word. Read off the function instance, never
+existentially chosen. -/
+def functionInstanceEntryWord (functionInstance : FunctionInstance) : BitVec 64 :=
+  BitVec.ofNat 64 functionInstance.entryPc
+
+/--
+The **closed** correctness obligation a single generated function instance owes, selected by its source function
+`tag`: it implements its contract, confined to where it executes, entering at its generated entry and
+stopping at a generated exit.
+
+The entry PC, exit predicate and reachable address set all come from generated data, never from an
+existential, so a proof cannot pick a convenient entry, exit, or confinement. `reached` is the
+function instance's transfer-graph extent — see `FunctionInstanceExecutionPcs` for why an obligation confined to the
+function instance's own regions alone would be false for every function instance that calls out. -/
+def functionInstanceObligation (p : ContractParams) (functionInstance : FunctionInstance)
+    (reached : BitVec 64 → Prop) (tag : ContractTag) : Prop :=
+  (sourceFunctionContract p functionInstance.id.function tag).contract.ImplementsFunctionInstance functionInstance reached
+    (functionInstanceEntryWord functionInstance) (functionInstanceExitPred functionInstance)
 
 /-- The satisfiability obligation for a source function's contract, selected by the same `tag`.
 
@@ -133,7 +175,5 @@ def sourceFunctionContractSatisfiable (p : ContractParams) (function : FunctionI
   | .allocatorRemap => satisfiableAllocatorRemap p.env
   | .allocatorFree => satisfiableAllocatorFree p.env
   | .allocatorCtor => satisfiableAllocatorCtor p.env
-
-
 
 end BinaryFv.Zesu.Contracts

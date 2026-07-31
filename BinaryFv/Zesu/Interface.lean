@@ -1,28 +1,38 @@
-import BinaryFv.RiscV.ELF.Elf64
-import BinaryFv.Specs.SSZ.Decode
+import BinaryFv.Zesu.ExecutionTypes
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Runner
+
+/-!
+# The public execution API
+
+`execute` is the whole caller-facing surface of the SSZ proof: hand it the validated ELF and an
+input, and it answers with a `DecodeOutcome` or a specific `ExecutionError`. It is deliberately a
+one-line delegation — the artifact gate, the Sail state construction, the sentinel run, the exported
+accessor calls, and the result classification all live in source-named modules under
+`Entrypoints/ZesuDecodeRaw/`, where each has its own proofs.
+
+The types themselves are in `ExecutionTypes.lean` so those modules can consume them without
+importing this one.
+-/
 
 namespace BinaryFv.Zesu
 
 namespace RiscvSpec
 
-def IsExecutableLoadLayout (bytes : ByteArray) (elf : BinaryFv.RiscV.Elf64) : Prop :=
-  elf.bytes = bytes ∧ elf.loadSegments.size > 0 ∧
-  BinaryFv.RiscV.Elf64.loadSegmentsAreDisjoint elf.loadSegments.toList = true ∧
-  (elf.loadSegments.toList.any fun segment =>
-    segment.executable && segment.containsMemoryRange elf.header.entry 1) = true
+open BinaryFv.Specs.SSZ
 
-structure ValidatedElf where
-  bytes : ByteArray
-  elf : BinaryFv.RiscV.Elf64
-  parsed_ok : BinaryFv.RiscV.Elf64.parse bytes = .ok elf
-  layout : IsExecutableLoadLayout bytes elf
+/-- Run the pinned decoder on `input`.
 
-inductive ExecutionError where
-  | invalidArtifact | fuelExhausted | trapped | badReturn | malformedResult | outOfMemory | notImplemented
-  deriving DecidableEq, Repr
+Rejects a caller-supplied ELF that is not the pinned artifact and an input outside the theorem's
+bound, then builds the entry state, runs `zesu_decode_raw` to its return sentinel, executes
+`zesu_raw_result` and `zesu_raw_error`, and classifies what came back. Every failure mode keeps its
+own error; none of them becomes a rejection. -/
+def execute (binary : ValidatedElf) (input : ByteArray) : Except ExecutionError DecodeOutcome :=
+  Entrypoints.ZesuDecodeRaw.executeChecked binary input
 
-def execute (_binary : ValidatedElf) (_input : ByteArray) : Except ExecutionError BinaryFv.Specs.SSZ.DecodeOutcome :=
-  .error .notImplemented
+/-- The public API is exactly the runner's checked entry — stated so a future edit that quietly
+inserts a second decision point here has to break this. -/
+theorem execute_eq_executeChecked (binary : ValidatedElf) (input : ByteArray) :
+    execute binary input = Entrypoints.ZesuDecodeRaw.executeChecked binary input := rfl
 
 end RiscvSpec
 

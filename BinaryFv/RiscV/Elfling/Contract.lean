@@ -310,9 +310,9 @@ def LocallyImplements {Error Args Result : Type}
 The local obligation of a generated Elfling function instance: it implements its contract against summaries
 of the function instances below it, retiring its own steps only inside what it owns.
 
-`own` is generated data — the function instance's ranges plus the ranges of the uncataloged source functions it
-absorbs — so the local obligation cannot be relaxed by choosing a bigger address set. This is the
-proposition `LocalContractAssumptions` quantifies, and the one an execution proof discharges per function instance.
+`own` is generated data — the function instance's ranges plus the ranges of the uncataloged source
+functions it absorbs — so the local obligation cannot be relaxed by choosing a bigger address set.
+Hierarchical refinement theorems may use this form when a parent genuinely composes child summaries.
 -/
 def FunctionInstanceContract.LocallyImplementsFunctionInstance {Args Outcome : Type}
     (own : BitVec 64 → Prop) (entry : BitVec 64) (exit : BitVec 64 → Prop)

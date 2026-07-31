@@ -91,7 +91,7 @@ def catalogSemanticObligations : Prop :=
   readOffsetIsWidenedReadU32 ∧
   leafReadsOnlyFailInvalid ∧
   collectionsNeverUnknownFork ∧
-  emptyByteListListStillAllocates ∧
+  emptyByteListListIsEmptyArray ∧
   onlyForkConfigRaisesUnknownFork ∧
   fixedContainersNeverAllocate ∧
   allocatorVtableEntriesAreConstant ∧
@@ -104,7 +104,7 @@ def catalogSemanticObligations : Prop :=
 /-- The two known asymmetries between the binary and the oracle, conjoined so the navigation surfaces
 them rather than letting them read as oversights. -/
 def knownDivergences : Prop :=
-  forkErrorOrderingDiffers ∧ ereGateDivergesAboveU32
+  forkErrorOrderingDiffers ∧ ereRetryReachedAboveU32Gate
 
 /-! Compatibility vocabulary for the function-instance data-model migration. -/
 
@@ -113,4 +113,3 @@ abbrev everyFunctionInstanceIsCataloged := everyInstanceIsCataloged
 abbrev functionInstancesDispatchUniquely := instancesDispatchUniquely
 
 end BinaryFv.Zesu.Contracts
-

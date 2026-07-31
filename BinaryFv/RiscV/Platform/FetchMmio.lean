@@ -81,4 +81,114 @@ theorem fetch_mmio_address_excluded_of_before_layout (pc : BitVec 64)
       omega
     simp [noSigStart]
 
+/-! ## The MMIO dispatch needs no clause of its own
+
+`FetchMemoryNoMMIO` is a *run* rather than a register equation, so it is not obvious from its shape
+that a register-agreement clause carries it. It does, and this section proves it rather than arguing
+it.
+
+`within_mmio_readable` dispatches to three tests. `within_clint` and `within_sig` read **no**
+register at all — they compare the address against `plat_clint_base`/`plat_sig_base`, which are
+generated constants — so their results are the same at any two states whatsoever. `within_htif_readable`
+is `within_htif_writable`, which reads exactly one register, `htif_tohost_base`, and is a pure
+function of it and the address. So agreement on that single register is the whole of what the
+dispatch depends on, and `Agree platformPreserved` (which names it) transports the run.
+
+The consequence for the contract layer: the `noMMIO` premise of `tryStepRetRetires` is covered by the
+same clause as the other platform premises, and does **not** need a conjunct of its own. -/
+
+/-- The generated HTIF window test, as a pure function of the configured base and the address. -/
+def htifWindowFlag (pc : BitVec 64) (width : Nat) : Option physaddrbits → Bool
+  | none => false
+  | some base =>
+      zopz0zI_u pc (Sail.BitVec.addInt base (htif_tohost_size : Int)) &&
+        zopz0zK_u (Sail.BitVec.addInt pc (width : Int)) base
+
+private theorem runs_pure_congr {α : Type} {v r : α} {s t : State}
+    (h : Runs (pure v : SailM α) s s r) : Runs (pure v : SailM α) t t r := by
+  have hv : v = r := by
+    unfold Runs at h
+    exact congrArg (fun x => match x with | .ok y _ => y | .error _ _ => v) h
+  subst hv
+  rfl
+
+/-- The HTIF test is exactly `htifWindowFlag` at the configured base. -/
+theorem within_htif_readable_runs (pc : BitVec 64) (width : Nat) (base : Option physaddrbits)
+    (state : State) (baseRead : state.regs.get? htif_tohost_base = some base) :
+    Runs (within_htif_readable (physaddr.Physaddr pc) width) state state
+      (htifWindowFlag pc width base) := by
+  have read : Runs (readReg htif_tohost_base : SailM (RegisterType htif_tohost_base))
+      state state base := readReg_run state htif_tohost_base base baseRead
+  unfold within_htif_readable within_htif_writable
+  exact Runs.bind read (by cases base <;> rfl)
+
+private theorem within_clint_runs_at (state : State) (pc : BitVec 64) (width : Nat) :
+    ∃ flag : Bool, Runs (within_clint (physaddr.Physaddr pc) width) state state flag := by
+  unfold within_clint
+  simp only [plat_have_clint]
+  exact ⟨_, rfl⟩
+
+private theorem within_sig_runs_at (state : State) (pc : BitVec 64) (width : Nat) :
+    ∃ flag : Bool, Runs (within_sig (physaddr.Physaddr pc) width) state state flag := by
+  unfold within_sig
+  simp only [plat_have_sig]
+  exact ⟨_, rfl⟩
+
+/-- The CLINT layout test reads no register, so its result is state-independent. -/
+private theorem within_clint_congr {before after : State} {pc : BitVec 64} {width : Nat}
+    {flag : Bool} (h : Runs (within_clint (physaddr.Physaddr pc) width) before before flag) :
+    Runs (within_clint (physaddr.Physaddr pc) width) after after flag := by
+  unfold within_clint at h ⊢
+  simp only [plat_have_clint] at h ⊢
+  exact runs_pure_congr h
+
+/-- The signature layout test reads no register either. -/
+private theorem within_sig_congr {before after : State} {pc : BitVec 64} {width : Nat}
+    {flag : Bool} (h : Runs (within_sig (physaddr.Physaddr pc) width) before before flag) :
+    Runs (within_sig (physaddr.Physaddr pc) width) after after flag := by
+  unfold within_sig at h ⊢
+  simp only [plat_have_sig] at h ⊢
+  exact runs_pure_congr h
+
+/--
+**`FetchMemoryNoMMIO` transports across a call that preserves `htif_tohost_base`.**
+
+The `none` branch is not decoration: if the register were absent the generated read would throw, so a
+state that satisfies the predicate at all has it, and the transport never needs presence as a
+separate hypothesis.
+-/
+theorem fetchMemoryNoMMIO_of_agree {before after : State} {pc : BitVec 64}
+    (agree : Agree platformPreserved before after) (h : FetchMemoryNoMMIO before pc) :
+    FetchMemoryNoMMIO after pc := by
+  have baseAgrees : after.regs.get? htif_tohost_base = before.regs.get? htif_tohost_base :=
+    platformPreserved_htifBase agree
+  unfold FetchMemoryNoMMIO within_mmio_readable at h ⊢
+  simp only [get_config_rvfi, Bool.false_eq_true, ↓reduceIte] at h ⊢
+  obtain ⟨clint, clintRuns⟩ := within_clint_runs_at before pc 4
+  obtain ⟨sig, sigRuns⟩ := within_sig_runs_at before pc 4
+  have afterClint := runs_bind_inv clintRuns h
+  have afterSig := runs_bind_inv sigRuns afterClint
+  obtain ⟨base, baseRead⟩ : ∃ base, before.regs.get? htif_tohost_base = some base := by
+    cases hb : before.regs.get? htif_tohost_base with
+    | some base => exact ⟨base, rfl⟩
+    | none =>
+      exfalso
+      unfold within_htif_readable within_htif_writable Runs at afterSig
+      simp [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
+        EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf,
+        EStateM.instMonadExceptOfOfBacktrackable, getThe, hb] at afterSig
+      exact EStateM.Result.noConfusion afterSig
+  have afterHtif := runs_bind_inv (within_htif_readable_runs pc 4 base before baseRead) afterSig
+  exact Runs.bind (within_clint_congr clintRuns)
+    (Runs.bind (within_sig_congr sigRuns)
+      (Runs.bind (within_htif_readable_runs pc 4 base after (baseAgrees.trans baseRead))
+        (runs_pure_congr afterHtif)))
+
+/-- The layout-and-state form transports too, which is the shape a runner that pins
+`htif_tohost_base = none` at its entry state actually carries. -/
+theorem fetchMMIOStateLayoutExcluded_of_agree {before after : State} {pc : BitVec 64}
+    (agree : Agree platformPreserved before after) (h : FetchMMIOStateLayoutExcluded before pc) :
+    FetchMMIOStateLayoutExcluded after pc :=
+  ⟨h.1, (platformPreserved_htifBase agree).trans h.2⟩
+
 end BinaryFv.RiscV
