@@ -11,10 +11,9 @@ import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramGeometry
 
 `ScopedTrace.callStep` consumes a `CallTransfer region …` whose `region` is, in
 `routineLocalObligation`, the caller's *owned* address set (`functionInstanceOwnPcs`). Its `retInRegion`
-field asks that set to contain `retPc` — the pc the callee summary stopped at. Under the canonical
-child-summary relation a summary always stops on one of the callee's generated exits
-(`SyntheticUnitProbe.callTransfer_forces_calleeExit_in_own`). So `callStep` can only fire where the
-caller's owned set contains a callee exit pc.
+field asks that set to contain `retPc` — the pc the callee summary stopped at. A summary that stops
+on the callee's generated exit can therefore be consumed only where the caller's owned set contains
+that exit pc.
 
 That holds for an inlined child (its regions sit inside the parent's) and fails for a separately
 emitted callee. The counts below decide which is which on the canonical program, and they exhibit the
@@ -24,6 +23,7 @@ check going *both* ways: `127` inline pairs pass, `25` external-call pairs fail.
 namespace BinaryFv.SSZ.Zesu.Validation.CallStepRetInRegion
 
 open BinaryFv.Binary.Elfling
+open BinaryFv.RiscV.Elfling
 open BinaryFv.SSZ.Zesu.Contracts
 open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram)
 

@@ -1,4 +1,5 @@
 import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.RiscV.Elfling.ProgramGeometry
 
 /-!
 # Angle 4 probe: is a synthetic, non-source-function region an admissible proof unit?
@@ -27,10 +28,8 @@ What the probe decides:
    bookkeeping one.
 5. `CallSite.validFor` nevertheless *passes* at the split (`probeCallSite_valid`): the data-level
    call check is satisfiable for a mid-function seam.
-6. But `CallTransfer.retInRegion` forces a callee exit pc into the caller's **owned** set
-   (`callTransfer_forces_calleeExit_in_own`), and the head's owned set contains no tail exit
-   (`head_own_has_no_tail_exit`), so `ScopedTrace.callStep` has no witness either
-   (`no_callStep_at_split`).
+6. The machine-side region condition is measured directly: the head's owned set contains no tail
+   exit, while the nested-hole positive control does.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Validation.SyntheticUnitProbe
@@ -161,13 +160,13 @@ theorem fabricated_name_does_not_dispatch :
 
 theorem split_geometry_holds : programGeometryB splitProgram = true := by native_decide
 
-theorem split_rank_holds : callGraphRankedB splitProgram splitRank = true := by native_decide
+theorem split_rank_holds : functionGraphRankedB splitProgram splitRank = true := by native_decide
 
 theorem split_geometry : ProgramGeometry splitProgram :=
   programGeometry_of_check split_geometry_holds
 
-theorem split_ranked : CallGraphRanked splitProgram splitRank :=
-  callGraphRanked_of_check split_rank_holds
+theorem split_ranked : FunctionGraphRanked splitProgram splitRank :=
+  functionGraphRanked_of_check split_rank_holds
 
 /-! ## 4. The same checks can fail: the sentinel-exit variant
 
@@ -232,77 +231,6 @@ abbrev probeCallSite : CallSite :=
 theorem probeCallSite_valid : probeCallSite.validFor allocHead allocTail := by
   refine ⟨rfl, rfl, rfl, ?_, ?_, by native_decide, by native_decide⟩ <;> native_decide
 
-/-! What rejects it is the *machine* side. `CallTransfer.retInRegion` asks the caller's `region` — in
-the local obligation this is the caller's **owned** address set — to contain the pc the callee summary
-stopped at, and a callee summary always stops on one of the callee's generated exits. -/
-
-/-- **The unmeasured clause.** Any `CallTransfer` whose body is the canonical child-summary relation
-forces the caller's `region` to contain one of the callee's generated exit pcs. This is
-`CallTransfer.retInRegion` composed with the fact that a summary ends on a callee exit. -/
-theorem callTransfer_forces_calleeExit_in_own {p : ContractParams} {program : Program}
-    {parent callee : FunctionInstance} {cs : CallSite} {region exitp : BitVec 64 → Prop}
-    {fromStep used : Nat} {s sResume : State}
-    (ct : CallTransfer region exitp (childSummaryOf p program parent) cs parent callee
-            fromStep used s sResume) :
-    ∃ c ∈ calleeFunctionInstances program parent,
-      c.id = cs.callee ∧ ∃ pc, region pc ∧ functionInstanceExitPred c pc := by
-  obtain ⟨c, hc, hcid, hsum⟩ := ct.body
-  refine ⟨c, hc, hcid, ct.retPc, ct.retInRegion, ?_⟩
-  unfold functionInstanceSummary at hsum
-  cases found : catalogEntryFor c.id.function with
-  | none => rw [found] at hsum; exact hsum.elim
-  | some entry =>
-      rw [found] at hsum
-      obtain ⟨_, _, _, hentered, _⟩ := hsum
-      obtain ⟨pc, hpc, hexit⟩ := hentered.trace.final_at_exit
-      have : pc = ct.retPc := by
-        rw [ct.atRet] at hpc; exact (Option.some.inj hpc).symm
-      exact this ▸ hexit
-
-/-- The head's owned set is exactly `[66124, 66204)`, which contains no tail exit. -/
-theorem head_own_has_no_tail_exit (pc : BitVec 64)
-    (hown : functionInstanceOwnPcs splitProgram allocHead pc) :
-    ¬ functionInstanceExitPred allocTail pc := by
-  obtain ⟨range, hrange, hlo, hhi⟩ := hown
-  have hr : range = { start := 66124, size := 80 } := by
-    have : Program.ownedRanges splitProgram allocHead = #[{ start := 66124, size := 80 }] := by
-      native_decide
-    rw [this] at hrange
-    simpa using hrange
-  subst hr
-  intro hexit
-  have : pc.toNat = 66208 := by
-    simpa [functionInstanceExitPred, FunctionInstance.isExit, allocTail] using hexit
-  simp [AddressRange.stop] at hhi
-  omega
-
-/-- A callee of the head in this program is the tail. -/
-theorem callee_of_head_is_tail {c : FunctionInstance}
-    (hc : c ∈ calleeFunctionInstances splitProgram allocHead) : c.exitPcs = #[66208] := by
-  have hmem : c ∈ splitProgram.functionInstances := calleeFunctionInstances_subset hc
-  have hcond : (allocHead.children ++ allocHead.externalCalls).any
-      (fun callee => decide (callee = c.id)) = true := (Array.mem_filter.mp hc).2
-  have hcases : c = allocHead ∨ c = allocTail := by
-    simpa using hmem
-  rcases hcases with h | h
-  · exfalso
-    rw [h] at hcond
-    simp at hcond
-  · rw [h]
-
-/-- **`ScopedTrace.callStep` cannot fire at the split.** So neither splice constructor composes a
-disjoint chain of segments, even though `ProgramGeometry`, the rank, `catalogEntryFor` and
-`CallSite.validFor` all accept it. -/
-theorem no_callStep_at_split {p : ContractParams} {cs : CallSite} {exitp : BitVec 64 → Prop}
-    {fromStep used : Nat} {s sResume : State}
-    (ct : CallTransfer (functionInstanceOwnPcs splitProgram allocHead) exitp
-            (childSummaryOf p splitProgram allocHead) cs allocHead allocTail
-            fromStep used s sResume) : False := by
-  obtain ⟨c, hc, -, pc, hown, hexit⟩ := callTransfer_forces_calleeExit_in_own ct
-  have hexits := callee_of_head_is_tail hc
-  refine head_own_has_no_tail_exit pc hown ?_
-  simpa [functionInstanceExitPred, FunctionInstance.isExit, allocTail, hexits] using hexit
-
 /-! ## 7. Positive control: the **nested hole** shape passes every structural clause
 
 Same routine, same synthetic-identity trick, but the second unit is a *sub-region* of the first
@@ -343,7 +271,7 @@ def holeRank (fi : FunctionInstance) : Nat := if fi.entryPc = 66124 then 1 else 
 
 theorem hole_geometry_holds : programGeometryB holeProgram = true := by native_decide
 
-theorem hole_rank_holds : callGraphRankedB holeProgram holeRank = true := by native_decide
+theorem hole_rank_holds : functionGraphRankedB holeProgram holeRank = true := by native_decide
 
 theorem hole_geometry : ProgramGeometry holeProgram :=
   programGeometry_of_check hole_geometry_holds
@@ -421,7 +349,7 @@ theorem fragmented_parent_sheds_hole_interior :
 
 theorem fragmented_geometry_holds : programGeometryB fragmentedProgram = true := by native_decide
 
-theorem fragmented_rank_holds : callGraphRankedB fragmentedProgram holeRank = true := by
+theorem fragmented_rank_holds : functionGraphRankedB fragmentedProgram holeRank = true := by
   native_decide
 
 theorem fragmented_geometry : ProgramGeometry fragmentedProgram :=

@@ -1,5 +1,6 @@
 import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramValidation
+import BinaryFv.RiscV.Elfling.ProgramGeometry
 import GeneratedProgram
 
 /-!
@@ -71,12 +72,12 @@ verifies on the real data. -/
 def generatedRank (functionInstance : FunctionInstance) : Nat :=
   (Program.transferClosure generatedProgram functionInstance.id).size
 
-theorem callGraphRanked_check : callGraphRankedB generatedProgram generatedRank = true := by
+theorem callGraphRanked_check : functionGraphRankedB generatedProgram generatedRank = true := by
   native_decide
 
 /-- **The generated call/inline graph is acyclic.** -/
-theorem generated_call_graph_ranked : CallGraphRanked generatedProgram generatedRank :=
-  callGraphRanked_of_check callGraphRanked_check
+theorem generated_call_graph_ranked : FunctionGraphRanked generatedProgram generatedRank :=
+  functionGraphRanked_of_check callGraphRanked_check
 
 /-- No function instance is among its own dependencies. A direct consequence of the rank, recorded
 separately because it is the specific anti-circularity property the plan asks for. -/
