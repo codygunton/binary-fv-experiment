@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Deterministic ELF/DWARF/CFG -> Elfling Program generator (milestone 4, generator+emission chunk).
+Deterministic ELF/DWARF/CFG -> Elfling generator (milestone 4, generator+emission chunk).
 
 Reads the validated DWARF sidecars (decoder/allocator/sink built strip=false; runtime built -g, each
 byte-identical to the canonical stripped object), enumerates every emitted subprogram and every
 inlined_subroutine, maps object-relative ranges to canonical-ELF PCs via the linker-map bases,
-resolves readArray widths from DWARF call_line -> pinned source, matches occurrences to live catalog
+resolves readArray widths from DWARF call_line -> pinned source, matches function instances to live catalog
 FunctionIds, folds non-cataloged glue into the nearest cataloged ancestor (glue PCs already lie
 inside that ancestor's ranges), builds the inline nesting from the cataloged-ancestor chain, and
-emits deterministic JSON, a generated Lean `Program` module, and a Markdown source/function/CFG index.
+emits deterministic JSON, a generated Lean `Elfling` module, and a Markdown source/function/CFG index.
 
 Determinism: DWARF DIE order is fixed; ranges verbatim; PC map is a per-object constant add; catalog
 match is by pinned name/width; output ordering is sorted. The Nix derivation runs it twice and
@@ -166,7 +166,7 @@ def decl_line_of(d, declline_of_off):
         return declline_of_off.get(attr_ref(d.attrs["DW_AT_abstract_origin"]), 0)
     return 0
 
-def occ_name(d, name_of_off):
+def function_instance_name(d, name_of_off):
     if d.tag == "DW_TAG_subprogram":
         nm = d.attrs.get("DW_AT_linkage_name") or d.attrs.get("DW_AT_name")
         return attr_name(nm) if nm is not None else None
@@ -303,20 +303,20 @@ def reachable_witnesses(entry, insns):
                 dist[t] = dist[a] + 1; pred[t] = a; q.append(t)
     return [{"addr": a, "distance": dist[a], "predecessor": pred[a]} for a in sorted(dist)]
 
-def compute_occurrence_cfg(occ_sorted, insns):
-    """Fill each occurrence with generated CFG data proposed from the disassembly:
-      exits          — PCs whose control leaves the occurrence's regions (return/terminal or a target
+def compute_function_instance_cfg(function_instances_sorted, insns):
+    """Fill each function instance with generated CFG data proposed from the disassembly:
+      exits          — PCs whose control leaves the function instance's regions (return/terminal or a target
                        outside the regions); the real exits, never `max(endpoints)`;
-      blocks         — an exact basic-block partition of the occurrence's regions, split at fragment
+      blocks         — an exact basic-block partition of the function instance's regions, split at fragment
                        starts, branch/jump/call/terminal successors, and in-region branch targets;
       edges          — every direct successor edge from a DEEPEST-owned PC (each edge attributed once);
-      externalCalls  — resolved call sites DEEPEST-owned by the occurrence, each -> the entry PC of the
-                       emitted/excluded occurrence it targets (Q1: deepest-inline owner, emitted callee).
+      externalCalls  — resolved call sites DEEPEST-owned by the function instance, each -> the entry PC of the
+                       emitted/excluded function instance it targets (Q1: deepest-inline owner, emitted callee).
     Returns entry_to_callee so unresolved call targets can be surfaced as defects."""
-    region_pc_sets = [set(region_pcs(o["regions"])) for o in occ_sorted]
-    for i, o in enumerate(occ_sorted):
+    region_pc_sets = [set(region_pcs(function_instance["regions"])) for function_instance in function_instances_sorted]
+    for i, function_instance in enumerate(function_instances_sorted):
         children_pcs = set()
-        for c in o["children"]:
+        for c in function_instance["children"]:
             children_pcs |= region_pc_sets[c]
         R = region_pc_sets[i]
         owned = R - children_pcs
@@ -327,7 +327,7 @@ def compute_occurrence_cfg(occ_sorted, insns):
             kind, tgts, _ = classify(pc, insns)
             if kind in ('return', 'terminal') or any(t not in R for t in tgts):
                 exits.append(pc)
-        o["exits"] = exits
+        function_instance["exits"] = exits
 
         edges = []
         for pc in sorted(owned):
@@ -335,15 +335,15 @@ def compute_occurrence_cfg(occ_sorted, insns):
             _, tgts, _ = classify(pc, insns)
             for t in tgts:
                 edges.append({"source": pc, "target": t})
-        o["edges"] = edges
+        function_instance["edges"] = edges
 
     return region_pc_sets
 
-def occurrence_blocks(o, insns):
-    """Exact basic-block partition of the occurrence's regions (Q2): every region PC in exactly one
+def function_instance_blocks(function_instance, insns):
+    """Exact basic-block partition of the function instance's regions (Q2): every region PC in exactly one
     block, blocks contiguous within a single fragment, no gaps/overlaps."""
     blocks = []
-    for r in o["regions"]:
+    for r in function_instance["regions"]:
         lo, hi = r["start"], r["start"] + r["size"]
         leaders = {lo}
         for pc in range(lo, hi, 4):
@@ -361,17 +361,17 @@ def occurrence_blocks(o, insns):
             blocks.append({"start": a, "size": b - a})
     return blocks
 
-def sibling_overlap_defects(occ_sorted):
-    """Attribution defects decidable from the inline tree: two occurrences claiming a common PC without
+def sibling_overlap_defects(function_instances_sorted):
+    """Attribution defects decidable from the inline tree: two function instances claiming a common PC without
     one being inlined within the other. Inline nesting legitimately overlaps (a child's PCs lie inside
     its parent's), so ancestor/descendant pairs are excluded; anything else sharing a PC is ambiguous
     ownership the deepest-inline rule cannot resolve, surfaced as `overlappingOwnership` rather than
-    dropped. Pure over the occurrence list (no ELF/DWARF access) so it is directly unit-testable."""
-    ancestors = [set() for _ in occ_sorted]
-    for i, r in enumerate(occ_sorted):
+    dropped. Pure over the function instance list (no ELF/DWARF access) so it is directly unit-testable."""
+    ancestors = [set() for _ in function_instances_sorted]
+    for i, r in enumerate(function_instances_sorted):
         k = r["parentIdx"]
         while k is not None:
-            ancestors[i].add(k); k = occ_sorted[k]["parentIdx"]
+            ancestors[i].add(k); k = function_instances_sorted[k]["parentIdx"]
     def overlap_addr(a, b):
         for r in a["regions"]:
             for q in b["regions"]:
@@ -379,13 +379,13 @@ def sibling_overlap_defects(occ_sorted):
                     return max(r["start"], q["start"])
         return None
     out = []
-    for i in range(len(occ_sorted)):
-        for j in range(i+1, len(occ_sorted)):
+    for i in range(len(function_instances_sorted)):
+        for j in range(i+1, len(function_instances_sorted)):
             if j in ancestors[i] or i in ancestors[j]: continue
-            o = overlap_addr(occ_sorted[i], occ_sorted[j])
-            if o is not None:
-                out.append({"kind":"overlappingOwnership", "address":o, "firstIdx":i, "secondIdx":j,
-                            "first":occ_sorted[i]["qualified"], "second":occ_sorted[j]["qualified"]})
+            overlap_address = overlap_addr(function_instances_sorted[i], function_instances_sorted[j])
+            if overlap_address is not None:
+                out.append({"kind":"overlappingOwnership", "address":overlap_address, "firstIdx":i, "secondIdx":j,
+                            "first":function_instances_sorted[i]["qualified"], "second":function_instances_sorted[j]["qualified"]})
     return out
 
 # ---- Decoder-global extraction -----------------------------------------------------------------
@@ -476,6 +476,192 @@ def read_runtime_globals(readelf, elf):
     if missing: raise SystemExit(f"runtime globals missing from ELF symbol table: {missing}")
     return [(n, found[n][0], found[n][1]) for n in RUNTIME_GLOBAL_NAMES]
 
+# ---- Per-function instance ABI/binding extraction (from DWARF .debug_loc) ------------------------------
+# Every function instance's formal parameters have an entry-time location — the register, stack slot, or
+# memory the argument lives in when the function instance is entered. Emitted function instances carry their real
+# (optimized) ABI; inlined function instances carry function instance-specific locations that may not be the source
+# ABI. Both are resolved from `.debug_loc`, which in this relocatable object shares the object-relative
+# PC space of the DIE ranges (verified: a loclist entry begins at the same offset as its function instance's
+# range). An argument with no location valid at entry is a first-class `unresolved` binding.
+
+def decode_loc_expr(expr):
+    """A single DWARF location expression -> (kind, reg, offset).
+    kind in {reg, fbreg, addr, breg, const, other}; reg is a DWARF/RISC-V x-register number (0-31)."""
+    m = re.match(r'DW_OP_reg(\d+)\b', expr)
+    if m: return ("reg", int(m.group(1)), 0)
+    m = re.match(r'DW_OP_fbreg:\s*(-?\d+)', expr)
+    if m: return ("fbreg", -1, int(m.group(1)))     # reg filled from the frame base by the caller
+    m = re.match(r'DW_OP_addr\s+0x([0-9a-f]+)', expr)
+    if m: return ("addrValue" if "stack_value" in expr else "addr", -1, int(m.group(1), 16))
+    m = re.match(r'DW_OP_breg(\d+)\s*\([^)]*\):\s*(-?\d+)', expr)
+    if m:
+        return ("bregValue" if "stack_value" in expr else "breg",
+                int(m.group(1)), int(m.group(2)))
+    # Preserve the value of a genuine constant.  Merely calling every stack-value expression
+    # `const` loses information: DWARF also uses DW_OP_stack_value for register-plus-offset values.
+    m = re.fullmatch(r'DW_OP_lit(\d+);\s*DW_OP_stack_value', expr)
+    if m: return ("const", -1, int(m.group(1)))
+    m = re.fullmatch(r'DW_OP_const[us]:\s*(-?\d+);\s*DW_OP_stack_value', expr)
+    if m: return ("const", -1, int(m.group(1)))
+    return ("other", -1, 0)
+
+def parse_debug_loc(readelf, obj):
+    """loclist-key -> [(begin, end, expr)] over `.debug_loc`. A loclist is keyed by the offset of its
+    first entry; entries accumulate until `<End of list>`. PCs are object-relative."""
+    txt = subprocess.run([readelf, "--debug-dump=loc", obj], capture_output=True, text=True).stdout
+    locs, key = {}, None
+    for ln in txt.splitlines():
+        m = re.match(r'^\s*([0-9a-f]{8})\s+([0-9a-f]{16})\s+([0-9a-f]{16})\s+\((.*)\)\s*$', ln)
+        if m:
+            off, begin, end, expr = int(m.group(1),16), int(m.group(2),16), int(m.group(3),16), m.group(4)
+            if key is None: key = off
+            locs.setdefault(key, []).append((begin, end, expr))
+        elif re.search(r'<End of list>', ln):
+            key = None
+    return locs
+
+def frame_base_reg_of(d):
+    """The x-register the function instance's frame is based on, from the enclosing concrete subprogram's
+    `DW_AT_frame_base` (a `DW_OP_regN`); -1 if it is the CFA or otherwise not a plain register."""
+    p = d
+    while p is not None:
+        fb = p.attrs.get("DW_AT_frame_base")
+        if fb is not None:
+            m = re.search(r'DW_OP_reg(\d+)\b', fb)
+            return int(m.group(1)) if m else -1
+        p = p.parent
+    return -1
+
+def resolve_binding(loc_attr, locs, function_instance_ranges, frame_reg):
+    """(kind, reg, offset) of one parameter over the function instance. Prefer the location valid exactly at
+    the entry PC; else the earliest location overlapping the function instance's ranges; else `callerProvided`
+    (the optimizer emitted no location — the argument flows from the caller). `fbreg` is rewritten to
+    the enclosing frame-base register. `unresolved` is reserved for an undecodable expression."""
+    def finish(kind, register, value):
+        if kind == "other": return ("unresolved", register, value)
+        return (kind, frame_reg if kind == "fbreg" else register, value)
+    entry_obj = function_instance_ranges[0][0]
+    if "location list" in loc_attr:
+        entries = locs.get(int(loc_attr.split()[0], 0), [])
+        covering = [x for (b, e, x) in entries if b <= entry_obj < e]
+        if covering: return finish(*decode_loc_expr(covering[0]))
+        overlap = sorted([(b, x) for (b, e, x) in entries
+                          if any(b < re2 and rb < e for (rb, re2) in function_instance_ranges)])
+        if overlap: return finish(*decode_loc_expr(overlap[0][1]))
+        return ("callerProvided", -1, 0)
+    m = re.search(r'\((DW_OP_[^)]*(?:\([^)]*\)[^)]*)*)\)\s*$', loc_attr)   # inline "N byte block: .. (DW_OP_..)"
+    if m: return finish(*decode_loc_expr(m.group(1)))
+    return ("callerProvided", -1, 0)
+
+def function_instance_bindings(d, dies, name_of_off, locs, function_instance_ranges):
+    """The entry-time (name, kind, reg, offset) of every direct formal parameter of function instance `d`.
+    A parameter with no `DW_AT_location` is `callerProvided` — never silently the source ABI."""
+    frame_reg = frame_base_reg_of(d)
+    out = []
+    for i, c in enumerate(dies):
+        if c.parent is not d or c.tag != "DW_TAG_formal_parameter": continue
+        nm = c.attrs.get("DW_AT_name")
+        pname = attr_name(nm) if nm is not None else (
+            name_of_off.get(attr_ref(c.attrs["DW_AT_abstract_origin"]), f"arg{i}")
+            if "DW_AT_abstract_origin" in c.attrs else f"arg{i}")
+        loc = c.attrs.get("DW_AT_location")
+        if loc is None:
+            out.append((pname, "callerProvided", -1, 0)); continue
+        out.append((pname, *resolve_binding(loc, locs, function_instance_ranges, frame_reg)))
+    return out
+
+# The pinned Zig call sites recover values that optimized DWARF omits.  These are deliberately
+# narrow: only the reader chain used by this decoder and the emitted C memmove ABI are accepted.
+# A new missing-location shape fails generation instead of acquiring a guessed source ABI.
+READER_ARG_INDEX = {
+    "ssz_raw.readOffset": {"offset": 1},
+    "ssz_raw.readU32": {"offset": 1},
+    "ssz_raw.readU64": {"offset": 1},
+    "ssz_raw.readU256": {"offset": 1},
+    "ssz_raw.readArray": {"offset": 2},
+    "ssz_raw.bytesAt": {"offset": 1, "len": 2},
+}
+
+def source_call_args(srclines, line, column):
+    """Top-level argument strings for the call beginning at DWARF line/column.
+
+    Zig call sites in the reader chain are small, but some span lines.  Start at the DWARF column,
+    find the first `(`, then split commas while tracking nested (), [], and {}.  Strings do not occur
+    in these calls; rejecting an unterminated call is safer than guessing.
+    """
+    if line <= 0 or line > len(srclines): return None
+    text = "\n".join(srclines[line - 1:line + 12])
+    start = max(column - 1, 0)
+    op = text.find("(", start)
+    if op < 0: return None
+    args, token = [], []
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    stack = []
+    for ch in text[op + 1:]:
+        if ch in pairs:
+            stack.append(pairs[ch]); token.append(ch)
+        elif stack and ch == stack[-1]:
+            stack.pop(); token.append(ch)
+        elif ch == ")" and not stack:
+            args.append("".join(token).strip())
+            return args
+        elif ch == "," and not stack:
+            args.append("".join(token).strip()); token = []
+        else:
+            token.append(ch)
+    return None
+
+def recover_missing_bindings(function_instances_sorted, srclines):
+    """Return per-function instance effective bindings and an audit table of every recovery.
+
+    A recovered constant is represented as `(const, -1, value)`; a recovered machine register as
+    `(reg, register, 0)`.  Forwarded reader parameters are solved by a fixed point over the generated
+    parent relation.  This makes the resolved table usable by function instance preconditions while retaining
+    the raw DWARF table separately.
+    """
+    effective = [list(function_instance.get("bindings", [])) for function_instance in function_instances_sorted]
+    recoveries = []
+
+    def known(i, name):
+        for pn, kind, reg, off in effective[i]:
+            if pn == name and kind != "callerProvided": return (kind, reg, off)
+        return None
+
+    changed = True
+    while changed:
+        changed = False
+        for i, function_instance in enumerate(function_instances_sorted):
+            for j, (pname, kind, reg, off) in enumerate(effective[i]):
+                if kind != "callerProvided": continue
+                resolved = None
+                reason = None
+                if function_instance["qualified"] == "memmove" and pname == "n" and function_instance["kind"] == "emitted":
+                    resolved, reason = ("reg", 12, 0), "riscvCAbiArg2"
+                elif function_instance["qualified"] in READER_ARG_INDEX:
+                    args = source_call_args(srclines, function_instance["callLine"], function_instance["callColumn"])
+                    arg_idx = READER_ARG_INDEX[function_instance["qualified"]].get(pname)
+                    expr = args[arg_idx].strip() if args is not None and arg_idx is not None and arg_idx < len(args) else None
+                    if expr is not None and re.fullmatch(r"\d+", expr):
+                        resolved, reason = ("const", -1, int(expr)), "sourceLiteral"
+                    elif expr == "N" and function_instance["parentIdx"] is not None:
+                        parent = function_instances_sorted[function_instance["parentIdx"]]
+                        if parent["qualified"] == "ssz_raw.readArray" and parent["specialization"]:
+                            resolved, reason = ("const", -1, int(parent["specialization"][0])), "readArrayWidth"
+                    elif expr is not None and function_instance["parentIdx"] is not None:
+                        inherited = known(function_instance["parentIdx"], expr)
+                        if inherited is not None:
+                            resolved, reason = inherited, "forwardedParentParam"
+                if resolved is not None:
+                    effective[i][j] = (pname, *resolved)
+                    recoveries.append((i, pname, reason, resolved[0], resolved[1], resolved[2]))
+                    changed = True
+
+    unresolved = [(i, function_instance["qualified"], p[0]) for i, (function_instance, rows) in enumerate(zip(function_instances_sorted, effective))
+                  for p in rows if p[1] in ("callerProvided", "unresolved")]
+    if unresolved:
+        raise SystemExit(f"BINDING RECOVERY FAILURE: unresolved function instance parameters: {unresolved}")
+    return effective, sorted(recoveries)
+
 def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globals, decoder_sha):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-globals). DO NOT EDIT.",
          "-- Untrusted extracted data: the decoder's private globals and the allocator/heap runtime",
@@ -498,6 +684,35 @@ def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globa
     L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedDecoderGlobals")
     return "\n".join(L) + "\n"
 
+def emit_bindings_lean(function_instances_sorted, effective, recoveries):
+    L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-bindings). DO NOT EDIT.",
+         "-- Untrusted extracted data: the entry-time ABI/binding of every function instance's formal",
+         "-- parameters, resolved from DWARF .debug_loc at each function instance's entry PC. Validated in",
+         "-- Lean by BinaryFv/SSZ/Zesu/Elfling/GeneratedBindings.lean.",
+         "namespace BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings",
+         "-- Rows are (function instance index, parameter name, location kind, register-or-address,",
+         "-- offset-or-value). The final field is the concrete value for const and the base offset",
+         "-- otherwise.",
+         "/-- Raw DWARF rows, retained so recovery never hides what the compiler actually emitted. -/",
+         "def rawBindings : List (Nat × String × String × Int × Int) :="]
+    rows = [f'({i}, {lean_str(pname)}, {lean_str(kind)}, {reg}, {off})'
+            for i, function_instance in enumerate(function_instances_sorted)
+            for (pname, kind, reg, off) in function_instance.get("bindings", [])]
+    L.append("  [" + ",\n   ".join(rows) + "]")
+    L.extend(["/-- Effective rows after deterministic pinned-source/ABI recovery. For `const`, the",
+              "final field is the concrete value; for `reg`, the fourth field is the register. -/"])
+    L.append("def bindings : List (Nat × String × String × Int × Int) :=")
+    rows = [f'({i}, {lean_str(pname)}, {lean_str(kind)}, {reg}, {off})'
+            for i, bs in enumerate(effective) for (pname, kind, reg, off) in bs]
+    L.append("  [" + ",\n   ".join(rows) + "]")
+    L.append("/-- (function instance, parameter, recovery reason, effective kind, register, value/offset). -/")
+    L.append("def recoveredBindings : List (Nat × String × String × String × Int × Int) :=")
+    rows = [f'({i}, {lean_str(p)}, {lean_str(reason)}, {lean_str(kind)}, {reg}, {off})'
+            for (i, p, reason, kind, reg, off) in recoveries]
+    L.append("  [" + ",\n   ".join(rows) + "]")
+    L.append("end BinaryFv.SSZ.Zesu.Elfling.GeneratedBindings")
+    return "\n".join(L) + "\n"
+
 def main():
     ap = argparse.ArgumentParser()
     for k in ["readelf","decoder","allocator","sink","runtime","source"]: ap.add_argument("--"+k, required=True)
@@ -510,7 +725,7 @@ def main():
     # blocks/edges), proposed here and validated in Lean against the Sail-decoded CFG.
     ap.add_argument("--elf", required=True)
     ap.add_argument("--objdump", required=True)
-    for k in ["out-json","out-lean","out-md","out-globals"]: ap.add_argument("--"+k)
+    for k in ["out-json","out-lean","out-md","out-globals","out-bindings"]: ap.add_argument("--"+k)
     a = ap.parse_args()
 
     text_bases, runtime_func_base, bss_bases, symbol_addrs = parse_linker_map(a.map)
@@ -522,19 +737,20 @@ def main():
     file_hash[FILES["runtime"]] = hashlib.sha256(open(a.runtime_c, "rb").read()).hexdigest()
 
     objects = [("decoder", a.decoder), ("allocator", a.allocator), ("sink", a.sink), ("runtime", a.runtime)]
-    # The ACTUAL SHA-256 of each sidecar object the extractor read, so an occurrence's `sidecarHash`
+    # The ACTUAL SHA-256 of each sidecar object the extractor read, so a function instance's `sidecarHash`
     # pins the exact debug-bearing object it came from — never a single decoder `.text` hash reused for
-    # every occurrence (review blocker #5).
+    # every function instance (review blocker #5).
     object_sha = {objkind: hashlib.sha256(open(obj, "rb").read()).hexdigest() for objkind, obj in objects}
-    occ = []            # occurrence records
-    die_to_idx = {}     # id(DIE) -> occ index (cataloged occurrences only)
+    function_instances = []            # function instance records
+    die_to_idx = {}     # id(DIE) -> functionInstance index (cataloged function instances only)
     excluded_occ = []   # reachable-but-uncovered emitted glue (auditable exclusion taxonomy)
     defects = []
 
     for objkind, obj in objects:
         dies, name_of_off, ranges_map, declline_of_off = parse_readelf(a.readelf, obj)
+        locs = parse_debug_loc(a.readelf, obj)
         for d in dies:
-            name = occ_name(d, name_of_off)
+            name = function_instance_name(d, name_of_off)
             if name is None: continue
             if d.tag == "DW_TAG_subprogram" and "DW_AT_low_pc" not in d.attrs: continue  # abstract only
             rs = die_ranges(d, ranges_map)
@@ -570,8 +786,9 @@ def main():
                    "regions":cr, "entryPc":min(r["start"] for r in cr),
                    "exitPc":max(r["start"]+r["size"] for r in cr), "dieOffset":d.off,
                    "callLine":intof(d.attrs.get("DW_AT_call_line")), "callColumn":intof(d.attrs.get("DW_AT_call_column")),
+                   "bindings":function_instance_bindings(d, dies, name_of_off, locs, rs),
                    "_die":d}
-            die_to_idx[id(d)] = len(occ); occ.append(rec)
+            die_to_idx[id(d)] = len(function_instances); function_instances.append(rec)
 
     # nesting + inline stack from the cataloged-ancestor chain (glue transparently skipped)
     def cataloged_ancestors(d):
@@ -581,26 +798,26 @@ def main():
             p = p.parent
         chain.reverse()   # outermost-first
         return chain
-    for rec in occ:
+    for rec in function_instances:
         d = rec["_die"]; anc = cataloged_ancestors(d)
         rec["parentIdx"] = die_to_idx[id(anc[-1])] if anc else None
         # frames outermost..this: [A_0(emitted root), ..., A_m, this]; callers=[A_0..A_m], sites=[A_1.call..this.call]
         frames = anc + [d]
         stack = []
         for i in range(1, len(frames)):
-            caller = occ[die_to_idx[id(frames[i-1])]]
+            caller = function_instances[die_to_idx[id(frames[i-1])]]
             site_die = frames[i]
             csite = intof(site_die.attrs.get("DW_AT_call_line"))
             ccol = intof(site_die.attrs.get("DW_AT_call_column"))
             stack.append({"callerFile": caller["sourceFile"], "callerQualified": caller["qualified"],
                           "line": csite, "column": ccol})
         rec["inlineStack"] = stack
-    for rec in occ: rec["children"] = []
-    for i, rec in enumerate(occ):
-        if rec["parentIdx"] is not None: occ[rec["parentIdx"]]["children"].append(i)
+    for rec in function_instances: rec["children"] = []
+    for i, rec in enumerate(function_instances):
+        if rec["parentIdx"] is not None: function_instances[rec["parentIdx"]]["children"].append(i)
 
     # Regression oracle: the independently hand-verified milestone-3 `decodeOptionalBlobSchedule`
-    # slice (BlobScheduleInstance.lean). The generator must reproduce it exactly, so a silent drift
+    # slice (BlobScheduleFunctionInstance.lean). The generator must reproduce it exactly, so a silent drift
     # in ranges/entry/exit/decl-line/inline-stack/nesting fails generation rather than the proof.
     #
     # Stated in RELOCATION-INVARIANT form: the object-relative entry (offset into the decoder `.text`),
@@ -608,7 +825,8 @@ def main():
     # DWARF facts (decl line, child count, inline stack). Absolute PCs shift with the text base, so
     # pinning them would spuriously fail the relocation acceptance test; the relative layout is exactly
     # what must stay fixed under relinking.
-    bs = next((o for o in occ if o["qualified"] == "ssz_raw.decodeOptionalBlobSchedule"), None)
+    bs = next((function_instance for function_instance in function_instances
+               if function_instance["qualified"] == "ssz_raw.decodeOptionalBlobSchedule"), None)
     dbase = text_bases.get("decoder")
     ORACLE = {
         "entryOffset": 0x29a8,
@@ -618,7 +836,7 @@ def main():
                         ("ssz_raw.decodeForkConfig", 371, 56)],
     }
     if bs is None:
-        raise SystemExit("REGRESSION: no decodeOptionalBlobSchedule occurrence generated")
+        raise SystemExit("REGRESSION: no decodeOptionalBlobSchedule function instance generated")
     if dbase is None:
         raise SystemExit("REGRESSION: decoder .text base absent from linker map")
     got = {"entryOffset": bs["entryPc"] - dbase,
@@ -630,33 +848,38 @@ def main():
         raise SystemExit(f"REGRESSION: generated decodeOptionalBlobSchedule != milestone-3 slice.\n"
                          f"  expected {ORACLE}\n  got      {got}")
 
-    # entry occurrence — the program cannot be emitted without one (Lean references occ<entry>Id), so a
+    # entry function instance — the program cannot be emitted without one (Lean references functionInstance<entry>Id), so a
     # missing entry is a hard failure, not a surfaced defect.
-    entry_idx = next((i for i,r in enumerate(occ) if r["qualified"]=="raw_decoder_root.zesu_decode_raw" and r["kind"]=="emitted"), None)
+    entry_idx = next((i for i,r in enumerate(function_instances)
+                      if r["qualified"]=="raw_decoder_root.zesu_decode_raw" and r["kind"]=="emitted"), None)
     if entry_idx is None:
-        raise SystemExit("GENERATION FAILURE: no emitted zesu_decode_raw entry occurrence")
+        raise SystemExit("GENERATION FAILURE: no emitted zesu_decode_raw entry function instance")
 
-    for r in occ: del r["_die"]
+    for r in function_instances: del r["_die"]
     # stable order (does not affect identity; makes output deterministic + reviewable)
-    order = sorted(range(len(occ)), key=lambda i:(occ[i]["entryPc"], occ[i]["qualified"], tuple(occ[i]["specialization"]), occ[i]["dieOffset"]))
+    order = sorted(range(len(function_instances)), key=lambda i:(function_instances[i]["entryPc"], function_instances[i]["qualified"], tuple(function_instances[i]["specialization"]), function_instances[i]["dieOffset"]))
     reindex = {old:new for new,old in enumerate(order)}
-    occ_sorted = []
+    function_instances_sorted = []
     for old in order:
-        r = dict(occ[old]); r["parentIdx"] = reindex[r["parentIdx"]] if r["parentIdx"] is not None else None
-        r["children"] = sorted(reindex[c] for c in r["children"]); occ_sorted.append(r)
+        r = dict(function_instances[old]); r["parentIdx"] = reindex[r["parentIdx"]] if r["parentIdx"] is not None else None
+        r["children"] = sorted(reindex[c] for c in r["children"]); function_instances_sorted.append(r)
     entry_idx = reindex[entry_idx]
+
+    # Resolve every DWARF-absent reader/ABI parameter from the pinned Zig call site or the explicit
+    # RISC-V C ABI rule. Raw rows remain in the output beside these effective rows for auditability.
+    effective_bindings, recovered_bindings = recover_missing_bindings(function_instances_sorted, srclines)
 
     # Attribution defects decidable from the inline tree alone (uncovered-reachable PCs are a CFG
     # property proved in the Lean reachable partition, not decidable here).
-    defects.extend(sibling_overlap_defects(occ_sorted))
+    defects.extend(sibling_overlap_defects(function_instances_sorted))
 
     # Per-routine resolved declaration line (from DWARF `DW_AT_decl_line` via abstract origin). Every
-    # occurrence of a routine must resolve to the SAME declaration; a disagreement is an ambiguous
-    # attribution. The Lean provenance check proves each occurrence's declSpan equals this resolved
+    # function instance of a routine must resolve to the SAME declaration; a disagreement is an ambiguous
+    # attribution. The Lean provenance check proves each function instance's declSpan equals this resolved
     # line, so declSpan is validated against the routine's resolved declaration, not merely `> 0`.
     decl_by_q = {}
-    for o in occ_sorted:
-        decl_by_q.setdefault(o["qualified"], set()).add(o["declLine"])
+    for function_instance in function_instances_sorted:
+        decl_by_q.setdefault(function_instance["qualified"], set()).add(function_instance["declLine"])
     for q, lines in sorted(decl_by_q.items()):
         if len(lines) != 1:
             defects.append({"kind":"ambiguousAttribution", "address":0, "candidates":[], "name":q,
@@ -674,19 +897,19 @@ def main():
     # --- Control-flow interface (area #2): propose entries/exits/blocks/edges/external-calls from the
     # canonical ELF's disassembly; Lean validates every one against the Sail-decoded `controlFlowNodes`.
     insns = disassemble(a.objdump, a.elf)
-    region_pc_sets = compute_occurrence_cfg(occ_sorted, insns)   # fills o["exits"], o["edges"]
-    for o in occ_sorted:
-        o["blocks"] = occurrence_blocks(o, insns)
-    # entry PC -> callee: only EMITTED occurrences and excluded routines are call targets (inlined
+    region_pc_sets = compute_function_instance_cfg(function_instances_sorted, insns)   # fills function_instance["exits"], function_instance["edges"]
+    for function_instance in function_instances_sorted:
+        function_instance["blocks"] = function_instance_blocks(function_instance, insns)
+    # entry PC -> callee: only EMITTED function instances and excluded routines are call targets (inlined
     # callees are not "called"). Resolve each deepest-owned call site to the callee's emitted identity.
     entry_to_callee = {}
-    for i, o in enumerate(occ_sorted):
-        if o["kind"] == "emitted": entry_to_callee.setdefault(o["entryPc"], ("occ", i))
+    for i, function_instance in enumerate(function_instances_sorted):
+        if function_instance["kind"] == "emitted": entry_to_callee.setdefault(function_instance["entryPc"], ("functionInstance", i))
     for j, x in enumerate(excluded_sorted):
         entry_to_callee.setdefault(x["entryPc"], ("excl", j))
-    for i, o in enumerate(occ_sorted):
+    for i, function_instance in enumerate(function_instances_sorted):
         children_pcs = set()
-        for c in o["children"]:
+        for c in function_instance["children"]:
             children_pcs |= region_pc_sets[c]
         owned = region_pc_sets[i] - children_pcs
         callees, seen = [], set()
@@ -697,14 +920,14 @@ def main():
                 callee = entry_to_callee.get(ct)
                 if callee is None:
                     defects.append({"kind":"unmappedRegion", "range":{"start":ct, "size":0},
-                                    "name":f"unresolved call target from {o['qualified']}", "obj":"call"})
+                                    "name":f"unresolved call target from {function_instance['qualified']}", "obj":"call"})
                 elif callee not in seen:
                     seen.add(callee); callees.append(callee)
-        o["externalCalls"] = callees   # list of ("occ"|"excl", idx)
+        function_instance["externalCalls"] = callees   # list of ("functionInstance"|"excl", idx)
 
     # Reachability witnesses (area #5): the reachable set from the entry with a BFS distance and
     # predecessor per address, so Lean can prove R = directReachable in BOTH directions.
-    reachable = reachable_witnesses(occ_sorted[entry_idx]["entryPc"], insns)
+    reachable = reachable_witnesses(function_instances_sorted[entry_idx]["entryPc"], insns)
 
     # Independently generated pinned-source manifest: each cataloged source file mapped to the SHA-256
     # of its pinned content, computed here from the exact source the extractor read. The handwritten
@@ -715,8 +938,8 @@ def main():
     program = {"decoderTextSha256":DECODER_TEXT_SHA, "extractorVersion":EXTRACTOR_VERSION,
                "textBases":text_bases, "runtimeFuncBase":runtime_func_base, "objectSha256":object_sha,
                "sourceManifest":source_manifest, "declLines":decl_lines,
-               "entryIndex":entry_idx, "occurrences":occ_sorted, "excludedRoutines":excluded_sorted,
-               "reachable":reachable, "reachableEntry":occ_sorted[entry_idx]["entryPc"],
+               "entryIndex":entry_idx, "function_instances":function_instances_sorted, "excludedRoutines":excluded_sorted,
+               "reachable":reachable, "reachableEntry":function_instances_sorted[entry_idx]["entryPc"],
                "defects":sorted(defects, key=lambda x:json.dumps(x,sort_keys=True))}
     if a.out_json: open(a.out_json,"w").write(json.dumps(program, indent=2, sort_keys=True) + "\n")
     if a.out_lean: open(a.out_lean,"w").write(emit_lean(program))
@@ -729,8 +952,11 @@ def main():
         runtime_globs = read_runtime_globals(a.readelf, a.elf)
         open(a.out_globals, "w").write(
             emit_globals_lean(dec_bss_base, dec_bss_size, globs, refs, runtime_globs, object_sha["decoder"]))
-    routines = {(o["qualified"], tuple(o["specialization"])) for o in occ_sorted}
-    print(f"occurrences={len(occ_sorted)} routines={len(routines)}/43 defects={len(program['defects'])} "
+    if a.out_bindings:
+        open(a.out_bindings, "w").write(
+            emit_bindings_lean(function_instances_sorted, effective_bindings, recovered_bindings))
+    routines = {(function_instance["qualified"], tuple(function_instance["specialization"])) for function_instance in function_instances_sorted}
+    print(f"function instances={len(function_instances_sorted)} routines={len(routines)}/43 defects={len(program['defects'])} "
           f"entry={entry_idx} excluded={len(excluded_sorted)}")
     # Generation FAILS when unresolved defects remain (review blocker #1): the outputs above are still
     # written (the emitted Lean carries the authoritative defect list — never a hardcoded `#[]`), but the
@@ -747,7 +973,7 @@ def lean_str(s): return '"' + s.replace('\\','\\\\').replace('"','\\"') + '"'
 
 def defect_lean(d):
     """Render one generator defect as its `BinaryFv.Binary.Elfling.AttributionDefect` term. Overlap
-    defects reference the emitted `occ<i>Id` identities, which are defined above the program."""
+    defects reference the emitted `functionInstance<i>Id` identities, which are defined above the program."""
     k = d["kind"]
     if k == "ambiguousAttribution":
         cands = "[" + ", ".join(str(c) for c in d.get("candidates", [])) + "]"
@@ -757,43 +983,44 @@ def defect_lean(d):
         return f'AttributionDefect.unmappedRegion {{ start := {r["start"]}, size := {r["size"]} }}'
     if k == "overlappingOwnership":
         return (f'AttributionDefect.overlappingOwnership {d["address"]} '
-                f'occ{d["firstIdx"]}Id occ{d["secondIdx"]}Id')
+                f'functionInstance{d["firstIdx"]}Id functionInstance{d["secondIdx"]}Id')
     if k == "uncovered":
         return f'AttributionDefect.uncovered {d["address"]}'
     raise SystemExit(f"defect_lean: unknown defect kind {k!r}")
-def lean_id(o):
-    decl = f'{{ file := {{ path := {lean_str(o["sourceFile"])} }}, qualifiedName := {lean_str(o["qualified"])} }}'
-    spec = "#[" + ", ".join(lean_str(s) for s in o["specialization"]) + "]"
+def lean_id(function_instance):
+    decl = f'{{ file := {{ path := {lean_str(function_instance["sourceFile"])} }}, qualifiedName := {lean_str(function_instance["qualified"])} }}'
+    spec = "#[" + ", ".join(lean_str(s) for s in function_instance["specialization"]) + "]"
     stack = "[" + ", ".join(
         f'{{ caller := {{ file := {{ path := {lean_str(s["callerFile"])} }}, qualifiedName := {lean_str(s["callerQualified"])} }},'
-        f' callSite := {{ line := {s["line"]}, column := {s["column"]} }} }}' for s in o["inlineStack"]) + "]"
+        f' callSite := {{ line := {s["line"]}, column := {s["column"]} }} }}' for s in function_instance["inlineStack"]) + "]"
     return f'{{ function := {{ declaration := {decl}, specialization := {spec} }}, inlineStack := {stack} }}'
 
 def excl_id_lean(x):
-    """The emitted (non-inlined) InstanceId of an excluded routine — it is a genuine call target, so
+    """The emitted (non-inlined) FunctionInstanceId of an excluded routine — it is a genuine call target, so
     externalCalls can reference it and the validation can resolve calls to it."""
     decl = f'{{ file := {{ path := {lean_str(x["sourceFile"])} }}, qualifiedName := {lean_str(x["qualified"])} }}'
     return f'{{ function := {{ declaration := {decl}, specialization := #[] }}, inlineStack := [] }}'
 
 def callee_ref(c):
     kind, idx = c
-    return f'occ{idx}Id' if kind == "occ" else f'excl{idx}Id'
+    return f'functionInstance{idx}Id' if kind == "functionInstance" else f'excl{idx}Id'
 
-def blocks_lean(o):
+def blocks_lean(function_instance):
     return "#[" + ", ".join(f'{{ range := {{ start := {b["start"]}, size := {b["size"]} }} }}'
-                            for b in o["blocks"]) + "]"
+                            for b in function_instance["blocks"]) + "]"
 
-def edges_lean(o):
+def edges_lean(function_instance):
     return "#[" + ", ".join(f'{{ source := {e["source"]}, target := {e["target"]} }}'
-                            for e in o["edges"]) + "]"
+                            for e in function_instance["edges"]) + "]"
 
 def emit_lean(p):
-    L = ["import BinaryFv.Binary.Elfling.Instance", "",
-         "/-!", "# Generated Elfling program (milestone 4)", "",
+    L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py. DO NOT EDIT.",
+         "import BinaryFv.Binary.Elfling.Elfling", "",
+         "/-!", "# Generated Elfling (milestone 4)", "",
          "Deterministically generated from the validated DWARF sidecars by",
-         "`docs/ai/plan/artifacts/generate_program.py`. Address-bearing, UNTRUSTED: the Lean validation",
-         "(`ProgramValidation.lean`) checks every range/word against the canonical ELF and discharges",
-         "`coverage` / `sourceProvenanceRecorded` / `IsCanonicalGeneratedProgram`. Object `.text` bases,",
+         "`tools/generate_elfling_program.py`. Address-bearing, UNTRUSTED: the Lean validation",
+         "(`ElflingValidation.lean`) checks every range/word against the canonical ELF and discharges",
+         "`coverage` / `sourceProvenanceRecorded` / `IsCanonicalGeneratedElfling`. Object `.text` bases,",
          "readArray widths (from `DW_AT_call_line` -> pinned source), and glue-folding are recorded in the",
          "companion JSON. Regenerating is byte-deterministic (checked twice in the derivation).", "-/", "",
          "-- the chunked reachability witness table is assembled by a many-fold `++`; elaborating it",
@@ -801,57 +1028,57 @@ def emit_lean(p):
          "set_option maxRecDepth 8000", "",
          "namespace BinaryFv.SSZ.Zesu.Elfling.Generated", "",
          "open BinaryFv.Binary (AddressRange)", "open BinaryFv.Binary.Elfling", ""]
-    prov = lambda o: (f'{{ sidecarHash := {lean_str(p["objectSha256"][o["objkind"]])}, entryOffset := {o["dieOffset"]},'
+    prov = lambda function_instance: (f'{{ sidecarHash := {lean_str(p["objectSha256"][function_instance["objkind"]])}, entryOffset := {function_instance["dieOffset"]},'
                       f' extractorVersion := {lean_str(p["extractorVersion"])} }}')
     # All address-free identities first (they reference nothing), so the FunctionInstances below can
     # forward-reference each other's ids for parent?/children (which form a mutual parent/child graph).
-    L.append("/-! ### Occurrence identities (address-free). -/")
-    for i, o in enumerate(p["occurrences"]):
-        L.append(f'def occ{i}Id : InstanceId := {lean_id(o)}')
+    L.append("/-! ### Function instance identities (address-free). -/")
+    for i, function_instance in enumerate(p["function_instances"]):
+        L.append(f'def functionInstance{i}Id : FunctionInstanceId := {lean_id(function_instance)}')
     L.append("")
     L.append("/-! ### Excluded-routine identities (address-free call targets). -/")
     for j, x in enumerate(p["excludedRoutines"]):
-        L.append(f'def excl{j}Id : InstanceId := {excl_id_lean(x)}')
+        L.append(f'def excl{j}Id : FunctionInstanceId := {excl_id_lean(x)}')
     L.append("")
-    L.append("/-! ### Occurrence instances (address-bearing). -/")
-    for i, o in enumerate(p["occurrences"]):
-        regions = "#[" + ", ".join(f'{{ start := {r["start"]}, size := {r["size"]} }}' for r in o["regions"]) + "]"
-        parent = "none" if o["parentIdx"] is None else f'some occ{o["parentIdx"]}Id'
-        children = "#[" + ", ".join(f'occ{c}Id' for c in o["children"]) + "]"
-        exits = "#[" + ", ".join(str(e) for e in o["exits"]) + "]"
-        extcalls = "#[" + ", ".join(callee_ref(c) for c in o["externalCalls"]) + "]"
-        L.append(f'/-- occ {i}: {o["qualified"]}{("["+",".join(o["specialization"])+"]") if o["specialization"] else ""}'
-                 f' ({o["kind"]}, entry 0x{o["entryPc"]:x}). -/')
-        L.append(f'def occ{i} : FunctionInstance :=')
-        L.append(f'  {{ id := occ{i}Id, regions := {regions}, entryPc := {o["entryPc"]}, exitPcs := {exits},')
+    L.append("/-! ### Function instances (address-bearing). -/")
+    for i, function_instance in enumerate(p["function_instances"]):
+        regions = "#[" + ", ".join(f'{{ start := {r["start"]}, size := {r["size"]} }}' for r in function_instance["regions"]) + "]"
+        parent = "none" if function_instance["parentIdx"] is None else f'some functionInstance{function_instance["parentIdx"]}Id'
+        children = "#[" + ", ".join(f'functionInstance{c}Id' for c in function_instance["children"]) + "]"
+        exits = "#[" + ", ".join(str(e) for e in function_instance["exits"]) + "]"
+        extcalls = "#[" + ", ".join(callee_ref(c) for c in function_instance["externalCalls"]) + "]"
+        L.append(f'/-- functionInstance {i}: {function_instance["qualified"]}{("["+",".join(function_instance["specialization"])+"]") if function_instance["specialization"] else ""}'
+                 f' ({function_instance["kind"]}, entry 0x{function_instance["entryPc"]:x}). -/')
+        L.append(f'def functionInstance{i} : FunctionInstance :=')
+        L.append(f'  {{ id := functionInstance{i}Id, regions := {regions}, entryPc := {function_instance["entryPc"]}, exitPcs := {exits},')
         L.append(f'    parent? := {parent}, children := {children}, externalCalls := {extcalls},')
-        L.append(f'    blocks := {blocks_lean(o)}, edges := {edges_lean(o)},')
-        L.append(f'    declProvenance := {{ sourceFileHash := {lean_str(o["sourceFileHash"])}, declSpan := {{ line := {o["declLine"]}, column := 1 }} }},')
-        L.append(f'    provenance := {prov(o)}, symbol? := none }}')
+        L.append(f'    blocks := {blocks_lean(function_instance)}, edges := {edges_lean(function_instance)},')
+        L.append(f'    declProvenance := {{ sourceFileHash := {lean_str(function_instance["sourceFileHash"])}, declSpan := {{ line := {function_instance["declLine"]}, column := 1 }} }},')
+        L.append(f'    provenance := {prov(function_instance)} }}')
         L.append("")
-    L.append("/-- Every generated occurrence. -/")
-    L.append("def generatedInstances : Array FunctionInstance :=")
-    L.append("  #[" + ", ".join(f'occ{i}' for i in range(len(p["occurrences"]))) + "]")
+    L.append("/-- Every generated function instance. -/")
+    L.append("def generatedFunctionInstances : Array FunctionInstance :=")
+    L.append("  #[" + ", ".join(f'functionInstance{i}' for i in range(len(p["function_instances"]))) + "]")
     L.append("")
     ei = p["entryIndex"]
-    L.append(f'/-- The complete generated program: entry `zesu_decode_raw` (occ {ei}), all reachable')
-    L.append("    occurrences, and the surfaced attribution defects. -/")
+    L.append(f'/-- The complete generated Elfling: entry `zesu_decode_raw` (functionInstance {ei}), all reachable')
+    L.append("    function instances, and the surfaced attribution defects. -/")
     # Authoritative: the emitted defect list is exactly the generator's, never a hardcoded `#[]`. The
     # derivation additionally FAILS when this list is nonempty, so in a released program it is `#[]`
     # because there were no defects — not because emission discarded them.
     defects = "#[" + ", ".join(defect_lean(d) for d in p["defects"]) + "]"
-    L.append("def generatedProgram : Program :=")
-    L.append(f'  {{ entry := occ{ei}Id, instances := generatedInstances, defects := {defects},')
-    L.append(f'    provenance := {prov(p["occurrences"][ei])} }}')
+    L.append("def generatedElfling : Elfling :=")
+    L.append(f'  {{ entry := functionInstance{ei}Id, functionInstances := generatedFunctionInstances, defects := {defects},')
+    L.append(f'    provenance := {prov(p["function_instances"][ei])} }}')
     L.append("")
     # Reachable-but-excluded taxonomy (auditable data the reachable-partition proof consumes).
     L.append("/-! ### Reachable-but-excluded emitted routines (auditable exclusion taxonomy). -/")
     L.append("")
-    L.append("/-- A reachable code routine carrying no cataloged occurrence: emitted glue the optimizer")
+    L.append("/-- A reachable code routine carrying no cataloged function instance: emitted glue the optimizer")
     L.append("did not fold into a cataloged ancestor. Address-bearing, untrusted auditable data; the Lean")
     L.append("reachable-partition validation checks these regions exactly tile `reachable \\ covered`. -/")
-    L.append("structure ExcludedOccurrence where")
-    L.append("  id : InstanceId")
+    L.append("structure ExcludedFunctionInstance where")
+    L.append("  id : FunctionInstanceId")
     L.append("  qualifiedName : String")
     L.append("  category : String")
     L.append("  regions : Array AddressRange")
@@ -859,7 +1086,7 @@ def emit_lean(p):
     L.append("")
     L.append("/-- Every reachable-but-excluded emitted routine: emitted identity, DWARF name, category,")
     L.append("canonical regions. The identity lets a resolved external call target an excluded routine. -/")
-    L.append("def generatedExcludedOccurrences : Array ExcludedOccurrence :=")
+    L.append("def generatedExcludedFunctionInstances : Array ExcludedFunctionInstance :=")
     if p["excludedRoutines"]:
         items = []
         for j, x in enumerate(p["excludedRoutines"]):
@@ -882,7 +1109,7 @@ def emit_lean(p):
     L.append("  [" + sm + "]")
     L.append("")
     L.append("/-- Each routine's resolved declaration line (DWARF `DW_AT_decl_line`), one entry per routine")
-    L.append("qualified name. `GeneratedProvenanceCheck` proves every occurrence's declSpan line equals its")
+    L.append("qualified name. `GeneratedProvenanceCheck` proves every function instance's declSpan line equals its")
     L.append("routine's resolved line here, so declSpan is checked against the resolved declaration. -/")
     L.append("def generatedDeclLines : List (String × Nat) :=")
     dl = ", ".join(f'({lean_str(e["qualified"])}, {e["declLine"]})' for e in p["declLines"])
@@ -931,42 +1158,43 @@ def emit_lean(p):
     return "\n".join(L)
 
 def emit_md(p):
-    M = ["# Generated Elfling program — source/function/CFG index", "",
-         f"Deterministically generated from the DWARF sidecars. {len(p['occurrences'])} occurrences over "
-         f"{len({(o['qualified'],tuple(o['specialization'])) for o in p['occurrences']})}/43 catalog routines; "
+    M = ["# Generated Elfling — source/function/CFG index", "",
+         f"Deterministically generated from the DWARF sidecars. {len(p['function_instances'])} function instances over "
+         f"{len({(function_instance['qualified'],tuple(function_instance['specialization'])) for function_instance in p['function_instances']})}/43 catalog routines; "
          f"{len(p['defects'])} attribution defect(s).", ""]
-    occ = p["occurrences"]
-    tot = lambda k: sum(len(o.get(k, [])) for o in occ)
+    function_instances = p["function_instances"]
+    tot = lambda k: sum(len(function_instance.get(k, [])) for function_instance in function_instances)
     overlaps = [d for d in p["defects"] if d.get("kind") == "overlappingOwnership"]
-    M += [f"Totals: {sum(len(o['regions']) for o in occ)} regions, {tot('blocks')} basic blocks, "
+    M += [f"Totals: {sum(len(function_instance['regions']) for function_instance in function_instances)} regions, {tot('blocks')} basic blocks, "
           f"{tot('edges')} direct edges, {tot('exits')} exit PCs, {tot('externalCalls')} external-call "
           f"edges, {len(overlaps)} overlaps; {len(p.get('reachable', []))} reachable PCs "
-          f"(gaps between cataloged occurrences are the excluded routines below). "
+          f"(gaps between cataloged function instances are the excluded routines below). "
           f"Every field is validated against the Sail-decoded CFG in Lean.", "",
-          "## Functions (occurrences)", "",
+          "## Functions (function instances)", "",
           "| # | routine | spec | src line | kind | entry | exits | regions | blocks | edges | calls | parent | inline |",
           "|--:|---------|------|--------:|------|------:|-----:|-------:|------:|-----:|----:|-------:|------:|"]
-    for i, o in enumerate(occ):
-        spec = ",".join(o["specialization"]) or "—"
-        par = "—" if o["parentIdx"] is None else str(o["parentIdx"])
-        exits = ",".join(f"0x{e:x}" for e in o.get("exits", [])) or "—"
-        M.append(f"| {i} | `{o['qualified']}` | {spec} | {o['declLine']} | {o['kind']} | "
-                 f"0x{o['entryPc']:x} | {exits} | {len(o['regions'])} | {len(o.get('blocks', []))} | "
-                 f"{len(o.get('edges', []))} | {len(o.get('externalCalls', []))} | {par} | {len(o['inlineStack'])} |")
-    # Inline call stacks (deepest attribution provenance) for the inlined occurrences.
-    inlined = [(i, o) for i, o in enumerate(occ) if o["inlineStack"]]
+    for i, function_instance in enumerate(function_instances):
+        spec = ",".join(function_instance["specialization"]) or "—"
+        par = "—" if function_instance["parentIdx"] is None else str(function_instance["parentIdx"])
+        exits = ",".join(f"0x{e:x}" for e in function_instance.get("exits", [])) or "—"
+        M.append(f"| {i} | `{function_instance['qualified']}` | {spec} | {function_instance['declLine']} | {function_instance['kind']} | "
+                 f"0x{function_instance['entryPc']:x} | {exits} | {len(function_instance['regions'])} | {len(function_instance.get('blocks', []))} | "
+                 f"{len(function_instance.get('edges', []))} | {len(function_instance.get('externalCalls', []))} | {par} | {len(function_instance['inlineStack'])} |")
+    # Inline call stacks (deepest attribution provenance) for the inlined function instances.
+    inlined = [(i, function_instance) for i, function_instance in enumerate(function_instances)
+               if function_instance["inlineStack"]]
     if inlined:
         M += ["", "## Inline call stacks", ""]
-        for i, o in inlined:
-            stack = " → ".join(f"{s['callerQualified']}@{s['line']}:{s['column']}" for s in o["inlineStack"])
-            M.append(f"- occ {i} `{o['qualified']}`: {stack} → **{o['qualified'].split('.')[-1]}**")
+        for i, function_instance in inlined:
+            stack = " → ".join(f"{s['callerQualified']}@{s['line']}:{s['column']}" for s in function_instance["inlineStack"])
+            M.append(f"- functionInstance {i} `{function_instance['qualified']}`: {stack} → **{function_instance['qualified'].split('.')[-1]}**")
     ex = p.get("excludedRoutines", [])
     if ex:
         total = sum((r["size"] // 4) for x in ex for r in x["regions"])
         M += ["", f"## Reachable-but-excluded routines ({len(ex)} routines, {total} region words)", "",
-              "Emitted glue reachable from `zesu_decode_raw` that carries no cataloged occurrence. "
+              "Emitted glue reachable from `zesu_decode_raw` that carries no cataloged function instance. "
               "The Lean reachable-partition validation proves these exactly account for the reachable "
-              "PCs no cataloged occurrence covers.", "",
+              "PCs no cataloged function instance covers.", "",
               "| # | routine | category | regions | words |",
               "|--:|---------|----------|--------:|------:|"]
         for i, x in enumerate(ex):
