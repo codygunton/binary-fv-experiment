@@ -253,9 +253,18 @@ let
     path = repo + "/tools/generate_elfling_program.py";
     name = "generate_elfling_program.py";
   };
+  elflingGeneratorTest = builtins.path {
+    path = repo + "/targets/ssz/zesu/tests/elfling_program_test.py";
+    name = "elfling_program_test.py";
+  };
   elflingProgram = pkgs.runCommand "elfling-program" {
     nativeBuildInputs = [ pkgs.python3 pkgs.coreutils pkgs.diffutils ];
   } ''
+    mkdir -p source/tools source/targets/ssz/zesu/tests
+    cp ${elflingGeneratorScript} source/tools/generate_elfling_program.py
+    cp ${elflingGeneratorTest} source/targets/ssz/zesu/tests/elfling_program_test.py
+    python3 source/targets/ssz/zesu/tests/elfling_program_test.py
+
     gen() {
       python3 ${elflingGeneratorScript} \
         --readelf ${riscvReadelf} \
