@@ -126,15 +126,31 @@ def preSlice (env : DecoderEnvironment) (args : SliceArgs) (state : State) : Pro
   state.regs.get? x10 = some (BitVec.ofNat 64 args.base) ∧
   state.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size)
 
-/-- Every leaf reader preserves input, code, and allocator state, on success and on failure alike. -/
+/-- Every leaf reader preserves input, code, and allocator state, on success and on failure alike,
+and **writes only within its own result record**.
+
+The last conjunct is the ownership clause (`Contracts/Environment.lean`). It is carried here rather
+than repeated in seven postconditions because every leaf has the same shape: no allocation, so the
+allocation interval is empty, and a result record that is either a caller-supplied slot
+(`readU256`, `readArray`) or nothing at all. `recordSize = 0` is the *strongest* instance of the
+clause, not a placeholder for one — it says the routine writes nothing outside its own stack frame,
+which is the right claim for a reader that returns its value in `a0`.
+
+Two things follow that are easy to get backwards. First, a wider record is a **weaker** promise, so
+the sizes here are the ones a parent can rely on and must not be padded. Second, `recordSize = 0`
+does **not** mean "writes no memory whatsoever", and it must not: a compiled reader spills to its
+stack frame, so a clause forbidding that would be unsatisfiable rather than strong. `env.stack` is
+what makes the difference, and `OwnershipComposition.stack_writing_routine_satisfies_the_clause` is
+the witness that a routine of this shape can meet it. -/
 def LeafFrame (env : DecoderEnvironment) (base : Nat) (bytes : ByteArray)
-    (before after : State) : Prop :=
-  MemoryBytes after base bytes ∧ env.CodeIntact after ∧ env.NoAllocation before after
+    (recordBase recordSize : Nat) (before after : State) : Prop :=
+  MemoryBytes after base bytes ∧ env.CodeIntact after ∧ env.NoAllocation before after ∧
+    env.WritesOnlyWithinOwnRecord recordBase recordSize before after
 
 /-- A scalar read returns its value zero-extended in `a0`; failure is always `invalidSsz`. -/
 def postScalarRead (env : DecoderEnvironment) (args : ReadAtArgs) (width : Nat)
     (result : Except SszDecodeError Nat) (before after : State) : Prop :=
-  LeafFrame env args.base args.bytes before after ∧
+  LeafFrame env args.base args.bytes 0 0 before after ∧
   match result with
   | .ok value =>
       value < 2 ^ width ∧ after.regs.get? x10 = some (BitVec.ofNat 64 value)
@@ -164,7 +180,7 @@ def contractReadOffset (env : DecoderEnvironment) :
 /-- `hasExactErePrefix` cannot fail, so its meaning is total and its result is a boolean in `a0`. -/
 def postHasExactErePrefix (env : DecoderEnvironment) (args : SliceArgs)
     (result : Except SszDecodeError Bool) (before after : State) : Prop :=
-  LeafFrame env args.base args.bytes before after ∧
+  LeafFrame env args.base args.bytes 0 0 before after ∧
   match result with
   | .ok flag =>
       after.regs.get? x10 = some (BitVec.ofNat 64 (if flag then 1 else 0))
@@ -180,7 +196,7 @@ def contractHasExactErePrefix (env : DecoderEnvironment) :
 /-- `requireU32Length(data)`: returns a zero status on success. -/
 def postRequireU32Length (env : DecoderEnvironment) (args : SliceArgs)
     (result : Except SszDecodeError Unit) (before after : State) : Prop :=
-  LeafFrame env args.base args.bytes before after ∧
+  LeafFrame env args.base args.bytes 0 0 before after ∧
   match result with
   | .ok () => after.regs.get? x10 = some (BitVec.ofNat 64 0)
   | .error error => error = SszDecodeError.invalidSsz
@@ -201,7 +217,7 @@ structure BytesAtArgs extends ReadAtArgs where
 pointer and length, and the bytes are those of the caller's input at `[offset, offset+len)`. -/
 def postBytesAt (env : DecoderEnvironment) (args : BytesAtArgs)
     (result : Except SszDecodeError ByteArray) (before after : State) : Prop :=
-  LeafFrame env args.base args.bytes before after ∧
+  LeafFrame env args.base args.bytes 0 0 before after ∧
   match result with
   | .ok _ =>
       after.regs.get? x10 = some (BitVec.ofNat 64 (args.base + args.offset)) ∧
@@ -219,7 +235,7 @@ def contractBytesAt (env : DecoderEnvironment) :
 because a `u256` does not fit in a single return register. -/
 def postReadU256 (env : DecoderEnvironment) (args : ReadAtArgs) (resultBase : Nat)
     (result : Except SszDecodeError (BitVec 256)) (before after : State) : Prop :=
-  LeafFrame env args.base args.bytes before after ∧
+  LeafFrame env args.base args.bytes resultBase 32 before after ∧
   match result with
   | .ok value => BitVectorLERep after resultBase value
   | .error error => error = SszDecodeError.invalidSsz
@@ -241,7 +257,7 @@ Each `N` is a separately emitted `comptime` instantiation, so the contract is pa
 and the catalog records one entry per concrete width (20, 32, 48, 65, 96, 256). -/
 def postReadArray (env : DecoderEnvironment) (args : ReadAtArgs) (length resultBase : Nat)
     (result : Except SszDecodeError ByteArray) (before after : State) : Prop :=
-  LeafFrame env args.base args.bytes before after ∧
+  LeafFrame env args.base args.bytes resultBase length before after ∧
   match result with
   | .ok copied => MemoryBytes after resultBase copied
   | .error error => error = SszDecodeError.invalidSsz
@@ -265,45 +281,45 @@ def readArrayWidths : List Nat := [20, 32, 48, 65, 96, 256]
 -/
 
 def correctnessClaimReadU32 (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractReadU32 env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractReadU32 env)
 
 def correctnessClaimReadU64 (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractReadU64 env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractReadU64 env)
 
 def correctnessClaimReadOffset (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractReadOffset env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractReadOffset env)
 
 def correctnessClaimHasExactErePrefix (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractHasExactErePrefix env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractHasExactErePrefix env)
 
 def correctnessClaimRequireU32Length (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractRequireU32Length env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractRequireU32Length env)
 
 def correctnessClaimBytesAt (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractBytesAt env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractBytesAt env)
 
 def correctnessClaimReadU256 (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractReadU256 env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractReadU256 env)
 
 /-- One correctness claim per concrete `readArray` width. -/
 def correctnessClaimReadArray (env : DecoderEnvironment) (length : Nat)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractReadArray env length)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractReadArray env length)
 
 /-!
 ## Satisfiability
@@ -354,12 +370,27 @@ def readOffsetIsWidenedReadU32 : Prop :=
   ∀ (bytes : ByteArray) (offset : Nat),
     meaningReadOffset bytes offset = (meaningReadU32 bytes offset).map UInt32.toNat
 
-/-- Every leaf reader's only error is `invalidSsz`: none allocates and none inspects a fork index. -/
+/-- Every leaf reader's only error is `invalidSsz`: none allocates and none inspects a fork index.
+
+"Every" is meant literally — all seven cataloged leaf meanings, at every offset and every width.
+`meaningReadArray` is quantified over its width because each width is a separately emitted
+`comptime` instantiation, so a claim about one width would say nothing about the others. -/
 def leafReadsOnlyFailInvalid : Prop :=
   ∀ (bytes : ByteArray) (offset : Nat),
     meaningReadU32 bytes offset ≠ .error .unknownFork ∧
     meaningReadU32 bytes offset ≠ .error .outOfMemory ∧
     meaningReadU64 bytes offset ≠ .error .unknownFork ∧
-    meaningReadU64 bytes offset ≠ .error .outOfMemory
+    meaningReadU64 bytes offset ≠ .error .outOfMemory ∧
+    meaningReadOffset bytes offset ≠ .error .unknownFork ∧
+    meaningReadOffset bytes offset ≠ .error .outOfMemory ∧
+    meaningReadU256 bytes offset ≠ .error .unknownFork ∧
+    meaningReadU256 bytes offset ≠ .error .outOfMemory ∧
+    meaningRequireU32Length bytes ≠ .error .unknownFork ∧
+    meaningRequireU32Length bytes ≠ .error .outOfMemory ∧
+    (∀ length : Nat,
+      meaningBytesAt bytes offset length ≠ .error .unknownFork ∧
+      meaningBytesAt bytes offset length ≠ .error .outOfMemory ∧
+      meaningReadArray length bytes offset ≠ .error .unknownFork ∧
+      meaningReadArray length bytes offset ≠ .error .outOfMemory)
 
 end BinaryFv.SSZ.Zesu.Contracts

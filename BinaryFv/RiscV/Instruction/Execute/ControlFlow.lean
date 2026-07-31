@@ -17,8 +17,12 @@ and fetch contracts do:
 * `currentlyEnabled Ext_Zca` reads `misa`; the alignment precondition `target[1] = 0` forces the
   `jump_to` `if` into its else branch (`false && _ = false`), but the extension read is still
   threaded through the state, so a minimal `Runs (currentlyEnabled Ext_Zca) s s _` premise is kept.
+  `Platform/Fetch.lean`'s `currentlyEnabledZca_run` discharges it from the `misa` read.
 * `update_elp_state rs1` reads `Ext_Zicfilp`; it is threaded as a
-  `Runs (update_elp_state rs1) s s ()` premise, a no-op when Zicfilp is disabled (RV64IM config).
+  `Runs (update_elp_state rs1) s s ()` premise. `Step/LandingPad.lean`'s `updateElpState_run`
+  discharges it from the `cur_privilege` and `mseccfg` reads, at any value of `mseccfg` — the gate is
+  false because the generated `currentlyEnabled` has no `Ext_Zicsr` arm, not because this
+  configuration turns Zicfilp off (`hartSupports Ext_Zicfilp` is in fact `true` here).
 * the `wX_bits rd link` register write is threaded as a `Runs (wX_bits rd link) · · ()` premise,
   keeping `rd` fully general; for `rd = x0` it is a proved no-op (`ret`).
 -/

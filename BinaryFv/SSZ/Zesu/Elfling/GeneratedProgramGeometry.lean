@@ -1,4 +1,4 @@
-import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.SSZ.Zesu.Contracts.Catalog
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedProgramValidation
 import BinaryFv.RiscV.Elfling.ProgramGeometry
 import GeneratedProgram
@@ -22,8 +22,8 @@ The geometry check includes `calleeExitContainment`: a caller's exit
 that lies inside a callee's extent is already an exit of that callee. For a separately emitted callee
 this is vacuous (the address sets are disjoint); for an inlined child, whose regions sit inside its
 parent's, it is a real constraint on the generated exit inventories, and it is exactly what stops a
-spliced child running through its parent's return. `CompositionTests` exhibits a program that fails
-it.
+spliced child running through its parent's return. The synthetic-unit probe exercises both passing
+and failing geometries.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Elfling.Validation
@@ -35,7 +35,7 @@ open BinaryFv.SSZ.Zesu.Elfling.Generated (generatedProgram)
 
 /-! ## The function instance inventory is exactly the expected one -/
 
-/-- The canonical program has exactly 141 function instances. Every later count — the manifest's rows, the
+/-- The canonical program has exactly 141 function instances. Every later count — the geometry rows, the
 local assumption's conjuncts, the coverage report's lines — is checked against this number rather
 than against a separately maintained constant. -/
 theorem generated_function_function_instance_count : generatedProgram.functionInstances.size = 141 := by native_decide
@@ -83,19 +83,20 @@ theorem generated_call_graph_ranked : FunctionGraphRanked generatedProgram gener
 separately because it is the specific anti-circularity property the plan asks for. -/
 theorem generated_no_self_dependency :
     ∀ functionInstance ∈ generatedProgram.functionInstances,
-      functionInstance ∉ calleeFunctionInstances generatedProgram functionInstance := by
+      functionInstance ∉ BinaryFv.RiscV.Elfling.calleeFunctionInstances generatedProgram functionInstance := by
   intro functionInstance hinst hself
   have h := generated_call_graph_ranked functionInstance hinst functionInstance hself
   omega
 
 /-! ## The address geometry -/
 
-theorem programGeometry_check : programGeometryB generatedProgram = true := by native_decide
+theorem programGeometry_check : BinaryFv.RiscV.Elfling.programGeometryB generatedProgram = true := by
+  native_decide
 
 /-- **The generated address geometry holds.** Owned ⊆ execution extent, callee extent ⊆ caller
 extent, and every caller exit inside a callee's extent is a callee exit. -/
-theorem generated_program_geometry : ProgramGeometry generatedProgram :=
-  programGeometry_of_check programGeometry_check
+theorem generated_program_geometry : BinaryFv.RiscV.Elfling.ProgramGeometry generatedProgram :=
+  BinaryFv.RiscV.Elfling.programGeometry_of_check programGeometry_check
 
 /-! ## Every callee identity resolves -/
 

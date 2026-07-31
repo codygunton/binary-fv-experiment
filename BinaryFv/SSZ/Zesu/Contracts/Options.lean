@@ -19,7 +19,7 @@ implementation that scribbled over caller memory on the way to an error.
 
 `decodeOptionalBlobSchedule` is the first migration exemplar. The existing 66-step trace is a
 fragment of its inline instance; deliberately, no program counter appears anywhere in this module,
-because the binding lives in generated Elfling data and `ImplementsInstance` is the seam.
+because the binding lives in generated Elfling data and `ImplementsFunctionInstance` is the seam.
 -/
 
 /-- The SSZ schema `decodeOptionalBlobSchedule` decodes, as partial evaluation of the pinned bridge's
@@ -92,14 +92,19 @@ success arm.
 
 /-- The blob-schedule result as it must appear on return.
 
-The three conjuncts before the `match` hold on *every* path: the borrowed input is untouched, the
-code image is intact, and no allocation occurred. -/
+The four conjuncts before the `match` hold on *every* path: the borrowed input is untouched, the
+code image is intact, no allocation occurred, and every write landed inside the `?T` object at
+`args.resultBase` or the routine's own stack frame. The option layouts are the one family where the
+record size was already in scope —
+`env.optionalBlobSchedule.size` is the reflected `@sizeOf(?RawBlobSchedule)` — so the ownership clause
+costs no new parameter here. -/
 def postOptionalBlobSchedule (env : DecoderEnvironment) (args : SliceToResultArgs)
     (result : Except SszDecodeError (Option SszBridge.RawBlobSchedule))
     (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
+  env.WritesOnlyWithinOwnRecord args.resultBase env.optionalBlobSchedule.size before after ∧
   match result with
   | .ok none => OptionNoneRep env.optionalBlobSchedule after args.resultBase
   | .ok (some schedule) =>
@@ -115,6 +120,7 @@ def postOptionalU64 (env : DecoderEnvironment) (args : SliceToResultArgs)
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.NoAllocation before after ∧
+  env.WritesOnlyWithinOwnRecord args.resultBase env.optionalU64.size before after ∧
   match result with
   | .ok none => OptionNoneRep env.optionalU64 after args.resultBase
   | .ok (some value) =>
@@ -148,19 +154,19 @@ def contractOptionalU64 (env : DecoderEnvironment) :
   post := postOptionalU64 env
   stepBound := fun _ => 128
 
-/-- The obligation that a generated Elfling occurrence implements the blob-schedule contract.
+/-- The obligation that a generated Elfling function instance implements the blob-schedule contract.
 
-This is the point of the layering: the statement names no address, and the occurrence supplies every
+This is the point of the layering: the statement names no address, and the function instance supplies every
 one of them. -/
 def correctnessClaimOptionalBlobSchedule (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractOptionalBlobSchedule env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractOptionalBlobSchedule env)
 
 def correctnessClaimOptionalU64 (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractOptionalU64 env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractOptionalU64 env)
 
 /-- The blob-schedule precondition is satisfiable for a well-formed environment, so its contract is
 not vacuous. Conditioned on `ValidEnvironment` rather than asserted unconditionally: the
@@ -182,7 +188,12 @@ has a specification-side target that is already fixed.
 def meaningEmptyIsNone : Prop :=
   meaningOptionalBlobSchedule ByteArray.empty = .ok none
 
-/-- Exactly 24 canonical bytes decode to a present schedule. -/
+/-- Exactly 24 bytes decode to a present schedule.
+
+No canonicality hypothesis, and none is needed: `blobScheduleType` is three fixed-width `u64`s, so
+*every* 24-byte buffer is the canonical encoding of exactly one schedule. That is stronger than it
+may look — it is the encode-after-decode direction, which is why it needs
+`uint64LE_of_readUInt64LE` rather than upstream's `decode_encode`. -/
 def meaningTwentyFourIsSome : Prop :=
   ∀ bytes : ByteArray, bytes.size = 24 →
     ∃ schedule, meaningOptionalBlobSchedule bytes = .ok (some schedule)

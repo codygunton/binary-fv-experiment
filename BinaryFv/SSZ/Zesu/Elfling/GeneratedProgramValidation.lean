@@ -1,5 +1,5 @@
 import BinaryFv.SSZ.Zesu.Elfling.GeneratedValidationBridges
-import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.SSZ.Zesu.Contracts.ProgramCriteria
 import GeneratedProgram
 
 /-!

@@ -19,10 +19,22 @@ demands byte equality. The Zig decoder never re-serializes. Instead each contain
 `requireCanonicalOffsets`, and `decodeByteListList` separately rejects a zero first offset — which
 is exactly the `00 00 00 00` empty-list alias that the oracle's re-serialization check kills.
 
-That those per-container checks together imply global re-serialization equality is the single
-load-bearing lemma of the whole catalog. It needs the source-shaped composition to exist first, so
-it is stated in `Contracts/Entry.lean` as `sourceShapedDecodeAgreesWithOracle` — named rather than
-left implicit, because every container contract silently depends on it.
+That those per-container checks together imply global re-serialization equality is the catalog's one
+genuinely hard lemma. It needs the source-shaped composition to exist first, so it is stated in
+`Contracts/Entry.lean` as `sourceShapedDecodeAgreesWithOracle` — named rather than left implicit,
+because every container contract silently depends on it.
+
+**Its domain is much smaller than "all containers", and saying so is the difference between a
+tractable obligation and an intimidating one.** Only four meanings are hand-composed from leaf
+meanings: the entry's four-field table in `meaningDecodeRaw`, and the
+`meaningForkActivation` → `meaningForkConfig` → `meaningChainConfig` chain. *Every other* container
+and collection meaning — `meaningExecutionWitness`, `meaningExecutionRequests`,
+`meaningExecutionPayload`, `meaningNewPayloadRequest`, `meaningPublicKeys`, `meaningByteListList`,
+and the five fixed-stride collections — is literally `SszBridge.decodeCanonical` at the
+corresponding schema type followed by a projection. Those agree with the oracle *by construction*,
+not by theorem, because both sides are the same function. So the nested byte-list-list offset tables,
+which look like the sharpest case, cannot part from re-serialization at all; the question only has
+content at the entry table and along the three-link chain.
 -/
 
 /-- `requireCanonicalOffsets(data, fixedSize, offsets)`.
@@ -57,10 +69,14 @@ def preCanonicalOffsets (env : DecoderEnvironment) (args : CanonicalOffsetsArgs)
   state.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) ∧
   state.regs.get? x12 = some (BitVec.ofNat 64 args.fixedSize)
 
-/-- The check reads only: it returns a status and disturbs nothing. -/
+/-- The check reads only: it returns a status and disturbs nothing.
+
+`CanonicalOffsetsArgs` has no result base — there is no record — so the ownership clause inside
+`LeafFrame` is taken at the empty region, which is the clause's strongest instance rather than its
+weakest. -/
 def postCanonicalOffsets (env : DecoderEnvironment) (args : CanonicalOffsetsArgs)
     (result : Except SszDecodeError Unit) (before after : State) : Prop :=
-  LeafFrame env args.base args.bytes before after ∧
+  LeafFrame env args.base args.bytes 0 0 before after ∧
   match result with
   | .ok () => after.regs.get? x10 = some (BitVec.ofNat 64 0)
   | .error error => error = SszDecodeError.invalidSsz
@@ -73,9 +89,9 @@ def contractRequireCanonicalOffsets (env : DecoderEnvironment) :
   stepBound := fun args => 32 + 32 * args.offsets.length
 
 def correctnessClaimRequireCanonicalOffsets (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractRequireCanonicalOffsets env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractRequireCanonicalOffsets env)
 
 def satisfiableRequireCanonicalOffsets (env : DecoderEnvironment) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractRequireCanonicalOffsets env)
@@ -115,11 +131,25 @@ The oracle rejects it through `decodeCanonical`'s re-serialization equality; the
 through `decodeByteListList`'s explicit `first_offset == 0` guard. This is the one alias where the
 two otherwise-different canonicality mechanisms visibly coincide, which makes it the natural first
 case of the composition bridge in `Contracts/Entry.lean`.
+
+**`elementType` must be variable-size, and that hypothesis is a correction, not a convenience.**
+Without it the statement is false — see `DECISIONS.md`. A leading `00 00 00 00` is an *offset* only
+when the wire format has an offset table, which is exactly when the elements are variable-size. For a
+fixed-size element type those four bytes are data: `.list (.uintN 8) 4` on four zero bytes decodes to
+`#[0,0,0,0]`, re-serializes to the same four bytes, and is **accepted**. The tell that the original
+had drifted past its own intent is that on the fixed path nothing rejects at all, while the sentence
+above claims the oracle rejects through re-serialization equality. On the restricted domain that
+claim is exactly right, and it really is the serialize-compare branch that rejects: a zero first offset
+gives an element count of zero, an empty list re-serializes to the empty buffer, and an empty buffer
+cannot equal a body of four or more bytes.
+
+The restriction loses no coverage. It still quantifies over *every* element type, so no list with an
+offset table escapes it — and the binary's guard exists only where an offset table does.
 -/
 def zeroFirstOffsetAliasRejected : Prop :=
   ∀ (bytes : ByteArray),
     bytes.size ≥ 4 → SszBridge.readU32LE? bytes 0 = some 0 →
-      ∀ (elementType : SSZType) (capacity : Nat),
+      ∀ (elementType : SSZType) (capacity : Nat), elementType.isFixedSize = false →
         (SszBridge.decodeCanonical (.list elementType capacity) bytes).toOption = none
 
 end BinaryFv.SSZ.Zesu.Contracts

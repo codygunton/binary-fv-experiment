@@ -146,12 +146,24 @@ discipline means elements of a byte-list collection *alias* the caller's input r
 
 The error arm admits `invalidSsz` and `outOfMemory` and excludes `unknownFork`: no collection decoder
 reads a fork index.
+
+**The ownership clause.** Every collection allocates, so it takes the allocating form: its permitted
+region is the slice descriptor it publishes at `args.resultBase`, the arena interval its allocations
+consumed, the allocator's own state, and its stack frame. The heap array itself needs no separate mention — it was
+allocated by the same call, so it is inside the interval, which is precisely the containment
+`postAlloc`'s `cursorBefore ≤ address ∧ address + bytes ≤ cursorAfter` was added to make derivable.
+The record is the descriptor, not the array, and `env.record.sliceDescriptor` is its ABI size.
+
+Note `_before` is no longer unused: the clause is the first thing in this predicate that relates the
+two states rather than describing `after` absolutely. The docstring on `postEntry` explaining why the
+binder was decorative describes the shape these predicates *used* to have.
 -/
 def postCollection {α : Type} (env : DecoderEnvironment) (args : CollectionArgs)
     (elementSize : Nat) (count : α → Nat)
     (result : Except SszDecodeError α) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
+  env.WritesOnlyWithinOwnAllocation args.resultBase env.record.sliceDescriptor before after ∧
   match result with
   | .ok value =>
       ∃ dataBase,
@@ -220,39 +232,39 @@ def contractByteListList (env : DecoderEnvironment) :
 -/
 
 def correctnessClaimVersionedHashes (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractVersionedHashes env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractVersionedHashes env)
 
 def correctnessClaimWithdrawals (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractWithdrawals env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractWithdrawals env)
 
 def correctnessClaimDepositRequests (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractDepositRequests env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractDepositRequests env)
 
 def correctnessClaimWithdrawalRequests (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractWithdrawalRequests env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractWithdrawalRequests env)
 
 def correctnessClaimConsolidationRequests (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractConsolidationRequests env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractConsolidationRequests env)
 
 def correctnessClaimPublicKeys (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractPublicKeys env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractPublicKeys env)
 
 def correctnessClaimByteListList (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractByteListList env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractByteListList env)
 
 /-!
 ## Satisfiability
@@ -298,9 +310,15 @@ def byteListListLoopInvariant (bytes : ByteArray) (maxItemBytes : Nat)
   ∀ pair ∈ starts.zip ends,
     pair.1 ≤ pair.2 ∧ pair.2 ≤ bytes.size ∧ pair.2 - pair.1 ≤ maxItemBytes
 
-/-- A zero-length input still allocates: the source takes `alloc.alloc(_, 0)` rather than returning
-a static empty slice, so "no allocation" would be the wrong postcondition even here. -/
-def emptyByteListListStillAllocates : Prop :=
+/-- A zero-length input decodes to the empty array rather than failing.
+
+**Renamed from `emptyByteListListIsEmptyArray`, and the old name overclaimed.** A zero-length input
+does still allocate — the source takes `alloc.alloc(_, 0)` rather than returning a static empty
+slice, so "no allocation" would be the wrong postcondition even here — but *this statement says
+nothing about that*. It is about the meaning, which has no allocation effect to observe. The
+allocation claim is `postCollection`'s `AllocatedDescriptorArray`, and restating it here would create
+a second source for a proof-relevant fact, which is what this project rejects everywhere else. -/
+def emptyByteListListIsEmptyArray : Prop :=
   ∀ maxItems maxItemBytes,
     meaningByteListList maxItems maxItemBytes ByteArray.empty = .ok #[]
 

@@ -1,4 +1,4 @@
-import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.SSZ.Zesu.Contracts.Catalog
 import BinaryFv.RiscV.Elfling.ProgramGeometry
 
 /-!
