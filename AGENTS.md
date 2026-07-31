@@ -47,6 +47,20 @@ These instructions apply repository-wide.
 - DWARF augments LLVM evidence with source identity and locations; it does not override instructions in
   the shipped binary.
 
+## Documentation language
+
+- Comments, docstrings, READMEs, plans, and status notes must use concrete project terms. Do not use
+  generic jargon when the specific declaration, artifact, proof relationship, or machine-code region
+  can be named.
+- Introduce specialized terms with enough local context to identify what they mean here. For example,
+  say “the theorem converting `Level1ContractAssumptions` into `ExportedContractAssumptions`” before
+  calling it a “refinement edge,” and name the exact theorem meant by “root” or “parent.”
+- Avoid context-free labels such as “foundation,” “admission,” “spine,” “layer,” “closure,” or
+  “machinery.” If one is useful, accompany it with the concrete files, declarations, checks, or
+  dependency relation it summarizes.
+- Documentation should let a reader follow the proof and build artifacts without first learning an
+  agent's private vocabulary.
+
 ## Loops
 
 - Prove loops with an invariant or recursive theorem plus a decreasing measure or justified bound.
