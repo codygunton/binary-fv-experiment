@@ -38,6 +38,7 @@ lean_lib SszSpec where
     `SizzLean.Proofs.FixedElems,
     `SizzLean.Proofs.BitPack,
     `SizzLean.Proofs.Roundtrip,
+    `SizzLean.Proofs.SizeBound,
     `SszBridge.Core,
   ]
 
