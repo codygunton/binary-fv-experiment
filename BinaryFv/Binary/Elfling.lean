@@ -1,5 +1,6 @@
 import BinaryFv.Binary.Elfling.Source
 import BinaryFv.Binary.Elfling.Instance
+import BinaryFv.Binary.Elfling.FunctionInstance
 
 /-!
 # `BinaryFv.Binary.Elfling`
