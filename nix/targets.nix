@@ -285,46 +285,6 @@ let
       > "$out/determinism.txt"
   '';
 
-  # Deterministic DWARF -> Lean extractor for the `decodeOptionalBlobSchedule` vertical slice
-  # (milestone 3). Reads the validated decoder DWARF sidecar with the pinned LLVM 21.1.8
-  # `llvm-dwarfdump`, finds the single inline instance, its inline call stack and nested `readU64`
-  # field reads, maps object-relative DWARF ranges to canonical-ELF PCs, and emits the committed
-  # `BlobScheduleInstance.lean` verbatim.
-  #
-  # Filtered inputs: only the extractor script (via builtins.path, not the whole repo) and the
-  # validated sidecar — so editing handwritten proofs never rebuilds it. Determinism is an
-  # acceptance criterion: it runs twice and FAILS unless byte-identical, then a drift guard FAILS
-  # unless the regenerated file equals the committed `BlobScheduleInstance.lean` (the analog of how
-  # the decoder `.text` sha256 is reproduced AND enforced).
-  blobScheduleExtractorScript = builtins.path {
-    path = repo + "/tools/extract_blob_schedule_instance.py";
-    name = "extract_blob_schedule_instance.py";
-  };
-  blobScheduleCommitted = builtins.path {
-    path = repo + "/BinaryFv/Zesu/Elfling/BlobScheduleInstance.lean";
-    name = "BlobScheduleInstance.lean";
-  };
-  blobScheduleInstance = pkgs.runCommand "blob-schedule-instance" {
-    nativeBuildInputs = [ pkgs.python3 pkgs.coreutils pkgs.diffutils ];
-  } ''
-    gen() {
-      python3 ${blobScheduleExtractorScript} \
-        ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
-        --dwarfdump ${pkgs.llvm}/bin/llvm-dwarfdump \
-        --lean --out-lean "$1/BlobScheduleInstance.lean"
-    }
-    mkdir -p run1 run2 "$out"
-    gen run1
-    gen run2
-    cmp -s run1/BlobScheduleInstance.lean run2/BlobScheduleInstance.lean \
-      || { echo "BLOB-SCHEDULE EXTRACTOR NON-DETERMINISTIC: BlobScheduleInstance.lean differs between two runs" >&2; exit 1; }
-    cmp -s run1/BlobScheduleInstance.lean ${blobScheduleCommitted} \
-      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleInstance.lean differs from committed BinaryFv/Zesu/Elfling/BlobScheduleInstance.lean" >&2; exit 1; }
-    cp run1/BlobScheduleInstance.lean "$out/"
-    printf '%s\n' "two independent runs produced byte-identical BlobScheduleInstance.lean; regenerated == committed" \
-      > "$out/determinism.txt"
-  '';
-
   # Audit-only optimized LLVM IR for the decoder (plan: "optimized LLVM IR for inspection only, never
   # as proof input"). Emitted through the pinned build.zig module graph (so imports resolve) by adding
   # `getEmittedLlvmIr()` to the raw-ssz-object step, at the SAME target/optimize as the canonical
@@ -723,7 +683,6 @@ in
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
-      blobScheduleInstance
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
@@ -738,7 +697,6 @@ in
     zesu-raw-ssz-sidecar = zesuRawSidecar;
     zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
     elfling-program = elflingProgram;
-    blob-schedule-instance = blobScheduleInstance;
     elfling-decoder-llvm-ir = elflingDecoderLlvmIr;
     elfling-relocation-check = elflingRelocationCheck;
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;
