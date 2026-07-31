@@ -225,10 +225,6 @@ def OccurrenceContract.ImplementsInstance {Args Outcome : Type}
   FunctionInstanceContract.ImplementsFunctionInstance functionInstance (fun _ => False)
     entry exit contract
 
-def OccurrenceContract.PreSatisfiable {Args Outcome : Type}
-    (contract : OccurrenceContract Args Outcome) : Prop :=
-  FunctionInstanceContract.PreSatisfiable contract
-
 /--
 A contract whose entry binding no state satisfies is vacuously implemented.
 
@@ -239,6 +235,10 @@ satisfiability claim, and this is the shape of it.
 def FunctionInstanceContract.PreSatisfiable {Args Outcome : Type}
     (contract : FunctionInstanceContract Args Outcome) : Prop :=
   ∃ (args : Args) (s : State), contract.binding.entry args s
+
+def OccurrenceContract.PreSatisfiable {Args Outcome : Type}
+    (contract : OccurrenceContract Args Outcome) : Prop :=
+  FunctionInstanceContract.PreSatisfiable contract
 
 /-- `PreSatisfiable` for a source-shaped `FunctionContract`. -/
 def PreSatisfiable {Error Args Result : Type} (contract : FunctionContract Error Args Result) : Prop :=
