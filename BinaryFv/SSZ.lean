@@ -81,10 +81,7 @@ import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.SentinelAssembly
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.HierarchicalContracts
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.DecodeGlue
-import BinaryFv.SSZ.Zesu.Validation.SequentialSpliceWitness
-import BinaryFv.SSZ.Zesu.Validation.LoopDischarge
-import BinaryFv.SSZ.Zesu.Validation.CallStepRetInRegion
-import BinaryFv.SSZ.Zesu.Validation.SyntheticUnitProbe
+import BinaryFv.SSZ.Zesu.ControlFlow.MachineRegions
 import BinaryFv.SSZ.Zesu.Interface
 import BinaryFv.SSZ.Root
 

@@ -291,6 +291,58 @@ let
       > "$out/determinism.txt"
   '';
 
+  machineRegionsGenerator = builtins.path {
+    path = repo + "/tools/generate_machine_regions.py";
+    name = "generate_machine_regions.py";
+  };
+  machineRegionsTest = builtins.path {
+    path = repo + "/targets/ssz/zesu/tests/machine_regions_test.py";
+    name = "machine_regions_test.py";
+  };
+  machineRegions = pkgs.runCommand "zesu-machine-regions" {
+    nativeBuildInputs = [ pkgs.python3 pkgs.llvm pkgs.coreutils pkgs.diffutils ];
+  } ''
+    mkdir -p source/tools source/targets/ssz/zesu/tests run1 run2 "$out"
+    cp ${machineRegionsGenerator} source/tools/generate_machine_regions.py
+    cp ${machineRegionsTest} source/targets/ssz/zesu/tests/machine_regions_test.py
+    python3 source/targets/ssz/zesu/tests/machine_regions_test.py
+
+    gen() {
+      python3 ${machineRegionsGenerator} \
+        --elf ${zesuSsz}/bin/zesu-ssz \
+        --program-json ${elflingProgram}/program.json \
+        --llvm-objdump ${pkgs.llvm}/bin/llvm-objdump \
+        --out "$1/machine-regions.json" \
+        --out-lean "$1/GeneratedMachineRegions.lean" \
+        --out-flame "$1/flame.json"
+    }
+    gen run1
+    gen run2
+    cmp -s run1/machine-regions.json run2/machine-regions.json \
+      || { echo "MACHINE-REGION EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
+    cmp -s run1/GeneratedMachineRegions.lean run2/GeneratedMachineRegions.lean \
+      || { echo "MACHINE-REGION LEAN EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
+    cmp -s run1/flame.json run2/flame.json \
+      || { echo "MACHINE-REGION UI EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
+    cp run1/machine-regions.json run1/GeneratedMachineRegions.lean run1/flame.json "$out/"
+    printf '%s\n' \
+      "unit tests and corruption probes passed; two independent runs produced byte-identical machine-regions.json" \
+      > "$out/determinism.txt"
+  '';
+
+  machineRegionsUiSource = builtins.path {
+    path = repo + "/tools/contract-target-curation";
+    name = "contract-target-curation";
+    filter = path: type:
+      type == "directory" ||
+      (let name = baseNameOf path; in name != "flame.json" && name != "allpcs.txt");
+  };
+  machineRegionsUi = pkgs.runCommand "zesu-machine-regions-ui" {} ''
+    mkdir -p "$out"
+    cp -R ${machineRegionsUiSource}/. "$out/"
+    cp ${machineRegions}/flame.json ${machineRegions}/machine-regions.json "$out/"
+  '';
+
   # Deterministic DWARF -> Lean extractor for the `decodeOptionalBlobSchedule` vertical slice
   # (milestone 3). Reads the validated decoder DWARF sidecar with the pinned LLVM 21.1.8
   # `llvm-dwarfdump`, finds the single inline function instance, its inline call stack and nested `readU64`
@@ -1144,6 +1196,8 @@ in
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
+      machineRegions
+      machineRegionsUi
       blobScheduleFunctionInstance
       elflingDecoderLlvmIr
       elflingRelocationCheck
@@ -1165,6 +1219,8 @@ in
     zesu-raw-ssz-sidecar = zesuRawSidecar;
     zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
     elfling-program = elflingProgram;
+    machine-regions = machineRegions;
+    machine-regions-ui = machineRegionsUi;
     blob-schedule-function-instance = blobScheduleFunctionInstance;
     elfling-decoder-llvm-ir = elflingDecoderLlvmIr;
     elfling-relocation-check = elflingRelocationCheck;

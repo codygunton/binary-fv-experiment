@@ -45,11 +45,11 @@
 <div id="wrap">
  <div id="left">
   <header>
-    <h1>mf decomposition</h1>
+    <h1>production machine regions</h1>
     <span class="pill" id="zoominfo">full</span>
     <button id="reset">reset zoom</button>
     <button id="clear">clear set</button>
-    <button id="suggest" style="border-color:#3ddc84;color:#9df3c3">AI suggested split</button>
+    <button id="suggest" style="border-color:#3ddc84;color:#9df3c3">proposed size split</button>
     <button id="export">export</button>
     <span class="muted"><b>scroll</b> = zoom · <b>drag</b> = pan · <b>double-click</b> = reset · click = details · <b>shift-click</b> or checkbox = add to set</span>
   </header>
@@ -178,6 +178,9 @@ function details(d){
       <span>instructions</span><span>${d.data.value}</span>
       <span>fragments</span><span>${m.frags>1?`<b style="color:var(--cur)">${m.frags}</b> (non-contiguous)`:'1 (contiguous)'}</span>
       <span>children</span><span>${(d.children||d._children||[]).length}</span>
+      <span>entries</span><span>${(m.entries||[]).map(x=>'0x'+x.toString(16)).join(', ')||'none'}</span>
+      <span>exits</span><span>${(m.exits||[]).length}</span>
+      <span>loop SCCs</span><span>${(m.loopSccs||[]).join(', ')||'none'}</span>
     </div>
     <pre>${m.src?esc(m.src.text):'&lt;source unavailable&gt;'}</pre>`;
   $('#cb').onchange=()=>{ toggle(k); };
@@ -220,7 +223,7 @@ $('#suggest').onclick=()=>{
   sel.clear(); SUG.units.forEach(k=>sel.add(k)); save(); fg.update(); coverage(); markPicked();
   const need=SUG.needsSubFunctionSplit||[];
   const rows=SUG.units.map(k=>[k,SUG.residual[k]]).sort((a,b)=>b[1]-a[1]).slice(0,14);
-  $('#dname').textContent='AI suggested split';
+  $('#dname').textContent='proposed size split';
   $('#dsub').textContent=`${SUG.units.length} units · cap ${SUG.cap} (10%) · ${(SUG.coverage/TOTAL*100).toFixed(1)}% coverage`;
   $('#rbody').innerHTML=
    `<p class="muted" style="margin:0 0 10px">Every node whose whole subtree fits under the cap becomes a unit;

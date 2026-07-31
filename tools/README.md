@@ -6,8 +6,9 @@ disassembly. Nix invokes it to produce machine-readable and Markdown reports for
 [`generate_elfling_program.py`](generate_elfling_program.py) turns the compiled Zesu decoder into
 data for the Elfling proof layer. It reads DWARF for function instances and parameter locations, the linker
 map and symbol tables for global addresses, and objdump output for instructions and control flow.
-Locations removed by optimization are recovered only by explicit rules over pinned Zig call sites
-or the RISC-V C ABI.
+Locations removed by optimization are recovered only by explicit rules over pinned Zig call sites.
+The RISC-V ABI applies only at real machine call boundaries, never at inlined source-function
+boundaries.
 
 The generator emits the address-bearing program, readable reports, decoder globals, and raw and
 effective parameter-binding tables. Run it through `nix build .#elfling-program`; the build runs it
@@ -19,3 +20,36 @@ instead of guessing. The root README's â€œRegenerating deterministic artifactsâ€
 command surface.
 
 Target-specific vector and differential checks live beside their targets under `targets/*/*/tests/`.
+
+## Canonical machine-region database
+
+[`generate_machine_regions.py`](generate_machine_regions.py) is the single structural extractor for
+hierarchical proof regions. The `.#machine-regions` Nix target runs it twice with pinned LLVM 21,
+requires byte-identical JSON, Lean, and UI outputs, and runs its corruption tests. Its inputs are the
+production ELF and `.#elfling-program`, whose DWARF sidecars are already checked against the production
+bytes.
+
+LLVM supplies disassembly and the standard structural analyses are derived in one pass:
+
+- exact instruction ownership and unit entries/exits;
+- complete direct successors with indirect transfers left explicit;
+- strongly connected components and loop membership;
+- conservative register/memory effects and backwards liveness;
+- source locations and inline stacks inherited from checked LLVM DWARF.
+
+The output is untrusted. Generated Lean checks instruction words and complete direct edges against the
+production ELF decoded through Sail, checks exact ownership/SCC tiling, and checks SCC
+strong-connectivity plus acyclic condensation certificates. QEMU remains a falsification tool for
+candidate interfaces; it does not define the static database. IR/MIR may add explanatory provenance
+when reproducibly tied to emitted instructions, but neither is needed for the structural artifact.
+
+Build the reviewed UI with:
+
+```sh
+nix build .#machine-regions-ui
+cd result
+python3 -m http.server 8420 --bind 127.0.0.1
+```
+
+The remaining non-LLVM facts are deliberately explicit: targets loaded at runtime through vtables,
+and semantic contracts describing the SSZ value computed by a region.
