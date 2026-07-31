@@ -252,15 +252,15 @@ open BinaryFv.RiscV (State)
 open Register
 
 /-- Confinement predicate of an excluded routine: PCs inside its canonical regions. -/
-def excludedRegionPred (x : BinaryFv.Binary.Elfling.ExcludedFunctionInstance) : BitVec 64 → Prop :=
+def excludedRegionPred (x : BinaryFv.Binary.Elfling.Program.ExcludedFunctionInstance) : BitVec 64 → Prop :=
   RegionPcs x.regions
 
 /-- An excluded routine's exit: control leaves its regions. -/
-def excludedExitPred (x : BinaryFv.Binary.Elfling.ExcludedFunctionInstance) : BitVec 64 → Prop :=
+def excludedExitPred (x : BinaryFv.Binary.Elfling.Program.ExcludedFunctionInstance) : BitVec 64 → Prop :=
   fun pc => ¬ RegionPcs x.regions pc
 
 /-- The routine's entry PC (its lowest region start) as a machine word. -/
-def excludedEntryWord (x : BinaryFv.Binary.Elfling.ExcludedFunctionInstance) : BitVec 64 :=
+def excludedEntryWord (x : BinaryFv.Binary.Elfling.Program.ExcludedFunctionInstance) : BitVec 64 :=
   BitVec.ofNat 64 (x.regions.foldl (fun m r => Nat.min m r.start) ((x.regions[0]?.map (·.start)).getD 0))
 
 /-- **Per-routine EXECUTION obligation.** From any machine state sitting on the routine's entry, the
@@ -270,7 +270,8 @@ the base obligation the category-specific memory effect strengthens in later row
 `reachableCleanupNoOp` (`*.deinit`) the additional fact is that the confined run leaves the accept/
 reject-determining state unchanged (its allocator free is a no-op); for a `reachableStdlib` it is that
 the run realizes the corresponding cataloged allocator-vtable contract. -/
-def excludedRoutineExecObligation (x : BinaryFv.Binary.Elfling.ExcludedFunctionInstance) : Prop :=
+def excludedRoutineExecObligation
+    (x : BinaryFv.Binary.Elfling.Program.ExcludedFunctionInstance) : Prop :=
   ∀ (fromStep : Nat) (s : State), s.regs.get? PC = some (excludedEntryWord x) →
     ∃ (count : Nat) (s' : State),
       EnteredFunctionTrace (excludedRegionPred x) (excludedExitPred x) (excludedEntryWord x)
