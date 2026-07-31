@@ -1,8 +1,12 @@
 import BinaryFv.RiscV.Elfling.Boundary
 
 /-!
-# Row A vertical tests for the checked-edge boundary layer
+# Examples and regression tests for checked boundaries
 
+These small theorems show what the boundary definitions accept and reject without requiring the full
+Zesu program. The positive cases account for calls, returns, and inline exits. The negative cases
+mutate one edge, continuation, or step count at a time and prove that the corresponding validity
+predicate becomes false.
 Definitional checks on `CallSite` / `InlineBoundary` / `ExitBoundary` / `ScopedTrace` that the plan's
 Row A vertical tests call for. They hold at the boundary layer's own abstraction (no Sail runner), so a
 regression in the boundary definitions fails them.
@@ -28,7 +32,7 @@ open BinaryFv.RiscV
 callee at the callee's own entry pc and resumes at the fall-through `source + 4` — exactly the
 continuation the emitted CFG pins, never a chosen one. -/
 theorem callSite_resumes_at_checked_continuation
-    {cs : CallSite} {inst callee : FunctionInstance} (h : cs.validFor inst callee) :
+    {cs : CallSite} {functionInstance callee : FunctionInstance} (h : cs.validFor functionInstance callee) :
     cs.returnPc = cs.source + 4 ∧ callee.entryPc = cs.calleeEntry :=
   ⟨h.1, h.2.2.1⟩
 
@@ -36,8 +40,8 @@ theorem callSite_resumes_at_checked_continuation
 `CallSite` requires `source → calleeEntry` to be a genuine emitted edge of the caller: the call
 transfer itself is a decoded successor, not merely a routine the caller happens to reach. -/
 theorem callSite_uses_the_real_call_edge
-    {cs : CallSite} {inst callee : FunctionInstance} (h : cs.validFor inst callee) :
-    (⟨cs.source, cs.calleeEntry⟩ : DirectEdge) ∈ inst.edges :=
+    {cs : CallSite} {functionInstance callee : FunctionInstance} (h : cs.validFor functionInstance callee) :
+    (⟨cs.source, cs.calleeEntry⟩ : DirectEdge) ∈ functionInstance.edges :=
   h.2.2.2.2.1
 
 /-- **The full wrapper-to-call-to-return composition names both transfer instructions.** A
@@ -48,13 +52,13 @@ The checked boundary and both `try_step`s are carried inside `CallTransfer`, so 
 without the real call/return execution. -/
 theorem scopedTrace_callStep_composes
     {region exit : BitVec 64 → Prop}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop}
-    {fromStep used count : Nat} {cs : CallSite} {inst callee : FunctionInstance}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
+    {fromStep used count : Nat} {cs : CallSite} {functionInstance callee : FunctionInstance}
     {s sResume s'' : State}
-    (htransfer : CallTransfer region exit childSummary cs inst callee fromStep used s sResume)
+    (htransfer : CallTransfer region exit childSummary cs functionInstance callee fromStep used s sResume)
     (hrest : ScopedTrace region exit childSummary (fromStep + 1 + used + 1) count sResume s'') :
     ScopedTrace region exit childSummary fromStep (1 + used + 1 + count) s s'' :=
-  ScopedTrace.callStep fromStep used count cs inst callee s sResume s'' htransfer hrest
+  ScopedTrace.callStep fromStep used count cs functionInstance callee s sResume s'' htransfer hrest
 
 /-- **An inline splice retires the outgoing edge exactly once.** A `ScopedTrace.inlineStep` runs the
 child body from the child entry pc through a checked outgoing edge and then retires that edge back into
@@ -62,37 +66,37 @@ the parent, advancing the count by `used + 1 + count`: the child body, the one o
 the continuation. -/
 theorem scopedTrace_inlineStep_composes
     {region exit : BitVec 64 → Prop}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop}
-    {fromStep used count : Nat} {ib : InlineBoundary} {inst childInst : FunctionInstance}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
+    {fromStep used count : Nat} {ib : InlineBoundary} {functionInstance childFunctionInstance : FunctionInstance}
     {s sResume s'' : State}
-    (htransfer : InlineTransfer region exit childSummary ib inst childInst fromStep used s sResume)
+    (htransfer : InlineTransfer region exit childSummary ib functionInstance childFunctionInstance fromStep used s sResume)
     (hrest : ScopedTrace region exit childSummary (fromStep + used + 1) count sResume s'') :
     ScopedTrace region exit childSummary fromStep (used + 1 + count) s s'' :=
-  ScopedTrace.inlineStep fromStep used count ib inst childInst s sResume s'' htransfer hrest
+  ScopedTrace.inlineStep fromStep used count ib functionInstance childFunctionInstance s sResume s'' htransfer hrest
 
 /-! ## Negative tests: invented boundaries and counts -/
 
 /-- **An invented continuation fails.** A `CallSite` whose recorded continuation is not the 4-byte
 fall-through of the call is rejected — the return address cannot be chosen freely. -/
 theorem callSite_invented_continuation_fails
-    {cs : CallSite} {inst callee : FunctionInstance} (h : cs.returnPc ≠ cs.source + 4) :
-    ¬ cs.validFor inst callee :=
+    {cs : CallSite} {functionInstance callee : FunctionInstance} (h : cs.returnPc ≠ cs.source + 4) :
+    ¬ cs.validFor functionInstance callee :=
   fun hv => h hv.1
 
 /-- **An invented callee target fails.** A `CallSite` whose recorded entry pc is not the callee
-occurrence's own entry is rejected — the call cannot land on a chosen address inside the callee. -/
+function instance's own entry is rejected — the call cannot land on a chosen address inside the callee. -/
 theorem callSite_invented_target_fails
-    {cs : CallSite} {inst callee : FunctionInstance} (h : callee.entryPc ≠ cs.calleeEntry) :
-    ¬ cs.validFor inst callee :=
+    {cs : CallSite} {functionInstance callee : FunctionInstance} (h : callee.entryPc ≠ cs.calleeEntry) :
+    ¬ cs.validFor functionInstance callee :=
   fun hv => h hv.2.2.1
 
 /-- **An invented call source fails.** A `CallSite` whose `source → calleeEntry` transfer is not a real
 emitted edge of the caller is rejected — the call instruction cannot be invented at a pc the CFG does
 not decode a call edge from. -/
 theorem callSite_invented_source_fails
-    {cs : CallSite} {inst callee : FunctionInstance}
-    (h : (⟨cs.source, cs.calleeEntry⟩ : DirectEdge) ∉ inst.edges) :
-    ¬ cs.validFor inst callee :=
+    {cs : CallSite} {functionInstance callee : FunctionInstance}
+    (h : (⟨cs.source, cs.calleeEntry⟩ : DirectEdge) ∉ functionInstance.edges) :
+    ¬ cs.validFor functionInstance callee :=
   fun hv => h hv.2.2.2.2.1
 
 /-- **An invented step count is impossible: both transfers are counted.** A `callStep` advances the
@@ -107,9 +111,9 @@ theorem callStep_counts_both_transfers (used count : Nat) :
 *inside* the child (so it does not cross into it) is rejected: an entry edge must leave the parent and
 land in the child. -/
 theorem inlineBoundary_noncrossing_entry_fails
-    {ib : InlineBoundary} {inst childInst : FunctionInstance} {e : DirectEdge}
-    (he : e ∈ ib.entries) (hsrc : childInst.containsAddress e.source = true) :
-    ¬ ib.validFor inst childInst := by
+    {ib : InlineBoundary} {functionInstance childFunctionInstance : FunctionInstance} {e : DirectEdge}
+    (he : e ∈ ib.entries) (hsrc : childFunctionInstance.containsAddress e.source = true) :
+    ¬ ib.validFor functionInstance childFunctionInstance := by
   intro hv
   have h := (hv.2.2.1 e he).2.2.1
   simp [hsrc] at h
@@ -118,9 +122,9 @@ theorem inlineBoundary_noncrossing_entry_fails
 *inside* the child (so it does not cross out of it) is rejected: an exit edge must leave the child and
 land back in the parent. -/
 theorem inlineBoundary_noncrossing_exit_fails
-    {ib : InlineBoundary} {inst childInst : FunctionInstance} {e : DirectEdge}
-    (he : e ∈ ib.exits) (htgt : childInst.containsAddress e.target = true) :
-    ¬ ib.validFor inst childInst := by
+    {ib : InlineBoundary} {functionInstance childFunctionInstance : FunctionInstance} {e : DirectEdge}
+    (he : e ∈ ib.exits) (htgt : childFunctionInstance.containsAddress e.target = true) :
+    ¬ ib.validFor functionInstance childFunctionInstance := by
   intro hv
   have h := (hv.2.2.2 e he).2.2.1
   simp [htgt] at h
@@ -128,16 +132,16 @@ theorem inlineBoundary_noncrossing_exit_fails
 /-- **A mutated return edge fails validation.** An `ExitBoundary.return_` claimed at a pc the generator
 did not flag as an exit is rejected: a return may only be claimed at a real generated exit pc. -/
 theorem returnBoundary_at_nonExit_fails
-    {inst : FunctionInstance} {source : Nat} (h : source ∉ inst.exitPcs) :
-    ¬ (ExitBoundary.return_ source).validFor inst := by
+    {functionInstance : FunctionInstance} {source : Nat} (h : source ∉ functionInstance.exitPcs) :
+    ¬ (ExitBoundary.return_ source).validFor functionInstance := by
   simpa [ExitBoundary.validFor, FunctionInstance.isExit] using h
 
 /-- **A direct exit that stays inside the occupancy fails validation.** An `ExitBoundary.direct` whose
-target is still owned by the occurrence is not a genuine occupancy-crossing exit. -/
+target is still owned by the function instance is not a genuine occupancy-crossing exit. -/
 theorem directBoundary_into_region_fails
-    {inst : FunctionInstance} {source target : Nat}
-    (h : inst.containsAddress target = true) :
-    ¬ (ExitBoundary.direct source target).validFor inst := by
+    {functionInstance : FunctionInstance} {source target : Nat}
+    (h : functionInstance.containsAddress target = true) :
+    ¬ (ExitBoundary.direct source target).validFor functionInstance := by
   intro hv
   simp only [ExitBoundary.validFor] at hv
   exact absurd hv.2.2 (by simp [h])

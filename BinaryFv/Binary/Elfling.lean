@@ -1,4 +1,5 @@
 import BinaryFv.Binary.Elfling.Source
+import BinaryFv.Binary.Elfling.FunctionInstance
 import BinaryFv.Binary.Elfling.Instance
 import BinaryFv.Binary.Elfling.FunctionInstance
 
@@ -7,7 +8,7 @@ import BinaryFv.Binary.Elfling.FunctionInstance
 
 Source-associated decomposition of a linked binary, independent of any instruction set.
 
-`Source` is address-free identity and is what handwritten contracts index by. `Instance` is the
-generated, untrusted, address-bearing occurrence data. The split is what lets a contract survive
+`Source` is address-free identity and is what handwritten contracts index by. `FunctionInstance` is the
+generated, untrusted, address-bearing function instance data. The split is what lets a contract survive
 relinking at a different text base without edits.
 -/

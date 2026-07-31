@@ -4,12 +4,13 @@ namespace BinaryFv.Binary.Elfling
 # Address-free source identity
 
 Every name in this module is derived from pinned source text and debug information, never from a
-linked address. That is the whole point: handwritten contracts are indexed by `InstanceId`, so
+linked address. That is the whole point: handwritten contracts are indexed by `FunctionInstanceId`, so
 relinking the binary at a different text base must not touch a single proof.
 
-The address-bearing side of an Elfling program lives in `BinaryFv.Binary.Elfling.Instance`, which is
-emitted by the generator. Nothing in this module may mention an instruction word, a program counter,
-or a symbol.
+The handwritten types for the address-bearing side live in
+`BinaryFv.Binary.Elfling.FunctionInstance`. The generator creates concrete values of those types for
+one compiled binary. Nothing in this module may mention an instruction word, a program counter, or a
+symbol.
 -/
 
 /-- A pinned source file, identified by its path as recorded in debug information.
@@ -42,7 +43,7 @@ deriving DecidableEq, Repr, Hashable, Inhabited
 declaration's one-based location.
 
 This is checked against the pinned source during extraction. It is deliberately **not** part of
-`FunctionId`: matching a generated occurrence to a catalog entry uses stable identity (file path,
+`FunctionId`: matching a generated function instance to a catalog entry uses stable identity (file path,
 qualified name, specialization) only, so a wrong or absent hash makes provenance validation fail
 rather than silently breaking identity matching. Source pinning is thereby preserved as a separate
 validated obligation, not smuggled into the matching key. -/
@@ -71,7 +72,7 @@ structure InlineSite where
 deriving DecidableEq, Repr, Inhabited
 
 /--
-The address-free identity of one emitted or inlined occurrence of a function.
+The address-free identity of one emitted or inlined function instance of a function.
 
 `inlineStack` is ordered outermost-first, so the empty stack marks a separately emitted function and
 a nonempty stack names the exact nesting the debug information recorded.
@@ -79,37 +80,37 @@ a nonempty stack names the exact nesting the debug information recorded.
 **This is the only thing a handwritten contract may mention.** Ranges, symbols, program counters,
 and instruction words belong to `FunctionInstance`, which the generator emits. Because identity is
 `(function, inlineStack)` and nothing else, relinking at a different text base leaves every
-`InstanceId` — and therefore every contract — unchanged.
+`FunctionInstanceId` — and therefore every contract — unchanged.
 -/
-structure InstanceId where
+structure FunctionInstanceId where
   function : FunctionId
   inlineStack : List InlineSite
 deriving DecidableEq, Repr, Inhabited
 
-namespace InstanceId
+namespace FunctionInstanceId
 
-/-- The identity of a separately emitted (non-inlined) occurrence. -/
-def emitted (function : FunctionId) : InstanceId :=
+/-- The identity of a separately emitted (non-inlined) function instance. -/
+def emitted (function : FunctionId) : FunctionInstanceId :=
   { function := function, inlineStack := [] }
 
-/-- How deeply this occurrence was inlined; `0` for a separately emitted function. -/
-def inlineDepth (id : InstanceId) : Nat :=
+/-- How deeply this function instance was inlined; `0` for a separately emitted function. -/
+def inlineDepth (id : FunctionInstanceId) : Nat :=
   id.inlineStack.length
 
-def isInlined (id : InstanceId) : Bool :=
+def isInlined (id : FunctionInstanceId) : Bool :=
   !id.inlineStack.isEmpty
 
-/-- The declaration this occurrence was most immediately inlined into, if any. -/
-def immediateCaller? (id : InstanceId) : Option SourceDeclaration :=
+/-- The declaration this function instance was most immediately inlined into, if any. -/
+def immediateCaller? (id : FunctionInstanceId) : Option SourceDeclaration :=
   id.inlineStack.getLast?.map InlineSite.caller
 
 /-- `outer` is an inline-stack prefix of `inner`, i.e. `inner` is nested inside `outer`.
 
 This is the *source-level* nesting test. It says nothing about addresses; range containment is
 checked separately against the canonical ELF. -/
-def nestedIn (inner outer : InstanceId) : Prop :=
+def nestedIn (inner outer : FunctionInstanceId) : Prop :=
   outer.inlineStack.isPrefixOf inner.inlineStack ∧ inner.inlineStack.length > outer.inlineStack.length
 
-end InstanceId
+end FunctionInstanceId
 
 end BinaryFv.Binary.Elfling

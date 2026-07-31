@@ -1,4 +1,4 @@
-import BinaryFv.Binary.Elfling.Instance
+import BinaryFv.Binary.Elfling.FunctionInstance
 import BinaryFv.Binary.ProgramImage
 
 /-!
@@ -47,7 +47,7 @@ theorem nodup_of_decide {α : Type} [DecidableEq α] {l : List α}
     (h : (decide l.Nodup) = true) : l.Nodup := of_decide_eq_true h
 
 /-- If the list of a chosen key over an array is duplicate-free, indexing is injective on that key.
-This is exactly the shape of the `instanceIdsDistinct` / `catalogIdentitiesDistinct` obligations: two
+This is exactly the shape of the `functionInstanceIdsDistinct` / `catalogIdentitiesDistinct` obligations: two
 array positions with equal key must be the same position. -/
 theorem array_key_index_inj {α β : Type} [DecidableEq β] (arr : Array α) (key : α → β)
     (h : (arr.toList.map key).Nodup) {i j : Nat} (hi : i < arr.size) (hj : j < arr.size)
@@ -70,8 +70,8 @@ theorem array_key_index_inj {α β : Type} [DecidableEq β] (arr : Array α) (ke
 /-- Every byte of every claimed region reads back in `image`. `List.range r.size` walks the whole
 half-open range, so a `true` here certifies readability of every address the region claims. -/
 def bytesReadableIn (image : ProgramImage) (program : Program) : Bool :=
-  program.instances.all fun inst =>
-    inst.regions.all fun r =>
+  program.functionInstances.all fun functionInstance =>
+    functionInstance.regions.all fun r =>
       (List.range r.size).all fun k => (image.readByte? (r.start + k)).isSome
 
 /-- The per-address readability the `IsCanonicalGeneratedProgram` byte clause demands, extracted from
@@ -79,11 +79,11 @@ the aggregate `Bool`. Generic in `image`: instantiating at `Artifact.programImag
 symbolic, so the kernel never reduces the ELF parse. -/
 theorem bytesReadableIn_elim {image : ProgramImage} {program : Program}
     (h : bytesReadableIn image program = true)
-    {inst : FunctionInstance} (hinst : inst ∈ program.instances)
-    {r : AddressRange} (hr : r ∈ inst.regions)
+    {functionInstance : FunctionInstance} (hFunctionInstance : functionInstance ∈ program.functionInstances)
+    {r : AddressRange} (hr : r ∈ functionInstance.regions)
     {address : Nat} (hlo : r.start ≤ address) (hhi : address < r.stop) :
     ∃ byte, image.readByte? address = some byte := by
-  have hf := forall_mem_of_all h inst hinst
+  have hf := forall_mem_of_all h functionInstance hFunctionInstance
   have hg := forall_mem_of_all hf r hr
   have hk : address - r.start < r.size := by
     have : address < r.start + r.size := hhi

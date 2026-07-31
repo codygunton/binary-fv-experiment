@@ -1,50 +1,38 @@
-import BinaryFv.RiscV.Elfling.Contract
+import BinaryFv.RiscV.Elfling.FunctionTrace
 
 /-!
-# Checked boundaries and edge-aware scoped traces for Elfling occurrences
+# Calls, inlining, and checked trace boundaries
 
-`FunctionTrace` (see `FunctionTrace.lean`) confines execution to one occurrence's regions and stops at
-that occurrence's generated exits, but it is deliberately *flat*: every retired instruction is one the
-occurrence owns, and the only way out is an exit pc. Real occurrences are not flat. They contain
-inlined children, they make resolved calls that return, and they leave through classified edges. This
-module adds the boundary vocabulary that names those transitions and an *edge-aware* trace,
-`ScopedTrace`, that can splice a child's summary in place of re-executing it.
+A boundary is a control-flow edge that crosses from one function instance's owned instructions into another
+function instance, or back again. The name refers to that ownership crossing; it does not mean an arbitrary
+place where a trace is split.
 
-Four design points carry the weight.
+`FunctionTrace` describes instruction-by-instruction execution inside one compiled function instance. Real
+code also calls separately emitted routines and enters regions attributed to inlined routines.
+`ScopedTrace` lets a parent use a proved summary of either kind of child while still reconstructing
+one ordinary machine trace.
 
-*Boundaries are checked against generated data, never invented.* Every `validFor` predicate below is
-built only from a `FunctionInstance`'s own `edges`, `exitPcs`, `externalCalls`, and `children` — the
-untrusted-but-validated generator output. A `CallSite` is valid only if `source → calleeEntry` is a
-real emitted edge landing on the callee's own entry pc; an `InlineBoundary`'s entry/exit edges must
-genuinely *cross* the child boundary in both directions (an entry leaves the parent and lands in the
-child; an exit leaves the child and lands back in the parent). Nothing here writes an address literal.
+The generator supplies the parent and child regions, control-flow edges, calls, and exits. The
+`validFor` predicates check every boundary against that data:
 
-*Each splice carries its checked boundary.* Unlike the first draft, `ScopedTrace`'s splice
-constructors do not take bare program counters. `callStep` carries a `CallSite` and a `CallSite.validFor`
-proof; `inlineStep` carries an `InlineBoundary` and an `InlineBoundary.validFor` proof. The concrete
-transfer states and their `Runs (try_step …)`/region facts are bundled in `CallTransfer`/`InlineTransfer`
-so the constructor cannot be built without producing the real machine steps that realize the boundary.
+- a call must use a real edge to the callee's generated entry and return to the instruction after the
+  call;
+- an inline entry must cross from the parent into the child;
+- an inline exit must cross from the child back into the parent.
 
-*The child summary carries its exact consumed count.* `childSummary : InstanceId → Nat → Nat → State →
-State → Prop` records *which* child ran, at which step number, and — the middle `Nat` — exactly how
-many machine steps it consumed. A splice may not invent a `used` count independent of the summary: the
-same `used` appears in the summary premise and in the trace's step arithmetic, and `SummariesCompose`
-only discharges a composition whose length matches.
+Each splice also contains the actual Sail steps at the boundary. A call counts the call instruction,
+the summarized callee body, and the return instruction. An inline child counts its summarized body
+and the outgoing instruction. The child summary and parent arithmetic share the same `used` value,
+so a proof cannot invent a convenient step count.
 
-*Every machine step at a boundary is accounted exactly once.* A call is not one abstract move: the
-parent retires the call instruction (`callPc → calleeEntry`), the callee body runs as a summary ending
-*sitting on* its return instruction, the parent retires that return (`retPc → returnPc`), and only then
-resumes at the checked continuation. An inline splice runs the child body ending sitting on a checked
-outgoing edge, then retires that outgoing edge back into the parent. So a `callStep` accounts
-`1 + used + 1 + count` steps and an `inlineStep` accounts `used + 1 + count` — the transfer
-instructions are never dropped.
+`SummariesCompose` is the remaining interface: it says that each child summary expands to a confined
+`FunctionTrace` of exactly the advertised length. Once that is available,
+`toFunctionTrace_within` expands all splices into a flat trace.
 
-Reconstructing an ordinary `FunctionTrace` from a `ScopedTrace` requires that each spliced summary
-really is a confined subtrace of the length the parent accounts for it. That fact — `SummariesCompose`
-— is stated as an explicit obligation and discharged, for a single child, by `FunctionTrace.append`.
-The generic composition theorem is then fully proved *given* it; deriving it for a concrete program
-(which child fires at which state) needs the decoder's successor data and lives above this generic
-layer.
+The scoped trace keeps a parent's own steps inside its owned addresses. The reconstructed flat trace
+uses the larger execution extent because a separately emitted callee does not belong to the caller's
+owned region. Keeping those two sets separate prevents the local proof from claiming ownership of
+callee instructions while still describing the real whole run.
 -/
 
 namespace BinaryFv.RiscV.Elfling
@@ -58,15 +46,15 @@ open BinaryFv.RiscV
 
 /-! ## Checked boundary types
 
-These name the three ways an occurrence hands control across one of its edges. They are pure data;
+These name the three ways a function instance hands control across one of its edges. They are pure data;
 the `validFor` predicates in the next section are what tie them to a `FunctionInstance`. -/
 
 /--
-A classified way the machine leaves an occurrence.
+A classified way the machine leaves a function instance.
 
-The occurrence's *generated* exit set (`exitPcs`) is address data; an `ExitBoundary` is the semantic
+The function instance's *generated* exit set (`exitPcs`) is address data; an `ExitBoundary` is the semantic
 reading of a single member of it. Keeping the three cases apart matters because they compose
-differently: a `direct` edge continues in another occurrence at a known target, a `return_` hands
+differently: a `direct` edge continues in another function instance at a known target, a `return_` hands
 control back to an unknown caller, and a `terminal` transfer ends the thread. A proof that a run
 finished must say *which* of these it finished by, so that the caller-side obligation matches.
 -/
@@ -83,26 +71,26 @@ inductive ExitBoundary
 deriving DecidableEq, Repr
 
 /--
-A resolved direct call leaving an occurrence to a specific callee occurrence.
+A resolved direct call leaving a function instance to a specific callee function instance.
 
 `returnPc` is recorded, not derived, so the check `returnPc = source + 4` can *fail*: a call whose
 recorded continuation is not the fall-through of a 4-byte RV instruction is exactly the extractor
 error this type is meant to catch. `callee`/`calleeEntry` are the address-free identity and the entry
-pc the callee must be entered at, checked against the callee occurrence's own `entryPc`.
+pc the callee must be entered at, checked against the callee function instance's own `entryPc`.
 -/
 structure CallSite where
-  /-- The pc of the call instruction inside the calling occurrence. -/
+  /-- The pc of the call instruction inside the calling function instance. -/
   source : Nat
-  /-- The address-free identity of the callee occurrence. -/
-  callee : InstanceId
-  /-- The pc at which the callee is entered; must equal the callee occurrence's `entryPc`. -/
+  /-- The address-free identity of the callee function instance. -/
+  callee : FunctionInstanceId
+  /-- The pc at which the callee is entered; must equal the callee function instance's `entryPc`. -/
   calleeEntry : Nat
   /-- The continuation pc control returns to; must equal `source + 4` for a direct call. -/
   returnPc : Nat
 deriving DecidableEq, Repr
 
 /--
-The checked interface between a parent occurrence and one inlined child occupying part of it.
+The checked interface between a parent function instance and one inlined child occupying part of it.
 
 An inlined child shares the parent's instruction space, so it is *not* reached by a call and returns
 by falling out through an edge, not a `ret`. `entries` are the direct edges that hand control into the
@@ -111,8 +99,8 @@ the parent whose endpoints straddle the child boundary, which is what lets the c
 spliced without leaving a hole in the parent's confinement.
 -/
 structure InlineBoundary where
-  /-- The address-free identity of the inlined child occurrence. -/
-  child : InstanceId
+  /-- The address-free identity of the inlined child function instance. -/
+  child : FunctionInstanceId
   /-- Checked entry edges into the inlined child. -/
   entries : Array DirectEdge
   /-- Checked outgoing edges from the inlined child. -/
@@ -121,70 +109,70 @@ deriving Repr
 
 /-! ## Boundary validity against a `FunctionInstance`
 
-Each predicate reads only generated data off the relevant occurrence(s). They are `Prop`s, not
+Each predicate reads only generated data off the relevant function instance(s). They are `Prop`s, not
 `Bool`s, because they are premises of the trace obligations, not something a proof decides; and they
-are built from the occurrence's own arrays so that no address is ever introduced by hand. -/
+are built from the function instance's own arrays so that no address is ever introduced by hand. -/
 
 /--
-An `ExitBoundary` is a genuine exit of `inst`.
+An `ExitBoundary` is a genuine exit of `functionInstance`.
 
 - `direct source target`: `source → target` is a real emitted edge, `source` is owned by the
-  occurrence, and `target` leaves every region — i.e. it is a true occupancy-crossing edge, not an
+  function instance, and `target` leaves every region — i.e. it is a true occupancy-crossing edge, not an
   internal jump.
 - `return_ source`: `source` is one of the generated exit pcs. This is the crucial containment: a
   return may only be claimed at an address the generator already flagged as an exit.
 - `terminal source`: likewise `source` is a generated exit pc; the difference from `return_` is
   semantic (the run ends here) and is carried by the constructor, not by a different address check.
 -/
-def ExitBoundary.validFor (eb : ExitBoundary) (inst : FunctionInstance) : Prop :=
+def ExitBoundary.validFor (eb : ExitBoundary) (functionInstance : FunctionInstance) : Prop :=
   match eb with
   | .direct source target =>
-      (⟨source, target⟩ : DirectEdge) ∈ inst.edges ∧
-        inst.containsAddress source = true ∧
-        inst.containsAddress target = false
-  | .return_ source => inst.isExit source
-  | .terminal source => inst.isExit source
+      (⟨source, target⟩ : DirectEdge) ∈ functionInstance.edges ∧
+        functionInstance.containsAddress source = true ∧
+        functionInstance.containsAddress target = false
+  | .return_ source => functionInstance.isExit source
+  | .terminal source => functionInstance.isExit source
 
 /--
-A `CallSite` is a well-formed resolved call from `inst` to `callee`.
+A `CallSite` is a well-formed resolved call from `functionInstance` to `callee`.
 
 Beyond the identities, the check now pins the *actual call edge*: `source → calleeEntry` must be a
-real emitted edge of `inst` landing on the callee's own entry pc. Membership of the callee among the
-resolved external calls no longer suffices — a call site that names a callee `inst` genuinely reaches
+real emitted edge of `functionInstance` landing on the callee's own entry pc. Membership of the callee among the
+resolved external calls no longer suffices — a call site that names a callee `functionInstance` genuinely reaches
 but whose recorded entry/edge does not correspond to a decoded transfer is rejected. The continuation
 is the fall-through of a 4-byte direct call (`returnPc = source + 4`); both the call instruction and
-its continuation are owned by `inst` (the call leaves and control comes back *inside* the occurrence).
+its continuation are owned by `functionInstance` (the call leaves and control comes back *inside* the function instance).
 -/
-def CallSite.validFor (cs : CallSite) (inst callee : FunctionInstance) : Prop :=
+def CallSite.validFor (cs : CallSite) (functionInstance callee : FunctionInstance) : Prop :=
   cs.returnPc = cs.source + 4 ∧
     callee.id = cs.callee ∧
     callee.entryPc = cs.calleeEntry ∧
-    cs.callee ∈ inst.externalCalls ∧
-    (⟨cs.source, cs.calleeEntry⟩ : DirectEdge) ∈ inst.edges ∧
-    inst.containsAddress cs.source = true ∧
-    inst.containsAddress cs.returnPc = true
+    cs.callee ∈ functionInstance.externalCalls ∧
+    (⟨cs.source, cs.calleeEntry⟩ : DirectEdge) ∈ functionInstance.edges ∧
+    functionInstance.containsAddress cs.source = true ∧
+    functionInstance.containsAddress cs.returnPc = true
 
 /--
-An `InlineBoundary` correctly frames `childInst` inside `inst`.
+An `InlineBoundary` correctly frames `childFunctionInstance` inside `functionInstance`.
 
-`childInst` has the recorded child identity and is one of `inst`'s children; every declared entry edge
-is a real edge of `inst` that genuinely crosses *into* the child (its source is owned by the parent
+`childFunctionInstance` has the recorded child identity and is one of `functionInstance`'s children; every declared entry edge
+is a real edge of `functionInstance` that genuinely crosses *into* the child (its source is owned by the parent
 and *not* the child, its target is owned by the child); and every declared exit edge is a real edge of
-`inst` that genuinely crosses *out of* the child (its source is owned by the child, its target leaves
+`functionInstance` that genuinely crosses *out of* the child (its source is owned by the child, its target leaves
 the child and lands back in the parent). Requiring both endpoints of each edge to straddle the
 boundary is what rejects a mislabeled edge that stays on one side.
 -/
-def InlineBoundary.validFor (ib : InlineBoundary) (inst childInst : FunctionInstance) : Prop :=
-  childInst.id = ib.child ∧
-    ib.child ∈ inst.children ∧
-    (∀ e ∈ ib.entries, e ∈ inst.edges ∧
-        inst.containsAddress e.source = true ∧
-        childInst.containsAddress e.source = false ∧
-        childInst.containsAddress e.target = true) ∧
-    (∀ e ∈ ib.exits, e ∈ inst.edges ∧
-        childInst.containsAddress e.source = true ∧
-        childInst.containsAddress e.target = false ∧
-        inst.containsAddress e.target = true)
+def InlineBoundary.validFor (ib : InlineBoundary) (functionInstance childFunctionInstance : FunctionInstance) : Prop :=
+  childFunctionInstance.id = ib.child ∧
+    ib.child ∈ functionInstance.children ∧
+    (∀ e ∈ ib.entries, e ∈ functionInstance.edges ∧
+        functionInstance.containsAddress e.source = true ∧
+        childFunctionInstance.containsAddress e.source = false ∧
+        childFunctionInstance.containsAddress e.target = true) ∧
+    (∀ e ∈ ib.exits, e ∈ functionInstance.edges ∧
+        childFunctionInstance.containsAddress e.source = true ∧
+        childFunctionInstance.containsAddress e.target = false ∧
+        functionInstance.containsAddress e.target = true)
 
 /-! ## Checked realizations of a boundary
 
@@ -204,11 +192,11 @@ on its own return, one step before retiring it — matching the flat-trace conve
 `FunctionTrace` halts *on* an exit pc.
 -/
 structure CallTransfer (region exit : BitVec 64 → Prop)
-    (childSummary : InstanceId → Nat → Nat → State → State → Prop)
-    (cs : CallSite) (inst callee : FunctionInstance)
+    (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
+    (cs : CallSite) (functionInstance callee : FunctionInstance)
     (fromStep used : Nat) (s sResume : State) where
-  /-- The call site is a checked resolved call from `inst` to `callee`. -/
-  valid : cs.validFor inst callee
+  /-- The call site is a checked resolved call from `functionInstance` to `callee`. -/
+  valid : cs.validFor functionInstance callee
   /-- The machine is at the call instruction, owned by the parent and not a parent exit. -/
   callPc : BitVec 64
   atCall : s.regs.get? PC = some callPc
@@ -246,15 +234,15 @@ is retired by the parent step that precedes this splice, so entry and outgoing e
 exactly once.
 -/
 structure InlineTransfer (region exit : BitVec 64 → Prop)
-    (childSummary : InstanceId → Nat → Nat → State → State → Prop)
-    (ib : InlineBoundary) (inst childInst : FunctionInstance)
+    (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
+    (ib : InlineBoundary) (functionInstance childFunctionInstance : FunctionInstance)
     (fromStep used : Nat) (s sResume : State) where
-  /-- The boundary correctly frames `childInst` inside `inst`. -/
-  valid : ib.validFor inst childInst
+  /-- The boundary correctly frames `childFunctionInstance` inside `functionInstance`. -/
+  valid : ib.validFor functionInstance childFunctionInstance
   /-- The machine is at the child's own entry pc, owned by the parent and not a parent exit. -/
   entryPc : BitVec 64
   atEntry : s.regs.get? PC = some entryPc
-  entryIsChildEntry : entryPc.toNat = childInst.entryPc
+  entryIsChildEntry : entryPc.toNat = childFunctionInstance.entryPc
   entryInRegion : region entryPc
   entryNotExit : ¬ exit entryPc
   /-- The child body summary consumes exactly `used` steps and stops on a checked outgoing edge. -/
@@ -285,7 +273,7 @@ the step number by the transfer instructions it retires plus the summary's own c
 `try_step` execution confined to `region`, running until `exit`, *with* the ability to splice
 admitted child/callee summaries at checked boundaries.
 
-`childSummary child fromStep used before after` stands for "the occurrence `child`, entered at step
+`childSummary child fromStep used before after` stands for "the function instance `child`, entered at step
 `fromStep`, retired exactly `used` machine steps carrying `before` to `after`". The two splice
 constructors consume such a summary through a `CallTransfer`/`InlineTransfer`, so the summary's `used`
 count and the boundary's transfer instructions together determine the step arithmetic — a proof can
@@ -295,7 +283,7 @@ With no children admitted, only `exitAt` and `ownStep` are available and the def
 `FunctionTrace` (see `ScopedTrace.toFunctionTrace_of_noChildren`).
 -/
 inductive ScopedTrace (region exit : BitVec 64 → Prop)
-    (childSummary : InstanceId → Nat → Nat → State → State → Prop) :
+    (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop) :
     Nat → Nat → State → State → Prop where
   /-- Termination: the machine sits on a generated exit. Mirrors `FunctionTrace.exitAt`. -/
   | exitAt (fromStep : Nat) (s : State) (pc : BitVec 64)
@@ -313,17 +301,17 @@ inductive ScopedTrace (region exit : BitVec 64 → Prop)
   /-- Consume an inlined child's summary through a checked `InlineBoundary`. The child body runs from
   the child's entry pc and stops on a checked outgoing edge; the parent then retires that outgoing edge
   and resumes at its target. Accounts `used` body steps plus the one outgoing-edge step. -/
-  | inlineStep (fromStep used count : Nat) (ib : InlineBoundary) (inst childInst : FunctionInstance)
+  | inlineStep (fromStep used count : Nat) (ib : InlineBoundary) (functionInstance childFunctionInstance : FunctionInstance)
       (s sResume s'' : State)
-      (htransfer : InlineTransfer region exit childSummary ib inst childInst fromStep used s sResume)
+      (htransfer : InlineTransfer region exit childSummary ib functionInstance childFunctionInstance fromStep used s sResume)
       (hrest : ScopedTrace region exit childSummary (fromStep + used + 1) count sResume s'') :
       ScopedTrace region exit childSummary fromStep (used + 1 + count) s s''
   /-- Retire a resolved call and consume the callee's summary through its return, using a checked
   `CallSite`. Accounts the call step, the `used` callee-body steps, and the return step, then resumes
   at the checked continuation. -/
-  | callStep (fromStep used count : Nat) (cs : CallSite) (inst callee : FunctionInstance)
+  | callStep (fromStep used count : Nat) (cs : CallSite) (functionInstance callee : FunctionInstance)
       (s sResume s'' : State)
-      (htransfer : CallTransfer region exit childSummary cs inst callee fromStep used s sResume)
+      (htransfer : CallTransfer region exit childSummary cs functionInstance callee fromStep used s sResume)
       (hrest : ScopedTrace region exit childSummary (fromStep + 1 + used + 1) count sResume s'') :
       ScopedTrace region exit childSummary fromStep (1 + used + 1 + count) s s''
 
@@ -335,7 +323,7 @@ fire first, so at least one transition (owned step, inline splice, or call) is r
 form a local contract obligation uses, ruling out the vacuous "already on an exit" proof.
 -/
 structure EnteredScopedTrace (region exit : BitVec 64 → Prop)
-    (childSummary : InstanceId → Nat → Nat → State → State → Prop) (entry : BitVec 64)
+    (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop) (entry : BitVec 64)
     (fromStep count : Nat) (s s' : State) : Prop where
   startsAtEntry : s.regs.get? PC = some entry
   entryInRegion : region entry
@@ -350,7 +338,7 @@ unconditional and holds for *any* admitted `childSummary`. -/
 /-- Every `FunctionTrace` is a `ScopedTrace` for any child-summary relation: it simply never uses the
 splicing constructors. This is the "no children" embedding in its most general form. -/
 theorem FunctionTrace.toScoped {region exit : BitVec 64 → Prop}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop} {fromStep count : Nat}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop} {fromStep count : Nat}
     {s s' : State}
     (h : FunctionTrace region exit fromStep count s s') :
     ScopedTrace region exit childSummary fromStep count s s' := by
@@ -370,77 +358,103 @@ to `s'` in `used` steps and the parent then runs confined from `s'` (at step `fr
 real exit in `count` steps, the whole thing is a confined parent run of `used + count` steps.
 
 Because the summary now carries `used`, this obligation is over the summary's *own* consumed count, so
-it cannot be satisfied by a mismatched length. It is exactly the shape `FunctionTrace.append` produces
-for one child (see `summaryComposes_of_subtrace`): the child is a `FunctionTrace region mid used` whose
-local stop set `mid` contains every real exit, and appending the parent continuation yields a
+it cannot be satisfied by a mismatched length. It is the shape `FunctionTrace.append_within` produces
+for one child (see `summaryComposes_of_subtrace`): the child is a `FunctionTrace inner mid used`
+confined to its own address set, and appending the parent continuation yields a
 `FunctionTrace region exit (used + count)`.
+
+Note the `region` here is the one the *reconstructed* run is confined to. For a call it must be the
+caller's execution extent, not the caller's own regions: the callee's instructions are outside the
+caller's code and no honest reconstruction can pretend otherwise.
 -/
 def SummariesCompose (region exit : BitVec 64 → Prop)
-    (childSummary : InstanceId → Nat → Nat → State → State → Prop) : Prop :=
-  ∀ (child : InstanceId) (fromStep used count : Nat) (s s' s'' : State),
+    (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop) : Prop :=
+  ∀ (child : FunctionInstanceId) (fromStep used count : Nat) (s s' s'' : State),
     childSummary child fromStep used s s' →
     FunctionTrace region exit (fromStep + used) count s' s'' →
     FunctionTrace region exit fromStep (used + count) s s''
 
 /--
 The canonical way to discharge one `SummariesCompose` step: a child that is itself a confined
-subtrace `FunctionTrace region mid used` — with `mid` containing every real `exit` — composes with any
-continuation to the real exits. This is just `FunctionTrace.append`, recorded here to name the
-mechanism that a program-specific proof plugs a child `Implements` into.
+subtrace `FunctionTrace inner mid used` — inside the reconstruction's address set, with every
+enclosing `exit` that lies in `inner` already stopping it — composes with any continuation to the
+real exits. This is `FunctionTrace.append_within`, recorded here to name the mechanism a
+program-specific proof plugs a child `Implements` into.
 -/
-theorem summaryComposes_of_subtrace {region mid exit : BitVec 64 → Prop}
-    (exitSubsetMid : ∀ pc, exit pc → mid pc)
+theorem summaryComposes_of_subtrace {inner region mid exit : BitVec 64 → Prop}
+    (innerSubset : ∀ pc, inner pc → region pc)
+    (outerExitsStopInner : ∀ pc, inner pc → exit pc → mid pc)
     {fromStep used count : Nat} {s s' s'' : State}
-    (child : FunctionTrace region mid fromStep used s s')
+    (child : FunctionTrace inner mid fromStep used s s')
     (cont : FunctionTrace region exit (fromStep + used) count s' s'') :
     FunctionTrace region exit fromStep (used + count) s s'' :=
-  FunctionTrace.append exitSubsetMid child cont
+  FunctionTrace.append_within innerSubset outerExitsStopInner child cont
 
 /-- A `ScopedTrace` collapses to an ordinary `FunctionTrace` once its child summaries are known to
-compose. The owned/exit constructors mirror `FunctionTrace` directly; each splice retires its
+compose — and the flat run it collapses to is confined to `outer`, the address set the *reconstructed*
+run occupies, which is larger than the `own` set the scoped run retires its own steps in.
+
+Keeping the two apart is what makes this usable. `own` is the function instance's own code (plus whatever
+uncataloged routine it absorbs); a scoped `ownStep` may only retire an instruction there, so a local
+proof gains no freedom to wander into a callee. `outer` is the function instance's execution extent; the
+callee's instructions genuinely execute, so the flat reconstruction has to admit them.
+
+The owned/exit constructors mirror `FunctionTrace` directly through `hsub`; each splice retires its
 boundary's transfer instruction(s) with `FunctionTrace.step` and discharges the spliced body with the
 `SummariesCompose` hypothesis. The step arithmetic lines up exactly because the splice count already
 counts the transfer instructions. -/
-theorem ScopedTrace.toFunctionTrace {region exit : BitVec 64 → Prop}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop}
-    (hcompose : SummariesCompose region exit childSummary)
+theorem ScopedTrace.toFunctionTrace_within {own outer exit : BitVec 64 → Prop}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
+    (hsub : ∀ pc, own pc → outer pc)
+    (hcompose : SummariesCompose outer exit childSummary)
     {fromStep count : Nat} {s s' : State}
-    (h : ScopedTrace region exit childSummary fromStep count s s') :
-    FunctionTrace region exit fromStep count s s' := by
+    (h : ScopedTrace own exit childSummary fromStep count s s') :
+    FunctionTrace outer exit fromStep count s s' := by
   induction h with
   | exitAt fromStep t pc hpc hexit => exact FunctionTrace.exitAt fromStep t pc hpc hexit
   | ownStep fromStep count pc u u' u'' hpc hregion hnotExit hstep _ ih =>
-      exact FunctionTrace.step fromStep count pc u u' u'' hpc hregion hnotExit hstep ih
-  | inlineStep fromStep used count ib inst childInst u uResume u'' htransfer _ ih =>
-      -- ih : FunctionTrace region exit (fromStep + used + 1) count uResume u''
-      have outFt : FunctionTrace region exit (fromStep + used) (count + 1) htransfer.sExit u'' :=
+      exact FunctionTrace.step fromStep count pc u u' u'' hpc (hsub pc hregion) hnotExit hstep ih
+  | inlineStep fromStep used count ib functionInstance childFunctionInstance u uResume u'' htransfer _ ih =>
+      -- ih : FunctionTrace outer exit (fromStep + used + 1) count uResume u''
+      have outFt : FunctionTrace outer exit (fromStep + used) (count + 1) htransfer.sExit u'' :=
         FunctionTrace.step (fromStep + used) count htransfer.childExitPc
           htransfer.sExit uResume u''
-          htransfer.atExit htransfer.exitInRegion htransfer.exitNotExit htransfer.doExit ih
-      have bodyFt : FunctionTrace region exit fromStep (used + (count + 1)) u u'' :=
+          htransfer.atExit (hsub _ htransfer.exitInRegion) htransfer.exitNotExit htransfer.doExit ih
+      have bodyFt : FunctionTrace outer exit fromStep (used + (count + 1)) u u'' :=
         hcompose ib.child fromStep used (count + 1) u htransfer.sExit u'' htransfer.body outFt
       have harith : used + 1 + count = used + (count + 1) := by omega
       rw [harith]; exact bodyFt
-  | callStep fromStep used count cs inst callee u uResume u'' htransfer _ ih =>
-      -- ih : FunctionTrace region exit (fromStep + 1 + used + 1) count uResume u''
-      have retFt : FunctionTrace region exit (fromStep + 1 + used) (count + 1) htransfer.sRet u'' :=
+  | callStep fromStep used count cs functionInstance callee u uResume u'' htransfer _ ih =>
+      -- ih : FunctionTrace outer exit (fromStep + 1 + used + 1) count uResume u''
+      have retFt : FunctionTrace outer exit (fromStep + 1 + used) (count + 1) htransfer.sRet u'' :=
         FunctionTrace.step (fromStep + 1 + used) count htransfer.retPc
           htransfer.sRet uResume u''
-          htransfer.atRet htransfer.retInRegion htransfer.retNotExit htransfer.doReturn ih
+          htransfer.atRet (hsub _ htransfer.retInRegion) htransfer.retNotExit htransfer.doReturn ih
       have bodyFt :
-          FunctionTrace region exit (fromStep + 1) (used + (count + 1)) htransfer.sCall u'' :=
+          FunctionTrace outer exit (fromStep + 1) (used + (count + 1)) htransfer.sCall u'' :=
         hcompose cs.callee (fromStep + 1) used (count + 1) htransfer.sCall htransfer.sRet u''
           htransfer.body retFt
-      have callFt : FunctionTrace region exit fromStep (used + (count + 1) + 1) u u'' :=
+      have callFt : FunctionTrace outer exit fromStep (used + (count + 1) + 1) u u'' :=
         FunctionTrace.step fromStep (used + (count + 1)) htransfer.callPc
           u htransfer.sCall u''
-          htransfer.atCall htransfer.callInRegion htransfer.callNotExit htransfer.doCall bodyFt
+          htransfer.atCall (hsub _ htransfer.callInRegion) htransfer.callNotExit htransfer.doCall
+          bodyFt
       have harith : 1 + used + 1 + count = used + (count + 1) + 1 := by omega
       rw [harith]; exact callFt
 
+/-- The same-address-set case: a scoped run whose splices compose inside the very region it owns.
+This is the shape a leaf function instance (no calls out of its own code) uses. -/
+theorem ScopedTrace.toFunctionTrace {region exit : BitVec 64 → Prop}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
+    (hcompose : SummariesCompose region exit childSummary)
+    {fromStep count : Nat} {s s' : State}
+    (h : ScopedTrace region exit childSummary fromStep count s s') :
+    FunctionTrace region exit fromStep count s s' :=
+  h.toFunctionTrace_within (fun _ hpc => hpc) hcompose
+
 /-- With no children admitted (`childSummary` uninhabited), a `ScopedTrace` is a `FunctionTrace`
 outright — no honest composition data is needed, because the splice constructors cannot fire. This is
-the degenerate instance the module promises: an edge-free occurrence's scoped trace *is* its flat
+the degenerate instance the module promises: an edge-free function instance's scoped trace *is* its flat
 trace. -/
 theorem ScopedTrace.toFunctionTrace_of_noChildren {region exit : BitVec 64 → Prop}
     {fromStep count : Nat} {s s' : State}
@@ -448,64 +462,28 @@ theorem ScopedTrace.toFunctionTrace_of_noChildren {region exit : BitVec 64 → P
     FunctionTrace region exit fromStep count s s' :=
   h.toFunctionTrace (fun _ _ _ _ _ _ _ hbody _ => hbody.elim)
 
-/-- An `EnteredScopedTrace` becomes an `EnteredFunctionTrace` under the same composition obligation:
-the entry facts carry over verbatim and the underlying trace is collapsed by
-`ScopedTrace.toFunctionTrace`. -/
+/-- An `EnteredScopedTrace` becomes an `EnteredFunctionTrace` in the enclosing extent under the same
+composition obligation: the entry facts carry over (the entry pc is owned, hence in the extent) and
+the underlying trace is collapsed by `ScopedTrace.toFunctionTrace_within`. -/
+theorem EnteredScopedTrace.toEnteredFunctionTrace_within {own outer exit : BitVec 64 → Prop}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop} {entry : BitVec 64}
+    {fromStep count : Nat} {s s' : State}
+    (hsub : ∀ pc, own pc → outer pc)
+    (hcompose : SummariesCompose outer exit childSummary)
+    (h : EnteredScopedTrace own exit childSummary entry fromStep count s s') :
+    EnteredFunctionTrace outer exit entry fromStep count s s' :=
+  { startsAtEntry := h.startsAtEntry
+    entryInRegion := hsub entry h.entryInRegion
+    entryNotExit := h.entryNotExit
+    trace := h.trace.toFunctionTrace_within hsub hcompose }
+
+/-- The same-address-set case of `toEnteredFunctionTrace_within`. -/
 theorem EnteredScopedTrace.toEnteredFunctionTrace {region exit : BitVec 64 → Prop}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop} {entry : BitVec 64}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop} {entry : BitVec 64}
     {fromStep count : Nat} {s s' : State}
     (hcompose : SummariesCompose region exit childSummary)
     (h : EnteredScopedTrace region exit childSummary entry fromStep count s s') :
     EnteredFunctionTrace region exit entry fromStep count s s' :=
-  { startsAtEntry := h.startsAtEntry
-    entryInRegion := h.entryInRegion
-    entryNotExit := h.entryNotExit
-    trace := h.trace.toFunctionTrace hcompose }
-
-/-! ## Local implementation and ranked composition
-
-`LocallyImplements` is `Implements` phrased against `ScopedTrace`: an occurrence implements its
-contract *given* abstract child/callee summaries. The point of the whole module is the discharge
-direction — once those summaries are real (`SummariesCompose`), a local implementation is a closed
-`Implements`. -/
-
-/--
-An occurrence implements its contract *relative to* admitted child/callee summaries.
-
-Identical to `Implements` except the confined run is an `EnteredScopedTrace`, so a proof may spend
-child summaries instead of re-executing inlined children and callees. This is the compositional unit:
-each occurrence is verified against summaries of the occurrences below it in the call/inline order.
--/
-def LocallyImplements {Error Args Result : Type}
-    (region exit : BitVec 64 → Prop) (entry : BitVec 64)
-    (childSummary : InstanceId → Nat → Nat → State → State → Prop)
-    (contract : FunctionContract Error Args Result) : Prop :=
-  ∀ (args : Args) (fromStep : Nat) (s : State),
-    contract.pre args s →
-      ∃ (count : Nat) (s' : State),
-        count ≤ contract.stepBound args ∧
-        EnteredScopedTrace region exit childSummary entry fromStep count s s' ∧
-        contract.post args (contract.meaning args) s s'
-
-/--
-Ranked composition, closed direction: a `LocallyImplements` whose admitted summaries genuinely compose
-(`SummariesCompose`) is a plain `Implements`.
-
-This is the lemma the whole boundary layer exists to serve: proving an occurrence against summaries of
-its children, then collapsing to an address-confined `Implements` once those summaries are discharged
-by the children's own proofs. It is fully proved here; the residual, program-specific obligation is
-supplying `SummariesCompose`, which `summaryComposes_of_subtrace` reduces to each child's
-`FunctionTrace`.
--/
-theorem LocallyImplements.toImplements {Error Args Result : Type}
-    {region exit : BitVec 64 → Prop} {entry : BitVec 64}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop}
-    {contract : FunctionContract Error Args Result}
-    (hcompose : SummariesCompose region exit childSummary)
-    (h : LocallyImplements region exit entry childSummary contract) :
-    Implements region exit entry contract := by
-  intro args fromStep s hpre
-  obtain ⟨count, s', hbound, hentered, hpost⟩ := h args fromStep s hpre
-  exact ⟨count, s', hbound, hentered.toEnteredFunctionTrace hcompose, hpost⟩
+  h.toEnteredFunctionTrace_within (fun _ hpc => hpc) hcompose
 
 end BinaryFv.RiscV.Elfling
