@@ -23,7 +23,7 @@ This is a curated `tree -L 2`: comments describe ownership rather than every gen
 ├── BinaryFv/
 │   ├── Binary/             # architecture-independent addresses and program images
 │   ├── RiscV/              # reusable Sail model, ELF, execution, logic, and proof layers
-│   └── SSZ/                # Zesu SSZ decoder proof: contracts, deterministic Elfling scaffold, root
+│   └── Zesu/               # Zesu decoder proof: specification, artifact, contracts, and root
 ├── docs/
 │   └── evaluations/        # durable design/evaluation records; docs/ai is local and ignored
 ├── nix/
@@ -95,19 +95,19 @@ checks, not default local checks.
 The import direction is one-way:
 
 ```text
-Binary  ->  RiscV  ->  SSZ.Zesu
-Binary  +  SszSpec  ->  SSZ.SpecBridge
-RiscV  +  Zesu.Artifact  +  SpecBridge  ->  Zesu correspondence proofs
-everything  ->  SSZ.Root
+Binary  ->  RiscV  ->  Zesu
+SizzLean  ->  Zesu.SpecBridge
+RiscV  +  Zesu.Artifact  +  Zesu.SpecBridge  ->  Zesu correspondence proofs
+everything  ->  Zesu.Root
 ```
 
 `BinaryFv/RiscV/` is generic over the loaded binary; the import audit in `nix/proof.nix` enforces
-that it never imports the target. Under `BinaryFv/SSZ/Zesu/`, `Artifact/` contains immutable bytes,
+that it never imports the target. Under `BinaryFv/Zesu/`, `Artifact/` contains immutable bytes,
 symbols, ranges, and closed static facts; `ControlFlow/` contains decode-dependent inventory;
 `Contracts/` holds handwritten, address-free per-routine contracts; `Elfling/` holds the
 deterministically generated address-bearing scaffold validated against the canonical ELF and
 Sail-decoded control flow; `MachineExecution/` and `Entrypoints/` configure the machine and runner.
-All of it composes into `BinaryFv/SSZ/Root.lean`.
+All of it composes into `BinaryFv/Zesu/Root.lean`.
 
 The intended public theorem remains:
 
@@ -177,8 +177,8 @@ specification correspondence.
 The approved `bv_decide` certificate checker independently contributes `Lean.ofReduceBool` and
 `Lean.trustCompiler` when it reaches the SAT backend. Therefore compliance capstones may report
 `[propext, Classical.choice, Lean.ofReduceBool, Lean.trustCompiler, Quot.sound]`; issue #26 tracks
-that decision. The four allowlisted `sorry`s — two in `BinaryFv/SSZ/Root.lean` and two in
-`BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution.lean` — remain the authorized
+that decision. The four allowlisted `sorry`s — two in `BinaryFv/Zesu/Root.lean` and two in
+`BinaryFv/Zesu/Entrypoints/ZesuDecodeRaw/Execution.lean` — remain the authorized
 root-compliance scaffolds and must be removed before claiming compliance.
 
 ## Validation policy

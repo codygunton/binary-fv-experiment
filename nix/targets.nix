@@ -301,7 +301,7 @@ let
     name = "extract_blob_schedule_instance.py";
   };
   blobScheduleCommitted = builtins.path {
-    path = repo + "/BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean";
+    path = repo + "/BinaryFv/Zesu/Elfling/BlobScheduleInstance.lean";
     name = "BlobScheduleInstance.lean";
   };
   blobScheduleInstance = pkgs.runCommand "blob-schedule-instance" {
@@ -319,7 +319,7 @@ let
     cmp -s run1/BlobScheduleInstance.lean run2/BlobScheduleInstance.lean \
       || { echo "BLOB-SCHEDULE EXTRACTOR NON-DETERMINISTIC: BlobScheduleInstance.lean differs between two runs" >&2; exit 1; }
     cmp -s run1/BlobScheduleInstance.lean ${blobScheduleCommitted} \
-      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleInstance.lean differs from committed BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean" >&2; exit 1; }
+      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleInstance.lean differs from committed BinaryFv/Zesu/Elfling/BlobScheduleInstance.lean" >&2; exit 1; }
     cp run1/BlobScheduleInstance.lean "$out/"
     printf '%s\n' "two independent runs produced byte-identical BlobScheduleInstance.lean; regenerated == committed" \
       > "$out/determinism.txt"

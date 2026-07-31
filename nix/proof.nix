@@ -233,23 +233,23 @@ let
     # Exactly four SSZ scaffolds are authorized. Keep the check declaration-scoped by pinning both
     # the file and the count; all helper proofs remain sorry-free.
     #
-    # The SSZ four are the two root runner/API bridges in `SSZ/Root.lean` and the two live-trace
+    # The four are the two root runner/API bridges in `Zesu/Root.lean` and the two live-trace
     # holes in `Entrypoints/ZesuDecodeRaw/Execution.lean`. The allowlist previously named only
-    # `SSZ/Root.lean` and asserted a count of 1 there, which predated the root scaffold being split
+    # `Zesu/Root.lean` and asserted a count of 1 there, which predated the root scaffold being split
     # into two theorems plus two trace obligations — so this audit rejected its own tree. Pinning
     # both files with exact counts is strictly tighter than the previous rule, not looser: the
     # Execution.lean holes were formerly unlisted and are now explicitly bounded.
     sorrySites=$(grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/ || true)
     unexpectedSorries=$(printf '%s\n' "$sorrySites" | grep -v -E \
-      '^BinaryFv/SSZ/Root\.lean:[0-9]+:.*sorry$|^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:[0-9]+:.*sorry$' \
+      '^BinaryFv/Zesu/Root\.lean:[0-9]+:.*sorry$|^BinaryFv/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:[0-9]+:.*sorry$' \
       || true)
     if [ -n "$unexpectedSorries" ]; then
       echo "Only the declaration-allowlisted SSZ root scaffolds may contain sorry." >&2
       echo "$unexpectedSorries" >&2
       exit 1
     fi
-    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Root\.lean:')" = 2
-    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
+    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Zesu/Root\.lean:')" = 2
+    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
 
     # Validation-import guard. The Row B `Validation/` modules are falsification evidence, never proof
     # premises: no file OUTSIDE `Validation/` may import one, so no root theorem (nor the `BinaryFv`
