@@ -1,4 +1,4 @@
-import BinaryFv.Binary.Elfling.FunctionInstance
+import BinaryFv.Binary.Elfling.Program
 import BinaryFv.Binary.ProgramImage
 
 /-!
