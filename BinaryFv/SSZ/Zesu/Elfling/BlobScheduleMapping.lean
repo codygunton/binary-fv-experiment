@@ -191,8 +191,11 @@ def blobScheduleExit (pc : BitVec 64) : Prop := pc.toNat ∈ blobScheduleInstanc
 /-- The address-free `decodeOptionalBlobSchedule` correctness obligation, bound to the generated
 occurrence and its generated entry/exit. Stated here; its semantic discharge (both option branches,
 live-state instantiation, stores) is row 3 (`ssz-elfling-blob-schedule`). This is the join the whole
-Elfling layering exists to make: an address-free claim, every address supplied by the occurrence. -/
+Elfling layering exists to make: an address-free claim, every address supplied by the occurrence.
+This standalone slice already includes its nested reads in `blobScheduleInstance.regions`, so it has
+no additional reached extent. -/
 def blobScheduleCorrectnessObligation (env : DecoderEnvironment) : Prop :=
-  correctnessClaimOptionalBlobSchedule env blobScheduleInstance blobScheduleEntry blobScheduleExit
+  correctnessClaimOptionalBlobSchedule env blobScheduleInstance (fun _ => False)
+    blobScheduleEntry blobScheduleExit
 
 end BinaryFv.SSZ.Zesu.Elfling

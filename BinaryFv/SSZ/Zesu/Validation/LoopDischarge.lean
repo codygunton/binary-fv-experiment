@@ -30,8 +30,8 @@ Four things are established.
    `append_within` can stitch an iteration on, because both demand the enclosing exits be contained
    in the iteration's stopping set.
 
-4. **A unit that is its own callee is inadmissible** (`callGraphRanked_forbids_self_edge`): a
-   self-edge makes `CallGraphRanked` false for *every* rank, not merely for the generated one. So a
+4. **A unit that is its own callee is inadmissible** (`functionGraphRanked_forbids_self_edge`): a
+   self-edge makes `FunctionGraphRanked` false for *every* rank, not merely for the generated one. So a
    loop cannot be given to the composition engine as a self-recursive unit.
 -/
 
@@ -337,15 +337,15 @@ theorem FunctionTrace.loopDescend {region exit : BitVec 64 → Prop}
 
 `calleeFunctionInstances` is a filter of the program's instances by membership in
 `children ++ externalCalls`, so an instance that names itself is its own callee and
-`CallGraphRanked` asks for `rank i < rank i`. -/
+`FunctionGraphRanked` asks for `rank i < rank i`. -/
 
 /-- **A self-edge is inadmissible for every rank**, not merely absent from this program. So the
 composition engine can never perform the loop induction itself: a synthetic "loop unit" that calls
-itself back for the next iteration is rejected by `CallGraphRanked` whatever rank is supplied. -/
-theorem callGraphRanked_forbids_self_edge {program : Program} {rank : FunctionInstance → Nat}
+itself back for the next iteration is rejected by `FunctionGraphRanked` whatever rank is supplied. -/
+theorem functionGraphRanked_forbids_self_edge {program : Program} {rank : FunctionInstance → Nat}
     {i : FunctionInstance} (hmem : i ∈ program.functionInstances)
     (hself : i.id ∈ i.children ++ i.externalCalls) :
-    ¬ CallGraphRanked program rank := by
+    ¬ FunctionGraphRanked program rank := by
   intro hranked
   have hcallee : i ∈ calleeFunctionInstances program i := by
     refine Array.mem_filter.mpr ⟨hmem, ?_⟩
