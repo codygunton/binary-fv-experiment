@@ -177,15 +177,16 @@ theorem root_compliance_of_exported_contracts
         execution.builds execution.trace execution.withinStepBound execution.accessors
         execution.returnCode execution.specRejection execution.storedAbsent
 
-/-- Level 1 restatement of the conditional root theorem: one exported decoder contract and its seven
-reviewed immediate tail contracts imply the public Ethereum SSZ agreement statement. The five
-non-accessor tail fields become proof inputs at the next refinement edge; this theorem uses the
-exported wrapper/accessor projection needed by the concrete runner. -/
+/-- Level 1 form of the conditional root theorem. `exportedContracts_of_level1` is the explicit
+refinement edge: it exposes the wrapper and two accessor contracts consumed by the concrete runner,
+while the remaining immediate-runtime obligations stay in the Level 1 bundle for bytecode coverage
+and the future derivation of the closed wrapper contract from local execution. -/
 theorem root_compliance_of_level1_contracts
     (contracts : Zesu.Entrypoints.ZesuDecodeRaw.Level1ContractAssumptions) :
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
         RiscvSpec.execute binary input = .ok (SszSpec.decode input) :=
-  root_compliance_of_exported_contracts contracts.toExportedContractAssumptions
+  root_compliance_of_exported_contracts
+    (Zesu.Entrypoints.ZesuDecodeRaw.exportedContracts_of_level1 contracts)
 
 end BinaryFv.SSZ

@@ -37,4 +37,17 @@ structure Level1ContractAssumptions : Prop extends ExportedContractAssumptions w
   memmove : routineObligation canonicalContractParams functionInstance_memmove
     (functionInstanceReachedPcs generatedProgram functionInstance_memmove) .memmove
 
+/-- The explicit Level 1 refinement edge consumed by the root theorem.
+
+The current public theorem observes the decoder only through the exported wrapper and its two
+accessors, so those three contracts are the logical residue of Level 1. The other five fields remain
+in `Level1ContractAssumptions` as proof obligations for the immediate runtime bytecode: they will be
+needed when the closed wrapper contract is derived from local execution rather than assumed, but
+they are not premises of the present extensional SSZ result once that wrapper contract is available. -/
+def exportedContracts_of_level1
+    (contracts : Level1ContractAssumptions) : ExportedContractAssumptions where
+  decode := contracts.decode
+  rawResult := contracts.rawResult
+  rawError := contracts.rawError
+
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
