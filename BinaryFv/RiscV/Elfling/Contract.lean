@@ -206,6 +206,29 @@ def ImplementsFunctionInstance {Error Args Result : Type}
     (contract : FunctionContract Error Args Result) : Prop :=
   Implements (FunctionInstanceExecutionPcs functionInstance reached) exit entry contract
 
+/-! Compatibility adapters for pre-migration contract declarations. New hierarchical refinements
+pass an explicit reached extent through `ImplementsFunctionInstance`. -/
+
+abbrev OccurrenceBinding := FunctionInstanceBinding
+abbrev OccurrenceContract := FunctionInstanceContract
+
+def ImplementsInstance {Error Args Result : Type}
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop)
+    (contract : FunctionContract Error Args Result) : Prop :=
+  ImplementsFunctionInstance functionInstance (fun _ => False) entry exit contract
+
+def OccurrenceContract.ImplementsInstance {Args Outcome : Type}
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance)
+    (entry : BitVec 64) (exit : BitVec 64 → Prop)
+    (contract : OccurrenceContract Args Outcome) : Prop :=
+  FunctionInstanceContract.ImplementsFunctionInstance functionInstance (fun _ => False)
+    entry exit contract
+
+def OccurrenceContract.PreSatisfiable {Args Outcome : Type}
+    (contract : OccurrenceContract Args Outcome) : Prop :=
+  FunctionInstanceContract.PreSatisfiable contract
+
 /--
 A contract whose entry binding no state satisfies is vacuously implemented.
 
