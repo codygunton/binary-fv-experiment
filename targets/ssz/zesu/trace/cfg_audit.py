@@ -99,7 +99,10 @@ def main() -> int:
 
     insns, order = disassemble(a.objdump, a.elf)
     nxt = {addr: order[i + 1] for i, addr in enumerate(order) if i + 1 < len(order)}
-    occ = json.loads(Path(a.program).read_text())["occurrences"]
+    program = json.loads(Path(a.program).read_text())
+    occ = program.get("function_instances", program.get("occurrences"))
+    if occ is None:
+        raise SystemExit("program has neither function_instances nor legacy occurrences")
 
     # The generator attributes each PC's edges to the DEEPEST occurrence owning it
     # (`owned = regions - children's regions`), so an edge appears exactly once across an inline chain.
@@ -137,7 +140,9 @@ def main() -> int:
         missing = sorted(e for e in real if e not in declared)
         bogus = sorted(e for e in declared if e not in real)
         # every real transfer leaving the occurrence's own regions must have its source in `exits`
-        leaving_src = {pc for (pc, t) in real if t not in region}
+        # A resolved call leaves the caller's own regions temporarily and then resumes at its
+        # continuation. The call edge is real CFG data, but its source is not a function exit.
+        leaving_src = {pc for (pc, t) in real if t not in region and insns[pc][0] not in CALL}
         exit_bad = sorted(leaving_src - exits)
         tot_missing += len(missing); tot_bogus += len(bogus); tot_exitbad += len(exit_bad)
         report.append({

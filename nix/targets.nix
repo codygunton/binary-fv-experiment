@@ -936,6 +936,67 @@ let
       PY
     '';
 
+  # Level 1 admission lane: reuse the production-ELF tracer and source probe, but select only the
+  # eight source-named conditions of `Level1ContractAssumptions`. Its report is intentionally allowed
+  # to contain gaps; a gap is evidence that the corresponding theorem statement must not yet be
+  # admitted. The derivation fails only on a false observation, identity drift, or surviving mutation.
+  sszLevel1Evidence =
+    let
+      trace = builtins.path { path = repo + "/targets/ssz/zesu/trace"; name = "ssz-trace-tools"; };
+      fixtures = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
+      routineVectors = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_routine_vectors.py"; name = "ssz_routine_vectors.py"; };
+      probe = "${zesuContractProbe}/bin/ssz-contract-probe";
+    in
+    pkgs.runCommand "ssz-level1-admission-evidence" {
+      nativeBuildInputs = [
+        pkgs.python3 pkgs.gcc pkgs.util-linux pkgs.qemu-user pkgs.glib pkgs.pkg-config pkgs.coreutils
+        riscvBinutils
+      ];
+    } ''
+      set -euo pipefail
+      export HOME="$TMPDIR"
+      cp -R ${trace} trace && chmod -R u+w trace
+      cp ${fixtures} ssz_differential_audit.py
+
+      gcc -shared -fPIC -O2 -o trace/qemu_trace_plugin.so trace/qemu_trace_plugin.c \
+        -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0)
+
+      python3 - <<'PY'
+      import importlib.util, sys
+      spec = importlib.util.spec_from_file_location('fx', 'ssz_differential_audit.py')
+      fx = importlib.util.module_from_spec(spec); sys.modules['fx'] = fx; spec.loader.exec_module(fx)
+      open('present.bin', 'wb').write(fx.make_rich_v4())
+      open('absent.bin', 'wb').write(fx.make_v4(chain_bytes=fx.chain_config(blob_schedule=None)))
+      open('malformed.bin', 'wb').write(b'\x00\x02\x00')
+      PY
+
+      ${probe} --dump-abi > abi.json
+      python3 ${routineVectors} --abi abi.json --out routine-vectors.jsonl
+      ${probe} --routine-vectors routine-vectors.jsonl > routine-outcomes.jsonl
+
+      mkdir -p "$out" scratch
+      python3 trace/level1_admission.py \
+        --qemu ${pkgs.qemu-user}/bin/qemu-riscv64 --plugin trace/qemu_trace_plugin.so \
+        --objdump ${riscvObjdump} --elf ${zesuSsz}/bin/zesu-ssz \
+        --program ${elflingProgram}/program.json --llvm-ir ${elflingDecoderLlvmIr}/decoder.ll \
+        --scratch scratch \
+        --arm present=present.bin --arm malformed=malformed.bin --arm absent=absent.bin \
+        --routine-vectors routine-vectors.jsonl --routine-outcomes routine-outcomes.jsonl \
+        --out-json "$out/evidence.json" --out-report "$out/LEVEL1_ADMISSION.md"
+      python3 trace/level1_negative_tests.py --evidence "$out/evidence.json" \
+        | tee "$out/mutations.txt"
+      python3 - "$out/evidence.json" <<'PY' | tee "$out/summary.txt"
+      import json, sys
+      summary = json.load(open(sys.argv[1]))['summary']
+      print(json.dumps(summary, sort_keys=True))
+      assert summary['conditions'] == 8
+      assert summary['structurallyWellFormed'] == 8
+      assert summary['sourceMeaningPasses'] == 8
+      assert summary['interfaceCompatible'] == 6
+      assert summary['productionFailures'] == 0
+      PY
+    '';
+
   zesuSsz = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-rv64im-zicclsm";
     version = "96f1621";
@@ -1163,6 +1224,7 @@ in
       sszProductionUnchanged
       sszBinaryEvidence
       sszScaleEvidence
+      sszLevel1Evidence
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -1186,6 +1248,7 @@ in
     ssz-production-object-unchanged = sszProductionUnchanged;
     ssz-binary-evidence = sszBinaryEvidence;
     ssz-scale-evidence = sszScaleEvidence;
+    ssz-level1-evidence = sszLevel1Evidence;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;

@@ -213,6 +213,7 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
     declared_set = {(e["source"], e["target"]) for e in occ["edges"]}
     exits = sorted(occ.get("exits") or [])
     exec_owned, leaving_src, dyn_src = set(), set(), set()
+    call_targets = set(occ.get("callTargetPcs") or [])
     for i in range(len(executed) - 1):
         s, t = executed[i], executed[i + 1]
         if s in owned:
@@ -220,7 +221,11 @@ def reduce_occurrence(occ, short, catalog, executed, loads, stores, input_len=0,
                 dyn_src.add(s)          # dynamic return/indirect: validated via `exits`, not `edges`
             else:
                 exec_owned.add((s, t))
-            if not in_region(t):
+            # A resolved call temporarily leaves the caller's own regions and returns to its
+            # continuation. It is a transfer edge, not a function exit. `callTargetPcs` is resolved
+            # from generated `externalCalls`; treating calls as exits recreates the obsolete ABI-row
+            # bug that truncated callers at their first call.
+            if not in_region(t) and t not in call_targets:
                 leaving_src.add(s)
     f["blockStarts"] = block_starts
     f["declaredEdges"] = declared_edges
@@ -527,7 +532,12 @@ def main() -> int:
     args = ap.parse_args()
 
     program = json.loads(Path(args.program).read_text())
-    occ = program["occurrences"]
+    # `function_instances` is the current source-derived identity schema. Keep the fallback only so
+    # this diagnostic can explain older committed evidence while branches below the naming layer are
+    # still retained for audit.
+    occ = program.get("function_instances", program.get("occurrences"))
+    if occ is None:
+        raise SystemExit("program has neither function_instances nor legacy occurrences")
     catalog = json.loads(Path(args.catalog).read_text())
     scratch = Path(args.scratch)
     scratch.mkdir(parents=True, exist_ok=True)
@@ -551,10 +561,14 @@ def main() -> int:
 
     records = []
     for idx, o in enumerate(occ):
+        call_targets = []
+        for ref in o.get("externalCalls") or []:
+            if isinstance(ref, list) and len(ref) == 2 and ref[0] == "function_instance":
+                call_targets.append(occ[ref[1]]["entryPc"])
         kids = set()
         for c in o.get("children") or []:
             kids |= all_rpcs[c]
-        o = {**o, "index": idx}
+        o = {**o, "index": idx, "callTargetPcs": call_targets}
         short = o["qualified"].split(".")[-1]
         chosen = None
         for spec in args.arm:

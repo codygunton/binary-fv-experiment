@@ -20,3 +20,9 @@ byte-identical across repeated runs; do not add timestamps, host addresses, or u
 The remaining scripts cover differential, observability, generator, relocation, and boundary
 checks inherited from earlier work. Validation results are test evidence; the proof import guard
 prevents `BinaryFv.SSZ.Zesu.Validation` modules from becoming premises of production proofs.
+
+The Level 1 admission lane is `nix build .#ssz-level1-evidence`. It selects only the eight
+source-named root-theorem conditions, combines unchanged-production-ELF trace observations with the
+typed source-probe vectors, checks their LLVM interfaces, and mutation-tests every boolean used by
+the admission predicate. Its generated report keeps gaps and interface failures explicit; source
+meaning or catalog coverage is never promoted to a machine-contract pass.

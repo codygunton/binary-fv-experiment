@@ -113,7 +113,10 @@ def main() -> int:
     ap.add_argument("--out-md", required=True)
     a = ap.parse_args()
 
-    occ = json.loads(Path(a.program).read_text())["occurrences"]
+    program = json.loads(Path(a.program).read_text())
+    occ = program.get("function_instances", program.get("occurrences"))
+    if occ is None:
+        raise SystemExit("program has neither function_instances nor legacy occurrences")
     by_short = {}
     for i, o in enumerate(occ):
         by_short.setdefault(o["qualified"].split(".")[-1], []).append(i)
