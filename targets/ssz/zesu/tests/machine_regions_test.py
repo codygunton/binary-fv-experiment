@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import pathlib
+import tempfile
 import unittest
 
 
@@ -78,8 +79,9 @@ class MachineRegionTests(unittest.TestCase):
                 "liveIn": ["ra"],
                 "liveOut": [],
             }],
-            "owners": [{"id": "unit", "instructions": [4]}],
-            "sccs": [{"id": 0, "instructions": [4], "loop": False}],
+            "entry": 4,
+            "owners": [{"id": "unit", "instructions": [4], "entries": [4], "exits": []}],
+            "sccs": [{"id": 0, "rank": 0, "instructions": [4], "loop": False}],
             "sccForwardTree": [{"address": 4, "parent": 4, "depth": 0}],
             "sccReverseTree": [{"address": 4, "parent": 4, "depth": 0}],
             "unresolvedIndirectTransfers": [],
@@ -112,11 +114,33 @@ class MachineRegionTests(unittest.TestCase):
     def test_missing_scc_member_rejected(self) -> None:
         self.assert_corruption_rejected(lambda db: db["sccs"][0].update(instructions=[]))
 
+    def test_invented_exit_rejected(self) -> None:
+        self.assert_corruption_rejected(
+            lambda db: db["owners"][0].update(exits=[{"source": 4, "target": 4}])
+        )
+
     def test_false_indirect_resolution_rejected(self) -> None:
         def mutate(database: dict) -> None:
             database["instructions"][0]["transfer"] = "indirectTransfer"
 
         self.assert_corruption_rejected(mutate)
+
+    def test_stale_input_hash_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            elf, program = root / "decoder.elf", root / "program.json"
+            elf.write_bytes(b"elf")
+            program.write_text("{}")
+            database = {
+                "inputs": {
+                    "elfSha256": machine_regions.sha256(elf),
+                    "programJsonSha256": machine_regions.sha256(program),
+                }
+            }
+            machine_regions.validate_input_hashes(database, elf, program)
+            elf.write_bytes(b"changed")
+            with self.assertRaises(ValueError):
+                machine_regions.validate_input_hashes(database, elf, program)
 
 
 if __name__ == "__main__":

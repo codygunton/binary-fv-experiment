@@ -113,9 +113,13 @@ def assign_owners(program: dict, reachable: set[int]) -> tuple[dict[int, str], d
             "id": owner,
             "kind": instance["kind"],
             "qualified": instance["qualified"],
+            "parent": (
+                f"fi:{instance['parentIdx']}" if instance.get("parentIdx") is not None else None
+            ),
             "sourceFile": instance.get("sourceFile"),
             "declLine": instance.get("declLine", 0),
             "inlineStack": instance.get("inlineStack", []),
+            "regions": instance["regions"],
         }
         depth = instance_depth(index, instances)
         for address in reachable:
@@ -128,9 +132,11 @@ def assign_owners(program: dict, reachable: set[int]) -> tuple[dict[int, str], d
             "id": owner,
             "kind": routine["category"],
             "qualified": routine["qualified"],
+            "parent": None,
             "sourceFile": routine.get("sourceFile"),
             "declLine": 0,
             "inlineStack": [],
+            "regions": routine["regions"],
         }
         for address in reachable:
             if in_regions(address, routine["regions"]):
@@ -499,8 +505,6 @@ def build_database(elf: pathlib.Path, program_path: pathlib.Path, llvm_objdump: 
     owner_rows = []
     for owner in sorted(owners):
         owned = sorted(address for address, selected in owners_by_address.items() if selected == owner)
-        if not owned:
-            continue
         owner_rows.append({
             **owners[owner],
             "instructions": owned,
@@ -550,6 +554,7 @@ def build_database(elf: pathlib.Path, program_path: pathlib.Path, llvm_objdump: 
         "summary": {
             "instructionCount": len(instructions),
             "ownerCount": len(owner_rows),
+            "activeOwnerCount": sum(bool(owner["instructions"]) for owner in owner_rows),
             "edgeCount": sum(len(edges) for edges in graph.values()),
             "loopSccCount": len(loops),
             "unresolvedIndirectTransferCount": len(unresolved),
@@ -564,6 +569,7 @@ def validate(database: dict) -> None:
     if addresses != sorted(set(addresses)):
         raise ValueError("instructions are not uniquely sorted")
     address_set = set(addresses)
+    graph = {row["address"]: set(row["successors"]) for row in rows}
     owned = [address for owner in database["owners"] for address in owner["instructions"]]
     if sorted(owned) != addresses:
         raise ValueError("owners do not exactly tile instructions")
@@ -579,6 +585,19 @@ def validate(database: dict) -> None:
     scc_members = sorted(address for scc in database["sccs"] for address in scc["instructions"])
     if scc_members != addresses:
         raise ValueError("SCCs do not exactly tile instructions")
+    recomputed_components = strongly_connected_components(graph)
+    if [scc["instructions"] for scc in database["sccs"]] != recomputed_components:
+        raise ValueError("SCC inventory disagrees with the instruction graph")
+    recomputed_component_of = {
+        address: index
+        for index, component in enumerate(recomputed_components)
+        for address in component
+    }
+    recomputed_ranks = condensation_ranks(
+        graph, recomputed_component_of, len(recomputed_components)
+    )
+    if [scc["rank"] for scc in database["sccs"]] != recomputed_ranks:
+        raise ValueError("SCC ranks disagree with the condensation graph")
     for name in ("sccForwardTree", "sccReverseTree"):
         tree_addresses = sorted(row["address"] for row in database[name])
         if tree_addresses != addresses:
@@ -589,6 +608,29 @@ def validate(database: dict) -> None:
     )
     if unresolved != database["unresolvedIndirectTransfers"]:
         raise ValueError("unresolved-indirect inventory disagrees with instructions")
+
+    owner_of = {row["address"]: row["owner"] for row in rows}
+    expected_entries: dict[str, set[int]] = defaultdict(set)
+    expected_exits: dict[str, set[tuple[int, int]]] = defaultdict(set)
+    for source, successors_ in graph.items():
+        for destination in successors_:
+            if owner_of[source] != owner_of[destination]:
+                expected_exits[owner_of[source]].add((source, destination))
+                expected_entries[owner_of[destination]].add(destination)
+    expected_entries[owner_of[database["entry"]]].add(database["entry"])
+    for owner in database["owners"]:
+        exits = {(edge["source"], edge["target"]) for edge in owner["exits"]}
+        if exits != expected_exits[owner["id"]]:
+            raise ValueError(f"owner {owner['id']} exit inventory disagrees with ownership and CFG")
+        if set(owner["entries"]) != expected_entries[owner["id"]]:
+            raise ValueError(f"owner {owner['id']} entry inventory disagrees with ownership and CFG")
+
+
+def validate_input_hashes(database: dict, elf: pathlib.Path, program_path: pathlib.Path) -> None:
+    if database["inputs"]["elfSha256"] != sha256(elf):
+        raise ValueError("ELF hash does not match machine-region database")
+    if database["inputs"]["programJsonSha256"] != sha256(program_path):
+        raise ValueError("program JSON hash does not match machine-region database")
 
 
 def lean_array(name: str, type_: str, rows: list[str]) -> str:
@@ -676,6 +718,141 @@ def write_lean(database: dict, path: pathlib.Path) -> None:
     path.write_text("".join(text))
 
 
+def instruction_runs(indices: list[int]) -> list[list[int]]:
+    if not indices:
+        return []
+    runs = []
+    start = previous = indices[0]
+    for index in indices[1:]:
+        if index != previous + 1:
+            runs.append([start, previous + 1])
+            start = index
+        previous = index
+    runs.append([start, previous + 1])
+    return runs
+
+
+def build_flame(database: dict) -> dict:
+    address_index = {
+        row["address"]: index for index, row in enumerate(database["instructions"])
+    }
+    by_id = {owner["id"]: owner for owner in database["owners"]}
+    children: dict[str | None, list[str]] = defaultdict(list)
+    for owner in database["owners"]:
+        parent = owner["parent"] if owner.get("parent") in by_id else None
+        children[parent].append(owner["id"])
+    for child_ids in children.values():
+        child_ids.sort(key=lambda owner: (
+            min(by_id[owner]["instructions"] or [2**64]), owner
+        ))
+
+    meta: dict[str, dict] = {}
+    keys_by_owner: dict[str, str] = {}
+
+    def make_node(owner_id: str, parent_key: str) -> tuple[dict, set[int]]:
+        owner = by_id[owner_id]
+        name = f"{owner['qualified']} [{owner_id}]"
+        key = f"{parent_key}|{name}"
+        keys_by_owner[owner_id] = key
+        child_nodes = []
+        subtree = set(owner["instructions"])
+        for child_id in children[owner_id]:
+            child_node, child_addresses = make_node(child_id, key)
+            child_nodes.append(child_node)
+            subtree.update(child_addresses)
+        indices = sorted(address_index[address] for address in subtree)
+        own_indices = sorted(address_index[address] for address in owner["instructions"])
+        node = {
+            "name": name,
+            "value": len(indices),
+            "self": len(own_indices),
+            "children": child_nodes,
+            "key": key,
+        }
+        meta[key] = {
+            "owner": owner_id,
+            "runs": instruction_runs(indices),
+            "frags": len(instruction_runs(indices)),
+            "value": len(indices),
+            "self": len(own_indices),
+            "file": owner.get("sourceFile"),
+            "line": owner.get("declLine", 0),
+            "entries": owner["entries"],
+            "exits": owner["exits"],
+            "loopSccs": owner["loopSccs"],
+            "src": None,
+        }
+        return node, subtree
+
+    root_children = []
+    covered: set[int] = set()
+    for owner_id in children[None]:
+        node, addresses = make_node(owner_id, "program")
+        root_children.append(node)
+        covered.update(addresses)
+    all_addresses = {row["address"] for row in database["instructions"]}
+    if covered != all_addresses:
+        raise ValueError("flame hierarchy does not cover the instruction database")
+    root_indices = list(range(len(database["instructions"])))
+    meta["program"] = {
+        "owner": None,
+        "runs": instruction_runs(root_indices),
+        "frags": 1,
+        "value": len(root_indices),
+        "self": 0,
+        "file": None,
+        "line": 0,
+        "entries": [database["entry"]],
+        "exits": [],
+        "loopSccs": [],
+        "src": None,
+    }
+    tree = {
+        "name": "program",
+        "value": len(root_indices),
+        "self": 0,
+        "children": root_children,
+        "key": "program",
+    }
+
+    cap = max(1, len(root_indices) // 10)
+    selected: list[str] = []
+    residual: dict[str, int] = {}
+    needs_split: list[str] = []
+
+    def select(node: dict) -> None:
+        key = node["key"]
+        if node["value"] <= cap:
+            selected.append(key)
+            residual[key] = node["value"]
+            return
+        for child in node["children"]:
+            select(child)
+        if node["self"]:
+            selected.append(key)
+            residual[key] = node["self"]
+            if node["self"] > cap:
+                needs_split.append(key)
+
+    for child in root_children:
+        select(child)
+    return {
+        "schemaVersion": 1,
+        "machineRegionInputs": database["inputs"],
+        "total": len(root_indices),
+        "loAddr": min(all_addresses),
+        "tree": tree,
+        "meta": meta,
+        "suggest": {
+            "cap": cap,
+            "coverage": len(root_indices),
+            "units": selected,
+            "residual": residual,
+            "needsSubFunctionSplit": needs_split,
+        },
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--elf", type=pathlib.Path, required=True)
@@ -683,13 +860,18 @@ def main() -> None:
     parser.add_argument("--llvm-objdump", required=True)
     parser.add_argument("--out", type=pathlib.Path, required=True)
     parser.add_argument("--out-lean", type=pathlib.Path)
+    parser.add_argument("--out-flame", type=pathlib.Path)
     arguments = parser.parse_args()
     database = build_database(arguments.elf, arguments.program_json, arguments.llvm_objdump)
     validate(database)
+    validate_input_hashes(database, arguments.elf, arguments.program_json)
     arguments.out.parent.mkdir(parents=True, exist_ok=True)
     arguments.out.write_text(json.dumps(database, indent=2, sort_keys=True) + "\n")
     if arguments.out_lean:
         write_lean(database, arguments.out_lean)
+    if arguments.out_flame:
+        arguments.out_flame.parent.mkdir(parents=True, exist_ok=True)
+        arguments.out_flame.write_text(json.dumps(build_flame(database), separators=(",", ":")) + "\n")
 
 
 if __name__ == "__main__":
