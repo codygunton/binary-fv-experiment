@@ -1171,8 +1171,8 @@ def main():
     for i, rec in enumerate(function_instances):
         if rec["parentIdx"] is not None: function_instances[rec["parentIdx"]]["children"].append(i)
 
-    # Regression oracle: the independently hand-verified milestone-3 `decodeOptionalBlobSchedule`
-    # slice (BlobScheduleFunctionInstance.lean). The generator must reproduce it exactly, so a silent drift
+    # Regression oracle: the pinned `decodeOptionalBlobSchedule` geometry established during milestone 3.
+    # The whole-program generator must reproduce it exactly, so a silent drift
     # in ranges/entry/exit/decl-line/inline-stack/nesting fails generation rather than the proof.
     #
     # Stated in RELOCATION-INVARIANT form: the object-relative entry (offset into the decoder `.text`),
@@ -1199,7 +1199,7 @@ def main():
            "nchildren": len(bs["children"]),
            "inlineStack": [(s["callerQualified"], s["line"], s["column"]) for s in bs["inlineStack"]]}
     if got != ORACLE:
-        raise SystemExit(f"REGRESSION: generated decodeOptionalBlobSchedule != milestone-3 slice.\n"
+        raise SystemExit(f"REGRESSION: generated decodeOptionalBlobSchedule != pinned geometry.\n"
                          f"  expected {ORACLE}\n  got      {got}")
 
     # entry function instance — the program cannot be emitted without one (Lean references function_instances<entry>Id), so a
