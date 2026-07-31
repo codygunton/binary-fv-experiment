@@ -1,6 +1,6 @@
 import BinaryFv.SSZ.Zesu.Artifact.Layout
 import BinaryFv.SSZ.Zesu.Interface
-import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.HierarchicalContracts
 import BinaryFv.SSZ.Zesu.Contracts.ProgramCorrectness
 
 namespace BinaryFv.SSZ
@@ -243,6 +243,35 @@ theorem root_compliance_of_local_contracts
       obtain ⟨execution⟩ :=
         Zesu.Entrypoints.ZesuDecodeRaw.rejectedRun_of_locals locals inputBound specResult
       exact execute_rejects_of_rejected_trace input inputBound _ canonical obligations execution
+
+/-- The L1 conditional root theorem.  Its premise is the exported `zesu_decode_raw` contract and the
+seven reviewed small routines at the tail of the generated program; it has no dependency on the
+superseded 141-occurrence seam or its program-correctness bundle. -/
+theorem root_compliance_of_level1_contracts
+    (contracts : Zesu.Entrypoints.ZesuDecodeRaw.Level1ContractAssumptions) :
+    ∀ input : ByteArray,
+      input.size < 2 * 1024 * 1024 →
+        RiscvSpec.execute binary input = .ok (SszSpec.decode input) := by
+  intro input inputBound
+  cases specResult : SszSpec.decode input with
+  | accepted value =>
+      obtain ⟨execution⟩ :=
+        Zesu.Entrypoints.ZesuDecodeRaw.successfulRun_of_exported contracts.toExportedContractAssumptions
+          inputBound specResult
+      rw [RiscvSpec.execute_eq_executeChecked,
+        Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_eq_executeDecode binary_is_canonical inputBound]
+      exact Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_accepted_of_run input value
+        execution.builds execution.trace execution.withinStepBound execution.accessors
+        execution.returnCode execution.storedPresent execution.inputPreserved execution.storedValue
+  | rejected =>
+      obtain ⟨execution⟩ :=
+        Zesu.Entrypoints.ZesuDecodeRaw.rejectedRun_of_exported contracts.toExportedContractAssumptions
+          inputBound specResult
+      rw [RiscvSpec.execute_eq_executeChecked,
+        Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_eq_executeDecode binary_is_canonical inputBound]
+      exact Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_rejected_of_run input
+        execution.builds execution.trace execution.withinStepBound execution.accessors
+        execution.returnCode execution.specRejection execution.storedAbsent
 
 /-- **The one assumed obligation in the whole SSZ proof**, and the only `sorry` in the tree.
 

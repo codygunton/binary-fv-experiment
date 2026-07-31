@@ -277,7 +277,50 @@ theorem rawError_implements_of_locals (locals : LocalContractAssumptions) {fi : 
   rw [htag] at h
   exact h
 
-/-! ## Both accessor calls, from the local proofs
+/-! ## The exported-contract seam
+
+The runner needs the wrapper and the two accessors, not the old flat manifest.  Keeping this
+structure beside its consumer makes the dependency exact; `ofLocals` below is only the compatibility
+route from the superseded decomposition. -/
+
+structure ExportedContractAssumptions : Prop where
+  decode :
+    ∀ {functionInstance : FunctionInstance},
+      Program.find? generatedProgram generatedProgram.entry = some functionInstance →
+        BinaryFv.RiscV.Elfling.FunctionInstanceContract.Implements
+          (functionInstanceExecutionPcs generatedProgram functionInstance)
+          (functionInstanceExitPred functionInstance)
+          (functionInstanceEntryWord functionInstance)
+          (functionInstanceZesuDecodeRaw canonicalContractParams.env
+            canonicalContractParams.globals canonicalContractParams.resultBuffer
+            canonicalContractParams.repRawV4 DecoderGlobalsModel.fresh)
+  rawResult :
+    ∀ {functionInstance : FunctionInstance},
+      functionInstance ∈ generatedProgram.functionInstances →
+      functionInstance.entryPc = resolvedSymbols.rawResult →
+        BinaryFv.RiscV.Elfling.Implements
+          (functionInstanceExecutionPcs generatedProgram functionInstance)
+          (functionInstanceExitPred functionInstance)
+          (functionInstanceEntryWord functionInstance)
+          (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+            canonicalContractParams.resultBuffer)
+  rawError :
+    ∀ {functionInstance : FunctionInstance},
+      functionInstance ∈ generatedProgram.functionInstances →
+      functionInstance.entryPc = resolvedSymbols.rawError →
+        BinaryFv.RiscV.Elfling.Implements
+          (functionInstanceExecutionPcs generatedProgram functionInstance)
+          (functionInstanceExitPred functionInstance)
+          (functionInstanceEntryWord functionInstance)
+          (contractRawError canonicalContractParams.env canonicalContractParams.globals)
+
+def ExportedContractAssumptions.ofLocals (locals : LocalContractAssumptions) :
+    ExportedContractAssumptions where
+  decode hfind := entry_implements_of_locals locals hfind
+  rawResult hmem hentry := rawResult_implements_of_locals locals hmem hentry
+  rawError hmem hentry := rawError_implements_of_locals locals hmem hentry
+
+/-! ## Both accessor calls, from the exported contracts
 
 Stated once, at an arbitrary ghost model, because the accepted and rejected branches differ only in
 which model the wrapper recorded — and both accessors' answers are functions of it. That is the whole
@@ -285,7 +328,7 @@ reason `AcceptedAccessorTraces` and `RejectedAccessorTraces` have the same shape
 
 /-- **The accessor residue, discharged.** Both exported accessors run from `state` to their sentinels
 within their own contract bounds, returning what their contracts say at `model`. -/
-theorem accessorTraces_of_locals (locals : LocalContractAssumptions) {state : State}
+theorem accessorTraces_of_exported (contracts : ExportedContractAssumptions) {state : State}
     {model : DecoderGlobalsModel} (hplatform : ∀ pc ∈ sentinelExitPcs, ExitPlatform state pc)
     (hcode : canonicalEnvironment.CodeIntact state)
     (hscalar : DecoderGlobalsScalarRep Elfling.canonicalDecoderGlobalsLayout model state)
@@ -300,7 +343,7 @@ theorem accessorTraces_of_locals (locals : LocalContractAssumptions) {state : St
   -- `zesu_raw_result`, from the runner's prologue over `state`.
   obtain ⟨fiResult, hmemResult, hentryResult⟩ := rawResult_function_instance_found
   obtain ⟨countResult, atExitResult, hboundResult, hrunResult, hpostResult⟩ :=
-    rawResult_implements_of_locals locals hmemResult hentryResult model 0
+    contracts.rawResult hmemResult hentryResult model 0
       (accessorSetup resolvedSymbols.rawResult state)
       (contractRawResult_entry_accessorSetup (resultBuffer := canonicalContractParams.resultBuffer)
         _ hcode hstored)
@@ -329,7 +372,7 @@ theorem accessorTraces_of_locals (locals : LocalContractAssumptions) {state : St
     decoderGlobalsScalarRep_of_mem_eq hframeResult.mem
       (decoderGlobalsScalarRep_survives_accessor hpostResult.2.2.1 hscalar)
   obtain ⟨countError, atExitError, hboundError, hrunError, hpostError⟩ :=
-    rawError_implements_of_locals locals hmemError hentryError model 0
+    contracts.rawError hmemError hentryError model 0
       (accessorSetup resolvedSymbols.rawError middle)
       (contractRawError_entry_accessorSetup _ hcodeMiddle hscalarMiddle)
   obtain ⟨after, -, hreachError, -, hframeError⟩ :=
@@ -353,7 +396,7 @@ inside the runner's budget, the exit binding at the state the exit was reached i
 carries it forward, and the exit bundle still standing where the accessors need it. -/
 
 /-- **A complete run of the exported wrapper, from the local proofs alone.** -/
-theorem decodeRun_of_locals (locals : LocalContractAssumptions) (input : ByteArray) :
+theorem decodeRun_of_exported (contracts : ExportedContractAssumptions) (input : ByteArray) :
     ∃ (entryState atExit finalState : State) (count : Nat),
       Runs (buildZesuEntryState input) initialState entryState () ∧
       TraceToSentinel sentinelWord 0 (count + 1) entryState finalState ∧
@@ -387,7 +430,7 @@ theorem decodeRun_of_locals (locals : LocalContractAssumptions) (input : ByteArr
         code := hcodeEntry }
   -- The wrapper's own obligation, applied at that state.
   obtain ⟨count, atExit, hbound, hrunTrace, hexit⟩ :=
-    canonicalDecodeExit_of_implements (entry_implements_of_locals locals hfind) input 0 hbinding
+    canonicalDecodeExit_of_implements (contracts.decode hfind) input 0 hbinding
   obtain ⟨finalState, htrace, -, -, hframe⟩ :=
     entryTraceToSentinel_of_enteredFunctionTrace hn hfind
       (exitPlatform_of_agree hexit.2.2.2.1 hexit.2.2.2.2.1
@@ -404,11 +447,11 @@ model the wrapper recorded. No machine reasoning happens here; every step is one
 transports or one of the two halves. -/
 
 /-- **An accepted input has a successful run.** -/
-theorem successfulRun_of_locals (locals : LocalContractAssumptions) {input : ByteArray}
+theorem successfulRun_of_exported (contracts : ExportedContractAssumptions) {input : ByteArray}
     (inputBound : input.size < 2 * 1024 * 1024) {value : SszBridge.RawV4}
     (accepts : SszSpec.decode input = .accepted value) : Nonempty (SuccessfulRun input value) := by
   obtain ⟨entryState, atExit, finalState, count, hrun, htrace, hbound, hexit, hframe, hplatform⟩ :=
-    decodeRun_of_locals locals input
+    decodeRun_of_exported contracts input
   obtain ⟨hcode, htag, hinput, hvalue⟩ :=
     successfulRun_fields_of_canonicalDecodeExit catalogGroundsInSpec_holds inputBound accepts hexit
   -- The four decode-side observations, moved across the `ret` the trace ends with.
@@ -426,7 +469,7 @@ theorem successfulRun_of_locals (locals : LocalContractAssumptions) {input : Byt
   have hglobals := hexit.2.2.2.2.2
   rw [hmeaning] at hglobals
   obtain ⟨middle, after, hreachResult, hcodeResult, hreachError, hcodeError⟩ :=
-    accessorTraces_of_locals locals hplatform (codeIntact_of_mem_eq hframe.mem hexit.2.1)
+    accessorTraces_of_exported contracts hplatform (codeIntact_of_mem_eq hframe.mem hexit.2.1)
       (decoderGlobalsScalarRep_of_mem_eq hframe.mem hglobals.1)
       (storedResultDiscriminantRep_of_mem_eq hframe.mem hglobals.2.1)
   refine successfulRun_of_acceptedAccessorTraces input value hrun htrace hbound hcodeFinal htagFinal
@@ -437,11 +480,11 @@ theorem successfulRun_of_locals (locals : LocalContractAssumptions) {input : Byt
 /-- **A rejected input has a rejected run**, at the status the wrapper recorded — the same number
 `zesu_raw_error` returns from that model, which is what makes the two halves name one status rather
 than two. -/
-theorem rejectedRun_of_locals (locals : LocalContractAssumptions) {input : ByteArray}
+theorem rejectedRun_of_exported (contracts : ExportedContractAssumptions) {input : ByteArray}
     (inputBound : input.size < 2 * 1024 * 1024)
     (rejects : SszSpec.decode input = .rejected) : Nonempty (RejectedRun input) := by
   obtain ⟨entryState, atExit, finalState, count, hrun, htrace, hbound, hexit, hframe, hplatform⟩ :=
-    decodeRun_of_locals locals input
+    decodeRun_of_exported contracts input
   obtain ⟨hcode, htag, hinput, hstatus⟩ :=
     rejectedRun_fields_of_canonicalDecodeExit catalogGroundsInSpec_holds inputBound rejects hexit
   have hcodeFinal : observeReturnCode? finalState = some 0 :=
@@ -452,11 +495,23 @@ theorem rejectedRun_of_locals (locals : LocalContractAssumptions) {input : ByteA
     meaningDecode_error_of_spec_rejects catalogGroundsInSpec_holds inputBound rejects
   have hglobals := hexit.2.2.2.2.2
   obtain ⟨middle, after, hreachResult, hcodeResult, hreachError, hcodeError⟩ :=
-    accessorTraces_of_locals locals hplatform (codeIntact_of_mem_eq hframe.mem hexit.2.1)
+    accessorTraces_of_exported contracts hplatform (codeIntact_of_mem_eq hframe.mem hexit.2.1)
       (decoderGlobalsScalarRep_of_mem_eq hframe.mem hglobals.1)
       (storedResultDiscriminantRep_of_mem_eq hframe.mem hglobals.2.1)
   refine rejectedRun_of_rejectedAccessorTraces input hrun htrace hbound hcodeFinal htagFinal hstatus
     ⟨middle, after, hreachResult, ?_, hreachError, hcodeError⟩
   rw [hcodeResult, hmeaning, freshGlobals_error_pointer]
+
+/-! Compatibility with the old flat seam. -/
+
+theorem successfulRun_of_locals (locals : LocalContractAssumptions) {input : ByteArray}
+    (inputBound : input.size < 2 * 1024 * 1024) {value : SszBridge.RawV4}
+    (accepts : SszSpec.decode input = .accepted value) : Nonempty (SuccessfulRun input value) :=
+  successfulRun_of_exported (.ofLocals locals) inputBound accepts
+
+theorem rejectedRun_of_locals (locals : LocalContractAssumptions) {input : ByteArray}
+    (inputBound : input.size < 2 * 1024 * 1024)
+    (rejects : SszSpec.decode input = .rejected) : Nonempty (RejectedRun input) :=
+  rejectedRun_of_exported (.ofLocals locals) inputBound rejects
 
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw

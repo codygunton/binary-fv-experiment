@@ -20,48 +20,47 @@ open BinaryFv.SSZ.Zesu.Contracts
 open BinaryFv.SSZ.Zesu.Elfling
 open BinaryFv.SSZ.Zesu.Elfling.Generated
 
-/-- The three real exported machine contracts consumed by the public runner. -/
-structure ExportedContractAssumptions : Prop where
-  decode :
-    ∀ {functionInstance : FunctionInstance},
-      Program.find? generatedProgram generatedProgram.entry = some functionInstance →
-        FunctionInstanceContract.Implements
-          (functionInstanceExecutionPcs generatedProgram functionInstance)
-          (functionInstanceExitPred functionInstance)
-          (functionInstanceEntryWord functionInstance)
-          (functionInstanceZesuDecodeRaw canonicalContractParams.env
-            canonicalContractParams.globals canonicalContractParams.resultBuffer
-            canonicalContractParams.repRawV4 DecoderGlobalsModel.fresh)
-  rawResult :
-    ∀ {functionInstance : FunctionInstance},
-      functionInstance ∈ generatedProgram.functionInstances →
-      functionInstance.entryPc = resolvedSymbols.rawResult →
-        Implements (functionInstanceExecutionPcs generatedProgram functionInstance)
-          (functionInstanceExitPred functionInstance)
-          (functionInstanceEntryWord functionInstance)
-          (contractRawResult canonicalContractParams.env canonicalContractParams.globals
-            canonicalContractParams.resultBuffer)
-  rawError :
-    ∀ {functionInstance : FunctionInstance},
-      functionInstance ∈ generatedProgram.functionInstances →
-      functionInstance.entryPc = resolvedSymbols.rawError →
-        Implements (functionInstanceExecutionPcs generatedProgram functionInstance)
-          (functionInstanceExitPred functionInstance)
-          (functionInstanceEntryWord functionInstance)
-          (contractRawError canonicalContractParams.env canonicalContractParams.globals)
+/-- The seven emitted routines at the tail of the generated program.  The numeric selection is
+guarded below by their full source identities, so a regenerated ordering cannot silently retarget an
+L1 premise. -/
+abbrev level1RequireCanonicalOffsets := generatedProgram.functionInstances[134]!
+abbrev level1AllocatorResize := generatedProgram.functionInstances[135]!
+abbrev level1AllocatorAlloc := generatedProgram.functionInstances[136]!
+abbrev level1RawError := generatedProgram.functionInstances[137]!
+abbrev level1RawResult := generatedProgram.functionInstances[138]!
+abbrev level1Memcpy := generatedProgram.functionInstances[139]!
+abbrev level1Memmove := generatedProgram.functionInstances[140]!
 
-namespace ExportedContractAssumptions
+/-- Drift gate for the reviewed L1 tail selection. -/
+theorem level1_tail_identities :
+    level1RequireCanonicalOffsets.id.function.declaration.qualifiedName
+      = "ssz_raw.requireCanonicalOffsets" ∧
+    level1AllocatorResize.id.function.declaration.qualifiedName
+      = "raw_decoder_root.allocatorResize" ∧
+    level1AllocatorAlloc.id.function.declaration.qualifiedName
+      = "raw_decoder_root.allocatorAlloc" ∧
+    level1RawError.id.function.declaration.qualifiedName
+      = "raw_decoder_root.zesu_raw_error" ∧
+    level1RawResult.id.function.declaration.qualifiedName
+      = "raw_decoder_root.zesu_raw_result" ∧
+    level1Memcpy.id.function.declaration.qualifiedName = "memcpy" ∧
+    level1Memmove.id.function.declaration.qualifiedName = "memmove" := by
+  native_decide
 
-/--
-The old flat seam implies the exported seam. This keeps the landed global proof usable while the new
-hierarchical decomposition learns to construct `ExportedContractAssumptions` directly.
--/
-theorem ofLocals (locals : Validation.LocalContractAssumptions) :
-    ExportedContractAssumptions where
-  decode hfind := entry_implements_of_locals locals hfind
-  rawResult hmem hentry := rawResult_implements_of_locals locals hmem hentry
-  rawError hmem hentry := rawError_implements_of_locals locals hmem hentry
+/-- Depth 1: the exported decoder contract plus the seven reviewed small tail routines.
 
-end ExportedContractAssumptions
+The five non-accessor tail contracts are not consumed by the runner directly.  They are explicit
+inputs to the next refinement edge, where the large decoder contract will be proved from its selected
+children. -/
+structure Level1ContractAssumptions : Prop extends ExportedContractAssumptions where
+  requireCanonicalOffsets :
+    functionInstanceObligation canonicalContractParams generatedProgram
+      level1RequireCanonicalOffsets
+  allocatorResize :
+    functionInstanceObligation canonicalContractParams generatedProgram level1AllocatorResize
+  allocatorAlloc :
+    functionInstanceObligation canonicalContractParams generatedProgram level1AllocatorAlloc
+  memcpy : functionInstanceObligation canonicalContractParams generatedProgram level1Memcpy
+  memmove : functionInstanceObligation canonicalContractParams generatedProgram level1Memmove
 
 end BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
