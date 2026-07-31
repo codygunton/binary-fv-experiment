@@ -481,4 +481,10 @@ them rather than letting them read as oversights. -/
 def knownDivergences : Prop :=
   forkErrorOrderingDiffers ∧ ereGateDivergesAboveU32
 
+/-! Compatibility vocabulary for the function-instance data-model migration. -/
+
+abbrev everyRoutineHasFunctionInstance := everyRoutineHasInstance
+abbrev everyFunctionInstanceIsCataloged := everyInstanceIsCataloged
+abbrev functionInstancesDispatchUniquely := instancesDispatchUniquely
+
 end BinaryFv.SSZ.Zesu.Contracts

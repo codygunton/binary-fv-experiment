@@ -125,7 +125,7 @@ The step arithmetic is the constructor's: `used` steps inside the segment plus e
 crossing edge. Nothing here can drop the edge or invent a body length.
 -/
 theorem ScopedTrace.spliceSegment {own exit : BitVec 64 → Prop}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {c : SequentialCut} (hcut : c.Valid)
     {fromStep used count : Nat} {s sExit sResume s'' : State}
     {entryPc crossPc resumePc : BitVec 64}
@@ -176,7 +176,7 @@ degenerate "segment" consisting of the exit address itself; `Valid.crossTargetNo
 the requirement that the last real segment does not own it.
 -/
 theorem ScopedTrace.spliceTail {own exit : BitVec 64 → Prop}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {c : SequentialCut} (hcut : c.Valid)
     {fromStep used : Nat} {s sExit sResume : State}
     {entryPc crossPc resumePc : BitVec 64}
@@ -209,7 +209,7 @@ turns any continuation into a longer trace. -/
 /-- `len` retired steps that stay inside `own`, off every `exit`, expressed by what they do to a
 continuation. A spliced segment is one of these; so is a retired own instruction. -/
 def ConfinedPrefix (own exit : BitVec 64 → Prop)
-    (childSummary : InstanceId → Nat → Nat → State → State → Prop)
+    (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
     (fromStep len : Nat) (s s' : State) : Prop :=
   ∀ (m : Nat) (t : State),
     ScopedTrace own exit childSummary (fromStep + len) m s' t →
@@ -218,7 +218,7 @@ def ConfinedPrefix (own exit : BitVec 64 → Prop)
 namespace ConfinedPrefix
 
 variable {own exit : BitVec 64 → Prop}
-  {childSummary : InstanceId → Nat → Nat → State → State → Prop}
+  {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
 
 theorem nil {a : Nat} {s : State} : ConfinedPrefix own exit childSummary a 0 s s := by
   intro m t h; simpa using h
@@ -264,7 +264,7 @@ end ConfinedPrefix
 
 /-- A chain of confined prefixes, with the retired length of each link recorded. -/
 inductive SegmentChain (own exit : BitVec 64 → Prop)
-    (childSummary : InstanceId → Nat → Nat → State → State → Prop) :
+    (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop) :
     Nat → State → List Nat → State → Prop where
   | nil (a : Nat) (s : State) : SegmentChain own exit childSummary a s [] s
   | cons (a len : Nat) (lens : List Nat) (s s1 s' : State)
@@ -275,7 +275,7 @@ inductive SegmentChain (own exit : BitVec 64 → Prop)
 namespace SegmentChain
 
 variable {own exit : BitVec 64 → Prop}
-  {childSummary : InstanceId → Nat → Nat → State → State → Prop}
+  {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
 
 /-- **A chain of segments is one confined prefix of the summed length.** -/
 theorem toPrefix {a : Nat} {s s' : State} {lens : List Nat}
@@ -315,7 +315,7 @@ carries an in-region obligation at the pc it starts from, so an empty ownership 
 `exitAt`. This is the lever the non-derivability result pulls.
 -/
 theorem scopedTrace_of_empty_own {exit : BitVec 64 → Prop}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {a n : Nat} {s s' : State}
     (h : ScopedTrace (fun _ => False) exit childSummary a n s s') : n = 0 ∧ s' = s := by
   cases h with
@@ -335,15 +335,15 @@ would have to hold there too.)
 -/
 theorem tailSummarySplice_not_derivable :
     ¬ ∀ (own exit : BitVec 64 → Prop)
-        (childSummary : InstanceId → Nat → Nat → State → State → Prop)
-        (child : InstanceId) (a used : Nat) (s s' : State) (x : BitVec 64),
+        (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
+        (child : FunctionInstanceId) (a used : Nat) (s s' : State) (x : BitVec 64),
         0 < used → childSummary child a used s s' → s'.regs.get? PC = some x → exit x →
           ScopedTrace own exit childSummary a used s s' := by
   intro H
   classical
   let s0 : State := { initialState with regs := initialState.regs.insert PC (0 : BitVec 64) }
   let s1 : State := { initialState with regs := initialState.regs.insert PC (4 : BitVec 64) }
-  let cs : InstanceId → Nat → Nat → State → State → Prop :=
+  let cs : FunctionInstanceId → Nat → Nat → State → State → Prop :=
     fun _ _ used before after => used = 1 ∧ before = s0 ∧ after = s1
   have hPc : s1.regs.get? PC = some (4 : BitVec 64) := by
     simp [s1]
@@ -361,7 +361,7 @@ This is the check to run against generated data: it fails by *emptiness*, which 
 mode a "the shape looks right" argument misses.
 -/
 theorem inlineTransfer_needs_outgoing_edge {own exit : BitVec 64 → Prop}
-    {childSummary : InstanceId → Nat → Nat → State → State → Prop}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {ib : InlineBoundary} {parent child : FunctionInstance} {a used : Nat} {s s' : State}
     (hEmpty : ib.exits = #[])
     (h : InlineTransfer own exit childSummary ib parent child a used s s') : False := by
