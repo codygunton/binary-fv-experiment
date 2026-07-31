@@ -1,6 +1,6 @@
 import BinaryFv.SSZ.Zesu.Artifact.Layout
 import BinaryFv.SSZ.Zesu.Interface
-import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.HierarchicalContracts
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Level1Contracts
 
 namespace BinaryFv.SSZ
 
