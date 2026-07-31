@@ -95,6 +95,35 @@ theorem append {region mid exit : BitVec 64 → Prop} {a n m : Nat} {s s' s'' : 
       exact FunctionTrace.step fromStep (count + m) pc u u' s'' hpc hregion
         (fun hx => hnotExit (exitSubsetMid pc hx)) hstep hrec
 
+/-- A trace remains valid when its confinement region is enlarged. -/
+theorem mono_region {region region' exit : BitVec 64 → Prop} {fromStep count : Nat} {s s' : State}
+    (hsub : ∀ pc, region pc → region' pc)
+    (h : FunctionTrace region exit fromStep count s s') :
+    FunctionTrace region' exit fromStep count s s' := by
+  induction h with
+  | exitAt fromStep t pc hpc hexit => exact FunctionTrace.exitAt fromStep t pc hpc hexit
+  | step fromStep count pc u u' u'' hpc hregion hnotExit hstep _ ih =>
+      exact FunctionTrace.step fromStep count pc u u' u'' hpc (hsub pc hregion) hnotExit hstep ih
+
+/-- Append a nested trace when every outer exit inside the inner region is already an inner stop. -/
+theorem append_within {inner region mid exit : BitVec 64 → Prop} {a n m : Nat} {s s' s'' : State}
+    (innerSubset : ∀ pc, inner pc → region pc)
+    (outerExitsStopInner : ∀ pc, inner pc → exit pc → mid pc)
+    (h1 : FunctionTrace inner mid a n s s')
+    (h2 : FunctionTrace region exit (a + n) m s' s'') :
+    FunctionTrace region exit a (n + m) s s'' := by
+  induction h1 generalizing m s'' with
+  | exitAt fromStep t _ _ _ => simpa using h2
+  | step fromStep count pc u u' u'' hpc hregion hnotExit hstep _ ih =>
+      have h2' : FunctionTrace region exit (fromStep + 1 + count) m u'' s'' := by
+        have harith : fromStep + (count + 1) = fromStep + 1 + count := by omega
+        rwa [harith] at h2
+      have hrec : FunctionTrace region exit (fromStep + 1) (count + m) u' s'' := ih h2'
+      have hcount : count + 1 + m = count + m + 1 := by omega
+      rw [hcount]
+      exact FunctionTrace.step fromStep (count + m) pc u u' s'' hpc (innerSubset pc hregion)
+        (fun hx => hnotExit (outerExitsStopInner pc hregion hx)) hstep hrec
+
 end FunctionTrace
 
 /--
