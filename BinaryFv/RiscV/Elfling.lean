@@ -3,6 +3,7 @@ import BinaryFv.RiscV.Elfling.Contract
 import BinaryFv.RiscV.Elfling.Boundary
 import BinaryFv.RiscV.Elfling.SequentialSplice
 import BinaryFv.RiscV.Elfling.ContractRefinement
+import BinaryFv.RiscV.Elfling.SentinelBridge
 
 /-!
 # `BinaryFv.RiscV.Elfling`
