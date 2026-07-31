@@ -3,15 +3,15 @@
 `BinaryFv/` is the root Lean source tree. Its dependency direction is:
 
 ```text
-Binary -> RiscV -> protocol target
+Binary -> RiscV -> verified program target
 ```
 
 - `Binary/` defines architecture-independent addresses and loadable program images.
 - `RiscV/` owns reusable generated-Sail model integration, ELF parsing, machine/platform setup,
   execution, separation logic, instruction/step rules, analysis, and generic proof bridges.
-- `SSZ/` contains the Zesu Amsterdam V4 decoder proof: handwritten per-routine contracts
-  (`SSZ/Zesu/Contracts/`), the deterministically generated Elfling scaffold and its validation against
-  the canonical ELF/Sail control flow (`SSZ/Zesu/Elfling/`), and the `SSZ/Root.lean` capstone.
+- `Zesu/` contains the Amsterdam V4 decoder proof: the pinned specification bridge, handwritten
+  per-routine contracts, the deterministically generated Elfling scaffold and its validation against
+  the canonical ELF/Sail control flow, and the `Zesu/Root.lean` capstone.
 
-Import `BinaryFv.Binary`, `BinaryFv.RiscV`, or `BinaryFv.SSZ` rather than reaching across layer
+Import `BinaryFv.Binary`, `BinaryFv.RiscV`, or `BinaryFv.Zesu` rather than reaching across layer
 boundaries through unrelated leaf modules.

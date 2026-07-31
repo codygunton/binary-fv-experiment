@@ -32,7 +32,7 @@ DWARFDUMP = _opt("--dwarfdump",
                  "/nix/store/l25n688gmqircnpypip13wy99ndycwbj-llvm-21.1.8/bin/llvm-dwarfdump")
 SIDE = _pos[0] if _pos else \
     "/nix/store/rnv92qsn9b0kmpgvy0k5894zvsh9mbwi-zesu-raw-ssz-rv64im-sidecar-96f1621/obj/zesu-raw-ssz-decoder.o"
-OUT_LEAN = _opt("--out-lean", "BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean")
+OUT_LEAN = _opt("--out-lean", "BinaryFv/Zesu/Elfling/BlobScheduleInstance.lean")
 TEXT_BASE = 0x102b0          # decoder object .text base in the canonical linked ELF (Amendment A)
 SRC_PREFIX = "/build/source/"
 
@@ -159,7 +159,7 @@ def emit_lean(d, src_hash="ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0
     L.append("against the canonical trace and binds it to the address-free catalog identity and contract.")
     L.append("-/")
     L.append("")
-    L.append("namespace BinaryFv.SSZ.Zesu.Elfling")
+    L.append("namespace BinaryFv.Zesu.Elfling")
     L.append("")
     L.append("open BinaryFv.Binary.Elfling")
     L.append("")
@@ -213,7 +213,7 @@ def emit_lean(d, src_hash="ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0
     L.append(f'def blobScheduleInstances : Array FunctionInstance :=')
     L.append(f'  #[blobScheduleInstance, {", ".join(c+"Instance" for c in ["readU64Field%d"%n for n in range(len(d["children"]))])}]')
     L.append("")
-    L.append("end BinaryFv.SSZ.Zesu.Elfling")
+    L.append("end BinaryFv.Zesu.Elfling")
     return "\n".join(L)
 
 if "--json" in sys.argv:

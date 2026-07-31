@@ -105,6 +105,6 @@ Umbrella for the architecture-generic RISC-V layer, in dependency order:
 * `Execution` — executable image loading and runners.
 * `Analysis` — static reachability, call-graph, and stack-flow algorithms.
 
-Nothing in this layer may depend on `BinaryFv.SSZ`; the layer is generic over the binary under
+Nothing in this layer may depend on `BinaryFv.Zesu`; the layer is generic over the binary under
 analysis. Enforced by the import audit in `nix/proof.nix`.
 -/
