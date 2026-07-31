@@ -1382,7 +1382,7 @@ def edges_lean(function_instance):
 
 def emit_lean(p):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py. DO NOT EDIT.",
-         "import BinaryFv.Binary.Elfling.FunctionInstance", "",
+         "import BinaryFv.Binary.Elfling.Program", "",
          "/-!", "# Generated Elfling program (milestone 4)", "",
          "Deterministically generated from the validated DWARF sidecars by",
          "`tools/generate_elfling_program.py`. Address-bearing, UNTRUSTED: the Lean validation",
@@ -1466,7 +1466,7 @@ def emit_lean(p):
     L.append("")
     L.append("/-- Every reachable-but-excluded emitted routine: emitted identity, DWARF name, category,")
     L.append("canonical regions. The identity lets a resolved external call target an excluded routine. -/")
-    L.append("def generatedExcludedFunctionInstances : Array ExcludedFunctionInstance :=")
+    L.append("def generatedExcludedFunctionInstances : Array Program.ExcludedFunctionInstance :=")
     if p["excludedRoutines"]:
         items = []
         for j, x in enumerate(p["excludedRoutines"]):
