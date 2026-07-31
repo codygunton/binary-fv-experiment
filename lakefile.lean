@@ -17,12 +17,27 @@ Amsterdam V4 bridge, so the proof project neither imports nor links the bridge's
 lean_lib SszSpec where
   srcDir := "build/ssz-spec-lean"
   roots := #[
+    `SizzLean.Compat,
     `SizzLean.Spec.Type,
     `SizzLean.Spec.Interp,
     `SizzLean.Spec.Constants,
     `SizzLean.Spec.SSZError,
     `SizzLean.Spec.Serialize,
     `SizzLean.Spec.Deserialize,
+    `SizzLean.Spec.Supported,
+    `SizzLean.Spec.BasicSupported,
+    `SizzLean.Spec.MaxByteLength,
+    `SizzLean.Proofs.Simp,
+    `SizzLean.Proofs.SimpAttrs,
+    `SizzLean.Proofs.SerializeSize,
+    `SizzLean.Proofs.UInt,
+    `SizzLean.Proofs.Bool,
+    `SizzLean.Proofs.VectorFixed,
+    `SizzLean.Proofs.ListFixed,
+    `SizzLean.Proofs.ContainerFixed,
+    `SizzLean.Proofs.FixedElems,
+    `SizzLean.Proofs.BitPack,
+    `SizzLean.Proofs.Roundtrip,
     `SszBridge.Core,
   ]
 
