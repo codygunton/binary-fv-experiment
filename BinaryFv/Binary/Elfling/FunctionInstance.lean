@@ -206,6 +206,10 @@ deriving Repr, Inhabited
 
 namespace Program
 
+/-! Compatibility projections for retained pre-migration consumers. -/
+
+abbrev instances (program : Program) : Array FunctionInstance := program.functionInstances
+
 /-- Look up a function instance by its address-free identity. -/
 def find? (program : Program) (id : FunctionInstanceId) : Option FunctionInstance :=
   program.functionInstances.find? fun functionInstance => decide (functionInstance.id = id)
@@ -227,6 +231,8 @@ double-counted by any per-function-instance obligation. -/
 def functionInstanceIdsDistinct (program : Program) : Prop :=
   ∀ i j, (hi : i < program.functionInstances.size) → (hj : j < program.functionInstances.size) →
     (program.functionInstances[i]).id = (program.functionInstances[j]).id → i = j
+
+abbrev instanceIdsDistinct (program : Program) : Prop := program.functionInstanceIdsDistinct
 
 /-! ## The transfer graph and the address sets it induces
 
