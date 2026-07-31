@@ -1,6 +1,6 @@
 import BinaryFv.SSZ.Zesu.Artifact.Layout
 import BinaryFv.SSZ.Zesu.Interface
-import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
+import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.HierarchicalContracts
 
 namespace BinaryFv.SSZ
 
@@ -176,5 +176,16 @@ theorem root_compliance_of_exported_contracts
       exact Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_rejected_of_run input
         execution.builds execution.trace execution.withinStepBound execution.accessors
         execution.returnCode execution.specRejection execution.storedAbsent
+
+/-- Level 1 restatement of the conditional root theorem: one exported decoder contract and its seven
+reviewed immediate tail contracts imply the public Ethereum SSZ agreement statement. The five
+non-accessor tail fields become proof inputs at the next refinement edge; this theorem uses the
+exported wrapper/accessor projection needed by the concrete runner. -/
+theorem root_compliance_of_level1_contracts
+    (contracts : Zesu.Entrypoints.ZesuDecodeRaw.Level1ContractAssumptions) :
+    ∀ input : ByteArray,
+      input.size < 2 * 1024 * 1024 →
+        RiscvSpec.execute binary input = .ok (SszSpec.decode input) :=
+  root_compliance_of_exported_contracts contracts.toExportedContractAssumptions
 
 end BinaryFv.SSZ
