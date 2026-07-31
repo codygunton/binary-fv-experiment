@@ -13,7 +13,7 @@ This module imports only the Sail-free specification. It is deliberately outside
 graph: its results can reveal a bad contract, but they are never premises of the compliance proof.
 -/
 
-namespace BinaryFv.SSZ.Zesu.Validation
+namespace BinaryFv.Zesu.Validation
 
 open SszBridge
 open Lean (Json)
@@ -73,10 +73,10 @@ def runCorpus (corpusPath : String) : IO UInt32 := do
     if line.trim ≠ "" then runLine line
   pure 0
 
-end BinaryFv.SSZ.Zesu.Validation
+end BinaryFv.Zesu.Validation
 
 /-- Executable entry point: `ssz_contract_runner <corpus.jsonl>`. -/
 def main (args : List String) : IO UInt32 := do
   match args with
-  | [corpusPath] => BinaryFv.SSZ.Zesu.Validation.runCorpus corpusPath
+  | [corpusPath] => BinaryFv.Zesu.Validation.runCorpus corpusPath
   | _ => do IO.eprintln "usage: ssz_contract_runner <corpus.jsonl>"; pure 64

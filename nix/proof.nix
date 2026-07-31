@@ -256,7 +256,7 @@ let
     # umbrella) can transitively depend on the probe's meaning-agreement checks. The Validation modules
     # still build below (reusing this toolchain), but nothing in the theorem graph imports them.
     validationLeaks=$(grep -rn --include='*.lean' "^import BinaryFv\..*\.Validation\." BinaryFv/ 2>/dev/null \
-      | grep -v "^BinaryFv/SSZ/Zesu/Validation/" || true)
+      | grep -v "^BinaryFv/Zesu/Validation/" || true)
     if [ -n "$validationLeaks" ]; then
       echo "Validation-import guard: no proof module may import a Validation module." >&2
       echo "$validationLeaks" >&2
@@ -271,11 +271,11 @@ let
     # import `Validation`. Building it forces the kernel-checked (`native_decide`) agreement of the
     # handwritten `meaningDecode` with both the pinned oracle and the corpus expectation; any
     # disagreement fails the build. This is falsification evidence, never a proof premise.
-    lake build BinaryFv.SSZ.Zesu.Validation.MeaningAgreement
+    lake build BinaryFv.Zesu.Validation.MeaningAgreement
     # Per-routine meaning agreement (Row B item 3): native_decide that each typed leaf vector's
     # handwritten meaning equals its expected value/error — the Lean side of the probe's
     # `--routine-vectors` check. Also outside the theorem graph.
-    lake build BinaryFv.SSZ.Zesu.Validation.RoutineMeaningVectors
+    lake build BinaryFv.Zesu.Validation.RoutineMeaningVectors
     touch "$out"
   '';
 

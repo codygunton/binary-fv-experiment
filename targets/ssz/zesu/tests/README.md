@@ -19,4 +19,4 @@ byte-identical across repeated runs; do not add timestamps, host addresses, or u
 
 The remaining scripts cover differential, observability, generator, relocation, and boundary
 checks inherited from earlier work. Validation results are test evidence; the proof import guard
-prevents `BinaryFv.SSZ.Zesu.Validation` modules from becoming premises of production proofs.
+prevents `BinaryFv.Zesu.Validation` modules from becoming premises of production proofs.

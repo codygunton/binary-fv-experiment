@@ -907,8 +907,8 @@ def emit_lean(all_rows) -> str:
     L = [
         "-- GENERATED FILE: produced by targets/ssz/zesu/tests/ssz_routine_vectors.py --out-lean. DO NOT EDIT.",
         "-- Typed per-routine leaf vectors baked for the handwritten-meaning agreement check",
-        "-- (BinaryFv/SSZ/Zesu/Validation/RoutineMeaningVectors.lean). `some`=expected value, `none`=invalidSsz.",
-        "namespace BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
+        "-- (BinaryFv/Zesu/Validation/RoutineMeaningVectors.lean). `some`=expected value, `none`=invalidSsz.",
+        "namespace BinaryFv.Zesu.Validation.GeneratedRoutineVectors",
         "",
         "/-- A recursive value tree for nested containers: a `leaf` hex string or a `node` of subtrees. -/",
         "inductive VTree where",
@@ -957,7 +957,7 @@ def emit_lean(all_rows) -> str:
         block("runtimeDecodeRetVectors", "String × String × Nat", runtime_decode_ret),
         block("runtimeErrorVectors", "String × String × Nat", runtime_error),
         block("runtimeResultVectors", "String × String × Bool", runtime_result),
-        "end BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors",
+        "end BinaryFv.Zesu.Validation.GeneratedRoutineVectors",
     ]
     return "\n".join(L) + "\n"
 

@@ -1,5 +1,5 @@
-import BinaryFv.SSZ.Zesu.Contracts.Entry
-import BinaryFv.SSZ.Zesu.Validation.GeneratedCorpus
+import BinaryFv.Zesu.Contracts.Entry
+import BinaryFv.Zesu.Validation.GeneratedCorpus
 
 /-!
 # Checking the composed Lean meaning against the oracle
@@ -12,10 +12,10 @@ These are proofs about the finite corpus, not a universal decoder theorem. They 
 regression evidence while remaining outside the compliance theorem's import graph.
 -/
 
-namespace BinaryFv.SSZ.Zesu.Validation
+namespace BinaryFv.Zesu.Validation
 
-open BinaryFv.SSZ.Zesu.Contracts
-open BinaryFv.SSZ.Zesu.Validation.GeneratedCorpus
+open BinaryFv.Zesu.Contracts
+open BinaryFv.Zesu.Validation.GeneratedCorpus
 
 /-- A single hex digit's value (`16` for a non-digit, which `hexToBytes` never receives). -/
 def hexVal (c : Char) : Nat :=
@@ -56,4 +56,4 @@ def meaningMatchesExpected : Bool :=
 /-- **Meaning matches the expected classification on the corpus.** Kernel-checked. -/
 theorem meaning_matches_expected : meaningMatchesExpected = true := by native_decide
 
-end BinaryFv.SSZ.Zesu.Validation
+end BinaryFv.Zesu.Validation

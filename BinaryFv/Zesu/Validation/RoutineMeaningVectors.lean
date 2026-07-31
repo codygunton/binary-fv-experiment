@@ -1,11 +1,11 @@
-import BinaryFv.SSZ.Zesu.Contracts.Leaves
-import BinaryFv.SSZ.Zesu.Contracts.Options
-import BinaryFv.SSZ.Zesu.Contracts.Canonicality
-import BinaryFv.SSZ.Zesu.Contracts.Containers
-import BinaryFv.SSZ.Zesu.Contracts.Collections
-import BinaryFv.SSZ.Zesu.Contracts.Entry
-import BinaryFv.SSZ.Zesu.Contracts.Runtime
-import BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors
+import BinaryFv.Zesu.Contracts.Leaves
+import BinaryFv.Zesu.Contracts.Options
+import BinaryFv.Zesu.Contracts.Canonicality
+import BinaryFv.Zesu.Contracts.Containers
+import BinaryFv.Zesu.Contracts.Collections
+import BinaryFv.Zesu.Contracts.Entry
+import BinaryFv.Zesu.Contracts.Runtime
+import BinaryFv.Zesu.Validation.GeneratedRoutineVectors
 
 /-!
 # Checking every routine's Lean meaning
@@ -20,10 +20,10 @@ This is finite validation evidence, not a premise of the compliance theorem. The
 no production proof module imports this directory.
 -/
 
-namespace BinaryFv.SSZ.Zesu.Validation
+namespace BinaryFv.Zesu.Validation
 
-open BinaryFv.SSZ.Zesu.Contracts
-open BinaryFv.SSZ.Zesu.Validation.GeneratedRoutineVectors
+open BinaryFv.Zesu.Contracts
+open BinaryFv.Zesu.Validation.GeneratedRoutineVectors
 
 /-- A single hex digit's value (`16` for a non-digit, which `hexToBytes` never receives). -/
 private def hexVal (c : Char) : Nat :=
@@ -364,7 +364,7 @@ theorem decode_meaning_agrees :
 (ok 1 / invalidSsz 2 / unknownFork 3 / outOfMemory 4), `zesu_raw_result` is present exactly on accept.
 -/
 
-open BinaryFv.SSZ.Zesu.Runtime (BumpHeap)
+open BinaryFv.Zesu.Runtime (BumpHeap)
 
 /-- The bump-allocation address (relative to the heap base), or `none`. -/
 def allocAddr (pos top bytes alignment : Nat) : Option Nat :=
@@ -411,4 +411,4 @@ theorem runtime_result_meaning_agrees :
       (fun v => isAccepted (meaningDecode (hexToBytes v.2.1)) == v.2.2) = true := by
   native_decide
 
-end BinaryFv.SSZ.Zesu.Validation
+end BinaryFv.Zesu.Validation

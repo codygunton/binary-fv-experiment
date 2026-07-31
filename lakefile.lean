@@ -50,5 +50,5 @@ the `BinaryFv` theorem library and is never imported by it — validation is fal
 never a proof premise.
 -/
 lean_exe ssz_contract_runner where
-  root := `BinaryFv.SSZ.Zesu.Validation.ContractRunner
+  root := `BinaryFv.Zesu.Validation.ContractRunner
   moreLeanArgs := #["--tstack=4000000"]
