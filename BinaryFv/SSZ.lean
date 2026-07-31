@@ -84,6 +84,7 @@ import BinaryFv.SSZ.Zesu.Validation.SequentialSpliceWitness
 import BinaryFv.SSZ.Zesu.Validation.LoopDischarge
 import BinaryFv.SSZ.Zesu.Validation.CallStepRetInRegion
 import BinaryFv.SSZ.Zesu.Validation.SyntheticUnitProbe
+import BinaryFv.SSZ.Zesu.Artifact.MachineRegions
 import BinaryFv.SSZ.Zesu.Interface
 import BinaryFv.SSZ.Root
 
