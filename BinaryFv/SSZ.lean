@@ -47,6 +47,7 @@ import BinaryFv.SSZ.Zesu.SpecCorrespondence.PrimitiveReads
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Execution
 import BinaryFv.SSZ.Zesu.Validation.CallStepRetInRegion
 import BinaryFv.SSZ.Zesu.Validation.SyntheticUnitProbe
+import BinaryFv.SSZ.Zesu.Artifact.MachineRegions
 import BinaryFv.SSZ.Zesu.Interface
 import BinaryFv.SSZ.Root
 
