@@ -1338,9 +1338,48 @@ def main():
 # ---- Lean emission -----------------------------------------------------------------------------
 def lean_str(s): return '"' + s.replace('\\','\\\\').replace('"','\\"') + '"'
 
-def defect_lean(d):
+def lean_name_component(text):
+    """Turn source/DWARF text into one readable Lean identifier component."""
+    component = re.sub(r"[^A-Za-z0-9_']", "_", text)
+    component = re.sub(r"_+", "_", component).strip("_")
+    return component or "anonymous"
+
+
+def function_instance_lean_name(function_instance):
+    """A stable name derived from source identity, specialization, and the complete inline stack."""
+    parts = ["functionInstance", lean_name_component(function_instance["qualified"])]
+    if function_instance["specialization"]:
+        parts += ["specialized"] + [
+            lean_name_component(value) for value in function_instance["specialization"]
+        ]
+    for frame in function_instance["inlineStack"]:
+        parts += [
+            "in",
+            lean_name_component(frame["callerQualified"]),
+            "at",
+            str(frame["line"]),
+            str(frame["column"]),
+        ]
+    return "_".join(parts)
+
+
+def function_instance_lean_names(function_instances):
+    """Name every instance, failing rather than hiding an ambiguous source-derived identity."""
+    names = [function_instance_lean_name(instance) for instance in function_instances]
+    owners = {}
+    for index, name in enumerate(names):
+        if name in owners:
+            first = owners[name]
+            raise SystemExit(
+                f"LEAN NAME COLLISION: function instances {first} and {index} both map to `{name}`"
+            )
+        owners[name] = index
+    return names
+
+
+def defect_lean(d, instance_names):
     """Render one generator defect as its `BinaryFv.Binary.Elfling.AttributionDefect` term. Overlap
-    defects reference the emitted `functionInstance<i>Id` identities, which are defined above the program."""
+    defects reference the emitted named identities, which are defined above the program."""
     k = d["kind"]
     if k == "ambiguousAttribution":
         cands = "[" + ", ".join(str(c) for c in d.get("candidates", [])) + "]"
@@ -1350,7 +1389,7 @@ def defect_lean(d):
         return f'AttributionDefect.unmappedRegion {{ start := {r["start"]}, size := {r["size"]} }}'
     if k == "overlappingOwnership":
         return (f'AttributionDefect.overlappingOwnership {d["address"]} '
-                f'functionInstance{d["firstIdx"]}Id functionInstance{d["secondIdx"]}Id')
+                f'{instance_names[d["firstIdx"]]}Id {instance_names[d["secondIdx"]]}Id')
     if k == "uncovered":
         return f'AttributionDefect.uncovered {d["address"]}'
     raise SystemExit(f"defect_lean: unknown defect kind {k!r}")
@@ -1368,9 +1407,9 @@ def excl_id_lean(x):
     decl = f'{{ file := {{ path := {lean_str(x["sourceFile"])} }}, qualifiedName := {lean_str(x["qualified"])} }}'
     return f'{{ function := {{ declaration := {decl}, specialization := #[] }}, inlineStack := [] }}'
 
-def callee_ref(c):
+def callee_ref(c, instance_names):
     kind, idx = c
-    return f'functionInstance{idx}Id' if kind == "function_instance" else f'excl{idx}Id'
+    return f'{instance_names[idx]}Id' if kind == "function_instance" else f'excl{idx}Id'
 
 def blocks_lean(function_instance):
     return "#[" + ", ".join(f'{{ range := {{ start := {b["start"]}, size := {b["size"]} }} }}'
@@ -1381,6 +1420,7 @@ def edges_lean(function_instance):
                             for e in function_instance["edges"]) + "]"
 
 def emit_lean(p):
+    instance_names = function_instance_lean_names(p["function_instances"])
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py. DO NOT EDIT.",
          "import BinaryFv.Binary.Elfling.Program", "",
          "/-!", "# Generated Elfling program (milestone 4)", "",
@@ -1404,8 +1444,9 @@ def emit_lean(p):
     # forward-reference each other's ids for parent?/children (which form a mutual parent/child graph).
     L.append("/-! ### Function instance identities (address-free). -/")
     for i, function_instance in enumerate(p["function_instances"]):
+        instance_name = instance_names[i]
         L.append(
-            f'def functionInstance{i}Id : FunctionInstanceId := {lean_id(function_instance)}'
+            f'def {instance_name}Id : FunctionInstanceId := {lean_id(function_instance)}'
         )
     L.append("")
     L.append("/-! ### Excluded-source function identities (address-free call targets). -/")
@@ -1414,6 +1455,7 @@ def emit_lean(p):
     L.append("")
     L.append("/-! ### Function instances (address-bearing). -/")
     for i, function_instance in enumerate(p["function_instances"]):
+        instance_name = instance_names[i]
         regions = "#[" + ", ".join(
             f'{{ start := {r["start"]}, size := {r["size"]} }}'
             for r in function_instance["regions"]
@@ -1421,14 +1463,14 @@ def emit_lean(p):
         parent = (
             "none"
             if function_instance["parentIdx"] is None
-            else f'some functionInstance{function_instance["parentIdx"]}Id'
+            else f'some {instance_names[function_instance["parentIdx"]]}Id'
         )
         children = "#[" + ", ".join(
-            f'functionInstance{child}Id' for child in function_instance["children"]
+            f'{instance_names[child]}Id' for child in function_instance["children"]
         ) + "]"
         exits = "#[" + ", ".join(str(exit_pc) for exit_pc in function_instance["exits"]) + "]"
         extcalls = "#[" + ", ".join(
-            callee_ref(callee) for callee in function_instance["externalCalls"]
+            callee_ref(callee, instance_names) for callee in function_instance["externalCalls"]
         ) + "]"
         specialization = (
             "[" + ",".join(function_instance["specialization"]) + "]"
@@ -1438,9 +1480,9 @@ def emit_lean(p):
             f'/-- function instance {i}: {function_instance["qualified"]}{specialization}'
             f' ({function_instance["kind"]}, entry 0x{function_instance["entryPc"]:x}). -/'
         )
-        L.append(f'def functionInstance{i} : FunctionInstance :=')
+        L.append(f'def {instance_name} : FunctionInstance :=')
         L.append(
-            f'  {{ id := functionInstance{i}Id, regions := {regions}, '
+            f'  {{ id := {instance_name}Id, regions := {regions}, '
             f'entryPc := {function_instance["entryPc"]}, exitPcs := {exits},'
         )
         L.append(f'    parent? := {parent}, children := {children}, externalCalls := {extcalls},')
@@ -1458,7 +1500,7 @@ def emit_lean(p):
     L.append("/-- Every generated function instance. -/")
     L.append("def generatedFunctionInstances : Array FunctionInstance :=")
     L.append("  #[" + ", ".join(
-        f'functionInstance{i}' for i in range(len(p["function_instances"]))
+        instance_names
     ) + "]")
     L.append("")
     # Reachable-but-excluded taxonomy (auditable data the reachable-partition proof consumes).
@@ -1486,10 +1528,10 @@ def emit_lean(p):
     # Authoritative: the emitted defect list is exactly the generator's, never a hardcoded `#[]`. The
     # derivation additionally FAILS when this list is nonempty, so in a released program it is `#[]`
     # because there were no defects — not because emission discarded them.
-    defects = "#[" + ", ".join(defect_lean(d) for d in p["defects"]) + "]"
+    defects = "#[" + ", ".join(defect_lean(d, instance_names) for d in p["defects"]) + "]"
     L.append("def generatedProgram : Program :=")
     L.append(
-        f'  {{ entry := functionInstance{ei}Id, '
+        f'  {{ entry := {instance_names[ei]}Id, '
         f'functionInstances := generatedFunctionInstances, defects := {defects},'
     )
     L.append(f'    provenance := {prov(p["function_instances"][ei])},')
