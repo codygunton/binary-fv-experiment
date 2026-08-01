@@ -46,10 +46,10 @@ when reproducibly tied to emitted instructions, but neither is needed for the st
 Build the reviewed UI with:
 
 ```sh
-nix build .#machine-regions-ui
-cd result
-python3 -m http.server 8420 --bind 127.0.0.1
+tools/contract-target-curation/serve.sh
 ```
+
+This builds the current generated UI and serves it at <http://127.0.0.1:8420/>.
 
 The remaining non-LLVM facts are deliberately explicit: targets loaded at runtime through vtables,
 and semantic contracts describing the SSZ value computed by a region.

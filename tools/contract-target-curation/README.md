@@ -6,10 +6,11 @@ hierarchy. It consumes the canonical machine-region database rather than extract
 ## Run the generated UI
 
 ```sh
-nix build .#machine-regions-ui
-cd result
-python3 -m http.server 8420 --bind 127.0.0.1
+tools/contract-target-curation/serve.sh
 ```
+
+The script builds the current `machine-regions-ui` derivation and serves that immutable output on
+port 8420. Open <http://127.0.0.1:8420/>.
 
 Scroll zooms about the cursor, drag pans, and double-click resets. Click a frame for its machine
 interface data; shift-click or the sidebar checkbox adds it to the proposed contract set. Export
