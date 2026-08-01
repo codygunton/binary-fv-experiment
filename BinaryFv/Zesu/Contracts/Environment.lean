@@ -85,7 +85,7 @@ def OptionSomeRep (layout : OptionLayout) (state : State) (base : Nat) : Prop :=
 
 /-- A `RawBlobSchedule` payload laid out at `base`, all three fields little-endian. -/
 def RawBlobScheduleRep (layout : BlobScheduleLayout) (state : State) (base : Nat)
-    (value : SszBridge.RawBlobSchedule) : Prop :=
+    (value : BinaryFv.Specs.SSZ.RawBlobSchedule) : Prop :=
   Word64LERep state (base + layout.targetOffset) value.target.toNat ∧
   Word64LERep state (base + layout.maxOffset) value.max.toNat ∧
   Word64LERep state (base + layout.baseFeeUpdateFractionOffset) value.baseFeeUpdateFraction.toNat

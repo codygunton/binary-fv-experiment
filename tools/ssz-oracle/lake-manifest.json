@@ -35,5 +35,5 @@
    "inherited": true,
    "dir": ".lake/packages/SizzLean/packages/SizzLean/../LeanSha256",
    "configFile": "lakefile.toml"}],
- "name": "sszBridge",
+ "name": "sszOracle",
  "lakeDir": ".lake"}

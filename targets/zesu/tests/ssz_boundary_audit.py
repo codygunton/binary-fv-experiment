@@ -4,7 +4,7 @@
 The default corpus instantiates every V4 capacity that remains practical for
 the complete ``ssz-value-v1`` renderer.  A valid boundary must yield
 byte-identical values from the pinned Python reference, the Lean/SizzLean
-bridge, and the host-only Zesu value formatter.  Its paired over-bound input
+oracle, and the host-only Zesu value formatter.  Its paired over-bound input
 must be rejected by all three.
 
 ``--extended`` additionally instantiates the 2**18-item ``witness.codes``

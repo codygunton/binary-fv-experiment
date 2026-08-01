@@ -1,6 +1,6 @@
-import SszBridge.Core
+import BinaryFv.Specs.SSZ.AmsterdamV4
 
-namespace SszBridge
+namespace BinaryFv.Specs.SSZ
 
 /-- Read one raw V4 fixture and print the complete `ssz-value-v1` raw value. -/
 def run (args : List String) : IO UInt32 :=
@@ -15,10 +15,9 @@ def run (args : List String) : IO UInt32 :=
           IO.println s!"error\t{error.label}"
           pure 1
   | _ => do
-      IO.eprintln "usage: ssz_bridge <raw-ssz-fixture>"
+      IO.eprintln "usage: ssz_oracle <raw-ssz-fixture>"
       pure 64
 
-end SszBridge
+end BinaryFv.Specs.SSZ
 
-def main (args : List String) : IO UInt32 := SszBridge.run args
-
+def main (args : List String) : IO UInt32 := BinaryFv.Specs.SSZ.run args

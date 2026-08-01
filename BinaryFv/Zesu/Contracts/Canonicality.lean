@@ -118,8 +118,8 @@ case of the composition bridge in `Contracts/Entry.lean`.
 -/
 def zeroFirstOffsetAliasRejected : Prop :=
   ∀ (bytes : ByteArray),
-    bytes.size ≥ 4 → SszBridge.readU32LE? bytes 0 = some 0 →
+    bytes.size ≥ 4 → BinaryFv.Specs.SSZ.readU32LE? bytes 0 = some 0 →
       ∀ (elementType : SSZType) (capacity : Nat),
-        (SszBridge.decodeCanonical (.list elementType capacity) bytes).toOption = none
+        (BinaryFv.Specs.SSZ.decodeCanonical (.list elementType capacity) bytes).toOption = none
 
 end BinaryFv.Zesu.Contracts

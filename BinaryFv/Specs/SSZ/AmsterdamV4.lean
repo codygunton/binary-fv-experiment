@@ -2,10 +2,10 @@ import SizzLean.Spec.Deserialize
 import SizzLean.Spec.Serialize
 
 /-!
-# Amsterdam V4 SSZ bridge
+# Amsterdam V4 SSZ specification
 
-This executable bridge delegates SSZ decoding to the pinned SizzLean package.
-It owns only the outer schema identifier, raw/Ere framing, a canonical-wire
+This executable specification uses the pinned SizzLean interpreter.
+It owns the outer schema identifier, raw/Ere framing, a canonical-wire
 wrapper, and a lossless named projection boundary.  V3 is deliberately
 quarantined: no V3 value is emitted because this project has no independently
 pinned V3 oracle.
@@ -16,7 +16,7 @@ gap by requiring exact reserialization after decoding.
 
 -/
 
-namespace SszBridge
+namespace BinaryFv.Specs.SSZ
 
 open SizzLean.Spec
 
@@ -131,7 +131,7 @@ def statelessInputV4Type : SSZType :=
     .list (byteVector publicKeyBytes) maxPublicKeys,
   ]
 
-inductive BridgeError where
+inductive DecodeError where
   | tooLarge
   | tooShort
   | badSchema
@@ -140,7 +140,7 @@ inductive BridgeError where
   | ssz (error : SSZError)
   deriving Repr, DecidableEq
 
-abbrev Result (α : Type) := Except BridgeError α
+abbrev Result (α : Type) := Except DecodeError α
 
 abbrev RawByteVector (length : Nat) := Vector UInt8 length
 abbrev RawBytes := Array UInt8
@@ -448,7 +448,7 @@ def decodeStatelessInput (input : ByteArray) : Result RawV4 :=
                   .error rawError
             | none => .error rawError
 
-def BridgeError.label : BridgeError → String
+def DecodeError.label : DecodeError → String
   | .tooLarge => "too_large"
   | .tooShort => "too_short"
   | .badSchema => "bad_schema"
@@ -592,4 +592,4 @@ def RawV4.renderLines (value : RawV4) : List String :=
 def RawV4.render (value : RawV4) : String :=
   "\n".intercalate ("version\tssz-value-v1" :: value.renderLines)
 
-end SszBridge
+end BinaryFv.Specs.SSZ

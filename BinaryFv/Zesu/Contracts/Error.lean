@@ -1,4 +1,4 @@
-import SszBridge.Core
+import BinaryFv.Specs.SSZ.AmsterdamV4
 
 namespace BinaryFv.Zesu.Contracts
 
@@ -36,13 +36,13 @@ This is total and constant on purpose: `SSZError`'s six constructors all describ
 body, and the Zig decoder has no way to report the distinction. -/
 def sszToDecodeError : SSZError → SszDecodeError := fun _ => .invalidSsz
 
-/-- The bridge's error taxonomy at the Zig boundary.
+/-- The specification's error taxonomy at the Zig boundary.
 
 `v3Quarantined` has no Zig counterpart at all — the Zig decoder has no V3 concept. It maps to
 `invalidSsz` because the audit established that a V3-shaped buffer can never be a canonical V4 one
 (`hasV3PayloadShape` demands the u32 at execution-payload offset 436 be `528`, while a valid V4
 payload demands `540`), so the two implementations still agree on rejection. -/
-def bridgeToDecodeError : SszBridge.BridgeError → SszDecodeError
+def specificationToDecodeError : BinaryFv.Specs.SSZ.DecodeError → SszDecodeError
   | .tooLarge => .invalidSsz
   | .tooShort => .invalidSsz
   | .badSchema => .invalidSsz

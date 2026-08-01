@@ -19,7 +19,7 @@ records by value and **do not allocate**, so their postconditions deny allocatio
 allocate transitively through their collection children.
 
 By meaning: the four allocating containers are `decodeCanonical` at their pinned schema followed by
-the bridge's own `raw*Of` projection. The three non-allocating ones are **source-shaped**, because
+the specification's `raw*Of` projection. The three non-allocating ones are **source-shaped**, because
 their error ordering genuinely differs from the oracle's — see below.
 
 `decodeForkConfig` is the decoder's only source of `UnknownFork`, and the audit recorded on issue #39
@@ -68,7 +68,7 @@ arithmetic, and `sourceShapedContainersAgreeWithOracle` below is the required eq
 
 /-- `decodeForkActivation`, source-shaped: fixed-size check, offset table, then two optional `u64`s. -/
 def meaningForkActivation (bytes : ByteArray) :
-    Except SszDecodeError SszBridge.RawForkActivation := do
+    Except SszDecodeError BinaryFv.Specs.SSZ.RawForkActivation := do
   if bytes.size < 8 then throw .invalidSsz
   let first ← meaningReadOffset bytes 0
   let second ← meaningReadOffset bytes 4
@@ -81,7 +81,7 @@ def meaningForkActivation (bytes : ByteArray) :
 
 The `fork > 20` test sits between the offset-table check and the child decodes, exactly where the
 source puts it. `LAST_PROTOCOL_FORK_INDEX` is pinned at the execution-specs Amsterdam revision. -/
-def meaningForkConfig (bytes : ByteArray) : Except SszDecodeError SszBridge.RawForkConfig := do
+def meaningForkConfig (bytes : ByteArray) : Except SszDecodeError BinaryFv.Specs.SSZ.RawForkConfig := do
   if bytes.size < 16 then throw .invalidSsz
   let first ← meaningReadOffset bytes 8
   let second ← meaningReadOffset bytes 12
@@ -93,7 +93,7 @@ def meaningForkConfig (bytes : ByteArray) : Except SszDecodeError SszBridge.RawF
   return { fork := fork, activation := activation, blobSchedule := blobSchedule }
 
 /-- `decodeChainConfig`, source-shaped. -/
-def meaningChainConfig (bytes : ByteArray) : Except SszDecodeError SszBridge.RawChainConfig := do
+def meaningChainConfig (bytes : ByteArray) : Except SszDecodeError BinaryFv.Specs.SSZ.RawChainConfig := do
   if bytes.size < 12 then throw .invalidSsz
   let activeForkOffset ← meaningReadOffset bytes 8
   let _ ← meaningRequireCanonicalOffsets bytes 12 [activeForkOffset]
@@ -102,27 +102,27 @@ def meaningChainConfig (bytes : ByteArray) : Except SszDecodeError SszBridge.Raw
   return { chainId := chainId, activeFork := activeFork }
 
 def meaningExecutionWitness (bytes : ByteArray) :
-    Except SszDecodeError SszBridge.RawExecutionWitness :=
-  match SszBridge.decodeCanonical SszBridge.witnessType bytes with
-  | .ok value => .ok (SszBridge.rawWitnessOf value)
+    Except SszDecodeError BinaryFv.Specs.SSZ.RawExecutionWitness :=
+  match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.witnessType bytes with
+  | .ok value => .ok (BinaryFv.Specs.SSZ.rawWitnessOf value)
   | .error error => .error (sszToDecodeError error)
 
 def meaningExecutionRequests (bytes : ByteArray) :
-    Except SszDecodeError SszBridge.RawExecutionRequests :=
-  match SszBridge.decodeCanonical SszBridge.executionRequestsType bytes with
-  | .ok value => .ok (SszBridge.rawExecutionRequestsOf value)
+    Except SszDecodeError BinaryFv.Specs.SSZ.RawExecutionRequests :=
+  match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.executionRequestsType bytes with
+  | .ok value => .ok (BinaryFv.Specs.SSZ.rawExecutionRequestsOf value)
   | .error error => .error (sszToDecodeError error)
 
 def meaningExecutionPayload (bytes : ByteArray) :
-    Except SszDecodeError SszBridge.RawExecutionPayload :=
-  match SszBridge.decodeCanonical SszBridge.executionPayloadType bytes with
-  | .ok value => .ok (SszBridge.rawExecutionPayloadOf value)
+    Except SszDecodeError BinaryFv.Specs.SSZ.RawExecutionPayload :=
+  match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.executionPayloadType bytes with
+  | .ok value => .ok (BinaryFv.Specs.SSZ.rawExecutionPayloadOf value)
   | .error error => .error (sszToDecodeError error)
 
 def meaningNewPayloadRequest (bytes : ByteArray) :
-    Except SszDecodeError SszBridge.RawNewPayloadRequest :=
-  match SszBridge.decodeCanonical SszBridge.newPayloadRequestType bytes with
-  | .ok value => .ok (SszBridge.rawNewPayloadRequestOf value)
+    Except SszDecodeError BinaryFv.Specs.SSZ.RawNewPayloadRequest :=
+  match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.newPayloadRequestType bytes with
+  | .ok value => .ok (BinaryFv.Specs.SSZ.rawNewPayloadRequestOf value)
   | .error error => .error (sszToDecodeError error)
 
 /-!
@@ -171,56 +171,56 @@ def postAllocatingContainer {α : Type} (env : DecoderEnvironment) (args : Conta
 -/
 
 def contractForkActivation (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawForkActivation) :
-    FunctionContract SszDecodeError ContainerArgs SszBridge.RawForkActivation where
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkActivation) :
+    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawForkActivation where
   meaning := fun args => meaningForkActivation args.bytes
   pre := preContainer env
   post := fun args => postFixedContainer env args rep
   stepBound := fun _ => 512
 
 def contractForkConfig (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawForkConfig) :
-    FunctionContract SszDecodeError ContainerArgs SszBridge.RawForkConfig where
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkConfig) :
+    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawForkConfig where
   meaning := fun args => meaningForkConfig args.bytes
   pre := preContainer env
   post := fun args => postFixedContainer env args rep
   stepBound := fun _ => 1024
 
 def contractChainConfig (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawChainConfig) :
-    FunctionContract SszDecodeError ContainerArgs SszBridge.RawChainConfig where
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawChainConfig) :
+    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawChainConfig where
   meaning := fun args => meaningChainConfig args.bytes
   pre := preContainer env
   post := fun args => postFixedContainer env args rep
   stepBound := fun _ => 2048
 
 def contractExecutionWitness (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawExecutionWitness) :
-    FunctionContract SszDecodeError ContainerArgs SszBridge.RawExecutionWitness where
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionWitness) :
+    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawExecutionWitness where
   meaning := fun args => meaningExecutionWitness args.bytes
   pre := preContainer env
   post := fun args => postAllocatingContainer env args rep
   stepBound := fun args => 1024 + 256 * args.bytes.size
 
 def contractExecutionRequests (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawExecutionRequests) :
-    FunctionContract SszDecodeError ContainerArgs SszBridge.RawExecutionRequests where
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionRequests) :
+    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawExecutionRequests where
   meaning := fun args => meaningExecutionRequests args.bytes
   pre := preContainer env
   post := fun args => postAllocatingContainer env args rep
   stepBound := fun args => 1024 + 256 * args.bytes.size
 
 def contractExecutionPayload (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawExecutionPayload) :
-    FunctionContract SszDecodeError ContainerArgs SszBridge.RawExecutionPayload where
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionPayload) :
+    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawExecutionPayload where
   meaning := fun args => meaningExecutionPayload args.bytes
   pre := preContainer env
   post := fun args => postAllocatingContainer env args rep
   stepBound := fun args => 4096 + 256 * args.bytes.size
 
 def contractNewPayloadRequest (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawNewPayloadRequest) :
-    FunctionContract SszDecodeError ContainerArgs SszBridge.RawNewPayloadRequest where
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawNewPayloadRequest) :
+    FunctionContract SszDecodeError ContainerArgs BinaryFv.Specs.SSZ.RawNewPayloadRequest where
   meaning := fun args => meaningNewPayloadRequest args.bytes
   pre := preContainer env
   post := fun args => postAllocatingContainer env args rep
@@ -231,43 +231,43 @@ def contractNewPayloadRequest (env : DecoderEnvironment)
 -/
 
 def correctnessClaimForkActivation (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawForkActivation)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkActivation)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractForkActivation env rep)
 
 def correctnessClaimForkConfig (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawForkConfig)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkConfig)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractForkConfig env rep)
 
 def correctnessClaimChainConfig (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawChainConfig)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawChainConfig)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractChainConfig env rep)
 
 def correctnessClaimExecutionWitness (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawExecutionWitness)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionWitness)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractExecutionWitness env rep)
 
 def correctnessClaimExecutionRequests (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawExecutionRequests)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionRequests)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractExecutionRequests env rep)
 
 def correctnessClaimExecutionPayload (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawExecutionPayload)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionPayload)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractExecutionPayload env rep)
 
 def correctnessClaimNewPayloadRequest (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawNewPayloadRequest)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawNewPayloadRequest)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractNewPayloadRequest env rep)
@@ -280,31 +280,31 @@ inconsistent has no witnessing state, so an unconditional claim would be exactly
 assertion the review warned against. -/
 
 def satisfiableForkActivation (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawForkActivation) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkActivation) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractForkActivation env rep)
 
 def satisfiableForkConfig (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawForkConfig) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkConfig) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractForkConfig env rep)
 
 def satisfiableChainConfig (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawChainConfig) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawChainConfig) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractChainConfig env rep)
 
 def satisfiableExecutionWitness (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawExecutionWitness) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionWitness) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractExecutionWitness env rep)
 
 def satisfiableExecutionRequests (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawExecutionRequests) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionRequests) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractExecutionRequests env rep)
 
 def satisfiableExecutionPayload (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawExecutionPayload) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionPayload) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractExecutionPayload env rep)
 
 def satisfiableNewPayloadRequest (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawNewPayloadRequest) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawNewPayloadRequest) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractNewPayloadRequest env rep)
 
 /-!
@@ -335,7 +335,7 @@ obligation is stated at the granularity `root_compliance` actually observes.
 def sourceShapedContainersAgreeWithOracle : Prop :=
   ∀ (bytes : ByteArray),
     isAccepted (meaningChainConfig bytes) =
-      (SszBridge.decodeCanonical SszBridge.chainConfigType bytes).toOption.isSome
+      (BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.chainConfigType bytes).toOption.isSome
 
 /--
 The binary and the oracle classify a malformed unknown-fork payload differently.
@@ -352,6 +352,6 @@ accident.
 def forkErrorOrderingDiffers : Prop :=
   ∃ (bytes : ByteArray),
     meaningForkConfig bytes = .error .unknownFork ∧
-    (SszBridge.decodeCanonical SszBridge.forkConfigType bytes).toOption = none
+    (BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.forkConfigType bytes).toOption = none
 
 end BinaryFv.Zesu.Contracts

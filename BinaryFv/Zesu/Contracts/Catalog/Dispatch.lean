@@ -22,14 +22,14 @@ structure ContractParams where
   globals : DecoderGlobalsLayout
   /-- The canonical buffer the exported `stored_result` pointer points at on success. -/
   resultBuffer : Nat
-  repForkActivation : ContainerRepresentation SszBridge.RawForkActivation
-  repForkConfig : ContainerRepresentation SszBridge.RawForkConfig
-  repChainConfig : ContainerRepresentation SszBridge.RawChainConfig
-  repExecutionWitness : ContainerRepresentation SszBridge.RawExecutionWitness
-  repExecutionRequests : ContainerRepresentation SszBridge.RawExecutionRequests
-  repExecutionPayload : ContainerRepresentation SszBridge.RawExecutionPayload
-  repNewPayloadRequest : ContainerRepresentation SszBridge.RawNewPayloadRequest
-  repRawV4 : ContainerRepresentation SszBridge.RawV4
+  repForkActivation : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkActivation
+  repForkConfig : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkConfig
+  repChainConfig : ContainerRepresentation BinaryFv.Specs.SSZ.RawChainConfig
+  repExecutionWitness : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionWitness
+  repExecutionRequests : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionRequests
+  repExecutionPayload : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionPayload
+  repNewPayloadRequest : ContainerRepresentation BinaryFv.Specs.SSZ.RawNewPayloadRequest
+  repRawV4 : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4
 
 /--
 The correctness obligation a single generated occurrence owes, selected by its source function `tag`.

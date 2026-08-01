@@ -91,7 +91,7 @@ def test_sibling_overlap(gen, args, tmp):
     rc, _ = run_generator(args, ["--map", args.map, "--out-json", outj])
     check("overlap: real program generates cleanly", rc == 0 and os.path.exists(outj), f"rc={rc}")
     if os.path.exists(outj):
-        real = gen.sibling_overlap_defects(json.load(open(outj))["occurrences"])
+        real = gen.sibling_overlap_defects(json.load(open(outj))["function_instances"])
         check("overlap: detector finds none on the real occurrences", real == [], str(real))
 
 

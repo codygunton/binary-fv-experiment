@@ -33,7 +33,7 @@ The `TraceToSentinel` field is where the existing exact-PC retirements and block
 `ParserBlocks` supplies primitive decoding fragments, `Analysis.ResultLayout` supplies the current
 chain-config/blob-schedule fragment, and the remaining function/loop proofs must compose them into
 this one live trace. -/
-structure SuccessfulTraceWitness (input : ByteArray) (value : SszBridge.RawV4) where
+structure SuccessfulTraceWitness (input : ByteArray) (value : BinaryFv.Specs.SSZ.RawV4) where
   inputBase : Nat
   resultBase : Nat
   sentinel : BitVec 64
@@ -68,7 +68,7 @@ Bundling the program obligation into the witness of this theorem is what makes t
 descend through Elfling program correctness rather than bypass it: the successful trace cannot be
 produced without also producing `sszComplianceObligations`, so the eventual proof owes it. -/
 theorem successful_trace_of_spec_accepts (input : ByteArray)
-    (inputBound : input.size < 2 * 1024 * 1024) (value : SszBridge.RawV4)
+    (inputBound : input.size < 2 * 1024 * 1024) (value : BinaryFv.Specs.SSZ.RawV4)
     (specAccepts : BinaryFv.Specs.SSZ.decode input = .accepted value) :
     ∃ program : Program,
       Contracts.IsCanonicalGeneratedProgram program ∧

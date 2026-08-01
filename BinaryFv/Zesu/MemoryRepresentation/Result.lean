@@ -31,12 +31,12 @@ theorem observe_result_status_of_rep (state : State) (resultBase status : Nat)
 
 /-- A successful Zesu result carries a represented root payload followed by status zero. -/
 structure RawV4SuccessResultRep (state : State) (inputBase : Nat) (input : ByteArray)
-    (resultBase : Nat) (value : SszBridge.RawV4) : Prop where
+    (resultBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) : Prop where
   root : RawV4Rep state inputBase input resultBase value
   status : ResultStatusLERep state (resultBase + 832) 0
 
 theorem observe_raw_v4_success_status (state : State) (inputBase : Nat) (input : ByteArray)
-    (resultBase : Nat) (value : SszBridge.RawV4)
+    (resultBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (representation : RawV4SuccessResultRep state inputBase input resultBase value) :
     observeResultStatus? state resultBase = some 0 :=
   observe_result_status_of_rep state resultBase 0 representation.status

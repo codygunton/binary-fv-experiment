@@ -160,7 +160,7 @@ let
 
       export READELF=${riscvReadelf}
       export EXPECT_TEXT_SHA=f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b
-      bash ${repo}/targets/ssz/zesu/tests/sidecar_equivalence.sh \
+      bash ${repo}/targets/zesu/tests/sidecar_equivalence.sh \
         ${zesuRawObject}/obj "$out/obj" | tee "$out/meta/equivalence.txt"
 
       printf '%s\n' "zesu=codygunton/zesu@${zesuRepairedRevision}" > "$out/meta/provenance.txt"
@@ -202,8 +202,8 @@ let
       export HOME="$TMPDIR"
       export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
       export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
-      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_runtime.c -o canonical.o
-      ${riscvCc} ${cflags} -g -c ${repo}/targets/common/riscv64_runtime.c -o sidecar.o
+      ${riscvCc} ${cflags} -c ${repo}/runtime/riscv64/riscv64_runtime.c -o canonical.o
+      ${riscvCc} ${cflags} -g -c ${repo}/runtime/riscv64/riscv64_runtime.c -o sidecar.o
       runHook postBuild
     '';
 
@@ -233,7 +233,7 @@ let
       cp sidecar.o "$out/obj/riscv64_runtime.o"
       ${riscvReadelf} -SW  "$out/obj/riscv64_runtime.o" > "$out/meta/runtime-sections.txt"
       ${riscvReadelf} -sW  "$out/obj/riscv64_runtime.o" | grep -E 'memcpy|memmove' > "$out/meta/runtime-symbols.txt"
-      printf 'runtime=targets/common/riscv64_runtime.c\n' > "$out/meta/provenance.txt"
+      printf 'runtime=runtime/riscv64/riscv64_runtime.c\n' > "$out/meta/provenance.txt"
       printf 'gcc=%s\n' "$(${riscvCc} --version | head -1)" >> "$out/meta/provenance.txt"
       echo "OK: -g runtime .text.{memcpy,memmove,memset,memcmp} byte-identical to canonical AND to the zesuSsz link input; DWARF retained" \
         | tee "$out/meta/equivalence.txt"
@@ -264,7 +264,7 @@ let
         --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
         --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
         --source ${zesuRepaired} \
-        --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+        --runtime-c ${builtins.path { path = repo + "/runtime/riscv64/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
         --map ${zesuSsz}/meta/zesu-ssz.map \
         --elf ${zesuSsz}/bin/zesu-ssz \
         --objdump ${riscvObjdump} \
@@ -353,13 +353,13 @@ let
       --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
       --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
       --source ${zesuRepaired} \
-      --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+      --runtime-c ${builtins.path { path = repo + "/runtime/riscv64/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
       --map reloc/zesu-ssz.map \
       --elf reloc/zesu-ssz.elf \
       --objdump ${riscvObjdump} \
       --out-json reloc/program.json
 
-    python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/relocation_stability.py"; name = "relocation_stability.py"; }} \
+    python3 ${builtins.path { path = repo + "/targets/zesu/tests/relocation_stability.py"; name = "relocation_stability.py"; }} \
       --canonical ${elflingProgram}/program.json \
       --relocated reloc/program.json | tee "$out/relocation.txt"
   '';
@@ -371,7 +371,7 @@ let
     nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
   } ''
     mkdir -p "$out"
-    python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/generator_defects_test.py"; name = "generator_defects_test.py"; }} \
+    python3 ${builtins.path { path = repo + "/targets/zesu/tests/generator_defects_test.py"; name = "generator_defects_test.py"; }} \
       --generator ${elflingGeneratorScript} \
       --readelf ${riscvReadelf} \
       --decoder ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
@@ -379,7 +379,7 @@ let
       --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
       --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
       --source ${zesuRepaired} \
-      --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+      --runtime-c ${builtins.path { path = repo + "/runtime/riscv64/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
       --map ${zesuSsz}/meta/zesu-ssz.map \
       --elf ${zesuSsz}/bin/zesu-ssz \
       --objdump ${riscvObjdump} | tee "$out/defects.txt"
@@ -403,7 +403,7 @@ let
       export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
       set +e
       zig build-obj -target riscv64-linux-musl --dep ssz_raw \
-        -Mroot=${repo}/targets/ssz/zesu/abi_manifest.zig \
+        -Mroot=${repo}/targets/zesu/abi_manifest.zig \
         -Mssz_raw=$PWD/src/stateless/stateless/ssz_raw.zig > abi.log 2>&1
       status=$?
       set -e
@@ -493,11 +493,11 @@ let
         "$out/obj/zesu-raw-ssz-decoder.o"
       cp ${zesuRawObject}/obj/zesu-raw-ssz-sink.o \
         "$out/obj/zesu-raw-ssz-sink.o"
-      ${riscvCc} ${cflags} -c ${repo}/targets/ssz/zesu/adapter/main.c \
+      ${riscvCc} ${cflags} -c ${repo}/targets/zesu/adapter/main.c \
         -o "$out/obj/zesu-ssz-main.o"
-      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_runtime.c \
+      ${riscvCc} ${cflags} -c ${repo}/runtime/riscv64/riscv64_runtime.c \
         -o "$out/obj/riscv64_runtime.o"
-      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_start.S \
+      ${riscvCc} ${cflags} -c ${repo}/runtime/riscv64/riscv64_start.S \
         -o "$out/obj/riscv64_start.o"
       ${riscvCc} ${cflags} -nostdlib -static -no-pie \
         "$out/obj/riscv64_start.o" \
@@ -559,7 +559,7 @@ let
     checkPhase = ''
       runHook preCheck
       ${pkgs.python3}/bin/python -B \
-        ${repo}/targets/ssz/zesu/tests/ssz_sink_observability.py \
+        ${repo}/targets/zesu/tests/ssz_sink_observability.py \
         --qemu ${qemuRiscv64} \
         --binary ${zesuSsz}/bin/zesu-ssz
       runHook postCheck

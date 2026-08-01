@@ -21,17 +21,20 @@ unsafe def opensslLinkArgs : Array String :=
   let libraries := runPkgConfig #["--libs", "libcrypto"] #["-lcrypto"]
   (libraryDirs.map (fun directory => "-L" ++ directory)) ++ libraries
 
-package sszBridge where
+package sszOracle where
   moreLinkArgs := unsafe opensslLinkArgs
 
 require repl from git "https://github.com/leanprover-community/repl.git" @ "v4.29.0"
 require SizzLean from git "https://github.com/etheorem/etheorem.git" @
   "032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0" / "packages/SizzLean"
 
-lean_lib SszBridge
+lean_lib SSZOracleSpec where
+  srcDir := "../.."
+  roots := #[`BinaryFv.Specs.SSZ]
 
-lean_exe ssz_bridge where
-  root := `SszBridge.Main
+lean_exe ssz_oracle where
+  root := `Main
 
-lean_exe ssz_bridge_test where
-  root := `SszBridgeTest
+lean_exe ssz_oracle_test where
+  srcDir := "../../tests/Specs/SSZ"
+  root := `AmsterdamV4Test

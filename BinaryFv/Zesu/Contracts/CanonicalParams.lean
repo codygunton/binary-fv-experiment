@@ -95,28 +95,28 @@ describe their input-relative borrowed slices. -/
 
 /-- The complete native representation of a decoded `RawV4` rooted at `base`, decoded from the caller's
 input at `inputBase`/`input`. -/
-def canonicalRepRawV4 : ContainerRepresentation SszBridge.RawV4 :=
+def canonicalRepRawV4 : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4 :=
   fun inputBase input value state base => RawV4Rep state inputBase input base value
 
-def canonicalRepForkActivation : ContainerRepresentation SszBridge.RawForkActivation :=
+def canonicalRepForkActivation : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkActivation :=
   fun _ _ value state base => ForkActivationRep state base value
 
-def canonicalRepForkConfig : ContainerRepresentation SszBridge.RawForkConfig :=
+def canonicalRepForkConfig : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkConfig :=
   fun _ _ value state base => ForkConfigRep state base value
 
-def canonicalRepChainConfig : ContainerRepresentation SszBridge.RawChainConfig :=
+def canonicalRepChainConfig : ContainerRepresentation BinaryFv.Specs.SSZ.RawChainConfig :=
   fun _ _ value state base => ChainConfigRep state base value
 
-def canonicalRepExecutionWitness : ContainerRepresentation SszBridge.RawExecutionWitness :=
+def canonicalRepExecutionWitness : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionWitness :=
   fun inputBase input value state base => ExecutionWitnessRep state inputBase input base value
 
-def canonicalRepExecutionRequests : ContainerRepresentation SszBridge.RawExecutionRequests :=
+def canonicalRepExecutionRequests : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionRequests :=
   fun _ _ value state base => ExecutionRequestsRep state base value
 
-def canonicalRepExecutionPayload : ContainerRepresentation SszBridge.RawExecutionPayload :=
+def canonicalRepExecutionPayload : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionPayload :=
   fun inputBase input value state base => ExecutionPayloadRep state inputBase input base value
 
-def canonicalRepNewPayloadRequest : ContainerRepresentation SszBridge.RawNewPayloadRequest :=
+def canonicalRepNewPayloadRequest : ContainerRepresentation BinaryFv.Specs.SSZ.RawNewPayloadRequest :=
   fun inputBase input value state base => NewPayloadRequestRep state inputBase input base value
 
 /-! ## The canonical parameters -/
