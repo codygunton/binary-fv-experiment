@@ -1,6 +1,5 @@
-import BinaryFv.Zesu.Contracts.Catalog
+import BinaryFv.Zesu.Contracts.CanonicalProgram
 import BinaryFv.Zesu.Contracts.CanonicalParams
-import BinaryFv.Zesu.Artifacts.Symbols
 
 namespace BinaryFv.Zesu.Contracts
 
@@ -9,58 +8,12 @@ open BinaryFv.RiscV.Elfling
 open BinaryFv.RiscV
 
 /-!
-# Program correctness
+# Contract composition
 
-The local-to-global obligation that ties the generated Elfling program, the handwritten contracts,
-and the pinned specification into one statement the root theorem descends through.
-
-`sszProgramCorrectness` is not a bag of unrelated propositions. Its load-bearing content is a
-*proved composition*: from each occurrence's **local** obligation (it implements its contract given
-its callees do) and the acyclicity of the call/inline graph, `global_of_local` derives every
-occurrence's **global** obligation — the entry's included. So coverage plus the local obligations
-*entail* that every live occurrence implements the correctness claim its identity names
-(`sszProgramCorrectness_perInstance`), which is what the name promises. Crucially, the entry's local
-obligation never contains the entry's own global obligation among its premises, so the composition is
-not circular.
+The local-to-global argument that combines each generated function instance's contract with its
+callees' contracts. Acyclicity makes this composition well-founded, so the exported entrypoint's
+global obligation is derived rather than assumed.
 -/
-
-/-- The environment is the canonical one: its loaded image is the pinned Zesu ELF image, and its
-layout record is internally consistent. Pinning the image here is what stops a proof from choosing a
-convenient environment that trivializes framing. -/
-def IsCanonicalEnvironment (env : DecoderEnvironment) : Prop :=
-  env.image = Artifacts.programImage ∧ ValidEnvironment env
-
-/-- Validated source provenance on every occurrence: the recorded content hash **equals the pinned
-source manifest** entry for the occurrence's declaring file, and the declaration line is real
-(`> 0`).
-
-This is what preserves source pinning after moving the hash and line out of the stable `FunctionId`.
-The hash clause is now an equality against `pinnedSourceManifest`, not merely non-emptiness — so a
-recorded hash that does not match the pinned source (a wrong, stale, or placeholder hash), or an
-occurrence attributed to a file not in the manifest, fails the obligation. `pinnedSourceHash` returns
-`none` off-manifest, and `none = some _` is false, so off-manifest attribution is rejected. -/
-def sourceProvenanceRecorded (program : Program) : Prop :=
-  ∀ instance_ ∈ program.instances,
-    pinnedSourceHash instance_.id.function.declaration.file
-        = some instance_.declProvenance.sourceFileHash ∧
-      instance_.declProvenance.declSpan.line > 0
-
-/-- The program is the one generated from the canonical ELF: its entry is the `zesu_decode_raw`
-occurrence, that entry is emitted (not inlined), every claimed region lies inside the canonical
-loaded code, every occurrence carries validated source provenance, and the extraction left no
-unresolved attribution.
-
-The byte-exact instruction check is the extraction row's job; what this states is the coverage tie to
-the canonical artifact, so a program that ranges outside the real code, or drops source provenance,
-cannot pass. -/
-def IsCanonicalGeneratedProgram (program : Program) : Prop :=
-  program.entry.function = zesuDecodeRawFunctionId ∧
-  program.entry.inlineStack = [] ∧
-  (∀ instance_ ∈ program.instances, ∀ range ∈ instance_.regions,
-    ∀ address, range.start ≤ address → address < range.stop →
-      ∃ byte, Artifacts.programImage.readByte? address = some byte) ∧
-  sourceProvenanceRecorded program ∧
-  program.defects = #[]
 
 /-- The obligation a single generated occurrence owes: the correctness claim for the routine its
 identity names. `catalogEntryFor` is a single-valued lookup, so this is a genuine dispatch, not a
@@ -203,3 +156,4 @@ theorem instance_implements_its_contract
   exact h
 
 end BinaryFv.Zesu.Contracts
+

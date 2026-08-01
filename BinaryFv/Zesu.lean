@@ -31,7 +31,7 @@ import BinaryFv.Zesu.Contracts.Environment
 import BinaryFv.Zesu.Contracts.Options
 import BinaryFv.Zesu.Contracts.Catalog
 import BinaryFv.Zesu.Contracts.CanonicalParams
-import BinaryFv.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.Zesu.Contracts.ContractComposition
 import BinaryFv.Zesu.Contracts.CatalogAudit
 import BinaryFv.Zesu.Contracts.Runtime
 import BinaryFv.Zesu.Contracts.Entry
@@ -39,7 +39,7 @@ import BinaryFv.Zesu.Contracts.ExportedDecoder
 import BinaryFv.Zesu.Contracts.Containers
 import BinaryFv.Zesu.Contracts.Collections
 import BinaryFv.Zesu.Contracts.Canonicality
-import BinaryFv.Zesu.Contracts.Leaves
+import BinaryFv.Zesu.Contracts.PrimitiveReadsAndSlices
 import BinaryFv.Zesu.MemoryRepresentation.PrimitiveReads
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Execution
 import BinaryFv.Zesu.Interface
@@ -48,7 +48,7 @@ import BinaryFv.Zesu.Root
 /-!
 # `BinaryFv.Zesu`
 
-Umbrella for verification of the Zesu Amsterdam V4 decoder. The specification bridge is specific to
-the decoded Amsterdam `RawV4` value, while the artifact, machine execution, and proof layers bind that
-behavior to the pinned Zesu binary without introducing a reverse dependency into generic RISC-V code.
+Umbrella for verification of the Zesu Amsterdam V4 decoder. The target-specific artifact, machine
+execution, and proof layers bind the implementation-independent `BinaryFv.Specs.SSZ` behavior to the
+pinned Zesu binary without introducing a reverse dependency into generic RISC-V code.
 -/

@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.Zesu.Contracts.ContractComposition
 
 namespace BinaryFv.Zesu.Contracts
 

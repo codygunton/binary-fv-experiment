@@ -2,7 +2,7 @@ import BinaryFv.RiscV.Proof.RunnerCorrespondence
 import BinaryFv.Specs.SSZ.Decode
 import BinaryFv.Zesu.Artifacts.Symbols
 import BinaryFv.Zesu.MemoryRepresentation.Result
-import BinaryFv.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.Zesu.Contracts.ContractComposition
 
 namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 

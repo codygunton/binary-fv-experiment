@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Contracts.Leaves
+import BinaryFv.Zesu.Contracts.PrimitiveReadsAndSlices
 
 namespace BinaryFv.Zesu.Contracts
 
