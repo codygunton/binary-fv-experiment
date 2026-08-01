@@ -11,20 +11,23 @@ namespace.
 
 - `Artifacts`: facts extracted from the pinned Zesu ELF, including its bytes, symbols, memory
   layout, compiler ABI data, and closed instruction inventories.
-- `ControlFlow`: decoded functions, basic-block/control-flow facts, and reachability.
 - `Contracts`: the handwritten, address-free contracts — `meaning`, `pre`, and `post` — selected by
   source function identity and applied to every compiled function instance.
+- `ControlFlow`: decoded functions, basic-block/control-flow facts, and reachability.
+- `Elflings`: the generated description of where source-level Zesu functions and instructions occur
+  in the compiled ELF. It also proves that this description agrees with the ELF and its decoded
+  control-flow graph. Proofs select the regions they need from this single whole-program model,
+  regenerated with `nix build .#elfling-program`.
 - `Entrypoints`: end-to-end ABI-call traces and result interpretation, grouped by exported function.
   `ZesuDecodeRaw` covers `zesu_decode_raw`.
 - `MachineExecution`: proofs about concrete Zesu instructions using the executable Sail RISC-V
   semantics, including composed basic-block traces.
 - `MemoryRepresentation`: predicates, observers, and primitive-read lemmas connecting Sail memory
   to native Zesu values and the SSZ specification.
-- `Elflings`: the generated description of where source-level Zesu functions and instructions occur
-  in the compiled ELF. It also proves that this description agrees with the ELF and its decoded
-  control-flow graph. Proofs select the regions they need from this single whole-program model,
-  regenerated with `nix build .#elfling-program`.
 - `Runtime`: the Zesu allocator, allocation bounds, and other runtime implementation details.
+- `Validation`: finite checks that compare handwritten contract meanings with the pinned Zesu source
+  and the independent SSZ specification. These tests can falsify a bad contract but are deliberately
+  excluded from the compliance theorem's import graph.
 
 `Interface.lean` defines the public API for executing a validated Zesu ELF on an input. `Root.lean`
 states the final theorem relating that execution to `BinaryFv.Specs.SSZ` for every input in scope.

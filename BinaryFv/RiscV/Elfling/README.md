@@ -54,9 +54,12 @@ spliced into the parent's trace without omitting the call, return, or outgoing i
    address set until it reaches a supplied exit.
 3. [`Contract.lean`](Contract.lean) gives every source function one shared meaning and every compiled
    function instance its own register-and-memory binding.
-4. [`Boundary.lean`](Boundary.lean) validates crossings between function instances and expands a parent
+4. [`ContractRefinement.lean`](ContractRefinement.lean) lets a stronger contract for a machine region
+   discharge a weaker contract for the same region, even when the two contracts expose different
+   argument types.
+5. [`Boundary.lean`](Boundary.lean) validates crossings between function instances and expands a parent
    proof that uses child summaries into one ordinary machine trace.
-5. [`BoundaryTests.lean`](BoundaryTests.lean) shows which valid crossings compose and which malformed
+6. [`BoundaryTests.lean`](BoundaryTests.lean) shows which valid crossings compose and which malformed
    crossings are rejected.
 
 The generated files and extracted addresses are evidence, not trusted axioms. Boolean checks and

@@ -13,7 +13,8 @@ Binary -> RiscV -> verified program target
 - `Specs/SSZ/` contains the implementation-independent executable Ethereum SSZ specification.
 - `Zesu/` contains the Amsterdam V4 decoder proof: facts extracted from the pinned binary,
   handwritten source-function contracts, the generated Elfling model and its validation against the
-  canonical ELF/Sail control flow, and the `Zesu/Root.lean` capstone.
+  canonical ELF/Sail control flow, contract-validation tests kept outside the theorem graph, and the
+  `Zesu/Root.lean` capstone.
 
 Import `BinaryFv.Binary`, `BinaryFv.RiscV`, `BinaryFv.Specs`, or `BinaryFv.Zesu` rather than reaching
 across layer boundaries through unrelated leaf modules.

@@ -1,23 +1,24 @@
-# Source-contract validation
+# Zesu contract validation
 
-This directory checks that the handwritten Lean meanings agree with the pinned Zesu source. It is a
-test and falsification layer, not part of the compliance theorem: production proof modules are
-forbidden from importing `Validation`.
+This directory tests the handwritten Lean meanings against the pinned Zesu source and the independent
+SSZ specification. These finite checks can expose a wrong contract before it is used in a machine-code
+proof. They are supporting evidence, not premises of the compliance theorem; the build rejects imports
+of `Validation` from production proof modules.
 
-The validation uses the same expected source function vectors in two ways:
+The same expected examples are checked in two places:
 
-1. The [host Zig probe](../../../../targets/zesu/probe/README.md) calls the real source
-   routines and compares their values, errors, and allocation events with the expected vectors.
-2. [SourceFunctionMeaningVectors.lean](SourceFunctionMeaningVectors.lean) evaluates the corresponding handwritten
-   Lean `meaning` definitions against those expectations with `native_decide`.
+1. The [host Zig probe](../../../targets/zesu/probe/README.md) calls the real source
+   functions and compares their values, errors, and allocation events with the expected results.
+2. [SourceFunctionMeaningVectors.lean](SourceFunctionMeaningVectors.lean) evaluates the corresponding
+   handwritten Lean meanings against those results with `native_decide`.
 
-Together, those checks compare each source source function with its Lean meaning without making test results
-an assumption of the theorem. [MeaningAgreement.lean](MeaningAgreement.lean) checks the small
-whole-input corpus against the independent SSZ oracle.
-[ContractRunner.lean](ContractRunner.lean) is the executable oracle used by the external agreement
-driver for cases that are impractical to reduce inside Lean's kernel.
+Together, these checks compare each source function with its Lean meaning without turning a test result
+into a theorem assumption. [MeaningAgreement.lean](MeaningAgreement.lean) checks the small whole-input
+corpus against the independent SSZ specification. [ContractRunner.lean](ContractRunner.lean) exposes
+that specification as a command-line program so the external agreement test can cover inputs that are
+too large to evaluate conveniently with `native_decide`.
 
 [GeneratedCorpus.lean](GeneratedCorpus.lean) and
-[GeneratedSourceFunctionVectors.lean](GeneratedSourceFunctionVectors.lean) are deterministic generator outputs.
-Their headers identify the generating commands; edit the generators under
-[targets/zesu/tests](../../../../targets/zesu/tests/README.md), not these files.
+[GeneratedSourceFunctionVectors.lean](GeneratedSourceFunctionVectors.lean) contain the committed,
+deterministically generated examples. Their headers identify the generating commands; edit the generators under
+[targets/zesu/tests](../../../targets/zesu/tests/README.md), not these files.
