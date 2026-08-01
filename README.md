@@ -95,19 +95,19 @@ checks, not default local checks.
 The import direction is one-way:
 
 ```text
-Binary  ->  RiscV  ->  Zesu
-SizzLean  ->  Zesu.SpecBridge
-RiscV  +  Zesu.Artifact  +  Zesu.SpecBridge  ->  Zesu correspondence proofs
-everything  ->  Zesu.Root
+SizzLean  ->  Specs.SSZ
+Binary  ->  RiscV
+Binary  +  RiscV  +  Specs.SSZ  ->  Zesu
 ```
 
 `BinaryFv/RiscV/` is generic over the loaded binary; the import audit in `nix/proof.nix` enforces
-that it never imports the target. Under `BinaryFv/Zesu/`, `Artifact/` contains immutable bytes,
-symbols, ranges, and closed static facts; `ControlFlow/` contains decode-dependent inventory;
-`Contracts/` holds handwritten, address-free per-routine contracts; `Elfling/` holds the
-deterministically generated address-bearing scaffold validated against the canonical ELF and
-Sail-decoded control flow; `MachineExecution/` and `Entrypoints/` configure the machine and runner.
-All of it composes into `BinaryFv/Zesu/Root.lean`.
+that it never imports the target. `BinaryFv/Specs/SSZ/` contains the implementation-independent
+executable Ethereum SSZ specification. Under `BinaryFv/Zesu/`, `Artifacts/` contains immutable
+bytes, symbols, ranges, and closed static facts; `ControlFlow/` contains decode-dependent inventory;
+`Contracts/` holds handwritten, address-free per-routine contracts; `Elflings/` contains the
+deterministically generated address-bearing model validated against the canonical ELF and
+Sail-decoded control flow; and `MachineExecution/` and `Entrypoints/` configure the machine and
+runner. All of it composes into `BinaryFv/Zesu/Root.lean`.
 
 The intended public theorem remains:
 
@@ -115,7 +115,7 @@ The intended public theorem remains:
 theorem ssz_root_compliance :
     forall input : ByteArray,
       input.size < 2 ^ 32 ->
-      RiscvSpec.execute zesuSszBinary input = .ok (SszSpec.decodeStatelessInput input)
+      RiscvSpec.execute zesuSszBinary input = .ok (BinaryFv.Specs.SSZ.decode input)
 ```
 
 The canonical proof inputs are regenerated with pinned Nix derivations — see

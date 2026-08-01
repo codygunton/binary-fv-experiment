@@ -144,9 +144,9 @@ def NewPayloadRequestRep (state : State) (inputBase : Nat) (input : ByteArray) (
 
 Every literal field offset used above is pinned against the compiler-reflected ABI manifest. The
 offsets `RawV4.lean` already re-uses (fixed fields, root descriptors, heap element sizes) are audited
-by `Artifact.raw_v4_*` ; these are the additional container-relative offsets this module introduces. -/
+by `Artifacts.raw_v4_*` ; these are the additional container-relative offsets this module introduces. -/
 
-open BinaryFv.Zesu.Artifact in
+open BinaryFv.Zesu.Artifacts in
 def containerFieldOffsetsValid : Bool :=
   abiDatum "ssz_raw.RawForkActivation|block_number" == some 0 &&
     abiDatum "ssz_raw.RawForkActivation|timestamp" == some 16 &&

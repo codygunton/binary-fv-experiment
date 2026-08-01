@@ -1,6 +1,6 @@
 import BinaryFv.Zesu.ControlFlow.Decode
 
-namespace BinaryFv.Zesu.Artifact
+namespace BinaryFv.Zesu.Artifacts
 
 open BinaryFv.RiscV
 open BinaryFv.Zesu.ControlFlow
@@ -62,4 +62,4 @@ def rawHeaderByteReadBlockValid : Bool :=
 theorem raw_header_byte_read_block_valid : rawHeaderByteReadBlockValid = true := by
   native_decide
 
-end BinaryFv.Zesu.Artifact
+end BinaryFv.Zesu.Artifacts

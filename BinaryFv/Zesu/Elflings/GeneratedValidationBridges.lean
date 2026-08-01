@@ -11,11 +11,11 @@ certificate pattern, each is discharged by computing a `Bool` (validated by `nat
 real generated data / canonical ELF) and an *ordinary kernel* bridge lemma turning that `Bool = true`
 into the `Prop`. Everything in this module is a plain kernel proof: no `native_decide`, no axiom, no
 `sorry`. The bridges are deliberately generic (e.g. `image`-polymorphic) so that instantiating them at
-`Artifact.programImage` never forces the kernel to reduce the expensive ELF parse — that cost stays
+`Artifacts.programImage` never forces the kernel to reduce the expensive ELF parse — that cost stays
 inside the compiled `native_decide` that establishes the `Bool` fact.
 -/
 
-namespace BinaryFv.Zesu.Elfling.Validation
+namespace BinaryFv.Zesu.Elflings.Validation
 
 open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
@@ -75,7 +75,7 @@ def bytesReadableIn (image : ProgramImage) (program : Program) : Bool :=
       (List.range r.size).all fun k => (image.readByte? (r.start + k)).isSome
 
 /-- The per-address readability the `IsCanonicalGeneratedProgram` byte clause demands, extracted from
-the aggregate `Bool`. Generic in `image`: instantiating at `Artifact.programImage` leaves the read
+the aggregate `Bool`. Generic in `image`: instantiating at `Artifacts.programImage` leaves the read
 symbolic, so the kernel never reduces the ELF parse. -/
 theorem bytesReadableIn_elim {image : ProgramImage} {program : Program}
     (h : bytesReadableIn image program = true)
@@ -94,4 +94,4 @@ theorem bytesReadableIn_elim {image : ProgramImage} {program : Program}
   rw [haddr] at hb
   exact Option.isSome_iff_exists.mp hb
 
-end BinaryFv.Zesu.Elfling.Validation
+end BinaryFv.Zesu.Elflings.Validation

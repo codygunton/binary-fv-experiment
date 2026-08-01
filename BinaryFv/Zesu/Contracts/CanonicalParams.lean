@@ -1,5 +1,5 @@
 import BinaryFv.Zesu.Contracts.Catalog
-import BinaryFv.Zesu.Elfling.GeneratedDecoderGlobals
+import BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals
 import BinaryFv.Zesu.MemoryRepresentation.Containers
 import BinaryFv.Zesu.Runtime.BumpAllocator
 
@@ -10,7 +10,7 @@ import BinaryFv.Zesu.Runtime.BumpAllocator
 This module replaces that existential with one concrete value, `canonicalContractParams`, whose
 address- and layout-bearing fields are taken from validated pinned artifacts — never handwritten:
 
-- `env.image` is the pinned canonical image `Artifact.programImage`;
+- `env.image` is the pinned canonical image `Artifacts.programImage`;
 - `env.allocatorState` is `canonicalAllocatorState` (the `ZKVM_HEAP_POS`/`ZKVM_HEAP_TOP` byte ranges,
   extracted and checked in `Elfling.GeneratedDecoderGlobals`);
 - `heap` is the validated 64 MiB `heap` region;
@@ -31,7 +31,7 @@ namespace BinaryFv.Zesu.Contracts
 
 open BinaryFv.RiscV
 open BinaryFv.Zesu.MemoryRepresentation
-open BinaryFv.Zesu.Elfling
+open BinaryFv.Zesu.Elflings
   (canonicalDecoderGlobalsLayout canonicalResultBuffer canonicalHeapBase canonicalHeapLimit
    canonicalAllocatorState)
 
@@ -43,14 +43,14 @@ just the size). The `getD` fallbacks are never taken: `canonicalOptionalU64_pinn
 `canonicalOptionalBlobSchedule_pinned` prove each field equals the exact manifest value, so a mutated
 offset in the manifest (or a wrong key here) fails those `native_decide` checks. -/
 
-open BinaryFv.Zesu.Artifact in
+open BinaryFv.Zesu.Artifacts in
 /-- `?u64`, defined entirely from the manifest: total size, payload offset, and reflected tag offset. -/
 def canonicalOptionalU64 : OptionLayout :=
   { size := optionalU64Size.getD 0,
     discriminantOffset := optionalU64TagOffset.getD 0,
     payloadOffset := optionalU64PayloadOffset.getD 0 }
 
-open BinaryFv.Zesu.Artifact in
+open BinaryFv.Zesu.Artifacts in
 /-- `?RawBlobSchedule`, defined entirely from the manifest. -/
 def canonicalOptionalBlobSchedule : OptionLayout :=
   { size := optionalBlobScheduleSize.getD 0,
@@ -74,7 +74,7 @@ def canonicalBlobScheduleLayout : BlobScheduleLayout :=
 /-- The canonical decoder environment: the pinned image, the checked allocator state, and the ABI
 option/aggregate layouts. -/
 def canonicalEnvironment : DecoderEnvironment :=
-  { image := Artifact.programImage
+  { image := Artifacts.programImage
     allocatorState := canonicalAllocatorState
     optionalBlobSchedule := canonicalOptionalBlobSchedule
     blobSchedule := canonicalBlobScheduleLayout

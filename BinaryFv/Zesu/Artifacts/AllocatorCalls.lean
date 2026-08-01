@@ -1,6 +1,6 @@
-import BinaryFv.Zesu.Artifact.Symbols
+import BinaryFv.Zesu.Artifacts.Symbols
 
-namespace BinaryFv.Zesu.Artifact
+namespace BinaryFv.Zesu.Artifacts
 
 open BinaryFv.RiscV
 
@@ -67,4 +67,4 @@ theorem allocator_wrapper_address_is_raw_alloc_target :
         value := 0x1024c, size := 100 } := by
   native_decide
 
-end BinaryFv.Zesu.Artifact
+end BinaryFv.Zesu.Artifacts

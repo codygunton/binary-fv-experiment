@@ -1,5 +1,5 @@
-import BinaryFv.Zesu.Elfling.GeneratedValidationBridges
-import BinaryFv.Zesu.Elfling.GeneratedReachabilityExact
+import BinaryFv.Zesu.Elflings.GeneratedValidationBridges
+import BinaryFv.Zesu.Elflings.GeneratedReachabilityExact
 import BinaryFv.Zesu.Contracts.Catalog
 import BinaryFv.Zesu.Interface
 import BinaryFv.RiscV.Elfling.FunctionTrace
@@ -39,14 +39,14 @@ allocator/entry rows — it is stated, not asserted true here.
 exclusion type. This row keeps it local (row-1's `excludedRoutines` is untouched — PR #40).
 -/
 
-namespace BinaryFv.Zesu.Elfling.Validation
+namespace BinaryFv.Zesu.Elflings.Validation
 
 set_option maxRecDepth 8000
 
 open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
 open BinaryFv.Zesu.ControlFlow (controlFlow?)
-open BinaryFv.Zesu.Elfling.Generated
+open BinaryFv.Zesu.Elflings.Generated
   (generatedProgram generatedExcludedFunctionInstances reachableAddresses reachableEntry)
 
 /-! ## Covered / excluded membership -/
@@ -288,4 +288,4 @@ def excludedRoutineObligations : Prop :=
     | some .reachableCleanupNoOp => excludedRoutineExecObligation x
     | _ => True
 
-end BinaryFv.Zesu.Elfling.Validation
+end BinaryFv.Zesu.Elflings.Validation

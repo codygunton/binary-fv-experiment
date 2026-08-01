@@ -1,6 +1,6 @@
 import BinaryFv.RiscV.Execution.MemoryIo
 import BinaryFv.RiscV.Logic.ImageMemory
-import BinaryFv.Zesu.Artifact.AbiManifest
+import BinaryFv.Zesu.Artifacts.AbiManifest
 import SszBridge.Core
 
 namespace BinaryFv.Zesu.MemoryRepresentation
@@ -183,12 +183,12 @@ theorem observe_slice_descriptor_of_rep (state : State) (base data count : Nat)
 
 /-- The decoded root object occupies precisely the compiler-reflected RV64 ABI size. -/
 def RawStatelessInputRep (state : State) (base : Nat) : Prop :=
-  ∃ size, Artifact.rawStatelessInputSize = some size ∧ HeapArrayRep state base 1 size
+  ∃ size, Artifacts.rawStatelessInputSize = some size ∧ HeapArrayRep state base 1 size
 
 theorem raw_stateless_input_rep_size (state : State) (base : Nat)
     (representation : RawStatelessInputRep state base) : HeapArrayRep state base 1 832 := by
   rcases representation with ⟨size, sizeH, representation⟩
-  rw [Artifact.raw_stateless_input_layout.1] at sizeH
+  rw [Artifacts.raw_stateless_input_layout.1] at sizeH
   injection sizeH with sizeH
   subst size
   exact representation

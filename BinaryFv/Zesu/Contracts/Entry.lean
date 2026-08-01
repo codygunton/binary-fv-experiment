@@ -1,5 +1,5 @@
 import BinaryFv.Zesu.Contracts.Containers
-import BinaryFv.Zesu.SpecBridge.Decode
+import BinaryFv.Specs.SSZ.Decode
 
 namespace BinaryFv.Zesu.Contracts
 
@@ -193,11 +193,11 @@ def sourceShapedDecodeAgreesWithOracle : Prop :=
     isAccepted (meaningDecode bytes) = (SszBridge.decodeStatelessInput bytes).toOption.isSome
 
 /-- The catalog's meanings are grounded in the pinned oracle, not in a private re-implementation:
-the entry meaning determines exactly the public `SszSpec.decode` outcome. -/
+the entry meaning determines exactly the public `BinaryFv.Specs.SSZ.decode` outcome. -/
 def catalogGroundsInSpec : Prop :=
   ∀ (bytes : ByteArray),
     isAccepted (meaningDecode bytes) = true ↔
-      ∃ value, BinaryFv.Zesu.SszSpec.decode bytes = .accepted value
+      ∃ value, BinaryFv.Specs.SSZ.decode bytes = .accepted value
 
 /--
 Why the asymmetric ERE retry is unobservable.

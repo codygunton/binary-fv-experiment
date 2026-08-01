@@ -1,6 +1,6 @@
 import BinaryFv.RiscV.Proof.RunnerCorrespondence
-import BinaryFv.Zesu.SpecBridge.Decode
-import BinaryFv.Zesu.Artifact.Symbols
+import BinaryFv.Specs.SSZ.Decode
+import BinaryFv.Zesu.Artifacts.Symbols
 import BinaryFv.Zesu.MemoryRepresentation.Result
 import BinaryFv.Zesu.Contracts.ProgramCorrectness
 
@@ -20,10 +20,10 @@ root-level equality, this predicate gives those contracts a single visible home.
 structure DecodeEntryRep (state : State) (inputBase : Nat) (input : ByteArray)
     (sentinel : BitVec 64) where
   entryPC : Nat
-  entryResolved : ∃ entry, Artifact.zesuDecodeRaw = .ok entry ∧ entry.value = entryPC
+  entryResolved : ∃ entry, Artifacts.zesuDecodeRaw = .ok entry ∧ entry.value = entryPC
   pc : state.regs.get? PC = some (BitVec.ofNat 64 entryPC)
   returnAddress : state.regs.get? x1 = some sentinel
-  program : Artifact.programImage.matchesMemory state.mem
+  program : Artifacts.programImage.matchesMemory state.mem
   inputMemory : MemoryBytes state inputBase input
 
 /-- A complete successful machine execution, from the public decoder entry to its return sentinel,
@@ -69,7 +69,7 @@ descend through Elfling program correctness rather than bypass it: the successfu
 produced without also producing `sszComplianceObligations`, so the eventual proof owes it. -/
 theorem successful_trace_of_spec_accepts (input : ByteArray)
     (inputBound : input.size < 2 * 1024 * 1024) (value : SszBridge.RawV4)
-    (specAccepts : SszSpec.decode input = .accepted value) :
+    (specAccepts : BinaryFv.Specs.SSZ.decode input = .accepted value) :
     ∃ program : Program,
       Contracts.IsCanonicalGeneratedProgram program ∧
       Contracts.sszComplianceObligations program ∧
@@ -80,7 +80,7 @@ theorem successful_trace_of_spec_accepts (input : ByteArray)
 obligation and a classified live Sail path to a nonzero Zesu result status. -/
 theorem rejected_trace_of_spec_rejects (input : ByteArray)
     (inputBound : input.size < 2 * 1024 * 1024)
-    (specRejects : SszSpec.decode input = .rejected) :
+    (specRejects : BinaryFv.Specs.SSZ.decode input = .rejected) :
     ∃ program : Program,
       Contracts.IsCanonicalGeneratedProgram program ∧
       Contracts.sszComplianceObligations program ∧

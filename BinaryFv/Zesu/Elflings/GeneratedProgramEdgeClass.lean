@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Elfling.GeneratedProgramCfg
+import BinaryFv.Zesu.Elflings.GeneratedProgramCfg
 
 /-!
 # Total edge classification with nothing unclassified (area #5)
@@ -23,14 +23,14 @@ Each `some` branch moreover records the DEFINING fact of its category, so the la
 statements are ordinary bridges.
 -/
 
-namespace BinaryFv.Zesu.Elfling.Validation
+namespace BinaryFv.Zesu.Elflings.Validation
 
 set_option maxRecDepth 8000
 
 open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV
 open BinaryFv.Zesu.ControlFlow (controlFlow?)
-open BinaryFv.Zesu.Elfling.Generated (generatedProgram generatedExcludedFunctionInstances)
+open BinaryFv.Zesu.Elflings.Generated (generatedProgram generatedExcludedFunctionInstances)
 
 /-! ## Ownership and inline-nesting over the generated function instances -/
 
@@ -156,4 +156,4 @@ theorem decoded_successor_edges_classified {nodes : Array ControlFlowNode}
   rw [Bool.and_eq_true] at hbe
   exact ⟨e, he, eq_of_beq hbe.1, eq_of_beq hbe.2, edges_all_classified functionInstance ho e he⟩
 
-end BinaryFv.Zesu.Elfling.Validation
+end BinaryFv.Zesu.Elflings.Validation

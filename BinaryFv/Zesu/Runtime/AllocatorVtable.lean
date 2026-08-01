@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Artifact.AllocatorCalls
+import BinaryFv.Zesu.Artifacts.AllocatorCalls
 import BinaryFv.Zesu.MemoryRepresentation.RawV4
 
 namespace BinaryFv.Zesu.Runtime
@@ -8,8 +8,8 @@ open BinaryFv.Zesu.MemoryRepresentation
 
 /-- Loading the immutable ELF vtable makes every slot-24 cleanup dispatch target its pinned stub. -/
 theorem loaded_vtable_free_target (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
-    Word64LERep state (Artifact.allocatorVtableAddress + Artifact.allocatorVtableCallSlotOffset)
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
+    Word64LERep state (Artifacts.allocatorVtableAddress + Artifacts.allocatorVtableCallSlotOffset)
       0x10440 := by
   intro index indexBound
   have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨ index = 5 ∨

@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Elfling.GeneratedValidationBridges
+import BinaryFv.Zesu.Elflings.GeneratedValidationBridges
 import BinaryFv.Zesu.ControlFlow.Decode
 import GeneratedProgram
 
@@ -21,13 +21,13 @@ This is an SSZ/artifact-layer fact, so the `Bool` uses the documented `native_de
 bridge that turns it into the per-PC statement is an ordinary kernel proof.
 -/
 
-namespace BinaryFv.Zesu.Elfling.Validation
+namespace BinaryFv.Zesu.Elflings.Validation
 
 open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV
 open BinaryFv.Zesu.ControlFlow
-open BinaryFv.Zesu.Elfling.Generated (generatedProgram)
+open BinaryFv.Zesu.Elflings.Generated (generatedProgram)
 
 /-! ## Region word-alignment (so the word-PCs tile each region) -/
 
@@ -110,4 +110,4 @@ theorem generated_region_pcs_are_legal_instructions :
   have hp := List.find?_some hnode'
   exact eq_of_beq hp
 
-end BinaryFv.Zesu.Elfling.Validation
+end BinaryFv.Zesu.Elflings.Validation

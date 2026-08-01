@@ -1,6 +1,6 @@
 import BinaryFv.Zesu.Contracts.Catalog
 import BinaryFv.Zesu.Contracts.CanonicalParams
-import BinaryFv.Zesu.Artifact.Symbols
+import BinaryFv.Zesu.Artifacts.Symbols
 
 namespace BinaryFv.Zesu.Contracts
 
@@ -28,7 +28,7 @@ not circular.
 layout record is internally consistent. Pinning the image here is what stops a proof from choosing a
 convenient environment that trivializes framing. -/
 def IsCanonicalEnvironment (env : DecoderEnvironment) : Prop :=
-  env.image = Artifact.programImage ∧ ValidEnvironment env
+  env.image = Artifacts.programImage ∧ ValidEnvironment env
 
 /-- Validated source provenance on every occurrence: the recorded content hash **equals the pinned
 source manifest** entry for the occurrence's declaring file, and the declaration line is real
@@ -58,7 +58,7 @@ def IsCanonicalGeneratedProgram (program : Program) : Prop :=
   program.entry.inlineStack = [] ∧
   (∀ instance_ ∈ program.instances, ∀ range ∈ instance_.regions,
     ∀ address, range.start ≤ address → address < range.stop →
-      ∃ byte, Artifact.programImage.readByte? address = some byte) ∧
+      ∃ byte, Artifacts.programImage.readByte? address = some byte) ∧
   sourceProvenanceRecorded program ∧
   program.defects = #[]
 
@@ -137,7 +137,7 @@ The entry is `zesu_decode_raw`; every callee edge resolves to an occurrence; the
 acyclic (some rank witnesses it); and **every occurrence satisfies its local obligation**. Via
 `global_of_local` these yield every occurrence's global obligation — the entry's included — without
 the entry's obligation ever appearing among its own premises. It also carries `catalogGroundsInSpec`,
-tying the entry contract to the public `SszSpec.decode`. -/
+tying the entry contract to the public `BinaryFv.Specs.SSZ.decode`. -/
 def LocalToGlobal (program : Program) (p : ContractParams) : Prop :=
   program.entry.function = zesuDecodeRawFunctionId ∧
   (∀ instance_ ∈ program.instances, ∀ callee ∈ (instance_.children ++ instance_.externalCalls),

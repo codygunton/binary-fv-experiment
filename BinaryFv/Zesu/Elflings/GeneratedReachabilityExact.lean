@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Elfling.GeneratedValidationBridges
+import BinaryFv.Zesu.Elflings.GeneratedValidationBridges
 import BinaryFv.RiscV.Analysis.ReachabilityComplete
 import BinaryFv.Zesu.ControlFlow.Decode
 import GeneratedProgram
@@ -26,13 +26,13 @@ witness/closure facts are `native_decide`d against the concrete data + decoded C
 exception); the distance induction and the two inclusions are ordinary kernel proofs.
 -/
 
-namespace BinaryFv.Zesu.Elfling.Validation
+namespace BinaryFv.Zesu.Elflings.Validation
 
 set_option maxRecDepth 8000
 
 open BinaryFv.RiscV
 open BinaryFv.Zesu.ControlFlow (controlFlow?)
-open BinaryFv.Zesu.Elfling.Generated (reachableWitness reachableEntry reachableAddresses ReachStep)
+open BinaryFv.Zesu.Elflings.Generated (reachableWitness reachableEntry reachableAddresses ReachStep)
 
 /-! ## The canonical decode -/
 
@@ -175,4 +175,4 @@ theorem reachableAddresses_eq_directReachable :
     exact mem_directReachable_of_reaches nodes reachableEntry a (entry_decoded hn)
       (reachable_reaches hn a ha)
 
-end BinaryFv.Zesu.Elfling.Validation
+end BinaryFv.Zesu.Elflings.Validation

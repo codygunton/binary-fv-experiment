@@ -2,7 +2,7 @@ import BinaryFv.RiscV.Logic.BlockStep
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.RiscV.Instruction.Execute.ShiftOr
 import BinaryFv.RiscV.Instruction.Execute.StoreByte
-import BinaryFv.Zesu.Artifact.PrimitiveReadInventory
+import BinaryFv.Zesu.Artifacts.PrimitiveReadInventory
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
 import BinaryFv.Zesu.MachineExecution.RegisterRuns
 import SizzLean.Spec.Deserialize
@@ -170,21 +170,21 @@ theorem raw_parser_u32_fourth_lbu_execute (state : State)
   · exact wX_x13_run state (zero_extend (m := 64) data)
 
 theorem raw_parser_u32_first_lbu_image_bytes :
-    Artifact.programImage.readByte? 0x10764 = some 0x83 ∧
-      Artifact.programImage.readByte? 0x10765 = some 0x42 ∧
-        Artifact.programImage.readByte? 0x10766 = some 0x4c ∧
-          Artifact.programImage.readByte? 0x10767 = some 0x1b := by
+    Artifacts.programImage.readByte? 0x10764 = some 0x83 ∧
+      Artifacts.programImage.readByte? 0x10765 = some 0x42 ∧
+        Artifacts.programImage.readByte? 0x10766 = some 0x4c ∧
+          Artifacts.programImage.readByte? 0x10767 = some 0x1b := by
   native_decide
 
 theorem raw_parser_u32_first_lbu_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10764)
       0x83#8 0x42#8 0x4c#8 0x1b := by
   rcases raw_parser_u32_first_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10764 (by omega)
     afterIncrement 0x83 0x42 0x4c 0x1b read0 read1 read2 read3
 
@@ -197,21 +197,21 @@ theorem raw_parser_u32_first_lbu_decode (state : State)
 
 /-- The second byte load of the native 32-bit parser word is encoded immediately after the first. -/
 theorem raw_parser_u32_second_lbu_image_bytes :
-    Artifact.programImage.readByte? 0x10768 = some 0x83 ∧
-      Artifact.programImage.readByte? 0x10769 = some 0x45 ∧
-        Artifact.programImage.readByte? 0x1076a = some 0x5c ∧
-          Artifact.programImage.readByte? 0x1076b = some 0x1b := by
+    Artifacts.programImage.readByte? 0x10768 = some 0x83 ∧
+      Artifacts.programImage.readByte? 0x10769 = some 0x45 ∧
+        Artifacts.programImage.readByte? 0x1076a = some 0x5c ∧
+          Artifacts.programImage.readByte? 0x1076b = some 0x1b := by
   native_decide
 
 theorem raw_parser_u32_second_lbu_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10768)
       0x83#8 0x45#8 0x5c#8 0x1b := by
   rcases raw_parser_u32_second_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10768 (by omega)
     afterIncrement 0x83 0x45 0x5c 0x1b read0 read1 read2 read3
 
@@ -223,21 +223,21 @@ theorem raw_parser_u32_second_lbu_decode (state : State)
   decode_run
 
 theorem raw_parser_u32_third_lbu_image_bytes :
-    Artifact.programImage.readByte? 0x1076c = some 0x03 ∧
-      Artifact.programImage.readByte? 0x1076d = some 0x46 ∧
-        Artifact.programImage.readByte? 0x1076e = some 0x6c ∧
-          Artifact.programImage.readByte? 0x1076f = some 0x1b := by
+    Artifacts.programImage.readByte? 0x1076c = some 0x03 ∧
+      Artifacts.programImage.readByte? 0x1076d = some 0x46 ∧
+        Artifacts.programImage.readByte? 0x1076e = some 0x6c ∧
+          Artifacts.programImage.readByte? 0x1076f = some 0x1b := by
   native_decide
 
 theorem raw_parser_u32_third_lbu_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x1076c)
       0x03#8 0x46#8 0x6c#8 0x1b := by
   rcases raw_parser_u32_third_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x1076c (by omega)
     afterIncrement 0x03 0x46 0x6c 0x1b read0 read1 read2 read3
 
@@ -249,21 +249,21 @@ theorem raw_parser_u32_third_lbu_decode (state : State)
   decode_run
 
 theorem raw_parser_u32_fourth_lbu_image_bytes :
-    Artifact.programImage.readByte? 0x10770 = some 0x83 ∧
-      Artifact.programImage.readByte? 0x10771 = some 0x46 ∧
-        Artifact.programImage.readByte? 0x10772 = some 0x7c ∧
-          Artifact.programImage.readByte? 0x10773 = some 0x1b := by
+    Artifacts.programImage.readByte? 0x10770 = some 0x83 ∧
+      Artifacts.programImage.readByte? 0x10771 = some 0x46 ∧
+        Artifacts.programImage.readByte? 0x10772 = some 0x7c ∧
+          Artifacts.programImage.readByte? 0x10773 = some 0x1b := by
   native_decide
 
 theorem raw_parser_u32_fourth_lbu_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10770)
       0x83#8 0x46#8 0x7c#8 0x1b := by
   rcases raw_parser_u32_fourth_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10770 (by omega)
     afterIncrement 0x83 0x46 0x7c 0x1b read0 read1 read2 read3
 
@@ -280,7 +280,7 @@ register-map preservation. -/
 theorem raw_parser_u32_first_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10764))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10764))
@@ -335,7 +335,7 @@ postlude agreements. -/
 theorem raw_parser_u32_second_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10768))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10768))
@@ -389,7 +389,7 @@ theorem raw_parser_u32_second_lbu_retire_exact (stepNo : Nat) (state : State)
 theorem raw_parser_u32_adjacent_third_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x1077c))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1077c))
@@ -425,15 +425,15 @@ theorem raw_parser_u32_adjacent_third_lbu_retire_exact (stepNo : Nat) (state : S
           with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
             (BitVec.ofNat 64 0x1077c)).regs.insert x16 (zero_extend (m := 64) data)) }
         (BitVec.ofNat 64 0x10780) retired) false := by
-  have image : Artifact.programImage.readByte? 0x1077c = some 0x03 ∧
-      Artifact.programImage.readByte? 0x1077d = some 0x48 ∧
-        Artifact.programImage.readByte? 0x1077e = some 0xac ∧
-          Artifact.programImage.readByte? 0x1077f = some 0x1f := by native_decide
+  have image : Artifacts.programImage.readByte? 0x1077c = some 0x03 ∧
+      Artifacts.programImage.readByte? 0x1077d = some 0x48 ∧
+        Artifacts.programImage.readByte? 0x1077e = some 0xac ∧
+          Artifacts.programImage.readByte? 0x1077f = some 0x1f := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+  have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x1077c (by omega) afterIncrement
     0x03 0x48 0xac 0x1f read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x03#8 0x48#8 0xac#8 0x1f))
@@ -454,7 +454,7 @@ theorem raw_parser_u32_adjacent_third_lbu_retire_exact (stepNo : Nat) (state : S
 theorem raw_parser_u32_adjacent_fourth_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10780))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10780))
@@ -490,15 +490,15 @@ theorem raw_parser_u32_adjacent_fourth_lbu_retire_exact (stepNo : Nat) (state : 
           with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
             (BitVec.ofNat 64 0x10780)).regs.insert x17 (zero_extend (m := 64) data)) }
         (BitVec.ofNat 64 0x10784) retired) false := by
-  have image : Artifact.programImage.readByte? 0x10780 = some 0x83 ∧
-      Artifact.programImage.readByte? 0x10781 = some 0x48 ∧
-        Artifact.programImage.readByte? 0x10782 = some 0xbc ∧
-          Artifact.programImage.readByte? 0x10783 = some 0x1f := by native_decide
+  have image : Artifacts.programImage.readByte? 0x10780 = some 0x83 ∧
+      Artifacts.programImage.readByte? 0x10781 = some 0x48 ∧
+        Artifacts.programImage.readByte? 0x10782 = some 0xbc ∧
+          Artifacts.programImage.readByte? 0x10783 = some 0x1f := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+  have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10780 (by omega) afterIncrement
     0x83 0x48 0xbc 0x1f read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x83#8 0x48#8 0xbc#8 0x1f))
@@ -530,7 +530,7 @@ theorem raw_parser_u32_adjacent_four_lbu_trace (stepNo : Nat)
 theorem raw_parser_u32_next_word_first_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10798))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10798))
@@ -566,15 +566,15 @@ theorem raw_parser_u32_next_word_first_lbu_retire_exact (stepNo : Nat) (state : 
           with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
             (BitVec.ofNat 64 0x10798)).regs.insert x11 (zero_extend (m := 64) data)) }
         (BitVec.ofNat 64 0x1079c) retired) false := by
-  have image : Artifact.programImage.readByte? 0x10798 = some 0x83 ∧
-      Artifact.programImage.readByte? 0x10799 = some 0x45 ∧
-        Artifact.programImage.readByte? 0x1079a = some 0xcc ∧
-          Artifact.programImage.readByte? 0x1079b = some 0x1f := by native_decide
+  have image : Artifacts.programImage.readByte? 0x10798 = some 0x83 ∧
+      Artifacts.programImage.readByte? 0x10799 = some 0x45 ∧
+        Artifacts.programImage.readByte? 0x1079a = some 0xcc ∧
+          Artifacts.programImage.readByte? 0x1079b = some 0x1f := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+  have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10798 (by omega) afterIncrement
     0x83 0x45 0xcc 0x1f read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x83#8 0x45#8 0xcc#8 0x1f))
@@ -595,7 +595,7 @@ theorem raw_parser_u32_next_word_first_lbu_retire_exact (stepNo : Nat) (state : 
 theorem raw_parser_u32_next_word_second_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x1079c))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1079c))
@@ -631,15 +631,15 @@ theorem raw_parser_u32_next_word_second_lbu_retire_exact (stepNo : Nat) (state :
           with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
             (BitVec.ofNat 64 0x1079c)).regs.insert x13 (zero_extend (m := 64) data)) }
         (BitVec.ofNat 64 0x107a0) retired) false := by
-  have image : Artifact.programImage.readByte? 0x1079c = some 0x83 ∧
-      Artifact.programImage.readByte? 0x1079d = some 0x46 ∧
-        Artifact.programImage.readByte? 0x1079e = some 0xdc ∧
-          Artifact.programImage.readByte? 0x1079f = some 0x1f := by native_decide
+  have image : Artifacts.programImage.readByte? 0x1079c = some 0x83 ∧
+      Artifacts.programImage.readByte? 0x1079d = some 0x46 ∧
+        Artifacts.programImage.readByte? 0x1079e = some 0xdc ∧
+          Artifacts.programImage.readByte? 0x1079f = some 0x1f := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+  have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x1079c (by omega) afterIncrement
     0x83 0x46 0xdc 0x1f read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x83#8 0x46#8 0xdc#8 0x1f))
@@ -660,7 +660,7 @@ theorem raw_parser_u32_next_word_second_lbu_retire_exact (stepNo : Nat) (state :
 theorem raw_parser_u32_next_word_third_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x107a0))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x107a0))
@@ -696,15 +696,15 @@ theorem raw_parser_u32_next_word_third_lbu_retire_exact (stepNo : Nat) (state : 
           with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
             (BitVec.ofNat 64 0x107a0)).regs.insert x5 (zero_extend (m := 64) data)) }
         (BitVec.ofNat 64 0x107a4) retired) false := by
-  have image : Artifact.programImage.readByte? 0x107a0 = some 0x83 ∧
-      Artifact.programImage.readByte? 0x107a1 = some 0x42 ∧
-        Artifact.programImage.readByte? 0x107a2 = some 0xec ∧
-          Artifact.programImage.readByte? 0x107a3 = some 0x1f := by native_decide
+  have image : Artifacts.programImage.readByte? 0x107a0 = some 0x83 ∧
+      Artifacts.programImage.readByte? 0x107a1 = some 0x42 ∧
+        Artifacts.programImage.readByte? 0x107a2 = some 0xec ∧
+          Artifacts.programImage.readByte? 0x107a3 = some 0x1f := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+  have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x107a0 (by omega) afterIncrement
     0x83 0x42 0xec 0x1f read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x83#8 0x42#8 0xec#8 0x1f))
@@ -725,7 +725,7 @@ theorem raw_parser_u32_next_word_third_lbu_retire_exact (stepNo : Nat) (state : 
 theorem raw_parser_u32_next_word_fourth_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x107a4))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x107a4))
@@ -761,15 +761,15 @@ theorem raw_parser_u32_next_word_fourth_lbu_retire_exact (stepNo : Nat) (state :
           with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
             (BitVec.ofNat 64 0x107a4)).regs.insert x6 (zero_extend (m := 64) data)) }
         (BitVec.ofNat 64 0x107a8) retired) false := by
-  have image : Artifact.programImage.readByte? 0x107a4 = some 0x03 ∧
-      Artifact.programImage.readByte? 0x107a5 = some 0x43 ∧
-        Artifact.programImage.readByte? 0x107a6 = some 0xfc ∧
-          Artifact.programImage.readByte? 0x107a7 = some 0x1f := by native_decide
+  have image : Artifacts.programImage.readByte? 0x107a4 = some 0x03 ∧
+      Artifacts.programImage.readByte? 0x107a5 = some 0x43 ∧
+        Artifacts.programImage.readByte? 0x107a6 = some 0xfc ∧
+          Artifacts.programImage.readByte? 0x107a7 = some 0x1f := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+  have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x107a4 (by omega) afterIncrement
     0x03 0x43 0xfc 0x1f read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x03#8 0x43#8 0xfc#8 0x1f))
@@ -791,7 +791,7 @@ postlude agreements. -/
 theorem raw_parser_u32_third_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x1076c))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1076c))
@@ -846,7 +846,7 @@ postlude agreements. -/
 theorem raw_parser_u32_fourth_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10770))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10770))
@@ -963,7 +963,7 @@ theorem raw_parser_u32_next_word_fourth_byte_shift_execute (state : State) (valu
 
 theorem raw_parser_u32_next_word_third_byte_shift_retire_exact (stepNo : Nat) (state : State)
     (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x107ac))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x107ac))
@@ -988,14 +988,14 @@ theorem raw_parser_u32_next_word_third_byte_shift_retire_exact (stepNo : Nat) (s
               (Sail.shift_bits_left value
                 (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
         (BitVec.ofNat 64 0x107b0) retired) false := by
-  have image : Artifact.programImage.readByte? 0x107ac = some 0x13 ∧
-      Artifact.programImage.readByte? 0x107ad = some 0x18 ∧
-        Artifact.programImage.readByte? 0x107ae = some 0x08 ∧
-          Artifact.programImage.readByte? 0x107af = some 0x01 := by native_decide
+  have image : Artifacts.programImage.readByte? 0x107ac = some 0x13 ∧
+      Artifacts.programImage.readByte? 0x107ad = some 0x18 ∧
+        Artifacts.programImage.readByte? 0x107ae = some 0x08 ∧
+          Artifacts.programImage.readByte? 0x107af = some 0x01 := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+  have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x107ac (by omega) afterIncrement
     0x13 0x18 0x08 0x01 read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x13#8 0x18#8 0x08#8 0x01))
@@ -1015,7 +1015,7 @@ theorem raw_parser_u32_next_word_third_byte_shift_retire_exact (stepNo : Nat) (s
 
 theorem raw_parser_u32_next_word_second_byte_shift_retire_exact (stepNo : Nat) (state : State)
     (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x107a8))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x107a8))
@@ -1040,15 +1040,15 @@ theorem raw_parser_u32_next_word_second_byte_shift_retire_exact (stepNo : Nat) (
               (Sail.shift_bits_left value
                 (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) }
         (BitVec.ofNat 64 0x107ac) retired) false := by
-  have image : Artifact.programImage.readByte? 0x107a8 = some 0x93 ∧
-      Artifact.programImage.readByte? 0x107a9 = some 0x97 ∧
-        Artifact.programImage.readByte? 0x107aa = some 0x87 ∧
-          Artifact.programImage.readByte? 0x107ab = some 0x00 := by native_decide
+  have image : Artifacts.programImage.readByte? 0x107a8 = some 0x93 ∧
+      Artifacts.programImage.readByte? 0x107a9 = some 0x97 ∧
+        Artifacts.programImage.readByte? 0x107aa = some 0x87 ∧
+          Artifacts.programImage.readByte? 0x107ab = some 0x00 := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+  have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x107a8 (by omega) afterIncrement
     0x93 0x97 0x87 0x00 read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x93#8 0x97#8 0x87#8 0x00#8))
@@ -1067,21 +1067,21 @@ theorem raw_parser_u32_next_word_second_byte_shift_retire_exact (stepNo : Nat) (
     machineEnabled retiredRead
 
 theorem raw_parser_u32_second_byte_shift_image_bytes :
-    Artifact.programImage.readByte? 0x10784 = some 0x93 ∧
-      Artifact.programImage.readByte? 0x10785 = some 0x95 ∧
-        Artifact.programImage.readByte? 0x10786 = some 0x85 ∧
-          Artifact.programImage.readByte? 0x10787 = some 0x00 := by
+    Artifacts.programImage.readByte? 0x10784 = some 0x93 ∧
+      Artifacts.programImage.readByte? 0x10785 = some 0x95 ∧
+        Artifacts.programImage.readByte? 0x10786 = some 0x85 ∧
+          Artifacts.programImage.readByte? 0x10787 = some 0x00 := by
   native_decide
 
 theorem raw_parser_u32_second_byte_shift_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10784)
       0x93#8 0x95#8 0x85#8 0x00#8 := by
   rcases raw_parser_u32_second_byte_shift_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10784 (by omega)
     afterIncrement 0x93 0x95 0x85 0x00 read0 read1 read2 read3
 
@@ -1094,7 +1094,7 @@ theorem raw_parser_u32_second_byte_shift_decode (state : State)
 
 theorem raw_parser_u32_second_byte_shift_retire_exact (stepNo : Nat) (state : State)
     (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10784))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10784))
@@ -1148,21 +1148,21 @@ theorem raw_parser_u32_third_byte_shift_execute (state : State) (value : BitVec 
         (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
 
 theorem raw_parser_u32_third_byte_shift_image_bytes :
-    Artifact.programImage.readByte? 0x10788 = some 0x13 ∧
-      Artifact.programImage.readByte? 0x10789 = some 0x16 ∧
-        Artifact.programImage.readByte? 0x1078a = some 0x06 ∧
-          Artifact.programImage.readByte? 0x1078b = some 0x01 := by
+    Artifacts.programImage.readByte? 0x10788 = some 0x13 ∧
+      Artifacts.programImage.readByte? 0x10789 = some 0x16 ∧
+        Artifacts.programImage.readByte? 0x1078a = some 0x06 ∧
+          Artifacts.programImage.readByte? 0x1078b = some 0x01 := by
   native_decide
 
 theorem raw_parser_u32_third_byte_shift_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10788)
       0x13#8 0x16#8 0x06#8 0x01#8 := by
   rcases raw_parser_u32_third_byte_shift_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10788 (by omega)
     afterIncrement 0x13 0x16 0x06 0x01 read0 read1 read2 read3
 
@@ -1175,7 +1175,7 @@ theorem raw_parser_u32_third_byte_shift_decode (state : State)
 
 theorem raw_parser_u32_third_byte_shift_retire_exact (stepNo : Nat) (state : State)
     (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10788))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10788))
@@ -1229,21 +1229,21 @@ theorem raw_parser_u32_fourth_byte_shift_execute (state : State) (value : BitVec
         (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
 
 theorem raw_parser_u32_fourth_byte_shift_image_bytes :
-    Artifact.programImage.readByte? 0x1078c = some 0x93 ∧
-      Artifact.programImage.readByte? 0x1078d = some 0x96 ∧
-        Artifact.programImage.readByte? 0x1078e = some 0x86 ∧
-          Artifact.programImage.readByte? 0x1078f = some 0x01 := by
+    Artifacts.programImage.readByte? 0x1078c = some 0x93 ∧
+      Artifacts.programImage.readByte? 0x1078d = some 0x96 ∧
+        Artifacts.programImage.readByte? 0x1078e = some 0x86 ∧
+          Artifacts.programImage.readByte? 0x1078f = some 0x01 := by
   native_decide
 
 theorem raw_parser_u32_fourth_byte_shift_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x1078c)
       0x93#8 0x96#8 0x86#8 0x01#8 := by
   rcases raw_parser_u32_fourth_byte_shift_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x1078c (by omega)
     afterIncrement 0x93 0x96 0x86 0x01 read0 read1 read2 read3
 
@@ -1256,7 +1256,7 @@ theorem raw_parser_u32_fourth_byte_shift_decode (state : State)
 
 theorem raw_parser_u32_fourth_byte_shift_retire_exact (stepNo : Nat) (state : State)
     (value retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x1078c))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1078c))
@@ -1304,21 +1304,21 @@ theorem raw_parser_u32_low_half_or_execute (state : State) (low high : BitVec 64
     (rX_x11_run state high highStored) (rX_x5_run state low lowStored) (wX_x28_run state (high ||| low))
 
 theorem raw_parser_u32_low_half_or_image_bytes :
-    Artifact.programImage.readByte? 0x10790 = some 0x33 ∧
-      Artifact.programImage.readByte? 0x10791 = some 0xee ∧
-        Artifact.programImage.readByte? 0x10792 = some 0x55 ∧
-          Artifact.programImage.readByte? 0x10793 = some 0x00 := by
+    Artifacts.programImage.readByte? 0x10790 = some 0x33 ∧
+      Artifacts.programImage.readByte? 0x10791 = some 0xee ∧
+        Artifacts.programImage.readByte? 0x10792 = some 0x55 ∧
+          Artifacts.programImage.readByte? 0x10793 = some 0x00 := by
   native_decide
 
 theorem raw_parser_u32_low_half_or_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10790)
       0x33#8 0xee#8 0x55#8 0x00#8 := by
   rcases raw_parser_u32_low_half_or_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10790 (by omega)
     afterIncrement 0x33 0xee 0x55 0x00 read0 read1 read2 read3
 
@@ -1331,7 +1331,7 @@ theorem raw_parser_u32_low_half_or_decode (state : State)
 
 theorem raw_parser_u32_low_half_or_retire_exact (stepNo : Nat) (state : State)
     (low high retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10790))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10790))
@@ -1377,21 +1377,21 @@ theorem raw_parser_u32_high_half_or_execute (state : State) (mid high : BitVec 6
     (rX_x13_run state high highStored) (rX_x12_run state mid midStored) (wX_x12_run state (high ||| mid))
 
 theorem raw_parser_u32_high_half_or_image_bytes :
-    Artifact.programImage.readByte? 0x10794 = some 0x33 ∧
-      Artifact.programImage.readByte? 0x10795 = some 0xe6 ∧
-        Artifact.programImage.readByte? 0x10796 = some 0xc6 ∧
-          Artifact.programImage.readByte? 0x10797 = some 0x00 := by
+    Artifacts.programImage.readByte? 0x10794 = some 0x33 ∧
+      Artifacts.programImage.readByte? 0x10795 = some 0xe6 ∧
+        Artifacts.programImage.readByte? 0x10796 = some 0xc6 ∧
+          Artifacts.programImage.readByte? 0x10797 = some 0x00 := by
   native_decide
 
 theorem raw_parser_u32_high_half_or_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10794)
       0x33#8 0xe6#8 0xc6#8 0x00#8 := by
   rcases raw_parser_u32_high_half_or_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10794 (by omega)
     afterIncrement 0x33 0xe6 0xc6 0x00 read0 read1 read2 read3
 
@@ -1404,7 +1404,7 @@ theorem raw_parser_u32_high_half_or_decode (state : State)
 
 theorem raw_parser_u32_high_half_or_retire_exact (stepNo : Nat) (state : State)
     (mid high retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10794))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10794))
@@ -1450,21 +1450,21 @@ theorem raw_parser_u32_word_or_execute (state : State) (low high : BitVec 64)
     (rX_x12_run state high highStored) (rX_x28_run state low lowStored) (wX_x18_run state (high ||| low))
 
 theorem raw_parser_u32_word_or_image_bytes :
-    Artifact.programImage.readByte? 0x107f4 = some 0x33 ∧
-      Artifact.programImage.readByte? 0x107f5 = some 0x69 ∧
-        Artifact.programImage.readByte? 0x107f6 = some 0xc6 ∧
-          Artifact.programImage.readByte? 0x107f7 = some 0x01 := by
+    Artifacts.programImage.readByte? 0x107f4 = some 0x33 ∧
+      Artifacts.programImage.readByte? 0x107f5 = some 0x69 ∧
+        Artifacts.programImage.readByte? 0x107f6 = some 0xc6 ∧
+          Artifacts.programImage.readByte? 0x107f7 = some 0x01 := by
   native_decide
 
 theorem raw_parser_u32_word_or_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x107f4)
       0x33#8 0x69#8 0xc6#8 0x01#8 := by
   rcases raw_parser_u32_word_or_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x107f4 (by omega)
     afterIncrement 0x33 0x69 0xc6 0x01 read0 read1 read2 read3
 
@@ -1477,7 +1477,7 @@ theorem raw_parser_u32_word_or_decode (state : State)
 
 theorem raw_parser_u32_word_or_retire_exact (stepNo : Nat) (state : State)
     (low high retired : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x107f4))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x107f4))
@@ -1543,25 +1543,25 @@ theorem raw_parser_u32_live_prefix_trace
 
 /-- The first raw-header `lbu` is encoded at `0x104bc` in the immutable decoder image. -/
 theorem raw_header_first_lbu_image_bytes :
-    Artifact.programImage.readByte? 0x104bc = some 0x03 ∧
-      Artifact.programImage.readByte? 0x104bd = some 0x45 ∧
-        Artifact.programImage.readByte? 0x104be = some 0x0a ∧
-          Artifact.programImage.readByte? 0x104bf = some 0x00 := by
+    Artifacts.programImage.readByte? 0x104bc = some 0x03 ∧
+      Artifacts.programImage.readByte? 0x104bd = some 0x45 ∧
+        Artifacts.programImage.readByte? 0x104be = some 0x0a ∧
+          Artifacts.programImage.readByte? 0x104bf = some 0x00 := by
   native_decide
 
 /-- Register-only retirement bookkeeping preserves the loaded immutable code image. -/
 theorem image_loaded_after_increment (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
-    Artifact.programImage.matchesMemory (tryStepControlFlowAfterIncrement state).mem := by
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
+    Artifacts.programImage.matchesMemory (tryStepControlFlowAfterIncrement state).mem := by
   simpa [tryStepControlFlowAfterIncrement] using loaded
 
 /-- The generated Sail fetch at the first raw-header read sees its exact ELF instruction bytes. -/
 theorem raw_header_first_lbu_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc)
       (BitVec.ofNat 8 0x03) (BitVec.ofNat 8 0x45) (BitVec.ofNat 8 0x0a) (BitVec.ofNat 8 0x00) := by
   rcases raw_header_first_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x104bc (by omega)
     (image_loaded_after_increment state loaded) 0x03 0x45 0x0a 0x00 read0 read1 read2 read3
 
@@ -1578,7 +1578,7 @@ Its fetch bytes and generated-Sail decode are derived here from the immutable Ze
 theorem raw_header_first_lbu_retire (stepNo : Nat) (state afterExec : State)
     (srcBits mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104bc))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x104bc))
@@ -1638,10 +1638,10 @@ theorem raw_header_first_lbu_retire (stepNo : Nat) (state afterExec : State)
 
 /-- The parser's result-status read at `0x11f5c` is an unsigned half-word load. -/
 theorem raw_parser_lhu_image_bytes :
-    Artifact.programImage.readByte? 0x11f5c = some 0x83 ∧
-      Artifact.programImage.readByte? 0x11f5d = some 0xdb ∧
-        Artifact.programImage.readByte? 0x11f5e = some 0x4c ∧
-          Artifact.programImage.readByte? 0x11f5f = some 0x0e := by
+    Artifacts.programImage.readByte? 0x11f5c = some 0x83 ∧
+      Artifacts.programImage.readByte? 0x11f5d = some 0xdb ∧
+        Artifacts.programImage.readByte? 0x11f5e = some 0x4c ∧
+          Artifacts.programImage.readByte? 0x11f5f = some 0x0e := by
   native_decide
 
 theorem raw_parser_lhu_decode (state : State)
@@ -1652,18 +1652,18 @@ theorem raw_parser_lhu_decode (state : State)
   decode_run
 
 theorem raw_parser_lhu_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x11f5c)
       (BitVec.ofNat 8 0x83) (BitVec.ofNat 8 0xdb) (BitVec.ofNat 8 0x4c) (BitVec.ofNat 8 0x0e) := by
   rcases raw_parser_lhu_image_bytes with ⟨read0, read1, read2, read3⟩
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x11f5c (by omega)
     (image_loaded_after_increment state loaded) 0x83 0xdb 0x4c 0x0e read0 read1 read2 read3
 
 /-- The parser's concrete unsigned half-word result-status read retires from `0x11f5c`. -/
 theorem raw_parser_lhu_retire (stepNo : Nat) (state afterExec : State)
     (retired : BitVec 64) (data : BitVec 16) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x11f5c))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x11f5c))
@@ -1706,10 +1706,10 @@ theorem raw_parser_lhu_retire (stepNo : Nat) (state afterExec : State)
 
 /-- The parser's slice-descriptor read at `0x1060c` is a native double-word load. -/
 theorem raw_parser_ld_image_bytes :
-    Artifact.programImage.readByte? 0x1060c = some 0x83 ∧
-      Artifact.programImage.readByte? 0x1060d = some 0x36 ∧
-        Artifact.programImage.readByte? 0x1060e = some 0x04 ∧
-          Artifact.programImage.readByte? 0x1060f = some 0x00 := by
+    Artifacts.programImage.readByte? 0x1060c = some 0x83 ∧
+      Artifacts.programImage.readByte? 0x1060d = some 0x36 ∧
+        Artifacts.programImage.readByte? 0x1060e = some 0x04 ∧
+          Artifacts.programImage.readByte? 0x1060f = some 0x00 := by
   native_decide
 
 theorem raw_parser_ld_decode (state : State)
@@ -1720,18 +1720,18 @@ theorem raw_parser_ld_decode (state : State)
   decode_run
 
 theorem raw_parser_ld_fetch (state : State)
-    (loaded : Artifact.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x1060c)
       (BitVec.ofNat 8 0x83) (BitVec.ofNat 8 0x36) (BitVec.ofNat 8 0x04) (BitVec.ofNat 8 0x00) := by
   rcases raw_parser_ld_image_bytes with ⟨read0, read1, read2, read3⟩
-  exact fetchBytesAt_of_image_bytes Artifact.programImage
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x1060c (by omega)
     (image_loaded_after_increment state loaded) 0x83 0x36 0x04 0x00 read0 read1 read2 read3
 
 /-- The parser's concrete slice-descriptor double-word read retires from `0x1060c`. -/
 theorem raw_parser_ld_retire (stepNo : Nat) (state afterExec : State)
     (retired data : BitVec 64) (inhibit : BitVec 32) (config mseccfgBits : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x1060c))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1060c))
@@ -1774,26 +1774,26 @@ theorem raw_parser_ld_retire (stepNo : Nat) (state afterExec : State)
 
 /-- A contiguous parser byte-read sequence feeding a native little-endian 32-bit assembly. -/
 theorem raw_parser_u32_byte_assembly_image_words :
-    Artifact.programImage.readU32LE? 0x10764 = some 0x1b4c4283 ∧
-      Artifact.programImage.readU32LE? 0x10768 = some 0x1b5c4583 ∧
-        Artifact.programImage.readU32LE? 0x1076c = some 0x1b6c4603 ∧
-          Artifact.programImage.readU32LE? 0x10770 = some 0x1b7c4683 := by
+    Artifacts.programImage.readU32LE? 0x10764 = some 0x1b4c4283 ∧
+      Artifacts.programImage.readU32LE? 0x10768 = some 0x1b5c4583 ∧
+        Artifacts.programImage.readU32LE? 0x1076c = some 0x1b6c4603 ∧
+          Artifacts.programImage.readU32LE? 0x10770 = some 0x1b7c4683 := by
   native_decide
 
 /-- The four instructions between the first word's byte reads and its shifts are real parser
 byte reads for the adjacent field; they are not a control-flow gap. -/
 theorem raw_parser_u32_intervening_byte_load_image_words :
-    Artifact.programImage.readU32LE? 0x10774 = some 0x1f8c4703 ∧
-      Artifact.programImage.readU32LE? 0x10778 = some 0x1f9c4783 ∧
-        Artifact.programImage.readU32LE? 0x1077c = some 0x1fac4803 ∧
-          Artifact.programImage.readU32LE? 0x10780 = some 0x1fbc4883 := by
+    Artifacts.programImage.readU32LE? 0x10774 = some 0x1f8c4703 ∧
+      Artifacts.programImage.readU32LE? 0x10778 = some 0x1f9c4783 ∧
+        Artifacts.programImage.readU32LE? 0x1077c = some 0x1fac4803 ∧
+          Artifacts.programImage.readU32LE? 0x10780 = some 0x1fbc4883 := by
   native_decide
 
 /-- The next adjacent word's byte assembly begins with three shifts at fixed ELF PCs. -/
 theorem raw_parser_u32_next_word_shift_image_words :
-    Artifact.programImage.readU32LE? 0x107a8 = some 0x00879793 ∧
-      Artifact.programImage.readU32LE? 0x107ac = some 0x01081813 ∧
-        Artifact.programImage.readU32LE? 0x107b0 = some 0x01889893 := by
+    Artifacts.programImage.readU32LE? 0x107a8 = some 0x00879793 ∧
+      Artifacts.programImage.readU32LE? 0x107ac = some 0x01081813 ∧
+        Artifacts.programImage.readU32LE? 0x107b0 = some 0x01889893 := by
   native_decide
 
 theorem raw_parser_u32_intervening_byte_load_decode (state : State)
@@ -1818,7 +1818,7 @@ middle-fragment step needed by `raw_parser_u32_live_prefix_trace`. -/
 theorem raw_parser_u32_adjacent_first_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10774))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10774))
@@ -1854,15 +1854,15 @@ theorem raw_parser_u32_adjacent_first_lbu_retire_exact (stepNo : Nat) (state : S
           with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
             (BitVec.ofNat 64 0x10774)).regs.insert x14 (zero_extend (m := 64) data)) }
         (BitVec.ofNat 64 0x10778) retired) false := by
-  have image : Artifact.programImage.readByte? 0x10774 = some 0x03 ∧
-      Artifact.programImage.readByte? 0x10775 = some 0x47 ∧
-        Artifact.programImage.readByte? 0x10776 = some 0x8c ∧
-          Artifact.programImage.readByte? 0x10777 = some 0x1f := by native_decide
+  have image : Artifacts.programImage.readByte? 0x10774 = some 0x03 ∧
+      Artifacts.programImage.readByte? 0x10775 = some 0x47 ∧
+        Artifacts.programImage.readByte? 0x10776 = some 0x8c ∧
+          Artifacts.programImage.readByte? 0x10777 = some 0x1f := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+  have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10774 (by omega) afterIncrement
     0x03 0x47 0x8c 0x1f read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x03#8 0x47#8 0x8c#8 0x1f))
@@ -1883,7 +1883,7 @@ theorem raw_parser_u32_adjacent_first_lbu_retire_exact (stepNo : Nat) (state : S
 theorem raw_parser_u32_adjacent_second_lbu_retire_exact (stepNo : Nat) (state : State)
     (base mstatusBits retired mseccfgBits : BitVec 64) (data : BitVec 8)
     (inhibit : BitVec 32) (config : BitVec 64)
-    (loaded : Artifact.programImage.matchesMemory state.mem)
+    (loaded : Artifacts.programImage.matchesMemory state.mem)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10778))
     (fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10778))
@@ -1919,15 +1919,15 @@ theorem raw_parser_u32_adjacent_second_lbu_retire_exact (stepNo : Nat) (state : 
           with regs := ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
             (BitVec.ofNat 64 0x10778)).regs.insert x15 (zero_extend (m := 64) data)) }
         (BitVec.ofNat 64 0x1077c) retired) false := by
-  have image : Artifact.programImage.readByte? 0x10778 = some 0x83 ∧
-      Artifact.programImage.readByte? 0x10779 = some 0x47 ∧
-        Artifact.programImage.readByte? 0x1077a = some 0x9c ∧
-          Artifact.programImage.readByte? 0x1077b = some 0x1f := by native_decide
+  have image : Artifacts.programImage.readByte? 0x10778 = some 0x83 ∧
+      Artifacts.programImage.readByte? 0x10779 = some 0x47 ∧
+        Artifacts.programImage.readByte? 0x1077a = some 0x9c ∧
+          Artifacts.programImage.readByte? 0x1077b = some 0x1f := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifact.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := fetchBytesAt_of_image_bytes Artifact.programImage
+  have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10778 (by omega) afterIncrement
     0x83 0x47 0x9c 0x1f read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x83#8 0x47#8 0x9c#8 0x1f))
@@ -1963,12 +1963,12 @@ theorem raw_parser_u32_byte_assembly_decode (state : State)
 
 /-- The same ELF block shifts and combines those bytes into its little-endian word in `s2`. -/
 theorem raw_parser_u32_assembly_image_words :
-    Artifact.programImage.readU32LE? 0x10784 = some 0x00859593 ∧
-      Artifact.programImage.readU32LE? 0x10788 = some 0x01061613 ∧
-        Artifact.programImage.readU32LE? 0x1078c = some 0x01869693 ∧
-          Artifact.programImage.readU32LE? 0x10790 = some 0x0055ee33 ∧
-            Artifact.programImage.readU32LE? 0x10794 = some 0x00c6e633 ∧
-              Artifact.programImage.readU32LE? 0x107f4 = some 0x01c66933 := by
+    Artifacts.programImage.readU32LE? 0x10784 = some 0x00859593 ∧
+      Artifacts.programImage.readU32LE? 0x10788 = some 0x01061613 ∧
+        Artifacts.programImage.readU32LE? 0x1078c = some 0x01869693 ∧
+          Artifacts.programImage.readU32LE? 0x10790 = some 0x0055ee33 ∧
+            Artifacts.programImage.readU32LE? 0x10794 = some 0x00c6e633 ∧
+              Artifacts.programImage.readU32LE? 0x107f4 = some 0x01c66933 := by
   native_decide
 
 theorem raw_parser_u32_assembly_decode (state : State)

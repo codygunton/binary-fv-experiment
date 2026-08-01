@@ -1,6 +1,6 @@
-import BinaryFv.Zesu.Artifact.Layout
+import BinaryFv.Zesu.Artifacts.Layout
 
-namespace BinaryFv.Zesu.Artifact
+namespace BinaryFv.Zesu.Artifacts
 
 open BinaryFv.Binary
 open BinaryFv.RiscV
@@ -49,4 +49,4 @@ theorem memcpy_code_range_resolves : memcpyCodeRange.isOk = true := by
 theorem memmove_code_range_resolves : memmoveCodeRange.isOk = true := by
   native_decide
 
-end BinaryFv.Zesu.Artifact
+end BinaryFv.Zesu.Artifacts
