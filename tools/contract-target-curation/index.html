@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>mf decomposition — contract set curation</title>
+<title>Zesu call hierarchy — contract selection</title>
 <link rel="stylesheet" href="vendor/d3-flamegraph.css">
 <style>
  :root{--bg:#0f1115;--panel:#161a21;--line:#262c36;--fg:#dfe4ec;--dim:#8a93a3;
@@ -47,7 +47,7 @@
 <div id="wrap">
  <div id="left">
   <header>
-    <h1>production machine regions</h1>
+    <h1>production call hierarchy</h1>
     <span class="pill" id="zoominfo">full</span>
     <button id="reset">reset zoom</button>
     <button id="clear">clear set</button>
@@ -78,7 +78,7 @@
 <script src="vendor/d3.min.js"></script>
 <script src="vendor/d3-flamegraph.min.js"></script>
 <script>
-let D=null, META=null, TOTAL=0, sel=new Set(), cur=null, fg=null, SUG=null, PROOF=null;
+let D=null, META=null, OWNER_META=new Map(), TOTAL=0, PROGRAM_TOTAL=0, sel=new Set(), cur=null, fg=null, SUG=null, PROOF=null;
 let tracked=new Map();
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -86,17 +86,17 @@ const save=()=>localStorage.setItem('mfsel2',JSON.stringify([...sel]));
 
 Promise.all([fetch('flame.json').then(r=>r.json()), fetch('proof-progress.json').then(r=>r.json())])
 .then(([d,p])=>{
-  D=d.tree; META=d.meta; TOTAL=d.total; SUG=d.suggest; PROOF=p;
+  D=d.tree; META=d.meta; TOTAL=d.total; PROGRAM_TOTAL=d.programTotal||d.total; SUG=d.suggest; PROOF=p;
+  Object.values(META).forEach(m=>{if(m.owner) OWNER_META.set(m.owner,m)});
   (p.levels||[]).flatMap(level=>level.functions||[]).forEach(row=>{
     tracked.set(row.qualified,row);
     if(row.displayName) tracked.set(row.displayName,row);
   });
   try{(JSON.parse(localStorage.getItem('mfsel2'))||[]).forEach(k=>sel.add(k));}catch(e){}
-  (D.children||[]).forEach(node=>{
-    const m=META[node.key]||{};
-    if(tracked.has(m.qualified||plainName(node.name))) sel.add(node.key);
+  Object.entries(META).forEach(([key,m])=>{
+    if(tracked.has(m.qualified)) sel.add(key);
   });
-  $('#rootname').textContent=`whole program (${TOTAL} instrs)`;
+  $('#rootname').textContent=`program execution (${PROGRAM_TOTAL} instructions)`;
   build(); coverage();
 });
 
@@ -110,9 +110,10 @@ function keyOf(node){
 function plainName(name){ return String(name).replace(/ \[[^\]]+\]$/,''); }
 function statusOf(node){
   const k=keyOf(node), m=META[k]||{};
-  if(k==='program') return PROOF?.root?.status||'unproved';
+  if(m.qualified===PROOF?.root?.qualified) return PROOF.root.status||'unproved';
   const row=tracked.get(m.qualified||plainName(node.data.name));
-  if(row && node.parent && keyOf(node.parent)==='program') return row.status;
+  const parentMeta=node.parent?META[keyOf(node.parent)]||{}:{};
+  if(row && parentMeta.qualified==='program') return row.status;
   return sel.has(k)?'unproved':'unselected';
 }
 const statusColor=s=>({unproved:'#d95757',in_progress:'#e5b84b',proved:'#3ddc84',
@@ -195,13 +196,18 @@ function details(d){
   const k=keyOf(d), m=META[k]||{}, proofStatus=statusOf(d);
   cur=k;
   $('#dname').textContent=d.data.name;
-  $('#dsub').textContent=`${d.data.value} instrs · ${(d.data.value/TOTAL*100).toFixed(2)}% of mf`;
+  $('#dsub').textContent=`${d.data.value} instructions · ${(d.data.value/TOTAL*100).toFixed(2)}% of binary`;
+  const calls=(m.callees||[]).map(call=>`${esc(call.kind)} → ${esc(OWNER_META.get(call.callee)?.qualified||call.callee)}`);
+  const callers=(m.callers||[]).map(call=>`${esc(call.kind)} ← ${esc(call.caller==='program'?'program':OWNER_META.get(call.caller)?.qualified||call.caller)}`);
   $('#rbody').innerHTML=
    `<label class="chk"><input type="checkbox" id="cb" ${sel.has(k)?'checked':''}>
       write a contract for this unit</label>
     <div class="kv">
       <span>stack path</span><span>${esc(k.replace(/\|/g,' › '))}</span>
       <span>proof status</span><span style="color:${statusColor(proofStatus)}">${esc(proofStatus.replace('_',' '))}</span>
+      <span>tree relation</span><span>${esc(m.hierarchy||'?')}</span>
+      <span>actual callers</span><span>${callers.join('<br>')||'none'}</span>
+      <span>actual calls</span><span>${calls.join('<br>')||'none'}</span>
       <span>source</span><span>${esc(m.file||'?')}:${m.line??'?'}</span>
       <span>instructions</span><span>${d.data.value}</span>
       <span>fragments</span><span>${m.frags>1?`<b style="color:var(--cur)">${m.frags}</b> (non-contiguous)`:'1 (contiguous)'}</span>
@@ -230,10 +236,10 @@ function coverage(){
       for(let i=a;i<b;i++) covered.add(i);
     });
   });
-  const pct=covered.size/TOTAL*100;
+  const pct=covered.size/PROGRAM_TOTAL*100;
   $('#pct').textContent=pct.toFixed(1)+'%';
   $('#pct').style.color = pct>=99.95?'var(--green)':'var(--fg)';
-  $('#pctabs').textContent=`(${covered.size} / ${TOTAL} instrs · ${sel.size} units)`;
+  $('#pctabs').textContent=`(${covered.size} / ${PROGRAM_TOTAL} program instructions · ${sel.size} units)`;
   const L=$('#list'); L.innerHTML = sel.size?'':'<span class="muted">no units selected</span>';
   [...sel].map(k=>[k,META[k]]).filter(x=>x[1]).sort((a,b)=>b[1].value-a[1].value).forEach(([k,m])=>{
     const div=document.createElement('div');

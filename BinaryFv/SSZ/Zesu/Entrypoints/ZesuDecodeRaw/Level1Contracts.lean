@@ -1,11 +1,11 @@
 import BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
 
 /-!
-# Contracts for the eight functions selected at Level 1
+# Contracts for the three functions called by `program`
 
-The Level 1 flamegraph selection contains `zesu_decode_raw`, the five allocator functions, and the two
-result accessors below `program`. This file states that exact selection. It does not replace those
-functions with descendants of `zesu_decode_raw`.
+The runner calls `zesu_decode_raw`, then `zesu_raw_result` and `zesu_raw_error`. These are the three
+children of `program` in the corrected call-dominator flamegraph. Allocator-vtable functions are
+called inside the decoder and therefore belong in later resolutions of `zesu_decode_raw`.
 -/
 
 namespace BinaryFv.SSZ.Zesu.Entrypoints.ZesuDecodeRaw
@@ -27,31 +27,6 @@ abbrev ZesuDecodeRawContract : Prop :=
         (functionInstanceZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
           canonicalContractParams.resultBuffer canonicalContractParams.repRawV4
           DecoderGlobalsModel.fresh)
-
-abbrev RawAllocContract : Prop :=
-  routineObligation canonicalContractParams functionInstance_raw_allocator_zesu_raw_alloc
-    (functionInstanceReachedPcs generatedProgram functionInstance_raw_allocator_zesu_raw_alloc)
-    .rawAlloc
-
-abbrev AllocatorFreeContract : Prop :=
-  routineObligation canonicalContractParams functionInstance_raw_decoder_root_allocatorFree
-    (functionInstanceReachedPcs generatedProgram functionInstance_raw_decoder_root_allocatorFree)
-    .allocatorFree
-
-abbrev AllocatorRemapContract : Prop :=
-  routineObligation canonicalContractParams functionInstance_raw_decoder_root_allocatorRemap
-    (functionInstanceReachedPcs generatedProgram functionInstance_raw_decoder_root_allocatorRemap)
-    .allocatorRemap
-
-abbrev AllocatorResizeContract : Prop :=
-  routineObligation canonicalContractParams functionInstance_raw_decoder_root_allocatorResize
-    (functionInstanceReachedPcs generatedProgram functionInstance_raw_decoder_root_allocatorResize)
-    .allocatorResize
-
-abbrev AllocatorAllocContract : Prop :=
-  routineObligation canonicalContractParams functionInstance_raw_decoder_root_allocatorAlloc
-    (functionInstanceReachedPcs generatedProgram functionInstance_raw_decoder_root_allocatorAlloc)
-    .allocatorAlloc
 
 /-- Contract for `zesu_raw_result` at the symbol selected by the runner. -/
 abbrev RawResultContract : Prop :=
@@ -76,24 +51,13 @@ abbrev RawErrorContract : Prop :=
         (functionInstanceEntryWord functionInstance)
         (contractRawError canonicalContractParams.env canonicalContractParams.globals)
 
-/-- Convert the contracts for all eight Level 1 functions into the three complete contracts used by
-the runner.
-
-The `zesu_decode_raw` argument is deliberately conditional on all five allocator arguments. This
-records the proof still required for the decoder's own instructions: compose its local execution with
-the five runtime functions to obtain its complete machine contract. Every argument below is therefore
-used to derive the result; none is retained only as coverage metadata. -/
+/-- Put the three contracts called by the runner into the exact structure consumed by its execution
+proof. Every argument is copied directly; no deeper decoder contract is smuggled into Level 1. -/
 def exportedContracts_of_level1
-    (decode : RawAllocContract → AllocatorFreeContract → AllocatorRemapContract →
-      AllocatorResizeContract → AllocatorAllocContract → ZesuDecodeRawContract)
-    (rawAlloc : RawAllocContract)
-    (allocatorFree : AllocatorFreeContract)
-    (allocatorRemap : AllocatorRemapContract)
-    (allocatorResize : AllocatorResizeContract)
-    (allocatorAlloc : AllocatorAllocContract)
+    (decode : ZesuDecodeRawContract)
     (rawResult : RawResultContract)
     (rawError : RawErrorContract) : ExportedContractAssumptions where
-  decode := decode rawAlloc allocatorFree allocatorRemap allocatorResize allocatorAlloc
+  decode := decode
   rawResult := rawResult
   rawError := rawError
 

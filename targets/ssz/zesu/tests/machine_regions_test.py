@@ -50,6 +50,40 @@ class MachineRegionTests(unittest.TestCase):
             0x1100,
         )
 
+    def test_resolves_auipc_jr_tail_from_words(self) -> None:
+        instructions = {
+            0x1000: {"mnemonic": "auipc", "word": 0x00000317},
+            0x1004: {"mnemonic": "jr", "word": 0x10030067},
+        }
+        self.assertEqual(
+            machine_regions.resolved_auipc_jalr_target(0x1004, instructions[0x1004], instructions),
+            0x1100,
+        )
+
+    def test_resolves_reviewed_allocator_vtable_slot(self) -> None:
+        instructions = {
+            0x1000: {"mnemonic": "ld", "operands": "t1, 0x18(a3)"},
+            0x1004: {"mnemonic": "jr", "operands": "t1"},
+        }
+        self.assertEqual(
+            machine_regions.allocator_vtable_slot(
+                0x1004, "excluded:0", instructions,
+                {0x1000: "excluded:0", 0x1004: "excluded:0"},
+            ),
+            (0x1000, 24),
+        )
+
+    def test_call_dominator_tree_handles_shared_callee(self) -> None:
+        nodes = {"program", "left", "right", "shared"}
+        edges = {
+            ("program", "left"), ("program", "right"),
+            ("left", "shared"), ("right", "shared"),
+        }
+        parents = machine_regions.dominator_parents(nodes, edges, "program")
+        self.assertEqual(parents["left"], "program")
+        self.assertEqual(parents["right"], "program")
+        self.assertEqual(parents["shared"], "program")
+
     def test_tarjan_finds_loop(self) -> None:
         graph = {0: {1}, 1: {2}, 2: {1, 3}, 3: set()}
         self.assertIn([1, 2], machine_regions.strongly_connected_components(graph))

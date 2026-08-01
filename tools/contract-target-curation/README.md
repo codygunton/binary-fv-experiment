@@ -1,7 +1,7 @@
 # Contract-target curation tool
 
-An interactive view of the pinned production decoder for selecting hierarchical proof units. It is a
-consumer of the canonical machine-region database, not a separate extractor.
+An interactive view of the pinned production decoder for selecting contracts from its actual call
+hierarchy. It consumes the canonical machine-region database rather than extracting the binary again.
 
 ## Run the generated UI
 
@@ -20,10 +20,14 @@ unproved functions, yellow for functions whose proof is in progress, green for p
 blue for functions not selected at the current level. Manual selections default to red. Update this
 file only when the corresponding Lean theorem status changes.
 
-The current generated view is an instruction-ownership hierarchy, so it can show additional emitted
-or excluded regions directly below `program`. Level 1 follows the reviewed call-flamegraph selection
-recorded in `proof-progress.json`; those additional ownership roots remain blue. Do not infer a proof
-dependency merely from an ownership-tree parent.
+The binary's calls form a directed graph because one emitted function can have several callers. A
+flamegraph must be a tree, so the UI places each function below its immediate call dominator: the
+nearest function that occurs on every call path to it. The details panel lists the actual caller and
+callee edges; a visual parent is not asserted to be a direct call unless that edge appears there.
+
+The top `binary` node separates instructions reached by the runner's `zesu_decode_raw` →
+`zesu_raw_result` → `zesu_raw_error` protocol from functions present in the ELF but never called by
+that protocol. The latter are displayed under “not called by program.”
 
 ## Data and trust
 
@@ -32,11 +36,11 @@ dependency merely from an ownership-tree parent.
 difference. The UI shows the checked-DWARF hierarchy, while exact ownership, CFG edges, entries,
 exits, loop SCCs, register effects, and liveness live in `machine-regions.json`.
 
-The generated hierarchy includes zero-residue source frames so a reviewer can select a coarser parent
-instead of being forced into the deepest DWARF occurrence. `value` is the frame subtree's instruction
-count; `self` is the residue after its displayed children are removed. The proposed split is only a
-size-based starting point. A selected set becomes proof input only after its ownership, boundaries,
-loops, interface, and composition witness pass the Lean admission checks.
+The hierarchy includes zero-instruction source frames so a reviewer can see inlined call structure
+even when deeper frames own all emitted instructions. `value` is the dominator subtree's unique
+instruction count; `self` is the instructions owned by that function instance. The proposed split is
+only a size-based starting point. A selected set becomes proof input only after its ownership,
+boundaries, loops, interface, and call composition pass the Lean checks.
 
 The vendored D3 files are MIT-licensed and keep the review UI offline. The committed `flame.json` and
 `allpcs.txt` are historical snapshots; `.#machine-regions-ui` does not consume them.
