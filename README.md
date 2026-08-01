@@ -114,7 +114,7 @@ Binary  +  RiscV  +  Specs.SSZ  ->  Zesu
 that it never imports the target. `BinaryFv/Specs/SSZ/` contains the implementation-independent
 executable Ethereum SSZ specification. Under `BinaryFv/Zesu/`, `Artifacts/` contains immutable
 bytes, symbols, ranges, and closed static facts; `ControlFlow/` contains decode-dependent inventory;
-`Contracts/` holds handwritten, address-free per-routine contracts; `Elflings/` contains the
+`Contracts/` holds handwritten, address-free source-function contracts; `Elflings/` contains the
 deterministically generated address-bearing model validated against the canonical ELF and
 Sail-decoded control flow; and `MachineExecution/` and `Entrypoints/` configure the machine and
 runner. All of it composes into `BinaryFv/Zesu/Root.lean`.

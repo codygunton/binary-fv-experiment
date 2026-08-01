@@ -2,7 +2,7 @@
 
 This directory proves how concrete instructions and basic blocks from the pinned Zesu binary execute
 under the generated Sail RISC-V semantics. It is the target-specific bridge between decoded machine
-code and the higher-level routine contracts.
+code and the higher-level source-function contracts.
 
 - `DecodeTactic.lean` provides local support for discharging instruction-decoding goals.
 - `RegisterRuns.lean` proves recurring register-level execution patterns.

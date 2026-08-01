@@ -12,8 +12,8 @@ namespace.
 - `Artifacts`: facts extracted from the pinned Zesu ELF, including its bytes, symbols, memory
   layout, compiler ABI data, and closed instruction inventories.
 - `ControlFlow`: decoded functions, basic-block/control-flow facts, and reachability.
-- `Contracts`: the handwritten, address-free per-routine catalog — `meaning`/`pre`/`post` and the
-  correctness claim for each of the 43 SSZ routines — that the compliance proof discharges.
+- `Contracts`: the handwritten, address-free contracts — `meaning`, `pre`, and `post` — selected by
+  source function identity and applied to every compiled function instance.
 - `Entrypoints`: end-to-end ABI-call traces and result interpretation, grouped by exported function.
   `ZesuDecodeRaw` covers `zesu_decode_raw`.
 - `MachineExecution`: proofs about concrete Zesu instructions using the executable Sail RISC-V

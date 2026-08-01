@@ -1,7 +1,7 @@
 import BinaryFv.Zesu.Artifacts.Layout
 import BinaryFv.Zesu.Interface
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Execution
-import BinaryFv.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.Zesu.Contracts.ContractComposition
 
 namespace BinaryFv.Zesu
 

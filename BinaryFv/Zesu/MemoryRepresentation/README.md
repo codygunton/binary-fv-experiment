@@ -10,5 +10,5 @@ repeating byte offsets, pointer layouts, and guarded memory reads.
 - `Containers.lean`, `RawV4.lean`, and `Result.lean` describe Zesu's concrete layouts for decoded
   containers, complete V4 values, and call results.
 
-These definitions are not routine contracts. `Contracts/` uses them to state behavior, while execution
-proofs establish that the binary creates or preserves the represented values.
+These definitions are not function contracts. `Contracts/` uses them to state behavior, while
+execution proofs establish that the binary creates or preserves the represented values.
