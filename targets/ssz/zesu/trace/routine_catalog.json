@@ -1,7 +1,7 @@
 {
   "allocator": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Runtime.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Runtime.lean",
     "meaningTie": "runtimeConst",
     "notes": "contractAllocatorCtor; constructs the std.mem.Allocator value, performs no allocation.",
     "stepBound": {
@@ -10,7 +10,7 @@
   },
   "allocatorAlloc": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Runtime.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Runtime.lean",
     "meaningTie": "runtimeAlloc",
     "notes": "contractAllocatorAlloc := contractAlloc; vtable thunk forwarding to zesu_raw_alloc. Same meaningTie gap as zesu_raw_alloc; 'runtimeAlloc' used. Judgment call.",
     "stepBound": {
@@ -19,7 +19,7 @@
   },
   "allocatorFree": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Runtime.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Runtime.lean",
     "meaningTie": "runtimeConst",
     "notes": "contractAllocatorFree; no-op.",
     "stepBound": {
@@ -28,7 +28,7 @@
   },
   "allocatorRemap": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Runtime.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Runtime.lean",
     "meaningTie": "runtimeConst",
     "notes": "contractAllocatorRemap; always returns null.",
     "stepBound": {
@@ -37,7 +37,7 @@
   },
   "allocatorResize": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Runtime.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Runtime.lean",
     "meaningTie": "runtimeConst",
     "notes": "contractAllocatorResize; always returns false.",
     "stepBound": {
@@ -46,7 +46,7 @@
   },
   "bytesAt": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Leaves.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Leaves.lean",
     "meaningTie": "slice",
     "notes": "contractBytesAt; borrowed (ptr,len) sub-slice, no numeric decode.",
     "stepBound": {
@@ -55,7 +55,7 @@
   },
   "decode": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Entry.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Entry.lean",
     "meaningTie": "structural",
     "notes": "contractDecode; raw-first with ERE fallback (twice the raw bound).",
     "stepBound": {
@@ -71,7 +71,7 @@
   },
   "decodeByteListList": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Collections.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Collections.lean",
     "meaningTie": "structural",
     "notes": "contractByteListList; offset-table collection, 16-byte descriptors; allocates even for empty input.",
     "stepBound": {
@@ -87,7 +87,7 @@
   },
   "decodeChainConfig": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Containers.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Containers.lean",
     "meaningTie": "structural",
     "notes": "contractChainConfig; source-shaped fixed container, does not allocate.",
     "stepBound": {
@@ -96,7 +96,7 @@
   },
   "decodeConsolidationRequests": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Collections.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Collections.lean",
     "meaningTie": "structural",
     "notes": "contractConsolidationRequests; fixed-stride 116.",
     "stepBound": {
@@ -112,7 +112,7 @@
   },
   "decodeDepositRequests": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Collections.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Collections.lean",
     "meaningTie": "structural",
     "notes": "contractDepositRequests; fixed-stride 192.",
     "stepBound": {
@@ -128,7 +128,7 @@
   },
   "decodeExecutionPayload": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Containers.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Containers.lean",
     "meaningTie": "structural",
     "notes": "contractExecutionPayload; allocating container.",
     "stepBound": {
@@ -144,7 +144,7 @@
   },
   "decodeExecutionRequests": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Containers.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Containers.lean",
     "meaningTie": "structural",
     "notes": "contractExecutionRequests; allocating container.",
     "stepBound": {
@@ -160,7 +160,7 @@
   },
   "decodeExecutionWitness": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Containers.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Containers.lean",
     "meaningTie": "structural",
     "notes": "contractExecutionWitness; allocating container (decodeCanonical + rawWitnessOf).",
     "stepBound": {
@@ -176,7 +176,7 @@
   },
   "decodeForkActivation": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Containers.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Containers.lean",
     "meaningTie": "structural",
     "notes": "contractForkActivation; source-shaped fixed container, does not allocate.",
     "stepBound": {
@@ -185,7 +185,7 @@
   },
   "decodeForkConfig": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Containers.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Containers.lean",
     "meaningTie": "structural",
     "notes": "contractForkConfig; source-shaped, decoder's only source of unknownFork; does not allocate.",
     "stepBound": {
@@ -194,7 +194,7 @@
   },
   "decodeNewPayloadRequest": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Containers.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Containers.lean",
     "meaningTie": "structural",
     "notes": "contractNewPayloadRequest; allocating container.",
     "stepBound": {
@@ -210,7 +210,7 @@
   },
   "decodeOptionalBlobSchedule": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Options.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Options.lean",
     "meaningTie": "structural",
     "notes": "contractOptionalBlobSchedule; zero-or-one blob-schedule list option, does not allocate.",
     "stepBound": {
@@ -219,7 +219,7 @@
   },
   "decodeOptionalU64": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Options.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Options.lean",
     "meaningTie": "structural",
     "notes": "contractOptionalU64; zero-or-one u64 list option, does not allocate.",
     "stepBound": {
@@ -228,7 +228,7 @@
   },
   "decodePublicKeys": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Collections.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Collections.lean",
     "meaningTie": "structural",
     "notes": "contractPublicKeys; fixed-stride SszBridge.publicKeyBytes (48). Expression kept symbolic exactly as written.",
     "stepBound": {
@@ -244,7 +244,7 @@
   },
   "decodeRaw": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Entry.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Entry.lean",
     "meaningTie": "structural",
     "notes": "contractDecodeRaw; internal entry point.",
     "stepBound": {
@@ -260,7 +260,7 @@
   },
   "decodeVersionedHashes": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Collections.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Collections.lean",
     "meaningTie": "structural",
     "notes": "contractVersionedHashes; fixed-stride 32; allocates a descriptor array.",
     "stepBound": {
@@ -276,7 +276,7 @@
   },
   "decodeWithdrawalRequests": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Collections.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Collections.lean",
     "meaningTie": "structural",
     "notes": "contractWithdrawalRequests; fixed-stride 76.",
     "stepBound": {
@@ -292,7 +292,7 @@
   },
   "decodeWithdrawals": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Collections.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Collections.lean",
     "meaningTie": "structural",
     "notes": "contractWithdrawals; fixed-stride 44.",
     "stepBound": {
@@ -308,7 +308,7 @@
   },
   "hasExactErePrefix": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Leaves.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Leaves.lean",
     "meaningTie": "length",
     "notes": "contractHasExactErePrefix; Bool framing predicate (declared u32 at 0 == size-4). No dedicated predicate bucket in the enum; tied to the validated-length/predicate family ('length'). Judgment call.",
     "stepBound": {
@@ -317,7 +317,7 @@
   },
   "memcpy": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Runtime.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Runtime.lean",
     "meaningTie": "raw",
     "notes": "contractMemcpy exists in Runtime.lean (stepBound := fun args => 64 + 8 * args.length), but it is a runtime block-copy contract, not an SSZ decoder RoutineSpec; per instructions stepBound is left unknown.",
     "stepBound": {
@@ -333,7 +333,7 @@
   },
   "memmove": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Runtime.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Runtime.lean",
     "meaningTie": "raw",
     "notes": "contractMemmove exists in Runtime.lean (stepBound := fun args => 64 + 16 * args.length), but it is a runtime block-copy contract, not an SSZ decoder RoutineSpec; per instructions stepBound is left unknown.",
     "stepBound": {
@@ -349,7 +349,7 @@
   },
   "readArray": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Leaves.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Leaves.lean",
     "meaningTie": "structural",
     "notes": "contractReadArray env length; 'length' is the comptime width N, NOT a runtime arg (readArrayWidths = [20,32,48,65,96,256] -> bounds 112,160,224,292,416,1056). Each occurrence's FunctionId.specialization fixes one width. Classified inputDependent because the body is not a fixed literal.",
     "stepBound": {
@@ -358,7 +358,7 @@
   },
   "readOffset": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Leaves.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Leaves.lean",
     "meaningTie": "offset",
     "notes": "contractReadOffset; meaning = readU32 widened to usize (the u32 offset value).",
     "stepBound": {
@@ -367,7 +367,7 @@
   },
   "readU256": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Leaves.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Leaves.lean",
     "meaningTie": "scalarLE",
     "notes": "contractReadU256; 256-bit little-endian value written to a caller result slot.",
     "stepBound": {
@@ -376,7 +376,7 @@
   },
   "readU32": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Leaves.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Leaves.lean",
     "meaningTie": "scalarLE",
     "notes": "contractReadU32; meaning = little-endian u32 of the 4 loaded bytes.",
     "stepBound": {
@@ -385,7 +385,7 @@
   },
   "readU64": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Leaves.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Leaves.lean",
     "meaningTie": "scalarLE",
     "notes": "contractReadU64; meaning = little-endian u64 of the 8 loaded bytes.",
     "stepBound": {
@@ -394,7 +394,7 @@
   },
   "requireCanonicalOffsets": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Canonicality.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Canonicality.lean",
     "meaningTie": "length",
     "notes": "contractRequireCanonicalOffsets; canonicality predicate; bound depends on offsets.length (an arg), not bytes.size.",
     "stepBound": {
@@ -411,7 +411,7 @@
   },
   "requireU32Length": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Leaves.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Leaves.lean",
     "meaningTie": "length",
     "notes": "contractRequireU32Length; validated-length predicate (size <= 4294967295).",
     "stepBound": {
@@ -420,7 +420,7 @@
   },
   "zesu_decode_raw": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/ExportedDecoder.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/ExportedDecoder.lean",
     "meaningTie": "structural",
     "notes": "occurrenceZesuDecodeRaw binding stepBound (spec = specZesuDecodeRaw, meaning = meaningDecode). Exported C-ABI wrapper.",
     "stepBound": {
@@ -436,7 +436,7 @@
   },
   "zesu_raw_alloc": {
     "allocates": true,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Runtime.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Runtime.lean",
     "meaningTie": "runtimeAlloc",
     "notes": "contractAlloc; meaning = Runtime.allocate bump address (NON-constant). The provided meaningTie enum has no bucket for allocating runtime routines; 'runtimeAlloc' added to parallel 'runtimeConst'. Judgment call.",
     "stepBound": {
@@ -445,7 +445,7 @@
   },
   "zesu_raw_error": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Runtime.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Runtime.lean",
     "meaningTie": "runtimeConst",
     "notes": "contractRawError; returns the recorded 32-bit status from the decoder globals.",
     "stepBound": {
@@ -454,7 +454,7 @@
   },
   "zesu_raw_result": {
     "allocates": false,
-    "contractFile": "BinaryFv/SSZ/Zesu/Contracts/Runtime.lean",
+    "contractFile": "BinaryFv/Zesu/Contracts/Runtime.lean",
     "meaningTie": "runtimeConst",
     "notes": "contractRawResult; returns the stored-result pointer or null.",
     "stepBound": {

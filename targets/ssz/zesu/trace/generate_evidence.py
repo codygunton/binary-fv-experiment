@@ -78,11 +78,11 @@ def emit_lean(arms) -> str:
     lines = [
         "-- GENERATED FILE: produced by targets/ssz/zesu/trace/generate_evidence.py --out-lean. DO NOT EDIT.",
         "-- Deterministic production-ELF evidence for the decodeOptionalBlobSchedule slice (occurrence 116),",
-        "-- consumed by BinaryFv/SSZ/Zesu/Validation/BinaryOccurrenceCheck.lean. Diagnostic-only; the",
+        "-- consumed by BinaryFv/Zesu/Validation/BinaryOccurrenceCheck.lean. Diagnostic-only; the",
         "-- validation-import guard forbids the theorem graph from importing this.",
-        "import BinaryFv.SSZ.Zesu.Validation.BinaryOccurrenceTypes",
-        "namespace BinaryFv.SSZ.Zesu.Validation.GeneratedBinaryEvidence",
-        "open BinaryFv.SSZ.Zesu.Validation",
+        "import BinaryFv.Zesu.Validation.BinaryOccurrenceTypes",
+        "namespace BinaryFv.Zesu.Validation.GeneratedBinaryEvidence",
+        "open BinaryFv.Zesu.Validation",
         "",
     ]
     names = []
@@ -95,7 +95,7 @@ def emit_lean(arms) -> str:
     tuples = ", ".join(f"({nm}Evidence, {nm}Expected)" for nm in names)
     lines.append(f"/-- Each arm's evidence paired with the Python oracle's expected check result. -/")
     lines.append(f"def allArms : List (OccEvidence × CheckResult) :=\n  [{tuples}]")
-    lines.append("end BinaryFv.SSZ.Zesu.Validation.GeneratedBinaryEvidence")
+    lines.append("end BinaryFv.Zesu.Validation.GeneratedBinaryEvidence")
     return "\n".join(lines) + "\n"
 
 

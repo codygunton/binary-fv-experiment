@@ -353,7 +353,7 @@ let
     name = "extract_blob_schedule_instance.py";
   };
   blobScheduleCommitted = builtins.path {
-    path = repo + "/BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean";
+    path = repo + "/BinaryFv/Zesu/Elfling/BlobScheduleInstance.lean";
     name = "BlobScheduleInstance.lean";
   };
   blobScheduleInstance = pkgs.runCommand "blob-schedule-instance" {
@@ -371,7 +371,7 @@ let
     cmp -s run1/BlobScheduleInstance.lean run2/BlobScheduleInstance.lean \
       || { echo "BLOB-SCHEDULE EXTRACTOR NON-DETERMINISTIC: BlobScheduleInstance.lean differs between two runs" >&2; exit 1; }
     cmp -s run1/BlobScheduleInstance.lean ${blobScheduleCommitted} \
-      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleInstance.lean differs from committed BinaryFv/SSZ/Zesu/Elfling/BlobScheduleInstance.lean" >&2; exit 1; }
+      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleInstance.lean differs from committed BinaryFv/Zesu/Elfling/BlobScheduleInstance.lean" >&2; exit 1; }
     cp run1/BlobScheduleInstance.lean "$out/"
     printf '%s\n' "two independent runs produced byte-identical BlobScheduleInstance.lean; regenerated == committed" \
       > "$out/determinism.txt"
@@ -676,7 +676,7 @@ let
       probe = "${zesuContractProbe}/bin/ssz-contract-probe";
       agreement = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_agreement.py"; name = "ssz_contract_agreement.py"; };
       routineVectors = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_routine_vectors.py"; name = "ssz_routine_vectors.py"; };
-      generatedRoutineVectorsLean = builtins.path { path = repo + "/BinaryFv/SSZ/Zesu/Validation/GeneratedRoutineVectors.lean"; name = "GeneratedRoutineVectors.lean"; };
+      generatedRoutineVectorsLean = builtins.path { path = repo + "/BinaryFv/Zesu/Validation/GeneratedRoutineVectors.lean"; name = "GeneratedRoutineVectors.lean"; };
       mutation = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_mutation.py"; name = "ssz_contract_mutation.py"; };
       report = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_report.py"; name = "ssz_contract_report.py"; };
       corpusGen = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; };
@@ -791,7 +791,7 @@ let
     let
       trace = builtins.path { path = repo + "/targets/ssz/zesu/trace"; name = "ssz-trace-tools"; };
       fixtures = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
-      committedEvidence = builtins.path { path = repo + "/BinaryFv/SSZ/Zesu/Validation/GeneratedBinaryEvidence.lean"; name = "GeneratedBinaryEvidence.lean"; };
+      committedEvidence = builtins.path { path = repo + "/BinaryFv/Zesu/Validation/GeneratedBinaryEvidence.lean"; name = "GeneratedBinaryEvidence.lean"; };
     in
     pkgs.runCommand "ssz-binary-occurrence-evidence" {
       nativeBuildInputs = [
@@ -854,7 +854,7 @@ let
     let
       trace = builtins.path { path = repo + "/targets/ssz/zesu/trace"; name = "ssz-trace-tools"; };
       fixtures = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
-      committedEvidence = builtins.path { path = repo + "/BinaryFv/SSZ/Zesu/Validation/GeneratedScaleEvidence.lean"; name = "GeneratedScaleEvidence.lean"; };
+      committedEvidence = builtins.path { path = repo + "/BinaryFv/Zesu/Validation/GeneratedScaleEvidence.lean"; name = "GeneratedScaleEvidence.lean"; };
       committedReport = builtins.path { path = repo + "/targets/ssz/zesu/trace/SCALE_COVERAGE.md"; name = "SCALE_COVERAGE.md"; };
       committedClassification = builtins.path { path = repo + "/targets/ssz/zesu/trace/UNCOVERED_CLASSIFICATION.md"; name = "UNCOVERED_CLASSIFICATION.md"; };
     in

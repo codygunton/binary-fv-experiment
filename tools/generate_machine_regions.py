@@ -653,7 +653,7 @@ def write_lean(database: dict, path: pathlib.Path) -> None:
     text = [
         "-- GENERATED FILE: produced by tools/generate_machine_regions.py. DO NOT EDIT.\n",
         "set_option maxRecDepth 10000\n\n",
-        "namespace BinaryFv.SSZ.Zesu.MachineRegions.Generated\n\n",
+        "namespace BinaryFv.Zesu.MachineRegions.Generated\n\n",
         "structure SccTreeRow where\n"
         "  address : Nat\n"
         "  parent : Nat\n"
@@ -712,7 +712,7 @@ def write_lean(database: dict, path: pathlib.Path) -> None:
             "unresolvedIndirectTransfers", "Nat",
             [str(address) for address in database["unresolvedIndirectTransfers"]],
         ),
-        "\nend BinaryFv.SSZ.Zesu.MachineRegions.Generated\n",
+        "\nend BinaryFv.Zesu.MachineRegions.Generated\n",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(text))

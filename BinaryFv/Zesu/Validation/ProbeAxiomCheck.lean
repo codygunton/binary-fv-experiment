@@ -1,0 +1,21 @@
+import BinaryFv.Zesu.Validation.SyntheticUnitProbe
+import BinaryFv.Zesu.Validation.CallStepRetInRegion
+
+open BinaryFv.Zesu.Validation
+
+#print axioms SyntheticUnitProbe.split_geometry
+#print axioms SyntheticUnitProbe.split_ranked
+#print axioms SyntheticUnitProbe.head_and_tail_ids_differ
+#print axioms SyntheticUnitProbe.synthetic_tail_dispatches
+#print axioms SyntheticUnitProbe.sentinel_geometry_fails
+#print axioms SyntheticUnitProbe.no_child_to_parent_edge
+#print axioms SyntheticUnitProbe.inline_exits_have_no_witness
+#print axioms SyntheticUnitProbe.probeCallSite_valid
+#print axioms SyntheticUnitProbe.callTransfer_forces_calleeExit_in_own
+#print axioms SyntheticUnitProbe.head_own_has_no_tail_exit
+#print axioms SyntheticUnitProbe.no_callStep_at_split
+#print axioms SyntheticUnitProbe.holeBoundary_valid
+#print axioms SyntheticUnitProbe.fragmented_geometry
+#print axioms SyntheticUnitProbe.holeBoundary_valid_fragmented
+#print axioms CallStepRetInRegion.external_pairs_none_satisfy
+#print axioms CallStepRetInRegion.inline_pairs_all_satisfy

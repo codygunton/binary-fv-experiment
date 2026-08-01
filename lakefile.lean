@@ -47,10 +47,10 @@ lean_lib MachineRegionsGenerated where
 lean_lib BinaryFv where
   roots := #[
     `BinaryFv,
-    `BinaryFv.SSZ.Zesu.Validation.SequentialSpliceWitness,
-    `BinaryFv.SSZ.Zesu.Validation.LoopDischarge,
-    `BinaryFv.SSZ.Zesu.Validation.CallStepRetInRegion,
-    `BinaryFv.SSZ.Zesu.Validation.SyntheticUnitProbe,
+    `BinaryFv.Zesu.Validation.SequentialSpliceWitness,
+    `BinaryFv.Zesu.Validation.LoopDischarge,
+    `BinaryFv.Zesu.Validation.CallStepRetInRegion,
+    `BinaryFv.Zesu.Validation.SyntheticUnitProbe,
   ]
   moreLeanArgs := #["--tstack=4000000"]
 
@@ -60,5 +60,5 @@ the `BinaryFv` theorem library and is never imported by it — validation is fal
 never a proof premise.
 -/
 lean_exe ssz_contract_runner where
-  root := `BinaryFv.SSZ.Zesu.Validation.ContractRunner
+  root := `BinaryFv.Zesu.Validation.ContractRunner
   moreLeanArgs := #["--tstack=4000000"]
