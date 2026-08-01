@@ -98,9 +98,9 @@ def main():
                 for ce, re_ in zip(cedges, redges)):
             fail(f"occurrence[{i}] edges did not shift uniformly by {delta}")
 
-    ce, re = canon["excludedRoutines"], reloc["excludedRoutines"]
+    ce, re = canon["excludedFunctionInstances"], reloc["excludedFunctionInstances"]
     if len(ce) != len(re):
-        fail(f"excluded-routine count changed under relocation ({len(ce)} vs {len(re)})")
+        fail(f"excluded-function-instance count changed under relocation ({len(ce)} vs {len(re)})")
     for i, (c, r) in enumerate(zip(ce, re)):
         if (c["qualified"], c["category"]) != (r["qualified"], r["category"]):
             fail(f"excluded[{i}] identity/category changed under relocation")

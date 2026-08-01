@@ -35,15 +35,15 @@ def existsSameNameDistinctIdentity : Bool :=
 /-- Boolean: every required `readArray` width is a live entry. -/
 def allRequiredWidthsPresent : Bool :=
   requiredReadArrayWidths.all fun w =>
-    catalog.any fun e => e.tag == RoutineTag.readArray && readArrayWidthOf e.functionId == w
+    catalog.any fun e => e.tag == ContractTag.readArray && readArrayWidthOf e.functionId == w
 
-/-- Boolean: no excluded routine shares an identity with a live one. -/
+/-- Boolean: no excluded source function shares an identity with a live one. -/
 def exclusionsDisjoint : Bool :=
-  excludedRoutines.all fun x => !catalog.any fun e => e.functionId == x.functionId
+  excludedSourceFunctions.all fun x => !catalog.any fun e => e.functionId == x.functionId
 
-/-- Boolean: every excluded routine carries an exclusion reason. -/
+/-- Boolean: every excluded source function carries an exclusion reason. -/
 def exclusionsAllClassified : Bool :=
-  excludedRoutines.all fun x => match x.presence with | .absent _ => true | .live => false
+  excludedSourceFunctions.all fun x => match x.presence with | .absent _ => true | .live => false
 
 /-- (1) Every catalog identity has exactly one contract dispatch. -/
 theorem every_identity_dispatches : everyIdentityDispatches = true := by native_decide
@@ -60,18 +60,18 @@ theorem coverage_is_not_name_only : existsSameNameDistinctIdentity = true := by 
 /-- (4a) Exclusions never collide with coverage. -/
 theorem exclusions_disjoint_from_catalog : exclusionsDisjoint = true := by native_decide
 
-/-- (4b) Every excluded routine is classified with a machine-checkable reason. -/
+/-- (4b) Every excluded source function is classified with a machine-checkable reason. -/
 theorem exclusions_all_classified : exclusionsAllClassified = true := by native_decide
 
 /-- (5) `sszProgramCorrectness` genuinely references the per-instance implementation predicate:
-program correctness entails that the occurrence at any cataloged identity implements its routine's
+program correctness entails that the occurrence at any cataloged identity implements its source function's
 `correctnessClaim`. Ordinary kernel proof, no artifact trust. -/
 theorem program_correctness_references_per_instance
     {program : Program} {p : ContractParams}
     (correct : sszProgramCorrectness program p)
     {instance_ : FunctionInstance} (mem : instance_ ∈ program.instances)
     {entry : CatalogEntry} (found : catalogEntryFor instance_.id.function = some entry) :
-    routineObligation p instance_ entry.tag :=
+    functionInstanceObligation p instance_ entry.tag :=
   instance_implements_its_contract correct mem found
 
 /-- (6) The runner/result theorems `root_compliance` is built from depend on

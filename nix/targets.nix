@@ -176,7 +176,7 @@ let
   # runtime is compiled `-g0` (stripped); this compiles the SAME source with the SAME `riscvCc` and
   # cflags, only appending `-g` (which overrides the earlier `-g0`), and enforces that every emitted
   # `.text.*` function-section is byte-identical to the stripped compile — so `-g` added only DWARF
-  # and changed no codegen. Symbols must never define a proof region: the runtime routines' regions
+  # and changed no codegen. Symbols must never define a proof region: the runtime source functions' regions
   # come from these DWARF subprogram ranges, not from the symbols' (value,size). If `-g` ever changes
   # the runtime `.text`, this derivation FAILS rather than silently substituting a symbol-boundary
   # region — a documented exception would then be a deliberate, reviewed decision.

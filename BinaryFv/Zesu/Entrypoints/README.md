@@ -4,7 +4,7 @@ This directory contains end-to-end proofs for functions that callers can invoke 
 interface. Each child directory is named after one exported function and connects its ABI boundary,
 machine execution, result interpretation, and semantic contract.
 
-Entrypoint proofs compose lower layers; they do not redefine them. Routine meanings come from
+Entrypoint proofs compose lower layers; they do not redefine them. Source function meanings come from
 `Contracts/`, memory values from `MemoryRepresentation/`, and concrete execution facts from
 `MachineExecution/`. The resulting exported guarantees feed `BinaryFv/Zesu/Root.lean`.
 

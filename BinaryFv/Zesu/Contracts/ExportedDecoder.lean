@@ -238,7 +238,7 @@ instantiates it at `DecoderGlobalsModel.fresh`; a second call is the same bindin
 
 /-- The shared specification of `zesu_decode_raw`: the pure `decode` outcome. Shared by every
 occurrence; it names no register, global, or address. -/
-def specZesuDecodeRaw : RoutineSpec ZesuDecodeRawArgs (Except SszDecodeError SszBridge.RawV4) where
+def specZesuDecodeRaw : SourceFunctionSpec ZesuDecodeRawArgs (Except SszDecodeError SszBridge.RawV4) where
   meaning := fun args => meaningDecode args.bytes
 
 /-- The wrapper entry binding: the real C ABI `zesu_decode_raw(input, len)` — the input pointer in

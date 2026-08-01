@@ -8,5 +8,5 @@ allocation bound used by decoder proofs.
 - `AllocatorVtable.lean` connects those operations to the function pointers found in the pinned binary.
 - `AllocationBound.lean` states the resource bound needed by higher-level execution proofs.
 
-Semantic obligations for routines that use the runtime belong in `Contracts/Runtime.lean`; immutable
+Semantic obligations for source functions that use the runtime belong in `Contracts/Runtime.lean`; immutable
 allocator call-site facts belong in `Artifacts/AllocatorCalls.lean`.

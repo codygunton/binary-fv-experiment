@@ -63,11 +63,11 @@ def ownedBy (program : Program) (o : FunctionInstance) (pc : Nat) : Bool :=
     | some c => !inRegions c pc
     | none => true
 
-/-- The entry PC an excluded routine is called at (its lowest region start). -/
+/-- The entry PC an excluded function instance is called at (its lowest region start). -/
 def exclEntryPc (x : BinaryFv.Binary.Elfling.Program.ExcludedFunctionInstance) : Nat :=
   x.regions.foldl (fun m r => Nat.min m r.start) ((x.regions[0]?.map (·.start)).getD 0)
 
-/-- The entry PC a callee identity names — an emitted function instance's `entryPc` or an excluded routine's
+/-- The entry PC a callee identity names — an emitted function instance's `entryPc` or an excluded function instance's
 entry — or `none` if the identity resolves to no generated function instance. -/
 def calleeEntryPc? (program : Program) (id : FunctionInstanceId) : Option Nat :=
   match program.functionInstances.find? (fun i => decide (i.id = id)) with

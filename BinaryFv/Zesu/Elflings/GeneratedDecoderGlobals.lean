@@ -165,7 +165,7 @@ def canonicalHeapPosAddr : Nat := (runtimeGlobalAddr? "ZKVM_HEAP_POS").getD 0
 def canonicalHeapTopAddr : Nat := (runtimeGlobalAddr? "ZKVM_HEAP_TOP").getD 0
 
 /-- The allocator's mutable state: the 8 bytes of the cursor and the 8 bytes of the limit. A
-non-allocating routine must leave every one of these unchanged. -/
+non-allocating source function must leave every one of these unchanged. -/
 def canonicalAllocatorState (address : Nat) : Prop :=
   (canonicalHeapPosAddr ≤ address ∧ address < canonicalHeapPosAddr + 8) ∨
   (canonicalHeapTopAddr ≤ address ∧ address < canonicalHeapTopAddr + 8)

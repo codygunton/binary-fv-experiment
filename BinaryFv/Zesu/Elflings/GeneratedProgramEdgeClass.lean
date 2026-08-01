@@ -14,7 +14,7 @@ categories the review names, with a proof that **nothing is left unclassified** 
   (its identity is in the source's `externalCalls`): a resolved direct call;
 * `functionExit` — the source is one of the function instance's generated exit PCs and the edge leaves it
   otherwise (a transfer out that is not a call, an inline move, or an excluded transition);
-* `excludedTransition` — the target lies in an excluded routine.
+* `excludedTransition` — the target lies in an excluded function instance.
 
 The classifier is a total function into `Option EdgeCategory`; `edges_all_classified` proves it is
 `some` for every edge of every function instance — the codomain's `none` (unclassified) is provably empty.
@@ -42,7 +42,7 @@ def deepestOwner? (pc : Nat) : Option FunctionInstance :=
       | some c => !inRegions c pc
       | none => true
 
-/-- `pc` lies inside an excluded routine's region. -/
+/-- `pc` lies inside an excluded function instance's region. -/
 def inExcluded (pc : Nat) : Bool :=
   generatedExcludedFunctionInstances.any fun x => x.regions.any fun r => decide (r.start ≤ pc ∧ pc < r.stop)
 

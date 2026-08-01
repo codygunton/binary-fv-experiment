@@ -35,7 +35,7 @@ def optionalU64Type : SSZType :=
 /--
 Address-free arguments of a borrowed-slice decoder returning an aggregate indirectly.
 
-`base` and `resultBase` are genuine runtime arguments of the routine, so they belong here. Program
+`base` and `resultBase` are genuine runtime arguments of the source function, so they belong here. Program
 counters and instruction words are not arguments and never appear in this module.
 -/
 structure SliceToResultArgs where
@@ -69,7 +69,7 @@ def meaningOptionalU64 (bytes : ByteArray) : Except SszDecodeError (Option UInt6
 ## Preconditions
 
 Sail memory is sparse: an unmapped read throws rather than returning a default, so `pre` must
-materialize every address the routine touches. That also makes it easy to write a `pre` no state
+materialize every address the source function touches. That also makes it easy to write a `pre` no state
 satisfies, which would make `Implements` vacuously true — hence `PreSatisfiable` below.
 
 The Zig signature `(data: []const u8) -> ?T` lowers to a result pointer in `a0` and the slice's
@@ -107,7 +107,7 @@ def postOptionalBlobSchedule (env : DecoderEnvironment) (args : SliceToResultArg
       RawBlobScheduleRep env.blobSchedule after
         (args.resultBase + env.optionalBlobSchedule.payloadOffset) schedule
   | .error error =>
-      -- Only `invalidSsz` is reachable: this routine neither allocates nor reads a fork index.
+      -- Only `invalidSsz` is reachable: this source function neither allocates nor reads a fork index.
       error = SszDecodeError.invalidSsz
 
 def postOptionalU64 (env : DecoderEnvironment) (args : SliceToResultArgs)
@@ -174,7 +174,7 @@ def satisfiableOptionalU64 (env : DecoderEnvironment) : Prop :=
 /-!
 ## Characterization of the meaning
 
-These pin the input classes issue #39 enumerates for this routine, so the eventual instruction proof
+These pin the input classes issue #39 enumerates for this source function, so the eventual instruction proof
 has a specification-side target that is already fixed.
 -/
 
@@ -192,7 +192,7 @@ def meaningOtherLengthIsInvalid : Prop :=
   ∀ bytes : ByteArray, bytes.size ≠ 0 → bytes.size ≠ 24 →
     meaningOptionalBlobSchedule bytes = .error .invalidSsz
 
-/-- Unknown-fork and allocation failure are unreachable for this routine. -/
+/-- Unknown-fork and allocation failure are unreachable for this source function. -/
 def meaningNeverForkOrMemory : Prop :=
   ∀ bytes : ByteArray,
     meaningOptionalBlobSchedule bytes ≠ .error .unknownFork ∧

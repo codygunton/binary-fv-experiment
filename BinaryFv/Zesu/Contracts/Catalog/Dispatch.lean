@@ -32,13 +32,13 @@ structure ContractParams where
   repRawV4 : ContainerRepresentation SszBridge.RawV4
 
 /--
-The correctness obligation a single generated occurrence owes, selected by its routine `tag`.
+The correctness obligation a single generated occurrence owes, selected by its source function `tag`.
 
 The entry PC and exit predicate come from the occurrence's generated data, never from an existential,
 so a proof cannot pick a convenient entry or exit. Every branch returns the `correctnessClaim` for
-exactly the routine the identity names; heterogeneous `Args`/`Result` types are erased to `Prop`
+exactly the source function the identity names; heterogeneous `Args`/`Result` types are erased to `Prop`
 here, which is why one typed dispatch can cover the whole catalog. -/
-def routineObligation (p : ContractParams) (instance_ : FunctionInstance) (tag : RoutineTag) : Prop :=
+def functionInstanceObligation (p : ContractParams) (instance_ : FunctionInstance) (tag : ContractTag) : Prop :=
   let entry : BitVec 64 := BitVec.ofNat 64 instance_.entryPc
   let exit : BitVec 64 → Prop := fun pc => instance_.isExit pc.toNat
   match tag with
@@ -88,12 +88,12 @@ def routineObligation (p : ContractParams) (instance_ : FunctionInstance) (tag :
   | .allocatorFree => correctnessClaimAllocatorFree p.env instance_ entry exit
   | .allocatorCtor => correctnessClaimAllocatorCtor p.env instance_ entry exit
 
-/-- The satisfiability obligation for a routine's contract, selected by the same `tag`.
+/-- The satisfiability obligation for a source function's contract, selected by the same `tag`.
 
 Aggregating these through the dispatch is what makes anti-vacuity uniform: every live instance's
-contract must have a satisfiable precondition under a valid environment, stated at the routine's own
+contract must have a satisfiable precondition under a valid environment, stated at the source function's own
 parameter level. -/
-def routineSatisfiable (p : ContractParams) (function : FunctionId) (tag : RoutineTag) : Prop :=
+def sourceFunctionContractSatisfiable (p : ContractParams) (function : FunctionId) (tag : ContractTag) : Prop :=
   match tag with
   | .zesuDecodeRaw => satisfiableZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4
   | .decode => satisfiableDecode p.env p.repRawV4

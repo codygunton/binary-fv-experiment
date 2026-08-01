@@ -8,7 +8,7 @@ import GeneratedProgram
 /-!
 # Exhaustive reachable-coverage partition (option A with guardrails)
 
-The generated function instances cover the cataloged routines, but some PCs reachable from `zesu_decode_raw`
+The generated function instances cover the cataloged source functions, but some PCs reachable from `zesu_decode_raw`
 belong to no cataloged function instance. Rather than silently drop them, this module proves the **exhaustive
 partition**
 
@@ -20,23 +20,23 @@ against the materialized reachable set (`ReachabilityCert.reachableAddresses`, t
 decoded CFG by `entryReachableInventoryCertificate`) and the generator-emitted excluded taxonomy
 (`Generated.generatedExcludedFunctionInstances`). The load-bearing content is `reachable_no_silent_drop`:
 **every reachable PC is either covered by a cataloged function instance or one of the surfaced excluded
-routines** — no reachable PC is unaccounted for. Covered and excluded are moreover disjoint over the
+source functions** — no reachable PC is unaccounted for. Covered and excluded are moreover disjoint over the
 reachable set, and the counts are exactly 3135 and 234.
 
-The excluded routines carry a category with a DIFFERENT soundness reason each:
+The excluded function instances carry a category with a DIFFERENT soundness reason each:
 
 * `reachableStdlib` — `std`/`mem`/`math` implementation reachable through the allocator vtable, whose
   net behavior is captured by the cataloged allocator contracts;
 * `reachableCleanupNoOp` — `*.deinit` error-path cleanup; the freestanding zkVM's allocator free is a
   no-op, so deinit never changes the accept/reject outcome.
 
-`excludedRoutinesOutcomeIrrelevant` names the resulting soundness obligation (that these routines do
+`excludedFunctionsOutcomeIrrelevant` names the resulting soundness obligation (that these source functions do
 not change the observable outcome `root_compliance` covers) as a `Prop` to be discharged in the
 allocator/entry rows — it is stated, not asserted true here.
 
 **Integration note for row 1:** at stack integration, row-1's `ExclusionReason` should gain
 `reachableStdlib` / `reachableCleanupNoOp` constructors so this taxonomy folds into the shared catalog
-exclusion type. This row keeps it local (row-1's `excludedRoutines` is untouched — PR #40).
+exclusion type. This row keeps it local (row-1's `excludedSourceFunctions` is untouched — PR #40).
 -/
 
 namespace BinaryFv.Zesu.Elflings.Validation
@@ -55,7 +55,7 @@ open BinaryFv.Zesu.Elflings.Generated
 def isCoveredPC (a : Nat) : Bool :=
   generatedProgram.functionInstances.any fun functionInstance => functionInstance.containsAddress a
 
-/-- A PC inside some surfaced excluded routine's region. -/
+/-- A PC inside some surfaced excluded function instance's region. -/
 def isExcludedPC (a : Nat) : Bool :=
   generatedExcludedFunctionInstances.any fun x =>
     x.regions.any fun r => decide (r.start ≤ a ∧ a < r.stop)
@@ -69,7 +69,7 @@ def reachablePartitionB : Bool :=
 theorem reachablePartitionB_true : reachablePartitionB = true := by native_decide
 
 /-- **The exhaustive partition.** For every reachable PC, being covered by a cataloged function instance is
-exactly the negation of being in an excluded routine: the two sets partition the reachable set (no
+exactly the negation of being in an excluded function instance: the two sets partition the reachable set (no
 overlap, no gap). -/
 theorem reachable_partition :
     ∀ a ∈ reachableAddresses, isCoveredPC a = !isExcludedPC a := by
@@ -94,7 +94,7 @@ theorem reachable_covered_excluded_disjoint :
 
 /-! ## Absorption draws only from the surfaced excluded inventory
 
-D0's local obligation lets a function instance *absorb* the excluded routines it calls — their PCs join
+D0's local obligation lets a function instance *absorb* the excluded function instances it calls — their PCs join
 its owned set so its own proof accounts for them (`Program.ownedRanges`). The reviewer's concern is
 that this could let a function instance claim ordinary uncovered code. It cannot, and here is why, made
 concrete on the real program:
@@ -105,7 +105,7 @@ concrete on the real program:
   (`reachable_covered_excluded_disjoint`), and every reachable PC is covered **or** excluded with no
   gap (`reachable_no_silent_drop`) — so there is no "ordinary uncovered reachable code" for
   absorption to hide;
-* absorption happens only where the routine is called (`Program.absorbed_requires_transfer`, generic),
+* absorption happens only where the source function is called (`Program.absorbed_requires_transfer`, generic),
   and that call edge is a real decoded direct call (`externalCallsValid`, checked for this program in
   `GeneratedProgramCfg`). -/
 
@@ -158,7 +158,7 @@ def exclusionReasonOfCategory (s : String) : Option ExclusionReason :=
   else if s = "reachableCleanupNoOp" then some .reachableCleanupNoOp
   else none
 
-/-- Every excluded routine carries one of the two reachable-but-excluded reasons, and its reason matches
+/-- Every excluded function instance carries one of the two reachable-but-excluded reasons, and its reason matches
 its name shape (`*.deinit` for cleanup-no-op; a `std`/`mem`/`math` prefix for stdlib). This is what
 keeps the taxonomy honest rather than a free-form label. -/
 def excludedTaxonomyConsistentB : Bool :=
@@ -172,7 +172,7 @@ def excludedTaxonomyConsistentB : Bool :=
 
 theorem excludedTaxonomyConsistentB_true : excludedTaxonomyConsistentB = true := by native_decide
 
-/-- Every excluded routine is categorized as `reachableStdlib` (a `mem`/`std`/`math` implementation)
+/-- Every excluded function instance is categorized as `reachableStdlib` (a `mem`/`std`/`math` implementation)
 or `reachableCleanupNoOp` (a `*.deinit`), with the name shape matching the reason. -/
 theorem excluded_taxonomy_consistent :
     ∀ x ∈ generatedExcludedFunctionInstances,
@@ -193,7 +193,7 @@ theorem excluded_taxonomy_consistent :
     | testOnly => intro h; simp at h
     | unreachable => intro h; simp at h
 
-/-- Every reachable-but-excluded PC is attributed to a categorized excluded routine: the surfaced
+/-- Every reachable-but-excluded PC is attributed to a categorized excluded function instance: the surfaced
 data genuinely accounts for the 234 uncovered reachable PCs. -/
 theorem excluded_reachable_pc_attributed :
     ∀ a ∈ reachableAddresses, isExcludedPC a = true →
@@ -219,7 +219,7 @@ theorem reachable_set_is_certified :
 
 /-- **The complete exhaustive-partition certificate.** The materialized reachable set (certified by
 `reachable_set_is_certified`) is exhaustively partitioned into the cataloged-covered PCs and the
-surfaced excluded routines' PCs (3369 = 3135 + 234), with no reachable PC dropped and no overlap. -/
+surfaced excluded function instances' PCs (3369 = 3135 + 234), with no reachable PC dropped and no overlap. -/
 theorem reachable_coverage_partition :
     (∀ a ∈ reachableAddresses, isCoveredPC a = true ∨ isExcludedPC a = true) ∧
     (∀ a ∈ reachableAddresses, ¬(isCoveredPC a = true ∧ isExcludedPC a = true)) ∧
@@ -231,7 +231,7 @@ theorem reachable_coverage_partition :
 
 /-- **Every reachable node is decoded and owned.** For the canonical decode, every address in the exact
 reachable set is a decoded CFG node AND is owned by a cataloged function instance or a surfaced excluded
-routine — the node-level counterpart of the total edge classification (`edges_all_classified`). -/
+source function — the node-level counterpart of the total edge classification (`edges_all_classified`). -/
 theorem reachable_node_decoded_and_owned :
     ∃ nodes : Array RiscV.ControlFlowNode, controlFlow? = some nodes ∧
       ∀ a ∈ reachableAddresses,
@@ -240,52 +240,52 @@ theorem reachable_node_decoded_and_owned :
   obtain ⟨nodes, hn⟩ := controlFlow_isSome'
   exact ⟨nodes, hn, fun a ha => ⟨reachable_decoded hn a ha, reachable_no_silent_drop a ha⟩⟩
 
-/-! ## Per-routine execution obligations (modular; discharged in later rows)
+/-! ## Per-source function execution obligations (modular; discharged in later rows)
 
-Replacing the removed `excludedRoutinesOutcomeIrrelevant`, which merely restated the whole
+Replacing the removed `excludedFunctionsOutcomeIrrelevant`, which merely restated the whole
 `root_compliance` under a taxonomy premise and was not a useful modular obligation. Here each excluded
-routine gets its OWN execution obligation about ITS execution, typed by its `ExclusionReason` — the
+source function gets its OWN execution obligation about ITS execution, typed by its `ExclusionReason` — the
 building block the allocator/entry rows discharge. We do NOT prove semantic irrelevance in this row. -/
 
 open BinaryFv.RiscV.Elfling (RegionPcs EnteredFunctionTrace)
 open BinaryFv.RiscV (State)
 open Register
 
-/-- Confinement predicate of an excluded routine: PCs inside its canonical regions. -/
+/-- Confinement predicate of an excluded function instance: PCs inside its canonical regions. -/
 def excludedRegionPred (x : BinaryFv.Binary.Elfling.Program.ExcludedFunctionInstance) : BitVec 64 → Prop :=
   RegionPcs x.regions
 
-/-- An excluded routine's exit: control leaves its regions. -/
+/-- An excluded function instance's exit: control leaves its regions. -/
 def excludedExitPred (x : BinaryFv.Binary.Elfling.Program.ExcludedFunctionInstance) : BitVec 64 → Prop :=
   fun pc => ¬ RegionPcs x.regions pc
 
-/-- The routine's entry PC (its lowest region start) as a machine word. -/
+/-- The source function's entry PC (its lowest region start) as a machine word. -/
 def excludedEntryWord (x : BinaryFv.Binary.Elfling.Program.ExcludedFunctionInstance) : BitVec 64 :=
   BitVec.ofNat 64 (x.regions.foldl (fun m r => Nat.min m r.start) ((x.regions[0]?.map (·.start)).getD 0))
 
-/-- **Per-routine EXECUTION obligation.** From any machine state sitting on the routine's entry, the
-routine executes CONFINED to its own regions and reaches a generated exit — i.e. once entered it
-terminates and never strays outside its code. This is modular (about ONE routine's execution) and is
+/-- **Per-source function EXECUTION obligation.** From any machine state sitting on the source function's entry, the
+source function executes CONFINED to its own regions and reaches a generated exit — i.e. once entered it
+terminates and never strays outside its code. This is modular (about ONE source function's execution) and is
 the base obligation the category-specific memory effect strengthens in later rows: for a
 `reachableCleanupNoOp` (`*.deinit`) the additional fact is that the confined run leaves the accept/
 reject-determining state unchanged (its allocator free is a no-op); for a `reachableStdlib` it is that
 the run realizes the corresponding cataloged allocator-vtable contract. -/
-def excludedRoutineExecObligation
+def excludedFunctionExecObligation
     (x : BinaryFv.Binary.Elfling.Program.ExcludedFunctionInstance) : Prop :=
   ∀ (fromStep : Nat) (s : State), s.regs.get? PC = some (excludedEntryWord x) →
     ∃ (count : Nat) (s' : State),
       EnteredFunctionTrace (excludedRegionPred x) (excludedExitPred x) (excludedEntryWord x)
         fromStep count s s'
 
-/-- The per-routine execution obligations for every reachable-but-excluded routine, dispatched by its
-shared `ExclusionReason`. Each is a MODULAR statement about one routine's execution — the replacement
-for the removed global `excludedRoutinesOutcomeIrrelevant`. Stated as a `Prop`, discharged in the
+/-- The per-source function execution obligations for every reachable-but-excluded function instance, dispatched by its
+shared `ExclusionReason`. Each is a MODULAR statement about one source function's execution — the replacement
+for the removed global `excludedFunctionsOutcomeIrrelevant`. Stated as a `Prop`, discharged in the
 allocator/entry rows; not asserted true here. -/
-def excludedRoutineObligations : Prop :=
+def excludedFunctionObligations : Prop :=
   ∀ x ∈ generatedExcludedFunctionInstances,
     match exclusionReasonOfCategory x.category with
-    | some .reachableStdlib => excludedRoutineExecObligation x
-    | some .reachableCleanupNoOp => excludedRoutineExecObligation x
+    | some .reachableStdlib => excludedFunctionExecObligation x
+    | some .reachableCleanupNoOp => excludedFunctionExecObligation x
     | _ => True
 
 end BinaryFv.Zesu.Elflings.Validation

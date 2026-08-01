@@ -22,7 +22,7 @@ from pathlib import Path
 
 
 # Keep fixture construction centralized with the strict V4 corpus. Importing it
-# is side-effect-free because its main routine is guarded by __name__.
+# is side-effect-free because its main function is guarded by __name__.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ssz_differential_audit import layout, make_rich_v4  # noqa: E402
 

@@ -22,7 +22,7 @@ Intentionally uninstantiated limits:
   respectively require one and four million indexed full-value records.  The
   latter alone produces roughly 150 MiB per adapter and drives SizzLean's
   recursive variable-list decode/serialize/render paths far beyond a useful
-  routine gate.  They are deliberately not treated as evidence that the
+  function gate.  They are deliberately not treated as evidence that the
   limits are unchecked.
 """
 
