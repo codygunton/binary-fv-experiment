@@ -23,7 +23,8 @@ This is a curated `tree -L 2`: comments describe ownership rather than every gen
 ├── BinaryFv/
 │   ├── Binary/             # architecture-independent addresses and program images
 │   ├── RiscV/              # reusable Sail model, ELF, execution, logic, and proof layers
-│   └── Zesu/               # Zesu decoder proof: specification, artifact, contracts, and root
+│   ├── Specs/              # implementation-independent executable specifications
+│   └── Zesu/               # Zesu decoder proof: artifacts, contracts, execution, and root
 ├── docs/
 │   └── evaluations/        # durable design/evaluation records; docs/ai is local and ignored
 ├── nix/
@@ -31,11 +32,15 @@ This is a curated `tree -L 2`: comments describe ownership rather than every gen
 │   ├── analysis.nix        # objdump, CFG, size, and summary-statistics artifacts
 │   └── proof.nix           # generated Lean inputs and hermetic root-library build
 ├── targets/
-│   ├── common/             # shared freestanding RV64 startup and runtime
-│   └── ssz/                # exact Zesu adapter, Lean bridge, audits, and correspondence
+│   └── zesu/               # concrete adapter, ABI material, binary tests, and correspondence
+├── runtime/
+│   └── riscv64/            # shared freestanding startup and C runtime
+├── tests/
+│   └── Specs/SSZ/          # target-independent Amsterdam V4 specification tests
 ├── tools/
 │   ├── analyze_rv64.py              # target-independent static RV64 analysis
-│   └── generate_elfling_program.py  # deterministic ELF/DWARF/CFG -> Elfling scaffold generator
+│   ├── generate_elfling_program.py  # deterministic ELF/DWARF/CFG -> Elfling scaffold generator
+│   └── ssz-oracle/                   # executable SSZ oracle tool project
 ├── flake.nix               # public packages, apps, checks, and pinned inputs
 ├── lakefile.lean           # root Lean library and generated-source inputs
 └── README.md
@@ -68,7 +73,7 @@ context.
 ## SSZ conformance
 
 The strict V4 gate compares the pinned Python execution-specs reference, the SizzLean-backed Lean
-bridge, and the host-only Zesu formatter:
+oracle, and the host-only Zesu formatter:
 
 ```sh
 PY=/path/to/execution-specs/.venv/bin/python
@@ -76,15 +81,15 @@ nix build .#zesu-value --out-link build/zesu-ssz-value
 nix build .#zesu-sink-observability --out-link build/zesu-sink-observability
 
 (
-  cd targets/ssz/zesu/spec
-  lake build repl ssz_bridge ssz_bridge_test
-  lake exe ssz_bridge_test
+  cd tools/ssz-oracle
+  lake build repl ssz_oracle ssz_oracle_test
+  lake exe ssz_oracle_test
 )
 
-"$PY" -B targets/ssz/zesu/tests/ssz_differential_audit.py \
+"$PY" -B targets/zesu/tests/ssz_differential_audit.py \
   --reference-python "$PY" \
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \
-  --lean-binary targets/ssz/zesu/spec/.lake/build/bin/ssz_bridge
+  --lean-binary tools/ssz-oracle/.lake/build/bin/ssz_oracle
 ```
 
 `nix build .#zesu-native-suite` and the extended boundary audit are explicit heavyweight release
@@ -95,19 +100,19 @@ checks, not default local checks.
 The import direction is one-way:
 
 ```text
-Binary  ->  RiscV  ->  Zesu
-SizzLean  ->  Zesu.SpecBridge
-RiscV  +  Zesu.Artifact  +  Zesu.SpecBridge  ->  Zesu correspondence proofs
-everything  ->  Zesu.Root
+SizzLean  ->  Specs.SSZ
+Binary  ->  RiscV
+Binary  +  RiscV  +  Specs.SSZ  ->  Zesu
 ```
 
 `BinaryFv/RiscV/` is generic over the loaded binary; the import audit in `nix/proof.nix` enforces
-that it never imports the target. Under `BinaryFv/Zesu/`, `Artifact/` contains immutable bytes,
-symbols, ranges, and closed static facts; `ControlFlow/` contains decode-dependent inventory;
-`Contracts/` holds handwritten, address-free per-routine contracts; `Elfling/` holds the
-deterministically generated address-bearing scaffold validated against the canonical ELF and
-Sail-decoded control flow; `MachineExecution/` and `Entrypoints/` configure the machine and runner.
-All of it composes into `BinaryFv/Zesu/Root.lean`.
+that it never imports the target. `BinaryFv/Specs/SSZ/` contains the implementation-independent
+executable Ethereum SSZ specification. Under `BinaryFv/Zesu/`, `Artifacts/` contains immutable
+bytes, symbols, ranges, and closed static facts; `ControlFlow/` contains decode-dependent inventory;
+`Contracts/` holds handwritten, address-free source-function contracts; `Elflings/` contains the
+deterministically generated address-bearing model validated against the canonical ELF and
+Sail-decoded control flow; and `MachineExecution/` and `Entrypoints/` configure the machine and
+runner. All of it composes into `BinaryFv/Zesu/Root.lean`.
 
 The intended public theorem remains:
 
@@ -115,7 +120,7 @@ The intended public theorem remains:
 theorem ssz_root_compliance :
     forall input : ByteArray,
       input.size < 2 ^ 32 ->
-      RiscvSpec.execute zesuSszBinary input = .ok (SszSpec.decodeStatelessInput input)
+      RiscvSpec.execute zesuSszBinary input = .ok (BinaryFv.Specs.SSZ.decode input)
 ```
 
 The canonical proof inputs are regenerated with pinned Nix derivations — see
@@ -132,7 +137,7 @@ Lean proof inputs (consumed by `.#binary-fv-lean`):
 ```sh
 nix build .#sail-riscv-lean          # Sail RV64 model as Lean
 nix build .#zesu-ssz-elf-lean        # Zesu SSZ decoder ELF image as Lean
-nix build .#ssz-spec-lean            # SizzLean SSZ bridge specification as Lean
+nix build .#sizzlean-lean            # pinned pure SizzLean dependency closure
 nix build .#zesu-abi-manifest        # compiler-reflected Zesu ABI layout
 ```
 
@@ -143,7 +148,6 @@ SSZ Elfling scaffold — deterministic ELF/DWARF/CFG -> Elfling code generation 
 nix build .#zesu-raw-ssz-sidecar     # byte-identical DWARF sidecar for the decoder .text
 nix build .#zesu-ssz-runtime-sidecar # DWARF sidecar for the linked runtime
 nix build .#elfling-program          # -> GeneratedProgram.lean, program.json, program.md, determinism.txt
-nix build .#blob-schedule-instance   # -> BlobScheduleInstance.lean (regenerated + verified vs committed)
 nix build .#elfling-decoder-llvm-ir  # audit-only optimized LLVM IR (never a proof input)
 ```
 
@@ -164,8 +168,6 @@ nix build .#elfling-generator-defects-check  # fault-injection negative tests
 ```
 
 `GeneratedProgram.lean` is not committed — `.#elfling-program` regenerates it on every build.
-`BlobScheduleInstance.lean` is committed; `.#blob-schedule-instance` regenerates it and fails the
-build unless the regenerated file is byte-identical to the committed copy (a drift guard).
 
 ## Trust boundary
 

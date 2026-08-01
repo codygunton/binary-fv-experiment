@@ -10,12 +10,13 @@ lean_lib LeanRV64DExecutable where
   moreLeanArgs := #["--tstack=4000000"]
 
 /-
-The specification closure is copied and content-checked by the Nix derivation rather than added as a
-Lake dependency. It is deliberately restricted to SizzLean's pure SSZ decoder modules and the local
-Amsterdam V4 bridge, so the proof project neither imports nor links the bridge's SHA/OpenSSL layer.
+The SizzLean closure is copied and content-checked by Nix rather than added as a Lake dependency. It
+is deliberately restricted to the pure SSZ decoder modules, so the proof project neither imports nor
+links SizzLean's SHA/OpenSSL layer. The project-owned Amsterdam V4 specification is ordinary source
+under `BinaryFv/Specs/SSZ`.
 -/
-lean_lib SszSpec where
-  srcDir := "build/ssz-spec-lean"
+lean_lib SizzLeanPinned where
+  srcDir := "build/sizzlean-lean"
   roots := #[
     `SizzLean.Spec.Type,
     `SizzLean.Spec.Interp,
@@ -23,7 +24,6 @@ lean_lib SszSpec where
     `SizzLean.Spec.SSZError,
     `SizzLean.Spec.Serialize,
     `SizzLean.Spec.Deserialize,
-    `SszBridge.Core,
   ]
 
 lean_lib ZesuSszElf where

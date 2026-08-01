@@ -1,7 +1,7 @@
 import BinaryFv.RiscV.Execution.MemoryIo
 import BinaryFv.RiscV.Logic.ImageMemory
-import BinaryFv.Zesu.Artifact.AbiManifest
-import SszBridge.Core
+import BinaryFv.Zesu.Artifacts.AbiManifest
+import BinaryFv.Specs.SSZ.AmsterdamV4
 
 namespace BinaryFv.Zesu.MemoryRepresentation
 
@@ -12,9 +12,9 @@ def MemoryBytes (state : State) (base : Nat) (bytes : ByteArray) : Prop :=
   ∀ index (h : index < bytes.size),
     state.mem.get? (base + index) = some (BitVec.ofNat 8 (bytes[index]'h).toNat)
 
-/-- An inline fixed-size bridge byte vector in native sparse memory. -/
+/-- An inline fixed-size specification byte vector in native sparse memory. -/
 def FixedByteVectorRep {length : Nat} (state : State) (base : Nat)
-    (value : SszBridge.RawByteVector length) : Prop :=
+    (value : BinaryFv.Specs.SSZ.RawByteVector length) : Prop :=
   ∀ index (h : index < length),
     state.mem.get? (base + index) = some (BitVec.ofNat 8 (value[index].toNat))
 
@@ -28,7 +28,7 @@ def InputSliceRep (state : State) (inputBase inputOffset length sliceBase : Nat)
   sliceBase = inputBase + inputOffset ∧
     ∀ index, index < length → state.mem.get? (sliceBase + index) = state.mem.get? (inputBase + inputOffset + index)
 
-/-- A bridge byte array is exactly a bounded subrange of the caller-provided input. -/
+/-- A specification byte array is exactly a bounded subrange of the caller-provided input. -/
 def InputBytesAt (input : ByteArray) (inputOffset : Nat) (bytes : Array UInt8) : Prop :=
   ∀ index (h : index < bytes.size),
     ∃ hinput : inputOffset + index < input.size,
@@ -39,9 +39,9 @@ def HeapArrayRep (state : State) (base count elementSize : Nat) : Prop :=
   base + count * elementSize ≤ 2 ^ 64 ∧
     ∀ index, index < count * elementSize → (state.mem.get? (base + index)).isSome
 
-/-- A heap array whose elements are inline fixed-width bridge byte vectors. -/
+/-- A heap array whose elements are inline fixed-width specification byte vectors. -/
 def HeapFixedVectorArrayRep {length : Nat} (state : State) (base : Nat)
-    (values : Array (SszBridge.RawByteVector length)) : Prop :=
+    (values : Array (BinaryFv.Specs.SSZ.RawByteVector length)) : Prop :=
   ∀ index (h : index < values.size),
     FixedByteVectorRep state (base + length * index) values[index]
 
@@ -83,43 +83,43 @@ theorem observe_word64_of_rep (state : State) (base value : Nat)
   simp
   omega
 
-/-- Native RV64 layout of one bridge withdrawal record. -/
-def RawWithdrawalRep (state : State) (base : Nat) (value : SszBridge.RawWithdrawal) : Prop :=
+/-- Native RV64 layout of one specification withdrawal record. -/
+def RawWithdrawalRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawWithdrawal) : Prop :=
   Word64LERep state base value.index.toNat ∧
     Word64LERep state (base + 8) value.validatorIndex.toNat ∧
       Word64LERep state (base + 16) value.amount.toNat ∧
         FixedByteVectorRep state (base + 24) value.address
 
 def HeapWithdrawalArrayRep (state : State) (base : Nat)
-    (values : Array SszBridge.RawWithdrawal) : Prop :=
+    (values : Array BinaryFv.Specs.SSZ.RawWithdrawal) : Prop :=
   ∀ index (h : index < values.size), RawWithdrawalRep state (base + 48 * index) values[index]
 
-/-- Native RV64 layout of one bridge withdrawal-request record. -/
+/-- Native RV64 layout of one specification withdrawal-request record. -/
 def RawWithdrawalRequestRep (state : State) (base : Nat)
-    (value : SszBridge.RawWithdrawalRequest) : Prop :=
+    (value : BinaryFv.Specs.SSZ.RawWithdrawalRequest) : Prop :=
   Word64LERep state base value.amount.toNat ∧
     FixedByteVectorRep state (base + 8) value.sourceAddress ∧
       FixedByteVectorRep state (base + 28) value.validatorPubkey
 
 def HeapWithdrawalRequestArrayRep (state : State) (base : Nat)
-    (values : Array SszBridge.RawWithdrawalRequest) : Prop :=
+    (values : Array BinaryFv.Specs.SSZ.RawWithdrawalRequest) : Prop :=
   ∀ index (h : index < values.size),
     RawWithdrawalRequestRep state (base + 80 * index) values[index]
 
-/-- Native RV64 layout of one bridge consolidation-request record. -/
+/-- Native RV64 layout of one specification consolidation-request record. -/
 def RawConsolidationRequestRep (state : State) (base : Nat)
-    (value : SszBridge.RawConsolidationRequest) : Prop :=
+    (value : BinaryFv.Specs.SSZ.RawConsolidationRequest) : Prop :=
   FixedByteVectorRep state base value.sourceAddress ∧
     FixedByteVectorRep state (base + 20) value.sourcePubkey ∧
       FixedByteVectorRep state (base + 68) value.targetPubkey
 
 def HeapConsolidationRequestArrayRep (state : State) (base : Nat)
-    (values : Array SszBridge.RawConsolidationRequest) : Prop :=
+    (values : Array BinaryFv.Specs.SSZ.RawConsolidationRequest) : Prop :=
   ∀ index (h : index < values.size),
     RawConsolidationRequestRep state (base + 116 * index) values[index]
 
-/-- Native RV64 layout of one bridge deposit-request record. -/
-def RawDepositRequestRep (state : State) (base : Nat) (value : SszBridge.RawDepositRequest) : Prop :=
+/-- Native RV64 layout of one specification deposit-request record. -/
+def RawDepositRequestRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawDepositRequest) : Prop :=
   Word64LERep state base value.amount.toNat ∧
     Word64LERep state (base + 8) value.index.toNat ∧
       FixedByteVectorRep state (base + 16) value.pubkey ∧
@@ -127,7 +127,7 @@ def RawDepositRequestRep (state : State) (base : Nat) (value : SszBridge.RawDepo
           FixedByteVectorRep state (base + 96) value.signature
 
 def HeapDepositRequestArrayRep (state : State) (base : Nat)
-    (values : Array SszBridge.RawDepositRequest) : Prop :=
+    (values : Array BinaryFv.Specs.SSZ.RawDepositRequest) : Prop :=
   ∀ index (h : index < values.size), RawDepositRequestRep state (base + 192 * index) values[index]
 
 /-- The two-word Zig `std.mem.Allocator` object: context followed by its vtable pointer. -/
@@ -154,7 +154,7 @@ def SliceDescriptorRep (state : State) (base data count : Nat) : Prop :=
   data < 2 ^ 64 ∧ count < 2 ^ 64 ∧
     Word64LERep state base data ∧ Word64LERep state (base + 8) count
 
-/-- A slice descriptor aliases an exact bridge byte array in the caller's input memory. -/
+/-- A slice descriptor aliases an exact specification byte array in the caller's input memory. -/
 def InputSliceDescriptorRep (state : State) (inputBase : Nat) (input : ByteArray) (descriptorBase : Nat)
     (inputOffset sliceBase : Nat) (bytes : Array UInt8) : Prop :=
   SliceDescriptorRep state descriptorBase sliceBase bytes.size ∧
@@ -183,12 +183,12 @@ theorem observe_slice_descriptor_of_rep (state : State) (base data count : Nat)
 
 /-- The decoded root object occupies precisely the compiler-reflected RV64 ABI size. -/
 def RawStatelessInputRep (state : State) (base : Nat) : Prop :=
-  ∃ size, Artifact.rawStatelessInputSize = some size ∧ HeapArrayRep state base 1 size
+  ∃ size, Artifacts.rawStatelessInputSize = some size ∧ HeapArrayRep state base 1 size
 
 theorem raw_stateless_input_rep_size (state : State) (base : Nat)
     (representation : RawStatelessInputRep state base) : HeapArrayRep state base 1 832 := by
   rcases representation with ⟨size, sizeH, representation⟩
-  rw [Artifact.raw_stateless_input_layout.1] at sizeH
+  rw [Artifacts.raw_stateless_input_layout.1] at sizeH
   injection sizeH with sizeH
   subst size
   exact representation
@@ -206,11 +206,11 @@ structure RawV4DescriptorBases where
   witnessHeadersBase : Nat
   publicKeysBase : Nat
 
-/-- Heap-allocation portion of the native representation of a complete bridge `RawV4` value.
+/-- Heap-allocation portion of the native representation of a complete specification `RawV4` value.
 
 Fixed records are sized from the pinned RV64 ABI manifest. The eventual observer additionally
 connects these bases to the corresponding slice descriptors stored in the root object. -/
-structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
+structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (bases : RawV4DescriptorBases) : Prop where
   root : RawStatelessInputRep state rootBase
   versionedHashes : HeapArrayRep state bases.versionedHashesBase
@@ -241,13 +241,13 @@ structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : SszBridge
   publicKeys : HeapArrayRep state bases.publicKeysBase value.publicKeys.size 65
   publicKeyContents : HeapFixedVectorArrayRep state bases.publicKeysBase value.publicKeys
 
-theorem raw_v4_allocation_root_size (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
+theorem raw_v4_allocation_root_size (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (bases : RawV4DescriptorBases)
     (representation : RawV4AllocationRep state rootBase value bases) : HeapArrayRep state rootBase 1 832 :=
   raw_stateless_input_rep_size state rootBase representation.root
 
 /-- Descriptor-level portion of the root layout, with every collection count tied to `RawV4`. -/
-structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
+structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (bases : RawV4DescriptorBases) : Prop where
   versionedHashes : SliceDescriptorRep state (rootBase + 592) bases.versionedHashesBase
     value.newPayloadRequest.versionedHashes.size
@@ -268,7 +268,7 @@ structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : SszBridge
 
 /-- Borrowed byte slices in `RawV4`, including every transaction and witness element. -/
 structure RawV4InputSlicesRep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
-    (value : SszBridge.RawV4) (bases : RawV4DescriptorBases)
+    (value : BinaryFv.Specs.SSZ.RawV4) (bases : RawV4DescriptorBases)
     (descriptors : RawV4DescriptorRep state rootBase value bases) : Prop where
   extraData : ∃ inputOffset sliceBase,
     InputSliceDescriptorRep state inputBase input (rootBase + 64) inputOffset sliceBase
@@ -284,7 +284,7 @@ structure RawV4InputSlicesRep (state : State) (inputBase : Nat) (input : ByteArr
     value.witness.headers
 
 /-- Inline fixed vectors and scalar fields in the root's nested execution payload. -/
-structure RawV4FixedFieldsRep (state : State) (rootBase : Nat) (value : SszBridge.RawV4) : Prop where
+structure RawV4FixedFieldsRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) : Prop where
   baseFeePerGas : BitVectorLERep state rootBase value.newPayloadRequest.executionPayload.baseFeePerGas
   parentHash : FixedByteVectorRep state (rootBase + 152) value.newPayloadRequest.executionPayload.parentHash
   feeRecipient : FixedByteVectorRep state (rootBase + 184)
@@ -313,7 +313,7 @@ structure RawV4FixedFieldsRep (state : State) (rootBase : Nat) (value : SszBridg
 Scalar and fixed-vector byte contents are added by the later field observer; this layer establishes
 the ownership and aliasing boundary used by all parser and runtime contracts. -/
 structure RawV4Rep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
-    (value : SszBridge.RawV4) : Prop where
+    (value : BinaryFv.Specs.SSZ.RawV4) : Prop where
   layout : ∃ bases : RawV4DescriptorBases,
     RawV4AllocationRep state rootBase value bases ∧
       ∃ descriptors : RawV4DescriptorRep state rootBase value bases,
@@ -347,7 +347,7 @@ def observeRawV4Descriptors? (state : State) (rootBase : Nat) : Option RawV4Desc
   pure ⟨versionedHashes, transactions, withdrawals, deposits, withdrawalRequests,
     consolidationRequests, witnessState, witnessCodes, witnessHeaders, publicKeys⟩
 
-theorem observe_raw_v4_descriptors_of_rep (state : State) (rootBase : Nat) (value : SszBridge.RawV4)
+theorem observe_raw_v4_descriptors_of_rep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (bases : RawV4DescriptorBases)
     (representation : RawV4DescriptorRep state rootBase value bases) :
     observeRawV4Descriptors? state rootBase = some

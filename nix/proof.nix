@@ -123,7 +123,7 @@ let
   # The SSZ proof imports the executable SizzLean decoder, but only its pure wire-format closure.
   # Keep the source-level pins here: `SizzLean`'s normal Lake package also pulls its SHA/OpenSSL
   # packages, which the decoder does not need and the BinaryFv proof must not link.
-  sszSpecLean = pkgs.runCommand "binary-fv-ssz-spec-lean" {
+  sizzLeanClosure = pkgs.runCommand "binary-fv-sizzlean-closure" {
     nativeBuildInputs = [ pkgs.coreutils ];
   } ''
     copy_checked() {
@@ -135,7 +135,7 @@ let
       cp "$source" "$destination"
     }
 
-    mkdir -p "$out/SizzLean/Spec" "$out/SszBridge"
+    mkdir -p "$out/SizzLean/Spec"
     spec_root=${etheorem}/packages/SizzLean/SizzLean/Spec
     copy_checked "$spec_root/Type.lean" \
       ef7fd929a536cf157808cb4ace0255e3992dda566f93b77737166c3fb9139711 \
@@ -155,10 +155,6 @@ let
     copy_checked "$spec_root/Deserialize.lean" \
       db05b7d663445dc79e563ef0095482544ff950a7b51fd89e14fcb301b4830ef5 \
       "$out/SizzLean/Spec/Deserialize.lean"
-    copy_checked ${repo}/targets/ssz/zesu/spec/SszBridge/Core.lean \
-      0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
-      "$out/SszBridge/Core.lean"
-
     ${pkgs.coreutils}/bin/printf '%s\n' \
       etheorem=032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0 \
       SizzLean/Spec/Type.lean=ef7fd929a536cf157808cb4ace0255e3992dda566f93b77737166c3fb9139711 \
@@ -167,7 +163,6 @@ let
       SizzLean/Spec/SSZError.lean=0e8ddfb73dc7ac7d6a56a2943e950051abd9310b25465e2f415c8a64327c4448 \
       SizzLean/Spec/Serialize.lean=d830cb74ded4cddbba87e4400ebaef71060f527317c5783d9a4fe9d02e7c0ae2 \
       SizzLean/Spec/Deserialize.lean=db05b7d663445dc79e563ef0095482544ff950a7b51fd89e14fcb301b4830ef5 \
-      SszBridge/Core.lean=0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
       > "$out/provenance.txt"
   '';
 
@@ -180,7 +175,7 @@ let
 
     mkdir -p build .lake/packages/repl "$TMPDIR/home"
     ln -s ${sailRiscvLean} build/sail-riscv-lean
-    ln -s ${sszSpecLean} build/ssz-spec-lean
+    ln -s ${sizzLeanClosure} build/sizzlean-lean
     ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
     ln -s ${zesuAbiManifest} build/zesu-abi-lean
     ln -s ${elflingProgram} build/elfling-program-lean
@@ -272,15 +267,15 @@ let
     # handwritten `meaningDecode` with both the pinned oracle and the corpus expectation; any
     # disagreement fails the build. This is falsification evidence, never a proof premise.
     lake build BinaryFv.Zesu.Validation.MeaningAgreement
-    # Per-routine meaning agreement (Row B item 3): native_decide that each typed leaf vector's
+    # Per-source function meaning agreement (Row B item 3): native_decide that each typed leaf vector's
     # handwritten meaning equals its expected value/error — the Lean side of the probe's
-    # `--routine-vectors` check. Also outside the theorem graph.
-    lake build BinaryFv.Zesu.Validation.RoutineMeaningVectors
+    # `--source-function-vectors` check. Also outside the theorem graph.
+    lake build BinaryFv.Zesu.Validation.SourceFunctionMeaningVectors
     touch "$out"
   '';
 
   # Row B oracle runner, built standalone. The runner root `ContractRunner` imports only the Sail-free
-  # `SszBridge.Core`, so `lake build ssz_contract_runner` compiles just that small closure on top of
+  # `BinaryFv.Specs.SSZ.Core`, so `lake build ssz_contract_runner` compiles just that small closure on top of
   # the (cached) prebuilt spec libs — it does NOT rebuild the theorem tree, and it never carries a
   # theorem as a premise. The prebuilt libs are linked only to satisfy lake's whole-file config eval.
   sszContractRunner = pkgs.runCommand "ssz-contract-runner" {
@@ -292,7 +287,7 @@ let
 
     mkdir -p build .lake/packages/repl "$TMPDIR/home"
     ln -s ${sailRiscvLean} build/sail-riscv-lean
-    ln -s ${sszSpecLean} build/ssz-spec-lean
+    ln -s ${sizzLeanClosure} build/sizzlean-lean
     ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
     ln -s ${zesuAbiManifest} build/zesu-abi-lean
     ln -s ${elflingProgram} build/elfling-program-lean
@@ -343,9 +338,9 @@ let
   } ''
     set -euo pipefail
     mkdir -p "$out"
-    python3 ${repo}/targets/ssz/zesu/tests/ssz_contract_agreement.py \
-      --corpus-generator ${repo}/targets/ssz/zesu/tests/ssz_contract_corpus.py \
-      --fixtures ${repo}/targets/ssz/zesu/tests/ssz_differential_audit.py \
+    python3 ${repo}/targets/zesu/tests/ssz_contract_agreement.py \
+      --corpus-generator ${repo}/targets/zesu/tests/ssz_contract_corpus.py \
+      --fixtures ${repo}/targets/zesu/tests/ssz_differential_audit.py \
       --lean-runner ${sszContractRunner}/bin/ssz_contract_runner \
       --zesu-probe ${targets.public.zesuContractProbe}/bin/ssz-contract-probe \
       --corpus-out "$out/corpus.jsonl" | tee "$out/agreement.txt"
@@ -367,12 +362,12 @@ let
 in
 {
   public = {
-    inherit binaryFvLean sailRiscvLean sszSpecLean zesuSszElfLean
+    inherit binaryFvLean sailRiscvLean sizzLeanClosure zesuSszElfLean
       sszContractRunner sszContractAgreement;
 
     binary-fv-lean = binaryFvLean;
     sail-riscv-lean = sailRiscvLean;
-    ssz-spec-lean = sszSpecLean;
+    sizzlean-lean = sizzLeanClosure;
     zesu-ssz-elf-lean = zesuSszElfLean;
     ssz-contract-runner = sszContractRunner;
     ssz-contract-agreement = sszContractAgreement;

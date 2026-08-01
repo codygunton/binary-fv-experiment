@@ -160,7 +160,7 @@ let
 
       export READELF=${riscvReadelf}
       export EXPECT_TEXT_SHA=f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b
-      bash ${repo}/targets/ssz/zesu/tests/sidecar_equivalence.sh \
+      bash ${repo}/targets/zesu/tests/sidecar_equivalence.sh \
         ${zesuRawObject}/obj "$out/obj" | tee "$out/meta/equivalence.txt"
 
       printf '%s\n' "zesu=codygunton/zesu@${zesuRepairedRevision}" > "$out/meta/provenance.txt"
@@ -176,7 +176,7 @@ let
   # runtime is compiled `-g0` (stripped); this compiles the SAME source with the SAME `riscvCc` and
   # cflags, only appending `-g` (which overrides the earlier `-g0`), and enforces that every emitted
   # `.text.*` function-section is byte-identical to the stripped compile — so `-g` added only DWARF
-  # and changed no codegen. Symbols must never define a proof region: the runtime routines' regions
+  # and changed no codegen. Symbols must never define a proof region: the runtime source functions' regions
   # come from these DWARF subprogram ranges, not from the symbols' (value,size). If `-g` ever changes
   # the runtime `.text`, this derivation FAILS rather than silently substituting a symbol-boundary
   # region — a documented exception would then be a deliberate, reviewed decision.
@@ -202,8 +202,8 @@ let
       export HOME="$TMPDIR"
       export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
       export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
-      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_runtime.c -o canonical.o
-      ${riscvCc} ${cflags} -g -c ${repo}/targets/common/riscv64_runtime.c -o sidecar.o
+      ${riscvCc} ${cflags} -c ${repo}/runtime/riscv64/riscv64_runtime.c -o canonical.o
+      ${riscvCc} ${cflags} -g -c ${repo}/runtime/riscv64/riscv64_runtime.c -o sidecar.o
       runHook postBuild
     '';
 
@@ -233,7 +233,7 @@ let
       cp sidecar.o "$out/obj/riscv64_runtime.o"
       ${riscvReadelf} -SW  "$out/obj/riscv64_runtime.o" > "$out/meta/runtime-sections.txt"
       ${riscvReadelf} -sW  "$out/obj/riscv64_runtime.o" | grep -E 'memcpy|memmove' > "$out/meta/runtime-symbols.txt"
-      printf 'runtime=targets/common/riscv64_runtime.c\n' > "$out/meta/provenance.txt"
+      printf 'runtime=runtime/riscv64/riscv64_runtime.c\n' > "$out/meta/provenance.txt"
       printf 'gcc=%s\n' "$(${riscvCc} --version | head -1)" >> "$out/meta/provenance.txt"
       echo "OK: -g runtime .text.{memcpy,memmove,memset,memcmp} byte-identical to canonical AND to the zesuSsz link input; DWARF retained" \
         | tee "$out/meta/equivalence.txt"
@@ -264,7 +264,7 @@ let
         --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
         --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
         --source ${zesuRepaired} \
-        --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+        --runtime-c ${builtins.path { path = repo + "/runtime/riscv64/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
         --map ${zesuSsz}/meta/zesu-ssz.map \
         --elf ${zesuSsz}/bin/zesu-ssz \
         --objdump ${riscvObjdump} \
@@ -282,46 +282,6 @@ let
     done
     cp run1/program.json run1/GeneratedProgram.lean run1/program.md run1/DecoderGlobals.lean "$out/"
     printf '%s\n' "two independent runs produced byte-identical program.json/GeneratedProgram.lean/program.md/DecoderGlobals.lean" \
-      > "$out/determinism.txt"
-  '';
-
-  # Deterministic DWARF -> Lean extractor for the `decodeOptionalBlobSchedule` vertical slice
-  # (milestone 3). Reads the validated decoder DWARF sidecar with the pinned LLVM 21.1.8
-  # `llvm-dwarfdump`, finds the single inline instance, its inline call stack and nested `readU64`
-  # field reads, maps object-relative DWARF ranges to canonical-ELF PCs, and emits the committed
-  # `BlobScheduleInstance.lean` verbatim.
-  #
-  # Filtered inputs: only the extractor script (via builtins.path, not the whole repo) and the
-  # validated sidecar — so editing handwritten proofs never rebuilds it. Determinism is an
-  # acceptance criterion: it runs twice and FAILS unless byte-identical, then a drift guard FAILS
-  # unless the regenerated file equals the committed `BlobScheduleInstance.lean` (the analog of how
-  # the decoder `.text` sha256 is reproduced AND enforced).
-  blobScheduleExtractorScript = builtins.path {
-    path = repo + "/tools/extract_blob_schedule_instance.py";
-    name = "extract_blob_schedule_instance.py";
-  };
-  blobScheduleCommitted = builtins.path {
-    path = repo + "/BinaryFv/Zesu/Elfling/BlobScheduleInstance.lean";
-    name = "BlobScheduleInstance.lean";
-  };
-  blobScheduleInstance = pkgs.runCommand "blob-schedule-instance" {
-    nativeBuildInputs = [ pkgs.python3 pkgs.coreutils pkgs.diffutils ];
-  } ''
-    gen() {
-      python3 ${blobScheduleExtractorScript} \
-        ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
-        --dwarfdump ${pkgs.llvm}/bin/llvm-dwarfdump \
-        --lean --out-lean "$1/BlobScheduleInstance.lean"
-    }
-    mkdir -p run1 run2 "$out"
-    gen run1
-    gen run2
-    cmp -s run1/BlobScheduleInstance.lean run2/BlobScheduleInstance.lean \
-      || { echo "BLOB-SCHEDULE EXTRACTOR NON-DETERMINISTIC: BlobScheduleInstance.lean differs between two runs" >&2; exit 1; }
-    cmp -s run1/BlobScheduleInstance.lean ${blobScheduleCommitted} \
-      || { echo "BLOB-SCHEDULE DRIFT: regenerated BlobScheduleInstance.lean differs from committed BinaryFv/Zesu/Elfling/BlobScheduleInstance.lean" >&2; exit 1; }
-    cp run1/BlobScheduleInstance.lean "$out/"
-    printf '%s\n' "two independent runs produced byte-identical BlobScheduleInstance.lean; regenerated == committed" \
       > "$out/determinism.txt"
   '';
 
@@ -393,13 +353,13 @@ let
       --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
       --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
       --source ${zesuRepaired} \
-      --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+      --runtime-c ${builtins.path { path = repo + "/runtime/riscv64/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
       --map reloc/zesu-ssz.map \
       --elf reloc/zesu-ssz.elf \
       --objdump ${riscvObjdump} \
       --out-json reloc/program.json
 
-    python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/relocation_stability.py"; name = "relocation_stability.py"; }} \
+    python3 ${builtins.path { path = repo + "/targets/zesu/tests/relocation_stability.py"; name = "relocation_stability.py"; }} \
       --canonical ${elflingProgram}/program.json \
       --relocated reloc/program.json | tee "$out/relocation.txt"
   '';
@@ -411,7 +371,7 @@ let
     nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
   } ''
     mkdir -p "$out"
-    python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/generator_defects_test.py"; name = "generator_defects_test.py"; }} \
+    python3 ${builtins.path { path = repo + "/targets/zesu/tests/generator_defects_test.py"; name = "generator_defects_test.py"; }} \
       --generator ${elflingGeneratorScript} \
       --readelf ${riscvReadelf} \
       --decoder ${zesuRawSidecar}/obj/zesu-raw-ssz-decoder.o \
@@ -419,7 +379,7 @@ let
       --sink ${zesuRawSidecar}/obj/zesu-raw-ssz-sink.o \
       --runtime ${zesuRuntimeSidecar}/obj/riscv64_runtime.o \
       --source ${zesuRepaired} \
-      --runtime-c ${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
+      --runtime-c ${builtins.path { path = repo + "/runtime/riscv64/riscv64_runtime.c"; name = "riscv64_runtime.c"; }} \
       --map ${zesuSsz}/meta/zesu-ssz.map \
       --elf ${zesuSsz}/bin/zesu-ssz \
       --objdump ${riscvObjdump} | tee "$out/defects.txt"
@@ -433,8 +393,8 @@ let
   } ''
     mkdir -p "$out"
     gen() {
-      python3 ${builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; }} \
-        --fixtures ${builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; }} \
+      python3 ${builtins.path { path = repo + "/targets/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; }} \
+        --fixtures ${builtins.path { path = repo + "/targets/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; }} \
         --out "$1"
     }
     gen run1.jsonl
@@ -463,7 +423,7 @@ let
       export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
       set +e
       zig build-obj -target riscv64-linux-musl --dep ssz_raw \
-        -Mroot=${repo}/targets/ssz/zesu/abi_manifest.zig \
+        -Mroot=${repo}/targets/zesu/abi_manifest.zig \
         -Mssz_raw=$PWD/src/stateless/stateless/ssz_raw.zig > abi.log 2>&1
       status=$?
       set -e
@@ -545,7 +505,7 @@ let
 
     # The exact pinned sha256 of each overlaid source file (the source manifest entries). Each overlay
     # is applied only after its hash matches, so a drifted source fails the build rather than silently
-    # exposing a different routine set. raw_allocator/raw_decoder_root are Zesu sources; riscv64_runtime
+    # exposing a different source function set. raw_allocator/raw_decoder_root are Zesu sources; riscv64_runtime
     # is the repo's freestanding RV64 C runtime (memcpy/memmove).
     ssz_raw_sha256 = "ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0f6783a1d131";
     raw_allocator_sha256 = "c9e9457e45a3827729adb1921e07ba31997a536dc8f719e04d2d0d6f4c742591";
@@ -558,7 +518,7 @@ let
       export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
       export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
 
-      # --- validation-only overlays: verify each pinned source, then append private-routine re-exports.
+      # --- validation-only overlays: verify each pinned source, then append private-source function re-exports.
       overlay=src/stateless/stateless/ssz_raw.zig
       echo "$ssz_raw_sha256  $overlay" | sha256sum -c - \
         || { echo "OVERLAY: pinned ssz_raw.zig sha256 mismatch (source drifted)" >&2; exit 1; }
@@ -569,35 +529,35 @@ let
                 decodePublicKeys decodeByteListList requireCanonicalOffsets requireU32Length \
                 readOffset readU32 readU64 readU256 readArray bytesAt hasExactErePrefix; do
         grep -qE "^fn $fn\b" "$overlay" \
-          || { echo "OVERLAY: private catalog routine 'fn $fn' not found in pinned source" >&2; exit 1; }
+          || { echo "OVERLAY: private catalog source function 'fn $fn' not found in pinned source" >&2; exit 1; }
       done
-      cat ${builtins.path { path = repo + "/targets/ssz/zesu/probe/overlay_exports.zig"; name = "overlay_exports.zig"; }} >> "$overlay"
+      cat ${builtins.path { path = repo + "/targets/zesu/probe/overlay_exports.zig"; name = "overlay_exports.zig"; }} >> "$overlay"
 
       alloc_overlay=src/zkvm/raw_allocator.zig
       echo "$raw_allocator_sha256  $alloc_overlay" | sha256sum -c - \
         || { echo "OVERLAY: pinned raw_allocator.zig sha256 mismatch (source drifted)" >&2; exit 1; }
       grep -qE "^pub export fn zesu_raw_alloc\b" "$alloc_overlay" \
         || { echo "OVERLAY: zesu_raw_alloc not found in pinned raw_allocator.zig" >&2; exit 1; }
-      cat ${builtins.path { path = repo + "/targets/ssz/zesu/probe/overlay_exports_allocator.zig"; name = "overlay_exports_allocator.zig"; }} >> "$alloc_overlay"
+      cat ${builtins.path { path = repo + "/targets/zesu/probe/overlay_exports_allocator.zig"; name = "overlay_exports_allocator.zig"; }} >> "$alloc_overlay"
 
       root_overlay=src/zkvm/raw_decoder_root.zig
       echo "$raw_decoder_root_sha256  $root_overlay" | sha256sum -c - \
         || { echo "OVERLAY: pinned raw_decoder_root.zig sha256 mismatch (source drifted)" >&2; exit 1; }
       for fn in allocatorAlloc allocatorResize allocatorRemap allocatorFree allocator; do
         grep -qE "^fn $fn\b|^fn $fn\(" "$root_overlay" \
-          || { echo "OVERLAY: private routine 'fn $fn' not found in pinned raw_decoder_root.zig" >&2; exit 1; }
+          || { echo "OVERLAY: private source function 'fn $fn' not found in pinned raw_decoder_root.zig" >&2; exit 1; }
       done
-      cat ${builtins.path { path = repo + "/targets/ssz/zesu/probe/overlay_exports_root.zig"; name = "overlay_exports_root.zig"; }} >> "$root_overlay"
+      cat ${builtins.path { path = repo + "/targets/zesu/probe/overlay_exports_root.zig"; name = "overlay_exports_root.zig"; }} >> "$root_overlay"
 
       # The freestanding RV64 C runtime (memcpy/memmove) is verified, then compiled to a linked object.
-      runtime_c=${builtins.path { path = repo + "/targets/common/riscv64_runtime.c"; name = "riscv64_runtime.c"; }}
+      runtime_c=${builtins.path { path = repo + "/runtime/riscv64/riscv64_runtime.c"; name = "riscv64_runtime.c"; }}
       echo "$riscv64_runtime_sha256  $runtime_c" | sha256sum -c - \
         || { echo "OVERLAY: pinned riscv64_runtime.c sha256 mismatch (source drifted)" >&2; exit 1; }
       zig cc -c "$runtime_c" -o runtime.o -O2
 
       zig build-exe -O ReleaseSafe \
         --dep ssz_raw --dep raw_allocator --dep raw_decoder_root \
-        -Mroot=${builtins.path { path = repo + "/targets/ssz/zesu/probe/ssz_contract_probe.zig"; name = "ssz_contract_probe.zig"; }} \
+        -Mroot=${builtins.path { path = repo + "/targets/zesu/probe/ssz_contract_probe.zig"; name = "ssz_contract_probe.zig"; }} \
         -Mssz_raw=$PWD/$overlay \
         -Mraw_allocator=$PWD/$alloc_overlay \
         --dep ssz_raw -Mraw_decoder_root=$PWD/$root_overlay \
@@ -622,13 +582,13 @@ let
   sszContractProbeCheck =
     let
       probe = "${zesuContractProbe}/bin/ssz-contract-probe";
-      agreement = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_agreement.py"; name = "ssz_contract_agreement.py"; };
-      routineVectors = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_routine_vectors.py"; name = "ssz_routine_vectors.py"; };
-      generatedRoutineVectorsLean = builtins.path { path = repo + "/BinaryFv/Zesu/Validation/GeneratedRoutineVectors.lean"; name = "GeneratedRoutineVectors.lean"; };
-      mutation = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_mutation.py"; name = "ssz_contract_mutation.py"; };
-      report = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_report.py"; name = "ssz_contract_report.py"; };
-      corpusGen = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; };
-      fixtures = builtins.path { path = repo + "/targets/ssz/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
+      agreement = builtins.path { path = repo + "/targets/zesu/tests/ssz_contract_agreement.py"; name = "ssz_contract_agreement.py"; };
+      sourceFunctionVectors = builtins.path { path = repo + "/targets/zesu/tests/ssz_source_function_vectors.py"; name = "ssz_source_function_vectors.py"; };
+      generatedSourceFunctionVectorsLean = builtins.path { path = repo + "/BinaryFv/Zesu/Validation/GeneratedSourceFunctionVectors.lean"; name = "GeneratedSourceFunctionVectors.lean"; };
+      mutation = builtins.path { path = repo + "/targets/zesu/tests/ssz_contract_mutation.py"; name = "ssz_contract_mutation.py"; };
+      report = builtins.path { path = repo + "/targets/zesu/tests/ssz_contract_report.py"; name = "ssz_contract_report.py"; };
+      corpusGen = builtins.path { path = repo + "/targets/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; };
+      fixtures = builtins.path { path = repo + "/targets/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
     in
     pkgs.runCommand "ssz-contract-probe-check" {
       nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
@@ -645,42 +605,42 @@ let
       ${probe} "$out/corpus.jsonl" --ledger "$out/ledger.jsonl" > "$out/outcomes.jsonl" \
         || { echo "PROBE LEAK/OOM DEFECT (see ledger)" >&2; cat "$out/ledger.jsonl" >&2; exit 1; }
 
-      # (d) per-routine typed vectors: the real private routines match the exact expected value/error
+      # (d) per-source function typed vectors: the real private routines match the exact expected value/error
       # AND — for the allocating routines — the observed per-event allocation ledger matches the
       # independent expected ledger the generator computes from the host ABI (`--dump-abi`) and each
-      # routine's allocation structure. The probe exits nonzero on any value or ledger mismatch.
+      # source function's allocation structure. The probe exits nonzero on any value or ledger mismatch.
       ${probe} --dump-abi > "$out/abi.json"
-      python3 ${routineVectors} --abi "$out/abi.json" --out "$out/routine-vectors.jsonl"
-      ${probe} --routine-vectors "$out/routine-vectors.jsonl" > "$out/routine-outcomes.jsonl" \
-        || { echo "ROUTINE VECTOR MISMATCH (see routine-outcomes.jsonl)" >&2; \
-             grep -E '"match":false|"ledger_match":false' "$out/routine-outcomes.jsonl" >&2 || true; exit 1; }
+      python3 ${sourceFunctionVectors} --abi "$out/abi.json" --out "$out/source-function-vectors.jsonl"
+      ${probe} --source-function-vectors "$out/source-function-vectors.jsonl" > "$out/source-function-outcomes.jsonl" \
+        || { echo "ROUTINE VECTOR MISMATCH (see source-function-outcomes.jsonl)" >&2; \
+             grep -E '"match":false|"ledger_match":false' "$out/source-function-outcomes.jsonl" >&2 || true; exit 1; }
 
-      # Drift guard: the committed GeneratedRoutineVectors.lean (native_decide-checked by the proof.nix
+      # Drift guard: the committed GeneratedSourceFunctionVectors.lean (native_decide-checked by the proof.nix
       # meaning lane) must equal what the generator emits now, so the Zig-vector lane and the Lean lane
       # can never silently check different vectors.
-      python3 ${routineVectors} --out-lean "$out/GeneratedRoutineVectors.lean"
-      cmp -s "$out/GeneratedRoutineVectors.lean" ${generatedRoutineVectorsLean} \
-        || { echo "DRIFT: committed GeneratedRoutineVectors.lean differs from --out-lean; regenerate it" >&2; \
-             diff "$out/GeneratedRoutineVectors.lean" ${generatedRoutineVectorsLean} | head -40 >&2; exit 1; }
+      python3 ${sourceFunctionVectors} --out-lean "$out/GeneratedSourceFunctionVectors.lean"
+      cmp -s "$out/GeneratedSourceFunctionVectors.lean" ${generatedSourceFunctionVectorsLean} \
+        || { echo "DRIFT: committed GeneratedSourceFunctionVectors.lean differs from --out-lean; regenerate it" >&2; \
+             diff "$out/GeneratedSourceFunctionVectors.lean" ${generatedSourceFunctionVectorsLean} | head -40 >&2; exit 1; }
 
-      # the real source rejects every targeted mutation class, and the per-routine value/error,
-      # allocation-ledger, and removed-routine-case checks are all discriminating.
+      # the real source rejects every targeted mutation class, and the per-source function value/error,
+      # allocation-ledger, and removed-source function-case checks are all discriminating.
       python3 ${mutation} --fixtures ${fixtures} --lean-runner ${probe} \
-        --probe ${probe} --routine-vectors-gen ${routineVectors} --report ${report} \
+        --probe ${probe} --source-function-vectors-gen ${sourceFunctionVectors} --report ${report} \
         --program-json ${elflingProgram}/program.json --abi "$out/abi.json" \
         --corpus "$out/corpus.jsonl" --outcomes "$out/outcomes.jsonl" --ledger "$out/ledger.jsonl" \
         > "$out/mutation.txt" \
         || { echo "MUTATION SMOKE FAILED" >&2; cat "$out/mutation.txt" >&2; exit 1; }
 
-      # (e) coverage keyed by all 43 routines + 141 occurrences: every generated occurrence's routine
-      # is exercised by a matching typed vector. The report asserts no routine/occurrence is an
-      # uncovered gap; a regression that dropped a routine's vectors would surface here.
+      # (e) coverage keyed by all 43 routines + 141 occurrences: every generated occurrence's source function
+      # is exercised by a matching typed vector. The report asserts no source function/occurrence is an
+      # uncovered gap; a regression that dropped a source function's vectors would surface here.
       python3 ${report} --corpus "$out/corpus.jsonl" --outcomes "$out/outcomes.jsonl" \
         --ledger "$out/ledger.jsonl" --out-json "$out/report.json" --out-md "$out/report.md" \
         --program-json ${elflingProgram}/program.json \
-        --routine-vectors "$out/routine-vectors.jsonl" --routine-outcomes "$out/routine-outcomes.jsonl" \
+        --source-function-vectors "$out/source-function-vectors.jsonl" --source-function-outcomes "$out/source-function-outcomes.jsonl" \
         > "$out/report.txt"
-      python3 -c 'import json,sys; rc=json.load(open("'"$out"'/report.json"))["routine_coverage"]; \
+      python3 -c 'import json,sys; rc=json.load(open("'"$out"'/report.json"))["source_function_coverage"]; \
         sys.exit(0 if (rc["routines"]==43 and rc["occurrences"]==141 and rc["all_routines_covered"] \
         and rc["all_occurrences_covered"]) else 1)' \
         || { echo "COVERAGE GAP: not all 43 routines / 141 occurrences covered" >&2; \
@@ -754,11 +714,11 @@ let
         "$out/obj/zesu-raw-ssz-decoder.o"
       cp ${zesuRawObject}/obj/zesu-raw-ssz-sink.o \
         "$out/obj/zesu-raw-ssz-sink.o"
-      ${riscvCc} ${cflags} -c ${repo}/targets/ssz/zesu/adapter/main.c \
+      ${riscvCc} ${cflags} -c ${repo}/targets/zesu/adapter/main.c \
         -o "$out/obj/zesu-ssz-main.o"
-      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_runtime.c \
+      ${riscvCc} ${cflags} -c ${repo}/runtime/riscv64/riscv64_runtime.c \
         -o "$out/obj/riscv64_runtime.o"
-      ${riscvCc} ${cflags} -c ${repo}/targets/common/riscv64_start.S \
+      ${riscvCc} ${cflags} -c ${repo}/runtime/riscv64/riscv64_start.S \
         -o "$out/obj/riscv64_start.o"
       ${riscvCc} ${cflags} -nostdlib -static -no-pie \
         "$out/obj/riscv64_start.o" \
@@ -820,7 +780,7 @@ let
     checkPhase = ''
       runHook preCheck
       ${pkgs.python3}/bin/python -B \
-        ${repo}/targets/ssz/zesu/tests/ssz_sink_observability.py \
+        ${repo}/targets/zesu/tests/ssz_sink_observability.py \
         --qemu ${qemuRiscv64} \
         --binary ${zesuSsz}/bin/zesu-ssz
       runHook postCheck
@@ -944,7 +904,6 @@ in
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
-      blobScheduleInstance
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
@@ -963,7 +922,6 @@ in
     zesu-raw-ssz-sidecar = zesuRawSidecar;
     zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
     elfling-program = elflingProgram;
-    blob-schedule-instance = blobScheduleInstance;
     elfling-decoder-llvm-ir = elflingDecoderLlvmIr;
     elfling-relocation-check = elflingRelocationCheck;
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;

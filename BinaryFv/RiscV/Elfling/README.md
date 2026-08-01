@@ -31,7 +31,7 @@ concrete binary instructions
       ▼
 FunctionInstance values                 static: where each compiled function instance lives
       │
-      ├── shared RoutineSpec             what every function instance of the source routine means
+      ├── shared SourceFunctionSpec             what every function instance of the source function means
       └── FunctionInstanceBinding              where this function instance gets arguments and leaves results
                     │ prove
                     ▼
@@ -52,7 +52,7 @@ spliced into the parent's trace without omitting the call, return, or outgoing i
    vocabulary: function instance identities, address ranges, entries, exits, children, calls, and programs.
 2. [`FunctionTrace.lean`](FunctionTrace.lean) defines a dynamic execution confined to a supplied
    address set until it reaches a supplied exit.
-3. [`Contract.lean`](Contract.lean) gives every source routine one shared meaning and every compiled
+3. [`Contract.lean`](Contract.lean) gives every source function one shared meaning and every compiled
    function instance its own register-and-memory binding.
 4. [`Boundary.lean`](Boundary.lean) validates crossings between function instances and expands a parent
    proof that uses child summaries into one ordinary machine trace.
