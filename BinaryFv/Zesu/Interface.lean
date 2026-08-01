@@ -1,5 +1,5 @@
 import BinaryFv.RiscV.ELF.Elf64
-import BinaryFv.Zesu.SpecBridge.Decode
+import BinaryFv.Specs.SSZ.Decode
 
 namespace BinaryFv.Zesu
 
@@ -21,7 +21,7 @@ inductive ExecutionError where
   | invalidArtifact | fuelExhausted | trapped | badReturn | malformedResult | outOfMemory | notImplemented
   deriving DecidableEq, Repr
 
-def execute (_binary : ValidatedElf) (_input : ByteArray) : Except ExecutionError DecodeOutcome :=
+def execute (_binary : ValidatedElf) (_input : ByteArray) : Except ExecutionError BinaryFv.Specs.SSZ.DecodeOutcome :=
   .error .notImplemented
 
 end RiscvSpec

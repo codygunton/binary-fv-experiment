@@ -38,7 +38,7 @@ theorem callSite_resumes_at_checked_continuation
 
 /-- **A valid call site is backed by the real call edge.** Beyond callee membership, a valid
 `CallSite` requires `source → calleeEntry` to be a genuine emitted edge of the caller: the call
-transfer itself is a decoded successor, not merely a routine the caller happens to reach. -/
+transfer itself is a decoded successor, not merely a source function the caller happens to reach. -/
 theorem callSite_uses_the_real_call_edge
     {cs : CallSite} {functionInstance callee : FunctionInstance} (h : cs.validFor functionInstance callee) :
     (⟨cs.source, cs.calleeEntry⟩ : DirectEdge) ∈ functionInstance.edges :=

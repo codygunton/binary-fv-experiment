@@ -14,7 +14,7 @@ checks, reproducing the Python oracle (`scale_occurrences.evaluate_facts`) exact
   exitsRespected        every leaving / dynamic transfer departs at a declared exit PC
   withinStepBound       max per-invocation instruction count ≤ the contract step bound (gap if the
                         bound is input-dependent)
-  allocationConsistent  a non-allocating routine never bumps the allocator cursor
+  allocationConsistent  a non-allocating sourceFunction never bumps the allocator cursor
   inputPreserved        no store into the SSZ input buffer
   codePreserved         no store into .text
   writesClassified      every in-region store lands in a known memory region (re-classified here from
@@ -161,7 +161,7 @@ theorem negative_undeclared_exit :
         leavingSources := 999999 :: sample.leavingSources }).exitsRespected
       = some false := by native_decide
 
-/-- spurious allocation: a store bumping the allocator cursor in a non-allocating routine. -/
+/-- spurious allocation: a store bumping the allocator cursor in a non-allocating sourceFunction. -/
 theorem negative_cursor_bump :
     (evaluateOcc { sample with storesSummarized := true, storeClasses := "allocator-cursor" :: sample.storeClasses }).allocationConsistent
       = some false := by native_decide

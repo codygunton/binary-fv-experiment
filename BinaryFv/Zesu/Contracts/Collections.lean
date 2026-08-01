@@ -14,11 +14,11 @@ open LeanRV64DExecutable.Functions Register
 The fixed-stride collections (`decodeVersionedHashes`, `decodeWithdrawals`, the three request
 families, `decodePublicKeys`) and the one offset-table collection, `decodeByteListList`.
 
-Every routine here **allocates**, so unlike the option and leaf families their postconditions must
+Every source function here **allocates**, so unlike the option and leaf families their postconditions must
 describe the allocation rather than deny it. `decodeByteListList` allocates even for a zero-length
 input: the source's `if (data.len == 0) return alloc.alloc([]const u8, 0)` takes the allocator path.
 
-`decodeByteListList` is also the only routine with a genuine loop, and its guard is subtler than it
+`decodeByteListList` is also the only source function with a genuine loop, and its guard is subtler than it
 looks — the source assigns `previous = start`, not `previous = end`. The invariant it maintains is
 therefore *nondecreasing starts*, not disjointness or non-overlap. The contract states it as written;
 stating the "obviously intended" stronger version would be unprovable against the actual binary.
@@ -43,71 +43,71 @@ create a second source of truth that could drift.
 -/
 
 def versionedHashesType : SSZType :=
-  .list (SszBridge.byteVector 32) SszBridge.maxBlobCommitmentsPerBlock
+  .list (BinaryFv.Specs.SSZ.byteVector 32) BinaryFv.Specs.SSZ.maxBlobCommitmentsPerBlock
 
 def withdrawalsType : SSZType :=
-  .list SszBridge.withdrawalType SszBridge.maxWithdrawalsPerPayload
+  .list BinaryFv.Specs.SSZ.withdrawalType BinaryFv.Specs.SSZ.maxWithdrawalsPerPayload
 
 def depositRequestsType : SSZType :=
-  .list SszBridge.depositRequestType SszBridge.maxDepositRequestsPerPayload
+  .list BinaryFv.Specs.SSZ.depositRequestType BinaryFv.Specs.SSZ.maxDepositRequestsPerPayload
 
 def withdrawalRequestsType : SSZType :=
-  .list SszBridge.withdrawalRequestType SszBridge.maxWithdrawalRequestsPerPayload
+  .list BinaryFv.Specs.SSZ.withdrawalRequestType BinaryFv.Specs.SSZ.maxWithdrawalRequestsPerPayload
 
 def consolidationRequestsType : SSZType :=
-  .list SszBridge.consolidationRequestType SszBridge.maxConsolidationRequestsPerPayload
+  .list BinaryFv.Specs.SSZ.consolidationRequestType BinaryFv.Specs.SSZ.maxConsolidationRequestsPerPayload
 
 def publicKeysType : SSZType :=
-  .list (SszBridge.byteVector SszBridge.publicKeyBytes) SszBridge.maxPublicKeys
+  .list (BinaryFv.Specs.SSZ.byteVector BinaryFv.Specs.SSZ.publicKeyBytes) BinaryFv.Specs.SSZ.maxPublicKeys
 
 def meaningVersionedHashes (bytes : ByteArray) :
-    Except SszDecodeError (Array (SszBridge.RawByteVector 32)) :=
-  match SszBridge.decodeCanonical versionedHashesType bytes with
+    Except SszDecodeError (Array (BinaryFv.Specs.SSZ.RawByteVector 32)) :=
+  match BinaryFv.Specs.SSZ.decodeCanonical versionedHashesType bytes with
   | .ok value => .ok value.1
   | .error error => .error (sszToDecodeError error)
 
 def meaningWithdrawals (bytes : ByteArray) :
-    Except SszDecodeError (Array SszBridge.RawWithdrawal) :=
-  match SszBridge.decodeCanonical withdrawalsType bytes with
-  | .ok value => .ok (value.1.map SszBridge.rawWithdrawalOf)
+    Except SszDecodeError (Array BinaryFv.Specs.SSZ.RawWithdrawal) :=
+  match BinaryFv.Specs.SSZ.decodeCanonical withdrawalsType bytes with
+  | .ok value => .ok (value.1.map BinaryFv.Specs.SSZ.rawWithdrawalOf)
   | .error error => .error (sszToDecodeError error)
 
 def meaningDepositRequests (bytes : ByteArray) :
-    Except SszDecodeError (Array SszBridge.RawDepositRequest) :=
-  match SszBridge.decodeCanonical depositRequestsType bytes with
-  | .ok value => .ok (value.1.map SszBridge.rawDepositRequestOf)
+    Except SszDecodeError (Array BinaryFv.Specs.SSZ.RawDepositRequest) :=
+  match BinaryFv.Specs.SSZ.decodeCanonical depositRequestsType bytes with
+  | .ok value => .ok (value.1.map BinaryFv.Specs.SSZ.rawDepositRequestOf)
   | .error error => .error (sszToDecodeError error)
 
 def meaningWithdrawalRequests (bytes : ByteArray) :
-    Except SszDecodeError (Array SszBridge.RawWithdrawalRequest) :=
-  match SszBridge.decodeCanonical withdrawalRequestsType bytes with
-  | .ok value => .ok (value.1.map SszBridge.rawWithdrawalRequestOf)
+    Except SszDecodeError (Array BinaryFv.Specs.SSZ.RawWithdrawalRequest) :=
+  match BinaryFv.Specs.SSZ.decodeCanonical withdrawalRequestsType bytes with
+  | .ok value => .ok (value.1.map BinaryFv.Specs.SSZ.rawWithdrawalRequestOf)
   | .error error => .error (sszToDecodeError error)
 
 def meaningConsolidationRequests (bytes : ByteArray) :
-    Except SszDecodeError (Array SszBridge.RawConsolidationRequest) :=
-  match SszBridge.decodeCanonical consolidationRequestsType bytes with
-  | .ok value => .ok (value.1.map SszBridge.rawConsolidationRequestOf)
+    Except SszDecodeError (Array BinaryFv.Specs.SSZ.RawConsolidationRequest) :=
+  match BinaryFv.Specs.SSZ.decodeCanonical consolidationRequestsType bytes with
+  | .ok value => .ok (value.1.map BinaryFv.Specs.SSZ.rawConsolidationRequestOf)
   | .error error => .error (sszToDecodeError error)
 
 def meaningPublicKeys (bytes : ByteArray) :
-    Except SszDecodeError (Array (SszBridge.RawByteVector SszBridge.publicKeyBytes)) :=
-  match SszBridge.decodeCanonical publicKeysType bytes with
+    Except SszDecodeError (Array (BinaryFv.Specs.SSZ.RawByteVector BinaryFv.Specs.SSZ.publicKeyBytes)) :=
+  match BinaryFv.Specs.SSZ.decodeCanonical publicKeysType bytes with
   | .ok value => .ok value.1
   | .error error => .error (sszToDecodeError error)
 
 /-- `decodeByteListList(data, maxItems, maxItemBytes)`: the SSZ `List[ByteList[b], n]` schema.
 
 `maxItems` and `maxItemBytes` are **runtime arguments** of the one `decodeByteListList` function —
-it is a single routine called at four sites (transactions, witness state, codes, headers), not four
+it is a single source function called at four sites (transactions, witness state, codes, headers), not four
 functions — so they belong in `ByteListListArgs`, not in the contract's parameters. Collapsing them
-into the contract would have implied four separate catalog identities for one source routine. -/
+into the contract would have implied four separate catalog identities for one source function. -/
 def byteListListType (maxItems maxItemBytes : Nat) : SSZType :=
-  .list (SszBridge.byteList maxItemBytes) maxItems
+  .list (BinaryFv.Specs.SSZ.byteList maxItemBytes) maxItems
 
 def meaningByteListList (maxItems maxItemBytes : Nat) (bytes : ByteArray) :
-    Except SszDecodeError (Array SszBridge.RawBytes) :=
-  match SszBridge.decodeCanonical (byteListListType maxItems maxItemBytes) bytes with
+    Except SszDecodeError (Array BinaryFv.Specs.SSZ.RawBytes) :=
+  match BinaryFv.Specs.SSZ.decodeCanonical (byteListListType maxItems maxItemBytes) bytes with
   | .ok value => .ok (value.1.map fun item => item.1)
   | .error error => .error (sszToDecodeError error)
 
@@ -119,12 +119,12 @@ structure ByteListListArgs extends CollectionArgs where
 /-!
 ## Allocation effects
 
-An allocating routine's postcondition has to say *what* it allocated, not merely that memory
+An allocating source function's postcondition has to say *what* it allocated, not merely that memory
 changed. `AllocatedDescriptorArray` is the shape every collection produces: a heap array of
 `count` elements of `elementSize` bytes, with a slice descriptor at the result pointer.
 -/
 
-/-- The routine allocated exactly one array and published a descriptor for it. -/
+/-- The source function allocated exactly one array and published a descriptor for it. -/
 def AllocatedDescriptorArray (state : State) (resultBase dataBase count elementSize : Nat) : Prop :=
   SliceDescriptorRep state resultBase dataBase count ∧
   HeapArrayRep state dataBase count elementSize
@@ -164,35 +164,35 @@ def postCollection {α : Type} (env : DecoderEnvironment) (args : CollectionArgs
 -/
 
 def contractVersionedHashes (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs (Array (SszBridge.RawByteVector 32)) where
+    FunctionContract SszDecodeError CollectionArgs (Array (BinaryFv.Specs.SSZ.RawByteVector 32)) where
   meaning := fun args => meaningVersionedHashes args.bytes
   pre := preCollection env
   post := fun args => postCollection env args 32 Array.size
   stepBound := fun args => 128 + 64 * (args.bytes.size / 32 + 1)
 
 def contractWithdrawals (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs (Array SszBridge.RawWithdrawal) where
+    FunctionContract SszDecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawWithdrawal) where
   meaning := fun args => meaningWithdrawals args.bytes
   pre := preCollection env
   post := fun args => postCollection env args 44 Array.size
   stepBound := fun args => 128 + 256 * (args.bytes.size / 44 + 1)
 
 def contractDepositRequests (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs (Array SszBridge.RawDepositRequest) where
+    FunctionContract SszDecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawDepositRequest) where
   meaning := fun args => meaningDepositRequests args.bytes
   pre := preCollection env
   post := fun args => postCollection env args 192 Array.size
   stepBound := fun args => 128 + 512 * (args.bytes.size / 192 + 1)
 
 def contractWithdrawalRequests (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs (Array SszBridge.RawWithdrawalRequest) where
+    FunctionContract SszDecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawWithdrawalRequest) where
   meaning := fun args => meaningWithdrawalRequests args.bytes
   pre := preCollection env
   post := fun args => postCollection env args 76 Array.size
   stepBound := fun args => 128 + 256 * (args.bytes.size / 76 + 1)
 
 def contractConsolidationRequests (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs (Array SszBridge.RawConsolidationRequest) where
+    FunctionContract SszDecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawConsolidationRequest) where
   meaning := fun args => meaningConsolidationRequests args.bytes
   pre := preCollection env
   post := fun args => postCollection env args 116 Array.size
@@ -200,16 +200,16 @@ def contractConsolidationRequests (env : DecoderEnvironment) :
 
 def contractPublicKeys (env : DecoderEnvironment) :
     FunctionContract SszDecodeError CollectionArgs
-      (Array (SszBridge.RawByteVector SszBridge.publicKeyBytes)) where
+      (Array (BinaryFv.Specs.SSZ.RawByteVector BinaryFv.Specs.SSZ.publicKeyBytes)) where
   meaning := fun args => meaningPublicKeys args.bytes
   pre := preCollection env
-  post := fun args => postCollection env args SszBridge.publicKeyBytes Array.size
-  stepBound := fun args => 128 + 128 * (args.bytes.size / SszBridge.publicKeyBytes + 1)
+  post := fun args => postCollection env args BinaryFv.Specs.SSZ.publicKeyBytes Array.size
+  stepBound := fun args => 128 + 128 * (args.bytes.size / BinaryFv.Specs.SSZ.publicKeyBytes + 1)
 
 /-- `decodeByteListList` produces 16-byte slice descriptors, one per item. One contract, one
 identity; the bounds ride in `ByteListListArgs`. -/
 def contractByteListList (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError ByteListListArgs (Array SszBridge.RawBytes) where
+    FunctionContract SszDecodeError ByteListListArgs (Array BinaryFv.Specs.SSZ.RawBytes) where
   meaning := fun args => meaningByteListList args.maxItems args.maxItemBytes args.bytes
   pre := fun args => preCollection env args.toCollectionArgs
   post := fun args => postCollection env args.toCollectionArgs 16 Array.size

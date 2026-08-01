@@ -1,11 +1,11 @@
-import SszBridge.Core
+import BinaryFv.Specs.SSZ.Core
 import Lean.Data.Json
 
 /-!
 # Executable runner for the independent SSZ oracle
 
 This validation-only program reads the shared JSONL corpus, decodes each whole-input case with
-`SszBridge.decodeStatelessInput`, and writes a canonical JSON outcome. The host Zig probe processes
+`BinaryFv.Specs.SSZ.decodeStatelessInput`, and writes a canonical JSON outcome. The host Zig probe processes
 the same corpus, so the agreement check can compare the independent oracle with the pinned decoder
 source on large inputs.
 
@@ -15,7 +15,7 @@ graph: its results can reveal a bad contract, but they are never premises of the
 
 namespace BinaryFv.Zesu.Validation
 
-open SszBridge
+open BinaryFv.Specs.SSZ
 open Lean (Json)
 
 /-- A single hex digit's value. -/
@@ -43,10 +43,10 @@ render of the decoded value; a rejection carries the exact error label. -/
 def decodeOutcome (id : String) (input : ByteArray) : Json :=
   match decodeStatelessInput input with
   | .ok value =>
-      Json.mkObj [("id", Json.str id), ("routine", Json.str "ssz_raw.decode"),
+      Json.mkObj [("id", Json.str id), ("sourceFunction", Json.str "ssz_raw.decode"),
         ("outcome", Json.str "accept"), ("value", Json.str value.render)]
   | .error e =>
-      Json.mkObj [("id", Json.str id), ("routine", Json.str "ssz_raw.decode"),
+      Json.mkObj [("id", Json.str id), ("sourceFunction", Json.str "ssz_raw.decode"),
         ("outcome", Json.str "reject"), ("error", Json.str e.label)]
 
 /-- Extract a top-level string field, or `""` if absent. -/
@@ -62,7 +62,7 @@ def runLine (line : String) : IO Unit := do
   match Json.parse line with
   | .error _ => pure ()
   | .ok j =>
-      if strField j "routine" == "ssz_raw.decode" then
+      if strField j "sourceFunction" == "ssz_raw.decode" then
         match hexToBytes? (nestedStrField j "args" "input") with
         | some input => IO.println (decodeOutcome (strField j "id") input).compress
         | none => pure ()

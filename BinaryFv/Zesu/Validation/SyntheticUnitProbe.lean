@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.Zesu.Contracts.ContractComposition
 import BinaryFv.RiscV.Elfling.ProgramGeometry
 
 /-!
@@ -6,7 +6,7 @@ import BinaryFv.RiscV.Elfling.ProgramGeometry
 
 **Measurement, not a gate.** Nothing in the theorem graph imports this module.
 
-The fixture is the real emitted routine `raw_allocator.zesu_raw_alloc`: region `[66124, 66224)`,
+The fixture is the real emitted sourceFunction `raw_allocator.zesu_raw_alloc`: region `[66124, 66224)`,
 25 four-byte instructions, 8 basic blocks, 29 decoded edges, entry `66124`, single generated exit
 `66208`, no children and no external calls (taken verbatim from
 `build/elfling-program-lean/program.json`). It is split at the block boundary `66204` into two
@@ -58,7 +58,7 @@ abbrev allocFunctionId : FunctionId :=
 
 abbrev headId : FunctionInstanceId := { function := allocFunctionId, inlineStack := [] }
 
-/-- A **fabricated** inline site. No DWARF entry proposes it; it names the routine as its own caller
+/-- A **fabricated** inline site. No DWARF entry proposes it; it names the sourceFunction as its own caller
 at a column the source does not have. It exists only to make a second distinct
 `FunctionInstanceId` out of one `FunctionId`. -/
 abbrev syntheticSite : InlineSite :=
@@ -142,7 +142,7 @@ own entry and exits. -/
 theorem head_and_tail_ids_differ : headId ≠ tailId := by decide
 
 theorem synthetic_tail_dispatches :
-    (catalogEntryFor tailId.function).map (·.tag) = some RoutineTag.rawAlloc := by native_decide
+    (catalogEntryFor tailId.function).map (·.tag) = some ContractTag.rawAlloc := by native_decide
 
 theorem synthetic_tail_dispatch_equals_head :
     (catalogEntryFor tailId.function).map (·.tag)
@@ -233,7 +233,7 @@ theorem probeCallSite_valid : probeCallSite.validFor allocHead allocTail := by
 
 /-! ## 7. Positive control: the **nested hole** shape passes every structural clause
 
-Same routine, same synthetic-identity trick, but the second unit is a *sub-region* of the first
+Same sourceFunction, same synthetic-identity trick, but the second unit is a *sub-region* of the first
 rather than a disjoint successor. The parent keeps the whole `[66124, 66224)` region and the real
 exit `66208`; the hole is the single basic block `[66212, 66224)`, whose out-edge `66220 → 66204`
 lands back inside the parent.
@@ -278,7 +278,7 @@ theorem hole_geometry : ProgramGeometry holeProgram :=
 
 /-- The hole's identity is synthetic and still dispatches. -/
 theorem hole_dispatches :
-    (catalogEntryFor holeId.function).map (·.tag) = some RoutineTag.rawAlloc := by native_decide
+    (catalogEntryFor holeId.function).map (·.tag) = some ContractTag.rawAlloc := by native_decide
 
 /-- **Positive control for §5.** A child-to-parent edge exists for the nested hole. -/
 def holeChildToParentEdgesB : Bool :=
@@ -331,7 +331,7 @@ the hole and the splice buys nothing. The question is how much of the hole the p
 Nothing else about the hole is region-checked: the `used` body steps are consumed by the summary. So a
 hole of `k` instructions lets the parent shed exactly `k - 2` of them (`0` for `k ≤ 2`).
 
-The fixture below is the same routine with a *fragmented* parent that owns the residue plus only the
+The fixture below is the same sourceFunction with a *fragmented* parent that owns the residue plus only the
 hole's first and last instruction — the hole's interior (`66216`) is dropped — and it still passes the
 geometry and the whole `InlineBoundary`. -/
 

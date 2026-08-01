@@ -29,7 +29,7 @@ def parse_linker_map(path):
     Returns (text_bases, runtime_func_base, bss_bases, symbol_addrs):
       * text_bases[objkind]         = the linked address of that object's `.text` section;
       * runtime_func_base[funcname] = the linked address of the runtime object's `.text.<funcname>`
-                                      per-function section (each runtime routine is its own section);
+                                      per-function section (each runtime source function is its own section);
       * bss_bases[objkind]          = the linked address of that object's `.bss` section (where its
                                       private statics — the decoder globals — are placed);
       * symbol_addrs[name]          = the linked address of a defined global symbol (e.g. the exported
@@ -66,7 +66,7 @@ def parse_linker_map(path):
 
 SRC_PREFIX = "/build/source/"
 FILES = {"decoder": "src/stateless/stateless/ssz_raw.zig", "root": "src/zkvm/raw_decoder_root.zig",
-         "allocator": "src/zkvm/raw_allocator.zig", "runtime": "targets/common/riscv64_runtime.c"}
+         "allocator": "src/zkvm/raw_allocator.zig", "runtime": "runtime/riscv64/riscv64_runtime.c"}
 EXTRACTOR_VERSION = "elfling-generator-v1"
 DECODER_TEXT_SHA = "f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b"
 
@@ -78,10 +78,10 @@ def source_file_of(qual):
     return None
 
 def excluded_category(qual):
-    """Category for a reachable-but-uncovered emitted glue routine, or None to skip it.
+    """Category for a reachable-but-uncovered emitted glue source function, or None to skip it.
 
     The two categories carry DIFFERENT soundness reasons (see the Lean reachable-partition module):
-      reachableCleanupNoOp: a `*.deinit` error-path cleanup routine; the freestanding zkVM's allocator
+      reachableCleanupNoOp: a `*.deinit` error-path cleanup source function; the freestanding zkVM's allocator
         free is a no-op, so deinit never changes the accept/reject outcome.
       reachableStdlib: std/mem/math implementation reachable through the allocator vtable, whose net
         behavior is captured by the cataloged allocator contracts.
@@ -571,14 +571,14 @@ def index_dies(dies):
 
 
 def signature_params(d, dies_by_off, children_of, name_of_off):
-    """The COMPLETE formal parameter list of the routine function instance `d` realizes, in signature order,
+    """The COMPLETE formal parameter list of the function instance `d` realizes, in signature order,
     taken from its abstract-origin subprogram DIE.
 
     An optimized concrete function instance may omit a `DW_TAG_formal_parameter` child entirely — not merely
     leave it without a location. Enumerating only the concrete function instance's children therefore produced a
     binding table that was silently SHORT: four `bytesAt` function_instances had no `offset` row and the
     `readU64`/`readArray` function_instances enclosing them had no rows at all, so Row A recorded them as
-    "paramless" when their routines plainly take parameters. The abstract origin always carries the
+    "paramless" when their source functions plainly take parameters. The abstract origin always carries the
     full signature, so it is the authority for WHICH parameters exist; the concrete function instance is the
     authority for WHERE each one lives."""
     origin = d
@@ -599,13 +599,13 @@ def signature_params(d, dies_by_off, children_of, name_of_off):
 
 
 def function_instance_bindings(d, dies, name_of_off, locs, function_instance_ranges, dies_by_off=None, children_of=None):
-    """The entry-time (name, kind, reg, offset) of every formal parameter of the routine function instance `d`
+    """The entry-time (name, kind, reg, offset) of every formal parameter of the function instance `d`
     REALIZES — one row per signature parameter, never a short table.
 
     A parameter the concrete function instance located is resolved from `.debug_loc`. A parameter the concrete
     function instance carries WITHOUT a location is `callerProvided`. A parameter the concrete function instance omits
     entirely is ALSO `callerProvided` — a declared row the recovery pass can act on, rather than an
-    absence that later stages cannot distinguish from a genuinely paramless routine."""
+    absence that later stages cannot distinguish from a genuinely paramless source function."""
     frame_reg = frame_base_reg_of(d)
     out, seen = [], {}
     for i, c in enumerate(dies):
@@ -988,8 +988,8 @@ def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globa
          "-- Untrusted extracted data: the decoder's private globals and the allocator/heap runtime",
          "-- globals (canonical linked addresses and sizes), plus the accessor instructions that",
          "-- reference the decoder globals. Validated in Lean by",
-         "-- BinaryFv/Zesu/Elfling/GeneratedDecoderGlobals.lean against the pinned canonical image.",
-         "namespace BinaryFv.Zesu.Elfling.GeneratedDecoderGlobals",
+         "-- BinaryFv/Zesu/Elflings/GeneratedDecoderGlobals.lean against the pinned canonical image.",
+         "namespace BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals",
          f"def decoderTextSha : String := {lean_str(decoder_sha)}",
          f"def bssBase : Nat := {bss_base}",
          f"def bssSize : Nat := {bss_size}",
@@ -1002,15 +1002,15 @@ def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globa
     L.append("/-- (accessor symbol, instruction pc, 32-bit little-endian word, resolved global target). -/")
     L.append("def accessorRefs : List (String × Nat × Nat × Nat) :=")
     L.append("  [" + ", ".join(f'({lean_str(acc)}, {pc}, {w}, {t})' for (acc, pc, w, t) in accessor_refs) + "]")
-    L.append("end BinaryFv.Zesu.Elfling.GeneratedDecoderGlobals")
+    L.append("end BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals")
     return "\n".join(L) + "\n"
 
 def emit_bindings_lean(function_instances_sorted, effective, recoveries, derived):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-bindings). DO NOT EDIT.",
          "-- Untrusted extracted data: the entry-time ABI/binding of every function instance's formal",
          "-- parameters, resolved from DWARF .debug_loc at each function instance's entry PC. Validated in",
-         "-- Lean by BinaryFv/Zesu/Elfling/GeneratedBindings.lean.",
-         "namespace BinaryFv.Zesu.Elfling.GeneratedBindings",
+         "-- Lean by BinaryFv/Zesu/Elflings/GeneratedBindings.lean.",
+         "namespace BinaryFv.Zesu.Elflings.GeneratedBindings",
          "-- Rows are (function_instance index, parameter name, location kind, register-or-address,",
          "-- offset-or-value). The final field is the concrete value for const and the base offset",
          "-- otherwise.",
@@ -1041,7 +1041,7 @@ def emit_bindings_lean(function_instances_sorted, effective, recoveries, derived
     rows = [f'({i}, {lean_str(p)}, {lean_str(reason)}, {lean_str(kind)}, {reg}, {off})'
             for (i, p, reason, kind, reg, off) in recoveries]
     L.append("  [" + ",\n   ".join(rows) + "]")
-    L.append("end BinaryFv.Zesu.Elfling.GeneratedBindings")
+    L.append("end BinaryFv.Zesu.Elflings.GeneratedBindings")
     return "\n".join(L) + "\n"
 
 def emit_bindings_json(function_instances_sorted, effective, recoveries, derived):
@@ -1068,7 +1068,7 @@ def emit_bindings_json(function_instances_sorted, effective, recoveries, derived
 def main():
     ap = argparse.ArgumentParser()
     for k in ["readelf","decoder","allocator","sink","runtime","source"]: ap.add_argument("--"+k, required=True)
-    # the runtime C source lives in the proof repo (targets/common/riscv64_runtime.c), not the zesu
+    # the runtime C source lives in the proof repo (runtime/riscv64/riscv64_runtime.c), not the zesu
     # source tree, so its content hash is supplied separately.
     ap.add_argument("--runtime-c", required=True)
     # canonical placement comes from the pinned linked ELF's linker map, never hardcoded bases.
@@ -1171,8 +1171,8 @@ def main():
     for i, rec in enumerate(function_instances):
         if rec["parentIdx"] is not None: function_instances[rec["parentIdx"]]["children"].append(i)
 
-    # Regression oracle: the independently hand-verified milestone-3 `decodeOptionalBlobSchedule`
-    # slice (BlobScheduleFunctionInstance.lean). The generator must reproduce it exactly, so a silent drift
+    # Regression oracle: the pinned `decodeOptionalBlobSchedule` geometry established during milestone 3.
+    # The whole-program generator must reproduce it exactly, so a silent drift
     # in ranges/entry/exit/decl-line/inline-stack/nesting fails generation rather than the proof.
     #
     # Stated in RELOCATION-INVARIANT form: the object-relative entry (offset into the decoder `.text`),
@@ -1199,7 +1199,7 @@ def main():
            "nchildren": len(bs["children"]),
            "inlineStack": [(s["callerQualified"], s["line"], s["column"]) for s in bs["inlineStack"]]}
     if got != ORACLE:
-        raise SystemExit(f"REGRESSION: generated decodeOptionalBlobSchedule != milestone-3 slice.\n"
+        raise SystemExit(f"REGRESSION: generated decodeOptionalBlobSchedule != pinned geometry.\n"
                          f"  expected {ORACLE}\n  got      {got}")
 
     # entry function instance — the program cannot be emitted without one (Lean references function_instances<entry>Id), so a
@@ -1222,10 +1222,10 @@ def main():
     # property proved in the Lean reachable partition, not decidable here).
     defects.extend(sibling_overlap_defects(function_instances_sorted))
 
-    # Per-routine resolved declaration line (from DWARF `DW_AT_decl_line` via abstract origin). Every
-    # function instance of a routine must resolve to the SAME declaration; a disagreement is an ambiguous
+    # Per-source function resolved declaration line (from DWARF `DW_AT_decl_line` via abstract origin). Every
+    # function instance of a source function must resolve to the SAME declaration; a disagreement is an ambiguous
     # attribution. The Lean provenance check proves each function instance's declSpan equals this resolved
-    # line, so declSpan is validated against the routine's resolved declaration, not merely `> 0`.
+    # line, so declSpan is validated against the source function's resolved declaration, not merely `> 0`.
     decl_by_q = {}
     for function_instance in function_instances_sorted:
         decl_by_q.setdefault(function_instance["qualified"], set()).add(function_instance["declLine"])
@@ -1239,7 +1239,7 @@ def main():
     excluded_sorted = sorted(excluded_occ, key=lambda x:(x["entryPc"], x["qualified"], x["dieOffset"]))
     for x in excluded_sorted:
         del x["dieOffset"]
-        # excluded routines are genuine call targets (allocator vtable / cleanup), so they carry an
+        # excluded function instances are genuine call targets (allocator vtable / cleanup), so they carry an
         # emitted identity the externalCalls can reference.
         x["sourceFile"] = source_file_of(x["qualified"]) or "<zig-std>"
 
@@ -1256,7 +1256,7 @@ def main():
     region_pc_sets = compute_function_instance_cfg(function_instances_sorted, insns)   # fills function_instance["exits"], function_instance["edges"]
     for function_instance in function_instances_sorted:
         function_instance["blocks"] = function_instance_blocks(function_instance, insns)
-    # entry PC -> callee: only EMITTED function_instances and excluded routines are call targets (inlined
+    # entry PC -> callee: only EMITTED function_instances and excluded function instances are call targets (inlined
     # callees are not "called"). Resolve each deepest-owned call site to the callee's emitted identity.
     entry_to_callee = {}
     for i, function_instance in enumerate(function_instances_sorted):
@@ -1295,7 +1295,7 @@ def main():
     program = {"decoderTextSha256":DECODER_TEXT_SHA, "extractorVersion":EXTRACTOR_VERSION,
                "textBases":text_bases, "runtimeFuncBase":runtime_func_base, "objectSha256":object_sha,
                "sourceManifest":source_manifest, "declLines":decl_lines,
-               "entryIndex":entry_idx, "function_instances":function_instances_sorted, "excludedRoutines":excluded_sorted,
+               "entryIndex":entry_idx, "function_instances":function_instances_sorted, "excludedFunctionInstances":excluded_sorted,
                "reachable":reachable, "reachableEntry":function_instances_sorted[entry_idx]["entryPc"],
                "defects":sorted(defects, key=lambda x:json.dumps(x,sort_keys=True))}
     if a.out_json: open(a.out_json,"w").write(json.dumps(program, indent=2, sort_keys=True) + "\n")
@@ -1325,11 +1325,11 @@ def main():
             open(a.out_manifest, "w").write(emit_manifest_lean(program, mrows))
         if a.out_manifest_md:
             open(a.out_manifest_md, "w").write(emit_manifest_md(program, mrows))
-    routines = {
+    source_functions = {
         (function_instance["qualified"], tuple(function_instance["specialization"]))
         for function_instance in function_instances_sorted
     }
-    print(f"function instances={len(function_instances_sorted)} routines={len(routines)}/43 "
+    print(f"function instances={len(function_instances_sorted)} source functions={len(source_functions)}/43 "
           f"defects={len(program['defects'])} "
           f"entry={entry_idx} excluded={len(excluded_sorted)}")
     # Generation FAILS when unresolved defects remain (review blocker #1): the outputs above are still
@@ -1370,7 +1370,7 @@ def lean_id(function_instance):
     return f'{{ function := {{ declaration := {decl}, specialization := {spec} }}, inlineStack := {stack} }}'
 
 def excl_id_lean(x):
-    """The emitted (non-inlined) FunctionInstanceId of an excluded routine — it is a genuine call target, so
+    """The emitted (non-inlined) FunctionInstanceId of an excluded function instance — it is a genuine call target, so
     externalCalls can reference it and the validation can resolve calls to it."""
     decl = f'{{ file := {{ path := {lean_str(x["sourceFile"])} }}, qualifiedName := {lean_str(x["qualified"])} }}'
     return f'{{ function := {{ declaration := {decl}, specialization := #[] }}, inlineStack := [] }}'
@@ -1400,7 +1400,7 @@ def emit_lean(p):
          "-- the chunked reachability witness table is assembled by a many-fold `++`; elaborating it",
          "-- exceeds the default recursion depth.",
          "set_option maxRecDepth 8000", "",
-         "namespace BinaryFv.Zesu.Elfling.Generated", "",
+         "namespace BinaryFv.Zesu.Elflings.Generated", "",
          "open BinaryFv.Binary (AddressRange)", "open BinaryFv.Binary.Elfling", ""]
     prov = lambda function_instance: (
         f'{{ sidecarHash := {lean_str(p["objectSha256"][function_instance["objkind"]])}, '
@@ -1415,8 +1415,8 @@ def emit_lean(p):
             f'def functionInstance{i}Id : FunctionInstanceId := {lean_id(function_instance)}'
         )
     L.append("")
-    L.append("/-! ### Excluded-routine identities (address-free call targets). -/")
-    for j, x in enumerate(p["excludedRoutines"]):
+    L.append("/-! ### Excluded-source function identities (address-free call targets). -/")
+    for j, x in enumerate(p["excludedFunctionInstances"]):
         L.append(f'def excl{j}Id : FunctionInstanceId := {excl_id_lean(x)}')
     L.append("")
     L.append("/-! ### Function instances (address-bearing). -/")
@@ -1469,14 +1469,14 @@ def emit_lean(p):
     ) + "]")
     L.append("")
     # Reachable-but-excluded taxonomy (auditable data the reachable-partition proof consumes).
-    L.append("/-! ### Reachable-but-excluded emitted routines (auditable exclusion taxonomy). -/")
+    L.append("/-! ### Reachable-but-excluded emitted source functions (auditable exclusion taxonomy). -/")
     L.append("")
-    L.append("/-- Every reachable-but-excluded emitted routine: emitted identity, DWARF name, category,")
-    L.append("canonical regions. The identity lets a resolved external call target an excluded routine. -/")
+    L.append("/-- Every reachable-but-excluded emitted source function: emitted identity, DWARF name, category,")
+    L.append("canonical regions. The identity lets a resolved external call target an excluded function instance. -/")
     L.append("def generatedExcludedFunctionInstances : Array Program.ExcludedFunctionInstance :=")
-    if p["excludedRoutines"]:
+    if p["excludedFunctionInstances"]:
         items = []
-        for j, x in enumerate(p["excludedRoutines"]):
+        for j, x in enumerate(p["excludedFunctionInstances"]):
             regions = "#[" + ", ".join(f'{{ start := {r["start"]}, size := {r["size"]} }}' for r in x["regions"]) + "]"
             items.append(f'  {{ id := excl{j}Id, qualifiedName := {lean_str(x["qualified"])}, '
                          f'category := {lean_str(x["category"])}, regions := {regions} }}')
@@ -1513,9 +1513,9 @@ def emit_lean(p):
     sm = ", ".join(f'({lean_str(e["path"])}, {lean_str(e["sha256"])})' for e in p["sourceManifest"])
     L.append("  [" + sm + "]")
     L.append("")
-    L.append("/-- Each routine's resolved declaration line (DWARF `DW_AT_decl_line`), one entry per routine")
+    L.append("/-- Each source function's resolved declaration line (DWARF `DW_AT_decl_line`), one entry per source function")
     L.append("qualified name. `GeneratedProvenanceCheck` proves every function instance's declSpan line equals its")
-    L.append("routine's resolved line here, so declSpan is checked against the resolved declaration. -/")
+    L.append("source function's resolved line here, so declSpan is checked against the resolved declaration. -/")
     L.append("def generatedDeclLines : List (String × Nat) :=")
     dl = ", ".join(f'({lean_str(e["qualified"])}, {e["declLine"]})' for e in p["declLines"])
     L.append("  [" + dl + "]")
@@ -1558,14 +1558,14 @@ def emit_lean(p):
     L.append("/-- The reachable set (addresses only). -/")
     L.append("def reachableAddresses : Array Nat := reachableWitness.map (·.addr)")
     L.append("")
-    L.append("end BinaryFv.Zesu.Elfling.Generated")
+    L.append("end BinaryFv.Zesu.Elflings.Generated")
     L.append("")
     return "\n".join(L)
 
 def emit_md(p):
     M = ["# Generated Elfling program — source/function/CFG index", "",
          f"Deterministically generated from the DWARF sidecars. {len(p['function_instances'])} function instances over "
-         f"{len({(function_instance['qualified'],tuple(function_instance['specialization'])) for function_instance in p['function_instances']})}/43 catalog routines; "
+         f"{len({(function_instance['qualified'],tuple(function_instance['specialization'])) for function_instance in p['function_instances']})}/43 catalog source functions; "
          f"{len(p['defects'])} attribution defect(s).", ""]
     function_instances = p["function_instances"]
     tot = lambda k: sum(len(function_instance.get(k, [])) for function_instance in function_instances)
@@ -1573,10 +1573,10 @@ def emit_md(p):
     M += [f"Totals: {sum(len(function_instance['regions']) for function_instance in function_instances)} regions, {tot('blocks')} basic blocks, "
           f"{tot('edges')} direct edges, {tot('exits')} exit PCs, {tot('externalCalls')} external-call "
           f"edges, {len(overlaps)} overlaps; {len(p.get('reachable', []))} reachable PCs "
-          f"(gaps between cataloged function instances are the excluded routines below). "
+          f"(gaps between cataloged function instances are the excluded function instances below). "
           f"Every field is validated against the Sail-decoded CFG in Lean.", "",
           "## Functions (function_instances)", "",
-          "| # | routine | spec | src line | kind | entry | exits | regions | blocks | edges | calls | parent | inline |",
+          "| # | source function | spec | src line | kind | entry | exits | regions | blocks | edges | calls | parent | inline |",
           "|--:|---------|------|--------:|------|------:|-----:|-------:|------:|-----:|----:|-------:|------:|"]
     for i, function_instance in enumerate(function_instances):
         spec = ",".join(function_instance["specialization"]) or "—"
@@ -1592,14 +1592,14 @@ def emit_md(p):
         for i, function_instance in inlined:
             stack = " → ".join(f"{s['callerQualified']}@{s['line']}:{s['column']}" for s in function_instance["inlineStack"])
             M.append(f"- function_instances {i} `{function_instance['qualified']}`: {stack} → **{function_instance['qualified'].split('.')[-1]}**")
-    ex = p.get("excludedRoutines", [])
+    ex = p.get("excludedFunctionInstances", [])
     if ex:
         total = sum((r["size"] // 4) for x in ex for r in x["regions"])
-        M += ["", f"## Reachable-but-excluded routines ({len(ex)} routines, {total} region words)", "",
+        M += ["", f"## Reachable-but-excluded function instances ({len(ex)} instances, {total} region words)", "",
               "Emitted glue reachable from `zesu_decode_raw` that carries no cataloged function instance. "
               "The Lean reachable-partition validation proves these exactly account for the reachable "
               "PCs no cataloged function instance covers.", "",
-              "| # | routine | category | regions | words |",
+              "| # | source function | category | regions | words |",
               "|--:|---------|----------|--------:|------:|"]
         for i, x in enumerate(ex):
             w = sum(r["size"] // 4 for r in x["regions"])
@@ -1616,17 +1616,17 @@ def emit_md(p):
 #
 # The single source of both the Lean manifest and the Markdown work-assignment view, so the two can
 # never disagree. Everything emitted here is PROPOSED by the generator and CHECKED in Lean against
-# `generatedProgram` and the handwritten catalog (`GeneratedManifest.lean`): the routine tag against
+# `generatedProgram` and the handwritten catalog (`GeneratedManifest.lean`): the source function tag against
 # `catalogEntryFor`, the kind/parent/children/calls/entry/exits against the function instance record, and
 # the row set against `generatedProgram.functionInstances` in both directions.
 #
 # Deliberately NOT emitted: the numeric step bound. It lives in exactly one place — the contract the
-# function instance's `RoutineTag` selects through `routineContract` — and copying it into generated data
+# function instance's `ContractTag` selects through `functionContract` — and copying it into generated data
 # would create an unchecked second copy of a proof-relevant constant. The manifest carries the tag,
 # which is what determines it.
 
-# qualified name -> RoutineTag constructor, PROPOSED here and checked in Lean against the catalog.
-ROUTINE_TAGS = {
+# qualified name -> ContractTag constructor, PROPOSED here and checked in Lean against the catalog.
+CONTRACT_TAGS = {
     "raw_decoder_root.zesu_decode_raw": "zesuDecodeRaw",
     "ssz_raw.decode": "decode",
     "ssz_raw.decodeRaw": "decodeRaw",
@@ -1667,7 +1667,7 @@ ROUTINE_TAGS = {
     "raw_decoder_root.allocator": "allocatorCtor",
 }
 
-# RoutineTag -> the plan row that owns its local proofs. Row E is the blob-schedule vertical slice,
+# ContractTag -> the plan row that owns its local proofs. Row E is the blob-schedule vertical slice,
 # F the leaves/options/runtime, G the collections, H the containers and decodeRaw/decode, I the
 # exported wrapper.
 OWNING_ROW = {
@@ -1686,10 +1686,10 @@ OWNING_ROW = {
     "zesuDecodeRaw": "I",
 }
 
-# Human-readable rendering of each routine's step bound, for the MANIFEST.md view ONLY. This is
+# Human-readable rendering of each source function's step bound, for the MANIFEST.md view ONLY. This is
 # DOCUMENTATION, not a proof input: it is never emitted into GeneratedManifest.lean and no proof or
 # check consumes it. The authoritative source of every step bound is the Lean contract the row's
-# RoutineTag selects through `routineContract` (BinaryFv/Zesu/Contracts/*.lean); this dict mirrors
+# ContractTag selects through `functionContract` (BinaryFv/Zesu/Contracts/*.lean); this dict mirrors
 # those `stepBound` fields for the human backlog view, and must be kept in step with them by hand.
 # `|input|` is the input byte size, `|offsets|`/`|len|` an argument length, `N` a readArray width.
 STEP_BOUND_EXPR = {
@@ -1735,7 +1735,7 @@ STEP_BOUND_EXPR = {
 
 
 def step_bound_expr(tag, specialization):
-    """Human step-bound string for a routine, substituting the concrete readArray width for N."""
+    """Human step-bound string for a source function, substituting the concrete readArray width for N."""
     expr = STEP_BOUND_EXPR.get(tag)
     if expr is None:
         raise SystemExit(f"MANIFEST: tag {tag} has no step-bound expression")
@@ -1764,11 +1764,11 @@ def manifest_rows(p, bindings):
             brows.setdefault(i, []).append(f"{name}:{kind}")
     rows = []
     for i, function_instance in enumerate(function_instances):
-        tag = ROUTINE_TAGS.get(function_instance["qualified"])
+        tag = CONTRACT_TAGS.get(function_instance["qualified"])
         if tag is None:
             raise SystemExit(
                 f"MANIFEST: function instance {i} `{function_instance['qualified']}` "
-                "has no routine tag"
+                "has no source function tag"
             )
         row_owner = OWNING_ROW.get(tag)
         if row_owner is None:
@@ -1837,19 +1837,19 @@ def emit_manifest_lean(p, rows):
          "each row against `generatedProgram` and the handwritten catalog, in both directions.",
          "",
          "The numeric step bound is deliberately absent: it lives in the contract the row's",
-         "`routineTag` selects, and a copy here would be an unchecked second source for a",
+         "`contractTag` selects, and a copy here would be an unchecked second source for a",
          "proof-relevant constant.",
          "-/", "",
-         "namespace BinaryFv.Zesu.Elfling.Generated", "",
+         "namespace BinaryFv.Zesu.Elflings.Generated", "",
          "open BinaryFv.Binary.Elfling", "",
-         "/-- One manifest row. `routineTag` is the constructor name of the `RoutineTag` the proof",
+         "/-- One manifest row. `contractTag` is the constructor name of the `ContractTag` the proof",
          "layer checks against `catalogEntryFor`; keeping it a `String` here is what stops the",
          "generated file from importing the handwritten catalog. -/",
          "structure ManifestRow where",
          "  index : Nat",
          "  id : FunctionInstanceId",
          "  qualifiedName : String",
-         "  routineTag : String",
+         "  contractTag : String",
          "  kind : String",
          "  parent : Option Nat",
          "  children : Array Nat",
@@ -1870,7 +1870,7 @@ def emit_manifest_lean(p, rows):
         parent = "none" if r["parent"] is None else f'some {r["parent"]}'
         items.append(
             f'    {{ index := {r["index"]}, id := functionInstance{r["index"]}Id, '
-            f'qualifiedName := {lean_str(r["qualified"])}, routineTag := {lean_str(r["tag"])},\n'
+            f'qualifiedName := {lean_str(r["qualified"])}, contractTag := {lean_str(r["tag"])},\n'
             f'      kind := {lean_str(r["kind"])}, parent := {parent}, '
             f'children := {nats(r["children"])}, externalCalls := {nats(r["externalCalls"])},\n'
             f'      absorbed := {nats(r["absorbed"])}, entryPc := {r["entryPc"]}, '
@@ -1881,7 +1881,7 @@ def emit_manifest_lean(p, rows):
             f'owningRow := {lean_str(r["owningRow"])}, '
             f'proofStatus := {lean_str(r["proofStatus"])} }}')
     L.append(",\n".join(items))
-    L += ["  ]", "", "end BinaryFv.Zesu.Elfling.Generated", ""]
+    L += ["  ]", "", "end BinaryFv.Zesu.Elflings.Generated", ""]
     return "\n".join(L)
 
 
@@ -1890,10 +1890,10 @@ def emit_manifest_md(p, rows):
     by_row = {}
     for r in rows:
         by_row.setdefault(r["owningRow"], []).append(r)
-    by_routine = {}
+    by_source_function = {}
     for r in rows:
         key = r["qualified"] + ("[" + ",".join(r["specialization"]) + "]" if r["specialization"] else "")
-        by_routine.setdefault(key, []).append(r)
+        by_source_function.setdefault(key, []).append(r)
     M = ["# Function instance manifest — the Row D local-proof backlog", "",
          "GENERATED by `tools/generate_elfling_program.py`. Do not edit; regenerate.",
          "",
@@ -1901,28 +1901,28 @@ def emit_manifest_md(p, rows):
          "backlog cannot drift. The Lean side checks every row against `generatedProgram` and the",
          "handwritten catalog in both directions.",
          "",
-         "The **step bound** shown per routine is a human-readable mirror of that routine's Lean",
-         "contract bound; the authoritative source is the contract the row's `RoutineTag` selects",
-         "through `routineContract` (`BinaryFv/Zesu/Contracts/*.lean`). It is documentation only —",
+         "The **step bound** shown per source function is a human-readable mirror of that source function's Lean",
+         "contract bound; the authoritative source is the contract the row's `ContractTag` selects",
+         "through `functionContract` (`BinaryFv/Zesu/Contracts/*.lean`). It is documentation only —",
          "not emitted into `GeneratedManifest.lean` and not consumed by any proof — so nothing here",
          "introduces a second proof-relevant source for the bound. `|input|` is the input byte size.",
          "",
-         f"**{len(rows)} function instances** across **{len(by_routine)} source routines**.",
+         f"**{len(rows)} function instances** across **{len(by_source_function)} source functions**.",
          "",
          "## By owning plan row", "",
-         "| row | function instances | routines |", "|---|--:|--:|"]
+         "| row | function instances | source functions |", "|---|--:|--:|"]
     for row_owner in sorted(by_row):
         rs = by_row[row_owner]
-        routines = {r["qualified"] for r in rs}
-        M.append(f"| {row_owner} | {len(rs)} | {len(routines)} |")
-    M += ["", "## By source routine", "",
-          "Each group is one source routine; every function instance of it must be proved locally, and no",
+        source_functions = {r["qualified"] for r in rs}
+        M.append(f"| {row_owner} | {len(rs)} | {len(source_functions)} |")
+    M += ["", "## By source function", "",
+          "Each group is one source function; every function instance of it must be proved locally, and no",
           "function instance inherits its sibling's proof.", ""]
-    for key in sorted(by_routine):
-        rs = by_routine[key]
+    for key in sorted(by_source_function):
+        rs = by_source_function[key]
         bound = step_bound_expr(rs[0]["tag"], rs[0]["specialization"])
         M += [f"### `{key}` — {len(rs)} function instance(s), row {rs[0]['owningRow']}", "",
-              f"Step bound (from `routineContract`, human mirror): `{bound}`", "",
+              f"Step bound (from `functionContract`, human mirror): `{bound}`", "",
               "| function instance | kind | entry | exits | deps | binding rows | theorem | status |",
               "|--:|---|---|--:|---|---|---|---|"]
         for r in rs:

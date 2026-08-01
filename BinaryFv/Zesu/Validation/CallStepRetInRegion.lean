@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Elfling.GeneratedProgramGeometry
+import BinaryFv.Zesu.Elflings.GeneratedProgramGeometry
 
 /-!
 # `CallTransfer.retInRegion` on the real artifact (falsification evidence)
@@ -25,7 +25,7 @@ namespace BinaryFv.Zesu.Validation.CallStepRetInRegion
 open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV.Elfling
 open BinaryFv.Zesu.Contracts
-open BinaryFv.Zesu.Elfling.Generated (generatedProgram)
+open BinaryFv.Zesu.Elflings.Generated (generatedProgram)
 
 /-- Whether the caller's owned set contains any of the callee's generated exit pcs — the exact
 condition `CallTransfer.retInRegion` reduces to under the canonical child summary. -/

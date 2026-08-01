@@ -1,5 +1,5 @@
 import BinaryFv.Zesu.Contracts.Containers
-import BinaryFv.Zesu.SpecBridge.Decode
+import BinaryFv.Specs.SSZ.Decode
 
 namespace BinaryFv.Zesu.Contracts
 
@@ -19,7 +19,7 @@ the equivalence audit recorded on issue #39 becomes machine-checkable rather tha
 
 `decode` is raw-first with an ERE fallback, and the fallback is **not** symmetric with the oracle's:
 the source retries the four-byte-stripped input only on `InvalidSsz`, never on `UnknownFork`, while
-`SszBridge.decodeStatelessInput` retries on every `BridgeError` except `v3Quarantined`. That
+`BinaryFv.Specs.SSZ.decodeStatelessInput` retries on every `DecodeError` except `v3Quarantined`. That
 difference is unreachable, and `retryTailNeverSchemaValid` below is the reason why — stated as an
 obligation rather than left as a comment, because the whole root theorem leans on it.
 -/
@@ -33,10 +33,10 @@ about the binary.
 -/
 
 /-- `decodeRaw`, source-shaped. -/
-def meaningDecodeRaw (bytes : ByteArray) : Except SszDecodeError SszBridge.RawV4 := do
+def meaningDecodeRaw (bytes : ByteArray) : Except SszDecodeError BinaryFv.Specs.SSZ.RawV4 := do
   let _ ← meaningRequireU32Length bytes
   if bytes.size < 2 then throw .invalidSsz
-  if !(SszBridge.hasSchemaId bytes) then throw .invalidSsz
+  if !(BinaryFv.Specs.SSZ.hasSchemaId bytes) then throw .invalidSsz
   let body := bytes.extract 2 bytes.size
   if body.size < 16 then throw .invalidSsz
   let zeroth ← meaningReadOffset body 0
@@ -59,7 +59,7 @@ def meaningDecodeRaw (bytes : ByteArray) : Except SszDecodeError SszBridge.RawV4
 
 `unknownFork` and `outOfMemory` propagate without a retry. That asymmetry is the source's, and
 writing it any other way would make the contract false. -/
-def meaningDecode (bytes : ByteArray) : Except SszDecodeError SszBridge.RawV4 :=
+def meaningDecode (bytes : ByteArray) : Except SszDecodeError BinaryFv.Specs.SSZ.RawV4 :=
   match meaningDecodeRaw bytes with
   | .ok value => .ok value
   | .error .invalidSsz =>
@@ -87,7 +87,7 @@ def DecodeStatus.code : DecodeStatus → Nat
   | .outOfMemory => 4
   | .alreadyDecoded => 5
 
-def statusOfResult : Except SszDecodeError SszBridge.RawV4 → DecodeStatus
+def statusOfResult : Except SszDecodeError BinaryFv.Specs.SSZ.RawV4 → DecodeStatus
   | .ok _ => .ok
   | .error .invalidSsz => .invalidSsz
   | .error .unknownFork => .unknownFork
@@ -112,8 +112,8 @@ def preEntry (env : DecoderEnvironment) (args : EntryArgs) (state : State) : Pro
   state.regs.get? x13 = some (BitVec.ofNat 64 args.bytes.size)
 
 def postEntry (env : DecoderEnvironment) (args : EntryArgs)
-    (rep : ContainerRepresentation SszBridge.RawV4)
-    (result : Except SszDecodeError SszBridge.RawV4) (before after : State) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (result : Except SszDecodeError BinaryFv.Specs.SSZ.RawV4) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   match result with
@@ -122,15 +122,15 @@ def postEntry (env : DecoderEnvironment) (args : EntryArgs)
       error = SszDecodeError.invalidSsz ∨ error = SszDecodeError.unknownFork ∨
         error = SszDecodeError.outOfMemory
 
-def contractDecodeRaw (env : DecoderEnvironment) (rep : ContainerRepresentation SszBridge.RawV4) :
-    FunctionContract SszDecodeError EntryArgs SszBridge.RawV4 where
+def contractDecodeRaw (env : DecoderEnvironment) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) :
+    FunctionContract SszDecodeError EntryArgs BinaryFv.Specs.SSZ.RawV4 where
   meaning := fun args => meaningDecodeRaw args.bytes
   pre := preEntry env
   post := fun args => postEntry env args rep
   stepBound := fun args => 16384 + 512 * args.bytes.size
 
-def contractDecode (env : DecoderEnvironment) (rep : ContainerRepresentation SszBridge.RawV4) :
-    FunctionContract SszDecodeError EntryArgs SszBridge.RawV4 where
+def contractDecode (env : DecoderEnvironment) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) :
+    FunctionContract SszDecodeError EntryArgs BinaryFv.Specs.SSZ.RawV4 where
   meaning := fun args => meaningDecode args.bytes
   pre := preEntry env
   -- Twice the raw bound: the ERE fallback can run `decodeRaw` a second time.
@@ -149,13 +149,13 @@ uses the `resultBase + 832` layout.
 -/
 
 def correctnessClaimDecodeRaw (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawV4)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractDecodeRaw env rep)
 
 def correctnessClaimDecode (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawV4)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
     (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsInstance instance_ entry exit (contractDecode env rep)
@@ -165,11 +165,11 @@ def correctnessClaimDecode (env : DecoderEnvironment)
 -/
 
 def satisfiableDecodeRaw (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawV4) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractDecodeRaw env rep)
 
 def satisfiableDecode (env : DecoderEnvironment)
-    (rep : ContainerRepresentation SszBridge.RawV4) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractDecode env rep)
 
 /-!
@@ -190,14 +190,14 @@ provable — the machine faithfully implements its own weaker discipline — whi
 quietly failed. -/
 def sourceShapedDecodeAgreesWithOracle : Prop :=
   ∀ (bytes : ByteArray),
-    isAccepted (meaningDecode bytes) = (SszBridge.decodeStatelessInput bytes).toOption.isSome
+    isAccepted (meaningDecode bytes) = (BinaryFv.Specs.SSZ.decodeStatelessInput bytes).toOption.isSome
 
 /-- The catalog's meanings are grounded in the pinned oracle, not in a private re-implementation:
-the entry meaning determines exactly the public `SszSpec.decode` outcome. -/
+the entry meaning determines exactly the public `BinaryFv.Specs.SSZ.decode` outcome. -/
 def catalogGroundsInSpec : Prop :=
   ∀ (bytes : ByteArray),
     isAccepted (meaningDecode bytes) = true ↔
-      ∃ value, BinaryFv.Zesu.SszSpec.decode bytes = .accepted value
+      ∃ value, BinaryFv.Specs.SSZ.decode bytes = .accepted value
 
 /--
 Why the asymmetric ERE retry is unobservable.
@@ -209,17 +209,17 @@ the binary and the oracle disagree about whether to attempt it.
 -/
 def retryTailNeverSchemaValid : Prop :=
   ∀ (bytes : ByteArray),
-    SszBridge.hasSchemaId bytes = true →
-    SszBridge.readU32LE? (bytes.extract 2 bytes.size) 0 = some 16 →
-      SszBridge.hasSchemaId (bytes.extract 4 bytes.size) = false
+    BinaryFv.Specs.SSZ.hasSchemaId bytes = true →
+    BinaryFv.Specs.SSZ.readU32LE? (bytes.extract 2 bytes.size) 0 = some 16 →
+      BinaryFv.Specs.SSZ.hasSchemaId (bytes.extract 4 bytes.size) = false
 
 /-- A V3-shaped buffer is never a canonical V4 one: the V3 classifier demands the u32 at
 execution-payload offset 436 be `528`, while a valid V4 payload demands `540`. This closes the
 direct-accept route where the oracle quarantines and the binary would accept. -/
 def v3ShapeExcludesCanonicalV4 : Prop :=
   ∀ (bytes : ByteArray),
-    SszBridge.hasV3PayloadShape bytes = true →
-      (SszBridge.decodeCanonical SszBridge.statelessInputV4Type
+    BinaryFv.Specs.SSZ.hasV3PayloadShape bytes = true →
+      (BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.statelessInputV4Type
         (bytes.extract 2 bytes.size)).toOption = none
 
 /-- The scope hypothesis of the root theorem, named rather than left implicit. -/
@@ -231,7 +231,7 @@ A **known, bounded divergence** outside the root theorem's scope.
 
 For `bytes.size ∈ [2^32, 2^32 + 3]` with an exact ERE prefix and a valid stripped tail, the binary
 rejects the oversized buffer, then still passes `hasExactErePrefix` and accepts via the retry, while
-`SszBridge.decodeStatelessInput` has a duplicate outer `size ≥ 2^32` gate that rejects with no retry.
+`BinaryFv.Specs.SSZ.decodeStatelessInput` has a duplicate outer `size ≥ 2^32` gate that rejects with no retry.
 
 `root_compliance` remains true — but *because of* `rootComplianceScope`, not incidentally. Recording
 this as a `Prop` keeps the size bound's load-bearing role visible instead of looking like a
@@ -240,6 +240,6 @@ def ereGateDivergesAboveU32 : Prop :=
   ∃ (bytes : ByteArray),
     ¬ rootComplianceScope bytes ∧
     isAccepted (meaningDecode bytes) = true ∧
-    SszBridge.decodeStatelessInput bytes = .error .tooLarge
+    BinaryFv.Specs.SSZ.decodeStatelessInput bytes = .error .tooLarge
 
 end BinaryFv.Zesu.Contracts

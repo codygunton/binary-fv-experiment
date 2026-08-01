@@ -5,7 +5,7 @@ import BinaryFv.Zesu.Validation.GeneratedCorpus
 # Checking the composed Lean meaning against the oracle
 
 For each small whole-input corpus case, this module evaluates both the handwritten `meaningDecode`
-and the independent `SszBridge.decodeStatelessInput` oracle. `native_decide` checks that they agree on
+and the independent `BinaryFv.Specs.SSZ.decodeStatelessInput` oracle. `native_decide` checks that they agree on
 acceptance and that both match the expected classification.
 
 These are proofs about the finite corpus, not a universal decoder theorem. They provide strong
@@ -35,7 +35,7 @@ def hexToBytes (s : String) : ByteArray := Id.run do
 
 /-- Whether the pinned oracle accepts an input. -/
 def oracleAccepts (input : ByteArray) : Bool :=
-  match SszBridge.decodeStatelessInput input with
+  match BinaryFv.Specs.SSZ.decodeStatelessInput input with
   | .ok _ => true
   | .error _ => false
 

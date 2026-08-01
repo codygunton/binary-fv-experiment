@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Elfling.GeneratedProgramGeometry
+import BinaryFv.Zesu.Elflings.GeneratedProgramGeometry
 
 /-!
 # Angle 3: can a machine loop be discharged in this framework?
@@ -42,7 +42,7 @@ open BinaryFv.RiscV
 open BinaryFv.RiscV.Elfling
 open BinaryFv.Zesu.Contracts
 open PreSail LeanRV64DExecutable.Functions Register
-open BinaryFv.Zesu.Elfling.Generated (generatedProgram)
+open BinaryFv.Zesu.Elflings.Generated (generatedProgram)
 
 /-! ## 1. Both trace types halt at an exit pc -/
 

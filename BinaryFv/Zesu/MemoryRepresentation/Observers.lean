@@ -45,7 +45,7 @@ theorem observe_bytes_of_memory (state : State) (base : Nat) :
 
 /-- Observe a compiler-reflected fixed byte vector from its inline native representation. -/
 theorem observe_fixed_byte_vector_of_rep {length : Nat} (state : State) (base : Nat)
-    (value : SszBridge.RawByteVector length)
+    (value : BinaryFv.Specs.SSZ.RawByteVector length)
     (representation : FixedByteVectorRep state base value) :
     observeBytes? state base length = some value.toArray.toList := by
   have memory : MemoryListBytes state base value.toArray.toList := by
@@ -55,7 +55,7 @@ theorem observe_fixed_byte_vector_of_rep {length : Nat} (state : State) (base : 
     simpa [FixedByteVectorRep] using representation index vectorBound
   simpa using observe_bytes_of_memory state base value.toArray.toList memory
 
-/-- The little-endian bytes of a bridge bit vector, least-significant byte first. -/
+/-- The little-endian bytes of a specification bit vector, least-significant byte first. -/
 def bitVectorLEBytes {width : Nat} (value : BitVec width) : List UInt8 :=
   (List.range (width / 8)).map fun index =>
     UInt8.ofNat ((value.toNat / 256 ^ index) % 256)
@@ -100,7 +100,7 @@ def observeRawV4FixedVectors? (state : State) (rootBase : Nat) :
     parentBeaconBlockRoot⟩
 
 theorem observe_raw_v4_fixed_vectors_of_rep (state : State) (rootBase : Nat)
-    (value : SszBridge.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
+    (value : BinaryFv.Specs.SSZ.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
     observeRawV4FixedVectors? state rootBase = some
       { parentHash := value.newPayloadRequest.executionPayload.parentHash.toArray.toList,
         feeRecipient := value.newPayloadRequest.executionPayload.feeRecipient.toArray.toList,
@@ -127,7 +127,7 @@ def observeRawV4BaseFee? (state : State) (rootBase : Nat) : Option (List UInt8) 
   observeBytes? state rootBase 32
 
 theorem observe_raw_v4_base_fee_of_rep (state : State) (rootBase : Nat)
-    (value : SszBridge.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
+    (value : BinaryFv.Specs.SSZ.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
     observeRawV4BaseFee? state rootBase = some
       (bitVectorLEBytes value.newPayloadRequest.executionPayload.baseFeePerGas) := by
   unfold observeRawV4BaseFee?
@@ -160,7 +160,7 @@ def observeRawV4Scalars? (state : State) (rootBase : Nat) : Option RawV4ScalarOb
     chainId, activeFork⟩
 
 theorem observe_raw_v4_scalars_of_rep (state : State) (rootBase : Nat)
-    (value : SszBridge.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
+    (value : BinaryFv.Specs.SSZ.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
     observeRawV4Scalars? state rootBase = some
       { blockNumber := value.newPayloadRequest.executionPayload.blockNumber.toNat,
         gasLimit := value.newPayloadRequest.executionPayload.gasLimit.toNat,
@@ -237,7 +237,7 @@ theorem observe_input_slice_descriptor_of_rep (state : State) (inputBase : Nat) 
   simpa using observe_bytes_of_memory state sliceBase bytes.toList owned
 
 theorem raw_v4_extra_data_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
     (representation : RawV4Rep state inputBase input rootBase value) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.newPayloadRequest.executionPayload.extraData.size =
@@ -250,7 +250,7 @@ theorem raw_v4_extra_data_observes (state : State) (inputBase : Nat) (input : By
       value.newPayloadRequest.executionPayload.extraData inputMemory sliceRepresentation⟩
 
 theorem raw_v4_block_access_list_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
     (representation : RawV4Rep state inputBase input rootBase value) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.newPayloadRequest.executionPayload.blockAccessList.size =
@@ -263,7 +263,7 @@ theorem raw_v4_block_access_list_observes (state : State) (inputBase : Nat) (inp
       value.newPayloadRequest.executionPayload.blockAccessList inputMemory sliceRepresentation⟩
 
 theorem raw_v4_transaction_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
     (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.executionPayload.transactions.size) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
@@ -278,7 +278,7 @@ theorem raw_v4_transaction_observes (state : State) (inputBase : Nat) (input : B
       value.newPayloadRequest.executionPayload.transactions[index] inputMemory sliceRepresentation⟩
 
 theorem raw_v4_witness_state_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
     (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.witness.state.size) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
@@ -293,7 +293,7 @@ theorem raw_v4_witness_state_observes (state : State) (inputBase : Nat) (input :
       value.witness.state[index] inputMemory sliceRepresentation⟩
 
 theorem raw_v4_witness_codes_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
     (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.witness.codes.size) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
@@ -308,7 +308,7 @@ theorem raw_v4_witness_codes_observes (state : State) (inputBase : Nat) (input :
       value.witness.codes[index] inputMemory sliceRepresentation⟩
 
 theorem raw_v4_witness_headers_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4) (inputMemory : MemoryBytes state inputBase input)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
     (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.witness.headers.size) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
@@ -323,7 +323,7 @@ theorem raw_v4_witness_headers_observes (state : State) (inputBase : Nat) (input
       value.witness.headers[index] inputMemory sliceRepresentation⟩
 
 theorem raw_v4_public_key_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.publicKeys.size) :
     ∃ base,
@@ -334,7 +334,7 @@ theorem raw_v4_public_key_observes (state : State) (inputBase : Nat) (input : By
       value.publicKeys[index] (allocations.publicKeyContents index indexBound)⟩
 
 theorem raw_v4_versioned_hash_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.versionedHashes.size) :
     ∃ base,
@@ -360,7 +360,7 @@ def observeRawWithdrawal? (state : State) (base : Nat) : Option RawWithdrawalObs
   let address ← observeBytes? state (base + 24) 20
   pure ⟨index, validatorIndex, amount, address⟩
 
-theorem observe_raw_withdrawal_of_rep (state : State) (base : Nat) (value : SszBridge.RawWithdrawal)
+theorem observe_raw_withdrawal_of_rep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawWithdrawal)
     (representation : RawWithdrawalRep state base value) :
     observeRawWithdrawal? state base = some
       ⟨value.index.toNat, value.validatorIndex.toNat, value.amount.toNat, value.address.toArray.toList⟩ := by
@@ -373,7 +373,7 @@ theorem observe_raw_withdrawal_of_rep (state : State) (base : Nat) (value : SszB
   rfl
 
 theorem raw_v4_withdrawal_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.executionPayload.withdrawals.size) :
     ∃ base,
@@ -401,7 +401,7 @@ def observeRawWithdrawalRequest? (state : State) (base : Nat) :
   pure ⟨amount, sourceAddress, validatorPubkey⟩
 
 theorem observe_raw_withdrawal_request_of_rep (state : State) (base : Nat)
-    (value : SszBridge.RawWithdrawalRequest)
+    (value : BinaryFv.Specs.SSZ.RawWithdrawalRequest)
     (representation : RawWithdrawalRequestRep state base value) :
     observeRawWithdrawalRequest? state base = some
       ⟨value.amount.toNat, value.sourceAddress.toArray.toList, value.validatorPubkey.toArray.toList⟩ := by
@@ -412,7 +412,7 @@ theorem observe_raw_withdrawal_request_of_rep (state : State) (base : Nat)
   rfl
 
 theorem raw_v4_withdrawal_request_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.executionRequests.withdrawals.size) :
     ∃ base,
@@ -439,7 +439,7 @@ def observeRawConsolidationRequest? (state : State) (base : Nat) :
   pure ⟨sourceAddress, sourcePubkey, targetPubkey⟩
 
 theorem observe_raw_consolidation_request_of_rep (state : State) (base : Nat)
-    (value : SszBridge.RawConsolidationRequest)
+    (value : BinaryFv.Specs.SSZ.RawConsolidationRequest)
     (representation : RawConsolidationRequestRep state base value) :
     observeRawConsolidationRequest? state base = some
       ⟨value.sourceAddress.toArray.toList, value.sourcePubkey.toArray.toList,
@@ -451,7 +451,7 @@ theorem observe_raw_consolidation_request_of_rep (state : State) (base : Nat)
   rfl
 
 theorem raw_v4_consolidation_request_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.executionRequests.consolidations.size) :
     ∃ base,
@@ -481,7 +481,7 @@ def observeRawDepositRequest? (state : State) (base : Nat) : Option RawDepositRe
   pure ⟨amount, index, pubkey, withdrawalCredentials, signature⟩
 
 theorem observe_raw_deposit_request_of_rep (state : State) (base : Nat)
-    (value : SszBridge.RawDepositRequest) (representation : RawDepositRequestRep state base value) :
+    (value : BinaryFv.Specs.SSZ.RawDepositRequest) (representation : RawDepositRequestRep state base value) :
     observeRawDepositRequest? state base = some
       ⟨value.amount.toNat, value.index.toNat, value.pubkey.toArray.toList,
         value.withdrawalCredentials.toArray.toList, value.signature.toArray.toList⟩ := by
@@ -495,7 +495,7 @@ theorem observe_raw_deposit_request_of_rep (state : State) (base : Nat)
   rfl
 
 theorem raw_v4_deposit_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : SszBridge.RawV4)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
     (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.executionRequests.deposits.size) :
     ∃ base,

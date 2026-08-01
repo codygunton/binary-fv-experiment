@@ -1,4 +1,4 @@
--- GENERATED FILE: produced by targets/ssz/zesu/trace/generate_evidence.py --out-lean. DO NOT EDIT.
+-- GENERATED FILE: produced by targets/zesu/trace/generate_evidence.py --out-lean. DO NOT EDIT.
 -- Deterministic production-ELF evidence for the decodeOptionalBlobSchedule slice (occurrence 116),
 -- consumed by BinaryFv/Zesu/Validation/BinaryOccurrenceCheck.lean. Diagnostic-only; the
 -- validation-import guard forbids the theorem graph from importing this.

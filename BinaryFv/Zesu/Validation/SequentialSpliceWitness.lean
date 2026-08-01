@@ -1,6 +1,6 @@
 import BinaryFv.RiscV.Elfling.SequentialSplice
 import BinaryFv.RiscV.Elfling.SentinelBridgeWitness
-import BinaryFv.Zesu.Elfling.GeneratedProgramGeometry
+import BinaryFv.Zesu.Elflings.GeneratedProgramGeometry
 
 /-!
 # The sequential splice, exhibited on `ssz_raw.decodeRaw`
@@ -78,7 +78,7 @@ open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV
 open BinaryFv.RiscV.Elfling
 open PreSail LeanRV64DExecutable.Functions Register
-open BinaryFv.Zesu.Elfling.Generated (generatedProgram)
+open BinaryFv.Zesu.Elflings.Generated (generatedProgram)
 
 /-! ## 1. The real instance, and the real edge inventory -/
 

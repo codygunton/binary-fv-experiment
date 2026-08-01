@@ -1,5 +1,5 @@
 import BinaryFv.Zesu.Contracts.Catalog
-import BinaryFv.Zesu.Elfling.GeneratedDecoderGlobals
+import BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals
 import BinaryFv.Zesu.MemoryRepresentation.Containers
 import BinaryFv.Zesu.Runtime.BumpAllocator
 
@@ -10,7 +10,7 @@ import BinaryFv.Zesu.Runtime.BumpAllocator
 This module replaces that existential with one concrete value, `canonicalContractParams`, whose
 address- and layout-bearing fields are taken from validated pinned artifacts — never handwritten:
 
-- `env.image` is the pinned canonical image `Artifact.programImage`;
+- `env.image` is the pinned canonical image `Artifacts.programImage`;
 - `env.allocatorState` is `canonicalAllocatorState` (the `ZKVM_HEAP_POS`/`ZKVM_HEAP_TOP` byte ranges,
   extracted and checked in `Elfling.GeneratedDecoderGlobals`);
 - `heap` is the validated 64 MiB `heap` region;
@@ -22,7 +22,7 @@ The Zig `?T` option layouts are the ABI's payload-then-discriminant layout at th
 The container representations are **concrete but partial**: `repRawV4` is the materialized fixed-field
 representation `RawV4FixedFieldsRep`; the seven nested-container representations are deliberately
 trivial placeholders, to be strengthened to full field/collection layouts in the containers row (H).
-Per `ProgramCorrectness`, a weak representation only weakens a contract's success arm — it cannot make
+Per `ContractComposition`, a weak representation only weakens a contract's success arm — it cannot make
 the per-occurrence obligation vacuous, because `ImplementsInstance` still demands an actual entered
 trace reaching a generated exit with frame preservation.
 -/
@@ -31,7 +31,7 @@ namespace BinaryFv.Zesu.Contracts
 
 open BinaryFv.RiscV
 open BinaryFv.Zesu.MemoryRepresentation
-open BinaryFv.Zesu.Elfling
+open BinaryFv.Zesu.Elflings
   (canonicalDecoderGlobalsLayout canonicalResultBuffer canonicalHeapBase canonicalHeapLimit
    canonicalAllocatorState)
 
@@ -43,14 +43,14 @@ just the size). The `getD` fallbacks are never taken: `canonicalOptionalU64_pinn
 `canonicalOptionalBlobSchedule_pinned` prove each field equals the exact manifest value, so a mutated
 offset in the manifest (or a wrong key here) fails those `native_decide` checks. -/
 
-open BinaryFv.Zesu.Artifact in
+open BinaryFv.Zesu.Artifacts in
 /-- `?u64`, defined entirely from the manifest: total size, payload offset, and reflected tag offset. -/
 def canonicalOptionalU64 : OptionLayout :=
   { size := optionalU64Size.getD 0,
     discriminantOffset := optionalU64TagOffset.getD 0,
     payloadOffset := optionalU64PayloadOffset.getD 0 }
 
-open BinaryFv.Zesu.Artifact in
+open BinaryFv.Zesu.Artifacts in
 /-- `?RawBlobSchedule`, defined entirely from the manifest. -/
 def canonicalOptionalBlobSchedule : OptionLayout :=
   { size := optionalBlobScheduleSize.getD 0,
@@ -74,7 +74,7 @@ def canonicalBlobScheduleLayout : BlobScheduleLayout :=
 /-- The canonical decoder environment: the pinned image, the checked allocator state, and the ABI
 option/aggregate layouts. -/
 def canonicalEnvironment : DecoderEnvironment :=
-  { image := Artifact.programImage
+  { image := Artifacts.programImage
     allocatorState := canonicalAllocatorState
     optionalBlobSchedule := canonicalOptionalBlobSchedule
     blobSchedule := canonicalBlobScheduleLayout
@@ -95,28 +95,28 @@ describe their input-relative borrowed slices. -/
 
 /-- The complete native representation of a decoded `RawV4` rooted at `base`, decoded from the caller's
 input at `inputBase`/`input`. -/
-def canonicalRepRawV4 : ContainerRepresentation SszBridge.RawV4 :=
+def canonicalRepRawV4 : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4 :=
   fun inputBase input value state base => RawV4Rep state inputBase input base value
 
-def canonicalRepForkActivation : ContainerRepresentation SszBridge.RawForkActivation :=
+def canonicalRepForkActivation : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkActivation :=
   fun _ _ value state base => ForkActivationRep state base value
 
-def canonicalRepForkConfig : ContainerRepresentation SszBridge.RawForkConfig :=
+def canonicalRepForkConfig : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkConfig :=
   fun _ _ value state base => ForkConfigRep state base value
 
-def canonicalRepChainConfig : ContainerRepresentation SszBridge.RawChainConfig :=
+def canonicalRepChainConfig : ContainerRepresentation BinaryFv.Specs.SSZ.RawChainConfig :=
   fun _ _ value state base => ChainConfigRep state base value
 
-def canonicalRepExecutionWitness : ContainerRepresentation SszBridge.RawExecutionWitness :=
+def canonicalRepExecutionWitness : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionWitness :=
   fun inputBase input value state base => ExecutionWitnessRep state inputBase input base value
 
-def canonicalRepExecutionRequests : ContainerRepresentation SszBridge.RawExecutionRequests :=
+def canonicalRepExecutionRequests : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionRequests :=
   fun _ _ value state base => ExecutionRequestsRep state base value
 
-def canonicalRepExecutionPayload : ContainerRepresentation SszBridge.RawExecutionPayload :=
+def canonicalRepExecutionPayload : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionPayload :=
   fun inputBase input value state base => ExecutionPayloadRep state inputBase input base value
 
-def canonicalRepNewPayloadRequest : ContainerRepresentation SszBridge.RawNewPayloadRequest :=
+def canonicalRepNewPayloadRequest : ContainerRepresentation BinaryFv.Specs.SSZ.RawNewPayloadRequest :=
   fun inputBase input value state base => NewPayloadRequestRep state inputBase input base value
 
 /-! ## The canonical parameters -/

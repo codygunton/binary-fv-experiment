@@ -41,7 +41,7 @@ structure BlobScheduleLayout where
 structure DecoderEnvironment where
   /-- The canonical loaded code image. Contracts assert it is unmodified; none of them names it. -/
   image : BinaryFv.Binary.ProgramImage
-  /-- The addresses holding the bump allocator's mutable state. A non-allocating routine must leave
+  /-- The addresses holding the bump allocator's mutable state. A non-allocating source function must leave
   every one of them unchanged, which is what turns "does not allocate" into a checkable claim. -/
   allocatorState : Nat → Prop
   optionalBlobSchedule : OptionLayout
@@ -50,7 +50,7 @@ structure DecoderEnvironment where
 
 namespace DecoderEnvironment
 
-/-- No byte of the allocator's mutable state changed: the routine performed no allocation. -/
+/-- No byte of the allocator's mutable state changed: the source function performed no allocation. -/
 def NoAllocation (env : DecoderEnvironment) (before after : State) : Prop :=
   ∀ address, env.allocatorState address → after.mem.get? address = before.mem.get? address
 
@@ -85,7 +85,7 @@ def OptionSomeRep (layout : OptionLayout) (state : State) (base : Nat) : Prop :=
 
 /-- A `RawBlobSchedule` payload laid out at `base`, all three fields little-endian. -/
 def RawBlobScheduleRep (layout : BlobScheduleLayout) (state : State) (base : Nat)
-    (value : SszBridge.RawBlobSchedule) : Prop :=
+    (value : BinaryFv.Specs.SSZ.RawBlobSchedule) : Prop :=
   Word64LERep state (base + layout.targetOffset) value.target.toNat ∧
   Word64LERep state (base + layout.maxOffset) value.max.toNat ∧
   Word64LERep state (base + layout.baseFeeUpdateFractionOffset) value.baseFeeUpdateFraction.toNat

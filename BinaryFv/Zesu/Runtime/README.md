@@ -1,0 +1,12 @@
+# Zesu runtime support
+
+This directory models implementation details supplied by Zesu's runtime rather than by the SSZ decoder
+logic itself. It currently covers the bump allocator, its compiler-visible call interface, and the
+allocation bound used by decoder proofs.
+
+- `BumpAllocator.lean` defines the allocator state and operations.
+- `AllocatorVtable.lean` connects those operations to the function pointers found in the pinned binary.
+- `AllocationBound.lean` states the resource bound needed by higher-level execution proofs.
+
+Semantic obligations for source functions that use the runtime belong in `Contracts/Runtime.lean`; immutable
+allocator call-site facts belong in `Artifacts/AllocatorCalls.lean`.

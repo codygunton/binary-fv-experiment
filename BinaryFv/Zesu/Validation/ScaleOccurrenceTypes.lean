@@ -19,8 +19,8 @@ structure OccScaleEvidence where
   index : Nat
   /-- fully-qualified inlined name (for readability / reports). -/
   qualified : String
-  /-- the source-routine short name (last dotted component). -/
-  routine : String
+  /-- the source-function short name (last dotted component). -/
+  sourceFunction : String
   /-- the arm whose trace covers this occurrence (`""` if uncovered). -/
   arm : String
   /-- declared Row A entry PC. -/
@@ -44,7 +44,7 @@ structure OccScaleEvidence where
   dynamicTransferSources : List Nat
   /-- the resolved contract step bound, or `none` if input-dependent/unknown (an explicit gap). -/
   stepBound : Option Nat
-  /-- whether the source routine allocates (bumps the allocator cursor). -/
+  /-- whether the source sourceFunction allocates (bumps the allocator cursor). -/
   allocates : Bool
   /-- meaning-tie family: "scalarLE" | "offset" | "slice" | other (structural → gap). -/
   meaningTieKind : String

@@ -1,7 +1,7 @@
-import BinaryFv.Zesu.Artifact.Layout
+import BinaryFv.Zesu.Artifacts.Layout
 import BinaryFv.Zesu.Interface
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Execution
-import BinaryFv.Zesu.Contracts.ProgramCorrectness
+import BinaryFv.Zesu.Contracts.ContractComposition
 
 namespace BinaryFv.Zesu
 
@@ -10,10 +10,10 @@ open BinaryFv.Binary.Elfling
 
 /-- The one canonical, Nix-built Zesu executable covered by the SSZ proof. -/
 noncomputable def binary : RiscvSpec.ValidatedElf := {
-  bytes := Artifact.bytes
-  elf := Artifact.elf
-  parsed_ok := by exact Artifact.parsed_ok
-  layout := Artifact.elf_layout
+  bytes := Artifacts.bytes
+  elf := Artifacts.elf
+  parsed_ok := by exact Artifacts.parsed_ok
+  layout := Artifacts.elf_layout
 }
 
 /-!
@@ -33,7 +33,7 @@ Read the spine outward from the root:
 * `Contracts.sszProgramCorrectness` — canonical coverage, semantic correspondence, the
   per-instance dispatch asserting each occurrence's `correctnessClaim`, precondition satisfiability,
   and the explicit local-to-global composition.
-* `Contracts.catalog` — the 43 live routines, address-free, matched by full identity.
+* `Contracts.catalog` — the 43 live source functions, address-free, matched by full identity.
 * the generated Elfling program — canonical-ELF ranges, checked against the pinned bytes.
 
 None of these is a `sorry`; they are named `Prop`s, so an unfinished obligation is stated exactly
@@ -46,7 +46,7 @@ live Sail trace, *given* the canonical generated program and its compliance obli
 `program` and `obligations` are genuine premises, not manufactured by the root: they are produced by
 `successful_trace_of_spec_accepts` and threaded in here, so the eventual proof of this theorem may —
 and must — use program correctness to establish the runner result. -/
-theorem execute_accepts_of_successful_trace (input : ByteArray) (value : SszBridge.RawV4)
+theorem execute_accepts_of_successful_trace (input : ByteArray) (value : BinaryFv.Specs.SSZ.RawV4)
     (program : Program) (canonical : Contracts.IsCanonicalGeneratedProgram program)
     (obligations : Contracts.sszComplianceObligations program)
     (execution : Entrypoints.ZesuDecodeRaw.SuccessfulTraceWitness input value) :
@@ -68,9 +68,9 @@ runner/result observation, and the public execution API. -/
 theorem root_compliance :
     forall input : ByteArray,
       input.size < 2 * 1024 * 1024 ->
-        RiscvSpec.execute binary input = .ok (SszSpec.decode input) := by
+        RiscvSpec.execute binary input = .ok (BinaryFv.Specs.SSZ.decode input) := by
   intro input inputBound
-  cases specResult : SszSpec.decode input with
+  cases specResult : BinaryFv.Specs.SSZ.decode input with
   | accepted value =>
       obtain ⟨program, canonical, obligations, ⟨execution⟩⟩ :=
         Entrypoints.ZesuDecodeRaw.successful_trace_of_spec_accepts

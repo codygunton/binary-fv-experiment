@@ -125,21 +125,21 @@ def assign_owners(program: dict, reachable: set[int]) -> tuple[dict[int, str], d
         for address in reachable:
             if in_regions(address, instance["regions"]):
                 candidates[address].append((depth, index))
-    excluded = program.get("excludedRoutines", [])
-    for index, routine in enumerate(excluded):
+    excluded = program.get("excludedFunctionInstances", [])
+    for index, excluded_function_instance in enumerate(excluded):
         owner = f"excluded:{index}"
         owners[owner] = {
             "id": owner,
-            "kind": routine["category"],
-            "qualified": routine["qualified"],
+            "kind": excluded_function_instance["category"],
+            "qualified": excluded_function_instance["qualified"],
             "parent": None,
-            "sourceFile": routine.get("sourceFile"),
+            "sourceFile": excluded_function_instance.get("sourceFile"),
             "declLine": 0,
             "inlineStack": [],
-            "regions": routine["regions"],
+            "regions": excluded_function_instance["regions"],
         }
         for address in reachable:
-            if in_regions(address, routine["regions"]):
+            if in_regions(address, excluded_function_instance["regions"]):
                 candidates[address].append((-1, -(index + 1)))
 
     assignment: dict[int, str] = {}

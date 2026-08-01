@@ -30,10 +30,10 @@ deriving DecidableEq, Repr, Hashable, Inhabited
 
 /-- A declaration in pinned source: which file it lives in and what it is called.
 
-`qualifiedName` is the fully qualified name as the compiler records it, so two same-named routines
+`qualifiedName` is the fully qualified name as the compiler records it, so two same-named source functions
 in different modules stay distinct. This is *stable identity* — it deliberately omits the
 declaration's line/column, which is validated provenance (`DeclarationProvenance`), not a matching
-key: a source edit that shifts the declaration must not change what the routine *is*. -/
+key: a source edit that shifts the declaration must not change what the source function *is*. -/
 structure SourceDeclaration where
   file : SourceFile
   qualifiedName : String
@@ -56,7 +56,7 @@ deriving DecidableEq, Repr, Inhabited
 A stable, source-derived function identifier.
 
 `specialization` carries the compile-time arguments that distinguish separately-emitted
-instantiations of one generic declaration. This is not decoration: a routine such as
+instantiations of one generic declaration. This is not decoration: a source function such as
 `readArray(comptime N, data, offset)` is a *different* function in the binary for each `N`, and
 collapsing those instantiations would silently merge contracts that state different things.
 -/

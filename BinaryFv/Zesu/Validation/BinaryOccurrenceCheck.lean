@@ -8,7 +8,7 @@ import BinaryFv.Zesu.Contracts.Options
 Evaluates the compact production-ELF evidence (`GeneratedBinaryEvidence`) for occurrence 116 and its
 three nested `readU64` children (117/118/119) against the FIXED Row A binding / handwritten meaning /
 pinned memory layout, reproducing the Python oracle `evaluate_compact` exactly. It checks the entry and
-result/exit binding, the nested const-offset bindings, `RoutineSpec.meaning`, the executed control flow
+result/exit binding, the nested const-offset bindings, `SourceFunctionSpec.meaning`, the executed control flow
 vs the generated CFG, the step bound, the (empty) allocation ledger, code/input preservation, and the
 classified write frame.
 
@@ -110,7 +110,7 @@ def meaningFields (bytes : ByteArray) : List Nat :=
   | .ok (some s) => [s.target.toNat, s.max.toNat, s.baseFeeUpdateFraction.toNat]
   | _ => []
 
-/-- **RoutineSpec.meaning.** The 24-byte slice the production ELF actually loaded decodes, under the
+/-- **SourceFunctionSpec.meaning.** The 24-byte slice the production ELF actually loaded decodes, under the
 handwritten `meaningOptionalBlobSchedule`, to exactly the fields the evidence recorded (22/23/24). -/
 theorem present_meaning_agrees :
     meaningFields (sliceBytes presentEvidence) = [22, 23, 24] := by native_decide
@@ -148,7 +148,7 @@ theorem negative_phantom_edge :
         occExecEdges := presentEvidence.occExecEdges ++ [(76890, 999999)] }).edgesSubsetOfCfg
       = false := by native_decide
 
-/-- wrong allocation fact: an injected heap store in a non-allocating routine. -/
+/-- wrong allocation fact: an injected heap store in a non-allocating sourceFunction. -/
 theorem negative_heap_alloc :
     (evaluateOcc { presentEvidence with
         inRegionStores := presentEvidence.inRegionStores ++ [badStore (86048 + 32)] }).noAllocation
