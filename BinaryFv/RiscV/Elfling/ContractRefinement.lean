@@ -1,15 +1,20 @@
 import BinaryFv.RiscV.Elfling.Contract
 
 /-!
-# Refining one machine-region contract into another
+# Reusing an implementation proof for another contract
 
-A proof decomposition is a choice, so its contracts need an explicit refinement relation. This
-module records the simplest resolution change: a finer contract for the same machine region implies a
-coarser contract. The argument types may differ; `liftArgs` reconstructs the fine interface from the
-coarse one.
+This module gives sufficient conditions for transferring an `OccurrenceContract.Implements` proof
+from one contract to another over the same machine region. Suppose `fine.Implements` is already known
+and `coarse.Implements` is required. A `ContractRefinement fine coarse` supplies:
 
-Nothing here mentions source functions, DWARF, or a calling convention. An ABI-shaped entry predicate
-is appropriate only when the selected region starts at a real machine call boundary.
+- `liftArgs`, which translates each `coarse` argument into a `fine` argument;
+- an implication from the `coarse` entry predicate to the translated `fine` entry predicate;
+- an implication from the resulting `fine` exit predicate to the `coarse` exit predicate; and
+- a proof that the `fine` step bound does not exceed the `coarse` step bound.
+
+The execution trace produced by `fine.Implements` then also witnesses `coarse.Implements`. This
+relation changes only the contract placed on an execution; it does not change the region, entry PC,
+exit set, instruction semantics, or trace.
 -/
 
 namespace BinaryFv.RiscV.Elfling
@@ -17,13 +22,14 @@ namespace BinaryFv.RiscV.Elfling
 open BinaryFv.RiscV
 
 /--
-Evidence that `fine` is strong enough to discharge `coarse` on the same machine region.
+Evidence that an implementation of `fine` also implements `coarse` on the same machine region.
 
 The four fields are deliberately directional:
 
-- a coarse invocation supplies fine arguments and establishes the fine entry predicate;
-- the fine meaning and exit fact establish the coarse exit fact;
-- the fine step budget fits inside the coarse budget.
+- `liftArgs` translates the arguments expected by `coarse` into arguments accepted by `fine`;
+- `entry` shows that every valid `coarse` starting state is also a valid `fine` starting state;
+- `exit` shows that the `fine` result satisfies the exit condition required by `coarse`;
+- `stepBound` shows that the trace allowed by `fine` fits within the limit allowed by `coarse`.
 -/
 structure ContractRefinement {FineArgs CoarseArgs Outcome : Type}
     (fine : OccurrenceContract FineArgs Outcome)
