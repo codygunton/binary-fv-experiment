@@ -1,6 +1,6 @@
 import BinaryFv.RiscV.Elfling.Contract
 
-/-! Decidable transfer-graph and address geometry, independent of any routine catalog. -/
+/-! Decidable transfer-graph and address geometry, independent of any source function catalog. -/
 
 namespace BinaryFv.RiscV.Elfling
 

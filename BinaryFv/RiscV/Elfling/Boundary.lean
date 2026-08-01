@@ -8,7 +8,7 @@ function instance, or back again. The name refers to that ownership crossing; it
 place where a trace is split.
 
 `FunctionTrace` describes instruction-by-instruction execution inside one compiled function instance. Real
-code also calls separately emitted routines and enters regions attributed to inlined routines.
+code also calls separately emitted source functions and enters regions attributed to inlined source functions.
 `ScopedTrace` lets a parent use a proved summary of either kind of child while still reconstructing
 one ordinary machine trace.
 
@@ -395,7 +395,7 @@ compose — and the flat run it collapses to is confined to `outer`, the address
 run occupies, which is larger than the `own` set the scoped run retires its own steps in.
 
 Keeping the two apart is what makes this usable. `own` is the function instance's own code (plus whatever
-uncataloged routine it absorbs); a scoped `ownStep` may only retire an instruction there, so a local
+uncataloged source function it absorbs); a scoped `ownStep` may only retire an instruction there, so a local
 proof gains no freedom to wander into a callee. `outer` is the function instance's execution extent; the
 callee's instructions genuinely execute, so the flat reconstruction has to admit them.
 
