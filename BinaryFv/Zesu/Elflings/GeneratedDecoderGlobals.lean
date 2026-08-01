@@ -1,5 +1,5 @@
 import DecoderGlobals
-import BinaryFv.Zesu.Artifact.Symbols
+import BinaryFv.Zesu.Artifacts.Symbols
 import BinaryFv.Zesu.Contracts.ExportedDecoder
 
 /-!
@@ -26,10 +26,10 @@ The checks, all discharged by `native_decide`:
   at its pc with the exact 32-bit word, and its resolved operand target is one of the globals.
 -/
 
-namespace BinaryFv.Zesu.Elfling
+namespace BinaryFv.Zesu.Elflings
 
-open BinaryFv.Zesu.Elfling.GeneratedDecoderGlobals
-open BinaryFv.Zesu.Artifact (programImage)
+open BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals
+open BinaryFv.Zesu.Artifacts (programImage)
 open BinaryFv.Zesu.Contracts (DecoderGlobalsLayout)
 
 /-- The canonical linked address of a generated decoder global, by symbol name. -/
@@ -124,9 +124,9 @@ theorem decoderGlobalsValidated : decoderGlobalsChecksPass = true := by native_d
 /-- The `?RawStatelessInput` layout of the inline `stored_result` object, from the ABI manifest:
 848 bytes, payload at 0, discriminant at 832. -/
 def canonicalStoredResultObjectLayout : Contracts.OptionLayout :=
-  { size := (Artifact.storedResultSize).getD 0
-    discriminantOffset := (Artifact.storedResultTagOffset).getD 0
-    payloadOffset := (Artifact.storedResultPayloadOffset).getD 0 }
+  { size := (Artifacts.storedResultSize).getD 0
+    discriminantOffset := (Artifacts.storedResultTagOffset).getD 0
+    payloadOffset := (Artifacts.storedResultPayloadOffset).getD 0 }
 
 /-- The canonical decoder-globals layout, taken **only** from the validated generated artifact and the
 ABI manifest — no address is handwritten. `zesu_raw_error` reads `status`; `zesu_raw_result` returns
@@ -170,4 +170,4 @@ def canonicalAllocatorState (address : Nat) : Prop :=
   (canonicalHeapPosAddr ≤ address ∧ address < canonicalHeapPosAddr + 8) ∨
   (canonicalHeapTopAddr ≤ address ∧ address < canonicalHeapTopAddr + 8)
 
-end BinaryFv.Zesu.Elfling
+end BinaryFv.Zesu.Elflings

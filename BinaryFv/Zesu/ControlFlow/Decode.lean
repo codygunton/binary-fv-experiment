@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Artifact.Symbols
+import BinaryFv.Zesu.Artifacts.Symbols
 import BinaryFv.RiscV.ELF.CFG
 import BinaryFv.RiscV.Model.State
 
@@ -16,7 +16,7 @@ private def decodeState : State := {
 }
 
 def decodedWords? : Option (Array DecodedWord) :=
-  match Artifact.parsed with
+  match Artifacts.parsed with
   | .ok parsedElf =>
     match parsedElf.executableWords with
     | .ok words =>

@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Elfling.GeneratedValidationBridges
+import BinaryFv.Zesu.Elflings.GeneratedValidationBridges
 import GeneratedProgram
 
 /-!
@@ -18,13 +18,13 @@ Both are `native_decide`d `Bool`s over the concrete generated regions plus ordin
 Together with the M3 attribution argument this is why the generator emits `defects = #[]` honestly.
 -/
 
-namespace BinaryFv.Zesu.Elfling.Validation
+namespace BinaryFv.Zesu.Elflings.Validation
 
 set_option maxRecDepth 8000
 
 open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
-open BinaryFv.Zesu.Elfling.Generated (generatedProgram)
+open BinaryFv.Zesu.Elflings.Generated (generatedProgram)
 
 /-! ## Region containment / disjointness predicates -/
 
@@ -95,4 +95,4 @@ theorem generated_siblings_disjoint :
   rw [hguard, Bool.not_true, Bool.false_or] at h
   exact h
 
-end BinaryFv.Zesu.Elfling.Validation
+end BinaryFv.Zesu.Elflings.Validation

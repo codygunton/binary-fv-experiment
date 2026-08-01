@@ -1,6 +1,6 @@
-import BinaryFv.Zesu.Artifact.Image
+import BinaryFv.Zesu.Artifacts.Image
 
-namespace BinaryFv.Zesu.Artifact
+namespace BinaryFv.Zesu.Artifacts
 
 open BinaryFv.RiscV
 
@@ -39,4 +39,4 @@ theorem elf_layout :
   rcases hLeft with ⟨hBytes, hSegments⟩
   exact ⟨hBytes, hSegments, hDisjoint, hEntry⟩
 
-end BinaryFv.Zesu.Artifact
+end BinaryFv.Zesu.Artifacts

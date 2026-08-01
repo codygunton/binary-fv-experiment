@@ -17,11 +17,11 @@ so a wrong, stale, or placeholder hash or line cannot pass. All checks are small
 the concrete generated data plus the handwritten catalog; no `sorry`, no axiom.
 -/
 
-namespace BinaryFv.Zesu.Elfling.Validation
+namespace BinaryFv.Zesu.Elflings.Validation
 
 open BinaryFv.Binary.Elfling
 open BinaryFv.Zesu.Contracts (pinnedSourceManifest)
-open BinaryFv.Zesu.Elfling.Generated
+open BinaryFv.Zesu.Elflings.Generated
   (generatedProgram generatedSourceManifest generatedDeclLines)
 
 /-! ## 1. The handwritten manifest is checked against the generated one -/
@@ -55,4 +55,4 @@ declaration" check the review asked for — strictly stronger than `declSpan.lin
 theorem every_function_instance_declSpan_matches_resolved :
     generatedProgram.functionInstances.all functionInstanceDeclResolved = true := by native_decide
 
-end BinaryFv.Zesu.Elfling.Validation
+end BinaryFv.Zesu.Elflings.Validation

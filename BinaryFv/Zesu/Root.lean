@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Artifact.Layout
+import BinaryFv.Zesu.Artifacts.Layout
 import BinaryFv.Zesu.Interface
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Execution
 import BinaryFv.Zesu.Contracts.ProgramCorrectness
@@ -10,10 +10,10 @@ open BinaryFv.Binary.Elfling
 
 /-- The one canonical, Nix-built Zesu executable covered by the SSZ proof. -/
 noncomputable def binary : RiscvSpec.ValidatedElf := {
-  bytes := Artifact.bytes
-  elf := Artifact.elf
-  parsed_ok := by exact Artifact.parsed_ok
-  layout := Artifact.elf_layout
+  bytes := Artifacts.bytes
+  elf := Artifacts.elf
+  parsed_ok := by exact Artifacts.parsed_ok
+  layout := Artifacts.elf_layout
 }
 
 /-!
@@ -68,9 +68,9 @@ runner/result observation, and the public execution API. -/
 theorem root_compliance :
     forall input : ByteArray,
       input.size < 2 * 1024 * 1024 ->
-        RiscvSpec.execute binary input = .ok (SszSpec.decode input) := by
+        RiscvSpec.execute binary input = .ok (BinaryFv.Specs.SSZ.decode input) := by
   intro input inputBound
-  cases specResult : SszSpec.decode input with
+  cases specResult : BinaryFv.Specs.SSZ.decode input with
   | accepted value =>
       obtain ⟨program, canonical, obligations, ⟨execution⟩⟩ :=
         Entrypoints.ZesuDecodeRaw.successful_trace_of_spec_accepts

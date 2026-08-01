@@ -1,6 +1,6 @@
 import ZesuSszAbi
 
-namespace BinaryFv.Zesu.Artifact
+namespace BinaryFv.Zesu.Artifacts
 
 /-- Lookup a compiler-produced RV64 ABI datum by its qualified Zig type and field key. -/
 def abiDatum (key : String) : Option Nat :=
@@ -100,4 +100,4 @@ def completeRawV4AbiManifest : Bool :=
 theorem complete_raw_v4_abi_manifest : completeRawV4AbiManifest = true := by
   native_decide
 
-end BinaryFv.Zesu.Artifact
+end BinaryFv.Zesu.Artifacts

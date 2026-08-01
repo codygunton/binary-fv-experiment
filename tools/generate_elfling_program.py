@@ -988,8 +988,8 @@ def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globa
          "-- Untrusted extracted data: the decoder's private globals and the allocator/heap runtime",
          "-- globals (canonical linked addresses and sizes), plus the accessor instructions that",
          "-- reference the decoder globals. Validated in Lean by",
-         "-- BinaryFv/Zesu/Elfling/GeneratedDecoderGlobals.lean against the pinned canonical image.",
-         "namespace BinaryFv.Zesu.Elfling.GeneratedDecoderGlobals",
+         "-- BinaryFv/Zesu/Elflings/GeneratedDecoderGlobals.lean against the pinned canonical image.",
+         "namespace BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals",
          f"def decoderTextSha : String := {lean_str(decoder_sha)}",
          f"def bssBase : Nat := {bss_base}",
          f"def bssSize : Nat := {bss_size}",
@@ -1002,15 +1002,15 @@ def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globa
     L.append("/-- (accessor symbol, instruction pc, 32-bit little-endian word, resolved global target). -/")
     L.append("def accessorRefs : List (String × Nat × Nat × Nat) :=")
     L.append("  [" + ", ".join(f'({lean_str(acc)}, {pc}, {w}, {t})' for (acc, pc, w, t) in accessor_refs) + "]")
-    L.append("end BinaryFv.Zesu.Elfling.GeneratedDecoderGlobals")
+    L.append("end BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals")
     return "\n".join(L) + "\n"
 
 def emit_bindings_lean(function_instances_sorted, effective, recoveries, derived):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-bindings). DO NOT EDIT.",
          "-- Untrusted extracted data: the entry-time ABI/binding of every function instance's formal",
          "-- parameters, resolved from DWARF .debug_loc at each function instance's entry PC. Validated in",
-         "-- Lean by BinaryFv/Zesu/Elfling/GeneratedBindings.lean.",
-         "namespace BinaryFv.Zesu.Elfling.GeneratedBindings",
+         "-- Lean by BinaryFv/Zesu/Elflings/GeneratedBindings.lean.",
+         "namespace BinaryFv.Zesu.Elflings.GeneratedBindings",
          "-- Rows are (function_instance index, parameter name, location kind, register-or-address,",
          "-- offset-or-value). The final field is the concrete value for const and the base offset",
          "-- otherwise.",
@@ -1041,7 +1041,7 @@ def emit_bindings_lean(function_instances_sorted, effective, recoveries, derived
     rows = [f'({i}, {lean_str(p)}, {lean_str(reason)}, {lean_str(kind)}, {reg}, {off})'
             for (i, p, reason, kind, reg, off) in recoveries]
     L.append("  [" + ",\n   ".join(rows) + "]")
-    L.append("end BinaryFv.Zesu.Elfling.GeneratedBindings")
+    L.append("end BinaryFv.Zesu.Elflings.GeneratedBindings")
     return "\n".join(L) + "\n"
 
 def emit_bindings_json(function_instances_sorted, effective, recoveries, derived):
@@ -1400,7 +1400,7 @@ def emit_lean(p):
          "-- the chunked reachability witness table is assembled by a many-fold `++`; elaborating it",
          "-- exceeds the default recursion depth.",
          "set_option maxRecDepth 8000", "",
-         "namespace BinaryFv.Zesu.Elfling.Generated", "",
+         "namespace BinaryFv.Zesu.Elflings.Generated", "",
          "open BinaryFv.Binary (AddressRange)", "open BinaryFv.Binary.Elfling", ""]
     prov = lambda function_instance: (
         f'{{ sidecarHash := {lean_str(p["objectSha256"][function_instance["objkind"]])}, '
@@ -1558,7 +1558,7 @@ def emit_lean(p):
     L.append("/-- The reachable set (addresses only). -/")
     L.append("def reachableAddresses : Array Nat := reachableWitness.map (·.addr)")
     L.append("")
-    L.append("end BinaryFv.Zesu.Elfling.Generated")
+    L.append("end BinaryFv.Zesu.Elflings.Generated")
     L.append("")
     return "\n".join(L)
 
@@ -1840,7 +1840,7 @@ def emit_manifest_lean(p, rows):
          "`routineTag` selects, and a copy here would be an unchecked second source for a",
          "proof-relevant constant.",
          "-/", "",
-         "namespace BinaryFv.Zesu.Elfling.Generated", "",
+         "namespace BinaryFv.Zesu.Elflings.Generated", "",
          "open BinaryFv.Binary.Elfling", "",
          "/-- One manifest row. `routineTag` is the constructor name of the `RoutineTag` the proof",
          "layer checks against `catalogEntryFor`; keeping it a `String` here is what stops the",
@@ -1881,7 +1881,7 @@ def emit_manifest_lean(p, rows):
             f'owningRow := {lean_str(r["owningRow"])}, '
             f'proofStatus := {lean_str(r["proofStatus"])} }}')
     L.append(",\n".join(items))
-    L += ["  ]", "", "end BinaryFv.Zesu.Elfling.Generated", ""]
+    L += ["  ]", "", "end BinaryFv.Zesu.Elflings.Generated", ""]
     return "\n".join(L)
 
 

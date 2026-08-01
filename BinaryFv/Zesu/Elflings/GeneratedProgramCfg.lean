@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Elfling.GeneratedValidationBridges
+import BinaryFv.Zesu.Elflings.GeneratedValidationBridges
 import BinaryFv.Zesu.ControlFlow.Decode
 import GeneratedProgram
 
@@ -35,7 +35,7 @@ exception) dispatched through `controlFlow?`, so a decode failure makes it `fals
 to the canonical CFG is an ordinary kernel bridge.
 -/
 
-namespace BinaryFv.Zesu.Elfling.Validation
+namespace BinaryFv.Zesu.Elflings.Validation
 
 set_option maxRecDepth 8000
 
@@ -47,7 +47,7 @@ open BinaryFv.Zesu.ControlFlow (controlFlow?)
 /-- The canonical ELF decodes to some node array. -/
 theorem controlFlow_isSome : ∃ nodes, controlFlow? = some nodes :=
   Option.isSome_iff_exists.mp (by native_decide)
-open BinaryFv.Zesu.Elfling.Generated
+open BinaryFv.Zesu.Elflings.Generated
   (generatedProgram generatedExcludedFunctionInstances)
 
 /-! ## Function instance geometry -/
@@ -489,4 +489,4 @@ theorem naive_call_exit_removal_is_rejected :
     (controlFlow?.map fun nodes => exitsValid nodes (programWithoutCallExits nodes)).getD true
       = false := by native_decide
 
-end BinaryFv.Zesu.Elfling.Validation
+end BinaryFv.Zesu.Elflings.Validation

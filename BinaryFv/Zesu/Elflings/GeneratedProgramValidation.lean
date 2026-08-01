@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Elfling.GeneratedValidationBridges
+import BinaryFv.Zesu.Elflings.GeneratedValidationBridges
 import BinaryFv.Zesu.Contracts.ProgramCorrectness
 import GeneratedProgram
 
@@ -15,22 +15,22 @@ proves the three row-1 obligations for it against the canonical ELF:
 * `sourceProvenanceRecorded generatedProgram` — every function instance's recorded content hash equals the
   pinned-source manifest entry for its file, and its declaration line is real (`> 0`).
 * `IsCanonicalGeneratedProgram generatedProgram` — the entry is the emitted `zesu_decode_raw`
-  function instance, **every byte of every claimed region reads back from the canonical `Artifact.programImage`**,
+  function instance, **every byte of every claimed region reads back from the canonical `Artifacts.programImage`**,
   provenance is recorded, and no attribution defect remains.
 
 Each obligation is discharged by a `native_decide`d `Bool` over the concrete generated data (and, for
 the byte clause, the canonical ELF image) plus an ordinary kernel bridge lemma; no `sorry`, no axiom.
 The byte clause's bridge (`bytesReadableIn_elim`) is generic in the image, so instantiating it at
-`Artifact.programImage` never reduces the ELF parse inside the kernel — that cost stays in the
+`Artifacts.programImage` never reduces the ELF parse inside the kernel — that cost stays in the
 compiled `native_decide`. This is the genuine coverage tie: a program ranging outside the real code,
 dropping provenance, or missing a routine cannot pass.
 -/
 
-namespace BinaryFv.Zesu.Elfling.Validation
+namespace BinaryFv.Zesu.Elflings.Validation
 
 open BinaryFv.Binary.Elfling
 open BinaryFv.Zesu.Contracts
-open BinaryFv.Zesu.Elfling.Generated (generatedProgram)
+open BinaryFv.Zesu.Elflings.Generated (generatedProgram)
 
 /-! ## Coverage: both matching directions -/
 
@@ -154,15 +154,15 @@ theorem sourceProvenanceRecorded_holds : sourceProvenanceRecorded generatedProgr
 
 /-! ## Canonical generated program: entry + byte readability against the canonical ELF -/
 
-/-- Every byte of every claimed region reads back from the canonical `Artifact.programImage`. This is
+/-- Every byte of every claimed region reads back from the canonical `Artifacts.programImage`. This is
 the `native_decide` that ties the generated ranges to the real code; the kernel-side bridge below is
 generic in the image. -/
 theorem allBytesReadable_true :
-    bytesReadableIn Artifact.programImage generatedProgram = true := by native_decide
+    bytesReadableIn Artifacts.programImage generatedProgram = true := by native_decide
 
 theorem isCanonicalGeneratedProgram_holds : IsCanonicalGeneratedProgram generatedProgram := by
   refine ⟨by decide, rfl, ?_, sourceProvenanceRecorded_holds, rfl⟩
   intro functionInstance hFunctionInstance r hr address hlo hhi
   exact bytesReadableIn_elim allBytesReadable_true hFunctionInstance hr hlo hhi
 
-end BinaryFv.Zesu.Elfling.Validation
+end BinaryFv.Zesu.Elflings.Validation

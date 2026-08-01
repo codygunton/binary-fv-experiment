@@ -1,7 +1,7 @@
 import BinaryFv.RiscV.ELF.Elf64
 import ZesuSszElf
 
-namespace BinaryFv.Zesu.Artifact
+namespace BinaryFv.Zesu.Artifacts
 
 open BinaryFv.RiscV
 
@@ -34,4 +34,4 @@ noncomputable def elf : Elf64 :=
 theorem parsed_ok : parsed = .ok elf :=
   exists_parsed.choose_spec
 
-end BinaryFv.Zesu.Artifact
+end BinaryFv.Zesu.Artifacts
