@@ -80,7 +80,7 @@ def platformPreserved : Register → Prop := fun r =>
 into `platformPreserved`.
 
 The machine writes `minstret` on every retirement: `tryStepControlFlowAfterRetired` is literally
-`writeReg minstret (retired + 1)`. So "the callee left `minstret` alone" is **false of every routine
+`writeReg minstret (retired + 1)`. So "the callee left `minstret` alone" is **false of every function instance
 that retires a single instruction**, and a false conjunct in a postcondition consumed through an
 assumed hypothesis makes the consumer vacuous — strictly worse than a missing clause. The counter
 therefore gets the weaker claim that is true.

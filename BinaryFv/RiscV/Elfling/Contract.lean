@@ -3,20 +3,20 @@ import BinaryFv.RiscV.Logic.RegisterAgree
 import BinaryFv.RiscV.Logic.ImageMemory
 
 /-!
-# Contracts for compiled routine function instances
+# Contracts for compiled function instances
 
 This file connects source-level intent to RISC-V execution. The important distinction is between a
-routine and a function instance of that routine:
+source function and a function instance of that source function:
 
-- `RoutineSpec` says what the source routine computes. Every emitted or inlined function instance shares
-  this meaning.
-- `FunctionInstanceBinding` says where one compiled function instance receives its arguments, where it leaves its
-  result, and how many instructions it may use. Optimization can give two function instances different
-  registers and stack slots.
+- `SourceFunctionSpec` says what the source function computes. Every emitted or inlined function
+  instance shares this meaning.
+- `FunctionInstanceBinding` says where one compiled function instance receives its arguments, where
+  it leaves its result, and how many instructions it may use. Optimization can give two instances
+  different registers and stack slots.
 - `FunctionInstanceContract` pairs those two pieces. `Implements` states that the generated machine trace
   satisfies the pair.
 
-The outcome type is generic because most decoder routines return `Except`, while the exported
+The outcome type is generic because most decoder source functions return `Except`, while the exported
 wrapper also distinguishes a refused second call. Exit conditions receive both the initial and final
 machine state so they can state preservation facts. The starting step number is also explicit so a
 callee trace can begin at the exact point reached by its caller.
@@ -31,12 +31,12 @@ open BinaryFv.Binary
 open BinaryFv.RiscV
 
 /--
-The source-level meaning shared by every compiled function instance of a routine.
+The source-level meaning shared by every compiled function instance of a source function.
 
 This definition contains no addresses, registers, or step counts. Its `meaning` should be built from
 the independent specification, not by restating the machine code.
 -/
-structure RoutineSpec (Args Outcome : Type) where
+structure SourceFunctionSpec (Args Outcome : Type) where
   meaning : Args → Outcome
 
 /--
@@ -56,20 +56,20 @@ structure FunctionInstanceBinding (Args Outcome : Type) where
   stepBound : Args → Nat
 
 /--
-One function instance's full contract: the shared `RoutineSpec` this function instance realizes, paired with this
-function instance's own `FunctionInstanceBinding`.
+One function instance's full contract: the shared `SourceFunctionSpec` it realizes, paired with its
+own `FunctionInstanceBinding`.
 
 The spec is what the function instance must *mean*; the binding is *where and how* it means it. Keeping them
-as separate fields is what lets many function instances of one routine share a single meaning while each
-carries its own machine placement.
+as separate fields is what lets many function instances of one source function share a single meaning
+while each carries its own machine placement.
 -/
 structure FunctionInstanceContract (Args Outcome : Type) where
-  spec : RoutineSpec Args Outcome
+  spec : SourceFunctionSpec Args Outcome
   binding : FunctionInstanceBinding Args Outcome
 
 /--
 A source-shaped contract: the special case of an `FunctionInstanceContract` whose outcome is
-`Except Error Result` and whose binding is the routine's *source-level* ABI.
+`Except Error Result` and whose binding is the source function's *source-level* ABI.
 
 Most decoder leaves are cataloged this way because their source ABI is a faithful binding for the
 function instance in question. `FunctionContract.toFunctionInstance` projects one into the generic form, so the
@@ -87,8 +87,8 @@ namespace FunctionContract
 variable {Error Args Result : Type}
 
 /-- The shared specification half of a source-shaped contract. -/
-def toRoutineSpec (contract : FunctionContract Error Args Result) :
-    RoutineSpec Args (Except Error Result) :=
+def toSourceFunctionSpec (contract : FunctionContract Error Args Result) :
+    SourceFunctionSpec Args (Except Error Result) :=
   { meaning := contract.meaning }
 
 /-- The (source-shaped) function instance binding of a source-shaped contract. -/
@@ -100,7 +100,7 @@ def toBinding (contract : FunctionContract Error Args Result) :
 old source-shaped catalog and the function instance-aware obligation. -/
 def toFunctionInstance (contract : FunctionContract Error Args Result) :
     FunctionInstanceContract Args (Except Error Result) :=
-  { spec := contract.toRoutineSpec, binding := contract.toBinding }
+  { spec := contract.toSourceFunctionSpec, binding := contract.toBinding }
 
 end FunctionContract
 
@@ -228,8 +228,8 @@ def OccurrenceContract.ImplementsInstance {Args Outcome : Type}
 /--
 A contract whose entry binding no state satisfies is vacuously implemented.
 
-Sail memory is sparse, so an `entry` must materialize every address the routine touches; it is easy
-to write one that is quietly contradictory. Every cataloged routine therefore carries a companion
+Sail memory is sparse, so an `entry` must materialize every address the source function touches; it is easy
+to write one that is quietly contradictory. Every cataloged source function therefore carries a companion
 satisfiability claim, and this is the shape of it.
 -/
 def FunctionInstanceContract.PreSatisfiable {Args Outcome : Type}
@@ -274,7 +274,7 @@ local implementation *is* a closed `Implements`.
 Two address sets appear, and the asymmetry between them is the substance:
 
 - the local run retires its own steps only inside `own` — the function instance's code plus whatever
-  uncataloged routine it absorbs — so a local proof may not wander into a callee it holds a summary
+  uncataloged source function it absorbs — so a local proof may not wander into a callee it holds a summary
   for;
 - the closed run it collapses to is confined to `FunctionInstanceExecutionPcs`, which additionally admits the
   code the function instance reaches, because that code genuinely executes.
@@ -310,9 +310,9 @@ def LocallyImplements {Error Args Result : Type}
 The local obligation of a generated Elfling function instance: it implements its contract against summaries
 of the function instances below it, retiring its own steps only inside what it owns.
 
-`own` is generated data — the function instance's ranges plus the ranges of the uncataloged routines it
-absorbs — so the local obligation cannot be relaxed by choosing a bigger address set. Hierarchical
-refinement theorems may use this form when a parent genuinely composes child summaries.
+`own` is generated data — the function instance's ranges plus the ranges of the uncataloged source
+functions it absorbs — so the local obligation cannot be relaxed by choosing a bigger address set.
+Hierarchical refinement theorems may use this form when a parent genuinely composes child summaries.
 -/
 def FunctionInstanceContract.LocallyImplementsFunctionInstance {Args Outcome : Type}
     (own : BitVec 64 → Prop) (entry : BitVec 64) (exit : BitVec 64 → Prop)
