@@ -13,27 +13,27 @@ satisfied by the `readArray[20]` contract. -/
 def catalogEntryFor (function : FunctionId) : Option CatalogEntry :=
   catalog.find? fun entry => decide (entry.functionId = function)
 
-/-- An excluded routine matching `function`, if any. -/
+/-- An excluded source function matching `function`, if any. -/
 def excludedEntryFor (function : FunctionId) : Option CatalogEntry :=
-  excludedRoutines.find? fun entry => decide (entry.functionId = function)
+  excludedSourceFunctions.find? fun entry => decide (entry.functionId = function)
 
 /-! ## Coverage and uniqueness obligations -/
 
 /-- Every live catalog entry has at least one generated occurrence carrying its exact identity. -/
-def everyRoutineHasInstance (program : Program) : Prop :=
+def everySourceFunctionHasInstance (program : Program) : Prop :=
   ∀ entry ∈ catalog, entry.isLive = true →
     ∃ instance_ ∈ program.instances, instance_.id.function = entry.functionId
 
 /-- Every generated occurrence carries the identity of exactly one live catalog entry. This is the
-direction that forbids an unproved region — including an un-accounted compiler/runtime routine —
+direction that forbids an unproved region — including an un-accounted compiler/runtime source function —
 hiding inside a "complete" proof. -/
 def everyInstanceIsCataloged (program : Program) : Prop :=
   ∀ instance_ ∈ program.instances,
     ∃ entry ∈ catalog, entry.isLive = true ∧ instance_.id.function = entry.functionId
 
-/-- No excluded routine has any generated occurrence: the exclusions are honest. -/
-def excludedRoutinesAbsent (program : Program) : Prop :=
-  ∀ instance_ ∈ program.instances, ∀ excluded ∈ excludedRoutines,
+/-- No excluded source function has any generated occurrence: the exclusions are honest. -/
+def excludedSourceFunctionsAbsent (program : Program) : Prop :=
+  ∀ instance_ ∈ program.instances, ∀ excluded ∈ excludedSourceFunctions,
     instance_.id.function ≠ excluded.functionId
 
 /-- Each catalog identity is unique, so one occurrence cannot be counted against two entries. -/
@@ -62,9 +62,9 @@ def readArrayWidthsPresent : Prop :=
 /-- The full coverage obligation: both matching directions, honest exclusions, unique dispatch, the
 required specializations, and a defect-free extraction. -/
 def coverage (program : Program) : Prop :=
-  everyRoutineHasInstance program ∧
+  everySourceFunctionHasInstance program ∧
   everyInstanceIsCataloged program ∧
-  excludedRoutinesAbsent program ∧
+  excludedSourceFunctionsAbsent program ∧
   instancesDispatchUniquely program ∧
   catalogIdentitiesDistinct ∧
   readArrayWidthsPresent ∧
@@ -108,7 +108,7 @@ def knownDivergences : Prop :=
 
 /-! Compatibility vocabulary for the function-instance data-model migration. -/
 
-abbrev everyRoutineHasFunctionInstance := everyRoutineHasInstance
+abbrev everySourceFunctionHasFunctionInstance := everySourceFunctionHasInstance
 abbrev everyFunctionInstanceIsCataloged := everyInstanceIsCataloged
 abbrev functionInstancesDispatchUniquely := instancesDispatchUniquely
 

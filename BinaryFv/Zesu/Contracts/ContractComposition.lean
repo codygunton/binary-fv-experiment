@@ -15,19 +15,19 @@ callees' contracts. Acyclicity makes this composition well-founded, so the expor
 global obligation is derived rather than assumed.
 -/
 
-/-- The obligation a single generated occurrence owes: the correctness claim for the routine its
+/-- The obligation a single generated occurrence owes: the correctness claim for the source function its
 identity names. `catalogEntryFor` is a single-valued lookup, so this is a genuine dispatch, not a
 choice. An occurrence with no catalog entry owes `False`, which coverage forbids from ever arising. -/
 def instanceObligation (p : ContractParams) (instance_ : FunctionInstance) : Prop :=
   match catalogEntryFor instance_.id.function with
-  | some entry => routineObligation p instance_ entry.tag
+  | some entry => functionInstanceObligation p instance_ entry.tag
   | none => False
 
-/-- Every live routine's contract has a satisfiable precondition under a valid environment. Stated
-per catalog entry (per routine) rather than per occurrence, since satisfiability is a property of the
+/-- Every live source function's contract has a satisfiable precondition under a valid environment. Stated
+per catalog entry (per source function) rather than per occurrence, since satisfiability is a property of the
 contract. -/
 def catalogSatisfiability (p : ContractParams) : Prop :=
-  ∀ entry ∈ catalog, entry.isLive = true → routineSatisfiable p entry.functionId entry.tag
+  ∀ entry ∈ catalog, entry.isLive = true → sourceFunctionContractSatisfiable p entry.functionId entry.tag
 
 /-! ## Local-to-global composition -/
 
@@ -142,14 +142,14 @@ def sszComplianceObligations (program : Program) : Prop :=
   sszProgramCorrectness program canonicalContractParams ∧ knownDivergences
 
 /-- Coverage plus the composition entails that the specific occurrence at a cataloged identity
-implements its routine's correctness claim. This is the lemma that makes "`sszProgramCorrectness`
+implements its source function's correctness claim. This is the lemma that makes "`sszProgramCorrectness`
 means what its name says" a theorem rather than a comment. -/
 theorem instance_implements_its_contract
     {program : Program} {p : ContractParams}
     (correct : sszProgramCorrectness program p)
     {instance_ : FunctionInstance} (mem : instance_ ∈ program.instances)
     {entry : CatalogEntry} (found : catalogEntryFor instance_.id.function = some entry) :
-    routineObligation p instance_ entry.tag := by
+    functionInstanceObligation p instance_ entry.tag := by
   have h := sszProgramCorrectness_perInstance correct instance_ mem
   unfold instanceObligation at h
   rw [found] at h

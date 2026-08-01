@@ -10,11 +10,11 @@ open BinaryFv.Zesu.MemoryRepresentation
 open LeanRV64DExecutable.Functions Register
 
 /-!
-# Runtime and accessor routines
+# Runtime and accessor source functions
 
 The allocator vtable, `memcpy`, `memmove`, and the two exported result accessors.
 
-These are the only routines in the catalog whose identity comes from the symbol table rather than
+These are the only source functions in the catalog whose identity comes from the symbol table rather than
 from debug information: `zesu_raw_alloc`, `memcpy`, `memmove`, `zesu_raw_result`, and
 `zesu_raw_error` all have symbols. That makes them the exception, not the model — 97% of the decoder
 object is symbol-less, so nothing here may be generalized into an assumption that proof regions
@@ -159,7 +159,7 @@ def satisfiableMemmove (env : DecoderEnvironment) : Prop :=
 ## Exported accessors as contracts
 
 `zesu_raw_result` and `zesu_raw_error` are exported symbols, so they get full contracts like every
-other cataloged routine rather than bare predicates. Both read the private decoder globals rather
+other cataloged source function rather than bare predicates. Both read the private decoder globals rather
 than taking arguments: their `Args` is the ghost `DecoderGlobalsModel` those globals represent, and
 their entry binding *requires canonical global memory to represent it*. Neither takes the borrowed
 input, neither allocates, and neither can fail: their `meaning` is total. These ghost values are not
@@ -219,12 +219,12 @@ def satisfiableRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLay
   ValidEnvironment env → PreSatisfiable (contractRawResult env globals resultBuffer)
 
 /-!
-## Allocator vtable routines
+## Allocator vtable source functions
 
 `allocatorAlloc` forwards to `zesu_raw_alloc`; the other three vtable thunks are constant
 (`allocatorResize` fails, `allocatorRemap` fails, `allocatorFree` is a no-op), and `allocator`
 constructs the `std.mem.Allocator` value. Each is cataloged with a contract so the coverage proof
-can account for every reachable runtime routine rather than leaving the allocator closure implicit.
+can account for every reachable runtime source function rather than leaving the allocator closure implicit.
 -/
 
 /-- `allocatorResize` unconditionally returns `false`; it neither reads nor writes memory. -/

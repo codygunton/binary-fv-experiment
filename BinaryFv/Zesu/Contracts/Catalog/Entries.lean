@@ -11,12 +11,12 @@ open BinaryFv.RiscV.Elfling
 
 The complete enumeration of source functions the proof must cover, each carrying a stable, address-free
 `FunctionId` (pinned source file, qualified name, and concrete specialization — **no** declaration
-line or content hash: those are validated provenance, not identity), the `RoutineTag` that selects
+line or content hash: those are validated provenance, not identity), the `ContractTag` that selects
 its handwritten contract, and a `Presence` classification.
 
-Membership is pinned to source: every catalog `FunctionId` names a routine in
+Membership is pinned to source: every catalog `FunctionId` names a source function in
 `src/stateless/stateless/ssz_raw.zig`, `src/zkvm/raw_decoder_root.zig`, `src/zkvm/raw_allocator.zig`,
-or the freestanding RV64 runtime, and every excluded routine carries a machine-checkable reason.
+or the freestanding RV64 runtime, and every excluded source function carries a machine-checkable reason.
 Nothing here carries an address, an instruction word, or a symbol — an entry is identity plus its
 contract selector, and the generated Elfling program is what binds each identity to canonical-ELF
 ranges.
@@ -29,7 +29,7 @@ they are provenance carried by generated occurrences and checked — the hash fo
 
 /-! ## Source files
 
-Each routine's declaring source file, by path only. Content hashes and declaration lines are
+Each source function's declaring source file, by path only. Content hashes and declaration lines are
 validated *provenance* (`DeclarationProvenance`), carried by generated occurrences and checked
 against the pinned source in the extraction row — they are not part of these identities. -/
 
@@ -70,15 +70,15 @@ def pinnedSourceHash (file : SourceFile) : Option String :=
 
 /-! ## Identity and dispatch -/
 
-/-- The handwritten routine groups. -/
-inductive RoutineGroup where
+/-- The handwritten source function groups. -/
+inductive SourceFunctionGroup where
   | entry | container | collection | option | leaf | runtime
 deriving DecidableEq, Repr, Inhabited
 
 /-- The dispatch key: one constructor per handwritten contract. This is what turns "this instance's
 identity" into "this instance's `correctnessClaim`", so the per-instance obligation is a total
 function of the catalog rather than a hand-maintained list of unrelated propositions. -/
-inductive RoutineTag where
+inductive ContractTag where
   | zesuDecodeRaw | decode | decodeRaw
   | newPayloadRequest | executionPayload | executionRequests | executionWitness
   | chainConfig | forkConfig | forkActivation
@@ -91,7 +91,7 @@ inductive RoutineTag where
   | allocatorAlloc | allocatorResize | allocatorRemap | allocatorFree | allocatorCtor
 deriving DecidableEq, Repr, Inhabited
 
-/-- Why a source routine is excluded from the cataloged semantic proof — either it has no live
+/-- Why a source function is excluded from the cataloged semantic proof — either it has no live
 occurrence in the canonical binary, or it is reachable emitted glue whose net effect is captured
 elsewhere. The last two are the row-2 reachable-but-excluded categories, shared with the generated
 Elfling reachable-partition taxonomy (stack-integration point). -/
@@ -100,7 +100,7 @@ inductive ExclusionReason where
   | testOnly
   /-- Present in source but not reachable from `zesu_decode_raw`. -/
   | unreachable
-  /-- Reachable `std`/`mem`/`math` implementation emitted as its own routine (allocator vtable), whose
+  /-- Reachable `std`/`mem`/`math` implementation emitted as its own source function (allocator vtable), whose
   net behavior is captured by the cataloged allocator contracts. -/
   | reachableStdlib
   /-- Reachable `*.deinit` error-path cleanup; the freestanding zkVM's allocator free is a no-op, so it
@@ -108,7 +108,7 @@ inductive ExclusionReason where
   | reachableCleanupNoOp
 deriving DecidableEq, Repr, Inhabited
 
-/-- Whether a cataloged routine is expected to occur in the canonical program. -/
+/-- Whether a cataloged source function is expected to occur in the canonical program. -/
 inductive Presence where
   /-- Appears as one or more generated occurrences (emitted or inlined). -/
   | live
@@ -116,12 +116,12 @@ inductive Presence where
   | absent (reason : ExclusionReason)
 deriving DecidableEq, Repr, Inhabited
 
-/-- A cataloged routine: full address-free identity, its contract selector, and its expected
+/-- A cataloged source function: full address-free identity, its contract selector, and its expected
 presence. -/
 structure CatalogEntry where
   functionId : FunctionId
-  group : RoutineGroup
-  tag : RoutineTag
+  group : SourceFunctionGroup
+  tag : ContractTag
   allocates : Bool
   hasSymbol : Bool
   presence : Presence
@@ -140,25 +140,25 @@ end CatalogEntry
 private def fid (file : SourceFile) (name : String) (spec : Array String := #[]) : FunctionId :=
   { declaration := { file := file, qualifiedName := name }, specialization := spec }
 
-/-- A live decoder-source routine with no specialization. -/
-private def dec (name : String) (group : RoutineGroup) (tag : RoutineTag)
+/-- A live decoder-source function with no specialization. -/
+private def dec (name : String) (group : SourceFunctionGroup) (tag : ContractTag)
     (allocates : Bool) : CatalogEntry :=
   { functionId := fid decoderSourceFile ("ssz_raw." ++ name)
     group := group, tag := tag, allocates := allocates, hasSymbol := false, presence := .live }
 
-/-- A live `readArray` specialization: same routine, distinct concrete width. -/
+/-- A live `readArray` specialization: same source function, distinct concrete width. -/
 private def readArrayEntry (width : Nat) : CatalogEntry :=
   { functionId := fid decoderSourceFile "ssz_raw.readArray" #[toString width]
     group := .leaf, tag := .readArray, allocates := false, hasSymbol := false, presence := .live }
 
-/-- The canonical entry routine's identity: the exported `zesu_decode_raw` wrapper. -/
+/-- The canonical entry source function's identity: the exported `zesu_decode_raw` wrapper. -/
 def zesuDecodeRawFunctionId : FunctionId :=
   fid rootSourceFile "raw_decoder_root.zesu_decode_raw"
 
 /-! ## The catalog -/
 
 /--
-The complete catalog of live routines.
+The complete catalog of live source functions.
 
 Every entry has handwritten `meaning`, `pre`, `post`, `contract`, `correctnessClaim`, and
 `satisfiable` definitions, and its `tag` selects them in `instanceObligation`. `readArray` appears
@@ -231,9 +231,9 @@ def catalog : Array CatalogEntry :=
        group := .runtime, tag := .allocatorCtor, allocates := false, hasSymbol := false
        presence := .live } ]
 
-/-- Routines present in source but with no live occurrence in the canonical program, each with a
+/-- Source functions present in source but with no live occurrence in the canonical program, each with a
 machine-checkable reason. Coverage requires that none of these is matched by a generated instance. -/
-def excludedRoutines : Array CatalogEntry :=
+def excludedSourceFunctions : Array CatalogEntry :=
   #[ { functionId := fid decoderSourceFile "ssz_raw.putU32"
        group := .leaf, tag := .requireU32Length, allocates := false, hasSymbol := false
        presence := .absent .testOnly }

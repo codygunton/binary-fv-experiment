@@ -188,7 +188,7 @@ def contractRequireU32Length (env : DecoderEnvironment) :
   stepBound := fun _ => 32
 
 /-- Arguments of `bytesAt`: the `len` is a **runtime** argument (unlike `readArray`'s comptime `N`),
-so it belongs in the args, keeping `bytesAt` a single routine with a single identity. -/
+so it belongs in the args, keeping `bytesAt` a single source function with a single identity. -/
 structure BytesAtArgs extends ReadAtArgs where
   length : Nat
 

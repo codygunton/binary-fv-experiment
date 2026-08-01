@@ -8,7 +8,7 @@ import GeneratedProgram
 The deterministic generator emitted `GeneratedProgram.lean` (untrusted, address-bearing). This module
 proves the three row-1 obligations for it against the canonical ELF:
 
-* `coverage generatedProgram` — every live catalog routine has a function instance, every function instance is
+* `coverage generatedProgram` — every live catalog source function has a function instance, every function instance is
   cataloged, the exclusions stay absent, dispatch is unique (function instance ids and catalog identities are
   duplicate-free, and every identity resolves), the required `readArray` widths are present, and the
   extraction is defect-free.
@@ -23,7 +23,7 @@ the byte clause, the canonical ELF image) plus an ordinary kernel bridge lemma; 
 The byte clause's bridge (`bytesReadableIn_elim`) is generic in the image, so instantiating it at
 `Artifacts.programImage` never reduces the ELF parse inside the kernel — that cost stays in the
 compiled `native_decide`. This is the genuine coverage tie: a program ranging outside the real code,
-dropping provenance, or missing a routine cannot pass.
+dropping provenance, or missing a source function cannot pass.
 -/
 
 namespace BinaryFv.Zesu.Elflings.Validation
@@ -35,15 +35,15 @@ open BinaryFv.Zesu.Elflings.Generated (generatedProgram)
 /-! ## Coverage: both matching directions -/
 
 /-- Every live catalog entry has a generated function instance with its identity. -/
-def everyRoutineHasFunctionInstanceB : Bool :=
+def everySourceFunctionHasFunctionInstanceB : Bool :=
   catalog.all fun e =>
     !e.isLive || generatedProgram.functionInstances.any fun i => decide (i.id.function = e.functionId)
 
-theorem everyRoutineHasFunctionInstanceB_true : everyRoutineHasFunctionInstanceB = true := by native_decide
+theorem everySourceFunctionHasFunctionInstanceB_true : everySourceFunctionHasFunctionInstanceB = true := by native_decide
 
-theorem everyRoutineHasFunctionInstance_holds : everyRoutineHasFunctionInstance generatedProgram := by
+theorem everySourceFunctionHasFunctionInstance_holds : everySourceFunctionHasFunctionInstance generatedProgram := by
   intro e he hlive
-  have hall := forall_mem_of_all everyRoutineHasFunctionInstanceB_true e he
+  have hall := forall_mem_of_all everySourceFunctionHasFunctionInstanceB_true e he
   rw [hlive] at hall
   simp only [Bool.not_true, Bool.false_or] at hall
   obtain ⟨i, hi, hdec⟩ := exists_mem_of_any hall
@@ -63,16 +63,16 @@ theorem everyFunctionInstanceIsCataloged_holds : everyFunctionInstanceIsCataloge
   rw [Bool.and_eq_true, decide_eq_true_eq] at hb
   exact ⟨e, he, hb.1, hb.2⟩
 
-/-- No excluded routine is matched by any generated function instance. -/
-def excludedRoutinesAbsentB : Bool :=
+/-- No excluded function instance is matched by any generated function instance. -/
+def excludedSourceFunctionsAbsentB : Bool :=
   generatedProgram.functionInstances.all fun i =>
-    excludedRoutines.all fun x => decide (i.id.function ≠ x.functionId)
+    excludedSourceFunctions.all fun x => decide (i.id.function ≠ x.functionId)
 
-theorem excludedRoutinesAbsentB_true : excludedRoutinesAbsentB = true := by native_decide
+theorem excludedSourceFunctionsAbsentB_true : excludedSourceFunctionsAbsentB = true := by native_decide
 
-theorem excludedRoutinesAbsent_holds : excludedRoutinesAbsent generatedProgram := by
+theorem excludedSourceFunctionsAbsent_holds : excludedSourceFunctionsAbsent generatedProgram := by
   intro i hi x hx
-  have h1 := forall_mem_of_all excludedRoutinesAbsentB_true i hi
+  have h1 := forall_mem_of_all excludedSourceFunctionsAbsentB_true i hi
   have h2 := forall_mem_of_all h1 x hx
   exact of_decide_eq_true h2
 
@@ -116,7 +116,7 @@ theorem functionInstancesDispatchUniquely_holds : functionInstancesDispatchUniqu
 def readArrayWidthsPresentB : Bool :=
   requiredReadArrayWidths.all fun w =>
     catalog.any fun e =>
-      decide (e.tag = RoutineTag.readArray) && decide (readArrayWidthOf e.functionId = w)
+      decide (e.tag = ContractTag.readArray) && decide (readArrayWidthOf e.functionId = w)
 
 theorem readArrayWidthsPresentB_true : readArrayWidthsPresentB = true := by native_decide
 
@@ -130,7 +130,7 @@ theorem readArrayWidthsPresent_holds : readArrayWidthsPresent := by
 /-! ## The full coverage obligation -/
 
 theorem coverage_holds : coverage generatedProgram :=
-  ⟨everyRoutineHasFunctionInstance_holds, everyFunctionInstanceIsCataloged_holds, excludedRoutinesAbsent_holds,
+  ⟨everySourceFunctionHasFunctionInstance_holds, everyFunctionInstanceIsCataloged_holds, excludedSourceFunctionsAbsent_holds,
    functionInstancesDispatchUniquely_holds, catalogIdentitiesDistinct_holds, readArrayWidthsPresent_holds,
    rfl⟩
 

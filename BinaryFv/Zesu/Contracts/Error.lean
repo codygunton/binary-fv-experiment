@@ -9,7 +9,7 @@ open SizzLean.Spec
 
 The pinned Zig decoder's error set is
 `DecodeError = std.mem.Allocator.Error || error{InvalidSsz, UnknownFork}` — exactly three errors.
-That is the boundary every routine contract normalizes to.
+That is the boundary every source function contract normalizes to.
 
 The name is `SszDecodeError`, not `DecodeError`, because `BinaryFv.RiscV.DecodeError` already exists
 and means an ELF word-decode failure.

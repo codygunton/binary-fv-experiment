@@ -11,4 +11,4 @@ code and the higher-level source-function contracts.
   active root proof depends on it.
 
 Closed instruction inventories belong in `Artifacts/`; control-flow structure belongs in
-`ControlFlow/`; routine meanings belong in `Contracts/`.
+`ControlFlow/`; source function meanings belong in `Contracts/`.

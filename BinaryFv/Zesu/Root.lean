@@ -33,7 +33,7 @@ Read the spine outward from the root:
 * `Contracts.sszProgramCorrectness` — canonical coverage, semantic correspondence, the
   per-instance dispatch asserting each occurrence's `correctnessClaim`, precondition satisfiability,
   and the explicit local-to-global composition.
-* `Contracts.catalog` — the 43 live routines, address-free, matched by full identity.
+* `Contracts.catalog` — the 43 live source functions, address-free, matched by full identity.
 * the generated Elfling program — canonical-ELF ranges, checked against the pinned bytes.
 
 None of these is a `sorry`; they are named `Prop`s, so an unfinished obligation is stated exactly

@@ -25,17 +25,17 @@ deriving Repr, Inhabited
 namespace Program
 
 /--
-A reachable emitted routine that no catalog entry covers.
+A reachable emitted function instance that no catalog entry covers.
 
 These are real code — the extraction's reachable partition proves every reachable pc is either
 covered by a function instance or one of these — reached through `externalCalls` like any other callee.
 They are surfaced rather than dropped precisely so that a gap in the catalog cannot masquerade as
 complete coverage.
 
-An excluded routine has no contract of its own, so it has no summary to splice. The function instance that
-calls it therefore **absorbs** it: the excluded routine's pcs join the calling function instance's owned
+An excluded function instance has no contract of its own, so it has no summary to splice. The function
+instance that calls it therefore **absorbs** it: the excluded instance's PCs join the caller's owned
 address set, and the caller's own proof accounts for its execution. That is the only placement that
-keeps the per-function-instance obligation count honest without inventing a contract for uncataloged code.
+keeps the obligation count honest without inventing a contract for uncataloged code.
 -/
 structure ExcludedFunctionInstance where
   id : FunctionInstanceId
@@ -47,8 +47,9 @@ deriving Repr, Inhabited, DecidableEq
 end Program
 
 /--
-A complete extracted program: its entry function instance, every reachable function instance, every reachable
-routine deliberately left uncataloged, and every attribution defect found while extracting it.
+A complete extracted program: its entry function instance, every reachable cataloged function instance,
+every reachable function instance deliberately left uncataloged, and every attribution defect found
+while extracting it.
 
 `defects` being nonempty is not an error in the data; it is an error in the *program's* readiness,
 and the validity layer is what refuses it.
@@ -61,7 +62,7 @@ structure Program where
   functionInstances : Array FunctionInstance
   defects : Array AttributionDefect
   provenance : ExtractionProvenance
-  /-- Reachable emitted routines that carry no catalog entry, absorbed by their callers. -/
+  /-- Reachable emitted function instances that carry no catalog entry, absorbed by their callers. -/
   excludedFunctionInstances : Array Program.ExcludedFunctionInstance := #[]
 deriving Repr, Inhabited
 
@@ -86,7 +87,7 @@ def defectFree (program : Program) : Bool :=
 
 /-- No two distinct function instances share an identity.
 
-An `FunctionInstanceId` is a routine plus its inline call stack, so this forbids the extractor emitting the
+An `FunctionInstanceId` is a source function plus its inline call stack, so this forbids the extractor emitting the
 same function instance twice — the failure mode that would let a duplicated function instance pass unnoticed and be
 double-counted by any per-function-instance obligation. -/
 def functionInstanceIdsDistinct (program : Program) : Prop :=
@@ -98,14 +99,14 @@ abbrev instanceIdsDistinct (program : Program) : Prop := program.functionInstanc
 /-! ## The transfer graph and the address sets it induces
 
 A function instance's contract cannot be about its own instructions alone. When it calls another
-function instance, the machine executes the callee's instructions; when it calls a routine the catalog
-deliberately excludes, it executes that routine's instructions too. A confinement predicate built
+function instance, the machine executes the callee's instructions; when it calls an excluded function
+instance, it executes that instance's instructions too. A confinement predicate built
 only from `regions` therefore describes a run that does not exist, and the corresponding obligation
 is unsatisfiable for every function instance that transfers control.
 
 Two address sets fix this, both computed here from generated data so that no proof may choose them:
 
-* **owned** — the function instance's own regions plus the regions of the excluded routines it absorbs.
+* **owned** — the function instance's own regions plus the regions of the excluded function instances it absorbs.
   This is what its *local* proof may retire step by step, and it is deliberately the smaller set: an
   function instance may not wander into a callee it has a summary for.
 * **extent** — owned, plus the same for everything reachable in the transfer graph. This is what its
@@ -115,12 +116,12 @@ Two address sets fix this, both computed here from generated data so that no pro
 The closure is fuel-bounded by the size of the program, deduplicated, and stops early at a fixed
 point, so it is a total, decidable function a kernel evaluation can settle. -/
 
-/-- The function instances and excluded routines control may transfer to directly: inlined children and
+/-- The function instances and excluded function instances control may transfer to directly: inlined children and
 resolved external calls. -/
 def transferIds (functionInstance : FunctionInstance) : Array FunctionInstanceId :=
   functionInstance.children ++ functionInstance.externalCalls
 
-/-- The regions attributed to one identity, whether it names a function instance or an excluded routine.
+/-- The regions attributed to one identity, whether it names a function instance or an excluded function instance.
 An identity naming neither owns nothing. -/
 def rangesOf (program : Program) (id : FunctionInstanceId) : Array AddressRange :=
   match program.find? id with
@@ -130,7 +131,7 @@ def rangesOf (program : Program) (id : FunctionInstanceId) : Array AddressRange 
       | some excluded => excluded.regions
       | none => #[]
 
-/-- The excluded routines a function instance absorbs: those it calls directly. They carry no contract, so
+/-- The excluded function instances a function instance absorbs: those it calls directly. They carry no contract, so
 no summary can be spliced for them and the calling function instance's own proof owes their execution. -/
 def absorbedRanges (program : Program) (functionInstance : FunctionInstance) : Array AddressRange :=
   program.excludedFunctionInstances.foldl
@@ -139,14 +140,14 @@ def absorbedRanges (program : Program) (functionInstance : FunctionInstance) : A
       else acc)
     #[]
 
-/-- What a function instance's *local* proof owns: its own regions plus the excluded routines it absorbs. -/
+/-- What a function instance's *local* proof owns: its own regions plus the excluded function instances it absorbs. -/
 def ownedRanges (program : Program) (functionInstance : FunctionInstance) : Array AddressRange :=
   functionInstance.regions ++ absorbedRanges program functionInstance
 
 /-- **Absorption requires a genuine transfer edge.** Every region a function instance absorbs belongs to
-an excluded routine the function instance lists as a transfer target — so absorption can only pull in code
+an excluded function instance the function instance lists as a transfer target — so absorption can only pull in code
 the function instance actually calls or inlines, never arbitrary code. This is what stops the owned set
-from quietly claiming ordinary uncovered code: an excluded routine the function instance does not transfer
+from quietly claiming ordinary uncovered code: an excluded function instance the function instance does not transfer
 to contributes nothing. -/
 theorem absorbed_requires_transfer (program : Program) (functionInstance : FunctionInstance)
     (range : AddressRange) (h : range ∈ absorbedRanges program functionInstance) :

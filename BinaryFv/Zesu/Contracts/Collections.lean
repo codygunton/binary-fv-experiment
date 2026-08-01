@@ -14,11 +14,11 @@ open LeanRV64DExecutable.Functions Register
 The fixed-stride collections (`decodeVersionedHashes`, `decodeWithdrawals`, the three request
 families, `decodePublicKeys`) and the one offset-table collection, `decodeByteListList`.
 
-Every routine here **allocates**, so unlike the option and leaf families their postconditions must
+Every source function here **allocates**, so unlike the option and leaf families their postconditions must
 describe the allocation rather than deny it. `decodeByteListList` allocates even for a zero-length
 input: the source's `if (data.len == 0) return alloc.alloc([]const u8, 0)` takes the allocator path.
 
-`decodeByteListList` is also the only routine with a genuine loop, and its guard is subtler than it
+`decodeByteListList` is also the only source function with a genuine loop, and its guard is subtler than it
 looks — the source assigns `previous = start`, not `previous = end`. The invariant it maintains is
 therefore *nondecreasing starts*, not disjointness or non-overlap. The contract states it as written;
 stating the "obviously intended" stronger version would be unprovable against the actual binary.
@@ -99,9 +99,9 @@ def meaningPublicKeys (bytes : ByteArray) :
 /-- `decodeByteListList(data, maxItems, maxItemBytes)`: the SSZ `List[ByteList[b], n]` schema.
 
 `maxItems` and `maxItemBytes` are **runtime arguments** of the one `decodeByteListList` function —
-it is a single routine called at four sites (transactions, witness state, codes, headers), not four
+it is a single source function called at four sites (transactions, witness state, codes, headers), not four
 functions — so they belong in `ByteListListArgs`, not in the contract's parameters. Collapsing them
-into the contract would have implied four separate catalog identities for one source routine. -/
+into the contract would have implied four separate catalog identities for one source function. -/
 def byteListListType (maxItems maxItemBytes : Nat) : SSZType :=
   .list (SszBridge.byteList maxItemBytes) maxItems
 
@@ -119,12 +119,12 @@ structure ByteListListArgs extends CollectionArgs where
 /-!
 ## Allocation effects
 
-An allocating routine's postcondition has to say *what* it allocated, not merely that memory
+An allocating source function's postcondition has to say *what* it allocated, not merely that memory
 changed. `AllocatedDescriptorArray` is the shape every collection produces: a heap array of
 `count` elements of `elementSize` bytes, with a slice descriptor at the result pointer.
 -/
 
-/-- The routine allocated exactly one array and published a descriptor for it. -/
+/-- The source function allocated exactly one array and published a descriptor for it. -/
 def AllocatedDescriptorArray (state : State) (resultBase dataBase count elementSize : Nat) : Prop :=
   SliceDescriptorRep state resultBase dataBase count ∧
   HeapArrayRep state dataBase count elementSize

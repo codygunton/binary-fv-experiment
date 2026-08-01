@@ -2,7 +2,7 @@
 
 This directory derives structural facts about the instructions in the pinned Zesu binary: which words
 decode, where functions begin and end, and how their instruction regions are formed. These facts say
-how the compiled program is arranged, not what its routines mean.
+how the compiled program is arranged, not what its source functions mean.
 
 `Decode.lean` connects the canonical ELF image to Sail instruction decoding. `FunctionWords.lean`
 collects decoded words into function-level regions. The generated whole-program model in `Elflings/`
