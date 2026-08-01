@@ -41,7 +41,7 @@ jobs:
         run: nix build --max-jobs 1 --print-build-logs --no-link .#binary-fv-lean
 
   ssz:
-    name: SSZ bridge, core differential, and sink
+    name: SSZ oracle, core differential, and sink
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -54,7 +54,7 @@ jobs:
           nix build --print-build-logs \
             --out-link "$RUNNER_TEMP/zesu-ssz-value" \
             .#zesu-value
-      - name: Build the Lean bridge and run the strict core differential
+      - name: Build the Lean oracle and run the strict core differential
         shell: bash
         run: |
           nix shell --inputs-from . \
@@ -67,18 +67,18 @@ jobs:
             -c bash -euo pipefail <<'EOF'
               export ELAN_HOME="$RUNNER_TEMP/elan"
               export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
-              elan toolchain install "$(tr -d "\\r\\n" < targets/ssz/zesu/spec/lean-toolchain)"
+              elan toolchain install "$(tr -d "\\r\\n" < tools/ssz-oracle/lean-toolchain)"
 
               openssl_dev="$(nix build --inputs-from . --no-link --print-out-paths nixpkgs#openssl.dev)"
               export PKG_CONFIG_PATH="$openssl_dev/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
               export LD_LIBRARY_PATH="$openssl_dev/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-              cd targets/ssz/zesu/spec
+              cd tools/ssz-oracle
               lake update
               git diff --exit-code -- lake-manifest.json
               lake build repl
-              lake build ssz_bridge ssz_bridge_test
-              lake exe ssz_bridge_test
+              lake build ssz_oracle ssz_oracle_test
+              lake exe ssz_oracle_test
               cd "$GITHUB_WORKSPACE"
 
               reference_source="$(nix flake archive --json | jq -r ".inputs.executionSpecs.path")"
@@ -94,8 +94,8 @@ jobs:
               reference_python="$reference_root/.venv/bin/python"
               test -x "$reference_python"
 
-              "$reference_python" -B targets/ssz/zesu/tests/ssz_differential_audit.py \
+              "$reference_python" -B targets/zesu/tests/ssz_differential_audit.py \
                 --reference-python "$reference_python" \
                 --zesu-value-binary "$RUNNER_TEMP/zesu-ssz-value/bin/zesu-ssz-value" \
-                --lean-binary targets/ssz/zesu/spec/.lake/build/bin/ssz_bridge
+                --lean-binary tools/ssz-oracle/.lake/build/bin/ssz_oracle
           EOF

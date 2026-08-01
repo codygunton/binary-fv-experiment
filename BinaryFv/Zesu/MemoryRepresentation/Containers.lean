@@ -26,13 +26,13 @@ def OptionU64Rep (state : State) (base : Nat) (value : Option UInt64) : Prop :=
   | none => OptionTagRep state (base + 8) false
 
 /-- A `RawBlobSchedule` (24 bytes): three consecutive little-endian `u64` fields. -/
-def BlobScheduleRep (state : State) (base : Nat) (value : SszBridge.RawBlobSchedule) : Prop :=
+def BlobScheduleRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawBlobSchedule) : Prop :=
   Word64LERep state base value.target.toNat ∧
     Word64LERep state (base + 8) value.max.toNat ∧
       Word64LERep state (base + 16) value.baseFeeUpdateFraction.toNat
 
 /-- A `?RawBlobSchedule` (32 bytes): the 24-byte payload at offset 0 and the discriminant at 24. -/
-def OptionBlobScheduleRep (state : State) (base : Nat) (value : Option SszBridge.RawBlobSchedule) :
+def OptionBlobScheduleRep (state : State) (base : Nat) (value : Option BinaryFv.Specs.SSZ.RawBlobSchedule) :
     Prop :=
   match value with
   | some v => BlobScheduleRep state base v ∧ OptionTagRep state (base + 24) true
@@ -41,24 +41,24 @@ def OptionBlobScheduleRep (state : State) (base : Nat) (value : Option SszBridge
 /-! ## The three fixed (non-allocating) containers -/
 
 /-- `RawForkActivation` (32 bytes): `block_number : ?u64` at 0, `timestamp : ?u64` at 16. -/
-def ForkActivationRep (state : State) (base : Nat) (value : SszBridge.RawForkActivation) : Prop :=
+def ForkActivationRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawForkActivation) : Prop :=
   OptionU64Rep state base value.blockNumber ∧ OptionU64Rep state (base + 16) value.timestamp
 
 /-- `RawForkConfig` (72 bytes): `fork : u64` at 0, `activation` at 8, `blob_schedule : ?…` at 40. -/
-def ForkConfigRep (state : State) (base : Nat) (value : SszBridge.RawForkConfig) : Prop :=
+def ForkConfigRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawForkConfig) : Prop :=
   Word64LERep state base value.fork.toNat ∧
     ForkActivationRep state (base + 8) value.activation ∧
       OptionBlobScheduleRep state (base + 40) value.blobSchedule
 
 /-- `RawChainConfig` (80 bytes): `chain_id : u64` at 0, `active_fork` at 8. -/
-def ChainConfigRep (state : State) (base : Nat) (value : SszBridge.RawChainConfig) : Prop :=
+def ChainConfigRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawChainConfig) : Prop :=
   Word64LERep state base value.chainId.toNat ∧ ForkConfigRep state (base + 8) value.activeFork
 
 /-! ## The four allocating containers -/
 
 /-- `RawExecutionRequests` (48 bytes): three slice descriptors (deposits@0, withdrawals@16,
 consolidations@32), each pointing at a disjoint heap array of fixed-width records. No input aliasing. -/
-def ExecutionRequestsRep (state : State) (base : Nat) (value : SszBridge.RawExecutionRequests) :
+def ExecutionRequestsRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawExecutionRequests) :
     Prop :=
   ∃ depositsBase withdrawalsBase consolidationsBase,
     SliceDescriptorRep state base depositsBase value.deposits.size ∧
@@ -74,7 +74,7 @@ def ExecutionRequestsRep (state : State) (base : Nat) (value : SszBridge.RawExec
 /-- `RawExecutionWitness` (48 bytes): three slice descriptors (state@0, codes@16, headers@32), each
 pointing at a heap array of 16-byte input-slice descriptors that alias the caller's input bytes. -/
 def ExecutionWitnessRep (state : State) (inputBase : Nat) (input : ByteArray) (base : Nat)
-    (value : SszBridge.RawExecutionWitness) : Prop :=
+    (value : BinaryFv.Specs.SSZ.RawExecutionWitness) : Prop :=
   ∃ stateBase codesBase headersBase,
     SliceDescriptorRep state base stateBase value.state.size ∧
       HeapArrayRep state stateBase value.state.size 16 ∧
@@ -90,7 +90,7 @@ def ExecutionWitnessRep (state : State) (inputBase : Nat) (input : ByteArray) (b
 offsets are the same compiler-reflected values `RawV4FixedFieldsRep` uses, because the execution
 payload sits at offset 0 of both the new-payload request and the root object. -/
 structure ExecutionPayloadFixedRep (state : State) (base : Nat)
-    (value : SszBridge.RawExecutionPayload) : Prop where
+    (value : BinaryFv.Specs.SSZ.RawExecutionPayload) : Prop where
   baseFeePerGas : BitVectorLERep state base value.baseFeePerGas
   parentHash : FixedByteVectorRep state (base + 152) value.parentHash
   feeRecipient : FixedByteVectorRep state (base + 184) value.feeRecipient
@@ -111,7 +111,7 @@ structure ExecutionPayloadFixedRep (state : State) (base : Nat)
 (`extra_data`@64, `block_access_list`@128), the transaction list (`transactions`@80, borrowed), and
 the withdrawal list (`withdrawals`@96, a heap array of fixed records). -/
 def ExecutionPayloadRep (state : State) (inputBase : Nat) (input : ByteArray) (base : Nat)
-    (value : SszBridge.RawExecutionPayload) : Prop :=
+    (value : BinaryFv.Specs.SSZ.RawExecutionPayload) : Prop :=
   ExecutionPayloadFixedRep state base value ∧
   (∃ inputOffset sliceBase,
     InputSliceDescriptorRep state inputBase input (base + 64) inputOffset sliceBase value.extraData) ∧
@@ -131,7 +131,7 @@ def ExecutionPayloadRep (state : State) (inputBase : Nat) (input : ByteArray) (b
 array (`versioned_hashes`@592), the inline `parent_beacon_block_root`@656, and the execution requests
 inline at 608. -/
 def NewPayloadRequestRep (state : State) (inputBase : Nat) (input : ByteArray) (base : Nat)
-    (value : SszBridge.RawNewPayloadRequest) : Prop :=
+    (value : BinaryFv.Specs.SSZ.RawNewPayloadRequest) : Prop :=
   ExecutionPayloadRep state inputBase input base value.executionPayload ∧
   (∃ versionedHashesBase,
     SliceDescriptorRep state (base + 592) versionedHashesBase value.versionedHashes.size ∧

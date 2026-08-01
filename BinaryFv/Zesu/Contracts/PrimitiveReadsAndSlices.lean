@@ -94,10 +94,10 @@ def meaningRequireU32Length (bytes : ByteArray) : Except SszDecodeError Unit :=
 
 /-- `hasExactErePrefix(data)`: a `Bool`, never an error.
 
-Uses `SszBridge.readU32LE?`, the bridge's own framing reader. That is the correct choice here and
+Uses `BinaryFv.Specs.SSZ.readU32LE?`, the specification's framing reader. That is the correct choice here and
 only here: this is a framing question about the outer envelope, not an SSZ field read. -/
 def meaningHasExactErePrefix (bytes : ByteArray) : Bool :=
-  match SszBridge.readU32LE? bytes 0 with
+  match BinaryFv.Specs.SSZ.readU32LE? bytes 0 with
   | some declared => bytes.size ≥ 4 && declared == bytes.size - 4
   | none => false
 

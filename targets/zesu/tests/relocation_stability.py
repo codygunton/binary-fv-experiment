@@ -74,7 +74,7 @@ def main():
         if canon[scalar] != reloc[scalar]:
             fail(f"{scalar} changed under relocation ({canon[scalar]!r} vs {reloc[scalar]!r})")
 
-    co, ro = canon["occurrences"], reloc["occurrences"]
+    co, ro = canon["function_instances"], reloc["function_instances"]
     if len(co) != len(ro):
         fail(f"occurrence count changed under relocation ({len(co)} vs {len(ro)})")
     for i, (c, r) in enumerate(zip(co, ro)):

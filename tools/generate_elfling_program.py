@@ -66,7 +66,7 @@ def parse_linker_map(path):
 
 SRC_PREFIX = "/build/source/"
 FILES = {"decoder": "src/stateless/stateless/ssz_raw.zig", "root": "src/zkvm/raw_decoder_root.zig",
-         "allocator": "src/zkvm/raw_allocator.zig", "runtime": "targets/common/riscv64_runtime.c"}
+         "allocator": "src/zkvm/raw_allocator.zig", "runtime": "runtime/riscv64/riscv64_runtime.c"}
 EXTRACTOR_VERSION = "elfling-generator-v1"
 DECODER_TEXT_SHA = "f946b25ea2a0d19ee82ade02ef14eebce363e16190bf54a117eea7eec7805d3b"
 
@@ -1068,7 +1068,7 @@ def emit_bindings_json(function_instances_sorted, effective, recoveries, derived
 def main():
     ap = argparse.ArgumentParser()
     for k in ["readelf","decoder","allocator","sink","runtime","source"]: ap.add_argument("--"+k, required=True)
-    # the runtime C source lives in the proof repo (targets/common/riscv64_runtime.c), not the zesu
+    # the runtime C source lives in the proof repo (runtime/riscv64/riscv64_runtime.c), not the zesu
     # source tree, so its content hash is supplied separately.
     ap.add_argument("--runtime-c", required=True)
     # canonical placement comes from the pinned linked ELF's linker map, never hardcoded bases.

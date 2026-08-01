@@ -46,7 +46,7 @@ live Sail trace, *given* the canonical generated program and its compliance obli
 `program` and `obligations` are genuine premises, not manufactured by the root: they are produced by
 `successful_trace_of_spec_accepts` and threaded in here, so the eventual proof of this theorem may —
 and must — use program correctness to establish the runner result. -/
-theorem execute_accepts_of_successful_trace (input : ByteArray) (value : SszBridge.RawV4)
+theorem execute_accepts_of_successful_trace (input : ByteArray) (value : BinaryFv.Specs.SSZ.RawV4)
     (program : Program) (canonical : Contracts.IsCanonicalGeneratedProgram program)
     (obligations : Contracts.sszComplianceObligations program)
     (execution : Entrypoints.ZesuDecodeRaw.SuccessfulTraceWitness input value) :

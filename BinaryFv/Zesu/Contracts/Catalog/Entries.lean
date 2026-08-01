@@ -47,7 +47,7 @@ def allocatorSourceFile : SourceFile :=
 
 /-- The freestanding RV64 C runtime that supplies `memcpy`/`memmove`. Not a Zig decoder source. -/
 def runtimeSourceFile : SourceFile :=
-  { path := "targets/common/riscv64_runtime.c" }
+  { path := "runtime/riscv64/riscv64_runtime.c" }
 
 /-- The authoritative pinned-source manifest: each catalog source file mapped to the SHA-256 of its
 pinned content — the Zesu source at `github:codygunton/zesu@96f1621` and the repo's freestanding RV64

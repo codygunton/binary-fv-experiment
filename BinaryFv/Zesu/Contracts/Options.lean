@@ -22,15 +22,15 @@ fragment of its inline instance; deliberately, no program counter appears anywhe
 because the binding lives in generated Elfling data and `ImplementsInstance` is the seam.
 -/
 
-/-- The SSZ schema `decodeOptionalBlobSchedule` decodes, as partial evaluation of the pinned bridge's
-fork-config field. Issue #39 writes this as `.list SszBridge.blobScheduleType 1`;
+/-- The SSZ schema `decodeOptionalBlobSchedule` decodes, as partial evaluation of the pinned specification's
+fork-config field. Issue #39 writes this as `.list BinaryFv.Specs.SSZ.blobScheduleType 1`;
 `maxBlobSchedulesPerFork` *is* `1`, and naming it keeps the constant pinned to the bridge. -/
 def optionalBlobScheduleType : SSZType :=
-  .list SszBridge.blobScheduleType SszBridge.maxBlobSchedulesPerFork
+  .list BinaryFv.Specs.SSZ.blobScheduleType BinaryFv.Specs.SSZ.maxBlobSchedulesPerFork
 
 /-- The SSZ schema `decodeOptionalU64` decodes. -/
 def optionalU64Type : SSZType :=
-  .list SszBridge.u64 SszBridge.maxOptionalForkActivationValues
+  .list BinaryFv.Specs.SSZ.u64 BinaryFv.Specs.SSZ.maxOptionalForkActivationValues
 
 /--
 Address-free arguments of a borrowed-slice decoder returning an aggregate indirectly.
@@ -46,7 +46,7 @@ structure SliceToResultArgs where
 /-!
 ## Meanings
 
-Each `meaning` is the pinned canonical decode at a closed schema literal followed by the bridge's own
+Each `meaning` is the pinned canonical decode at a closed schema literal followed by the specification's
 projection. No new recursion and no mirror of the Zig control flow appears here: a hand-rolled
 byte-walker would always be provable and would say nothing about the oracle.
 -/
@@ -54,14 +54,14 @@ byte-walker would always be provable and would say nothing about the oracle.
 /-- `decodeOptionalBlobSchedule`: canonical decoding of a zero-or-one-element blob-schedule list,
 converted to an `Option`. -/
 def meaningOptionalBlobSchedule (bytes : ByteArray) :
-    Except SszDecodeError (Option SszBridge.RawBlobSchedule) :=
-  match SszBridge.decodeCanonical optionalBlobScheduleType bytes with
-  | .ok value => .ok ((value.1[0]?).map SszBridge.rawBlobScheduleOf)
+    Except SszDecodeError (Option BinaryFv.Specs.SSZ.RawBlobSchedule) :=
+  match BinaryFv.Specs.SSZ.decodeCanonical optionalBlobScheduleType bytes with
+  | .ok value => .ok ((value.1[0]?).map BinaryFv.Specs.SSZ.rawBlobScheduleOf)
   | .error error => .error (sszToDecodeError error)
 
 /-- `decodeOptionalU64`: canonical decoding of a zero-or-one-element `u64` list. -/
 def meaningOptionalU64 (bytes : ByteArray) : Except SszDecodeError (Option UInt64) :=
-  match SszBridge.decodeCanonical optionalU64Type bytes with
+  match BinaryFv.Specs.SSZ.decodeCanonical optionalU64Type bytes with
   | .ok value => .ok (value.1[0]?)
   | .error error => .error (sszToDecodeError error)
 
@@ -95,7 +95,7 @@ success arm.
 The three conjuncts before the `match` hold on *every* path: the borrowed input is untouched, the
 code image is intact, and no allocation occurred. -/
 def postOptionalBlobSchedule (env : DecoderEnvironment) (args : SliceToResultArgs)
-    (result : Except SszDecodeError (Option SszBridge.RawBlobSchedule))
+    (result : Except SszDecodeError (Option BinaryFv.Specs.SSZ.RawBlobSchedule))
     (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
@@ -135,7 +135,7 @@ count per file, so an unfinished obligation must not be spelled as a `sorry`.
 `stepBound` is a provisional magnitude until the generated instance fixes it. It is an upper bound,
 so tightening it later strengthens the claim rather than invalidating this statement. -/
 def contractOptionalBlobSchedule (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError SliceToResultArgs (Option SszBridge.RawBlobSchedule) where
+    FunctionContract SszDecodeError SliceToResultArgs (Option BinaryFv.Specs.SSZ.RawBlobSchedule) where
   meaning := fun args => meaningOptionalBlobSchedule args.bytes
   pre := preSliceToResult env
   post := postOptionalBlobSchedule env

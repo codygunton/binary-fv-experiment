@@ -1,3 +1,4 @@
+import BinaryFv.Specs.SSZ.AmsterdamV4
 import BinaryFv.Specs.SSZ.Decode
 
 /-!

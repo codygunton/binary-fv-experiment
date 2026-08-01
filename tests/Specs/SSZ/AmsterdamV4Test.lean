@@ -1,6 +1,6 @@
-import SszBridge.Core
+import BinaryFv.Specs.SSZ.AmsterdamV4
 
-open SszBridge
+open BinaryFv.Specs.SSZ
 
 def bytes (values : List Nat) : ByteArray :=
   ByteArray.mk <| values.toArray.map Nat.toUInt8
@@ -51,15 +51,15 @@ def rawInput (payload : ByteArray) (fork : Nat := 20) : ByteArray :=
 def erePrefix (input : ByteArray) : ByteArray :=
   le32 input.size ++ input
 
-def isOk {α : Type} : Except BridgeError α → Bool
+def isOk {α : Type} : Except DecodeError α → Bool
   | .ok _ => true
   | .error _ => false
 
-def isError {α : Type} : Except BridgeError α → Bool
+def isError {α : Type} : Except DecodeError α → Bool
   | .ok _ => false
   | .error _ => true
 
-def isV3Quarantined (result : Except BridgeError RawV4) : Bool :=
+def isV3Quarantined (result : Except DecodeError RawV4) : Bool :=
   match result with
   | .error error =>
       match error with
@@ -67,7 +67,7 @@ def isV3Quarantined (result : Except BridgeError RawV4) : Bool :=
       | _ => false
   | .ok _ => false
 
-def isUnknownFork (result : Except BridgeError RawV4) : Bool :=
+def isUnknownFork (result : Except DecodeError RawV4) : Bool :=
   match result with
   | .error error =>
       match error with
@@ -208,8 +208,8 @@ def allTests : Bool :=
 
 def main (_args : List String) : IO UInt32 := do
   if allTests then
-    IO.println "ssz-bridge SizzLean V4 tests: ok"
+    IO.println "Amsterdam V4 SizzLean specification tests: ok"
     pure 0
   else
-    IO.eprintln "ssz-bridge SizzLean V4 tests: failed"
+    IO.eprintln "Amsterdam V4 SizzLean specification tests: failed"
     pure 1
