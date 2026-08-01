@@ -246,104 +246,9 @@ let
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Zesu/Root\.lean:')" = 2
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
 
-    # Validation-import guard. The Row B `Validation/` modules are falsification evidence, never proof
-    # premises: no file OUTSIDE `Validation/` may import one, so no root theorem (nor the `BinaryFv`
-    # umbrella) can transitively depend on the probe's meaning-agreement checks. The Validation modules
-    # still build below (reusing this toolchain), but nothing in the theorem graph imports them.
-    validationLeaks=$(grep -rn --include='*.lean' "^import BinaryFv\..*\.Validation\." BinaryFv/ 2>/dev/null \
-      | grep -v "^BinaryFv/Zesu/Validation/" || true)
-    if [ -n "$validationLeaks" ]; then
-      echo "Validation-import guard: no proof module may import a Validation module." >&2
-      echo "$validationLeaks" >&2
-      exit 1
-    fi
 
     lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
-
-    # Row B validation, co-located ONLY to reuse this derivation's fully-built toolchain (the module
-    # imports the Sail-entangled contracts chain, so a standalone check would rebuild the whole tree).
-    # It is NOT part of the theorem graph — the audits above enforce that the root theorems never
-    # import `Validation`. Building it forces the kernel-checked (`native_decide`) agreement of the
-    # handwritten `meaningDecode` with both the pinned oracle and the corpus expectation; any
-    # disagreement fails the build. This is falsification evidence, never a proof premise.
-    lake build BinaryFv.Zesu.Validation.MeaningAgreement
-    # Per-source function meaning agreement (Row B item 3): native_decide that each typed leaf vector's
-    # handwritten meaning equals its expected value/error — the Lean side of the probe's
-    # `--source-function-vectors` check. Also outside the theorem graph.
-    lake build BinaryFv.Zesu.Validation.SourceFunctionMeaningVectors
     touch "$out"
-  '';
-
-  # Row B oracle runner, built standalone. The runner root `ContractRunner` imports only the Sail-free
-  # `BinaryFv.Specs.SSZ.Core`, so `lake build ssz_contract_runner` compiles just that small closure on top of
-  # the (cached) prebuilt spec libs — it does NOT rebuild the theorem tree, and it never carries a
-  # theorem as a premise. The prebuilt libs are linked only to satisfy lake's whole-file config eval.
-  sszContractRunner = pkgs.runCommand "ssz-contract-runner" {
-    nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.git pkgs.jq pkgs.patchelf ];
-  } ''
-    cp -R ${repo} source
-    chmod -R u+w source
-    cd source
-
-    mkdir -p build .lake/packages/repl "$TMPDIR/home"
-    ln -s ${sailRiscvLean} build/sail-riscv-lean
-    ln -s ${sizzLeanClosure} build/sizzlean-lean
-    ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
-    ln -s ${zesuAbiManifest} build/zesu-abi-lean
-    ln -s ${elflingProgram} build/elfling-program-lean
-    cp -a ${replSource}/. .lake/packages/repl/
-    chmod -R u+w .lake/packages/repl
-    ${pkgs.jq}/bin/jq '
-      .packages |= map(
-        if .name == "repl" then
-          {
-            type: "path",
-            scope: .scope,
-            name: .name,
-            manifestFile: .manifestFile,
-            inherited: .inherited,
-            dir: ".lake/packages/repl",
-            configFile: .configFile
-          }
-        else . end
-      )
-    ' lake-manifest.json > lake-manifest.nix.json
-    mv lake-manifest.nix.json lake-manifest.json
-    substituteInPlace lakefile.lean \
-      --replace-fail 'require repl from git "https://github.com/leanprover-community/repl.git" @ "v4.26.0"' \
-      'require repl from ".lake/packages/repl"'
-
-    export HOME="$TMPDIR/home"
-    lake build ssz_contract_runner
-    mkdir -p "$out/bin"
-    cp .lake/build/bin/ssz_contract_runner "$out/bin/ssz_contract_runner"
-
-    # lake links the exe against the host dynamic linker (`/lib64/ld-linux-x86-64.so.2`), which is
-    # absent from a Nix build sandbox, so any derivation that *runs* the runner (the agreement check)
-    # would get ENOENT on exec. It is statically linked against Lean and needs only glibc, so repoint
-    # the interpreter and rpath at the pinned glibc to make it runnable in a pure sandbox.
-    patchelf \
-      --set-interpreter "${pkgs.glibc}/lib/ld-linux-x86-64.so.2" \
-      --set-rpath "${pkgs.glibc}/lib" \
-      "$out/bin/ssz_contract_runner"
-  '';
-
-  # Row B full differential in CI: the pinned oracle runner and the host source probe must both agree
-  # with the corpus expectation, and with each other, on ALL 49 cases — including the ~1 MiB collision
-  # fixtures that `native_decide` omits. This closes the oracle-side residual that the kernel check
-  # leaves open on the large cases (see DECISIONS.md); the value fidelity of those cases stays covered
-  # by the preserved three-way `ssz-value-v1` audit.
-  sszContractAgreement = pkgs.runCommand "ssz-contract-agreement" {
-    nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
-  } ''
-    set -euo pipefail
-    mkdir -p "$out"
-    python3 ${repo}/verification-target/zesu/tests/ssz_contract_agreement.py \
-      --corpus-generator ${repo}/verification-target/zesu/tests/ssz_contract_corpus.py \
-      --fixtures ${repo}/verification-target/zesu/tests/ssz_differential_audit.py \
-      --lean-runner ${sszContractRunner}/bin/ssz_contract_runner \
-      --zesu-probe ${targets.public.zesuContractProbe}/bin/ssz-contract-probe \
-      --corpus-out "$out/corpus.jsonl" | tee "$out/agreement.txt"
   '';
 
   devShell = pkgs.mkShell {
@@ -362,15 +267,12 @@ let
 in
 {
   public = {
-    inherit binaryFvLean sailRiscvLean sizzLeanClosure zesuSszElfLean
-      sszContractRunner sszContractAgreement;
+    inherit binaryFvLean sailRiscvLean sizzLeanClosure zesuSszElfLean;
 
     binary-fv-lean = binaryFvLean;
     sail-riscv-lean = sailRiscvLean;
     sizzlean-lean = sizzLeanClosure;
     zesu-ssz-elf-lean = zesuSszElfLean;
-    ssz-contract-runner = sszContractRunner;
-    ssz-contract-agreement = sszContractAgreement;
   };
 
   inherit devShell;

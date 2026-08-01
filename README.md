@@ -24,13 +24,13 @@ This is a curated `tree -L 2`: comments describe ownership rather than every gen
 │   ├── Binary/             # architecture-independent addresses and program images
 │   ├── RiscV/              # reusable Sail model, ELF, execution, logic, and proof layers
 │   ├── Specs/              # implementation-independent executable specifications
-│   └── Zesu/               # Zesu proof plus contract-validation tests outside the theorem graph
+│   └── Zesu/               # Zesu proof: artifacts, contracts, machine execution, and root theorem
 ├── docs/
 │   └── evaluations/        # durable design/evaluation records; docs/ai is local and ignored
 ├── nix/
-│   ├── targets.nix         # exact SSZ target builds and host-only source probe
+│   ├── targets.nix         # exact SSZ target builds and binary-facing checks
 │   ├── analysis.nix        # objdump, CFG, size, and summary-statistics artifacts
-│   └── proof.nix           # generated Lean inputs, proof build, and SSZ validation runner
+│   └── proof.nix           # generated Lean inputs and hermetic proof build
 ├── verification-target/
 │   └── zesu/               # inputs that connect the pinned Zesu implementation to BinaryFv
 ├── runtime/
@@ -112,9 +112,7 @@ bytes, symbols, ranges, and closed static facts; `ControlFlow/` contains decode-
 `Contracts/` holds handwritten, address-free source-function contracts; `Elflings/` contains the
 deterministically generated address-bearing model validated against the canonical ELF and
 Sail-decoded control flow; and `MachineExecution/` and `Entrypoints/` configure the machine and
-runner. `Validation/` compares the handwritten contract meanings with the pinned source and the SSZ
-specification, but cannot be imported by the proof tree. The proof modules compose into
-`BinaryFv/Zesu/Root.lean`.
+runner. These modules compose into `BinaryFv/Zesu/Root.lean`.
 
 The intended public theorem remains:
 
@@ -167,16 +165,6 @@ Determinism, relocation, and fault-injection gates (also run by `nix flake check
 ```sh
 nix build .#elfling-relocation-check         # relink at a different base; identities stay stable
 nix build .#elfling-generator-defects-check  # fault-injection negative tests
-```
-
-Contract validation uses a host-only Zig probe and an executable Lean SSZ runner. It checks both
-whole decoder inputs and typed examples for individual source functions:
-
-```sh
-nix build .#ssz-contract-corpus
-nix build .#zesu-contract-probe
-nix build .#ssz-contract-probe-check
-nix build .#ssz-contract-agreement
 ```
 
 `GeneratedProgram.lean` is not committed — `.#elfling-program` regenerates it on every build.

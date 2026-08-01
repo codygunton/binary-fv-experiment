@@ -25,9 +25,6 @@ namespace.
 - `MemoryRepresentation`: predicates, observers, and primitive-read lemmas connecting Sail memory
   to native Zesu values and the SSZ specification.
 - `Runtime`: the Zesu allocator, allocation bounds, and other runtime implementation details.
-- `Validation`: finite checks that compare handwritten contract meanings with the pinned Zesu source
-  and the independent SSZ specification. These tests can falsify a bad contract but are deliberately
-  excluded from the compliance theorem's import graph.
 
 `Interface.lean` defines the public API for executing a validated Zesu ELF on an input. `Root.lean`
 states the final theorem relating that execution to `BinaryFv.Specs.SSZ` for every input in scope.

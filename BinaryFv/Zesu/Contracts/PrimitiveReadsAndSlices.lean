@@ -77,11 +77,7 @@ def meaningReadU256 (bytes : ByteArray) (offset : Nat) : Except SszDecodeError (
   match meaningBytesAt bytes offset 32 with
   | .ok slice =>
       -- Little-endian: `slice[0]` is the least-significant byte. Folding right over `range 32` adds
-      -- `slice[index]` after `index` further `*256` steps, giving it place value `256^index`. (An
-      -- earlier form read `slice[31 - index]`, which is big-endian and contradicts both this source
-      -- function's `.little` implementation and the little-endian `BitVectorLERep` post-condition;
-      -- the Row B per-source-function
-      -- value check caught the divergence.)
+      -- `slice[index]` after `index` further `*256` steps, giving it place value `256^index`.
       .ok (BitVec.ofNat 256
         ((List.range 32).foldr (fun index acc => acc * 256 + (slice.get! index).toNat) 0))
   | .error error => .error error

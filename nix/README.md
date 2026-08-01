@@ -1,11 +1,9 @@
 # Nix build system
 
 - `riscv.nix` defines the pinned RV64 toolchain, ISA/ABI flags, QEMU path, and developer shell.
-- `targets.nix` builds the exact Zesu SSZ artifacts, the host-only source-function probe, and their
-  checks and runnable programs.
+- `targets.nix` builds the exact Zesu SSZ artifacts, checks, and runnable programs.
 - `analysis.nix` produces disassemblies, symbol/size data, CFG reports, and summary statistics.
-- `proof.nix` materializes generated Sail/spec/artifact Lean sources, builds the root library, and
-  builds the independent SSZ runner used by contract-agreement tests.
+- `proof.nix` materializes generated Sail/spec/artifact Lean sources and builds the root library.
 - `checks.nix` exposes flake checks and applications.
 
 The pinned target objects, DWARF sidecars, ABI manifest, and the deterministic SSZ Elfling scaffold

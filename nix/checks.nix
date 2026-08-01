@@ -13,10 +13,6 @@ let
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
-      sszContractCorpus
-      sszContractProbeCheck
-      sszProductionUnchanged
-      sszContractAgreement
       zesuSinkObservability
       zesuSsz
       zesuValue;

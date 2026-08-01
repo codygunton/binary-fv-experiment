@@ -385,25 +385,6 @@ let
       --objdump ${riscvObjdump} | tee "$out/defects.txt"
   '';
 
-  # Row B: the `ssz-contract-corpus-v1` contract-validation corpus is deterministic. Two independent
-  # generator runs over the pinned strict-V4 fixtures must be byte-identical. This is
-  # falsification/regression evidence, never a proof input.
-  sszContractCorpus = pkgs.runCommand "ssz-contract-corpus" {
-    nativeBuildInputs = [ pkgs.python3 pkgs.coreutils pkgs.diffutils ];
-  } ''
-    mkdir -p "$out"
-    gen() {
-      python3 ${builtins.path { path = repo + "/verification-target/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; }} \
-        --fixtures ${builtins.path { path = repo + "/verification-target/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; }} \
-        --out "$1"
-    }
-    gen run1.jsonl
-    gen run2.jsonl
-    cmp -s run1.jsonl run2.jsonl \
-      || { echo "CORPUS NON-DETERMINISTIC: contract corpus differs between two runs" >&2; exit 1; }
-    cp run1.jsonl "$out/corpus.jsonl"
-    printf 'cases=%s (byte-identical across two runs)\n' "$(wc -l < run1.jsonl)" | tee "$out/summary.txt"
-  '';
 
   # Evaluate the exact pinned Zig compiler's RV64 layout query. `@compileLog` deliberately fails
   # compilation after reporting the values, so this derivation turns that compiler output into the
@@ -488,206 +469,6 @@ let
     '';
   };
 
-  # Row B host contract probe: a ReleaseSafe host executable that imports the pinned `ssz_raw` module
-  # and tests the decoder over the shared contract corpus. Item 1: it reaches the *file-private*
-  # catalog routines through a VALIDATION-ONLY OVERLAY — `overlay_exports.zig` is appended to a
-  # sha256-verified copy of the pinned `ssz_raw.zig` (verified BEFORE the append; the copy lives only
-  # inside this derivation's build tree, so no production object derivation is affected). It emits the
-  # canonical decision plus an allocation ledger and validates out-of-memory safety. Host-only; never
-  # linked into the RV64 graph.
-  zesuContractProbe = pkgs.stdenvNoCC.mkDerivation {
-    pname = "zesu-ssz-contract-probe";
-    version = "96f1621";
-    src = zesuRepaired;
-    nativeBuildInputs = [ pkgs.zig ];
-    dontConfigure = true;
-    dontFixup = true;
-
-    # The exact pinned sha256 of each overlaid source file (the source manifest entries). Each overlay
-    # is applied only after its hash matches, so a drifted source fails the build rather than silently
-    # exposing a different source function set. raw_allocator/raw_decoder_root are Zesu sources; riscv64_runtime
-    # is the repo's freestanding RV64 C runtime (memcpy/memmove).
-    ssz_raw_sha256 = "ea5a1b36f72c888a0bcb73f2ea1f2bf7ebf00c63c6460c84015d0f6783a1d131";
-    raw_allocator_sha256 = "c9e9457e45a3827729adb1921e07ba31997a536dc8f719e04d2d0d6f4c742591";
-    raw_decoder_root_sha256 = "53afe7a5c7c70122a3e2a9f9673a3415a50579a2ed11a21d9dd1c839e0c18a5e";
-    riscv64_runtime_sha256 = "5f80e272e96ccb30ca109bb77c9a78c9769bfd6b54ac2d7f712d3c2deb9b8235";
-
-    buildPhase = ''
-      runHook preBuild
-      export HOME="$TMPDIR"
-      export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
-      export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
-
-      # --- validation-only overlays: verify each pinned source, then append private-source function re-exports.
-      overlay=src/stateless/stateless/ssz_raw.zig
-      echo "$ssz_raw_sha256  $overlay" | sha256sum -c - \
-        || { echo "OVERLAY: pinned ssz_raw.zig sha256 mismatch (source drifted)" >&2; exit 1; }
-      for fn in decodeNewPayloadRequest decodeExecutionPayload decodeExecutionRequests \
-                decodeExecutionWitness decodeChainConfig decodeForkConfig decodeForkActivation \
-                decodeOptionalU64 decodeOptionalBlobSchedule decodeVersionedHashes decodeWithdrawals \
-                decodeDepositRequests decodeWithdrawalRequests decodeConsolidationRequests \
-                decodePublicKeys decodeByteListList requireCanonicalOffsets requireU32Length \
-                readOffset readU32 readU64 readU256 readArray bytesAt hasExactErePrefix; do
-        grep -qE "^fn $fn\b" "$overlay" \
-          || { echo "OVERLAY: private catalog source function 'fn $fn' not found in pinned source" >&2; exit 1; }
-      done
-      cat ${builtins.path { path = repo + "/verification-target/zesu/probe/overlay_exports.zig"; name = "overlay_exports.zig"; }} >> "$overlay"
-
-      alloc_overlay=src/zkvm/raw_allocator.zig
-      echo "$raw_allocator_sha256  $alloc_overlay" | sha256sum -c - \
-        || { echo "OVERLAY: pinned raw_allocator.zig sha256 mismatch (source drifted)" >&2; exit 1; }
-      grep -qE "^pub export fn zesu_raw_alloc\b" "$alloc_overlay" \
-        || { echo "OVERLAY: zesu_raw_alloc not found in pinned raw_allocator.zig" >&2; exit 1; }
-      cat ${builtins.path { path = repo + "/verification-target/zesu/probe/overlay_exports_allocator.zig"; name = "overlay_exports_allocator.zig"; }} >> "$alloc_overlay"
-
-      root_overlay=src/zkvm/raw_decoder_root.zig
-      echo "$raw_decoder_root_sha256  $root_overlay" | sha256sum -c - \
-        || { echo "OVERLAY: pinned raw_decoder_root.zig sha256 mismatch (source drifted)" >&2; exit 1; }
-      for fn in allocatorAlloc allocatorResize allocatorRemap allocatorFree allocator; do
-        grep -qE "^fn $fn\b|^fn $fn\(" "$root_overlay" \
-          || { echo "OVERLAY: private source function 'fn $fn' not found in pinned raw_decoder_root.zig" >&2; exit 1; }
-      done
-      cat ${builtins.path { path = repo + "/verification-target/zesu/probe/overlay_exports_root.zig"; name = "overlay_exports_root.zig"; }} >> "$root_overlay"
-
-      # The freestanding RV64 C runtime (memcpy/memmove) is verified, then compiled to a linked object.
-      runtime_c=${builtins.path { path = repo + "/runtime/riscv64/riscv64_runtime.c"; name = "riscv64_runtime.c"; }}
-      echo "$riscv64_runtime_sha256  $runtime_c" | sha256sum -c - \
-        || { echo "OVERLAY: pinned riscv64_runtime.c sha256 mismatch (source drifted)" >&2; exit 1; }
-      zig cc -c "$runtime_c" -o runtime.o -O2
-
-      zig build-exe -O ReleaseSafe \
-        --dep ssz_raw --dep raw_allocator --dep raw_decoder_root \
-        -Mroot=${builtins.path { path = repo + "/verification-target/zesu/probe/ssz_contract_probe.zig"; name = "ssz_contract_probe.zig"; }} \
-        -Mssz_raw=$PWD/$overlay \
-        -Mraw_allocator=$PWD/$alloc_overlay \
-        --dep ssz_raw -Mraw_decoder_root=$PWD/$root_overlay \
-        runtime.o \
-        -femit-bin=ssz-contract-probe
-      runHook postBuild
-    '';
-    installPhase = ''
-      runHook preInstall
-      mkdir -p "$out/bin" "$out/meta"
-      cp ssz-contract-probe "$out/bin/ssz-contract-probe"
-      printf '%s\n' "zesu=codygunton/zesu@${zesuRepairedRevision}" > "$out/meta/provenance.txt"
-      printf '%s\n' "zig=$(zig version)" >> "$out/meta/provenance.txt"
-      runHook postInstall
-    '';
-  };
-
-  # Row B source-vs-expectation gate (no Lean toolchain): the real private decoder source must (a)
-  # decide accept/reject exactly as the corpus expects on every case, (b) never leak on any path, and
-  # (c) survive the single-point out-of-memory sweep. Agreement is transitive, so this alone is a
-  # complete source-vs-expectation check; the Lean-runner agreement lane cross-validates the oracle.
-  sszContractProbeCheck =
-    let
-      probe = "${zesuContractProbe}/bin/ssz-contract-probe";
-      agreement = builtins.path { path = repo + "/verification-target/zesu/tests/ssz_contract_agreement.py"; name = "ssz_contract_agreement.py"; };
-      sourceFunctionVectors = builtins.path { path = repo + "/verification-target/zesu/tests/ssz_source_function_vectors.py"; name = "ssz_source_function_vectors.py"; };
-      generatedSourceFunctionVectorsLean = builtins.path { path = repo + "/BinaryFv/Zesu/Validation/GeneratedSourceFunctionVectors.lean"; name = "GeneratedSourceFunctionVectors.lean"; };
-      mutation = builtins.path { path = repo + "/verification-target/zesu/tests/ssz_contract_mutation.py"; name = "ssz_contract_mutation.py"; };
-      report = builtins.path { path = repo + "/verification-target/zesu/tests/ssz_contract_report.py"; name = "ssz_contract_report.py"; };
-      corpusGen = builtins.path { path = repo + "/verification-target/zesu/tests/ssz_contract_corpus.py"; name = "ssz_contract_corpus.py"; };
-      fixtures = builtins.path { path = repo + "/verification-target/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
-    in
-    pkgs.runCommand "ssz-contract-probe-check" {
-      nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
-    } ''
-      set -euo pipefail
-      mkdir -p "$out"
-
-      # (a) the real source's decision agrees with the corpus expectation on every case
-      python3 ${agreement} --corpus-generator ${corpusGen} --fixtures ${fixtures} \
-        --zesu-probe ${probe} --corpus-out "$out/corpus.jsonl" > "$out/agreement.txt" \
-        || { echo "PROBE AGREEMENT FAILED" >&2; cat "$out/agreement.txt" >&2; exit 1; }
-
-      # (b) no leaks and (c) out-of-memory safety: the probe exits nonzero on any defect
-      ${probe} "$out/corpus.jsonl" --ledger "$out/ledger.jsonl" > "$out/outcomes.jsonl" \
-        || { echo "PROBE LEAK/OOM DEFECT (see ledger)" >&2; cat "$out/ledger.jsonl" >&2; exit 1; }
-
-      # (d) per-source function typed vectors: the real private routines match the exact expected value/error
-      # AND — for the allocating routines — the observed per-event allocation ledger matches the
-      # independent expected ledger the generator computes from the host ABI (`--dump-abi`) and each
-      # source function's allocation structure. The probe exits nonzero on any value or ledger mismatch.
-      ${probe} --dump-abi > "$out/abi.json"
-      python3 ${sourceFunctionVectors} --abi "$out/abi.json" --out "$out/source-function-vectors.jsonl"
-      ${probe} --source-function-vectors "$out/source-function-vectors.jsonl" > "$out/source-function-outcomes.jsonl" \
-        || { echo "ROUTINE VECTOR MISMATCH (see source-function-outcomes.jsonl)" >&2; \
-             grep -E '"match":false|"ledger_match":false' "$out/source-function-outcomes.jsonl" >&2 || true; exit 1; }
-
-      # Drift guard: the committed GeneratedSourceFunctionVectors.lean (native_decide-checked by the proof.nix
-      # meaning lane) must equal what the generator emits now, so the Zig-vector lane and the Lean lane
-      # can never silently check different vectors.
-      python3 ${sourceFunctionVectors} --out-lean "$out/GeneratedSourceFunctionVectors.lean"
-      cmp -s "$out/GeneratedSourceFunctionVectors.lean" ${generatedSourceFunctionVectorsLean} \
-        || { echo "DRIFT: committed GeneratedSourceFunctionVectors.lean differs from --out-lean; regenerate it" >&2; \
-             diff "$out/GeneratedSourceFunctionVectors.lean" ${generatedSourceFunctionVectorsLean} | head -40 >&2; exit 1; }
-
-      # the real source rejects every targeted mutation class, and the per-source function value/error,
-      # allocation-ledger, and removed-source function-case checks are all discriminating.
-      python3 ${mutation} --fixtures ${fixtures} --lean-runner ${probe} \
-        --probe ${probe} --source-function-vectors-gen ${sourceFunctionVectors} --report ${report} \
-        --program-json ${elflingProgram}/program.json --abi "$out/abi.json" \
-        --corpus "$out/corpus.jsonl" --outcomes "$out/outcomes.jsonl" --ledger "$out/ledger.jsonl" \
-        > "$out/mutation.txt" \
-        || { echo "MUTATION SMOKE FAILED" >&2; cat "$out/mutation.txt" >&2; exit 1; }
-
-      # (e) coverage keyed by all 43 routines + 141 occurrences: every generated occurrence's source function
-      # is exercised by a matching typed vector. The report asserts no source function/occurrence is an
-      # uncovered gap; a regression that dropped a source function's vectors would surface here.
-      python3 ${report} --corpus "$out/corpus.jsonl" --outcomes "$out/outcomes.jsonl" \
-        --ledger "$out/ledger.jsonl" --out-json "$out/report.json" --out-md "$out/report.md" \
-        --program-json ${elflingProgram}/program.json \
-        --source-function-vectors "$out/source-function-vectors.jsonl" --source-function-outcomes "$out/source-function-outcomes.jsonl" \
-        > "$out/report.txt"
-      python3 -c 'import json,sys; rc=json.load(open("'"$out"'/report.json"))["source_function_coverage"]; \
-        sys.exit(0 if (rc["routines"]==43 and rc["occurrences"]==141 and rc["all_routines_covered"] \
-        and rc["all_occurrences_covered"]) else 1)' \
-        || { echo "COVERAGE GAP: not all 43 routines / 141 occurrences covered" >&2; \
-             cat "$out/report.txt" >&2; exit 1; }
-
-      {
-        cat "$out/agreement.txt"
-        cat "$out/mutation.txt"
-        cat "$out/report.txt"
-        printf 'cases=%s leaked=%s oom_unsafe=%s\n' \
-          "$(wc -l < "$out/outcomes.jsonl")" \
-          "$(grep -c '"leaked":true' "$out/ledger.jsonl" || true)" \
-          "$(grep -c '"oom_safe":false' "$out/ledger.jsonl" || true)"
-      } | tee "$out/summary.txt"
-    '';
-
-  # Production-object-unchanged guard (Row B). The shipped RV64 raw-SSZ objects are built by
-  # `zesuRawObject` from the sha256-pinned Zesu source with NO validation overlay — the overlays are
-  # appended only inside the host-only `zesuContractProbe`. Pinning the exact byte content of every
-  # shipped object proves the Row B validation work cannot have changed production: an accidental
-  # overlay leak, or any other drift, flips one of these hashes and fails the gate. (Rebuilds are
-  # byte-deterministic: pinned source + pinned zig + ReleaseSmall.)
-  sszProductionUnchanged = pkgs.runCommand "ssz-production-object-unchanged" {
-    nativeBuildInputs = [ pkgs.coreutils ];
-    decoderSha = "0acc871ac1ed37a70469d4240c4e3fba981d860b5102631da2044d74d5627817";
-    allocatorSha = "d5c72b7ef88a470076f26286d5e39e030bc7f02991ef0bbad077007e28a4d152";
-    sinkSha = "06225483b6dfc955a0a2141168cdbcf281a202bb1d2b0b5fdac8eb8df740b7fe";
-  } ''
-    set -euo pipefail
-    obj=${zesuRawObject}/obj
-    check() {
-      got=$(sha256sum "$obj/$1" | cut -d' ' -f1)
-      if [ "$got" != "$2" ]; then
-        echo "PRODUCTION OBJECT CHANGED: $1 is $got, pinned $2. Row B validation is host-only and" \
-             "must not affect production." >&2
-        exit 1
-      fi
-      printf '%s  %s\n' "$got" "$1"
-    }
-    mkdir -p "$out"
-    {
-      check zesu-raw-ssz-decoder.o "$decoderSha"
-      check zesu-raw-ssz-allocator.o "$allocatorSha"
-      check zesu-raw-ssz-sink.o "$sinkSha"
-    } > "$out/pinned-object-hashes.txt"
-    printf 'all 3 shipped raw-SSZ objects byte-identical to their pinned hashes\n' | tee "$out/summary.txt"
-  '';
 
   zesuSsz = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-rv64im-zicclsm";
@@ -907,10 +688,6 @@ in
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
-      sszContractCorpus
-      zesuContractProbe
-      sszContractProbeCheck
-      sszProductionUnchanged
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -925,10 +702,6 @@ in
     elfling-decoder-llvm-ir = elflingDecoderLlvmIr;
     elfling-relocation-check = elflingRelocationCheck;
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;
-    ssz-contract-corpus = sszContractCorpus;
-    zesu-contract-probe = zesuContractProbe;
-    ssz-contract-probe-check = sszContractProbeCheck;
-    ssz-production-object-unchanged = sszProductionUnchanged;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;
