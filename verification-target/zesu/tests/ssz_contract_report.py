@@ -301,7 +301,7 @@ def main() -> int:
 
     occurrences = vectors = source_function_outcomes = None
     if a.program_json:
-        occurrences = json.loads(Path(a.program_json).read_text())["occurrences"]
+        occurrences = json.loads(Path(a.program_json).read_text())["function_instances"]
     if a.source_function_vectors:
         vectors = _load_jsonl(Path(a.source_function_vectors))
     if a.source_function_outcomes:

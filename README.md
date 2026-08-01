@@ -31,8 +31,8 @@ This is a curated `tree -L 2`: comments describe ownership rather than every gen
 │   ├── targets.nix         # exact SSZ target builds and host-only source probe
 │   ├── analysis.nix        # objdump, CFG, size, and summary-statistics artifacts
 │   └── proof.nix           # generated Lean inputs, proof build, and SSZ validation runner
-├── targets/
-│   └── zesu/               # adapter, ABI material, source probe, tests, and correspondence
+├── verification-target/
+│   └── zesu/               # inputs that connect the pinned Zesu implementation to BinaryFv
 ├── runtime/
 │   └── riscv64/            # shared freestanding startup and C runtime
 ├── tests/
@@ -86,7 +86,7 @@ nix build .#zesu-sink-observability --out-link build/zesu-sink-observability
   lake exe ssz_oracle_test
 )
 
-"$PY" -B targets/zesu/tests/ssz_differential_audit.py \
+"$PY" -B verification-target/zesu/tests/ssz_differential_audit.py \
   --reference-python "$PY" \
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \
   --lean-binary tools/ssz-oracle/.lake/build/bin/ssz_oracle

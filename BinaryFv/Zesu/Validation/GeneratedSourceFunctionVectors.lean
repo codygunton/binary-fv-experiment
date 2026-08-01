@@ -1,5 +1,5 @@
--- GENERATED FILE: produced by targets/zesu/tests/ssz_source_function_vectors.py --out-lean. DO NOT EDIT.
--- Typed per-sourceFunction leaf vectors baked for the handwritten-meaning agreement check
+-- GENERATED FILE: produced by verification-target/zesu/tests/ssz_source_function_vectors.py --out-lean. DO NOT EDIT.
+-- Typed per-source-function leaf vectors baked for the handwritten-meaning agreement check
 -- (BinaryFv/Zesu/Validation/SourceFunctionMeaningVectors.lean). `some`=expected value, `none`=invalidSsz.
 namespace BinaryFv.Zesu.Validation.GeneratedSourceFunctionVectors
 

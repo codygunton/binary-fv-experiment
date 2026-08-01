@@ -338,9 +338,9 @@ let
   } ''
     set -euo pipefail
     mkdir -p "$out"
-    python3 ${repo}/targets/zesu/tests/ssz_contract_agreement.py \
-      --corpus-generator ${repo}/targets/zesu/tests/ssz_contract_corpus.py \
-      --fixtures ${repo}/targets/zesu/tests/ssz_differential_audit.py \
+    python3 ${repo}/verification-target/zesu/tests/ssz_contract_agreement.py \
+      --corpus-generator ${repo}/verification-target/zesu/tests/ssz_contract_corpus.py \
+      --fixtures ${repo}/verification-target/zesu/tests/ssz_differential_audit.py \
       --lean-runner ${sszContractRunner}/bin/ssz_contract_runner \
       --zesu-probe ${targets.public.zesuContractProbe}/bin/ssz-contract-probe \
       --corpus-out "$out/corpus.jsonl" | tee "$out/agreement.txt"

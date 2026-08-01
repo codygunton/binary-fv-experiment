@@ -12,5 +12,6 @@ The pinned target objects, DWARF sidecars, ABI manifest, and the deterministic S
 are built by `targets.nix`/`proof.nix` and exposed as flake packages; the root README's "Regenerating
 deterministic artifacts" section lists the `nix build .#…` command for each.
 
-Target source belongs under `targets/`; these files only describe reproducible construction and
-validation.
+Repository-owned integration inputs for a concrete implementation belong under
+`verification-target/`; pinned external source enters through `flake.nix`. These Nix files describe
+reproducible construction and validation, while optional output links belong under `build/`.

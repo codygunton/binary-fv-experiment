@@ -11,7 +11,8 @@ nothing it emits is trusted — every claim is re-checked in Lean against the ca
 Sail-decoded control flow. The root README's "Regenerating deterministic artifacts" section lists the
 full command surface.
 
-Target-specific vector and differential checks live beside their targets under `targets/*/*/tests/`.
+Implementation-specific vector and differential checks live under
+`verification-target/<implementation>/tests/`.
 
 ## Building proof regions from compiler and binary evidence
 

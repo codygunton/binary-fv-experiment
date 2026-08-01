@@ -7,7 +7,7 @@ of `Validation` from production proof modules.
 
 The same expected examples are checked in two places:
 
-1. The [host Zig probe](../../../targets/zesu/probe/README.md) calls the real source
+1. The [host Zig probe](../../../verification-target/zesu/probe/README.md) calls the real source
    functions and compares their values, errors, and allocation events with the expected results.
 2. [SourceFunctionMeaningVectors.lean](SourceFunctionMeaningVectors.lean) evaluates the corresponding
    handwritten Lean meanings against those results with `native_decide`.
@@ -21,4 +21,4 @@ too large to evaluate conveniently with `native_decide`.
 [GeneratedCorpus.lean](GeneratedCorpus.lean) and
 [GeneratedSourceFunctionVectors.lean](GeneratedSourceFunctionVectors.lean) contain the committed,
 deterministically generated examples. Their headers identify the generating commands; edit the generators under
-[targets/zesu/tests](../../../targets/zesu/tests/README.md), not these files.
+[verification-target/zesu/tests](../../../verification-target/zesu/tests/README.md), not these files.
