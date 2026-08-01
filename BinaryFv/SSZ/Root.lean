@@ -178,16 +178,29 @@ theorem compliance_of_exported_contracts
         execution.builds execution.trace execution.withinStepBound execution.accessors
         execution.returnCode execution.specRejection execution.storedAbsent
 
-/-- The sole public root of the compliance proof. `exportedContracts_of_level1` is the explicit first
-refinement edge: it exposes the wrapper and two accessor contracts consumed by the concrete runner,
-while the remaining immediate-runtime obligations stay in the Level 1 bundle for bytecode coverage
-and the future derivation of the closed wrapper contract from local execution. -/
+/-- The sole public root of the compliance proof. `exportedContracts_of_level1` visibly combines the
+contracts for all eight functions selected below `program` at Level 1: the five allocator contracts
+discharge the conditional `zesu_decode_raw` contract, and the resulting decoder contract plus the two
+accessor contracts supply the concrete runner. -/
 theorem root_compliance
-    (contracts : Zesu.Entrypoints.ZesuDecodeRaw.Level1ContractAssumptions) :
+    (decode : Zesu.Entrypoints.ZesuDecodeRaw.RawAllocContract →
+      Zesu.Entrypoints.ZesuDecodeRaw.AllocatorFreeContract →
+      Zesu.Entrypoints.ZesuDecodeRaw.AllocatorRemapContract →
+      Zesu.Entrypoints.ZesuDecodeRaw.AllocatorResizeContract →
+      Zesu.Entrypoints.ZesuDecodeRaw.AllocatorAllocContract →
+      Zesu.Entrypoints.ZesuDecodeRaw.ZesuDecodeRawContract)
+    (rawAlloc : Zesu.Entrypoints.ZesuDecodeRaw.RawAllocContract)
+    (allocatorFree : Zesu.Entrypoints.ZesuDecodeRaw.AllocatorFreeContract)
+    (allocatorRemap : Zesu.Entrypoints.ZesuDecodeRaw.AllocatorRemapContract)
+    (allocatorResize : Zesu.Entrypoints.ZesuDecodeRaw.AllocatorResizeContract)
+    (allocatorAlloc : Zesu.Entrypoints.ZesuDecodeRaw.AllocatorAllocContract)
+    (rawResult : Zesu.Entrypoints.ZesuDecodeRaw.RawResultContract)
+    (rawError : Zesu.Entrypoints.ZesuDecodeRaw.RawErrorContract) :
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
         RiscvSpec.execute binary input = .ok (SszSpec.decode input) :=
   compliance_of_exported_contracts
-    (Zesu.Entrypoints.ZesuDecodeRaw.exportedContracts_of_level1 contracts)
+    (Zesu.Entrypoints.ZesuDecodeRaw.exportedContracts_of_level1 decode rawAlloc allocatorFree
+      allocatorRemap allocatorResize allocatorAlloc rawResult rawError)
 
 end BinaryFv.SSZ

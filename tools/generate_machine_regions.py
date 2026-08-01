@@ -771,6 +771,7 @@ def build_flame(database: dict) -> dict:
         }
         meta[key] = {
             "owner": owner_id,
+            "qualified": owner["qualified"],
             "runs": instruction_runs(indices),
             "frags": len(instruction_runs(indices)),
             "value": len(indices),
@@ -796,6 +797,7 @@ def build_flame(database: dict) -> dict:
     root_indices = list(range(len(database["instructions"])))
     meta["program"] = {
         "owner": None,
+        "qualified": "program",
         "runs": instruction_runs(root_indices),
         "frags": 1,
         "value": len(root_indices),

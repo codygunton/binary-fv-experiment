@@ -24,6 +24,17 @@ These instructions apply repository-wide.
 
 - Work top-down from the exported program: state a conditional theorem over its immediate machine
   regions, prove the small regions, and further resolve only the large regions.
+- At every level, select exactly the immediate calls in the reviewed call flamegraph for the function
+  being resolved. Restate that function's contract in terms of contracts for those selected calls; do
+  not substitute deeper descendants because their statements happen to be available. If the UI's
+  hierarchy disagrees with the reviewed call relation, record and correct that discrepancy instead of
+  silently changing the theorem's function set.
+- Prove every selected function that calls no other selected function. Also prove the machine
+  instructions owned by the parent but not owned by any selected child. A selected function that is
+  too large to prove becomes the parent resolved at the next level.
+- The theorem for each level must visibly consume every selected contract and derive the same
+  meaningful parent contract. Keep that conditional parent result valid while deeper functions remain
+  unproved; a list of unused contracts is not a refinement.
 - Treat each resolution depth as a reviewable stacked change. Do not introduce a flat catalog of all
   discovered functions as though it were the proof architecture.
 - Contracts describe actual optimized machine-code boundaries. Inlined source functions do not obey
@@ -73,3 +84,6 @@ These instructions apply repository-wide.
   checkpoints, before committing proof changes, and before claiming a completed chunk.
 - Regenerate compiler-derived artifacts from the current branch. Shared worktree build artifacts may
   accelerate compilation, but stale generated inputs or `.olean` files are not evidence.
+- Keep the generated flamegraph proof status current. Selected but unproved functions are red,
+  selected functions under active proof are yellow, proved functions are green, and unselected
+  functions are blue.

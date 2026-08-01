@@ -3,7 +3,8 @@
 <title>mf decomposition — contract set curation</title>
 <link rel="stylesheet" href="vendor/d3-flamegraph.css">
 <style>
- :root{--bg:#0f1115;--panel:#161a21;--line:#262c36;--fg:#dfe4ec;--dim:#8a93a3;--sel:#3ddc84;--cur:#ffb454}
+ :root{--bg:#0f1115;--panel:#161a21;--line:#262c36;--fg:#dfe4ec;--dim:#8a93a3;
+       --red:#d95757;--yellow:#e5b84b;--green:#3ddc84;--blue:#4f8fd8;--cur:#ffb454}
  *{box-sizing:border-box}
  body{margin:0;background:var(--bg);color:var(--fg);height:100vh;overflow:hidden;
       font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -19,7 +20,7 @@
  #covwrap{padding:9px 14px 12px;border-top:1px solid var(--line);background:var(--panel)}
  #covbar{position:relative;height:28px;background:#1b2028;border:1px solid var(--line);border-radius:4px;overflow:hidden}
  #covbar div{position:absolute;top:0;height:100%}
- #covbar .s{background:var(--sel);opacity:.9}
+ #covbar .s{background:var(--green);opacity:.9}
  #covbar .c{background:var(--cur)}
  #covmeta{display:flex;justify-content:space-between;margin-top:6px;font-size:12px}
  #list{max-height:150px;overflow:auto;border-top:1px solid var(--line);padding:7px 14px;font-size:12px}
@@ -33,9 +34,10 @@
  .kv span:nth-child(odd){color:var(--dim)}
  label.chk{display:inline-flex;gap:8px;align-items:center;cursor:pointer;padding:7px 11px;
            border:1px solid var(--line);border-radius:5px;background:#1b2028}
- label.chk input{accent-color:var(--sel);width:16px;height:16px}
- /* selected frames get a green stroke, drawn by our colorMapper + this rule */
- .d3-flame-graph rect.picked{stroke:#3ddc84;stroke-width:2px}
+ label.chk input{accent-color:var(--green);width:16px;height:16px}
+ .d3-flame-graph rect.picked{stroke:#dfe4ec;stroke-width:1px}
+ .legend{display:inline-flex;gap:10px;align-items:center;font-size:11px;color:var(--dim)}
+ .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
  /* the frame label is a foreignObject painted over the rect and it swallows every
     click; without this nothing in the graph is clickable at all. */
  #chart foreignObject, #chart foreignObject *{pointer-events:none}
@@ -51,6 +53,10 @@
     <button id="clear">clear set</button>
     <button id="suggest" style="border-color:#3ddc84;color:#9df3c3">proposed size split</button>
     <button id="export">export</button>
+    <span class="legend"><span><i style="background:var(--red)"></i>selected, unproved</span>
+      <span><i style="background:var(--yellow)"></i>in progress</span>
+      <span><i style="background:var(--green)"></i>proved</span>
+      <span><i style="background:var(--blue)"></i>unselected</span></span>
     <span class="muted"><b>scroll</b> = zoom · <b>drag</b> = pan · <b>double-click</b> = reset · click = details · <b>shift-click</b> or checkbox = add to set</span>
   </header>
   <div id="chart"></div>
@@ -72,14 +78,24 @@
 <script src="vendor/d3.min.js"></script>
 <script src="vendor/d3-flamegraph.min.js"></script>
 <script>
-let D=null, META=null, TOTAL=0, sel=new Set(), cur=null, fg=null, SUG=null;
+let D=null, META=null, TOTAL=0, sel=new Set(), cur=null, fg=null, SUG=null, PROOF=null;
+let tracked=new Map();
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const save=()=>localStorage.setItem('mfsel2',JSON.stringify([...sel]));
 
-fetch('flame.json').then(r=>r.json()).then(d=>{
-  D=d.tree; META=d.meta; TOTAL=d.total; SUG=d.suggest;
+Promise.all([fetch('flame.json').then(r=>r.json()), fetch('proof-progress.json').then(r=>r.json())])
+.then(([d,p])=>{
+  D=d.tree; META=d.meta; TOTAL=d.total; SUG=d.suggest; PROOF=p;
+  (p.levels||[]).flatMap(level=>level.functions||[]).forEach(row=>{
+    tracked.set(row.qualified,row);
+    if(row.displayName) tracked.set(row.displayName,row);
+  });
   try{(JSON.parse(localStorage.getItem('mfsel2'))||[]).forEach(k=>sel.add(k));}catch(e){}
+  (D.children||[]).forEach(node=>{
+    const m=META[node.key]||{};
+    if(tracked.has(m.qualified||plainName(node.name))) sel.add(node.key);
+  });
   $('#rootname').textContent=`whole program (${TOTAL} instrs)`;
   build(); coverage();
 });
@@ -90,6 +106,17 @@ function keyOf(node){
   while(n){ parts.unshift(n.data.name); n=n.parent; }
   return parts.join('|');
 }
+
+function plainName(name){ return String(name).replace(/ \[[^\]]+\]$/,''); }
+function statusOf(node){
+  const k=keyOf(node), m=META[k]||{};
+  if(k==='program') return PROOF?.root?.status||'unproved';
+  const row=tracked.get(m.qualified||plainName(node.data.name));
+  if(row && node.parent && keyOf(node.parent)==='program') return row.status;
+  return sel.has(k)?'unproved':'unselected';
+}
+const statusColor=s=>({unproved:'#d95757',in_progress:'#e5b84b',proved:'#3ddc84',
+  unselected:'#4f8fd8'})[s]||'#4f8fd8';
 
 let Z=1, baseW=0;
 
@@ -103,7 +130,7 @@ function build(){
     .sort(false)                       // keep address order from the generator
     .inverted(false)
     .selfValue(false)
-    .setColorMapper((d,orig)=> sel.has(keyOf(d)) ? '#2f7d55' : orig);
+    .setColorMapper(d=>statusColor(statusOf(d)));
   d3.select('#chart').datum(D).call(fg);
   wireMouse();
   markPicked();
@@ -165,7 +192,7 @@ function markPicked(){
 }
 
 function details(d){
-  const k=keyOf(d), m=META[k]||{};
+  const k=keyOf(d), m=META[k]||{}, proofStatus=statusOf(d);
   cur=k;
   $('#dname').textContent=d.data.name;
   $('#dsub').textContent=`${d.data.value} instrs · ${(d.data.value/TOTAL*100).toFixed(2)}% of mf`;
@@ -174,6 +201,7 @@ function details(d){
       write a contract for this unit</label>
     <div class="kv">
       <span>stack path</span><span>${esc(k.replace(/\|/g,' › '))}</span>
+      <span>proof status</span><span style="color:${statusColor(proofStatus)}">${esc(proofStatus.replace('_',' '))}</span>
       <span>source</span><span>${esc(m.file||'?')}:${m.line??'?'}</span>
       <span>instructions</span><span>${d.data.value}</span>
       <span>fragments</span><span>${m.frags>1?`<b style="color:var(--cur)">${m.frags}</b> (non-contiguous)`:'1 (contiguous)'}</span>
@@ -204,7 +232,7 @@ function coverage(){
   });
   const pct=covered.size/TOTAL*100;
   $('#pct').textContent=pct.toFixed(1)+'%';
-  $('#pct').style.color = pct>=99.95?'var(--sel)':'var(--fg)';
+  $('#pct').style.color = pct>=99.95?'var(--green)':'var(--fg)';
   $('#pctabs').textContent=`(${covered.size} / ${TOTAL} instrs · ${sel.size} units)`;
   const L=$('#list'); L.innerHTML = sel.size?'':'<span class="muted">no units selected</span>';
   [...sel].map(k=>[k,META[k]]).filter(x=>x[1]).sort((a,b)=>b[1].value-a[1].value).forEach(([k,m])=>{
