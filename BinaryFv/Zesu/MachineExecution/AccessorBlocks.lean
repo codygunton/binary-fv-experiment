@@ -4,6 +4,7 @@ import BinaryFv.RiscV.Logic.BlockStep
 import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.RiscV.Elfling.FunctionTrace
+import BinaryFv.RiscV.Elfling.SentinelBridge
 import BinaryFv.Zesu.Artifacts.PrimitiveReadInventory
 import BinaryFv.Zesu.ControlFlow.Decode
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
@@ -302,5 +303,25 @@ theorem raw_error_function_trace_of_two_steps
   exact BinaryFv.RiscV.Elfling.FunctionTrace.step (fromStep + 1) 0 pc1 s1 s2 s2
     hpc1 hin1 hnot1 hstep1
     (BinaryFv.RiscV.Elfling.FunctionTrace.exitAt (fromStep + 2) s2 pc2 hpc2 hexit2)
+
+theorem raw_error_trace_to_sentinel_of_two_steps
+    {region exit : BitVec 64 → Prop} {fromStep : Nat}
+    {s0 atExit final : State} {pc : BitVec 64} {sentinel rs1Val retired : BitVec 64}
+    (regionAvoidsSentinel : ∀ pc, region pc → pc ≠ sentinel)
+    (exitAvoidsSentinel : ∀ pc, exit pc → pc ≠ sentinel)
+    (run : BinaryFv.RiscV.Elfling.FunctionTrace region exit fromStep 2 s0 atExit)
+    (linkIsSentinel : Sail.BitVec.update rs1Val 0 0#1 = sentinel)
+    (ret : Runs (try_step (fromStep + 2) false) atExit
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement atExit) pc
+          (Sail.BitVec.update rs1Val 0 0#1))
+        (Sail.BitVec.update rs1Val 0 0#1) retired) false) :
+    TraceToSentinel sentinel fromStep 3 s0
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement atExit) pc
+          (Sail.BitVec.update rs1Val 0 0#1))
+        (Sail.BitVec.update rs1Val 0 0#1) retired) := by
+  exact BinaryFv.RiscV.Elfling.traceToSentinel_of_functionTrace_ret
+    regionAvoidsSentinel exitAvoidsSentinel run linkIsSentinel ret
 
 end BinaryFv.Zesu.MachineExecution
