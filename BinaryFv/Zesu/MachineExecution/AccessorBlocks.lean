@@ -191,4 +191,39 @@ theorem raw_error_ret_fetch (state : State)
     (tryStepControlFlowAfterIncrement state) 0x13788 (by omega)
     afterIncrement 0x67 0x80 0x00 0x00 read0 read1 read2 read3
 
+theorem raw_error_auipc_try_step (stepNo : Nat) (state : State)
+    (pc retired : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
+    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
+    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
+      0x17#8 0x25#8 0x20#8 0x04#8)
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (base : BaseInstructionEncoding 0x17#8)
+    (decode : Runs (ext_decode (fetchWord 0x17#8 0x25#8 0x20#8 0x04#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC)))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (exec : Runs (execute (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
+          x10 (BitVec.ofNat 64 0) } (.Retire_Success ()))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+          regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
+            x10 (BitVec.ofNat 64 0) }
+        (Sail.BitVec.addInt pc 4) retired) false := by
+  exact tryStepFallThroughWriteRegRetires stepNo state pc retired inhibit config
+    0x17#8 0x25#8 0x20#8 0x04#8
+    (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC)) x10 (BitVec.ofNat 64 0)
+    platform noMMIO bytes interrupts base decode notExpected exec (by decide) (by decide)
+    (by decide) (by decide) hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+
 end BinaryFv.Zesu.MachineExecution
