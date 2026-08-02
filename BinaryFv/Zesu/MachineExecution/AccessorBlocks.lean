@@ -288,4 +288,19 @@ theorem raw_error_function_trace_of_three_steps
   · exact hnot2
   exact BinaryFv.RiscV.Elfling.FunctionTrace.exitAt (fromStep + 3) s3 pc3 hpc3 hexit3
 
+theorem raw_error_function_trace_of_two_steps
+    {region exit : BitVec 64 → Prop} {fromStep : Nat}
+    {s0 s1 s2 : State} {pc0 pc1 pc2 : BitVec 64}
+    (hpc0 : s0.regs.get? PC = some pc0) (hin0 : region pc0) (hnot0 : ¬ exit pc0)
+    (hstep0 : Runs (try_step fromStep false) s0 s1 false)
+    (hpc1 : s1.regs.get? PC = some pc1) (hin1 : region pc1) (hnot1 : ¬ exit pc1)
+    (hstep1 : Runs (try_step (fromStep + 1) false) s1 s2 false)
+    (hpc2 : s2.regs.get? PC = some pc2) (hexit2 : exit pc2) :
+    BinaryFv.RiscV.Elfling.FunctionTrace region exit fromStep 2 s0 s2 := by
+  refine BinaryFv.RiscV.Elfling.FunctionTrace.step fromStep 1 pc0 s0 s1 s2
+    hpc0 hin0 hnot0 hstep0 ?_
+  exact BinaryFv.RiscV.Elfling.FunctionTrace.step (fromStep + 1) 0 pc1 s1 s2 s2
+    hpc1 hin1 hnot1 hstep1
+    (BinaryFv.RiscV.Elfling.FunctionTrace.exitAt (fromStep + 2) s2 pc2 hpc2 hexit2)
+
 end BinaryFv.Zesu.MachineExecution
