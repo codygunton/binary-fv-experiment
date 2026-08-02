@@ -38,6 +38,7 @@
  .d3-flame-graph rect.picked{stroke:#dfe4ec;stroke-width:1px}
  .legend{display:inline-flex;gap:10px;align-items:center;font-size:11px;color:var(--dim)}
  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
+ .legend i.conditional{background:repeating-linear-gradient(135deg,var(--green) 0 4px,var(--yellow) 4px 8px)}
  /* the frame label is a foreignObject painted over the rect and it swallows every
     click; without this nothing in the graph is clickable at all. */
  #chart foreignObject, #chart foreignObject *{pointer-events:none}
@@ -56,6 +57,7 @@
     <span class="legend"><span><i style="background:var(--red)"></i>selected, unproved</span>
       <span><i style="background:var(--yellow)"></i>in progress</span>
       <span><i style="background:var(--green)"></i>proved</span>
+      <span><i class="conditional"></i>conditionally proved</span>
       <span><i style="background:var(--blue)"></i>unselected</span></span>
     <span class="muted"><b>scroll</b> = zoom · <b>drag</b> = pan · <b>double-click</b> = reset · click = details · <b>shift-click</b> or checkbox = add to set</span>
   </header>
@@ -117,7 +119,7 @@ function statusOf(node){
   return sel.has(k)?'unproved':'unselected';
 }
 const statusColor=s=>({unproved:'#d95757',in_progress:'#e5b84b',proved:'#3ddc84',
-  unselected:'#4f8fd8'})[s]||'#4f8fd8';
+  conditionally_proved:'url(#conditionally-proved)',unselected:'#4f8fd8'})[s]||'#4f8fd8';
 
 let Z=1, baseW=0;
 
@@ -133,6 +135,12 @@ function build(){
     .selfValue(false)
     .setColorMapper(d=>statusColor(statusOf(d)));
   d3.select('#chart').datum(D).call(fg);
+  const defs=d3.select('#chart svg').insert('defs',':first-child');
+  const pattern=defs.append('pattern').attr('id','conditionally-proved')
+    .attr('patternUnits','userSpaceOnUse').attr('width',8).attr('height',8)
+    .attr('patternTransform','rotate(45)');
+  pattern.append('rect').attr('width',8).attr('height',8).attr('fill','#e5b84b');
+  pattern.append('rect').attr('width',4).attr('height',8).attr('fill','#3ddc84');
   wireMouse();
   markPicked();
 }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "root": {
     "qualified": "program",
-    "status": "proved",
+    "status": "conditionally_proved",
     "theorem": "BinaryFv.Zesu.root_compliance"
   },
   "levels": [

@@ -17,9 +17,10 @@ interface data; shift-click or the sidebar checkbox adds it to the proposed cont
 writes the selection with exact instruction runs.
 
 `proof-progress.json` records the reviewed proof selection. The graph uses red for selected but
-unproved functions, yellow for functions whose proof is in progress, green for proved functions, and
-blue for functions not selected at the current level. Manual selections default to red. Update this
-file only when the corresponding Lean theorem status changes.
+unproved functions, yellow for functions whose proof is in progress, green for proved functions,
+diagonal green/yellow stripes for conditionally proved functions, and blue for functions not selected
+at the current level. Colors report formal proof status, not empirical evidence. Manual selections
+default to red. Update this file only when the corresponding Lean theorem status changes.
 
 The binary's calls form a directed graph because one emitted function can have several callers. A
 flamegraph must be a tree, so the UI places each function below its immediate call dominator: the
