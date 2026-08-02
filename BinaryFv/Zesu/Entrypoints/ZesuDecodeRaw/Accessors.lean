@@ -116,8 +116,20 @@ memory, not merely agreeing memory. -/
 theorem accessorSetup_regs_frame (entryPc : Nat) (state : State) (observed : Register)
     (hra : observed ≠ x1) (hsp : observed ≠ x2) (hpc : observed ≠ PC) (hnext : observed ≠ nextPC) :
     (accessorSetup entryPc state).regs.get? observed = state.regs.get? observed := by
-  simp [accessorSetup, Std.ExtDHashMap.get?_insert, Ne.symm hra, Ne.symm hsp, Ne.symm hpc,
+    simp [accessorSetup, Std.ExtDHashMap.get?_insert, Ne.symm hra, Ne.symm hsp, Ne.symm hpc,
     Ne.symm hnext]
+
+/-! The prologue overwrites only caller-owned control registers. -/
+theorem normalExecutionState_accessorSetup {entryPc : Nat} {state : State}
+    (h : NormalExecutionState state) :
+    NormalExecutionState (accessorSetup entryPc state) := by
+  apply normalExecutionState_of_agree (before := state) (after := accessorSetup entryPc state) ?_ h
+  intro observed hobserved
+  exact (accessorSetup_regs_frame entryPc state observed
+    (by intro hx; subst hx; simp [normalRegisters] at hobserved))
+    (by intro hx; subst hx; simp [normalRegisters] at hobserved)
+    (by intro hx; subst hx; simp [normalRegisters] at hobserved)
+    (by intro hx; subst hx; simp [normalRegisters] at hobserved)
 
 /-- **The prologue cannot manufacture a return code.** `a0` is not one of the four registers it
 writes, so the value `runAccessor` eventually reports is the accessor's own, never a leftover the
