@@ -179,4 +179,16 @@ theorem raw_error_ret_try_step (stepNo : Nat) (state : State)
     notExpected helpElp hlink hrs1 hbit1 hzca hartRead inhibitRead configRead notInhibited
     machineEnabled retiredRead
 
+theorem raw_error_ret_fetch (state : State)
+    (loaded : Artifacts.programImage.matchesMemory state.mem) :
+    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x13788)
+      0x67#8 0x80#8 0x00#8 0x00#8 := by
+  rcases raw_error_ret_image_bytes with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifacts.programImage.matchesMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  exact fetchBytesAt_of_image_bytes Artifacts.programImage
+    (tryStepControlFlowAfterIncrement state) 0x13788 (by omega)
+    afterIncrement 0x67 0x80 0x00 0x00 read0 read1 read2 read3
+
 end BinaryFv.Zesu.MachineExecution
