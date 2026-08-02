@@ -3,7 +3,7 @@ import BinaryFv.Zesu.Elflings.GeneratedProgramGeometry
 /-!
 # Angle 3: can a machine loop be discharged in this framework?
 
-Validation-only. Nothing here is imported by the root theorem; this module records what the trace
+Test-only. Nothing here is imported by the root theorem; this module records what the trace
 types can and cannot express about a loop, and what the generated exit inventory does to a loop.
 
 Four things are established.
@@ -35,7 +35,7 @@ Four things are established.
    loop cannot be given to the composition engine as a self-recursive unit.
 -/
 
-namespace BinaryFv.Zesu.Validation.LoopDischarge
+namespace ZesuVerification.LoopDischarge
 
 open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV
@@ -457,4 +457,4 @@ theorem decodeRaw_budget_covers_every_loop :
     loopBudgets.all (fun b => decide (provableCostPerElement b ≤ 512 * b.stride)) = true := by
   native_decide
 
-end BinaryFv.Zesu.Validation.LoopDischarge
+end ZesuVerification.LoopDischarge

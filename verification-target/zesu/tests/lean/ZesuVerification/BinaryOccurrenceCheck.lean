@@ -1,5 +1,5 @@
-import BinaryFv.Zesu.Validation.BinaryOccurrenceTypes
-import BinaryFv.Zesu.Validation.GeneratedBinaryEvidence
+import ZesuVerification.BinaryOccurrenceTypes
+import ZesuVerification.GeneratedBinaryEvidence
 import BinaryFv.Zesu.Contracts.Options
 
 /-!
@@ -18,10 +18,10 @@ evidence corruptions to flip a check. This is a validation module — falsificat
 never a proof premise, and (enforced by the validation-import guard) never imported by the theorem graph.
 -/
 
-namespace BinaryFv.Zesu.Validation
+namespace ZesuVerification
 
 open BinaryFv.Zesu.Contracts
-open BinaryFv.Zesu.Validation.GeneratedBinaryEvidence
+open ZesuVerification.GeneratedBinaryEvidence
 
 /-- Pinned production memory layout (from the `zesu-ssz` ELF sections/symbols): classify a write. -/
 def classifyWrite (addr sp : Nat) : String :=
@@ -172,4 +172,4 @@ theorem negative_code_write :
         inRegionStores := presentEvidence.inRegionStores ++ [badStore (65768 + 8)] }).codePreserved
       = false := by native_decide
 
-end BinaryFv.Zesu.Validation
+end ZesuVerification

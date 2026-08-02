@@ -20,7 +20,7 @@ emitted callee. The counts below decide which is which on the canonical program,
 check going *both* ways: `127` inline pairs pass, `25` external-call pairs fail.
 -/
 
-namespace BinaryFv.Zesu.Validation.CallStepRetInRegion
+namespace ZesuVerification.CallStepRetInRegion
 
 open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV.Elfling
@@ -67,4 +67,4 @@ external call of the canonical program: every cataloged callee returns from an a
 not own. -/
 theorem external_pairs_none_satisfy : externalPairsSatisfying = 0 := by native_decide
 
-end BinaryFv.Zesu.Validation.CallStepRetInRegion
+end ZesuVerification.CallStepRetInRegion

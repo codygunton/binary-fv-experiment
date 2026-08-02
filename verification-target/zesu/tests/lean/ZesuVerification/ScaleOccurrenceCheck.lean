@@ -1,5 +1,5 @@
-import BinaryFv.Zesu.Validation.ScaleOccurrenceTypes
-import BinaryFv.Zesu.Validation.GeneratedScaleEvidence
+import ZesuVerification.ScaleOccurrenceTypes
+import ZesuVerification.GeneratedScaleEvidence
 
 /-!
 # Row C: scaled Lean diagnostic checker over ALL production-ELF occurrences
@@ -27,13 +27,13 @@ PER OCCURRENCE — an occurrence is validated only on evidence in which its own 
 
 `checker_agrees_with_oracle` pins Lean ≡ Python on every occurrence. `gating_checks_hold` records that
 the six structural/effect checks pass on every COVERED occurrence. The `negative_*` theorems require
-mutations of the evidence to flip a check. Validation module — never a proof premise, never imported by
+mutations of the evidence to flip a check. Test module — never a proof premise, never imported by
 the theorem graph.
 -/
 
-namespace BinaryFv.Zesu.Validation
+namespace ZesuVerification
 
-open BinaryFv.Zesu.Validation.GeneratedScaleEvidence
+open ZesuVerification.GeneratedScaleEvidence
 
 /-- Pinned production memory layout (identical to `BinaryOccurrenceCheck.classifyWrite`). -/
 def classifyWriteScaled (addr sp : Nat) : String :=
@@ -186,4 +186,4 @@ theorem negative_step_bound :
     (evaluateOcc { sample with maxInsnPerInvocation := 100000 }).withinStepBound
       = some false := by native_decide
 
-end BinaryFv.Zesu.Validation
+end ZesuVerification
