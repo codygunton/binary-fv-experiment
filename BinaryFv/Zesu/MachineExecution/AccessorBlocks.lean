@@ -230,7 +230,7 @@ theorem raw_error_auipc_try_step (stepNo : Nat) (state : State)
 
 theorem raw_error_load_try_step (stepNo : Nat) (state : State)
     (pc retired : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64)
-    (data : BitVec 32) (value : BitVec 64)
+    (value : BitVec 64)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
     (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
@@ -306,7 +306,7 @@ theorem raw_error_function_trace_of_two_steps
 
 theorem raw_error_trace_to_sentinel_of_two_steps
     {region exit : BitVec 64 → Prop} {fromStep : Nat}
-    {s0 atExit final : State} {pc : BitVec 64} {sentinel rs1Val retired : BitVec 64}
+    {s0 atExit : State} {pc : BitVec 64} {sentinel rs1Val retired : BitVec 64}
     (regionAvoidsSentinel : ∀ pc, region pc → pc ≠ sentinel)
     (exitAvoidsSentinel : ∀ pc, exit pc → pc ≠ sentinel)
     (run : BinaryFv.RiscV.Elfling.FunctionTrace region exit fromStep 2 s0 atExit)
