@@ -281,10 +281,10 @@ COMPAT
     # the import graph: no generic module may import the target umbrella or anything beneath it.
     # Prose that motivates a generic rule by naming the Zesu artifact is not a dependency and is
     # deliberately not matched -- the violation is the import, not the spelling.
-    layerViolations=$(grep -rn "^import BinaryFv\.SSZ" BinaryFv/RiscV/ BinaryFv/Binary/ \
+    layerViolations=$(grep -rn "^import BinaryFv\.Zesu" BinaryFv/RiscV/ BinaryFv/Binary/ \
       BinaryFv/RiscV.lean BinaryFv/Binary.lean 2>/dev/null || true)
     if [ -n "$layerViolations" ]; then
-      echo "Layer violation: the RISC-V/Binary layers must not import the SSZ target." >&2
+      echo "Layer violation: the RISC-V/Binary layers must not import the Zesu target." >&2
       echo "$layerViolations" >&2
       exit 1
     fi
@@ -310,9 +310,8 @@ COMPAT
 
     lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
 
-    # C-prime production-binary validation remains diagnostic-only.
-    lake build ZesuVerification.BinaryOccurrenceCheck
-    lake build ZesuVerification.ScaleOccurrenceCheck
+    # Zesu production-binary validation remains diagnostic-only.
+    lake build ZesuVerificationTests
     touch "$out"
   '';
 
@@ -342,4 +341,3 @@ in
 
   inherit devShell;
 }
-
