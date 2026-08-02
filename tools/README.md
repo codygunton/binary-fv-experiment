@@ -19,7 +19,8 @@ instructions. If DWARF omits a parameter and no narrow recovery rule applies, ge
 instead of guessing. The root README's “Regenerating deterministic artifacts” section lists the full
 command surface.
 
-Target-specific vector and differential checks live beside their targets under `targets/*/*/tests/`.
+Implementation-specific vector and differential checks live under
+`verification-target/<implementation>/tests/`.
 
 ## Canonical machine-region database
 

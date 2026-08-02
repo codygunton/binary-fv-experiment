@@ -3,7 +3,7 @@
   "root": {
     "qualified": "program",
     "status": "proved",
-    "theorem": "BinaryFv.SSZ.root_compliance"
+    "theorem": "BinaryFv.Zesu.root_compliance"
   },
   "levels": [
     {

@@ -10,36 +10,35 @@ lean_lib LeanRV64DExecutable where
   moreLeanArgs := #["--tstack=4000000"]
 
 /-
-The specification closure is copied and content-checked by the Nix derivation rather than added as a
-Lake dependency. It is deliberately restricted to SizzLean's pure SSZ decoder modules and the local
-Amsterdam V4 bridge, so the proof project neither imports nor links the bridge's SHA/OpenSSL layer.
+The SizzLean closure is copied and content-checked by Nix rather than added as a Lake dependency. It
+is deliberately restricted to the pure SSZ decoder modules, so the proof project neither imports nor
+links SizzLean's SHA/OpenSSL layer. The project-owned Amsterdam V4 specification is ordinary source
+under `BinaryFv/Specs/SSZ`.
 -/
-lean_lib SszSpec where
-  srcDir := "build/ssz-spec-lean"
+lean_lib SizzLeanPinned where
+  srcDir := "build/sizzlean-lean"
   roots := #[
-    `SizzLean.Compat,
     `SizzLean.Spec.Type,
     `SizzLean.Spec.Interp,
     `SizzLean.Spec.Constants,
     `SizzLean.Spec.SSZError,
     `SizzLean.Spec.Serialize,
     `SizzLean.Spec.Deserialize,
-    `SizzLean.Spec.Supported,
     `SizzLean.Spec.BasicSupported,
+    `SizzLean.Spec.Supported,
     `SizzLean.Spec.MaxByteLength,
-    `SizzLean.Proofs.Simp,
+    `SizzLean.Compat,
     `SizzLean.Proofs.SimpAttrs,
+    `SizzLean.Proofs.Simp,
     `SizzLean.Proofs.SerializeSize,
     `SizzLean.Proofs.UInt,
     `SizzLean.Proofs.Bool,
+    `SizzLean.Proofs.FixedElems,
     `SizzLean.Proofs.VectorFixed,
     `SizzLean.Proofs.ListFixed,
     `SizzLean.Proofs.ContainerFixed,
-    `SizzLean.Proofs.FixedElems,
     `SizzLean.Proofs.BitPack,
-    `SizzLean.Proofs.Roundtrip,
     `SizzLean.Proofs.SizeBound,
-    `SszBridge.Core,
   ]
 
 lean_lib ZesuSszElf where
@@ -60,21 +59,17 @@ lean_lib MachineRegionsGenerated where
   roots := #[`GeneratedMachineRegions]
 
 @[default_target]
-lean_lib BinaryFv where
+lean_lib ZesuVerificationTests where
+  srcDir := "verification-target/zesu/tests/lean"
   roots := #[
-    `BinaryFv,
-    `BinaryFv.SSZ.Zesu.Validation.SequentialSpliceWitness,
-    `BinaryFv.SSZ.Zesu.Validation.LoopDischarge,
-    `BinaryFv.SSZ.Zesu.Validation.CallStepRetInRegion,
-    `BinaryFv.SSZ.Zesu.Validation.SyntheticUnitProbe,
+    `ZesuVerification.SequentialSpliceWitness,
+    `ZesuVerification.LoopDischarge,
+    `ZesuVerification.CallStepRetInRegion,
+    `ZesuVerification.SyntheticUnitProbe,
   ]
   moreLeanArgs := #["--tstack=4000000"]
 
-/-
-Row B validation runner: a host executable over the handwritten decode `meaning`. It is NOT part of
-the `BinaryFv` theorem library and is never imported by it — validation is falsification evidence,
-never a proof premise.
--/
-lean_exe ssz_contract_runner where
-  root := `BinaryFv.SSZ.Zesu.Validation.ContractRunner
+@[default_target]
+lean_lib BinaryFv where
+  roots := #[`BinaryFv]
   moreLeanArgs := #["--tstack=4000000"]

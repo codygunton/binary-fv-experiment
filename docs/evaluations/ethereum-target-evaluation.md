@@ -60,7 +60,7 @@ All compared ELFs use `RV64IM_Zicclsm` and `lp64`; the checked toolchain is GCC 
 
 ## Corrected SSZ candidate and conformance evidence
 
-`targets/ssz/zesu/docs/field-correspondence.md` freezes the Amsterdam V4 schema and the deterministic,
+`verification-target/zesu/docs/field-correspondence.md` freezes the Amsterdam V4 schema and the deterministic,
 complete `ssz-value-v1` record protocol. The raw Zesu type preserves all 256 bits of base fee,
 chain ID zero, activation optionals, blob schedule, typed execution requests, fixed vectors, and
 every variable byte/list value. Its separate production adapter continues to perform RLP
@@ -112,7 +112,7 @@ form but still a 540-byte payload. Deneb's consensus-specs `ExecutionPayload` is
 528-byte component comparison, not a `StatelessInput` oracle. V3 is therefore not accepted by the
 measured `decodeRaw` path and is excluded from every strict differential statement.
 
-The Lean bridge is an executable SizzLean-backed V4 oracle, not a proof of this mixed-container
+The Lean oracle is an executable SizzLean-backed V4 specification, not a proof of this mixed-container
 schema. It uses `SSZType.deserialize` and exact reserialization to reject SizzLean's accepted
 noncanonical empty variable-list alias. The legitimate 1 MiB raw/Ere collision needs an unlimited
 host stack because SizzLean's fixed-element serializer is recursive; the differential runner raises
@@ -178,20 +178,20 @@ nix build .#stats --out-link build/stats
 nix build .#reth-keccak --out-link build/reth-keccak
 nix flake check
 
-# Lean/SizzLean bridge
-(cd targets/ssz/zesu/spec && lake build repl && lake build ssz_bridge ssz_bridge_test && lake exe ssz_bridge_test)
+# Lean/SizzLean oracle
+(cd tools/ssz-oracle && lake build repl && lake build ssz_oracle ssz_oracle_test && lake exe ssz_oracle_test)
 
 # With a `uv sync --locked` environment for the pinned execution-specs revision:
 PY=/path/to/execution-specs/.venv/bin/python
 nix build .#zesu-value --out-link build/zesu-ssz-value
-"$PY" -B targets/ssz/zesu/tests/ssz_differential_audit.py \\
+"$PY" -B verification-target/zesu/tests/ssz_differential_audit.py \\
   --reference-python "$PY" \\
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \\
-  --lean-binary targets/ssz/zesu/spec/.lake/build/bin/ssz_bridge
-"$PY" -B targets/ssz/zesu/tests/ssz_boundary_audit.py --extended \\
+  --lean-binary tools/ssz-oracle/.lake/build/bin/ssz_oracle
+"$PY" -B verification-target/zesu/tests/ssz_boundary_audit.py --extended \\
   --reference-python "$PY" \\
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \\
-  --lean-binary targets/ssz/zesu/spec/.lake/build/bin/ssz_bridge
+  --lean-binary tools/ssz-oracle/.lake/build/bin/ssz_oracle
 ```
 
 ## Retained future theorem shape
@@ -206,9 +206,9 @@ theorem keccak_root_compliance :
 theorem ssz_root_compliance :
     forall input : ByteArray,
       input.size < 2^32 ->
-      RiscvSpec.execute zesuSszBinary input = .ok (SszSpec.decodeStatelessInput input)
+      RiscvSpec.execute zesuSszBinary input = .ok (BinaryFv.Specs.SSZ.decode input)
 ```
 
-Here `SszSpec.decodeStatelessInput` returns the complete lossless raw V4 value or a specification
+Here `BinaryFv.Specs.SSZ.decode` returns the complete lossless raw V4 value or a specification
 error; ABI representation remains hidden at the machine boundary. No upstream Zesu issue or pull
 request was opened.
