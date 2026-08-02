@@ -44,6 +44,48 @@ theorem raw_error_prefix_runs (state afterAuipc afterLoad : State) (pcVal : BitV
   apply Runs.bind (raw_error_auipc_execute state afterAuipc pcVal hpc hAuipc)
   exact raw_error_load_execute afterAuipc afterLoad data hread hLoad
 
+theorem raw_error_ret_execute (state sFinal : State) (linkVal rs1Val : BitVec 64)
+    (helpElp : Runs (update_elp_state (.Regidx 1#5)) state state ())
+    (hlink : Runs (get_next_pc ()) state state linkVal)
+    (hrs1 : Runs (rX_bits (.Regidx 1#5)) state state rs1Val)
+    (hbit1 : Sail.BitVec.access (rs1Val + sign_extend (m := 64) 0#12) 1 = 0#1)
+    (zcaEnabled : Bool)
+    (hzca : Runs (currentlyEnabled extension.Ext_Zca) state state zcaEnabled)
+    (hwrite : Runs (wX_bits (.Regidx 0#5) linkVal)
+      { state with regs := (state.regs.insert nextPC
+          (Sail.BitVec.update (rs1Val + sign_extend (m := 64) 0#12) 0 0#1)) } sFinal ()) :
+    Runs (execute_JALR 0#12 (.Regidx 1#5) (.Regidx 0#5)) state sFinal
+      (.Retire_Success ()) := by
+  exact execute_JALR_run state sFinal 0#12 (.Regidx 1#5) (.Regidx 0#5)
+    linkVal rs1Val helpElp hlink hrs1 hbit1 zcaEnabled hzca hwrite
+
+theorem raw_error_body_runs (state afterAuipc afterLoad final : State) (pcVal : BitVec 64)
+    (data : BitVec 32) (linkVal rs1Val : BitVec 64)
+    (hpc : Runs (readReg PC) state state pcVal)
+    (hAuipc : Runs (wX_bits (.Regidx 10#5)
+      (pcVal + sign_extend (m := 64) (0x4202#20 ++ 0x000#12))) state afterAuipc ())
+    (hread : Runs (vmem_read (.Regidx 10#5) (sign_extend (m := 64) 0x8a4#12) 4
+      (MemoryAccessType.Load mem_payload.Data) false false false)
+      afterAuipc afterAuipc (.Ok data))
+    (hLoad : Runs (wX_bits (.Regidx 10#5) (extend_value false data)) afterAuipc afterLoad ())
+    (helpElp : Runs (update_elp_state (.Regidx 1#5)) afterLoad afterLoad ())
+    (hlink : Runs (get_next_pc ()) afterLoad afterLoad linkVal)
+    (hrs1 : Runs (rX_bits (.Regidx 1#5)) afterLoad afterLoad rs1Val)
+    (hbit1 : Sail.BitVec.access (rs1Val + sign_extend (m := 64) 0#12) 1 = 0#1)
+    (zcaEnabled : Bool)
+    (hzca : Runs (currentlyEnabled extension.Ext_Zca) afterLoad afterLoad zcaEnabled)
+    (hwrite : Runs (wX_bits (.Regidx 0#5) linkVal)
+      { afterLoad with regs := (afterLoad.regs.insert nextPC
+          (Sail.BitVec.update (rs1Val + sign_extend (m := 64) 0#12) 0 0#1)) } final ()) :
+    Runs (execute_UTYPE 0x4202#20 (.Regidx 10#5) .AUIPC >>= fun _ =>
+      execute_LOAD 0x8a4#12 (.Regidx 10#5) (.Regidx 10#5) false 4 >>= fun _ =>
+      execute_JALR 0#12 (.Regidx 1#5) (.Regidx 0#5))
+      state final (.Retire_Success ()) := by
+  exact Runs.bind (raw_error_auipc_execute state afterAuipc pcVal hpc hAuipc)
+    (Runs.bind (raw_error_load_execute afterAuipc afterLoad data hread hLoad)
+      (raw_error_ret_execute afterLoad final linkVal rs1Val helpElp hlink hrs1 hbit1 zcaEnabled hzca
+        hwrite))
+
 theorem raw_error_auipc_image_bytes :
     Artifacts.programImage.readByte? 0x13780 = some 0x17 ∧
       Artifacts.programImage.readByte? 0x13781 = some 0x25 ∧
