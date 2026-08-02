@@ -87,3 +87,12 @@ These instructions apply repository-wide.
 - Keep the generated flamegraph proof status current. Selected but unproved functions are red,
   selected functions under active proof are yellow, proved functions are green, and unselected
   functions are blue.
+
+## Pull request descriptions
+
+- Name every theorem or other statement proved by the PR and state what each proof establishes.
+- Name every theorem, contract, assumption, or proof obligation weakened by the PR and describe the
+  weakening precisely. This includes adding assumptions, narrowing inputs, weakening conclusions,
+  replacing a proof with an axiom or placeholder, and reducing machine-code or specification coverage.
+- If the PR proves no new statements or weakens none, say so explicitly. Do not make reviewers infer
+  either fact from the diff.
