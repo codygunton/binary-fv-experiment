@@ -29,6 +29,21 @@ theorem raw_error_load_execute (state sFinal : State) (data : BitVec 32)
       (.Retire_Success ()) := by
   exact execute_LOAD_lw_run state sFinal 0x8a4#12 (.Regidx 10#5) (.Regidx 10#5) data hread hwrite
 
+theorem raw_error_prefix_runs (state afterAuipc afterLoad : State) (pcVal : BitVec 64)
+    (data : BitVec 32)
+    (hpc : Runs (readReg PC) state state pcVal)
+    (hAuipc : Runs (wX_bits (.Regidx 10#5)
+      (pcVal + sign_extend (m := 64) (0x4202#20 ++ 0x000#12))) state afterAuipc ())
+    (hread : Runs (vmem_read (.Regidx 10#5) (sign_extend (m := 64) 0x8a4#12) 4
+      (MemoryAccessType.Load mem_payload.Data) false false false)
+      afterAuipc afterAuipc (.Ok data))
+    (hLoad : Runs (wX_bits (.Regidx 10#5) (extend_value false data)) afterAuipc afterLoad ()) :
+    Runs (execute_UTYPE 0x4202#20 (.Regidx 10#5) .AUIPC >>= fun _ =>
+      execute_LOAD 0x8a4#12 (.Regidx 10#5) (.Regidx 10#5) false 4)
+      state afterLoad (.Retire_Success ()) := by
+  apply Runs.bind (raw_error_auipc_execute state afterAuipc pcVal hpc hAuipc)
+  exact raw_error_load_execute afterAuipc afterLoad data hread hLoad
+
 theorem raw_error_auipc_image_bytes :
     Artifacts.programImage.readByte? 0x13780 = some 0x17 ∧
       Artifacts.programImage.readByte? 0x13781 = some 0x25 ∧
