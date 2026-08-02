@@ -189,18 +189,21 @@ def validate_vector(
     if entry not in pcs:
         failures.append(f"production trace never entered 0x{entry:x}")
     if vector.valid:
-        if any(outcome.returncode != 0 for outcome in outcomes.values()):
-            failures.append("a value oracle rejected a valid vector")
+        for name, outcome in outcomes.items():
+            if outcome.returncode != 0:
+                error = outcome.stderr.decode(errors="replace").strip()
+                failures.append(f"{name} rejected a valid vector: {error}")
+            if not fixtures.valid_protocol(outcome.stdout):
+                failures.append(f"{name} emitted malformed ssz-value-v1")
         streams = [outcome.stdout for outcome in outcomes.values()]
-        if any(not fixtures.valid_protocol(stream) for stream in streams):
-            failures.append("a value oracle emitted malformed ssz-value-v1")
         if len(set(streams)) != 1:
             failures.append("value oracles disagreed")
         if production.returncode != 0 or not production.stdout.startswith(b"ok "):
             failures.append("production executable rejected a valid vector")
     else:
-        if any(outcome.returncode == 0 for outcome in outcomes.values()):
-            failures.append("a value oracle accepted an invalid vector")
+        for name, outcome in outcomes.items():
+            if outcome.returncode == 0:
+                failures.append(f"{name} accepted an invalid vector")
         if production.returncode != 1 or production.stdout != b"invalid\n":
             failures.append("production executable accepted an invalid vector")
     return {
