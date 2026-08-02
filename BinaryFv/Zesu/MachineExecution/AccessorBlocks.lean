@@ -135,4 +135,48 @@ theorem raw_error_ret_decode (state : State)
       (.JALR (0#12, .Regidx 1#5, .Regidx 0#5)) := by
   decode_run
 
+/-! The fixed-byte control-flow bridge for the final instruction.  All environmental facts remain
+explicit: this theorem does not hide fetch, interrupt, counter, or extension premises. -/
+theorem raw_error_ret_try_step (stepNo : Nat) (state : State)
+    (pc retired linkVal rs1Val : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64)
+    (zcaEnabled : Bool)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
+    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
+    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
+      0x67#8 0x80#8 0x00#8 0x00#8)
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (base : BaseInstructionEncoding 0x67#8)
+    (decode : Runs (ext_decode (fetchWord 0x67#8 0x80#8 0x00#8 0x00#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.JALR (0#12, .Regidx 1#5, zreg)))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (helpElp : Runs (update_elp_state (.Regidx 1#5))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) ())
+    (hlink : Runs (get_next_pc ())
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) linkVal)
+    (hrs1 : Runs (rX_bits (.Regidx 1#5))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) rs1Val)
+    (hbit1 : Sail.BitVec.access rs1Val 1 = 0#1)
+    (hzca : Runs (currentlyEnabled extension.Ext_Zca)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) zcaEnabled)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+          (Sail.BitVec.update rs1Val 0 0#1))
+        (Sail.BitVec.update rs1Val 0 0#1) retired) false := by
+  exact tryStepRetRetires stepNo state pc retired (.Regidx 1#5) linkVal rs1Val inhibit config
+    0x67#8 0x80#8 0x00#8 0x00#8 zcaEnabled platform noMMIO bytes interrupts base decode
+    notExpected helpElp hlink hrs1 hbit1 hzca hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
 end BinaryFv.Zesu.MachineExecution
