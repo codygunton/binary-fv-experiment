@@ -5,7 +5,7 @@ import BinaryFv.Zesu.Elflings.GeneratedProgramGeometry
 /-!
 # The sequential splice, exhibited on `ssz_raw.decodeRaw`
 
-Validation-only. Nothing here is imported by the root theorem.
+Test-only. Nothing here is imported by the root theorem.
 
 `SequentialSplice` proves that two adjacent disjoint regions compose. A conditional theorem whose
 hypotheses cannot all hold at once proves nothing, and four structural predicates in this project
@@ -71,7 +71,7 @@ conditions is exhibited failing on a candidate that satisfies the others, and bo
 decompositions (one unit for everything; no units at all) are rejected.
 -/
 
-namespace BinaryFv.Zesu.Validation.SequentialSpliceWitness
+namespace ZesuVerification.SequentialSpliceWitness
 
 open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
@@ -801,4 +801,4 @@ theorem witness_endpoints_are_generated :
   rw [toNat_lit (by decide : (66628 : Nat) < 2 ^ 64)]
   native_decide
 
-end BinaryFv.Zesu.Validation.SequentialSpliceWitness
+end ZesuVerification.SequentialSpliceWitness
