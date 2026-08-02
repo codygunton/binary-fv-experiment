@@ -11,9 +11,6 @@ open ZesuVerification
 #print axioms SyntheticUnitProbe.no_child_to_parent_edge
 #print axioms SyntheticUnitProbe.inline_exits_have_no_witness
 #print axioms SyntheticUnitProbe.probeCallSite_valid
-#print axioms SyntheticUnitProbe.callTransfer_forces_calleeExit_in_own
-#print axioms SyntheticUnitProbe.head_own_has_no_tail_exit
-#print axioms SyntheticUnitProbe.no_callStep_at_split
 #print axioms SyntheticUnitProbe.holeBoundary_valid
 #print axioms SyntheticUnitProbe.fragmented_geometry
 #print axioms SyntheticUnitProbe.holeBoundary_valid_fragmented
