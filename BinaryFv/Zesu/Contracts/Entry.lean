@@ -361,7 +361,7 @@ Recording why here, because "unproved" and "doubtful" are different states and o
 the case:
 
 * *It is satisfiable, so nothing downstream is vacuous.* `maxBytesPerTransaction = 2 ^ 30` and
-  `maxTransactionsPerPayload = 2 ^ 20` (`targets/zesu/spec/BinaryFv.Specs.SSZ/Core.lean:31-32`), so
+  `maxTransactionsPerPayload = 2 ^ 20` (`BinaryFv/Specs/SSZ/AmsterdamV4.lean`), so
   accepted encodings reach roughly `2 ^ 50` — a factor of `2 ^ 18` above the `2 ^ 32` gate. The
   buffers this asserts to exist are admitted by the schema; they are merely enormous.
 * *What a proof would cost.* The witness must be at least `2 ^ 32` bytes and, since

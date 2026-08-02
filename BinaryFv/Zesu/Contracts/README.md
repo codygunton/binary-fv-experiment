@@ -18,8 +18,9 @@ the behavior it must implement. Binary structure belongs in `Artifacts/`, `Contr
   by its source identity. `Catalog/Validation.lean` states coverage, uniqueness, and semantic checks.
   `Catalog.lean` is only their umbrella import; `CatalogAudit.lean` proves structural facts about them.
 - `PrimitiveReadsAndSlices.lean` contains contracts for bounded byte slices, integer reads, fixed-size
-  reads, and small input checks. `Collections.lean` and `Containers.lean` cover decoding functions
-  that assemble repeated values and structured SSZ objects.
+  reads, and small input checks. Their meanings follow the source representation exactly, including
+  little-endian assembly of multi-byte integers. `Collections.lean` and `Containers.lean` cover
+  decoding functions that assemble repeated values and structured SSZ objects.
 - `Entry.lean` and `ExportedDecoder.lean` describe the public decoding boundary.
 - `CanonicalProgram.lean` checks that the program and environment used by the contracts come from the
   pinned Zesu sources and ELF. `ContractComposition.lean` proves that the per-instance obligations

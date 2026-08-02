@@ -1,7 +1,7 @@
-import BinaryFv.Zesu.Validation.SyntheticUnitProbe
-import BinaryFv.Zesu.Validation.CallStepRetInRegion
+import ZesuVerification.SyntheticUnitProbe
+import ZesuVerification.CallStepRetInRegion
 
-open BinaryFv.Zesu.Validation
+open ZesuVerification
 
 #print axioms SyntheticUnitProbe.split_geometry
 #print axioms SyntheticUnitProbe.split_ranked

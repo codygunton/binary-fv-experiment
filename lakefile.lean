@@ -59,21 +59,17 @@ lean_lib MachineRegionsGenerated where
   roots := #[`GeneratedMachineRegions]
 
 @[default_target]
-lean_lib BinaryFv where
+lean_lib ZesuVerificationTests where
+  srcDir := "verification-target/zesu/tests/lean"
   roots := #[
-    `BinaryFv,
-    `BinaryFv.Zesu.Validation.SequentialSpliceWitness,
-    `BinaryFv.Zesu.Validation.LoopDischarge,
-    `BinaryFv.Zesu.Validation.CallStepRetInRegion,
-    `BinaryFv.Zesu.Validation.SyntheticUnitProbe,
+    `ZesuVerification.SequentialSpliceWitness,
+    `ZesuVerification.LoopDischarge,
+    `ZesuVerification.CallStepRetInRegion,
+    `ZesuVerification.SyntheticUnitProbe,
   ]
   moreLeanArgs := #["--tstack=4000000"]
 
-/-
-Row B validation runner: a host executable over the handwritten decode `meaning`. It is NOT part of
-the `BinaryFv` theorem library and is never imported by it — validation is falsification evidence,
-never a proof premise.
--/
-lean_exe ssz_contract_runner where
-  root := `BinaryFv.Zesu.Validation.ContractRunner
+@[default_target]
+lean_lib BinaryFv where
+  roots := #[`BinaryFv]
   moreLeanArgs := #["--tstack=4000000"]

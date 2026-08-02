@@ -32,7 +32,7 @@ What the probe decides:
    exit, while the nested-hole positive control does.
 -/
 
-namespace BinaryFv.Zesu.Validation.SyntheticUnitProbe
+namespace ZesuVerification.SyntheticUnitProbe
 
 open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
@@ -377,4 +377,4 @@ theorem fragmented_inlineTransfer_region_facts :
       Program.inRanges (Program.ownedRanges fragmentedProgram fragmentedParent) 66216 = false := by
   native_decide
 
-end BinaryFv.Zesu.Validation.SyntheticUnitProbe
+end ZesuVerification.SyntheticUnitProbe

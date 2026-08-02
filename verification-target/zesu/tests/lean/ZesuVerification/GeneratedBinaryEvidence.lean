@@ -1,10 +1,10 @@
--- GENERATED FILE: produced by targets/zesu/trace/generate_evidence.py --out-lean. DO NOT EDIT.
+-- GENERATED FILE: produced by verification-target/zesu/trace/generate_evidence.py --out-lean. DO NOT EDIT.
 -- Deterministic production-ELF evidence for the decodeOptionalBlobSchedule slice (occurrence 116),
--- consumed by BinaryFv/Zesu/Validation/BinaryOccurrenceCheck.lean. Diagnostic-only; the
+-- consumed by verification-target/zesu/tests/lean/ZesuVerification/BinaryOccurrenceCheck.lean. Diagnostic-only; the
 -- validation-import guard forbids the theorem graph from importing this.
-import BinaryFv.Zesu.Validation.BinaryOccurrenceTypes
-namespace BinaryFv.Zesu.Validation.GeneratedBinaryEvidence
-open BinaryFv.Zesu.Validation
+import ZesuVerification.BinaryOccurrenceTypes
+namespace ZesuVerification.GeneratedBinaryEvidence
+open ZesuVerification
 
 def presentEvidence : OccEvidence :=
   { arm := "present", entryPc := 76888, regions := [(76888, 76896), (76936, 76984), (76988, 77256)], declaredEdges := [(76888, 76892), (76892, 76896), (76936, 76940), (76936, 76984), (76940, 76228), (76940, 76944), (76944, 76948), (76948, 76952), (76952, 76956), (76956, 76960), (76960, 76964), (76964, 76968), (76968, 76972), (76972, 76976), (76976, 76980), (76980, 77256)], firstExecuted := 76888, occInsnCount := 70, occExecEdges := [(76936, 76984)], inRegionStores := [], inputByteLoads := [(67196244, 22), (67196245, 0), (67196246, 0), (67196247, 0), (67196248, 0), (67196249, 0), (67196250, 0), (67196251, 0), (67196252, 23), (67196253, 0), (67196254, 0), (67196255, 0), (67196256, 0), (67196257, 0), (67196258, 0), (67196259, 0), (67196260, 24), (67196261, 0), (67196262, 0), (67196263, 0), (67196264, 0), (67196265, 0), (67196266, 0), (67196267, 0)], sp := 140737488355328, a0 := 140737488359424 }
@@ -24,4 +24,4 @@ def malformedExpected : CheckResult :=
 /-- Each arm's evidence paired with the Python oracle's expected check result. -/
 def allArms : List (OccEvidence × CheckResult) :=
   [(presentEvidence, presentExpected), (absentEvidence, absentExpected), (malformedEvidence, malformedExpected)]
-end BinaryFv.Zesu.Validation.GeneratedBinaryEvidence
+end ZesuVerification.GeneratedBinaryEvidence

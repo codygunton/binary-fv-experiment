@@ -9,7 +9,7 @@ the expected binding / meaning / memory layout live in `BinaryOccurrenceCheck`.
 These are validation (falsification/regression) types — never imported by the theorem dependency graph.
 -/
 
-namespace BinaryFv.Zesu.Validation
+namespace ZesuVerification
 
 /-- Compact production-ELF evidence for one occurrence on one input arm. Fixed addresses are exact
 guest virtual addresses. Stack addresses are translated by one common delta to a stable synthetic SP;
@@ -43,4 +43,4 @@ structure CheckResult where
   noUnclassifiedWrites : Bool
   deriving BEq, Repr, DecidableEq
 
-end BinaryFv.Zesu.Validation
+end ZesuVerification

@@ -116,7 +116,7 @@ jobs:
               reference_python="$reference_root/.venv/bin/python"
               test -x "$reference_python"
 
-              "$reference_python" -B targets/zesu/tests/ssz_differential_audit.py \
+              "$reference_python" -B verification-target/zesu/tests/ssz_differential_audit.py \
                 --reference-python "$reference_python" \
                 --zesu-value-binary "$RUNNER_TEMP/zesu-ssz-value/bin/zesu-ssz-value" \
                 --lean-binary tools/ssz-oracle/.lake/build/bin/ssz_oracle

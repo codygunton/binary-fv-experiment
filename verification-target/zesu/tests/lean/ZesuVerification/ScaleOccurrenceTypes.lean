@@ -11,7 +11,7 @@ This is a validation-namespace module: diagnostic/regression evidence, NEVER imp
 graph (enforced by the validation-import guard).
 -/
 
-namespace BinaryFv.Zesu.Validation
+namespace ZesuVerification
 
 /-- The compact per-occurrence facts reduced from the production trace (observed facts only). -/
 structure OccScaleEvidence where
@@ -76,4 +76,4 @@ structure ScaleChecks where
   meaningTie : Option Bool
   deriving Repr, DecidableEq, BEq, Inhabited
 
-end BinaryFv.Zesu.Validation
+end ZesuVerification
