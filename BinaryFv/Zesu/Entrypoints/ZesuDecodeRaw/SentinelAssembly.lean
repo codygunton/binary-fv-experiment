@@ -534,6 +534,20 @@ theorem rawError_function_instance_execution_pcs {fi : FunctionInstance}
   simp [hentry] at hrow
   exact ⟨hrow.1.1, hrow.1.2, hrow.2⟩
 
+theorem rawError_function_instance_execution_pc_membership {fi : FunctionInstance}
+    (hmem : fi ∈ generatedProgram.functionInstances)
+    (hentry : fi.entryPc = resolvedSymbols.rawError) :
+    functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13780) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13784) ∧
+        functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13788) := by
+  obtain ⟨h80, h84, h88⟩ := rawError_function_instance_execution_pcs hmem hentry
+  refine ⟨functionInstanceExecutionPcs_iff_ranges.mpr ?_,
+    functionInstanceExecutionPcs_iff_ranges.mpr ?_,
+    functionInstanceExecutionPcs_iff_ranges.mpr ?_⟩
+  · exact RegionPcs.iff_inRanges.mpr h80
+  · exact RegionPcs.iff_inRanges.mpr h84
+  · exact RegionPcs.iff_inRanges.mpr h88
+
 /-! ## Which contract each of the three instances owes
 
 The compliance obligation dispatches on `catalogEntryFor functionInstance.id.function`, so
