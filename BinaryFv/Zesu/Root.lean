@@ -19,7 +19,7 @@ noncomputable def binary : RiscvSpec.ValidatedElf := {
 /-!
 ## Navigation from the conditional root theorem
 
-`root_compliance_of_exported_contracts` is the foundation's conditional product theorem. It assumes
+`compliance_of_exported_contracts` is the foundation's conditional product theorem. It assumes
 the three exported machine contracts used by the runner, then derives the public Ethereum SSZ
 agreement claim through the concrete runner and observers. Later refinement levels belong in stacked
 PRs above this foundation.
@@ -154,7 +154,7 @@ theorem accepted_checks_determine_classification {final : BinaryFv.RiscV.State}
 /-- The foundation's conditional root theorem. Its premise is exactly the three exported contracts
 consumed by the concrete runner. Refinement PRs may prove or strengthen this premise without changing
 the public statement. -/
-theorem root_compliance_of_exported_contracts
+theorem compliance_of_exported_contracts
     (contracts : Zesu.Entrypoints.ZesuDecodeRaw.ExportedContractAssumptions) :
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
@@ -188,7 +188,7 @@ theorem root_compliance
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
         RiscvSpec.execute binary input = .ok (BinaryFv.Specs.SSZ.decode input) :=
-  root_compliance_of_exported_contracts
+  compliance_of_exported_contracts
     (Entrypoints.ZesuDecodeRaw.exportedContracts_of_level1 decode rawResult rawError)
 
 end BinaryFv.Zesu
