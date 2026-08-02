@@ -518,6 +518,22 @@ theorem rawError_function_instance_exits {fi : FunctionInstance}
   have hrow := forall_mem_of_all h fi hmem
   simpa [hentry] using hrow
 
+theorem rawError_function_instance_execution_pcs {fi : FunctionInstance}
+    (hmem : fi ∈ generatedProgram.functionInstances)
+    (hentry : fi.entryPc = resolvedSymbols.rawError) :
+    Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13780 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13784 = true ∧
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13788 = true := by
+  have h : generatedProgram.functionInstances.all (fun i =>
+      !(i.entryPc == resolvedSymbols.rawError) ||
+        (Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13780 &&
+          Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13784 &&
+            Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13788)) = true := by
+    native_decide
+  have hrow := forall_mem_of_all h fi hmem
+  simp [hentry] at hrow
+  exact ⟨hrow.1.1, hrow.1.2, hrow.2⟩
+
 /-! ## Which contract each of the three instances owes
 
 The compliance obligation dispatches on `catalogEntryFor functionInstance.id.function`, so
