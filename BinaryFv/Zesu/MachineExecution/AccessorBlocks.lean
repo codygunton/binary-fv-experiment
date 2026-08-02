@@ -1,6 +1,7 @@
 import BinaryFv.RiscV.Instruction.Execute.ShiftOr
 import BinaryFv.RiscV.Instruction.Execute.StoreByte
 import BinaryFv.RiscV.Logic.BlockStep
+import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.Zesu.Artifacts.PrimitiveReadInventory
 import BinaryFv.Zesu.ControlFlow.Decode
@@ -11,6 +12,22 @@ namespace BinaryFv.Zesu.MachineExecution
 open BinaryFv BinaryFv.RiscV
 open BinaryFv.Binary.ProgramImage
 open PreSail LeanRV64DExecutable.Functions Register
+
+theorem raw_error_auipc_execute (state sFinal : State) (pcVal : BitVec 64)
+    (hpc : Runs (readReg PC) state state pcVal)
+    (hwrite : Runs (wX_bits (.Regidx 10#5)
+      (pcVal + sign_extend (m := 64) (0x4202#20 ++ 0x000#12))) state sFinal ()) :
+    Runs (execute_UTYPE 0x4202#20 (.Regidx 10#5) .AUIPC) state sFinal
+      (.Retire_Success ()) := by
+  exact execute_UTYPE_auipc_run state sFinal 0x4202#20 (.Regidx 10#5) pcVal hpc hwrite
+
+theorem raw_error_load_execute (state sFinal : State) (data : BitVec 32)
+    (hread : Runs (vmem_read (.Regidx 10#5) (sign_extend (m := 64) 0x8a4#12) 4
+      (MemoryAccessType.Load mem_payload.Data) false false false) state state (.Ok data))
+    (hwrite : Runs (wX_bits (.Regidx 10#5) (extend_value false data)) state sFinal ()) :
+    Runs (execute_LOAD 0x8a4#12 (.Regidx 10#5) (.Regidx 10#5) false 4) state sFinal
+      (.Retire_Success ()) := by
+  exact execute_LOAD_lw_run state sFinal 0x8a4#12 (.Regidx 10#5) (.Regidx 10#5) data hread hwrite
 
 theorem raw_error_auipc_image_bytes :
     Artifacts.programImage.readByte? 0x13780 = some 0x17 ∧
