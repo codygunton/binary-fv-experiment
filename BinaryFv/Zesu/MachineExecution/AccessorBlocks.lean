@@ -304,6 +304,23 @@ theorem raw_error_function_trace_of_two_steps
     hpc1 hin1 hnot1 hstep1
     (BinaryFv.RiscV.Elfling.FunctionTrace.exitAt (fromStep + 2) s2 pc2 hpc2 hexit2)
 
+/-! The contract-facing form of the same trace.  Keeping the entry facts explicit prevents this
+bridge from being mistaken for a zero-step implementation argument. -/
+
+theorem raw_error_entered_function_trace_of_two_steps
+    {region exit : BitVec 64 → Prop} {fromStep : Nat}
+    {s0 s1 s2 : State} {entry pc1 pc2 : BitVec 64}
+    (hentry : s0.regs.get? PC = some entry)
+    (hentryRegion : region entry) (hentryNotExit : ¬ exit entry)
+    (hpc1 : s1.regs.get? PC = some pc1) (hin1 : region pc1) (hnot1 : ¬ exit pc1)
+    (hstep0 : Runs (try_step fromStep false) s0 s1 false)
+    (hstep1 : Runs (try_step (fromStep + 1) false) s1 s2 false)
+    (hpc2 : s2.regs.get? PC = some pc2) (hexit2 : exit pc2) :
+    BinaryFv.RiscV.Elfling.EnteredFunctionTrace region exit entry fromStep 2 s0 s2 := by
+  refine ⟨hentry, hentryRegion, hentryNotExit, ?_⟩
+  exact raw_error_function_trace_of_two_steps hentry hentryRegion hentryNotExit hstep0
+    hpc1 hin1 hnot1 hstep1 hpc2 hexit2
+
 theorem raw_error_trace_to_sentinel_of_two_steps
     {region exit : BitVec 64 → Prop} {fromStep : Nat}
     {s0 atExit : State} {pc : BitVec 64} {sentinel rs1Val retired : BitVec 64}
