@@ -277,7 +277,7 @@ theorem accessorTraces_of_exported (contracts : ExportedContractAssumptions) {st
     contracts.rawResult hmemResult hentryResult model 0
       (accessorSetup resolvedSymbols.rawResult state)
       (contractRawResult_entry_accessorSetup (resultBuffer := canonicalContractParams.resultBuffer)
-        _ hcode hstored)
+        _ (hplatform 0x137A8 (by decide)).normal hcode hstored)
   obtain ⟨middle, -, hreachResult, -, hframeResult⟩ :=
     rawResultReachesSentinel_of_enteredFunctionTrace hn hmemResult hentryResult hboundResult
       (exitPlatform_of_agree hpostResult.2.2.2.1 hpostResult.2.2.2.2.1
@@ -302,10 +302,14 @@ theorem accessorTraces_of_exported (contracts : ExportedContractAssumptions) {st
   have hscalarMiddle : DecoderGlobalsScalarRep Elflings.canonicalDecoderGlobalsLayout model middle :=
     decoderGlobalsScalarRep_of_mem_eq hframeResult.mem
       (decoderGlobalsScalarRep_survives_accessor hpostResult.2.2.1 hscalar)
+  have hnormalMiddle : NormalExecutionState middle :=
+    normalExecutionState_of_platformPreserved hframeResult.agree
+      (normalExecutionState_of_platformPreserved hpostResult.2.2.2.1
+        (normalExecutionState_accessorSetup (hplatform 0x137A8 (by decide)).normal))
   obtain ⟨countError, atExitError, hboundError, hrunError, hpostError⟩ :=
     contracts.rawError hmemError hentryError model 0
       (accessorSetup resolvedSymbols.rawError middle)
-      (contractRawError_entry_accessorSetup _ hcodeMiddle hscalarMiddle)
+      (contractRawError_entry_accessorSetup _ hnormalMiddle hcodeMiddle hscalarMiddle)
   obtain ⟨after, -, hreachError, -, hframeError⟩ :=
     rawErrorReachesSentinel_of_enteredFunctionTrace hn hmemError hentryError hboundError
       (exitPlatform_of_agree hpostError.2.2.2.1 hpostError.2.2.2.2.1

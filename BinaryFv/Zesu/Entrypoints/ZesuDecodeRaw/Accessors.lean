@@ -204,17 +204,20 @@ theorem functionInstance_entry_eq_pre {Error Args Result : Type}
 transported from the decode's final state; neither is re-derived. -/
 theorem contractRawError_entry_accessorSetup {env : DecoderEnvironment}
     {layout : DecoderGlobalsLayout} {model : DecoderGlobalsModel} {state : State} (entryPc : Nat)
-    (hcode : env.CodeIntact state) (hglobals : DecoderGlobalsScalarRep layout model state) :
+    (hnormal : NormalExecutionState state) (hcode : env.CodeIntact state)
+    (hglobals : DecoderGlobalsScalarRep layout model state) :
     (contractRawError env layout).pre model (accessorSetup entryPc state) :=
-  ⟨codeIntact_accessorSetup entryPc hcode, decoderGlobalsScalarRep_accessorSetup entryPc hglobals⟩
+  ⟨normalExecutionState_accessorSetup hnormal, codeIntact_accessorSetup entryPc hcode,
+    decoderGlobalsScalarRep_accessorSetup entryPc hglobals⟩
 
 /-- **`zesu_raw_result`'s entry binding, at the state it is actually called from.** -/
 theorem contractRawResult_entry_accessorSetup {env : DecoderEnvironment}
     {layout : DecoderGlobalsLayout} {resultBuffer : Nat} {model : DecoderGlobalsModel}
-    {state : State} (entryPc : Nat) (hcode : env.CodeIntact state)
+    {state : State} (entryPc : Nat) (hnormal : NormalExecutionState state)
+    (hcode : env.CodeIntact state)
     (hstored : StoredResultDiscriminantRep layout model state) :
     (contractRawResult env layout resultBuffer).pre model (accessorSetup entryPc state) :=
-  ⟨codeIntact_accessorSetup entryPc hcode,
+  ⟨normalExecutionState_accessorSetup hnormal, codeIntact_accessorSetup entryPc hcode,
     storedResultDiscriminantRep_accessorSetup entryPc hstored⟩
 
 /-- **Neither entry binding is vacuous at the state the runner actually calls from.** Both are
@@ -230,10 +233,11 @@ theorem accessor_entry_bindings_satisfiable :
       (contractRawResult canonicalEnvironment Elflings.canonicalDecoderGlobalsLayout
         Elflings.canonicalResultBuffer).pre model
         (accessorSetup resolvedSymbols.rawResult state) := by
-  obtain ⟨state, _, binding⟩ := buildZesuEntryState_entry_binding ByteArray.empty
+  obtain ⟨state, _, binding, _, _, hnormal, _⟩ :=
+    buildZesuEntryState_entry_binding_abi ByteArray.empty
   exact ⟨state, DecoderGlobalsModel.fresh,
-    contractRawError_entry_accessorSetup _ binding.2.1 binding.2.2.2.2.1,
-    contractRawResult_entry_accessorSetup _ binding.2.1 binding.2.2.2.2.2.1⟩
+    contractRawError_entry_accessorSetup _ hnormal binding.2.1 binding.2.2.2.2.1,
+    contractRawResult_entry_accessorSetup _ hnormal binding.2.1 binding.2.2.2.2.2.1⟩
 
 /-! ### Getting `StoredResultDiscriminantRep` from what the runner already observes
 

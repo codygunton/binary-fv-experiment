@@ -235,7 +235,8 @@ def postRawError (env : DecoderEnvironment) (model : DecoderGlobalsModel)
 def contractRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout) :
     FunctionContract DecodeError DecoderGlobalsModel Nat where
   meaning := fun model => .ok model.status.code
-  pre := fun model state => env.CodeIntact state ∧ DecoderGlobalsScalarRep globals model state
+  pre := fun model state =>
+    NormalExecutionState state ∧ env.CodeIntact state ∧ DecoderGlobalsScalarRep globals model state
   post := postRawError env
   stepBound := fun _ => 16
 
@@ -263,7 +264,7 @@ def contractRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout
     FunctionContract DecodeError DecoderGlobalsModel Nat where
   meaning := fun model => .ok (if model.stored.isSome then resultBuffer else 0)
   pre := fun model state =>
-    env.CodeIntact state ∧ StoredResultDiscriminantRep globals model state
+    NormalExecutionState state ∧ env.CodeIntact state ∧ StoredResultDiscriminantRep globals model state
   post := postRawResult env resultBuffer
   stepBound := fun _ => 32
 
