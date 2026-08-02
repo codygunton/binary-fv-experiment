@@ -548,6 +548,12 @@ theorem rawError_function_instance_execution_pc_membership {fi : FunctionInstanc
   · exact RegionPcs.iff_inRanges.mpr h84
   · exact RegionPcs.iff_inRanges.mpr h88
 
+theorem rawError_entry_address : resolvedSymbols.rawError = 0x13780 := by
+  native_decide
+
+theorem rawError_exit_address : resolvedSymbols.rawError + 8 = 0x13788 := by
+  native_decide
+
 /-! ## Which contract each of the three instances owes
 
 The compliance obligation dispatches on `catalogEntryFor functionInstance.id.function`, so
