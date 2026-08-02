@@ -3,6 +3,7 @@ import BinaryFv.RiscV.Instruction.Execute.StoreByte
 import BinaryFv.RiscV.Logic.BlockStep
 import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Proof.ImageFetch
+import BinaryFv.RiscV.Elfling.FunctionTrace
 import BinaryFv.Zesu.Artifacts.PrimitiveReadInventory
 import BinaryFv.Zesu.ControlFlow.Decode
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
@@ -261,5 +262,30 @@ theorem raw_error_load_try_step (stepNo : Nat) (state : State)
     (.LOAD (0x8a4#12, .Regidx 10#5, .Regidx 10#5, false, 4)) x10 value
     platform noMMIO bytes interrupts base decode notExpected exec (by decide) (by decide)
     (by decide) (by decide) hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+
+theorem raw_error_function_trace_of_three_steps
+    {region exit : BitVec 64 → Prop} {fromStep : Nat}
+    {s0 s1 s2 s3 : State} {pc0 pc1 pc2 pc3 : BitVec 64}
+    (hpc0 : s0.regs.get? PC = some pc0) (hin0 : region pc0) (hnot0 : ¬ exit pc0)
+    (hstep0 : Runs (try_step fromStep false) s0 s1 false)
+    (hpc1 : s1.regs.get? PC = some pc1) (hin1 : region pc1) (hnot1 : ¬ exit pc1)
+    (hstep1 : Runs (try_step (fromStep + 1) false) s1 s2 false)
+    (hpc2 : s2.regs.get? PC = some pc2) (hin2 : region pc2) (hnot2 : ¬ exit pc2)
+    (hstep2 : Runs (try_step (fromStep + 2) false) s2 s3 false)
+    (hpc3 : s3.regs.get? PC = some pc3) (hexit3 : exit pc3) :
+    BinaryFv.RiscV.Elfling.FunctionTrace region exit fromStep 3 s0 s3 := by
+  refine BinaryFv.RiscV.Elfling.FunctionTrace.step fromStep 2 pc0 s0 s1 s3 ?_ ?_ ?_ hstep0 ?_
+  · exact hpc0
+  · exact hin0
+  · exact hnot0
+  refine BinaryFv.RiscV.Elfling.FunctionTrace.step (fromStep + 1) 1 pc1 s1 s2 s3 ?_ ?_ ?_ hstep1 ?_
+  · exact hpc1
+  · exact hin1
+  · exact hnot1
+  refine BinaryFv.RiscV.Elfling.FunctionTrace.step (fromStep + 2) 0 pc2 s2 s3 s3 ?_ ?_ ?_ hstep2 ?_
+  · exact hpc2
+  · exact hin2
+  · exact hnot2
+  exact BinaryFv.RiscV.Elfling.FunctionTrace.exitAt (fromStep + 3) s3 pc3 hpc3 hexit3
 
 end BinaryFv.Zesu.MachineExecution
