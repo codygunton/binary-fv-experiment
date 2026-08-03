@@ -207,6 +207,35 @@ structure ExitPlatform (state : State) (pc : Nat) : Prop where
   /-- The pinned image's file bytes are still in memory, so the exit instruction is fetchable. -/
   code : Artifacts.programImage.fileBytesMatchMemory state.mem
 
+/-! ## Runner-specific bindings for the exported accessor instances
+
+The source contracts describe the globals each accessor observes and the value it returns.  A Sail
+execution proof additionally needs facts tied to this compiled call site: the concrete entry PC,
+fetch permissions there, readable machine registers, and the runner's return sentinel.  Those facts
+belong in the compiled-instance binding, not in the address-free source contract. -/
+
+def ImplementsAccessorInstance {Error Args Result : Type}
+    (region exit : BitVec 64 → Prop) (entry : BitVec 64) (entryPc : Nat)
+    (contract : FunctionContract Error Args Result) : Prop :=
+  ∀ (args : Args) (fromStep : Nat) (state : State),
+    contract.pre args state → ExitPlatform state entryPc →
+      ∃ (count : Nat) (final : State),
+        count ≤ contract.stepBound args ∧
+        Elfling.EnteredFunctionTrace region exit entry fromStep count state final ∧
+        contract.post args (contract.meaning args) state final
+
+theorem ImplementsAccessorInstance.run {Error Args Result : Type}
+    {region exit : BitVec 64 → Prop} {entry : BitVec 64} {entryPc : Nat}
+    {contract : FunctionContract Error Args Result}
+    (implements : ImplementsAccessorInstance region exit entry entryPc contract)
+    (args : Args) (fromStep : Nat) (state : State) (sourcePre : contract.pre args state)
+    (machinePre : ExitPlatform state entryPc) :
+    ∃ (count : Nat) (final : State),
+      count ≤ contract.stepBound args ∧
+      Elfling.EnteredFunctionTrace region exit entry fromStep count state final ∧
+      contract.post args (contract.meaning args) state final :=
+  implements args fromStep state sourcePre machinePre
+
 /-- **From the contracts' own exit clauses to the retirement's premises.**
 
 `Agree platformPreserved before after` is the register-frame clause every contract in this target
