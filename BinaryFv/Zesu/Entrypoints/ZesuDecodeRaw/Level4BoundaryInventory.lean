@@ -23,6 +23,7 @@ does not claim `readOffset` values or frame preservation.
 
 namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 
+open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
 open BinaryFv.Zesu.Elflings.Generated
 
@@ -73,5 +74,60 @@ theorem decodeRawDirectReadOffsetEntries :
 theorem decodeRawSpecializedDecoderEntries :
     decodeRawSpecializedDecoderInstances.map (·.entryPc) =
       [0x1060c, 0x12710, 0x1294c, 0x12ebc] := rfl
+
+/-- Exact generated code fragments, in the same order as `level4BoundaryInstances`.
+These are ownership fragments, not a claim that the whole dynamic execution is contiguous. -/
+theorem level4BoundaryRegions :
+    level4BoundaryInstances.map (·.regions) =
+      [ #[{ start := 0x10534, size := 16 }, { start := 0x10554, size := 20 },
+            { start := 0x105c4, size := 4 }]
+      , #[{ start := 0x10544, size := 16 }, { start := 0x10578, size := 12 },
+            { start := 0x10590, size := 8 }, { start := 0x105c8, size := 4 }]
+      , #[{ start := 0x10568, size := 16 }, { start := 0x10584, size := 12 },
+            { start := 0x10598, size := 8 }, { start := 0x105cc, size := 4 }]
+      , #[{ start := 0x105a0, size := 36 }, { start := 0x105d0, size := 4 }]
+      , #[{ start := 0x1060c, size := 8 }, { start := 0x1061c, size := 28 },
+            { start := 67140, size := 240 }, { start := 67424, size := 5188 },
+            { start := 72620, size := 2892 }, { start := 75588, size := 80 }]
+      , #[{ start := 75536, size := 16 }, { start := 75560, size := 12 },
+            { start := 75680, size := 360 }, { start := 76044, size := 24 },
+            { start := 77820, size := 52 }]
+      , #[{ start := 76108, size := 4 }, { start := 76124, size := 104 },
+            { start := 76280, size := 1132 }]
+      , #[{ start := 77500, size := 212 }, { start := 77740, size := 32 }]
+      ] := rfl
+
+/-- Exact generated exit PC sets, rather than a chosen success or error exit. -/
+theorem level4BoundaryExitPcs :
+    level4BoundaryInstances.map (·.exitPcs) =
+      [ #[66880, 66916, 67012]
+      , #[66896, 66944, 66964, 67016]
+      , #[66932, 66956, 66972, 67020]
+      , #[67008, 67024]
+      , #[67088, 67124, 67340, 67376, 67640, 67652, 67680, 71000, 72552, 73804, 73864,
+           75508]
+      , #[75548, 75568, 75856, 75908, 76036, 76064, 77868]
+      , #[76108, 76212, 76224, 76476, 76580, 76592, 76732, 76772, 76844, 76940, 77408]
+      , #[77500, 77512, 77548, 77628, 77668, 77708, 77768]
+      ] := rfl
+
+/-- Total bytes in the exact owned fragments; this is not a dynamic instruction bound. -/
+theorem level4BoundaryOwnedBytes :
+    level4BoundaryInstances.map FunctionInstance.coveredBytes =
+      [40, 40, 40, 40, 8436, 464, 1240, 244] := rfl
+
+/-- Every selected instance has multiple generated fragments, hence no selected boundary is
+represented as one contiguous code range. -/
+theorem level4BoundaryInstances_are_fragmented :
+    level4BoundaryInstances.map FunctionInstance.isFragmented =
+      [true, true, true, true, true, true, true, true] := rfl
+
+/-- The generated manifest's source `offset` bindings for the direct readers.  `none` means
+`callerProvided`, not that the offset is zero or absent. -/
+def decodeRawDirectReadOffsetStaticOffsets : List (Option Nat) := [none, some 4, some 8, some 12]
+
+/- Extraction audit: the pinned LLVM/ELF hierarchy exposes neither a result-record location nor
+caller-live register sets for any of these inlined boundaries.  It therefore supplies no ABI adapter
+fact; source-level return-register conventions must not be reused as instance facts here. -/
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
