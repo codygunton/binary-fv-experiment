@@ -87,28 +87,29 @@ theorem level4BoundaryRegions :
             { start := 0x10598, size := 8 }, { start := 0x105cc, size := 4 }]
       , #[{ start := 0x105a0, size := 36 }, { start := 0x105d0, size := 4 }]
       , #[{ start := 0x1060c, size := 8 }, { start := 0x1061c, size := 28 },
-            { start := 67140, size := 240 }, { start := 67424, size := 5188 },
-            { start := 72620, size := 2892 }, { start := 75588, size := 80 }]
-      , #[{ start := 75536, size := 16 }, { start := 75560, size := 12 },
-            { start := 75680, size := 360 }, { start := 76044, size := 24 },
-            { start := 77820, size := 52 }]
-      , #[{ start := 76108, size := 4 }, { start := 76124, size := 104 },
-            { start := 76280, size := 1132 }]
-      , #[{ start := 77500, size := 212 }, { start := 77740, size := 32 }]
+            { start := 0x10644, size := 240 }, { start := 0x10760, size := 5188 },
+            { start := 0x11bac, size := 2892 }, { start := 0x12744, size := 80 }]
+      , #[{ start := 0x12710, size := 16 }, { start := 0x12728, size := 12 },
+            { start := 0x127a0, size := 360 }, { start := 0x1290c, size := 24 },
+            { start := 0x12ffc, size := 52 }]
+      , #[{ start := 0x1294c, size := 4 }, { start := 0x1295c, size := 104 },
+            { start := 0x129f8, size := 1132 }]
+      , #[{ start := 0x12ebc, size := 212 }, { start := 0x12fac, size := 32 }]
       ] := rfl
 
 /-- Exact generated exit PC sets, rather than a chosen success or error exit. -/
 theorem level4BoundaryExitPcs :
     level4BoundaryInstances.map (·.exitPcs) =
-      [ #[66880, 66916, 67012]
-      , #[66896, 66944, 66964, 67016]
-      , #[66932, 66956, 66972, 67020]
-      , #[67008, 67024]
-      , #[67088, 67124, 67340, 67376, 67640, 67652, 67680, 71000, 72552, 73804, 73864,
-           75508]
-      , #[75548, 75568, 75856, 75908, 76036, 76064, 77868]
-      , #[76108, 76212, 76224, 76476, 76580, 76592, 76732, 76772, 76844, 76940, 77408]
-      , #[77500, 77512, 77548, 77628, 77668, 77708, 77768]
+      [ #[0x10540, 0x10564, 0x105c4]
+      , #[0x10550, 0x10580, 0x10594, 0x105c8]
+      , #[0x10574, 0x1058c, 0x1059c, 0x105cc]
+      , #[0x105c0, 0x105d0]
+      , #[0x10610, 0x10634, 0x1070c, 0x10730, 0x10838, 0x10844, 0x10860, 0x11558,
+           0x11b68, 0x1204c, 0x12088, 0x126f4]
+      , #[0x1271c, 0x12730, 0x12850, 0x12884, 0x12904, 0x12920, 0x1302c]
+      , #[0x1294c, 0x129b4, 0x129c0, 0x12abc, 0x12b24, 0x12b30, 0x12bbc, 0x12be4,
+           0x12c2c, 0x12c8c, 0x12e60]
+      , #[0x12ebc, 0x12ec8, 0x12eec, 0x12f3c, 0x12f64, 0x12f8c, 0x12fc8]
       ] := rfl
 
 /-- Total bytes in the exact owned fragments; this is not a dynamic instruction bound. -/
@@ -122,12 +123,9 @@ theorem level4BoundaryInstances_are_fragmented :
     level4BoundaryInstances.map FunctionInstance.isFragmented =
       [true, true, true, true, true, true, true, true] := rfl
 
-/-- The generated manifest's source `offset` bindings for the direct readers.  `none` means
-`callerProvided`, not that the offset is zero or absent. -/
-def decodeRawDirectReadOffsetStaticOffsets : List (Option Nat) := [none, some 4, some 8, some 12]
-
-/- Extraction audit: the pinned LLVM/ELF hierarchy exposes neither a result-record location nor
-caller-live register sets for any of these inlined boundaries.  It therefore supplies no ABI adapter
-fact; source-level return-register conventions must not be reused as instance facts here. -/
+/- Extraction audit: `GeneratedProgram` contains no binding field, result-record location, or
+caller-live register set for these inlined boundaries.  This module therefore makes no ABI-adapter
+or source-binding claim; source-level return-register conventions must not be reused as instance
+facts here. -/
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
