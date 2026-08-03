@@ -236,6 +236,60 @@ theorem ImplementsAccessorInstance.run {Error Args Result : Type}
       contract.post args (contract.meaning args) state final :=
   implements args fromStep state sourcePre machinePre
 
+def RawResultInstanceObligation (functionInstance : FunctionInstance) : Prop :=
+  ImplementsAccessorInstance
+    (functionInstanceExecutionPcs generatedProgram functionInstance)
+    (functionInstanceExitPred functionInstance)
+    (functionInstanceEntryWord functionInstance)
+    resolvedSymbols.rawResult
+    (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+      canonicalContractParams.resultBuffer)
+
+def RawErrorInstanceObligation (functionInstance : FunctionInstance) : Prop :=
+  ImplementsAccessorInstance
+    (functionInstanceExecutionPcs generatedProgram functionInstance)
+    (functionInstanceExitPred functionInstance)
+    (functionInstanceEntryWord functionInstance)
+    resolvedSymbols.rawError
+    (contractRawError canonicalContractParams.env canonicalContractParams.globals)
+
+theorem RawResultInstanceObligation.run {functionInstance : FunctionInstance}
+    (implements : RawResultInstanceObligation functionInstance)
+    (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
+    (sourcePre : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+      canonicalContractParams.resultBuffer).pre model state)
+    (machinePre : ExitPlatform state resolvedSymbols.rawResult) :
+    ∃ (count : Nat) (final : State),
+      count ≤ (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+        canonicalContractParams.resultBuffer).stepBound model ∧
+      Elfling.EnteredFunctionTrace
+        (functionInstanceExecutionPcs generatedProgram functionInstance)
+        (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
+        fromStep count state final ∧
+      (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+        canonicalContractParams.resultBuffer).post model
+          ((contractRawResult canonicalContractParams.env canonicalContractParams.globals
+            canonicalContractParams.resultBuffer).meaning model) state final :=
+  ImplementsAccessorInstance.run implements model fromStep state sourcePre machinePre
+
+theorem RawErrorInstanceObligation.run {functionInstance : FunctionInstance}
+    (implements : RawErrorInstanceObligation functionInstance)
+    (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
+    (sourcePre : (contractRawError canonicalContractParams.env
+      canonicalContractParams.globals).pre model state)
+    (machinePre : ExitPlatform state resolvedSymbols.rawError) :
+    ∃ (count : Nat) (final : State),
+      count ≤ (contractRawError canonicalContractParams.env
+        canonicalContractParams.globals).stepBound model ∧
+      Elfling.EnteredFunctionTrace
+        (functionInstanceExecutionPcs generatedProgram functionInstance)
+        (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
+        fromStep count state final ∧
+      (contractRawError canonicalContractParams.env canonicalContractParams.globals).post model
+        ((contractRawError canonicalContractParams.env
+          canonicalContractParams.globals).meaning model) state final :=
+  ImplementsAccessorInstance.run implements model fromStep state sourcePre machinePre
+
 /-- **From the contracts' own exit clauses to the retirement's premises.**
 
 `Agree platformPreserved before after` is the register-frame clause every contract in this target
