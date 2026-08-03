@@ -376,6 +376,8 @@ theorem hasExactErePrefix_length_segment (fromStep : Nat)
       Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost args after ∧
       Agree Entrypoints.ZesuDecodeRaw.decoderPreserved state after ∧
       RetiredCounterPresent after ∧
+      after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
+      after.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       after.mem = state.mem := by
   obtain ⟨retired, step⟩ := hasExactErePrefix_length_add_step fromStep args state pre phase
   let result := BitVec.ofNat 64 args.bytes.size +
@@ -418,8 +420,17 @@ theorem hasExactErePrefix_length_segment (fromStep : Nat)
       (by simp [Entrypoints.ZesuDecodeRaw.decoderPreserved, platformPreserved])
       (by simp [Entrypoints.ZesuDecodeRaw.decoderPreserved, platformPreserved])
       (by simp [Entrypoints.ZesuDecodeRaw.decoderPreserved, platformPreserved])
+  have inputPointer : after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
+    simpa [after, result, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert] using pre.inputPointer
+  have inputLength : after.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
+    simpa [after, result, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert] using pre.inputLength
   exact ⟨after, trace, post, agree,
-    afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10390) retired x12 result, rfl⟩
+    afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10390) retired x12 result,
+    inputPointer, inputLength, rfl⟩
 
 /-! ## Second child segment: reading and assembling the four-byte prefix -/
 
@@ -1312,6 +1323,28 @@ theorem prefixHighAssemblyValue (byte2 byte3 : BitVec 8) :
   simp only [Sail.shift_bits_left, zero_extend, Sail.BitVec.zeroExtend]
   bv_decide
 
+theorem prefixHalvesAssemblyValue (byte0 byte1 byte2 byte3 : BitVec 8) :
+    BitVec.ofNat 64 (byte2.toNat * 2 ^ 16 + byte3.toNat * 2 ^ 24) |||
+        BitVec.ofNat 64 (byte0.toNat + byte1.toNat * 2 ^ 8) =
+      BitVec.ofNat 64 (byte0.toNat + byte1.toNat * 2 ^ 8 +
+        byte2.toNat * 2 ^ 16 + byte3.toNat * 2 ^ 24) := by
+  simp only [BitVec.ofNat_add, BitVec.ofNat_mul]
+  have byte0Value : BitVec.ofNat 64 byte0.toNat = zero_extend (m := 64) byte0 := by
+    simp only [zero_extend, Sail.BitVec.zeroExtend, BitVec.zeroExtend_eq_setWidth]
+    exact BitVec.ofNat_toNat 64 byte0
+  have byte1Value : BitVec.ofNat 64 byte1.toNat = zero_extend (m := 64) byte1 := by
+    simp only [zero_extend, Sail.BitVec.zeroExtend, BitVec.zeroExtend_eq_setWidth]
+    exact BitVec.ofNat_toNat 64 byte1
+  have byte2Value : BitVec.ofNat 64 byte2.toNat = zero_extend (m := 64) byte2 := by
+    simp only [zero_extend, Sail.BitVec.zeroExtend, BitVec.zeroExtend_eq_setWidth]
+    exact BitVec.ofNat_toNat 64 byte2
+  have byte3Value : BitVec.ofNat 64 byte3.toNat = zero_extend (m := 64) byte3 := by
+    simp only [zero_extend, Sail.BitVec.zeroExtend, BitVec.zeroExtend_eq_setWidth]
+    exact BitVec.ofNat_toNat 64 byte3
+  rw [byte0Value, byte1Value, byte2Value, byte3Value]
+  simp only [zero_extend, Sail.BitVec.zeroExtend]
+  bv_decide
+
 theorem prefixLengthSubValue (length : Nat) (lower : 4 ≤ length) (upper : length < 2 ^ 64) :
     iTypeResult .ADDI 0xffc#12 (BitVec.ofNat 64 length) =
       BitVec.ofNat 64 (length - 4) := by
@@ -1343,6 +1376,8 @@ theorem hasExactErePrefix_prefix_segment (fromStep : Nat)
       Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost args after ∧
       Agree Entrypoints.ZesuDecodeRaw.decoderPreserved state after ∧
       RetiredCounterPresent after ∧
+      after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
+      after.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       after.mem = state.mem := by
   have bound0 : 0 < args.bytes.size := by have := pre.prefixExists phase; omega
   have bound1 : 1 < args.bytes.size := by have := pre.prefixExists phase; omega
@@ -1533,7 +1568,15 @@ theorem hasExactErePrefix_prefix_segment (fromStep : Nat)
       (by simpa [s10, highHalf] using run10) ?_
     exact .exitAt (fromStep + 10) s10 (BitVec.ofNat 64 0x103c0) pc10
       Entrypoints.ZesuDecodeRaw.hasExactErePrefixInline_prefix_exit
-  refine ⟨s10, trace, ?_, agree10, counter10, rfl⟩
+  have inputPointer10 : s10.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
+    simp [s10, s9, s8, s7, s6, s5, s4, s3, s2, s1, afterRegisterWrite,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, pre.inputPointer]
+  have inputLength10 : s10.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
+    simp [s10, s9, s8, s7, s6, s5, s4, s3, s2, s1, afterRegisterWrite,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, pre.inputLength]
+  refine ⟨s10, trace, ?_, agree10, counter10, inputPointer10, inputLength10, rfl⟩
   simp only [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost, phase]
   refine ⟨pc10, ?_, ?_, ?_⟩
   · have stored : s10.regs.get? x10 = some lowHalf := by
@@ -1604,12 +1647,12 @@ theorem hasExactErePrefixInlineContract_proved :
   intro args fromStep before pre
   cases phaseEq : args.phase with
   | lengthGate =>
-      obtain ⟨after, trace, post, -, -, -⟩ :=
+      obtain ⟨after, trace, post, -, -, -, -, -⟩ :=
         hasExactErePrefix_length_segment fromStep args before pre phaseEq
       exact ⟨1, after, by simp [Entrypoints.ZesuDecodeRaw.hasExactErePrefixInlineStepBound],
         trace, post⟩
   | prefixBytes =>
-      obtain ⟨after, trace, post, -, -, -⟩ :=
+      obtain ⟨after, trace, post, -, -, -, -, -⟩ :=
         hasExactErePrefix_prefix_segment fromStep args before pre phaseEq
       exact ⟨10, after, by simp [Entrypoints.ZesuDecodeRaw.hasExactErePrefixInlineStepBound],
         trace, post⟩

@@ -243,8 +243,10 @@ def DecodeInlineRetryPost (args : DecodeInlineArgs)
       after.regs.get? PC = some (BitVec.ofNat 64 0x103f8)
   else
     result = .error .invalidSsz ∧
-      (after.regs.get? PC = some (BitVec.ofNat 64 0x10394) ∨
-        after.regs.get? PC = some (BitVec.ofNat 64 0x103c4))
+      if args.bytes.size < 4 then
+        after.regs.get? PC = some (BitVec.ofNat 64 0x10394)
+      else
+        after.regs.get? PC = some (BitVec.ofNat 64 0x103c4)
 
 /-- Semantic exit condition selected by the real entry phase. -/
 def DecodeInlinePost (args : DecodeInlineArgs) (before after : State) : Prop :=
@@ -266,7 +268,10 @@ def DecodeInlineExit (args : DecodeInlineArgs) (pc : BitVec 64) : Prop :=
       if meaningHasExactErePrefix args.bytes then
         pc = BitVec.ofNat 64 0x103f8
       else
-        pc = BitVec.ofNat 64 0x10394 ∨ pc = BitVec.ofNat 64 0x103c4
+        if args.bytes.size < 4 then
+          pc = BitVec.ofNat 64 0x10394
+        else
+          pc = BitVec.ofNat 64 0x103c4
 
 /-- A conservative bound inherited from the source `decode` contract. It covers two raw attempts,
 the prefix check, and the fixed wrapper-local instruction sequences. -/
@@ -337,11 +342,15 @@ theorem decodeInline_post_at_selected_exit (args : DecodeInlineArgs) (before aft
       cases prefixEq : meaningHasExactErePrefix args.bytes with
       | false =>
           simp only [prefixEq, Bool.false_eq_true, ↓reduceIte] at post
-          rcases post.2 with atEarly | atLate
-          · exact ⟨BitVec.ofNat 64 0x10394, atEarly,
-              by simp [DecodeInlineExit, phaseEq, prefixEq]⟩
-          · exact ⟨BitVec.ofNat 64 0x103c4, atLate,
-              by simp [DecodeInlineExit, phaseEq, prefixEq]⟩
+          by_cases short : args.bytes.size < 4
+          · have atEarly : after.regs.get? PC = some (BitVec.ofNat 64 0x10394) := by
+              simpa [short] using post.2
+            exact ⟨BitVec.ofNat 64 0x10394, atEarly,
+              by simp [DecodeInlineExit, phaseEq, prefixEq, short]⟩
+          · have atLate : after.regs.get? PC = some (BitVec.ofNat 64 0x103c4) := by
+              simpa [short] using post.2
+            exact ⟨BitVec.ofNat 64 0x103c4, atLate,
+              by simp [DecodeInlineExit, phaseEq, prefixEq, short]⟩
       | true =>
           simp only [prefixEq, ↓reduceIte] at post
           exact ⟨BitVec.ofNat 64 0x103f8, post.2,
@@ -372,11 +381,15 @@ theorem decodeInline_post_at_generated_exit (args : DecodeInlineArgs) (before af
       cases prefixEq : meaningHasExactErePrefix args.bytes with
       | false =>
           simp only [prefixEq, Bool.false_eq_true, ↓reduceIte] at post
-          rcases post.2 with atEarly | atLate
-          · refine ⟨BitVec.ofNat 64 0x10394, atEarly, ?_⟩
+          by_cases short : args.bytes.size < 4
+          · have atEarly : after.regs.get? PC = some (BitVec.ofNat 64 0x10394) := by
+              simpa [short] using post.2
+            refine ⟨BitVec.ofNat 64 0x10394, atEarly, ?_⟩
             simp [functionInstanceExitPred, FunctionInstance.isExit,
               functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31]
-          · refine ⟨BitVec.ofNat 64 0x103c4, atLate, ?_⟩
+          · have atLate : after.regs.get? PC = some (BitVec.ofNat 64 0x103c4) := by
+              simpa [short] using post.2
+            refine ⟨BitVec.ofNat 64 0x103c4, atLate, ?_⟩
             simp [functionInstanceExitPred, FunctionInstance.isExit,
               functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31]
       | true =>
