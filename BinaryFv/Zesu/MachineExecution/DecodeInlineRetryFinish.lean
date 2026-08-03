@@ -267,6 +267,32 @@ theorem decodeInline_retry_success_reaches_post
     omega
   · simpa [copyStart, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace
 
+/-- A non-`invalidSsz` first error selects the outgoing edge at the second inline entry. The child
+summary is therefore a zero-step selected exit; Level 2 retires the real branch to `0x103fc`. -/
+theorem decodeInline_propagate_error_reaches_post (fromStep : Nat) (args : DecodeInlineArgs)
+    (before : State) (pre : DecodeInlinePre args before) (error : Contracts.DecodeError)
+    (phase : args.phase = .propagateError error) :
+    ∃ used after,
+      used ≤ decodeInlineStepBound args ∧
+        ScopedTrace
+          (functionInstanceExecutionPcs generatedProgram
+            functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+          (DecodeInlineExit args) Level3ChildSummary fromStep used before after ∧
+        DecodeInlinePost args before after := by
+  obtain ⟨notInvalid, rawResult, -, -⟩ := pre.propagateReason error phase
+  have result : Contracts.meaningDecode args.bytes = .error error := by
+    cases error with
+    | invalidSsz => exact False.elim (notInvalid rfl)
+    | unknownFork => simp [Contracts.meaningDecode, rawResult]
+    | outOfMemory => simp [Contracts.meaningDecode, rawResult]
+  have atExit : before.regs.get? PC = some (BitVec.ofNat 64 0x10380) := by
+    simpa [DecodeInlineArgs.entryPc, phase] using pre.atEntry
+  have selectedExit : DecodeInlineExit args (BitVec.ofNat 64 0x10380) := by
+    simp [DecodeInlineExit, phase]
+  refine ⟨0, before, by simp, ScopedTrace.exitAt fromStep before
+    (BitVec.ofNat 64 0x10380) atExit selectedExit, ?_⟩
+  simp [DecodeInlinePost, phase, notInvalid, rawResult, result, atExit]
+
 /-- The complete Level 3 theorem. It assumes only the selected compiled `decodeRaw` contract;
 the two prefix segments and emitted `memcpy` are discharged by their Sail proofs. Every phase and
 semantic outcome is closed by one of the three parent-execution arguments above. -/
@@ -286,5 +312,7 @@ theorem level3DecodeInlineContract
         · exact decodeInline_retry_short_reaches_post fromStep args before pre phaseEq short
         · exact decodeInline_retry_prefix_mismatch_reaches_post fromStep args before pre phaseEq
             (by omega) prefixFalse
+  | propagateError error =>
+      exact decodeInline_propagate_error_reaches_post fromStep args before pre error phaseEq
 
 end BinaryFv.Zesu.MachineExecution

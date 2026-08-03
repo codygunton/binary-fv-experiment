@@ -2744,7 +2744,10 @@ theorem wrapper_reaches_decode_first_contract
       stackObjectsFit := machine.stackObjectsFit
       stackObjectsReadable := machine.stackObjectsReadable
       machine := decodeMachine
-      retryReason := by simp [decodeArgs] }
+      retryReason := by simp [decodeArgs]
+      propagateReason := by
+        intro error phase
+        simp [decodeArgs] at phase }
   obtain ⟨used, after, child⟩ := level2DecodeChildSummary_of_decodeRaw
     decodeRaw decodeArgs (fromStep + 19) atDecode pre
   exact ⟨atDecode, trace, confined, decodeArgs, pre, used, after, child⟩

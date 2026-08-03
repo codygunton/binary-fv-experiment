@@ -29,6 +29,7 @@ open LeanRV64DExecutable.Functions Register
 inductive DecodeInlinePhase where
   | first
   | retryAfterInvalidSsz
+  | propagateError (error : Contracts.DecodeError)
 deriving DecidableEq, Repr
 
 /-- Source data and the wrapper stack base shared by both `decode` phases. -/
@@ -66,6 +67,7 @@ def entryPc (args : DecodeInlineArgs) : BitVec 64 :=
   match args.phase with
   | .first => BitVec.ofNat 64 0x10308
   | .retryAfterInvalidSsz => BitVec.ofNat 64 0x10380
+  | .propagateError _ => BitVec.ofNat 64 0x10380
 
 end DecodeInlineArgs
 
@@ -248,6 +250,12 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
     meaningDecodeRaw args.bytes = .error .invalidSsz ∧
       state.regs.get? x10 = some (BitVec.ofNat 64 2) ∧
       state.regs.get? x11 = some (BitVec.ofNat 64 2)
+  propagateReason : ∀ error, args.phase = .propagateError error →
+    error ≠ .invalidSsz ∧
+      meaningDecodeRaw args.bytes = .error error ∧
+      state.regs.get? x10 =
+        some (BitVec.ofNat 64 (decodeInternalResultTag (.error error))) ∧
+      state.regs.get? x11 = some (BitVec.ofNat 64 2)
 
 /-- The first `decodeRaw` outcome at its temporary result object, together with the exact boundary
 state consumed next by either the wrapper branch or the proved `memcpy` call. -/
@@ -317,6 +325,12 @@ def DecodeInlinePost (args : DecodeInlineArgs) (before after : State) : Prop :=
   match args.phase with
   | .first => DecodeInlineFirstPost args before after
   | .retryAfterInvalidSsz => DecodeInlineRetryPost args before after
+  | .propagateError error =>
+      error ≠ .invalidSsz ∧
+        meaningDecodeRaw args.bytes = .error error ∧
+        meaningDecode args.bytes = .error error ∧
+        after.regs.get? PC = some (BitVec.ofNat 64 0x10380) ∧
+        after = before
 
 /-- The stopping PCs for this particular source-level outcome. Generated exit inventories contain
 every branch with an edge leaving the instance, but `decode` may legitimately take such a branch's
@@ -336,6 +350,7 @@ def DecodeInlineExit (args : DecodeInlineArgs) (pc : BitVec 64) : Prop :=
           pc = BitVec.ofNat 64 0x10394
         else
           pc = BitVec.ofNat 64 0x103c4
+  | .propagateError _ => pc = BitVec.ofNat 64 0x10380
 
 /-- A conservative bound inherited from the source `decode` contract. It covers two raw attempts,
 the prefix check, and the fixed wrapper-local instruction sequences. -/
@@ -419,6 +434,10 @@ theorem decodeInline_post_at_selected_exit (args : DecodeInlineArgs) (before aft
           simp only [prefixEq, ↓reduceIte] at post
           exact ⟨BitVec.ofNat 64 0x103f8, post.2,
             by simp [DecodeInlineExit, phaseEq, prefixEq]⟩
+  | propagateError error =>
+      simp only [DecodeInlinePost, phaseEq] at post
+      exact ⟨BitVec.ofNat 64 0x10380, post.2.2.2.1,
+        by simp [DecodeInlineExit, phaseEq]⟩
 
 /-- Every semantic postcondition stops at one of the generated outgoing instructions. -/
 theorem decodeInline_post_at_generated_exit (args : DecodeInlineArgs) (before after : State)
@@ -461,6 +480,11 @@ theorem decodeInline_post_at_generated_exit (args : DecodeInlineArgs) (before af
           refine ⟨BitVec.ofNat 64 0x103f8, post.2, ?_⟩
           simp [functionInstanceExitPred, FunctionInstance.isExit,
             functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31]
+  | propagateError error =>
+      simp only [DecodeInlinePost, phaseEq] at post
+      refine ⟨BitVec.ofNat 64 0x10380, post.2.2.2.1, ?_⟩
+      simp [functionInstanceExitPred, FunctionInstance.isExit,
+        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31]
 
 /-- The fixed correctness condition for the two inlined `decode` phases. Its trace uses the exact
 generated execution region and generated outgoing-instruction set for this compiled instance.
