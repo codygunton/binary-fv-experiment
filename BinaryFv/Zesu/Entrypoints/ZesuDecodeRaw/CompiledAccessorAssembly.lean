@@ -296,7 +296,8 @@ theorem accessorTraces_of_compiled
     BinaryFv.Zesu.MachineExecution.rawResultInstanceObligation_proved hplatform hloads hcode
     hscalar hstored
   obtain ⟨after, herror, hstatus⟩ :=
-    rawErrorResult_of_compiled rawErrorInstanceObligation_proved handoff
+    rawErrorResult_of_compiled
+      BinaryFv.Zesu.MachineExecution.rawErrorInstanceObligation_proved handoff
   exact ⟨middle, after, handoff.reaches, handoff.returnCode, herror, hstatus⟩
 
 /-- The remaining compiled decoder obligation used by the Level 1 runner proof. -/

@@ -268,7 +268,11 @@ theorem synthetic_units_match_the_checked_addresses :
 
 /-- The cut that hands segment 1 over to the parent and lands on segment 2's entry. -/
 def cut1 : SequentialCut :=
-  { parent := spliceParent, first := segment1, second := segment2, cross := ⟨66700, 66704⟩ }
+  { program := generatedProgram
+    parent := spliceParent
+    first := segment1
+    second := segment2
+    cross := ⟨66700, 66704⟩ }
 
 /-- The terminal cut: segment 2 hands over and the parent lands on its own exit. `second` is the
 degenerate one-address unit holding the `ret`, which is what the parent keeps for itself. -/
@@ -285,7 +289,11 @@ def exitUnit : FunctionInstance :=
     edges := #[] }
 
 def cut2 : SequentialCut :=
-  { parent := spliceParent, first := segment2, second := exitUnit, cross := ⟨66860, 66864⟩ }
+  { program := generatedProgram
+    parent := spliceParent
+    first := segment2
+    second := exitUnit
+    cross := ⟨66860, 66864⟩ }
 
 private theorem cut1_fields :
     (segment1.id ∈ spliceParent.children) ∧
@@ -327,7 +335,7 @@ private theorem contains_exitUnit_iff (a : Nat) :
 /-- **The first cut is valid.** -/
 theorem cut1_valid : cut1.Valid where
   childListed := cut1_fields.1
-  crossIsRealEdge := cut1_fields.2.1
+  crossIsRealEdge := by native_decide
   crossLeavesFirst := cut1_fields.2.2.1
   crossTargetNotInFirst := cut1_fields.2.2.2.1
   crossTargetInParent := cut1_fields.2.2.2.2.1
@@ -353,7 +361,7 @@ private theorem cut2_fields :
 /-- **The terminal cut is valid.** -/
 theorem cut2_valid : cut2.Valid where
   childListed := cut2_fields.1
-  crossIsRealEdge := cut2_fields.2.1
+  crossIsRealEdge := by native_decide
   crossLeavesFirst := cut2_fields.2.2.1
   crossTargetNotInFirst := cut2_fields.2.2.2.1
   crossTargetInParent := cut2_fields.2.2.2.2.1

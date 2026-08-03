@@ -71,9 +71,11 @@ theorem scopedTrace_stuck_at_exit {region exit : BitVec 64 → Prop}
   | exitAt _ _ _ _ _ => exact ⟨rfl, rfl⟩
   | ownStep _ n p _ _ _ hp _ hnot _ _ =>
       exact absurd (by rw [pc_eq hp hpc]; exact hexit) hnot
-  | inlineStep _ used n _ _ _ _ _ _ htr _ =>
+  | inlineStep _ used n _ _ _ _ _ _ _ htr _ =>
       exact absurd (by rw [pc_eq htr.atEntry hpc]; exact hexit) htr.entryNotExit
-  | callStep _ used n _ _ _ _ _ _ htr _ =>
+  | inlineCallStep _ childUsed calleeUsed n _ _ _ _ _ _ _ _ htr _ =>
+      exact absurd (by rw [pc_eq htr.atEntry hpc]; exact hexit) htr.entryNotExit
+  | callStep _ used n _ _ _ _ _ _ _ htr _ =>
       exact absurd (by rw [pc_eq htr.atCall hpc]; exact hexit) htr.callNotExit
 
 /-! ## 2. What the generated exit inventory does to the loops
@@ -257,13 +259,13 @@ theorem one {a : Nat} {s s1 : State} (pc : BitVec 64)
 /-- A resolved call is a prefix of length `1 + used + 1`, so an iteration containing a call is still
 a prefix — which matters here because every one of the six collection loops calls `memmove`. -/
 theorem ofCall {a used : Nat} {s sResume : State} (site : CallSite)
-    (caller callee : FunctionInstance)
-    (htransfer : CallTransfer own exit cs site caller callee a used s sResume) :
+    (program : Program) (caller callee : FunctionInstance)
+    (htransfer : CallTransfer own exit cs site program caller callee a used s sResume) :
     ConfinedPrefix own exit cs a (1 + used + 1) s sResume := by
   intro m t h
   have hshift : a + (1 + used + 1) = a + 1 + used + 1 := by omega
   rw [hshift] at h
-  exact ScopedTrace.callStep a used m site caller callee s sResume t htransfer h
+  exact ScopedTrace.callStep a used m site program caller callee s sResume t htransfer h
 
 theorem trans {a n m : Nat} {s s1 s2 : State}
     (h1 : ConfinedPrefix own exit cs a n s s1)

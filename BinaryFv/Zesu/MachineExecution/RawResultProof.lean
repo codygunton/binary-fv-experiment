@@ -1,5 +1,6 @@
 import BinaryFv.RiscV.Instruction.Execute.Arithmetic
 import BinaryFv.RiscV.Instruction.Execute.Load
+import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.SentinelAssembly
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
@@ -15,9 +16,11 @@ stops at the generated `ret` exit.
 namespace BinaryFv.Zesu.MachineExecution
 
 open BinaryFv BinaryFv.Binary BinaryFv.RiscV
+open BinaryFv.Binary.Elfling BinaryFv.RiscV.Elfling
 open BinaryFv.Binary.ProgramImage
 open BinaryFv.Zesu.Contracts
 open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
+open BinaryFv.Zesu.Elflings.Generated
 open PreSail LeanRV64DExecutable.Functions Register
 
 set_option maxRecDepth 100000
@@ -316,7 +319,8 @@ theorem raw_result_auipc_step (fromStep : Nat) (state : State)
   have platform := machine.instructions 0x1378c (by simp [rawResultInstructionPcs])
   obtain ⟨seccfgBits, seccfgRead⟩ := platform.seccfgRead
   have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1378c) := by
-    simpa using machine.entry
+    rw [← rawResult_entry_address]
+    exact machine.entry
   have incrementAgree := agree_afterIncrement state
   have incrementNormal := normalExecutionState_of_platformPreserved incrementAgree platform.normal
   have privilegeIncrement :
@@ -337,8 +341,11 @@ theorem raw_result_auipc_step (fromStep : Nat) (state : State)
     apply execute_UTYPE_auipc_run executeState _ 0x4202#20 (.Regidx 10#5)
       (BitVec.ofNat 64 0x1378c)
     · exact readReg_run _ _ _ corePc
-    · convert wX_bits_run_x10 executeState (BitVec.ofNat 64 0x421578c) using 1 <;>
-        native_decide
+    · have value : BitVec.ofNat 64 0x1378c +
+          sign_extend (m := 64) (0x4202#20 ++ 0x000#12) = BitVec.ofNat 64 0x421578c := by
+        rfl
+      rw [value]
+      exact wX_bits_run_x10 executeState (BitVec.ofNat 64 0x421578c)
   simpa [rawResultAfterAuipc, executeState] using
     fallThroughRegisterWriteStep fromStep 0x1378c state 0x17#8 0x25#8 0x20#8 0x04#8
       (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC)) x10 (BitVec.ofNat 64 0x421578c)
@@ -349,11 +356,10 @@ theorem raw_result_auipc_step (fromStep : Nat) (state : State)
 
 theorem raw_result_base_add_step (fromStep : Nat) (state : State)
     (platform : ExitPlatform state 0x13790)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x13790))
     (sourceValue : state.regs.get? x10 = some (BitVec.ofNat 64 0x421578c)) :
     ∃ retired, Runs (try_step fromStep false) state (rawResultAfterBaseAdd state retired) false := by
   obtain ⟨seccfgBits, seccfgRead⟩ := platform.seccfgRead
-  have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x13790) := by
-    exact platform.pcRead
   have incrementAgree := agree_afterIncrement state
   have incrementNormal := normalExecutionState_of_platformPreserved incrementAgree platform.normal
   have privilegeIncrement :
@@ -374,8 +380,10 @@ theorem raw_result_base_add_step (fromStep : Nat) (state : State)
     apply execute_ITYPE_run executeState _ 0x894#12 (.Regidx 10#5) (.Regidx 10#5) .ADDI
       (BitVec.ofNat 64 0x421578c)
     · exact rX_bits_run_x10 executeState _ source
-    · convert wX_bits_run_x10 executeState (BitVec.ofNat 64 0x4215020) using 1 <;>
-        native_decide
+    · have value : iTypeResult .ADDI 0x894#12 (BitVec.ofNat 64 0x421578c) =
+          BitVec.ofNat 64 0x4215020 := by rfl
+      rw [value]
+      exact wX_bits_run_x10 executeState (BitVec.ofNat 64 0x4215020)
   simpa [rawResultAfterBaseAdd, executeState] using
     fallThroughRegisterWriteStep fromStep 0x13790 state 0x13#8 0x05#8 0x45#8 0x89#8
       (.ITYPE (0x894#12, .Regidx 10#5, .Regidx 10#5, .ADDI)) x10
@@ -393,12 +401,12 @@ theorem raw_result_discriminant_step (fromStep : Nat) (initial state : State)
     (initialAgree : Agree platformPreserved initial state)
     (memoryUnchanged : state.mem = initial.mem)
     (platform : ExitPlatform state 0x13794)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x13794))
     (baseStored : state.regs.get? x10 = some (BitVec.ofNat 64 0x4215020)) :
     ∃ retired, Runs (try_step fromStep false) state
       (rawResultAfterDiscriminant state retired model) false := by
   obtain ⟨seccfgBits, seccfgRead, pmmDisabled⟩ := machine.mseccfg
   obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := machine.mstatus
-  have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x13794) := platform.pcRead
   have incrementAgree := agree_afterIncrement state
   have incrementNormal := normalExecutionState_of_platformPreserved incrementAgree platform.normal
   have privilegeIncrement :
@@ -406,7 +414,7 @@ theorem raw_result_discriminant_step (fromStep : Nat) (initial state : State)
         some Privilege.Machine := incrementNormal.2.1
   have seccfgIncrement :
       (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some seccfgBits :=
-    ((platformPreserved_mseccfg initialAgree).trans mseccfgRead) |>
+    ((platformPreserved_mseccfg initialAgree).trans seccfgRead) |>
       (platformPreserved_mseccfg incrementAgree).trans
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x13794)
@@ -420,56 +428,59 @@ theorem raw_result_discriminant_step (fromStep : Nat) (initial state : State)
         (MemoryAccessType.Load mem_payload.Data) 1) executeState executeState
       (.Ext_DataAddr_OK (virtaddr.Virtaddr (BitVec.ofNat 64 0x4215370))) := by
     have address : BitVec.ofNat 64 0x4215020 + sign_extend (m := 64) 0x350#12 =
-        BitVec.ofNat 64 0x4215370 := by native_decide
+        BitVec.ofNat 64 0x4215370 := by rfl
     rw [← address]
     exact get_transformed_data_addr_machine_load_run executeState (.Regidx 10#5)
       (BitVec.ofNat 64 0x4215020) (sign_extend (m := 64) 0x350#12) mstatusBits seccfgBits
       (rX_bits_run_x10 executeState _ executeBase)
       ((platformPreserved_mstatus executeAgree).trans mstatusRead)
       ((executeAgree cur_privilege (by simp [platformPreserved])).trans
-        machine.instructions 0x13794 (by simp [rawResultInstructionPcs]) |>.normal.2.1)
+        ((machine.instructions 0x13794 (by simp [rawResultInstructionPcs])).normal.2.1))
       mprvZero ((platformPreserved_mseccfg executeAgree).trans seccfgRead) pmmDisabled
   have loadAllowed : LoadPmaAllows executeState (BitVec.ofNat 64 0x4215370) 1 := by
     have address : Elflings.canonicalDecoderGlobalsLayout.storedResult +
         Elflings.canonicalDecoderGlobalsLayout.storedResultObject.discriminantOffset =
-        0x4215370 := by native_decide
+        0x4215370 := by rfl
     simpa [address] using loadPmaAllows_of_agree executeAgree machine.discriminantLoad
   have physicalAccess := phys_access_check_machine_load_allowed executeState
     (BitVec.ofNat 64 0x4215370) 1
     (fetchPmpDisabled_of_agree (agree_stepPremiseState state (BitVec.ofNat 64 0x13794))
-      platform.pmaAllows.1) loadAllowed (by native_decide)
+      (fetchPmpDisabled_of_normal platform.normal)) loadAllowed (by rfl)
   have htifRead : executeState.regs.get? htif_tohost_base = some none :=
     (platformPreserved_htifBase (agree_stepPremiseState state (BitVec.ofNat 64 0x13794))).trans
       platform.htifRead
   have noMMIO : Runs (within_mmio_readable
       (physaddr.Physaddr (BitVec.ofNat 64 0x4215370)) 1) executeState executeState false := by
-    unfold Runs within_mmio_readable within_clint within_sig within_htif_readable
-      within_htif_writable
-    simp [plat_have_clint, plat_have_sig, get_config_rvfi, PreSail.readReg, EStateM.run,
-      EStateM.bind, EStateM.get, EStateM.pure, EStateM.instMonad,
-      EStateM.instMonadExceptOfOfBacktrackable, getThe, htifRead]
-  have memoryByte : ∀ (index : Nat), index <
-      (BinaryFv.RiscV.Sep.leBytes 1 (rawResultTag model)).length →
+    exact loadMemoryNoMMIO_of_state_layout_excluded executeState (BitVec.ofNat 64 0x4215370)
+      1 (by simp [LoadMMIOAddressExcluded] <;> native_decide) htifRead
+  have memoryByte : ∀ (index : Nat)
+      (bound : index < (BinaryFv.RiscV.Sep.leBytes 1 (rawResultTag model)).length),
       executeState.mem.get? ((BitVec.ofNat 64 0x4215370).toNat + index) =
         some (BinaryFv.RiscV.Sep.leBytes 1 (rawResultTag model))[index] := by
     intro index bound
-    have indexZero : index = 0 := by
+    have indexLt : index < 1 := by
       simpa [BinaryFv.RiscV.Sep.leBytes_length] using bound
+    have indexZero : index = 0 := by omega
     subst index
     have represented := sourcePre.2.2
     unfold StoredResultDiscriminantRep MemoryRepresentation.OptionTagRep at represented
+    have byteZero : (BinaryFv.RiscV.Sep.leBytes 1 (rawResultTag model))[0] =
+        rawResultTag model := by
+      simp [BinaryFv.RiscV.Sep.leBytes]
+    rw [Nat.add_zero, byteZero]
     simpa [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       memoryUnchanged, rawResultTag] using represented
   have execute : Runs
       (execute (.LOAD (0x350#12, .Regidx 10#5, .Regidx 11#5, true, 1))) executeState
-      { executeState with regs := executeState.regs.insert x11
-          (zero_extend (m := 64) (rawResultTag model)) } (.Retire_Success ()) :=
+      { executeState with
+        regs := executeState.regs.insert x11 (zero_extend (m := 64) (rawResultTag model)) }
+      (.Retire_Success ()) :=
     execute_LOAD_lbu_run executeState _ 0x350#12 (.Regidx 10#5) (.Regidx 11#5)
       (BitVec.ofNat 64 0x4215370) mstatusBits (rawResultTag model)
       ((platformPreserved_mstatus executeAgree).trans mstatusRead)
       ((executeAgree cur_privilege (by simp [platformPreserved])).trans
-        machine.instructions 0x13794 (by simp [rawResultInstructionPcs]) |>.normal.2.1)
-      mprvZero addressCalculation (is_aligned_vaddr_one _) physicalAccess noMMIO memoryByte
+        ((machine.instructions 0x13794 (by simp [rawResultInstructionPcs])).normal.2.1))
+      mprvZero addressCalculation (by simp [is_aligned_vaddr]) physicalAccess noMMIO memoryByte
       (wX_bits_run_x11 executeState _)
   simpa [rawResultAfterDiscriminant, executeState] using
     fallThroughRegisterWriteStep fromStep 0x13794 state 0x83#8 0x45#8 0x05#8 0x35#8
@@ -482,11 +493,11 @@ theorem raw_result_discriminant_step (fromStep : Nat) (initial state : State)
 
 theorem raw_result_payload_add_step (fromStep : Nat) (state : State)
     (platform : ExitPlatform state 0x13798)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x13798))
     (sourceValue : state.regs.get? x10 = some (BitVec.ofNat 64 0x4215020)) :
     ∃ retired, Runs (try_step fromStep false) state
       (rawResultAfterPayloadAdd state retired) false := by
   obtain ⟨seccfgBits, seccfgRead⟩ := platform.seccfgRead
-  have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x13798) := platform.pcRead
   have incrementAgree := agree_afterIncrement state
   have incrementNormal := normalExecutionState_of_platformPreserved incrementAgree platform.normal
   have privilegeIncrement := incrementNormal.2.1
@@ -498,13 +509,18 @@ theorem raw_result_payload_add_step (fromStep : Nat) (state : State)
       Std.ExtDHashMap.get?_insert, sourceValue]
   have execute : Runs
       (execute (.ITYPE (0x010#12, .Regidx 10#5, .Regidx 10#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x10
-          (BitVec.ofNat 64 canonicalContractParams.resultBuffer) } (.Retire_Success ()) := by
+      { executeState with
+        regs := executeState.regs.insert x10
+          (BitVec.ofNat 64 canonicalContractParams.resultBuffer) }
+      (.Retire_Success ()) := by
     apply execute_ITYPE_run executeState _ 0x010#12 (.Regidx 10#5) (.Regidx 10#5) .ADDI
       (BitVec.ofNat 64 0x4215020)
     · exact rX_bits_run_x10 executeState _ source
-    · convert wX_bits_run_x10 executeState
-        (BitVec.ofNat 64 canonicalContractParams.resultBuffer) using 1 <;> native_decide
+    · have value : iTypeResult .ADDI 0x010#12 (BitVec.ofNat 64 0x4215020) =
+          BitVec.ofNat 64 canonicalContractParams.resultBuffer := by
+        native_decide
+      rw [value]
+      exact wX_bits_run_x10 executeState _
   simpa [rawResultAfterPayloadAdd, executeState] using
     fallThroughRegisterWriteStep fromStep 0x13798 state 0x13#8 0x05#8 0x05#8 0x01#8
       (.ITYPE (0x010#12, .Regidx 10#5, .Regidx 10#5, .ADDI)) x10
@@ -517,15 +533,17 @@ theorem raw_result_payload_add_step (fromStep : Nat) (state : State)
 theorem raw_result_seqz_value (model : DecoderGlobalsModel) :
     iTypeResult .SLTIU 0x001#12 (zero_extend (m := 64) (rawResultTag model)) =
       rawResultSeqzValue model := by
-  cases model.stored <;> native_decide
+  rcases model with ⟨attempted, status, stored⟩
+  cases stored <;>
+    simp [iTypeResult, rawResultTag, rawResultSeqzValue] <;> native_decide
 
 theorem raw_result_seqz_step (fromStep : Nat) (state : State) (model : DecoderGlobalsModel)
     (platform : ExitPlatform state 0x1379c)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1379c))
     (sourceValue : state.regs.get? x11 =
       some (zero_extend (m := 64) (rawResultTag model))) :
     ∃ retired, Runs (try_step fromStep false) state (rawResultAfterSeqz state retired model) false := by
   obtain ⟨seccfgBits, seccfgRead⟩ := platform.seccfgRead
-  have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1379c) := platform.pcRead
   have incrementAgree := agree_afterIncrement state
   have incrementNormal := normalExecutionState_of_platformPreserved incrementAgree platform.normal
   have privilegeIncrement := incrementNormal.2.1
@@ -555,14 +573,16 @@ theorem raw_result_seqz_step (fromStep : Nat) (state : State) (model : DecoderGl
 
 theorem raw_result_mask_value (model : DecoderGlobalsModel) :
     iTypeResult .ADDI 0xfff#12 (rawResultSeqzValue model) = rawResultMaskValue model := by
-  cases model.stored <;> native_decide
+  rcases model with ⟨attempted, status, stored⟩
+  cases stored <;>
+    simp [iTypeResult, rawResultSeqzValue, rawResultMaskValue] <;> native_decide
 
 theorem raw_result_mask_step (fromStep : Nat) (state : State) (model : DecoderGlobalsModel)
     (platform : ExitPlatform state 0x137a0)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x137a0))
     (sourceValue : state.regs.get? x11 = some (rawResultSeqzValue model)) :
     ∃ retired, Runs (try_step fromStep false) state (rawResultAfterMask state retired model) false := by
   obtain ⟨seccfgBits, seccfgRead⟩ := platform.seccfgRead
-  have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x137a0) := platform.pcRead
   have incrementAgree := agree_afterIncrement state
   have incrementNormal := normalExecutionState_of_platformPreserved incrementAgree platform.normal
   have privilegeIncrement := incrementNormal.2.1
@@ -592,16 +612,18 @@ theorem raw_result_mask_step (fromStep : Nat) (state : State) (model : DecoderGl
 theorem raw_result_select_value (model : DecoderGlobalsModel) :
     rTypeResult .AND (rawResultMaskValue model)
       (BitVec.ofNat 64 canonicalContractParams.resultBuffer) = rawResultPointerValue model := by
-  cases model.stored <;> native_decide
+  rcases model with ⟨attempted, status, stored⟩
+  cases stored <;>
+    simp [rTypeResult, rawResultMaskValue, rawResultPointerValue] <;> native_decide
 
 theorem raw_result_select_step (fromStep : Nat) (state : State) (model : DecoderGlobalsModel)
     (platform : ExitPlatform state 0x137a4)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x137a4))
     (payloadValue : state.regs.get? x10 =
       some (BitVec.ofNat 64 canonicalContractParams.resultBuffer))
     (maskValue : state.regs.get? x11 = some (rawResultMaskValue model)) :
     ∃ retired, Runs (try_step fromStep false) state (rawResultAfterSelect state retired model) false := by
   obtain ⟨seccfgBits, seccfgRead⟩ := platform.seccfgRead
-  have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x137a4) := platform.pcRead
   have incrementAgree := agree_afterIncrement state
   have incrementNormal := normalExecutionState_of_platformPreserved incrementAgree platform.normal
   have privilegeIncrement := incrementNormal.2.1
@@ -635,7 +657,8 @@ theorem raw_result_select_step (fromStep : Nat) (state : State) (model : Decoder
 
 /-- The selected compiled `zesu_raw_result` instance satisfies its source contract by executing all
 seven non-return instructions in Sail. -/
-theorem rawResultInstanceObligation_proved {functionInstance : FunctionInstance}
+theorem rawResultInstanceObligation_proved
+    {functionInstance : BinaryFv.Binary.Elfling.FunctionInstance}
     (member : functionInstance ∈ generatedProgram.functionInstances)
     (entry : functionInstance.entryPc = resolvedSymbols.rawResult) :
     RawResultInstanceObligation functionInstance := by
@@ -652,7 +675,11 @@ theorem rawResultInstanceObligation_proved {functionInstance : FunctionInstance}
     simp [s1, rawResultAfterAuipc, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
-  obtain ⟨r2, step2⟩ := raw_result_base_add_step (fromStep + 1) s1 platform2 x10s1
+  have at2 : s1.regs.get? PC = some (BitVec.ofNat 64 0x13790) := by
+    simpa [s1, rawResultAfterAuipc] using
+      afterRegisterWrite_pc state (BitVec.ofNat 64 0x1378c) r1 x10
+        (BitVec.ofNat 64 0x421578c)
+  obtain ⟨r2, step2⟩ := raw_result_base_add_step (fromStep + 1) s1 platform2 at2 x10s1
   let s2 := rawResultAfterBaseAdd s1 r2
   have agree2 : Agree platformPreserved state s2 := agree1.trans
     (afterRegisterWrite_agree (destination := x10) (by simp [platformPreserved]))
@@ -665,8 +692,12 @@ theorem rawResultInstanceObligation_proved {functionInstance : FunctionInstance}
     simp [s2, rawResultAfterBaseAdd, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
+  have at3 : s2.regs.get? PC = some (BitVec.ofNat 64 0x13794) := by
+    simpa [s2, rawResultAfterBaseAdd] using
+      afterRegisterWrite_pc s1 (BitVec.ofNat 64 0x13790) r2 x10
+        (BitVec.ofNat 64 0x4215020)
   obtain ⟨r3, step3⟩ := raw_result_discriminant_step (fromStep + 2) state s2 model
-    sourcePre machine agree2 mem2 platform3 x10s2
+    sourcePre machine agree2 mem2 platform3 at3 x10s2
   let s3 := rawResultAfterDiscriminant s2 r3 model
   have agree3 : Agree platformPreserved state s3 := agree2.trans
     (afterRegisterWrite_agree (destination := x11) (by simp [platformPreserved]))
@@ -679,7 +710,11 @@ theorem rawResultInstanceObligation_proved {functionInstance : FunctionInstance}
     simp [s3, rawResultAfterDiscriminant, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, x10s2]
-  obtain ⟨r4, step4⟩ := raw_result_payload_add_step (fromStep + 3) s3 platform4 x10s3
+  have at4 : s3.regs.get? PC = some (BitVec.ofNat 64 0x13798) := by
+    simpa [s3, rawResultAfterDiscriminant] using
+      afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x13794) r3 x11
+        (zero_extend (m := 64) (rawResultTag model))
+  obtain ⟨r4, step4⟩ := raw_result_payload_add_step (fromStep + 3) s3 platform4 at4 x10s3
   let s4 := rawResultAfterPayloadAdd s3 r4
   have agree4 : Agree platformPreserved state s4 := agree3.trans
     (afterRegisterWrite_agree (destination := x10) (by simp [platformPreserved]))
@@ -692,7 +727,11 @@ theorem rawResultInstanceObligation_proved {functionInstance : FunctionInstance}
     simp [s4, rawResultAfterPayloadAdd, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, s3, rawResultAfterDiscriminant]
-  obtain ⟨r5, step5⟩ := raw_result_seqz_step (fromStep + 4) s4 model platform5 x11s4
+  have at5 : s4.regs.get? PC = some (BitVec.ofNat 64 0x1379c) := by
+    simpa [s4, rawResultAfterPayloadAdd] using
+      afterRegisterWrite_pc s3 (BitVec.ofNat 64 0x13798) r4 x10
+        (BitVec.ofNat 64 canonicalContractParams.resultBuffer)
+  obtain ⟨r5, step5⟩ := raw_result_seqz_step (fromStep + 4) s4 model platform5 at5 x11s4
   let s5 := rawResultAfterSeqz s4 r5 model
   have agree5 : Agree platformPreserved state s5 := agree4.trans
     (afterRegisterWrite_agree (destination := x11) (by simp [platformPreserved]))
@@ -705,7 +744,10 @@ theorem rawResultInstanceObligation_proved {functionInstance : FunctionInstance}
     simp [s5, rawResultAfterSeqz, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
-  obtain ⟨r6, step6⟩ := raw_result_mask_step (fromStep + 5) s5 model platform6 x11s5
+  have at6 : s5.regs.get? PC = some (BitVec.ofNat 64 0x137a0) := by
+    simpa [s5, rawResultAfterSeqz] using
+      afterRegisterWrite_pc s4 (BitVec.ofNat 64 0x1379c) r5 x11 (rawResultSeqzValue model)
+  obtain ⟨r6, step6⟩ := raw_result_mask_step (fromStep + 5) s5 model platform6 at6 x11s5
   let s6 := rawResultAfterMask s5 r6 model
   have agree6 : Agree platformPreserved state s6 := agree5.trans
     (afterRegisterWrite_agree (destination := x11) (by simp [platformPreserved]))
@@ -723,7 +765,11 @@ theorem rawResultInstanceObligation_proved {functionInstance : FunctionInstance}
     simp [s6, rawResultAfterMask, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
-  obtain ⟨r7, step7⟩ := raw_result_select_step (fromStep + 6) s6 model platform7 x10s6 x11s6
+  have at7 : s6.regs.get? PC = some (BitVec.ofNat 64 0x137a4) := by
+    simpa [s6, rawResultAfterMask] using
+      afterRegisterWrite_pc s5 (BitVec.ofNat 64 0x137a0) r6 x11 (rawResultMaskValue model)
+  obtain ⟨r7, step7⟩ :=
+    raw_result_select_step (fromStep + 6) s6 model platform7 at7 x10s6 x11s6
   let final := rawResultAfterSelect s6 r7 model
   have finalAgree : Agree platformPreserved state final := agree6.trans
     (afterRegisterWrite_agree (destination := x10) (by simp [platformPreserved]))
@@ -764,9 +810,28 @@ theorem rawResultInstanceObligation_proved {functionInstance : FunctionInstance}
   have finalPc : final.regs.get? PC = some (BitVec.ofNat 64 0x137a8) := by
     simpa [final, rawResultAfterSelect] using
       afterRegisterWrite_pc s6 (BitVec.ofNat 64 0x137a4) r7 x10 (rawResultPointerValue model)
-  have notExit (pc : BitVec 64) (notRet : pc ≠ BitVec.ofNat 64 0x137a8) :
-      ¬ functionInstanceExitPred functionInstance pc := by
-    simp [functionInstanceExitPred, FunctionInstance.isExit, exits, notRet]
+  have entryNotExit :
+      ¬ functionInstanceExitPred functionInstance (functionInstanceEntryWord functionInstance) := by
+    rw [entryWord]
+    simp [functionInstanceExitPred, FunctionInstance.isExit, exits]
+  have pc1NotExit :
+      ¬ functionInstanceExitPred functionInstance (BitVec.ofNat 64 0x13790) := by
+    simp [functionInstanceExitPred, FunctionInstance.isExit, exits]
+  have pc2NotExit :
+      ¬ functionInstanceExitPred functionInstance (BitVec.ofNat 64 0x13794) := by
+    simp [functionInstanceExitPred, FunctionInstance.isExit, exits]
+  have pc3NotExit :
+      ¬ functionInstanceExitPred functionInstance (BitVec.ofNat 64 0x13798) := by
+    simp [functionInstanceExitPred, FunctionInstance.isExit, exits]
+  have pc4NotExit :
+      ¬ functionInstanceExitPred functionInstance (BitVec.ofNat 64 0x1379c) := by
+    simp [functionInstanceExitPred, FunctionInstance.isExit, exits]
+  have pc5NotExit :
+      ¬ functionInstanceExitPred functionInstance (BitVec.ofNat 64 0x137a0) := by
+    simp [functionInstanceExitPred, FunctionInstance.isExit, exits]
+  have pc6NotExit :
+      ¬ functionInstanceExitPred functionInstance (BitVec.ofNat 64 0x137a4) := by
+    simp [functionInstanceExitPred, FunctionInstance.isExit, exits]
   have atExit : functionInstanceExitPred functionInstance (BitVec.ofNat 64 0x137a8) := by
     simp [functionInstanceExitPred, FunctionInstance.isExit, exits]
   have trace : BinaryFv.RiscV.Elfling.EnteredFunctionTrace
@@ -774,15 +839,15 @@ theorem rawResultInstanceObligation_proved {functionInstance : FunctionInstance}
       (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
       fromStep 7 state final := by
     refine ⟨statePc, entryWord.symm ▸ region1, ?_, ?_⟩
-    · exact notExit _ (by decide)
+    · exact entryNotExit
     refine .step fromStep 6 _ state s1 final statePc (entryWord.symm ▸ region1)
-      (notExit _ (by decide)) step1 ?_
-    refine .step (fromStep + 1) 5 _ s1 s2 final pc1 region2 (notExit _ (by decide)) step2 ?_
-    refine .step (fromStep + 2) 4 _ s2 s3 final pc2 region3 (notExit _ (by decide)) step3 ?_
-    refine .step (fromStep + 3) 3 _ s3 s4 final pc3 region4 (notExit _ (by decide)) step4 ?_
-    refine .step (fromStep + 4) 2 _ s4 s5 final pc4 region5 (notExit _ (by decide)) step5 ?_
-    refine .step (fromStep + 5) 1 _ s5 s6 final pc5 region6 (notExit _ (by decide)) step6 ?_
-    refine .step (fromStep + 6) 0 _ s6 final final pc6 region7 (notExit _ (by decide)) step7 ?_
+      entryNotExit step1 ?_
+    refine .step (fromStep + 1) 5 _ s1 s2 final pc1 region2 pc1NotExit step2 ?_
+    refine .step (fromStep + 2) 4 _ s2 s3 final pc2 region3 pc2NotExit step3 ?_
+    refine .step (fromStep + 3) 3 _ s3 s4 final pc3 region4 pc3NotExit step4 ?_
+    refine .step (fromStep + 4) 2 _ s4 s5 final pc4 region5 pc4NotExit step5 ?_
+    refine .step (fromStep + 5) 1 _ s5 s6 final pc5 region6 pc5NotExit step6 ?_
+    refine .step (fromStep + 6) 0 _ s6 final final pc6 region7 pc6NotExit step7 ?_
     exact .exitAt (fromStep + 7) final _ finalPc atExit
   have finalX10 : final.regs.get? x10 = some (rawResultPointerValue model) := by
     simp [final, rawResultAfterSelect, afterRegisterWrite, tryStepControlFlowAfterRetired,
@@ -792,7 +857,10 @@ theorem rawResultInstanceObligation_proved {functionInstance : FunctionInstance}
       canonicalContractParams.resultBuffer).post model
       ((contractRawResult canonicalContractParams.env canonicalContractParams.globals
         canonicalContractParams.resultBuffer).meaning model) state final := by
-    refine ⟨codeIntact_of_mem_eq finalMem sourcePre.2.1, ?_, ?_, finalAgree, finalRetired, ?_⟩
+    refine ⟨?_, ?_, ?_, finalAgree, finalRetired, ?_⟩
+    · show canonicalContractParams.env.image.fileBytesMatchMemory final.mem
+      rw [finalMem]
+      exact sourcePre.2.1
     · intro address _
       exact congrArg (fun memory => memory.get? address) finalMem
     · intro address _

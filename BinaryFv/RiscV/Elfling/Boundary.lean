@@ -107,11 +107,20 @@ structure InlineBoundary where
   exits : Array DirectEdge
 deriving Repr
 
+/-- Whether any generated function instance owns a given CFG edge. -/
+def programContainsEdge (program : Program) (edge : DirectEdge) : Bool :=
+  program.functionInstances.any fun functionInstance => functionInstance.edges.contains edge
+
+/-- A legal entry address for one segment of an inlined child. -/
+def InlineBoundary.acceptsEntry (boundary : InlineBoundary) (child : FunctionInstance)
+    (entry : Nat) : Prop :=
+  entry = child.entryPc ∨ ∃ edge ∈ boundary.entries, edge.target = entry
+
 /-! ## Boundary validity against a `FunctionInstance`
 
-Each predicate reads only generated data off the relevant function instance(s). They are `Prop`s, not
-`Bool`s, because they are premises of the trace obligations, not something a proof decides; and they
-are built from the function instance's own arrays so that no address is ever introduced by hand. -/
+Each predicate reads only generated function instances and the complete generated program edge
+inventory. They are `Prop`s, not `Bool`s, because they are premises of trace obligations, not
+unchecked addresses introduced by a proof. -/
 
 /--
 An `ExitBoundary` is a genuine exit of `functionInstance`.
@@ -143,12 +152,13 @@ but whose recorded entry/edge does not correspond to a decoded transfer is rejec
 is the fall-through of a 4-byte direct call (`returnPc = source + 4`); both the call instruction and
 its continuation are owned by `functionInstance` (the call leaves and control comes back *inside* the function instance).
 -/
-def CallSite.validFor (cs : CallSite) (functionInstance callee : FunctionInstance) : Prop :=
+def CallSite.validFor (cs : CallSite) (program : Program)
+    (functionInstance callee : FunctionInstance) : Prop :=
   cs.returnPc = cs.source + 4 ∧
     callee.id = cs.callee ∧
     callee.entryPc = cs.calleeEntry ∧
     cs.callee ∈ functionInstance.externalCalls ∧
-    (⟨cs.source, cs.calleeEntry⟩ : DirectEdge) ∈ functionInstance.edges ∧
+    programContainsEdge program ⟨cs.source, cs.calleeEntry⟩ = true ∧
     functionInstance.containsAddress cs.source = true ∧
     functionInstance.containsAddress cs.returnPc = true
 
@@ -156,23 +166,42 @@ def CallSite.validFor (cs : CallSite) (functionInstance callee : FunctionInstanc
 An `InlineBoundary` correctly frames `childFunctionInstance` inside `functionInstance`.
 
 `childFunctionInstance` has the recorded child identity and is one of `functionInstance`'s children; every declared entry edge
-is a real edge of `functionInstance` that genuinely crosses *into* the child (its source is owned by the parent
+is a real program edge that genuinely crosses *into* the child (its source is owned by the parent
 and *not* the child, its target is owned by the child); and every declared exit edge is a real edge of
 `functionInstance` that genuinely crosses *out of* the child (its source is owned by the child, its target leaves
 the child and lands back in the parent). Requiring both endpoints of each edge to straddle the
 boundary is what rejects a mislabeled edge that stays on one side.
 -/
-def InlineBoundary.validFor (ib : InlineBoundary) (functionInstance childFunctionInstance : FunctionInstance) : Prop :=
+def InlineBoundary.validFor (ib : InlineBoundary) (program : Program)
+    (functionInstance childFunctionInstance : FunctionInstance) : Prop :=
   childFunctionInstance.id = ib.child ∧
     ib.child ∈ functionInstance.children ∧
-    (∀ e ∈ ib.entries, e ∈ functionInstance.edges ∧
+    (∀ e ∈ ib.entries, programContainsEdge program e = true ∧
         functionInstance.containsAddress e.source = true ∧
         childFunctionInstance.containsAddress e.source = false ∧
-        childFunctionInstance.containsAddress e.target = true) ∧
-    (∀ e ∈ ib.exits, e ∈ functionInstance.edges ∧
+        childFunctionInstance.containsAddress e.target = true ∧
+        ib.acceptsEntry childFunctionInstance e.target) ∧
+    (∀ e ∈ ib.exits, programContainsEdge program e = true ∧
         childFunctionInstance.containsAddress e.source = true ∧
         childFunctionInstance.containsAddress e.target = false ∧
         functionInstance.containsAddress e.target = true)
+
+/-- An inlined child can leave through a real call whose return continuation is outside the child
+but still inside the parent. This is not a direct edge: retiring the source enters `callee`, consumes
+its summary, retires its return, and only then reaches `call.returnPc`. -/
+structure InlineCallBoundary where
+  inline : InlineBoundary
+  call : CallSite
+deriving Repr
+
+/-- A checked call exit from an inlined child. The call instruction belongs to the child, while its
+post-return continuation belongs to the enclosing parent. -/
+def InlineCallBoundary.validFor (boundary : InlineCallBoundary) (program : Program)
+    (functionInstance childFunctionInstance callee : FunctionInstance) : Prop :=
+  boundary.inline.validFor program functionInstance childFunctionInstance ∧
+    boundary.call.validFor program functionInstance callee ∧
+    childFunctionInstance.containsAddress boundary.call.source = true ∧
+    childFunctionInstance.containsAddress boundary.call.returnPc = false
 
 /-! ## Checked realizations of a boundary
 
@@ -193,10 +222,10 @@ on its own return, one step before retiring it — matching the flat-trace conve
 -/
 structure CallTransfer (region exit : BitVec 64 → Prop)
     (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
-    (cs : CallSite) (functionInstance callee : FunctionInstance)
+    (cs : CallSite) (program : Program) (functionInstance callee : FunctionInstance)
     (fromStep used : Nat) (s sResume : State) where
   /-- The call site is a checked resolved call from `functionInstance` to `callee`. -/
-  valid : cs.validFor functionInstance callee
+  valid : cs.validFor program functionInstance callee
   /-- The machine is at the call instruction, owned by the parent and not a parent exit. -/
   callPc : BitVec 64
   atCall : s.regs.get? PC = some callPc
@@ -227,7 +256,8 @@ structure CallTransfer (region exit : BitVec 64 → Prop)
 The checked machine realization of one `InlineBoundary` splice, carrying `s` to the post-edge state
 `sResume`.
 
-The machine enters at the child's own entry pc; the child body is a `childSummary` consuming *exactly*
+The machine enters at the child's nominal entry or a checked later-segment entry; the child body is
+a `childSummary` consuming *exactly*
 `used` steps and stopping on a checked outgoing edge's source (`exitEdge ∈ ib.exits`); then the parent
 retires that outgoing edge, landing at the edge's target back inside the parent. The entry edge itself
 is retired by the parent step that precedes this splice, so entry and outgoing edges are each accounted
@@ -235,14 +265,15 @@ exactly once.
 -/
 structure InlineTransfer (region exit : BitVec 64 → Prop)
     (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
-    (ib : InlineBoundary) (functionInstance childFunctionInstance : FunctionInstance)
+    (ib : InlineBoundary) (program : Program)
+    (functionInstance childFunctionInstance : FunctionInstance)
     (fromStep used : Nat) (s sResume : State) where
   /-- The boundary correctly frames `childFunctionInstance` inside `functionInstance`. -/
-  valid : ib.validFor functionInstance childFunctionInstance
-  /-- The machine is at the child's own entry pc, owned by the parent and not a parent exit. -/
+  valid : ib.validFor program functionInstance childFunctionInstance
+  /-- The machine is at a checked child-segment entry, owned by the parent and not a parent exit. -/
   entryPc : BitVec 64
   atEntry : s.regs.get? PC = some entryPc
-  entryIsChildEntry : entryPc.toNat = childFunctionInstance.entryPc
+  entryAccepted : ib.acceptsEntry childFunctionInstance entryPc.toNat
   entryInRegion : region entryPc
   entryNotExit : ¬ exit entryPc
   /-- The child body summary consumes exactly `used` steps and stops on a checked outgoing edge. -/
@@ -261,6 +292,25 @@ structure InlineTransfer (region exit : BitVec 64 → Prop)
   atResume : sResume.regs.get? PC = some resumePc
   resumeIsEdgeTarget : resumePc.toNat = exitEdge.target
   resumeInRegion : region resumePc
+
+/-- A checked inline segment whose outgoing transfer is a call. The inline child's summary stops at
+the call instruction; the nested `CallTransfer` then retires the call, consumes the callee summary,
+retires the callee return, and resumes outside the child but inside the parent. -/
+structure InlineCallTransfer (region exit : BitVec 64 → Prop)
+    (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
+    (boundary : InlineCallBoundary) (program : Program)
+    (functionInstance childFunctionInstance callee : FunctionInstance)
+    (fromStep childUsed calleeUsed : Nat) (s sResume : State) where
+  valid : boundary.validFor program functionInstance childFunctionInstance callee
+  entryPc : BitVec 64
+  atEntry : s.regs.get? PC = some entryPc
+  entryAccepted : boundary.inline.acceptsEntry childFunctionInstance entryPc.toNat
+  entryInRegion : region entryPc
+  entryNotExit : ¬ exit entryPc
+  sCallSite : State
+  body : childSummary boundary.inline.child fromStep childUsed s sCallSite
+  call : CallTransfer region exit childSummary boundary.call program functionInstance callee
+    (fromStep + childUsed) calleeUsed sCallSite sResume
 
 /-! ## The edge-aware scoped trace
 
@@ -301,17 +351,33 @@ inductive ScopedTrace (region exit : BitVec 64 → Prop)
   /-- Consume an inlined child's summary through a checked `InlineBoundary`. The child body runs from
   the child's entry pc and stops on a checked outgoing edge; the parent then retires that outgoing edge
   and resumes at its target. Accounts `used` body steps plus the one outgoing-edge step. -/
-  | inlineStep (fromStep used count : Nat) (ib : InlineBoundary) (functionInstance childFunctionInstance : FunctionInstance)
+  | inlineStep (fromStep used count : Nat) (ib : InlineBoundary) (program : Program)
+      (functionInstance childFunctionInstance : FunctionInstance)
       (s sResume s'' : State)
-      (htransfer : InlineTransfer region exit childSummary ib functionInstance childFunctionInstance fromStep used s sResume)
+      (htransfer : InlineTransfer region exit childSummary ib program functionInstance
+        childFunctionInstance fromStep used s sResume)
       (hrest : ScopedTrace region exit childSummary (fromStep + used + 1) count sResume s'') :
       ScopedTrace region exit childSummary fromStep (used + 1 + count) s s''
+  /-- Consume an inlined child segment that leaves through a real call. Accounts the inline body,
+  call instruction, callee body, and callee return separately. -/
+  | inlineCallStep (fromStep childUsed calleeUsed count : Nat)
+      (boundary : InlineCallBoundary) (program : Program)
+      (functionInstance childFunctionInstance callee : FunctionInstance)
+      (s sResume s'' : State)
+      (htransfer : InlineCallTransfer region exit childSummary boundary program functionInstance
+        childFunctionInstance callee fromStep childUsed calleeUsed s sResume)
+      (hrest : ScopedTrace region exit childSummary
+        (fromStep + childUsed + 1 + calleeUsed + 1) count sResume s'') :
+      ScopedTrace region exit childSummary fromStep
+        (childUsed + 1 + calleeUsed + 1 + count) s s''
   /-- Retire a resolved call and consume the callee's summary through its return, using a checked
   `CallSite`. Accounts the call step, the `used` callee-body steps, and the return step, then resumes
   at the checked continuation. -/
-  | callStep (fromStep used count : Nat) (cs : CallSite) (functionInstance callee : FunctionInstance)
+  | callStep (fromStep used count : Nat) (cs : CallSite) (program : Program)
+      (functionInstance callee : FunctionInstance)
       (s sResume s'' : State)
-      (htransfer : CallTransfer region exit childSummary cs functionInstance callee fromStep used s sResume)
+      (htransfer : CallTransfer region exit childSummary cs program functionInstance callee
+        fromStep used s sResume)
       (hrest : ScopedTrace region exit childSummary (fromStep + 1 + used + 1) count sResume s'') :
       ScopedTrace region exit childSummary fromStep (1 + used + 1 + count) s s''
 
@@ -414,7 +480,8 @@ theorem ScopedTrace.toFunctionTrace_within {own outer exit : BitVec 64 → Prop}
   | exitAt fromStep t pc hpc hexit => exact FunctionTrace.exitAt fromStep t pc hpc hexit
   | ownStep fromStep count pc u u' u'' hpc hregion hnotExit hstep _ ih =>
       exact FunctionTrace.step fromStep count pc u u' u'' hpc (hsub pc hregion) hnotExit hstep ih
-  | inlineStep fromStep used count ib functionInstance childFunctionInstance u uResume u'' htransfer _ ih =>
+  | inlineStep fromStep used count ib program functionInstance childFunctionInstance u uResume u''
+      htransfer _ ih =>
       -- ih : FunctionTrace outer exit (fromStep + used + 1) count uResume u''
       have outFt : FunctionTrace outer exit (fromStep + used) (count + 1) htransfer.sExit u'' :=
         FunctionTrace.step (fromStep + used) count htransfer.childExitPc
@@ -424,7 +491,33 @@ theorem ScopedTrace.toFunctionTrace_within {own outer exit : BitVec 64 → Prop}
         hcompose ib.child fromStep used (count + 1) u htransfer.sExit u'' htransfer.body outFt
       have harith : used + 1 + count = used + (count + 1) := by omega
       rw [harith]; exact bodyFt
-  | callStep fromStep used count cs functionInstance callee u uResume u'' htransfer _ ih =>
+  | inlineCallStep fromStep childUsed calleeUsed count boundary program functionInstance
+      childFunctionInstance callee u uResume u'' htransfer _ ih =>
+      have retFt : FunctionTrace outer exit
+          (fromStep + childUsed + 1 + calleeUsed) (count + 1) htransfer.call.sRet u'' :=
+        FunctionTrace.step (fromStep + childUsed + 1 + calleeUsed) count
+          htransfer.call.retPc htransfer.call.sRet uResume u'' htransfer.call.atRet
+          (hsub _ htransfer.call.retInRegion) htransfer.call.retNotExit
+          htransfer.call.doReturn ih
+      have calleeFt : FunctionTrace outer exit (fromStep + childUsed + 1)
+          (calleeUsed + (count + 1)) htransfer.call.sCall u'' :=
+        hcompose boundary.call.callee (fromStep + childUsed + 1) calleeUsed (count + 1)
+          htransfer.call.sCall htransfer.call.sRet u'' htransfer.call.body retFt
+      have callFt : FunctionTrace outer exit (fromStep + childUsed)
+          (calleeUsed + (count + 1) + 1) htransfer.sCallSite u'' :=
+        FunctionTrace.step (fromStep + childUsed) (calleeUsed + (count + 1))
+          htransfer.call.callPc htransfer.sCallSite htransfer.call.sCall u''
+          htransfer.call.atCall (hsub _ htransfer.call.callInRegion)
+          htransfer.call.callNotExit htransfer.call.doCall calleeFt
+      have bodyFt : FunctionTrace outer exit fromStep
+          (childUsed + (calleeUsed + (count + 1) + 1)) u u'' :=
+        hcompose boundary.inline.child fromStep childUsed
+          (calleeUsed + (count + 1) + 1) u htransfer.sCallSite u'' htransfer.body callFt
+      have harith : childUsed + 1 + calleeUsed + 1 + count =
+          childUsed + (calleeUsed + (count + 1) + 1) := by omega
+      rw [harith]
+      exact bodyFt
+  | callStep fromStep used count cs program functionInstance callee u uResume u'' htransfer _ ih =>
       -- ih : FunctionTrace outer exit (fromStep + 1 + used + 1) count uResume u''
       have retFt : FunctionTrace outer exit (fromStep + 1 + used) (count + 1) htransfer.sRet u'' :=
         FunctionTrace.step (fromStep + 1 + used) count htransfer.retPc

@@ -52,6 +52,8 @@ readable list rather than a claim. -/
 
 /-- Two adjacent units of one parent, and the crossing edge between them. -/
 structure SequentialCut where
+  /-- The complete generated program whose edge inventory validates the cut. -/
+  program : Program
   /-- The unit whose region contains both segments. -/
   parent : FunctionInstance
   /-- The segment control leaves. -/
@@ -83,7 +85,7 @@ structure Valid (c : SequentialCut) : Prop where
   /-- The first segment is a declared child of the parent. -/
   childListed : c.first.id ∈ c.parent.children
   /-- The crossing edge is one of the parent's recorded edges. -/
-  crossIsRealEdge : c.cross ∈ c.parent.edges
+  crossIsRealEdge : programContainsEdge c.program c.cross = true
   /-- The edge leaves from inside the first segment. -/
   crossLeavesFirst : c.first.containsAddress c.cross.source = true
   /-- …and lands outside it. -/
@@ -100,7 +102,7 @@ structure Valid (c : SequentialCut) : Prop where
 /-- A checked cut presents a valid inline boundary. This is the only place the cut's fields are
 converted into the constructor's premise. -/
 theorem firstBoundary_validFor {c : SequentialCut} (h : c.Valid) :
-    c.firstBoundary.validFor c.parent c.first := by
+    c.firstBoundary.validFor c.program c.parent c.first := by
   refine ⟨rfl, h.childListed, ?_, ?_⟩
   · intro e he
     simp [firstBoundary] at he
@@ -144,11 +146,12 @@ theorem ScopedTrace.spliceSegment {own exit : BitVec 64 → Prop}
     (hResumeInRegion : own resumePc)
     (hrest : ScopedTrace own exit childSummary (fromStep + used + 1) count sResume s'') :
     ScopedTrace own exit childSummary fromStep (used + 1 + count) s s'' :=
-  ScopedTrace.inlineStep fromStep used count c.firstBoundary c.parent c.first s sResume s''
+  ScopedTrace.inlineStep fromStep used count c.firstBoundary c.program c.parent c.first
+    s sResume s''
     { valid := SequentialCut.firstBoundary_validFor hcut
       entryPc := entryPc
       atEntry := hAtEntry
-      entryIsChildEntry := hEntryIsSegmentEntry
+      entryAccepted := Or.inl hEntryIsSegmentEntry
       entryInRegion := hEntryInRegion
       entryNotExit := hEntryNotExit
       sExit := sExit
@@ -321,8 +324,10 @@ theorem scopedTrace_of_empty_own {exit : BitVec 64 → Prop}
   cases h with
   | exitAt _ _ _ _ _ => exact ⟨rfl, rfl⟩
   | ownStep _ _ _ _ _ _ _ hregion _ _ _ => exact hregion.elim
-  | inlineStep _ _ _ _ _ _ _ _ _ htransfer _ => exact htransfer.entryInRegion.elim
-  | callStep _ _ _ _ _ _ _ _ _ htransfer _ => exact htransfer.callInRegion.elim
+  | inlineStep _ _ _ _ _ _ _ _ _ _ htransfer _ => exact htransfer.entryInRegion.elim
+  | inlineCallStep _ _ _ _ _ _ _ _ _ _ _ _ htransfer _ =>
+      exact htransfer.entryInRegion.elim
+  | callStep _ _ _ _ _ _ _ _ _ _ htransfer _ => exact htransfer.callInRegion.elim
 
 /--
 **No derived combinator ends a `ScopedTrace` on a child summary.**
@@ -362,9 +367,10 @@ mode a "the shape looks right" argument misses.
 -/
 theorem inlineTransfer_needs_outgoing_edge {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
-    {ib : InlineBoundary} {parent child : FunctionInstance} {a used : Nat} {s s' : State}
+    {ib : InlineBoundary} {program : Program} {parent child : FunctionInstance}
+    {a used : Nat} {s s' : State}
     (hEmpty : ib.exits = #[])
-    (h : InlineTransfer own exit childSummary ib parent child a used s s') : False := by
+    (h : InlineTransfer own exit childSummary ib program parent child a used s s') : False := by
   have hmem := h.exitEdgeMem
   rw [hEmpty] at hmem
   simp at hmem

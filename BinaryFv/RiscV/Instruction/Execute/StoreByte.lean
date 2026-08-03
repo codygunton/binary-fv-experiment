@@ -38,7 +38,58 @@ theorem extractLsb_full_byte (x : BitVec 8) : Sail.BitVec.extractLsb x 7 0 = x :
   unfold Sail.BitVec.extractLsb
   bv_decide
 
+/-- A one-byte generated memory write has exactly one sparse-memory insertion as its effect. -/
+theorem writeBytes_byte_run (state : State) (address : Nat) (value : BitVec 8) :
+    Runs (PreSail.writeBytes (n := 1) address value) state
+      { state with mem := state.mem.insert address value } true := by
+  unfold PreSail.writeBytes
+  let updated : State := { state with mem := state.mem.insert address value }
+  have write : Runs (PreSail.writeByte address value) state updated () :=
+    writeByte_run state address value
+  have finish : Runs (pure true) updated updated true := rfl
+  have bound : Runs (PreSail.writeByte address value >>= fun _ => pure true)
+      state updated true := Runs.bind write finish
+  simpa [List.ofFn_succ, updated] using bound
+
 /-! ## Aligned byte store -/
+
+/-- Under the configured Machine-mode, Bare-translation, pointer-masking-disabled setup, a store
+effective address is exactly its base register plus its signed offset. -/
+theorem get_transformed_data_addr_machine_store_run (state : State) (rs : regidx) (width : Nat)
+    (base offset mstatusBits mseccfgBits : BitVec 64)
+    (baseRead : Runs (rX_bits rs) state state base)
+    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
+    (privilegeRead : state.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled) :
+    Runs (get_transformed_data_addr rs offset (Store Data) width) state state
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) := by
+  have address : Runs (ext_data_get_addr rs offset (Store Data) width) state state
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) := by
+    unfold ext_data_get_addr
+    exact Runs.bind baseRead rfl
+  unfold get_transformed_data_addr
+  refine Runs.bind address ?_
+  have transformed : Runs (transform_effective_address (virtaddr.Virtaddr (base + offset))
+      (Store Data)) state state (virtaddr.Virtaddr (base + offset)) := by
+    have machineEq : (Privilege.Machine == Privilege.Machine) = true := rfl
+    have bareEq : (SATPMode.Bare == SATPMode.Bare) = true := rfl
+    have pointerMaskingBase :
+        (Store Data != InstructionFetch ()) = true ∧
+          (Store Data != Load PageTableEntry) = true ∧
+            (Store Data != Store PageTableEntry) = true ∧
+              LeanRV64DExecutable.Functions.xlen = 64 :=
+      ⟨by decide, by decide, by decide, rfl⟩
+    unfold Runs transform_effective_address get_pmlen is_pmm_applicable get_pmm translationMode
+    simp [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get, EStateM.pure,
+      EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable, MonadState.get,
+      MonadStateOf.get, getThe, mstatusRead, privilegeRead, mseccfgRead, mprvZero, pmmDisabled,
+      pointerMaskingBase, machineEq, bareEq, effectivePrivilege, pm_transform_PA]
+    change zero_extend (Sail.BitVec.extractLsb (base + offset) 63 0) = base + offset
+    unfold zero_extend Sail.BitVec.zeroExtend
+    rw [BitVec.zeroExtend_eq_setWidth, BitVec.setWidth_eq, extractLsb_full]
+  exact Runs.bind transformed rfl
 
 theorem vmem_write_addr_byte_run (s s' : State) (dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 1))
@@ -123,7 +174,7 @@ theorem vmem_write_byte_run (s s' : State) (rs1 : regidx) (offset dstBits mstatu
 /-! ## Aligned byte store instruction -/
 
 theorem execute_STORE_byte_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 12)
-    (dstBits mstatusBits : BitVec 64) (dataBits : BitVec (8 * 1))
+    (dstBits mstatusBits dataBits : BitVec 64)
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
     (privRead : s.regs.get? cur_privilege = some .Machine)
     (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
@@ -134,7 +185,8 @@ theorem execute_STORE_byte_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 1
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 1 false)
         s s none)
     (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 1) s s false)
-    (hwrite : Runs (PreSail.writeBytes dstBits.toNat dataBits) s s' true) :
+    (hwrite : Runs (PreSail.writeBytes (n := 1) dstBits.toNat
+      (Sail.BitVec.extractLsb dataBits 7 0)) s s' true) :
     Runs (execute_STORE imm rs2 rs1 1) s s' (.Retire_Success ()) := by
   unfold execute_STORE
   refine Runs.bind (assert_true_run s _) ?_
@@ -146,8 +198,7 @@ theorem execute_STORE_byte_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 1
   case hw =>
     change Runs (PreSail.writeBytes dstBits.toNat
       (BitVec.setWidth 8 (Sail.BitVec.extractLsb dataBits 7 0))) s s' true
-    rw [extractLsb_full_byte, BitVec.setWidth_eq]
-    exact hwrite
+    simpa [BitVec.setWidth_eq] using hwrite
   exact run_pure s' _
 
 end BinaryFv.RiscV

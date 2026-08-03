@@ -228,13 +228,13 @@ theorem vmem_write_dword_run (s s' : State) (rs1 : regidx) (offset dstBits mstat
 
 /-! ## Aligned double-word store instruction -/
 
-theorem execute_STORE_dword_run (s s' : State) (rs2 rs1 : regidx)
+theorem execute_STORE_dword_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 12)
     (dstBits mstatusBits : BitVec 64) (dataBits : BitVec (8 * 8))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
     (privRead : s.regs.get? cur_privilege = some .Machine)
     (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
     (dataReg : Runs (rX_bits rs2) s s dataBits)
-    (addrReg : Runs (get_transformed_data_addr rs1 (sign_extend (m := 64) 0#12) (Store Data) 8) s s
+    (addrReg : Runs (get_transformed_data_addr rs1 (sign_extend (m := 64) imm) (Store Data) 8) s s
       (.Ext_DataAddr_OK (virtaddr.Virtaddr dstBits)))
     (aligned : is_aligned_vaddr (virtaddr.Virtaddr dstBits) 8 = true)
     (physAccess :
@@ -242,13 +242,13 @@ theorem execute_STORE_dword_run (s s' : State) (rs2 rs1 : regidx)
         s s none)
     (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 8) s s false)
     (hwrite : Runs (PreSail.writeBytes dstBits.toNat dataBits) s s' true) :
-    Runs (execute_STORE 0#12 rs2 rs1 8) s s' (.Retire_Success ()) := by
+    Runs (execute_STORE imm rs2 rs1 8) s s' (.Retire_Success ()) := by
   unfold execute_STORE
   refine Runs.bind (assert_true_run s _) ?_
   refine Runs.bind dataReg ?_
   refine Runs.bind (run_pure s _) ?_
   refine Runs.bind
-    (vmem_write_dword_run s s' rs1 (sign_extend (m := 64) 0#12) dstBits mstatusBits _
+    (vmem_write_dword_run s s' rs1 (sign_extend (m := 64) imm) dstBits mstatusBits _
       mstatusRead privRead mprvZero addrReg aligned physAccess noMMIO ?hw) ?_
   case hw =>
     change Runs (PreSail.writeBytes dstBits.toNat

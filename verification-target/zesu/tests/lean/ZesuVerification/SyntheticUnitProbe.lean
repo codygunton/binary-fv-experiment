@@ -197,9 +197,10 @@ back into the parent. The head carries all 29 edges of the function, and none of
 a chain split's successor unit never returns to its predecessor. -/
 
 abbrev childToParentEdgesB : Bool :=
-  allocHead.edges.any fun e =>
-    allocTail.containsAddress e.source && !allocTail.containsAddress e.target &&
-      allocHead.containsAddress e.target
+  splitProgram.functionInstances.any fun owner =>
+    owner.edges.any fun e =>
+      allocTail.containsAddress e.source && !allocTail.containsAddress e.target &&
+        allocHead.containsAddress e.target
 
 theorem no_child_to_parent_edge : childToParentEdgesB = false := by native_decide
 
@@ -207,13 +208,17 @@ theorem no_child_to_parent_edge : childToParentEdgesB = false := by native_decid
 only hold with an `exits` array that has no members — and `InlineTransfer.exitEdgeMem` then has no
 witness, which is exactly `ScopedTrace.inlineStep` being dead for this pair. -/
 theorem inline_exits_have_no_witness (ib : InlineBoundary)
-    (h : ib.validFor allocHead allocTail) (e : DirectEdge) (he : e ∈ ib.exits) : False := by
+    (h : ib.validFor splitProgram allocHead allocTail) (e : DirectEdge)
+    (he : e ∈ ib.exits) : False := by
   obtain ⟨-, -, -, hex⟩ := h
   obtain ⟨hmem, hsrc, htgt, hptgt⟩ := hex e he
-  obtain ⟨i, hi, hget⟩ := Array.mem_iff_getElem.mp hmem
+  obtain ⟨i, hi, hcontains⟩ := Array.any_eq_true.mp hmem
+  have hedgeMem : e ∈ splitProgram.functionInstances[i].edges := by
+    rwa [← Array.contains_iff_mem]
+  obtain ⟨j, hj, hget⟩ := Array.mem_iff_getElem.mp hedgeMem
   have : childToParentEdgesB = true := by
     unfold childToParentEdgesB
-    refine Array.any_eq_true.mpr ⟨i, hi, ?_⟩
+    refine Array.any_eq_true.mpr ⟨i, hi, Array.any_eq_true.mpr ⟨j, hj, ?_⟩⟩
     rw [hget]
     simp [hsrc, htgt, hptgt]
   rw [no_child_to_parent_edge] at this
@@ -228,7 +233,7 @@ So the boundary's data-level check is satisfiable for a mid-function split. -/
 abbrev probeCallSite : CallSite :=
   { source := 66124, callee := tailId, calleeEntry := 66204, returnPc := 66128 }
 
-theorem probeCallSite_valid : probeCallSite.validFor allocHead allocTail := by
+theorem probeCallSite_valid : probeCallSite.validFor splitProgram allocHead allocTail := by
   refine ⟨rfl, rfl, rfl, ?_, ?_, by native_decide, by native_decide⟩ <;> native_decide
 
 /-! ## 7. Positive control: the **nested hole** shape passes every structural clause
@@ -295,12 +300,13 @@ abbrev holeBoundary : InlineBoundary :=
 /-- **Every clause of `InlineBoundary.validFor` holds for a synthetic nested hole**, exits included.
 This is the clause that is `false` 127/127 times on the real artifact and `false` for the chain
 split; here it is satisfied by construction. -/
-theorem holeBoundary_valid : holeBoundary.validFor allocWhole allocHole := by
+theorem holeBoundary_valid : holeBoundary.validFor holeProgram allocWhole allocHole := by
   refine ⟨rfl, by native_decide, ?_, ?_⟩
   · intro e he
     have : e = ⟨66196, 66212⟩ := by simpa using he
     subst this
-    exact ⟨by native_decide, by native_decide, by native_decide, by native_decide⟩
+    exact ⟨by native_decide, by native_decide, by native_decide, by native_decide,
+      Or.inr ⟨⟨66196, 66212⟩, by simp, rfl⟩⟩
   · intro e he
     have : e = ⟨66220, 66204⟩ := by simpa using he
     subst this
@@ -357,12 +363,14 @@ theorem fragmented_geometry : ProgramGeometry fragmentedProgram :=
 
 /-- The boundary is still fully valid against the fragmented parent, so `inlineStep` remains
 available after the interior is shed. -/
-theorem holeBoundary_valid_fragmented : holeBoundary.validFor fragmentedParent allocHole := by
+theorem holeBoundary_valid_fragmented :
+    holeBoundary.validFor fragmentedProgram fragmentedParent allocHole := by
   refine ⟨rfl, by native_decide, ?_, ?_⟩
   · intro e he
     have : e = ⟨66196, 66212⟩ := by simpa using he
     subst this
-    exact ⟨by native_decide, by native_decide, by native_decide, by native_decide⟩
+    exact ⟨by native_decide, by native_decide, by native_decide, by native_decide,
+      Or.inr ⟨⟨66196, 66212⟩, by simp, rfl⟩⟩
   · intro e he
     have : e = ⟨66220, 66204⟩ := by simpa using he
     subst this

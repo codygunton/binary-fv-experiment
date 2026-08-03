@@ -13,12 +13,14 @@ the runner-facing retirement of that `ret` is already handled by `SentinelAssemb
 namespace BinaryFv.Zesu.MachineExecution
 
 open BinaryFv BinaryFv.Binary BinaryFv.RiscV
+open BinaryFv.Binary.Elfling BinaryFv.RiscV.Elfling
 open BinaryFv.Zesu.Contracts
 open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
+open BinaryFv.Zesu.Elflings.Generated
 open PreSail LeanRV64DExecutable.Functions Register
 
 set_option maxRecDepth 100000
-set_option maxHeartbeats 800000
+set_option maxHeartbeats 2000000
 
 def rawErrorAfterAuipc (state : State) (retired : BitVec 64) : State :=
   tryStepControlFlowAfterRetired
@@ -77,20 +79,6 @@ theorem rawErrorAfterLoad_x10 (state : State) (retired : BitVec 64) (value : Nat
     (rawErrorAfterLoad state retired value).regs.get? x10 = some (BitVec.ofNat 64 value) := by
   simp [rawErrorAfterLoad, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
     coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-
-theorem status_memory_matches_leBytes (model : DecoderGlobalsModel) (state : State)
-    (represented : Word32LERep state Elflings.canonicalDecoderGlobalsLayout.status
-      model.status.code) :
-    ∀ (index : Nat) (bound : index <
-        (BinaryFv.RiscV.Sep.leBytes 4 (BitVec.ofNat 32 model.status.code)).length),
-      state.mem.get? (Elflings.canonicalDecoderGlobalsLayout.status + index) =
-        some (BinaryFv.RiscV.Sep.leBytes 4 (BitVec.ofNat 32 model.status.code))[index] := by
-  intro index bound
-  have indexBound : index < 4 := by simpa [BinaryFv.RiscV.Sep.leBytes_length] using bound
-  have source := represented index indexBound
-  have indexCases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 := by omega
-  rcases indexCases with rfl | rfl | rfl | rfl <;> cases model.status <;>
-    simpa [BinaryFv.RiscV.Sep.leBytes, DecodeStatus.code] using source
 
 theorem decodeStatus_extend_value (status : DecodeStatus) :
     extend_value false (BitVec.ofNat 32 status.code) = BitVec.ofNat 64 status.code := by
@@ -154,12 +142,11 @@ theorem raw_error_auipc_step (fromStep : Nat) (state : State)
     notExpected execute hartRead inhibitRead configRead (by decide) (by decide) retiredRead
 
 /-- The signed word load at `0x13784` reads the represented decoder status and reaches the `ret`. -/
-theorem raw_error_load_step (fromStep : Nat) (state : State) (model : DecoderGlobalsModel)
-    (sourcePre : (contractRawError canonicalContractParams.env canonicalContractParams.globals).pre
-      model state)
+theorem raw_error_load_step (fromStep : Nat) (state : State) (status : DecodeStatus)
+    (represented : Word32LERep state Elflings.canonicalDecoderGlobalsLayout.status status.code)
     (machine : RawErrorMachinePre state) (firstRetired : BitVec 64) :
     ∃ retired, Runs (try_step (fromStep + 1) false) (rawErrorAfterAuipc state firstRetired)
-      (rawErrorAfterLoad (rawErrorAfterAuipc state firstRetired) retired model.status.code) false := by
+      (rawErrorAfterLoad (rawErrorAfterAuipc state firstRetired) retired status.code) false := by
   let afterAuipc := rawErrorAfterAuipc state firstRetired
   let pc := BitVec.ofNat 64 0x13784
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement afterAuipc) pc
@@ -172,7 +159,7 @@ theorem raw_error_load_step (fromStep : Nat) (state : State) (model : DecoderGlo
       firstCode (machine.instructions 0x13784 (by decide))
   obtain ⟨hartRead, privilege, satpRead, midelegRead, mieRead, mipRead, pmpcfgRead,
     pmpaddrRead, inhibitRead, configRead, elpRead, misaCase⟩ := firstPlatform.normal
-  obtain ⟨mstatusBits, mstatusRead⟩ := machine.mstatus
+  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := machine.mstatus
   obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := machine.mseccfg
   obtain ⟨retired, retiredRead⟩ := firstPlatform.retired
   have atPc : afterAuipc.regs.get? PC = some pc := by
@@ -223,52 +210,60 @@ theorem raw_error_load_step (fromStep : Nat) (state : State) (model : DecoderGlo
       (BitVec.ofNat 64 0x4215780) (sign_extend (m := 64) 0x8a4#12) mstatusBits mseccfgBits
       (rX_bits_run_x10 executeState _ baseStored)
       ((platformPreserved_mstatus executeAgree).trans mstatusRead)
-      ((executeAgree cur_privilege (by simp [platformPreserved])).trans privilege)
-      machine.mstatus.choose_spec.2
+      ((executeAgree cur_privilege (by simp [platformPreserved])).trans
+        (machine.instructions 0x13784 (by decide)).normal.2.1)
+      mprvZero
       ((platformPreserved_mseccfg executeAgree).trans mseccfgRead) pmmDisabled
   have loadAllowed : LoadPmaAllows executeState
       (BitVec.ofNat 64 Elflings.canonicalDecoderGlobalsLayout.status) 4 :=
     loadPmaAllows_of_agree executeAgree machine.statusLoad
   have physicalAccess := phys_access_check_machine_load_allowed executeState
     (BitVec.ofNat 64 Elflings.canonicalDecoderGlobalsLayout.status) 4
-    (fetchPmpDisabled_of_agree executeAgree
-      (machine.instructions 0x13784 (by decide)).pmaAllows |>.1)
+    (fetchPmpDisabled_of_agree (agree_stepPremiseState afterAuipc pc)
+      (fetchPmpDisabled_of_normal firstPlatform.normal))
     loadAllowed (by native_decide)
   have noMMIO : Runs (within_mmio_readable
       (physaddr.Physaddr (BitVec.ofNat 64 Elflings.canonicalDecoderGlobalsLayout.status)) 4)
       executeState executeState false :=
-    fetchMemoryNoMMIO_of_state_layout_excluded _ _
-      ⟨fetch_mmio_address_excluded_of_before_layout _ (by decide) (by decide),
-        (platformPreserved_htifBase executeAgree).trans
-          (machine.instructions 0x13784 (by decide)).htifRead⟩
+    loadMemoryNoMMIO_of_state_layout_excluded executeState
+      (BitVec.ofNat 64 Elflings.canonicalDecoderGlobalsLayout.status) 4
+      (by simp [LoadMMIOAddressExcluded] <;> native_decide)
+      ((platformPreserved_htifBase executeAgree).trans
+        (machine.instructions 0x13784 (by decide)).htifRead)
   have memoryBytes : ∀ (index : Nat) (bound : index <
-      (BinaryFv.RiscV.Sep.leBytes 4 (BitVec.ofNat 32 model.status.code)).length),
+      (BinaryFv.RiscV.Sep.leBytes 4 (BitVec.ofNat 32 status.code)).length),
       executeState.mem.get?
           ((BitVec.ofNat 64 Elflings.canonicalDecoderGlobalsLayout.status).toNat + index) =
-        some (BinaryFv.RiscV.Sep.leBytes 4 (BitVec.ofNat 32 model.status.code))[index] := by
+        some (BinaryFv.RiscV.Sep.leBytes 4 (BitVec.ofNat 32 status.code))[index] := by
     intro index bound
-    have represented := status_memory_matches_leBytes model state sourcePre.2.2.2 index bound
-    simpa [executeState, pc, afterAuipc, rawErrorAfterAuipc, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick] using represented
+    have executeMemory : executeState.mem = state.mem := rfl
+    rw [executeMemory]
+    have indexBound : index < 4 := by
+      simpa [BinaryFv.RiscV.Sep.leBytes_length] using bound
+    have sourceByte := represented index indexBound
+    have indexCases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 := by omega
+    rcases indexCases with rfl | rfl | rfl | rfl <;> cases status <;>
+    simpa [BinaryFv.RiscV.Sep.leBytes, DecodeStatus.code] using sourceByte
   have memoryRead := vmem_read_word_from_bytes_run executeState (.Regidx 10#5)
     (sign_extend (m := 64) 0x8a4#12)
     (BitVec.ofNat 64 Elflings.canonicalDecoderGlobalsLayout.status) mstatusBits
-    (BitVec.ofNat 32 model.status.code)
+    (BitVec.ofNat 32 status.code)
     ((platformPreserved_mstatus executeAgree).trans mstatusRead)
-    ((executeAgree cur_privilege (by simp [platformPreserved])).trans privilege)
-    machine.mstatus.choose_spec.2 addressCalculation (by native_decide) physicalAccess noMMIO
+    ((executeAgree cur_privilege (by simp [platformPreserved])).trans
+      (machine.instructions 0x13784 (by decide)).normal.2.1)
+    mprvZero addressCalculation (by native_decide) physicalAccess noMMIO
     memoryBytes
   have execute : Runs
       (execute (.LOAD (0x8a4#12, .Regidx 10#5, .Regidx 10#5, false, 4))) executeState
-      { executeState with regs := executeState.regs.insert x10
-          (BitVec.ofNat 64 model.status.code) } (.Retire_Success ()) := by
-    rw [← decodeStatus_extend_value model.status]
-    exact raw_error_load_execute executeState _ (BitVec.ofNat 32 model.status.code) memoryRead
+      { executeState with
+        regs := executeState.regs.insert x10 (BitVec.ofNat 64 status.code) }
+      (.Retire_Success ()) := by
+    rw [← decodeStatus_extend_value status]
+    exact raw_error_load_execute executeState _ (BitVec.ofNat 32 status.code) memoryRead
       (wX_bits_run_x10 executeState _)
   refine ⟨retired, ?_⟩
   exact raw_error_load_try_step (fromStep + 1) afterAuipc pc retired 0 0
-    (BitVec.ofNat 64 model.status.code) fetchPlatform fetchNoMMIO
+    (BitVec.ofNat 64 status.code) fetchPlatform fetchNoMMIO
     (raw_error_load_fetch afterAuipc firstCode) interrupts (by rfl)
     (raw_error_load_decode (tryStepControlFlowAfterIncrement afterAuipc)
       privilegeIncrement mseccfgBits seccfgIncrement)
@@ -276,14 +271,16 @@ theorem raw_error_load_step (fromStep : Nat) (state : State) (model : DecoderGlo
 
 /-- The selected compiled `zesu_raw_error` instance satisfies its source contract by executing its
 two non-return instructions in Sail. -/
-theorem rawErrorInstanceObligation_proved {functionInstance : FunctionInstance}
-    (member : functionInstance ∈ generatedProgram.functionInstances)
+theorem rawErrorInstanceObligation_proved
+    {functionInstance : BinaryFv.Binary.Elfling.FunctionInstance}
+    (member : functionInstance ∈
+      BinaryFv.Zesu.Elflings.Generated.generatedProgram.functionInstances)
     (entry : functionInstance.entryPc = resolvedSymbols.rawError) :
     RawErrorInstanceObligation functionInstance := by
   intro model fromStep state sourcePre machine
   obtain ⟨firstRetired, firstStep⟩ := raw_error_auipc_step fromStep state machine
   obtain ⟨secondRetired, secondStep⟩ :=
-    raw_error_load_step fromStep state model sourcePre machine firstRetired
+    raw_error_load_step fromStep state model.status sourcePre.2.2.2 machine firstRetired
   let afterAuipc := rawErrorAfterAuipc state firstRetired
   let final := rawErrorAfterLoad afterAuipc secondRetired model.status.code
   obtain ⟨entryRegion, loadRegion, exitRegion⟩ :=
@@ -322,7 +319,9 @@ theorem rawErrorInstanceObligation_proved {functionInstance : FunctionInstance}
         canonicalContractParams.globals).meaning model) state final := by
     refine ⟨?_, ?_, ?_, finalAgree,
       rawErrorAfterLoad_retired_present afterAuipc secondRetired model.status.code, rfl, ?_⟩
-    · exact codeIntact_of_mem_eq finalMem sourcePre.2.1
+    · show canonicalContractParams.env.image.fileBytesMatchMemory final.mem
+      rw [finalMem]
+      exact sourcePre.2.1
     · intro address _
       exact congrArg (fun memory => memory.get? address) finalMem
     · intro address _
