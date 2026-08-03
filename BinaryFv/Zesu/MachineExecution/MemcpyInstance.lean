@@ -207,7 +207,7 @@ theorem memcpy_body_satisfies_source_post (args : CopyArgs) (fromStep : Nat) (st
       sourceNat] at equal
     rcases nonoverlap with before | after <;> omega
   obtain ⟨final, run, confined, atExit, copied, _, _, _, _, codeFinal, _, stackPreserved, frame,
-    _⟩ :=
+    sourcePreserved⟩ :=
     memcpy_body (BitVec.ofNat 64 args.destination) (BitVec.ofNat 64 args.source)
       (BitVec.ofNat 64 args.length) returnAddress canonicalContractParams.env.image
       mseccfgBits mstatusBits inhibit counterConfig (copySourceByte args.contents) fromStep state
@@ -244,6 +244,14 @@ theorem memcpy_body_satisfies_source_post (args : CopyArgs) (fromStep : Nat) (st
       (destinationIndexFits index argsBounds), destinationNat,
       copySourceByte_eq args.contents index inBounds] at copiedIndex
     exact copiedIndex
+  have sourceMemoryFinal : MemoryRepresentation.MemoryBytes final args.source args.contents := by
+    intro index inBounds
+    have argsBounds : index < args.length := by simpa [contentsLength] using inBounds
+    have preserved := sourcePreserved index (by rw [lengthNat]; exact argsBounds)
+    rw [windowAddr_toNat (BitVec.ofNat 64 args.source) index
+      (sourceIndexFits index argsBounds), sourceNat] at preserved
+    rw [preserved]
+    exact sourceMemory index inBounds
   have generatedTrace : FunctionTrace
       (functionInstanceExecutionPcs generatedProgram functionInstance_memcpy)
       (functionInstanceExitPred functionInstance_memcpy)
@@ -271,6 +279,7 @@ theorem memcpy_body_satisfies_source_post (args : CopyArgs) (fromStep : Nat) (st
   · refine ⟨?_, noAllocation, writesOnly, ?_⟩
     · simpa [DecoderEnvironment.CodeIntact, canonicalContractParams,
         canonicalEnvironment] using codeFinal
+    · exact sourceMemoryFinal
     · simpa [meaningCopy] using destinationMemory
 
 /-- The emitted `memcpy` instance satisfies its compiled contract. Every owned instruction is

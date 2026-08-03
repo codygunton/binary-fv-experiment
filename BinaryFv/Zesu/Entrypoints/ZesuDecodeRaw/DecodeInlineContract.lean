@@ -135,6 +135,16 @@ theorem DecoderDataAccess.mono {args : DecoderMachineArgs} {before after : State
   store state address width afterAgree allowed :=
     access.store state address width (Agree.trans agree afterAgree) allowed
 
+/-- A child that reads a subset of the parent's readable bytes inherits the same concrete machine
+access behavior. Writable bytes are program-wide and therefore unchanged. -/
+theorem DecoderDataAccess.narrow {outer inner : DecoderMachineArgs} {state : State}
+    (subset : ∀ address, DecoderReadableByte inner address → DecoderReadableByte outer address)
+    (access : DecoderDataAccess outer state) : DecoderDataAccess inner state where
+  load next address width agree allowed := access.load next address width agree ⟨allowed.1, by
+    intro index bound
+    exact subset _ (allowed.2 index bound)⟩
+  store := access.store
+
 /-- Machine configuration needed to execute either compiled inline phase. Fetch is restricted to
 the generated `decode` PCs; data access is restricted to the concrete image/input/runtime regions.
 These premises are transportable machine facts, not an assumption that the decoder succeeds. -/
@@ -183,6 +193,21 @@ theorem DecoderMachinePre.restrict {outer inner : BitVec 64 → Prop} {args : De
   mseccfg := machine.mseccfg
   platform := fun next pc agree atPc pcIn => machine.platform next pc agree atPc (subset pc pcIn)
   dataAccess := machine.dataAccess
+  landingPad := machine.landingPad
+
+/-- Specialize a machine premise to a child input whose readable region is contained in the
+parent's. This changes no execution or platform fact. -/
+theorem DecoderMachinePre.narrowInput {instructionPcs : BitVec 64 → Prop}
+    {outer inner : DecoderMachineArgs} {state : State}
+    (subset : ∀ address, DecoderReadableByte inner address → DecoderReadableByte outer address)
+    (machine : DecoderMachinePre instructionPcs outer state) :
+    DecoderMachinePre instructionPcs inner state where
+  normal := machine.normal
+  retiredCounter := machine.retiredCounter
+  mstatus := machine.mstatus
+  mseccfg := machine.mseccfg
+  platform := machine.platform
+  dataAccess := machine.dataAccess.narrow subset
   landingPad := machine.landingPad
 
 /-- The shared machine premise specialized to the generated inlined-`decode` instruction set. -/

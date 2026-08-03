@@ -149,6 +149,7 @@ def postCopy (env : DecoderEnvironment) (args : CopyArgs)
   -- is the one place the ownership clause needed no new ABI fact at all. The stack frame the compiled
   -- `memcpy` uses is permitted by `WritesOnlyWithinOwnRecord`, not by the destination range.
   env.WritesOnlyWithinOwnRecord args.destination args.length before after ∧
+  MemoryBytes after args.source args.contents ∧
   match result with
   | .ok contents => MemoryBytes after args.destination contents
   | .error _ => False

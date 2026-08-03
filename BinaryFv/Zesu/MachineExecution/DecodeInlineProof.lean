@@ -943,14 +943,15 @@ theorem decodeInline_first_decodeRaw_run
     contract args.firstRawArgs (fromStep + 6) childEntry childPre
   exact ⟨childEntry, childUsed, childExit, parentTrace, bound, childTrace, childLink, childPost⟩
 
-def decodeRawReturnAfter (state : State) (retired : BitVec 64) : State :=
+def decodeRawReturnAfter (returnPc : BitVec 64) (state : State) (retired : BitVec 64) : State :=
   tryStepControlFlowAfterRetired
     (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10530) (BitVec.ofNat 64 0x10320))
-    (BitVec.ofNat 64 0x10320) retired
+      (BitVec.ofNat 64 0x10530) returnPc)
+    returnPc retired
 
-theorem decodeRawReturnAfter_agree (state : State) (retired : BitVec 64) :
-    Agree decoderPreserved state (decodeRawReturnAfter state retired) := by
+theorem decodeRawReturnAfter_agree (returnPc : BitVec 64) (state : State)
+    (retired : BitVec 64) :
+    Agree decoderPreserved state (decodeRawReturnAfter returnPc state retired) := by
   intro register preserved
   have notPc : register ≠ PC := by
     intro equal
@@ -973,31 +974,32 @@ theorem decodeRawReturnAfter_agree (state : State) (retired : BitVec 64) :
     Std.ExtDHashMap.get?_insert, Ne.symm notPc, Ne.symm notNextPc, Ne.symm notRetired,
     Ne.symm notIncrement]
 
-theorem decodeRawReturnAfter_mem (state : State) (retired : BitVec 64) :
-    (decodeRawReturnAfter state retired).mem = state.mem := rfl
+theorem decodeRawReturnAfter_mem (returnPc : BitVec 64) (state : State) (retired : BitVec 64) :
+    (decodeRawReturnAfter returnPc state retired).mem = state.mem := rfl
 
-theorem decodeRawReturnAfter_retired (state : State) (retired : BitVec 64) :
-    RetiredCounterPresent (decodeRawReturnAfter state retired) := by
+theorem decodeRawReturnAfter_retired (returnPc : BitVec 64) (state : State)
+    (retired : BitVec 64) :
+    RetiredCounterPresent (decodeRawReturnAfter returnPc state retired) := by
   refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
   simp [decodeRawReturnAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
 
 /-- Execute the selected emitted child's real `ret` after its strengthened contract establishes the
 link and machine frame required by that instruction. -/
-theorem decodeRaw_first_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArgs)
-    (childEntry childExit : State) {childFrom childUsed : Nat}
+theorem decodeRaw_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArgs)
+    (returnPc : BitVec 64) (childEntry childExit : State) {childFrom childUsed : Nat}
     (childPre : compiledDecodeRawContract.binding.entry rawArgs childEntry)
     (childTrace : EnteredFunctionTrace
       (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
       (functionInstanceExitPred functionInstance_ssz_raw_decodeRaw)
       (Contracts.functionInstanceEntryWord functionInstance_ssz_raw_decodeRaw)
       childFrom childUsed childEntry childExit)
-    (entryLink : childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x10320))
+    (entryLink : childEntry.regs.get? x1 = some returnPc)
     (childPost : compiledDecodeRawContract.binding.exit rawArgs
       (compiledDecodeRawContract.spec.meaning rawArgs) childEntry childExit) :
     ∃ retired,
-      Runs (try_step stepNo false) childExit (decodeRawReturnAfter childExit retired) false ∧
-      (decodeRawReturnAfter childExit retired).regs.get? PC =
-        some (BitVec.ofNat 64 0x10320) := by
+      Runs (try_step stepNo false) childExit
+        (decodeRawReturnAfter returnPc childExit retired) false ∧
+      (decodeRawReturnAfter returnPc childExit retired).regs.get? PC = some returnPc := by
   rcases childPost with ⟨sourcePost, childFrame, childRetired⟩
   rcases sourcePost with ⟨-, code, -, -⟩
   have machineAtExit : DecoderMachinePre
@@ -1047,9 +1049,9 @@ theorem decodeRaw_first_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArg
     rw [Std.ExtDHashMap.get?_insert]
     simp
     decide
-  have exitLink : childExit.regs.get? x1 = some (BitVec.ofNat 64 0x10320) :=
+  have exitLink : childExit.regs.get? x1 = some returnPc :=
     (childFrame x1 (by simp [decodeRawCallerPreserved, platformPreserved])).trans entryLink
-  have sourceRead : executeState.regs.get? x1 = some (BitVec.ofNat 64 0x10320) := by
+  have sourceRead : executeState.regs.get? x1 = some returnPc := by
     simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, exitLink]
   obtain ⟨misaBits, misaRead, -⟩ : ∃ misaBits,
@@ -1061,7 +1063,7 @@ theorem decodeRaw_first_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArg
   have zca := currentlyEnabledZca_run_atStepPremise childExit (BitVec.ofNat 64 0x10530)
     misaBits misaRead
   have retRun := tryStepRetRetires stepNo childExit (BitVec.ofNat 64 0x10530) retired
-    (.Regidx 1#5) (BitVec.ofNat 64 0x10534) (BitVec.ofNat 64 0x10320) inhibit config
+    (.Regidx 1#5) (BitVec.ofNat 64 0x10534) returnPc inhibit config
     0x67#8 0x80#8 0x00#8 0x00#8 (_get_Misa_C misaBits == 1#1) fetch noMMIO fetchBytes
     interrupts (by unfold BaseInstructionEncoding; decide) decode notExpected helpElp
     (get_next_pc_run executeState _ linkRead) (rX_bits_run_x1 executeState _ sourceRead)
@@ -1236,9 +1238,9 @@ theorem decodeInline_first_call_transfer
   obtain ⟨childUsed, childExit, bound, childTrace, childPost⟩ :=
     contract args.firstRawArgs (fromStep + 6) childEntry childPre
   obtain ⟨returnRetired, returnRun, atResume⟩ :=
-    decodeRaw_first_return_step (fromStep + 6 + childUsed) args.firstRawArgs childEntry
-      childExit childPre childTrace childLink childPost
-  let resumed := decodeRawReturnAfter childExit returnRetired
+    decodeRaw_return_step (fromStep + 6 + childUsed) args.firstRawArgs
+      (BitVec.ofNat 64 0x10320) childEntry childExit childPre childTrace childLink childPost
+  let resumed := decodeRawReturnAfter (BitVec.ofNat 64 0x10320) childExit returnRetired
   rcases childPost with ⟨sourcePost, childFrame, childCounter⟩
   rcases sourcePost with ⟨childInputMemory, childCode, childWrites, childStatus, childOutcome⟩
   have resumedStatus : BinaryFv.Zesu.MemoryRepresentation.ResultStatusLERep resumed
@@ -1253,7 +1255,8 @@ theorem decodeInline_first_call_transfer
   have resumedAgree : Agree decoderPreserved state resumed :=
     Agree.trans childAgree
       (Agree.trans childFrameDecoder (by
-        simpa [resumed] using (decodeRawReturnAfter_agree childExit returnRetired)))
+        simpa [resumed] using
+          (decodeRawReturnAfter_agree (BitVec.ofNat 64 0x10320) childExit returnRetired)))
   have exitStack : childExit.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
     (childFrame x2 (by simp [decodeRawCallerPreserved])).trans childStack
   have resumedStack : resumed.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
@@ -1264,7 +1267,8 @@ theorem decodeInline_first_call_transfer
       Contracts.canonicalContractParams.repRawV4 (Contracts.meaningDecodeRaw args.bytes)
       state resumed := by
     apply canonicalPostEntry_of_mem_eq args.firstRawArgs (Contracts.meaningDecodeRaw args.bytes)
-      childMemory.symm (decodeRawReturnAfter_mem childExit returnRetired)
+      childMemory.symm
+        (decodeRawReturnAfter_mem (BitVec.ofNat 64 0x10320) childExit returnRetired)
     exact ⟨childInputMemory, childCode, childWrites, childStatus, childOutcome⟩
   have transfer : CallTransfer
       (functionInstanceExecutionPcs generatedProgram
@@ -1284,7 +1288,8 @@ theorem decodeInline_first_call_transfer
     · simpa [resumed] using atResume
   exact ⟨beforeCall, childUsed, resumed, parentTrace, parentPrefix, bound, ⟨transfer⟩, resumedStatus,
     resumedCode, resumedAgree, by simpa [resumed] using
-      decodeRawReturnAfter_retired childExit returnRetired, resumedStack, resumedPost⟩
+      decodeRawReturnAfter_retired (BitVec.ofNat 64 0x10320) childExit returnRetired,
+      resumedStack, resumedPost⟩
 
 /-! ## First result dispatch -/
 
@@ -3962,6 +3967,385 @@ theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
   · simp [beforeCall, sAllocator, sResult, sTail, afterRegisterWrite,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, stackAtBranch]
+
+def decodeInlineRetryCallAfter (state : State) (retired : BitVec 64) : State :=
+  tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x103d8) (BitVec.ofNat 64 0x10444) x1
+      (BitVec.ofNat 64 0x103dc))
+    (BitVec.ofNat 64 0x10444) retired
+
+/-- Execute the second emitted `decodeRaw` call at `0x103d8` through Sail. -/
+theorem decodeInline_retry_decodeRaw_call_step (stepNo : Nat) (args : DecodeInlineArgs)
+    (baseState state : State) (pre : DecodeInlinePre args baseState)
+    (agree : Agree decoderPreserved baseState state) (memory : state.mem = baseState.mem)
+    (retiredPresent : RetiredCounterPresent state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103d8))
+    (callBase : state.regs.get? x1 = some (BitVec.ofNat 64 0x103d4))
+    (resultPointer : state.regs.get? x10 = some (BitVec.ofNat 64 (args.stackBase + 0x6b0)))
+    (allocatorPointer : state.regs.get? x11 = some (BitVec.ofNat 64 args.allocatorBase))
+    (inputPointer : state.regs.get? x12 = some (BitVec.ofNat 64 (args.inputBase + 4)))
+    (inputLength : state.regs.get? x13 = some (BitVec.ofNat 64 (args.bytes.size - 4))) :
+    ∃ retired,
+      Runs (try_step stepNo false) state (decodeInlineRetryCallAfter state retired) false ∧
+      (decodeInlineRetryCallAfter state retired).regs.get? PC =
+        some (BitVec.ofNat 64 0x10444) ∧
+      (decodeInlineRetryCallAfter state retired).regs.get? x1 =
+        some (BitVec.ofNat 64 0x103dc) ∧
+      (decodeInlineRetryCallAfter state retired).regs.get? x10 =
+        some (BitVec.ofNat 64 (args.stackBase + 0x6b0)) ∧
+      (decodeInlineRetryCallAfter state retired).regs.get? x11 =
+        some (BitVec.ofNat 64 args.allocatorBase) ∧
+      (decodeInlineRetryCallAfter state retired).regs.get? x12 =
+        some (BitVec.ofNat 64 (args.inputBase + 4)) ∧
+      (decodeInlineRetryCallAfter state retired).regs.get? x13 =
+        some (BitVec.ofNat 64 (args.bytes.size - 4)) ∧
+      Agree decoderPreserved state (decodeInlineRetryCallAfter state retired) ∧
+      (decodeInlineRetryCallAfter state retired).mem = state.mem ∧
+      RetiredCounterPresent (decodeInlineRetryCallAfter state retired) := by
+  have pcIn := decodeInline_owned_in_execution_region (0x103d8, 0x070080e7)
+    (by simp [decodeInlineOwnedInstructionWords])
+  have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
+    rw [memory]
+    exact hasExactErePrefix_programImage_of_codeIntact pre.code
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x103d8) 0xe7#8 0x80#8 0x00#8 0x07#8 :=
+    fetchFileInstruction state 0x103d8 0xe7 0x80 0x00 0x07 code
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform_of_decoderAgree pre.machine agree
+    (BitVec.ofNat 64 0x103d8) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  obtain ⟨retired, inhibit, config, hartRead, inhibitRead, configRead, notInhibited,
+    machineEnabled, retiredRead⟩ :=
+    decoderStepCounters_of_decoderAgree pre.machine.normal agree retiredPresent
+  have wordEq : fetchWord 0xe7#8 0x80#8 0x00#8 0x07#8 =
+      (0x070080e7 : BitVec 32) := by decide
+  have decode : Runs (ext_decode (fetchWord 0xe7#8 0x80#8 0x00#8 0x07#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.JALR (0x070#12, .Regidx 1#5, .Regidx 1#5)) := by
+    rw [wordEq]
+    decode_run
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x103d8)
+  have executeAgree : Agree decoderPreserved baseState executeState :=
+    Agree.trans agree (Agree.weaken (fun _ preserved => preserved.2)
+      (agree_stepPremiseState state (BitVec.ofNat 64 0x103d8)))
+  have helpElp : Runs (update_elp_state (.Regidx 1#5)) executeState executeState () :=
+    pre.machine.landingPad executeState (.Regidx 1#5) trivial executeAgree
+  have linkRead : executeState.regs.get? nextPC = some (BitVec.ofNat 64 0x103dc) := by
+    change ((tryStepControlFlowAfterIncrement state).regs.insert nextPC
+      (Sail.BitVec.addInt (BitVec.ofNat 64 0x103d8) 4)).get? nextPC = _
+    rw [Std.ExtDHashMap.get?_insert]
+    simp
+    decide
+  have sourceRead : executeState.regs.get? x1 = some (BitVec.ofNat 64 0x103d4) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, callBase]
+  have targetEq : Sail.BitVec.update
+      ((BitVec.ofNat 64 0x103d4) + sign_extend (m := 64) (0x070#12)) 0 0#1 =
+      BitVec.ofNat 64 0x10444 := by decide
+  have hwrite : Runs (wX_bits (.Regidx 1#5) (BitVec.ofNat 64 0x103dc))
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
+        (BitVec.ofNat 64 0x103d8) (BitVec.ofNat 64 0x10444))
+      (callLinkState (tryStepControlFlowAfterIncrement state)
+        (BitVec.ofNat 64 0x103d8) (BitVec.ofNat 64 0x10444) x1
+        (BitVec.ofNat 64 0x103dc)) () := wX_bits_run_x1 _ _
+  obtain ⟨misaBits, misaRead, -⟩ : ∃ misaBits,
+      baseState.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
+    have normalMisa := pre.machine.normal.2.2.2.2.2.2.2.2.2.2.2
+    match misaRead : baseState.regs.get? misa with
+    | none => simp [misaRead] at normalMisa
+    | some misaBits => exact ⟨misaBits, rfl, by simpa [misaRead] using normalMisa⟩
+  have misaState : state.regs.get? misa = some misaBits :=
+    (agree misa (by simp [decoderPreserved, platformPreserved])).trans misaRead
+  have zca := currentlyEnabledZca_run_atStepPremise state (BitVec.ofNat 64 0x103d8)
+    misaBits misaState
+  have callRun := tryStepJalrCallRetires stepNo state
+    (BitVec.ofNat 64 0x103d8) (BitVec.ofNat 64 0x103d4) retired
+    (BitVec.ofNat 64 0x103dc) (0x070#12) (.Regidx 1#5) (.Regidx 1#5) x1
+    (BitVec.ofNat 64 0x103dc) inhibit config 0xe7#8 0x80#8 0x00#8 0x07#8
+    (_get_Misa_C misaBits == 1#1)
+    (by simpa [targetEq] using hwrite) (by decide) (by decide) (by decide) (by decide)
+    fetch noMMIO fetchBytes interrupts (by unfold BaseInstructionEncoding; decide) decode
+    notExpected helpElp (get_next_pc_run executeState _ linkRead)
+    (rX_bits_run_x1 executeState _ sourceRead) (by decide) zca hartRead inhibitRead configRead
+    notInhibited machineEnabled retiredRead
+  have run : Runs (try_step stepNo false) state
+      (decodeInlineRetryCallAfter state retired) false := by
+    simpa [decodeInlineRetryCallAfter, targetEq] using callRun
+  have pcAfter : (decodeInlineRetryCallAfter state retired).regs.get? PC =
+      some (BitVec.ofNat 64 0x10444) := by
+    simp [decodeInlineRetryCallAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+  have linkAfter : (decodeInlineRetryCallAfter state retired).regs.get? x1 =
+      some (BitVec.ofNat 64 0x103dc) := by
+    apply tryStepControlFlowAfterRetired_preserves_register
+    · exact callLinkState_link _ _ _ x1 (BitVec.ofNat 64 0x103dc)
+    · decide
+    · decide
+  have callAgree : Agree decoderPreserved state (decodeInlineRetryCallAfter state retired) := by
+    apply jalrCallAfterRetired_agree_of
+    all_goals simp [decoderPreserved, platformPreserved]
+  have preserveGeneral (register : Register) (notLink : register ≠ x1)
+      (notPc : register ≠ PC) (notNextPc : register ≠ nextPC)
+      (notIncrement : register ≠ minstret_increment) (notRetired : register ≠ minstret) :
+      (decodeInlineRetryCallAfter state retired).regs.get? register = state.regs.get? register := by
+    apply jalrCallAfterRetired_agree_of
+    · simpa using Ne.symm notLink
+    · simpa using Ne.symm notPc
+    · simpa using Ne.symm notNextPc
+    · simpa using Ne.symm notIncrement
+    · simpa using Ne.symm notRetired
+  refine ⟨retired, run, pcAfter, linkAfter,
+    (preserveGeneral x10 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
+      resultPointer,
+    (preserveGeneral x11 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
+      allocatorPointer,
+    (preserveGeneral x12 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
+      inputPointer,
+    (preserveGeneral x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
+      inputLength,
+    callAgree, jalrCallAfterRetired_mem _ _ _ _ _ _, ?_⟩
+  exact ⟨Sail.BitVec.addInt retired 1, by
+    simp [decodeInlineRetryCallAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick]⟩
+
+def decodeRawRetryCallTransfer (fromStep used : Nat) (args : DecodeInlineArgs)
+    (phase : args.phase = .retryAfterInvalidSsz)
+    (exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true)
+    (beforeCall childEntry childExit resumed : State)
+    (atCall : beforeCall.regs.get? PC = some (BitVec.ofNat 64 0x103d8))
+    (callRun : Runs (try_step fromStep false) beforeCall childEntry false)
+    (childPre : compiledDecodeRawContract.binding.entry args.retryRawArgs childEntry)
+    (bound : used ≤ compiledDecodeRawContract.binding.stepBound args.retryRawArgs)
+    (childTrace : EnteredFunctionTrace
+      (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
+      (functionInstanceExitPred functionInstance_ssz_raw_decodeRaw)
+      (Contracts.functionInstanceEntryWord functionInstance_ssz_raw_decodeRaw)
+      (fromStep + 1) used childEntry childExit)
+    (childPost : compiledDecodeRawContract.binding.exit args.retryRawArgs
+      (compiledDecodeRawContract.spec.meaning args.retryRawArgs) childEntry childExit)
+    (returnRun : Runs (try_step (fromStep + 1 + used) false) childExit resumed false)
+    (atResume : resumed.regs.get? PC = some (BitVec.ofNat 64 0x103dc)) :
+    CallTransfer
+      (functionInstanceExecutionPcs generatedProgram
+        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+      (DecodeInlineExit args) Level3ChildSummary decodeRawRetryCall generatedProgram
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
+      functionInstance_ssz_raw_decodeRaw fromStep used beforeCall resumed := by
+  have atRet : childExit.regs.get? PC = some (BitVec.ofNat 64 0x10530) := by
+    obtain ⟨retPc, atRet, retIsExit⟩ := childTrace.trace.final_at_exit
+    have retPcEq : retPc = BitVec.ofNat 64 0x10530 := by
+      apply BitVec.eq_of_toNat_eq
+      simpa [functionInstanceExitPred, FunctionInstance.isExit,
+        functionInstance_ssz_raw_decodeRaw] using retIsExit
+    simpa [retPcEq] using atRet
+  have callInRegion := decodeInline_owned_in_execution_region (0x103d8, 0x070080e7)
+    (by simp [decodeInlineOwnedInstructionWords])
+  have returnInRegion := decodeInline_owned_in_execution_region (0x103dc, 0x02010513)
+    (by simp [decodeInlineOwnedInstructionWords])
+  have retInRegion : functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
+      (BitVec.ofNat 64 0x10530) := by
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  have callNotExit : ¬ DecodeInlineExit args (BitVec.ofNat 64 0x103d8) := by
+    simp [DecodeInlineExit, phase, exactPrefix]
+    decide
+  have retNotExit : ¬ DecodeInlineExit args (BitVec.ofNat 64 0x10530) := by
+    simp [DecodeInlineExit, phase, exactPrefix]
+    decide
+  have body : Level3ChildSummary functionInstance_ssz_raw_decodeRawId
+      (fromStep + 1) used childEntry childExit :=
+    Level3ChildSummary.decodeRaw
+      ⟨rfl, args.retryRawArgs, childPre, bound, childTrace, childPost⟩
+  exact
+    { valid := decodeRawRetryCall_valid
+      callPc := BitVec.ofNat 64 0x103d8
+      atCall := atCall
+      callSource := by decide
+      callInRegion := callInRegion
+      callNotExit := callNotExit
+      sCall := childEntry
+      doCall := callRun
+      calleeEntryPc := BitVec.ofNat 64 0x10444
+      atCalleeEntry := childPre.2.1
+      calleeEntryMatches := by decide
+      sRet := childExit
+      body := body
+      retPc := BitVec.ofNat 64 0x10530
+      atRet := atRet
+      retInRegion := retInRegion
+      retNotExit := retNotExit
+      doReturn := returnRun
+      returnPc := BitVec.ofNat 64 0x103dc
+      atResume := atResume
+      returnMatches := by decide
+      resumeInRegion := returnInRegion }
+
+/-- Consume the second `decodeRaw` contract only after the exact-prefix path has executed the real
+call setup. The child receives the four-byte-stripped input region, then its real `ret` returns to
+`0x103dc`. -/
+theorem decodeInline_retry_call_transfer
+    (contract : CompiledDecodeRawInstanceContract) (fromStep : Nat) (args : DecodeInlineArgs)
+    (state : State) (pre : DecodeInlinePre args state)
+    (phase : args.phase = .retryAfterInvalidSsz)
+    (exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true) :
+    ∃ lengthUsed prefixUsed childUsed beforeCall resumed,
+      lengthUsed ≤ hasExactErePrefixInlineStepBound
+        { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes } ∧
+      prefixUsed ≤ hasExactErePrefixInlineStepBound
+        { phase := .prefixBytes, inputBase := args.inputBase, bytes := args.bytes } ∧
+      childUsed ≤ compiledDecodeRawContract.binding.stepBound args.retryRawArgs ∧
+      ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram
+          functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+        (DecodeInlineExit args) Level3ChildSummary fromStep
+          (11 + lengthUsed + prefixUsed) state beforeCall ∧
+      Nonempty (CallTransfer
+        (functionInstanceExecutionPcs generatedProgram
+          functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+        (DecodeInlineExit args) Level3ChildSummary decodeRawRetryCall generatedProgram
+        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
+        functionInstance_ssz_raw_decodeRaw (fromStep + (11 + lengthUsed + prefixUsed))
+          childUsed beforeCall resumed) ∧
+      Contracts.postEntry Contracts.canonicalContractParams.env args.retryRawArgs
+        Contracts.canonicalContractParams.repRawV4
+        (Contracts.meaningDecodeRaw args.retryRawArgs.bytes) state resumed ∧
+      Agree decoderPreserved state resumed ∧
+      RetiredCounterPresent resumed ∧
+      resumed.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+      Contracts.canonicalContractParams.env.CodeIntact resumed := by
+  obtain ⟨lengthUsed, prefixUsed, beforeCall, lengthBound, prefixBound, parentPrefix, callPc,
+    callBase, resultPointer, allocatorPointer, inputPointer, inputLength, beforeStack,
+    beforeAgree, beforeCounter, beforeCode, beforeMemory⟩ :=
+    decodeInline_retry_before_second_decodeRaw_call fromStep args state pre phase exactPrefix
+  obtain ⟨callRetired, callRun, childPc, childLink, childResult, childAllocator, childInput,
+    childLength, callAgree, callMemory, childCounter⟩ :=
+    decodeInline_retry_decodeRaw_call_step
+      (fromStep + (11 + lengthUsed + prefixUsed)) args state beforeCall pre beforeAgree
+      beforeMemory beforeCounter callPc callBase resultPointer allocatorPointer inputPointer
+      inputLength
+  let childEntry := decodeInlineRetryCallAfter beforeCall callRetired
+  have childAgree : Agree decoderPreserved state childEntry := Agree.trans beforeAgree callAgree
+  have childMemory : childEntry.mem = state.mem := callMemory.trans beforeMemory
+  have childStack : childEntry.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simp [childEntry, decodeInlineRetryCallAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, callLinkState, controlFlowJumpState,
+      tryStepControlFlowAfterIncrement, coreControlFlowNextState, Std.ExtDHashMap.get?_insert,
+      beforeStack]
+  have fourBytes : 4 ≤ args.bytes.size := by
+    rw [Contracts.meaningHasExactErePrefix] at exactPrefix
+    split at exactPrefix <;> simp_all
+  have tailSize : args.retryRawArgs.bytes.size = args.bytes.size - 4 := by
+    simp [DecodeInlineArgs.retryRawArgs, ByteArray.size_extract]
+    omega
+  have childMachineAtParentExtent : DecodeInlineMachinePre args childEntry :=
+    pre.machine.mono childAgree childCounter
+  have readableSubset : ∀ address,
+      DecoderReadableByte (entryMachineArgs args.retryRawArgs) address →
+        DecoderReadableByte args.machineArgs address := by
+    intro address readable
+    rcases readable with image | input | stack | allocator | arena
+    · exact Or.inl image
+    · exact Or.inr (Or.inl ⟨by
+        simpa [entryMachineArgs, DecodeInlineArgs.retryRawArgs, DecodeInlineArgs.machineArgs] using
+          input.1, by
+        simp only [entryMachineArgs, DecodeInlineArgs.retryRawArgs] at input
+        simp only [DecodeInlineArgs.machineArgs]
+        rw [tailSize] at input
+        omega⟩)
+    · exact Or.inr (Or.inr (Or.inl stack))
+    · exact Or.inr (Or.inr (Or.inr (Or.inl allocator)))
+    · exact Or.inr (Or.inr (Or.inr (Or.inr arena)))
+  have childExtentWithinParent : ∀ pc,
+      functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw pc →
+        functionInstanceExecutionPcs generatedProgram
+          functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31 pc := by
+    intro pc pcIn
+    have parentMember :
+        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31 ∈
+          generatedProgram.functionInstances := by
+      apply Array.mem_iff_getElem.mpr
+      exact ⟨3, by native_decide, rfl⟩
+    have childMember : functionInstance_ssz_raw_decodeRaw ∈
+        generatedProgram.functionInstances := by
+      apply Array.mem_iff_getElem.mpr
+      exact ⟨6, by native_decide, rfl⟩
+    have childIsCallee : functionInstance_ssz_raw_decodeRaw ∈
+        BinaryFv.RiscV.Elfling.calleeFunctionInstances generatedProgram
+          functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31 := by
+      apply Array.mem_filter.mpr
+      exact ⟨childMember, by native_decide⟩
+    exact BinaryFv.Zesu.Elflings.Validation.generated_program_geometry.calleeWithinExecution
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
+      parentMember functionInstance_ssz_raw_decodeRaw childIsCallee pc pcIn
+  have childMachine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
+      (entryMachineArgs args.retryRawArgs) childEntry :=
+    (childMachineAtParentExtent.narrowInput readableSubset).restrict childExtentWithinParent
+  have childSourceEntry : Contracts.preEntry Contracts.canonicalContractParams.env
+      args.retryRawArgs childEntry := by
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+    · intro index bound
+      have originalBound : 4 + index < args.bytes.size := by
+        rw [tailSize] at bound
+        omega
+      rw [childMemory]
+      have original := pre.inputMemory (4 + index) originalBound
+      simpa [DecodeInlineArgs.retryRawArgs, Nat.add_assoc,
+        ByteArray.getElem_extract] using original
+    · change Contracts.canonicalContractParams.env.image.fileBytesMatchMemory childEntry.mem
+      rw [childMemory]
+      exact pre.code
+    · simpa [DecodeInlineArgs.retryRawArgs] using childResult
+    · simpa [DecodeInlineArgs.retryRawArgs] using childAllocator
+    · simpa [DecodeInlineArgs.retryRawArgs] using childInput
+    · simpa [DecodeInlineArgs.retryRawArgs, tailSize] using childLength
+  have childPre : compiledDecodeRawContract.binding.entry args.retryRawArgs childEntry :=
+    ⟨childSourceEntry, childPc, childMachine⟩
+  obtain ⟨childUsed, childExit, childBound, childTrace, childPost⟩ :=
+    contract args.retryRawArgs (fromStep + (12 + lengthUsed + prefixUsed)) childEntry childPre
+  obtain ⟨returnRetired, returnRun, atResume⟩ :=
+    decodeRaw_return_step (fromStep + (12 + lengthUsed + prefixUsed + childUsed))
+      args.retryRawArgs (BitVec.ofNat 64 0x103dc) childEntry childExit childPre childTrace
+      childLink childPost
+  let resumed := decodeRawReturnAfter (BitVec.ofNat 64 0x103dc) childExit returnRetired
+  rcases childPost with ⟨sourcePost, childFrame, childExitCounter⟩
+  rcases sourcePost with ⟨childInputMemory, childCode, childWrites, childStatus, childOutcome⟩
+  have childFrameDecoder : Agree decoderPreserved childEntry childExit :=
+    Agree.weaken (fun _ preserved => Or.inl preserved.2) childFrame
+  have resumedAgree : Agree decoderPreserved state resumed := Agree.trans childAgree
+    (Agree.trans childFrameDecoder (by
+      simpa [resumed] using
+        decodeRawReturnAfter_agree (BitVec.ofNat 64 0x103dc) childExit returnRetired))
+  have exitStack : childExit.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
+    (childFrame x2 (by simp [decodeRawCallerPreserved])).trans childStack
+  have resumedStack : resumed.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simp [resumed, decodeRawReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState, Std.ExtDHashMap.get?_insert, exitStack]
+  have resumedPost : Contracts.postEntry Contracts.canonicalContractParams.env args.retryRawArgs
+      Contracts.canonicalContractParams.repRawV4
+      (Contracts.meaningDecodeRaw args.retryRawArgs.bytes) state resumed := by
+    apply canonicalPostEntry_of_mem_eq args.retryRawArgs
+      (Contracts.meaningDecodeRaw args.retryRawArgs.bytes) childMemory.symm
+      (decodeRawReturnAfter_mem (BitVec.ofNat 64 0x103dc) childExit returnRetired)
+    exact ⟨childInputMemory, childCode, childWrites, childStatus, childOutcome⟩
+  have transfer := decodeRawRetryCallTransfer
+    (fromStep + (11 + lengthUsed + prefixUsed)) childUsed args phase exactPrefix beforeCall
+      childEntry childExit resumed callPc (by simpa [childEntry] using callRun) childPre childBound
+      (by simpa only [Nat.add_assoc] using childTrace)
+      ⟨⟨childInputMemory, childCode, childWrites, childStatus, childOutcome⟩,
+        childFrame, childExitCounter⟩
+      (by simpa [resumed, Nat.add_assoc] using returnRun) (by simpa [resumed] using atResume)
+  have resumedCode : Contracts.canonicalContractParams.env.CodeIntact resumed := by
+    simpa [resumed, decodeRawReturnAfter] using childCode
+  exact ⟨lengthUsed, prefixUsed, childUsed, beforeCall, resumed, lengthBound, prefixBound,
+    childBound, parentPrefix, ⟨transfer⟩, resumedPost, resumedAgree,
+    decodeRawReturnAfter_retired (BitVec.ofNat 64 0x103dc) childExit returnRetired,
+    resumedStack, resumedCode⟩
 
 /-- Close the short-input retry arm at the selected `0x10394` exit. The outgoing branch belongs to
 the Level 2 wrapper, so this Level 3 trace stops before executing it. -/
