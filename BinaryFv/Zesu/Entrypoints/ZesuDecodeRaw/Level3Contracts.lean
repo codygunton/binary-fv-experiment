@@ -22,8 +22,10 @@ def entryMachineArgs (args : EntryArgs) : DecoderMachineArgs where
   inputBase := args.base
   bytes := args.bytes
 
-/-- The source `decodeRaw` contract strengthened only with the real emitted entry and configured
-machine premises for this generated body. Its meaning, postcondition, and bound are unchanged. -/
+/-- The source `decodeRaw` contract strengthened with its real emitted entry, configured machine
+premises, and the return frame needed by its caller. The source meaning and bound are unchanged;
+the exit additionally requires preservation of the link/platform registers and a readable retired
+counter so the caller can execute the generated `ret`. -/
 def compiledDecodeRawContract : FunctionInstanceContract
     EntryArgs (Except Contracts.DecodeError BinaryFv.Specs.SSZ.RawV4) :=
   let source := (contractDecodeRaw canonicalContractParams.env
@@ -35,7 +37,10 @@ def compiledDecodeRawContract : FunctionInstanceContract
           DecoderMachinePre
             (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
             (entryMachineArgs args) state
-        exit := source.binding.exit
+        exit := fun args outcome before after =>
+          source.binding.exit args outcome before after ∧
+            Agree platformPreserved before after ∧
+            RetiredCounterPresent after
         stepBound := source.binding.stepBound } }
 
 /-- The unresolved Level 3 condition for the one emitted `decodeRaw` instance. -/
