@@ -373,7 +373,10 @@ theorem hasExactErePrefix_length_segment (fromStep : Nat)
         (functionInstanceExitPred
           functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35)
         fromStep 1 state after ∧
-      Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost args after := by
+      Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost args after ∧
+      Agree Entrypoints.ZesuDecodeRaw.decoderPreserved state after ∧
+      RetiredCounterPresent after ∧
+      after.mem = state.mem := by
   obtain ⟨retired, step⟩ := hasExactErePrefix_length_add_step fromStep args state pre phase
   let result := BitVec.ofNat 64 args.bytes.size +
     BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32 - 4)
@@ -395,19 +398,28 @@ theorem hasExactErePrefix_length_segment (fromStep : Nat)
     · simpa [after, result] using step
     · exact .exitAt (fromStep + 1) after (BitVec.ofNat 64 0x10394) atExit
         Entrypoints.ZesuDecodeRaw.hasExactErePrefixInline_length_exit
-  refine ⟨after, trace, ?_⟩
-  simp only [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost, phase]
-  refine ⟨atExit, ?_, ?_⟩
-  · obtain ⟨constant, -⟩ := pre.preparedConstants phase
-    simpa [after, result, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using constant
-  · have value : result = BitVec.ofNat 64
-        (args.bytes.size + (2 ^ 64 - 2 ^ 32 - 4)) := by
-      simp [result, BitVec.ofNat_add]
-    simpa [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, value]
+  have post : Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost args after := by
+    simp only [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost, phase]
+    refine ⟨atExit, ?_, ?_⟩
+    · obtain ⟨constant, -⟩ := pre.preparedConstants phase
+      simpa [after, result, afterRegisterWrite, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+        Std.ExtDHashMap.get?_insert] using constant
+    · have value : result = BitVec.ofNat 64
+          (args.bytes.size + (2 ^ 64 - 2 ^ 32 - 4)) := by
+        simp [result, BitVec.ofNat_add]
+      simpa [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+        Std.ExtDHashMap.get?_insert, value]
+  have agree : Agree Entrypoints.ZesuDecodeRaw.decoderPreserved state after :=
+    afterRegisterWrite_agree_of
+      (by simp [Entrypoints.ZesuDecodeRaw.decoderPreserved, platformPreserved])
+      (by simp [Entrypoints.ZesuDecodeRaw.decoderPreserved, platformPreserved])
+      (by simp [Entrypoints.ZesuDecodeRaw.decoderPreserved, platformPreserved])
+      (by simp [Entrypoints.ZesuDecodeRaw.decoderPreserved, platformPreserved])
+      (by simp [Entrypoints.ZesuDecodeRaw.decoderPreserved, platformPreserved])
+  exact ⟨after, trace, post, agree,
+    afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10390) retired x12 result, rfl⟩
 
 /-! ## Second child segment: reading and assembling the four-byte prefix -/
 
@@ -1328,7 +1340,10 @@ theorem hasExactErePrefix_prefix_segment (fromStep : Nat)
         (functionInstanceExitPred
           functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35)
         fromStep 10 state after ∧
-      Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost args after := by
+      Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost args after ∧
+      Agree Entrypoints.ZesuDecodeRaw.decoderPreserved state after ∧
+      RetiredCounterPresent after ∧
+      after.mem = state.mem := by
   have bound0 : 0 < args.bytes.size := by have := pre.prefixExists phase; omega
   have bound1 : 1 < args.bytes.size := by have := pre.prefixExists phase; omega
   have bound2 : 2 < args.bytes.size := by have := pre.prefixExists phase; omega
@@ -1471,6 +1486,12 @@ theorem hasExactErePrefix_prefix_segment (fromStep : Nat)
     (afterRegisterWrite_retired_present s8 (BitVec.ofNat 64 0x103b8) r9 x15 highShift3)
     pc9 highShift2 highShift3 high2At9 high3At9
   let s10 := afterRegisterWrite s9 (BitVec.ofNat 64 0x103bc) r10 x14 highHalf
+  have agree10Platform : Agree platformPreserved state s10 :=
+    Agree.trans agree9 (afterRegisterWrite_agree (by simp [platformPreserved]))
+  have agree10 : Agree Entrypoints.ZesuDecodeRaw.decoderPreserved state s10 :=
+    Agree.weaken (fun _ preserved => preserved.2) agree10Platform
+  have counter10 := afterRegisterWrite_retired_present s9 (BitVec.ofNat 64 0x103bc)
+    r10 x14 highHalf
   have pc10 : s10.regs.get? PC = some (BitVec.ofNat 64 0x103c0) := by
     simpa [s10] using afterRegisterWrite_pc s9 (BitVec.ofNat 64 0x103bc) r10 x14 highHalf
   have trace : FunctionTrace
@@ -1512,7 +1533,7 @@ theorem hasExactErePrefix_prefix_segment (fromStep : Nat)
       (by simpa [s10, highHalf] using run10) ?_
     exact .exitAt (fromStep + 10) s10 (BitVec.ofNat 64 0x103c0) pc10
       Entrypoints.ZesuDecodeRaw.hasExactErePrefixInline_prefix_exit
-  refine ⟨s10, trace, ?_⟩
+  refine ⟨s10, trace, ?_, agree10, counter10, rfl⟩
   simp only [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost, phase]
   refine ⟨pc10, ?_, ?_, ?_⟩
   · have stored : s10.regs.get? x10 = some lowHalf := by
@@ -1583,12 +1604,12 @@ theorem hasExactErePrefixInlineContract_proved :
   intro args fromStep before pre
   cases phaseEq : args.phase with
   | lengthGate =>
-      obtain ⟨after, trace, post⟩ :=
+      obtain ⟨after, trace, post, -, -, -⟩ :=
         hasExactErePrefix_length_segment fromStep args before pre phaseEq
       exact ⟨1, after, by simp [Entrypoints.ZesuDecodeRaw.hasExactErePrefixInlineStepBound],
         trace, post⟩
   | prefixBytes =>
-      obtain ⟨after, trace, post⟩ :=
+      obtain ⟨after, trace, post, -, -, -⟩ :=
         hasExactErePrefix_prefix_segment fromStep args before pre phaseEq
       exact ⟨10, after, by simp [Entrypoints.ZesuDecodeRaw.hasExactErePrefixInlineStepBound],
         trace, post⟩

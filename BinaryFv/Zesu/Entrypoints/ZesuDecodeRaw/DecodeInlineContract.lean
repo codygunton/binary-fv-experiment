@@ -237,14 +237,14 @@ instruction and derives the internal result tag from the copied result object. -
 def DecodeInlineRetryPost (args : DecodeInlineArgs)
     (before after : State) : Prop :=
   let result := meaningDecode args.bytes
-  postEntry canonicalContractParams.env args.finalArgs canonicalContractParams.repRawV4
-      result before after ∧
-    if meaningHasExactErePrefix args.bytes then
+  if meaningHasExactErePrefix args.bytes then
+    postEntry canonicalContractParams.env args.finalArgs canonicalContractParams.repRawV4
+        result before after ∧
       after.regs.get? PC = some (BitVec.ofNat 64 0x103f8)
-    else
-      result = .error .invalidSsz ∧
-        (after.regs.get? PC = some (BitVec.ofNat 64 0x10394) ∨
-          after.regs.get? PC = some (BitVec.ofNat 64 0x103c4))
+  else
+    result = .error .invalidSsz ∧
+      (after.regs.get? PC = some (BitVec.ofNat 64 0x10394) ∨
+        after.regs.get? PC = some (BitVec.ofNat 64 0x103c4))
 
 /-- Semantic exit condition selected by the real entry phase. -/
 def DecodeInlinePost (args : DecodeInlineArgs) (before after : State) : Prop :=
@@ -337,7 +337,7 @@ theorem decodeInline_post_at_selected_exit (args : DecodeInlineArgs) (before aft
       cases prefixEq : meaningHasExactErePrefix args.bytes with
       | false =>
           simp only [prefixEq, Bool.false_eq_true, ↓reduceIte] at post
-          rcases post.2.2 with atEarly | atLate
+          rcases post.2 with atEarly | atLate
           · exact ⟨BitVec.ofNat 64 0x10394, atEarly,
               by simp [DecodeInlineExit, phaseEq, prefixEq]⟩
           · exact ⟨BitVec.ofNat 64 0x103c4, atLate,
@@ -372,7 +372,7 @@ theorem decodeInline_post_at_generated_exit (args : DecodeInlineArgs) (before af
       cases prefixEq : meaningHasExactErePrefix args.bytes with
       | false =>
           simp only [prefixEq, Bool.false_eq_true, ↓reduceIte] at post
-          rcases post.2.2 with atEarly | atLate
+          rcases post.2 with atEarly | atLate
           · refine ⟨BitVec.ofNat 64 0x10394, atEarly, ?_⟩
             simp [functionInstanceExitPred, FunctionInstance.isExit,
               functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31]
