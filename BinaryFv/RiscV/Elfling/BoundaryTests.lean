@@ -82,6 +82,19 @@ theorem scopedTrace_inlineStep_composes
   ScopedTrace.inlineStep fromStep used count ib program functionInstance childFunctionInstance
     s sResume s'' htransfer hrest
 
+/-- **A child body does not silently retire its outgoing instruction.** `childBody` consumes exactly
+the child's reported steps and leaves the continuation at the child's final state. The continuation
+must account for the outgoing instruction separately, which is essential for adjacent inline
+segments whose branch may either exit the parent or enter the next child segment. -/
+theorem scopedTrace_childBody_composes
+    {region exit : BitVec 64 → Prop}
+    {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
+    {fromStep used count : Nat} {child : FunctionInstanceId} {s sChild s'' : State}
+    (body : childSummary child fromStep used s sChild)
+    (rest : ScopedTrace region exit childSummary (fromStep + used) count sChild s'') :
+    ScopedTrace region exit childSummary fromStep (used + count) s s'' :=
+  ScopedTrace.childBody fromStep used count child s sChild s'' body rest
+
 /-- **A call that leaves an inline child remains two real transfers.** The child summary stops on the
 call instruction, then `ScopedTrace.inlineCallStep` retires the call, consumes the callee body,
 retires its return, and continues outside the inline child. -/

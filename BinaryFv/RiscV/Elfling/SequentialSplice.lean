@@ -23,11 +23,10 @@ This module builds that out.
   `ScopedTrace.spliceTail` spends the last one and stops on the parent's exit (§2).
 * `ConfinedPrefix` / `SegmentChain` fold a chain of `k` segments into one trace of exactly
   `Σ usedᵢ + k` steps (§3).
-* §4 is the negative half. A tail segment that *owns* the parent's exit pc cannot be spliced, and no
-  derived combinator can repair that: `tailSummarySplice_not_derivable` refutes the uniform lemma,
-  and `inlineTransfer_needs_outgoing_edge` names the structural reason. The price of avoiding the
-  case is stated exactly: leave the parent's exit pcs out of every child.
-* §5 records that the *flat* trace has no such gap — `FunctionTrace.spliceAdjacent` composes
+* §4 handles a tail child body directly. `ScopedTrace.childBody` consumes only the selected summary,
+  so its continuation can stop on the parent's exit without inventing an outgoing edge. The separate
+  `inlineTransfer_needs_outgoing_edge` theorem still records why `InlineTransfer` itself cannot do so.
+* §5 records the corresponding flat composition — `FunctionTrace.spliceAdjacent` composes
   adjacent regions even when the second owns the exit — so the deficiency is specific to
   `ScopedTrace`.
 
@@ -307,54 +306,19 @@ theorem toScopedTrace {a : Nat} {s s' : State} {lens : List Nat} {pc : BitVec 64
 
 end SegmentChain
 
-/-! ## 4. What is genuinely missing, and its price
+/-! ## 4. A final child body may stop on the parent's selected exit -/
 
-The chain above needs the parent to own the address it finally stops on. If instead the *last
-segment* owns the parent's exit pc, nothing composes — and no derived combinator can fix it. -/
-
-/--
-**With nothing owned, only the empty trace exists.** Each of `ownStep`, `inlineStep` and `callStep`
-carries an in-region obligation at the pc it starts from, so an empty ownership predicate leaves only
-`exitAt`. This is the lever the non-derivability result pulls.
--/
-theorem scopedTrace_of_empty_own {exit : BitVec 64 → Prop}
+/-- Consume a selected child body and stop at the parent's exit without retiring an additional
+instruction. This is deliberately distinct from `InlineTransfer`: the child summary already ends at
+the instruction the parent may either execute or recognize as its outcome-selected exit. -/
+theorem ScopedTrace.spliceChildTail {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
-    {a n : Nat} {s s' : State}
-    (h : ScopedTrace (fun _ => False) exit childSummary a n s s') : n = 0 ∧ s' = s := by
-  cases h with
-  | exitAt _ _ _ _ _ => exact ⟨rfl, rfl⟩
-  | ownStep _ _ _ _ _ _ _ hregion _ _ _ => exact hregion.elim
-  | inlineStep _ _ _ _ _ _ _ _ _ _ htransfer _ => exact htransfer.entryInRegion.elim
-  | inlineCallStep _ _ _ _ _ _ _ _ _ _ _ _ htransfer _ =>
-      exact htransfer.entryInRegion.elim
-  | callStep _ _ _ _ _ _ _ _ _ _ htransfer _ => exact htransfer.callInRegion.elim
-
-/--
-**No derived combinator ends a `ScopedTrace` on a child summary.**
-
-The tail case needs exactly this shape: a summary carrying the parent from a state to one sitting on
-a parent exit, turned into a parent trace of the summary's own length. The statement is refuted, so
-the case is not a matter of finding the right proof — there is no such lemma. (The counterexample
-takes an empty ownership predicate, which is legitimate precisely because a *uniform* combinator
-would have to hold there too.)
--/
-theorem tailSummarySplice_not_derivable :
-    ¬ ∀ (own exit : BitVec 64 → Prop)
-        (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
-        (child : FunctionInstanceId) (a used : Nat) (s s' : State) (x : BitVec 64),
-        0 < used → childSummary child a used s s' → s'.regs.get? PC = some x → exit x →
-          ScopedTrace own exit childSummary a used s s' := by
-  intro H
-  classical
-  let s0 : State := { initialState with regs := initialState.regs.insert PC (0 : BitVec 64) }
-  let s1 : State := { initialState with regs := initialState.regs.insert PC (4 : BitVec 64) }
-  let cs : FunctionInstanceId → Nat → Nat → State → State → Prop :=
-    fun _ _ used before after => used = 1 ∧ before = s0 ∧ after = s1
-  have hPc : s1.regs.get? PC = some (4 : BitVec 64) := by
-    simp [s1]
-  have h := H (fun _ => False) (fun _ => True) cs default 0 1 s0 s1 (4 : BitVec 64)
-    Nat.one_pos ⟨rfl, rfl, rfl⟩ hPc trivial
-  exact absurd (scopedTrace_of_empty_own h).1 (by decide)
+    {child : FunctionInstanceId} {a used : Nat} {s s' : State} {pc : BitVec 64}
+    (body : childSummary child a used s s')
+    (atExit : s'.regs.get? PC = some pc) (isExit : exit pc) :
+    ScopedTrace own exit childSummary a used s s' := by
+  simpa using ScopedTrace.childBody a used 0 child s s' s' body
+    (ScopedTrace.exitAt (a + used) s' pc atExit isExit)
 
 /--
 **The structural reason, in the boundary data.** `InlineTransfer` pins its stopping pc to the source
@@ -375,11 +339,10 @@ theorem inlineTransfer_needs_outgoing_edge {own exit : BitVec 64 → Prop}
   rw [hEmpty] at hmem
   simp at hmem
 
-/-! ## 5. The flat trace has no such gap
+/-! ## 5. Flat adjacent-region composition
 
 `FunctionTrace` composes adjacent regions even when the second owns the exit, using only
-`append_within`, `step` and `mono_region`. So the missing piece is specific to `ScopedTrace`: it is
-the *local, summary-spending* obligation that cannot end on a child, not the closed run. -/
+`append_within`, `step` and `mono_region`. -/
 
 /--
 **Adjacent regions compose at the flat level.** `first` runs confined to its own addresses and stops

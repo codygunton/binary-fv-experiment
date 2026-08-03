@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeInlineContract
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Boundaries
 import BinaryFv.Zesu.MachineExecution.MemcpyInstance
 
 /-!

@@ -325,9 +325,10 @@ admitted child/callee summaries at checked boundaries.
 
 `childSummary child fromStep used before after` stands for "the function instance `child`, entered at step
 `fromStep`, retired exactly `used` machine steps carrying `before` to `after`". The two splice
-constructors consume such a summary through a `CallTransfer`/`InlineTransfer`, so the summary's `used`
-count and the boundary's transfer instructions together determine the step arithmetic — a proof can
-neither drop a transfer nor invent a body length.
+constructors consume such a summary either as a child body whose outgoing instruction remains for
+the parent, or through a `CallTransfer`/`InlineTransfer` that also retires the boundary instruction.
+The summary's `used` count and any separately retired transfer instructions determine the step
+arithmetic, so a proof can neither drop a transfer nor invent a body length.
 
 With no children admitted, only `exitAt` and `ownStep` are available and the definition collapses to
 `FunctionTrace` (see `ScopedTrace.toFunctionTrace_of_noChildren`).
@@ -348,6 +349,13 @@ inductive ScopedTrace (region exit : BitVec 64 → Prop)
       (hstep : Runs (try_step fromStep false) s s' false)
       (hrest : ScopedTrace region exit childSummary (fromStep + 1) count s' s'') :
       ScopedTrace region exit childSummary fromStep (count + 1) s s''
+  /-- Consume only a selected child's body summary. The resulting state remains at the child's
+  outgoing instruction; the continuation must execute or stop at that instruction explicitly.
+  This is the exact shape needed when one inlined segment falls through directly into another. -/
+  | childBody (fromStep used count : Nat) (child : FunctionInstanceId) (s sChild s'' : State)
+      (hbody : childSummary child fromStep used s sChild)
+      (hrest : ScopedTrace region exit childSummary (fromStep + used) count sChild s'') :
+      ScopedTrace region exit childSummary fromStep (used + count) s s''
   /-- Consume an inlined child's summary through a checked `InlineBoundary`. The child body runs from
   the child's entry pc and stops on a checked outgoing edge; the parent then retires that outgoing edge
   and resumes at its target. Accounts `used` body steps plus the one outgoing-edge step. -/
@@ -446,6 +454,9 @@ theorem ScopedTrace.mapSummary
   | exitAt fromStep state pc atPc atExit => exact .exitAt fromStep state pc atPc atExit
   | ownStep fromStep count pc state next final atPc inRegion notExit step _ rest =>
       exact .ownStep fromStep count pc state next final atPc inRegion notExit step rest
+  | childBody fromStep used count child state childFinal final body _ rest =>
+      exact .childBody fromStep used count child state childFinal final
+        (embed _ _ _ _ _ body) rest
   | inlineStep fromStep used count boundary program functionInstance childFunctionInstance
       state resumed final transfer _ rest =>
       exact .inlineStep fromStep used count boundary program functionInstance
@@ -558,6 +569,8 @@ theorem ScopedTrace.toFunctionTrace_within {own outer exit : BitVec 64 → Prop}
   | exitAt fromStep t pc hpc hexit => exact FunctionTrace.exitAt fromStep t pc hpc hexit
   | ownStep fromStep count pc u u' u'' hpc hregion hnotExit hstep _ ih =>
       exact FunctionTrace.step fromStep count pc u u' u'' hpc (hsub pc hregion) hnotExit hstep ih
+  | childBody fromStep used count child u uChild u'' hbody _ ih =>
+      exact hcompose child fromStep used count u uChild u'' hbody ih
   | inlineStep fromStep used count ib program functionInstance childFunctionInstance u uResume u''
       htransfer _ ih =>
       -- ih : FunctionTrace outer exit (fromStep + used + 1) count uResume u''

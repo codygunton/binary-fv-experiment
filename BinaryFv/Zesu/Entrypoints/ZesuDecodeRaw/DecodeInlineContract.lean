@@ -160,7 +160,8 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   machine : DecodeInlineMachinePre args state
   retryReason : args.phase = .retryAfterInvalidSsz →
     meaningDecodeRaw args.bytes = .error .invalidSsz ∧
-      state.regs.get? x10 = some (BitVec.ofNat 64 2)
+      state.regs.get? x10 = some (BitVec.ofNat 64 2) ∧
+      state.regs.get? x11 = some (BitVec.ofNat 64 2)
 
 /-- The first `decodeRaw` outcome at its temporary result object, together with the exact boundary
 state consumed next by either the wrapper branch or the proved `memcpy` call. -/
@@ -203,6 +204,22 @@ def DecodeInlinePost (args : DecodeInlineArgs) (before after : State) : Prop :=
   | .first => DecodeInlineFirstPost args before after
   | .retryAfterInvalidSsz => DecodeInlineRetryPost args before after
 
+/-- The stopping PCs for this particular source-level outcome. Generated exit inventories contain
+every branch with an edge leaving the instance, but `decode` may legitimately take such a branch's
+other edge and continue. Selecting exits from the source result prevents a trace from stopping at an
+intermediate mixed branch while preserving the exact generated exit PC at the real outcome. -/
+def DecodeInlineExit (args : DecodeInlineArgs) (pc : BitVec 64) : Prop :=
+  match args.phase with
+  | .first =>
+      match meaningDecodeRaw args.bytes with
+      | .ok _ => pc = BitVec.ofNat 64 0x10338
+      | .error _ => pc = BitVec.ofNat 64 0x10324
+  | .retryAfterInvalidSsz =>
+      if meaningHasExactErePrefix args.bytes then
+        pc = BitVec.ofNat 64 0x103f8
+      else
+        pc = BitVec.ofNat 64 0x10394 ∨ pc = BitVec.ofNat 64 0x103c4
+
 /-- A conservative bound inherited from the source `decode` contract. It covers two raw attempts,
 the prefix check, and the fixed wrapper-local instruction sequences. -/
 def decodeInlineStepBound (args : DecodeInlineArgs) : Nat :=
@@ -238,14 +255,49 @@ theorem decodeInline_first_entry_not_exit :
   simp [functionInstanceExitPred, FunctionInstance.isExit,
     functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31]
 
-/-- The retry entry is itself an outgoing branch source. A zero-step child body here is real: the
-enclosing checked transfer still retires that branch before returning to wrapper-owned code. -/
+/-- The retry entry is a generated outgoing branch source because one edge leaves `decode`. It is
+not an outcome-selected exit: the retry precondition fixes both compared tags to `2`, so execution
+must take the fallthrough edge into the retry body. -/
 theorem decodeInline_retry_entry_is_exit :
     functionInstanceExitPred
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
       (BitVec.ofNat 64 0x10380) := by
   simp [functionInstanceExitPred, FunctionInstance.isExit,
     functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31]
+
+theorem decodeInline_retry_entry_not_selected_exit (args : DecodeInlineArgs)
+    (phase : args.phase = .retryAfterInvalidSsz) :
+    ¬ DecodeInlineExit args (BitVec.ofNat 64 0x10380) := by
+  simp [DecodeInlineExit, phase]
+
+/-- Every semantic postcondition stops at the outcome-selected exit. -/
+theorem decodeInline_post_at_selected_exit (args : DecodeInlineArgs) (before after : State)
+    (post : DecodeInlinePost args before after) :
+    ∃ pc, after.regs.get? PC = some pc ∧ DecodeInlineExit args pc := by
+  cases phaseEq : args.phase with
+  | first =>
+      simp only [DecodeInlinePost, phaseEq, DecodeInlineFirstPost] at post
+      cases resultEq : meaningDecodeRaw args.bytes with
+      | ok value =>
+          rw [resultEq] at post
+          exact ⟨BitVec.ofNat 64 0x10338, post.2.1, by simp [DecodeInlineExit, phaseEq, resultEq]⟩
+      | error error =>
+          rw [resultEq] at post
+          exact ⟨BitVec.ofNat 64 0x10324, post.2.1, by simp [DecodeInlineExit, phaseEq, resultEq]⟩
+  | retryAfterInvalidSsz =>
+      simp only [DecodeInlinePost, phaseEq, DecodeInlineRetryPost] at post
+      cases prefixEq : meaningHasExactErePrefix args.bytes with
+      | false =>
+          simp only [prefixEq, Bool.false_eq_true, ↓reduceIte] at post
+          rcases post.2.2 with atEarly | atLate
+          · exact ⟨BitVec.ofNat 64 0x10394, atEarly,
+              by simp [DecodeInlineExit, phaseEq, prefixEq]⟩
+          · exact ⟨BitVec.ofNat 64 0x103c4, atLate,
+              by simp [DecodeInlineExit, phaseEq, prefixEq]⟩
+      | true =>
+          simp only [prefixEq, ↓reduceIte] at post
+          exact ⟨BitVec.ofNat 64 0x103f8, post.2.1,
+            by simp [DecodeInlineExit, phaseEq, prefixEq]⟩
 
 /-- Every semantic postcondition stops at one of the generated outgoing instructions. -/
 theorem decodeInline_post_at_generated_exit (args : DecodeInlineArgs) (before after : State)
@@ -300,8 +352,7 @@ def DecodeInlineContract
           ScopedTrace
             (functionInstanceExecutionPcs generatedProgram
               functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
-            (functionInstanceExitPred
-              functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+            (DecodeInlineExit args)
             childSummary
             fromStep used before after ∧
           DecodeInlinePost args before after
@@ -318,8 +369,7 @@ def decodeChildSummary
         ScopedTrace
           (functionInstanceExecutionPcs generatedProgram
             functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
-          (functionInstanceExitPred
-            functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+          (DecodeInlineExit args)
           level3ChildSummary
           fromStep used before after ∧
         DecodeInlinePost args before after

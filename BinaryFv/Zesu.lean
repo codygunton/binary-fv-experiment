@@ -25,6 +25,7 @@ import BinaryFv.Zesu.MachineExecution.Level2AllocatorProof
 import BinaryFv.Zesu.MachineExecution.MemcpyProof
 import BinaryFv.Zesu.MachineExecution.HasExactErePrefixProof
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Boundaries
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Contracts
 import BinaryFv.Zesu.MemoryRepresentation.RawV4

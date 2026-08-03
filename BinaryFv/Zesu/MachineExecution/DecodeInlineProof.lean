@@ -14,6 +14,8 @@ namespace BinaryFv.Zesu.MachineExecution
 open BinaryFv BinaryFv.Binary.Elfling BinaryFv.RiscV BinaryFv.RiscV.Elfling
 open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 open BinaryFv.Zesu.Elflings.Generated
+open PreSail LeanRV64DExecutable.Functions Register
+open RegisterWriteStep
 
 def decodeInlineImageWord? (address : Nat) : Option Nat := do
   let byte0 ← Artifacts.programImage.readByte? address
@@ -68,5 +70,56 @@ theorem decodeInline_owned_in_execution_region :
     apply functionInstanceExecutionPcs_iff_ranges.mpr
     apply RegionPcs.iff_inRanges.mpr
     native_decide
+
+/-! ## First segment: preparing the initial `decodeRaw` call -/
+
+theorem decodeInline_first_result_pointer_step (stepNo : Nat) (args : DecodeInlineArgs)
+    (state : State) (pre : DecodeInlinePre args state) (phase : args.phase = .first) :
+    ∃ retired,
+      Runs (try_step stepNo false) state
+        (afterRegisterWrite state (BitVec.ofNat 64 0x10308) retired x10
+          (iTypeResult .ADDI 0x360#12 (BitVec.ofNat 64 args.stackBase))) false := by
+  have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10308) := by
+    simpa [DecodeInlineArgs.entryPc, phase] using pre.atEntry
+  have pcIn : functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
+      (BitVec.ofNat 64 0x10308) :=
+    decodeInline_owned_in_execution_region (0x10308, 0x36010513)
+      (by simp [decodeInlineOwnedInstructionWords])
+  have code := hasExactErePrefix_programImage_of_codeIntact pre.code
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10308) 0x13#8 0x05#8 0x01#8 0x36#8 :=
+    fetchFileInstruction state 0x10308 0x13 0x05 0x01 0x36 code
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine (Agree.refl state)
+    (BitVec.ofNat 64 0x10308) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  have wordEq : fetchWord 0x13#8 0x05#8 0x01#8 0x36#8 =
+      (0x36010513 : BitVec 32) := by decide
+  have decode : Runs (ext_decode (fetchWord 0x13#8 0x05#8 0x01#8 0x36#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (0x360#12, .Regidx 2#5, .Regidx 10#5, .ADDI)) := by
+    rw [wordEq]
+    decode_run
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x10308)
+  have stackAtExecute : executeState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, pre.stackValue]
+  let result := iTypeResult .ADDI 0x360#12 (BitVec.ofNat 64 args.stackBase)
+  have execute : Runs (execute (.ITYPE (0x360#12, .Regidx 2#5, .Regidx 10#5, .ADDI)))
+      executeState { executeState with regs := executeState.regs.insert x10 result }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0x360#12 (.Regidx 2#5) (.Regidx 10#5) .ADDI) _ _ _
+    exact execute_ITYPE_run executeState _ 0x360#12 (.Regidx 2#5) (.Regidx 10#5) .ADDI
+      (BitVec.ofNat 64 args.stackBase)
+      (rX_bits_run_x2 executeState _ stackAtExecute) (wX_x10_run executeState result)
+  have baseEncoding : BaseInstructionEncoding 0x13#8 := by
+    unfold BaseInstructionEncoding
+    decide
+  exact decoderRegisterWriteStep pre.machine (Agree.refl state) pre.machine.retiredCounter stepNo
+    (BitVec.ofNat 64 0x10308) pcIn atPc 0x13#8 0x05#8 0x01#8 0x36#8
+    (.ITYPE (0x360#12, .Regidx 2#5, .Regidx 10#5, .ADDI)) x10 result fetchBytes
+    baseEncoding decode (by decide) (by decide) (by decide) (by decide) execute
 
 end BinaryFv.Zesu.MachineExecution
