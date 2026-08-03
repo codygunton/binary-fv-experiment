@@ -27,6 +27,11 @@ machine-platform frame, the caller immediately reuses `sp`, `s0`, and `s1`. -/
 def decodeRawCallerPreserved (register : Register) : Prop :=
   platformPreserved register ∨ register = x2 ∨ register = x8 ∨ register = x9
 
+/-- The caller copies the first 832 bytes of the result object on every retry outcome, so the
+compiled child boundary must expose that those bytes are initialized. -/
+def DecodeRawResultPayloadInitialized (args : EntryArgs) (state : State) : Prop :=
+  ∃ contents : ByteArray, contents.size = 832 ∧ MemoryBytes state args.resultBase contents
+
 /-- The source `decodeRaw` contract strengthened with its real emitted entry, configured machine
 premises, and the return frame needed by its caller. The source meaning and bound are unchanged;
 the exit additionally preserves the link/platform registers plus the caller's live `sp`, `s0`, and
@@ -45,7 +50,8 @@ def compiledDecodeRawContract : FunctionInstanceContract
         exit := fun args outcome before after =>
           source.binding.exit args outcome before after ∧
             Agree decodeRawCallerPreserved before after ∧
-            RetiredCounterPresent after
+            RetiredCounterPresent after ∧
+            DecodeRawResultPayloadInitialized args after
         stepBound := source.binding.stepBound } }
 
 /-- The unresolved Level 3 condition for the one emitted `decodeRaw` instance. -/
