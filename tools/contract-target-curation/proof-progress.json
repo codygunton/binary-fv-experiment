@@ -29,7 +29,7 @@
       "parent": "ssz_raw.decode",
       "functions": [
         { "qualified": "ssz_raw.decodeRaw", "displayName": "decodeRaw", "status": "unproved" },
-        { "qualified": "ssz_raw.hasExactErePrefix", "displayName": "hasExactErePrefix", "status": "in_progress" },
+        { "qualified": "ssz_raw.hasExactErePrefix", "displayName": "hasExactErePrefix", "status": "proved", "theorem": "BinaryFv.Zesu.MachineExecution.hasExactErePrefixInlineContract_proved" },
         { "qualified": "memcpy", "displayName": "memcpy", "status": "proved", "theorem": "BinaryFv.Zesu.MachineExecution.compiledMemcpyInstanceContract_proved" }
       ]
     }
