@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.HasExactErePrefixProof
+import BinaryFv.Zesu.MachineExecution.MemcpyDecoderBridge
 import BinaryFv.Zesu.Elflings.GeneratedProgramGeometry
 import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Elfling.SequentialSplice
@@ -4867,6 +4868,130 @@ theorem decodeInline_retry_memcpy_call_step (stepNo : Nat) (args : DecodeInlineA
   · exact ⟨Sail.BitVec.addInt retired 1, by
       simp [decodeInlineMemcpyCallAfter, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick]⟩
+
+def decodeInlineRetryCopyArgs (args : DecodeInlineArgs) (contents : ByteArray) :
+    Contracts.CopyArgs where
+  destination := args.finalResultBase
+  source := args.retryRawArgs.resultBase
+  length := 832
+  contents := contents
+
+/-- The enclosing decoder's configured-machine premise supplies the proved emitted `memcpy` at
+the retry call site. Both copy intervals are concrete stack objects; no ABI premise is used. -/
+theorem decodeInline_retry_memcpy_machine_pre (args : DecodeInlineArgs) (contents : ByteArray)
+    (baseState childEntry : State) (pre : DecodeInlinePre args baseState)
+    (agree : Agree decoderPreserved baseState childEntry)
+    (counter : RetiredCounterPresent childEntry)
+    (atEntry : childEntry.regs.get? PC = some (BitVec.ofNat 64 0x13eb8))
+    (returnAddress : childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x103f0)) :
+    MemcpyMachinePre Contracts.canonicalContractParams.env
+      (decodeInlineRetryCopyArgs args contents)
+      childEntry := by
+  let copyArgs := decodeInlineRetryCopyArgs args contents
+  change MemcpyMachinePre Contracts.canonicalContractParams.env copyArgs childEntry
+  have machineAtEntry : DecodeInlineMachinePre args childEntry :=
+    pre.machine.mono agree counter
+  have resultSize : Contracts.canonicalContractParams.env.record.entryResult = 848 := by
+    have pinned := congrArg (fun record => record.entryResult) Contracts.canonicalRecordSizes_pinned
+    simpa [Contracts.canonicalContractParams, Contracts.canonicalEnvironment] using pinned
+  have sourceFits : copyArgs.source + copyArgs.length ≤ 2 ^ 64 := by
+    dsimp [copyArgs, decodeInlineRetryCopyArgs, DecodeInlineArgs.retryRawArgs]
+    have stackFit := pre.stackObjectsFit
+    rw [resultSize] at stackFit
+    omega
+  have destinationFits : copyArgs.destination + copyArgs.length ≤ 2 ^ 64 := by
+    dsimp [copyArgs, decodeInlineRetryCopyArgs, DecodeInlineArgs.finalResultBase]
+    have stackFit := pre.stackObjectsFit
+    rw [resultSize] at stackFit
+    omega
+  have sourceReadable : ∀ index, index < copyArgs.length →
+      DecoderReadableByte args.machineArgs (copyArgs.source + index) := by
+    intro index bound
+    right; right; left
+    dsimp [copyArgs, decodeInlineRetryCopyArgs, DecodeInlineArgs.retryRawArgs] at bound ⊢
+    have stack := pre.stackObjectsReadable (0x6b0 + index) (by rw [resultSize]; omega)
+    simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using stack
+  have destinationWritable : ∀ index, index < copyArgs.length →
+      DecoderWritableByte (copyArgs.destination + index) := by
+    intro index bound
+    left
+    dsimp [copyArgs, decodeInlineRetryCopyArgs, DecodeInlineArgs.finalResultBase] at bound ⊢
+    have stack := pre.stackObjectsReadable (0x20 + index) (by rw [resultSize]; omega)
+    simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using stack
+  have destinationNotFile : ∀ index, index < copyArgs.length →
+      Contracts.canonicalContractParams.env.image.readFileByte?
+        (copyArgs.destination + index) = none := by
+    intro index bound
+    cases read : Contracts.canonicalContractParams.env.image.readFileByte?
+        (copyArgs.destination + index) with
+    | none => rfl
+    | some byte =>
+        have segmentInfo := BinaryFv.Binary.ProgramImage.readFileByte?_mem_segment read
+        obtain ⟨segment, member, -, addressHigh⟩ := segmentInfo
+        have fileSegmentsBelow : Artifacts.programImage.segments.toList.all
+            (fun segment => decide
+              (segment.initialEndAddress ≤ Entrypoints.ZesuDecodeRaw.loadedCeiling)) = true := by
+          native_decide
+        have segmentHigh : segment.initialEndAddress ≤
+            Entrypoints.ZesuDecodeRaw.loadedCeiling :=
+          of_decide_eq_true (List.all_eq_true.mp fileSegmentsBelow segment (by
+            simpa [Contracts.canonicalContractParams, Contracts.canonicalEnvironment] using member))
+        have stackByte : Contracts.canonicalContractParams.env.stack
+            (copyArgs.destination + index) := by
+          dsimp [copyArgs, decodeInlineRetryCopyArgs, DecodeInlineArgs.finalResultBase] at bound ⊢
+          have stack := pre.stackObjectsReadable (0x20 + index) (by rw [resultSize]; omega)
+          simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using stack
+        have below : copyArgs.destination + index < Entrypoints.ZesuDecodeRaw.loadedCeiling :=
+          Nat.lt_of_lt_of_le addressHigh segmentHigh
+        exact absurd stackByte (Contracts.canonicalStack_above_loaded _ below)
+  have destinationNotAllocator : ∀ address,
+      Contracts.canonicalContractParams.env.allocatorState address →
+      address < copyArgs.destination ∨ copyArgs.destination + copyArgs.length ≤ address := by
+    intro address allocator
+    by_cases before : address < copyArgs.destination
+    · exact Or.inl before
+    right
+    by_cases after : copyArgs.destination + copyArgs.length ≤ address
+    · exact after
+    exfalso
+    have overlap : copyArgs.destination ≤ address ∧
+        address < copyArgs.destination + copyArgs.length :=
+      ⟨Nat.le_of_not_gt before, Nat.lt_of_not_ge after⟩
+    have indexBound : address - copyArgs.destination < copyArgs.length := by omega
+    have stackByte : Contracts.canonicalContractParams.env.stack
+        (copyArgs.destination + (address - copyArgs.destination)) := by
+      dsimp [copyArgs, decodeInlineRetryCopyArgs, DecodeInlineArgs.finalResultBase] at indexBound ⊢
+      have stack := pre.stackObjectsReadable (0x20 + (address - (args.stackBase + 0x20)))
+        (by rw [resultSize]; omega)
+      simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using stack
+    have addressEq : copyArgs.destination + (address - copyArgs.destination) = address := by omega
+    have canonicalStack : Contracts.canonicalContractParams.env.stack address := by
+      rw [← addressEq]
+      exact stackByte
+    exact Contracts.canonicalStack_disjoint_from_allocatorState address allocator canonicalStack
+  apply memcpyMachinePre_of_decoder copyArgs childEntry machineAtEntry
+  · intro pc bodyPc
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    rcases bodyPc with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> native_decide
+  · exact atEntry
+  · exact ⟨BitVec.ofNat 64 0x103f0, returnAddress, by decide⟩
+  · rfl
+  · simp [copyArgs, decodeInlineRetryCopyArgs]
+  · dsimp [copyArgs, decodeInlineRetryCopyArgs, DecodeInlineArgs.retryRawArgs]
+    have stackFit := pre.stackObjectsFit
+    rw [resultSize] at stackFit
+    omega
+  · dsimp [copyArgs, decodeInlineRetryCopyArgs, DecodeInlineArgs.finalResultBase]
+    have stackFit := pre.stackObjectsFit
+    rw [resultSize] at stackFit
+    omega
+  · exact sourceFits
+  · exact destinationFits
+  · exact destinationNotFile
+  · exact destinationNotAllocator
+  · exact sourceReadable
+  · exact destinationWritable
 
 /-- Close the short-input retry arm at the selected `0x10394` exit. The outgoing branch belongs to
 the Level 2 wrapper, so this Level 3 trace stops before executing it. -/
