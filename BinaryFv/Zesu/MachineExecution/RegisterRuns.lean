@@ -21,6 +21,15 @@ namespace BinaryFv.Zesu.MachineExecution
 open BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
 
+/-- The architectural zero register reads as zero without consulting the register map. -/
+theorem rX_x0_run (state : State) :
+    Runs (rX_bits (.Regidx 0#5)) state state (0#64) := by
+  have index : (Sail.BitVec.toNatInt (0#5)).toNat = 0 := by decide
+  unfold Runs rX_bits rX
+  simp [index, zero_reg, EStateM.run, EStateM.bind, EStateM.pure, EStateM.instMonad,
+    regval_from_reg]
+  rfl
+
 macro "gen_rx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(theorem $name (state : State) (value : BitVec 64)
       (stored : state.regs.get? $reg = some value) :

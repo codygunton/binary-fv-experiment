@@ -225,6 +225,27 @@ variable {own exit : BitVec 64 → Prop}
 theorem nil {a : Nat} {s : State} : ConfinedPrefix own exit childSummary a 0 s s := by
   intro m t h; simpa using h
 
+/-- One parent-owned, in-region, non-exit instruction is a one-step confined prefix. -/
+theorem ownStep {a : Nat} {s s' : State} {pc : BitVec 64}
+    (atPc : s.regs.get? PC = some pc) (inRegion : own pc) (notExit : ¬ exit pc)
+    (step : Runs (try_step a false) s s' false) :
+    ConfinedPrefix own exit childSummary a 1 s s' := by
+  intro count final rest
+  simpa [Nat.add_comm] using
+    ScopedTrace.ownStep a count pc s s' final atPc inRegion notExit step rest
+
+/-- A checked emitted call, child body, and return form one confined prefix. -/
+theorem ofCall {a used : Nat} {s s' : State} {call : CallSite} {program : Program}
+    {functionInstance callee : FunctionInstance}
+    (transfer : CallTransfer own exit childSummary call program functionInstance callee
+      a used s s') :
+    ConfinedPrefix own exit childSummary a (1 + used + 1) s s' := by
+  intro count final rest
+  have shift : a + (1 + used + 1) = a + 1 + used + 1 := by omega
+  rw [shift] at rest
+  exact ScopedTrace.callStep a used count call program functionInstance callee s s' final
+    transfer rest
+
 /-- One spliced segment is a prefix of length `used + 1`: the summary's own steps plus the crossing
 edge. -/
 theorem ofSegment {c : SequentialCut} (hcut : c.Valid)
