@@ -128,6 +128,21 @@ theorem decoderStepCounters {base state : State}
   · exact (agree minstretcfg (by simp [platformPreserved])).trans
       normal.2.2.2.2.2.2.2.2.2.1
 
+theorem agree_coreControlFlowNextState (state : State) (pc : BitVec 64) :
+    Agree platformPreserved state (coreControlFlowNextState state pc) := by
+  intro register preserved
+  have notNextPc : nextPC ≠ register := by
+    intro equal
+    subst register
+    simpa [platformPreserved] using preserved
+  simp [coreControlFlowNextState, Std.ExtDHashMap.get?_insert, notNextPc]
+
+theorem agree_decoderExecuteState (state : State) (pc : BitVec 64) :
+    Agree platformPreserved state
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) :=
+  Agree.trans (agree_afterIncrement state)
+    (agree_coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+
 /-! ## First child segment: the length-gate arithmetic -/
 
 theorem hasExactErePrefix_length_add_fetch (state : State)
@@ -335,17 +350,7 @@ theorem hasExactErePrefix_prefix_first_lbu_step (stepNo : Nat)
       (rX_x8_run executeState _ inputAtExecute) mstatusAtExecute privilegeAtExecute mprvZero
       mseccfgAtExecute pmmDisabled
   have executeAgree : Agree platformPreserved state executeState := by
-    intro register preserved
-    have notNextPc : nextPC ≠ register := by
-      intro equal
-      subst register
-      simpa [platformPreserved] using preserved
-    have notIncrement : minstret_increment ≠ register := by
-      intro equal
-      subst register
-      simpa [platformPreserved] using preserved
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, notNextPc, notIncrement]
+    exact agree_decoderExecuteState state (BitVec.ofNat 64 0x10398)
   have allowed : Entrypoints.ZesuDecodeRaw.DecoderAccessRange
       (Entrypoints.ZesuDecodeRaw.DecoderReadableByte args.machineArgs) address 1 := by
     refine ⟨?_, ?_⟩
@@ -396,5 +401,174 @@ theorem hasExactErePrefix_prefix_first_lbu_step (stepNo : Nat)
       loadedValue fetch noMMIO fetched interrupts base decode
       notExpected execute (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead
       configRead notInhibited machineEnabled retiredRead
+
+theorem hasExactErePrefix_prefix_second_lbu_step (stepNo : Nat)
+    (args : Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs) (baseState state : State)
+    (pre : Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePre args baseState)
+    (phase : args.phase = .prefixBytes)
+    (agree : Agree platformPreserved baseState state)
+    (memory : state.mem = baseState.mem)
+    (retiredPresent : RetiredCounterPresent state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1039c))
+    (inputPointer : state.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase)) :
+    ∃ retired,
+      Runs (try_step stepNo false) state
+        (afterRegisterWrite state (BitVec.ofNat 64 0x1039c) retired x12
+          (BitVec.ofNat 64 (args.bytes[0]'(by
+            have := pre.prefixExists phase
+            omega)).toNat)) false := by
+  have pcIn := (hasExactErePrefix_body_classification 0x1039c
+    (by simp [hasExactErePrefixBodyPcs])).1
+  have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
+    rw [memory]
+    exact hasExactErePrefix_programImage_of_codeIntact pre.code
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x1039c) 0x03#8 0x46#8 0x04#8 0x00#8 :=
+    fetchFileInstruction state 0x1039c 0x03 0x46 0x04 0x00 code
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine agree
+    (BitVec.ofNat 64 0x1039c) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨retired, inhibit, config, counters⟩ :=
+    decoderStepCounters pre.machine.normal agree retiredPresent
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  have base : BaseInstructionEncoding 0x03#8 := by unfold BaseInstructionEncoding; decide
+  have wordEq : fetchWord 0x03#8 0x46#8 0x04#8 0x00#8 =
+      (0x00044603 : BitVec 32) := by decide
+  have decode : Runs (ext_decode (fetchWord 0x03#8 0x46#8 0x04#8 0x00#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (0#12, .Regidx 8#5, .Regidx 12#5, true, 1)) := by
+    rw [wordEq]
+    decode_run
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x1039c)
+  let address := BitVec.ofNat 64 args.inputBase
+  have inputBound : 0 < args.bytes.size := by
+    have := pre.prefixExists phase
+    omega
+  have inputBaseFits : args.inputBase < 2 ^ 64 := by
+    have := pre.inputFits
+    omega
+  have inputAtExecute : executeState.regs.get? x8 =
+      some (BitVec.ofNat 64 args.inputBase) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, inputPointer]
+  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := pre.machine.mstatus
+  obtain ⟨machineMseccfgBits, machineMseccfgRead, pmmDisabled⟩ := pre.machine.mseccfg
+  have mstatusState : state.regs.get? mstatus = some mstatusBits :=
+    (agree mstatus (by simp [platformPreserved])).trans mstatusRead
+  have privilegeState : state.regs.get? cur_privilege = some Privilege.Machine :=
+    (agree cur_privilege (by simp [platformPreserved])).trans pre.machine.normal.2.1
+  have mseccfgState : state.regs.get? Register.mseccfg = some machineMseccfgBits :=
+    (agree Register.mseccfg (by simp [platformPreserved])).trans machineMseccfgRead
+  have mstatusAtExecute : executeState.regs.get? mstatus = some mstatusBits := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, mstatusState]
+  have privilegeAtExecute : executeState.regs.get? cur_privilege = some Privilege.Machine := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, privilegeState]
+  have mseccfgAtExecute : executeState.regs.get? Register.mseccfg =
+      some machineMseccfgBits := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, mseccfgState]
+  have addressRun : Runs
+      (get_transformed_data_addr (.Regidx 8#5) (sign_extend (m := 64) 0#12)
+        (MemoryAccessType.Load mem_payload.Data) 1)
+      executeState executeState (.Ext_DataAddr_OK (virtaddr.Virtaddr address)) := by
+    have addressEq : BitVec.ofNat 64 args.inputBase + sign_extend (m := 64) 0#12 = address := by
+      have offsetEq : sign_extend (m := 64) 0#12 = (0 : BitVec 64) := by decide
+      simp [address, offsetEq]
+    rw [← addressEq]
+    exact get_transformed_data_addr_machine_load_run executeState (.Regidx 8#5)
+      (BitVec.ofNat 64 args.inputBase) (sign_extend (m := 64) 0#12) mstatusBits
+      machineMseccfgBits (rX_x8_run executeState _ inputAtExecute) mstatusAtExecute
+      privilegeAtExecute mprvZero mseccfgAtExecute pmmDisabled
+  have executeAgree : Agree platformPreserved baseState executeState :=
+    Agree.trans agree (agree_decoderExecuteState state (BitVec.ofNat 64 0x1039c))
+  have allowed : Entrypoints.ZesuDecodeRaw.DecoderAccessRange
+      (Entrypoints.ZesuDecodeRaw.DecoderReadableByte args.machineArgs) address 1 := by
+    refine ⟨?_, ?_⟩
+    · simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits]
+      omega
+    · intro index indexLt
+      have indexZero : index = 0 := by omega
+      subst index
+      right
+      left
+      simp [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs.machineArgs, address,
+        BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits, inputBound]
+  obtain ⟨physAccess, loadNoMMIO⟩ :=
+    pre.machine.dataAccess.load executeState address 1 executeAgree allowed
+  let inputByte := args.bytes[0]'inputBound
+  have memoryByte : ∀ (index : Nat)
+      (indexLt : index < (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)).length),
+      executeState.mem.get? (address.toNat + index) =
+        some (leBytes 1 (BitVec.ofNat 8 inputByte.toNat))[index] := by
+    intro index indexLt
+    rw [leBytes_length] at indexLt
+    have indexZero : index = 0 := by omega
+    subst index
+    have memEq : executeState.mem = baseState.mem := by
+      exact memory
+    rw [memEq]
+    simpa [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits,
+      leBytes, inputByte] using pre.inputMemory 0 inputBound
+  let loadedValue := BitVec.ofNat 64 inputByte.toNat
+  have execute : Runs (execute (.LOAD (0#12, .Regidx 8#5, .Regidx 12#5, true, 1)))
+      executeState { executeState with regs := executeState.regs.insert x12 loadedValue }
+      (.Retire_Success ()) := by
+    have zeroExtend : zero_extend (m := 64) (BitVec.ofNat 8 inputByte.toNat) =
+        loadedValue := by
+      apply BitVec.eq_of_toNat_eq
+      simp [zero_extend, Sail.BitVec.zeroExtend, loadedValue]
+    change Runs (execute_LOAD 0#12 (.Regidx 8#5) (.Regidx 12#5) true 1) _ _ _
+    have run := execute_LOAD_lbu_run executeState _ 0#12 (.Regidx 8#5) (.Regidx 12#5)
+      address mstatusBits (BitVec.ofNat 8 inputByte.toNat) mstatusAtExecute
+      privilegeAtExecute mprvZero addressRun (is_aligned_vaddr_one _) physAccess loadNoMMIO
+      memoryByte (wX_x12_run executeState _)
+    rw [zeroExtend] at run
+    exact run
+  refine ⟨retired, ?_⟩
+  simpa [executeState, afterRegisterWrite, loadedValue] using
+    tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x1039c) retired inhibit config
+      0x03#8 0x46#8 0x04#8 0x00#8 (.LOAD (0#12, .Regidx 8#5, .Regidx 12#5, true, 1)) x12
+      loadedValue fetch noMMIO fetched interrupts base decode notExpected execute
+      (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
+      machineEnabled retiredRead
+
+theorem hasExactErePrefix_prefix_first_two_lbu_steps (fromStep : Nat)
+    (args : Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs) (state : State)
+    (pre : Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePre args state)
+    (phase : args.phase = .prefixBytes) :
+    ∃ retired1 retired2,
+      let byte1 := args.bytes[1]'(by have := pre.prefixExists phase; omega)
+      let byte0 := args.bytes[0]'(by have := pre.prefixExists phase; omega)
+      let after1 := afterRegisterWrite state (BitVec.ofNat 64 0x10398) retired1 x10
+        (BitVec.ofNat 64 byte1.toNat)
+      let after2 := afterRegisterWrite after1 (BitVec.ofNat 64 0x1039c) retired2 x12
+        (BitVec.ofNat 64 byte0.toNat)
+      Runs (try_step fromStep false) state after1 false ∧
+        Runs (try_step (fromStep + 1) false) after1 after2 false := by
+  obtain ⟨retired1, first⟩ := hasExactErePrefix_prefix_first_lbu_step fromStep args state pre phase
+  let byte1 := args.bytes[1]'(by have := pre.prefixExists phase; omega)
+  let after1 := afterRegisterWrite state (BitVec.ofNat 64 0x10398) retired1 x10
+    (BitVec.ofNat 64 byte1.toNat)
+  have agree1 : Agree platformPreserved state after1 := by
+    exact afterRegisterWrite_agree (by simp [platformPreserved])
+  have atSecond : after1.regs.get? PC = some (BitVec.ofNat 64 0x1039c) := by
+    simpa [after1] using
+      afterRegisterWrite_pc state (BitVec.ofNat 64 0x10398) retired1 x10
+        (BitVec.ofNat 64 byte1.toNat)
+  have inputPointer : after1.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
+    simp [after1, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
+      pre.inputPointer]
+  obtain ⟨retired2, second⟩ := hasExactErePrefix_prefix_second_lbu_step (fromStep + 1)
+    args state after1 pre phase agree1 rfl
+    (afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10398) retired1 x10
+      (BitVec.ofNat 64 byte1.toNat)) atSecond inputPointer
+  refine ⟨retired1, retired2, ?_⟩
+  dsimp only
+  exact ⟨by simpa [after1, byte1] using first, by simpa [after1, byte1] using second⟩
 
 end BinaryFv.Zesu.MachineExecution
