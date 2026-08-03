@@ -1,4 +1,5 @@
 import GeneratedProgram
+import BinaryFv.RiscV.Step.AbstractPremise
 import BinaryFv.Zesu.Contracts.CanonicalParams
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Boundaries
 
@@ -62,6 +63,76 @@ def entryPc (args : DecodeInlineArgs) : BitVec 64 :=
 
 end DecodeInlineArgs
 
+/-! ## Compiled-machine premises -/
+
+/-- The input slice relevant to configured decoder data access. Stack and arena placement come from
+the canonical environment, so this deliberately carries no invented callee stack pointer. -/
+structure DecoderMachineArgs where
+  inputBase : Nat
+  bytes : ByteArray
+
+def DecodeInlineArgs.machineArgs (args : DecodeInlineArgs) : DecoderMachineArgs where
+  inputBase := args.inputBase
+  bytes := args.bytes
+
+/-- Bytes the inlined decoder may read: the immutable image, its input, its stack objects, allocator
+state, or the arena. This describes data placement, not an execution result. -/
+def DecoderReadableByte (args : DecoderMachineArgs) (address : Nat) : Prop :=
+  (∃ byte, canonicalContractParams.env.image.readByte? address = some byte) ∨
+    (args.inputBase ≤ address ∧ address < args.inputBase + args.bytes.size) ∨
+    canonicalContractParams.env.stack address ∨
+    canonicalContractParams.env.allocatorState address ∨
+    (canonicalContractParams.env.arenaBase ≤ address ∧
+      address < Elflings.canonicalHeapLimit)
+
+/-- Bytes the inlined decoder may write. The input and immutable image are deliberately absent. -/
+def DecoderWritableByte (address : Nat) : Prop :=
+  canonicalContractParams.env.stack address ∨
+    canonicalContractParams.env.allocatorState address ∨
+    (canonicalContractParams.env.arenaBase ≤ address ∧
+      address < Elflings.canonicalHeapLimit)
+
+/-- Every byte in one machine access belongs to `allowed`; the non-wrapping condition makes the
+address range an ordinary half-open interval rather than a modular one. -/
+def DecoderAccessRange (allowed : Nat → Prop) (address : BitVec 64) (width : Nat) : Prop :=
+  address.toNat + width ≤ 2 ^ 64 ∧
+    ∀ index, index < width → allowed (address.toNat + index)
+
+/-- Data-access behavior of the configured machine over the decoder's readable and writable
+ranges. It is quantified over states preserving the platform registers so it remains usable after
+ordinary instructions. No trace, decoded value, or semantic postcondition occurs here. -/
+structure DecoderDataAccess (args : DecoderMachineArgs) (base : State) : Prop where
+  load : ∀ (state : State) (address : BitVec 64) (width : Nat),
+    Agree platformPreserved base state →
+      DecoderAccessRange (DecoderReadableByte args) address width →
+      Runs (phys_access_check (MemoryAccessType.Load mem_payload.Data) PBMT_PMA .Machine
+        (physaddr.Physaddr address) width false) state state none ∧
+      Runs (within_mmio_readable (physaddr.Physaddr address) width) state state false
+  store : ∀ (state : State) (address : BitVec 64) (width : Nat),
+    Agree platformPreserved base state →
+      DecoderAccessRange DecoderWritableByte address width →
+      Runs (phys_access_check (MemoryAccessType.Store mem_payload.Data) PBMT_PMA .Machine
+        (physaddr.Physaddr address) width false) state state none ∧
+      Runs (within_mmio_writable (physaddr.Physaddr address) width) state state false
+
+/-- Machine configuration needed to execute either compiled inline phase. Fetch is restricted to
+the generated `decode` PCs; data access is restricted to the concrete image/input/runtime regions.
+These premises are transportable machine facts, not an assumption that the decoder succeeds. -/
+structure DecoderMachinePre (instructionPcs : BitVec 64 → Prop)
+    (args : DecoderMachineArgs) (state : State) : Prop where
+  normal : NormalExecutionState state
+  retiredCounter : RetiredCounterPresent state
+  platform : BinaryFv.RiscV.AbstractPlatform platformPreserved instructionPcs state
+  dataAccess : DecoderDataAccess args state
+  landingPad : BinaryFv.RiscV.AbstractElp platformPreserved (fun _ => True) state
+
+/-- The shared machine premise specialized to the generated inlined-`decode` instruction set. -/
+abbrev DecodeInlineMachinePre (args : DecodeInlineArgs) (state : State) : Prop :=
+  DecoderMachinePre
+    (functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+    args.machineArgs state
+
 /-- The error-union tag loaded by the wrapper-facing inline instructions. This is not the public
 `DecodeStatus` value: `outOfMemory` has internal tag `1` and public status code `4`. -/
 def decodeInternalResultTag :
@@ -83,6 +154,7 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64
   stackObjectsFit : args.stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤
     2 ^ 64
+  machine : DecodeInlineMachinePre args state
   retryReason : args.phase = .retryAfterInvalidSsz →
     meaningDecodeRaw args.bytes = .error .invalidSsz ∧
       state.regs.get? x10 = some (BitVec.ofNat 64 2)

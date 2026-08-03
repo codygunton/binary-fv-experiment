@@ -24,6 +24,7 @@ import BinaryFv.Zesu.MachineExecution.AccessorBlocks
 import BinaryFv.Zesu.MachineExecution.Level2AllocatorProof
 import BinaryFv.Zesu.MachineExecution.MemcpyProof
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Contracts
 import BinaryFv.Zesu.MemoryRepresentation.RawV4
 import BinaryFv.Zesu.MemoryRepresentation.Observers
 import BinaryFv.Zesu.MemoryRepresentation.Result
