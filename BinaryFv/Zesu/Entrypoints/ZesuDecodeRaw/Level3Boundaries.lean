@@ -1,4 +1,5 @@
 import GeneratedProgram
+import BinaryFv.Zesu.Elflings.GeneratedProgramGeometry
 import BinaryFv.RiscV.Elfling.Boundary
 
 /-!
@@ -69,5 +70,35 @@ theorem hasExactErePrefix_is_decode_child :
     functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35Id ∈
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31.children := by
   native_decide
+
+/-- Every instruction attributed to the inlined prefix helper is also inside its enclosing
+inlined `decode` execution region. -/
+theorem hasExactErePrefix_executionPcs_subset_decode (pc : BitVec 64)
+    (inside : functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35
+      pc) :
+    functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31 pc := by
+  have parentMember :
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31 ∈
+        generatedProgram.functionInstances := by
+    apply Array.mem_iff_getElem.mpr
+    exact ⟨3, by native_decide, rfl⟩
+  have childMember :
+      functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35 ∈
+        generatedProgram.functionInstances := by
+    apply Array.mem_iff_getElem.mpr
+    exact ⟨4, by native_decide, rfl⟩
+  have childIsCallee :
+      functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35 ∈
+        BinaryFv.RiscV.Elfling.calleeFunctionInstances generatedProgram
+          functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31 := by
+    apply Array.mem_filter.mpr
+    exact ⟨childMember, by native_decide⟩
+  exact BinaryFv.Zesu.Elflings.Validation.generated_program_geometry.calleeWithinExecution
+    functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
+    parentMember
+    functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35
+    childIsCallee pc inside
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw

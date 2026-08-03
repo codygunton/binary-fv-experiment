@@ -196,6 +196,7 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   inputMemory : MemoryBytes state args.inputBase args.bytes
   code : canonicalContractParams.env.CodeIntact state
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64
+  rootInputBound : args.bytes.size < 2 * 1024 * 1024
   stackAligned : args.stackBase % 16 = 0
   stackObjectsFit : args.stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤
     2 ^ 64
