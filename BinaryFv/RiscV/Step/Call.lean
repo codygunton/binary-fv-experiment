@@ -36,6 +36,15 @@ theorem wX_bits_run_x1 (s : State) (data : BitVec 64) :
   rw [if_pos (by decide)]
   exact xreg_write_callback_run _ _ _
 
+theorem rX_bits_run_x1 (s : State) (data : BitVec 64)
+    (stored : s.regs.get? x1 = some data) :
+    Runs (rX_bits (.Regidx 1#5)) s s data := by
+  have index : (Sail.BitVec.toNatInt (1#5 : BitVec 5)).toNat = 1 := rfl
+  unfold Runs
+  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
+    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
+    getThe, MonadState.get, MonadStateOf.get, stored]
+
 theorem wX_bits_run_x5 (s : State) (data : BitVec 64) :
     Runs (wX_bits (.Regidx 5#5) data) s { s with regs := s.regs.insert x5 data } () := by
   have hidx : (Sail.BitVec.toNatInt (5#5)).toNat = 5 := rfl
@@ -260,6 +269,43 @@ theorem callLinkState_link (state : State) (pc target : BitVec 64) (linkReg : Re
     some linkVal
   rw [Std.ExtDHashMap.get?_insert]
   simp
+
+/-- A retired link-writing call preserves every register outside its link, control-flow, and
+retirement bookkeeping registers. -/
+theorem jalrCallAfterRetired_agree_of {P : Register → Prop} (state : State)
+    (pc target retired : BitVec 64) (linkReg : Register) (linkVal : RegisterType linkReg)
+    (notLink : ¬ P linkReg) (notPc : ¬ P PC) (notNextPc : ¬ P nextPC)
+    (notIncrement : ¬ P minstret_increment) (notRetired : ¬ P minstret) :
+    Agree P state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) pc target linkReg linkVal)
+        target retired) := by
+  intro register preserved
+  have differentLink : linkReg ≠ register := by
+    intro equal
+    exact notLink (equal ▸ preserved)
+  have differentPc : PC ≠ register := by
+    intro equal
+    exact notPc (equal ▸ preserved)
+  have differentNextPc : nextPC ≠ register := by
+    intro equal
+    exact notNextPc (equal ▸ preserved)
+  have differentIncrement : minstret_increment ≠ register := by
+    intro equal
+    exact notIncrement (equal ▸ preserved)
+  have differentRetired : minstret ≠ register := by
+    intro equal
+    exact notRetired (equal ▸ preserved)
+  simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, callLinkState,
+    controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+    Std.ExtDHashMap.get?_insert, differentLink, differentPc, differentNextPc,
+    differentIncrement, differentRetired]
+
+theorem jalrCallAfterRetired_mem (state : State) (pc target retired : BitVec 64)
+    (linkReg : Register) (linkVal : RegisterType linkReg) :
+    (tryStepControlFlowAfterRetired
+      (callLinkState (tryStepControlFlowAfterIncrement state) pc target linkReg linkVal)
+      target retired).mem = state.mem := rfl
 
 /-! ## Genuine `jalr` call, lifted through `try_step`
 

@@ -93,17 +93,18 @@ theorem hasExactErePrefix_outgoing_classification :
 
 /-! ## Common configured-machine step context -/
 
-theorem decoderStepPlatform {instructionPcs : BitVec 64 → Prop} {args}
+theorem decoderStepPlatform_of_decoderAgree {instructionPcs : BitVec 64 → Prop} {args}
     {base state : State} (machine : Entrypoints.ZesuDecodeRaw.DecoderMachinePre
-      instructionPcs args base) (agree : Agree platformPreserved base state)
+      instructionPcs args base) (agree : Agree decoderPreserved base state)
     (pc : BitVec 64) (atPc : state.regs.get? PC = some pc) (pcIn : instructionPcs pc)
     (byte0 byte1 byte2 byte3 : BitVec 8)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       byte0 byte1 byte2 byte3) :
     ∃ mseccfgBits, StepPlatform state pc byte0 byte1 byte2 byte3 mseccfgBits := by
-  have afterIncrementAgree : Agree platformPreserved base
+  have afterIncrementAgree : Agree decoderPreserved base
       (tryStepControlFlowAfterIncrement state) :=
-    Agree.trans agree (agree_afterIncrement state)
+    Agree.trans agree
+      (Agree.weaken (fun _ preserved => preserved.2) (agree_afterIncrement state))
   have atPcAfter : (tryStepControlFlowAfterIncrement state).regs.get? PC = some pc :=
     pc_afterIncrement state pc atPc
   obtain ⟨fetch, noMMIO, interrupts, notExpected⟩ :=
@@ -111,11 +112,25 @@ theorem decoderStepPlatform {instructionPcs : BitVec 64 → Prop} {args}
   obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
   have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
       some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
+    (afterIncrementAgree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans
+      machine.normal.2.1
   have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg =
       some mseccfgBits :=
-    (afterIncrementAgree Register.mseccfg (by simp [platformPreserved])).trans mseccfgRead
+    (afterIncrementAgree Register.mseccfg
+      (by simp [decoderPreserved, platformPreserved])).trans mseccfgRead
   exact ⟨mseccfgBits, fetch, noMMIO, bytes, interrupts, notExpected, privilege, mseccfg⟩
+
+theorem decoderStepPlatform {instructionPcs : BitVec 64 → Prop} {args}
+    {base state : State} (machine : Entrypoints.ZesuDecodeRaw.DecoderMachinePre
+      instructionPcs args base) (agree : Agree platformPreserved base state)
+    (pc : BitVec 64) (atPc : state.regs.get? PC = some pc) (pcIn : instructionPcs pc)
+    (byte0 byte1 byte2 byte3 : BitVec 8)
+    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
+      byte0 byte1 byte2 byte3) :
+    ∃ mseccfgBits, StepPlatform state pc byte0 byte1 byte2 byte3 mseccfgBits :=
+  decoderStepPlatform_of_decoderAgree machine
+    (Agree.weaken (fun _ preserved => preserved.2) agree) pc atPc pcIn
+    byte0 byte1 byte2 byte3 bytes
 
 theorem decoderStepCounters {base state : State}
     (normal : NormalExecutionState base) (agree : Agree platformPreserved base state)
@@ -126,6 +141,18 @@ theorem decoderStepCounters {base state : State}
   · exact (agree hart_state (by simp [platformPreserved])).trans normal.1
   · exact (agree mcountinhibit (by simp [platformPreserved])).trans normal.2.2.2.2.2.2.2.2.1
   · exact (agree minstretcfg (by simp [platformPreserved])).trans
+      normal.2.2.2.2.2.2.2.2.2.1
+
+theorem decoderStepCounters_of_decoderAgree {base state : State}
+    (normal : NormalExecutionState base) (agree : Agree decoderPreserved base state)
+    (retiredPresent : RetiredCounterPresent state) :
+    ∃ retired inhibit config, StepCounters state retired inhibit config := by
+  obtain ⟨retired, retiredRead⟩ := retiredPresent
+  refine ⟨retired, 0, 0, ?_, ?_, ?_, by decide, by decide, retiredRead⟩
+  · exact (agree hart_state (by simp [decoderPreserved, platformPreserved])).trans normal.1
+  · exact (agree mcountinhibit (by simp [decoderPreserved, platformPreserved])).trans
+      normal.2.2.2.2.2.2.2.2.1
+  · exact (agree minstretcfg (by simp [decoderPreserved, platformPreserved])).trans
       normal.2.2.2.2.2.2.2.2.2.1
 
 theorem agree_coreControlFlowNextState (state : State) (pc : BitVec 64) :
@@ -193,7 +220,8 @@ theorem decoderInputLbuExecute
       simp [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs.machineArgs, address,
         BitVec.toNat_ofNat, Nat.mod_eq_of_lt addressFits]
       omega
-  obtain ⟨physAccess, loadNoMMIO⟩ := pre.machine.dataAccess.load state address 1 agree allowed
+  obtain ⟨physAccess, loadNoMMIO⟩ := pre.machine.dataAccess.load state address 1
+    (Agree.weaken (fun _ preserved => preserved.2) agree) allowed
   let inputByte := args.bytes[offset]'offsetBound
   have memoryByte : ∀ (index : Nat)
       (indexLt : index < (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)).length),
@@ -472,7 +500,8 @@ theorem hasExactErePrefix_prefix_first_lbu_step (stepNo : Nat)
         BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits]
       omega
   obtain ⟨physAccess, loadNoMMIO⟩ :=
-    pre.machine.dataAccess.load executeState address 1 executeAgree allowed
+    pre.machine.dataAccess.load executeState address 1
+      (Agree.weaken (fun _ preserved => preserved.2) executeAgree) allowed
   let inputByte := args.bytes[1]'inputBound
   have memoryByte : ∀ (index : Nat)
       (indexLt : index < (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)).length),
@@ -605,7 +634,8 @@ theorem hasExactErePrefix_prefix_second_lbu_step (stepNo : Nat)
       simp [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs.machineArgs, address,
         BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits, inputBound]
   obtain ⟨physAccess, loadNoMMIO⟩ :=
-    pre.machine.dataAccess.load executeState address 1 executeAgree allowed
+    pre.machine.dataAccess.load executeState address 1
+      (Agree.weaken (fun _ preserved => preserved.2) executeAgree) allowed
   let inputByte := args.bytes[0]'inputBound
   have memoryByte : ∀ (index : Nat)
       (indexLt : index < (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)).length),

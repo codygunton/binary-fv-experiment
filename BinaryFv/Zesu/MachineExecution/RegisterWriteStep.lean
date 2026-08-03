@@ -29,33 +29,42 @@ def afterRegisterWrite (state : State) (pc retired : BitVec 64) (destination : R
         destination value }
     (Sail.BitVec.addInt pc 4) retired
 
-theorem afterRegisterWrite_agree {state : State} {pc retired : BitVec 64}
+theorem afterRegisterWrite_agree_of {P : Register → Prop} {state : State}
+    {pc retired : BitVec 64}
     {destination : Register} {value : RegisterType destination}
-    (notPreserved : ¬ platformPreserved destination) :
-    Agree platformPreserved state (afterRegisterWrite state pc retired destination value) := by
+    (notDestination : ¬ P destination) (notPc : ¬ P PC) (notNextPc : ¬ P nextPC)
+    (notIncrement : ¬ P minstret_increment) (notRetired : ¬ P minstret) :
+    Agree P state (afterRegisterWrite state pc retired destination value) := by
   intro register preserved
   have different : destination ≠ register := by
     intro equal
-    exact notPreserved (equal ▸ preserved)
-  have notPc : PC ≠ register := by
+    exact notDestination (equal ▸ preserved)
+  have differentPc : PC ≠ register := by
     intro equal
     subst register
-    simpa [platformPreserved] using preserved
-  have notNextPc : nextPC ≠ register := by
+    exact notPc preserved
+  have differentNextPc : nextPC ≠ register := by
     intro equal
     subst register
-    simpa [platformPreserved] using preserved
-  have notIncrement : minstret_increment ≠ register := by
+    exact notNextPc preserved
+  have differentIncrement : minstret_increment ≠ register := by
     intro equal
     subst register
-    simpa [platformPreserved] using preserved
-  have notRetired : minstret ≠ register := by
+    exact notIncrement preserved
+  have differentRetired : minstret ≠ register := by
     intro equal
     subst register
-    simpa [platformPreserved] using preserved
+    exact notRetired preserved
   simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
     coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-    different, notPc, notNextPc, notIncrement, notRetired]
+    different, differentPc, differentNextPc, differentIncrement, differentRetired]
+
+theorem afterRegisterWrite_agree {state : State} {pc retired : BitVec 64}
+    {destination : Register} {value : RegisterType destination}
+    (notPreserved : ¬ platformPreserved destination) :
+    Agree platformPreserved state (afterRegisterWrite state pc retired destination value) :=
+  afterRegisterWrite_agree_of notPreserved (by simp [platformPreserved])
+    (by simp [platformPreserved]) (by simp [platformPreserved]) (by simp [platformPreserved])
 
 theorem afterRegisterWrite_mem (state : State) (pc retired : BitVec 64)
     (destination : Register) (value : RegisterType destination) :

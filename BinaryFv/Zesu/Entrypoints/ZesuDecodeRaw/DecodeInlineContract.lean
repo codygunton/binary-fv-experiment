@@ -65,6 +65,11 @@ end DecodeInlineArgs
 
 /-! ## Compiled-machine premises -/
 
+/-- Registers whose values remain stable while executing decoder-owned instructions. The link
+register is excluded because emitted calls update it before transferring to their child bodies. -/
+def decoderPreserved (r : Register) : Prop :=
+  r ≠ x1 ∧ platformPreserved r
+
 /-- The input slice relevant to configured decoder data access. Stack and arena placement come from
 the canonical environment, so this deliberately carries no invented callee stack pointer. -/
 structure DecoderMachineArgs where
@@ -99,21 +104,30 @@ def DecoderAccessRange (allowed : Nat → Prop) (address : BitVec 64) (width : N
     ∀ index, index < width → allowed (address.toNat + index)
 
 /-- Data-access behavior of the configured machine over the decoder's readable and writable
-ranges. It is quantified over states preserving the platform registers so it remains usable after
-ordinary instructions. No trace, decoded value, or semantic postcondition occurs here. -/
+ranges. It is quantified over states preserving the decoder's machine registers so it remains
+usable across ordinary instructions and emitted call setup. No trace, decoded value, or semantic
+postcondition occurs here. -/
 structure DecoderDataAccess (args : DecoderMachineArgs) (base : State) : Prop where
   load : ∀ (state : State) (address : BitVec 64) (width : Nat),
-    Agree platformPreserved base state →
+    Agree decoderPreserved base state →
       DecoderAccessRange (DecoderReadableByte args) address width →
       Runs (phys_access_check (MemoryAccessType.Load mem_payload.Data) PBMT_PMA .Machine
         (physaddr.Physaddr address) width false) state state none ∧
       Runs (within_mmio_readable (physaddr.Physaddr address) width) state state false
   store : ∀ (state : State) (address : BitVec 64) (width : Nat),
-    Agree platformPreserved base state →
+    Agree decoderPreserved base state →
       DecoderAccessRange DecoderWritableByte address width →
       Runs (phys_access_check (MemoryAccessType.Store mem_payload.Data) PBMT_PMA .Machine
         (physaddr.Physaddr address) width false) state state none ∧
       Runs (within_mmio_writable (physaddr.Physaddr address) width) state state false
+
+theorem DecoderDataAccess.mono {args : DecoderMachineArgs} {before after : State}
+    (agree : Agree decoderPreserved before after) (access : DecoderDataAccess args before) :
+    DecoderDataAccess args after where
+  load state address width afterAgree allowed :=
+    access.load state address width (Agree.trans agree afterAgree) allowed
+  store state address width afterAgree allowed :=
+    access.store state address width (Agree.trans agree afterAgree) allowed
 
 /-- Machine configuration needed to execute either compiled inline phase. Fetch is restricted to
 the generated `decode` PCs; data access is restricted to the concrete image/input/runtime regions.
@@ -125,9 +139,45 @@ structure DecoderMachinePre (instructionPcs : BitVec 64 → Prop)
   mstatus : ∃ bits, state.regs.get? mstatus = some bits ∧ _get_Mstatus_MPRV bits = 0#1
   mseccfg : ∃ bits, state.regs.get? mseccfg = some bits ∧
     pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled
-  platform : BinaryFv.RiscV.AbstractPlatform platformPreserved instructionPcs state
+  platform : BinaryFv.RiscV.AbstractPlatform decoderPreserved instructionPcs state
   dataAccess : DecoderDataAccess args state
-  landingPad : BinaryFv.RiscV.AbstractElp platformPreserved (fun _ => True) state
+  landingPad : BinaryFv.RiscV.AbstractElp decoderPreserved (fun _ => True) state
+
+theorem DecoderMachinePre.mono {instructionPcs : BitVec 64 → Prop} {args : DecoderMachineArgs}
+    {before after : State} (agree : Agree decoderPreserved before after)
+    (retired : RetiredCounterPresent after)
+    (machine : DecoderMachinePre instructionPcs args before) :
+    DecoderMachinePre instructionPcs args after where
+  normal := normalExecutionState_of_agree
+    (Agree.weaken (fun register preserved => by
+      refine ⟨?_, normalRegisters_platformPreserved register preserved⟩
+      intro equal
+      subst register
+      simp [normalRegisters] at preserved) agree) machine.normal
+  retiredCounter := retired
+  mstatus := by
+    obtain ⟨bits, read, mprv⟩ := machine.mstatus
+    exact ⟨bits,
+      (agree Register.mstatus (by simp [decoderPreserved, platformPreserved])).trans read, mprv⟩
+  mseccfg := by
+    obtain ⟨bits, read, disabled⟩ := machine.mseccfg
+    exact ⟨bits,
+      (agree Register.mseccfg (by simp [decoderPreserved, platformPreserved])).trans read,
+      disabled⟩
+  platform := machine.platform.mono agree
+  dataAccess := machine.dataAccess.mono agree
+  landingPad := machine.landingPad.mono agree
+
+theorem DecoderMachinePre.restrict {outer inner : BitVec 64 → Prop} {args : DecoderMachineArgs}
+    {state : State} (subset : ∀ pc, inner pc → outer pc)
+    (machine : DecoderMachinePre outer args state) : DecoderMachinePre inner args state where
+  normal := machine.normal
+  retiredCounter := machine.retiredCounter
+  mstatus := machine.mstatus
+  mseccfg := machine.mseccfg
+  platform := fun next pc agree atPc pcIn => machine.platform next pc agree atPc (subset pc pcIn)
+  dataAccess := machine.dataAccess
+  landingPad := machine.landingPad
 
 /-- The shared machine premise specialized to the generated inlined-`decode` instruction set. -/
 abbrev DecodeInlineMachinePre (args : DecodeInlineArgs) (state : State) : Prop :=
