@@ -277,7 +277,7 @@ structure AllocatorSecondSegmentPreconditions (entry : State)
 /-- Machine facts at the allocator's first inline entry. This is not a function-call ABI: the live
 `s2` value belongs to the surrounding wrapper and the segment exits after one instruction. -/
 structure AllocatorFirstSegmentPreconditions (entry : State) (source : BitVec 64) : Prop where
-  platform : ExitPlatform entry 0x102f0
+  platform : InstructionStepPlatform entry 0x102f0
   atEntry : entry.regs.get? PC = some (BitVec.ofNat 64 0x102f0)
   sourceValue : entry.regs.get? x18 = some source
 
@@ -354,7 +354,7 @@ theorem allocator_function_store_decode (state : State)
 /-- The first allocator-attributed instruction executes through the generated Sail `try_step` and
 lands on the wrapper-owned store at `0x102f4`. -/
 theorem allocator_data_pointer_step (fromStep : Nat) (state : State)
-    (platform : ExitPlatform state 0x102f0) (source : BitVec 64)
+    (platform : InstructionStepPlatform state 0x102f0) (source : BitVec 64)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x102f0))
     (sourceValue : state.regs.get? x18 = some source) :
     ∃ retired, Runs (try_step fromStep false) state
@@ -382,18 +382,18 @@ theorem allocator_data_pointer_step (fromStep : Nat) (state : State)
     · simpa [iTypeResult] using
         (wX_bits_run_x11 executeState (Sail.BitVec.addInt source 1))
   simpa [allocatorAfterDataPointer, executeState] using
-    fallThroughRegisterWriteStep fromStep 0x102f0 state 0x93#8 0x05#8 0x19#8 0x00#8
+    fallThroughRegisterWriteStepWithoutReturn fromStep 0x102f0 state
+      0x93#8 0x05#8 0x19#8 0x00#8
       (.ITYPE (0x001#12, .Regidx 18#5, .Regidx 11#5, .ADDI)) x11
       (Sail.BitVec.addInt source 1) atPc platform
       (allocator_data_pointer_fetch state platform.code) (by rfl)
       (allocator_data_pointer_decode _ privilegeIncrement seccfgBits seccfgIncrement) execute
-      (fetch_mmio_address_excluded_of_before_layout _ (by decide) (by decide)) (by decide)
       (by decide) (by decide) (by decide) (by decide)
 
 /-- The first allocator segment is discharged by Sail execution and packaged at the exact checked
 inline boundary consumed by the wrapper's Level 2 scoped trace. -/
 theorem allocator_data_pointer_inlineTransfer (fromStep : Nat) (state : State)
-    (platform : ExitPlatform state 0x102f0) (source : BitVec 64)
+    (platform : InstructionStepPlatform state 0x102f0) (source : BitVec 64)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x102f0))
     (sourceValue : state.regs.get? x18 = some source) :
     ∃ retired,

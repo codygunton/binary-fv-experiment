@@ -86,19 +86,28 @@ def DecodeInlineArgs.machineArgs (args : DecodeInlineArgs) : DecoderMachineArgs 
   inputBase := args.inputBase
   bytes := args.bytes
 
-/-- Bytes the inlined decoder may read: the immutable image, its input, its stack objects, allocator
-state, or the arena. This describes data placement, not an execution result. -/
+/-- Bytes in the generated private decoder-globals block. The bounds come from the linker map and
+validated generated artifact, not from a handwritten address. -/
+def DecoderGlobalsByte (address : Nat) : Prop :=
+  Elflings.GeneratedDecoderGlobals.bssBase ≤ address ∧
+    address < Elflings.GeneratedDecoderGlobals.bssBase +
+      Elflings.GeneratedDecoderGlobals.bssSize
+
+/-- Bytes the decoder and its wrapper may read: the immutable image, input, stack objects, private
+decoder globals, allocator state, or arena. This describes data placement, not an execution result. -/
 def DecoderReadableByte (args : DecoderMachineArgs) (address : Nat) : Prop :=
   (∃ byte, canonicalContractParams.env.image.readByte? address = some byte) ∨
     (args.inputBase ≤ address ∧ address < args.inputBase + args.bytes.size) ∨
     canonicalContractParams.env.stack address ∨
+    DecoderGlobalsByte address ∨
     canonicalContractParams.env.allocatorState address ∨
     (canonicalContractParams.env.arenaBase ≤ address ∧
       address < Elflings.canonicalHeapLimit)
 
-/-- Bytes the inlined decoder may write. The input and immutable image are deliberately absent. -/
+/-- Bytes the decoder and wrapper may write. The input and immutable image are deliberately absent. -/
 def DecoderWritableByte (address : Nat) : Prop :=
   canonicalContractParams.env.stack address ∨
+    DecoderGlobalsByte address ∨
     canonicalContractParams.env.allocatorState address ∨
     (canonicalContractParams.env.arenaBase ≤ address ∧
       address < Elflings.canonicalHeapLimit)

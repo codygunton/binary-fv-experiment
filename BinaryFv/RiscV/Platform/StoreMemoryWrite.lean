@@ -1,4 +1,5 @@
 import BinaryFv.RiscV.Logic.Framing
+import Std.Data.ExtHashMap.Lemmas
 
 /-!
 # Store physical-write chain contract
@@ -63,6 +64,23 @@ theorem afterByteWrites_regs (state : State) (writes : List (Nat × BitVec 8)) :
       simpa [afterByteWrites] using
         ih { state with mem := state.mem.insert write.1 write.2 }
 
+theorem afterByteWrites_mem_get?_of_not_written (state : State)
+    (writes : List (Nat × BitVec 8)) (address : Nat)
+    (notWritten : ∀ write ∈ writes, write.1 ≠ address) :
+    (afterByteWrites state writes).mem.get? address = state.mem.get? address := by
+  induction writes generalizing state with
+  | nil => rfl
+  | cons write writes ih =>
+      have head : write.1 ≠ address := notWritten write (by simp)
+      have tail : ∀ tailWrite ∈ writes, tailWrite.1 ≠ address := by
+        intro tailWrite member
+        exact notWritten tailWrite (by simp [member])
+      change (afterByteWrites { state with mem := state.mem.insert write.1 write.2 }
+        writes).mem.get? address = state.mem.get? address
+      rw [ih { state with mem := state.mem.insert write.1 write.2 } tail]
+      change (state.mem.insert write.1 write.2).get? address = state.mem.get? address
+      simp [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, head]
+
 theorem fileBytesMatchMemory_afterByteWrites (image : ProgramImage)
     (state : State) (writes : List (Nat × BitVec 8))
     (notFileBacked : ∀ write ∈ writes, image.readFileByte? write.1 = none)
@@ -99,6 +117,15 @@ theorem afterWriteBytes_regs (state : State) (address : Nat) {width : Nat}
     (value : BitVec (8 * width)) :
     (afterWriteBytes state address value).regs = state.regs :=
   afterByteWrites_regs state _
+
+theorem afterWriteBytes_mem_get?_of_outside (state : State) (address : Nat) {width : Nat}
+    (value : BitVec (8 * width)) (other : Nat)
+    (outside : ∀ index : Fin width, address + index.val ≠ other) :
+    (afterWriteBytes state address value).mem.get? other = state.mem.get? other := by
+  apply afterByteWrites_mem_get?_of_not_written
+  intro write member
+  obtain ⟨index, rfl⟩ := List.mem_ofFn.mp member
+  exact outside index
 
 theorem fileBytesMatchMemory_afterWriteBytes (image : ProgramImage)
     (state : State) (address : Nat) {width : Nat} (value : BitVec (8 * width))
