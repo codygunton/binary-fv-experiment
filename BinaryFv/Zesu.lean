@@ -22,6 +22,7 @@ import BinaryFv.Zesu.MachineExecution.BlobScheduleAndResultStores
 import BinaryFv.Zesu.MachineExecution.ParserBlocks
 import BinaryFv.Zesu.MachineExecution.AccessorBlocks
 import BinaryFv.Zesu.MachineExecution.Level2AllocatorProof
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
 import BinaryFv.Zesu.MemoryRepresentation.RawV4
 import BinaryFv.Zesu.MemoryRepresentation.Observers
 import BinaryFv.Zesu.MemoryRepresentation.Result
