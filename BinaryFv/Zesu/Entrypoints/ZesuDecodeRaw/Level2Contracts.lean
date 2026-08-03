@@ -46,10 +46,17 @@ because the wrapper constructs the allocator object and both inlined `decode` re
 structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
     (state : State) : Prop where
   atEntry : state.regs.get? Register.PC = some (BitVec.ofNat 64 0x102b0)
+  linkAtEntry : ∃ link, state.regs.get? Register.x1 = some link
+  savedS0AtEntry : ∃ value, state.regs.get? Register.x8 = some value
+  savedS1AtEntry : ∃ value, state.regs.get? Register.x9 = some value
+  savedS2AtEntry : ∃ value, state.regs.get? Register.x18 = some value
   stackAtEntry : state.regs.get? Register.x2 = some (BitVec.ofNat 64 (stackBase + 0xa20))
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64
   inputBound : args.bytes.size < 2 * 1024 * 1024
   stackAligned : stackBase % 16 = 0
+  stackFrameFits : stackBase + 0xa20 ≤ 2 ^ 64
+  stackFrameWritable : ∀ index, index < 0xa20 →
+    canonicalContractParams.env.stack (stackBase + index)
   stackObjectsFit : stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤
     2 ^ 64
   stackObjectsReadable : ∀ index,
