@@ -229,15 +229,17 @@ def DecodeInlineFirstPost (args : DecodeInlineArgs)
         after.regs.get? x10 = some (BitVec.ofNat 64 (decodeInternalResultTag result))
 
 /-- The retry phase either rejects before a second `decodeRaw`, or finishes the retry and its
-832-byte result copy. In both cases the result is the complete source `meaningDecode`. -/
+832-byte result copy. In both cases the result is the complete source `meaningDecode`.
+
+The successful phase stops before the outgoing load at `0x103f8`; the Level 2 wrapper owns that
+instruction and derives the internal result tag from the copied result object. -/
 def DecodeInlineRetryPost (args : DecodeInlineArgs)
     (before after : State) : Prop :=
   let result := meaningDecode args.bytes
   postEntry canonicalContractParams.env args.finalArgs canonicalContractParams.repRawV4
       result before after ∧
     if meaningHasExactErePrefix args.bytes then
-      after.regs.get? PC = some (BitVec.ofNat 64 0x103f8) ∧
-        after.regs.get? x10 = some (BitVec.ofNat 64 (decodeInternalResultTag result))
+      after.regs.get? PC = some (BitVec.ofNat 64 0x103f8)
     else
       result = .error .invalidSsz ∧
         (after.regs.get? PC = some (BitVec.ofNat 64 0x10394) ∨
@@ -341,7 +343,7 @@ theorem decodeInline_post_at_selected_exit (args : DecodeInlineArgs) (before aft
               by simp [DecodeInlineExit, phaseEq, prefixEq]⟩
       | true =>
           simp only [prefixEq, ↓reduceIte] at post
-          exact ⟨BitVec.ofNat 64 0x103f8, post.2.1,
+          exact ⟨BitVec.ofNat 64 0x103f8, post.2,
             by simp [DecodeInlineExit, phaseEq, prefixEq]⟩
 
 /-- Every semantic postcondition stops at one of the generated outgoing instructions. -/
@@ -378,7 +380,7 @@ theorem decodeInline_post_at_generated_exit (args : DecodeInlineArgs) (before af
               functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31]
       | true =>
           simp only [prefixEq, ↓reduceIte] at post
-          refine ⟨BitVec.ofNat 64 0x103f8, post.2.1, ?_⟩
+          refine ⟨BitVec.ofNat 64 0x103f8, post.2, ?_⟩
           simp [functionInstanceExitPred, FunctionInstance.isExit,
             functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31]
 

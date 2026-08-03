@@ -2338,4 +2338,69 @@ theorem decodeInline_first_level3_relation (contract : CompiledDecodeRawInstance
         omega
       · simpa [DecodeInlinePost, phase] using post
 
+/-! ## Retry phase: mandatory entry branch -/
+
+def decodeInlineRetryEntryAfter (state : State) (retired : BitVec 64) : State :=
+  tryStepControlFlowAfterRetired
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10380))
+    (BitVec.ofNat 64 0x10384) retired
+
+/-- The retry precondition fixes both compared tags to `2`, so the generated
+`bne a0, a1, 0x103fc` must fall through into the retry body. -/
+theorem decodeInline_retry_entry_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
+    (state : State) (pre : DecodeInlinePre args state)
+    (phase : args.phase = .retryAfterInvalidSsz) :
+    ∃ retired,
+      Runs (try_step stepNo false) state (decodeInlineRetryEntryAfter state retired) false ∧
+      (decodeInlineRetryEntryAfter state retired).regs.get? PC =
+        some (BitVec.ofNat 64 0x10384) := by
+  have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10380) := by
+    simpa [DecodeInlineArgs.entryPc, phase] using pre.atEntry
+  have pcIn := decodeInline_owned_in_execution_region (0x10380, 0x06b51e63)
+    (by simp [decodeInlineOwnedInstructionWords])
+  have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
+    hasExactErePrefix_programImage_of_codeIntact pre.code
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10380) 0x63#8 0x1e#8 0xb5#8 0x06#8 :=
+    fetchFileInstruction state 0x10380 0x63 0x1e 0xb5 0x06 image
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine (Agree.refl state)
+    (BitVec.ofNat 64 0x10380) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  obtain ⟨retired, inhibit, config, counters⟩ :=
+    decoderStepCounters pre.machine.normal (Agree.refl state) pre.machine.retiredCounter
+  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  have wordEq : fetchWord 0x63#8 0x1e#8 0xb5#8 0x06#8 =
+      (0x06b51e63 : BitVec 32) := by decide
+  have decode : Runs (ext_decode (fetchWord 0x63#8 0x1e#8 0xb5#8 0x06#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.BTYPE (0x7c#13, .Regidx 11#5, .Regidx 10#5, .BNE)) := by
+    rw [wordEq]
+    decode_run
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x10380)
+  obtain ⟨-, tagA0, tagA1⟩ := pre.retryReason phase
+  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 2) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, tagA0]
+  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 2) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, tagA1]
+  have condition : Runs (bTypeTaken (.Regidx 11#5) (.Regidx 10#5) .BNE)
+      executeState executeState false := by
+    unfold bTypeTaken
+    refine Runs.bind (rX_bits_run_x10 executeState (BitVec.ofNat 64 2) x10AtExecute) ?_
+    refine Runs.bind (rX_bits_run_x11 executeState (BitVec.ofNat 64 2) x11AtExecute) ?_
+    rfl
+  have run := tryStepBranchNotTakenRetires stepNo state (BitVec.ofNat 64 0x10380) retired
+    (0x7c#13) (.Regidx 11#5) (.Regidx 10#5) .BNE inhibit config
+    0x63#8 0x1e#8 0xb5#8 0x06#8 fetch noMMIO fetchBytes interrupts
+    (by unfold BaseInstructionEncoding; decide) decode notExpected condition hartRead inhibitRead
+    configRead notInhibited machineEnabled retiredRead
+  refine ⟨retired, ?_, ?_⟩
+  · simpa [decodeInlineRetryEntryAfter] using run
+  · simp [decodeInlineRetryEntryAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+
 end BinaryFv.Zesu.MachineExecution
