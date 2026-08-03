@@ -2699,8 +2699,9 @@ private theorem decodeInline_executionPcs_subset_wrapper (pc : BitVec 64)
     pc inside
 
 /-- The nineteen-step wrapper prefix establishes the complete first-phase `decode` entry and then
-visibly consumes the Level 3 conditional theorem. The resulting child summary is the exact relation
-used by the eventual Level 2 scoped trace. -/
+visibly consumes the Level 3 conditional theorem. It retains that theorem's bound, scoped trace,
+and semantic postcondition alongside the Level 2 child summary, so the wrapper proof can dispatch
+the actual result without recovering facts from an opaque existential. -/
 theorem wrapper_reaches_decode_first_contract
     (allocator : AllocatorInlineContract) (decodeRaw : CompiledDecodeRawInstanceContract)
     (fromStep : Nat) (args : ZesuDecodeRawArgs) (stackBase : Nat) (entry : State)
@@ -2716,9 +2717,17 @@ theorem wrapper_reaches_decode_first_contract
         Level2ChildSummary fromStep 19 entry atDecode ∧
       ∃ decodeArgs : DecodeInlineArgs,
         DecodeInlinePre decodeArgs atDecode ∧
-          ∃ used after, Level2ChildSummary
-            functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
-            (fromStep + 19) used atDecode after := by
+          ∃ used after,
+            Level2ChildSummary
+              functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
+              (fromStep + 19) used atDecode after ∧
+            used ≤ decodeInlineStepBound decodeArgs ∧
+            ScopedTrace
+              (functionInstanceExecutionPcs generatedProgram
+                functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+              (DecodeInlineExit decodeArgs) Level3ChildSummary
+              (fromStep + 19) used atDecode after ∧
+            DecodeInlinePost decodeArgs atDecode after := by
   obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, inputMemory, agree, retired,
     code⟩ :=
     wrapper_through_allocator_setup allocator fromStep args stackBase entry source machine
@@ -2748,8 +2757,13 @@ theorem wrapper_reaches_decode_first_contract
       propagateReason := by
         intro error phase
         simp [decodeArgs] at phase }
-  obtain ⟨used, after, child⟩ := level2DecodeChildSummary_of_decodeRaw
-    decodeRaw decodeArgs (fromStep + 19) atDecode pre
-  exact ⟨atDecode, trace, confined, decodeArgs, pre, used, after, child⟩
+  obtain ⟨used, after, bound, childTrace, post⟩ :=
+    level3DecodeInlineContract decodeRaw decodeArgs (fromStep + 19) atDecode pre
+  have level3 : level3DecodeChildSummary
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
+      (fromStep + 19) used atDecode after :=
+    ⟨rfl, decodeArgs, pre, bound, childTrace, post⟩
+  exact ⟨atDecode, trace, confined, decodeArgs, pre, used, after, .decode level3,
+    bound, childTrace, post⟩
 
 end BinaryFv.Zesu.MachineExecution
