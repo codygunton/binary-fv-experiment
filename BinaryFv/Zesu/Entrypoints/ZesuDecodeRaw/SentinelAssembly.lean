@@ -226,19 +226,26 @@ structure AccessorInstanceRun {Error Args Result : Type}
   trace : Elfling.EnteredFunctionTrace region exit entry fromStep count state final
   post : contract.post args (contract.meaning args) state final
 
+/-- Instruction addresses owned by the compiled `zesu_raw_error` instance. -/
+def rawErrorInstructionPcs : List Nat := [0x13780, 0x13784, 0x13788]
+
+/-- Instruction addresses owned by the compiled `zesu_raw_result` instance. -/
+def rawResultInstructionPcs : List Nat :=
+  [0x1378C, 0x13790, 0x13794, 0x13798, 0x1379C, 0x137A0, 0x137A4, 0x137A8]
+
 def ImplementsAccessorInstance {Error Args Result : Type}
-    (region exit : BitVec 64 → Prop) (entry : BitVec 64) (entryPc : Nat)
+    (region exit : BitVec 64 → Prop) (entry : BitVec 64) (instructionPcs : List Nat)
     (contract : FunctionContract Error Args Result) : Prop :=
   ∀ (args : Args) (fromStep : Nat) (state : State),
-    contract.pre args state → ExitPlatform state entryPc →
+    contract.pre args state → (∀ pc ∈ instructionPcs, ExitPlatform state pc) →
       Nonempty (AccessorInstanceRun region exit entry contract args fromStep state)
 
 theorem ImplementsAccessorInstance.run {Error Args Result : Type}
-    {region exit : BitVec 64 → Prop} {entry : BitVec 64} {entryPc : Nat}
+    {region exit : BitVec 64 → Prop} {entry : BitVec 64} {instructionPcs : List Nat}
     {contract : FunctionContract Error Args Result}
-    (implements : ImplementsAccessorInstance region exit entry entryPc contract)
+    (implements : ImplementsAccessorInstance region exit entry instructionPcs contract)
     (args : Args) (fromStep : Nat) (state : State) (sourcePre : contract.pre args state)
-    (machinePre : ExitPlatform state entryPc) :
+    (machinePre : ∀ pc ∈ instructionPcs, ExitPlatform state pc) :
     Nonempty (AccessorInstanceRun region exit entry contract args fromStep state) :=
   implements args fromStep state sourcePre machinePre
 
@@ -247,7 +254,7 @@ def RawResultInstanceObligation (functionInstance : FunctionInstance) : Prop :=
     (functionInstanceExecutionPcs generatedProgram functionInstance)
     (functionInstanceExitPred functionInstance)
     (functionInstanceEntryWord functionInstance)
-    resolvedSymbols.rawResult
+    rawResultInstructionPcs
     (contractRawResult canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer)
 
@@ -256,7 +263,7 @@ def RawErrorInstanceObligation (functionInstance : FunctionInstance) : Prop :=
     (functionInstanceExecutionPcs generatedProgram functionInstance)
     (functionInstanceExitPred functionInstance)
     (functionInstanceEntryWord functionInstance)
-    resolvedSymbols.rawError
+    rawErrorInstructionPcs
     (contractRawError canonicalContractParams.env canonicalContractParams.globals)
 
 theorem RawResultInstanceObligation.run {functionInstance : FunctionInstance}
@@ -264,7 +271,7 @@ theorem RawResultInstanceObligation.run {functionInstance : FunctionInstance}
     (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
     (sourcePre : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer).pre model state)
-    (machinePre : ExitPlatform state resolvedSymbols.rawResult) :
+    (machinePre : ∀ pc ∈ rawResultInstructionPcs, ExitPlatform state pc) :
     Nonempty (AccessorInstanceRun
       (functionInstanceExecutionPcs generatedProgram functionInstance)
       (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
@@ -277,7 +284,7 @@ theorem RawErrorInstanceObligation.run {functionInstance : FunctionInstance}
     (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
     (sourcePre : (contractRawError canonicalContractParams.env
       canonicalContractParams.globals).pre model state)
-    (machinePre : ExitPlatform state resolvedSymbols.rawError) :
+    (machinePre : ∀ pc ∈ rawErrorInstructionPcs, ExitPlatform state pc) :
     Nonempty (AccessorInstanceRun
       (functionInstanceExecutionPcs generatedProgram functionInstance)
       (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
@@ -702,7 +709,7 @@ theorem runSelectedRawResult
     (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
     (sourcePre : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer).pre model state)
-    (machinePre : ExitPlatform state resolvedSymbols.rawResult) :
+    (machinePre : ∀ pc ∈ rawResultInstructionPcs, ExitPlatform state pc) :
     ∃ functionInstance,
       functionInstance ∈ generatedProgram.functionInstances ∧
       functionInstance.entryPc = resolvedSymbols.rawResult ∧
@@ -723,7 +730,7 @@ theorem runSelectedRawError
     (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
     (sourcePre : (contractRawError canonicalContractParams.env
       canonicalContractParams.globals).pre model state)
-    (machinePre : ExitPlatform state resolvedSymbols.rawError) :
+    (machinePre : ∀ pc ∈ rawErrorInstructionPcs, ExitPlatform state pc) :
     ∃ functionInstance,
       functionInstance ∈ generatedProgram.functionInstances ∧
       functionInstance.entryPc = resolvedSymbols.rawError ∧

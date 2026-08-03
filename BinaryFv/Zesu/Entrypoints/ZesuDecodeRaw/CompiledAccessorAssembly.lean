@@ -26,10 +26,24 @@ set_option maxRecDepth 100000
 /-- Every Level 1 fetch address whose machine conditions must survive the wrapper and first
 accessor call: the wrapper return, both accessor entries, and both accessor returns. -/
 def level1PlatformPcs : List Nat :=
-  [0x10378, resolvedSymbols.rawResult, 0x137A8, resolvedSymbols.rawError, 0x13788]
+  0x10378 :: rawResultInstructionPcs ++ rawErrorInstructionPcs
 
 theorem configureFetchPinned_level1PlatformPcs :
     configureFetchPinnedB level1PlatformPcs = true := by
+  native_decide
+
+theorem rawResultInstructionPcs_subset_level1 :
+    ∀ pc ∈ rawResultInstructionPcs, pc ∈ level1PlatformPcs := by
+  intro pc hpc
+  simp [level1PlatformPcs, hpc]
+
+theorem rawErrorInstructionPcs_subset_level1 :
+    ∀ pc ∈ rawErrorInstructionPcs, pc ∈ level1PlatformPcs := by
+  intro pc hpc
+  simp [level1PlatformPcs, hpc]
+
+theorem rawError_entry_mem_level1PlatformPcs :
+    resolvedSymbols.rawError ∈ level1PlatformPcs := by
   native_decide
 
 /-- Transport a caller-selected set of fetch conditions across a contract frame. -/
@@ -135,20 +149,24 @@ theorem rawResultHandoff_of_compiled
     ∃ middle, RawResultHandoff model state middle := by
   obtain ⟨nodes, hn⟩ := controlFlow_some
   let setup := accessorSetup resolvedSymbols.rawResult state
-  have hmachine : ExitPlatform setup resolvedSymbols.rawResult :=
-    exitPlatform_accessorSetup _ (hplatform resolvedSymbols.rawResult (by simp [level1PlatformPcs]))
+  have hmachine : ∀ pc ∈ rawResultInstructionPcs, ExitPlatform setup pc := by
+    intro pc hpc
+    exact exitPlatform_accessorSetup _
+      (hplatform pc (rawResultInstructionPcs_subset_level1 pc hpc))
   obtain ⟨functionInstance, hmem, hentry, ⟨execution⟩⟩ :=
     runSelectedRawResult implements model 0 setup
       (contractRawResult_entry_accessorSetup
         (resultBuffer := canonicalContractParams.resultBuffer) _
-        (hplatform 0x137A8 (by simp [level1PlatformPcs])).normal hcode hstored)
+        (hplatform 0x137A8
+          (rawResultInstructionPcs_subset_level1 0x137A8 (by decide))).normal hcode hstored)
       hmachine
   obtain ⟨count, atExit, hbound, htrace, hpost⟩ := execution
   obtain ⟨middle, -, hreach, -, hframe⟩ :=
     rawResultReachesSentinel_of_enteredFunctionTrace hn hmem hentry hbound
       (exitPlatform_of_agree hpost.2.2.2.1 hpost.2.2.2.2.1
         (programImage_of_codeIntact hpost.1)
-        (exitPlatform_accessorSetup _ (hplatform 0x137A8 (by simp [level1PlatformPcs]))))
+        (exitPlatform_accessorSetup _ (hplatform 0x137A8
+          (rawResultInstructionPcs_subset_level1 0x137A8 (by decide)))))
       htrace
   have hpointerBound :
       (if model.stored.isSome then Elflings.canonicalResultBuffer else 0) < 2 ^ 64 := by
@@ -179,13 +197,14 @@ theorem rawErrorResult_of_compiled
       observeReturnCode? after = some model.status.code := by
   obtain ⟨nodes, hn⟩ := controlFlow_some
   let setup := accessorSetup resolvedSymbols.rawError middle
-  have hmachine : ExitPlatform setup resolvedSymbols.rawError :=
-    exitPlatform_accessorSetup _
-      (handoff.platform resolvedSymbols.rawError (by simp [level1PlatformPcs]))
+  have hmachine : ∀ pc ∈ rawErrorInstructionPcs, ExitPlatform setup pc := by
+    intro pc hpc
+    exact exitPlatform_accessorSetup _
+      (handoff.platform pc (rawErrorInstructionPcs_subset_level1 pc hpc))
   obtain ⟨functionInstance, hmem, hentry, ⟨execution⟩⟩ :=
     runSelectedRawError implements model 0 setup
       (contractRawError_entry_accessorSetup _
-        (handoff.platform resolvedSymbols.rawError (by simp [level1PlatformPcs])).normal
+        (handoff.platform resolvedSymbols.rawError rawError_entry_mem_level1PlatformPcs).normal
         handoff.code handoff.globals)
       hmachine
   obtain ⟨count, atExit, hbound, htrace, hpost⟩ := execution
@@ -194,7 +213,8 @@ theorem rawErrorResult_of_compiled
       (exitPlatform_of_agree hpost.2.2.2.1 hpost.2.2.2.2.1
         (programImage_of_codeIntact hpost.1)
         (exitPlatform_accessorSetup _
-          (handoff.platform 0x13788 (by simp [level1PlatformPcs]))))
+          (handoff.platform 0x13788
+            (rawErrorInstructionPcs_subset_level1 0x13788 (by decide)))))
       htrace
   refine ⟨after, hreach, ?_⟩
   exact observeReturnCode_of_a0 (statusCode_lt_two_pow_64 model.status)
