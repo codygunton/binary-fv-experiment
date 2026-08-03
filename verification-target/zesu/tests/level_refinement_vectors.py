@@ -19,6 +19,9 @@ from pathlib import Path
 import ssz_differential_audit as fixtures
 
 
+DIRECT_READ_OFFSET_LINES = (199, 200, 201, 202)
+
+
 @dataclass(frozen=True)
 class ContractVector:
     name: str
@@ -146,6 +149,36 @@ def function_entries(program: dict) -> dict[str, int]:
     return result
 
 
+def direct_read_offset_entries(program: dict) -> tuple[int, ...]:
+    """Return the four `decodeRaw`-direct `readOffset` entries in source call order.
+
+    The production trace cannot observe the value passed between inlined instructions, but it can
+    prove that every vector reached each selected occurrence.  Match the full one-frame inline
+    stack so nested `readOffset` instances in the four selected decoders are not credited here.
+    """
+    entries = []
+    for line in DIRECT_READ_OFFSET_LINES:
+        candidates = [
+            occurrence["entryPc"]
+            for occurrence in program["function_instances"]
+            if occurrence["qualified"] == "ssz_raw.readOffset"
+            and occurrence["inlineStack"] == [
+                {
+                    "callerFile": "src/stateless/stateless/ssz_raw.zig",
+                    "callerQualified": "ssz_raw.decodeRaw",
+                    "line": line,
+                    "column": 23,
+                }
+            ]
+        ]
+        if len(candidates) != 1:
+            raise ValueError(
+                f"decodeRaw line {line} has {len(candidates)} direct readOffset instances, expected one"
+            )
+        entries.append(candidates[0])
+    return tuple(entries)
+
+
 def executed_pcs(trace: Path) -> set[int]:
     return {
         int(parts[1])
@@ -168,6 +201,7 @@ def run_production(
 def validate_vector(
     vector: ContractVector,
     entry: int,
+    read_offset_entries: tuple[int, ...],
     reference_python: Path,
     reference_program: Path,
     lean_binary: Path,
@@ -188,6 +222,9 @@ def validate_vector(
     failures = []
     if entry not in pcs:
         failures.append(f"production trace never entered 0x{entry:x}")
+    for read_offset_entry in read_offset_entries:
+        if read_offset_entry not in pcs:
+            failures.append(f"production trace never entered direct readOffset 0x{read_offset_entry:x}")
     if vector.valid:
         for name, outcome in outcomes.items():
             if outcome.returncode != 0:
@@ -213,6 +250,8 @@ def validate_vector(
         "valid": vector.valid,
         "entryPc": entry,
         "productionEntryReached": entry in pcs,
+        "directReadOffsetEntries": list(read_offset_entries),
+        "directReadOffsetsReached": all(entry in pcs for entry in read_offset_entries),
         "valueDigest": None
         if not vector.valid
         else fixtures.digest(outcomes["execution_specs"].stdout),
@@ -240,6 +279,7 @@ def main() -> int:
     args = parse_args()
     program = json.loads(args.program_json.read_text())
     entries = function_entries(program)
+    read_offset_entries = direct_read_offset_entries(program)
     failures = []
     with tempfile.TemporaryDirectory(prefix="level-refinement-") as temporary:
         scratch = args.scratch or Path(temporary)
@@ -249,6 +289,7 @@ def main() -> int:
             record = validate_vector(
                 vector,
                 entries[vector.qualified],
+                read_offset_entries,
                 args.reference_python,
                 args.reference_program,
                 args.lean_binary,

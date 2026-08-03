@@ -35,6 +35,43 @@ class LevelRefinementVectorTests(unittest.TestCase):
             if not vector.valid:
                 self.assertNotIn(vector.data, accepted)
 
+    def test_direct_read_offset_entries_select_only_decode_raw_children(self) -> None:
+        program = {
+            "function_instances": [
+                {
+                    "qualified": "ssz_raw.readOffset",
+                    "entryPc": 100 + line,
+                    "inlineStack": [
+                        {
+                            "callerFile": "src/stateless/stateless/ssz_raw.zig",
+                            "callerQualified": "ssz_raw.decodeRaw",
+                            "line": line,
+                            "column": 23,
+                        }
+                    ],
+                }
+                for line in evidence.DIRECT_READ_OFFSET_LINES
+            ]
+            + [
+                {
+                    "qualified": "ssz_raw.readOffset",
+                    "entryPc": 999,
+                    "inlineStack": [
+                        {
+                            "callerFile": "src/stateless/stateless/ssz_raw.zig",
+                            "callerQualified": "ssz_raw.decodeChainConfig",
+                            "line": 351,
+                            "column": 46,
+                        }
+                    ],
+                }
+            ]
+        }
+        self.assertEqual(
+            evidence.direct_read_offset_entries(program),
+            tuple(100 + line for line in evidence.DIRECT_READ_OFFSET_LINES),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
