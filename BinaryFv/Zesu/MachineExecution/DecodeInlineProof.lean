@@ -381,6 +381,8 @@ theorem decodeInline_first_argument_setup (fromStep : Nat) (args : DecodeInlineA
       after.regs.get? x12 = some (BitVec.ofNat 64 args.inputBase) ∧
       after.regs.get? x13 = some (BitVec.ofNat 64 args.bytes.size) ∧
       after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+      after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
+      after.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       Agree platformPreserved state after ∧ after.mem = state.mem ∧
       RetiredCounterPresent after := by
   let firstResult := iTypeResult .ADDI 0x360#12 (BitVec.ofNat 64 args.stackBase)
@@ -534,12 +536,18 @@ theorem decodeInline_first_argument_setup (fromStep : Nat) (args : DecodeInlineA
       (exit := DecodeInlineExit args) (childSummary := Level3ChildSummary)
       p123 (by simpa using prefix4)
     simpa using p1234
-  refine ⟨s4, ?_, combinedPrefix, pc4, result4, allocator4, input4, length4, stack4, agree4, rfl,
-    afterRegisterWrite_retired_present s3 (BitVec.ofNat 64 0x10314) retired4 x13 length⟩
+  refine ⟨s4, ?_, combinedPrefix, pc4, result4, allocator4, input4, length4, stack4, ?_, ?_,
+    agree4, rfl, afterRegisterWrite_retired_present s3 (BitVec.ofNat 64 0x10314) retired4 x13 length⟩
   · refine Trace.step fromStep 3 state s1 s4 (by simpa [s1, firstResult] using run1) ?_
     refine Trace.step (fromStep + 1) 2 s1 s2 s4 (by simpa [s2, allocator] using run2) ?_
     refine Trace.step (fromStep + 2) 1 s2 s3 s4 (by simpa [s3, input] using run3) ?_
     exact Trace.one (fromStep + 3) s3 s4 (by simpa [s4, length] using run4)
+  · simp [s4, s3, s2, s1, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, pre.inputValue]
+  · simp [s4, s3, s2, s1, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, pre.lengthValue]
 
 theorem decodeInline_first_call_page_step (stepNo : Nat) (args : DecodeInlineArgs)
     (baseState state : State) (pre : DecodeInlinePre args baseState)
@@ -604,10 +612,12 @@ theorem decodeInline_first_before_decodeRaw_call (fromStep : Nat) (args : Decode
       beforeCall.regs.get? x12 = some (BitVec.ofNat 64 args.inputBase) ∧
       beforeCall.regs.get? x13 = some (BitVec.ofNat 64 args.bytes.size) ∧
       beforeCall.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+      beforeCall.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
+      beforeCall.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       Agree decoderPreserved state beforeCall ∧ beforeCall.mem = state.mem ∧
       RetiredCounterPresent beforeCall := by
   obtain ⟨afterArgs, argsTrace, argsPrefix, argsPc, resultArgs, allocatorArgs, inputArgs,
-    lengthArgs, stackArgs, argsAgree, argsMemory, argsRetired⟩ :=
+    lengthArgs, stackArgs, inputBaseArgs, inputLengthArgs, argsAgree, argsMemory, argsRetired⟩ :=
     decodeInline_first_argument_setup fromStep args state pre phase
   obtain ⟨retired, callPageStep⟩ := decodeInline_first_call_page_step (fromStep + 4) args
     state afterArgs pre argsAgree argsMemory argsRetired argsPc
@@ -642,6 +652,14 @@ theorem decodeInline_first_before_decodeRaw_call (fromStep : Nat) (args : Decode
     simp [beforeCall, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, stackArgs]
+  have inputBaseBefore : beforeCall.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
+    simp [beforeCall, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, inputBaseArgs]
+  have inputLengthBefore : beforeCall.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
+    simp [beforeCall, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, inputLengthArgs]
   have callPageAgree : Agree decoderPreserved afterArgs beforeCall := by
     apply afterRegisterWrite_agree_of
     all_goals simp [decoderPreserved, platformPreserved]
@@ -674,7 +692,7 @@ theorem decodeInline_first_before_decodeRaw_call (fromStep : Nat) (args : Decode
       argsPrefix callPagePrefix
     simpa using combined
   refine ⟨beforeCall, ?_, combinedPrefix, callPc, returnBase, resultBefore, allocatorBefore, inputBefore,
-    lengthBefore, stackBefore,
+    lengthBefore, stackBefore, inputBaseBefore, inputLengthBefore,
     Agree.trans (Agree.weaken (fun _ preserved => preserved.2) argsAgree) callPageAgree,
     memoryUnchanged,
     afterRegisterWrite_retired_present afterArgs (BitVec.ofNat 64 0x10318) retired x1
@@ -698,7 +716,9 @@ theorem decodeInline_first_decodeRaw_call_step (stepNo : Nat) (args : DecodeInli
       some (BitVec.ofNat 64 args.firstTemporaryResultBase))
     (allocatorPointer : state.regs.get? x11 = some (BitVec.ofNat 64 args.allocatorBase))
     (inputPointer : state.regs.get? x12 = some (BitVec.ofNat 64 args.inputBase))
-    (inputLength : state.regs.get? x13 = some (BitVec.ofNat 64 args.bytes.size)) :
+    (inputLength : state.regs.get? x13 = some (BitVec.ofNat 64 args.bytes.size))
+    (inputBase : state.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase))
+    (lengthBase : state.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size)) :
     ∃ retired,
       Runs (try_step stepNo false) state (decodeInlineFirstCallAfter state retired) false ∧
       (decodeInlineFirstCallAfter state retired).regs.get? PC =
@@ -712,6 +732,10 @@ theorem decodeInline_first_decodeRaw_call_step (stepNo : Nat) (args : DecodeInli
       (decodeInlineFirstCallAfter state retired).regs.get? x12 =
         some (BitVec.ofNat 64 args.inputBase) ∧
       (decodeInlineFirstCallAfter state retired).regs.get? x13 =
+        some (BitVec.ofNat 64 args.bytes.size) ∧
+      (decodeInlineFirstCallAfter state retired).regs.get? x8 =
+        some (BitVec.ofNat 64 args.inputBase) ∧
+      (decodeInlineFirstCallAfter state retired).regs.get? x9 =
         some (BitVec.ofNat 64 args.bytes.size) ∧
       Agree decoderPreserved state (decodeInlineFirstCallAfter state retired) ∧
       (decodeInlineFirstCallAfter state retired).mem = state.mem ∧
@@ -836,7 +860,16 @@ theorem decodeInline_first_decodeRaw_call_step (stepNo : Nat) (args : DecodeInli
       some (BitVec.ofNat 64 args.bytes.size) :=
     (preserveGeneral x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
       inputLength
+  have inputBaseAfter : (decodeInlineFirstCallAfter state retired).regs.get? x8 =
+      some (BitVec.ofNat 64 args.inputBase) :=
+    (preserveGeneral x8 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
+      inputBase
+  have inputLengthAfter : (decodeInlineFirstCallAfter state retired).regs.get? x9 =
+      some (BitVec.ofNat 64 args.bytes.size) :=
+    (preserveGeneral x9 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
+      lengthBase
   refine ⟨retired, run, pcAfter, linkAfter, resultAfter, allocatorAfter, inputAfter, lengthAfter,
+    inputBaseAfter, inputLengthAfter,
     callAgree, callMemory, ?_⟩
   exact ⟨Sail.BitVec.addInt retired 1, by
     simp [decodeInlineFirstCallAfter, tryStepControlFlowAfterRetired,
@@ -850,13 +883,14 @@ theorem decodeInline_first_enters_decodeRaw (fromStep : Nat) (args : DecodeInlin
       compiledDecodeRawContract.binding.entry args.firstRawArgs childEntry ∧
       childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x10320) := by
   obtain ⟨beforeCall, beforeTrace, -, callPc, callBase, resultPointer, allocatorPointer,
-    inputPointer, inputLength, -, beforeAgree, beforeMemory, beforeRetired⟩ :=
+    inputPointer, inputLength, -, beforeInputBase, beforeInputLength, beforeAgree, beforeMemory,
+    beforeRetired⟩ :=
     decodeInline_first_before_decodeRaw_call fromStep args state pre phase
   obtain ⟨retired, callRun, childPc, childLink, childResult, childAllocator, childInput,
-    childLength, callAgree, callMemory, childRetired⟩ :=
+    childLength, -, -, callAgree, callMemory, childRetired⟩ :=
     decodeInline_first_decodeRaw_call_step (fromStep + 5) args state beforeCall pre
       beforeAgree beforeMemory beforeRetired callPc callBase resultPointer allocatorPointer
-      inputPointer inputLength
+      inputPointer inputLength beforeInputBase beforeInputLength
   let childEntry := decodeInlineFirstCallAfter beforeCall retired
   have childTrace : Trace fromStep 6 state childEntry :=
     Trace.snoc beforeTrace (by simpa [childEntry] using callRun)
@@ -1178,14 +1212,17 @@ theorem decodeInline_first_call_transfer
       Agree decoderPreserved state resumed ∧
       RetiredCounterPresent resumed ∧
       resumed.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+      resumed.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
+      resumed.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       Contracts.postEntry Contracts.canonicalContractParams.env args.firstRawArgs
         Contracts.canonicalContractParams.repRawV4 (Contracts.meaningDecodeRaw args.bytes)
         state resumed := by
   obtain ⟨beforeCall, parentTrace, parentPrefix, callPc, callBase, resultPointer, allocatorPointer,
-    inputPointer, inputLength, beforeStack, beforeAgree, beforeMemory, beforeRetired⟩ :=
+    inputPointer, inputLength, beforeStack, beforeInputBase, beforeInputLength, beforeAgree,
+    beforeMemory, beforeRetired⟩ :=
     decodeInline_first_before_decodeRaw_call fromStep args state pre phase
   obtain ⟨callRetired, callRun, childPc, childLink, childResult, childAllocator, childInput,
-    childLength, callAgree, callMemory, childRetired⟩ :=
+    childLength, childInputBase, childInputLength, callAgree, callMemory, childRetired⟩ :=
     decodeInline_first_decodeRaw_call_step (fromStep + 5) args state beforeCall pre
       beforeAgree beforeMemory beforeRetired callPc callBase resultPointer allocatorPointer
       inputPointer inputLength
@@ -1267,6 +1304,18 @@ theorem decodeInline_first_call_transfer
     simp [resumed, decodeRawReturnAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
       coreControlFlowNextState, Std.ExtDHashMap.get?_insert, exitStack]
+  have exitInputBase : childExit.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) :=
+    (childFrame x8 (by simp [decodeRawCallerPreserved])).trans childInputBase
+  have exitInputLength : childExit.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
+    (childFrame x9 (by simp [decodeRawCallerPreserved])).trans childInputLength
+  have resumedInputBase : resumed.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
+    simp [resumed, decodeRawReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState, Std.ExtDHashMap.get?_insert, exitInputBase]
+  have resumedInputLength : resumed.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
+    simp [resumed, decodeRawReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState, Std.ExtDHashMap.get?_insert, exitInputLength]
   have resumedPost : Contracts.postEntry Contracts.canonicalContractParams.env args.firstRawArgs
       Contracts.canonicalContractParams.repRawV4 (Contracts.meaningDecodeRaw args.bytes)
       state resumed := by
@@ -1293,7 +1342,7 @@ theorem decodeInline_first_call_transfer
   exact ⟨beforeCall, childUsed, resumed, parentTrace, parentPrefix, bound, ⟨transfer⟩, resumedStatus,
     resumedCode, resumedAgree, by simpa [resumed] using
       decodeRawReturnAfter_retired (BitVec.ofNat 64 0x10320) childExit returnRetired,
-      resumedStack, resumedPost⟩
+      resumedStack, resumedInputBase, resumedInputLength, resumedPost⟩
 
 /-! ## First result dispatch -/
 
@@ -1495,6 +1544,14 @@ theorem decodeInline_first_through_result_tag
       (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) retired x10
           (BitVec.ofNat 64
             (Contracts.decodeInternalResultTag (Contracts.meaningDecodeRaw args.bytes)))).regs.get?
+        x8 = some (BitVec.ofNat 64 args.inputBase) ∧
+      (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) retired x10
+          (BitVec.ofNat 64
+            (Contracts.decodeInternalResultTag (Contracts.meaningDecodeRaw args.bytes)))).regs.get?
+        x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
+      (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) retired x10
+          (BitVec.ofNat 64
+            (Contracts.decodeInternalResultTag (Contracts.meaningDecodeRaw args.bytes)))).regs.get?
         x10 = some (BitVec.ofNat 64
           (Contracts.decodeInternalResultTag (Contracts.meaningDecodeRaw args.bytes))) ∧
       Contracts.postEntry Contracts.canonicalContractParams.env args.firstRawArgs
@@ -1503,7 +1560,7 @@ theorem decodeInline_first_through_result_tag
           (BitVec.ofNat 64
             (Contracts.decodeInternalResultTag (Contracts.meaningDecodeRaw args.bytes)))) := by
   obtain ⟨beforeCall, childUsed, resumed, parentTrace, parentPrefix, bound, transfer, status, code,
-    resumedAgree, resumedRetired, resumedStack, resumedPost⟩ :=
+    resumedAgree, resumedRetired, resumedStack, resumedInputBase, resumedInputLength, resumedPost⟩ :=
     decodeInline_first_call_transfer contract fromStep args state pre phase
   obtain ⟨callTransfer⟩ := transfer
   have resumePc : resumed.regs.get? PC = some (BitVec.ofNat 64 0x10320) := by
@@ -1530,6 +1587,14 @@ theorem decodeInline_first_through_result_tag
     simp [afterTag, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, resumedStack]
+  have afterInputBase : afterTag.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
+    simp [afterTag, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, resumedInputBase]
+  have afterInputLength : afterTag.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
+    simp [afterTag, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, resumedInputLength]
   have afterPost : Contracts.postEntry Contracts.canonicalContractParams.env args.firstRawArgs
       Contracts.canonicalContractParams.repRawV4 (Contracts.meaningDecodeRaw args.bytes)
       state afterTag := by
@@ -1538,7 +1603,8 @@ theorem decodeInline_first_through_result_tag
     exact resumedPost
   refine ⟨beforeCall, childUsed, resumed, retired, parentTrace, parentPrefix, bound, ⟨callTransfer⟩,
     by simpa [afterTag, tagValue] using tagRun, ?_, afterCode,
-    Agree.trans resumedAgree tagAgree, ?_, afterStack, afterX10, afterPost⟩
+    Agree.trans resumedAgree tagAgree, ?_, afterStack, afterInputBase, afterInputLength, afterX10,
+    afterPost⟩
   · simpa [afterTag, tagValue] using
       afterRegisterWrite_pc resumed (BitVec.ofNat 64 0x10320) retired x10 tagValue
   · simpa [afterTag, tagValue] using
@@ -2006,7 +2072,7 @@ theorem decodeInline_first_success_through_branch
         (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10 (0#64))
         branchRetired).regs.get? PC = some (BitVec.ofNat 64 0x10328) := by
   obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, -, bound, transfer,
-    tagRun, tagPc, tagCode, tagAgree, tagCounter, -, tagValue, -⟩ :=
+    tagRun, tagPc, tagCode, tagAgree, tagCounter, -, -, -, tagValue, -⟩ :=
     decodeInline_first_through_result_tag contract fromStep args state pre phase
   have internalTag : Contracts.decodeInternalResultTag
       (Contracts.meaningDecodeRaw args.bytes) = 0 := by
@@ -2054,7 +2120,7 @@ theorem decodeInline_first_success_reaches_post
         (DecodeInlineExit args) Level3ChildSummary fromStep (childUsed + 13) state final ∧
       DecodeInlineMachinePost state final := by
   obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, parentPrefix, bound, transfer,
-    tagRun, tagPc, tagCode, tagAgree, tagCounter, tagStackRaw, tagValue, tagPost⟩ :=
+    tagRun, tagPc, tagCode, tagAgree, tagCounter, tagStackRaw, -, -, tagValue, tagPost⟩ :=
     decodeInline_first_through_result_tag contract fromStep args state pre phase
   have internalTag : Contracts.decodeInternalResultTag
       (Contracts.meaningDecodeRaw args.bytes) = 0 := by
@@ -2233,9 +2299,16 @@ theorem decodeInline_first_error_reaches_post
           (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))) ∧
       DecodeInlineMachinePost state
         (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
-          (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))) := by
+          (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))) ∧
+      (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
+        (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))).regs.get? x8 =
+          some (BitVec.ofNat 64 args.inputBase) ∧
+      (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
+        (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))).regs.get? x9 =
+          some (BitVec.ofNat 64 args.bytes.size) := by
   obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, parentPrefix, bound, transfer,
-    tagRun, tagPc, tagCode, tagAgree, tagCounter, -, tagValue, tagPost⟩ :=
+    tagRun, tagPc, tagCode, tagAgree, tagCounter, -, tagInputBase, tagInputLength, tagValue,
+    tagPost⟩ :=
     decodeInline_first_through_result_tag contract fromStep args state pre phase
   have tagRunError : Runs (try_step (fromStep + 7 + childUsed) false) resumed
       (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
@@ -2315,7 +2388,8 @@ theorem decodeInline_first_error_reaches_post
         (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
           (BitVec.ofNat 64 (Contracts.decodeInternalResultTag
             (Contracts.meaningDecodeRaw args.bytes)))) from
-        ⟨tagAgree, tagCounter, tagCode⟩)⟩
+        ⟨tagAgree, tagCounter, tagCode⟩), by simpa [afterTag, failed] using tagInputBase,
+    by simpa [afterTag, failed] using tagInputLength⟩
 
 /-- The complete first-phase arm of the Level 3 contract. This is the single scope showing the
 conditional `decodeRaw` summary stitched to all parent-owned Sail execution and the selected semantic
