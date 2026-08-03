@@ -260,17 +260,41 @@ def DecodeInlineFirstPost (args : DecodeInlineArgs)
         after.regs.get? PC = some (BitVec.ofNat 64 0x10324) ∧
         after.regs.get? x10 = some (BitVec.ofNat 64 (decodeInternalResultTag result))
 
-/-- The retry phase either rejects before a second `decodeRaw`, or finishes the retry and its
-832-byte result copy. In both cases the result is the complete source `meaningDecode`.
+/-- The successful retry retains the second `decodeRaw` result object and copies only its 832-byte
+payload to the final object. The emitted `memcpy` does not copy the following two-byte result tag;
+the Level 2 wrapper reads that tag from the retained retry object at `sp + 0x9f0`.
 
-The successful phase stops before the outgoing load at `0x103f8`; the Level 2 wrapper owns that
-instruction and derives the internal result tag from the copied result object. -/
+`decoded` records the state at which the second `decodeRaw` postcondition held. The exact copy frame
+then connects that semantic result to the final state without falsely claiming a tag at the payload
+destination. -/
+def DecodeInlineRetrySuccessPost (args : DecodeInlineArgs) (before after : State) : Prop :=
+  let result := meaningDecode args.bytes
+  ∃ decoded contents,
+    postEntry canonicalContractParams.env args.retryRawArgs canonicalContractParams.repRawV4
+        result before decoded ∧
+      contents.size = 832 ∧
+      MemoryBytes decoded args.retryRawArgs.resultBase contents ∧
+      CopyDestinationFrame
+        { destination := args.finalResultBase
+          source := args.retryRawArgs.resultBase
+          length := 832
+          contents := contents }
+        decoded after ∧
+      MemoryBytes after args.retryRawArgs.resultBase contents ∧
+      MemoryBytes after args.finalResultBase contents ∧
+      canonicalContractParams.env.CodeIntact after ∧
+      canonicalContractParams.env.NoAllocation decoded after
+
+/-- The retry phase either rejects before a second `decodeRaw`, or finishes the retry and its
+832-byte payload copy. In both cases the result is the complete source `meaningDecode`.
+
+The successful phase stops before the outgoing tag load at `0x103f8`; the Level 2 wrapper owns that
+instruction. -/
 def DecodeInlineRetryPost (args : DecodeInlineArgs)
     (before after : State) : Prop :=
   let result := meaningDecode args.bytes
   if meaningHasExactErePrefix args.bytes then
-    postEntry canonicalContractParams.env args.finalArgs canonicalContractParams.repRawV4
-        result before after ∧
+    DecodeInlineRetrySuccessPost args before after ∧
       after.regs.get? PC = some (BitVec.ofNat 64 0x103f8)
   else
     result = .error .invalidSsz ∧
