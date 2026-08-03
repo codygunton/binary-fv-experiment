@@ -374,6 +374,48 @@ theorem allocatorAfterFunctionStore_pc (state : State)
   simp [allocatorAfterFunctionStore, executeState, tryStepControlFlowAfterRetired,
     tryStepControlFlowAfterTick, storedRegs, Std.ExtDHashMap.get?_insert]
 
+theorem allocatorAfterFunctionStore_get?_of_ne (state : State)
+    (retired stackBase functionAddress : BitVec 64) (register : Register)
+    (notPc : register ≠ PC) (notNextPc : register ≠ nextPC)
+    (notIncrement : register ≠ minstret_increment) (notRetired : register ≠ minstret) :
+    (allocatorAfterFunctionStore state retired stackBase functionAddress).regs.get? register =
+      state.regs.get? register := by
+  have pcNot : PC ≠ register := Ne.symm notPc
+  have nextPcNot : nextPC ≠ register := Ne.symm notNextPc
+  have incrementNot : minstret_increment ≠ register := Ne.symm notIncrement
+  have retiredNot : minstret ≠ register := Ne.symm notRetired
+  simp [allocatorAfterFunctionStore, afterWriteBytes_regs, tryStepControlFlowAfterRetired,
+    tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+    Std.ExtDHashMap.get?_insert, pcNot, nextPcNot, incrementNot, retiredNot]
+
+theorem allocatorAfterFunctionStore_agree (state : State)
+    (retired stackBase functionAddress : BitVec 64) :
+    Agree platformPreserved state
+      (allocatorAfterFunctionStore state retired stackBase functionAddress) := by
+  intro register preserved
+  exact allocatorAfterFunctionStore_get?_of_ne state retired stackBase functionAddress register
+    (by intro equal; subst register; simpa [platformPreserved] using preserved)
+    (by intro equal; subst register; simpa [platformPreserved] using preserved)
+    (by intro equal; subst register; simpa [platformPreserved] using preserved)
+    (by intro equal; subst register; simpa [platformPreserved] using preserved)
+
+theorem allocatorAfterFunctionStore_code (state : State)
+    (retired stackBase functionAddress : BitVec 64)
+    (notFileBacked : ∀ index : Fin 8,
+      Artifacts.programImage.readFileByte?
+        ((stackBase + sign_extend (0x018#12)).toNat + index.val) = none)
+    (code : Artifacts.programImage.fileBytesMatchMemory state.mem) :
+    Artifacts.programImage.fileBytesMatchMemory
+      (allocatorAfterFunctionStore state retired stackBase functionAddress).mem := by
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x10304)
+  have executeCode : Artifacts.programImage.fileBytesMatchMemory executeState.mem := by
+    simpa [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code
+  have stored := fileBytesMatchMemory_afterWriteBytes Artifacts.programImage executeState
+    (stackBase + sign_extend (0x018#12)).toNat functionAddress notFileBacked executeCode
+  simpa [allocatorAfterFunctionStore, executeState, tryStepControlFlowAfterRetired,
+    tryStepControlFlowAfterTick] using stored
+
 /-! ## Boundary-facing allocator summary
 
 The allocator has two entries, so its Level 2 summary is a relation over one machine-code segment,
