@@ -11,7 +11,7 @@
       "parent": "program",
       "functions": [
         { "qualified": "raw_decoder_root.zesu_decode_raw", "displayName": "zesu_decode_raw", "status": "unproved" },
-        { "qualified": "raw_decoder_root.zesu_raw_error", "displayName": "zesu_raw_error", "status": "unproved" },
+        { "qualified": "raw_decoder_root.zesu_raw_error", "displayName": "zesu_raw_error", "status": "proved", "theorem": "BinaryFv.Zesu.MachineExecution.rawErrorInstanceObligation_proved" },
         { "qualified": "raw_decoder_root.zesu_raw_result", "displayName": "zesu_raw_result", "status": "unproved" }
       ]
     }

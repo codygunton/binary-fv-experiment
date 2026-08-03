@@ -233,28 +233,49 @@ def rawErrorInstructionPcs : List Nat := [0x13780, 0x13784, 0x13788]
 def rawResultInstructionPcs : List Nat :=
   [0x1378C, 0x13790, 0x13794, 0x13798, 0x1379C, 0x137A0, 0x137A4, 0x137A8]
 
+structure RawErrorMachinePre (state : State) : Prop where
+  entry : state.regs.get? Register.PC =
+    some (BitVec.ofNat 64 resolvedSymbols.rawError)
+  instructions : ∀ pc ∈ rawErrorInstructionPcs, ExitPlatform state pc
+  statusLoad : LoadPmaAllows state
+    (BitVec.ofNat 64 Elflings.canonicalDecoderGlobalsLayout.status) 4
+  mstatus : ∃ bits, state.regs.get? mstatus = some bits ∧ _get_Mstatus_MPRV bits = 0#1
+  mseccfg : ∃ bits, state.regs.get? mseccfg = some bits ∧
+    pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled
+
+structure RawResultMachinePre (state : State) : Prop where
+  entry : state.regs.get? Register.PC =
+    some (BitVec.ofNat 64 resolvedSymbols.rawResult)
+  instructions : ∀ pc ∈ rawResultInstructionPcs, ExitPlatform state pc
+  discriminantLoad : LoadPmaAllows state
+    (BitVec.ofNat 64 (Elflings.canonicalDecoderGlobalsLayout.storedResult +
+      Elflings.canonicalDecoderGlobalsLayout.storedResultObject.discriminantOffset)) 1
+  mstatus : ∃ bits, state.regs.get? mstatus = some bits ∧ _get_Mstatus_MPRV bits = 0#1
+  mseccfg : ∃ bits, state.regs.get? mseccfg = some bits ∧
+    pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled
+
 def ImplementsAccessorInstance {Error Args Result : Type}
-    (region exit : BitVec 64 → Prop) (entry : BitVec 64) (instructionPcs : List Nat)
+    (region exit : BitVec 64 → Prop) (entry : BitVec 64) (machinePre : State → Prop)
     (contract : FunctionContract Error Args Result) : Prop :=
   ∀ (args : Args) (fromStep : Nat) (state : State),
-    contract.pre args state → (∀ pc ∈ instructionPcs, ExitPlatform state pc) →
+    contract.pre args state → machinePre state →
       Nonempty (AccessorInstanceRun region exit entry contract args fromStep state)
 
 theorem ImplementsAccessorInstance.run {Error Args Result : Type}
-    {region exit : BitVec 64 → Prop} {entry : BitVec 64} {instructionPcs : List Nat}
+    {region exit : BitVec 64 → Prop} {entry : BitVec 64} {machinePre : State → Prop}
     {contract : FunctionContract Error Args Result}
-    (implements : ImplementsAccessorInstance region exit entry instructionPcs contract)
+    (implements : ImplementsAccessorInstance region exit entry machinePre contract)
     (args : Args) (fromStep : Nat) (state : State) (sourcePre : contract.pre args state)
-    (machinePre : ∀ pc ∈ instructionPcs, ExitPlatform state pc) :
+    (compiledPre : machinePre state) :
     Nonempty (AccessorInstanceRun region exit entry contract args fromStep state) :=
-  implements args fromStep state sourcePre machinePre
+  implements args fromStep state sourcePre compiledPre
 
 def RawResultInstanceObligation (functionInstance : FunctionInstance) : Prop :=
   ImplementsAccessorInstance
     (functionInstanceExecutionPcs generatedProgram functionInstance)
     (functionInstanceExitPred functionInstance)
     (functionInstanceEntryWord functionInstance)
-    rawResultInstructionPcs
+    RawResultMachinePre
     (contractRawResult canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer)
 
@@ -263,7 +284,7 @@ def RawErrorInstanceObligation (functionInstance : FunctionInstance) : Prop :=
     (functionInstanceExecutionPcs generatedProgram functionInstance)
     (functionInstanceExitPred functionInstance)
     (functionInstanceEntryWord functionInstance)
-    rawErrorInstructionPcs
+    RawErrorMachinePre
     (contractRawError canonicalContractParams.env canonicalContractParams.globals)
 
 theorem RawResultInstanceObligation.run {functionInstance : FunctionInstance}
@@ -271,7 +292,7 @@ theorem RawResultInstanceObligation.run {functionInstance : FunctionInstance}
     (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
     (sourcePre : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer).pre model state)
-    (machinePre : ∀ pc ∈ rawResultInstructionPcs, ExitPlatform state pc) :
+    (machinePre : RawResultMachinePre state) :
     Nonempty (AccessorInstanceRun
       (functionInstanceExecutionPcs generatedProgram functionInstance)
       (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
@@ -284,7 +305,7 @@ theorem RawErrorInstanceObligation.run {functionInstance : FunctionInstance}
     (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
     (sourcePre : (contractRawError canonicalContractParams.env
       canonicalContractParams.globals).pre model state)
-    (machinePre : ∀ pc ∈ rawErrorInstructionPcs, ExitPlatform state pc) :
+    (machinePre : RawErrorMachinePre state) :
     Nonempty (AccessorInstanceRun
       (functionInstanceExecutionPcs generatedProgram functionInstance)
       (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
@@ -709,7 +730,7 @@ theorem runSelectedRawResult
     (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
     (sourcePre : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer).pre model state)
-    (machinePre : ∀ pc ∈ rawResultInstructionPcs, ExitPlatform state pc) :
+    (machinePre : RawResultMachinePre state) :
     ∃ functionInstance,
       functionInstance ∈ generatedProgram.functionInstances ∧
       functionInstance.entryPc = resolvedSymbols.rawResult ∧
@@ -730,7 +751,7 @@ theorem runSelectedRawError
     (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
     (sourcePre : (contractRawError canonicalContractParams.env
       canonicalContractParams.globals).pre model state)
-    (machinePre : ∀ pc ∈ rawErrorInstructionPcs, ExitPlatform state pc) :
+    (machinePre : RawErrorMachinePre state) :
     ∃ functionInstance,
       functionInstance ∈ generatedProgram.functionInstances ∧
       functionInstance.entryPc = resolvedSymbols.rawError ∧

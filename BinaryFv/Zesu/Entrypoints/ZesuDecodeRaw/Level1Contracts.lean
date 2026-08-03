@@ -34,14 +34,12 @@ abbrev RawErrorContract : Prop :=
     functionInstance.entryPc = resolvedSymbols.rawError →
       RawErrorInstanceObligation functionInstance
 
-/-- Put the three contracts called by the runner into the exact structure consumed by its execution
-proof. Every argument is copied directly; no deeper decoder contract is smuggled into Level 1. -/
+/-- Put the two remaining Level 1 assumptions into the exact structure consumed by the runner proof.
+`zesu_raw_error` is absent because its compiled instance is proved by Sail execution. -/
 def contracts_of_level1
     (decode : ZesuDecodeRawContract)
-    (rawResult : RawResultContract)
-    (rawError : RawErrorContract) : CompiledLevel1Assumptions where
+    (rawResult : RawResultContract) : CompiledLevel1Assumptions where
   decode := decode
   rawResult := rawResult
-  rawError := rawError
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw

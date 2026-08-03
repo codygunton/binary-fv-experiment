@@ -18,9 +18,10 @@ noncomputable def binary : RiscvSpec.ValidatedElf := {
 /-!
 ## Navigation from the conditional root theorem
 
-`compliance_of_level1_contracts` assumes the three compiled function-instance obligations used by
-the runner, then derives the public Ethereum SSZ agreement claim through their concrete call sites
-and observers. Later refinement levels replace the decoder obligation with its immediate children.
+`compliance_of_level1_contracts` assumes the unresolved compiled function-instance obligations used
+by the runner, then derives the public Ethereum SSZ agreement claim through their concrete call
+sites and observers. `zesu_raw_error` is already discharged by executing its owned instructions in
+the Sail model. Later refinement levels replace the decoder obligation with its immediate children.
 
 The active spine is the concrete wrapper/accessor run assembly and the public execution classifier.
 Canonical ELF and source-provenance checks remain available separately as decomposition-independent
@@ -149,8 +150,8 @@ theorem accepted_checks_determine_classification {final : BinaryFv.RiscV.State}
   Zesu.Entrypoints.ZesuDecodeRaw.classifyWrapperRun_accepted _ _ _ steps _ _ final value hcode rfl
     rfl Zesu.Entrypoints.ZesuDecodeRaw.canonicalResultBuffer_ne_zero htag hvalue
 
-/-- The Level 1 conditional theorem. Its premise is exactly the three compiled function instances
-called by the concrete runner. -/
+/-- The Level 1 conditional theorem. Its premise contains only the compiled runner children not yet
+proved directly. -/
 theorem compliance_of_level1_contracts
     (contracts : Zesu.Entrypoints.ZesuDecodeRaw.CompiledLevel1Assumptions) :
     ∀ input : ByteArray,
@@ -177,17 +178,15 @@ theorem compliance_of_level1_contracts
         execution.builds execution.trace execution.withinStepBound execution.accessors
         execution.returnCode execution.specRejection execution.storedAbsent
 
-/-- The sole public root of the compliance proof. Its three arguments are exactly the functions the
-runner calls: `zesu_decode_raw`, `zesu_raw_result`, and `zesu_raw_error`. Later theorems resolve the
-decoder contract into the functions called during decoding. -/
+/-- The sole public root of the compliance proof. Its remaining assumptions are the compiled decoder
+and `zesu_raw_result`; `zesu_raw_error` is discharged by concrete Sail execution. -/
 theorem root_compliance
     (decode : Entrypoints.ZesuDecodeRaw.ZesuDecodeRawContract)
-    (rawResult : Entrypoints.ZesuDecodeRaw.RawResultContract)
-    (rawError : Entrypoints.ZesuDecodeRaw.RawErrorContract) :
+    (rawResult : Entrypoints.ZesuDecodeRaw.RawResultContract) :
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
         RiscvSpec.execute binary input = .ok (BinaryFv.Specs.SSZ.decode input) :=
   compliance_of_level1_contracts
-    (Entrypoints.ZesuDecodeRaw.contracts_of_level1 decode rawResult rawError)
+    (Entrypoints.ZesuDecodeRaw.contracts_of_level1 decode rawResult)
 
 end BinaryFv.Zesu

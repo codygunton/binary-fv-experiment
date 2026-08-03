@@ -14,6 +14,14 @@ def LoadPmaAllows (state : State) (address : BitVec 64) (width : Nat) : Prop :=
       matching_pma_region regions (physaddr.Physaddr address) width = some region ∧
         region.attributes.readable = true
 
+theorem loadPmaAllows_of_agree {before after : State} {address : BitVec 64} {width : Nat}
+    (agree : Agree platformPreserved before after)
+    (allowed : LoadPmaAllows before address width) :
+    LoadPmaAllows after address width := by
+  rcases allowed with ⟨regions, region, regionsRead, matching, readable⟩
+  exact ⟨regions, region, (platformPreserved_pmaRegions agree).trans regionsRead,
+    matching, readable⟩
+
 theorem pmaCheck_load_allowed (state : State) (address : BitVec 64) (width : Nat)
     (allowed : LoadPmaAllows state address width)
     (aligned : is_aligned_paddr (physaddr.Physaddr address) width = true) :

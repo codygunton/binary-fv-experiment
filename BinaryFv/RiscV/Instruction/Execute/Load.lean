@@ -390,6 +390,10 @@ theorem vmem_read_addr_word_run (s : State) (srcBits mstatusBits : BitVec 64)
           refine RunsME.bind (RunsME.pure () s) ?_
           exact RunsME.pure _ s
 
+private theorem leWord_leBytes_id4 (v : BitVec (8 * 4)) : leWord (leBytes 4 v) = v := by
+  have h := leWord_leBytes 4 v
+  simpa using h
+
 theorem vmem_read_word_run (s : State) (rs : regidx) (offset srcBits mstatusBits : BitVec 64)
     (v : BitVec (8 * 4))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -411,6 +415,27 @@ theorem vmem_read_word_run (s : State) (rs : regidx) (offset srcBits mstatusBits
   case readAddr =>
     exact RunsME.lift _ s s (Sail.Ok v)
       (vmem_read_addr_word_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
+
+/-- An aligned four-byte load from explicitly represented little-endian memory. -/
+theorem vmem_read_word_from_bytes_run (s : State) (rs : regidx)
+    (offset srcBits mstatusBits : BitVec 64) (v : BitVec (8 * 4))
+    (mstatusRead : s.regs.get? mstatus = some mstatusBits)
+    (privRead : s.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (addrReg : Runs (get_transformed_data_addr rs offset (Load Data) 4) s s
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)))
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr srcBits) 4 = true)
+    (physAccess : Runs (phys_access_check (Load Data) PBMT_PMA .Machine
+      (physaddr.Physaddr srcBits) 4 false) s s none)
+    (noMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) 4) s s false)
+    (hmem : ∀ (i : Nat) (h : i < (leBytes 4 v).length),
+      s.mem.get? (srcBits.toNat + i) = some (leBytes 4 v)[i]) :
+    Runs (vmem_read rs offset 4 (Load Data) false false false) s s (.Ok v) := by
+  have hread := mem_read_load_run s srcBits mstatusBits (leBytes 4 v) mstatusRead privRead
+    mprvZero hmem physAccess noMMIO
+  rw [leWord_leBytes_id4] at hread
+  exact vmem_read_word_run s rs offset srcBits mstatusBits v mstatusRead privRead mprvZero
+    addrReg aligned hread
 
 /-! ## Aligned double-word load instruction (`ld`) -/
 

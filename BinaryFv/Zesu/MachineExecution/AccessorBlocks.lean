@@ -103,21 +103,21 @@ theorem raw_error_body_runs (state afterAuipc afterLoad final : State) (pcVal : 
         hwrite))
 
 theorem raw_error_auipc_image_bytes :
-    Artifacts.programImage.readByte? 0x13780 = some 0x17 ∧
-      Artifacts.programImage.readByte? 0x13781 = some 0x25 ∧
-        Artifacts.programImage.readByte? 0x13782 = some 0x20 ∧
-          Artifacts.programImage.readByte? 0x13783 = some 0x04 := by
+    Artifacts.programImage.readFileByte? 0x13780 = some 0x17 ∧
+      Artifacts.programImage.readFileByte? 0x13781 = some 0x25 ∧
+        Artifacts.programImage.readFileByte? 0x13782 = some 0x20 ∧
+          Artifacts.programImage.readFileByte? 0x13783 = some 0x04 := by
   native_decide
 
 theorem raw_error_auipc_fetch (state : State)
-    (loaded : Artifacts.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x13780)
       0x17#8 0x25#8 0x20#8 0x04#8 := by
   rcases raw_error_auipc_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifacts.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.fileBytesMatchMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifacts.programImage
+  exact fetchBytesAt_of_file_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x13780 (by omega)
     afterIncrement 0x17 0x25 0x20 0x04 read0 read1 read2 read3
 
@@ -137,11 +137,37 @@ theorem raw_error_auipc_decode (state : State)
     Sail.BitVec.access, Sail.BitVec.extractLsb,
     LeanRV64DExecutable.Functions.regidx_bit_width, privilege, mseccfg]
 
+theorem raw_error_load_image_bytes :
+    Artifacts.programImage.readFileByte? 0x13784 = some 0x03 ∧
+      Artifacts.programImage.readFileByte? 0x13785 = some 0x25 ∧
+        Artifacts.programImage.readFileByte? 0x13786 = some 0x45 ∧
+          Artifacts.programImage.readFileByte? 0x13787 = some 0x8a := by
+  native_decide
+
+theorem raw_error_load_fetch (state : State)
+    (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
+    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x13784)
+      0x03#8 0x25#8 0x45#8 0x8a#8 := by
+  rcases raw_error_load_image_bytes with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifacts.programImage.fileBytesMatchMemory
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  exact fetchBytesAt_of_file_bytes Artifacts.programImage
+    (tryStepControlFlowAfterIncrement state) 0x13784 (by omega)
+    afterIncrement 0x03 0x25 0x45 0x8a read0 read1 read2 read3
+
+theorem raw_error_load_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x03#8 0x25#8 0x45#8 0x8a#8)) state state
+      (.LOAD (0x8a4#12, .Regidx 10#5, .Regidx 10#5, false, 4)) := by
+  decode_run
+
 theorem raw_error_ret_image_bytes :
-    Artifacts.programImage.readByte? 0x13788 = some 0x67 ∧
-      Artifacts.programImage.readByte? 0x13789 = some 0x80 ∧
-        Artifacts.programImage.readByte? 0x1378a = some 0x00 ∧
-          Artifacts.programImage.readByte? 0x1378b = some 0x00 := by
+    Artifacts.programImage.readFileByte? 0x13788 = some 0x67 ∧
+      Artifacts.programImage.readFileByte? 0x13789 = some 0x80 ∧
+        Artifacts.programImage.readFileByte? 0x1378a = some 0x00 ∧
+          Artifacts.programImage.readFileByte? 0x1378b = some 0x00 := by
   native_decide
 
 theorem raw_error_ret_decode (state : State)
@@ -196,14 +222,14 @@ theorem raw_error_ret_try_step (stepNo : Nat) (state : State)
     machineEnabled retiredRead
 
 theorem raw_error_ret_fetch (state : State)
-    (loaded : Artifacts.programImage.matchesMemory state.mem) :
+    (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x13788)
       0x67#8 0x80#8 0x00#8 0x00#8 := by
   rcases raw_error_ret_image_bytes with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifacts.programImage.matchesMemory
+  have afterIncrement : Artifacts.programImage.fileBytesMatchMemory
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_image_bytes Artifacts.programImage
+  exact fetchBytesAt_of_file_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x13788 (by omega)
     afterIncrement 0x67 0x80 0x00 0x00 read0 read1 read2 read3
 

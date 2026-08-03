@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
+import BinaryFv.Zesu.MachineExecution.RawErrorProof
 
 /-!
 # Compiled accessor calls
@@ -28,8 +29,17 @@ accessor call: the wrapper return, both accessor entries, and both accessor retu
 def level1PlatformPcs : List Nat :=
   0x10378 :: rawResultInstructionPcs ++ rawErrorInstructionPcs
 
+def level1LoadAccesses : List (Nat × Nat) :=
+  [(Elflings.canonicalDecoderGlobalsLayout.status, 4),
+    (Elflings.canonicalDecoderGlobalsLayout.storedResult +
+      Elflings.canonicalDecoderGlobalsLayout.storedResultObject.discriminantOffset, 1)]
+
 theorem configureFetchPinned_level1PlatformPcs :
     configureFetchPinnedB level1PlatformPcs = true := by
+  native_decide
+
+theorem configureLoadPinned_level1LoadAccesses :
+    configureLoadPinnedB level1LoadAccesses = true := by
   native_decide
 
 theorem rawResultInstructionPcs_subset_level1 :
@@ -84,13 +94,14 @@ theorem decodeRun_of_compiledLevel1 (decode : DecodeInstanceObligation) (input :
       count + 1 ≤ entryStepBound input.size + 1 ∧
       CanonicalDecodeExit input entryState atExit ∧
       ExitRetFrame atExit finalState ∧
-      (∀ pc ∈ level1PlatformPcs, ExitPlatform finalState pc) := by
+      (∀ pc ∈ level1PlatformPcs, ExitPlatform finalState pc) ∧
+      LoadPlatformPinned finalState level1LoadAccesses := by
   obtain ⟨nodes, hn⟩ := controlFlow_some
   obtain ⟨functionInstance, hfind⟩ :
       ∃ functionInstance,
         Program.find? generatedProgram generatedProgram.entry = some functionInstance :=
     Option.isSome_iff_exists.mp entry_function_instance_found
-  obtain ⟨entryState, hrun, hbinding, hlink, -, hnormal, hpresent, hpinned, -⟩ :=
+  obtain ⟨entryState, hrun, hbinding, hlink, -, hnormal, hpresent, hpinned, hloadPinned, -⟩ :=
     buildZesuEntryState_entry_binding_abi input
   obtain ⟨hpma, hhtif⟩ :=
     hpinned level1PlatformPcs configureFetchPinned_level1PlatformPcs
@@ -109,6 +120,8 @@ theorem decodeRun_of_compiledLevel1 (decode : DecodeInstanceObligation) (input :
         retired := hpresent.1
         link := hlink
         code := hcodeEntry }
+  have hloadsEntry : LoadPlatformPinned entryState level1LoadAccesses :=
+    hloadPinned level1LoadAccesses configureLoadPinned_level1LoadAccesses
   obtain ⟨count, atExit, hbound, htrace, hexit⟩ :=
     canonicalDecodeExit_of_implements (decode hfind) input 0 hbinding
   obtain ⟨finalState, hsentinel, -, -, hframe⟩ :=
@@ -117,10 +130,18 @@ theorem decodeRun_of_compiledLevel1 (decode : DecodeInstanceObligation) (input :
         (programImage_of_codeIntact hexit.2.1)
         (hplatformEntry 0x10378 (by simp [level1PlatformPcs])))
       htrace
+  have hloadsAtExit : LoadPlatformPinned atExit level1LoadAccesses :=
+    loadPlatformPinned_frame (platformPreserved_mstatus hexit.2.2.2.1)
+      (platformPreserved_mseccfg hexit.2.2.2.1)
+      (platformPreserved_pmaRegions hexit.2.2.2.1) hloadsEntry
+  have hloadsFinal : LoadPlatformPinned finalState level1LoadAccesses :=
+    loadPlatformPinned_frame (platformPreserved_mstatus hframe.agree)
+      (platformPreserved_mseccfg hframe.agree)
+      (platformPreserved_pmaRegions hframe.agree) hloadsAtExit
   exact ⟨entryState, atExit, finalState, count, hrun, hsentinel, by omega, hexit, hframe,
     exitPlatformsFor_of_exitRetFrame hframe hexit.2.1
       (exitPlatformsFor_of_agree hexit.2.2.2.1 hexit.2.2.2.2.1 hexit.2.1
-        hplatformEntry)⟩
+        hplatformEntry), hloadsFinal⟩
 
 /-- Facts preserved by the compiled `zesu_raw_result` call and needed by `zesu_raw_error`. -/
 structure RawResultHandoff (model : DecoderGlobalsModel) (before middle : State) : Prop where
@@ -133,6 +154,7 @@ structure RawResultHandoff (model : DecoderGlobalsModel) (before middle : State)
   globals :
     DecoderGlobalsScalarRep Elflings.canonicalDecoderGlobalsLayout model middle
   platform : ∀ pc ∈ level1PlatformPcs, ExitPlatform middle pc
+  loads : LoadPlatformPinned middle level1LoadAccesses
 
 /-- Run the selected compiled `zesu_raw_result` instance and produce the exact handoff required by
 the following accessor call. -/
@@ -143,16 +165,30 @@ theorem rawResultHandoff_of_compiled
         RawResultInstanceObligation functionInstance)
     {state : State} {model : DecoderGlobalsModel}
     (hplatform : ∀ pc ∈ level1PlatformPcs, ExitPlatform state pc)
+    (hloads : LoadPlatformPinned state level1LoadAccesses)
     (hcode : canonicalEnvironment.CodeIntact state)
     (hscalar : DecoderGlobalsScalarRep Elflings.canonicalDecoderGlobalsLayout model state)
     (hstored : StoredResultDiscriminantRep Elflings.canonicalDecoderGlobalsLayout model state) :
     ∃ middle, RawResultHandoff model state middle := by
   obtain ⟨nodes, hn⟩ := controlFlow_some
   let setup := accessorSetup resolvedSymbols.rawResult state
-  have hmachine : ∀ pc ∈ rawResultInstructionPcs, ExitPlatform setup pc := by
-    intro pc hpc
-    exact exitPlatform_accessorSetup _
-      (hplatform pc (rawResultInstructionPcs_subset_level1 pc hpc))
+  have hsetup : Agree platformPreserved state setup :=
+    agree_accessorSetup _ (hplatform resolvedSymbols.rawResult (by native_decide)).link
+  have hloadsSetup : LoadPlatformPinned setup level1LoadAccesses :=
+    loadPlatformPinned_frame (platformPreserved_mstatus hsetup)
+      (platformPreserved_mseccfg hsetup) (platformPreserved_pmaRegions hsetup) hloads
+  have hmachine : RawResultMachinePre setup :=
+    { entry := by simp [setup, accessorSetup, Std.ExtDHashMap.get?_insert]
+      instructions := by
+        intro pc hpc
+        exact exitPlatform_accessorSetup _
+          (hplatform pc (rawResultInstructionPcs_subset_level1 pc hpc))
+      discriminantLoad := hloadsSetup.allows
+        (Elflings.canonicalDecoderGlobalsLayout.storedResult +
+          Elflings.canonicalDecoderGlobalsLayout.storedResultObject.discriminantOffset, 1)
+        (by simp [level1LoadAccesses])
+      mstatus := hloadsSetup.mstatus
+      mseccfg := hloadsSetup.mseccfg }
   obtain ⟨functionInstance, hmem, hentry, ⟨execution⟩⟩ :=
     runSelectedRawResult implements model 0 setup
       (contractRawResult_entry_accessorSetup
@@ -174,11 +210,19 @@ theorem rawResultHandoff_of_compiled
     have hceiling := runtime_below_ceiling.2
     have : loadedCeiling < 2 ^ 64 := by decide
     split <;> omega
+  have hloadsAtExit : LoadPlatformPinned atExit level1LoadAccesses :=
+    loadPlatformPinned_frame (platformPreserved_mstatus hpost.2.2.2.1)
+      (platformPreserved_mseccfg hpost.2.2.2.1)
+      (platformPreserved_pmaRegions hpost.2.2.2.1) hloadsSetup
+  have hloadsMiddle : LoadPlatformPinned middle level1LoadAccesses :=
+    loadPlatformPinned_frame (platformPreserved_mstatus hframe.agree)
+      (platformPreserved_mseccfg hframe.agree)
+      (platformPreserved_pmaRegions hframe.agree) hloadsAtExit
   refine ⟨middle, hreach,
     observeReturnCode_of_a0 hpointerBound (hframe.returnValue.trans hpost.2.2.2.2.2.2),
     codeIntact_of_mem_eq hframe.mem hpost.1,
     decoderGlobalsScalarRep_of_mem_eq hframe.mem
-      (decoderGlobalsScalarRep_survives_accessor hpost.2.2.1 hscalar), ?_⟩
+      (decoderGlobalsScalarRep_survives_accessor hpost.2.2.1 hscalar), ?_, hloadsMiddle⟩
   exact exitPlatformsFor_of_exitRetFrame hframe hpost.1
     (exitPlatformsFor_of_agree hpost.2.2.2.1 hpost.2.2.2.2.1 hpost.1
       (fun pc hpc => exitPlatform_accessorSetup _ (hplatform pc hpc)))
@@ -197,10 +241,22 @@ theorem rawErrorResult_of_compiled
       observeReturnCode? after = some model.status.code := by
   obtain ⟨nodes, hn⟩ := controlFlow_some
   let setup := accessorSetup resolvedSymbols.rawError middle
-  have hmachine : ∀ pc ∈ rawErrorInstructionPcs, ExitPlatform setup pc := by
-    intro pc hpc
-    exact exitPlatform_accessorSetup _
-      (handoff.platform pc (rawErrorInstructionPcs_subset_level1 pc hpc))
+  have hsetup : Agree platformPreserved middle setup :=
+    agree_accessorSetup _
+      (handoff.platform resolvedSymbols.rawError rawError_entry_mem_level1PlatformPcs).link
+  have hloadsSetup : LoadPlatformPinned setup level1LoadAccesses :=
+    loadPlatformPinned_frame (platformPreserved_mstatus hsetup)
+      (platformPreserved_mseccfg hsetup) (platformPreserved_pmaRegions hsetup) handoff.loads
+  have hmachine : RawErrorMachinePre setup :=
+    { entry := by simp [setup, accessorSetup, Std.ExtDHashMap.get?_insert]
+      instructions := by
+        intro pc hpc
+        exact exitPlatform_accessorSetup _
+          (handoff.platform pc (rawErrorInstructionPcs_subset_level1 pc hpc))
+      statusLoad := hloadsSetup.allows (Elflings.canonicalDecoderGlobalsLayout.status, 4)
+        (by simp [level1LoadAccesses])
+      mstatus := hloadsSetup.mstatus
+      mseccfg := hloadsSetup.mseccfg }
   obtain ⟨functionInstance, hmem, hentry, ⟨execution⟩⟩ :=
     runSelectedRawError implements model 0 setup
       (contractRawError_entry_accessorSetup _
@@ -227,12 +283,9 @@ theorem accessorTraces_of_compiled
       functionInstance ∈ generatedProgram.functionInstances →
       functionInstance.entryPc = resolvedSymbols.rawResult →
         RawResultInstanceObligation functionInstance)
-    (rawError : ∀ {functionInstance : FunctionInstance},
-      functionInstance ∈ generatedProgram.functionInstances →
-      functionInstance.entryPc = resolvedSymbols.rawError →
-        RawErrorInstanceObligation functionInstance)
     {state : State} {model : DecoderGlobalsModel}
     (hplatform : ∀ pc ∈ level1PlatformPcs, ExitPlatform state pc)
+    (hloads : LoadPlatformPinned state level1LoadAccesses)
     (hcode : canonicalEnvironment.CodeIntact state)
     (hscalar : DecoderGlobalsScalarRep Elflings.canonicalDecoderGlobalsLayout model state)
     (hstored : StoredResultDiscriminantRep Elflings.canonicalDecoderGlobalsLayout model state) :
@@ -242,31 +295,28 @@ theorem accessorTraces_of_compiled
         some (if model.stored.isSome then Elflings.canonicalResultBuffer else 0) ∧
       AccessorReachesSentinel resolvedSymbols.rawError rawErrorStepBound middle after ∧
       observeReturnCode? after = some model.status.code := by
-  obtain ⟨middle, handoff⟩ := rawResultHandoff_of_compiled rawResult hplatform
+  obtain ⟨middle, handoff⟩ := rawResultHandoff_of_compiled rawResult hplatform hloads
     hcode hscalar hstored
-  obtain ⟨after, herror, hstatus⟩ := rawErrorResult_of_compiled rawError handoff
+  obtain ⟨after, herror, hstatus⟩ :=
+    rawErrorResult_of_compiled rawErrorInstanceObligation_proved handoff
   exact ⟨middle, after, handoff.reaches, handoff.returnCode, herror, hstatus⟩
 
-/-- The three compiled function-instance obligations used by the Level 1 runner proof. -/
+/-- The remaining compiled function-instance obligations used by the Level 1 runner proof. -/
 structure CompiledLevel1Assumptions : Prop where
   decode : DecodeInstanceObligation
   rawResult : ∀ {functionInstance : FunctionInstance},
     functionInstance ∈ generatedProgram.functionInstances →
     functionInstance.entryPc = resolvedSymbols.rawResult →
       RawResultInstanceObligation functionInstance
-  rawError : ∀ {functionInstance : FunctionInstance},
-    functionInstance ∈ generatedProgram.functionInstances →
-    functionInstance.entryPc = resolvedSymbols.rawError →
-      RawErrorInstanceObligation functionInstance
 
-/-- Accepted inputs produce the runner witness from the three compiled Level 1 obligations. -/
+/-- Accepted inputs produce the runner witness from the remaining Level 1 obligations. -/
 theorem successfulRun_of_compiledLevel1 (contracts : CompiledLevel1Assumptions)
     {input : ByteArray} (inputBound : input.size < 2 * 1024 * 1024)
     {value : BinaryFv.Specs.SSZ.RawV4}
     (accepts : BinaryFv.Specs.SSZ.decode input = .accepted value) :
     Nonempty (SuccessfulRun input value) := by
   obtain ⟨entryState, atExit, finalState, count, hrun, htrace, hbound, hexit, hframe,
-    hplatform⟩ := decodeRun_of_compiledLevel1 contracts.decode input
+    hplatform, hloads⟩ := decodeRun_of_compiledLevel1 contracts.decode input
   obtain ⟨hcode, htag, hinput, hvalue⟩ :=
     successfulRun_fields_of_canonicalDecodeExit catalogGroundsInSpec_holds inputBound accepts hexit
   have hcodeFinal : observeReturnCode? finalState = some 1 :=
@@ -283,7 +333,7 @@ theorem successfulRun_of_compiledLevel1 (contracts : CompiledLevel1Assumptions)
   have hglobals := hexit.2.2.2.2.2
   rw [hmeaning] at hglobals
   obtain ⟨middle, after, hreachResult, hcodeResult, hreachError, hcodeError⟩ :=
-    accessorTraces_of_compiled contracts.rawResult contracts.rawError hplatform
+    accessorTraces_of_compiled contracts.rawResult hplatform hloads
       (codeIntact_of_mem_eq hframe.mem hexit.2.1)
       (decoderGlobalsScalarRep_of_mem_eq hframe.mem hglobals.1)
       (storedResultDiscriminantRep_of_mem_eq hframe.mem hglobals.2.1)
@@ -292,13 +342,13 @@ theorem successfulRun_of_compiledLevel1 (contracts : CompiledLevel1Assumptions)
   · rw [hcodeResult, freshGlobals_ok_pointer]
   · rw [hcodeError, freshGlobals_ok_statusCode]
 
-/-- Rejected inputs produce the runner witness from the same three compiled obligations. -/
+/-- Rejected inputs produce the runner witness from the same remaining obligations. -/
 theorem rejectedRun_of_compiledLevel1 (contracts : CompiledLevel1Assumptions)
     {input : ByteArray} (inputBound : input.size < 2 * 1024 * 1024)
     (rejects : BinaryFv.Specs.SSZ.decode input = .rejected) :
     Nonempty (RejectedRun input) := by
   obtain ⟨entryState, atExit, finalState, count, hrun, htrace, hbound, hexit, hframe,
-    hplatform⟩ := decodeRun_of_compiledLevel1 contracts.decode input
+    hplatform, hloads⟩ := decodeRun_of_compiledLevel1 contracts.decode input
   obtain ⟨hcode, htag, -, hstatus⟩ :=
     rejectedRun_fields_of_canonicalDecodeExit catalogGroundsInSpec_holds inputBound rejects hexit
   have hcodeFinal : observeReturnCode? finalState = some 0 :=
@@ -309,7 +359,7 @@ theorem rejectedRun_of_compiledLevel1 (contracts : CompiledLevel1Assumptions)
     meaningDecode_error_of_spec_rejects catalogGroundsInSpec_holds inputBound rejects
   have hglobals := hexit.2.2.2.2.2
   obtain ⟨middle, after, hreachResult, hcodeResult, hreachError, hcodeError⟩ :=
-    accessorTraces_of_compiled contracts.rawResult contracts.rawError hplatform
+    accessorTraces_of_compiled contracts.rawResult hplatform hloads
       (codeIntact_of_mem_eq hframe.mem hexit.2.1)
       (decoderGlobalsScalarRep_of_mem_eq hframe.mem hglobals.1)
       (storedResultDiscriminantRep_of_mem_eq hframe.mem hglobals.2.1)
