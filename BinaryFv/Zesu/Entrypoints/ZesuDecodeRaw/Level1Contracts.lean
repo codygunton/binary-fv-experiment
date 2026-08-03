@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.CompiledAccessorAssembly
 
 /-!
 # Contracts for the three functions called by `program`
@@ -18,45 +18,28 @@ open BinaryFv.Zesu.Elflings.Generated
 
 /-- Complete machine contract for the exported decoder instance. -/
 abbrev ZesuDecodeRawContract : Prop :=
-  ∀ {functionInstance : FunctionInstance},
-    Program.find? generatedProgram generatedProgram.entry = some functionInstance →
-      BinaryFv.RiscV.Elfling.FunctionInstanceContract.Implements
-        (functionInstanceExecutionPcs generatedProgram functionInstance)
-        (functionInstanceExitPred functionInstance)
-        (functionInstanceEntryWord functionInstance)
-        (functionInstanceZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
-          canonicalContractParams.resultBuffer canonicalContractParams.repRawV4
-          DecoderGlobalsModel.fresh)
+  DecodeInstanceObligation
 
-/-- Contract for `zesu_raw_result` at the symbol selected by the runner. -/
+/-- Source contract plus compiled entry conditions for `zesu_raw_result` at the selected symbol. -/
 abbrev RawResultContract : Prop :=
   ∀ {functionInstance : FunctionInstance},
     functionInstance ∈ generatedProgram.instances →
     functionInstance.entryPc = resolvedSymbols.rawResult →
-      BinaryFv.RiscV.Elfling.Implements
-        (functionInstanceExecutionPcs generatedProgram functionInstance)
-        (functionInstanceExitPred functionInstance)
-        (functionInstanceEntryWord functionInstance)
-        (contractRawResult canonicalContractParams.env canonicalContractParams.globals
-          canonicalContractParams.resultBuffer)
+      RawResultInstanceObligation functionInstance
 
-/-- Contract for `zesu_raw_error` at the symbol selected by the runner. -/
+/-- Source contract plus compiled entry conditions for `zesu_raw_error` at the selected symbol. -/
 abbrev RawErrorContract : Prop :=
   ∀ {functionInstance : FunctionInstance},
     functionInstance ∈ generatedProgram.instances →
     functionInstance.entryPc = resolvedSymbols.rawError →
-      BinaryFv.RiscV.Elfling.Implements
-        (functionInstanceExecutionPcs generatedProgram functionInstance)
-        (functionInstanceExitPred functionInstance)
-        (functionInstanceEntryWord functionInstance)
-        (contractRawError canonicalContractParams.env canonicalContractParams.globals)
+      RawErrorInstanceObligation functionInstance
 
 /-- Put the three contracts called by the runner into the exact structure consumed by its execution
 proof. Every argument is copied directly; no deeper decoder contract is smuggled into Level 1. -/
-def exportedContracts_of_level1
+def contracts_of_level1
     (decode : ZesuDecodeRawContract)
     (rawResult : RawResultContract)
-    (rawError : RawErrorContract) : ExportedContractAssumptions where
+    (rawError : RawErrorContract) : CompiledLevel1Assumptions where
   decode := decode
   rawResult := rawResult
   rawError := rawError

@@ -214,15 +214,24 @@ execution proof additionally needs facts tied to this compiled call site: the co
 fetch permissions there, readable machine registers, and the runner's return sentinel.  Those facts
 belong in the compiled-instance binding, not in the address-free source contract. -/
 
+/-- One completed source-contract run of a selected compiled accessor instance.  Naming this result
+keeps callers from repeatedly elaborating its nested existential and conjunction tree. -/
+structure AccessorInstanceRun {Error Args Result : Type}
+    (region exit : BitVec 64 → Prop) (entry : BitVec 64)
+    (contract : FunctionContract Error Args Result) (args : Args) (fromStep : Nat)
+    (state : State) where
+  count : Nat
+  final : State
+  bound : count ≤ contract.stepBound args
+  trace : Elfling.EnteredFunctionTrace region exit entry fromStep count state final
+  post : contract.post args (contract.meaning args) state final
+
 def ImplementsAccessorInstance {Error Args Result : Type}
     (region exit : BitVec 64 → Prop) (entry : BitVec 64) (entryPc : Nat)
     (contract : FunctionContract Error Args Result) : Prop :=
   ∀ (args : Args) (fromStep : Nat) (state : State),
     contract.pre args state → ExitPlatform state entryPc →
-      ∃ (count : Nat) (final : State),
-        count ≤ contract.stepBound args ∧
-        Elfling.EnteredFunctionTrace region exit entry fromStep count state final ∧
-        contract.post args (contract.meaning args) state final
+      Nonempty (AccessorInstanceRun region exit entry contract args fromStep state)
 
 theorem ImplementsAccessorInstance.run {Error Args Result : Type}
     {region exit : BitVec 64 → Prop} {entry : BitVec 64} {entryPc : Nat}
@@ -230,10 +239,7 @@ theorem ImplementsAccessorInstance.run {Error Args Result : Type}
     (implements : ImplementsAccessorInstance region exit entry entryPc contract)
     (args : Args) (fromStep : Nat) (state : State) (sourcePre : contract.pre args state)
     (machinePre : ExitPlatform state entryPc) :
-    ∃ (count : Nat) (final : State),
-      count ≤ contract.stepBound args ∧
-      Elfling.EnteredFunctionTrace region exit entry fromStep count state final ∧
-      contract.post args (contract.meaning args) state final :=
+    Nonempty (AccessorInstanceRun region exit entry contract args fromStep state) :=
   implements args fromStep state sourcePre machinePre
 
 def RawResultInstanceObligation (functionInstance : FunctionInstance) : Prop :=
@@ -259,17 +265,11 @@ theorem RawResultInstanceObligation.run {functionInstance : FunctionInstance}
     (sourcePre : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer).pre model state)
     (machinePre : ExitPlatform state resolvedSymbols.rawResult) :
-    ∃ (count : Nat) (final : State),
-      count ≤ (contractRawResult canonicalContractParams.env canonicalContractParams.globals
-        canonicalContractParams.resultBuffer).stepBound model ∧
-      Elfling.EnteredFunctionTrace
-        (functionInstanceExecutionPcs generatedProgram functionInstance)
-        (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
-        fromStep count state final ∧
+    Nonempty (AccessorInstanceRun
+      (functionInstanceExecutionPcs generatedProgram functionInstance)
+      (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
       (contractRawResult canonicalContractParams.env canonicalContractParams.globals
-        canonicalContractParams.resultBuffer).post model
-          ((contractRawResult canonicalContractParams.env canonicalContractParams.globals
-            canonicalContractParams.resultBuffer).meaning model) state final :=
+        canonicalContractParams.resultBuffer) model fromStep state) :=
   ImplementsAccessorInstance.run implements model fromStep state sourcePre machinePre
 
 theorem RawErrorInstanceObligation.run {functionInstance : FunctionInstance}
@@ -278,16 +278,11 @@ theorem RawErrorInstanceObligation.run {functionInstance : FunctionInstance}
     (sourcePre : (contractRawError canonicalContractParams.env
       canonicalContractParams.globals).pre model state)
     (machinePre : ExitPlatform state resolvedSymbols.rawError) :
-    ∃ (count : Nat) (final : State),
-      count ≤ (contractRawError canonicalContractParams.env
-        canonicalContractParams.globals).stepBound model ∧
-      Elfling.EnteredFunctionTrace
-        (functionInstanceExecutionPcs generatedProgram functionInstance)
-        (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
-        fromStep count state final ∧
-      (contractRawError canonicalContractParams.env canonicalContractParams.globals).post model
-        ((contractRawError canonicalContractParams.env
-          canonicalContractParams.globals).meaning model) state final :=
+    Nonempty (AccessorInstanceRun
+      (functionInstanceExecutionPcs generatedProgram functionInstance)
+      (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
+      (contractRawError canonicalContractParams.env canonicalContractParams.globals)
+      model fromStep state) :=
   ImplementsAccessorInstance.run implements model fromStep state sourcePre machinePre
 
 /-- **From the contracts' own exit clauses to the retirement's premises.**
@@ -708,22 +703,17 @@ theorem runSelectedRawResult
     (sourcePre : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer).pre model state)
     (machinePre : ExitPlatform state resolvedSymbols.rawResult) :
-    ∃ (functionInstance : FunctionInstance) (count : Nat) (final : State),
+    ∃ functionInstance,
       functionInstance ∈ generatedProgram.functionInstances ∧
       functionInstance.entryPc = resolvedSymbols.rawResult ∧
-      count ≤ rawResultStepBound ∧
-      Elfling.EnteredFunctionTrace
+      Nonempty (AccessorInstanceRun
         (functionInstanceExecutionPcs generatedProgram functionInstance)
         (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
-        fromStep count state final ∧
-      (contractRawResult canonicalContractParams.env canonicalContractParams.globals
-        canonicalContractParams.resultBuffer).post model
-          ((contractRawResult canonicalContractParams.env canonicalContractParams.globals
-            canonicalContractParams.resultBuffer).meaning model) state final := by
+        (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+          canonicalContractParams.resultBuffer) model fromStep state) := by
   obtain ⟨functionInstance, hmem, hentry⟩ := rawResult_function_instance_found
-  obtain ⟨count, final, hbound, htrace, hpost⟩ :=
-    RawResultInstanceObligation.run (implements hmem hentry) model fromStep state sourcePre machinePre
-  exact ⟨functionInstance, count, final, hmem, hentry, hbound, htrace, hpost⟩
+  exact ⟨functionInstance, hmem, hentry, RawResultInstanceObligation.run
+    (implements hmem hentry) model fromStep state sourcePre machinePre⟩
 
 theorem runSelectedRawError
     (implements : ∀ {functionInstance : FunctionInstance},
@@ -734,21 +724,17 @@ theorem runSelectedRawError
     (sourcePre : (contractRawError canonicalContractParams.env
       canonicalContractParams.globals).pre model state)
     (machinePre : ExitPlatform state resolvedSymbols.rawError) :
-    ∃ (functionInstance : FunctionInstance) (count : Nat) (final : State),
+    ∃ functionInstance,
       functionInstance ∈ generatedProgram.functionInstances ∧
       functionInstance.entryPc = resolvedSymbols.rawError ∧
-      count ≤ rawErrorStepBound ∧
-      Elfling.EnteredFunctionTrace
+      Nonempty (AccessorInstanceRun
         (functionInstanceExecutionPcs generatedProgram functionInstance)
         (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
-        fromStep count state final ∧
-      (contractRawError canonicalContractParams.env canonicalContractParams.globals).post model
-        ((contractRawError canonicalContractParams.env
-          canonicalContractParams.globals).meaning model) state final := by
+        (contractRawError canonicalContractParams.env canonicalContractParams.globals)
+        model fromStep state) := by
   obtain ⟨functionInstance, hmem, hentry⟩ := rawError_function_instance_found
-  obtain ⟨count, final, hbound, htrace, hpost⟩ :=
-    RawErrorInstanceObligation.run (implements hmem hentry) model fromStep state sourcePre machinePre
-  exact ⟨functionInstance, count, final, hmem, hentry, hbound, htrace, hpost⟩
+  exact ⟨functionInstance, hmem, hentry, RawErrorInstanceObligation.run
+    (implements hmem hentry) model fromStep state sourcePre machinePre⟩
 
 /-! ## One attachment, in general
 
