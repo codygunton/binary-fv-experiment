@@ -27,6 +27,13 @@ open PreSail LeanRV64DExecutable.Functions
 abbrev MachineChildSummary :=
   FunctionInstanceId → Nat → Nat → State → State → Prop
 
+/-- The complete two-segment machine contract for the selected inlined allocator. -/
+abbrev AllocatorInlineContract : Prop := MachineExecution.AllocatorInlineContract
+
+/-- Both allocator segments are discharged by concrete Sail execution. -/
+theorem allocatorInlineContract_proved : AllocatorInlineContract :=
+  MachineExecution.allocatorInlineContract_proved
+
 /-- The emitted `memcpy` body's typed compiled contract, at its generated entry and exits. -/
 def memcpyChildSummary (child : FunctionInstanceId) (fromStep used : Nat)
     (before after : State) : Prop :=

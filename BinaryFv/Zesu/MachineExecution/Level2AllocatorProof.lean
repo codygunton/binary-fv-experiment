@@ -209,6 +209,18 @@ def allocatorChildSummary (child : Binary.Elfling.FunctionInstanceId)
       functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41Id ∧
     AllocatorSegmentExecution fromStep used before after
 
+/-- The exact checked transfer type supplied by either machine segment of the selected inlined
+allocator. The caller chooses the segment's real entry state and exact retired-step count. -/
+abbrev AllocatorInlineTransfer (fromStep used : Nat) (before after : State) :=
+  InlineTransfer
+    (functionInstanceExecutionPcs generatedProgram
+      functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    allocatorChildSummary allocatorInlineBoundary generatedProgram
+    functionInstance_raw_decoder_root_zesu_decode_raw
+    functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41
+    fromStep used before after
+
 theorem allocatorChildSummary_dataPointer (fromStep : Nat) (state : State) :
     allocatorChildSummary
       functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41Id
@@ -261,6 +273,13 @@ structure AllocatorSecondSegmentPreconditions (entry : State)
   contextStoreNotFileBacked : ∀ index : Fin 8,
     Artifacts.programImage.readFileByte?
       ((stackBase + sign_extend (0x010#12)).toNat + index.val) = none
+
+/-- Machine facts at the allocator's first inline entry. This is not a function-call ABI: the live
+`s2` value belongs to the surrounding wrapper and the segment exits after one instruction. -/
+structure AllocatorFirstSegmentPreconditions (entry : State) (source : BitVec 64) : Prop where
+  platform : ExitPlatform entry 0x102f0
+  atEntry : entry.regs.get? PC = some (BitVec.ofNat 64 0x102f0)
+  sourceValue : entry.regs.get? x18 = some source
 
 theorem wrapper_allocator_tag_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
@@ -1044,5 +1063,36 @@ theorem allocator_second_segment_proved (fromStep : Nat) (entry : State)
     allocator_functionAndContext_inlineTransfer fromStep entry afterPage afterAddress
       atOutgoingEdge afterTransfer pre.atEntry pageStep addressStep contextStep outgoingPc
       outgoingStep decodePc
+
+/-! ## Closed contract for both inline segments -/
+
+/-- The complete Level 2 condition for the selected inlined allocator. Each real entry has its own
+machine precondition and yields its exact checked transfer; no callable RISC-V ABI is imposed. -/
+def AllocatorInlineContract : Prop :=
+  (∀ (fromStep : Nat) (entry : State) (source : BitVec 64),
+      AllocatorFirstSegmentPreconditions entry source →
+      ∃ retired,
+        Nonempty (AllocatorInlineTransfer fromStep 0 entry
+          (allocatorAfterDataPointer entry retired source))) ∧
+  (∀ (fromStep : Nat) (entry : State) (stackBase context : BitVec 64),
+      AllocatorSecondSegmentPreconditions entry stackBase context →
+      ∃ pageRetired addressRetired contextRetired functionRetired,
+        Nonempty (AllocatorInlineTransfer fromStep 3 entry
+          (allocatorAfterFunctionStore
+            (allocatorAfterContextStore
+              (allocatorAfterFunctionAddress
+                (allocatorAfterFunctionPage entry pageRetired) addressRetired)
+              contextRetired stackBase context)
+            functionRetired stackBase (BitVec.ofNat 64 0x13f70))))
+
+/-- Both generated allocator segments satisfy `AllocatorInlineContract` by concrete Sail
+execution. -/
+theorem allocatorInlineContract_proved : AllocatorInlineContract := by
+  constructor
+  · intro fromStep entry source pre
+    exact allocator_data_pointer_inlineTransfer fromStep entry pre.platform source pre.atEntry
+      pre.sourceValue
+  · intro fromStep entry stackBase context pre
+    exact allocator_second_segment_proved fromStep entry stackBase context pre
 
 end BinaryFv.Zesu.MachineExecution

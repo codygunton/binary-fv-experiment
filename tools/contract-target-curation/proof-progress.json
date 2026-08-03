@@ -19,7 +19,7 @@
       "level": 2,
       "parent": "raw_decoder_root.zesu_decode_raw",
       "functions": [
-        { "qualified": "raw_decoder_root.allocator", "displayName": "allocator", "status": "unproved" },
+        { "qualified": "raw_decoder_root.allocator", "displayName": "allocator", "status": "proved", "theorem": "BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.allocatorInlineContract_proved" },
         { "qualified": "ssz_raw.decode", "displayName": "decode", "status": "unproved" },
         { "qualified": "memcpy", "displayName": "memcpy", "status": "proved", "theorem": "BinaryFv.Zesu.MachineExecution.compiledMemcpyInstanceContract_proved" }
       ]
