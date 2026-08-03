@@ -105,11 +105,7 @@ bare state relation — the binding handoff survives into the summary rather tha
 it is proved. -/
 def TaggedContract.summary (tc : TaggedContract) (region exit : BitVec 64 → Prop)
     (entry : BitVec 64) (fromStep used : Nat) (s s' : BinaryFv.RiscV.State) : Prop :=
-  ∃ args : tc.Args,
-    tc.contract.binding.entry args s ∧
-    used ≤ tc.contract.binding.stepBound args ∧
-    EnteredFunctionTrace region exit entry fromStep used s s' ∧
-    tc.contract.binding.exit args (tc.contract.spec.meaning args) s s'
+  tc.contract.summary region exit entry fromStep used s s'
 
 /-- The entry PC of a generated function instance, as a machine word. Read off the function instance, never
 existentially chosen. -/

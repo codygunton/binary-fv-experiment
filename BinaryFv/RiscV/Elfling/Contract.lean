@@ -145,6 +145,19 @@ def FunctionInstanceContract.Implements {Args Outcome : Type}
         EnteredFunctionTrace region exit entry fromStep count s s' ∧
         contract.binding.exit args (contract.spec.meaning args) s s'
 
+/-- One completed run of a typed function-instance contract, suitable for a caller-side splice.
+Unlike `Implements`, this is local to one entry state and starting step. It retains the arguments,
+entry binding, exact bounded trace, and semantic exit rather than erasing them to a bare state
+relation. -/
+def FunctionInstanceContract.summary {Args Outcome : Type}
+    (contract : FunctionInstanceContract Args Outcome) (region exit : BitVec 64 → Prop)
+    (entry : BitVec 64) (fromStep used : Nat) (s s' : State) : Prop :=
+  ∃ args : Args,
+    contract.binding.entry args s ∧
+    used ≤ contract.binding.stepBound args ∧
+    EnteredFunctionTrace region exit entry fromStep used s s' ∧
+    contract.binding.exit args (contract.spec.meaning args) s s'
+
 /--
 `Implements` for a source-shaped `FunctionContract`: it is exactly the function instance obligation on the
 projected `FunctionInstanceContract`.

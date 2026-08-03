@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.Contracts.CanonicalParams
 import BinaryFv.Zesu.Contracts.Catalog.Dispatch
 import BinaryFv.Zesu.MachineExecution.Level2AllocatorProof
+import BinaryFv.Zesu.MachineExecution.MemcpyInstance
 
 /-!
 # The one Level 2 child-summary relation
@@ -27,34 +28,27 @@ open PreSail LeanRV64DExecutable.Functions
 abbrev MachineChildSummary :=
   FunctionInstanceId → Nat → Nat → State → State → Prop
 
-/-- The emitted `memcpy` body's typed source contract, at its generated entry and exits. -/
+/-- The emitted `memcpy` body's typed compiled contract, at its generated entry and exits. -/
 def memcpyChildSummary (child : FunctionInstanceId) (fromStep used : Nat)
     (before after : State) : Prop :=
-  child = functionInstance_memcpyId ∧
-    (sourceFunctionContract canonicalContractParams functionInstance_memcpy.id.function .memcpy).summary
-      (functionInstanceExecutionPcs generatedProgram functionInstance_memcpy)
-      (functionInstanceExitPred functionInstance_memcpy)
-      (functionInstanceEntryWord functionInstance_memcpy) fromStep used before after
+  MachineExecution.compiledMemcpySummary child fromStep used before after
 
 /-- The one closed correctness condition for the selected emitted `memcpy` body. -/
 abbrev MemcpyInstanceContract : Prop :=
-  functionInstanceObligation canonicalContractParams functionInstance_memcpy
-    (functionInstanceReachedPcs generatedProgram functionInstance_memcpy) .memcpy
+  MachineExecution.CompiledMemcpyInstanceContract
 
 /-- Applying the emitted-body contract produces exactly the summary consumed at any of the three
 wrapper call sites. The caller still has to establish the typed copy entry binding. -/
 theorem memcpyChildSummary_of_contract (contract : MemcpyInstanceContract)
-    (args : (sourceFunctionContract canonicalContractParams
-      functionInstance_memcpy.id.function .memcpy).Args)
+    (args : CopyArgs)
     (fromStep : Nat) (before : State)
-    (pre : (sourceFunctionContract canonicalContractParams
-      functionInstance_memcpy.id.function .memcpy).contract.binding.entry args before) :
+    (pre : (MachineExecution.compiledMemcpyContract
+      canonicalContractParams.env).binding.entry args before) :
     ∃ used after,
-      used ≤ (sourceFunctionContract canonicalContractParams
-        functionInstance_memcpy.id.function .memcpy).contract.binding.stepBound args ∧
+      used ≤ (MachineExecution.compiledMemcpyContract
+        canonicalContractParams.env).binding.stepBound args ∧
       memcpyChildSummary functionInstance_memcpyId fromStep used before after := by
-  obtain ⟨used, after, bound, trace, post⟩ := contract args fromStep before pre
-  exact ⟨used, after, bound, rfl, args, pre, bound, trace, post⟩
+  exact MachineExecution.compiledMemcpySummary_of_contract contract args fromStep before pre
 
 /-- One summary relation for exactly the three children selected at Level 2. -/
 inductive Level2ChildSummary (decodeSummary : MachineChildSummary) : MachineChildSummary where
