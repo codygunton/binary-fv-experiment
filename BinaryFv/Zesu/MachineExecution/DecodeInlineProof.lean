@@ -2051,7 +2051,8 @@ theorem decodeInline_first_success_reaches_post
       ScopedTrace
         (functionInstanceExecutionPcs generatedProgram
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
-        (DecodeInlineExit args) Level3ChildSummary fromStep (childUsed + 13) state final := by
+        (DecodeInlineExit args) Level3ChildSummary fromStep (childUsed + 13) state final ∧
+      DecodeInlineMachinePost state final := by
   obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, parentPrefix, bound, transfer,
     tagRun, tagPc, tagCode, tagAgree, tagCounter, tagStackRaw, tagValue, tagPost⟩ :=
     decodeInline_first_through_result_tag contract fromStep args state pre phase
@@ -2196,7 +2197,7 @@ theorem decodeInline_first_success_reaches_post
     exact afterCall
   have complete := parentPrefix (childUsed + 8) final (by
     exact afterCallCount)
-  refine ⟨childUsed, final, bound, exit, post, ?_⟩
+  refine ⟨childUsed, final, bound, exit, post, ?_, ⟨finalAgree, finalCounter, finalCode⟩⟩
   have countEq : 5 + (childUsed + 8) = childUsed + 13 := by omega
   rw [countEq] at complete
   exact complete
@@ -2229,9 +2230,12 @@ theorem decodeInline_first_error_reaches_post
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep (childUsed + 8) state
         (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
+          (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))) ∧
+      DecodeInlineMachinePost state
+        (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
           (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))) := by
   obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, parentPrefix, bound, transfer,
-    tagRun, tagPc, -, -, -, -, tagValue, tagPost⟩ :=
+    tagRun, tagPc, tagCode, tagAgree, tagCounter, -, tagValue, tagPost⟩ :=
     decodeInline_first_through_result_tag contract fromStep args state pre phase
   have tagRunError : Runs (try_step (fromStep + 7 + childUsed) false) resumed
       (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
@@ -2305,7 +2309,13 @@ theorem decodeInline_first_error_reaches_post
       (DecodeInlineExit args) Level3ChildSummary fromStep (childUsed + 8) state afterTag := by
     simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using completeTrace
   exact ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, bound, ⟨callTransfer⟩,
-    tagRunError, exit, post, by simpa [afterTag] using scopedFinal⟩
+    tagRunError, exit, post, by simpa [afterTag] using scopedFinal,
+    by simpa [afterTag, failed] using
+      (show DecodeInlineMachinePost state
+        (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
+          (BitVec.ofNat 64 (Contracts.decodeInternalResultTag
+            (Contracts.meaningDecodeRaw args.bytes)))) from
+        ⟨tagAgree, tagCounter, tagCode⟩)⟩
 
 /-- The complete first-phase arm of the Level 3 contract. This is the single scope showing the
 conditional `decodeRaw` summary stitched to all parent-owned Sail execution and the selected semantic
@@ -2319,12 +2329,13 @@ theorem decodeInline_first_level3_relation (contract : CompiledDecodeRawInstance
         (functionInstanceExecutionPcs generatedProgram
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep used before after ∧
-      DecodeInlinePost args before after := by
+      DecodeInlinePost args before after ∧
+      DecodeInlineMachinePost before after := by
   cases resultEq : Contracts.meaningDecodeRaw args.bytes with
   | ok value =>
-      obtain ⟨childUsed, final, childBound, exit, post, trace⟩ :=
+      obtain ⟨childUsed, final, childBound, exit, post, trace, machinePost⟩ :=
         decodeInline_first_success_reaches_post contract fromStep args before pre phase value resultEq
-      refine ⟨childUsed + 13, final, ?_, trace, ?_⟩
+      refine ⟨childUsed + 13, final, ?_, trace, ?_, machinePost⟩
       · unfold decodeInlineStepBound
         have rawBound := childBound
         have stepBoundEq : compiledDecodeRawContract.binding.stepBound args.firstRawArgs =
@@ -2334,11 +2345,12 @@ theorem decodeInline_first_level3_relation (contract : CompiledDecodeRawInstance
       · simpa [DecodeInlinePost, phase] using post
   | error error =>
       obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, childBound, transfer,
-        tagRun, exit, post, trace⟩ :=
+        tagRun, exit, post, trace, machinePost⟩ :=
         decodeInline_first_error_reaches_post contract fromStep args before pre phase error resultEq
       refine ⟨childUsed + 8,
         afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
-          (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))), ?_, trace, ?_⟩
+          (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))), ?_, trace, ?_,
+          machinePost⟩
       · unfold decodeInlineStepBound
         have rawBound := childBound
         have stepBoundEq : compiledDecodeRawContract.binding.stepBound args.firstRawArgs =
@@ -3494,7 +3506,8 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
         (functionInstanceExecutionPcs generatedProgram
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep used state after ∧
-      DecodeInlinePost args state after := by
+      DecodeInlinePost args state after ∧
+      DecodeInlineMachinePost state after := by
   obtain ⟨lengthUsed, prefixUsed, beforeOr, lengthBound, prefixBound, parentPrefix, prefixPost,
     beforeAgree, beforeCounter, _beforeStack, inputPointer, inputLength, beforeCode, beforeMemory⟩ :=
     decodeInline_retry_uses_prefix_bytes fromStep args state pre phase fourBytes
@@ -3535,7 +3548,12 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
     (pre.retryReason phase).1
   have resultInvalid : Contracts.meaningDecode args.bytes = .error .invalidSsz := by
     simp [Contracts.meaningDecode, rawInvalid, notExact]
-  refine ⟨6 + lengthUsed + prefixUsed, after, ?_, ?_, ?_⟩
+  have afterAgree : Agree decoderPreserved state after := beforeAgree.trans orPreserves
+  have afterCode : Contracts.canonicalContractParams.env.CodeIntact after := by
+    rw [Contracts.DecoderEnvironment.CodeIntact, orMemory, beforeMemory]
+    exact pre.code
+  refine ⟨6 + lengthUsed + prefixUsed, after, ?_, ?_, ?_,
+    ⟨afterAgree, orCounter, afterCode⟩⟩
   · unfold decodeInlineStepBound
     have prefixBoundValue : prefixUsed ≤ 12 := by
       simpa [hasExactErePrefixInlineStepBound] using prefixBound
@@ -5284,9 +5302,10 @@ theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInl
         (functionInstanceExecutionPcs generatedProgram
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep used state after ∧
-      DecodeInlinePost args state after := by
-  obtain ⟨childUsed, childAfter, childBound, parentPrefix, childPost, agree, counter, -, -, code,
-    memory⟩ :=
+      DecodeInlinePost args state after ∧
+      DecodeInlineMachinePost state after := by
+  obtain ⟨childUsed, childAfter, childBound, parentPrefix, childPost, agree, counter, -, -, -,
+    code, memory⟩ :=
     decodeInline_retry_uses_length_gate fromStep args state pre phase
   have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
     meaningHasExactErePrefix_false_of_size_lt_four args.bytes short
@@ -5305,7 +5324,7 @@ theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInl
     (pre.retryReason phase).1
   have resultInvalid : Contracts.meaningDecode args.bytes = .error .invalidSsz := by
     simp [Contracts.meaningDecode, rawInvalid, prefixFalse]
-  refine ⟨4 + childUsed, childAfter, ?_, ?_, ?_⟩
+  refine ⟨4 + childUsed, childAfter, ?_, ?_, ?_, ⟨agree, counter, code⟩⟩
   · unfold decodeInlineStepBound
     have lengthBound : hasExactErePrefixInlineStepBound
         { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes } = 12 := rfl

@@ -357,6 +357,14 @@ the prefix check, and the fixed wrapper-local instruction sequences. -/
 def decodeInlineStepBound (args : DecodeInlineArgs) : Nat :=
   2 * (16384 + 512 * args.bytes.size)
 
+/-- Machine facts retained at every selected `decode` exit. These are consequences of the child
+execution, not premises supplied by the wrapper. They are exactly the facts needed to execute the
+outgoing instruction owned by Level 2. -/
+structure DecodeInlineMachinePost (before after : State) : Prop where
+  agree : Agree decoderPreserved before after
+  retiredCounter : RetiredCounterPresent after
+  code : canonicalContractParams.env.CodeIntact after
+
 /-! ## Generated-boundary checks -/
 
 /-- Each phase starts at one of the two entries accepted by the checked inline boundary. -/
@@ -504,7 +512,8 @@ def DecodeInlineContract
             (DecodeInlineExit args)
             childSummary
             fromStep used before after ∧
-          DecodeInlinePost args before after
+          DecodeInlinePost args before after ∧
+          DecodeInlineMachinePost before after
 
 /-- The exact caller-side summary carried by a checked Level 2 inline transfer. -/
 def decodeChildSummary
@@ -521,7 +530,8 @@ def decodeChildSummary
           (DecodeInlineExit args)
           level3ChildSummary
           fromStep used before after ∧
-        DecodeInlinePost args before after
+        DecodeInlinePost args before after ∧
+        DecodeInlineMachinePost before after
 
 /-- The fixed contract produces exactly the child summary consumed by the wrapper scope. -/
 theorem decodeChildSummary_of_contract
@@ -532,7 +542,7 @@ theorem decodeChildSummary_of_contract
     ∃ used after, decodeChildSummary level3ChildSummary
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
       fromStep used before after := by
-  obtain ⟨used, after, bound, trace, post⟩ := contract args fromStep before pre
-  exact ⟨used, after, rfl, args, pre, bound, trace, post⟩
+  obtain ⟨used, after, bound, trace, post, machinePost⟩ := contract args fromStep before pre
+  exact ⟨used, after, rfl, args, pre, bound, trace, post, machinePost⟩
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw

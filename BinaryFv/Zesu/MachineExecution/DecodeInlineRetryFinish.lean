@@ -33,7 +33,8 @@ theorem decodeInline_retry_success_reaches_post
         (functionInstanceExecutionPcs generatedProgram
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep used state after ∧
-      DecodeInlinePost args state after := by
+      DecodeInlinePost args state after ∧
+      DecodeInlineMachinePost state after := by
   obtain ⟨lengthUsed, prefixUsed, rawUsed, rawCall, decoded,
     lengthBound, prefixBound, rawBound, prefixToRawCall, ⟨rawTransfer⟩, decodedPost,
     decodedAgree, decodedCounter, decodedStack, decodedPayload, decodedCode⟩ :=
@@ -249,8 +250,18 @@ theorem decodeInline_retry_success_reaches_post
     refine ⟨?_, afterPc⟩
     exact ⟨decoded, contents, decodedPost', contentsSize, sourceDecoded, finalFrame, sourceFinal,
       destinationFinal, codeFinal, noAllocationFinal⟩
+  have afterAgree : Agree decoderPreserved state after := pageAgree.trans
+    (afterRegisterWrite_agree_of
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]))
+  have afterCounter : RetiredCounterPresent after :=
+    afterRegisterWrite_retired_present pageState (BitVec.ofNat 64 0x103f4) pointerRetired x10
+      (BitVec.ofNat 64 (args.stackBase + 0x1000))
   refine ⟨19 + lengthUsed + prefixUsed + rawUsed + memcpyUsed + 1 + 1,
-    after, ?_, ?_, retryPost⟩
+    after, ?_, ?_, retryPost, ⟨afterAgree, afterCounter, codeFinal⟩⟩
   · unfold decodeInlineStepBound
     have lengthBoundValue : lengthUsed ≤ 12 := by
       simpa [hasExactErePrefixInlineStepBound] using lengthBound
@@ -278,7 +289,8 @@ theorem decodeInline_propagate_error_reaches_post (fromStep : Nat) (args : Decod
           (functionInstanceExecutionPcs generatedProgram
             functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
           (DecodeInlineExit args) Level3ChildSummary fromStep used before after ∧
-        DecodeInlinePost args before after := by
+        DecodeInlinePost args before after ∧
+        DecodeInlineMachinePost before after := by
   obtain ⟨notInvalid, rawResult, -, -⟩ := pre.propagateReason error phase
   have result : Contracts.meaningDecode args.bytes = .error error := by
     cases error with
@@ -290,7 +302,8 @@ theorem decodeInline_propagate_error_reaches_post (fromStep : Nat) (args : Decod
   have selectedExit : DecodeInlineExit args (BitVec.ofNat 64 0x10380) := by
     simp [DecodeInlineExit, phase]
   refine ⟨0, before, by simp, ScopedTrace.exitAt fromStep before
-    (BitVec.ofNat 64 0x10380) atExit selectedExit, ?_⟩
+    (BitVec.ofNat 64 0x10380) atExit selectedExit, ?_,
+    ⟨Agree.refl before, pre.machine.retiredCounter, pre.code⟩⟩
   simp [DecodeInlinePost, phase, notInvalid, rawResult, result, atExit]
 
 /-- The complete Level 3 theorem. It assumes only the selected compiled `decodeRaw` contract;
