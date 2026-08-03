@@ -4634,7 +4634,8 @@ theorem decodeInline_retry_copy_setup (fromStep : Nat) (args : DecodeInlineArgs)
       MemoryRepresentation.MemoryBytes beforeCall args.retryRawArgs.resultBase contents ∧
       Agree decoderPreserved baseState beforeCall ∧
       RetiredCounterPresent beforeCall ∧
-      Contracts.canonicalContractParams.env.CodeIntact beforeCall := by
+      Contracts.canonicalContractParams.env.CodeIntact beforeCall ∧
+      beforeCall.mem = state.mem := by
   obtain ⟨contents, contentsSize, contentsMemory⟩ := payload
   let destination := iTypeResult .ADDI 0x020#12 (BitVec.ofNat 64 args.stackBase)
   obtain ⟨retired1, run1⟩ := decodeInline_retry_copy_destination_step fromStep args
@@ -4730,7 +4731,7 @@ theorem decodeInline_retry_copy_setup (fromStep : Nat) (args : DecodeInlineArgs)
       ← BitVec.ofNat_add]
   have lengthEq : length = BitVec.ofNat 64 832 := by simp [length, iTypeResult]; decide
   refine ⟨contents, beforeCall, contentsSize, by simpa using complete, ?_, ?_, ?_, ?_, ?_, ?_,
-    ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_⟩
   · simpa [beforeCall] using afterRegisterWrite_pc s3 (BitVec.ofNat 64 0x103e8) retired4 x1
       (BitVec.ofNat 64 0x143e8)
   · simp [beforeCall, afterRegisterWrite, tryStepControlFlowAfterRetired,
@@ -4762,6 +4763,7 @@ theorem decodeInline_retry_copy_setup (fromStep : Nat) (args : DecodeInlineArgs)
   · exact afterRegisterWrite_retired_present s3 (BitVec.ofNat 64 0x103e8) retired4 x1
       (BitVec.ofNat 64 0x143e8)
   · simpa [beforeCall, afterRegisterWrite_mem] using code3
+  · simp [beforeCall, s3, s2, s1, afterRegisterWrite_mem]
 
 def decodeInlineMemcpyCallAfter (state : State) (retired : BitVec 64) : State :=
   tryStepControlFlowAfterRetired
@@ -4783,6 +4785,10 @@ theorem decodeInline_retry_memcpy_call_step (stepNo : Nat) (args : DecodeInlineA
         some (BitVec.ofNat 64 0x13eb8) ∧
       (decodeInlineMemcpyCallAfter state retired).regs.get? x1 =
         some (BitVec.ofNat 64 0x103f0) ∧
+      (decodeInlineMemcpyCallAfter state retired).regs.get? x10 = state.regs.get? x10 ∧
+      (decodeInlineMemcpyCallAfter state retired).regs.get? x11 = state.regs.get? x11 ∧
+      (decodeInlineMemcpyCallAfter state retired).regs.get? x12 = state.regs.get? x12 ∧
+      (decodeInlineMemcpyCallAfter state retired).regs.get? x2 = state.regs.get? x2 ∧
       Agree decoderPreserved state (decodeInlineMemcpyCallAfter state retired) ∧
       (decodeInlineMemcpyCallAfter state retired).mem = state.mem ∧
       RetiredCounterPresent (decodeInlineMemcpyCallAfter state retired) := by
@@ -4856,7 +4862,22 @@ theorem decodeInline_retry_memcpy_call_step (stepNo : Nat) (args : DecodeInlineA
   have run : Runs (try_step stepNo false) state
       (decodeInlineMemcpyCallAfter state retired) false := by
     simpa [decodeInlineMemcpyCallAfter, targetEq] using callRun
-  refine ⟨retired, run, ?_, ?_, ?_, jalrCallAfterRetired_mem _ _ _ _ _ _, ?_⟩
+  have preserveGeneral (register : Register) (notLink : register ≠ x1)
+      (notPc : register ≠ PC) (notNextPc : register ≠ nextPC)
+      (notIncrement : register ≠ minstret_increment) (notRetired : register ≠ minstret) :
+      (decodeInlineMemcpyCallAfter state retired).regs.get? register =
+        state.regs.get? register := by
+    have preserved := jalrCallAfterRetired_agree_of
+      (P := fun candidate => candidate = register) state (BitVec.ofNat 64 0x103ec)
+      (BitVec.ofNat 64 0x13eb8) retired x1 (BitVec.ofNat 64 0x103f0)
+      (Ne.symm notLink) (Ne.symm notPc) (Ne.symm notNextPc)
+      (Ne.symm notIncrement) (Ne.symm notRetired)
+    exact preserved register rfl
+  refine ⟨retired, run, ?_, ?_, preserveGeneral x10 (by decide) (by decide) (by decide)
+    (by decide) (by decide), preserveGeneral x11 (by decide) (by decide) (by decide)
+    (by decide) (by decide), preserveGeneral x12 (by decide) (by decide) (by decide)
+    (by decide) (by decide), preserveGeneral x2 (by decide) (by decide) (by decide)
+    (by decide) (by decide), ?_, jalrCallAfterRetired_mem _ _ _ _ _ _, ?_⟩
   · simp [decodeInlineMemcpyCallAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
   · apply tryStepControlFlowAfterRetired_preserves_register
@@ -4992,6 +5013,78 @@ theorem decodeInline_retry_memcpy_machine_pre (args : DecodeInlineArgs) (content
   · exact destinationNotAllocator
   · exact sourceReadable
   · exact destinationWritable
+
+/-- Execute the retry call and consume the already-proved compiled `memcpy` contract on the exact
+832-byte payload retained from the second `decodeRaw` result. -/
+theorem decodeInline_retry_uses_memcpy (fromStep : Nat) (args : DecodeInlineArgs)
+    (contents : ByteArray) (baseState beforeCall : State) (pre : DecodeInlinePre args baseState)
+    (contentsSize : contents.size = 832)
+    (sourceMemory : MemoryRepresentation.MemoryBytes beforeCall
+      args.retryRawArgs.resultBase contents)
+    (agree : Agree decoderPreserved baseState beforeCall)
+    (memory : beforeCall.mem = baseState.mem)
+    (counter : RetiredCounterPresent beforeCall)
+    (code : Contracts.canonicalContractParams.env.CodeIntact beforeCall)
+    (atCall : beforeCall.regs.get? PC = some (BitVec.ofNat 64 0x103ec))
+    (callBase : beforeCall.regs.get? x1 = some (BitVec.ofNat 64 0x143e8))
+    (destination : beforeCall.regs.get? x10 = some (BitVec.ofNat 64 args.finalResultBase))
+    (source : beforeCall.regs.get? x11 = some
+      (BitVec.ofNat 64 args.retryRawArgs.resultBase))
+    (length : beforeCall.regs.get? x12 = some (BitVec.ofNat 64 832)) :
+    ∃ callRetired childUsed childEntry childExit,
+      childEntry = decodeInlineMemcpyCallAfter beforeCall callRetired ∧
+      Runs (try_step fromStep false) beforeCall childEntry false ∧
+      childUsed ≤ (compiledMemcpyContract Contracts.canonicalContractParams.env).binding.stepBound
+        (decodeInlineRetryCopyArgs args contents) ∧
+      EnteredFunctionTrace
+        (functionInstanceExecutionPcs generatedProgram functionInstance_memcpy)
+        (functionInstanceExitPred functionInstance_memcpy)
+        (Contracts.functionInstanceEntryWord functionInstance_memcpy)
+        (fromStep + 1) childUsed childEntry childExit ∧
+      (compiledMemcpyContract Contracts.canonicalContractParams.env).binding.exit
+        (decodeInlineRetryCopyArgs args contents)
+        ((compiledMemcpyContract Contracts.canonicalContractParams.env).spec.meaning
+          (decodeInlineRetryCopyArgs args contents)) childEntry childExit := by
+  obtain ⟨callRetired, callRun, childPc, childLink, childDestination, childSource,
+    childLength, childStack, callAgree, callMemory, childCounter⟩ :=
+    decodeInline_retry_memcpy_call_step fromStep args baseState beforeCall pre agree
+      memory counter atCall callBase
+  let childEntry := decodeInlineMemcpyCallAfter beforeCall callRetired
+  let copyArgs := decodeInlineRetryCopyArgs args contents
+  have childAgree : Agree decoderPreserved baseState childEntry := Agree.trans agree callAgree
+  have childCode : Contracts.canonicalContractParams.env.CodeIntact childEntry := by
+    rw [Contracts.DecoderEnvironment.CodeIntact, show childEntry.mem = beforeCall.mem by
+      simpa [childEntry] using callMemory]
+    exact code
+  have childSourceMemory : MemoryRepresentation.MemoryBytes childEntry
+      args.retryRawArgs.resultBase contents := by
+    intro index bound
+    rw [show childEntry.mem = beforeCall.mem by simpa [childEntry] using callMemory]
+    exact sourceMemory index bound
+  have machinePre : MemcpyMachinePre Contracts.canonicalContractParams.env copyArgs childEntry := by
+    apply decodeInline_retry_memcpy_machine_pre args contents baseState childEntry pre childAgree
+      childCounter
+    · simpa [childEntry] using childPc
+    · simpa [childEntry] using childLink
+  have sourcePre : (Contracts.contractMemcpy Contracts.canonicalContractParams.env).pre
+      copyArgs childEntry := by
+    constructor
+    · refine ⟨childSourceMemory, ?_, childCode, ?_, ?_, ?_⟩
+      · simpa [copyArgs, decodeInlineRetryCopyArgs] using contentsSize
+      · simpa [copyArgs, decodeInlineRetryCopyArgs, childEntry] using childDestination.trans destination
+      · simpa [copyArgs, decodeInlineRetryCopyArgs, childEntry] using childSource.trans source
+      · simpa [copyArgs, decodeInlineRetryCopyArgs, childEntry] using childLength.trans length
+    · left
+      dsimp [copyArgs, decodeInlineRetryCopyArgs, DecodeInlineArgs.finalResultBase,
+        DecodeInlineArgs.retryRawArgs]
+      omega
+  have compiledEntry :
+      (compiledMemcpyContract Contracts.canonicalContractParams.env).binding.entry
+        copyArgs childEntry := ⟨sourcePre, machinePre⟩
+  obtain ⟨childUsed, childExit, childBound, childTrace, childPost⟩ :=
+    compiledMemcpyInstanceContract_proved copyArgs (fromStep + 1) childEntry compiledEntry
+  exact ⟨callRetired, childUsed, childEntry, childExit, rfl, by simpa [childEntry] using callRun,
+    childBound, childTrace, childPost⟩
 
 /-- Close the short-input retry arm at the selected `0x10394` exit. The outgoing branch belongs to
 the Level 2 wrapper, so this Level 3 trace stops before executing it. -/
