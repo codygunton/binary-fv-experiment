@@ -699,6 +699,57 @@ theorem rawError_function_instance_found :
   obtain ⟨fi, hfi⟩ := Option.isSome_iff_exists.mp h
   exact ⟨fi, Array.mem_of_find?_eq_some hfi, by simpa using Array.find?_some hfi⟩
 
+theorem runSelectedRawResult
+    (implements : ∀ {functionInstance : FunctionInstance},
+      functionInstance ∈ generatedProgram.functionInstances →
+      functionInstance.entryPc = resolvedSymbols.rawResult →
+        RawResultInstanceObligation functionInstance)
+    (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
+    (sourcePre : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+      canonicalContractParams.resultBuffer).pre model state)
+    (machinePre : ExitPlatform state resolvedSymbols.rawResult) :
+    ∃ (functionInstance : FunctionInstance) (count : Nat) (final : State),
+      functionInstance ∈ generatedProgram.functionInstances ∧
+      functionInstance.entryPc = resolvedSymbols.rawResult ∧
+      count ≤ rawResultStepBound ∧
+      Elfling.EnteredFunctionTrace
+        (functionInstanceExecutionPcs generatedProgram functionInstance)
+        (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
+        fromStep count state final ∧
+      (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+        canonicalContractParams.resultBuffer).post model
+          ((contractRawResult canonicalContractParams.env canonicalContractParams.globals
+            canonicalContractParams.resultBuffer).meaning model) state final := by
+  obtain ⟨functionInstance, hmem, hentry⟩ := rawResult_function_instance_found
+  obtain ⟨count, final, hbound, htrace, hpost⟩ :=
+    RawResultInstanceObligation.run (implements hmem hentry) model fromStep state sourcePre machinePre
+  exact ⟨functionInstance, count, final, hmem, hentry, hbound, htrace, hpost⟩
+
+theorem runSelectedRawError
+    (implements : ∀ {functionInstance : FunctionInstance},
+      functionInstance ∈ generatedProgram.functionInstances →
+      functionInstance.entryPc = resolvedSymbols.rawError →
+        RawErrorInstanceObligation functionInstance)
+    (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
+    (sourcePre : (contractRawError canonicalContractParams.env
+      canonicalContractParams.globals).pre model state)
+    (machinePre : ExitPlatform state resolvedSymbols.rawError) :
+    ∃ (functionInstance : FunctionInstance) (count : Nat) (final : State),
+      functionInstance ∈ generatedProgram.functionInstances ∧
+      functionInstance.entryPc = resolvedSymbols.rawError ∧
+      count ≤ rawErrorStepBound ∧
+      Elfling.EnteredFunctionTrace
+        (functionInstanceExecutionPcs generatedProgram functionInstance)
+        (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
+        fromStep count state final ∧
+      (contractRawError canonicalContractParams.env canonicalContractParams.globals).post model
+        ((contractRawError canonicalContractParams.env
+          canonicalContractParams.globals).meaning model) state final := by
+  obtain ⟨functionInstance, hmem, hentry⟩ := rawError_function_instance_found
+  obtain ⟨count, final, hbound, htrace, hpost⟩ :=
+    RawErrorInstanceObligation.run (implements hmem hentry) model fromStep state sourcePre machinePre
+  exact ⟨functionInstance, count, final, hmem, hentry, hbound, htrace, hpost⟩
+
 /-! ## One attachment, in general
 
 The three theorems below differ only in how they identify their function instance and pin its exit;
