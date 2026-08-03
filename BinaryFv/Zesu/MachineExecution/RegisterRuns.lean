@@ -45,6 +45,8 @@ macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
 gen_rx_run 5 ↦ x5, rX_x5_run
 gen_rx_run 6 ↦ x6, rX_x6_run
 gen_rx_run 7 ↦ x7, rX_x7_run
+gen_rx_run 8 ↦ x8, rX_x8_run
+gen_rx_run 9 ↦ x9, rX_x9_run
 gen_rx_run 10 ↦ x10, rX_x10_run
 gen_rx_run 11 ↦ x11, rX_x11_run
 gen_rx_run 12 ↦ x12, rX_x12_run

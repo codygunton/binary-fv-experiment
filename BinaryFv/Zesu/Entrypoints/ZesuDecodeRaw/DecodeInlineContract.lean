@@ -122,6 +122,9 @@ structure DecoderMachinePre (instructionPcs : BitVec 64 → Prop)
     (args : DecoderMachineArgs) (state : State) : Prop where
   normal : NormalExecutionState state
   retiredCounter : RetiredCounterPresent state
+  mstatus : ∃ bits, state.regs.get? mstatus = some bits ∧ _get_Mstatus_MPRV bits = 0#1
+  mseccfg : ∃ bits, state.regs.get? mseccfg = some bits ∧
+    pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled
   platform : BinaryFv.RiscV.AbstractPlatform platformPreserved instructionPcs state
   dataAccess : DecoderDataAccess args state
   landingPad : BinaryFv.RiscV.AbstractElp platformPreserved (fun _ => True) state
