@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.Contracts.CanonicalParams
 import BinaryFv.Zesu.Contracts.Catalog.Dispatch
 import GeneratedProgram
+import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.Zesu.MachineExecution.MemcpyProof
 
 /-!
@@ -23,6 +24,7 @@ open PreSail LeanRV64DExecutable.Functions Register
 /-- Machine facts needed to execute this particular emitted body. Runtime addresses and lengths
 remain arguments; only the instruction placement is fixed by the generated function instance. -/
 structure MemcpyMachinePre (env : DecoderEnvironment) (args : CopyArgs) (state : State) : Prop where
+  normal : NormalExecutionState state
   entry : state.regs.get? PC = some (BitVec.ofNat 64 0x13eb8)
   returnAddress : ∃ address : BitVec 64,
     state.regs.get? x1 = some address ∧ Sail.BitVec.access address 1 = 0#1
@@ -306,5 +308,114 @@ theorem compiledMemcpyInstanceContract_proved : CompiledMemcpyInstanceContract :
     change 1 + args.length * 7 + 1 ≤ 64 + 8 * args.length
     omega
   · exact ⟨post, machinePost⟩
+
+def memcpyReturnAfter (returnPc : BitVec 64) (state : State) (retired : BitVec 64) : State :=
+  tryStepControlFlowAfterRetired
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x13ec0) returnPc)
+    returnPc retired
+
+/-- Execute the emitted `memcpy` instance's real `ret` from its proved machine postcondition. -/
+theorem memcpy_return_step (stepNo : Nat) (args : CopyArgs) (returnPc : BitVec 64)
+    (childEntry childExit : State) {childFrom childUsed : Nat}
+    (returnTarget : Sail.BitVec.update returnPc 0 0#1 = returnPc)
+    (returnBit1 : Sail.BitVec.access returnPc 1 = 0#1)
+    (childPre : (compiledMemcpyContract canonicalContractParams.env).binding.entry args childEntry)
+    (childTrace : EnteredFunctionTrace
+      (functionInstanceExecutionPcs generatedProgram functionInstance_memcpy)
+      (functionInstanceExitPred functionInstance_memcpy)
+      (functionInstanceEntryWord functionInstance_memcpy)
+      childFrom childUsed childEntry childExit)
+    (entryLink : childEntry.regs.get? x1 = some returnPc)
+    (childPost : (compiledMemcpyContract canonicalContractParams.env).binding.exit args
+      ((compiledMemcpyContract canonicalContractParams.env).spec.meaning args)
+      childEntry childExit) :
+    ∃ retired,
+      Runs (try_step stepNo false) childExit (memcpyReturnAfter returnPc childExit retired) false ∧
+      (memcpyReturnAfter returnPc childExit retired).regs.get? PC = some returnPc := by
+  rcases childPre with ⟨sourcePre, machine⟩
+  rcases childPost with ⟨sourcePost, machinePost⟩
+  rcases sourcePost with ⟨code, -, -, -, -, -⟩
+  obtain ⟨exitPc, atExit, isExit⟩ := childTrace.trace.final_at_exit
+  have exitPcEq : exitPc = BitVec.ofNat 64 0x13ec0 := by
+    apply BitVec.eq_of_toNat_eq
+    simpa [functionInstanceExitPred, FunctionInstance.isExit, functionInstance_memcpy] using isExit
+  subst exitPc
+  have stableAtExit : StableAgree childEntry childExit := machinePost.frame
+  have loaded : Artifacts.programImage.fileBytesMatchMemory childExit.mem := by
+    unfold DecoderEnvironment.CodeIntact at code
+    rw [machine.imageIsZesu] at code
+    exact code
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement childExit)
+      (BitVec.ofNat 64 0x13ec0) 0x67#8 0x80#8 0x00#8 0x00#8 :=
+    BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
+      (tryStepControlFlowAfterIncrement childExit) 0x13ec0 (by decide)
+      (by simpa [tryStepControlFlowAfterIncrement] using loaded)
+      0x67 0x80 0x00 0x00
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+  obtain ⟨mseccfgBits, mseccfgReadEntry⟩ := machine.mseccfg
+  have stepPlatform : StepPlatform childExit (BitVec.ofNat 64 0x13ec0)
+      0x67#8 0x80#8 0x00#8 0x00#8 mseccfgBits :=
+    mkStepPlatform childExit mseccfgBits (BitVec.ofNat 64 0x13ec0)
+      0x67#8 0x80#8 0x00#8 0x00#8 machine.platform machine.currentPrivilege
+      mseccfgReadEntry stableAtExit (by
+        change (childExit.regs.insert minstret_increment true).get? PC = _
+        rw [Std.ExtDHashMap.get?_insert]
+        simp [atExit])
+      (by simp [IsBodyPc]) fetchBytes
+  obtain ⟨retired, retiredRead⟩ := machinePost.retiredCounter
+  have hartRead : childExit.regs.get? hart_state = some (.HART_ACTIVE ()) :=
+    (stableAtExit hart_state (by simp [NonW])).trans machine.hartActive
+  obtain ⟨inhibit, inhibitReadEntry, retirementEnabled⟩ := machine.inhibit
+  have inhibitRead : childExit.regs.get? mcountinhibit = some inhibit :=
+    (stableAtExit mcountinhibit (by simp [NonW])).trans inhibitReadEntry
+  obtain ⟨config, configReadEntry, machineEnabled⟩ := machine.counterConfig
+  have configRead : childExit.regs.get? minstretcfg = some config :=
+    (stableAtExit minstretcfg (by simp [NonW])).trans configReadEntry
+  have stepCounters : StepCounters childExit retired inhibit config :=
+    ⟨hartRead, inhibitRead, configRead, retirementEnabled, machineEnabled, retiredRead⟩
+  have exitLink : childExit.regs.get? x1 = some returnPc :=
+    (stableAtExit x1 (by simp [NonW])).trans entryLink
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement childExit)
+    (BitVec.ofNat 64 0x13ec0)
+  have executeStable : StableAgree childExit executeState := by
+    intro register preserved
+    rcases preserved with ⟨notPc, notNextPc, notRetired, notIncrement, notX13, notX14, notX15⟩
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, Ne.symm notNextPc, Ne.symm notIncrement]
+  have landingPadAtExit : AbstractElp childExit := machine.landingPad.mono stableAtExit
+  have helpElp : Runs (update_elp_state (.Regidx 1#5)) executeState executeState () :=
+    landingPadAtExit executeState (.Regidx 1#5) rfl executeStable
+  have linkRead : executeState.regs.get? nextPC = some (BitVec.ofNat 64 0x13ec4) := by
+    change ((tryStepControlFlowAfterIncrement childExit).regs.insert nextPC
+      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec0) 4)).get? nextPC = _
+    rw [Std.ExtDHashMap.get?_insert]
+    simp
+    decide
+  have sourceRead : executeState.regs.get? x1 = some returnPc := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, exitLink]
+  obtain ⟨misaBits, misaReadEntry, misaBit⟩ : ∃ misaBits,
+      childEntry.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
+    have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
+    match read : childEntry.regs.get? misa with
+    | none => simp [read] at normalMisa
+    | some bits => exact ⟨bits, rfl, by simpa [read] using normalMisa⟩
+  have misaRead : childExit.regs.get? misa = some misaBits := by
+    calc
+      childExit.regs.get? misa = childEntry.regs.get? misa :=
+        stableAtExit misa (by simp [NonW])
+      _ = some misaBits := misaReadEntry
+  have misaExecute : executeState.regs.get? misa = some misaBits :=
+    calc
+      executeState.regs.get? misa = childExit.regs.get? misa :=
+        executeStable misa (by simp [NonW])
+      _ = some misaBits := misaRead
+  have retRun := memcpy_step_ret stepNo childExit returnPc retired mseccfgBits misaBits inhibit config
+    stepPlatform stepCounters (rX_bits_run_x1 executeState _ sourceRead) returnBit1 helpElp misaExecute
+  refine ⟨retired, ?_, ?_⟩
+  · simpa [memcpyReturnAfter, returnTarget] using retRun
+  · simp [memcpyReturnAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      Std.ExtDHashMap.get?_insert]
 
 end BinaryFv.Zesu.MachineExecution

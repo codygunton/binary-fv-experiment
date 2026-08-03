@@ -133,7 +133,8 @@ theorem memcpyMachinePre_of_decoder
         (BitVec.ofNat 64 args.destination + BitVec.ofNat 64 index) 1 decoderAgree allowed
       exact ⟨by simpa using transformed, physical, noMMIO⟩
   exact
-    { entry
+    { normal := machine.normal
+      entry
       returnAddress
       currentPrivilege := machine.normal.2.1
       mstatus := ⟨mstatusBits, mstatusRead, mprvDisabled⟩
