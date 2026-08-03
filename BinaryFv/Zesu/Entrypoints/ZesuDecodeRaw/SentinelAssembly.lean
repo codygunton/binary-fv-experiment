@@ -654,6 +654,68 @@ theorem rawError_function_instance_execution_pc_membership {fi : FunctionInstanc
   · exact RegionPcs.iff_inRanges.mpr h84
   · exact RegionPcs.iff_inRanges.mpr h88
 
+theorem rawResult_function_instance_execution_pcs {fi : FunctionInstance}
+    (hmem : fi ∈ generatedProgram.functionInstances)
+    (hentry : fi.entryPc = resolvedSymbols.rawResult) :
+    Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x1378c = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13790 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13794 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13798 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x1379c = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x137a0 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x137a4 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x137a8 = true := by
+  have h : generatedProgram.functionInstances.all (fun i =>
+      !(i.entryPc == resolvedSymbols.rawResult) ||
+        (Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x1378c &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13790 &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13794 &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13798 &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x1379c &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x137a0 &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x137a4 &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x137a8)) = true := by
+    native_decide
+  have hrow := forall_mem_of_all h fi hmem
+  simp [hentry] at hrow
+  rcases hrow with ⟨⟨⟨⟨⟨⟨⟨h8c, h90⟩, h94⟩, h98⟩, h9c⟩, ha0⟩, ha4⟩, ha8⟩
+  exact ⟨h8c, h90, h94, h98, h9c, ha0, ha4, ha8⟩
+
+theorem rawResult_function_instance_execution_pc_membership {fi : FunctionInstance}
+    (hmem : fi ∈ generatedProgram.functionInstances)
+    (hentry : fi.entryPc = resolvedSymbols.rawResult) :
+    functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x1378c) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13790) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13794) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13798) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x1379c) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x137a0) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x137a4) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x137a8) := by
+  obtain ⟨h8c, h90, h94, h98, h9c, ha0, ha4, ha8⟩ :=
+    rawResult_function_instance_execution_pcs hmem hentry
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr h8c)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr h90)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr h94)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr h98)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr h9c)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr ha0)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr ha4)
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr ha8)
+
+theorem rawResult_entry_address : resolvedSymbols.rawResult = 0x1378c := by
+  native_decide
+
+theorem rawResult_exit_address : resolvedSymbols.rawResult + 28 = 0x137a8 := by
+  native_decide
+
 theorem rawError_entry_address : resolvedSymbols.rawError = 0x13780 := by
   native_decide
 

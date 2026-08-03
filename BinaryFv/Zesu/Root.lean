@@ -20,7 +20,7 @@ noncomputable def binary : RiscvSpec.ValidatedElf := {
 
 `compliance_of_level1_contracts` assumes the unresolved compiled function-instance obligations used
 by the runner, then derives the public Ethereum SSZ agreement claim through their concrete call
-sites and observers. `zesu_raw_error` is already discharged by executing its owned instructions in
+sites and observers. Both accessors are already discharged by executing their owned instructions in
 the Sail model. Later refinement levels replace the decoder obligation with its immediate children.
 
 The active spine is the concrete wrapper/accessor run assembly and the public execution classifier.
@@ -178,15 +178,14 @@ theorem compliance_of_level1_contracts
         execution.builds execution.trace execution.withinStepBound execution.accessors
         execution.returnCode execution.specRejection execution.storedAbsent
 
-/-- The sole public root of the compliance proof. Its remaining assumptions are the compiled decoder
-and `zesu_raw_result`; `zesu_raw_error` is discharged by concrete Sail execution. -/
+/-- The sole public root of the compliance proof. Its only remaining Level 1 assumption is the
+compiled decoder; both accessors are discharged by concrete Sail execution. -/
 theorem root_compliance
-    (decode : Entrypoints.ZesuDecodeRaw.ZesuDecodeRawContract)
-    (rawResult : Entrypoints.ZesuDecodeRaw.RawResultContract) :
+    (decode : Entrypoints.ZesuDecodeRaw.ZesuDecodeRawContract) :
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
         RiscvSpec.execute binary input = .ok (BinaryFv.Specs.SSZ.decode input) :=
   compliance_of_level1_contracts
-    (Entrypoints.ZesuDecodeRaw.contracts_of_level1 decode rawResult)
+    (Entrypoints.ZesuDecodeRaw.contracts_of_level1 decode)
 
 end BinaryFv.Zesu

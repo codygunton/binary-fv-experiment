@@ -34,12 +34,9 @@ abbrev RawErrorContract : Prop :=
     functionInstance.entryPc = resolvedSymbols.rawError →
       RawErrorInstanceObligation functionInstance
 
-/-- Put the two remaining Level 1 assumptions into the exact structure consumed by the runner proof.
-`zesu_raw_error` is absent because its compiled instance is proved by Sail execution. -/
-def contracts_of_level1
-    (decode : ZesuDecodeRawContract)
-    (rawResult : RawResultContract) : CompiledLevel1Assumptions where
+/-- Put the sole remaining Level 1 assumption into the exact structure consumed by the runner proof.
+Both accessors are discharged by concrete Sail execution. -/
+def contracts_of_level1 (decode : ZesuDecodeRawContract) : CompiledLevel1Assumptions where
   decode := decode
-  rawResult := rawResult
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw

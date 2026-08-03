@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
 import BinaryFv.Zesu.MachineExecution.RawErrorProof
+import BinaryFv.Zesu.MachineExecution.RawResultProof
 
 /-!
 # Compiled accessor calls
@@ -279,10 +280,6 @@ theorem rawErrorResult_of_compiled
 /-- Compose the two selected compiled accessor calls without exposing either expanded source
 postcondition. -/
 theorem accessorTraces_of_compiled
-    (rawResult : ∀ {functionInstance : FunctionInstance},
-      functionInstance ∈ generatedProgram.functionInstances →
-      functionInstance.entryPc = resolvedSymbols.rawResult →
-        RawResultInstanceObligation functionInstance)
     {state : State} {model : DecoderGlobalsModel}
     (hplatform : ∀ pc ∈ level1PlatformPcs, ExitPlatform state pc)
     (hloads : LoadPlatformPinned state level1LoadAccesses)
@@ -295,21 +292,18 @@ theorem accessorTraces_of_compiled
         some (if model.stored.isSome then Elflings.canonicalResultBuffer else 0) ∧
       AccessorReachesSentinel resolvedSymbols.rawError rawErrorStepBound middle after ∧
       observeReturnCode? after = some model.status.code := by
-  obtain ⟨middle, handoff⟩ := rawResultHandoff_of_compiled rawResult hplatform hloads
-    hcode hscalar hstored
+  obtain ⟨middle, handoff⟩ := rawResultHandoff_of_compiled
+    BinaryFv.Zesu.MachineExecution.rawResultInstanceObligation_proved hplatform hloads hcode
+    hscalar hstored
   obtain ⟨after, herror, hstatus⟩ :=
     rawErrorResult_of_compiled rawErrorInstanceObligation_proved handoff
   exact ⟨middle, after, handoff.reaches, handoff.returnCode, herror, hstatus⟩
 
-/-- The remaining compiled function-instance obligations used by the Level 1 runner proof. -/
+/-- The remaining compiled decoder obligation used by the Level 1 runner proof. -/
 structure CompiledLevel1Assumptions : Prop where
   decode : DecodeInstanceObligation
-  rawResult : ∀ {functionInstance : FunctionInstance},
-    functionInstance ∈ generatedProgram.functionInstances →
-    functionInstance.entryPc = resolvedSymbols.rawResult →
-      RawResultInstanceObligation functionInstance
 
-/-- Accepted inputs produce the runner witness from the remaining Level 1 obligations. -/
+/-- Accepted inputs produce the runner witness from the remaining Level 1 decoder obligation. -/
 theorem successfulRun_of_compiledLevel1 (contracts : CompiledLevel1Assumptions)
     {input : ByteArray} (inputBound : input.size < 2 * 1024 * 1024)
     {value : BinaryFv.Specs.SSZ.RawV4}
@@ -333,7 +327,7 @@ theorem successfulRun_of_compiledLevel1 (contracts : CompiledLevel1Assumptions)
   have hglobals := hexit.2.2.2.2.2
   rw [hmeaning] at hglobals
   obtain ⟨middle, after, hreachResult, hcodeResult, hreachError, hcodeError⟩ :=
-    accessorTraces_of_compiled contracts.rawResult hplatform hloads
+    accessorTraces_of_compiled hplatform hloads
       (codeIntact_of_mem_eq hframe.mem hexit.2.1)
       (decoderGlobalsScalarRep_of_mem_eq hframe.mem hglobals.1)
       (storedResultDiscriminantRep_of_mem_eq hframe.mem hglobals.2.1)
@@ -359,7 +353,7 @@ theorem rejectedRun_of_compiledLevel1 (contracts : CompiledLevel1Assumptions)
     meaningDecode_error_of_spec_rejects catalogGroundsInSpec_holds inputBound rejects
   have hglobals := hexit.2.2.2.2.2
   obtain ⟨middle, after, hreachResult, hcodeResult, hreachError, hcodeError⟩ :=
-    accessorTraces_of_compiled contracts.rawResult hplatform hloads
+    accessorTraces_of_compiled hplatform hloads
       (codeIntact_of_mem_eq hframe.mem hexit.2.1)
       (decoderGlobalsScalarRep_of_mem_eq hframe.mem hglobals.1)
       (storedResultDiscriminantRep_of_mem_eq hframe.mem hglobals.2.1)
