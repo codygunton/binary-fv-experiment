@@ -58,6 +58,8 @@ structure ResultRecordSizes where
   /-- The internal `decodeRaw`/`decode` result/error union written at `EntryArgs.resultBase`: the
   `?RawStatelessInput` object, 832-byte payload plus discriminant. -/
   entryResult : Nat
+  /-- Byte offset of the two-byte discriminant within `entryResult`. -/
+  entryResultTagOffset : Nat
   sliceDescriptor : Nat
   /-- The two-word Zig `std.mem.Allocator` value the `allocator()` constructor writes at its result
   base: a context pointer followed by a vtable pointer, exactly the span

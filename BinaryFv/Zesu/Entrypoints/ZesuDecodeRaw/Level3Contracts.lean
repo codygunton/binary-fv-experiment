@@ -22,10 +22,15 @@ def entryMachineArgs (args : EntryArgs) : DecoderMachineArgs where
   inputBase := args.base
   bytes := args.bytes
 
+/-- Registers the emitted `decodeRaw` function must return to its inlined caller. Besides the
+machine-platform frame, the caller immediately reuses `sp`, `s0`, and `s1`. -/
+def decodeRawCallerPreserved (register : Register) : Prop :=
+  platformPreserved register ∨ register = x2 ∨ register = x8 ∨ register = x9
+
 /-- The source `decodeRaw` contract strengthened with its real emitted entry, configured machine
 premises, and the return frame needed by its caller. The source meaning and bound are unchanged;
-the exit additionally requires preservation of the link/platform registers and a readable retired
-counter so the caller can execute the generated `ret`. -/
+the exit additionally preserves the link/platform registers plus the caller's live `sp`, `s0`, and
+`s1`, and leaves a readable retired counter so the caller can execute the generated `ret`. -/
 def compiledDecodeRawContract : FunctionInstanceContract
     EntryArgs (Except Contracts.DecodeError BinaryFv.Specs.SSZ.RawV4) :=
   let source := (contractDecodeRaw canonicalContractParams.env
@@ -39,7 +44,7 @@ def compiledDecodeRawContract : FunctionInstanceContract
             (entryMachineArgs args) state
         exit := fun args outcome before after =>
           source.binding.exit args outcome before after ∧
-            Agree platformPreserved before after ∧
+            Agree decodeRawCallerPreserved before after ∧
             RetiredCounterPresent after
         stepBound := source.binding.stepBound } }
 

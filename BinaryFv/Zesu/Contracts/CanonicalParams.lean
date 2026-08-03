@@ -101,6 +101,7 @@ def canonicalRecordSizes : ResultRecordSizes :=
     executionPayload := executionPayloadSize.getD 0,
     newPayloadRequest := newPayloadRequestSize.getD 0,
     entryResult := storedResultSize.getD 0,
+    entryResultTagOffset := storedResultTagOffset.getD 0,
     sliceDescriptor := 16,
     allocatorObject := 16 }
 
@@ -113,7 +114,8 @@ theorem canonicalRecordSizes_pinned :
     canonicalRecordSizes =
       { forkActivation := 32, forkConfig := 72, chainConfig := 80,
         executionRequests := 48, executionWitness := 48, executionPayload := 592,
-        newPayloadRequest := 688, entryResult := 848, sliceDescriptor := 16,
+        newPayloadRequest := 688, entryResult := 848, entryResultTagOffset := 832,
+        sliceDescriptor := 16,
         allocatorObject := 16 } := by
   native_decide
 

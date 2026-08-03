@@ -186,15 +186,6 @@ abbrev DecodeInlineMachinePre (args : DecodeInlineArgs) (state : State) : Prop :
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
     args.machineArgs state
 
-/-- The error-union tag loaded by the wrapper-facing inline instructions. This is not the public
-`DecodeStatus` value: `outOfMemory` has internal tag `1` and public status code `4`. -/
-def decodeInternalResultTag :
-    Except DecodeError BinaryFv.Specs.SSZ.RawV4 → Nat
-  | .ok _ => 0
-  | .error .outOfMemory => 1
-  | .error .invalidSsz => 2
-  | .error .unknownFork => 3
-
 /-- Machine and source facts at either real inline entry. `s0`, `s1`, and `sp` are live values of
 the surrounding wrapper, not an invented callee ABI. -/
 structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
@@ -205,8 +196,12 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   inputMemory : MemoryBytes state args.inputBase args.bytes
   code : canonicalContractParams.env.CodeIntact state
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64
+  stackAligned : args.stackBase % 16 = 0
   stackObjectsFit : args.stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤
     2 ^ 64
+  stackObjectsReadable : ∀ index,
+    index < 0x6b0 + canonicalContractParams.env.record.entryResult →
+      canonicalContractParams.env.stack (args.stackBase + index)
   machine : DecodeInlineMachinePre args state
   retryReason : args.phase = .retryAfterInvalidSsz →
     meaningDecodeRaw args.bytes = .error .invalidSsz ∧

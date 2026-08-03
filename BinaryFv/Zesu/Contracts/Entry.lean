@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.Contracts.Containers
+import BinaryFv.Zesu.MemoryRepresentation.Result
 import BinaryFv.Specs.SSZ.Decode
 
 namespace BinaryFv.Zesu.Contracts
@@ -111,6 +112,14 @@ def preEntry (env : DecoderEnvironment) (args : EntryArgs) (state : State) : Pro
   state.regs.get? x12 = some (BitVec.ofNat 64 args.base) ∧
   state.regs.get? x13 = some (BitVec.ofNat 64 args.bytes.size)
 
+/-- The discriminant written by the internal `decodeRaw`/`decode` error union. This is not the
+exported `DecodeStatus`: internal `outOfMemory` is tag `1`, while its exported status code is `4`. -/
+def decodeInternalResultTag : Except DecodeError BinaryFv.Specs.SSZ.RawV4 → Nat
+  | .ok _ => 0
+  | .error .outOfMemory => 1
+  | .error .invalidSsz => 2
+  | .error .unknownFork => 3
+
 /-- The entry postcondition.
 
 **`before` USED to be unused here, and the reason is worth keeping because it is what the ownership
@@ -160,6 +169,8 @@ def postEntry (env : DecoderEnvironment) (args : EntryArgs)
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.WritesOnlyWithinOwnAllocation args.resultBase env.record.entryResult before after ∧
+  ResultStatusLERep after (args.resultBase + env.record.entryResultTagOffset)
+    (decodeInternalResultTag result) ∧
   match result with
   | .ok value => rep args.base args.bytes value after args.resultBase
   | .error error =>
