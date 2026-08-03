@@ -21,7 +21,7 @@
       "functions": [
         { "qualified": "raw_decoder_root.allocator", "displayName": "allocator", "status": "unproved" },
         { "qualified": "ssz_raw.decode", "displayName": "decode", "status": "unproved" },
-        { "qualified": "memcpy", "displayName": "memcpy", "status": "unproved" }
+        { "qualified": "memcpy", "displayName": "memcpy", "status": "proved", "theorem": "BinaryFv.Zesu.MachineExecution.compiledMemcpyInstanceContract_proved" }
       ]
     }
   ]

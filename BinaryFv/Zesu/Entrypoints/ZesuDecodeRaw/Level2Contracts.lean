@@ -10,10 +10,9 @@ The wrapper proof selects exactly three compiled children: the inlined allocator
 `decode`, and the emitted `memcpy`. `Level2ChildSummary` is the single relation consumed by its
 `ScopedTrace`; constructors make it impossible to discharge a splice with an unselected function.
 
-The allocator arm is already proved by Sail execution. The `memcpy` arm is the existing typed source
-contract instantiated at the generated emitted body. The `decode` arm remains a parameter until its
-non-ABI segment contract is stated: this file deliberately does not pretend that the source function
-ABI applies at `0x10308` or `0x10380`.
+The allocator and `memcpy` arms are proved by Sail execution. The `decode` arm remains a parameter
+until its non-ABI segment contract is stated: this file deliberately does not pretend that the
+source function ABI applies at `0x10308` or `0x10380`.
 -/
 
 namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
@@ -49,6 +48,18 @@ theorem memcpyChildSummary_of_contract (contract : MemcpyInstanceContract)
         canonicalContractParams.env).binding.stepBound args ∧
       memcpyChildSummary functionInstance_memcpyId fromStep used before after := by
   exact MachineExecution.compiledMemcpySummary_of_contract contract args fromStep before pre
+
+/-- Sail execution of the emitted body produces the selected child summary without assuming a
+`memcpy` contract. The caller supplies only the concrete entry binding for its copy arguments. -/
+theorem memcpyChildSummary_proved (args : CopyArgs) (fromStep : Nat) (before : State)
+    (pre : (MachineExecution.compiledMemcpyContract
+      canonicalContractParams.env).binding.entry args before) :
+    ∃ used after,
+      used ≤ (MachineExecution.compiledMemcpyContract
+        canonicalContractParams.env).binding.stepBound args ∧
+      memcpyChildSummary functionInstance_memcpyId fromStep used before after := by
+  exact memcpyChildSummary_of_contract MachineExecution.compiledMemcpyInstanceContract_proved
+    args fromStep before pre
 
 /-- One summary relation for exactly the three children selected at Level 2. -/
 inductive Level2ChildSummary (decodeSummary : MachineChildSummary) : MachineChildSummary where

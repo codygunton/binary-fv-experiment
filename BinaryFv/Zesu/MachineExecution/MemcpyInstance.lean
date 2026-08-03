@@ -103,6 +103,27 @@ theorem compiledMemcpySummary_of_contract (contract : CompiledMemcpyInstanceCont
 
 /-! ## Connecting the Sail loop result to the source contract -/
 
+private theorem memcpy_entry_word :
+    functionInstanceEntryWord functionInstance_memcpy = BitVec.ofNat 64 0x13eb8 := by
+  native_decide
+
+private theorem memcpy_exit_pred (pc : BitVec 64) :
+    functionInstanceExitPred functionInstance_memcpy pc ↔ pc = BitVec.ofNat 64 0x13ec0 := by
+  simp only [functionInstanceExitPred, FunctionInstance.isExit, functionInstance_memcpy]
+  constructor
+  · intro h
+    apply BitVec.eq_of_toNat_eq
+    simpa using h
+  · rintro rfl
+    native_decide
+
+private theorem memcpy_body_pc_in_generated_region (pc : BitVec 64) (h : IsBodyPc pc) :
+    functionInstanceExecutionPcs generatedProgram functionInstance_memcpy pc := by
+  left
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    refine ⟨{ start := 81592, size := 36 }, ?_, ?_, ?_⟩ <;>
+    simp [functionInstance_memcpy, BinaryFv.Binary.AddressRange.stop]
+
 private def copySourceByte (contents : ByteArray) (index : Nat) : BitVec 8 :=
   BitVec.ofNat 8 (contents.get! index).toNat
 
@@ -123,6 +144,10 @@ theorem memcpy_body_satisfies_source_post (args : CopyArgs) (fromStep : Nat) (st
     ∃ count final,
       count = 1 + args.length * 7 + 1 ∧
       Trace fromStep count state final ∧
+      EnteredFunctionTrace
+        (functionInstanceExecutionPcs generatedProgram functionInstance_memcpy)
+        (functionInstanceExitPred functionInstance_memcpy)
+        (functionInstanceEntryWord functionInstance_memcpy) fromStep count state final ∧
       final.regs.get? PC = some (BitVec.ofNat 64 0x13ec0) ∧
       (contractMemcpy canonicalContractParams.env).post args
         ((contractMemcpy canonicalContractParams.env).meaning args) state final := by
@@ -181,7 +206,7 @@ theorem memcpy_body_satisfies_source_post (args : CopyArgs) (fromStep : Nat) (st
       windowAddr_toNat (BitVec.ofNat 64 args.source) k (sourceIndexFits k kBounds),
       sourceNat] at equal
     rcases nonoverlap with before | after <;> omega
-  obtain ⟨final, run, atExit, copied, _, _, _, _, codeFinal, _, stackPreserved, frame,
+  obtain ⟨final, run, confined, atExit, copied, _, _, _, _, codeFinal, _, stackPreserved, frame,
     _⟩ :=
     memcpy_body (BitVec.ofNat 64 args.destination) (BitVec.ofNat 64 args.source)
       (BitVec.ofNat 64 args.length) returnAddress canonicalContractParams.env.image
@@ -219,11 +244,46 @@ theorem memcpy_body_satisfies_source_post (args : CopyArgs) (fromStep : Nat) (st
       (destinationIndexFits index argsBounds), destinationNat,
       copySourceByte_eq args.contents index inBounds] at copiedIndex
     exact copiedIndex
-  refine ⟨1 + args.length * 7 + 1, final, rfl, ?_, atExit, ?_⟩
+  have generatedTrace : FunctionTrace
+      (functionInstanceExecutionPcs generatedProgram functionInstance_memcpy)
+      (functionInstanceExitPred functionInstance_memcpy)
+      fromStep (1 + args.length * 7 + 1) state final := by
+    have widened := confined.mono_region memcpy_body_pc_in_generated_region
+    have exitEq : (fun pc : BitVec 64 => pc = BitVec.ofNat 64 0x13ec0) =
+        functionInstanceExitPred functionInstance_memcpy := by
+      funext pc
+      exact propext (memcpy_exit_pred pc).symm
+    rw [exitEq] at widened
+    simpa [lengthNat] using widened
+  have entered : EnteredFunctionTrace
+      (functionInstanceExecutionPcs generatedProgram functionInstance_memcpy)
+      (functionInstanceExitPred functionInstance_memcpy)
+      (functionInstanceEntryWord functionInstance_memcpy)
+      fromStep (1 + args.length * 7 + 1) state final := by
+    refine ⟨?_, memcpy_body_pc_in_generated_region _ ?_, ?_, generatedTrace⟩
+    · simpa [memcpy_entry_word] using machine.entry
+    · rw [memcpy_entry_word]
+      simp [IsBodyPc]
+    · rw [memcpy_exit_pred]
+      decide
+  refine ⟨1 + args.length * 7 + 1, final, rfl, ?_, entered, atExit, ?_⟩
   · simpa [lengthNat] using run
   · refine ⟨?_, noAllocation, writesOnly, ?_⟩
     · simpa [DecoderEnvironment.CodeIntact, canonicalContractParams,
         canonicalEnvironment] using codeFinal
     · simpa [meaningCopy] using destinationMemory
+
+/-- The emitted `memcpy` instance satisfies its compiled contract. Every owned instruction is
+executed by the generated Sail semantics; the runtime loop is discharged by induction. -/
+theorem compiledMemcpyInstanceContract_proved : CompiledMemcpyInstanceContract := by
+  intro args fromStep state entry
+  rcases entry with ⟨sourcePre, machinePre⟩
+  obtain ⟨count, final, countEq, _, entered, _, post⟩ :=
+    memcpy_body_satisfies_source_post args fromStep state sourcePre machinePre
+  refine ⟨count, final, ?_, entered, ?_⟩
+  · rw [countEq]
+    change 1 + args.length * 7 + 1 ≤ 64 + 8 * args.length
+    omega
+  · exact post
 
 end BinaryFv.Zesu.MachineExecution

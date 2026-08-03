@@ -47,6 +47,7 @@ open LeanRV64DExecutable.Functions
 open Register
 open BinaryFv.RiscV
 open BinaryFv.RiscV.Sep
+open BinaryFv.RiscV.Elfling
 open BinaryFv.Binary.ProgramImage
 open MemoryAccessType
 open mem_payload
@@ -1090,6 +1091,58 @@ theorem writeBytes_byte_run (s : State) (a : Nat) (value : BitVec (8 * 1)) :
 
 /-! ## Deliverable 2: single-iteration advance `memcpy_adv` -/
 
+/-- The seven concrete Sail steps in one loop iteration, retaining the intermediate PCs needed to
+build a confined function trace rather than merely a bare execution trace. -/
+def MemcpyIteration (fromStep : Nat) (start final : State) : Prop :=
+  ∃ s1 s2 s3 s4 s5 s6,
+    start.regs.get? PC = some (BitVec.ofNat 64 0x13ebc) ∧
+    s1.regs.get? PC = some (BitVec.ofNat 64 0x13ec4) ∧
+    s2.regs.get? PC = some (BitVec.ofNat 64 0x13ec8) ∧
+    s3.regs.get? PC = some (BitVec.ofNat 64 0x13ecc) ∧
+    s4.regs.get? PC = some (BitVec.ofNat 64 0x13ed0) ∧
+    s5.regs.get? PC = some (BitVec.ofNat 64 0x13ed4) ∧
+    s6.regs.get? PC = some (BitVec.ofNat 64 0x13ed8) ∧
+    Runs (try_step fromStep false) start s1 false ∧
+    Runs (try_step (fromStep + 1) false) s1 s2 false ∧
+    Runs (try_step (fromStep + 2) false) s2 s3 false ∧
+    Runs (try_step (fromStep + 3) false) s3 s4 false ∧
+    Runs (try_step (fromStep + 4) false) s4 s5 false ∧
+    Runs (try_step (fromStep + 5) false) s5 s6 false ∧
+    Runs (try_step (fromStep + 6) false) s6 final false
+
+/-- Prepend one retained iteration to a confined continuation. -/
+theorem MemcpyIteration.prepend {fromStep count : Nat} {start final finish : State}
+    (iteration : MemcpyIteration fromStep start final)
+    (rest : FunctionTrace IsBodyPc (fun pc => pc = BitVec.ofNat 64 0x13ec0)
+      (fromStep + 7) count final finish) :
+    FunctionTrace IsBodyPc (fun pc => pc = BitVec.ofNat 64 0x13ec0)
+      fromStep (count + 7) start finish := by
+  rcases iteration with ⟨s1, s2, s3, s4, s5, s6, pc0, pc1, pc2, pc3, pc4, pc5, pc6,
+    step0, step1, step2, step3, step4, step5, step6⟩
+  have region0 : IsBodyPc (BitVec.ofNat 64 0x13ebc) := by simp [IsBodyPc]
+  have region1 : IsBodyPc (BitVec.ofNat 64 0x13ec4) := by simp [IsBodyPc]
+  have region2 : IsBodyPc (BitVec.ofNat 64 0x13ec8) := by simp [IsBodyPc]
+  have region3 : IsBodyPc (BitVec.ofNat 64 0x13ecc) := by simp [IsBodyPc]
+  have region4 : IsBodyPc (BitVec.ofNat 64 0x13ed0) := by simp [IsBodyPc]
+  have region5 : IsBodyPc (BitVec.ofNat 64 0x13ed4) := by simp [IsBodyPc]
+  have region6 : IsBodyPc (BitVec.ofNat 64 0x13ed8) := by simp [IsBodyPc]
+  have notExit0 : BitVec.ofNat 64 0x13ebc ≠ BitVec.ofNat 64 0x13ec0 := by decide
+  have notExit1 : BitVec.ofNat 64 0x13ec4 ≠ BitVec.ofNat 64 0x13ec0 := by decide
+  have notExit2 : BitVec.ofNat 64 0x13ec8 ≠ BitVec.ofNat 64 0x13ec0 := by decide
+  have notExit3 : BitVec.ofNat 64 0x13ecc ≠ BitVec.ofNat 64 0x13ec0 := by decide
+  have notExit4 : BitVec.ofNat 64 0x13ed0 ≠ BitVec.ofNat 64 0x13ec0 := by decide
+  have notExit5 : BitVec.ofNat 64 0x13ed4 ≠ BitVec.ofNat 64 0x13ec0 := by decide
+  have notExit6 : BitVec.ofNat 64 0x13ed8 ≠ BitVec.ofNat 64 0x13ec0 := by decide
+  rw [show count + 7 = ((((((count + 1) + 1) + 1) + 1) + 1) + 1) + 1 by omega]
+  refine .step fromStep _ _ start s1 finish pc0 region0 notExit0 step0 ?_
+  refine .step (fromStep + 1) _ _ s1 s2 finish pc1 region1 notExit1 step1 ?_
+  refine .step (fromStep + 2) _ _ s2 s3 finish pc2 region2 notExit2 step2 ?_
+  refine .step (fromStep + 3) _ _ s3 s4 finish pc3 region3 notExit3 step3 ?_
+  refine .step (fromStep + 4) _ _ s4 s5 finish pc4 region4 notExit4 step4 ?_
+  refine .step (fromStep + 5) _ _ s5 s6 finish pc5 region5 notExit5 step5 ?_
+  refine .step (fromStep + 6) count _ s6 final finish pc6 region6 notExit6 step6 ?_
+  simpa only [Nat.add_assoc] using rest
+
 set_option maxHeartbeats 1000000 in
 /-- One loop iteration (`i < n`) is a length-7 trace that copies one more byte and re-establishes the
 invariant at `i + 1`. -/
@@ -1099,6 +1152,7 @@ theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
     (hi : i < n.toNat)
     (hInv : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte sInit i s) :
     ∃ s', Trace (start + i * 7) 7 s s' ∧
+      MemcpyIteration (start + i * 7) s s' ∧
       MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte sInit (i + 1) s' := by
   obtain ⟨retired0, hret0⟩ := hInv.hminstret
   have hi2 : i < 2 ^ 64 := Nat.lt_trans hi hInv.hnLt
@@ -1547,7 +1601,21 @@ theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
         (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
           (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1)) := by
     trace_steps [h0, h1, h2, h3, h4, h5, h6]
-  refine ⟨_, htr, ?_⟩
+  have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x13ec4) :=
+    (afterIncGet s1 PC (by decide)).symm.trans (hsum0 ▸ hPC1)
+  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x13ec8) :=
+    (afterIncGet s2 PC (by decide)).symm.trans (hsum24 ▸ hPC2)
+  have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x13ecc) :=
+    (afterIncGet s3 PC (by decide)).symm.trans (hsum28 ▸ hPC3)
+  have pc4 : s4.regs.get? PC = some (BitVec.ofNat 64 0x13ed0) :=
+    (afterIncGet s4 PC (by decide)).symm.trans (hsum2c ▸ hPC4)
+  have pc5 : s5.regs.get? PC = some (BitVec.ofNat 64 0x13ed4) :=
+    (afterIncGet s5 PC (by decide)).symm.trans (hsum30 ▸ hPC5)
+  have pc6 : s6.regs.get? PC = some (BitVec.ofNat 64 0x13ed8) :=
+    (afterIncGet s6 PC (by decide)).symm.trans (hsum34 ▸ hPC6)
+  refine ⟨_, htr, ?_, ?_⟩
+  · exact ⟨s1, s2, s3, s4, s5, s6, hInv.hPC, pc1, pc2, pc3, pc4, pc5, pc6,
+      h0, h1, h2, h3, h4, h5, h6⟩
   refine ⟨?hPC, ?ha5, ?ha0, ?ha1, ?ha2, ?hra, ?hcur, ?hmstatus, ?hmprv, ?hmseccfg, ?hhart,
       ?hinhibit, ?hnotInhibited, ?hcfg, ?hmachineEnabled, ?hminstret, ?himageEq, ?hmatches, ?hsrc,
       ?hcopy, ?hle, ?hnLt, ?hsrcFits, ?hdstFits, ?hdstImg, ?hdisj, ?hplat, ?hdata, ?hElp,
@@ -1626,8 +1694,10 @@ theorem memcpy_loop (dst src n retAddr : BitVec 64) (image : ProgramImage)
   Trace.invariantIterate (L := 7) (start := start)
     (Inv := fun i s => MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte sInit i s)
     n.toNat
-    (fun i s hi hInv => memcpy_adv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte
-      sInit start i s hi hInv)
+    (fun i s hi hInv => by
+      obtain ⟨s', trace, _, invariant⟩ := memcpy_adv dst src n retAddr image mseccfgBits
+        mstatusBits inhibit cfg srcByte sInit start i s hi hInv
+      exact ⟨s', trace, invariant⟩)
     hInv0
 
 /-! ## Exit step lemmas: `bne` not taken, then `ret` -/
@@ -1810,6 +1880,7 @@ theorem memcpy_reach_ret (dst src n retAddr : BitVec 64) (image : ProgramImage)
     (hInv : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte
       sInit n.toNat s) :
     ∃ final, Trace start 1 s final ∧
+      Runs (try_step start false) s final false ∧
       final.regs.get? PC = some (BitVec.ofNat 64 0x13ec0) ∧
       (∀ j : Nat, j < n.toNat →
         final.mem.get? (dst + BitVec.ofNat 64 j).toNat = some (srcByte j)) ∧
@@ -1848,7 +1919,7 @@ theorem memcpy_reach_ret (dst src n retAddr : BitVec 64) (image : ProgramImage)
     (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ebc) 4) retired
   have stable : StableAgree s final := stableAgree_notTaken s (BitVec.ofNat 64 0x13ebc) retired
   have memory : final.mem = s.mem := notTakenMem s (BitVec.ofNat 64 0x13ebc) retired
-  refine ⟨final, Trace.one start s final step, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨final, Trace.one start s final step, step, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · simpa [final] using retiredGetPC
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc))
       (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ebc) 4) retired
@@ -1865,6 +1936,55 @@ theorem memcpy_reach_ret (dst src n retAddr : BitVec 64) (image : ProgramImage)
   · intro address outside
     rw [memory]
     exact hInv.hframe address outside
+
+/-- Execute every remaining loop iteration and the final not-taken branch as one confined trace to
+the generated `ret` exit. The recursion is over the runtime loop counter, not an unrolling limit. -/
+theorem memcpy_loop_to_ret (dst src n retAddr : BitVec 64) (image : ProgramImage)
+    (mseccfgBits mstatusBits : BitVec 64) (inhibit : BitVec 32) (cfg : BitVec 64)
+    (srcByte : Nat → BitVec 8) (sInit : State) (start i : Nat) (s : State)
+    (indexBound : i ≤ n.toNat)
+    (hInv : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte
+      sInit i s) :
+    ∃ final,
+      FunctionTrace IsBodyPc (fun pc => pc = BitVec.ofNat 64 0x13ec0)
+        (start + i * 7) ((n.toNat - i) * 7 + 1) s final ∧
+      final.regs.get? PC = some (BitVec.ofNat 64 0x13ec0) ∧
+      (∀ j : Nat, j < n.toNat →
+        final.mem.get? (dst + BitVec.ofNat 64 j).toNat = some (srcByte j)) ∧
+      final.regs.get? x10 = some dst ∧ final.regs.get? x11 = some src ∧
+      final.regs.get? x12 = some n ∧ final.regs.get? x1 = some retAddr ∧
+      image.fileBytesMatchMemory final.mem ∧ StableAgree sInit final ∧
+      MemFramed dst n sInit final := by
+  by_cases done : i = n.toNat
+  · subst i
+    obtain ⟨final, _, step, atExit, copied, x10Final, x11Final, x12Final, x1Final,
+      imageFinal, stable, frame⟩ := memcpy_reach_ret dst src n retAddr image mseccfgBits
+        mstatusBits inhibit cfg srcByte sInit (start + n.toNat * 7) s hInv
+    have region : IsBodyPc (BitVec.ofNat 64 0x13ebc) := by simp [IsBodyPc]
+    have notExit : BitVec.ofNat 64 0x13ebc ≠ BitVec.ofNat 64 0x13ec0 := by decide
+    have confined : FunctionTrace IsBodyPc (fun pc => pc = BitVec.ofNat 64 0x13ec0)
+        (start + n.toNat * 7) 1 s final := by
+      refine .step _ 0 _ s final final hInv.hPC region notExit step ?_
+      exact .exitAt _ final _ atExit rfl
+    exact ⟨final, by simpa using confined, atExit, copied, x10Final, x11Final,
+      x12Final, x1Final, imageFinal, stable, frame⟩
+  · have beforeEnd : i < n.toNat := Nat.lt_of_le_of_ne indexBound done
+    obtain ⟨next, _, iteration, nextInv⟩ := memcpy_adv dst src n retAddr image mseccfgBits
+      mstatusBits inhibit cfg srcByte sInit start i s beforeEnd hInv
+    obtain ⟨final, rest, atExit, copied, x10Final, x11Final, x12Final, x1Final,
+      imageFinal, stable, frame⟩ := memcpy_loop_to_ret dst src n retAddr image mseccfgBits
+        mstatusBits inhibit cfg srcByte sInit start (i + 1) next (by omega) nextInv
+    have restAtExpected : FunctionTrace IsBodyPc (fun pc => pc = BitVec.ofNat 64 0x13ec0)
+        (start + i * 7 + 7) ((n.toNat - (i + 1)) * 7 + 1) next final := by
+      simpa only [Nat.add_mul, Nat.one_mul, Nat.add_assoc] using rest
+    have combined := iteration.prepend restAtExpected
+    refine ⟨final, ?_, atExit, copied, x10Final, x11Final, x12Final, x1Final,
+      imageFinal, stable, frame⟩
+    have countArithmetic : ((n.toNat - (i + 1)) * 7 + 1) + 7 =
+        (n.toNat - i) * 7 + 1 := by omega
+    simpa only [countArithmetic] using combined
+termination_by n.toNat - i
+decreasing_by omega
 
 /-! ## Deliverable 4: loop exit `memcpy_exit` -/
 
@@ -2082,7 +2202,8 @@ theorem memcpy_contract (dst src n retAddr : BitVec 64) (image : ProgramImage)
   obtain ⟨sN, htrLoop, hInvN⟩ := memcpy_loop dst src n retAddr image mseccfgBits mstatusBits inhibit
     cfg srcByte s (start + 1) _ hInv0
   -- Exit.
-  obtain ⟨s'', htrExit, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN, hStableExit, hFrameExit⟩ :=
+  obtain ⟨s'', htrExit, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN,
+    hStableExit, hFrameExit⟩ :=
     memcpy_exit dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte s
       (start + (1 + n.toNat * 7)) sN hretAlign hInvN
   refine ⟨s'', ?_, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN,
@@ -2120,6 +2241,8 @@ theorem memcpy_body (dst src n retAddr : BitVec 64) (image : ProgramImage)
       (dst + BitVec.ofNat 64 j).toNat ≠ (src + BitVec.ofNat 64 k).toNat)
     (hplat : AbstractPlatform s) (hdata : AbstractDataAccess n dst src s) (hElp : AbstractElp s) :
     ∃ s'', Trace start (1 + n.toNat * 7 + 1) s s'' ∧
+      FunctionTrace IsBodyPc (fun pc => pc = BitVec.ofNat 64 0x13ec0)
+        start (1 + n.toNat * 7 + 1) s s'' ∧
       s''.regs.get? PC = some (BitVec.ofNat 64 0x13ec0) ∧
       (∀ j : Nat, j < n.toNat →
         s''.mem.get? (dst + BitVec.ofNat 64 j).toNat = some (srcByte j)) ∧
@@ -2193,18 +2316,21 @@ theorem memcpy_body (dst src n retAddr : BitVec 64) (image : ProgramImage)
           (Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4) retired0).mem = s.mem :=
         (retiredMem _ _ _).trans (fallThroughMem s (BitVec.ofNat 64 0x13eb8) x15 (BitVec.ofNat 64 0))
       rw [hmemE]
-  -- Loop.
-  obtain ⟨sN, htrLoop, hInvN⟩ := memcpy_loop dst src n retAddr image mseccfgBits mstatusBits inhibit
-    cfg srcByte s (start + 1) _ hInv0
-  -- Reach the generated return exit without executing it.
-  obtain ⟨s'', htrExit, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN, hStableExit, hFrameExit⟩ :=
-    memcpy_reach_ret dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte s
-      (start + (1 + n.toNat * 7)) sN hInvN
-  refine ⟨s'', ?_, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN,
+  -- Execute the runtime loop and stop at the generated return exit.
+  obtain ⟨s'', htrLoop, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN,
+    hStableExit, hFrameExit⟩ :=
+    memcpy_loop_to_ret dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte s
+      (start + 1) 0 _ (by omega) hInv0
+  have hentryRegion : IsBodyPc (BitVec.ofNat 64 0x13eb8) := by simp [IsBodyPc]
+  have hentryNotExit : BitVec.ofNat 64 0x13eb8 ≠ BitVec.ofNat 64 0x13ec0 := by decide
+  have hconfined : FunctionTrace IsBodyPc (fun pc => pc = BitVec.ofNat 64 0x13ec0)
+      start (1 + n.toNat * 7 + 1) s s'' := by
+    have hcombined := FunctionTrace.step start _ (BitVec.ofNat 64 0x13eb8) s _ s''
+      hPC hentryRegion hentryNotExit hli htrLoop
+    simpa only [Nat.zero_mul, Nat.sub_zero, Nat.zero_add, Nat.add_assoc,
+      Nat.add_comm, Nat.add_left_comm] using hcombined
+  refine ⟨s'', hconfined.toTrace, hconfined, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN,
     hStableExit, hStableExit x2 (by decide), hFrameExit,
     fun k hk => MemFramed.source_preserved hFrameExit hdisj k hk⟩
-  have htrLi := Trace.one _ _ _ hli
-  have hcomb := Trace.append (Trace.append htrLi htrLoop) htrExit
-  simpa using hcomb
 
 end BinaryFv.Zesu.MachineExecution
