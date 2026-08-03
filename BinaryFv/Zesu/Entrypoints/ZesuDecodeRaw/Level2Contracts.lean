@@ -2,6 +2,7 @@ import BinaryFv.Zesu.Contracts.CanonicalParams
 import BinaryFv.Zesu.Contracts.Catalog.Dispatch
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Contracts
 import BinaryFv.Zesu.MachineExecution.Level2AllocatorProof
+import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryFinish
 import BinaryFv.Zesu.MachineExecution.MemcpyInstance
 
 /-!
@@ -22,6 +23,69 @@ open BinaryFv.RiscV.Elfling
 open BinaryFv.Zesu.Contracts
 open BinaryFv.Zesu.Elflings.Generated
 open PreSail LeanRV64DExecutable.Functions
+
+/-! ## Compiled wrapper entry
+
+`preZesuDecodeRaw` is the public C interface: input bytes, code, `a0`, `a1`, and decoder globals.
+Those facts intentionally say nothing about privilege, counters, physical-memory access, or the
+runner's stack. A theorem that executes the wrapper through Sail needs those concrete machine facts
+as an additional compiled binding; they cannot be derived from the public interface.
+-/
+
+/-- The input-readable region used by the wrapper and every selected descendant. -/
+def zesuDecodeRawMachineArgs (args : ZesuDecodeRawArgs) : DecoderMachineArgs where
+  inputBase := args.inputBase
+  bytes := args.bytes
+
+/-- Machine facts at the actual `zesu_decode_raw` entry. `stackBase` is the stack pointer after the
+two emitted frame decrements; the entered stack pointer is exactly `stackBase + 0xa20`.
+
+The `< 2 MiB` clause is the existing public theorem scope. The stack interval is stated explicitly
+because the wrapper constructs the allocator object and both inlined `decode` result objects there.
+-/
+structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
+    (state : State) : Prop where
+  atEntry : state.regs.get? Register.PC = some (BitVec.ofNat 64 0x102b0)
+  stackAtEntry : state.regs.get? Register.x2 = some (BitVec.ofNat 64 (stackBase + 0xa20))
+  inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64
+  inputBound : args.bytes.size < 2 * 1024 * 1024
+  stackAligned : stackBase % 16 = 0
+  stackObjectsFit : stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤
+    2 ^ 64
+  stackObjectsReadable : ∀ index,
+    index < 0x6b0 + canonicalContractParams.env.record.entryResult →
+      canonicalContractParams.env.stack (stackBase + index)
+  machine : DecoderMachinePre
+    (functionInstanceExecutionPcs generatedProgram
+      functionInstance_raw_decoder_root_zesu_decode_raw)
+    (zesuDecodeRawMachineArgs args) state
+
+/-- Hide the proof-only stack-base witness from the public C argument type. -/
+def CompiledZesuDecodeRawPre (args : ZesuDecodeRawArgs) (state : State) : Prop :=
+  ∃ stackBase, ZesuDecodeRawMachinePre args stackBase state
+
+/-- The public wrapper contract with only the machine premises required to execute its emitted
+instructions added at entry. Its meaning, public entry clauses, exit clauses, and step bound are
+unchanged. -/
+def compiledZesuDecodeRawContract : FunctionInstanceContract
+    ZesuDecodeRawArgs (Except Contracts.DecodeError BinaryFv.Specs.SSZ.RawV4) :=
+  let source := functionInstanceZesuDecodeRaw canonicalContractParams.env
+    canonicalContractParams.globals canonicalContractParams.resultBuffer
+    canonicalContractParams.repRawV4 DecoderGlobalsModel.fresh
+  { spec := source.spec
+    binding :=
+      { entry := fun args state => source.binding.entry args state ∧
+          CompiledZesuDecodeRawPre args state
+        exit := source.binding.exit
+        stepBound := source.binding.stepBound } }
+
+/-- The Level 2 theorem target for the emitted wrapper. -/
+abbrev CompiledZesuDecodeRawInstanceContract : Prop :=
+  compiledZesuDecodeRawContract.ImplementsFunctionInstance
+    functionInstance_raw_decoder_root_zesu_decode_raw
+    (functionInstanceReachedPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceEntryWord functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
 
 /-- The common type of an exact machine-code child summary. -/
 abbrev MachineChildSummary :=
@@ -87,6 +151,20 @@ inductive Level2ChildSummary : MachineChildSummary where
   | memcpy {fromStep used before after}
       (run : memcpyChildSummary functionInstance_memcpyId fromStep used before after) :
       Level2ChildSummary functionInstance_memcpyId fromStep used before after
+
+/-- The complete Level 3 theorem embeds as the selected Level 2 `decode` child. The only remaining
+condition is the emitted `decodeRaw` contract that Level 4 will refine. -/
+theorem level2DecodeChildSummary_of_decodeRaw
+    (decodeRaw : CompiledDecodeRawInstanceContract)
+    (args : DecodeInlineArgs) (fromStep : Nat) (before : State)
+    (pre : DecodeInlinePre args before) :
+    ∃ used after,
+      Level2ChildSummary
+        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
+        fromStep used before after := by
+  obtain ⟨used, after, run⟩ := level3DecodeChildSummary_of_contract
+    (MachineExecution.level3DecodeInlineContract decodeRaw) args fromStep before pre
+  exact ⟨used, after, .decode run⟩
 
 /-- Every proved allocator segment embeds in the one Level 2 child relation. -/
 theorem allocatorChildSummary_to_level2
