@@ -2598,6 +2598,7 @@ theorem decodeInline_retry_reaches_length_gate (fromStep : Nat) (args : DecodeIn
       after.regs.get? x12 = some (BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32 - 4)) ∧
       Agree decoderPreserved state after ∧
       RetiredCounterPresent after ∧
+      after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
       Contracts.canonicalContractParams.env.CodeIntact after ∧
       after.mem = state.mem ∧
       HasExactErePrefixInlinePre
@@ -2717,6 +2718,10 @@ theorem decodeInline_retry_reaches_length_gate (fromStep : Nat) (args : DecodeIn
     simp [s4, s3, s2, s1, afterRegisterWrite, decodeInlineRetryEntryAfter,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, pre.lengthValue]
+  have stackPointer4 : s4.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simp [s4, s3, s2, s1, afterRegisterWrite, decodeInlineRetryEntryAfter,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, pre.stackValue]
   have inputMemory4 : BinaryFv.Zesu.MemoryRepresentation.MemoryBytes s4 args.inputBase args.bytes := by
     intro index bound
     rw [memory4]
@@ -2763,7 +2768,8 @@ theorem decodeInline_retry_reaches_length_gate (fromStep : Nat) (args : DecodeIn
   have prefix12 := ConfinedPrefix.trans p1 p2
   have prefix123 := ConfinedPrefix.trans prefix12 p3
   have prefix1234 := ConfinedPrefix.trans prefix123 p4
-  refine ⟨s4, ?_, pc4, x10At4, x12At4, agree4, counter4, code4, memory4, ?_⟩
+  refine ⟨s4, ?_, pc4, x10At4, x12At4, agree4, counter4, stackPointer4, code4,
+    memory4, ?_⟩
   · simpa using prefix1234
   · simpa [childArgs] using childPre
 
@@ -2783,12 +2789,13 @@ theorem decodeInline_retry_uses_length_gate (fromStep : Nat) (args : DecodeInlin
         { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes } childAfter ∧
       Agree decoderPreserved state childAfter ∧
       RetiredCounterPresent childAfter ∧
+      childAfter.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
       childAfter.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
       childAfter.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       Contracts.canonicalContractParams.env.CodeIntact childAfter ∧
       childAfter.mem = state.mem := by
   obtain ⟨childEntry, parentPrefix, entryPc, x10Constant, x12Constant, parentAgree,
-    parentCounter, parentCode, parentMemory, childPre⟩ :=
+    parentCounter, parentStackPointer, parentCode, parentMemory, childPre⟩ :=
     decodeInline_retry_reaches_length_gate fromStep args state pre phase
   let childArgs : HasExactErePrefixInlineArgs :=
     { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes }
@@ -2802,9 +2809,12 @@ theorem decodeInline_retry_uses_length_gate (fromStep : Nat) (args : DecodeInlin
   have childPost := childPayload.2.1
   have childAgree := childPayload.2.2.1
   have childCounter := childPayload.2.2.2.1
-  have childInputPointer := childPayload.2.2.2.2.1
-  have childInputLength := childPayload.2.2.2.2.2.1
-  have childMemory := childPayload.2.2.2.2.2.2
+  have childStackFrame := childPayload.2.2.2.2.1
+  have childInputPointer := childPayload.2.2.2.2.2.1
+  have childInputLength := childPayload.2.2.2.2.2.2.1
+  have childMemory := childPayload.2.2.2.2.2.2.2
+  have childStackPointer : childAfter.regs.get? x2 =
+      some (BitVec.ofNat 64 args.stackBase) := childStackFrame.trans parentStackPointer
   let childUsed := 1
   have childBound : childUsed ≤ hasExactErePrefixInlineStepBound childArgs := by
     simp [childUsed, hasExactErePrefixInlineStepBound]
@@ -2829,8 +2839,8 @@ theorem decodeInline_retry_uses_length_gate (fromStep : Nat) (args : DecodeInlin
   have childCode : Contracts.canonicalContractParams.env.CodeIntact childAfter := by
     rw [Contracts.DecoderEnvironment.CodeIntact, childMemory]
     exact parentCode
-  refine ⟨childUsed, childAfter, ?_, ?_, ?_, completeAgree, childCounter, childInputPointer,
-    childInputLength, childCode, childMemory.trans parentMemory⟩
+  refine ⟨childUsed, childAfter, ?_, ?_, ?_, completeAgree, childCounter, childStackPointer,
+    childInputPointer, childInputLength, childCode, childMemory.trans parentMemory⟩
   · simpa [childArgs] using childBound
   · simpa [Nat.add_assoc] using completePrefix
   · simpa [childArgs] using childPost
@@ -2979,10 +2989,12 @@ theorem decodeInline_retry_reaches_prefix_bytes (fromStep : Nat) (args : DecodeI
         { phase := .prefixBytes, inputBase := args.inputBase, bytes := args.bytes } childEntry ∧
       Agree decoderPreserved state childEntry ∧
       RetiredCounterPresent childEntry ∧
+      childEntry.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
       Contracts.canonicalContractParams.env.CodeIntact childEntry ∧
       childEntry.mem = state.mem := by
   obtain ⟨lengthUsed, lengthAfter, lengthBound, lengthPrefix, lengthPost, lengthAgree,
-    lengthCounter, lengthInputPointer, lengthInputLength, lengthCode, lengthMemory⟩ :=
+    lengthCounter, lengthStackPointer, lengthInputPointer, lengthInputLength, lengthCode,
+    lengthMemory⟩ :=
     decodeInline_retry_uses_length_gate fromStep args state pre phase
   have prefixFalseAtLength : ¬ DecodeInlineExit args (BitVec.ofNat 64 0x10394) := by
     simp [DecodeInlineExit, phase, show ¬ args.bytes.size < 4 by omega]
@@ -3012,6 +3024,11 @@ theorem decodeInline_retry_reaches_prefix_bytes (fromStep : Nat) (args : DecodeI
   have childCode : Contracts.canonicalContractParams.env.CodeIntact childEntry := by
     rw [Contracts.DecoderEnvironment.CodeIntact, childMemory]
     exact pre.code
+  have childStackPointer : childEntry.regs.get? x2 =
+      some (BitVec.ofNat 64 args.stackBase) := by
+    simpa [childEntry, decodeInlineRetryLengthBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert] using lengthStackPointer
   let childArgs : HasExactErePrefixInlineArgs :=
     { phase := .prefixBytes, inputBase := args.inputBase, bytes := args.bytes }
   have parentMachine : DecodeInlineMachinePre args childEntry :=
@@ -3039,7 +3056,8 @@ theorem decodeInline_retry_reaches_prefix_bytes (fromStep : Nat) (args : DecodeI
     · simp [childArgs]
     · intro _
       exact fourBytes
-  refine ⟨lengthUsed, childEntry, lengthBound, ?_, ?_, childAgree, ?_, childCode, childMemory⟩
+  refine ⟨lengthUsed, childEntry, lengthBound, ?_, ?_, childAgree, ?_, childStackPointer,
+    childCode, childMemory⟩
   · have steps : 4 + lengthUsed + 1 = 5 + lengthUsed := by omega
     rw [← steps]
     exact completePrefix
@@ -3067,12 +3085,13 @@ theorem decodeInline_retry_uses_prefix_bytes (fromStep : Nat) (args : DecodeInli
         { phase := .prefixBytes, inputBase := args.inputBase, bytes := args.bytes } after ∧
       Agree decoderPreserved state after ∧
       RetiredCounterPresent after ∧
+      after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
       after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
       after.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       Contracts.canonicalContractParams.env.CodeIntact after ∧
       after.mem = state.mem := by
   obtain ⟨lengthUsed, childEntry, lengthBound, parentPrefix, childPre, parentAgree, parentCounter,
-    parentCode, parentMemory⟩ :=
+    parentStackPointer, parentCode, parentMemory⟩ :=
     decodeInline_retry_reaches_prefix_bytes fromStep args state pre phase fourBytes
   let childArgs : HasExactErePrefixInlineArgs :=
     { phase := .prefixBytes, inputBase := args.inputBase, bytes := args.bytes }
@@ -3087,9 +3106,12 @@ theorem decodeInline_retry_uses_prefix_bytes (fromStep : Nat) (args : DecodeInli
   have childPost := payload.2.1
   have childAgree := payload.2.2.1
   have childCounter := payload.2.2.2.1
-  have childInputPointer := payload.2.2.2.2.1
-  have childInputLength := payload.2.2.2.2.2.1
-  have childMemory := payload.2.2.2.2.2.2
+  have childStackFrame := payload.2.2.2.2.1
+  have childInputPointer := payload.2.2.2.2.2.1
+  have childInputLength := payload.2.2.2.2.2.2.1
+  have childMemory := payload.2.2.2.2.2.2.2
+  have childStackPointer : after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
+    childStackFrame.trans parentStackPointer
   let prefixUsed := 10
   have childBound : prefixUsed ≤ hasExactErePrefixInlineStepBound childArgs := by
     simp [prefixUsed, hasExactErePrefixInlineStepBound]
@@ -3115,7 +3137,7 @@ theorem decodeInline_retry_uses_prefix_bytes (fromStep : Nat) (args : DecodeInli
     rw [Contracts.DecoderEnvironment.CodeIntact, completeMemory]
     exact pre.code
   refine ⟨lengthUsed, prefixUsed, after, lengthBound, ?_, ?_, ?_, completeAgree, childCounter,
-    childInputPointer, childInputLength, completeCode, completeMemory⟩
+    childStackPointer, childInputPointer, childInputLength, completeCode, completeMemory⟩
   · simpa [childArgs] using childBound
   · simpa [Nat.add_assoc] using completePrefix
   · simpa [childArgs] using childPost
@@ -3516,6 +3538,430 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
     simpa using trace
   · simp [DecodeInlinePost, phase, DecodeInlineRetryPost, notExact, resultInvalid,
       show ¬ args.bytes.size < 4 by omega, after, orPc]
+
+/-! ## Exact-prefix second-call setup -/
+
+/-- Execute `addi a2, s0, 4`, selecting the tail after the framing word. -/
+theorem decodeInline_retry_tail_pointer_step (stepNo : Nat) (args : DecodeInlineArgs)
+    (baseState state : State) (pre : DecodeInlinePre args baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Contracts.canonicalContractParams.env.CodeIntact state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103c8))
+    (inputRead : state.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase)) :
+    ∃ retired,
+      Runs (try_step stepNo false) state
+        (afterRegisterWrite state (BitVec.ofNat 64 0x103c8) retired x12
+          (iTypeResult .ADDI 0x004#12 (BitVec.ofNat 64 args.inputBase))) false := by
+  have pcIn := decodeInline_owned_in_execution_region (0x103c8, 0x00440613)
+    (by simp [decodeInlineOwnedInstructionWords])
+  have image := hasExactErePrefix_programImage_of_codeIntact code
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x103c8) 0x13#8 0x06#8 0x44#8 0x00#8 :=
+    fetchFileInstruction state 0x103c8 0x13 0x06 0x44 0x00 image
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  have machine := pre.machine.mono agree retiredPresent
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
+    (BitVec.ofNat 64 0x103c8) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  have wordEq : fetchWord 0x13#8 0x06#8 0x44#8 0x00#8 =
+      (0x00440613 : BitVec 32) := by decide
+  have decode : Runs (ext_decode (fetchWord 0x13#8 0x06#8 0x44#8 0x00#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (0x004#12, .Regidx 8#5, .Regidx 12#5, .ADDI)) := by
+    rw [wordEq]
+    decode_run
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x103c8)
+  have inputAtExecute : executeState.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, inputRead]
+  let result := iTypeResult .ADDI 0x004#12 (BitVec.ofNat 64 args.inputBase)
+  have execute : Runs (execute (.ITYPE (0x004#12, .Regidx 8#5, .Regidx 12#5, .ADDI)))
+      executeState { executeState with regs := executeState.regs.insert x12 result }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0x004#12 (.Regidx 8#5) (.Regidx 12#5) .ADDI) _ _ _
+    exact execute_ITYPE_run executeState _ 0x004#12 (.Regidx 8#5) (.Regidx 12#5) .ADDI
+      (BitVec.ofNat 64 args.inputBase) (rX_x8_run executeState _ inputAtExecute)
+      (wX_x12_run executeState result)
+  exact decoderRegisterWriteStep machine (Agree.refl state) retiredPresent stepNo
+    (BitVec.ofNat 64 0x103c8) pcIn atPc 0x13#8 0x06#8 0x44#8 0x00#8
+    (.ITYPE (0x004#12, .Regidx 8#5, .Regidx 12#5, .ADDI)) x12 result fetchBytes
+    (by unfold BaseInstructionEncoding; decide) decode
+    (by decide) (by decide) (by decide) (by decide) execute
+
+/-- Execute `addi a0, sp, 0x6b0`, selecting the retry result object. -/
+theorem decodeInline_retry_result_pointer_step (stepNo : Nat) (args : DecodeInlineArgs)
+    (baseState state : State) (pre : DecodeInlinePre args baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Contracts.canonicalContractParams.env.CodeIntact state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103cc))
+    (stackRead : state.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase)) :
+    ∃ retired,
+      Runs (try_step stepNo false) state
+        (afterRegisterWrite state (BitVec.ofNat 64 0x103cc) retired x10
+          (iTypeResult .ADDI 0x6b0#12 (BitVec.ofNat 64 args.stackBase))) false := by
+  have pcIn := decodeInline_owned_in_execution_region (0x103cc, 0x6b010513)
+    (by simp [decodeInlineOwnedInstructionWords])
+  have image := hasExactErePrefix_programImage_of_codeIntact code
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x103cc) 0x13#8 0x05#8 0x01#8 0x6b#8 :=
+    fetchFileInstruction state 0x103cc 0x13 0x05 0x01 0x6b image
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  have machine := pre.machine.mono agree retiredPresent
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
+    (BitVec.ofNat 64 0x103cc) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  have wordEq : fetchWord 0x13#8 0x05#8 0x01#8 0x6b#8 =
+      (0x6b010513 : BitVec 32) := by decide
+  have decode : Runs (ext_decode (fetchWord 0x13#8 0x05#8 0x01#8 0x6b#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (0x6b0#12, .Regidx 2#5, .Regidx 10#5, .ADDI)) := by
+    rw [wordEq]
+    decode_run
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x103cc)
+  have stackAtExecute : executeState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, stackRead]
+  let result := iTypeResult .ADDI 0x6b0#12 (BitVec.ofNat 64 args.stackBase)
+  have execute : Runs (execute (.ITYPE (0x6b0#12, .Regidx 2#5, .Regidx 10#5, .ADDI)))
+      executeState { executeState with regs := executeState.regs.insert x10 result }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0x6b0#12 (.Regidx 2#5) (.Regidx 10#5) .ADDI) _ _ _
+    exact execute_ITYPE_run executeState _ 0x6b0#12 (.Regidx 2#5) (.Regidx 10#5) .ADDI
+      (BitVec.ofNat 64 args.stackBase) (rX_bits_run_x2 executeState _ stackAtExecute)
+      (wX_x10_run executeState result)
+  exact decoderRegisterWriteStep machine (Agree.refl state) retiredPresent stepNo
+    (BitVec.ofNat 64 0x103cc) pcIn atPc 0x13#8 0x05#8 0x01#8 0x6b#8
+    (.ITYPE (0x6b0#12, .Regidx 2#5, .Regidx 10#5, .ADDI)) x10 result fetchBytes
+    (by unfold BaseInstructionEncoding; decide) decode
+    (by decide) (by decide) (by decide) (by decide) execute
+
+/-- Execute `addi a1, sp, 0x10`, selecting the existing allocator object. -/
+theorem decodeInline_retry_allocator_pointer_step (stepNo : Nat) (args : DecodeInlineArgs)
+    (baseState state : State) (pre : DecodeInlinePre args baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Contracts.canonicalContractParams.env.CodeIntact state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103d0))
+    (stackRead : state.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase)) :
+    ∃ retired,
+      Runs (try_step stepNo false) state
+        (afterRegisterWrite state (BitVec.ofNat 64 0x103d0) retired x11
+          (iTypeResult .ADDI 0x010#12 (BitVec.ofNat 64 args.stackBase))) false := by
+  have pcIn := decodeInline_owned_in_execution_region (0x103d0, 0x01010593)
+    (by simp [decodeInlineOwnedInstructionWords])
+  have image := hasExactErePrefix_programImage_of_codeIntact code
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x103d0) 0x93#8 0x05#8 0x01#8 0x01#8 :=
+    fetchFileInstruction state 0x103d0 0x93 0x05 0x01 0x01 image
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  have machine := pre.machine.mono agree retiredPresent
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
+    (BitVec.ofNat 64 0x103d0) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  have wordEq : fetchWord 0x93#8 0x05#8 0x01#8 0x01#8 =
+      (0x01010593 : BitVec 32) := by decide
+  have decode : Runs (ext_decode (fetchWord 0x93#8 0x05#8 0x01#8 0x01#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (0x010#12, .Regidx 2#5, .Regidx 11#5, .ADDI)) := by
+    rw [wordEq]
+    decode_run
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x103d0)
+  have stackAtExecute : executeState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, stackRead]
+  let result := iTypeResult .ADDI 0x010#12 (BitVec.ofNat 64 args.stackBase)
+  have execute : Runs (execute (.ITYPE (0x010#12, .Regidx 2#5, .Regidx 11#5, .ADDI)))
+      executeState { executeState with regs := executeState.regs.insert x11 result }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0x010#12 (.Regidx 2#5) (.Regidx 11#5) .ADDI) _ _ _
+    exact execute_ITYPE_run executeState _ 0x010#12 (.Regidx 2#5) (.Regidx 11#5) .ADDI
+      (BitVec.ofNat 64 args.stackBase) (rX_bits_run_x2 executeState _ stackAtExecute)
+      (wX_x11_run executeState result)
+  exact decoderRegisterWriteStep machine (Agree.refl state) retiredPresent stepNo
+    (BitVec.ofNat 64 0x103d0) pcIn atPc 0x93#8 0x05#8 0x01#8 0x01#8
+    (.ITYPE (0x010#12, .Regidx 2#5, .Regidx 11#5, .ADDI)) x11 result fetchBytes
+    (by unfold BaseInstructionEncoding; decide) decode
+    (by decide) (by decide) (by decide) (by decide) execute
+
+/-- Execute `auipc ra, 0`, preparing the retry call's PC-relative base. -/
+theorem decodeInline_retry_call_page_step (stepNo : Nat) (args : DecodeInlineArgs)
+    (baseState state : State) (pre : DecodeInlinePre args baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Contracts.canonicalContractParams.env.CodeIntact state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103d4)) :
+    ∃ retired,
+      Runs (try_step stepNo false) state
+        (afterRegisterWrite state (BitVec.ofNat 64 0x103d4) retired x1
+          (BitVec.ofNat 64 0x103d4)) false := by
+  have pcIn := decodeInline_owned_in_execution_region (0x103d4, 0x00000097)
+    (by simp [decodeInlineOwnedInstructionWords])
+  have image := hasExactErePrefix_programImage_of_codeIntact code
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x103d4) 0x97#8 0x00#8 0x00#8 0x00#8 :=
+    fetchFileInstruction state 0x103d4 0x97 0x00 0x00 0x00 image
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  have machine := pre.machine.mono agree retiredPresent
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
+    (BitVec.ofNat 64 0x103d4) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  have wordEq : fetchWord 0x97#8 0x00#8 0x00#8 0x00#8 =
+      (0x00000097 : BitVec 32) := by decide
+  have decode : Runs (ext_decode (fetchWord 0x97#8 0x00#8 0x00#8 0x00#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.UTYPE (0x00000#20, .Regidx 1#5, .AUIPC)) := by
+    rw [wordEq]
+    decode_run
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x103d4)
+  have pcAtExecute : executeState.regs.get? PC = some (BitVec.ofNat 64 0x103d4) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, atPc]
+  have execute : Runs (execute (.UTYPE (0x00000#20, .Regidx 1#5, .AUIPC))) executeState
+      { executeState with regs := executeState.regs.insert x1 (BitVec.ofNat 64 0x103d4) }
+      (.Retire_Success ()) := by
+    apply execute_UTYPE_auipc_run executeState _ 0x00000#20 (.Regidx 1#5)
+      (BitVec.ofNat 64 0x103d4)
+    · exact readReg_run _ _ _ pcAtExecute
+    · simpa using wX_bits_run_x1 executeState (BitVec.ofNat 64 0x103d4)
+  exact decoderRegisterWriteStep machine (Agree.refl state) retiredPresent stepNo
+    (BitVec.ofNat 64 0x103d4) pcIn atPc 0x97#8 0x00#8 0x00#8 0x00#8
+    (.UTYPE (0x00000#20, .Regidx 1#5, .AUIPC)) x1 (BitVec.ofNat 64 0x103d4)
+    fetchBytes (by unfold BaseInstructionEncoding; decide) decode
+    (by decide) (by decide) (by decide) (by decide) execute
+
+/-- Execute every `decode`-owned instruction from retry entry through the second `decodeRaw` call
+site. The two prefix-helper segments are consumed as child summaries; the branch, framing-word
+assembly, and four call-argument instructions are executed directly through Sail. -/
+theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
+    (args : DecodeInlineArgs) (state : State) (pre : DecodeInlinePre args state)
+    (phase : args.phase = .retryAfterInvalidSsz)
+    (exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true) :
+    ∃ lengthUsed prefixUsed beforeCall,
+      lengthUsed ≤ hasExactErePrefixInlineStepBound
+        { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes } ∧
+      prefixUsed ≤ hasExactErePrefixInlineStepBound
+        { phase := .prefixBytes, inputBase := args.inputBase, bytes := args.bytes } ∧
+      ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram
+          functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+        (DecodeInlineExit args) Level3ChildSummary fromStep
+          (11 + lengthUsed + prefixUsed) state beforeCall ∧
+      beforeCall.regs.get? PC = some (BitVec.ofNat 64 0x103d8) ∧
+      beforeCall.regs.get? x1 = some (BitVec.ofNat 64 0x103d4) ∧
+      beforeCall.regs.get? x10 = some (BitVec.ofNat 64 (args.stackBase + 0x6b0)) ∧
+      beforeCall.regs.get? x11 = some (BitVec.ofNat 64 args.allocatorBase) ∧
+      beforeCall.regs.get? x12 = some (BitVec.ofNat 64 (args.inputBase + 4)) ∧
+      beforeCall.regs.get? x13 = some (BitVec.ofNat 64 (args.bytes.size - 4)) ∧
+      beforeCall.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+      Agree decoderPreserved state beforeCall ∧
+      RetiredCounterPresent beforeCall ∧
+      Contracts.canonicalContractParams.env.CodeIntact beforeCall ∧
+      beforeCall.mem = state.mem := by
+  have fourBytes : 4 ≤ args.bytes.size := by
+    rw [Contracts.meaningHasExactErePrefix] at exactPrefix
+    split at exactPrefix <;> simp_all
+  obtain ⟨lengthUsed, prefixUsed, beforeOr, lengthBound, prefixBound, prefix,
+    prefixPost, agreeBeforeOr, counterBeforeOr, stackBeforeOr, inputBeforeOr, lengthBeforeOr,
+    codeBeforeOr, memoryBeforeOr⟩ :=
+    decodeInline_retry_uses_prefix_bytes fromStep args state pre phase fourBytes
+  obtain ⟨declared, declaredRead, assembled, declaredBound⟩ :=
+    prefix_halves_or_eq_readU32LE args.bytes fourBytes
+  have declaredEq := prefix_declared_eq_of_meaning_true args.bytes declared declaredRead exactPrefix
+  obtain ⟨orRetired, orRun, orPc, orAgree, orCounter, orMemory⟩ :=
+    decodeInline_retry_prefix_or_step (fromStep + (5 + lengthUsed + prefixUsed)) args state
+      beforeOr pre agreeBeforeOr counterBeforeOr codeBeforeOr prefixPost.1
+      (BitVec.ofNat 64 (prefixLow16 args.bytes))
+      (BitVec.ofNat 64 (prefixHigh16 args.bytes)) prefixPost.2.1 prefixPost.2.2.1
+  let sOr := afterRegisterWrite beforeOr (BitVec.ofNat 64 0x103c0) orRetired x10
+    (BitVec.ofNat 64 (prefixHigh16 args.bytes) |||
+      BitVec.ofNat 64 (prefixLow16 args.bytes))
+  have declaredAtOr : sOr.regs.get? x10 = some (BitVec.ofNat 64 declared) := by
+    simp [sOr, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
+      assembled]
+  have lengthAtOr : sOr.regs.get? x13 =
+      some (BitVec.ofNat 64 (args.bytes.size - 4)) := by
+    simp [sOr, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
+      prefixPost.2.2.2]
+  have agreeOr := Agree.trans agreeBeforeOr orAgree
+  have codeOr : Contracts.canonicalContractParams.env.CodeIntact sOr := by
+    rw [Contracts.DecoderEnvironment.CodeIntact, orMemory, memoryBeforeOr]
+    exact pre.code
+  obtain ⟨branchRetired, branchRun, branchPc, branchAgree, branchCounter, branchMemory⟩ :=
+    decodeInline_retry_prefix_branch_not_taken
+      (fromStep + (6 + lengthUsed + prefixUsed)) args state sOr pre agreeOr orCounter codeOr
+      orPc declared declaredAtOr lengthAtOr declaredEq
+  let sBranch := decodeInlineRetryPrefixBranchFallThrough sOr branchRetired
+  have agreeBranch : Agree decoderPreserved state sBranch :=
+    Agree.trans agreeOr (by simpa [sBranch] using branchAgree)
+  have memoryBranch : sBranch.mem = state.mem := by
+    calc
+      sBranch.mem = sOr.mem := by simpa [sBranch] using branchMemory
+      _ = beforeOr.mem := orMemory
+      _ = state.mem := memoryBeforeOr
+  have codeBranch : Contracts.canonicalContractParams.env.CodeIntact sBranch := by
+    rw [Contracts.DecoderEnvironment.CodeIntact, memoryBranch]
+    exact pre.code
+  have inputAtBranch : sBranch.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
+    simpa [sBranch, decodeInlineRetryPrefixBranchFallThrough, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, sOr, afterRegisterWrite] using inputBeforeOr
+  have stackAtBranch : sBranch.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simpa [sBranch, decodeInlineRetryPrefixBranchFallThrough, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, sOr, afterRegisterWrite] using stackBeforeOr
+  obtain ⟨tailRetired, tailRun⟩ := decodeInline_retry_tail_pointer_step
+    (fromStep + (7 + lengthUsed + prefixUsed)) args state sBranch pre agreeBranch
+      (by simpa [sBranch] using branchCounter) codeBranch branchPc inputAtBranch
+  let sTail := afterRegisterWrite sBranch (BitVec.ofNat 64 0x103c8) tailRetired x12
+    (iTypeResult .ADDI 0x004#12 (BitVec.ofNat 64 args.inputBase))
+  have agreeTail : Agree decoderPreserved state sTail := Agree.trans agreeBranch
+    (afterRegisterWrite_agree_of (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]))
+  have counterTail := afterRegisterWrite_retired_present sBranch
+    (BitVec.ofNat 64 0x103c8) tailRetired x12
+      (iTypeResult .ADDI 0x004#12 (BitVec.ofNat 64 args.inputBase))
+  have pcTail : sTail.regs.get? PC = some (BitVec.ofNat 64 0x103cc) := by
+    simpa [sTail] using afterRegisterWrite_pc sBranch (BitVec.ofNat 64 0x103c8) tailRetired
+      x12 (iTypeResult .ADDI 0x004#12 (BitVec.ofNat 64 args.inputBase))
+  have stackTail : sTail.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simp [sTail, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
+      stackAtBranch]
+  have codeTail : Contracts.canonicalContractParams.env.CodeIntact sTail := by
+    simpa [sTail, afterRegisterWrite_mem] using codeBranch
+  obtain ⟨resultRetired, resultRun⟩ := decodeInline_retry_result_pointer_step
+    (fromStep + (8 + lengthUsed + prefixUsed)) args state sTail pre agreeTail counterTail codeTail
+      pcTail stackTail
+  let sResult := afterRegisterWrite sTail (BitVec.ofNat 64 0x103cc) resultRetired x10
+    (iTypeResult .ADDI 0x6b0#12 (BitVec.ofNat 64 args.stackBase))
+  have agreeResult : Agree decoderPreserved state sResult := Agree.trans agreeTail
+    (afterRegisterWrite_agree_of (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]))
+  have counterResult := afterRegisterWrite_retired_present sTail
+    (BitVec.ofNat 64 0x103cc) resultRetired x10
+      (iTypeResult .ADDI 0x6b0#12 (BitVec.ofNat 64 args.stackBase))
+  have pcResult : sResult.regs.get? PC = some (BitVec.ofNat 64 0x103d0) := by
+    simpa [sResult] using afterRegisterWrite_pc sTail (BitVec.ofNat 64 0x103cc) resultRetired
+      x10 (iTypeResult .ADDI 0x6b0#12 (BitVec.ofNat 64 args.stackBase))
+  have stackResult : sResult.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simp [sResult, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
+      stackTail]
+  have codeResult : Contracts.canonicalContractParams.env.CodeIntact sResult := by
+    simpa [sResult, afterRegisterWrite_mem] using codeTail
+  obtain ⟨allocatorRetired, allocatorRun⟩ := decodeInline_retry_allocator_pointer_step
+    (fromStep + (9 + lengthUsed + prefixUsed)) args state sResult pre agreeResult counterResult
+      codeResult pcResult stackResult
+  let sAllocator := afterRegisterWrite sResult (BitVec.ofNat 64 0x103d0) allocatorRetired x11
+    (iTypeResult .ADDI 0x010#12 (BitVec.ofNat 64 args.stackBase))
+  have agreeAllocator : Agree decoderPreserved state sAllocator := Agree.trans agreeResult
+    (afterRegisterWrite_agree_of (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]))
+  have counterAllocator := afterRegisterWrite_retired_present sResult
+    (BitVec.ofNat 64 0x103d0) allocatorRetired x11
+      (iTypeResult .ADDI 0x010#12 (BitVec.ofNat 64 args.stackBase))
+  have pcAllocator : sAllocator.regs.get? PC = some (BitVec.ofNat 64 0x103d4) := by
+    simpa [sAllocator] using afterRegisterWrite_pc sResult (BitVec.ofNat 64 0x103d0)
+      allocatorRetired x11 (iTypeResult .ADDI 0x010#12 (BitVec.ofNat 64 args.stackBase))
+  have codeAllocator : Contracts.canonicalContractParams.env.CodeIntact sAllocator := by
+    simpa [sAllocator, afterRegisterWrite_mem] using codeResult
+  obtain ⟨pageRetired, pageRun⟩ := decodeInline_retry_call_page_step
+    (fromStep + (10 + lengthUsed + prefixUsed)) args state sAllocator pre agreeAllocator
+      counterAllocator codeAllocator pcAllocator
+  let beforeCall := afterRegisterWrite sAllocator (BitVec.ofNat 64 0x103d4) pageRetired x1
+    (BitVec.ofNat 64 0x103d4)
+  have agreeBeforeCall : Agree decoderPreserved state beforeCall := Agree.trans agreeAllocator
+    (afterRegisterWrite_agree_of (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]))
+  have counterBeforeCall := afterRegisterWrite_retired_present sAllocator
+    (BitVec.ofNat 64 0x103d4) pageRetired x1 (BitVec.ofNat 64 0x103d4)
+  have codeBeforeCall : Contracts.canonicalContractParams.env.CodeIntact beforeCall := by
+    simpa [beforeCall, afterRegisterWrite_mem] using codeAllocator
+  have memoryBeforeCall : beforeCall.mem = state.mem := by
+    simpa [beforeCall, sAllocator, sResult, sTail, afterRegisterWrite_mem] using memoryBranch
+  have notExit (pc : Nat) (notFinal : pc ≠ 0x103f8) :
+      ¬ DecodeInlineExit args (BitVec.ofNat 64 pc) := by
+    simp [DecodeInlineExit, phase, exactPrefix, notFinal]
+  have own (pc word : Nat) (member : (pc, word) ∈ decodeInlineOwnedInstructionWords) :
+      functionInstanceExecutionPcs generatedProgram
+        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
+        (BitVec.ofNat 64 pc) := decodeInline_owned_in_execution_region (pc, word) member
+  have pOr : ConfinedPrefix _ _ Level3ChildSummary
+      (fromStep + (5 + lengthUsed + prefixUsed)) 1 beforeOr sOr :=
+    ConfinedPrefix.ownStep prefixPost.1 (own 0x103c0 0x00a76533 (by simp
+      [decodeInlineOwnedInstructionWords])) (notExit 0x103c0 (by decide)) (by simpa [sOr] using orRun)
+  have pBranch : ConfinedPrefix _ _ Level3ChildSummary
+      (fromStep + (6 + lengthUsed + prefixUsed)) 1 sOr sBranch :=
+    ConfinedPrefix.ownStep orPc (own 0x103c4 0x04a69e63 (by simp
+      [decodeInlineOwnedInstructionWords])) (notExit 0x103c4 (by decide))
+      (by simpa [sBranch] using branchRun)
+  have pTail : ConfinedPrefix _ _ Level3ChildSummary
+      (fromStep + (7 + lengthUsed + prefixUsed)) 1 sBranch sTail :=
+    ConfinedPrefix.ownStep branchPc (own 0x103c8 0x00440613 (by simp
+      [decodeInlineOwnedInstructionWords])) (notExit 0x103c8 (by decide))
+      (by simpa [sTail] using tailRun)
+  have pResult : ConfinedPrefix _ _ Level3ChildSummary
+      (fromStep + (8 + lengthUsed + prefixUsed)) 1 sTail sResult :=
+    ConfinedPrefix.ownStep pcTail (own 0x103cc 0x6b010513 (by simp
+      [decodeInlineOwnedInstructionWords])) (notExit 0x103cc (by decide))
+      (by simpa [sResult] using resultRun)
+  have pAllocator : ConfinedPrefix _ _ Level3ChildSummary
+      (fromStep + (9 + lengthUsed + prefixUsed)) 1 sResult sAllocator :=
+    ConfinedPrefix.ownStep pcResult (own 0x103d0 0x01010593 (by simp
+      [decodeInlineOwnedInstructionWords])) (notExit 0x103d0 (by decide))
+      (by simpa [sAllocator] using allocatorRun)
+  have pPage : ConfinedPrefix _ _ Level3ChildSummary
+      (fromStep + (10 + lengthUsed + prefixUsed)) 1 sAllocator beforeCall :=
+    ConfinedPrefix.ownStep pcAllocator (own 0x103d4 0x00000097 (by simp
+      [decodeInlineOwnedInstructionWords])) (notExit 0x103d4 (by decide))
+      (by simpa [beforeCall] using pageRun)
+  have complete := ConfinedPrefix.trans
+    (ConfinedPrefix.trans (ConfinedPrefix.trans (ConfinedPrefix.trans
+      (ConfinedPrefix.trans (ConfinedPrefix.trans prefix pOr) pBranch) pTail) pResult)
+      pAllocator) pPage
+  refine ⟨lengthUsed, prefixUsed, beforeCall, lengthBound, prefixBound, ?_, ?_, ?_, ?_, ?_,
+    ?_, ?_, ?_, agreeBeforeCall, counterBeforeCall, codeBeforeCall, memoryBeforeCall⟩
+  · simpa [Nat.add_assoc] using complete
+  · simpa [beforeCall] using afterRegisterWrite_pc sAllocator (BitVec.ofNat 64 0x103d4)
+      pageRetired x1 (BitVec.ofNat 64 0x103d4)
+  · simp [beforeCall, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert]
+  · simp [beforeCall, sAllocator, sResult, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, DecodeInlineArgs.allocatorBase]
+  · simp [beforeCall, sAllocator, sResult, sTail, afterRegisterWrite,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  · simp [beforeCall, sAllocator, sResult, sTail, afterRegisterWrite,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  · simp [beforeCall, sAllocator, sResult, sTail, afterRegisterWrite,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, prefixPost.2.2.2]
+  · simp [beforeCall, sAllocator, sResult, sTail, afterRegisterWrite,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, stackAtBranch]
 
 /-- Close the short-input retry arm at the selected `0x10394` exit. The outgoing branch belongs to
 the Level 2 wrapper, so this Level 3 trace stops before executing it. -/

@@ -50,6 +50,12 @@ def firstRawArgs (args : DecodeInlineArgs) : EntryArgs where
   allocatorBase := args.allocatorBase
   resultBase := args.firstTemporaryResultBase
 
+def retryRawArgs (args : DecodeInlineArgs) : EntryArgs where
+  base := args.inputBase + 4
+  bytes := args.bytes.extract 4 args.bytes.size
+  allocatorBase := args.allocatorBase
+  resultBase := args.stackBase + 0x6b0
+
 def finalArgs (args : DecodeInlineArgs) : EntryArgs where
   base := args.inputBase
   bytes := args.bytes
