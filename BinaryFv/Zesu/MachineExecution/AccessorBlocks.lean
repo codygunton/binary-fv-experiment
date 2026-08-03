@@ -23,6 +23,20 @@ theorem raw_error_auipc_execute (state sFinal : State) (pcVal : BitVec 64)
       (.Retire_Success ()) := by
   exact execute_UTYPE_auipc_run state sFinal 0x4202#20 (.Regidx 10#5) pcVal hpc hwrite
 
+theorem raw_error_auipc_value :
+    BitVec.ofNat 64 0x13780 + sign_extend (m := 64) (0x4202#20 ++ 0x000#12) =
+      BitVec.ofNat 64 0x4215780 := by
+  native_decide
+
+theorem raw_error_auipc_execute_exact (state : State)
+    (hpc : state.regs.get? PC = some (BitVec.ofNat 64 0x13780)) :
+    Runs (execute (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC))) state
+      { state with regs := state.regs.insert x10 (BitVec.ofNat 64 0x4215780) }
+      (.Retire_Success ()) := by
+  rw [← raw_error_auipc_value]
+  exact raw_error_auipc_execute state _ _
+    (readReg_run state PC _ hpc) (wX_bits_run_x10 _ _)
+
 theorem raw_error_load_execute (state sFinal : State) (data : BitVec 32)
     (hread : Runs (vmem_read (.Regidx 10#5) (sign_extend (m := 64) 0x8a4#12) 4
       (MemoryAccessType.Load mem_payload.Data) false false false) state state (.Ok data))
@@ -195,6 +209,7 @@ theorem raw_error_ret_fetch (state : State)
 
 theorem raw_error_auipc_try_step (stepNo : Nat) (state : State)
     (pc retired : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64)
+    (value : BitVec 64)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
     (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
@@ -209,7 +224,7 @@ theorem raw_error_auipc_try_step (stepNo : Nat) (state : State)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
       { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
         regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
-          x10 (BitVec.ofNat 64 0) } (.Retire_Success ()))
+          x10 value } (.Retire_Success ()))
     (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
     (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
     (configRead : state.regs.get? minstretcfg = some config)
@@ -220,11 +235,11 @@ theorem raw_error_auipc_try_step (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
-            x10 (BitVec.ofNat 64 0) }
+            x10 value }
         (Sail.BitVec.addInt pc 4) retired) false := by
   exact tryStepFallThroughWriteRegRetires stepNo state pc retired inhibit config
     0x17#8 0x25#8 0x20#8 0x04#8
-    (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC)) x10 (BitVec.ofNat 64 0)
+    (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC)) x10 value
     platform noMMIO bytes interrupts base decode notExpected exec (by decide) (by decide)
     (by decide) (by decide) hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
 

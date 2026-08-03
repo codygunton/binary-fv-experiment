@@ -46,6 +46,16 @@ theorem wX_bits_run_x5 (s : State) (data : BitVec 64) :
   rw [if_pos (by decide)]
   exact xreg_write_callback_run _ _ _
 
+theorem wX_bits_run_x10 (s : State) (data : BitVec 64) :
+    Runs (wX_bits (.Regidx 10#5) data) s { s with regs := s.regs.insert x10 data } () := by
+  have hidx : (Sail.BitVec.toNatInt (10#5)).toNat = 10 := rfl
+  unfold Runs
+  simp only [wX_bits, wX, hidx, regval_into_reg, PreSail.writeReg, EStateM.run,
+    EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
+    MonadStateOf.modifyGet, modify]
+  rw [if_pos (by decide)]
+  exact xreg_write_callback_run _ _ _
+
 theorem wX_bits_run_zero (s : State) (data : BitVec 64) :
     Runs (wX_bits (.Regidx 0#5) data) s s () := by
   have hidx : (Sail.BitVec.toNatInt (0#5)).toNat = 0 := rfl
