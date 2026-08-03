@@ -288,42 +288,49 @@ theorem decodeInline_post_at_generated_exit (args : DecodeInlineArgs) (before af
 /-- The fixed correctness condition for the two inlined `decode` phases. Its trace uses the exact
 generated execution region and generated outgoing-instruction set for this compiled instance.
 
-This uses `FunctionTrace`, not `EnteredFunctionTrace`, because the retry entry `0x10380` is also an
-outgoing branch source and can therefore have a genuine zero-step child body. The checked
-`InlineTransfer` that consumes the summary always executes that outgoing instruction. -/
-def DecodeInlineContract : Prop :=
+The `ScopedTrace` parameter is the one selected-child relation supplied by Level 3. It lets this
+contract execute `decode`-owned instructions while consuming proved or assumed summaries at the
+`decodeRaw`, `hasExactErePrefix`, and `memcpy` boundaries. -/
+def DecodeInlineContract
+    (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop) : Prop :=
   ∀ (args : DecodeInlineArgs) (fromStep : Nat) (before : State),
     DecodeInlinePre args before →
       ∃ used after,
         used ≤ decodeInlineStepBound args ∧
-          FunctionTrace
+          ScopedTrace
             (functionInstanceExecutionPcs generatedProgram
               functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
             (functionInstanceExitPred
               functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+            childSummary
             fromStep used before after ∧
           DecodeInlinePost args before after
 
 /-- The exact caller-side summary carried by a checked Level 2 inline transfer. -/
-def decodeChildSummary (child : FunctionInstanceId) (fromStep used : Nat)
+def decodeChildSummary
+    (level3ChildSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
+    (child : FunctionInstanceId) (fromStep used : Nat)
     (before after : State) : Prop :=
   child = functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id ∧
     ∃ args : DecodeInlineArgs,
       DecodeInlinePre args before ∧
         used ≤ decodeInlineStepBound args ∧
-        FunctionTrace
+        ScopedTrace
           (functionInstanceExecutionPcs generatedProgram
             functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
           (functionInstanceExitPred
             functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+          level3ChildSummary
           fromStep used before after ∧
         DecodeInlinePost args before after
 
 /-- The fixed contract produces exactly the child summary consumed by the wrapper scope. -/
-theorem decodeChildSummary_of_contract (contract : DecodeInlineContract)
+theorem decodeChildSummary_of_contract
+    (level3ChildSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
+    (contract : DecodeInlineContract level3ChildSummary)
     (args : DecodeInlineArgs) (fromStep : Nat) (before : State)
     (pre : DecodeInlinePre args before) :
-    ∃ used after, decodeChildSummary
+    ∃ used after, decodeChildSummary level3ChildSummary
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
       fromStep used before after := by
   obtain ⟨used, after, bound, trace, post⟩ := contract args fromStep before pre

@@ -1,6 +1,6 @@
 import BinaryFv.Zesu.Contracts.CanonicalParams
 import BinaryFv.Zesu.Contracts.Catalog.Dispatch
-import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeInlineContract
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Contracts
 import BinaryFv.Zesu.MachineExecution.Level2AllocatorProof
 import BinaryFv.Zesu.MachineExecution.MemcpyInstance
 
@@ -78,7 +78,7 @@ inductive Level2ChildSummary : MachineChildSummary where
         functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41Id
         fromStep used before after
   | decode {fromStep used before after}
-      (run : decodeChildSummary
+      (run : level3DecodeChildSummary
         functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
         fromStep used before after) :
       Level2ChildSummary

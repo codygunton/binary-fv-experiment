@@ -216,4 +216,21 @@ inductive Level3ChildSummary :
         fromStep used before after) :
       Level3ChildSummary functionInstance_memcpyId fromStep used before after
 
+/-- The Level 3 conditional theorem to prove: execute every `decode`-owned instruction while using
+exactly the three selected child summaries above. -/
+abbrev Level3DecodeInlineContract : Prop := DecodeInlineContract Level3ChildSummary
+
+/-- The resulting `decode` summary consumed by the Level 2 wrapper proof. -/
+def level3DecodeChildSummary :
+    FunctionInstanceId → Nat → Nat → State → State → Prop :=
+  decodeChildSummary Level3ChildSummary
+
+theorem level3DecodeChildSummary_of_contract (contract : Level3DecodeInlineContract)
+    (args : DecodeInlineArgs) (fromStep : Nat) (before : State)
+    (pre : DecodeInlinePre args before) :
+    ∃ used after, level3DecodeChildSummary
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
+      fromStep used before after :=
+  decodeChildSummary_of_contract Level3ChildSummary contract args fromStep before pre
+
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
