@@ -46,7 +46,8 @@ def decodeRawSpecializedDecoderInstances : List FunctionInstance :=
 def level4BoundaryInstances : List FunctionInstance :=
   decodeRawDirectReadOffsetInstances ++ decodeRawSpecializedDecoderInstances
 
-theorem decodeRawDirectReadOffsetInstances_count : decodeRawDirectReadOffsetInstances.length = 4 := rfl
+theorem decodeRawDirectReadOffsetInstances_count :
+    decodeRawDirectReadOffsetInstances.length = 4 := rfl
 
 theorem decodeRawSpecializedDecoderInstances_count :
     decodeRawSpecializedDecoderInstances.length = 4 := rfl
@@ -70,6 +71,7 @@ theorem decodeRawDirectReadOffsetEntries :
 
 /-- Pin the entries of the four specialized decoder instances. -/
 theorem decodeRawSpecializedDecoderEntries :
-    decodeRawSpecializedDecoderInstances.map (·.entryPc) = [0x1060c, 0x12710, 0x1294c, 0x12ebc] := rfl
+    decodeRawSpecializedDecoderInstances.map (·.entryPc) =
+      [0x1060c, 0x12710, 0x1294c, 0x12ebc] := rfl
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
