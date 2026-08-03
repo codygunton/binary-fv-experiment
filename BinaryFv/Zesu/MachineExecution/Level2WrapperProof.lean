@@ -2767,4 +2767,90 @@ theorem wrapper_reaches_decode_first_contract
   exact ⟨atDecode, trace, confined, decodeArgs, pre, used, after, .decode level3,
     bound, childTrace, post, machinePost⟩
 
+def wrapperAfterDecodeFirstErrorBranch (state : State) (retired : BitVec 64) : State :=
+  tryStepControlFlowAfterRetired
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10324) (BitVec.ofNat 64 0x1037c))
+    (BitVec.ofNat 64 0x1037c) retired
+
+/-- Retire the first `decode` segment's real outgoing `bne a0, x0, 0x1037c`. Every internal error
+tag is nonzero, so the checked edge must enter the wrapper's retry dispatch. -/
+theorem wrapper_decode_first_error_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
+    (before state : State) (pre : DecodeInlinePre args before)
+    (frame : DecodeInlineMachinePost before state) (error : Contracts.DecodeError)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10324))
+    (tagRead : state.regs.get? x10 = some
+      (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))) :
+    ∃ retired,
+      Runs (try_step stepNo false) state (wrapperAfterDecodeFirstErrorBranch state retired) false ∧
+      (wrapperAfterDecodeFirstErrorBranch state retired).regs.get? PC =
+        some (BitVec.ofNat 64 0x1037c) := by
+  have pcIn : functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
+      (BitVec.ofNat 64 0x10324) := by
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
+    hasExactErePrefix_programImage_of_codeIntact frame.code
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10324) 0x63#8 0x1c#8 0x05#8 0x04#8 :=
+    fetchFileInstruction state 0x10324 0x63 0x1c 0x05 0x04 image
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  have machine := pre.machine.mono frame.agree frame.retiredCounter
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
+    (BitVec.ofNat 64 0x10324) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  obtain ⟨retired, inhibit, config, counters⟩ :=
+    decoderStepCounters machine.normal (Agree.refl state) frame.retiredCounter
+  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ :=
+    counters
+  have wordEq : fetchWord 0x63#8 0x1c#8 0x05#8 0x04#8 =
+      (0x04051c63 : BitVec 32) := by decide
+  have decode : Runs (ext_decode (fetchWord 0x63#8 0x1c#8 0x05#8 0x04#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.BTYPE (0x58#13, .Regidx 0#5, .Regidx 10#5, .BNE)) := by
+    rw [wordEq]
+    decode_run
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x10324)
+  have tagAtExecute : executeState.regs.get? x10 = some
+      (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, tagRead]
+  have tagNonzero : BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)) ≠ 0#64 := by
+    cases error <;> simp [Contracts.decodeInternalResultTag]
+  have condition : Runs (bTypeTaken (.Regidx 0#5) (.Regidx 10#5) .BNE)
+      executeState executeState true := by
+    unfold bTypeTaken
+    refine Runs.bind (rX_bits_run_x10 executeState _ tagAtExecute) ?_
+    refine Runs.bind (rX_x0_run executeState) ?_
+    rw [bne_iff_ne.mpr tagNonzero]
+    rfl
+  have pcAtExecute : executeState.regs.get? PC = some (BitVec.ofNat 64 0x10324) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, atPc]
+  have targetEq : BitVec.ofNat 64 0x10324 + sign_extend (m := 64) (0x58#13) =
+      BitVec.ofNat 64 0x1037c := by decide
+  obtain ⟨misaBits, misaRead, -⟩ : ∃ misaBits,
+      state.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
+    have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
+    match read : state.regs.get? misa with
+    | none => simp [read] at normalMisa
+    | some bits => exact ⟨bits, rfl, by simpa [read] using normalMisa⟩
+  have zca := currentlyEnabledZca_run_atStepPremise state (BitVec.ofNat 64 0x10324)
+    misaBits misaRead
+  have run := tryStepBranchTakenRetires stepNo state (BitVec.ofNat 64 0x10324)
+    (BitVec.ofNat 64 0x10324) retired (0x58#13) (.Regidx 0#5) (.Regidx 10#5) .BNE
+    inhibit config 0x63#8 0x1c#8 0x05#8 0x04#8 (_get_Misa_C misaBits == 1#1)
+    fetch noMMIO fetched interrupts (by unfold BaseInstructionEncoding; decide) decode
+    notExpected condition (readReg_run executeState PC _ pcAtExecute)
+    (by decide) (by decide) zca hartRead inhibitRead configRead notInhibited machineEnabled
+    retiredRead
+  refine ⟨retired, ?_, ?_⟩
+  · simpa [wrapperAfterDecodeFirstErrorBranch, targetEq] using run
+  · simp [wrapperAfterDecodeFirstErrorBranch, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+
 end BinaryFv.Zesu.MachineExecution
