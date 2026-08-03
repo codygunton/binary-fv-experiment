@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Contracts.CanonicalParams
 import BinaryFv.Zesu.Contracts.Catalog.Dispatch
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeInlineContract
 import BinaryFv.Zesu.MachineExecution.Level2AllocatorProof
 import BinaryFv.Zesu.MachineExecution.MemcpyInstance
 
@@ -10,9 +11,8 @@ The wrapper proof selects exactly three compiled children: the inlined allocator
 `decode`, and the emitted `memcpy`. `Level2ChildSummary` is the single relation consumed by its
 `ScopedTrace`; constructors make it impossible to discharge a splice with an unselected function.
 
-The allocator and `memcpy` arms are proved by Sail execution. The `decode` arm remains a parameter
-until its non-ABI segment contract is stated: this file deliberately does not pretend that the
-source function ABI applies at `0x10308` or `0x10380`.
+The allocator and `memcpy` arms are proved by Sail execution. The `decode` arm is the fixed
+two-phase non-ABI contract for its real entries at `0x10308` and `0x10380`.
 -/
 
 namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
@@ -69,36 +69,36 @@ theorem memcpyChildSummary_proved (args : CopyArgs) (fromStep : Nat) (before : S
     args fromStep before pre
 
 /-- One summary relation for exactly the three children selected at Level 2. -/
-inductive Level2ChildSummary (decodeSummary : MachineChildSummary) : MachineChildSummary where
+inductive Level2ChildSummary : MachineChildSummary where
   | allocator {fromStep used before after}
       (run : MachineExecution.allocatorChildSummary
         functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41Id
         fromStep used before after) :
-      Level2ChildSummary decodeSummary
+      Level2ChildSummary
         functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41Id
         fromStep used before after
   | decode {fromStep used before after}
-      (run : decodeSummary
+      (run : decodeChildSummary
         functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
         fromStep used before after) :
-      Level2ChildSummary decodeSummary
+      Level2ChildSummary
         functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
         fromStep used before after
   | memcpy {fromStep used before after}
       (run : memcpyChildSummary functionInstance_memcpyId fromStep used before after) :
-      Level2ChildSummary decodeSummary functionInstance_memcpyId fromStep used before after
+      Level2ChildSummary functionInstance_memcpyId fromStep used before after
 
 /-- Every proved allocator segment embeds in the one Level 2 child relation. -/
-theorem allocatorChildSummary_to_level2 (decodeSummary : MachineChildSummary)
+theorem allocatorChildSummary_to_level2
     {child : FunctionInstanceId} {fromStep used : Nat} {before after : State}
     (run : MachineExecution.allocatorChildSummary child fromStep used before after) :
-    Level2ChildSummary decodeSummary child fromStep used before after := by
+    Level2ChildSummary child fromStep used before after := by
   rcases run with ⟨rfl, execution⟩
   exact .allocator ⟨rfl, execution⟩
 
 /-- The proved six-instruction allocator setup remains a prefix under the complete Level 2 child
 relation. The widening changes no state and no retired-step count. -/
-theorem allocator_setup_prefix_level2 (decodeSummary : MachineChildSummary) (fromStep : Nat)
+theorem allocator_setup_prefix_level2 (fromStep : Nat)
     (entry afterFirst afterTag afterDecode : State)
     (first : InlineTransfer
       (functionInstanceExecutionPcs generatedProgram
@@ -122,12 +122,12 @@ theorem allocator_setup_prefix_level2 (decodeSummary : MachineChildSummary) (fro
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      (Level2ChildSummary decodeSummary) fromStep 6 entry afterDecode := by
+      Level2ChildSummary fromStep 6 entry afterDecode := by
   exact MachineExecution.allocator_setup_prefix fromStep entry afterFirst afterTag afterDecode
     (first.mapSummary fun child stepNo used before after run =>
-      allocatorChildSummary_to_level2 decodeSummary run)
+      allocatorChildSummary_to_level2 run)
     atTag tagStep
     (second.mapSummary fun child stepNo used before after run =>
-      allocatorChildSummary_to_level2 decodeSummary run)
+      allocatorChildSummary_to_level2 run)
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
