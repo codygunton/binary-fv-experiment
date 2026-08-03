@@ -381,6 +381,84 @@ inductive ScopedTrace (region exit : BitVec 64 → Prop)
       (hrest : ScopedTrace region exit childSummary (fromStep + 1 + used + 1) count sResume s'') :
       ScopedTrace region exit childSummary fromStep (1 + used + 1 + count) s s''
 
+/-! ## Widening the selected child set
+
+One parent proof may be built before all of its siblings have been introduced. The following maps
+let that proof be reused under a larger child-summary relation without changing any machine state,
+boundary check, or retired-instruction count.
+-/
+
+/-- Widen the summary relation carried by a checked ordinary call transfer. -/
+def CallTransfer.mapSummary
+    {region exit : BitVec 64 → Prop}
+    {narrow wide : FunctionInstanceId → Nat → Nat → State → State → Prop}
+    (embed : ∀ child fromStep used before after,
+      narrow child fromStep used before after → wide child fromStep used before after)
+    {cs : CallSite} {program : Program} {functionInstance callee : FunctionInstance}
+    {fromStep used : Nat} {before after : State}
+    (transfer : CallTransfer region exit narrow cs program functionInstance callee
+      fromStep used before after) :
+    CallTransfer region exit wide cs program functionInstance callee fromStep used before after :=
+  { transfer with body := embed _ _ _ _ _ transfer.body }
+
+/-- Widen the summary relation carried by a checked inlined-segment transfer. -/
+def InlineTransfer.mapSummary
+    {region exit : BitVec 64 → Prop}
+    {narrow wide : FunctionInstanceId → Nat → Nat → State → State → Prop}
+    (embed : ∀ child fromStep used before after,
+      narrow child fromStep used before after → wide child fromStep used before after)
+    {boundary : InlineBoundary} {program : Program}
+    {functionInstance childFunctionInstance : FunctionInstance}
+    {fromStep used : Nat} {before after : State}
+    (transfer : InlineTransfer region exit narrow boundary program functionInstance
+      childFunctionInstance fromStep used before after) :
+    InlineTransfer region exit wide boundary program functionInstance childFunctionInstance
+      fromStep used before after :=
+  { transfer with body := embed _ _ _ _ _ transfer.body }
+
+/-- Widen both the inline-body and nested-callee summaries in a checked inline call exit. -/
+def InlineCallTransfer.mapSummary
+    {region exit : BitVec 64 → Prop}
+    {narrow wide : FunctionInstanceId → Nat → Nat → State → State → Prop}
+    (embed : ∀ child fromStep used before after,
+      narrow child fromStep used before after → wide child fromStep used before after)
+    {boundary : InlineCallBoundary} {program : Program}
+    {functionInstance childFunctionInstance callee : FunctionInstance}
+    {fromStep childUsed calleeUsed : Nat} {before after : State}
+    (transfer : InlineCallTransfer region exit narrow boundary program functionInstance
+      childFunctionInstance callee fromStep childUsed calleeUsed before after) :
+    InlineCallTransfer region exit wide boundary program functionInstance childFunctionInstance
+      callee fromStep childUsed calleeUsed before after :=
+  { transfer with
+    body := embed _ _ _ _ _ transfer.body
+    call := transfer.call.mapSummary embed }
+
+/-- A scoped trace remains valid when every selected child summary is embedded in a wider one. -/
+theorem ScopedTrace.mapSummary
+    {region exit : BitVec 64 → Prop}
+    {narrow wide : FunctionInstanceId → Nat → Nat → State → State → Prop}
+    (embed : ∀ child fromStep used before after,
+      narrow child fromStep used before after → wide child fromStep used before after)
+    {fromStep count : Nat} {before after : State}
+    (trace : ScopedTrace region exit narrow fromStep count before after) :
+    ScopedTrace region exit wide fromStep count before after := by
+  induction trace with
+  | exitAt fromStep state pc atPc atExit => exact .exitAt fromStep state pc atPc atExit
+  | ownStep fromStep count pc state next final atPc inRegion notExit step _ rest =>
+      exact .ownStep fromStep count pc state next final atPc inRegion notExit step rest
+  | inlineStep fromStep used count boundary program functionInstance childFunctionInstance
+      state resumed final transfer _ rest =>
+      exact .inlineStep fromStep used count boundary program functionInstance
+        childFunctionInstance state resumed final (transfer.mapSummary embed) rest
+  | inlineCallStep fromStep childUsed calleeUsed count boundary program functionInstance
+      childFunctionInstance callee state resumed final transfer _ rest =>
+      exact .inlineCallStep fromStep childUsed calleeUsed count boundary program functionInstance
+        childFunctionInstance callee state resumed final (transfer.mapSummary embed) rest
+  | callStep fromStep used count call program functionInstance callee state resumed final
+      transfer _ rest =>
+      exact .callStep fromStep used count call program functionInstance callee state resumed final
+        (transfer.mapSummary embed) rest
+
 /--
 A `ScopedTrace` that genuinely enters at a generated entry.
 

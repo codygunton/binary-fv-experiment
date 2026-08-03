@@ -859,13 +859,15 @@ theorem allocator_functionAndContext_inlineTransfer (fromStep : Nat)
 /-- The complete allocator setup as it appears in the wrapper trace: the first allocator splice,
 the wrapper-owned tag store, and the second allocator splice. The result is a six-instruction
 confined prefix ending at the checked `decode` entry. -/
-theorem allocator_setup_prefix (fromStep : Nat)
+theorem allocator_setup_prefix
+    {childSummary : Binary.Elfling.FunctionInstanceId → Nat → Nat → State → State → Prop}
+    (fromStep : Nat)
     (entry afterFirst afterTag afterDecode : State)
     (first : InlineTransfer
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      allocatorChildSummary allocatorInlineBoundary generatedProgram
+      childSummary allocatorInlineBoundary generatedProgram
       functionInstance_raw_decoder_root_zesu_decode_raw
       functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41
       fromStep 0 entry afterFirst)
@@ -875,7 +877,7 @@ theorem allocator_setup_prefix (fromStep : Nat)
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      allocatorChildSummary allocatorInlineBoundary generatedProgram
+      childSummary allocatorInlineBoundary generatedProgram
       functionInstance_raw_decoder_root_zesu_decode_raw
       functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41
       (fromStep + 2) 3 afterTag afterDecode) :
@@ -883,19 +885,19 @@ theorem allocator_setup_prefix (fromStep : Nat)
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      allocatorChildSummary fromStep 6 entry afterDecode := by
+      childSummary fromStep 6 entry afterDecode := by
   intro count final rest
   have restAtSecondExit : ScopedTrace
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      allocatorChildSummary ((fromStep + 2) + 3 + 1) count afterDecode final := by
+      childSummary ((fromStep + 2) + 3 + 1) count afterDecode final := by
     simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using rest
   have afterSecond : ScopedTrace
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      allocatorChildSummary (fromStep + 2) (3 + 1 + count) afterTag final :=
+      childSummary (fromStep + 2) (3 + 1 + count) afterTag final :=
     ScopedTrace.inlineStep (fromStep + 2) 3 count allocatorInlineBoundary generatedProgram
       functionInstance_raw_decoder_root_zesu_decode_raw
       functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41
@@ -913,7 +915,7 @@ theorem allocator_setup_prefix (fromStep : Nat)
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      allocatorChildSummary (fromStep + 1) ((3 + 1 + count) + 1) afterFirst final := by
+      childSummary (fromStep + 1) ((3 + 1 + count) + 1) afterFirst final := by
     apply ScopedTrace.ownStep (fromStep + 1) (3 + 1 + count)
       (BitVec.ofNat 64 0x102f4) afterFirst afterTag final atTag tagInRegion tagNotExit tagStep
     simpa only [Nat.add_assoc] using afterSecond
@@ -921,7 +923,7 @@ theorem allocator_setup_prefix (fromStep : Nat)
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      allocatorChildSummary fromStep (0 + 1 + ((3 + 1 + count) + 1)) entry final :=
+      childSummary fromStep (0 + 1 + ((3 + 1 + count) + 1)) entry final :=
     ScopedTrace.inlineStep fromStep 0 ((3 + 1 + count) + 1) allocatorInlineBoundary
       generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw
       functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41
