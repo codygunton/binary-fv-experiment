@@ -236,6 +236,12 @@ private theorem updateSubrange_zeros_setWidth8 (v : BitVec 8) :
   unfold Sail.BitVec.updateSubrange Sail.BitVec.updateSubrange' zeros
   bv_decide
 
+/-- Overwriting all 32 bits of the zero word with `v` yields `v`. -/
+private theorem updateSubrange_zeros_setWidth32 (v : BitVec 32) :
+    Sail.BitVec.updateSubrange (zeros : BitVec 32) 31 0 (BitVec.setWidth 32 v) = v := by
+  unfold Sail.BitVec.updateSubrange Sail.BitVec.updateSubrange' zeros
+  bv_decide
+
 /-- `bits_of_virtaddr` of `Virtaddr b` is `b`. -/
 private theorem bits_of_virtaddr_mk (b : BitVec 64) :
     bits_of_virtaddr (virtaddr.Virtaddr b) = b := rfl
@@ -322,6 +328,89 @@ theorem vmem_read_dword_run (s : State) (rs : regidx) (offset srcBits mstatusBit
   case readAddr =>
     exact RunsME.lift _ s s (Sail.Ok v)
       (vmem_read_addr_dword_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
+
+/-! ## Aligned word read loop -/
+
+theorem vmem_read_addr_word_run (s : State) (srcBits mstatusBits : BitVec 64)
+    (v : BitVec (8 * 4))
+    (mstatusRead : s.regs.get? mstatus = some mstatusBits)
+    (privRead : s.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr srcBits) 4 = true)
+    (hread : Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) 4 false false false)
+      s s (Sail.Ok v)) :
+    Runs (vmem_read_addr (virtaddr.Virtaddr srcBits) 4 (Load Data) false false false) s s
+      (.Ok v) := by
+  unfold vmem_read_addr
+  have hguard : LeanRV64DExecutable.Functions.not (is_aligned_vaddr (virtaddr.Virtaddr srcBits) 4)
+      = false := by rw [aligned]; rfl
+  simp only [Bool.false_eq_true, ↓reduceIte, hguard]
+  apply RunsME.run
+  refine RunsME.bind (RunsME.pure () s) ?_
+  refine RunsME.bind
+    (RunsME.lift _ s s (1, 4)
+      (split_misaligned_aligned_run s (virtaddr.Virtaddr srcBits) 4 aligned)) ?_
+  simp only [misaligned_order, sys_misaligned_order_decreasing, Bool.false_eq_true, ↓reduceIte,
+    Int.reduceToNat, Int.reduceMul, Int.reduceSub, Nat.reduceMul, BitVec.setWidth_eq]
+  refine RunsME.bind (middle := s)
+    (value := (Sail.BitVec.updateSubrange (zeros : BitVec 32) 31 0 (BitVec.setWidth 32 v),
+      true, 0)) ?loopwrap ?tail
+  case tail =>
+    show RunsME
+      (Pure.pure (Sail.Ok
+        (Sail.BitVec.updateSubrange (zeros : BitVec 32) 31 0 (BitVec.setWidth 32 v)))) s s
+      (Sail.Ok v)
+    rw [updateSubrange_zeros_setWidth32]
+    exact RunsME.pure _ s
+  case loopwrap =>
+    refine RunsME.bind (middle := s)
+      (value := (Sail.BitVec.updateSubrange (zeros : BitVec 32) 31 0 (BitVec.setWidth 32 v),
+        true, 0)) ?fuel ?wrap
+    case wrap => exact RunsME.pure _ s
+    case fuel =>
+      refine RunsME.untilFuelM_one _ _ _ s s s
+        (Sail.BitVec.updateSubrange (zeros : BitVec 32) 31 0 (BitVec.setWidth 32 v), true, 0)
+        ?hBody ?hCond
+      case hCond => exact RunsME.pure true s
+      case hBody =>
+        dsimp only [bits_of_virtaddr_mk]
+        simp only [Int.ofNat_zero, Int.zero_mul, addInt_zero', Int.reduceMul, Int.reduceSub,
+          Int.reduceToNat, Int.reduceAdd, Nat.reduceMul, beq_self_eq_true, ↓reduceIte]
+        refine RunsME.bind (RunsME.lift _ s s () (assert_true_run s _)) ?_
+        refine RunsME.bind (middle := s)
+          (value := Sail.BitVec.updateSubrange (zeros : BitVec 32) 31 0 (BitVec.setWidth 32 v))
+          ?blk ?out
+        case out => exact RunsME.pure _ s
+        case blk =>
+          refine RunsME.bind
+            (RunsME.lift _ s s (Sail.Ok (physaddr.Physaddr srcBits, PBMT_PMA, init_ext_ptw))
+              (translateAddr_machine_load_run s srcBits mstatusBits mstatusRead privRead
+                mprvZero)) ?_
+          refine RunsME.bind (RunsME.lift _ s s (Sail.Ok v) hread) ?_
+          refine RunsME.bind (RunsME.pure () s) ?_
+          exact RunsME.pure _ s
+
+theorem vmem_read_word_run (s : State) (rs : regidx) (offset srcBits mstatusBits : BitVec 64)
+    (v : BitVec (8 * 4))
+    (mstatusRead : s.regs.get? mstatus = some mstatusBits)
+    (privRead : s.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (addrReg : Runs (get_transformed_data_addr rs offset (Load Data) 4) s s
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)))
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr srcBits) 4 = true)
+    (hread : Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) 4 false false false)
+      s s (Sail.Ok v)) :
+    Runs (vmem_read rs offset 4 (Load Data) false false false) s s (.Ok v) := by
+  unfold vmem_read
+  apply RunsME.run
+  refine RunsME.bind (middle := s) (value := virtaddr.Virtaddr srcBits) ?vaddr ?readAddr
+  case vaddr =>
+    refine RunsME.bind
+      (RunsME.lift _ s s (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)) addrReg) ?_
+    exact RunsME.pure (virtaddr.Virtaddr srcBits) s
+  case readAddr =>
+    exact RunsME.lift _ s s (Sail.Ok v)
+      (vmem_read_addr_word_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
 
 /-! ## Aligned double-word load instruction (`ld`) -/
 
