@@ -12,6 +12,16 @@ def MemoryBytes (state : State) (base : Nat) (bytes : ByteArray) : Prop :=
   ∀ index (h : index < bytes.size),
     state.mem.get? (base + index) = some (BitVec.ofNat 8 (bytes[index]'h).toNat)
 
+/-- Transport a byte representation when memory agrees throughout the represented interval. -/
+theorem MemoryBytes.of_mem_eq {before after : State} {base : Nat} {bytes : ByteArray}
+    (representation : MemoryBytes before base bytes)
+    (memory : ∀ index, index < bytes.size →
+      after.mem.get? (base + index) = before.mem.get? (base + index)) :
+    MemoryBytes after base bytes := by
+  intro index bound
+  rw [memory index bound]
+  exact representation index bound
+
 /-- An inline fixed-size specification byte vector in native sparse memory. -/
 def FixedByteVectorRep {length : Nat} (state : State) (base : Nat)
     (value : BinaryFv.Specs.SSZ.RawByteVector length) : Prop :=

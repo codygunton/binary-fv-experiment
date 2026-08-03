@@ -42,6 +42,8 @@ two emitted frame decrements; the entered stack pointer is exactly `stackBase + 
 
 The `< 2 MiB` clause is the existing public theorem scope. The stack interval is stated explicitly
 because the wrapper constructs the allocator object and both inlined `decode` result objects there.
+The borrowed input must not overlap that writable frame or the wrapper's `attempted` byte: without
+these clauses the wrapper can overwrite its own input before reaching the selected `decode` child.
 -/
 structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
     (state : State) : Prop where
@@ -53,6 +55,10 @@ structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
   stackAtEntry : state.regs.get? Register.x2 = some (BitVec.ofNat 64 (stackBase + 0xa20))
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64
   inputBound : args.bytes.size < 2 * 1024 * 1024
+  inputAvoidsStack : args.inputBase + args.bytes.size ≤ stackBase ∨
+    stackBase + 0xa20 ≤ args.inputBase
+  inputAvoidsAttempted : args.inputBase + args.bytes.size ≤ 0x4215020 ∨
+    0x4215020 < args.inputBase
   stackAligned : stackBase % 16 = 0
   stackFrameFits : stackBase + 0xa20 ≤ 2 ^ 64
   stackFrameWritable : ∀ index, index < 0xa20 →
