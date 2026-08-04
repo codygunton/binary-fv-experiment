@@ -1,6 +1,8 @@
 import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch
 import BinaryFv.Zesu.MachineExecution.Level2OutgoingBranchSteps
 import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
+import BinaryFv.Zesu.MachineExecution.Level2Capstone
+import BinaryFv.Zesu.MachineExecution.Level2WrapperRestoreAddresses
 
 /-! The tag-three wrapper dispatch owns five concrete instructions before the shared status store. -/
 
@@ -540,5 +542,140 @@ theorem propagated_error_edge (fromStep : Nat) (args : DecodeInlineArgs) (before
     branchPrefix, dispatchTag, dispatchStatus, dispatchPc, dispatchPlatform, dispatchDecoder,
     dispatchCode, dispatchRetired, rfl, dispatchStack, dispatchGlobals,
     WrapperSavedRegisterFrame.of_mem_eq saved (by rfl)⟩
+
+/-- A non-retry decoder error reaches the generated wrapper exit after its selected dispatch route. -/
+structure PropagatedErrorToExitResult (args : DecodeInlineArgs) (error : Contracts.DecodeError)
+    (fromStep used : Nat) (entry base before childAfter dispatch routeAfter afterStore after : State)
+    (link s0 s1 s2 : BitVec 64) : Prop where
+  edge : PropagatedErrorEdgeResult args error fromStep used before childAfter dispatch link s0 s1 s2
+  route : WrapperOwnedTerminalRouteFrame base dispatch routeAfter (fromStep + used + 1)
+    (if error = .outOfMemory then 7 else 5) (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0)
+    (BitVec.ofNat 64 (Contracts.statusOfResult (.error error)).code)
+  store : Runs (try_step (fromStep + used + 1 + (if error = .outOfMemory then 7 else 5)) false)
+    routeAfter afterStore false
+  epilogue : WrapperEpilogueExitResult
+    (fromStep + used + 1 + (if error = .outOfMemory then 7 else 5) + 1) base afterStore after
+    link s0 s1 s2 (BitVec.ofNat 64 (args.stackBase + 0xa20)) (BitVec.ofNat 64 0)
+    (BitVec.ofNat 64 (Contracts.statusOfResult (.error error)).code)
+  trace : Trace (fromStep + used) (1 + (if error = .outOfMemory then 7 else 5) + 7) childAfter after
+  confined : ConfinedPrefix
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary (fromStep + used) (1 + (if error = .outOfMemory then 7 else 5) + 7)
+    childAfter after
+  scopedTrace : ScopedTrace
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary fromStep (used + 1 + (if error = .outOfMemory then 7 else 5) + 7) before after
+  pc : after.regs.get? PC = some (BitVec.ofNat 64 0x10378)
+  a0 : after.regs.get? x10 = some (BitVec.ofNat 64 0)
+  a1 : after.regs.get? x11 = some (BitVec.ofNat 64 (Contracts.statusOfResult (.error error)).code)
+  sp : after.regs.get? x2 = some (BitVec.ofNat 64 (args.stackBase + 0xa20))
+  globals : after.regs.get? x18 = some s2
+  savedFrame : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 routeAfter
+  memory : after.mem = afterStore.mem
+  code : canonicalContractParams.env.CodeIntact after
+  retired : RetiredCounterPresent after
+
+private theorem propagated_error_to_exit_of_route
+    {args : DecodeInlineArgs} {error : Contracts.DecodeError} {fromStep used : Nat}
+    {entry before childAfter dispatch : State} {link s0 s1 s2 : BitVec 64}
+    (machineEntry : ZesuDecodeRawMachinePre ⟨args.inputBase, args.bytes⟩ args.stackBase entry)
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      args.machineArgs before)
+    (edge : PropagatedErrorEdgeResult args error fromStep used before childAfter dispatch link s0 s1 s2)
+    (routeSteps : Nat) (status : BitVec 64)
+    (route : WrapperOwnedTerminalRouteFrame before dispatch routeAfter (fromStep + used + 1) routeSteps
+      (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) status)
+    (statusEq : status = BitVec.ofNat 64 (Contracts.statusOfResult (.error error)).code)
+    (stepsEq : routeSteps = if error = .outOfMemory then 7 else 5) :
+    ∃ afterStore after,
+      PropagatedErrorToExitResult args error fromStep used entry before before childAfter dispatch routeAfter
+        afterStore after link s0 s1 s2 := by
+  have stackNat : (BitVec.ofNat 64 args.stackBase).toNat = args.stackBase := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
+    have fits := machineEntry.stackFrameFits
+    omega
+  have routeStack : routeAfter.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    exact route.route.savedStack.trans edge.dispatchStack
+  have routeGlobals : routeAfter.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    exact route.route.savedS2.trans edge.dispatchGlobals
+  have routeFrame : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 routeAfter :=
+    WrapperSavedRegisterFrame.of_mem_eq edge.frame route.route.memory
+  let restore := wrapperRestoreAddresses_of_machinePre ⟨args.inputBase, args.bytes⟩ args.stackBase entry machineEntry
+  obtain ⟨afterStore, after, store, trace, epilogue⟩ :=
+    wrapper_dispatch_route_through_exit machine (fromStep + used + 1) routeSteps (BitVec.ofNat 64 0)
+      status link s0 s1 s2 (BitVec.ofNat 64 args.stackBase) (BitVec.ofNat 64 (args.stackBase + 0xa20))
+      route.route.terminal (by simpa [stackNat] using routeFrame)
+      (by simpa [stackNat] using machineEntry.stackAvoidsStatusGlobals) routeGlobals routeStack
+      restore.raAddress restore.s0Address restore.s1Address restore.s2Address restore.raAddressEq
+      restore.s0AddressEq restore.s1AddressEq restore.s2AddressEq restore.raAddressNat restore.s0AddressNat
+      restore.s1AddressNat restore.s2AddressNat restore.raAligned restore.s0Aligned restore.s1Aligned
+      restore.s2Aligned restore.raAllowed restore.s0Allowed restore.s1Allowed restore.s2Allowed
+      (by simpa using wrapper_final_stack_address args.stackBase)
+  have storeConfined : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (fromStep + used + 1 + routeSteps) 1 routeAfter afterStore :=
+    ConfinedPrefix.ownStep route.route.atTerminal (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr; apply RegionPcs.iff_inRanges.mpr; native_decide)
+      (by simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) store
+  have finalExit : ScopedTrace
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (fromStep + used + 1 + routeSteps + 7) 0 after after :=
+    ScopedTrace.exitAt _ after (BitVec.ofNat 64 0x10378) epilogue.pc (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw])
+  have epilogueScoped := epilogue.confined 0 after (by simpa [Nat.add_assoc] using finalExit)
+  have suffixScoped := storeConfined 6 after (by simpa [Nat.add_assoc] using epilogueScoped)
+  have routeScoped := route.confined 7 after (by simpa [Nat.add_assoc] using suffixScoped)
+  have branchScoped := edge.branchPrefix (routeSteps + 7) after (by simpa [Nat.add_assoc] using routeScoped)
+  have fullScoped := ScopedTrace.childBody fromStep used (1 + routeSteps + 7)
+    functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id before childAfter after
+    (Level2ChildSummary.decode edge.child) (by simpa [Nat.add_assoc] using branchScoped)
+  have suffixConfined := ConfinedPrefix.trans storeConfined epilogue.confined
+  have routeConfined := ConfinedPrefix.trans route.confined (by simpa [Nat.add_assoc] using suffixConfined)
+  have allConfined := ConfinedPrefix.trans edge.branchPrefix (by simpa [Nat.add_assoc] using routeConfined)
+  refine ⟨afterStore, after, ?_⟩
+  subst status
+  subst routeSteps
+  exact ⟨edge, route, store, epilogue,
+    by simpa [Nat.add_assoc] using Trace.append (Trace.one (fromStep + used) childAfter dispatch edge.branch) trace,
+    by simpa [Nat.add_assoc] using allConfined, by simpa [Nat.add_assoc] using fullScoped,
+    epilogue.pc, epilogue.a0, epilogue.a1, epilogue.sp, epilogue.s2, routeFrame,
+    epilogue.memory, epilogue.code, epilogue.retired⟩
+
+/-- Compose a propagated non-`invalidSsz` error through its real wrapper branch and selected route. -/
+theorem propagated_error_to_exit
+    {args : DecodeInlineArgs} {fromStep : Nat} {entry before : State}
+    (machineEntry : ZesuDecodeRawMachinePre ⟨args.inputBase, args.bytes⟩ args.stackBase entry)
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      args.machineArgs before)
+    (pre : DecodeInlinePre args before) (error : Contracts.DecodeError)
+    (phase : args.phase = .propagateError error) (link s0 s1 s2 : BitVec 64)
+    (saved : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 before) :
+    ∃ used childAfter dispatch routeAfter afterStore after,
+      PropagatedErrorToExitResult args error fromStep used entry before before childAfter dispatch routeAfter
+        afterStore after link s0 s1 s2 := by
+  obtain ⟨used, childAfter, retired, edge⟩ := propagated_error_edge fromStep args before pre error phase link s0 s1 s2 saved
+  obtain ⟨notInvalid, -, -, -⟩ := pre.propagateReason error phase
+  cases error with
+  | invalidSsz => exact False.elim (notInvalid rfl)
+  | unknownFork =>
+    obtain ⟨routeAfter, route⟩ := wrapper_dispatch_tag3_owned_terminal_route machine edge.dispatchPlatform
+      edge.dispatchRetired edge.dispatchCode (fromStep + used + 1) edge.dispatchPc (by simpa using edge.dispatchTag)
+    obtain ⟨afterStore, after, result⟩ := propagated_error_to_exit_of_route machineEntry machine edge 5
+      (BitVec.ofNat 64 3) route (by decide) (by decide)
+    exact ⟨used, childAfter, decodeInlinePropagateErrorBranchAfter childAfter retired, routeAfter, afterStore, after, result⟩
+  | outOfMemory =>
+    obtain ⟨routeAfter, route⟩ := wrapper_dispatch_tag1_owned_terminal_route machine edge.dispatchPlatform
+      edge.dispatchRetired edge.dispatchCode (fromStep + used + 1) edge.dispatchPc (by simpa using edge.dispatchTag)
+    obtain ⟨afterStore, after, result⟩ := propagated_error_to_exit_of_route machineEntry machine edge 7
+      (BitVec.ofNat 64 4) route (by decide) (by decide)
+    exact ⟨used, childAfter, decodeInlinePropagateErrorBranchAfter childAfter retired, routeAfter, afterStore, after, result⟩
 
 end BinaryFv.Zesu.MachineExecution

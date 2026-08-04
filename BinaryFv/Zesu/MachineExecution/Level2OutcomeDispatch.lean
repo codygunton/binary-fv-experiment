@@ -104,7 +104,7 @@ structure WrapperTerminalRouteFrame (base before after : State) (fromStep steps 
 /-- A result-tag route whose flat Sail trace and Level 2 ownership have the same endpoint. -/
 structure WrapperOwnedTerminalRouteFrame (base before after : State) (fromStep steps : Nat)
     (terminalPc result status : BitVec 64) : Prop where
-  terminal : WrapperTerminalRouteFrame base before after fromStep steps terminalPc result status
+  route : WrapperDispatchRouteFrame base before after fromStep steps terminalPc result status
   confined : ConfinedPrefix
     (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
     (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
@@ -2023,7 +2023,7 @@ theorem wrapper_dispatch_tag1_owned_terminal_route {machineArgs : DecoderMachine
     code4, x18_4, x2_4⟩⟩ := wrapper_dispatch_tag1_prefix machine agree retiredPresent code stepNo atPc tag
   obtain ⟨⟨after, suffixTrace, suffixConfined, pc, result, status, retired, memory, platform,
     finalCode, x18, x2⟩⟩ := wrapper_dispatch_tag1_suffix machine agree4 retired4 code4 (stepNo + 4) pc4
-  let terminal : WrapperTerminalRouteFrame base state after stepNo 7
+  let route : WrapperDispatchRouteFrame base state after stepNo 7
       (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 4) :=
     { trace := Trace.append prefixTrace suffixTrace
       atTerminal := pc
@@ -2031,8 +2031,11 @@ theorem wrapper_dispatch_tag1_owned_terminal_route {machineArgs : DecoderMachine
       statusValue := status
       platform := platform
       code := finalCode
-      retired := retired }
-  refine ⟨after, ⟨terminal, ?_⟩⟩
+      retired := retired
+      memory := memory.trans memory4
+      savedS2 := x18.trans x18_4
+      savedStack := x2.trans x2_4 }
+  refine ⟨after, ⟨route, ?_⟩⟩
   simpa [Nat.add_assoc] using ConfinedPrefix.trans prefixConfined suffixConfined
 
 /-- The tag-three route reaches the shared rejection continuation with `(a0, a1) = (0, 3)`. -/
@@ -2242,7 +2245,7 @@ theorem wrapper_dispatch_tag3_owned_terminal_route {machineArgs : DecoderMachine
       (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) := by
   obtain ⟨⟨after, terminal, confined⟩⟩ := wrapper_dispatch_tag3_owned_path machine agree retiredPresent
     code stepNo atPc tag
-  exact ⟨after, ⟨terminal.terminal, confined⟩⟩
+  exact ⟨after, ⟨terminal, confined⟩⟩
 
 /-- The short prefix of the tag-one route, kept separate from its result-tail frame. -/
 theorem wrapper_dispatch_tag1_trace_prefix {state s1 s2 s3 s4 : State} (stepNo : Nat)
