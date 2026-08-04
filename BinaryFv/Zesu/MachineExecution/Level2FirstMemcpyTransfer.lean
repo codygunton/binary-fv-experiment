@@ -147,4 +147,293 @@ theorem first_memcpy_call_step (stepNo : Nat) (args : DecodeInlineArgs)
       simp [firstMemcpyCallAfter, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick]⟩
 
+/-- The first successful `decodeRaw` payload copy has the same emitted body as the retry copy,
+but reads the first temporary record at `sp + 0x360`. -/
+def firstMemcpyCopyArgs (args : DecodeInlineArgs) (contents : ByteArray) : CopyArgs where
+  destination := args.finalResultBase
+  source := args.firstTemporaryResultBase
+  length := 832
+  contents := contents
+
+/-- The enclosing decoder's checked machine facts provide the emitted `memcpy` entry for the first
+success path.  Both copy ranges are explicit stack subranges, not a function ABI. -/
+theorem first_memcpy_machine_pre (args : DecodeInlineArgs) (contents : ByteArray)
+    (baseState childEntry : State) (pre : DecodeInlinePre args baseState)
+    (agree : Agree decoderPreserved baseState childEntry)
+    (counter : RetiredCounterPresent childEntry)
+    (atEntry : childEntry.regs.get? PC = some (BitVec.ofNat 64 0x13eb8))
+    (returnAddress : childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x1033c)) :
+    MemcpyMachinePre canonicalContractParams.env (firstMemcpyCopyArgs args contents) childEntry := by
+  let copyArgs := firstMemcpyCopyArgs args contents
+  change MemcpyMachinePre canonicalContractParams.env copyArgs childEntry
+  have machineAtEntry : DecodeInlineMachinePre args childEntry := pre.machine.mono agree counter
+  have resultSize : canonicalContractParams.env.record.entryResult = 848 := by
+    have pinned := congrArg (fun record => record.entryResult) canonicalRecordSizes_pinned
+    simpa [canonicalContractParams, canonicalEnvironment] using pinned
+  have sourceFits : copyArgs.source + copyArgs.length ≤ 2 ^ 64 := by
+    dsimp [copyArgs, firstMemcpyCopyArgs, DecodeInlineArgs.firstTemporaryResultBase]
+    have stackFit := pre.stackObjectsFit
+    rw [resultSize] at stackFit
+    omega
+  have destinationFits : copyArgs.destination + copyArgs.length ≤ 2 ^ 64 := by
+    dsimp [copyArgs, firstMemcpyCopyArgs, DecodeInlineArgs.finalResultBase]
+    have stackFit := pre.stackObjectsFit
+    rw [resultSize] at stackFit
+    omega
+  have sourceReadable : ∀ index, index < copyArgs.length →
+      DecoderReadableByte args.machineArgs (copyArgs.source + index) := by
+    intro index bound
+    right; right; left
+    dsimp [copyArgs, firstMemcpyCopyArgs, DecodeInlineArgs.firstTemporaryResultBase] at bound ⊢
+    have stack := pre.stackObjectsReadable (0x360 + index) (by rw [resultSize]; omega)
+    simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using stack
+  have destinationWritable : ∀ index, index < copyArgs.length →
+      DecoderWritableByte (copyArgs.destination + index) := by
+    intro index bound
+    left
+    dsimp [copyArgs, firstMemcpyCopyArgs, DecodeInlineArgs.finalResultBase] at bound ⊢
+    have stack := pre.stackObjectsReadable (0x20 + index) (by rw [resultSize]; omega)
+    simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using stack
+  have destinationNotFile : ∀ index, index < copyArgs.length →
+      canonicalContractParams.env.image.readFileByte? (copyArgs.destination + index) = none := by
+    intro index bound
+    cases read : canonicalContractParams.env.image.readFileByte? (copyArgs.destination + index) with
+    | none => rfl
+    | some byte =>
+        have segmentInfo := BinaryFv.Binary.ProgramImage.readFileByte?_mem_segment read
+        obtain ⟨segment, member, -, addressHigh⟩ := segmentInfo
+        have fileSegmentsBelow : Artifacts.programImage.segments.toList.all
+            (fun segment => decide
+              (segment.initialEndAddress ≤ Entrypoints.ZesuDecodeRaw.loadedCeiling)) = true := by
+          native_decide
+        have segmentHigh : segment.initialEndAddress ≤ Entrypoints.ZesuDecodeRaw.loadedCeiling :=
+          of_decide_eq_true (List.all_eq_true.mp fileSegmentsBelow segment (by
+            simpa [canonicalContractParams, canonicalEnvironment] using member))
+        have stackByte : canonicalContractParams.env.stack (copyArgs.destination + index) := by
+          dsimp [copyArgs, firstMemcpyCopyArgs, DecodeInlineArgs.finalResultBase] at bound ⊢
+          have stack := pre.stackObjectsReadable (0x20 + index) (by rw [resultSize]; omega)
+          simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using stack
+        have below : copyArgs.destination + index < Entrypoints.ZesuDecodeRaw.loadedCeiling :=
+          Nat.lt_of_lt_of_le addressHigh segmentHigh
+        exact absurd stackByte (canonicalStack_above_loaded _ below)
+  have destinationNotAllocator : ∀ address, canonicalContractParams.env.allocatorState address →
+      address < copyArgs.destination ∨ copyArgs.destination + copyArgs.length ≤ address := by
+    intro address allocator
+    by_cases before : address < copyArgs.destination
+    · exact Or.inl before
+    right
+    by_cases after : copyArgs.destination + copyArgs.length ≤ address
+    · exact after
+    exfalso
+    have indexBound : address - copyArgs.destination < copyArgs.length := by omega
+    have stackByte : canonicalContractParams.env.stack
+        (copyArgs.destination + (address - copyArgs.destination)) := by
+      dsimp [copyArgs, firstMemcpyCopyArgs, DecodeInlineArgs.finalResultBase] at indexBound ⊢
+      have stack := pre.stackObjectsReadable (0x20 + (address - (args.stackBase + 0x20)))
+        (by rw [resultSize]; omega)
+      simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using stack
+    have addressEq : copyArgs.destination + (address - copyArgs.destination) = address := by omega
+    exact canonicalStack_disjoint_from_allocatorState address allocator (by simpa [addressEq] using stackByte)
+  apply memcpyMachinePre_of_decoder copyArgs childEntry machineAtEntry
+  · intro pc bodyPc
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    rcases bodyPc with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> native_decide
+  · exact atEntry
+  · exact ⟨BitVec.ofNat 64 0x1033c, returnAddress, by decide⟩
+  · rfl
+  · simp [copyArgs, firstMemcpyCopyArgs]
+  · dsimp [copyArgs, firstMemcpyCopyArgs, DecodeInlineArgs.firstTemporaryResultBase]
+    have stackFit := pre.stackObjectsFit
+    rw [resultSize] at stackFit
+    omega
+  · dsimp [copyArgs, firstMemcpyCopyArgs, DecodeInlineArgs.finalResultBase]
+    have stackFit := pre.stackObjectsFit
+    rw [resultSize] at stackFit
+    omega
+  · exact sourceFits
+  · exact destinationFits
+  · exact destinationNotFile
+  · exact destinationNotAllocator
+  · exact sourceReadable
+  · exact destinationWritable
+
+/-- Execute the first call and spend the closed emitted-`memcpy` proof on the exact 832 bytes
+produced by the first `decodeRaw` result. -/
+theorem first_memcpy_uses_proved_body (fromStep : Nat) (args : DecodeInlineArgs)
+    (contents : ByteArray) (baseState beforeCall : State) (pre : DecodeInlinePre args baseState)
+    (contentsSize : contents.size = 832)
+    (sourceMemory : MemoryRepresentation.MemoryBytes beforeCall args.firstTemporaryResultBase contents)
+    (agree : Agree decoderPreserved baseState beforeCall)
+    (counter : RetiredCounterPresent beforeCall)
+    (code : canonicalContractParams.env.CodeIntact beforeCall)
+    (atCall : beforeCall.regs.get? PC = some (BitVec.ofNat 64 0x10338))
+    (callBase : beforeCall.regs.get? x1 = some (BitVec.ofNat 64 0x14334))
+    (destination : beforeCall.regs.get? x10 = some (BitVec.ofNat 64 args.finalResultBase))
+    (source : beforeCall.regs.get? x11 = some (BitVec.ofNat 64 args.firstTemporaryResultBase))
+    (length : beforeCall.regs.get? x12 = some (BitVec.ofNat 64 832)) :
+    ∃ callRetired childUsed childEntry childExit,
+      childEntry = firstMemcpyCallAfter beforeCall callRetired ∧
+      Runs (try_step fromStep false) beforeCall childEntry false ∧
+      (compiledMemcpyContract canonicalContractParams.env).binding.entry
+        (firstMemcpyCopyArgs args contents) childEntry ∧
+      childUsed ≤ (compiledMemcpyContract canonicalContractParams.env).binding.stepBound
+        (firstMemcpyCopyArgs args contents) ∧
+      EnteredFunctionTrace
+        (functionInstanceExecutionPcs generatedProgram functionInstance_memcpy)
+        (functionInstanceExitPred functionInstance_memcpy)
+        (functionInstanceEntryWord functionInstance_memcpy)
+        (fromStep + 1) childUsed childEntry childExit ∧
+      (compiledMemcpyContract canonicalContractParams.env).binding.exit
+        (firstMemcpyCopyArgs args contents)
+        ((compiledMemcpyContract canonicalContractParams.env).spec.meaning
+          (firstMemcpyCopyArgs args contents)) childEntry childExit := by
+  obtain ⟨callRetired, callRun, childPc, childLink, childDestination, childSource, childLength,
+    -, callAgree, callMemory, childCounter⟩ :=
+    first_memcpy_call_step fromStep args baseState beforeCall pre agree code counter atCall callBase
+  let childEntry := firstMemcpyCallAfter beforeCall callRetired
+  let copyArgs := firstMemcpyCopyArgs args contents
+  have childAgree : Agree decoderPreserved baseState childEntry := Agree.trans agree callAgree
+  have childCode : canonicalContractParams.env.CodeIntact childEntry := by
+    rw [DecoderEnvironment.CodeIntact, show childEntry.mem = beforeCall.mem by
+      simpa [childEntry] using callMemory]
+    exact code
+  have childSourceMemory : MemoryRepresentation.MemoryBytes childEntry
+      args.firstTemporaryResultBase contents := by
+    intro index bound
+    rw [show childEntry.mem = beforeCall.mem by simpa [childEntry] using callMemory]
+    exact sourceMemory index bound
+  have machinePre : MemcpyMachinePre canonicalContractParams.env copyArgs childEntry := by
+    apply first_memcpy_machine_pre args contents baseState childEntry pre childAgree childCounter
+    · simpa [childEntry] using childPc
+    · simpa [childEntry] using childLink
+  have sourcePre : (contractMemcpy canonicalContractParams.env).pre copyArgs childEntry := by
+    constructor
+    · refine ⟨childSourceMemory, ?_, childCode, ?_, ?_, ?_⟩
+      · simpa [copyArgs, firstMemcpyCopyArgs] using contentsSize
+      · simpa [copyArgs, firstMemcpyCopyArgs, childEntry] using childDestination.trans destination
+      · simpa [copyArgs, firstMemcpyCopyArgs, childEntry] using childSource.trans source
+      · simpa [copyArgs, firstMemcpyCopyArgs, childEntry] using childLength.trans length
+    · left
+      change args.stackBase + 0x20 + 832 ≤ args.stackBase + 0x360
+      omega
+  have compiledEntry : (compiledMemcpyContract canonicalContractParams.env).binding.entry
+      copyArgs childEntry := ⟨sourcePre, machinePre⟩
+  obtain ⟨childUsed, childExit, childBound, childTrace, childPost⟩ :=
+    compiledMemcpyInstanceContract_proved copyArgs (fromStep + 1) childEntry compiledEntry
+  exact ⟨callRetired, childUsed, childEntry, childExit, rfl,
+    by simpa [childEntry] using callRun, compiledEntry, childBound, childTrace, childPost⟩
+
+/-- The complete checked call phase: the Sail-proved call at `0x10338`, the closed emitted
+`memcpy` summary, and the Sail-proved `ret` to `0x1033c`. -/
+theorem first_memcpy_call_transfer (fromStep : Nat) (args : DecodeInlineArgs)
+    (contents : ByteArray) (baseState beforeCall : State) (pre : DecodeInlinePre args baseState)
+    (contentsSize : contents.size = 832)
+    (sourceMemory : MemoryRepresentation.MemoryBytes beforeCall args.firstTemporaryResultBase contents)
+    (agree : Agree decoderPreserved baseState beforeCall)
+    (counter : RetiredCounterPresent beforeCall)
+    (code : canonicalContractParams.env.CodeIntact beforeCall)
+    (atCall : beforeCall.regs.get? PC = some (BitVec.ofNat 64 0x10338))
+    (callBase : beforeCall.regs.get? x1 = some (BitVec.ofNat 64 0x14334))
+    (destination : beforeCall.regs.get? x10 = some (BitVec.ofNat 64 args.finalResultBase))
+    (source : beforeCall.regs.get? x11 = some (BitVec.ofNat 64 args.firstTemporaryResultBase))
+    (length : beforeCall.regs.get? x12 = some (BitVec.ofNat 64 832)) :
+    ∃ childUsed resumed,
+      Nonempty (CallTransfer
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary memcpyFirstDecodeResult generatedProgram
+        functionInstance_raw_decoder_root_zesu_decode_raw functionInstance_memcpy
+        fromStep childUsed beforeCall resumed) ∧
+      resumed.regs.get? PC = some (BitVec.ofNat 64 0x1033c) := by
+  obtain ⟨callRetired, bodyUsed, childEntry, childExit, childEntryEq, callRun, childPre,
+    bodyBound, childTrace, childPost⟩ :=
+    first_memcpy_uses_proved_body fromStep args contents baseState beforeCall pre contentsSize
+      sourceMemory agree counter code atCall callBase destination source length
+  have childLink : childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x1033c) := by
+    rw [childEntryEq]
+    simp [firstMemcpyCallAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, callLinkState, Std.ExtDHashMap.get?_insert]
+  obtain ⟨returnRetired, returnRun, returnedPc⟩ :=
+    memcpy_return_step (fromStep + 1 + bodyUsed) (firstMemcpyCopyArgs args contents)
+      (BitVec.ofNat 64 0x1033c) childEntry childExit (by decide) (by decide) childPre childTrace
+      childLink childPost
+  let resumed := memcpyReturnAfter (BitVec.ofNat 64 0x1033c) childExit returnRetired
+  have callInRegion : functionInstanceExecutionPcs generatedProgram
+      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10338) := by
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  have returnInRegion : functionInstanceExecutionPcs generatedProgram
+      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x1033c) := by
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  have retInRegion : functionInstanceExecutionPcs generatedProgram
+      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x13ec0) := by
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  have callNotExit : ¬ functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw
+      (BitVec.ofNat 64 0x10338) := by
+    simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+      functionInstance_raw_decoder_root_zesu_decode_raw]
+  have retNotExit : ¬ functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw
+      (BitVec.ofNat 64 0x13ec0) := by
+    simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+      functionInstance_raw_decoder_root_zesu_decode_raw]
+  have atRet : childExit.regs.get? PC = some (BitVec.ofNat 64 0x13ec0) := by
+    obtain ⟨exitPc, atExit, isExit⟩ := childTrace.trace.final_at_exit
+    have exitPcEq : exitPc = BitVec.ofNat 64 0x13ec0 := by
+      apply BitVec.eq_of_toNat_eq
+      simpa [functionInstanceExitPred, FunctionInstance.isExit, functionInstance_memcpy] using isExit
+    simpa [exitPcEq] using atExit
+  have body : Level2ChildSummary functionInstance_memcpyId (fromStep + 1) bodyUsed childEntry childExit :=
+    .memcpy ⟨rfl, firstMemcpyCopyArgs args contents, childPre, bodyBound, childTrace, childPost⟩
+  refine ⟨bodyUsed, resumed, ⟨?_⟩, by simpa [resumed] using returnedPc⟩
+  exact
+    { valid := memcpyFirstDecodeResult_valid
+      callPc := BitVec.ofNat 64 0x10338
+      atCall
+      callSource := by decide
+      callInRegion
+      callNotExit
+      sCall := childEntry
+      doCall := callRun
+      calleeEntryPc := BitVec.ofNat 64 0x13eb8
+      atCalleeEntry := childPre.2.entry
+      calleeEntryMatches := by decide
+      sRet := childExit
+      body
+      retPc := BitVec.ofNat 64 0x13ec0
+      atRet
+      retInRegion
+      retNotExit
+      doReturn := by simpa [resumed, Nat.add_assoc] using returnRun
+      returnPc := BitVec.ofNat 64 0x1033c
+      atResume := by simpa [resumed] using returnedPc
+      returnMatches := by decide
+      resumeInRegion := returnInRegion }
+
+/-- Discharge every first-call input from the first `decodeRaw` success frame.  In particular,
+the link value comes from the proved `auipc` at `0x10334`; it is not a source ABI premise. -/
+theorem first_memcpy_transfer_of_first_post (fromStep : Nat) (args : DecodeInlineArgs)
+    (before atCall : State) (pre : DecodeInlinePre args before)
+    (value : BinaryFv.Specs.SSZ.RawV4)
+    (success : meaningDecodeRaw args.bytes = .ok value)
+    (post : DecodeInlineFirstPost args before atCall)
+    (frame : DecodeInlineMachinePost before atCall) :
+    ∃ used resumed,
+      Nonempty (CallTransfer
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary memcpyFirstDecodeResult generatedProgram
+        functionInstance_raw_decoder_root_zesu_decode_raw functionInstance_memcpy
+        fromStep used atCall resumed) ∧
+      resumed.regs.get? PC = some (BitVec.ofNat 64 0x1033c) := by
+  simp only [DecodeInlineFirstPost, success] at post
+  obtain ⟨-, atPc, destination, source, length, callBase, contents, contentsSize, sourceMemory⟩ := post
+  exact first_memcpy_call_transfer fromStep args contents before atCall pre contentsSize sourceMemory
+    frame.agree frame.retiredCounter frame.code atPc callBase destination source length
+
 end BinaryFv.Zesu.MachineExecution

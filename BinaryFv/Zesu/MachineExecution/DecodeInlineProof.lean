@@ -1912,6 +1912,7 @@ theorem decodeInline_first_success_copy_setup (fromStep : Nat) (args : DecodeInl
       after.regs.get? x10 = some (BitVec.ofNat 64 args.finalResultBase) ∧
       after.regs.get? x11 = some (BitVec.ofNat 64 args.firstTemporaryResultBase) ∧
       after.regs.get? x12 = some (BitVec.ofNat 64 832) ∧
+      after.regs.get? x1 = some (BitVec.ofNat 64 0x14334) ∧
       Agree decoderPreserved baseState after ∧
       RetiredCounterPresent after ∧
       Contracts.canonicalContractParams.env.CodeIntact after ∧
@@ -2031,7 +2032,7 @@ theorem decodeInline_first_success_copy_setup (fromStep : Nat) (args : DecodeInl
     have firstThree := ConfinedPrefix.trans firstTwo (by simpa using prefix3)
     have allFour := ConfinedPrefix.trans firstThree (by simpa using prefix4)
     simpa using allFour
-  refine ⟨s4, ?_, completePrefix, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨s4, ?_, completePrefix, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · refine Trace.step fromStep 3 state s1 s4 (by simpa [s1, destination] using run1) ?_
     refine Trace.step (fromStep + 1) 2 s1 s2 s4 (by simpa [s2, source] using run2) ?_
     refine Trace.step (fromStep + 2) 1 s2 s3 s4 (by simpa [s3, length] using run3) ?_
@@ -2046,6 +2047,8 @@ theorem decodeInline_first_success_copy_setup (fromStep : Nat) (args : DecodeInl
       Std.ExtDHashMap.get?_insert]
   · simp [s4, s3, lengthEq, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert]
+  · simp [s4, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       Std.ExtDHashMap.get?_insert]
   · exact Agree.trans agree3
       (afterRegisterWrite_agree_of (by simp [decoderPreserved])
@@ -2202,7 +2205,7 @@ theorem decodeInline_first_success_reaches_post
     apply canonicalPostEntry_of_mem_eq args.firstRawArgs (.ok value) rfl branchMemory
     exact tagPostZero
   obtain ⟨final, setupTrace, setupPrefix, finalPc, finalDestination, finalSource, finalLength,
-    finalAgree, finalCounter, finalCode, finalPost⟩ :=
+    finalLink, finalAgree, finalCounter, finalCode, finalPost⟩ :=
     decodeInline_first_success_copy_setup (fromStep + 9 + childUsed) args state branchState pre
       phase value success branchAgree branchCounter branchCode branchPc branchStack
       (by simpa [success] using branchPost)
@@ -2219,7 +2222,7 @@ theorem decodeInline_first_success_reaches_post
   have post : DecodeInlineFirstPost args state final := by
     simp only [DecodeInlineFirstPost, success]
     exact ⟨by simpa [success] using finalPost, finalPc, finalDestination, finalSource, finalLength,
-      rootBytes, rootSize, rootMemory⟩
+      finalLink, rootBytes, rootSize, rootMemory⟩
   obtain ⟨callTransfer⟩ := transfer
   have callPrefix := ConfinedPrefix.ofCall callTransfer
   have tagRegion := decodeInline_owned_in_execution_region (0x10320, 0x6a015503)

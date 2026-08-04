@@ -321,6 +321,7 @@ def DecodeInlineFirstPost (args : DecodeInlineArgs)
         after.regs.get? x10 = some (BitVec.ofNat 64 args.finalResultBase) ∧
         after.regs.get? x11 = some (BitVec.ofNat 64 args.firstTemporaryResultBase) ∧
         after.regs.get? x12 = some (BitVec.ofNat 64 832) ∧
+        after.regs.get? x1 = some (BitVec.ofNat 64 0x14334) ∧
         ∃ rootBytes : ByteArray,
           rootBytes.size = 832 ∧
             MemoryBytes after args.firstTemporaryResultBase rootBytes
