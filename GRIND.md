@@ -83,6 +83,38 @@ must be re-derived after regeneration. `EvmAsm` enumerates its `signExtend12` of
 because it is authoring them; we extract ours, so we can emit them. The survey should report whether
 this is worth doing and how many facts it would cover.
 
+## 2a. What we are optimising
+
+Three costs, ranked. They usually agree; where they conflict, this order decides.
+
+1. **Tokens spent writing proofs.** The binding constraint. Measured proxy: how many names an author
+   must know or discover to write a step. Across `MachineExecution/` there are 2,715 `simp` call
+   sites citing **8,500 name-citations** from 624 distinct names, mean 3.1 per call, max 36. Six
+   names carry 35% of it. Every citation is an act of recall or search.
+2. **Build time.** `Level2Epilogue.lean` elaborates in 51.7 s, 33% of it in `simp` across 996 calls.
+3. **Source lines.** A proxy for both, and the one most likely to mislead — see the note below.
+
+**A tactic macro decouples cost 1 from cost 2.** The author writes one name; what runs inside is
+invisible to them. So optimise a macro's *internals* for build time and its *surface* for authoring
+cost. An internal `first | grind | (simp only […]; closer)` ordering is a build-time decision only.
+
+**The design target is one macro name per goal class, with a predictable domain and an informative
+failure.** The in-repo proof that this works is `decode_run` (`DecodeTactic.lean:21`): used 246
+times, and no author has ever needed to know what is inside it. Four such names —
+frame, region-membership, fetch, address — would replace most of the 624.
+
+Two consequences that do not follow from line counts:
+
+- **A correct lemma that is expensive to *invoke* will be routed around.**
+  `afterRegisterWrite_register` states the single most-repeated goal in the PR exactly, and is used
+  **twice repo-wide against 181 inline re-derivations across 15 files**, because citing it requires
+  constructing five explicit disequality arguments while the `simp` list above it is
+  copy-pasteable. Invocation cost is a first-class design constraint, not a detail.
+- **Predictability beats speed.** A tactic that closes at chain depth 3, fails at 4, and needs
+  `(ematch := 40) (gen := 20)` at depth 10 is expensive even when fast, because each failure is
+  opaque and starts a guess loop. Prefer a convention that always works — one hop per `have` — over
+  a budget that usually does.
+
 ## 3. Two sets, kept separate
 
 Do not put everything in one set. Two distinct kinds of fact appear in these proofs and they need
@@ -105,7 +137,78 @@ These are ordinary equations, are safe for `grind`, and are what makes chained r
 They are the set worth building.
 
 The `Agree platformPreserved base state` family sits awkwardly across this split, because it relates
-two states rather than observing one. See section 4's note on projections.
+two states rather than observing one. See section 3a, which is the more general answer.
+
+## 3a. The write-set frame — the general mechanism, currently missing
+
+A grid of frame facts is O(observations × transformers) lemmas and **does not generalise across
+observations**: every new observation needs a new row against every transformer. With 141 function
+instances still to prove, that is the wrong asymptotic.
+
+The general mechanism already has its primitives in this repository and they are unused.
+
+**What exists.** `RiscV/Logic/Framing.lean` defines `RegisterEqualOutside before after written` and
+`MemoryEqualOutside before after address`, with `writeReg_register_frame` and
+`writeByte_memory_frame` proving them for a single write. `RiscV/Logic/RegisterAgree.lean` defines
+`Agree (P : Register → Prop) base t` — already set-indexed — with `refl`, `trans`, and `weaken`. Its
+docstring states the intended design:
+
+> Machine loops instantiate `P` with the complement of the write set of the loop body, giving the
+> usual "stable registers are preserved" relation.
+
+**What is missing.** Measured: `RegisterEqualOutside` is used in **2** places outside its defining
+file, `MemoryEqualOutside` in **0**, and **no lemma anywhere derives `Agree` from a write set** —
+while 140 lemmas prove `Agree` by hand, one per transformer.
+
+Two gaps cause that:
+
+1. `RegisterEqualOutside` takes a **single** `written : Register`. But the real transformers write
+   sets: `afterRegisterWrite` writes destination, `nextPC`, `PC`, `minstret`, and
+   `minstret_increment` — five. A single-write frame cannot state one step, so chaining it is no
+   cheaper than the inline `simp`.
+2. Because there is no write-set bridge, `P` gets instantiated with two fixed hand-chosen sets.
+   `platformPreserved` is an 18-way disjunction of `x1` and 17 CSRs and holds **no other
+   general-purpose register**, so every read of `x2`, `x8`–`x13`, or `x18` through a step falls
+   outside it and is re-derived inline. That is the origin of the two largest measured rows: 284
+   `executeState` re-proofs across 23 files and 181 `afterRegisterWrite` re-proofs across 15.
+
+**The three declarations that close it:**
+
+```lean
+def EqualOutside (before after : State) (W : Register → Prop) : Prop :=
+  ∀ r, ¬ W r → after.regs.get? r = before.regs.get? r
+
+theorem EqualOutside.trans :                       -- the frame rule
+    EqualOutside s t A → EqualOutside t u B → EqualOutside s u (fun r => A r ∨ B r)
+
+theorem agree_of_disjoint :                        -- the missing bridge
+    EqualOutside s t W → (∀ r, P r → ¬ W r) → Agree P s t
+```
+
+Then one write-set lemma per transformer (five of them, a closed set), and the cost model changes
+shape: **O(steps) to compose a trace's write set once, then O(1) per observation** — a `decide` on
+membership — instead of O(steps × observations) hand-derived facts. For the 19-step wrapper prefix
+with nine observations that is 28 obligations instead of 171.
+
+**Why this is the generalising answer**, and the reason it outranks the grid:
+
+- It is **observation-agnostic.** Any register outside the write set is preserved whether or not
+  anyone anticipated caring about it. New observations cost nothing.
+- It is **instance-agnostic.** Write sets are a function of the instruction encoding, which
+  `tools/generate_elfling_program.py` already extracts, so they can be generated for all 141
+  function instances rather than hand-written per function.
+- It subsumes `platformPreserved` and `decoderPreserved` rather than replacing them: both follow
+  from `agree_of_disjoint` by `decide`, so no existing consumer changes.
+- On the section 2a metric it is the cheapest surface in the survey: the author writes no register
+  names at all, only the step, and membership discharges automatically.
+
+The memory side is the same shape with `Region` in place of the register predicate; `Region`,
+`Region.union`, and disjointness lemmas already exist in `Zesu/Contracts/Footprint.lean`, which is
+a **read**-footprint logic for value representations and is a separate, working use of the same idea.
+
+**Status: designed from measurement, not yet tested.** The probe is small — define the three
+declarations, give `afterRegisterWrite` its write-set lemma, and check that a `have` currently
+costing a six-name `simp` closes by `decide`. Do that before phase 2 commits to grid shape.
 
 ## 4. Registering a set
 
@@ -299,6 +402,23 @@ table at `RegisterRuns.lean:54-71`, so a `regidx`-indexed version is mechanical.
 automation surface and no new failure modes. Per-instruction arguments are exactly the
 address-bearing facts `tools/generate_elfling_program.py` already emits, so call sites are a
 generation candidate (section 2).
+
+### Phase 1a — pending — probe the write-set frame before phase 2 picks a shape
+
+Section 3a argues the write-set frame generalises where a frame grid does not. It is a design, not
+a measurement. Probe it first, because the answer decides whether phase 2 builds ~300 grid cells or
+~5 write-set lemmas plus a bridge:
+
+1. Define `EqualOutside`, `EqualOutside.trans`, `agree_of_disjoint` in `RiscV/Logic/Framing.lean`.
+2. Give `afterRegisterWrite` its write-set lemma (destination, `nextPC`, `PC`, `minstret`,
+   `minstret_increment`).
+3. Check that a `have` currently costing a six-name `simp` closes by membership `decide`.
+4. Check `Agree platformPreserved` and `Agree decoderPreserved` both fall out of `agree_of_disjoint`
+   without touching a consumer.
+5. Measure elaboration against the current `simp` on the same goals.
+
+If it holds, phase 2 becomes five write-set lemmas and the grid is unnecessary for register
+observations. If it does not, phase 2 proceeds as written and this entry records why.
 
 ### Phase 2 — pending — one frame set, keyed to the shared transformers
 
