@@ -12,6 +12,19 @@ Read the files in this order:
 3. [`Result.lean`](Result.lean) describes the internal `decodeRaw` hidden-result union.
 4. [`Observers.lean`](Observers.lean) contains guarded functions that reconstruct represented values
    from Sail memory.
+5. [`ValueObserver.lean`](ValueObserver.lean) assembles the guarded readers into a complete
+   specification-typed `RawV4` observer and proves it agrees with `RawV4Rep`.
+
+The remaining D′ modules connect the source-shaped decoder meanings to the pinned SSZ oracle:
+
+- `EntryOffsets.lean` proves that `meaningDecodeRaw` and the oracle read the same four top-level
+  offset words.
+- `ChainOffsets.lean` handles the nested activation, fork configuration, and chain configuration
+  schemas, including their leading fixed fields.
+- `EncodeDecode.lean` supplies the needed re-encoding direction for decoded 64-bit values and records
+  the trust class of its `bv_decide` proof.
+- `ZeroOffsetAlias.lean` proves why an all-zero first offset is rejected for variable-element lists;
+  it also documents the fixed-element counterexample that requires the theorem's restriction.
 
 A representation predicate does not allocate or decode anything. It only relates:
 
@@ -26,8 +39,7 @@ the option is absent; only the discriminant is meaningful in that case.
 
 Representations say when memory *holds* a value; observers go the other way and *read* one back.
 [Observers.lean](Observers.lean) has the guarded readers for words, byte regions, and the chain
-config, and [ValueObserver.lean](ValueObserver.lean) assembles them into `observeRawV4?`, which
-reconstructs a complete
+config, and [ValueObserver.lean](ValueObserver.lean) assembles them into `observeRawV4?`, which reconstructs a complete
 `BinaryFv.Specs.SSZ.RawV4` from machine memory. `observe_raw_v4_of_rep` is the correspondence that ties the
 two directions together: anything the representation says is there, the observer reads back exactly.
 It needs one hypothesis the representation deliberately omits — the caller's input in memory —

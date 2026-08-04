@@ -22,6 +22,22 @@ the behavior it must implement. Binary structure belongs in `Artifacts/`, `Contr
   little-endian assembly of multi-byte integers. `Collections.lean` and `Containers.lean` cover
   decoding functions that assemble repeated values and structured SSZ objects.
 - `Entry.lean` and `ExportedDecoder.lean` describe the public decoding boundary.
-- `CanonicalProgram.lean` checks that the program and environment used by the contracts come from the
-  pinned Zesu sources and ELF. `ContractComposition.lean` proves that the per-instance obligations
-  compose along the call and inline graph into the entrypoint obligation used by the root theorem.
+- `CanonicalParams.lean` fixes the environment, ABI layouts, globals, and representations to values
+  derived from the pinned artifacts. `CanonicalProgram.lean` states the canonical image, provenance,
+  entry, and byte-readability conditions independently of any particular proof decomposition.
+- `SemanticObligations.lean` proves the source-shaped meanings' error and acceptance properties and
+  isolates the remaining oracle-agreement premise. Its header records the non-kernel trust introduced
+  by the one `bv_decide`-based byte-assembly proof.
+- `RepresentationAudit.lean` proves that the canonical representations depend only on memory.
+  `Footprint.lean` identifies the memory each representation actually reads and proves the footprints
+  are tight.
+- `FrameGap.lean` exhibits why child postconditions alone permit a later sibling to overwrite an
+  earlier result. `Ownership.lean` introduces the required write confinement, and
+  `OwnershipComposition.lean` proves how confined sibling runs preserve prior representations. These
+  modules supply reusable conditional composition theorems; concrete machine proofs must establish
+  their write premises.
+- `ExportedDecoderAudit.lean` pins the public C ABI bindings and rejects the old internal calling
+  convention. `CatalogAudit.lean` checks catalog structure independently of machine execution.
+- `ContractComposition.lean` contains the generic catalog-wide local-to-global theorem. D′'s public
+  root does not require a completed 141-instance proof: it exposes the three exported contracts as
+  assumptions and leaves their refinement to later PRs.

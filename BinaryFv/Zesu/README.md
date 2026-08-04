@@ -1,7 +1,8 @@
 # Zesu verification modules
 
-This directory contains the proof that the pinned Zesu Amsterdam V4 decoder binary implements the
-pinned Ethereum SSZ decoding specification. SizzLean supplies the executable Lean specification;
+This directory contains the verification of the pinned Zesu Amsterdam V4 decoder against the pinned
+Ethereum SSZ decoding specification. D′ proves the public result conditionally on machine proofs of
+the exported decoder and its two accessors; later refinement PRs discharge those contracts. SizzLean supplies the executable Lean specification;
 the generated Sail model supplies the RISC-V machine semantics; and the Elfling model connects
 source-level function identities to instruction regions in the compiled binary. The
 implementation-independent specification lives in `BinaryFv/Specs/SSZ`, outside this Zesu target.
@@ -27,7 +28,17 @@ namespace.
 - `Runtime`: the Zesu allocator, allocation bounds, and other runtime implementation details.
 
 `Interface.lean` defines the public API for executing a validated Zesu ELF on an input. `Root.lean`
-states the final theorem relating that execution to `BinaryFv.Specs.SSZ` for every input in scope.
+defines the pinned binary, proves that successful public results come from the checked runner state,
+and states `root_compliance_of_exported_contracts`. That theorem assumes exactly the three exported
+machine contracts used by the runner and concludes agreement with `BinaryFv.Specs.SSZ` for every
+input in scope.
+
+For a first review of D′, read:
+
+1. `Interface.lean` for the caller-visible execution function and error distinctions.
+2. `Entrypoints/ZesuDecodeRaw/README.md` for the concrete runner and proof assembly.
+3. `Contracts/README.md` for the semantic, representation, ownership, and composition obligations.
+4. `Root.lean` for the conditional public theorem and its exact assumptions.
 
 `MachineExecution/BlobScheduleAndResultStores.lean` is an early standalone proof of selected
 blob-schedule decoding and result-store instructions. It predates the current whole-program

@@ -11,8 +11,12 @@ The RISC-V ABI applies only at real machine call boundaries, never at inlined so
 boundaries.
 
 The generator emits the address-bearing program, readable reports, decoder globals, and raw and
-effective parameter-binding tables. Run it through `nix build .#elfling-program`; the build runs it
-twice and requires byte-identical output.
+effective parameter-binding tables. The effective table is the one proof authors should use: it
+contains narrow, source-checked recovery for parameters DWARF omitted, while the raw table remains
+available to audit what the compiler actually reported. The output also distinguishes emitted calls
+to explicitly excluded functions and records return exits separately from other ways control leaves
+a function instance. Run it through `nix build .#elfling-program`; the build runs it twice and
+requires byte-identical output.
 
 Generated output is evidence, not an axiom. Lean checks it against the pinned ELF and Sail-decoded
 instructions. If DWARF omits a parameter and no narrow recovery rule applies, generation fails

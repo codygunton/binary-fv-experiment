@@ -58,6 +58,11 @@ spliced into the parent's trace without omitting the call, return, or outgoing i
    proof that uses child summaries into one ordinary machine trace.
 5. [`BoundaryTests.lean`](BoundaryTests.lean) shows which valid crossings compose and which malformed
    crossings are rejected.
+6. [`SequentialSplice.lean`](SequentialSplice.lean) composes adjacent checked regions and defines the
+   `ConfinedPrefix` used by concrete multi-instruction proofs.
+7. [`SentinelBridge.lean`](SentinelBridge.lean) retires a proved function's final return instruction
+   and turns its confined trace into the runner's sentinel-terminated trace. The target must prove
+   that its regions avoid the sentinel and that the exit instruction really is the required return.
 
 The generated files and extracted addresses are evidence, not trusted axioms. Boolean checks and
 Lean theorems in this layer reject stale edges, invented boundaries, missing parameter locations,

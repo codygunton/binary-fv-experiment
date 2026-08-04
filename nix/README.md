@@ -13,3 +13,8 @@ deterministic artifacts" section lists the `nix build .#…` command for each.
 Repository-owned integration inputs for a concrete implementation belong under
 `verification-target/`; pinned external source enters through `flake.nix`. These Nix files describe
 reproducible construction and validation, while optional output links belong under `build/`.
+
+D′ also uses `proof.nix` to materialize the exact SizzLean proof files needed by its offset and
+canonicality theorems. Each copied file is hash-checked. The only source transformation makes the two
+upstream offset-table walkers public without changing their definitions; the build checks the
+expected private declarations before applying that visibility-only patch.

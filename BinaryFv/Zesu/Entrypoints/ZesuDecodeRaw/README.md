@@ -1,7 +1,10 @@
 # Building and running `zesu_decode_raw`
 
-This directory is the bridge from the public Lean API to the concrete Sail execution of the exported
-decoder. Read the files in this order:
+This directory contains both the executable runner and the proof that three exported machine
+contracts are sufficient for that runner to agree with the SSZ specification. Read it in three
+groups.
+
+## Executable runner
 
 1. [Layout.lean](Layout.lean) places the input, stack, and return sentinel away from the linked image
    and heap.
@@ -16,6 +19,25 @@ decoder. Read the files in this order:
    outcome or a specific error.
 7. [Runner.lean](Runner.lean) puts it together; the public
    [Interface.lean](../../Interface.lean) delegates to it.
+
+## Contract entry and result interpretation
+
+1. [EntryBinding.lean](EntryBinding.lean) proves that the constructed Sail state satisfies the
+   exported decoder contract's real C ABI entry condition.
+2. [DecodeGlue.lean](DecodeGlue.lean) converts the decoder contract's exit facts into the successful
+   or rejected result facts consumed by the classifier.
+3. [Accessors.lean](Accessors.lean) threads the two accessor calls and states exactly which accessor
+   traces remain machine-proof premises.
+
+## Machine-to-runner assembly
+
+1. [GeneratedReturnExits.lean](../../Elflings/GeneratedReturnExits.lean) establishes that the three
+   exported exits used here really decode as returns.
+2. [SentinelAssembly.lean](SentinelAssembly.lean) retires those returns and joins each proved
+   function-instance trace to the runner's sentinel trace.
+3. [Assembly.lean](Assembly.lean) combines the wrapper, accessor, ownership, and value-observation
+   pieces into `ExportedContractAssumptions` and the complete conditional runner theorem consumed by
+   `Root.lean`.
 
 Only file-backed ELF bytes are loaded eagerly. The roughly 69 MiB BSS and arena tail remain sparse;
 the builder writes the mutable globals it needs explicitly, and zero-fills the machine stack the way
@@ -35,5 +57,6 @@ code, an unreadable value, and an exhausted arena each keep their own error. Non
 a rejection — `wrapper_rejection_forces_checks` states that as a converse and
 `executeDecode_rejected_forces_checks` lifts it to the public entry.
 
-[RunnerExecution.lean](../../Validation/RunnerExecution.lean) runs all of this against the pinned
-binary in the Sail model and compares the result with the SSZ oracle.
+`Root.root_compliance_of_exported_contracts` is the public conclusion. It does not assume that an
+arbitrary generated program is correct: it assumes the three exported contracts used by this
+runner. Later refinement PRs prove those contracts by concrete Sail execution.
