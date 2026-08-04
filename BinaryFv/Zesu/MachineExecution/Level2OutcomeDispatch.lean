@@ -33,7 +33,8 @@ private structure DispatchPath (base : State) (fromStep steps : Nat) (entry : St
     final.mem = entry.mem ∧
     Agree platformPreserved base final ∧
     canonicalContractParams.env.CodeIntact final ∧
-    final.regs.get? x18 = entry.regs.get? x18
+    final.regs.get? x18 = entry.regs.get? x18 ∧
+    final.regs.get? x2 = entry.regs.get? x2
 
 /-- The concrete comparison phase of the tag-one route, through the taken branch at `0x10408`. -/
 private structure Tag1PrefixPath (base : State) (fromStep : Nat) (entry : State) : Prop where
@@ -46,7 +47,8 @@ private structure Tag1PrefixPath (base : State) (fromStep : Nat) (entry : State)
     after.mem = entry.mem ∧
     Agree platformPreserved base after ∧
     canonicalContractParams.env.CodeIntact after ∧
-    after.regs.get? x18 = entry.regs.get? x18
+    after.regs.get? x18 = entry.regs.get? x18 ∧
+    after.regs.get? x2 = entry.regs.get? x2
 
 /-- The concrete rejection-result phase of the tag-one route, from `0x10428` to `0x1035c`. -/
 private structure Tag1SuffixPath (base : State) (fromStep : Nat) (entry : State) : Prop where
@@ -59,7 +61,8 @@ private structure Tag1SuffixPath (base : State) (fromStep : Nat) (entry : State)
     final.mem = entry.mem ∧
     Agree platformPreserved base final ∧
     canonicalContractParams.env.CodeIntact final ∧
-    final.regs.get? x18 = entry.regs.get? x18
+    final.regs.get? x18 = entry.regs.get? x18 ∧
+    final.regs.get? x2 = entry.regs.get? x2
 
 /-- The public, composable boundary of one result-tag route.  Unlike the local Sail step
 proofs, this keeps the exact execution trace together with the state frame needed by the next
@@ -75,6 +78,7 @@ structure WrapperDispatchRouteFrame (base before after : State) (fromStep steps 
   code : canonicalContractParams.env.CodeIntact after
   retired : RetiredCounterPresent after
   savedS2 : after.regs.get? x18 = before.regs.get? x18
+  savedStack : after.regs.get? x2 = before.regs.get? x2
 
 private theorem wrapper_dispatch_register_constant_step {machineArgs : DecoderMachineArgs}
     {base state : State} {destination : Register} {value : RegisterType destination}
@@ -2017,9 +2021,10 @@ theorem wrapper_dispatch_tag3_route_frame {machineArgs : DecoderMachineArgs} {ba
     ∃ after, WrapperDispatchRouteFrame base state after stepNo 5
       (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) := by
   obtain ⟨⟨after, trace, atTerminal, result, status, retired, memory, platform, codeFinal,
-    savedS2⟩⟩ :=
+    savedS2, savedStack⟩⟩ :=
     wrapper_dispatch_tag3_path machine agree retiredPresent code stepNo atPc tag
-  exact ⟨after, ⟨trace, atTerminal, result, status, memory, platform, codeFinal, retired, savedS2⟩⟩
+  exact ⟨after, ⟨trace, atTerminal, result, status, memory, platform, codeFinal, retired, savedS2,
+    savedStack⟩⟩
 
 /-- The tag-one route as a composable prefix plus rejection-tail frame. -/
 theorem wrapper_dispatch_tag1_route_frame {machineArgs : DecoderMachineArgs} {base state : State}
@@ -2033,9 +2038,10 @@ theorem wrapper_dispatch_tag1_route_frame {machineArgs : DecoderMachineArgs} {ba
     ∃ after, WrapperDispatchRouteFrame base state after stepNo 7
       (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 4) := by
   obtain ⟨⟨after, trace, atTerminal, result, status, retired, memory, platform, codeFinal,
-    savedS2⟩⟩ :=
+    savedS2, savedStack⟩⟩ :=
     wrapper_dispatch_tag1_path machine agree retiredPresent code stepNo atPc tag
-  exact ⟨after, ⟨trace, atTerminal, result, status, memory, platform, codeFinal, retired, savedS2⟩⟩
+  exact ⟨after, ⟨trace, atTerminal, result, status, memory, platform, codeFinal, retired, savedS2,
+    savedStack⟩⟩
 
 /-- The tag-two route as a composable prefix plus rejection-tail frame. -/
 theorem wrapper_dispatch_tag2_route_frame {machineArgs : DecoderMachineArgs} {base state : State}
@@ -2049,9 +2055,10 @@ theorem wrapper_dispatch_tag2_route_frame {machineArgs : DecoderMachineArgs} {ba
     ∃ after, WrapperDispatchRouteFrame base state after stepNo 9
       (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 2) := by
   obtain ⟨⟨after, trace, atTerminal, result, status, retired, memory, platform, codeFinal,
-    savedS2⟩⟩ :=
+    savedS2, savedStack⟩⟩ :=
     wrapper_dispatch_tag2_path machine agree retiredPresent code stepNo atPc tag
-  exact ⟨after, ⟨trace, atTerminal, result, status, memory, platform, codeFinal, retired, savedS2⟩⟩
+  exact ⟨after, ⟨trace, atTerminal, result, status, memory, platform, codeFinal, retired, savedS2,
+    savedStack⟩⟩
 
 /-- The zero-result route as the success-continuation frame. -/
 theorem wrapper_dispatch_tag0_route_frame {machineArgs : DecoderMachineArgs} {base state : State}
@@ -2065,8 +2072,9 @@ theorem wrapper_dispatch_tag0_route_frame {machineArgs : DecoderMachineArgs} {ba
     ∃ after, WrapperDispatchRouteFrame base state after stepNo 6
       (BitVec.ofNat 64 0x1033c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 2) := by
   obtain ⟨⟨after, trace, atTerminal, result, status, retired, memory, platform, codeFinal,
-    savedS2⟩⟩ :=
+    savedS2, savedStack⟩⟩ :=
     wrapper_dispatch_tag0_success_path machine agree retiredPresent code stepNo atPc tag
-  exact ⟨after, ⟨trace, atTerminal, result, status, memory, platform, codeFinal, retired, savedS2⟩⟩
+  exact ⟨after, ⟨trace, atTerminal, result, status, memory, platform, codeFinal, retired, savedS2,
+    savedStack⟩⟩
 
 end BinaryFv.Zesu.MachineExecution
