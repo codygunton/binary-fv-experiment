@@ -391,4 +391,124 @@ theorem wrapper_epilogue_load_s0_step {base state : State} {machineArgs : Decode
       Std.ExtDHashMap.get?_insert])
   exact ⟨retired, by simpa [afterRegisterWrite, pc, executeState] using run⟩
 
+/-- Execute the actual `ld s1, 2008(sp)` at `0x1036c`. -/
+theorem wrapper_epilogue_load_s1_step {base state : State} {machineArgs : DecoderMachineArgs}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree decoderPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1036c))
+    (stack s1 address : BitVec 64) (stackValue : state.regs.get? x2 = some stack)
+    (addressEq : stack + sign_extend (m := 64) (0x7d8#12) = address)
+    (savedBase : Nat) (addressNat : savedBase = address.toNat)
+    (frame : SavedWordBytes state savedBase s1)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr address) 8 = true)
+    (allowed : DecoderAccessRange (DecoderReadableByte machineArgs) address 8) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x1036c) retired x9 s1) false := by
+  let pc := BitVec.ofNat 64 0x1036c
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
+  have stackAtExecute : executeState.regs.get? x2 = some stack := by
+    simpa [executeState, pc, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert] using stackValue
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
+      0x83#8 0x34#8 0x81#8 0x7d#8 :=
+    fetchFileInstruction state 0x1036c 0x83 0x34 0x81 0x7d
+      (hasExactErePrefix_programImage_of_codeIntact code)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  obtain ⟨mseccfgBits, mseccfgRead, _⟩ := machine.mseccfg
+  have incrementAgree : Agree decoderPreserved base (tryStepControlFlowAfterIncrement state) :=
+    agree.trans (Agree.weaken (fun _ preserved => preserved.2) (agree_afterIncrement state))
+  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine :=
+    (incrementAgree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans machine.normal.2.1
+  have mseccfgAtIncrement : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+      some mseccfgBits :=
+    (incrementAgree mseccfg (by simp [decoderPreserved, platformPreserved])).trans mseccfgRead
+  have decode : Runs (ext_decode (fetchWord 0x83#8 0x34#8 0x81#8 0x7d#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (0x7d8#12, .Regidx 2#5, .Regidx 9#5, false, 8)) := by
+    decode_run
+  have pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc := by
+    refine ⟨?_, by decide⟩
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  obtain ⟨retired, run⟩ := wrapper_epilogue_saved_load_step machine agree retiredPresent stepNo pc
+    0x83#8 0x34#8 0x81#8 0x7d#8 0x7d8#12 (.Regidx 2#5) (.Regidx 9#5) s1 stack address
+    { executeState with regs := executeState.regs.insert x9 s1 } atPc pcIn
+    (rX_x2_run executeState stack stackAtExecute) addressEq savedBase addressNat frame aligned allowed
+    fetchBytes decode (by unfold BaseInstructionEncoding; decide) (wX_x9_run executeState s1)
+    (by simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert])
+    (by simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert])
+    (by simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert])
+    (by simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert])
+  exact ⟨retired, by simpa [afterRegisterWrite, pc, executeState] using run⟩
+
+/-- Execute the actual `ld s2, 2000(sp)` at `0x10370`. -/
+theorem wrapper_epilogue_load_s2_step {base state : State} {machineArgs : DecoderMachineArgs}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree decoderPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10370))
+    (stack s2 address : BitVec 64) (stackValue : state.regs.get? x2 = some stack)
+    (addressEq : stack + sign_extend (m := 64) (0x7d0#12) = address)
+    (savedBase : Nat) (addressNat : savedBase = address.toNat)
+    (frame : SavedWordBytes state savedBase s2)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr address) 8 = true)
+    (allowed : DecoderAccessRange (DecoderReadableByte machineArgs) address 8) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x10370) retired x18 s2) false := by
+  let pc := BitVec.ofNat 64 0x10370
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
+  have stackAtExecute : executeState.regs.get? x2 = some stack := by
+    simpa [executeState, pc, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert] using stackValue
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
+      0x03#8 0x39#8 0x01#8 0x7d#8 :=
+    fetchFileInstruction state 0x10370 0x03 0x39 0x01 0x7d
+      (hasExactErePrefix_programImage_of_codeIntact code)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  obtain ⟨mseccfgBits, mseccfgRead, _⟩ := machine.mseccfg
+  have incrementAgree : Agree decoderPreserved base (tryStepControlFlowAfterIncrement state) :=
+    agree.trans (Agree.weaken (fun _ preserved => preserved.2) (agree_afterIncrement state))
+  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine :=
+    (incrementAgree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans machine.normal.2.1
+  have mseccfgAtIncrement : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+      some mseccfgBits :=
+    (incrementAgree mseccfg (by simp [decoderPreserved, platformPreserved])).trans mseccfgRead
+  have decode : Runs (ext_decode (fetchWord 0x03#8 0x39#8 0x01#8 0x7d#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (0x7d0#12, .Regidx 2#5, .Regidx 18#5, false, 8)) := by
+    decode_run
+  have pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc := by
+    refine ⟨?_, by decide⟩
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  obtain ⟨retired, run⟩ := wrapper_epilogue_saved_load_step machine agree retiredPresent stepNo pc
+    0x03#8 0x39#8 0x01#8 0x7d#8 0x7d0#12 (.Regidx 2#5) (.Regidx 18#5) s2 stack address
+    { executeState with regs := executeState.regs.insert x18 s2 } atPc pcIn
+    (rX_x2_run executeState stack stackAtExecute) addressEq savedBase addressNat frame aligned allowed
+    fetchBytes decode (by unfold BaseInstructionEncoding; decide) (wX_x18_run executeState s2)
+    (by simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert])
+    (by simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert])
+    (by simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert])
+    (by simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert])
+  exact ⟨retired, by simpa [afterRegisterWrite, pc, executeState] using run⟩
+
 end BinaryFv.Zesu.MachineExecution
