@@ -1060,7 +1060,7 @@ theorem decodeRaw_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArgs)
       Runs (try_step stepNo false) childExit
         (decodeRawReturnAfter returnPc childExit retired) false ∧
       (decodeRawReturnAfter returnPc childExit retired).regs.get? PC = some returnPc := by
-  rcases childPost with ⟨sourcePost, childFrame, childRetired, childPayload⟩
+  rcases childPost with ⟨sourcePost, childFrame, childRetired, childPayload, _childSaveArea⟩
   rcases sourcePost with ⟨-, code, -, -⟩
   have machineAtExit : DecoderMachinePre
       (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
@@ -1307,7 +1307,7 @@ theorem decodeInline_first_call_transfer
       (BitVec.ofNat 64 0x10320) childEntry childExit (by decide) (by decide)
       childPre childTrace childLink childPost
   let resumed := decodeRawReturnAfter (BitVec.ofNat 64 0x10320) childExit returnRetired
-  rcases childPost with ⟨sourcePost, childFrame, childCounter, childPayload⟩
+  rcases childPost with ⟨sourcePost, childFrame, childCounter, childPayload, childSaveArea⟩
   rcases sourcePost with ⟨childInputMemory, childCode, childWrites, childStatus, childOutcome⟩
   have resumedStatus : BinaryFv.Zesu.MemoryRepresentation.ResultStatusLERep resumed
       (args.firstTemporaryResultBase +
@@ -1367,7 +1367,7 @@ theorem decodeInline_first_call_transfer
     · exact bound
     · simpa only [Nat.add_assoc] using childTrace
     · exact ⟨⟨childInputMemory, childCode, childWrites, childStatus, childOutcome⟩,
-        childFrame, childCounter, childPayload⟩
+        childFrame, childCounter, childPayload, childSaveArea⟩
     · simpa [resumed, Nat.add_assoc] using returnRun
     · simpa [resumed] using atResume
   exact ⟨beforeCall, childUsed, resumed, parentTrace, parentPrefix, bound, ⟨transfer⟩, resumedStatus,
@@ -4606,7 +4606,7 @@ theorem decodeInline_retry_call_transfer
       args.retryRawArgs (BitVec.ofNat 64 0x103dc) childEntry childExit (by decide) (by decide)
       childPre childTrace childLink childPost
   let resumed := decodeRawReturnAfter (BitVec.ofNat 64 0x103dc) childExit returnRetired
-  rcases childPost with ⟨sourcePost, childFrame, childExitCounter, childPayload⟩
+  rcases childPost with ⟨sourcePost, childFrame, childExitCounter, childPayload, childSaveArea⟩
   rcases sourcePost with ⟨childInputMemory, childCode, childWrites, childStatus, childOutcome⟩
   have childFrameDecoder : Agree decoderPreserved childEntry childExit :=
     Agree.weaken (fun _ preserved => Or.inl preserved.2) childFrame
@@ -4638,7 +4638,7 @@ theorem decodeInline_retry_call_transfer
       childEntry childExit resumed callPc (by simpa [childEntry] using callRun) childPre childBound
       (by simpa only [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using childTrace)
       ⟨⟨childInputMemory, childCode, childWrites, childStatus, childOutcome⟩,
-        childFrame, childExitCounter, childPayload⟩
+        childFrame, childExitCounter, childPayload, childSaveArea⟩
       (by simpa [resumed, Nat.add_assoc] using returnRun) (by simpa [resumed] using atResume)
   have resumedCode : Contracts.canonicalContractParams.env.CodeIntact resumed := by
     simpa [resumed, decodeRawReturnAfter] using childCode

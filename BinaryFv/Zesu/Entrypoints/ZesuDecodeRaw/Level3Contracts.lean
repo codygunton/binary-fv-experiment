@@ -34,6 +34,14 @@ compiled child boundary must expose that those bytes are initialized. -/
 def DecodeRawResultPayloadInitialized (args : EntryArgs) (state : State) : Prop :=
   ∃ contents : ByteArray, contents.size = 832 ∧ MemoryBytes state args.resultBase contents
 
+/-- The 32-byte wrapper caller-save area at `allocatorBase + 0x9f0` is live across the emitted
+`decodeRaw` call. Source `postEntry` permits unrelated stack writes, so this relative machine frame
+is an explicit condition of the compiled call boundary rather than a source-semantic consequence. -/
+def DecodeRawCallerSaveArea (args : EntryArgs) (before after : State) : Prop :=
+  ∀ index, index < 32 →
+    after.mem.get? (args.allocatorBase + 0x9f0 + index) =
+      before.mem.get? (args.allocatorBase + 0x9f0 + index)
+
 /-- The source `decodeRaw` contract strengthened with its real emitted entry, configured machine
 premises, and the return frame needed by its caller. The source meaning and bound are unchanged;
 the exit additionally preserves the link/platform registers plus the caller's live `sp`, `s0`, and
@@ -53,8 +61,14 @@ def compiledDecodeRawContract : FunctionInstanceContract
           source.binding.exit args outcome before after ∧
             Agree decodeRawCallerPreserved before after ∧
             RetiredCounterPresent after ∧
-            DecodeRawResultPayloadInitialized args after
+            DecodeRawResultPayloadInitialized args after ∧
+            DecodeRawCallerSaveArea args before after
         stepBound := source.binding.stepBound } }
+
+/-- Project the wrapper caller-save-area frame from a compiled `decodeRaw` exit. -/
+theorem compiledDecodeRawCallerSaveArea {args : EntryArgs} {outcome} {before after : State}
+    (post : compiledDecodeRawContract.binding.exit args outcome before after) :
+    DecodeRawCallerSaveArea args before after := post.2.2.2.2
 
 /-- The unresolved Level 3 condition for the one emitted `decodeRaw` instance. -/
 abbrev CompiledDecodeRawInstanceContract : Prop :=
