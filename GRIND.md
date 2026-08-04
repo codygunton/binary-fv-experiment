@@ -105,11 +105,17 @@ frame, region-membership, fetch, address — would replace most of the 624.
 
 Two consequences that do not follow from line counts:
 
-- **A correct lemma that is expensive to *invoke* will be routed around.**
-  `afterRegisterWrite_register` states the single most-repeated goal in the PR exactly, and is used
-  **twice repo-wide against 181 inline re-derivations across 15 files**, because citing it requires
-  constructing five explicit disequality arguments while the `simp` list above it is
-  copy-pasteable. Invocation cost is a first-class design constraint, not a detail.
+- **A correct lemma that is expensive to *invoke* is under-used.**
+  `afterRegisterWrite_register` states the single most-repeated goal in the PR exactly. It has **49
+  external call sites, against 192 inline re-derivations that unfold `afterRegisterWrite` by hand —
+  20% adoption**. Citing it requires six positional arguments plus five explicit disequalities,
+  while the `simp` list above it is copy-pasteable. Invocation cost is a first-class design
+  constraint, not a detail.
+
+  *(An earlier revision of this document said "used twice repo-wide". That was wrong — one survey
+  area reported 2 where two others reported 48 and 50, and the wrong figure was carried forward. The
+  finding survives as under-adoption rather than total avoidance, and the expected payoff is
+  correspondingly smaller. Recount before quoting any figure here; see section 8's Stage 0 note.)*
 - **Predictability beats speed.** A tactic that closes at chain depth 3, fails at 4, and needs
   `(ematch := 40) (gen := 20)` at depth 10 is expensive even when fast, because each failure is
   opaque and starts a guess loop. Prefer a convention that always works — one hop per `have` — over
@@ -432,18 +438,26 @@ is a composition of the same four transformers in `Step/ControlFlow.lean`.
 So: **collapse the ad-hoc composites into instances of `afterRegisterWrite` first, then build one
 set keyed to the five shared transformers** in `Step/ControlFlow.lean` and `Step/Call.lean`.
 
-Measured demand for the two largest rows:
+Measured demand, recounted with an explicit predicate (Stage 0 below), not taken from the survey:
 
-| Row | Inline re-proofs | Files |
+An **inline frame re-derivation** is a `simp`/`simpa`/`dsimp`/`rw` whose bracket cites
+`Std.ExtDHashMap.get?_insert` (so it is reading a register) **and** at least one step-unfolding
+definition (so the author unfolded rather than citing a frame lemma). By that predicate:
+
+| Row | Inline re-derivations | Files |
 |---|---|---|
-| `coreControlFlowNextState ∘ tryStepControlFlowAfterIncrement` (the `executeState` row) | **284** | 23 |
-| `afterRegisterWrite` register survival | **181** | 15 |
+| **All rows** | **528** | 24 |
+| `coreControlFlowNextState ∘ tryStepControlFlowAfterIncrement` (the `executeState` row) | **465** | 24 |
+| citing `afterRegisterWrite` | **192** | 15 |
 
-The second row's lemma **already exists** — `afterRegisterWrite_register` — and is used twice in the
-entire repository. Two independent ergonomic causes were diagnosed: it takes five explicit
-disequality arguments, so citing it is longer than re-deriving it; and `let`-bound successor states
-hide it. A grindset fixes both, because `grind` discharges those disequalities itself (they are 22%
-of all obligations in one area, 169 and 81 in two others).
+The second row's lemma **already exists** — `afterRegisterWrite_register`, with **49 external call
+sites, i.e. 20% adoption**. Two independent ergonomic causes were diagnosed: six positional
+arguments plus five explicit disequalities make citing it longer than re-deriving it, and
+`let`-bound successor states hide it. Both the write-set frame (section 3a) and a grindset address
+the disequalities; only the write-set frame addresses the positional arguments.
+
+The reproducible counting script is
+`scratchpad/count_rederivations.py` — rerun it rather than quoting these numbers second-hand.
 
 Layout B, `@[riscv_frame, grind =]` for `unchanged`/`derived` cells, `@[grind =]` alone for
 conditional ones, plus the literal-normalisation companion from section 5. Macro carries

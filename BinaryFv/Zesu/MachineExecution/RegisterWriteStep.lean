@@ -77,6 +77,30 @@ theorem afterRegisterWrite_register (state : State) (pc retired : BitVec 64)
     coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
     notDestination, notPc, notNextPc, notIncrement, notRetired]
 
+/-- The write set of a full register-writing retirement: the `try_step` bookkeeping, plus the
+instruction's destination.
+
+`destination` is a parameter, so it is kept as a separate `RegSet.only` rather than folded into a
+closed set. That is what lets `RegSet.Disjoint.union` split a later disjointness obligation into a
+fact about the bookkeeping — proved once per preserved predicate — and the single disequality about
+the destination. Widening the destination into a closed over-approximation would look tempting and
+is wrong: it strengthens the disjointness obligation into something false for `platformPreserved`,
+which holds `x1`.
+
+The proof is a repackaging of `afterRegisterWrite_register` and adds no machine reasoning; the
+hypotheses that lemma already takes one at a time are exactly this set, enumerated. -/
+theorem afterRegisterWrite_writes (state : State) (pc retired : BitVec 64)
+    (destination : Register) (value : RegisterType destination) :
+    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only destination)) state
+      (afterRegisterWrite state pc retired destination value) :=
+  fun r hr =>
+    afterRegisterWrite_register state pc retired destination r value
+      (fun h => hr (Or.inr h.symm))
+      (fun h => hr (Or.inl (Or.inl h.symm)))
+      (fun h => hr (Or.inl (Or.inr (Or.inl h.symm))))
+      (fun h => hr (Or.inl (Or.inr (Or.inr (Or.inr h.symm)))))
+      (fun h => hr (Or.inl (Or.inr (Or.inr (Or.inl h.symm)))))
+
 theorem afterRegisterWrite_mem (state : State) (pc retired : BitVec 64)
     (destination : Register) (value : RegisterType destination) :
     (afterRegisterWrite state pc retired destination value).mem = state.mem := rfl
