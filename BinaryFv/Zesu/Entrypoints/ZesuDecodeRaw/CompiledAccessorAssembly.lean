@@ -102,8 +102,8 @@ theorem decodeRun_of_compiledLevel1 (decode : DecodeInstanceObligation) (input :
   have sameState : abiState = entryState := by
     unfold Runs at hrun hrunAbi
     rw [hrun] at hrunAbi
-    injection hrunAbi
-    assumption
+    injection hrunAbi with _ stateEqual
+    exact stateEqual.symm
   subst abiState
   change preZesuDecodeRaw canonicalEnvironment Elflings.canonicalDecoderGlobalsLayout Elflings.canonicalResultBuffer
       canonicalRepRawV4 DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ entryState ∧
@@ -145,7 +145,10 @@ theorem decodeRun_of_compiledLevel1 (decode : DecodeInstanceObligation) (input :
     loadPlatformPinned_frame (platformPreserved_mstatus hframe.agree)
       (platformPreserved_mseccfg hframe.agree)
       (platformPreserved_pmaRegions hframe.agree) hloadsAtExit
-  exact ⟨entryState, atExit, finalState, count, hrun, hsentinel, by omega, hexit, hframe,
+  have hbound' : count ≤ entryStepBound input.size := by
+    simpa [compiledZesuDecodeRawContract, functionInstanceZesuDecodeRaw, entryStepBound] using hbound
+  exact ⟨entryState, atExit, finalState, count, hrun, hsentinel,
+    Nat.add_le_add_right hbound' 1, hexit, hframe,
     exitPlatformsFor_of_exitRetFrame hframe hexit.2.1
       (exitPlatformsFor_of_agree hexit.2.2.2.1 hexit.2.2.2.2.1 hexit.2.1
         hplatformEntry), hloadsFinal⟩
