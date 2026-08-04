@@ -560,6 +560,31 @@ private theorem wrapperDispatchBranchNotTakenAfter_agree (state : State) (pc ret
     tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notRetired, notPc,
     notNextPc, notIncrement]
 
+private theorem wrapperDispatchJumpAfter_agree (state pc target retired : BitVec 64) :
+    Agree platformPreserved state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) := by
+  intro register preserved
+  have notRetired : minstret ≠ register := by
+    intro equal
+    subst register
+    simp [platformPreserved] at preserved
+  have notPc : PC ≠ register := by
+    intro equal
+    subst register
+    simp [platformPreserved] at preserved
+  have notNextPc : nextPC ≠ register := by
+    intro equal
+    subst register
+    simp [platformPreserved] at preserved
+  have notIncrement : minstret_increment ≠ register := by
+    intro equal
+    subst register
+    simp [platformPreserved] at preserved
+  simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
+    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
+    notRetired, notPc, notNextPc, notIncrement]
+
 /-- Exact post-state of the tag-one branch at `0x10408`. -/
 def wrapperDispatchTag1BranchAfter (state : State) (retired : BitVec 64) : State :=
   tryStepControlFlowAfterRetired
@@ -1732,6 +1757,10 @@ theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base stat
     simpa [s4] using afterRegisterWrite_pc s3 (BitVec.ofNat 64 0x10438) r4 x11 (BitVec.ofNat 64 3)
   obtain ⟨r5, run5⟩ := wrapper_dispatch_tag3_to_rejection_step machine agree4 retired4 code4
     (stepNo + 4) pc4
+  let s5 := tryStepControlFlowAfterRetired
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement s4)
+      (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c))
+    (BitVec.ofNat 64 0x1035c) r5
   refine ⟨⟨5, s5, Trace.step stepNo 4 state s1 s5 (by simpa [s1] using run1)
     (Trace.step (stepNo + 1) 3 s1 s2 s5 (by simpa [s1, s2] using run2)
     (Trace.step (stepNo + 2) 2 s2 s3 s5 (by simpa [s2, s3] using run3)
