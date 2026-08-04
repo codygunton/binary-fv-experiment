@@ -752,4 +752,121 @@ theorem wrapper_epilogue_first_restore_and_ra {base state : State} {machineArgs 
   · exact WrapperSavedRegisterFrame.of_mem_eq frameFirst (afterRegisterWrite_mem _ _ _ _ _)
   · exact afterRegisterWrite_retired_present _ _ _ _ _
 
+/-- Restore the three saved callee registers in the wrapper's real epilogue.  This begins at
+`0x10368`, immediately after `wrapper_epilogue_first_restore_and_ra`; the saved values are
+arbitrary frame contents, not ABI defaults. -/
+theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineArgs : DecoderMachineArgs}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree decoderPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (fromStep : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10368))
+    (stackBase link savedS0 savedS1 savedS2 stack result status s0Address s1Address s2Address : BitVec 64)
+    (frame : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 state)
+    (stackValue : state.regs.get? x2 = some stack)
+    (resultValue : state.regs.get? x10 = some result)
+    (statusValue : state.regs.get? x11 = some status)
+    (s0AddressEq : stack + sign_extend (m := 64) (0x7e0#12) = s0Address)
+    (s1AddressEq : stack + sign_extend (m := 64) (0x7d8#12) = s1Address)
+    (s2AddressEq : stack + sign_extend (m := 64) (0x7d0#12) = s2Address)
+    (s0AddressNat : stackBase.toNat + 0xa10 = s0Address.toNat)
+    (s1AddressNat : stackBase.toNat + 0xa08 = s1Address.toNat)
+    (s2AddressNat : stackBase.toNat + 0xa00 = s2Address.toNat)
+    (s0Aligned : is_aligned_vaddr (virtaddr.Virtaddr s0Address) 8 = true)
+    (s1Aligned : is_aligned_vaddr (virtaddr.Virtaddr s1Address) 8 = true)
+    (s2Aligned : is_aligned_vaddr (virtaddr.Virtaddr s2Address) 8 = true)
+    (s0Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s0Address 8)
+    (s1Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s1Address 8)
+    (s2Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s2Address 8) :
+    ∃ retiredS0 retiredS1 retiredS2,
+      let afterS0 := afterRegisterWrite state (BitVec.ofNat 64 0x10368) retiredS0 x8 savedS0
+      let afterS1 := afterRegisterWrite afterS0 (BitVec.ofNat 64 0x1036c) retiredS1 x9 savedS1
+      let afterS2 := afterRegisterWrite afterS1 (BitVec.ofNat 64 0x10370) retiredS2 x18 savedS2
+      Runs (try_step fromStep false) state afterS0 false ∧
+      Runs (try_step (fromStep + 1) false) afterS0 afterS1 false ∧
+      Runs (try_step (fromStep + 2) false) afterS1 afterS2 false ∧
+      Trace fromStep 3 state afterS2 ∧
+      afterS2.regs.get? x8 = some savedS0 ∧ afterS2.regs.get? x9 = some savedS1 ∧
+      afterS2.regs.get? x18 = some savedS2 ∧ afterS2.regs.get? x2 = some stack ∧
+      afterS2.regs.get? x10 = some result ∧ afterS2.regs.get? x11 = some status ∧
+      WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 afterS2 ∧
+      canonicalContractParams.env.CodeIntact afterS2 ∧ Agree decoderPreserved base afterS2 ∧
+      RetiredCounterPresent afterS2 := by
+  obtain ⟨retiredS0, s0Run⟩ := wrapper_epilogue_load_s0_step machine agree retiredPresent code
+    fromStep atPc stack savedS0 s0Address stackValue s0AddressEq (stackBase.toNat + 0xa10)
+    s0AddressNat frame.2.1 s0Aligned s0Allowed
+  let afterS0 := afterRegisterWrite state (BitVec.ofNat 64 0x10368) retiredS0 x8 savedS0
+  have agreeS0 : Agree decoderPreserved base afterS0 :=
+    agree.trans (afterRegisterWrite_agree_of (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved]))
+  have retiredS0Present : RetiredCounterPresent afterS0 :=
+    afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10368) retiredS0 x8 savedS0
+  have atS1 : afterS0.regs.get? PC = some (BitVec.ofNat 64 0x1036c) := by
+    simpa [afterS0] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x10368) retiredS0 x8 savedS0
+  have stackS0 : afterS0.regs.get? x2 = some stack := by
+    simp [afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, stackValue]
+  have frameS0 : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 afterS0 :=
+    WrapperSavedRegisterFrame.of_mem_eq frame (afterRegisterWrite_mem _ _ _ _ _)
+  have codeS0 : canonicalContractParams.env.CodeIntact afterS0 := by
+    simpa [afterS0, afterRegisterWrite_mem] using code
+  have machineS0 := machine.mono agreeS0 retiredS0Present
+  obtain ⟨retiredS1, s1Run⟩ := wrapper_epilogue_load_s1_step machineS0 (Agree.refl afterS0)
+    retiredS0Present codeS0 (fromStep + 1) atS1 stack savedS1 s1Address stackS0 s1AddressEq
+    (stackBase.toNat + 0xa08) s1AddressNat frameS0.2.2.1 s1Aligned s1Allowed
+  let afterS1 := afterRegisterWrite afterS0 (BitVec.ofNat 64 0x1036c) retiredS1 x9 savedS1
+  have agreeS1 : Agree decoderPreserved base afterS1 :=
+    agreeS0.trans (afterRegisterWrite_agree_of (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved]))
+  have retiredS1Present : RetiredCounterPresent afterS1 :=
+    afterRegisterWrite_retired_present afterS0 (BitVec.ofNat 64 0x1036c) retiredS1 x9 savedS1
+  have atS2 : afterS1.regs.get? PC = some (BitVec.ofNat 64 0x10370) := by
+    simpa [afterS1] using afterRegisterWrite_pc afterS0 (BitVec.ofNat 64 0x1036c) retiredS1 x9 savedS1
+  have stackS1 : afterS1.regs.get? x2 = some stack := by
+    simp [afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, stackValue]
+  have frameS1 : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 afterS1 :=
+    WrapperSavedRegisterFrame.of_mem_eq frameS0 (afterRegisterWrite_mem _ _ _ _ _)
+  have codeS1 : canonicalContractParams.env.CodeIntact afterS1 := by
+    simpa [afterS1, afterRegisterWrite_mem] using codeS0
+  have machineS1 := machine.mono agreeS1 retiredS1Present
+  obtain ⟨retiredS2, s2Run⟩ := wrapper_epilogue_load_s2_step machineS1 (Agree.refl afterS1)
+    retiredS1Present codeS1 (fromStep + 2) atS2 stack savedS2 s2Address stackS1 s2AddressEq
+    (stackBase.toNat + 0xa00) s2AddressNat frameS1.2.2.2 s2Aligned s2Allowed
+  let afterS2 := afterRegisterWrite afterS1 (BitVec.ofNat 64 0x10370) retiredS2 x18 savedS2
+  refine ⟨retiredS0, retiredS1, retiredS2, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · simpa [afterS0] using s0Run
+  · simpa [afterS0, afterS1] using s1Run
+  · simpa [afterS1, afterS2] using s2Run
+  · refine Trace.step fromStep 2 state afterS0 afterS2 (by simpa [afterS0] using s0Run) ?_
+    refine Trace.step (fromStep + 1) 1 afterS0 afterS1 afterS2 (by simpa [afterS0, afterS1] using s1Run) ?_
+    exact Trace.one (fromStep + 2) afterS1 afterS2 (by simpa [afterS1, afterS2] using s2Run)
+  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert]
+  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert]
+  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, stackValue]
+  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, resultValue]
+  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, statusValue]
+  · exact WrapperSavedRegisterFrame.of_mem_eq frameS1 (afterRegisterWrite_mem _ _ _ _ _)
+  · simpa [afterS2, afterRegisterWrite_mem] using codeS1
+  · exact agreeS1.trans (afterRegisterWrite_agree_of (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved]))
+  · exact afterRegisterWrite_retired_present afterS1 (BitVec.ofNat 64 0x10370) retiredS2 x18 savedS2
+
 end BinaryFv.Zesu.MachineExecution
