@@ -575,7 +575,7 @@ private theorem wrapperDispatchBranchNotTakenAfter_agree (state : State) (pc ret
     tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notRetired, notPc,
     notNextPc, notIncrement]
 
-private theorem wrapperDispatchJumpAfter_agree (state pc target retired : BitVec 64) :
+private theorem wrapperDispatchJumpAfter_agree (state : State) (pc target retired : BitVec 64) :
     Agree platformPreserved state
       (tryStepControlFlowAfterRetired
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) := by
@@ -1556,6 +1556,10 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
     simpa [s8] using afterRegisterWrite_pc s7 (BitVec.ofNat 64 0x10418) r8 x11 (BitVec.ofNat 64 2)
   obtain ⟨r9, run9⟩ := wrapper_dispatch_tag2_to_rejection_step machine agree8 retired8 code8
     (stepNo + 8) pc8
+  let s9 := tryStepControlFlowAfterRetired
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement s8)
+      (BitVec.ofNat 64 0x1041c) (BitVec.ofNat 64 0x1035c))
+    (BitVec.ofNat 64 0x1035c) r9
   refine ⟨⟨9, s9, Trace.step stepNo 8 state s1 s9 run1
     (Trace.step (stepNo + 1) 7 s1 s2 s9 run2
     (Trace.step (stepNo + 2) 6 s2 s3 s9 run3
@@ -1681,6 +1685,10 @@ theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base stat
     simpa [s6] using afterRegisterWrite_pc s5 (BitVec.ofNat 64 0x1042c) r6 x11 (BitVec.ofNat 64 4)
   obtain ⟨r7, run7⟩ := wrapper_dispatch_tag1_to_rejection_step machine agree6 retired6 code6
     (stepNo + 6) pc6
+  let s7 := tryStepControlFlowAfterRetired
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement s6)
+      (BitVec.ofNat 64 0x10430) (BitVec.ofNat 64 0x1035c))
+    (BitVec.ofNat 64 0x1035c) r7
   refine ⟨⟨7, s7, Trace.step stepNo 6 state s1 s7 (by simpa [s1] using run1)
     (Trace.step (stepNo + 1) 5 s1 s2 s7 (by simpa [s1, s2] using run2)
     (Trace.step (stepNo + 2) 4 s2 s3 s7 (by simpa [s2, s3] using run3)
