@@ -33,8 +33,7 @@ theorem allocator_data_pointer_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102f0)
       0x93#8 0x05#8 0x19#8 0x00#8 :=
-  fetchFileInstruction state 0x102f0 0x93 0x05 0x19 0x00 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x102f0 0x93 0x05 0x19 0x00 loaded
 
 theorem allocator_data_pointer_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -532,8 +531,7 @@ theorem wrapper_allocator_tag_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102f4)
       0x23#8 0x00#8 0xa9#8 0x00#8 :=
-  fetchFileInstruction state 0x102f4 0x23 0x00 0xa9 0x00 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x102f4 0x23 0x00 0xa9 0x00 loaded
 
 theorem wrapper_allocator_tag_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -546,8 +544,7 @@ theorem allocator_function_page_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102f8)
       0x17#8 0x45#8 0x00#8 0x00#8 :=
-  fetchFileInstruction state 0x102f8 0x17 0x45 0x00 0x00 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x102f8 0x17 0x45 0x00 0x00 loaded
 
 theorem allocator_function_page_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -560,8 +557,7 @@ theorem allocator_function_address_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102fc)
       0x13#8 0x05#8 0x85#8 0xc7#8 :=
-  fetchFileInstruction state 0x102fc 0x13 0x05 0x85 0xc7 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x102fc 0x13 0x05 0x85 0xc7 loaded
 
 theorem allocator_function_address_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -574,8 +570,7 @@ theorem allocator_context_store_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10300)
       0x23#8 0x38#8 0xb1#8 0x00#8 :=
-  fetchFileInstruction state 0x10300 0x23 0x38 0xb1 0x00 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x10300 0x23 0x38 0xb1 0x00 loaded
 
 theorem allocator_context_store_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -588,8 +583,7 @@ theorem allocator_function_store_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10304)
       0x23#8 0x3c#8 0xa1#8 0x00#8 :=
-  fetchFileInstruction state 0x10304 0x23 0x3c 0xa1 0x00 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x10304 0x23 0x3c 0xa1 0x00 loaded
 
 theorem allocator_function_store_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)

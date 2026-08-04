@@ -54,8 +54,7 @@ theorem retry_short_length_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
     hasExactErePrefix_programImage_of_codeIntact frame.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10394) 0x63#8 0x66#8 0xa6#8 0x08#8 :=
-    fetchFileInstruction state 0x10394 0x63 0x66 0xa6 0x08 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10394 0x63 0x66 0xa6 0x08 image
   have machine := pre.machine.mono frame.agree frame.retiredCounter
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x10394) atPc ⟨pcIn, by native_decide⟩ _ _ _ _ fetchBytes
@@ -211,8 +210,7 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
     hasExactErePrefix_programImage_of_codeIntact frame.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103f8) 0x03#8 0x55#8 0x05#8 0x9f#8 :=
-    fetchFileInstruction state 0x103f8 0x03 0x55 0x05 0x9f image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103f8 0x03 0x55 0x05 0x9f image
   have machine := pre.machine.mono frame.agree frame.retiredCounter
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103f8) atPc fetchPc _ _ _ _ fetchBytes

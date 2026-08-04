@@ -59,8 +59,7 @@ theorem first_memcpy_call_step (stepNo : Nat) (args : DecodeInlineArgs)
     hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10338) 0xe7#8 0x80#8 0x40#8 0xb8#8 :=
-    fetchFileInstruction state 0x10338 0xe7 0x80 0x40 0xb8 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10338 0xe7 0x80 0x40 0xb8 image
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform_of_decoderAgree pre.machine agree
     (BitVec.ofNat 64 0x10338) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform

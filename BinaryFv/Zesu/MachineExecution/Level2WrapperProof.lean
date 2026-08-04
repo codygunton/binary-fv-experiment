@@ -522,9 +522,8 @@ theorem wrapper_first_frame_decrement_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102b0)
       0x13#8 0x01#8 0x01#8 0x81#8 :=
-  fetchFileInstruction state 0x102b0 0x13 0x01 0x01 0x81
+  fetchInstruction state 0x102b0 0x13 0x01 0x01 0x81
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_first_frame_decrement_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -612,9 +611,8 @@ theorem wrapper_save_link_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102b4)
       0x23#8 0x34#8 0x11#8 0x7e#8 :=
-  fetchFileInstruction state 0x102b4 0x23 0x34 0x11 0x7e
+  fetchInstruction state 0x102b4 0x23 0x34 0x11 0x7e
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_save_link_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -637,25 +635,22 @@ theorem wrapper_save_s0_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102b8)
       0x23#8 0x30#8 0x81#8 0x7e#8 :=
-  fetchFileInstruction state 0x102b8 0x23 0x30 0x81 0x7e
+  fetchInstruction state 0x102b8 0x23 0x30 0x81 0x7e
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_save_s1_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102bc)
       0x23#8 0x3c#8 0x91#8 0x7c#8 :=
-  fetchFileInstruction state 0x102bc 0x23 0x3c 0x91 0x7c
+  fetchInstruction state 0x102bc 0x23 0x3c 0x91 0x7c
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_save_s2_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102c0)
       0x23#8 0x38#8 0x21#8 0x7d#8 :=
-  fetchFileInstruction state 0x102c0 0x23 0x38 0x21 0x7d
+  fetchInstruction state 0x102c0 0x23 0x38 0x21 0x7d
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_save_s0_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -1259,9 +1254,8 @@ theorem wrapper_final_frame_decrement_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102c4)
       0x13#8 0x01#8 0x01#8 0xdd#8 :=
-  fetchFileInstruction state 0x102c4 0x13 0x01 0x01 0xdd
+  fetchInstruction state 0x102c4 0x13 0x01 0x01 0xdd
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_final_frame_decrement_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -1412,9 +1406,8 @@ theorem wrapper_preserve_length_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102c8)
       0x93#8 0x84#8 0x05#8 0x00#8 :=
-  fetchFileInstruction state 0x102c8 0x93 0x84 0x05 0x00
+  fetchInstruction state 0x102c8 0x93 0x84 0x05 0x00
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_preserve_length_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -1477,9 +1470,8 @@ theorem wrapper_globals_page_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102cc)
       0x97#8 0x55#8 0x20#8 0x04#8 :=
-  fetchFileInstruction state 0x102cc 0x97 0x55 0x20 0x04
+  fetchInstruction state 0x102cc 0x97 0x55 0x20 0x04
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_globals_page_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -1532,9 +1524,8 @@ theorem wrapper_globals_address_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102d0)
       0x13#8 0x89#8 0x45#8 0xd5#8 :=
-  fetchFileInstruction state 0x102d0 0x13 0x89 0x45 0xd5
+  fetchInstruction state 0x102d0 0x13 0x89 0x45 0xd5
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_globals_address_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -1591,9 +1582,8 @@ theorem wrapper_attempted_load_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102d4)
       0x83#8 0x45#8 0x09#8 0x00#8 :=
-  fetchFileInstruction state 0x102d4 0x83 0x45 0x09 0x00
+  fetchInstruction state 0x102d4 0x83 0x45 0x09 0x00
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_attempted_load_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -1724,9 +1714,8 @@ theorem wrapper_fresh_branch_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102d8)
       0x63#8 0x88#8 0x05#8 0x00#8 :=
-  fetchFileInstruction state 0x102d8 0x63 0x88 0x05 0x00
+  fetchInstruction state 0x102d8 0x63 0x88 0x05 0x00
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_fresh_branch_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -2040,9 +2029,8 @@ theorem wrapper_save_input_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102e8)
       0x13#8 0x04#8 0x05#8 0x00#8 :=
-  fetchFileInstruction state 0x102e8 0x13 0x04 0x05 0x00
+  fetchInstruction state 0x102e8 0x13 0x04 0x05 0x00
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_save_input_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -2099,9 +2087,8 @@ theorem wrapper_attempted_value_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102ec)
       0x13#8 0x05#8 0x10#8 0x00#8 :=
-  fetchFileInstruction state 0x102ec 0x13 0x05 0x10 0x00
+  fetchInstruction state 0x102ec 0x13 0x05 0x10 0x00
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
 
 theorem wrapper_attempted_value_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -3053,8 +3040,7 @@ theorem wrapper_decode_first_error_branch_step (stepNo : Nat) (args : DecodeInli
     hasExactErePrefix_programImage_of_codeIntact frame.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10324) 0x63#8 0x1c#8 0x05#8 0x04#8 :=
-    fetchFileInstruction state 0x10324 0x63 0x1c 0x05 0x04 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10324 0x63 0x1c 0x05 0x04 image
   have machine := pre.machine.mono frame.agree frame.retiredCounter
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x10324) atPc ⟨pcIn, by native_decide⟩ _ _ _ _ fetchBytes
@@ -3217,9 +3203,8 @@ theorem wrapper_retry_reason_step {machineArgs : DecoderMachineArgs} {base state
     native_decide
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1037c) 0x93#8 0x05#8 0x20#8 0x00#8 :=
-    fetchFileInstruction state 0x1037c 0x93 0x05 0x20 0x00
+    fetchInstruction state 0x1037c 0x93 0x05 0x20 0x00
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
     agree.trans (agree_afterIncrement state)
   have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =

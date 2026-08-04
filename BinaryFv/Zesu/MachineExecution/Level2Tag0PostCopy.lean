@@ -62,8 +62,7 @@ theorem tag0_postcopy_status_register_step {machineArgs : DecoderMachineArgs} {b
   have image := hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10350) 0x93#8 0x05#8 0x10#8 0x00#8 :=
-    fetchFileInstruction state 0x10350 0x93 0x05 0x10 0x00 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10350 0x93 0x05 0x10 0x00 image
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine pre.platform
     (BitVec.ofNat 64 0x10350) pre.atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -123,9 +122,8 @@ theorem tag0_postcopy_status_store_step {machineArgs : DecoderMachineArgs} {base
     native_decide
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10354) 0x23#8 0x08#8 0xb9#8 0x34#8 :=
-    fetchFileInstruction state 0x10354 0x23 0x08 0xb9 0x34
+    fetchInstruction state 0x10354 0x23 0x08 0xb9 0x34
       (hasExactErePrefix_programImage_of_codeIntact pre.code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   obtain ⟨mstatusBits, mstatusRead, mprvDisabled⟩ := pre.machine.mstatus
   obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := pre.machine.mseccfg
   have decoderAgree : Agree decoderPreserved base state :=
@@ -262,8 +260,7 @@ theorem tag0_postcopy_result_register_step {machineArgs : DecoderMachineArgs} {b
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10358) 0x13#8 0x05#8 0x10#8 0x00#8 :=
-    fetchFileInstruction state 0x10358 0x13 0x05 0x10 0x00 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10358 0x13 0x05 0x10 0x00 image
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine agree
     (BitVec.ofNat 64 0x10358) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform

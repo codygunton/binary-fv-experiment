@@ -121,9 +121,8 @@ theorem retry_rejection_clear_result_step {machineArgs : DecoderMachineArgs} {ba
       (BitVec.ofNat 64 0x10420) := ⟨pcIn, by native_decide⟩
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10420) 0x13#8 0x05#8 0x00#8 0x00#8 :=
-    fetchFileInstruction state 0x10420 0x13 0x05 0x00 0x00
+    fetchInstruction state 0x10420 0x13 0x05 0x00 0x00
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
     agree.trans (agree_afterIncrement state)
   have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
@@ -172,9 +171,8 @@ theorem retry_rejection_to_rejection_step {machineArgs : DecoderMachineArgs} {ba
       (BitVec.ofNat 64 0x10424) := ⟨pcIn, by native_decide⟩
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10424) 0x6f#8 0xf0#8 0x9f#8 0xf3#8 :=
-    fetchFileInstruction state 0x10424 0x6f 0xf0 0x9f 0xf3
+    fetchInstruction state 0x10424 0x6f 0xf0 0x9f 0xf3
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
     agree.trans (agree_afterIncrement state)
   have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =

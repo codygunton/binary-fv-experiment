@@ -47,8 +47,7 @@ theorem decodeInline_propagate_error_branch_step (stepNo : Nat) (args : DecodeIn
     hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10380) 0x63#8 0x1e#8 0xb5#8 0x06#8 :=
-    fetchFileInstruction state 0x10380 0x63 0x1e 0xb5 0x06 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10380 0x63 0x1e 0xb5 0x06 image
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine (Agree.refl state)
     (BitVec.ofNat 64 0x10380) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform

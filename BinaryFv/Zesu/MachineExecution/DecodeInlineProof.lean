@@ -185,8 +185,7 @@ theorem decodeInline_first_result_pointer_step (stepNo : Nat) (args : DecodeInli
   have code := hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10308) 0x13#8 0x05#8 0x01#8 0x36#8 :=
-    fetchFileInstruction state 0x10308 0x13 0x05 0x01 0x36 code
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10308 0x13 0x05 0x01 0x36 code
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine (Agree.refl state)
     (BitVec.ofNat 64 0x10308) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -236,8 +235,7 @@ theorem decodeInline_first_allocator_pointer_step (stepNo : Nat) (args : DecodeI
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1030c) 0x93#8 0x05#8 0x01#8 0x01#8 :=
-    fetchFileInstruction state 0x1030c 0x93 0x05 0x01 0x01 code
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x1030c 0x93 0x05 0x01 0x01 code
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine agree
     (BitVec.ofNat 64 0x1030c) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -287,8 +285,7 @@ theorem decodeInline_first_input_pointer_step (stepNo : Nat) (args : DecodeInlin
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10310) 0x13#8 0x06#8 0x04#8 0x00#8 :=
-    fetchFileInstruction state 0x10310 0x13 0x06 0x04 0x00 code
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10310 0x13 0x06 0x04 0x00 code
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine agree
     (BitVec.ofNat 64 0x10310) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -338,8 +335,7 @@ theorem decodeInline_first_input_length_step (stepNo : Nat) (args : DecodeInline
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10314) 0x93#8 0x86#8 0x04#8 0x00#8 :=
-    fetchFileInstruction state 0x10314 0x93 0x86 0x04 0x00 code
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10314 0x93 0x86 0x04 0x00 code
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine agree
     (BitVec.ofNat 64 0x10314) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -575,8 +571,7 @@ theorem decodeInline_first_call_page_step (stepNo : Nat) (args : DecodeInlineArg
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10318) 0x97#8 0x00#8 0x00#8 0x00#8 :=
-    fetchFileInstruction state 0x10318 0x97 0x00 0x00 0x00 code
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10318 0x97 0x00 0x00 0x00 code
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine agree
     (BitVec.ofNat 64 0x10318) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -766,8 +761,7 @@ theorem decodeInline_first_decodeRaw_call_step (stepNo : Nat) (args : DecodeInli
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1031c) 0xe7#8 0x80#8 0xc0#8 0x12#8 :=
-    fetchFileInstruction state 0x1031c 0xe7 0x80 0xc0 0x12 code
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x1031c 0xe7 0x80 0xc0 0x12 code
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform_of_decoderAgree pre.machine agree
     (BitVec.ofNat 64 0x1031c) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -1434,8 +1428,7 @@ theorem decodeInline_first_result_tag_step (stepNo : Nat) (args : DecodeInlineAr
     hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10320) 0x03#8 0x55#8 0x01#8 0x6a#8 :=
-    fetchFileInstruction state 0x10320 0x03 0x55 0x01 0x6a image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10320 0x03 0x55 0x01 0x6a image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x10320) atPc pcIn _ _ _ _ fetchBytes
@@ -1700,8 +1693,7 @@ theorem decodeInline_first_success_branch_step (stepNo : Nat) (args : DecodeInli
     hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10324) 0x63#8 0x1c#8 0x05#8 0x04#8 :=
-    fetchFileInstruction state 0x10324 0x63 0x1c 0x05 0x04 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10324 0x63 0x1c 0x05 0x04 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x10324) atPc pcIn _ _ _ _ fetchBytes
@@ -1756,8 +1748,7 @@ theorem decodeInline_first_success_copy_destination_step (stepNo : Nat) (args : 
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10328) 0x13#8 0x05#8 0x01#8 0x02#8 :=
-    fetchFileInstruction state 0x10328 0x13 0x05 0x01 0x02 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10328 0x13 0x05 0x01 0x02 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x10328) atPc pcIn _ _ _ _ fetchBytes
@@ -1808,8 +1799,7 @@ theorem decodeInline_first_success_copy_source_step (stepNo : Nat) (args : Decod
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1032c) 0x93#8 0x05#8 0x01#8 0x36#8 :=
-    fetchFileInstruction state 0x1032c 0x93 0x05 0x01 0x36 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x1032c 0x93 0x05 0x01 0x36 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x1032c) atPc pcIn _ _ _ _ fetchBytes
@@ -1859,8 +1849,7 @@ theorem decodeInline_first_success_copy_length_step (stepNo : Nat) (args : Decod
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10330) 0x13#8 0x06#8 0x00#8 0x34#8 :=
-    fetchFileInstruction state 0x10330 0x13 0x06 0x00 0x34 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10330 0x13 0x06 0x00 0x34 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x10330) atPc pcIn _ _ _ _ fetchBytes
@@ -1906,8 +1895,7 @@ theorem decodeInline_first_success_copy_call_page_step (stepNo : Nat) (args : De
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10334) 0x97#8 0x40#8 0x00#8 0x00#8 :=
-    fetchFileInstruction state 0x10334 0x97 0x40 0x00 0x00 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10334 0x97 0x40 0x00 0x00 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x10334) atPc pcIn _ _ _ _ fetchBytes
@@ -2622,8 +2610,7 @@ theorem decodeInline_retry_entry_branch_step (stepNo : Nat) (args : DecodeInline
     hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10380) 0x63#8 0x1e#8 0xb5#8 0x06#8 :=
-    fetchFileInstruction state 0x10380 0x63 0x1e 0xb5 0x06 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10380 0x63 0x1e 0xb5 0x06 image
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine (Agree.refl state)
     (BitVec.ofNat 64 0x10380) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -2679,8 +2666,7 @@ theorem decodeInline_retry_minus_one_step (stepNo : Nat) (args : DecodeInlineArg
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10384) 0x13#8 0x05#8 0xf0#8 0xff#8 :=
-    fetchFileInstruction state 0x10384 0x13 0x05 0xf0 0xff image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10384 0x13 0x05 0xf0 0xff image
   have machine := pre.machine.mono agree retiredPresent
   have privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine :=
     machine.normal.2.1
@@ -2736,8 +2722,7 @@ theorem decodeInline_retry_shift_constant_step (stepNo : Nat) (args : DecodeInli
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10388) 0x13#8 0x15#8 0x05#8 0x02#8 :=
-    fetchFileInstruction state 0x10388 0x13 0x15 0x05 0x02 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10388 0x13 0x15 0x05 0x02 image
   have machine := pre.machine.mono agree retiredPresent
   have privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine :=
     machine.normal.2.1
@@ -2800,8 +2785,7 @@ theorem decodeInline_retry_minus_four_step (stepNo : Nat) (args : DecodeInlineAr
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1038c) 0x13#8 0x06#8 0xc5#8 0xff#8 :=
-    fetchFileInstruction state 0x1038c 0x13 0x06 0xc5 0xff image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x1038c 0x13 0x06 0xc5 0xff image
   have machine := pre.machine.mono agree retiredPresent
   have privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine :=
     machine.normal.2.1
@@ -3166,8 +3150,7 @@ theorem decodeInline_retry_length_branch_step (stepNo : Nat) (args : DecodeInlin
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10394) 0x63#8 0x66#8 0xa6#8 0x08#8 :=
-    fetchFileInstruction state 0x10394 0x63 0x66 0xa6 0x08 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x10394 0x63 0x66 0xa6 0x08 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x10394) atPc pcIn _ _ _ _ fetchBytes
@@ -3462,8 +3445,7 @@ theorem decodeInline_retry_prefix_or_step (stepNo : Nat) (args : DecodeInlineArg
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103c0) 0x33#8 0x65#8 0xa7#8 0x00#8 :=
-    fetchFileInstruction state 0x103c0 0x33 0x65 0xa7 0x00 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103c0 0x33 0x65 0xa7 0x00 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨decodeMseccfg, decodePlatform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103c0) atPc pcIn _ _ _ _ fetchBytes
@@ -3583,8 +3565,7 @@ theorem decodeInline_retry_prefix_branch_not_taken (stepNo : Nat) (args : Decode
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103c4) 0x63#8 0x9e#8 0xa6#8 0x04#8 :=
-    fetchFileInstruction state 0x103c4 0x63 0x9e 0xa6 0x04 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103c4 0x63 0x9e 0xa6 0x04 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103c4) atPc pcIn _ _ _ _ fetchBytes
@@ -3671,8 +3652,7 @@ theorem decodeInline_retry_prefix_branch_taken (stepNo : Nat) (args : DecodeInli
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103c4) 0x63#8 0x9e#8 0xa6#8 0x04#8 :=
-    fetchFileInstruction state 0x103c4 0x63 0x9e 0xa6 0x04 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103c4 0x63 0x9e 0xa6 0x04 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103c4) atPc pcIn _ _ _ _ fetchBytes
@@ -3866,8 +3846,7 @@ theorem decodeInline_retry_tail_pointer_step (stepNo : Nat) (args : DecodeInline
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103c8) 0x13#8 0x06#8 0x44#8 0x00#8 :=
-    fetchFileInstruction state 0x103c8 0x13 0x06 0x44 0x00 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103c8 0x13 0x06 0x44 0x00 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103c8) atPc pcIn _ _ _ _ fetchBytes
@@ -3916,8 +3895,7 @@ theorem decodeInline_retry_result_pointer_step (stepNo : Nat) (args : DecodeInli
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103cc) 0x13#8 0x05#8 0x01#8 0x6b#8 :=
-    fetchFileInstruction state 0x103cc 0x13 0x05 0x01 0x6b image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103cc 0x13 0x05 0x01 0x6b image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103cc) atPc pcIn _ _ _ _ fetchBytes
@@ -3966,8 +3944,7 @@ theorem decodeInline_retry_allocator_pointer_step (stepNo : Nat) (args : DecodeI
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103d0) 0x93#8 0x05#8 0x01#8 0x01#8 :=
-    fetchFileInstruction state 0x103d0 0x93 0x05 0x01 0x01 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103d0 0x93 0x05 0x01 0x01 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103d0) atPc pcIn _ _ _ _ fetchBytes
@@ -4015,8 +3992,7 @@ theorem decodeInline_retry_call_page_step (stepNo : Nat) (args : DecodeInlineArg
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103d4) 0x97#8 0x00#8 0x00#8 0x00#8 :=
-    fetchFileInstruction state 0x103d4 0x97 0x00 0x00 0x00 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103d4 0x97 0x00 0x00 0x00 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103d4) atPc pcIn _ _ _ _ fetchBytes
@@ -4387,8 +4363,7 @@ theorem decodeInline_retry_decodeRaw_call_step (stepNo : Nat) (args : DecodeInli
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103d8) 0xe7#8 0x80#8 0x00#8 0x07#8 :=
-    fetchFileInstruction state 0x103d8 0xe7 0x80 0x00 0x07 code
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103d8 0xe7 0x80 0x00 0x07 code
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform_of_decoderAgree pre.machine agree
     (BitVec.ofNat 64 0x103d8) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -4772,8 +4747,7 @@ theorem decodeInline_retry_copy_destination_step (stepNo : Nat) (args : DecodeIn
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103dc) 0x13#8 0x05#8 0x01#8 0x02#8 :=
-    fetchFileInstruction state 0x103dc 0x13 0x05 0x01 0x02 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103dc 0x13 0x05 0x01 0x02 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103dc) atPc pcIn _ _ _ _ fetchBytes
@@ -4821,8 +4795,7 @@ theorem decodeInline_retry_copy_source_step (stepNo : Nat) (args : DecodeInlineA
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103e0) 0x93#8 0x05#8 0x01#8 0x6b#8 :=
-    fetchFileInstruction state 0x103e0 0x93 0x05 0x01 0x6b image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103e0 0x93 0x05 0x01 0x6b image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103e0) atPc pcIn _ _ _ _ fetchBytes
@@ -4869,8 +4842,7 @@ theorem decodeInline_retry_copy_length_step (stepNo : Nat) (args : DecodeInlineA
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103e4) 0x13#8 0x06#8 0x00#8 0x34#8 :=
-    fetchFileInstruction state 0x103e4 0x13 0x06 0x00 0x34 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103e4 0x13 0x06 0x00 0x34 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103e4) atPc pcIn _ _ _ _ fetchBytes
@@ -4913,8 +4885,7 @@ theorem decodeInline_retry_copy_call_page_step (stepNo : Nat) (args : DecodeInli
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103e8) 0x97#8 0x40#8 0x00#8 0x00#8 :=
-    fetchFileInstruction state 0x103e8 0x97 0x40 0x00 0x00 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103e8 0x97 0x40 0x00 0x00 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103e8) atPc pcIn _ _ _ _ fetchBytes
@@ -5142,8 +5113,7 @@ theorem decodeInline_retry_memcpy_call_step (stepNo : Nat) (args : DecodeInlineA
     hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103ec) 0xe7#8 0x80#8 0x00#8 0xad#8 :=
-    fetchFileInstruction state 0x103ec 0xe7 0x80 0x00 0xad image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103ec 0xe7 0x80 0x00 0xad image
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform_of_decoderAgree pre.machine agree
     (BitVec.ofNat 64 0x103ec) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -5529,8 +5499,7 @@ theorem decodeInline_retry_final_page_step (stepNo : Nat) (args : DecodeInlineAr
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103f0) 0x37#8 0x15#8 0x00#8 0x00#8 :=
-    fetchFileInstruction state 0x103f0 0x37 0x15 0x00 0x00 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103f0 0x37 0x15 0x00 0x00 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103f0) atPc pcIn _ _ _ _ fetchBytes
@@ -5576,8 +5545,7 @@ theorem decodeInline_retry_final_pointer_step (stepNo : Nat) (args : DecodeInlin
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103f4) 0x33#8 0x05#8 0xa1#8 0x00#8 :=
-    fetchFileInstruction state 0x103f4 0x33 0x05 0xa1 0x00 image
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    fetchInstruction state 0x103f4 0x33 0x05 0xa1 0x00 image
   have machine := pre.machine.mono agree retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
     (BitVec.ofNat 64 0x103f4) atPc pcIn _ _ _ _ fetchBytes

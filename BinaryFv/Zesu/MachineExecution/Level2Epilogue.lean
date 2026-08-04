@@ -67,9 +67,8 @@ theorem wrapper_epilogue_status_store_step {base state : State} {machineArgs : D
     native_decide
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1035c) 0x23#8 0x22#8 0xb9#8 0x00#8 :=
-    fetchFileInstruction state 0x1035c 0x23 0x22 0xb9 0x00
+    fetchInstruction state 0x1035c 0x23 0x22 0xb9 0x00
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   obtain ⟨mstatusBits, mstatusRead, mprvDisabled⟩ := machine.mstatus
   obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := machine.mseccfg
   obtain ⟨_, platform⟩ := decoderStepPlatform_of_decoderAgree machine agree
@@ -169,9 +168,8 @@ theorem wrapper_epilogue_first_stack_restore_step {base state : State} {machineA
     native_decide
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10360) 0x13#8 0x01#8 0x01#8 0x23#8 :=
-    fetchFileInstruction state 0x10360 0x13 0x01 0x01 0x23
+    fetchInstruction state 0x10360 0x13 0x01 0x01 0x23
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   obtain ⟨_, platform⟩ := decoderStepPlatform_of_decoderAgree machine agree
     (BitVec.ofNat 64 0x10360) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, fetchNoMMIO, fetched, interrupts, notExpected, privilege, mseccfgAtIncrement⟩ :=
@@ -294,9 +292,8 @@ theorem wrapper_epilogue_load_ra_step {base state : State} {machineArgs : Decode
       Std.ExtDHashMap.get?_insert] using stackValue
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       0x83#8 0x30#8 0x81#8 0x7e#8 :=
-    fetchFileInstruction state 0x10364 0x83 0x30 0x81 0x7e
+    fetchInstruction state 0x10364 0x83 0x30 0x81 0x7e
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   obtain ⟨mseccfgBits, mseccfgRead, _⟩ := machine.mseccfg
   have incrementAgree : Agree decoderPreserved base (tryStepControlFlowAfterIncrement state) :=
     agree.trans (Agree.weaken (fun _ preserved => preserved.2) (agree_afterIncrement state))
@@ -354,9 +351,8 @@ theorem wrapper_epilogue_load_s0_step {base state : State} {machineArgs : Decode
       Std.ExtDHashMap.get?_insert] using stackValue
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       0x03#8 0x34#8 0x01#8 0x7e#8 :=
-    fetchFileInstruction state 0x10368 0x03 0x34 0x01 0x7e
+    fetchInstruction state 0x10368 0x03 0x34 0x01 0x7e
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   obtain ⟨mseccfgBits, mseccfgRead, _⟩ := machine.mseccfg
   have incrementAgree : Agree decoderPreserved base (tryStepControlFlowAfterIncrement state) :=
     agree.trans (Agree.weaken (fun _ preserved => preserved.2) (agree_afterIncrement state))
@@ -414,9 +410,8 @@ theorem wrapper_epilogue_load_s1_step {base state : State} {machineArgs : Decode
       Std.ExtDHashMap.get?_insert] using stackValue
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       0x83#8 0x34#8 0x81#8 0x7d#8 :=
-    fetchFileInstruction state 0x1036c 0x83 0x34 0x81 0x7d
+    fetchInstruction state 0x1036c 0x83 0x34 0x81 0x7d
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   obtain ⟨mseccfgBits, mseccfgRead, _⟩ := machine.mseccfg
   have incrementAgree : Agree decoderPreserved base (tryStepControlFlowAfterIncrement state) :=
     agree.trans (Agree.weaken (fun _ preserved => preserved.2) (agree_afterIncrement state))
@@ -474,9 +469,8 @@ theorem wrapper_epilogue_load_s2_step {base state : State} {machineArgs : Decode
       Std.ExtDHashMap.get?_insert] using stackValue
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       0x03#8 0x39#8 0x01#8 0x7d#8 :=
-    fetchFileInstruction state 0x10370 0x03 0x39 0x01 0x7d
+    fetchInstruction state 0x10370 0x03 0x39 0x01 0x7d
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   obtain ⟨mseccfgBits, mseccfgRead, _⟩ := machine.mseccfg
   have incrementAgree : Agree decoderPreserved base (tryStepControlFlowAfterIncrement state) :=
     agree.trans (Agree.weaken (fun _ preserved => preserved.2) (agree_afterIncrement state))
@@ -544,9 +538,8 @@ theorem wrapper_epilogue_final_stack_restore_step {base state : State} {machineA
     native_decide
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10374) 0x13#8 0x01#8 0x01#8 0x7f#8 :=
-    fetchFileInstruction state 0x10374 0x13 0x01 0x01 0x7f
+    fetchInstruction state 0x10374 0x13 0x01 0x01 0x7f
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   obtain ⟨_, platform⟩ := decoderStepPlatform_of_decoderAgree machine agree
     (BitVec.ofNat 64 0x10374) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, fetchNoMMIO, fetched, interrupts, notExpected, privilege, mseccfgAtIncrement⟩ :=
@@ -595,9 +588,8 @@ theorem wrapper_epilogue_return_step {base state : State} {machineArgs : Decoder
     native_decide
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10378) 0x67#8 0x80#8 0x00#8 0x00#8 :=
-    fetchFileInstruction state 0x10378 0x67 0x80 0x00 0x00
+    fetchInstruction state 0x10378 0x67 0x80 0x00 0x00
       (hasExactErePrefix_programImage_of_codeIntact code)
-      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   obtain ⟨_, platform⟩ := decoderStepPlatform_of_decoderAgree machine agree
     (BitVec.ofNat 64 0x10378) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgAtIncrement⟩ := platform
