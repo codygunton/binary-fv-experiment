@@ -85,9 +85,7 @@ theorem wrapper_stack_after_stored_result {args : ZesuDecodeRawArgs} {stackBase 
     simpa only [canonicalContractParams, canonicalEnvironment] using
       pre.stackFrameWritable 0 (by decide)
   simp only [canonicalStack, range] at stackBaseInCanonicalStack
-  have canonicalStart : Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.stackBase = 0x300000000000 :=
-    by native_decide
-  rw [canonicalStart] at stackBaseInCanonicalStack
+  rw [canonicalStack_pinned.1] at stackBaseInCanonicalStack
   omega
 
 /-- Hide the proof-only stack-base witness from the public C argument type. -/
