@@ -568,4 +568,79 @@ theorem wrapper_epilogue_final_stack_restore_step {base state : State} {machineA
         using stackValue)
       hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
 
+/-- Exact state after the wrapper's final `ret` at `0x10378`. -/
+def wrapperAfterReturn (state : State) (retired link : BitVec 64) : State :=
+  tryStepControlFlowAfterRetired
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10378) link)
+    link retired
+
+/-- Retire the actual final `ret`, jumping to the explicitly restored return address. -/
+theorem wrapper_epilogue_return_step {base state : State} {machineArgs : DecoderMachineArgs}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree decoderPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10378))
+    (link : BitVec 64) (linkValue : state.regs.get? x1 = some link)
+    (linkEven : Sail.BitVec.update link 0 0#1 = link) (linkBit1 : Sail.BitVec.access link 1 = 0#1) :
+    ∃ retired, Runs (try_step stepNo false) state (wrapperAfterReturn state retired link) false ∧
+      (wrapperAfterReturn state retired link).regs.get? PC = some link := by
+  have pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (BitVec.ofNat 64 0x10378) := by
+    refine ⟨?_, by native_decide⟩
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10378) 0x67#8 0x80#8 0x00#8 0x00#8 :=
+    fetchFileInstruction state 0x10378 0x67 0x80 0x00 0x00
+      (hasExactErePrefix_programImage_of_codeIntact code)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  obtain ⟨_, platform⟩ := decoderStepPlatform_of_decoderAgree machine agree
+    (BitVec.ofNat 64 0x10378) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgAtIncrement⟩ := platform
+  obtain ⟨retired, inhibit, config, counters⟩ :=
+    decoderStepCounters_of_decoderAgree machine.normal agree retiredPresent
+  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  have wordEq : fetchWord 0x67#8 0x80#8 0x00#8 0x00#8 = (0x00008067 : BitVec 32) := by decide
+  have decode : Runs (ext_decode (fetchWord 0x67#8 0x80#8 0x00#8 0x00#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.JALR (0#12, .Regidx 1#5, .Regidx 0#5)) := by
+    rw [wordEq]
+    decode_run
+  let pc := BitVec.ofNat 64 0x10378
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
+  have executeAgree : Agree decoderPreserved base executeState :=
+    agree.trans (Agree.weaken (fun _ preserved => preserved.2) (agree_stepPremiseState state pc))
+  have helpElp : Runs (update_elp_state (.Regidx 1#5)) executeState executeState () :=
+    machine.landingPad executeState (.Regidx 1#5) trivial executeAgree
+  have nextRead : executeState.regs.get? nextPC = some (BitVec.ofNat 64 0x1037c) := by
+    simp [executeState, pc, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert]
+    decide
+  have sourceRead : executeState.regs.get? x1 = some link := by
+    simp [executeState, pc, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, linkValue]
+  obtain ⟨misaBits, misaRead, misaC⟩ : ∃ misaBits,
+      state.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
+    have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
+    have stateMisa : state.regs.get? misa = base.regs.get? misa :=
+      agree misa (by simp [decoderPreserved, platformPreserved])
+    match read : state.regs.get? misa with
+    | none => rw [← stateMisa, read] at normalMisa; contradiction
+    | some bits => exact ⟨bits, rfl, by simpa [← stateMisa, read] using normalMisa⟩
+  have zca := currentlyEnabledZca_run_atStepPremise state pc misaBits misaRead
+  have retRun := tryStepRetRetires stepNo state pc retired (.Regidx 1#5)
+    (BitVec.ofNat 64 0x1037c) link inhibit config 0x67#8 0x80#8 0x00#8 0x00#8
+    (_get_Misa_C misaBits == 1#1) fetch noMMIO fetchBytes interrupts
+    (by unfold BaseInstructionEncoding; decide) decode notExpected helpElp
+    (get_next_pc_run executeState _ nextRead) (rX_bits_run_x1 executeState _ sourceRead)
+    linkBit1 zca hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+  refine ⟨retired, ?_, ?_⟩
+  · simpa [wrapperAfterReturn, pc, linkEven] using retRun
+  · simp [wrapperAfterReturn, pc, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      Std.ExtDHashMap.get?_insert]
+
 end BinaryFv.Zesu.MachineExecution
