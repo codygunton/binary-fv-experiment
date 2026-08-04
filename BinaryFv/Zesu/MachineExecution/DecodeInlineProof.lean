@@ -1611,7 +1611,7 @@ theorem decodeInline_first_through_result_tag
     simpa [returnPcEq] using callTransfer.atResume
   obtain ⟨retired, tagRun⟩ := decodeInline_first_result_tag_step
     (fromStep + 7 + childUsed) args state resumed pre status code resumedAgree resumedRetired
-      resumedStack resumePc
+      resumedStack resumedGlobals resumePc
   let tagValue := BitVec.ofNat 64
     (Contracts.decodeInternalResultTag (Contracts.meaningDecodeRaw args.bytes))
   let afterTag := afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) retired x10 tagValue
@@ -3670,7 +3670,8 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
       DecodeInlineMachinePost state after ∧
       DecodeInlineOutgoingFrame args after := by
   obtain ⟨lengthUsed, prefixUsed, beforeOr, lengthBound, prefixBound, parentPrefix, prefixPost,
-    beforeAgree, beforeCounter, _beforeStack, inputPointer, inputLength, beforeCode, beforeMemory⟩ :=
+    beforeAgree, beforeCounter, _beforeStack, inputPointer, inputLength, _beforeGlobals,
+    beforeCode, beforeMemory⟩ :=
     decodeInline_retry_uses_prefix_bytes fromStep args state pre phase fourBytes
   obtain ⟨orRetired, orRun, orPc, orPreserves, orCounter, orMemory⟩ :=
     decodeInline_retry_prefix_or_step (fromStep + (5 + lengthUsed + prefixUsed)) args state
@@ -4830,6 +4831,7 @@ theorem decodeInline_retry_copy_setup (fromStep : Nat) (args : DecodeInlineArgs)
     (agree : Agree decoderPreserved baseState state)
     (retiredPresent : RetiredCounterPresent state)
     (stackRead : state.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase))
+    (globalsRead : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020))
     (code : Contracts.canonicalContractParams.env.CodeIntact state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103dc))
     (payload : DecodeRawResultPayloadInitialized args.retryRawArgs state) :
@@ -5514,7 +5516,7 @@ theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInl
       DecodeInlinePost args state after ∧
       DecodeInlineMachinePost state after ∧
       DecodeInlineOutgoingFrame args after := by
-  obtain ⟨childUsed, childAfter, childBound, parentPrefix, childPost, agree, counter, -, -, -,
+  obtain ⟨childUsed, childAfter, childBound, parentPrefix, childPost, agree, counter, -, -, -, -,
     code, memory⟩ :=
     decodeInline_retry_uses_length_gate fromStep args state pre phase
   have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
