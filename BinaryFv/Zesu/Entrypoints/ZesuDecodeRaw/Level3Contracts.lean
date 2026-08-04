@@ -23,9 +23,11 @@ def entryMachineArgs (args : EntryArgs) : DecoderMachineArgs where
   bytes := args.bytes
 
 /-- Registers the emitted `decodeRaw` function must return to its inlined caller. Besides the
-machine-platform frame, the caller immediately reuses `sp`, `s0`, and `s1`. -/
+machine-platform frame, the caller immediately reuses `sp`, `s0`, `s1`, and the wrapper's live
+global-object base in `s2`. This is a checked contract clause for this concrete call boundary,
+not a general RISC-V ABI claim. -/
 def decodeRawCallerPreserved (register : Register) : Prop :=
-  platformPreserved register ∨ register = x2 ∨ register = x8 ∨ register = x9
+  platformPreserved register ∨ register = x2 ∨ register = x8 ∨ register = x9 ∨ register = x18
 
 /-- The caller copies the first 832 bytes of the result object on every retry outcome, so the
 compiled child boundary must expose that those bytes are initialized. -/
