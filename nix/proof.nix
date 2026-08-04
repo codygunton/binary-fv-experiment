@@ -246,6 +246,7 @@ let
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Zesu/Root\.lean:')" = 2
     test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
 
+
     lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
     touch "$out"
   '';

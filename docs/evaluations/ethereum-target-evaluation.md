@@ -60,7 +60,7 @@ All compared ELFs use `RV64IM_Zicclsm` and `lp64`; the checked toolchain is GCC 
 
 ## Corrected SSZ candidate and conformance evidence
 
-`targets/zesu/docs/field-correspondence.md` freezes the Amsterdam V4 schema and the deterministic,
+`verification-target/zesu/docs/field-correspondence.md` freezes the Amsterdam V4 schema and the deterministic,
 complete `ssz-value-v1` record protocol. The raw Zesu type preserves all 256 bits of base fee,
 chain ID zero, activation optionals, blob schedule, typed execution requests, fixed vectors, and
 every variable byte/list value. Its separate production adapter continues to perform RLP
@@ -184,11 +184,11 @@ nix flake check
 # With a `uv sync --locked` environment for the pinned execution-specs revision:
 PY=/path/to/execution-specs/.venv/bin/python
 nix build .#zesu-value --out-link build/zesu-ssz-value
-"$PY" -B targets/zesu/tests/ssz_differential_audit.py \\
+"$PY" -B verification-target/zesu/tests/ssz_differential_audit.py \\
   --reference-python "$PY" \\
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \\
   --lean-binary tools/ssz-oracle/.lake/build/bin/ssz_oracle
-"$PY" -B targets/zesu/tests/ssz_boundary_audit.py --extended \\
+"$PY" -B verification-target/zesu/tests/ssz_boundary_audit.py --extended \\
   --reference-python "$PY" \\
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \\
   --lean-binary tools/ssz-oracle/.lake/build/bin/ssz_oracle

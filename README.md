@@ -24,16 +24,16 @@ This is a curated `tree -L 2`: comments describe ownership rather than every gen
 │   ├── Binary/             # architecture-independent addresses and program images
 │   ├── RiscV/              # reusable Sail model, ELF, execution, logic, and proof layers
 │   ├── Specs/              # implementation-independent executable specifications
-│   └── Zesu/               # Zesu decoder proof: artifacts, contracts, execution, and root
+│   └── Zesu/               # Zesu proof: artifacts, contracts, machine execution, and root theorem
 ├── deps/                   # browsable submodules for the exact Zesu source revisions
 ├── docs/
 │   └── evaluations/        # durable design/evaluation records; docs/ai is local and ignored
 ├── nix/
-│   ├── targets.nix         # exact SSZ target builds
+│   ├── targets.nix         # exact SSZ target builds and binary-facing checks
 │   ├── analysis.nix        # objdump, CFG, size, and summary-statistics artifacts
-│   └── proof.nix           # generated Lean inputs and hermetic root-library build
-├── targets/
-│   └── zesu/               # concrete adapter, ABI material, binary tests, and correspondence
+│   └── proof.nix           # generated Lean inputs and hermetic proof build
+├── verification-target/
+│   └── zesu/               # inputs that connect the pinned Zesu implementation to BinaryFv
 ├── runtime/
 │   └── riscv64/            # shared freestanding startup and C runtime
 ├── tests/
@@ -96,7 +96,7 @@ nix build .#zesu-sink-observability --out-link build/zesu-sink-observability
   lake exe ssz_oracle_test
 )
 
-"$PY" -B targets/zesu/tests/ssz_differential_audit.py \
+"$PY" -B verification-target/zesu/tests/ssz_differential_audit.py \
   --reference-python "$PY" \
   --zesu-value-binary build/zesu-ssz-value/bin/zesu-ssz-value \
   --lean-binary tools/ssz-oracle/.lake/build/bin/ssz_oracle
@@ -122,7 +122,7 @@ bytes, symbols, ranges, and closed static facts; `ControlFlow/` contains decode-
 `Contracts/` holds handwritten, address-free source-function contracts; `Elflings/` contains the
 deterministically generated address-bearing model validated against the canonical ELF and
 Sail-decoded control flow; and `MachineExecution/` and `Entrypoints/` configure the machine and
-runner. All of it composes into `BinaryFv/Zesu/Root.lean`.
+runner. These modules compose into `BinaryFv/Zesu/Root.lean`.
 
 The intended public theorem remains:
 
