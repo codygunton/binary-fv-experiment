@@ -392,6 +392,7 @@ theorem hasExactErePrefix_length_segment (fromStep : Nat)
       after.regs.get? x2 = state.regs.get? x2 ∧
       after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
       after.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
+      after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
       after.mem = state.mem := by
   obtain ⟨retired, step⟩ := hasExactErePrefix_length_add_step fromStep args state pre phase
   let result := BitVec.ofNat 64 args.bytes.size +
@@ -446,9 +447,13 @@ theorem hasExactErePrefix_length_segment (fromStep : Nat)
     simp [after, result, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
+  have globals : after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simpa [after, result, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert] using pre.globalsValue
   exact ⟨after, trace, post, agree,
     afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10390) retired x12 result,
-    stackFrame, inputPointer, inputLength, rfl⟩
+    stackFrame, inputPointer, inputLength, globals, rfl⟩
 
 /-! ## Second child segment: reading and assembling the four-byte prefix -/
 
@@ -1399,6 +1404,7 @@ theorem hasExactErePrefix_prefix_segment (fromStep : Nat)
       after.regs.get? x2 = state.regs.get? x2 ∧
       after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
       after.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
+      after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
       after.mem = state.mem := by
   have bound0 : 0 < args.bytes.size := by have := pre.prefixExists phase; omega
   have bound1 : 1 < args.bytes.size := by have := pre.prefixExists phase; omega
@@ -1601,7 +1607,12 @@ theorem hasExactErePrefix_prefix_segment (fromStep : Nat)
     simp [s10, s9, s8, s7, s6, s5, s4, s3, s2, s1, afterRegisterWrite,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  refine ⟨s10, trace, ?_, agree10, counter10, stackFrame10, inputPointer10, inputLength10, rfl⟩
+  have globals10 : s10.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simpa [s10, s9, s8, s7, s6, s5, s4, s3, s2, s1, afterRegisterWrite,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using pre.globalsValue
+  refine ⟨s10, trace, ?_, agree10, counter10, stackFrame10, inputPointer10, inputLength10,
+    globals10, rfl⟩
   simp only [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost, phase]
   refine ⟨pc10, ?_, ?_, ?_⟩
   · have stored : s10.regs.get? x10 = some lowHalf := by

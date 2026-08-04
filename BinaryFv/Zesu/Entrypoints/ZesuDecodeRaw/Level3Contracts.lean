@@ -114,6 +114,7 @@ structure HasExactErePrefixInlinePre (args : HasExactErePrefixInlineArgs)
   atEntry : state.regs.get? PC = some args.entryPc
   inputPointer : state.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase)
   inputLength : state.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size)
+  globalsValue : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
   inputMemory : MemoryBytes state args.inputBase args.bytes
   code : canonicalContractParams.env.CodeIntact state
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64

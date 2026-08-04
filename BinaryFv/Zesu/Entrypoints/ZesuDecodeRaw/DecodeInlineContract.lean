@@ -279,13 +279,14 @@ abbrev DecodeInlineMachinePre (args : DecodeInlineArgs) (state : State) : Prop :
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
     args.machineArgs state
 
-/-- Machine and source facts at either real inline entry. `s0`, `s1`, and `sp` are live values of
-the surrounding wrapper, not an invented callee ABI. -/
+/-- Machine and source facts at either real inline entry. `s0`, `s1`, `s2`, and `sp` are live
+values of the surrounding wrapper, not an invented callee ABI. -/
 structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   atEntry : state.regs.get? PC = some args.entryPc
   stackValue : state.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase)
   inputValue : state.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase)
   lengthValue : state.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size)
+  globalsValue : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
   inputMemory : MemoryBytes state args.inputBase args.bytes
   code : canonicalContractParams.env.CodeIntact state
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64

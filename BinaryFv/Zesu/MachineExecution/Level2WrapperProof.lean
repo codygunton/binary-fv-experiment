@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
 import BinaryFv.Zesu.MachineExecution.HasExactErePrefixProof
+import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
 
 /-!
 # Sail execution of the `zesu_decode_raw` wrapper
@@ -2188,6 +2189,7 @@ theorem wrapper_through_allocator_tag
       final.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
       final.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       final.regs.get? x11 = some (BitVec.ofNat 64 0x4215021) ∧
+      final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
       MemoryRepresentation.MemoryBytes final args.inputBase args.bytes ∧
       Agree decoderPreserved entry final ∧ RetiredCounterPresent final ∧
       canonicalContractParams.env.CodeIntact final := by
@@ -2273,6 +2275,9 @@ theorem wrapper_through_allocator_tag
   have finalLength := (wrapperAfterAllocatorTag_register afterFirst r15
     (BitVec.ofNat 64 0x4215020) (1#64) x9 (by decide) (by decide) (by decide)
     (by decide)).trans firstLength
+  have finalGlobals := (wrapperAfterAllocatorTag_register afterFirst r15
+    (BitVec.ofNat 64 0x4215020) (1#64) x18 (by decide) (by decide) (by decide)
+    (by decide)).trans firstTarget
   have firstContext : afterFirst.regs.get? x11 = some (BitVec.ofNat 64 0x4215021) := by
     have valueEq : Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1 =
         BitVec.ofNat 64 0x4215021 := by native_decide
@@ -2342,7 +2347,7 @@ theorem wrapper_through_allocator_tag
     simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix14
       (by simpa [Nat.add_assoc] using tagPrefix)
   refine ⟨final, ?_, confined, finalPc, finalStack, finalSavedInput, finalLength, finalContext,
-    finalInputMemory, finalAgree, finalRetired, finalCode⟩
+    finalGlobals, finalInputMemory, finalAgree, finalRetired, finalCode⟩
   have trace14 := Trace.snoc trace13 firstStep
   simpa [final, Nat.add_assoc] using Trace.snoc trace14 tagStep
 
@@ -2502,6 +2507,7 @@ private structure WrapperSecondAllocatorPost (fromStep : Nat) (args : ZesuDecode
   stack : final.regs.get? x2 = some (BitVec.ofNat 64 stackBase)
   savedInput : final.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase)
   length : final.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size)
+  globals : final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
   inputMemory : MemoryRepresentation.MemoryBytes final args.inputBase args.bytes
   agree : Agree decoderPreserved entry final
   retired : RetiredCounterPresent final
@@ -2516,6 +2522,7 @@ private theorem wrapper_second_allocator_semantics
     (stack15 : atSecond.regs.get? x2 = some (BitVec.ofNat 64 stackBase))
     (savedInput15 : atSecond.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase))
     (length15 : atSecond.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size))
+    (globals15 : atSecond.regs.get? x18 = some (BitVec.ofNat 64 0x4215020))
     (context15 : atSecond.regs.get? x11 = some (BitVec.ofNat 64 0x4215021))
     (inputMemory15 : MemoryRepresentation.MemoryBytes atSecond args.inputBase args.bytes)
     (agree15 : Agree decoderPreserved entry atSecond)
@@ -2611,6 +2618,9 @@ private theorem wrapper_second_allocator_semantics
       savedInput15
   have finalLength : final.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
     (segmentRegister x9 (by decide) (by decide) (by decide) (by decide) (by decide)).trans length15
+  have finalGlobals : final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    (segmentRegister x18 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
+      globals15
   have finalCode : canonicalContractParams.env.CodeIntact final := by
     simpa [final, afterContext, afterAddress, afterPage] using
       wrapper_second_allocator_code args stackBase entry atSecond machine pageRetired
@@ -2622,6 +2632,7 @@ private theorem wrapper_second_allocator_semantics
       stack := finalStack
       savedInput := finalSavedInput
       length := finalLength
+      globals := finalGlobals
       inputMemory := finalInputMemory
       agree := finalAgree
       retired := finalRetired
@@ -2648,15 +2659,16 @@ theorem wrapper_through_allocator_setup
       final.regs.get? x2 = some (BitVec.ofNat 64 stackBase) ∧
       final.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
       final.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
+      final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
       MemoryRepresentation.MemoryBytes final args.inputBase args.bytes ∧
       Agree decoderPreserved entry final ∧ RetiredCounterPresent final ∧
       canonicalContractParams.env.CodeIntact final := by
-  obtain ⟨atSecond, trace15, prefix15, pc15, stack15, savedInput15, length15, context15,
+  obtain ⟨atSecond, trace15, prefix15, pc15, stack15, savedInput15, length15, context15, globals15,
     inputMemory15, agree15, retired15, code15⟩ :=
     wrapper_through_allocator_tag allocator fromStep args stackBase entry source machine
   obtain ⟨post⟩ :=
     wrapper_second_allocator_semantics allocator fromStep args stackBase entry atSecond pc15
-      stack15 savedInput15 length15 context15 inputMemory15 agree15 retired15 code15 machine
+      stack15 savedInput15 length15 globals15 context15 inputMemory15 agree15 retired15 code15 machine
   let final := post.final
   have transfer := post.transfer
   have trace4 := allocator_second_trace_of_inlineTransfer (fromStep + 15) atSecond final transfer
@@ -2681,7 +2693,7 @@ theorem wrapper_through_allocator_setup
     simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix15
       (by simpa [Nat.add_assoc] using secondPrefix)
   exact ⟨final, by simpa [Nat.add_assoc] using complete, confined, post.pc, post.stack,
-    post.savedInput, post.length, post.inputMemory, post.agree, post.retired, post.code⟩
+    post.savedInput, post.length, post.globals, post.inputMemory, post.agree, post.retired, post.code⟩
 
 /-- The selected inlined `decode` region is contained in its enclosing wrapper's generated
 execution region. This is checked from the generated call relation, not handwritten address bounds. -/
@@ -2742,7 +2754,7 @@ theorem wrapper_reaches_decode_first_contract
             DecodeInlinePost decodeArgs atDecode after ∧
             DecodeInlineMachinePost atDecode after ∧
             DecodeInlineOutgoingFrame decodeArgs after := by
-  obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, inputMemory, agree, retired,
+  obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, globals, inputMemory, agree, retired,
     code⟩ :=
     wrapper_through_allocator_setup allocator fromStep args stackBase entry source machine
   let decodeArgs : DecodeInlineArgs :=
@@ -2759,6 +2771,7 @@ theorem wrapper_reaches_decode_first_contract
       stackValue := by simpa [decodeArgs] using stack
       inputValue := by simpa [decodeArgs] using savedInput
       lengthValue := by simpa [decodeArgs] using length
+      globalsValue := globals
       inputMemory := by simpa [decodeArgs] using inputMemory
       code := code
       inputFits := machine.inputFits
