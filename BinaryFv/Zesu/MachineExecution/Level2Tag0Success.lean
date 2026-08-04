@@ -67,6 +67,7 @@ structure Tag0StoredResultCopyPhase (args : ZesuDecodeRawArgs) (stackBase : Nat)
   atResume : resumed.regs.get? PC = some (BitVec.ofNat 64 0x10350)
   savedFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 resumed
   destinationBytes : MemoryRepresentation.MemoryBytes resumed 0x4215030 contents
+  contentsSize : contents.size = 832
   code : canonicalContractParams.env.CodeIntact resumed
   retired : RetiredCounterPresent resumed
   stack : resumed.regs.get? x2 = some (BitVec.ofNat 64 stackBase)
@@ -862,7 +863,8 @@ theorem tag0_stored_result_copy_phase
       (BitVec.ofNat 64 0x10348) r3 x1 (BitVec.ofNat 64 0x14348), resumed, ?_⟩
   refine ⟨pre.machineEntry, setupPrefix, ⟨transfer⟩,
     by simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using scopedPrefix,
-    ?_, by simpa [resumed] using resumePc, resumedFrame, ?_, ?_, ?_, ?_, ?_, resumedMachine⟩
+    ?_, by simpa [resumed] using resumePc, resumedFrame, ?_, pre.contentsSize, ?_, ?_, ?_, ?_,
+      resumedMachine⟩
   · simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using Trace.append setupTrace
       (Trace.append (Trace.one (fromStep + 4) _ childEntry (by simpa [childEntry] using callRun))
         (Trace.append childTrace.trace.toTrace
