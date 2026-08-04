@@ -68,7 +68,7 @@ theorem wrapper_dispatch_route_through_epilogue
       machineArgs base)
     (fromStep routeSteps : Nat)
     (result status link savedS0 savedS1 savedS2 stack restoredStack : BitVec 64)
-    (route : WrapperDispatchRouteFrame base before routeAfter fromStep routeSteps
+    (route : WrapperTerminalRouteFrame base before routeAfter fromStep routeSteps
       (BitVec.ofNat 64 0x1035c) result status)
     (savedFrame : WrapperSavedRegisterFrame stack.toNat link savedS0 savedS1 savedS2
       routeAfter)

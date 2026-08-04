@@ -67,7 +67,7 @@ theorem dispatch_route_to_epilogue {base before routeAfter : State} {machineArgs
       WrapperEpilogueCompleteResult (n + k + 1) base afterStore after
         h.link h.savedS0 h.savedS1 h.savedS2 h.restoredStack result status := by
   exact wrapper_dispatch_route_through_epilogue h.machine n k result status h.link h.savedS0
-    h.savedS1 h.savedS2 h.stack h.restoredStack route
+    h.savedS1 h.savedS2 h.stack h.restoredStack route.terminal
     (WrapperSavedRegisterFrame.of_mem_eq h.savedFrame route.memory)
     h.stackAvoidsStatusGlobals (route.savedS2.trans h.globalsValue)
     (route.savedStack.trans h.stackValue) addresses.raAddress addresses.s0Address

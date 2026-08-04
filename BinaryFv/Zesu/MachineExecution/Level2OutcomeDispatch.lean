@@ -80,6 +80,30 @@ structure WrapperDispatchRouteFrame (base before after : State) (fromStep steps 
   savedS2 : after.regs.get? x18 = before.regs.get? x18
   savedStack : after.regs.get? x2 = before.regs.get? x2
 
+/-- Facts shared by every wrapper route arriving at the status store.  Memory framing and live
+register values remain separate because the tag-zero route performs a real payload-adjacent store,
+while rejection routes leave memory unchanged. -/
+structure WrapperTerminalRouteFrame (base before after : State) (fromStep steps : Nat)
+    (terminalPc result status : BitVec 64) : Prop where
+  trace : Trace fromStep steps before after
+  atTerminal : after.regs.get? PC = some terminalPc
+  resultValue : after.regs.get? x10 = some result
+  statusValue : after.regs.get? x11 = some status
+  platform : Agree platformPreserved base after
+  code : canonicalContractParams.env.CodeIntact after
+  retired : RetiredCounterPresent after
+
+def WrapperDispatchRouteFrame.terminal
+    (route : WrapperDispatchRouteFrame base before after fromStep steps terminalPc result status) :
+    WrapperTerminalRouteFrame base before after fromStep steps terminalPc result status :=
+  { trace := route.trace
+    atTerminal := route.atTerminal
+    resultValue := route.resultValue
+    statusValue := route.statusValue
+    platform := route.platform
+    code := route.code
+    retired := route.retired }
+
 private theorem wrapper_dispatch_register_constant_step {machineArgs : DecoderMachineArgs}
     {base state : State} {destination : Register} {value : RegisterType destination}
     (machine : DecoderMachinePre
