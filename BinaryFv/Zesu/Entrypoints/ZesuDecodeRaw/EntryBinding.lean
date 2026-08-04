@@ -45,6 +45,75 @@ def configureSucceedsB : Bool :=
 
 theorem configure_succeeds : configureSucceedsB = true := by native_decide
 
+/-- Whether a PMA region has exactly the runner's main-memory fields. Each field is checked directly
+rather than comparing `PMA_Region`s, which do not have a `DecidableEq` instance. -/
+private def zesuMainMemoryRegionB (region : PMA_Region) : Bool :=
+  (region.base == BitVec.ofNat 64 zesuPmaRange.start) &&
+  (region.size == BitVec.ofNat 64 zesuPmaRange.size) &&
+  (match region.attributes.mem_type with | .MainMemory => true | _ => false) &&
+  region.attributes.cacheable && region.attributes.coherent && region.attributes.executable &&
+  region.attributes.readable && region.attributes.writable && region.attributes.read_idempotent &&
+  region.attributes.write_idempotent &&
+  (match region.attributes.misaligned_exceptions.load_store with
+    | none => true
+    | some _ => false) &&
+  (match region.attributes.misaligned_exceptions.vector with | none => true | some _ => false) &&
+  (match region.attributes.misaligned_exceptions.amo with | .AccessFault => true | _ => false) &&
+  (match region.attributes.atomic_support with | .AMOCASQ => true | _ => false) &&
+  (match region.attributes.reservability with | .RsrvEventual => true | _ => false) &&
+  region.attributes.supports_cbo_zero && region.attributes.supports_pte_read &&
+  region.attributes.supports_pte_write && !region.include_in_device_tree
+
+private theorem zesuMainMemoryRegion_of_check {region : PMA_Region}
+    (h : zesuMainMemoryRegionB region = true) : region = zesuMainMemoryRegion := by
+  rcases region with ⟨base, size, attributes, deviceTree⟩
+  rcases attributes with ⟨memType, cacheable, coherent, executable, readable, writable,
+    readIdempotent, writeIdempotent, misaligned, atomicSupport, reservability, cboZero, pteRead,
+    pteWrite⟩
+  rcases misaligned with ⟨loadStore, vector, amo⟩
+  cases memType <;> cases loadStore <;> cases vector <;> cases amo <;> cases atomicSupport <;>
+    cases reservability <;>
+    simp_all [zesuMainMemoryRegionB, zesuMainMemoryRegion, zesuMainMemoryAttributes, zesuPmaRange]
+
+private def zesuMainMemoryRegionsB (regions : List PMA_Region) : Bool :=
+  match regions with
+  | [region] => zesuMainMemoryRegionB region
+  | _ => false
+
+private theorem zesuMainMemoryRegions_of_check {regions : List PMA_Region}
+    (h : zesuMainMemoryRegionsB regions = true) : regions = [zesuMainMemoryRegion] := by
+  cases regions with
+  | nil => simp [zesuMainMemoryRegionsB] at h
+  | cons region regions =>
+    cases regions with
+    | nil => exact congrArg (fun region => [region]) (zesuMainMemoryRegion_of_check h)
+    | cons next rest => simp [zesuMainMemoryRegionsB] at h
+
+/-- Whether the closed configuration computation installs the intended PMA table. -/
+private def configurePmaRegionsB : Bool :=
+  match configureZesuMachine.run initialState with
+  | .ok _ s =>
+    match s.regs.get? pma_regions with
+    | some regions => zesuMainMemoryRegionsB regions
+    | none => false
+  | .error _ _ => false
+
+private theorem configure_pma_regions_check : configurePmaRegionsB = true := by native_decide
+
+/-- The configuration action installs exactly the runner's main-memory PMA table. -/
+theorem configure_pma_regions {s : State}
+    (h : configureZesuMachine.run initialState = .ok () s) :
+    s.regs.get? pma_regions = some [zesuMainMemoryRegion] := by
+  have hcheck := configure_pma_regions_check
+  unfold configurePmaRegionsB at hcheck
+  rw [h] at hcheck
+  cases hpma : s.regs.get? pma_regions with
+  | none => simp [hpma] at hcheck
+  | some regions =>
+    have hregions : zesuMainMemoryRegionsB regions = true := by
+      simpa [hpma] using hcheck
+    exact congrArg some (zesuMainMemoryRegions_of_check hregions)
+
 /-! ### The configured machine is a *normal* execution state
 
 `NormalExecutionState` (`RiscV/Platform/NormalState.lean`) bundles the twelve platform reads a
