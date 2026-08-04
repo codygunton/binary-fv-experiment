@@ -78,9 +78,14 @@ private theorem wrapperAfterDwordStore_savedWord (state : State) (pc retired tar
   intro index bound
   have indexLt : index < 8 := by
     simpa [BinaryFv.RiscV.Sep.leBytes_length] using bound
-  interval_cases index <;>
+  have indexCases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨
+      index = 5 ∨ index = 6 ∨ index = 7 := by omega
+  rw [targetValue]
+  rcases indexCases with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
     simp [wrapperAfterDwordStore, afterWriteBytes, afterByteWrites, targetValue,
-      BinaryFv.RiscV.Sep.leBytes]
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert,
+      BinaryFv.RiscV.Sep.leBytes] <;> omega
 
 private theorem wrapperAfterDwordStore_preserves_savedWord (state : State)
     (pc retired target data : BitVec 64) (targetBase savedBase : Nat) (value : BitVec 64)
@@ -1010,16 +1015,16 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have finalRetired := wrapperAfterDwordStore_retired afterS1
     (BitVec.ofNat 64 0x102c0) s2Retired (BitVec.ofNat 64 (stackBase + 0xa00)) s2
   have linkBytes : SavedWordBytes afterLink (stackBase + 0xa18) link :=
-    wrapperAfterDwordStore_savedWord frame _ _ _ _ (by
+    wrapperAfterDwordStore_savedWord frame _ _ _ _ (stackBase + 0xa18) (by
       simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)])
   have s0Bytes : SavedWordBytes afterS0 (stackBase + 0xa10) s0 :=
-    wrapperAfterDwordStore_savedWord afterLink _ _ _ _ (by
+    wrapperAfterDwordStore_savedWord afterLink _ _ _ _ (stackBase + 0xa10) (by
       simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)])
   have s1Bytes : SavedWordBytes afterS1 (stackBase + 0xa08) s1 :=
-    wrapperAfterDwordStore_savedWord afterS0 _ _ _ _ (by
+    wrapperAfterDwordStore_savedWord afterS0 _ _ _ _ (stackBase + 0xa08) (by
       simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)])
   have s2Bytes : SavedWordBytes final (stackBase + 0xa00) s2 :=
-    wrapperAfterDwordStore_savedWord afterS1 _ _ _ _ (by
+    wrapperAfterDwordStore_savedWord afterS1 _ _ _ _ (stackBase + 0xa00) (by
       simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)])
   have linkAfterS0 := wrapperAfterDwordStore_preserves_savedWord afterLink _ _ _ _
     (stackBase + 0xa10) (stackBase + 0xa18) link
