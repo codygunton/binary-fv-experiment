@@ -58,17 +58,8 @@ private theorem tag3_miss_agree (state : State) (retired : BitVec 64) :
     Agree platformPreserved state
       (tryStepControlFlowAfterRetired
         (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10400))
-        (BitVec.ofNat 64 0x10404) retired) := by
-  intro register preserved
-  have nr : minstret ≠ register := by intro e; subst register; simp [platformPreserved] at preserved
-  have np : PC ≠ register := by intro e; subst register; simp [platformPreserved] at preserved
-  have nn : nextPC ≠ register := by intro e; subst register; simp [platformPreserved] at preserved
-  have ni : minstret_increment ≠ register := by
-    intro e
-    subst register
-    simp [platformPreserved] at preserved
-  simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-    tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, nr, np, nn, ni]
+        (BitVec.ofNat 64 0x10404) retired) :=
+  (fallThroughRetirement_writes state _ _ retired).agree platformPreserved_disjoint
 
 /-- Tag one falls through the tag-three comparison at `0x10400`. -/
 theorem wrapper_dispatch_tag1_after_tag3_miss {machineArgs : DecoderMachineArgs} {base state : State}
@@ -156,15 +147,8 @@ theorem wrapper_dispatch_tag1_constant_confined {machineArgs : DecoderMachineArg
   · exact afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10404) r x11 (BitVec.ofNat 64 1)
 
 private theorem tag1_branch_agree (state : State) (retired : BitVec 64) :
-    Agree platformPreserved state (wrapperDispatchTag1BranchAfter state retired) := by
-  intro register preserved
-  have nr : minstret ≠ register := by intro e; subst register; simp [platformPreserved] at preserved
-  have np : PC ≠ register := by intro e; subst register; simp [platformPreserved] at preserved
-  have nn : nextPC ≠ register := by intro e; subst register; simp [platformPreserved] at preserved
-  have ni : minstret_increment ≠ register := by intro e; subst register; simp [platformPreserved] at preserved
-  simp [wrapperDispatchTag1BranchAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-    Std.ExtDHashMap.get?_insert, nr, np, nn, ni]
+    Agree platformPreserved state (wrapperDispatchTag1BranchAfter state retired) :=
+  (jumpRetirement_writes state _ _ retired).agree platformPreserved_disjoint
 
 /-- Tag one takes the checked comparison branch at `0x10408`. -/
 theorem wrapper_dispatch_tag1_branch_confined {machineArgs : DecoderMachineArgs} {base state : State}
@@ -260,37 +244,14 @@ theorem wrapper_dispatch_tag1_confined {machineArgs : DecoderMachineArgs} {base 
     tailGlobals.trans (globals4.trans (globals3.trans globals2))⟩
 
 private theorem tag3_branch_agree (state : State) (retired : BitVec 64) :
-    Agree platformPreserved state (wrapperDispatchTag3BranchAfter state retired) := by
-  intro register preserved
-  have notRetired : minstret ≠ register := by
-    intro equal; subst register; simp [platformPreserved] at preserved
-  have notPc : PC ≠ register := by
-    intro equal; subst register; simp [platformPreserved] at preserved
-  have notNextPc : nextPC ≠ register := by
-    intro equal; subst register; simp [platformPreserved] at preserved
-  have notIncrement : minstret_increment ≠ register := by
-    intro equal; subst register; simp [platformPreserved] at preserved
-  simp [wrapperDispatchTag3BranchAfter, tryStepControlFlowAfterRetired,
-    tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-    tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notRetired, notPc,
-    notNextPc, notIncrement]
+    Agree platformPreserved state (wrapperDispatchTag3BranchAfter state retired) :=
+  (jumpRetirement_writes state _ _ retired).agree platformPreserved_disjoint
 
 private theorem tag3_jump_agree (state : State) (pc target retired : BitVec 64) :
     Agree platformPreserved state
       (tryStepControlFlowAfterRetired
-        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) := by
-  intro register preserved
-  have notRetired : minstret ≠ register := by
-    intro equal; subst register; simp [platformPreserved] at preserved
-  have notPc : PC ≠ register := by
-    intro equal; subst register; simp [platformPreserved] at preserved
-  have notNextPc : nextPC ≠ register := by
-    intro equal; subst register; simp [platformPreserved] at preserved
-  have notIncrement : minstret_increment ≠ register := by
-    intro equal; subst register; simp [platformPreserved] at preserved
-  simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
-    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-    notRetired, notPc, notNextPc, notIncrement]
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) :=
+  (jumpRetirement_writes state pc target retired).agree platformPreserved_disjoint
 
 /-- The tag-three dispatch is five wrapper-owned Sail steps from `0x103fc` to the common status
 store.  This companion retains the confined ownership evidence and the terminal frame required by

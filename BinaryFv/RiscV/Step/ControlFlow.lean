@@ -213,6 +213,36 @@ theorem stepPremiseState_writes (state : State) (pc : BitVec 64) :
       (fun _ h => Or.inr (Or.inr (Or.inr h)))).trans_same
     ((coreControlFlowNextState_writes _ pc).mono (fun _ h => Or.inr (Or.inl h)))
 
+/-- The write set of a complete fall-through retirement that writes no destination register:
+increment, base-path next PC, tick, retired counter.
+
+Like `jumpRetirement_writes`, the set is exactly `stepBookkeeping`. A comparison or branch-not-taken
+step has this shape, and `afterRegisterWrite` is this shape plus one destination. -/
+theorem fallThroughRetirement_writes (state : State) (pc target retired : BitVec 64) :
+    WritesOnlyRegs stepBookkeeping state
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) target retired) :=
+  (stepPremiseState_writes state pc).trans_same
+    ((tryStepControlFlowAfterRetired_writes _ target retired).mono
+      (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h)))))
+
+/-- The write set of a complete jump retirement: increment, jump, tick, retired counter.
+
+Its write set is exactly `stepBookkeeping` — a jump writes no architectural register beyond the
+bookkeeping, because the target goes to `nextPC`, which the bookkeeping already contains. So every
+jump composite in the tree (`wrapperDispatchTag1BranchAfter`, `wrapperDispatchTag3BranchAfter`, the
+retry branch post-states) is an instance of this one lemma rather than needing its own row. -/
+theorem jumpRetirement_writes (state : State) (pc target retired : BitVec 64) :
+    WritesOnlyRegs stepBookkeeping state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) :=
+  ((tryStepControlFlowAfterIncrement_writes state).mono
+      (fun _ h => Or.inr (Or.inr (Or.inr h)))).trans_same
+    (((controlFlowJumpState_writes _ pc target).mono
+        (fun _ h => Or.inr (Or.inl h))).trans_same
+      ((tryStepControlFlowAfterRetired_writes _ target retired).mono
+        (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h))))))
+
 /-- No register the platform preserves is one the `try_step` bookkeeping writes.
 
 Proved once for the whole repository. The case split is on `platformPreserved`'s eighteen disjuncts,
