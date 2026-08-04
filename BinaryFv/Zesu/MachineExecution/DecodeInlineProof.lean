@@ -1225,7 +1225,7 @@ theorem decodeInline_first_call_transfer
     childLength, childInputBase, childInputLength, callAgree, callMemory, childRetired⟩ :=
     decodeInline_first_decodeRaw_call_step (fromStep + 5) args state beforeCall pre
       beforeAgree beforeMemory beforeRetired callPc callBase resultPointer allocatorPointer
-      inputPointer inputLength
+      inputPointer inputLength beforeInputBase beforeInputLength
   let childEntry := decodeInlineFirstCallAfter beforeCall callRetired
   have childStack : childEntry.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
     simp [childEntry, decodeInlineFirstCallAfter, tryStepControlFlowAfterRetired,
@@ -2419,7 +2419,7 @@ theorem decodeInline_first_level3_relation (contract : CompiledDecodeRawInstance
       · simpa [DecodeInlinePost, phase] using post
   | error error =>
       obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, childBound, transfer,
-        tagRun, exit, post, trace, machinePost⟩ :=
+        tagRun, exit, post, trace, machinePost, -, -⟩ :=
         decodeInline_first_error_reaches_post contract fromStep args before pre phase error resultEq
       refine ⟨childUsed + 8,
         afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
