@@ -2992,7 +2992,11 @@ theorem decodeInline_retry_length_branch_step (stepNo : Nat) (args : DecodeInlin
       Agree decoderPreserved state (decodeInlineRetryLengthBranchAfter state retired) ∧
       RetiredCounterPresent (decodeInlineRetryLengthBranchAfter state retired) ∧
       (decodeInlineRetryLengthBranchAfter state retired).mem = state.mem := by
-  have pcIn := decoderFetchPc_of_member (pc := BitVec.ofNat 64 0x10394) (by
+  have pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram
+        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+      (BitVec.ofNat 64 0x10394) :=
+    decoderFetchPc_of_member (pc := BitVec.ofNat 64 0x10394) (by
     apply functionInstanceExecutionPcs_iff_ranges.mpr
     apply RegionPcs.iff_inRanges.mpr
     native_decide) (by native_decide)
@@ -3277,7 +3281,11 @@ theorem decodeInline_retry_prefix_or_step (stepNo : Nat) (args : DecodeInlineArg
         (afterRegisterWrite state (BitVec.ofNat 64 0x103c0) retired x10 (high ||| low)) ∧
       (afterRegisterWrite state (BitVec.ofNat 64 0x103c0) retired x10
         (high ||| low)).mem = state.mem := by
-  have pcIn := decoderFetchPc_of_member (pc := BitVec.ofNat 64 0x103c0) (by
+  have pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram
+        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+      (BitVec.ofNat 64 0x103c0) :=
+    decoderFetchPc_of_member (pc := BitVec.ofNat 64 0x103c0) (by
     apply functionInstanceExecutionPcs_iff_ranges.mpr
     apply RegionPcs.iff_inRanges.mpr
     native_decide) (by native_decide)
