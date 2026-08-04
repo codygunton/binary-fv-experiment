@@ -203,6 +203,10 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
     apply functionInstanceExecutionPcs_iff_ranges.mpr
     apply RegionPcs.iff_inRanges.mpr
     native_decide
+  have fetchPc : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram
+        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+      (BitVec.ofNat 64 0x103f8) := ⟨pcIn, by native_decide⟩
   have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
     hasExactErePrefix_programImage_of_codeIntact frame.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
@@ -211,7 +215,7 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   have machine := pre.machine.mono frame.agree frame.retiredCounter
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
-    (BitVec.ofNat 64 0x103f8) atPc pcIn _ _ _ _ fetchBytes
+    (BitVec.ofNat 64 0x103f8) atPc fetchPc _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
   obtain ⟨retired, inhibit, config, counters⟩ :=
     decoderStepCounters machine.normal (Agree.refl state) frame.retiredCounter
@@ -271,7 +275,8 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
       addressMod]
     rfl
   obtain ⟨physAccess, loadNoMMIO⟩ :=
-    machine.dataAccess.load executeState address 2 executeAgree allowed
+    machine.dataAccess.load executeState address 2 executeAgree allowed (by
+      simpa [is_aligned_paddr] using aligned)
   rcases values.2.2 with ⟨-, lowByte, highByte⟩
   have memoryBytes : ∀ (index : Nat) (indexLt : index < (leBytes 2 (BitVec.ofNat 16 tag)).length),
       executeState.mem.get? (address.toNat + index) =
@@ -298,7 +303,7 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
     exact execute_LOAD_lhu_run executeState _ (0x9f0#12) (.Regidx 10#5) (.Regidx 10#5)
       (BitVec.ofNat 16 tag) hread (by simpa [extended] using write)
   exact decoderRegisterWriteStep machine (Agree.refl state) frame.retiredCounter stepNo
-    (BitVec.ofNat 64 0x103f8) pcIn atPc 0x03#8 0x55#8 0x05#8 0x9f#8
+    (BitVec.ofNat 64 0x103f8) fetchPc atPc 0x03#8 0x55#8 0x05#8 0x9f#8
     (.LOAD (0x9f0#12, .Regidx 10#5, .Regidx 10#5, true, 2)) x10 (BitVec.ofNat 64 tag)
     fetchBytes (by unfold BaseInstructionEncoding; decide) decode
     (by decide) (by decide) (by decide) (by decide) execute
