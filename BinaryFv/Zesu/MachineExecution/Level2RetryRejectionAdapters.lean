@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.Level2RetryExitSteps
+import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
 
 /-! Save-area companions for the two typed retry-rejection exits. -/
 
@@ -12,6 +13,21 @@ open RegisterWriteStep
 
 set_option maxRecDepth 100000
 set_option maxHeartbeats 4000000
+
+structure RetryShortRejectionEdgeResult (args : DecodeInlineArgs) (fromStep used : Nat)
+    (before after handoff : State) (link s0 s1 s2 : BitVec 64) : Prop where
+  childTrace : ScopedTrace
+    (functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+    (DecodeInlineExit args) Level3ChildSummary fromStep used before after
+  post : DecodeInlinePost args before after
+  machine : DecodeInlineMachinePost before after
+  outgoing : DecodeInlineOutgoingFrame args after
+  saveArea : DecodeInlineCallerSaveArea args before after
+  status : after.regs.get? x11 = some (BitVec.ofNat 64 2)
+  savedFrame : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 after
+  branch : Runs (try_step (fromStep + used) false) after handoff false
+  branchPc : handoff.regs.get? PC = some (BitVec.ofNat 64 0x10420)
 
 /-- The short-input rejection preserves the wrapper's concrete 32-byte save area. -/
 theorem decodeInline_retry_short_reaches_post_save_area (fromStep : Nat) (args : DecodeInlineArgs)
@@ -151,5 +167,23 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post_save_area (fromStep : Na
         Std.ExtDHashMap.get?_insert] using prefixPost.2.2.2
   · intro index bound
     rw [afterMemory]
+
+theorem retry_short_rejection_edge (fromStep : Nat) (args : DecodeInlineArgs) (before : State)
+    (pre : DecodeInlinePre args before) (phase : args.phase = .retryAfterInvalidSsz)
+    (short : args.bytes.size < 4) (link s0 s1 s2 : BitVec 64)
+    (saved : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 before) :
+    ∃ used after retired, RetryShortRejectionEdgeResult args fromStep used before after
+      (decodeInlineRetryShortBranchAfter after retired) link s0 s1 s2 := by
+  obtain ⟨used, after, -, childTrace, post, machine, outgoing, saveArea, status⟩ :=
+    decodeInline_retry_short_reaches_post_save_area fromStep args before pre phase short
+  have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
+    meaningHasExactErePrefix_false_of_size_lt_four args.bytes short
+  have atPc : after.regs.get? PC = some (BitVec.ofNat 64 0x10394) := by
+    simp [DecodeInlinePost, DecodeInlineRetryPost, phase, prefixFalse, short] at post
+    exact post.2
+  obtain ⟨retired, branch, branchPc⟩ :=
+    retry_short_length_branch_step (fromStep + used) args before after pre machine outgoing phase short atPc
+  exact ⟨used, after, retired, childTrace, post, machine, outgoing, saveArea, status,
+    WrapperSavedRegisterFrame.of_decode_inline_caller_save_area saved saveArea, branch, branchPc⟩
 
 end BinaryFv.Zesu.MachineExecution
