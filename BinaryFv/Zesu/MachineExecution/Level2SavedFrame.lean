@@ -34,4 +34,34 @@ theorem WrapperSavedRegisterFrame.of_mem_eq {stackBase : Nat} {link s0 s1 s2 : B
   rw [memory]
   exact frame
 
+/-- A proved `memcpy` into the inline `stored_result` payload leaves every wrapper save slot intact.
+The separation is derived from `ZesuDecodeRawMachinePre.stackFrameWritable`, whose addresses belong to
+the canonical runner stack; no continuation caller supplies a stack/global separation premise. -/
+theorem WrapperSavedRegisterFrame.of_stored_result_copy
+    {args : BinaryFv.Zesu.Contracts.ZesuDecodeRawArgs} {stackBase : Nat} {entry before after : State}
+    {link s0 s1 s2 : BitVec 64} (machine : Entrypoints.ZesuDecodeRaw.ZesuDecodeRawMachinePre args stackBase entry)
+    (frame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 before)
+    (copyArgs : BinaryFv.Zesu.Contracts.CopyArgs)
+    (destination : copyArgs.destination = 0x4215030) (length : copyArgs.length = 832)
+    (copyFrame : BinaryFv.Zesu.Contracts.CopyDestinationFrame copyArgs before after) :
+    WrapperSavedRegisterFrame stackBase link s0 s1 s2 after := by
+  rw [WrapperSavedRegisterFrame] at frame ⊢
+  rcases frame with ⟨linkFrame, s0Frame, s1Frame, s2Frame⟩
+  have stackAfterResult : 0x4215030 + 832 ≤ stackBase :=
+    Entrypoints.ZesuDecodeRaw.wrapper_stack_after_stored_result machine
+  have preserve (offset : Nat) (offsetBound : offset + 8 ≤ 0xa20) (value : BitVec 64)
+      (saved : SavedWordBytes before (stackBase + offset) value) :
+      SavedWordBytes after (stackBase + offset) value := by
+    intro index indexBound
+    rw [BinaryFv.RiscV.Sep.leBytes_length] at indexBound
+    rw [copyFrame (stackBase + offset + index) (by
+      right
+      rw [destination, length]
+      omega)]
+    exact saved index indexBound
+  exact ⟨preserve 0xa18 (by omega) link linkFrame,
+    preserve 0xa10 (by omega) s0 s0Frame,
+    preserve 0xa08 (by omega) s1 s1Frame,
+    preserve 0xa00 (by omega) s2 s2Frame⟩
+
 end BinaryFv.Zesu.MachineExecution

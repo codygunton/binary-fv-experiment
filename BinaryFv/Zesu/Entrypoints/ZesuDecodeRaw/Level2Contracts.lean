@@ -75,6 +75,21 @@ structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
       functionInstance_raw_decoder_root_zesu_decode_raw)
     (zesuDecodeRawMachineArgs args) state
 
+/-- The real wrapper frame begins above the complete 832-byte `stored_result` payload.  This is
+derived from the entry's writable-stack membership in the canonical runner stack, not assumed by a
+later continuation. -/
+theorem wrapper_stack_after_stored_result {args : ZesuDecodeRawArgs} {stackBase : Nat} {state : State}
+    (pre : ZesuDecodeRawMachinePre args stackBase state) :
+    0x4215030 + 832 ≤ stackBase := by
+  have stackBaseInCanonicalStack : canonicalStack stackBase := by
+    simpa only [canonicalContractParams, canonicalEnvironment] using
+      pre.stackFrameWritable 0 (by decide)
+  simp only [canonicalStack, range] at stackBaseInCanonicalStack
+  have canonicalStart : Entrypoints.ZesuDecodeRaw.canonicalRunnerLayout.stackBase = 0x300000000000 :=
+    by native_decide
+  rw [canonicalStart] at stackBaseInCanonicalStack
+  omega
+
 /-- Hide the proof-only stack-base witness from the public C argument type. -/
 def CompiledZesuDecodeRawPre (args : ZesuDecodeRawArgs) (state : State) : Prop :=
   ∃ stackBase, ZesuDecodeRawMachinePre args stackBase state
