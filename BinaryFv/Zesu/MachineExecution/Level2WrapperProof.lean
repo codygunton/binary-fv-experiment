@@ -368,7 +368,8 @@ theorem wrapper_stack_store_step (args : ZesuDecodeRawArgs) (stackBase : Nat)
   have allowed : DecoderAccessRange DecoderWritableByte
       (BitVec.ofNat 64 (stackBase + offset)) 8 := by
     rw [DecoderAccessRange, targetToNat]
-    refine ⟨by omega, ?_⟩
+    refine ⟨by decide, ?_, ?_⟩
+    · omega
     intro index bound
     exact Or.inl (by simpa [Nat.add_assoc] using
       machine.stackFrameWritable (offset + index) (by omega))
@@ -796,7 +797,8 @@ theorem wrapper_save_link_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
   have allowed : DecoderAccessRange DecoderWritableByte
       (BitVec.ofNat 64 (stackBase + 0xa18)) 8 := by
     rw [DecoderAccessRange, targetToNat]
-    refine ⟨by simpa [Nat.add_assoc] using machine.stackFrameFits, ?_⟩
+    refine ⟨by decide, ?_, ?_⟩
+    · simpa [Nat.add_assoc] using machine.stackFrameFits
     intro index bound
     exact Or.inl (by simpa [Nat.add_assoc] using
       machine.stackFrameWritable (0xa18 + index) (by omega))
@@ -1509,7 +1511,8 @@ theorem wrapper_attempted_load_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
       mprvZero mseccfgAtExecute pmmDisabled
   have allowed : DecoderAccessRange (DecoderReadableByte (zesuDecodeRawMachineArgs args))
       address 1 := by
-    refine ⟨by native_decide, ?_⟩
+    refine ⟨by decide, ?_, ?_⟩
+    · native_decide
     intro index bound
     have indexZero : index = 0 := by omega
     subst index
@@ -2234,7 +2237,7 @@ theorem wrapper_through_allocator_tag
       (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1)
       (by decide) (by decide) (by decide) (by decide) (by decide)).trans data13
   have writable : DecoderAccessRange DecoderWritableByte (BitVec.ofNat 64 0x4215020) 1 := by
-    constructor
+    refine ⟨by decide, ?_, ?_⟩
     · simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
         functionInstance_raw_decoder_root_zesu_decode_raw]
     · intro index bound
@@ -2353,7 +2356,8 @@ private theorem wrapperAllocatorStackAccess (args : ZesuDecodeRawArgs) (stackBas
   have allowed : DecoderAccessRange DecoderWritableByte
       (BitVec.ofNat 64 stackBase + BitVec.ofNat 64 offset) 8 := by
     rw [DecoderAccessRange, targetToNat]
-    refine ⟨by omega, ?_⟩
+    refine ⟨by decide, ?_, ?_⟩
+    · omega
     intro index bound
     exact Or.inl (by simpa [Nat.add_assoc] using
       machine.stackFrameWritable (offset + index) (by omega))

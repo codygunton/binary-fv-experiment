@@ -109,7 +109,9 @@ theorem memcpyMachinePre_of_decoder
         nextMseccfg pmmDisabled
       have allowed : DecoderAccessRange (DecoderReadableByte decoderArgs)
           (BitVec.ofNat 64 args.source + BitVec.ofNat 64 index) 1 := by
-        refine ⟨by rw [sourceAddress]; omega, ?_⟩
+        refine ⟨by decide, ?_, ?_⟩
+        · rw [sourceAddress]
+          omega
         intro offset offsetBound
         have offsetZero : offset = 0 := by omega
         subst offset
@@ -124,7 +126,9 @@ theorem memcpyMachinePre_of_decoder
         nextMseccfg pmmDisabled
       have allowed : DecoderAccessRange DecoderWritableByte
           (BitVec.ofNat 64 args.destination + BitVec.ofNat 64 index) 1 := by
-        refine ⟨by rw [destinationAddress]; omega, ?_⟩
+        refine ⟨by decide, ?_, ?_⟩
+        · rw [destinationAddress]
+          omega
         intro offset offsetBound
         have offsetZero : offset = 0 := by omega
         subst offset

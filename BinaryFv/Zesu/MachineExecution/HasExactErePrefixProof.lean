@@ -208,7 +208,7 @@ theorem decoderInputLbuExecute
       (rX_x8_run state _ inputPointer) mstatusState privilegeState mprvZero mseccfgState pmmDisabled
   have allowed : Entrypoints.ZesuDecodeRaw.DecoderAccessRange
       (Entrypoints.ZesuDecodeRaw.DecoderReadableByte args.machineArgs) address 1 := by
-    refine ⟨?_, ?_⟩
+    refine ⟨by decide, ?_, ?_⟩
     · simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt addressFits]
       have := pre.inputFits
       omega
@@ -516,7 +516,7 @@ theorem hasExactErePrefix_prefix_first_lbu_step (stepNo : Nat)
     exact agree_decoderExecuteState state (BitVec.ofNat 64 0x10398)
   have allowed : Entrypoints.ZesuDecodeRaw.DecoderAccessRange
       (Entrypoints.ZesuDecodeRaw.DecoderReadableByte args.machineArgs) address 1 := by
-    refine ⟨?_, ?_⟩
+    refine ⟨by decide, ?_, ?_⟩
     · simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits]
       omega
     · intro index indexLt
@@ -651,7 +651,7 @@ theorem hasExactErePrefix_prefix_second_lbu_step (stepNo : Nat)
     Agree.trans agree (agree_decoderExecuteState state (BitVec.ofNat 64 0x1039c))
   have allowed : Entrypoints.ZesuDecodeRaw.DecoderAccessRange
       (Entrypoints.ZesuDecodeRaw.DecoderReadableByte args.machineArgs) address 1 := by
-    refine ⟨?_, ?_⟩
+    refine ⟨by decide, ?_, ?_⟩
     · simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits]
       omega
     · intro index indexLt

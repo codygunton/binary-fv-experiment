@@ -1436,7 +1436,8 @@ theorem decodeInline_first_result_tag_step (stepNo : Nat) (args : DecodeInlineAr
       mseccfgBase (rX_bits_run_x2 executeState _ stackAtExecute) mstatusRead privilegeRead
       mprvZero mseccfgReadExecute pmmDisabled
   have allowed : DecoderAccessRange (DecoderReadableByte args.machineArgs) address 2 := by
-    refine ⟨by simpa [addressNat] using addressFits, ?_⟩
+    refine ⟨by decide, ?_, ?_⟩
+    · simpa [addressNat] using addressFits
     intro index indexLt
     right
     right

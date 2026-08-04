@@ -114,10 +114,13 @@ def DecoderWritableByte (address : Nat) : Prop :=
     (canonicalContractParams.env.arenaBase ≤ address ∧
       address < Elflings.canonicalHeapLimit)
 
-/-- Every byte in one machine access belongs to `allowed`; the non-wrapping condition makes the
-address range an ordinary half-open interval rather than a modular one. -/
+/-- Every byte in one nonempty machine access belongs to `allowed`; the non-wrapping condition
+makes the address range an ordinary half-open interval rather than a modular one. `0 < width`
+excludes vacuous zero-width ranges: the configured PMA region ends below `2 ^ 63`, while an empty
+range at an arbitrary 64-bit address would otherwise satisfy the byte clause without denoting a
+permitted data access. -/
 def DecoderAccessRange (allowed : Nat → Prop) (address : BitVec 64) (width : Nat) : Prop :=
-  address.toNat + width ≤ 2 ^ 64 ∧
+  0 < width ∧ address.toNat + width ≤ 2 ^ 64 ∧
     ∀ index, index < width → allowed (address.toNat + index)
 
 /-- Data-access behavior of the configured machine over the decoder's readable and writable
@@ -151,9 +154,10 @@ access behavior. Writable bytes are program-wide and therefore unchanged. -/
 theorem DecoderDataAccess.narrow {outer inner : DecoderMachineArgs} {state : State}
     (subset : ∀ address, DecoderReadableByte inner address → DecoderReadableByte outer address)
     (access : DecoderDataAccess outer state) : DecoderDataAccess inner state where
-  load next address width agree allowed := access.load next address width agree ⟨allowed.1, by
+  load next address width agree allowed := access.load next address width agree
+    ⟨allowed.1, allowed.2.1, by
     intro index bound
-    exact subset _ (allowed.2 index bound)⟩
+    exact subset _ (allowed.2.2 index bound)⟩
   store := access.store
 
 /-- Machine configuration needed to execute either compiled inline phase. Fetch is restricted to
