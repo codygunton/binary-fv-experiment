@@ -38,7 +38,7 @@ theorem decodeInline_retry_success_reaches_post
       DecodeInlineOutgoingFrame args after := by
   obtain ⟨lengthUsed, prefixUsed, rawUsed, rawCall, decoded,
     lengthBound, prefixBound, rawBound, prefixToRawCall, ⟨rawTransfer⟩, decodedPost,
-    decodedAgree, decodedCounter, decodedStack, decodedPayload, decodedCode⟩ :=
+    decodedAgree, decodedCounter, decodedStack, decodedGlobals, decodedPayload, decodedCode⟩ :=
     decodeInline_retry_call_transfer contract fromStep args state pre phase exactPrefix
   let copyStart := fromStep + (13 + lengthUsed + prefixUsed + rawUsed)
   have decodedPc : decoded.regs.get? PC = some (BitVec.ofNat 64 0x103dc) := by
@@ -47,12 +47,12 @@ theorem decodeInline_retry_success_reaches_post
       simpa [decodeRawRetryCall] using rawTransfer.returnMatches
     simpa [returnPcEq] using rawTransfer.atResume
   obtain ⟨contents, memcpyCall, contentsSize, copySetup, memcpyAtCall, memcpyCallBase,
-    memcpyDestination, memcpySource, memcpyLength, memcpyStack, sourceMemory, memcpyCallAgree,
+    memcpyDestination, memcpySource, memcpyLength, memcpyStack, memcpyGlobals, sourceMemory, memcpyCallAgree,
     memcpyCallCounter, memcpyCallCode, memcpyCallMemory⟩ :=
     decodeInline_retry_copy_setup copyStart args state decoded pre phase exactPrefix decodedAgree
-      decodedCounter decodedStack decodedCode decodedPc
+      decodedCounter decodedStack decodedGlobals decodedCode decodedPc
       decodedPayload
-  obtain ⟨callRetired, memcpyUsed, childEntry, childExit, childEntryEq, callRun, childPre,
+  obtain ⟨callRetired, memcpyUsed, childEntry, childExit, childEntryEq, childEntryPreservesGlobals, callRun, childPre,
     memcpyBound, childTrace, childPost⟩ :=
     decodeInline_retry_uses_memcpy (copyStart + 4) args contents state memcpyCall pre contentsSize
       sourceMemory memcpyCallAgree memcpyCallCounter memcpyCallCode memcpyAtCall memcpyCallBase
@@ -110,12 +110,20 @@ theorem decodeInline_retry_success_reaches_post
       tryStepControlFlowAfterTick, callLinkState, controlFlowJumpState,
       tryStepControlFlowAfterIncrement, coreControlFlowNextState,
       Std.ExtDHashMap.get?_insert, memcpyStack]
+  have childEntryGlobals : childEntry.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    childEntryPreservesGlobals.trans memcpyGlobals
   have childExitStack : childExit.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
     (machinePost.frame x2 (by simp [NonW])).trans childEntryStack
   have returnedStack : returned.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
     simp [returned, memcpyReturnAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
       coreControlFlowNextState, Std.ExtDHashMap.get?_insert, childExitStack]
+  have childExitGlobals : childExit.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    (machinePost.frame x18 (by simp [NonW])).trans childEntryGlobals
+  have returnedGlobals : returned.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simp [returned, memcpyReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState, Std.ExtDHashMap.get?_insert, childExitGlobals]
 
   obtain ⟨pageRetired, pageRun⟩ := decodeInline_retry_final_page_step
     (copyStart + 6 + memcpyUsed) args state returned pre returnedAgree returnedCounter returnedCode

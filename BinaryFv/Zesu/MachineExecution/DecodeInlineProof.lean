@@ -1389,6 +1389,7 @@ theorem decodeInline_first_result_tag_step (stepNo : Nat) (args : DecodeInlineAr
     (agree : Agree decoderPreserved baseState state)
     (retiredPresent : RetiredCounterPresent state)
     (stackRead : state.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase))
+    (globalsRead : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020))
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10320)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10320) retired x10
@@ -4844,6 +4845,7 @@ theorem decodeInline_retry_copy_setup (fromStep : Nat) (args : DecodeInlineArgs)
       beforeCall.regs.get? x11 = some (BitVec.ofNat 64 args.retryRawArgs.resultBase) ∧
       beforeCall.regs.get? x12 = some (BitVec.ofNat 64 832) ∧
       beforeCall.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+      beforeCall.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
       MemoryRepresentation.MemoryBytes beforeCall args.retryRawArgs.resultBase contents ∧
       Agree decoderPreserved baseState beforeCall ∧
       RetiredCounterPresent beforeCall ∧
@@ -4943,8 +4945,12 @@ theorem decodeInline_retry_copy_setup (fromStep : Nat) (args : DecodeInlineArgs)
     rw [show sign_extend (0x6b0#12) = (BitVec.ofNat 64 0x6b0) by decide,
       ← BitVec.ofNat_add]
   have lengthEq : length = BitVec.ofNat 64 832 := by simp [length, iTypeResult]; decide
+  have globalsBeforeCall : beforeCall.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simp [beforeCall, s3, s2, s1, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, globalsRead]
   refine ⟨contents, beforeCall, contentsSize, by simpa using complete, ?_, ?_, ?_, ?_, ?_, ?_,
-    ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, globalsBeforeCall, ?_, ?_, ?_, ?_⟩
   · simpa [beforeCall] using afterRegisterWrite_pc s3 (BitVec.ofNat 64 0x103e8) retired4 x1
       (BitVec.ofNat 64 0x143e8)
   · simp [beforeCall, afterRegisterWrite, tryStepControlFlowAfterRetired,
@@ -5246,6 +5252,7 @@ theorem decodeInline_retry_uses_memcpy (fromStep : Nat) (args : DecodeInlineArgs
     (length : beforeCall.regs.get? x12 = some (BitVec.ofNat 64 832)) :
     ∃ callRetired childUsed childEntry childExit,
       childEntry = decodeInlineMemcpyCallAfter beforeCall callRetired ∧
+      childEntry.regs.get? x18 = beforeCall.regs.get? x18 ∧
       Runs (try_step fromStep false) beforeCall childEntry false ∧
       (compiledMemcpyContract Contracts.canonicalContractParams.env).binding.entry
         (decodeInlineRetryCopyArgs args contents) childEntry ∧
@@ -5298,7 +5305,11 @@ theorem decodeInline_retry_uses_memcpy (fromStep : Nat) (args : DecodeInlineArgs
         copyArgs childEntry := ⟨sourcePre, machinePre⟩
   obtain ⟨childUsed, childExit, childBound, childTrace, childPost⟩ :=
     compiledMemcpyInstanceContract_proved copyArgs (fromStep + 1) childEntry compiledEntry
-  exact ⟨callRetired, childUsed, childEntry, childExit, rfl, by simpa [childEntry] using callRun,
+  exact ⟨callRetired, childUsed, childEntry, childExit, rfl, by
+    simp [childEntry, decodeInlineMemcpyCallAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, callLinkState, controlFlowJumpState,
+      tryStepControlFlowAfterIncrement, coreControlFlowNextState, Std.ExtDHashMap.get?_insert],
+    by simpa [childEntry] using callRun,
     compiledEntry, childBound, childTrace, childPost⟩
 
 /-- Package the retry `memcpy` call, proved child execution, and real return as the checked call
