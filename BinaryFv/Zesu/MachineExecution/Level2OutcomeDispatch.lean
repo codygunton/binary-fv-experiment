@@ -1861,6 +1861,21 @@ private theorem wrapper_dispatch_tag1_suffix {machineArgs : DecoderMachineArgs} 
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
 
+/-- Public lossless frame of the three-instruction tag-one rejection tail. -/
+theorem wrapper_dispatch_tag1_suffix_frame {machineArgs : DecoderMachineArgs} {base state : State}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base) (agree : Agree platformPreserved base state)
+    (retired : RetiredCounterPresent state) (code : canonicalContractParams.env.CodeIntact state)
+    (stepNo : Nat) (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10428)) :
+    ∃ after, Trace stepNo 3 state after ∧ after.regs.get? PC = some (BitVec.ofNat 64 0x1035c) ∧
+      after.regs.get? x10 = some (BitVec.ofNat 64 0) ∧ after.regs.get? x11 = some (BitVec.ofNat 64 4) ∧
+      RetiredCounterPresent after ∧ after.mem = state.mem ∧ Agree platformPreserved base after ∧
+      canonicalContractParams.env.CodeIntact after ∧ after.regs.get? x18 = state.regs.get? x18 := by
+  obtain ⟨⟨after, trace, pc, result, status, retired, memory, platform, code, x18, -⟩⟩ :=
+    wrapper_dispatch_tag1_suffix machine agree retired code stepNo atPc
+  exact ⟨after, trace, pc, result, status, retired, memory, platform, code, x18⟩
+
 /-- The tag-one route reaches the shared rejection continuation with `(a0, a1) = (0, 4)`. -/
 theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base state : State}
     (machine : DecoderMachinePre
