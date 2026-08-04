@@ -40,6 +40,10 @@ private structure DispatchPath (base : State) (fromStep steps : Nat) (entry : St
 private structure Tag1PrefixPath (base : State) (fromStep : Nat) (entry : State) : Prop where
   evidence : ∃ after,
     Trace fromStep 4 entry after ∧
+    ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary fromStep 4 entry after ∧
     after.regs.get? PC = some (BitVec.ofNat 64 0x10428) ∧
     after.regs.get? x10 = some (BitVec.ofNat 64 1) ∧
     after.regs.get? x11 = some (BitVec.ofNat 64 1) ∧
@@ -96,6 +100,23 @@ structure WrapperTerminalRouteFrame (base before after : State) (fromStep steps 
   platform : Agree platformPreserved base after
   code : canonicalContractParams.env.CodeIntact after
   retired : RetiredCounterPresent after
+
+/-- A result-tag route whose flat Sail trace and Level 2 ownership have the same endpoint. -/
+structure WrapperOwnedTerminalRouteFrame (base before after : State) (fromStep steps : Nat)
+    (terminalPc result status : BitVec 64) : Prop where
+  terminal : WrapperTerminalRouteFrame base before after fromStep steps terminalPc result status
+  confined : ConfinedPrefix
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary fromStep steps before after
+
+private structure Tag3OwnedPath (base : State) (fromStep : Nat) (entry : State) : Prop where
+  evidence : ∃ after, WrapperDispatchRouteFrame base entry after fromStep 5
+      (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) ∧
+    ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary fromStep 5 entry after
 
 def WrapperDispatchRouteFrame.terminal
     (route : WrapperDispatchRouteFrame base before after fromStep steps terminalPc result status) :
@@ -1758,12 +1779,55 @@ private theorem wrapper_dispatch_tag1_prefix {machineArgs : DecoderMachineArgs} 
     simp [s4, wrapperDispatchTag1BranchAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have prefixConfined : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary stepNo 4 state s4 := by
+    have p1 : ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary stepNo 1 state s1 := ConfinedPrefix.ownStep atPc (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s1] using run1)
+    have p2 : ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary (stepNo + 1) 1 s1 s2 := ConfinedPrefix.ownStep pc1 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s1, s2] using run2)
+    have p3 : ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary (stepNo + 2) 1 s2 s3 := ConfinedPrefix.ownStep pc2 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s2, s3] using run3)
+    have p4 : ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary (stepNo + 3) 1 s3 s4 := ConfinedPrefix.ownStep pc3 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [s3, s4, wrapperDispatchTag1BranchAfter] using run4)
+    simpa [Nat.add_assoc] using ConfinedPrefix.trans (ConfinedPrefix.trans
+      (ConfinedPrefix.trans p1 p2) p3) p4
   refine ⟨⟨s4, Trace.step stepNo 3 state s1 s4 (by simpa [s1] using run1)
     (Trace.step (stepNo + 1) 2 s1 s2 s4 (by simpa [s1, s2] using run2)
     (Trace.step (stepNo + 2) 1 s2 s3 s4 (by simpa [s2, s3] using run3)
     (Trace.step (stepNo + 3) 0 s3 s4 s4
       (by simpa [s3, s4, wrapperDispatchTag1BranchAfter] using run4)
-      (Trace.refl (stepNo + 4) s4)))), ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
+      (Trace.refl (stepNo + 4) s4)))), prefixConfined, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
   · exact pc4
   · simp [s4, wrapperDispatchTag1BranchAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
@@ -1932,7 +1996,7 @@ theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base stat
     (tag : state.regs.get? x10 = some (BitVec.ofNat 64 1)) :
     DispatchPath base stepNo 7 state (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0)
       (BitVec.ofNat 64 4) := by
-  obtain ⟨⟨s4, prefixTrace, pc4, tag4, status4, retired4, memory4, agree4, code4, x18_4,
+  obtain ⟨⟨s4, prefixTrace, _prefixConfined, pc4, tag4, status4, retired4, memory4, agree4, code4, x18_4,
     x2_4⟩⟩ :=
     wrapper_dispatch_tag1_prefix machine agree retiredPresent code stepNo atPc tag
   obtain ⟨⟨s7, suffixTrace, _suffixPrefix, pc7, result7, status7, retired7, memory7, agree7,
@@ -1944,8 +2008,35 @@ theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base stat
   · exact x18_7.trans x18_4
   · exact x2_7.trans x2_4
 
+/-- Tag one supplies one terminal state carrying both its seven-step Sail trace and wrapper ownership. -/
+theorem wrapper_dispatch_tag1_owned_terminal_route {machineArgs : DecoderMachineArgs} {base state : State}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
+    (tag : state.regs.get? x10 = some (BitVec.ofNat 64 1)) :
+    ∃ after, WrapperOwnedTerminalRouteFrame base state after stepNo 7
+      (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 4) := by
+  obtain ⟨⟨s4, prefixTrace, prefixConfined, pc4, _tag4, _status4, retired4, memory4, agree4,
+    code4, x18_4, x2_4⟩⟩ := wrapper_dispatch_tag1_prefix machine agree retiredPresent code stepNo atPc tag
+  obtain ⟨⟨after, suffixTrace, suffixConfined, pc, result, status, retired, memory, platform,
+    finalCode, x18, x2⟩⟩ := wrapper_dispatch_tag1_suffix machine agree4 retired4 code4 (stepNo + 4) pc4
+  let terminal : WrapperTerminalRouteFrame base state after stepNo 7
+      (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 4) :=
+    { trace := Trace.append prefixTrace suffixTrace
+      atTerminal := pc
+      resultValue := result
+      statusValue := status
+      platform := platform
+      code := finalCode
+      retired := retired }
+  refine ⟨after, ⟨terminal, ?_⟩⟩
+  simpa [Nat.add_assoc] using ConfinedPrefix.trans prefixConfined suffixConfined
+
 /-- The tag-three route reaches the shared rejection continuation with `(a0, a1) = (0, 3)`. -/
-theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base state : State}
+private theorem wrapper_dispatch_tag3_owned_path {machineArgs : DecoderMachineArgs} {base state : State}
     (machine : DecoderMachinePre
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
       machineArgs base)
@@ -1953,8 +2044,7 @@ theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base stat
     (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
     (tag : state.regs.get? x10 = some (BitVec.ofNat 64 3)) :
-    DispatchPath base stepNo 5 state (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0)
-      (BitVec.ofNat 64 3) := by
+    Tag3OwnedPath base stepNo state := by
   obtain ⟨r1, run1⟩ := wrapper_dispatch_tag3_constant_step machine agree retiredPresent code stepNo atPc
   let s1 := afterRegisterWrite state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
   have agree1 : Agree platformPreserved base s1 := agree.trans
@@ -2013,47 +2103,146 @@ theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base stat
     (controlFlowJumpState (tryStepControlFlowAfterIncrement s4)
       (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c))
     (BitVec.ofNat 64 0x1035c) r5
-  refine ⟨⟨s5, Trace.step stepNo 4 state s1 s5 (by simpa [s1] using run1)
+  have confined : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary stepNo 5 state s5 := by
+    have p1 : ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary stepNo 1 state s1 := ConfinedPrefix.ownStep atPc (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by simp [functionInstanceExitPred,
+      BinaryFv.Binary.Elfling.FunctionInstance.isExit, functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [s1] using run1)
+    have p2 : ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary (stepNo + 1) 1 s1 s2 := ConfinedPrefix.ownStep pc1 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by simp [functionInstanceExitPred,
+      BinaryFv.Binary.Elfling.FunctionInstance.isExit, functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [s1, s2] using run2)
+    have p3 : ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary (stepNo + 2) 1 s2 s3 := ConfinedPrefix.ownStep pc2 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by simp [functionInstanceExitPred,
+      BinaryFv.Binary.Elfling.FunctionInstance.isExit, functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [s2, s3] using run3)
+    have p4 : ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary (stepNo + 3) 1 s3 s4 := ConfinedPrefix.ownStep pc3 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by simp [functionInstanceExitPred,
+      BinaryFv.Binary.Elfling.FunctionInstance.isExit, functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [s3, s4] using run4)
+    have p5 : ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary (stepNo + 4) 1 s4 s5 := ConfinedPrefix.ownStep pc4 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by simpa [functionInstanceExitPred,
+      BinaryFv.Binary.Elfling.FunctionInstance.isExit, functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [s4] using run5)
+    simpa [Nat.add_assoc] using ConfinedPrefix.trans (ConfinedPrefix.trans
+      (ConfinedPrefix.trans (ConfinedPrefix.trans p1 p2) p3) p4) p5
+  let trace : Trace stepNo 5 state s5 := Trace.step stepNo 4 state s1 s5 (by simpa [s1] using run1)
     (Trace.step (stepNo + 1) 3 s1 s2 s5 (by simpa [s1, s2] using run2)
     (Trace.step (stepNo + 2) 2 s2 s3 s5 (by simpa [s2, s3] using run3)
     (Trace.step (stepNo + 3) 1 s3 s4 s5 (by simpa [s3, s4] using run4)
     (Trace.step (stepNo + 4) 0 s4 s5 s5 (by simpa [s4] using run5)
-      (Trace.refl (stepNo + 5) s5))))), ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
-  · simp [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      (Trace.refl (stepNo + 5) s5)))))
+  let terminal : WrapperDispatchRouteFrame base state s5 stepNo 5
+      (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) := by
+    refine
+      { trace := trace
+        atTerminal := ?_
+        resultValue := ?_
+        statusValue := ?_
+        memory := ?_
+        platform := ?_
+        code := ?_
+        retired := ?_
+        savedS2 := ?_
+        savedStack := ?_ }
+    · simp [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
-  · have x10s3 : s3.regs.get? x10 = some (BitVec.ofNat 64 0) := by
-      simp [s3, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-        wrapperDispatchTag3BranchAfter, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert]
-    have x10s4 : s4.regs.get? x10 = some (BitVec.ofNat 64 0) := by
-      simpa [s4] using (afterRegisterWrite_register s3 (BitVec.ofNat 64 0x10438) r4 x11 x10
-        (BitVec.ofNat 64 3) (by decide) (by decide) (by decide) (by decide) (by decide)).trans x10s3
-    exact tryStepControlFlowAfterRetired_preserves_register
-      (controlFlowJumpState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x1043c)
-        (BitVec.ofNat 64 0x1035c)) (BitVec.ofNat 64 0x1035c) r5 x10 (BitVec.ofNat 64 0)
-      (by simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using x10s4) (by decide) (by decide)
-  · have x11s4 : s4.regs.get? x11 = some (BitVec.ofNat 64 3) := by
-      simp [s4, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-        coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-    apply tryStepControlFlowAfterRetired_preserves_register
-    · simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using x11s4
-    · decide
-    · decide
-  · exact ⟨Sail.BitVec.addInt r5 1, by
-      simp [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
-  · simp [s1, s2, s3, s4, s5, afterRegisterWrite_mem, wrapperDispatchTag3BranchAfter,
+    · have x10s3 : s3.regs.get? x10 = some (BitVec.ofNat 64 0) := by
+        simp [s3, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+          wrapperDispatchTag3BranchAfter, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+          Std.ExtDHashMap.get?_insert]
+      have x10s4 : s4.regs.get? x10 = some (BitVec.ofNat 64 0) := by
+        simpa [s4] using (afterRegisterWrite_register s3 (BitVec.ofNat 64 0x10438) r4 x11 x10
+          (BitVec.ofNat 64 3) (by decide) (by decide) (by decide) (by decide) (by decide)).trans x10s3
+      exact tryStepControlFlowAfterRetired_preserves_register
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x1043c)
+          (BitVec.ofNat 64 0x1035c)) (BitVec.ofNat 64 0x1035c) r5 x10 (BitVec.ofNat 64 0)
+        (by simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+          Std.ExtDHashMap.get?_insert] using x10s4) (by decide) (by decide)
+    · have x11s4 : s4.regs.get? x11 = some (BitVec.ofNat 64 3) := by
+        simp [s4, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+          coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+      apply tryStepControlFlowAfterRetired_preserves_register
+      · simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+          Std.ExtDHashMap.get?_insert] using x11s4
+      · decide
+      · decide
+    · simp [s1, s2, s3, s4, s5, afterRegisterWrite_mem, wrapperDispatchTag3BranchAfter,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement]
-  · exact agree4.trans (wrapperDispatchJumpAfter_agree s4 (BitVec.ofNat 64 0x1043c)
+    · exact agree4.trans (wrapperDispatchJumpAfter_agree s4 (BitVec.ofNat 64 0x1043c)
       (BitVec.ofNat 64 0x1035c) r5)
-  · simpa [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+    · simpa [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code4
-  · simp [s1, s2, s3, s4, s5, wrapperDispatchTag3BranchAfter, afterRegisterWrite,
+    · exact ⟨Sail.BitVec.addInt r5 1, by
+      simp [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+    · simp [s1, s2, s3, s4, s5, wrapperDispatchTag3BranchAfter, afterRegisterWrite,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+    · simp [s1, s2, s3, s4, s5, wrapperDispatchTag3BranchAfter, afterRegisterWrite,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  exact ⟨s5, terminal, confined⟩
+
+/-- The original tag-three route frame projected from its richer shared-state proof. -/
+theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base state : State}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
+    (tag : state.regs.get? x10 = some (BitVec.ofNat 64 3)) :
+    DispatchPath base stepNo 5 state (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0)
+      (BitVec.ofNat 64 3) := by
+  obtain ⟨⟨after, route, -⟩⟩ := wrapper_dispatch_tag3_owned_path machine agree retiredPresent code
+    stepNo atPc tag
+  exact ⟨⟨after, route.trace, route.atTerminal, route.resultValue, route.statusValue, route.retired,
+    route.memory, route.platform, route.code, route.savedS2, route.savedStack⟩⟩
+
+/-- Tag three supplies one terminal state carrying both its five-step Sail trace and wrapper ownership. -/
+theorem wrapper_dispatch_tag3_owned_terminal_route {machineArgs : DecoderMachineArgs} {base state : State}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
+    (tag : state.regs.get? x10 = some (BitVec.ofNat 64 3)) :
+    ∃ after, WrapperOwnedTerminalRouteFrame base state after stepNo 5
+      (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) := by
+  obtain ⟨⟨after, terminal, confined⟩⟩ := wrapper_dispatch_tag3_owned_path machine agree retiredPresent
+    code stepNo atPc tag
+  exact ⟨after, ⟨terminal.terminal, confined⟩⟩
 
 /-- The short prefix of the tag-one route, kept separate from its result-tail frame. -/
 theorem wrapper_dispatch_tag1_trace_prefix {state s1 s2 s3 s4 : State} (stepNo : Nat)
