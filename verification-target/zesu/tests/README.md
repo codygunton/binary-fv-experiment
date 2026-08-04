@@ -16,12 +16,8 @@ compare extracted instructions, call boundaries, and source bindings with commit
 observations. The scaled checks attempt those tests for all 141 compiled function instances under
 three deterministic inputs. They record which instances actually executed and which individual checks could be evaluated;
 an unexecuted instance, exceeded step bound, or unavailable meaning comparison is reported as a gap
-and never counted as a pass. The composition witnesses exercise call/return splicing on small positive
-and negative examples. `LoopDischarge.lean` shows how an input-dependent loop can be constructed by
-induction in the trace framework, but it does not prove the semantics or termination of a production
-Zesu loop. It also detects that the old exit sets make nine inlined instances unable to reach their
-loops at all. Mutation probes alter representative evidence fields and require the corresponding
-checker to reject them. These modules live in the dedicated
+and never counted as a pass. Mutation probes alter representative execution-observation fields and
+require the corresponding checker to reject them. These modules live in the dedicated
 `ZesuVerificationTests` Lake library, outside the production `BinaryFv` theorem library.
 
 ## Examples of checked execution observations

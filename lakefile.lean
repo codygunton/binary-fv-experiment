@@ -47,10 +47,12 @@ lean_lib MachineRegionsGenerated where
 lean_lib ZesuVerificationTests where
   srcDir := "verification-target/zesu/tests/lean"
   roots := #[
-    `ZesuVerification.SequentialSpliceWitness,
-    `ZesuVerification.LoopDischarge,
-    `ZesuVerification.CallStepRetInRegion,
-    `ZesuVerification.SyntheticUnitProbe,
+    `ZesuVerification.BinaryOccurrenceTypes,
+    `ZesuVerification.GeneratedBinaryEvidence,
+    `ZesuVerification.BinaryOccurrenceCheck,
+    `ZesuVerification.ScaleOccurrenceTypes,
+    `ZesuVerification.GeneratedScaleEvidence,
+    `ZesuVerification.ScaleOccurrenceCheck,
   ]
   moreLeanArgs := #["--tstack=4000000"]
 
