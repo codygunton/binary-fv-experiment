@@ -149,6 +149,7 @@ theorem wrapper_dword_store_step {instructionPcs : BitVec 64 → Prop}
     pmmDisabled
   obtain ⟨physical, storeNoMMIO⟩ :=
     machine.dataAccess.store executeState target 8 executeAgree allowed
+      (by simpa [is_aligned_paddr, is_aligned_vaddr] using aligned)
   have memoryWrite : Runs (PreSail.writeBytes (n := 8) target.toNat data)
       executeState afterExec true := by
     simpa [afterExec] using writeBytes_run_exact (width := 8) executeState target.toNat data
@@ -229,7 +230,8 @@ theorem wrapper_allocator_tag_step_configured {instructionPcs : BitVec 64 → Pr
     ((executeAgree mseccfg (by simp [decoderPreserved, platformPreserved])).trans mseccfgRead)
     pmmDisabled
   obtain ⟨physical, storeNoMMIO⟩ :=
-    machine.dataAccess.store executeState target 1 executeAgree allowed
+    machine.dataAccess.store executeState target 1 executeAgree allowed (by
+      simp [is_aligned_paddr])
   have memoryWrite : Runs (PreSail.writeBytes (n := 1) target.toNat
       (Sail.BitVec.extractLsb data 7 0)) executeState afterExec true := by
     simpa [afterExec] using
@@ -340,8 +342,9 @@ theorem wrapper_stack_store_step (args : ZesuDecodeRawArgs) (stackBase : Nat)
     (entry state : State) (machine : ZesuDecodeRawMachinePre args stackBase entry)
     (agree : Agree decoderPreserved entry state) (retiredPresent : RetiredCounterPresent state)
     (stepNo : Nat) (pc : BitVec 64)
-    (pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw pc)
+    (pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram
+        functionInstance_raw_decoder_root_zesu_decode_raw) pc)
     (atPc : state.regs.get? PC = some pc)
     (byte0 byte1 byte2 byte3 : BitVec 8) (immediate : BitVec 12) (source : regidx)
     (data : BitVec 64) (offset : Nat) (offsetEnd : offset + 8 ≤ 0xa20)
@@ -508,7 +511,7 @@ theorem wrapper_first_frame_decrement_step (stepNo : Nat) (args : ZesuDecodeRawA
       (writeStackPointer executeState result)
   obtain ⟨retired, run⟩ :=
     decoderRegisterWriteStep machine.machine (Agree.refl state) machine.machine.retiredCounter
-      stepNo (BitVec.ofNat 64 0x102b0) pcIn machine.atEntry
+      stepNo (BitVec.ofNat 64 0x102b0) ⟨pcIn, by native_decide⟩ machine.atEntry
       0x13#8 0x01#8 0x01#8 0x81#8
       (.ITYPE (0x810#12, .Regidx 2#5, .Regidx 2#5, .ADDI)) x2 result fetch
       (by unfold BaseInstructionEncoding; decide) decode
@@ -659,9 +662,9 @@ theorem wrapper_save_s0_step (stepNo : Nat) (args : ZesuDecodeRawArgs) (stackBas
     wrapper_decode_machine_state entry state machine.machine agree
   apply wrapper_stack_store_step args stackBase entry state machine agree retired stepNo
     (BitVec.ofNat 64 0x102b8)
-    (by apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
+    ⟨(by apply functionInstanceExecutionPcs_iff_ranges.mpr
+         apply RegionPcs.iff_inRanges.mpr
+         native_decide), by native_decide⟩
     atPc 0x23#8 0x30#8 0x81#8 0x7e#8 0x7e0#12 (.Regidx 8#5) value 0xa10
     (by decide) (by decide) stack
     (rX_x8_run executeState value storedAtExecute) (wrapper_saved_s0_target stackBase)
@@ -688,9 +691,9 @@ theorem wrapper_save_s1_step (stepNo : Nat) (args : ZesuDecodeRawArgs) (stackBas
     wrapper_decode_machine_state entry state machine.machine agree
   apply wrapper_stack_store_step args stackBase entry state machine agree retired stepNo
     (BitVec.ofNat 64 0x102bc)
-    (by apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
+    ⟨(by apply functionInstanceExecutionPcs_iff_ranges.mpr
+         apply RegionPcs.iff_inRanges.mpr
+         native_decide), by native_decide⟩
     atPc 0x23#8 0x3c#8 0x91#8 0x7c#8 0x7d8#12 (.Regidx 9#5) value 0xa08
     (by decide) (by decide) stack
     (rX_x9_run executeState value storedAtExecute) (wrapper_saved_s1_target stackBase)
@@ -717,9 +720,9 @@ theorem wrapper_save_s2_step (stepNo : Nat) (args : ZesuDecodeRawArgs) (stackBas
     wrapper_decode_machine_state entry state machine.machine agree
   apply wrapper_stack_store_step args stackBase entry state machine agree retired stepNo
     (BitVec.ofNat 64 0x102c0)
-    (by apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
+    ⟨(by apply functionInstanceExecutionPcs_iff_ranges.mpr
+         apply RegionPcs.iff_inRanges.mpr
+         native_decide), by native_decide⟩
     atPc 0x23#8 0x38#8 0x21#8 0x7d#8 0x7d0#12 (.Regidx 18#5) value 0xa00
     (by decide) (by decide) stack
     (rX_bits_run_x18 executeState value storedAtExecute) (wrapper_saved_s2_target stackBase)
@@ -820,7 +823,8 @@ theorem wrapper_save_link_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     apply RegionPcs.iff_inRanges.mpr
     native_decide
   obtain ⟨storeRetired, run⟩ := wrapper_dword_store_step machine.machine stateAgree stateRetired
-    stepNo (BitVec.ofNat 64 0x102b4) pcIn statePc 0x23#8 0x34#8 0x11#8 0x7e#8
+    stepNo (BitVec.ofNat 64 0x102b4) ⟨pcIn, by native_decide⟩ statePc
+    0x23#8 0x34#8 0x11#8 0x7e#8
     0x7e8#12 (.Regidx 1#5) (BitVec.ofNat 64 (stackBase + 0x230)) link
     (BitVec.ofNat 64 (stackBase + 0xa18)) stateStack dataRun
     (wrapper_saved_link_target stackBase) aligned allowed fetch
@@ -1184,7 +1188,7 @@ theorem wrapper_final_frame_decrement_step (stepNo : Nat) (args : ZesuDecodeRawA
       (writeStackPointer executeState
         (iTypeResult .ADDI 0xdd0#12 (BitVec.ofNat 64 (stackBase + 0x230))))
   obtain ⟨retired, run⟩ := decoderRegisterWriteStep machine.machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x102c4) pcIn atPc 0x13#8 0x01#8 0x01#8 0xdd#8
+    (BitVec.ofNat 64 0x102c4) ⟨pcIn, by native_decide⟩ atPc 0x13#8 0x01#8 0x01#8 0xdd#8
     (.ITYPE (0xdd0#12, .Regidx 2#5, .Regidx 2#5, .ADDI)) x2 (BitVec.ofNat 64 stackBase)
     fetch (by unfold BaseInstructionEncoding; decide) decode
     (by decide) (by decide) (by decide) (by decide) execute
@@ -1323,7 +1327,7 @@ theorem wrapper_preserve_length_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
       (writeSavedS1 executeState
         (iTypeResult .ADDI 0#12 (BitVec.ofNat 64 args.bytes.size)))
   exact decoderRegisterWriteStep machine.machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x102c8) pcIn atPc 0x93#8 0x84#8 0x05#8 0x00#8
+    (BitVec.ofNat 64 0x102c8) ⟨pcIn, by native_decide⟩ atPc 0x93#8 0x84#8 0x05#8 0x00#8
     (.ITYPE (0#12, .Regidx 11#5, .Regidx 9#5, .ADDI)) x9
     (BitVec.ofNat 64 args.bytes.size) fetch (by unfold BaseInstructionEncoding; decide) decode
     (by decide) (by decide) (by decide) (by decide) execute
@@ -1380,7 +1384,7 @@ theorem wrapper_globals_page_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     · exact readReg_run _ _ _ pcAtExecute
     · simpa [resultValue] using wX_bits_run_x11 executeState (BitVec.ofNat 64 0x42152cc)
   exact decoderRegisterWriteStep machine.machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x102cc) pcIn atPc 0x97#8 0x55#8 0x20#8 0x04#8
+    (BitVec.ofNat 64 0x102cc) ⟨pcIn, by native_decide⟩ atPc 0x97#8 0x55#8 0x20#8 0x04#8
     (.UTYPE (0x04205#20, .Regidx 11#5, .AUIPC)) x11 (BitVec.ofNat 64 0x42152cc)
     fetch (by unfold BaseInstructionEncoding; decide) decode
     (by decide) (by decide) (by decide) (by decide) execute
@@ -1437,7 +1441,7 @@ theorem wrapper_globals_address_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     · exact rX_x11_run executeState _ pageAtExecute
     · simpa [resultValue] using wX_x18_run executeState (BitVec.ofNat 64 0x4215020)
   exact decoderRegisterWriteStep machine.machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x102d0) pcIn atPc 0x13#8 0x89#8 0x45#8 0xd5#8
+    (BitVec.ofNat 64 0x102d0) ⟨pcIn, by native_decide⟩ atPc 0x13#8 0x89#8 0x45#8 0xd5#8
     (.ITYPE (0xd54#12, .Regidx 11#5, .Regidx 18#5, .ADDI)) x18
     (BitVec.ofNat 64 0x4215020) fetch (by unfold BaseInstructionEncoding; decide) decode
     (by decide) (by decide) (by decide) (by decide) execute
@@ -1477,7 +1481,7 @@ theorem wrapper_attempted_load_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     native_decide
   have fetchBytes := wrapper_attempted_load_fetch state code
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine.machine agree
-    (BitVec.ofNat 64 0x102d4) atPc pcIn _ _ _ _ fetchBytes
+    (BitVec.ofNat 64 0x102d4) atPc ⟨pcIn, by native_decide⟩ _ _ _ _ fetchBytes
   obtain ⟨retired, inhibit, config, counters⟩ :=
     decoderStepCounters machine.machine.normal agree retiredPresent
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -1520,7 +1524,8 @@ theorem wrapper_attempted_load_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     simp [address, DecoderGlobalsByte]
     native_decide
   obtain ⟨physAccess, loadNoMMIO⟩ := machine.machine.dataAccess.load executeState address 1
-    (Agree.weaken (fun _ preserved => preserved.2) executeAgree) allowed
+    (Agree.weaken (fun _ preserved => preserved.2) executeAgree) allowed (by
+      simp [is_aligned_paddr])
   have memoryByte : ∀ (index : Nat) (bound : index < (leBytes 1 (0#8)).length),
       executeState.mem.get? (address.toNat + index) =
         some ((leBytes 1 (0#8))[index]'bound) := by
@@ -1611,7 +1616,7 @@ theorem wrapper_fresh_branch_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
   have currentMachine := machine.machine.mono
     (Agree.weaken (fun _ preserved => preserved.2) agree) retiredPresent
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform currentMachine (Agree.refl state)
-    (BitVec.ofNat 64 0x102d8) atPc pcIn _ _ _ _ fetchBytes
+    (BitVec.ofNat 64 0x102d8) atPc ⟨pcIn, by native_decide⟩ _ _ _ _ fetchBytes
   obtain ⟨retired, inhibit, config, counters⟩ :=
     decoderStepCounters currentMachine.normal (Agree.refl state) retiredPresent
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
@@ -1937,7 +1942,7 @@ theorem wrapper_save_input_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
       (BitVec.ofNat 64 args.inputBase) (rX_x10_run executeState _ inputAtExecute)
       (writeSavedS0 executeState (iTypeResult .ADDI 0#12 (BitVec.ofNat 64 args.inputBase)))
   exact decoderRegisterWriteStep machine.machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x102e8) pcIn atPc 0x13#8 0x04#8 0x05#8 0x00#8
+    (BitVec.ofNat 64 0x102e8) ⟨pcIn, by native_decide⟩ atPc 0x13#8 0x04#8 0x05#8 0x00#8
     (.ITYPE (0#12, .Regidx 10#5, .Regidx 8#5, .ADDI)) x8
     (BitVec.ofNat 64 args.inputBase) fetch (by unfold BaseInstructionEncoding; decide) decode
     (by decide) (by decide) (by decide) (by decide) execute
@@ -1987,7 +1992,7 @@ theorem wrapper_attempted_value_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     exact execute_ITYPE_run executeState _ 1#12 (.Regidx 0#5) (.Regidx 10#5) .ADDI (0#64)
       (rX_x0_run executeState) (wX_x10_run executeState (iTypeResult .ADDI 1#12 (0#64)))
   exact decoderRegisterWriteStep machine.machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x102ec) pcIn atPc 0x13#8 0x05#8 0x10#8 0x00#8
+    (BitVec.ofNat 64 0x102ec) ⟨pcIn, by native_decide⟩ atPc 0x13#8 0x05#8 0x10#8 0x00#8
     (.ITYPE (1#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) x10 (1#64)
     fetch (by unfold BaseInstructionEncoding; decide) decode
     (by decide) (by decide) (by decide) (by decide) execute
@@ -2157,7 +2162,8 @@ theorem wrapper_reaches_allocator_first_segment
     apply RegionPcs.iff_inRanges.mpr
     native_decide
   have platform := decoderInstructionStepPlatform machine.machine
-    (Agree.weaken (fun _ preserved => preserved.2) agree) retired code 0x102f0 pc pcIn
+    (Agree.weaken (fun _ preserved => preserved.2) agree) retired code 0x102f0 pc
+      ⟨pcIn, by native_decide⟩
   obtain ⟨nextRetired, transfer⟩ := allocator.1 (fromStep + 13) atAllocator
     (BitVec.ofNat 64 0x4215020) ⟨platform, pc, globals⟩
   exact ⟨atAllocator, nextRetired, trace, transfer⟩
@@ -2194,7 +2200,8 @@ theorem wrapper_through_allocator_tag
     apply RegionPcs.iff_inRanges.mpr
     native_decide
   have platform13 := decoderInstructionStepPlatform machine.machine
-    (Agree.weaken (fun _ preserved => preserved.2) agree13) retired13 code13 0x102f0 pc13 pc13In
+    (Agree.weaken (fun _ preserved => preserved.2) agree13) retired13 code13 0x102f0 pc13
+      ⟨pc13In, by native_decide⟩
   obtain ⟨r14, firstTransfer⟩ := allocator.1 (fromStep + 13) atAllocator
     (BitVec.ofNat 64 0x4215020) ⟨platform13, pc13, globals13⟩
   rcases firstTransfer with ⟨firstTransfer⟩
@@ -2253,7 +2260,8 @@ theorem wrapper_through_allocator_tag
     apply RegionPcs.iff_inRanges.mpr
     native_decide
   obtain ⟨r15, tagStep⟩ := wrapper_allocator_tag_step_configured machine.machine firstAgree
-    firstRetired firstCode (fromStep + 14) pc14In firstPc (BitVec.ofNat 64 0x4215020)
+    firstRetired firstCode (fromStep + 14) ⟨pc14In, by native_decide⟩ firstPc
+    (BitVec.ofNat 64 0x4215020)
     (1#64) firstTarget firstData writable
   let final := wrapperAfterAllocatorTag afterFirst r15 (BitVec.ofNat 64 0x4215020) (1#64)
   have finalStack := (wrapperAfterAllocatorTag_register afterFirst r15
@@ -2804,7 +2812,7 @@ theorem wrapper_decode_first_error_branch_step (stepNo : Nat) (args : DecodeInli
       (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   have machine := pre.machine.mono frame.agree frame.retiredCounter
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
-    (BitVec.ofNat 64 0x10324) atPc pcIn _ _ _ _ fetchBytes
+    (BitVec.ofNat 64 0x10324) atPc ⟨pcIn, by native_decide⟩ _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
   obtain ⟨retired, inhibit, config, counters⟩ :=
     decoderStepCounters machine.normal (Agree.refl state) frame.retiredCounter
@@ -2990,7 +2998,7 @@ theorem wrapper_retry_reason_step {machineArgs : DecoderMachineArgs} {base state
     simpa [resultEq] using execute_ITYPE_run executeState _ 0x002#12 (.Regidx 0#5) (.Regidx 11#5)
       .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 2))
   exact decoderRegisterWriteStep machine agree retiredPresent stepNo (BitVec.ofNat 64 0x1037c)
-    pcIn atPc 0x93#8 0x05#8 0x20#8 0x00#8
+    ⟨pcIn, by native_decide⟩ atPc 0x93#8 0x05#8 0x20#8 0x00#8
     (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) x11 (BitVec.ofNat 64 2)
     fetchBytes (by unfold BaseInstructionEncoding; decide) decode
     (by decide) (by decide) (by decide) (by decide) execute

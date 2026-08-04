@@ -37,8 +37,12 @@ theorem decodeInline_propagate_error_branch_step (stepNo : Nat) (args : DecodeIn
         some (BitVec.ofNat 64 0x103fc) := by
   have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10380) := by
     simpa [DecodeInlineArgs.entryPc, phase] using pre.atEntry
-  have pcIn := decodeInline_owned_in_execution_region (0x10380, 0x06b51e63)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram
+        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+      (BitVec.ofNat 64 0x10380) :=
+    ⟨decodeInline_owned_in_execution_region (0x10380, 0x06b51e63)
+      (by simp [decodeInlineOwnedInstructionWords]), by native_decide⟩
   have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
     hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)

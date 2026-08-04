@@ -58,7 +58,7 @@ theorem retry_short_length_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
   have machine := pre.machine.mono frame.agree frame.retiredCounter
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
-    (BitVec.ofNat 64 0x10394) atPc pcIn _ _ _ _ fetchBytes
+    (BitVec.ofNat 64 0x10394) atPc ⟨pcIn, by native_decide⟩ _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
   obtain ⟨retired, inhibit, config, counters⟩ :=
     decoderStepCounters machine.normal (Agree.refl state) frame.retiredCounter
@@ -266,18 +266,22 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
       rw [resultSize]
       omega)
     simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using stackByte
+  have addressMod : address.toNat % 2 = 0 := by
+    rw [addressNat]
+    have stackAligned := pre.stackAligned
+    omega
   have aligned : is_aligned_vaddr (virtaddr.Virtaddr address) 2 = true := by
-    have addressMod : address.toNat % 2 = 0 := by
-      rw [addressNat]
-      have stackAligned := pre.stackAligned
-      omega
     simp only [is_aligned_vaddr, Sail.BitVec.toNatInt, Int.ofNat_eq_natCast, ← Int.ofNat_tmod,
       addressMod]
     rfl
   obtain ⟨physAccess, loadNoMMIO⟩ :=
     machine.dataAccess.load executeState address 2 executeAgree allowed (by
-      simpa [is_aligned_paddr] using aligned)
+      simp only [is_aligned_paddr, Sail.BitVec.toNatInt, Int.ofNat_eq_natCast,
+        ← Int.ofNat_tmod, addressMod]
+      rfl)
   rcases values.2.2 with ⟨-, lowByte, highByte⟩
+  have executeMemory : executeState.mem = state.mem := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement]
   have memoryBytes : ∀ (index : Nat) (indexLt : index < (leBytes 2 (BitVec.ofNat 16 tag)).length),
       executeState.mem.get? (address.toNat + index) =
         some (leBytes 2 (BitVec.ofNat 16 tag))[index] := by
@@ -285,8 +289,10 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
     rw [leBytes_length] at indexLt
     have indexCases : index = 0 ∨ index = 1 := by omega
     rcases indexCases with rfl | rfl
-    · rcases tagCases with h | h | h | h <;> simpa [h, leBytes] using lowByte
-    · rcases tagCases with h | h | h | h <;> simpa [h, leBytes] using highByte
+    · rw [executeMemory, addressNat]
+      rcases tagCases with h | h | h | h <;> simpa [h, leBytes] using lowByte
+    · rw [executeMemory, addressNat]
+      rcases tagCases with h | h | h | h <;> simpa [h, leBytes] using highByte
   have hread := vmem_read_half_from_bytes_run executeState (.Regidx 10#5)
     (sign_extend (m := 64) (0x9f0#12)) address mstatusBits (BitVec.ofNat 16 tag)
     mstatusRead privilegeRead mprvZero addressRun aligned physAccess loadNoMMIO memoryBytes
