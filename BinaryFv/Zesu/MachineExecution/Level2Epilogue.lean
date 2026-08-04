@@ -193,4 +193,82 @@ theorem wrapper_epilogue_first_stack_restore_step {base state : State} {machineA
         using stackValue)
       hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
 
+/-- Retire one of the four real `ld` instructions in the wrapper epilogue.  Its only memory
+content premise is the corresponding `SavedWordBytes` conjunct of the saved wrapper frame. -/
+theorem wrapper_epilogue_saved_load_step {base state : State} {machineArgs : DecoderMachineArgs}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree decoderPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (stepNo : Nat) (pc : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8) (imm : BitVec 12)
+    (rs1 rd : regidx) (value stack address : BitVec 64) (afterExec : State)
+    (atPc : state.regs.get? PC = some pc)
+    (pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc)
+    (stackRead : Runs (rX_bits rs1) (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) stack)
+    (targetEq : stack + sign_extend (m := 64) imm = address)
+    (savedBase : Nat) (savedBaseEq : savedBase = address.toNat)
+    (saved : SavedWordBytes state savedBase value)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr address) 8 = true)
+    (allowed : DecoderAccessRange (DecoderReadableByte machineArgs) address 8)
+    (fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
+    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (imm, rs1, rd, false, 8)))
+    (baseEncoding : BaseInstructionEncoding byte0)
+    (write : Runs (wX_bits rd value) (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      afterExec ())
+    (nextPcAfterExec : afterExec.regs.get? nextPC = some (Sail.BitVec.addInt pc 4))
+    (hartAgree : afterExec.regs.get? hart_state =
+      (tryStepControlFlowAfterIncrement state).regs.get? hart_state)
+    (incrementAgree : afterExec.regs.get? minstret_increment =
+      (tryStepControlFlowAfterIncrement state).regs.get? minstret_increment)
+    (retiredAgree : afterExec.regs.get? minstret =
+      (tryStepControlFlowAfterIncrement state).regs.get? minstret) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired afterExec (Sail.BitVec.addInt pc 4) retired) false := by
+  obtain ⟨_, platform⟩ := decoderStepPlatform_of_decoderAgree machine agree pc atPc pcIn
+    _ _ _ _ fetchBytes
+  obtain ⟨fetch, fetchNoMMIO, fetched, interrupts, notExpected, privilege, mseccfgAtIncrement⟩ :=
+    platform
+  obtain ⟨retired, inhibit, config, counters⟩ :=
+    decoderStepCounters_of_decoderAgree machine.normal agree retiredPresent
+  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
+  have stepAgree : Agree decoderPreserved state executeState :=
+    Agree.weaken (fun _ preserved => preserved.2) (agree_stepPremiseState state pc)
+  have executeAgree : Agree decoderPreserved base executeState := agree.trans stepAgree
+  obtain ⟨mstatusBits, mstatusRead, mprvDisabled⟩ := machine.mstatus
+  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := machine.mseccfg
+  have addressRun := get_transformed_data_addr_machine_load_run executeState rs1 stack
+    (sign_extend (m := 64) imm) mstatusBits mseccfgBits (by simpa [executeState] using stackRead)
+    ((executeAgree mstatus (by simp [decoderPreserved, platformPreserved])).trans mstatusRead)
+    ((executeAgree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans machine.normal.2.1)
+    mprvDisabled ((executeAgree mseccfg (by simp [decoderPreserved, platformPreserved])).trans mseccfgRead)
+    pmmDisabled
+  obtain ⟨physical, loadNoMMIO⟩ := machine.dataAccess.load executeState address 8 executeAgree allowed
+    (by simpa [is_aligned_paddr, is_aligned_vaddr] using aligned)
+  have memoryBytes : ∀ index (bound : index < (BinaryFv.RiscV.Sep.leBytes 8 value).length),
+      executeState.mem.get? (address.toNat + index) =
+        some (getElem (BinaryFv.RiscV.Sep.leBytes 8 value) index bound) := by
+    intro index bound
+    rw [← savedBaseEq]
+    simpa [SavedWordBytes, executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert] using saved index bound
+  have execute : Runs (execute (.LOAD (imm, rs1, rd, false, 8))) executeState afterExec
+      (.Retire_Success ()) := by
+    change Runs (execute_LOAD imm rs1 rd false 8) _ _ _
+    exact execute_LOAD_ld_run executeState _ imm rs1 rd address mstatusBits value
+      ((executeAgree mstatus (by simp [decoderPreserved, platformPreserved])).trans mstatusRead)
+      ((executeAgree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans machine.normal.2.1)
+      mprvDisabled (by simpa [targetEq] using addressRun) aligned physical loadNoMMIO memoryBytes
+      (by simpa [executeState] using write)
+  refine ⟨retired, ?_⟩
+  simpa [executeState] using
+    tryStepFallThroughRetires stepNo state afterExec pc retired inhibit config byte0 byte1 byte2 byte3
+      (.LOAD (imm, rs1, rd, false, 8)) fetch fetchNoMMIO fetched interrupts baseEncoding decode
+      notExpected execute nextPcAfterExec hartAgree incrementAgree retiredAgree hartRead inhibitRead
+      configRead notInhibited machineEnabled retiredRead
+
 end BinaryFv.Zesu.MachineExecution
