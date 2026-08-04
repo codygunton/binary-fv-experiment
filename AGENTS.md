@@ -78,6 +78,19 @@ These instructions apply repository-wide.
   Do not unroll a loop merely because observed test inputs make it short; runtime-dependent lengths are
   compatible with an inductive proof.
 
+## Proof automation
+
+- [`GRIND.md`](GRIND.md) is the single source of truth for named `simp` and `grind` sets: which facts
+  belong in which kind of set, the attribute variants, the two-file constraint on named simp
+  attributes, the entry criteria for a new set, and the registry of sets that exist. Read it before
+  adding a shared `@[simp]` or `@[grind =]` attribute or writing a closing tactic more than one proof
+  will call. Do not duplicate its content here.
+- Do not add a definitional unfolding to a `grind` set, and do not put a step-unfolding fact in the
+  global `@[simp]` set. `GRIND.md` section 3 gives the reason for each.
+- A `grind` frame lemma about a step stated as `∃ retired, Runs (try_step stepNo false) state …`
+  needs an explicit `grind_pattern`; without one it never fires and reads as coverage it does not
+  provide. `GRIND.md` section 5.
+
 ## Verification
 
 - Use focused Lean targets and evidence tests while iterating. Run the full `lake build` at coherent
