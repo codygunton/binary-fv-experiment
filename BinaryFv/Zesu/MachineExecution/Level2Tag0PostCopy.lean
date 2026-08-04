@@ -296,6 +296,10 @@ private theorem tag0_postcopy_one_value :
 structure Tag0PostcopyResult (base before after : State) (fromStep : Nat)
     (contents : ByteArray) (stack link savedS0 savedS1 savedS2 : BitVec 64) : Prop where
   trace : Trace fromStep 3 before after
+  confined : ConfinedPrefix
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary fromStep 3 before after
   atTerminal : after.regs.get? PC = some (BitVec.ofNat 64 0x1035c)
   resultValue : after.regs.get? x10 = some (BitVec.ofNat 64 1)
   statusValue : after.regs.get? x11 = some (BitVec.ofNat 64 1)
@@ -388,8 +392,44 @@ theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before :
   rw [tag0_postcopy_one_value] at h3
   let after := afterRegisterWrite s2 (BitVec.ofNat 64 0x10358) r3 x10
     (BitVec.ofNat 64 1)
+  have prefix1 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary fromStep 1 before s1 :=
+    ConfinedPrefix.ownStep pre.atPc (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s1] using h1)
+  have prefix2 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (fromStep + 1) 1 s1 s2 :=
+    ConfinedPrefix.ownStep pc1 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s2] using h2)
+  have prefix3 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (fromStep + 2) 1 s2 after :=
+    ConfinedPrefix.ownStep pc2 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [after] using h3)
+  have confined : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary fromStep 3 before after := by
+    have prefix12 := ConfinedPrefix.trans prefix1 (by simpa using prefix2)
+    simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix12 (by simpa [Nat.add_assoc] using prefix3)
   refine ⟨after, ?_⟩
-  refine ⟨?_, ?_, ?_, ?_, pre.payloadLength, ?_, ?_, pre.payloadBeforeStack,
+  refine ⟨?_, confined, ?_, ?_, ?_, pre.payloadLength, ?_, ?_, pre.payloadBeforeStack,
     ?_, ?_, ?_, ?_, ?_⟩
   · simpa [s1, s2, after, Nat.add_assoc] using
       Trace.append (Trace.one fromStep before s1 (by simpa [s1] using h1))
