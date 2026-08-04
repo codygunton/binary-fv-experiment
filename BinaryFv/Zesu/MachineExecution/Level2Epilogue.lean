@@ -758,6 +758,7 @@ arbitrary frame contents, not ABI defaults. -/
 structure WrapperEpilogueSavedRegistersResult (fromStep : Nat) (base before after : State)
     (stackBase link savedS0 savedS1 savedS2 stack result status : BitVec 64) : Prop where
   trace : Trace fromStep 3 before after
+  ra : after.regs.get? x1 = some link
   s0 : after.regs.get? x8 = some savedS0
   s1 : after.regs.get? x9 = some savedS1
   s2 : after.regs.get? x18 = some savedS2
@@ -778,6 +779,7 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10368))
     (stackBase link savedS0 savedS1 savedS2 stack result status s0Address s1Address s2Address : BitVec 64)
     (frame : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 state)
+    (raValue : state.regs.get? x1 = some link)
     (stackValue : state.regs.get? x2 = some stack)
     (resultValue : state.regs.get? x10 = some result)
     (statusValue : state.regs.get? x11 = some status)
@@ -845,10 +847,13 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]))
-  refine ⟨afterS2, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
+  refine ⟨afterS2, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
   · refine Trace.step fromStep 2 state afterS0 afterS2 (by simpa [afterS0] using s0Run) ?_
     refine Trace.step (fromStep + 1) 1 afterS0 afterS1 afterS2 (by simpa [afterS0, afterS1] using s1Run) ?_
     exact Trace.one (fromStep + 2) afterS1 afterS2 (by simpa [afterS1, afterS2] using s2Run)
+  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, raValue]
   · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
@@ -870,5 +875,120 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
   · simpa [afterS2, afterRegisterWrite_mem] using codeS1
   · exact agreeS2
   · exact afterRegisterWrite_retired_present afterS1 (BitVec.ofNat 64 0x10370) retiredS2 x18 savedS2
+
+/-- The final two instructions of the wrapper epilogue return through the restored link without
+changing its saved-register result. -/
+structure WrapperEpilogueReturnResult (fromStep : Nat) (base before after : State)
+    (link savedS0 savedS1 savedS2 stack restoredStack result status : BitVec 64) : Prop where
+  trace : Trace fromStep 2 before after
+  pc : after.regs.get? PC = some link
+  ra : after.regs.get? x1 = some link
+  s0 : after.regs.get? x8 = some savedS0
+  s1 : after.regs.get? x9 = some savedS1
+  s2 : after.regs.get? x18 = some savedS2
+  sp : after.regs.get? x2 = some restoredStack
+  a0 : after.regs.get? x10 = some result
+  a1 : after.regs.get? x11 = some status
+  memory : after.mem = before.mem
+  code : canonicalContractParams.env.CodeIntact after
+  agree : Agree decoderPreserved base after
+  retired : RetiredCounterPresent after
+
+/-- Execute `addi sp, sp, 2032` and the production `ret` after the typed saved-register phase. -/
+theorem wrapper_epilogue_final_restore_and_return {base before state : State} {machineArgs : DecoderMachineArgs}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (fromStep : Nat) (stackBase link savedS0 savedS1 savedS2 stack restoredStack result status : BitVec 64)
+    (saved : WrapperEpilogueSavedRegistersResult fromStep base before state stackBase link savedS0 savedS1
+      savedS2 stack result status)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10374))
+    (restoredStackEq : stack + sign_extend (m := 64) (0x7f0#12) = restoredStack)
+    (linkEven : Sail.BitVec.update link 0 0#1 = link) (linkBit1 : Sail.BitVec.access link 1 = 0#1) :
+    ∃ after, WrapperEpilogueReturnResult (fromStep + 3) base state after link savedS0 savedS1 savedS2
+      stack restoredStack result status := by
+  obtain ⟨retiredStack, stackRun⟩ := wrapper_epilogue_final_stack_restore_step machine saved.agree
+    saved.retired saved.code (fromStep + 3) atPc stack saved.sp
+  let afterStack := wrapperAfterFinalStackRestore state retiredStack stack
+  have stackAgree : Agree decoderPreserved state afterStack := by
+    intro register preserved
+    cases register <;>
+      simp only [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState,
+      stackAddiNextState, tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert] at preserved ⊢ <;>
+      simp_all [decoderPreserved, platformPreserved]
+  have agreeStack : Agree decoderPreserved base afterStack := saved.agree.trans stackAgree
+  have retiredStackPresent : RetiredCounterPresent afterStack := by
+    refine ⟨Sail.BitVec.addInt retiredStack 1, ?_⟩
+    simp [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick]
+  have codeStack : canonicalContractParams.env.CodeIntact afterStack := by
+    simpa [afterStack, wrapperAfterFinalStackRestore] using saved.code
+  have machineStack := machine.mono agreeStack retiredStackPresent
+  have atReturn : afterStack.regs.get? PC = some (BitVec.ofNat 64 0x10378) := by
+    simp [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState,
+      stackAddiNextState, tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert]
+    decide
+  have linkStack : afterStack.regs.get? x1 = some link := by
+    simp [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState,
+      stackAddiNextState, tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert, saved.ra]
+  obtain ⟨retiredReturn, returnRun, pcReturn⟩ := wrapper_epilogue_return_step machineStack
+    (Agree.refl afterStack) retiredStackPresent codeStack (fromStep + 4) atReturn link linkStack
+    linkEven linkBit1
+  let afterReturn := wrapperAfterReturn afterStack retiredReturn link
+  refine ⟨afterReturn, ⟨?_, pcReturn, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
+  · refine Trace.step (fromStep + 3) 1 state afterStack afterReturn
+      (by simpa [afterStack] using stackRun) ?_
+    exact Trace.one (fromStep + 4) afterStack afterReturn (by simpa [afterReturn] using returnRun)
+  · simp [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
+      tryStepStackAddiAfterIncrement, controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, saved.ra]
+  · simp [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
+      tryStepStackAddiAfterIncrement, controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, saved.s0]
+  · simp [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
+      tryStepStackAddiAfterIncrement, controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, saved.s1]
+  · simp [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
+      tryStepStackAddiAfterIncrement, controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, saved.s2]
+  · simp [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
+      tryStepStackAddiAfterIncrement, controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, restoredStackEq]
+  · simp [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
+      tryStepStackAddiAfterIncrement, controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, saved.a0]
+  · simp [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
+      tryStepStackAddiAfterIncrement, controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, saved.a1]
+  · rfl
+  · simpa [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore] using saved.code
+  · have returnAgree : Agree decoderPreserved afterStack afterReturn := by
+      intro register preserved
+      rcases preserved with ⟨notLink, platform⟩
+      rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      all_goals simp_all [afterReturn, wrapperAfterReturn, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+        coreControlFlowNextState, Std.ExtDHashMap.get?_insert]
+    exact agreeStack.trans returnAgree
+  · unfold RetiredCounterPresent
+    simp [afterReturn, wrapperAfterReturn, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
 
 end BinaryFv.Zesu.MachineExecution
