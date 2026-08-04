@@ -3,6 +3,7 @@ import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
 import BinaryFv.Zesu.MachineExecution.Level2WrapperProof
 import BinaryFv.Zesu.MachineExecution.RegisterWriteStep
 import BinaryFv.Zesu.MachineExecution.RegisterRuns
+import BinaryFv.Zesu.MachineExecution.Level2Capstone
 
 /-!
 # Tag-zero post-copy wrapper instructions
@@ -279,15 +280,34 @@ structure Tag0PostcopyResult (base before after : State) (fromStep : Nat) : Prop
   atTerminal : after.regs.get? PC = some (BitVec.ofNat 64 0x1035c)
   resultValue : after.regs.get? x10 = some (BitVec.ofNat 64 1)
   statusValue : after.regs.get? x11 = some (BitVec.ofNat 64 1)
-  payload : ∃ contents : ByteArray, contents.size = 832 ∧
-    MemoryRepresentation.MemoryBytes after 0x4215030 contents
-  savedFrame : ∃ stack link s0 s1 s2 : BitVec 64,
-    WrapperSavedRegisterFrame stack.toNat link s0 s1 s2 after
+  contents : ByteArray
+  payloadLength : contents.size = 832
+  payload : MemoryRepresentation.MemoryBytes after 0x4215030 contents
+  stack : BitVec 64
+  link : BitVec 64
+  savedS0 : BitVec 64
+  savedS1 : BitVec 64
+  savedS2 : BitVec 64
+  savedFrame : WrapperSavedRegisterFrame stack.toNat link savedS0 savedS1 savedS2 after
+  payloadBeforeStack : 0x4215370 ≤ stack.toNat
   platform : Agree platformPreserved base after
   code : canonicalContractParams.env.CodeIntact after
   retired : RetiredCounterPresent after
   globalsValue : after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
-  stackValue : ∃ stack : BitVec 64, after.regs.get? x2 = some stack
+  stackValue : after.regs.get? x2 = some stack
+
+/-- Forget only the tag-zero-specific memory facts when entering the common status-store epilogue. -/
+def Tag0PostcopyResult.terminal
+    (result : Tag0PostcopyResult base before after fromStep) :
+    WrapperTerminalRouteFrame base before after fromStep 3 (BitVec.ofNat 64 0x1035c)
+      (BitVec.ofNat 64 1) (BitVec.ofNat 64 1) :=
+  { trace := result.trace
+    atTerminal := result.atTerminal
+    resultValue := result.resultValue
+    statusValue := result.statusValue
+    platform := result.platform
+    code := result.code
+    retired := result.retired }
 
 theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before : State}
     (pre : Tag0PostMemcpyPre base before machineArgs) (fromStep : Nat) :
@@ -355,8 +375,11 @@ theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before :
   let after := afterRegisterWrite s2 (BitVec.ofNat 64 0x10358) r3 x10
     (iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0))
   refine ⟨after, ?_⟩
-  refine { trace := ?_, atTerminal := ?_, resultValue := ?_, statusValue := ?_, payload := ?_,
-    savedFrame := ?_, platform := ?_, code := ?_, retired := ?_, globalsValue := ?_, stackValue := ?_ }
+  refine { trace := ?_, atTerminal := ?_, resultValue := ?_, statusValue := ?_, contents := pre.contents,
+    payloadLength := pre.payloadLength, payload := ?_, stack := pre.stack, link := pre.link,
+    savedS0 := pre.savedS0, savedS1 := pre.savedS1, savedS2 := pre.savedS2, savedFrame := ?_,
+    payloadBeforeStack := pre.payloadBeforeStack,
+    platform := ?_, code := ?_, retired := ?_, globalsValue := ?_, stackValue := ?_ }
   · simpa [s1, s2, after, Nat.add_assoc] using
       Trace.append (Trace.one fromStep before s1 (by simpa [s1] using h1))
         (Trace.append (Trace.one (fromStep + 1) s1 s2 (by simpa [s2] using h2))
@@ -368,21 +391,65 @@ theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before :
   · simp [after, s2, tag0PostcopyStatusStoreAfter, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  · exact ⟨pre.contents, pre.payloadLength,
-      tag0PostcopyStatusStoreAfter_preserves_payload r2 pre.contents payload1 pre.payloadLength |>.of_mem_eq
-        (afterRegisterWrite_mem _ _ _ _ _)⟩
-  · exact ⟨pre.stack, pre.link, pre.savedS0, pre.savedS1, pre.savedS2,
-      WrapperSavedRegisterFrame.of_mem_eq
-        (tag0PostcopyStatusStoreAfter_preserves_saved_frame r2 pre.stack pre.link pre.savedS0 pre.savedS1
-          pre.savedS2 frame1 pre.payloadBeforeStack) (afterRegisterWrite_mem _ _ _ _ _)⟩
+  · exact tag0PostcopyStatusStoreAfter_preserves_payload r2 pre.contents payload1 pre.payloadLength |>.of_mem_eq
+      (afterRegisterWrite_mem _ _ _ _ _)
+  · exact WrapperSavedRegisterFrame.of_mem_eq
+      (tag0PostcopyStatusStoreAfter_preserves_saved_frame r2 pre.stack pre.link pre.savedS0 pre.savedS1
+        pre.savedS2 frame1 pre.payloadBeforeStack) (afterRegisterWrite_mem _ _ _ _ _)
   · exact a2.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   · rw [DecoderEnvironment.CodeIntact, afterRegisterWrite_mem]; exact code2
   · exact afterRegisterWrite_retired_present _ _ _ _ _
   · simp [after, s2, tag0PostcopyStatusStoreAfter, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, globals1]
-  · exact ⟨pre.stack, by simp [after, s2, tag0PostcopyStatusStoreAfter, afterRegisterWrite,
+  · simp [after, s2, tag0PostcopyStatusStoreAfter, afterRegisterWrite,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, afterWriteBytes_regs,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, stack1]⟩
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, stack1]
+
+/-- Compose the real tag-zero suffix through the common status store and wrapper return. -/
+theorem tag0_postcopy_through_epilogue {machineArgs : DecoderMachineArgs} {base before : State}
+    (pre : Tag0PostMemcpyPre base before machineArgs) (fromStep : Nat) (restoredStack : BitVec 64)
+    (raAddress s0Address s1Address s2Address : BitVec 64)
+    (raAddressEq : (pre.stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7e8#12) = raAddress)
+    (s0AddressEq : (pre.stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7e0#12) = s0Address)
+    (s1AddressEq : (pre.stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7d8#12) = s1Address)
+    (s2AddressEq : (pre.stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7d0#12) = s2Address)
+    (raAddressNat : pre.stack.toNat + 0xa18 = raAddress.toNat)
+    (s0AddressNat : pre.stack.toNat + 0xa10 = s0Address.toNat)
+    (s1AddressNat : pre.stack.toNat + 0xa08 = s1Address.toNat)
+    (s2AddressNat : pre.stack.toNat + 0xa00 = s2Address.toNat)
+    (raAligned : is_aligned_vaddr (virtaddr.Virtaddr raAddress) 8 = true)
+    (s0Aligned : is_aligned_vaddr (virtaddr.Virtaddr s0Address) 8 = true)
+    (s1Aligned : is_aligned_vaddr (virtaddr.Virtaddr s1Address) 8 = true)
+    (s2Aligned : is_aligned_vaddr (virtaddr.Virtaddr s2Address) 8 = true)
+    (raAllowed : DecoderAccessRange (DecoderReadableByte machineArgs) raAddress 8)
+    (s0Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s0Address 8)
+    (s1Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s1Address 8)
+    (s2Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s2Address 8)
+    (restoredStackEq : (pre.stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7f0#12) = restoredStack)
+    (linkEven : Sail.BitVec.update pre.link 0 0#1 = pre.link)
+    (linkBit1 : Sail.BitVec.access pre.link 1 = 0#1) :
+    ∃ routeAfter afterStore after,
+      Tag0PostcopyResult base before routeAfter fromStep ∧
+      Runs (try_step (fromStep + 3) false) routeAfter afterStore false ∧
+      Trace fromStep 11 before after ∧
+      WrapperEpilogueCompleteResult (fromStep + 4) base afterStore after
+        pre.link pre.savedS0 pre.savedS1 pre.savedS2 restoredStack
+        (BitVec.ofNat 64 1) (BitVec.ofNat 64 1) := by
+  obtain ⟨routeAfter, route⟩ := tag0_postcopy_complete pre fromStep
+  obtain ⟨afterStore, after, store, trace, complete⟩ :=
+    wrapper_dispatch_route_through_epilogue pre.machine fromStep 3
+      (BitVec.ofNat 64 1) (BitVec.ofNat 64 1) pre.link pre.savedS0 pre.savedS1 pre.savedS2
+      pre.stack restoredStack route.terminal route.savedFrame
+      (by right; omega) route.globalsValue route.stackValue
+      raAddress s0Address s1Address s2Address raAddressEq s0AddressEq s1AddressEq s2AddressEq
+      raAddressNat s0AddressNat s1AddressNat s2AddressNat raAligned s0Aligned s1Aligned s2Aligned
+      raAllowed s0Allowed s1Allowed s2Allowed restoredStackEq linkEven linkBit1
+  exact ⟨routeAfter, afterStore, after, route, store, trace, complete⟩
 
 end BinaryFv.Zesu.MachineExecution
