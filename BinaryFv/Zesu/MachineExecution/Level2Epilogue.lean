@@ -2,6 +2,8 @@ import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
 import BinaryFv.Zesu.MachineExecution.HasExactErePrefixProof
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
 import BinaryFv.Zesu.MachineExecution.RegisterWriteStep
+import BinaryFv.RiscV.Step.TryStepStackAddi
+import BinaryFv.RiscV.Step.TryStepStackAddiMemory
 
 /-!
 # Shared `zesu_decode_raw` epilogue
@@ -131,6 +133,62 @@ theorem wrapper_epilogue_status_store_step {base state : State} {machineArgs : D
         Std.ExtDHashMap.get?_insert])
       (by rw [afterExecRegs]; simp [executeState, coreControlFlowNextState,
         Std.ExtDHashMap.get?_insert])
+      hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+
+/-- Exact state after the first epilogue stack restoration at `0x10360`. -/
+def wrapperAfterFirstStackRestore (state : State) (retired stack : BitVec 64) : State :=
+  tryStepStackAddiAfterRetired state (BitVec.ofNat 64 0x10360) 0x230#12 stack retired
+
+/-- Decode the `addi sp, sp, 560` immediately following the status store. -/
+theorem wrapper_epilogue_first_stack_restore_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x13#8 0x01#8 0x01#8 0x23#8)) state state
+      (.ITYPE (0x230#12, .Regidx 2#5, .Regidx 2#5, .ADDI)) := by
+  decode_run
+
+/-- Execute the first of the wrapper's two epilogue stack restorations. -/
+theorem wrapper_epilogue_first_stack_restore_step {base state : State} {machineArgs : DecoderMachineArgs}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree decoderPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10360))
+    (stack : BitVec 64) (stackValue : state.regs.get? x2 = some stack) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (wrapperAfterFirstStackRestore state retired stack) false := by
+  have pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (BitVec.ofNat 64 0x10360) := by
+    refine ⟨?_, by native_decide⟩
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10360) 0x13#8 0x01#8 0x01#8 0x23#8 :=
+    fetchFileInstruction state 0x10360 0x13 0x01 0x01 0x23
+      (hasExactErePrefix_programImage_of_codeIntact code)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  obtain ⟨_, platform⟩ := decoderStepPlatform_of_decoderAgree machine agree
+    (BitVec.ofNat 64 0x10360) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, fetchNoMMIO, fetched, interrupts, notExpected, privilege, mseccfgAtIncrement⟩ :=
+    platform
+  obtain ⟨retired, inhibit, config, counters⟩ :=
+    decoderStepCounters_of_decoderAgree machine.normal agree retiredPresent
+  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  refine ⟨retired, ?_⟩
+  simpa [wrapperAfterFirstStackRestore, tryStepStackAddiAfterIncrement,
+    tryStepControlFlowAfterIncrement] using
+    tryStepStackAddiRetiresWithFetchMemory stepNo state (BitVec.ofNat 64 0x10360) 0x230#12 stack
+      retired inhibit config 0x13#8 0x01#8 0x01#8 0x23#8 fetch
+      (by simpa [tryStepStackAddiAfterIncrement, tryStepControlFlowAfterIncrement] using fetchNoMMIO)
+      (by simpa [tryStepStackAddiAfterIncrement, tryStepControlFlowAfterIncrement] using fetched)
+      interrupts (by unfold BaseInstructionEncoding; decide)
+      (wrapper_epilogue_first_stack_restore_decode _ privilege _ mseccfgAtIncrement) notExpected
+      (by simpa [stackAddiNextState, tryStepStackAddiAfterIncrement,
+        tryStepControlFlowAfterIncrement, coreControlFlowNextState, Std.ExtDHashMap.get?_insert]
+        using stackValue)
       hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
 
 end BinaryFv.Zesu.MachineExecution
