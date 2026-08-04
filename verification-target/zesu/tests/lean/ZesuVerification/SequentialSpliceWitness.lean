@@ -1,6 +1,6 @@
 import BinaryFv.RiscV.Elfling.SequentialSplice
 import BinaryFv.RiscV.Elfling.SentinelBridgeWitness
-import BinaryFv.Zesu.Elflings.GeneratedProgramGeometry
+import GeneratedProgram
 
 /-!
 # The sequential splice, exhibited on `ssz_raw.decodeRaw`

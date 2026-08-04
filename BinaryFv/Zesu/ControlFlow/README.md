@@ -28,13 +28,5 @@ The following are kernel-checked statements about the pinned production binary:
 - `Elflings.Validation.reachableAddresses_eq_directReachable` proves that the generated address set is
   exactly the set reachable from the exported entry through decoded direct control flow. It is neither
   missing reachable instructions nor padded with unreachable ones.
-- `Elflings.Validation.generated_call_graph_ranked` proves that calls and inlining between the 141
-  generated function instances form an acyclic dependency graph.
-- `Elflings.Validation.generated_program_geometry` proves that owned instructions lie inside each
-  function instance's execution extent, callees lie inside their callers where required, and a caller
-  exit inside an inlined callee is also an exit of that callee.
-- `Elflings.Validation.generated_callees_resolve` proves that every declared transfer target resolves
-  to another generated function instance or to an explicitly recorded absorbed function.
-
 These statements establish the binary structure on which execution proofs can rely. They do not yet
 establish that any function instance implements its Ethereum-spec meaning.

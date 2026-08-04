@@ -1,4 +1,6 @@
-import BinaryFv.Zesu.Elflings.GeneratedProgramGeometry
+import BinaryFv.RiscV.Elfling.ProgramGeometry
+import BinaryFv.Zesu.Contracts.ContractComposition
+import GeneratedProgram
 
 /-!
 # `CallTransfer.retInRegion` on the real artifact (falsification evidence)

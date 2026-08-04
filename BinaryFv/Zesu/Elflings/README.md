@@ -20,9 +20,6 @@ The main checks are organized by the question they answer:
   ELF. Here “coverage” means inventory coverage, not execution-test coverage.
 - `GeneratedProgramInstructions.lean` and `GeneratedProgramCfg.lean` check the claimed instructions,
   entries, exits, and direct transfers against the decoded binary.
-- `GeneratedProgramNesting.lean` and `GeneratedProgramGeometry.lean` check the parent/child structure
-  used for proof composition: the transfer graph is acyclic, child extents fit their parents, and
-  declared callees resolve.
 - `GeneratedReachabilityExact.lean` proves that the generated reachable-address list is exactly the
   direct control-flow closure of the exported entry.
 - `GeneratedProgramReachablePartition.lean` then accounts for every one of those reachable
@@ -32,3 +29,7 @@ The main checks are organized by the question they answer:
 - `GeneratedProvenanceCheck.lean` checks the source locations and hashes attached to generated
   function instances. `GeneratedValidationBridges.lean` contains the general lemmas that turn these
   concrete Boolean checks into propositions used by the rest of the library.
+
+This directory does not try to prove a complete nesting geometry or classify every edge by its role
+in a particular composition strategy. Those are obligations of the proof decomposition that uses
+them. Keeping them beside that decomposition makes their purpose and required assumptions visible.

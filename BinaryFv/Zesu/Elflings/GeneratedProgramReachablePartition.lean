@@ -231,7 +231,7 @@ theorem reachable_coverage_partition :
 
 /-- **Every reachable node is decoded and owned.** For the canonical decode, every address in the exact
 reachable set is a decoded CFG node AND is owned by a cataloged function instance or a surfaced excluded
-source function — the node-level counterpart of the total edge classification (`edges_all_classified`). -/
+source function. -/
 theorem reachable_node_decoded_and_owned :
     ∃ nodes : Array RiscV.ControlFlowNode, controlFlow? = some nodes ∧
       ∀ a ∈ reachableAddresses,
