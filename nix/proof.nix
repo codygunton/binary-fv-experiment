@@ -3,6 +3,7 @@ let
   zesuSsz = targets.public.zesuSsz;
   zesuAbiManifest = targets.public.zesuAbiManifest;
   elflingProgram = targets.public.elflingProgram;
+  machineRegions = targets.public.machineRegions;
 
   pinnedLean = pkgs.stdenvNoCC.mkDerivation {
     pname = "lean4";
@@ -179,6 +180,7 @@ let
     ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
     ln -s ${zesuAbiManifest} build/zesu-abi-lean
     ln -s ${elflingProgram} build/elfling-program-lean
+    ln -s ${machineRegions} build/machine-regions-lean
     cp -a ${replSource}/. .lake/packages/repl/
     chmod -R u+w .lake/packages/repl
     ${pkgs.jq}/bin/jq '
@@ -248,6 +250,9 @@ let
 
 
     lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
+
+    # Production-binary validation remains diagnostic-only.
+    lake build ZesuVerificationTests
     touch "$out"
   '';
 

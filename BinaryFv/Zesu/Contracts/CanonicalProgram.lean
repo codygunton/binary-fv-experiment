@@ -39,7 +39,7 @@ occurrence, that entry is emitted (not inlined), every claimed region lies insid
 loaded code, every occurrence carries validated source provenance, and the extraction left no
 unresolved attribution.
 
-The byte-exact instruction check is the extraction row's job; what this states is the coverage tie to
+Byte-exact instruction validation is separate; what this states is the coverage tie to
 the canonical artifact, so a program that ranges outside the real code, or drops source provenance,
 cannot pass. -/
 def IsCanonicalGeneratedProgram (program : Program) : Prop :=

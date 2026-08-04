@@ -1,0 +1,252 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>mf decomposition — contract set curation</title>
+<link rel="stylesheet" href="vendor/d3-flamegraph.css">
+<style>
+ :root{--bg:#0f1115;--panel:#161a21;--line:#262c36;--fg:#dfe4ec;--dim:#8a93a3;--sel:#3ddc84;--cur:#ffb454}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--fg);height:100vh;overflow:hidden;
+      font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+ #wrap{display:grid;grid-template-columns:1fr 540px;height:100vh}
+ #left{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)}
+ header{padding:9px 14px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+ h1{font-size:13px;margin:0;font-weight:600}
+ .muted{color:var(--dim)} .pill{background:#1b2028;border:1px solid var(--line);border-radius:99px;padding:2px 9px;font-size:11px}
+ button{background:#1e242e;color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:4px 9px;font:inherit;cursor:pointer}
+ button:hover{background:#252c38}
+ #chart{flex:1;overflow-x:auto;overflow-y:auto;padding:6px 14px;min-height:0;cursor:grab}
+ #chart svg{display:block}
+ #covwrap{padding:9px 14px 12px;border-top:1px solid var(--line);background:var(--panel)}
+ #covbar{position:relative;height:28px;background:#1b2028;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+ #covbar div{position:absolute;top:0;height:100%}
+ #covbar .s{background:var(--sel);opacity:.9}
+ #covbar .c{background:var(--cur)}
+ #covmeta{display:flex;justify-content:space-between;margin-top:6px;font-size:12px}
+ #list{max-height:150px;overflow:auto;border-top:1px solid var(--line);padding:7px 14px;font-size:12px}
+ #list div{display:flex;justify-content:space-between;cursor:pointer;padding:1px 0}
+ #list div:hover{color:#5aa9ff}
+ #right{display:flex;flex-direction:column;background:var(--panel);min-width:0}
+ #rhead{padding:10px 14px;border-bottom:1px solid var(--line)}
+ #rbody{flex:1;overflow:auto;padding:10px 14px}
+ pre{margin:0;white-space:pre;font-size:12px;color:#cbd4e2}
+ .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:8px 0 12px;font-size:12px}
+ .kv span:nth-child(odd){color:var(--dim)}
+ label.chk{display:inline-flex;gap:8px;align-items:center;cursor:pointer;padding:7px 11px;
+           border:1px solid var(--line);border-radius:5px;background:#1b2028}
+ label.chk input{accent-color:var(--sel);width:16px;height:16px}
+ /* selected frames get a green stroke, drawn by our colorMapper + this rule */
+ .d3-flame-graph rect.picked{stroke:#3ddc84;stroke-width:2px}
+ /* the frame label is a foreignObject painted over the rect and it swallows every
+    click; without this nothing in the graph is clickable at all. */
+ #chart foreignObject, #chart foreignObject *{pointer-events:none}
+ #chart svg text{pointer-events:none}
+</style>
+
+<div id="wrap">
+ <div id="left">
+  <header>
+    <h1>production machine regions</h1>
+    <span class="pill" id="zoominfo">full</span>
+    <button id="reset">reset zoom</button>
+    <button id="clear">clear set</button>
+    <button id="suggest" style="border-color:#3ddc84;color:#9df3c3">proposed size split</button>
+    <button id="export">export</button>
+    <span class="muted"><b>scroll</b> = zoom · <b>drag</b> = pan · <b>double-click</b> = reset · click = details · <b>shift-click</b> or checkbox = add to set</span>
+  </header>
+  <div id="chart"></div>
+  <div id="covwrap">
+    <div id="covbar"></div>
+    <div id="covmeta">
+      <span class="muted">coverage of <b id="rootname"></b> — fixed denominator, unaffected by zoom</span>
+      <span><b id="pct">0.0%</b> <span class="muted" id="pctabs"></span></span>
+    </div>
+  </div>
+  <div id="list"></div>
+ </div>
+ <div id="right">
+  <div id="rhead"><b id="dname">—</b> <span class="muted" id="dsub"></span></div>
+  <div id="rbody"><div class="muted">Click a frame to see its definition.</div></div>
+ </div>
+</div>
+
+<script src="vendor/d3.min.js"></script>
+<script src="vendor/d3-flamegraph.min.js"></script>
+<script>
+let D=null, META=null, TOTAL=0, sel=new Set(), cur=null, fg=null, SUG=null;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const save=()=>localStorage.setItem('mfsel2',JSON.stringify([...sel]));
+
+fetch('flame.json').then(r=>r.json()).then(d=>{
+  D=d.tree; META=d.meta; TOTAL=d.total; SUG=d.suggest;
+  try{(JSON.parse(localStorage.getItem('mfsel2'))||[]).forEach(k=>sel.add(k));}catch(e){}
+  $('#rootname').textContent=`whole program (${TOTAL} instrs)`;
+  build(); coverage();
+});
+
+// stable key: the path of frame names, matching what the generator emitted
+function keyOf(node){
+  const parts=[]; let n=node;
+  while(n){ parts.unshift(n.data.name); n=n.parent; }
+  return parts.join('|');
+}
+
+let Z=1, baseW=0;
+
+function build(){
+  baseW = $('#chart').clientWidth - 4;
+  fg = flamegraph()
+    .width(baseW)
+    .cellHeight(19)
+    .transitionDuration(0)             // no animation: zoom must track the wheel
+    .minFrameSize(0)
+    .sort(false)                       // keep address order from the generator
+    .inverted(false)
+    .selfValue(false)
+    .setColorMapper((d,orig)=> sel.has(keyOf(d)) ? '#2f7d55' : orig);
+  d3.select('#chart').datum(D).call(fg);
+  wireMouse();
+  markPicked();
+}
+
+function setZoom(z, anchorClientX){
+  const el=$('#chart');
+  const prevW = baseW*Z;
+  const ax = (anchorClientX!==undefined)
+      ? anchorClientX - el.getBoundingClientRect().left : el.clientWidth/2;
+  const frac = (el.scrollLeft + ax) / prevW;        // point under cursor, in [0,1]
+  Z = Math.min(400, Math.max(1, z));
+  const w = baseW*Z;
+  fg.width(w); fg.update(); markPicked();
+  el.scrollLeft = frac*w - ax;                      // keep that point under the cursor
+  $('#zoominfo').textContent = Z<=1.001 ? 'full'
+      : `${Z.toFixed(1)}× · ${Math.round(TOTAL/Z)} instrs visible`;
+}
+
+function wireMouse(){
+  const el=$('#chart');
+
+  // wheel = zoom about the cursor
+  el.addEventListener('wheel', ev=>{
+    ev.preventDefault();
+    const f = Math.exp(-ev.deltaY * 0.0022);
+    setZoom(Z*f, ev.clientX);
+  }, {passive:false});
+
+  // drag = pan; a drag must not be mistaken for a click
+  let down=null, moved=0;
+  el.addEventListener('mousedown', ev=>{ if(ev.button!==0) return;
+    down={x:ev.clientX, sl:el.scrollLeft}; moved=0; });
+  window.addEventListener('mousemove', ev=>{ if(!down) return;
+    const dx=ev.clientX-down.x; moved=Math.max(moved,Math.abs(dx));
+    el.scrollLeft = down.sl - dx; el.style.cursor='grabbing'; });
+  window.addEventListener('mouseup', ()=>{ down=null; el.style.cursor=''; });
+
+  // double click = reset
+  el.addEventListener('dblclick', ev=>{ ev.preventDefault(); setZoom(1); });
+
+  // click handling is ours entirely: capture and stop, so the library never zooms
+  el.addEventListener('click', ev=>{
+    ev.stopPropagation();
+    if(moved>4) return;                            // that was a pan, not a click
+    const g=ev.target.closest('g'); if(!g) return;
+    const d=d3.select(g).datum(); if(!d||!d.data) return;
+    if(ev.shiftKey) toggle(keyOf(d)); else details(d);
+  }, true);
+}
+
+function toggle(k){ sel.has(k)?sel.delete(k):sel.add(k); save(); fg.update(); coverage(); markPicked(); }
+
+function markPicked(){
+  d3.selectAll('#chart g').each(function(d){
+    if(!d) return;
+    d3.select(this).select('rect').classed('picked', sel.has(keyOf(d)));
+  });
+}
+
+function details(d){
+  const k=keyOf(d), m=META[k]||{};
+  cur=k;
+  $('#dname').textContent=d.data.name;
+  $('#dsub').textContent=`${d.data.value} instrs · ${(d.data.value/TOTAL*100).toFixed(2)}% of mf`;
+  $('#rbody').innerHTML=
+   `<label class="chk"><input type="checkbox" id="cb" ${sel.has(k)?'checked':''}>
+      write a contract for this unit</label>
+    <div class="kv">
+      <span>stack path</span><span>${esc(k.replace(/\|/g,' › '))}</span>
+      <span>source</span><span>${esc(m.file||'?')}:${m.line??'?'}</span>
+      <span>instructions</span><span>${d.data.value}</span>
+      <span>fragments</span><span>${m.frags>1?`<b style="color:var(--cur)">${m.frags}</b> (non-contiguous)`:'1 (contiguous)'}</span>
+      <span>children</span><span>${(d.children||d._children||[]).length}</span>
+      <span>entries</span><span>${(m.entries||[]).map(x=>'0x'+x.toString(16)).join(', ')||'none'}</span>
+      <span>exits</span><span>${(m.exits||[]).length}</span>
+      <span>loop SCCs</span><span>${(m.loopSccs||[]).join(', ')||'none'}</span>
+    </div>
+    <pre>${m.src?esc(m.src.text):'&lt;source unavailable&gt;'}</pre>`;
+  $('#cb').onchange=()=>{ toggle(k); };
+  markPicked();
+}
+
+// coverage bar: instruction-index axis, ALWAYS the full 0..TOTAL range
+function coverage(){
+  const bar=$('#covbar'); bar.innerHTML='';
+  const covered=new Set();
+  sel.forEach(k=>{
+    const m=META[k]; if(!m) return;
+    m.runs.forEach(([a,b])=>{
+      const el=document.createElement('div');
+      el.className = (k===cur)?'c':'s';
+      el.style.left=(a/TOTAL*100)+'%'; el.style.width=((b-a)/TOTAL*100)+'%';
+      el.title=k.split('|').pop()+`  [${a}..${b})`;
+      bar.appendChild(el);
+      for(let i=a;i<b;i++) covered.add(i);
+    });
+  });
+  const pct=covered.size/TOTAL*100;
+  $('#pct').textContent=pct.toFixed(1)+'%';
+  $('#pct').style.color = pct>=99.95?'var(--sel)':'var(--fg)';
+  $('#pctabs').textContent=`(${covered.size} / ${TOTAL} instrs · ${sel.size} units)`;
+  const L=$('#list'); L.innerHTML = sel.size?'':'<span class="muted">no units selected</span>';
+  [...sel].map(k=>[k,META[k]]).filter(x=>x[1]).sort((a,b)=>b[1].value-a[1].value).forEach(([k,m])=>{
+    const div=document.createElement('div');
+    div.innerHTML=`<span>${esc(k.split('|').pop())}${m.frags>1?` <span style="color:var(--cur)">×${m.frags}</span>`:''}</span>`
+                 +`<span class="muted">${m.value} · ${(m.value/TOTAL*100).toFixed(1)}%</span>`;
+    div.onclick=()=>{cur=k;coverage();};
+    L.appendChild(div);
+  });
+}
+
+$('#reset').onclick=()=>setZoom(1);
+$('#clear').onclick=()=>{ sel.clear(); save(); fg.update(); coverage(); };
+$('#suggest').onclick=()=>{
+  if(!SUG){alert('no suggestion in data');return;}
+  sel.clear(); SUG.units.forEach(k=>sel.add(k)); save(); fg.update(); coverage(); markPicked();
+  const need=SUG.needsSubFunctionSplit||[];
+  const rows=SUG.units.map(k=>[k,SUG.residual[k]]).sort((a,b)=>b[1]-a[1]).slice(0,14);
+  $('#dname').textContent='proposed size split';
+  $('#dsub').textContent=`${SUG.units.length} units · cap ${SUG.cap} (10%) · ${(SUG.coverage/TOTAL*100).toFixed(1)}% coverage`;
+  $('#rbody').innerHTML=
+   `<p class="muted" style="margin:0 0 10px">Every node whose whole subtree fits under the cap becomes a unit;
+     each ancestor is also selected so it owns the residue its selected descendants do not.
+     <b>Residue</b> below is what that unit actually has to prove — subtree minus the descendants
+     that were given their own contract.</p>`
+   + (need.length? `<div style="border:1px solid var(--cur);border-radius:5px;padding:8px 10px;margin-bottom:10px">
+        <b style="color:var(--cur)">${need.length} unit(s) cannot be fixed by selecting source functions.</b><br>
+        <span class="muted">Their own code exceeds the cap with nothing named inlined inside, so no choice of
+        source-level units splits them. They need a sub-function cut.</span><br>`
+        + need.map(k=>`<code>${esc(k.split('|').pop())}</code> — residue ${SUG.residual[k]}
+             (${(SUG.residual[k]/TOTAL*100).toFixed(1)}%)`).join('<br>') + `</div>` : '')
+   + `<div class="kv"><span><b>unit</b></span><span><b>residue</b></span>`
+   + rows.map(([k,v])=>`<span>${esc(k.split('|').pop())}</span><span>${v} · ${(v/TOTAL*100).toFixed(1)}%${v>SUG.cap?' <b style="color:var(--cur)">OVER</b>':''}</span>`).join('')
+   + `</div>`;
+};
+
+$('#export').onclick=()=>{
+  const units=[...sel].map(k=>({path:k,name:k.split('|').pop(),...META[k]}));
+  const cov=new Set(); units.forEach(u=>u.runs.forEach(([a,b])=>{for(let i=a;i<b;i++)cov.add(i);}));
+  const blob=new Blob([JSON.stringify({coveredInstrs:cov.size,totalInstrs:TOTAL,
+    coveragePct:+(cov.size/TOTAL*100).toFixed(2),units},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mf-contract-set.json';a.click();
+};
+window.addEventListener('resize',()=>{ if(fg){ baseW=$('#chart').clientWidth-4; setZoom(Z); } });
+</script>

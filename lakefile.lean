@@ -39,6 +39,21 @@ lean_lib ElflingGeneratedProgram where
   srcDir := "build/elfling-program-lean"
   roots := #[`GeneratedProgram, `DecoderGlobals]
 
+lean_lib MachineRegionsGenerated where
+  srcDir := "build/machine-regions-lean"
+  roots := #[`GeneratedMachineRegions]
+
+@[default_target]
+lean_lib ZesuVerificationTests where
+  srcDir := "verification-target/zesu/tests/lean"
+  roots := #[
+    `ZesuVerification.SequentialSpliceWitness,
+    `ZesuVerification.LoopDischarge,
+    `ZesuVerification.CallStepRetInRegion,
+    `ZesuVerification.SyntheticUnitProbe,
+  ]
+  moreLeanArgs := #["--tstack=4000000"]
+
 @[default_target]
 lean_lib BinaryFv where
   roots := #[`BinaryFv]

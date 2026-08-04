@@ -13,6 +13,8 @@ let
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
+      sszBinaryEvidence
+      sszScaleEvidence
       zesuSinkObservability
       zesuSsz
       zesuValue;
@@ -41,3 +43,4 @@ in
 {
   inherit apps checks;
 }
+

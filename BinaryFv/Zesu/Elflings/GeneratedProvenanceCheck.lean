@@ -4,7 +4,7 @@ import GeneratedProgram
 /-!
 # Closing the provenance boundary against the independently generated manifest
 
-The handwritten row-1 `pinnedSourceManifest` (in `Contracts/Catalog.lean`) is the address-free
+The handwritten `pinnedSourceManifest` (in `Contracts/Catalog.lean`) is the address-free
 identity layer's record of which pinned source each catalog file hashes to. This module proves it is
 not merely *asserted* but *checked* against the manifest the generator emits from the exact source it
 read (`Generated.generatedSourceManifest`), and that every function instance's recorded declaration line is
@@ -33,7 +33,7 @@ def pinnedManifestPairs : List (String × String) :=
 
 /-- **The handwritten `pinnedSourceManifest` denotes the same `(path, hash)` set as the independently
 generated `generatedSourceManifest`**: every handwritten entry is generated and vice versa, with equal
-cardinality (both lists are duplicate-free), so the row-1 hashes are validated against the source the
+cardinality (both lists are duplicate-free), so the hashes are validated against the source the
 generator actually read rather than trusted. -/
 theorem pinned_manifest_matches_generated :
     pinnedManifestPairs.all (fun e => generatedSourceManifest.contains e) = true ∧

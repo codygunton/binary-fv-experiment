@@ -4,7 +4,7 @@ This directory describes compiled function instances without depending on a part
 set. [FunctionInstance.lean](FunctionInstance.lean) defines identities, regions, calls, inlined children, and
 excluded function instances.
 
-Row D distinguishes two address sets for each function instance:
+The execution layer distinguishes two address sets for each function instance:
 
 - the **owned region** contains the function instance's own instructions plus reachable helper source functions that
   have no catalog contract and must be absorbed locally;

@@ -285,6 +285,55 @@ let
       > "$out/determinism.txt"
   '';
 
+  machineRegionsGenerator = builtins.path {
+    path = repo + "/tools/generate_machine_regions.py";
+    name = "generate_machine_regions.py";
+  };
+  machineRegionsTest = builtins.path {
+    path = repo + "/verification-target/zesu/tests/machine_regions_test.py";
+    name = "machine_regions_test.py";
+  };
+  machineRegions = pkgs.runCommand "zesu-machine-regions" {
+    nativeBuildInputs = [ pkgs.python3 pkgs.llvm pkgs.coreutils pkgs.diffutils ];
+  } ''
+    mkdir -p source/tools source/verification-target/zesu/tests run1 run2 "$out"
+    cp ${machineRegionsGenerator} source/tools/generate_machine_regions.py
+    cp ${machineRegionsTest} source/verification-target/zesu/tests/machine_regions_test.py
+    python3 source/verification-target/zesu/tests/machine_regions_test.py
+
+    gen() {
+      python3 ${machineRegionsGenerator} \
+        --elf ${zesuSsz}/bin/zesu-ssz \
+        --program-json ${elflingProgram}/program.json \
+        --llvm-objdump ${pkgs.llvm}/bin/llvm-objdump \
+        --out "$1/machine-regions.json" \
+        --out-lean "$1/GeneratedMachineRegions.lean" \
+        --out-flame "$1/flame.json"
+    }
+    gen run1
+    gen run2
+    cmp -s run1/machine-regions.json run2/machine-regions.json \
+      || { echo "MACHINE-REGION EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
+    cmp -s run1/GeneratedMachineRegions.lean run2/GeneratedMachineRegions.lean \
+      || { echo "MACHINE-REGION LEAN EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
+    cmp -s run1/flame.json run2/flame.json \
+      || { echo "MACHINE-REGION UI EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
+    cp run1/machine-regions.json run1/GeneratedMachineRegions.lean run1/flame.json "$out/"
+    printf '%s\n' \
+      "unit tests and corruption probes passed; two independent runs produced byte-identical machine-regions.json" \
+      > "$out/determinism.txt"
+  '';
+
+  machineRegionsUiSource = builtins.path {
+    path = repo + "/tools/contract-target-curation";
+    name = "contract-target-curation";
+  };
+  machineRegionsUi = pkgs.runCommand "zesu-machine-regions-ui" {} ''
+    mkdir -p "$out"
+    cp -R ${machineRegionsUiSource}/. "$out/"
+    cp ${machineRegions}/flame.json ${machineRegions}/machine-regions.json "$out/"
+  '';
+
   # Audit-only optimized LLVM IR for the decoder (plan: "optimized LLVM IR for inspection only, never
   # as proof input"). Emitted through the pinned build.zig module graph (so imports resolve) by adding
   # `getEmittedLlvmIr()` to the raw-ssz-object step, at the SAME target/optimize as the canonical
@@ -469,6 +518,152 @@ let
     '';
   };
 
+
+  # Deterministically capture the decodeOptionalBlobSchedule occurrence evidence from the
+  # UNCHANGED production ELF (pinned qemu-riscv64 plugin trace + batch GDB), reduce it to the compact
+  # form, and regenerate the Lean evidence module. The ELF is never rebuilt/patched. Fixed guest
+  # addresses remain exact; stack addresses are normalized relative to entry SP because their absolute
+  # base can differ across hosts. The emitted module is therefore reproducible, and the drift check
+  # compares it to the committed one.
+  sszBinaryEvidence =
+    let
+      trace = builtins.path { path = repo + "/verification-target/zesu/trace"; name = "ssz-trace-tools"; };
+      fixtures = builtins.path { path = repo + "/verification-target/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
+      committedEvidence = builtins.path { path = repo + "/verification-target/zesu/tests/lean/ZesuVerification/GeneratedBinaryEvidence.lean"; name = "GeneratedBinaryEvidence.lean"; };
+    in
+    pkgs.runCommand "ssz-binary-occurrence-evidence" {
+      nativeBuildInputs = [
+        pkgs.python3 pkgs.gcc pkgs.gdb pkgs.util-linux pkgs.qemu-user pkgs.glib pkgs.pkg-config
+        pkgs.coreutils
+      ];
+    } ''
+      set -euo pipefail
+      export HOME="$TMPDIR"
+      cp -R ${trace} trace && chmod -R u+w trace
+      cp ${fixtures} ssz_differential_audit.py
+
+      # Build the observe-only plugin against the pinned qemu headers + glib.
+      gcc -shared -fPIC -O2 -o trace/qemu_trace_plugin.so trace/qemu_trace_plugin.c \
+        -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0)
+
+      # Deterministic present / absent / malformed blob-schedule inputs.
+      python3 - <<'PY'
+      import importlib.util, sys
+      spec = importlib.util.spec_from_file_location('fx', 'ssz_differential_audit.py')
+      fx = importlib.util.module_from_spec(spec); sys.modules['fx'] = fx; spec.loader.exec_module(fx)
+      open('present.bin', 'wb').write(fx.make_rich_v4())
+      open('absent.bin', 'wb').write(fx.make_v4(chain_bytes=fx.chain_config(blob_schedule=None)))
+      u64, u32, fa = fx.u64, fx.u32, fx.fork_activation
+      act = fa(None, 0); blob = u64(22) + u64(23)                 # 16-byte (invalid) blob region
+      fc = u64(20) + u32(16) + u32(16 + len(act)) + act + blob
+      open('malformed.bin', 'wb').write(fx.make_v4(chain_bytes=u64(1) + u32(12) + fc))
+      PY
+
+      mkdir -p "$out"
+      python3 trace/generate_evidence.py \
+        --qemu ${qemuRiscv64} --gdb ${pkgs.gdb}/bin/gdb --plugin trace/qemu_trace_plugin.so \
+        --elf ${zesuSsz}/bin/zesu-ssz --program-json ${elflingProgram}/program.json \
+        --present present.bin --absent absent.bin --malformed malformed.bin --scratch scratch \
+        --out-json "$out/evidence.json" --out-lean "$out/GeneratedBinaryEvidence.lean"
+      python3 trace/negative_tests.py \
+        --qemu ${qemuRiscv64} --gdb ${pkgs.gdb}/bin/gdb --plugin trace/qemu_trace_plugin.so \
+        --elf ${zesuSsz}/bin/zesu-ssz --program-json ${elflingProgram}/program.json \
+        --present present.bin --scratch negative-scratch
+
+      # Drift: the committed generated evidence module (native_decide-checked by the proof.nix
+      # lane) must byte-equal what a fresh capture of the unchanged ELF produces, so the Lean checker
+      # can never certify stale or hand-edited evidence.
+      cmp -s "$out/GeneratedBinaryEvidence.lean" ${committedEvidence} \
+        || { echo "DRIFT: committed GeneratedBinaryEvidence.lean differs from a fresh production capture" >&2; \
+             diff "$out/GeneratedBinaryEvidence.lean" ${committedEvidence} | head -40 >&2; exit 1; }
+      printf 'captured decodeOptionalBlobSchedule evidence for 3 arms; matches committed module\n' \
+        | tee "$out/summary.txt"
+    '';
+
+  # Deterministically capture per-occurrence evidence for ALL occurrences in
+  # program.json from the UNCHANGED production ELF (pinned qemu-riscv64 plugin trace; the plugin reads
+  # sp per store, so write classification is self-contained and no GDB is needed), reduce it, and
+  # regenerate the scaled Lean evidence module + coverage report. The ELF is never rebuilt/patched.
+  # `setarch -R` makes every recorded address deterministic; the drift check compares the regenerated
+  # module to the committed one byte-for-byte, so the scaled Lean checker can never certify stale
+  # evidence. Coverage is per occurrence; explicit gaps (uncovered / input-dependent bound / structural
+  # meaning) are recorded, never counted as passes.
+  sszScaleEvidence =
+    let
+      trace = builtins.path { path = repo + "/verification-target/zesu/trace"; name = "ssz-trace-tools"; };
+      fixtures = builtins.path { path = repo + "/verification-target/zesu/tests/ssz_differential_audit.py"; name = "ssz_differential_audit.py"; };
+      committedEvidence = builtins.path { path = repo + "/verification-target/zesu/tests/lean/ZesuVerification/GeneratedScaleEvidence.lean"; name = "GeneratedScaleEvidence.lean"; };
+      committedReport = builtins.path { path = repo + "/verification-target/zesu/trace/SCALE_COVERAGE.md"; name = "SCALE_COVERAGE.md"; };
+      committedClassification = builtins.path { path = repo + "/verification-target/zesu/trace/UNCOVERED_CLASSIFICATION.md"; name = "UNCOVERED_CLASSIFICATION.md"; };
+    in
+    pkgs.runCommand "ssz-scale-occurrence-evidence" {
+      nativeBuildInputs = [
+        pkgs.python3 pkgs.gcc pkgs.util-linux pkgs.qemu-user pkgs.glib pkgs.pkg-config pkgs.coreutils
+        riscvBinutils
+      ];
+    } ''
+      set -euo pipefail
+      export HOME="$TMPDIR"
+      cp -R ${trace} trace && chmod -R u+w trace
+      cp ${fixtures} ssz_differential_audit.py
+
+      # Build the observe-only sp-reading plugin against the pinned qemu headers + glib.
+      gcc -shared -fPIC -O2 -o trace/qemu_trace_plugin.so trace/qemu_trace_plugin.c \
+        -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0)
+
+      # The SAME deterministic present / absent / malformed inputs as the vertical slice (they cover
+      # 138/141 occurrences; the 3 uncovered are the never-invoked allocator grow/error paths).
+      python3 - <<'PY'
+      import importlib.util, sys
+      spec = importlib.util.spec_from_file_location('fx', 'ssz_differential_audit.py')
+      fx = importlib.util.module_from_spec(spec); sys.modules['fx'] = fx; spec.loader.exec_module(fx)
+      open('present.bin', 'wb').write(fx.make_rich_v4())
+      open('absent.bin', 'wb').write(fx.make_v4(chain_bytes=fx.chain_config(blob_schedule=None)))
+      u64, u32, fa = fx.u64, fx.u32, fx.fork_activation
+      act = fa(None, 0); blob = u64(22) + u64(23)
+      fc = u64(20) + u32(16) + u32(16 + len(act)) + act + blob
+      open('malformed.bin', 'wb').write(fx.make_v4(chain_bytes=u64(1) + u32(12) + fc))
+      PY
+
+      mkdir -p "$out" scratch
+      python3 trace/scale_occurrences.py \
+        --qemu ${qemuRiscv64} --plugin trace/qemu_trace_plugin.so --objdump ${riscvObjdump} \
+        --elf ${zesuSsz}/bin/zesu-ssz --program ${elflingProgram}/program.json \
+        --scratch scratch \
+        --arm present=present.bin --arm malformed=malformed.bin --arm absent=absent.bin \
+        --out-json "$out/coverage.json" \
+        --out-lean "$out/GeneratedScaleEvidence.lean" \
+        --out-report "$out/SCALE_COVERAGE.md"
+
+      # Drift: the committed generated evidence module (native_decide-checked by the proof.nix
+      # lane) and the committed coverage report must byte-equal a fresh capture of the unchanged ELF.
+      cmp -s "$out/GeneratedScaleEvidence.lean" ${committedEvidence} \
+        || { echo "DRIFT: committed GeneratedScaleEvidence.lean differs from a fresh production capture" >&2; \
+             diff "$out/GeneratedScaleEvidence.lean" ${committedEvidence} | head -40 >&2; exit 1; }
+      cmp -s "$out/SCALE_COVERAGE.md" ${committedReport} \
+        || { echo "DRIFT: committed SCALE_COVERAGE.md differs from a fresh production capture" >&2; \
+             diff "$out/SCALE_COVERAGE.md" ${committedReport} | head -40 >&2; exit 1; }
+
+      # STATIC classification of the uncovered occurrences (CFG reachability on the unchanged ELF):
+      # asserts allocatorResize/Remap and zesu_raw_error are provably unreachable in this executable's
+      # control flow (exit != 0 if any becomes invocable), and drift-checks the committed classification.
+      python3 trace/classify_uncovered.py \
+        --objdump ${riscvObjdump} --elf ${zesuSsz}/bin/zesu-ssz \
+        --program ${elflingProgram}/program.json \
+        --out-json "$out/uncovered-classification.json" --out-md "$out/UNCOVERED_CLASSIFICATION.md"
+      cmp -s "$out/UNCOVERED_CLASSIFICATION.md" ${committedClassification} \
+        || { echo "DRIFT: committed UNCOVERED_CLASSIFICATION.md differs from a fresh static analysis" >&2; \
+             diff "$out/UNCOVERED_CLASSIFICATION.md" ${committedClassification} | head -40 >&2; exit 1; }
+      python3 - "$out/coverage.json" <<'PY' | tee "$out/summary.txt"
+      import json, sys
+      s = json.load(open(sys.argv[1]))["summary"]
+      print(f"scaled per-occurrence evidence: {s['covered']}/{s['occurrences']} occurrences covered; "
+            "matches committed module")
+      for n, d in sorted(s["byCheck"].items()):
+          print(f"  {n:22s} pass={d['pass']:3d} fail={d['fail']:3d} gap={d['gap']:3d}")
+      assert sum(d["fail"] for d in s["byCheck"].values()) == 0, "a per-occurrence check FAILED"
+      PY
+    '';
 
   zesuSsz = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-rv64im-zicclsm";
@@ -685,9 +880,13 @@ in
       zesuRawSidecar
       zesuRuntimeSidecar
       elflingProgram
+      machineRegions
+      machineRegionsUi
       elflingDecoderLlvmIr
       elflingRelocationCheck
       elflingGeneratorDefectsCheck
+      sszBinaryEvidence
+      sszScaleEvidence
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -699,9 +898,13 @@ in
     zesu-raw-ssz-sidecar = zesuRawSidecar;
     zesu-ssz-runtime-sidecar = zesuRuntimeSidecar;
     elfling-program = elflingProgram;
+    machine-regions = machineRegions;
+    machine-regions-ui = machineRegionsUi;
     elfling-decoder-llvm-ir = elflingDecoderLlvmIr;
     elfling-relocation-check = elflingRelocationCheck;
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;
+    ssz-binary-evidence = sszBinaryEvidence;
+    ssz-scale-evidence = sszScaleEvidence;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;

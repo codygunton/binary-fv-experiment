@@ -32,11 +32,11 @@ The excluded function instances carry a category with a DIFFERENT soundness reas
 
 `excludedFunctionsOutcomeIrrelevant` names the resulting soundness obligation (that these source functions do
 not change the observable outcome `root_compliance` covers) as a `Prop` to be discharged in the
-allocator/entry rows — it is stated, not asserted true here.
+allocator and entrypoint proofs — it is stated, not asserted true here.
 
-**Integration note for row 1:** at stack integration, row-1's `ExclusionReason` should gain
+**Integration note:** `ExclusionReason` should gain
 `reachableStdlib` / `reachableCleanupNoOp` constructors so this taxonomy folds into the shared catalog
-exclusion type. This row keeps it local (row-1's `excludedSourceFunctions` is untouched — PR #40).
+exclusion type. This module keeps it local (`excludedSourceFunctions` is untouched — PR #40).
 -/
 
 namespace BinaryFv.Zesu.Elflings.Validation
@@ -151,7 +151,7 @@ theorem excluded_reachable_count : (reachableAddresses.filter isExcludedPC).size
 open BinaryFv.Zesu.Contracts (ExclusionReason)
 
 /-- Map a generated category string to the SHARED `ExclusionReason` (stack-integrated taxonomy), rather
-than a disconnected local inductive. The row-1 `ExclusionReason` was extended with `reachableStdlib` /
+than a disconnected local inductive. `ExclusionReason` was extended with `reachableStdlib` /
 `reachableCleanupNoOp` for exactly this. -/
 def exclusionReasonOfCategory (s : String) : Option ExclusionReason :=
   if s = "reachableStdlib" then some .reachableStdlib
@@ -240,12 +240,12 @@ theorem reachable_node_decoded_and_owned :
   obtain ⟨nodes, hn⟩ := controlFlow_isSome'
   exact ⟨nodes, hn, fun a ha => ⟨reachable_decoded hn a ha, reachable_no_silent_drop a ha⟩⟩
 
-/-! ## Per-source function execution obligations (modular; discharged in later rows)
+/-! ## Per-source function execution obligations
 
 Replacing the removed `excludedFunctionsOutcomeIrrelevant`, which merely restated the whole
 `root_compliance` under a taxonomy premise and was not a useful modular obligation. Here each excluded
 source function gets its OWN execution obligation about ITS execution, typed by its `ExclusionReason` — the
-building block the allocator/entry rows discharge. We do NOT prove semantic irrelevance in this row. -/
+building block the allocator and entrypoint proofs discharge. We do NOT prove semantic irrelevance here. -/
 
 open BinaryFv.RiscV.Elfling (RegionPcs EnteredFunctionTrace)
 open BinaryFv.RiscV (State)
@@ -266,7 +266,7 @@ def excludedEntryWord (x : BinaryFv.Binary.Elfling.Program.ExcludedFunctionInsta
 /-- **Per-source function EXECUTION obligation.** From any machine state sitting on the source function's entry, the
 source function executes CONFINED to its own regions and reaches a generated exit — i.e. once entered it
 terminates and never strays outside its code. This is modular (about ONE source function's execution) and is
-the base obligation the category-specific memory effect strengthens in later rows: for a
+the base obligation that category-specific memory-effect proofs strengthen: for a
 `reachableCleanupNoOp` (`*.deinit`) the additional fact is that the confined run leaves the accept/
 reject-determining state unchanged (its allocator free is a no-op); for a `reachableStdlib` it is that
 the run realizes the corresponding cataloged allocator-vtable contract. -/
@@ -280,7 +280,7 @@ def excludedFunctionExecObligation
 /-- The per-source function execution obligations for every reachable-but-excluded function instance, dispatched by its
 shared `ExclusionReason`. Each is a MODULAR statement about one source function's execution — the replacement
 for the removed global `excludedFunctionsOutcomeIrrelevant`. Stated as a `Prop`, discharged in the
-allocator/entry rows; not asserted true here. -/
+allocator and entrypoint proofs; not asserted true here. -/
 def excludedFunctionObligations : Prop :=
   ∀ x ∈ generatedExcludedFunctionInstances,
     match exclusionReasonOfCategory x.category with

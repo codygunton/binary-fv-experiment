@@ -4,8 +4,8 @@ import BinaryFv.Binary.ProgramImage
 /-!
 # Bool-check → Prop bridge lemmas for the generated-program validation
 
-The row-1 obligations (`coverage`, `sourceProvenanceRecorded`, `IsCanonicalGeneratedProgram`) and the
-extraction-row checks (byte readability, instruction decode, nesting, reachable partition) are ∀/∃
+The generated-program obligations (`coverage`, `sourceProvenanceRecorded`, `IsCanonicalGeneratedProgram`) and the
+extraction checks (byte readability, instruction decode, nesting, reachable partition) are ∀/∃
 statements over `Array`/`List`, not auto-`Decidable` propositions. Following the reachability
 certificate pattern, each is discharged by computing a `Bool` (validated by `native_decide` over the
 real generated data / canonical ELF) and an *ordinary kernel* bridge lemma turning that `Bool = true`
