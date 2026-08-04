@@ -206,7 +206,8 @@ theorem tag0PostcopyStatusStoreAfter_preserves_saved_frame {state : State} (reti
     (frame : WrapperSavedRegisterFrame stack.toNat link s0 s1 s2 state)
     (payloadBeforeStack : 0x4215370 ≤ stack.toNat) :
     WrapperSavedRegisterFrame stack.toNat link s0 s1 s2 (tag0PostcopyStatusStoreAfter state retired) := by
-  have preserve (offset : Nat) (bound : offset + 8 ≤ 0xa20) (value : BitVec 64)
+  have preserve (offset : Nat) (minimum : 0xa00 ≤ offset) (bound : offset + 8 ≤ 0xa20)
+      (value : BitVec 64)
       (saved : SavedWordBytes state (stack.toNat + offset) value) :
       SavedWordBytes (tag0PostcopyStatusStoreAfter state retired) (stack.toNat + offset) value := by
     intro index indexBound
@@ -224,8 +225,10 @@ theorem tag0PostcopyStatusStoreAfter_preserves_saved_frame {state : State} (reti
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using
       preserved.trans (saved index indexBound)
   rcases frame with ⟨linkFrame, s0Frame, s1Frame, s2Frame⟩
-  exact ⟨preserve 0xa18 (by omega) link linkFrame, preserve 0xa10 (by omega) s0 s0Frame,
-    preserve 0xa08 (by omega) s1 s1Frame, preserve 0xa00 (by omega) s2 s2Frame⟩
+  exact ⟨preserve 0xa18 (by omega) (by omega) link linkFrame,
+    preserve 0xa10 (by omega) (by omega) s0 s0Frame,
+    preserve 0xa08 (by omega) (by omega) s1 s1Frame,
+    preserve 0xa00 (by omega) (by omega) s2 s2Frame⟩
 
 /-- Execute `addi a0, x0, 1` at `0x10358`. -/
 theorem tag0_postcopy_result_register_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -275,7 +278,7 @@ theorem tag0_postcopy_result_register_step {machineArgs : DecoderMachineArgs} {b
     (by decide) (by decide) (by decide) (by decide) execute
 
 /-- The complete tag-zero suffix reaches the common status-store entry with result and status one. -/
-structure Tag0PostcopyResult (base before after : State) (fromStep : Nat) : Prop where
+structure Tag0PostcopyResult (base before after : State) (fromStep : Nat) : Type where
   trace : Trace fromStep 3 before after
   atTerminal : after.regs.get? PC = some (BitVec.ofNat 64 0x1035c)
   resultValue : after.regs.get? x10 = some (BitVec.ofNat 64 1)
