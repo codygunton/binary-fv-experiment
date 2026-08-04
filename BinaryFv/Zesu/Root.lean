@@ -181,7 +181,7 @@ theorem compliance_of_level1_contracts
 /-- The sole public root of the compliance proof. Its only remaining Level 1 assumption is the
 compiled decoder; both accessors are discharged by concrete Sail execution. -/
 theorem root_compliance
-    (decode : Entrypoints.ZesuDecodeRaw.ZesuDecodeRawContract) :
+    (decode : Entrypoints.ZesuDecodeRaw.CompiledZesuDecodeRawInstanceContract) :
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
         RiscvSpec.execute binary input = .ok (BinaryFv.Specs.SSZ.decode input) :=

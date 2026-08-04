@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.CanonicalEntry
 import BinaryFv.Zesu.MachineExecution.RawErrorProof
 import BinaryFv.Zesu.MachineExecution.RawResultProof
 
@@ -20,10 +21,11 @@ open BinaryFv.Zesu
 open BinaryFv.Zesu.Contracts
 open BinaryFv.Zesu.MemoryRepresentation
 open BinaryFv.Zesu.Elflings.Validation
-open BinaryFv.Zesu.Elflings.Generated (generatedProgram)
+open BinaryFv.Zesu.Elflings.Generated
 open LeanRV64DExecutable.Functions
 
 set_option maxRecDepth 100000
+set_option maxHeartbeats 4000000
 
 /-- Every Level 1 fetch address whose machine conditions must survive the wrapper and first
 accessor call: the wrapper return, both accessor entries, and both accessor returns. -/
@@ -73,22 +75,15 @@ theorem exitPlatformsFor_of_exitRetFrame {pcs : List Nat} {before after : State}
     ∀ pc ∈ pcs, ExitPlatform after pc :=
   exitPlatformsFor_of_agree frame.agree frame.retired (codeIntact_of_mem_eq frame.mem code) platform
 
-/-- The selected compiled wrapper obligation, separated from the two compiled accessor
-obligations. -/
+/-- The selected compiled wrapper obligation. Its entry condition is the checked canonical machine
+state, rather than an arbitrary state satisfying only the public C binding. -/
 abbrev DecodeInstanceObligation : Prop :=
-  ∀ {functionInstance : FunctionInstance},
-    Program.find? generatedProgram generatedProgram.entry = some functionInstance →
-      BinaryFv.RiscV.Elfling.FunctionInstanceContract.Implements
-        (functionInstanceExecutionPcs generatedProgram functionInstance)
-        (functionInstanceExitPred functionInstance)
-        (functionInstanceEntryWord functionInstance)
-        (functionInstanceZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
-          canonicalContractParams.resultBuffer canonicalContractParams.repRawV4
-          DecoderGlobalsModel.fresh)
+  CompiledZesuDecodeRawInstanceContract
 
-/-- Run the selected compiled wrapper and retain fetch conditions for every Level 1 call and
-return address. -/
-theorem decodeRun_of_compiledLevel1 (decode : DecodeInstanceObligation) (input : ByteArray) :
+/-- Run the selected compiled wrapper from the exact state built for this input, then retain fetch
+conditions for every Level 1 call and return address. -/
+theorem decodeRun_of_compiledLevel1 (decode : DecodeInstanceObligation) (input : ByteArray)
+    (inputBound : input.size < 2 * 1024 * 1024) :
     ∃ (entryState atExit finalState : State) (count : Nat),
       Runs (buildZesuEntryState input) initialState entryState () ∧
       TraceToSentinel sentinelWord 0 (count + 1) entryState finalState ∧
@@ -98,16 +93,25 @@ theorem decodeRun_of_compiledLevel1 (decode : DecodeInstanceObligation) (input :
       (∀ pc ∈ level1PlatformPcs, ExitPlatform finalState pc) ∧
       LoadPlatformPinned finalState level1LoadAccesses := by
   obtain ⟨nodes, hn⟩ := controlFlow_some
-  obtain ⟨functionInstance, hfind⟩ :
-      ∃ functionInstance,
-        Program.find? generatedProgram generatedProgram.entry = some functionInstance :=
-    Option.isSome_iff_exists.mp entry_function_instance_found
-  obtain ⟨entryState, hrun, hbinding, hlink, -, hnormal, hpresent, hpinned, hloadPinned, -⟩ :=
+  have hfind : Program.find? generatedProgram generatedProgram.entry =
+      some functionInstance_raw_decoder_root_zesu_decode_raw := by rfl
+  obtain ⟨entryState, hrun, hcompiledEntry⟩ :=
+    buildZesuEntryState_compiled_entry input inputBound
+  obtain ⟨abiState, hrunAbi, -, hlink, -, hnormal, hpresent, hpinned, hloadPinned, -⟩ :=
     buildZesuEntryState_entry_binding_abi input
+  have sameState : abiState = entryState := by
+    unfold Runs at hrun hrunAbi
+    rw [hrun] at hrunAbi
+    injection hrunAbi
+    assumption
+  subst abiState
+  change preZesuDecodeRaw canonicalEnvironment Elflings.canonicalDecoderGlobalsLayout Elflings.canonicalResultBuffer
+      canonicalRepRawV4 DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ entryState ∧
+      CompiledZesuDecodeRawPre ⟨canonicalRunnerLayout.inputBase, input⟩ entryState at hcompiledEntry
   obtain ⟨hpma, hhtif⟩ :=
     hpinned level1PlatformPcs configureFetchPinned_level1PlatformPcs
   have hcodeEntry : Artifacts.programImage.fileBytesMatchMemory entryState.mem :=
-    programImage_of_codeIntact hbinding.2.1
+    programImage_of_codeIntact hcompiledEntry.1.2.1
   have hplatformEntry : ∀ pc ∈ level1PlatformPcs, ExitPlatform entryState pc := by
     intro pc hpc
     obtain ⟨regions, region, hregions, hmatch, hexec⟩ := hpma pc hpc
@@ -123,8 +127,10 @@ theorem decodeRun_of_compiledLevel1 (decode : DecodeInstanceObligation) (input :
         code := hcodeEntry }
   have hloadsEntry : LoadPlatformPinned entryState level1LoadAccesses :=
     hloadPinned level1LoadAccesses configureLoadPinned_level1LoadAccesses
-  obtain ⟨count, atExit, hbound, htrace, hexit⟩ :=
-    canonicalDecodeExit_of_implements (decode hfind) input 0 hbinding
+  obtain ⟨count, atExit, hbound, htrace, hcompiledExit⟩ :=
+    decode ⟨canonicalRunnerLayout.inputBase, input⟩ 0 entryState hcompiledEntry
+  have hexit : CanonicalDecodeExit input entryState atExit := by
+    simpa [compiledZesuDecodeRawContract] using hcompiledExit
   obtain ⟨finalState, hsentinel, -, -, hframe⟩ :=
     entryTraceToSentinel_of_enteredFunctionTrace hn hfind
       (exitPlatform_of_agree hexit.2.2.2.1 hexit.2.2.2.2.1
@@ -311,7 +317,7 @@ theorem successfulRun_of_compiledLevel1 (contracts : CompiledLevel1Assumptions)
     (accepts : BinaryFv.Specs.SSZ.decode input = .accepted value) :
     Nonempty (SuccessfulRun input value) := by
   obtain ⟨entryState, atExit, finalState, count, hrun, htrace, hbound, hexit, hframe,
-    hplatform, hloads⟩ := decodeRun_of_compiledLevel1 contracts.decode input
+    hplatform, hloads⟩ := decodeRun_of_compiledLevel1 contracts.decode input inputBound
   obtain ⟨hcode, htag, hinput, hvalue⟩ :=
     successfulRun_fields_of_canonicalDecodeExit catalogGroundsInSpec_holds inputBound accepts hexit
   have hcodeFinal : observeReturnCode? finalState = some 1 :=
@@ -343,7 +349,7 @@ theorem rejectedRun_of_compiledLevel1 (contracts : CompiledLevel1Assumptions)
     (rejects : BinaryFv.Specs.SSZ.decode input = .rejected) :
     Nonempty (RejectedRun input) := by
   obtain ⟨entryState, atExit, finalState, count, hrun, htrace, hbound, hexit, hframe,
-    hplatform, hloads⟩ := decodeRun_of_compiledLevel1 contracts.decode input
+    hplatform, hloads⟩ := decodeRun_of_compiledLevel1 contracts.decode input inputBound
   obtain ⟨hcode, htag, -, hstatus⟩ :=
     rejectedRun_fields_of_canonicalDecodeExit catalogGroundsInSpec_holds inputBound rejects hexit
   have hcodeFinal : observeReturnCode? finalState = some 0 :=

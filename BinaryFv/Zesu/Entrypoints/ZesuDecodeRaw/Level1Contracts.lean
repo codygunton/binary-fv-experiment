@@ -18,7 +18,7 @@ open BinaryFv.Zesu.Elflings.Generated
 
 /-- Complete machine contract for the exported decoder instance. -/
 abbrev ZesuDecodeRawContract : Prop :=
-  DecodeInstanceObligation
+  CompiledZesuDecodeRawInstanceContract
 
 /-- Source contract plus compiled entry conditions for `zesu_raw_result` at the selected symbol. -/
 abbrev RawResultContract : Prop :=
