@@ -2972,6 +2972,7 @@ theorem wrapper_reaches_decode_first_contract
             DecodeInlinePost decodeArgs atDecode after ∧
             DecodeInlineMachinePost atDecode after ∧
             DecodeInlineOutgoingFrame decodeArgs after ∧
+            DecodeInlineCallerSaveArea decodeArgs atDecode after ∧
             ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
               entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
               WrapperSavedRegisterFrame stackBase link s0 s1 s2 atDecode := by
@@ -3005,14 +3006,15 @@ theorem wrapper_reaches_decode_first_contract
       propagateReason := by
         intro error phase
         simp [decodeArgs] at phase }
-  obtain ⟨used, after, bound, childTrace, post, machinePost, outgoing⟩ :=
-    level3DecodeInlineContract decodeRaw decodeArgs (fromStep + 19) atDecode pre
+  have firstPhase : decodeArgs.phase = .first := by simp [decodeArgs]
+  obtain ⟨used, after, bound, childTrace, post, machinePost, outgoing, saveArea⟩ :=
+    decodeInline_first_level3_save_area decodeRaw decodeArgs (fromStep + 19) atDecode pre firstPhase
   have level3 : level3DecodeChildSummary
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
       (fromStep + 19) used atDecode after :=
     ⟨rfl, decodeArgs, pre, bound, childTrace, post, machinePost, outgoing⟩
   exact ⟨atDecode, trace, confined, decodeArgs, pre, used, after, .decode level3,
-    bound, childTrace, post, machinePost, outgoing, savedFrame⟩
+    bound, childTrace, post, machinePost, outgoing, saveArea, savedFrame⟩
 
 def wrapperAfterDecodeFirstErrorBranch (state : State) (retired : BitVec 64) : State :=
   tryStepControlFlowAfterRetired
