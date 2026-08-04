@@ -66,8 +66,8 @@ This checks completeness against the proof's confinement predicate independently
 theorem decodeInline_owned_in_execution_region :
     ∀ entry ∈ decodeInlineOwnedInstructionWords,
       functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
-        (BitVec.ofNat 64 entry.1) := by
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
+      (BitVec.ofNat 64 entry.1) := by
   intro entry member
   simp only [decodeInlineOwnedInstructionWords, List.mem_cons, List.not_mem_nil, or_false] at member
   rcases member with
@@ -78,6 +78,11 @@ theorem decodeInline_owned_in_execution_region :
     apply functionInstanceExecutionPcs_iff_ranges.mpr
     apply RegionPcs.iff_inRanges.mpr
     native_decide
+
+/-- A generated execution member becomes a fetch premise only after its concrete alignment check. -/
+theorem decoderFetchPc_of_member {instructionPcs : BitVec 64 → Prop} {pc : BitVec 64}
+    (member : instructionPcs pc) (aligned : pc.toNat % 4 = 0) :
+    DecoderFetchPc instructionPcs pc := ⟨member, aligned⟩
 
 /-! ## Memory-only transport used across parent-owned register instructions -/
 
@@ -174,11 +179,9 @@ theorem decodeInline_first_result_pointer_step (stepNo : Nat) (args : DecodeInli
           (iTypeResult .ADDI 0x360#12 (BitVec.ofNat 64 args.stackBase))) false := by
   have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10308) := by
     simpa [DecodeInlineArgs.entryPc, phase] using pre.atEntry
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
-      (BitVec.ofNat 64 0x10308) :=
-    decodeInline_owned_in_execution_region (0x10308, 0x36010513)
-      (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10308, 0x36010513)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have code := hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10308) 0x13#8 0x05#8 0x01#8 0x36#8 :=
@@ -225,11 +228,9 @@ theorem decodeInline_first_allocator_pointer_step (stepNo : Nat) (args : DecodeI
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x1030c) retired x11
           (iTypeResult .ADDI 0x010#12 (BitVec.ofNat 64 args.stackBase))) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
-      (BitVec.ofNat 64 0x1030c) :=
-    decodeInline_owned_in_execution_region (0x1030c, 0x01010593)
-      (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x1030c, 0x01010593)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -278,8 +279,9 @@ theorem decodeInline_first_input_pointer_step (stepNo : Nat) (args : DecodeInlin
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x10310) retired x12
           (iTypeResult .ADDI 0x000#12 (BitVec.ofNat 64 args.inputBase))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x10310, 0x00040613)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10310, 0x00040613)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -328,8 +330,9 @@ theorem decodeInline_first_input_length_step (stepNo : Nat) (args : DecodeInline
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x10314) retired x13
           (iTypeResult .ADDI 0x000#12 (BitVec.ofNat 64 args.bytes.size))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x10314, 0x00048693)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10314, 0x00048693)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -558,8 +561,9 @@ theorem decodeInline_first_call_page_step (stepNo : Nat) (args : DecodeInlineArg
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x10318) retired x1
           (BitVec.ofNat 64 0x10318)) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x10318, 0x00000097)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10318, 0x00000097)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -740,8 +744,9 @@ theorem decodeInline_first_decodeRaw_call_step (stepNo : Nat) (args : DecodeInli
       Agree decoderPreserved state (decodeInlineFirstCallAfter state retired) ∧
       (decodeInlineFirstCallAfter state retired).mem = state.mem ∧
       RetiredCounterPresent (decodeInlineFirstCallAfter state retired) := by
-  have pcIn := decodeInline_owned_in_execution_region (0x1031c, 0x12c080e7)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x1031c, 0x12c080e7)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -1054,8 +1059,9 @@ theorem decodeRaw_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArgs)
       (BitVec.ofNat 64 0x10530) 0x67#8 0x80#8 0x00#8 0x00#8 :=
     fetchFileInstruction childExit 0x10530 0x67 0x80 0x00 0x00 code
       (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
-  have pcIn : functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw
-      (BitVec.ofNat 64 0x10530) := by
+  have pcIn : DecoderFetchPc (functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_decodeRaw) (BitVec.ofNat 64 0x10530) := by
+    refine ⟨?_, by native_decide⟩
     apply functionInstanceExecutionPcs_iff_ranges.mpr
     apply RegionPcs.iff_inRanges.mpr
     native_decide
@@ -1384,8 +1390,9 @@ theorem decodeInline_first_result_tag_step (stepNo : Nat) (args : DecodeInlineAr
     omega
   have addressNat : address.toNat = args.stackBase + 0x6a0 := by
     simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : args.stackBase + 0x6a0 < 2 ^ 64)]
-  have pcIn := decodeInline_owned_in_execution_region (0x10320, 0x6a015503)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10320, 0x6a015503)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
     hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
@@ -1452,8 +1459,6 @@ theorem decodeInline_first_result_tag_step (stepNo : Nat) (args : DecodeInlineAr
         omega
       omega)
     simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using stackByte
-  obtain ⟨physAccess, loadNoMMIO⟩ :=
-    pre.machine.dataAccess.load executeState address 2 executeAgree allowed
   have aligned : is_aligned_vaddr (virtaddr.Virtaddr address) 2 = true := by
     have addressMod : address.toNat % 2 = 0 := by
       rw [addressNat]
@@ -1462,6 +1467,10 @@ theorem decodeInline_first_result_tag_step (stepNo : Nat) (args : DecodeInlineAr
     simp only [is_aligned_vaddr, Sail.BitVec.toNatInt, Int.ofNat_eq_natCast, ← Int.ofNat_tmod,
       addressMod]
     rfl
+  have physicalAligned : is_aligned_paddr (physaddr.Physaddr address) 2 = true := by
+    simpa [is_aligned_paddr, is_aligned_vaddr] using aligned
+  obtain ⟨physAccess, loadNoMMIO⟩ :=
+    pre.machine.dataAccess.load executeState address 2 executeAgree allowed physicalAligned
   have statusAtAddress : BinaryFv.Zesu.MemoryRepresentation.ResultStatusLERep state
       address.toNat tag := by
     simpa [addressNat, DecodeInlineArgs.firstTemporaryResultBase, tagOffset, tag,
@@ -1631,8 +1640,9 @@ theorem decodeInline_first_success_branch_step (stepNo : Nat) (args : DecodeInli
         (decodeInlineFirstSuccessBranchAfter state retired) false ∧
       (decodeInlineFirstSuccessBranchAfter state retired).regs.get? PC =
         some (BitVec.ofNat 64 0x10328) := by
-  have pcIn := decodeInline_owned_in_execution_region (0x10324, 0x04051c63)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10324, 0x04051c63)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
     hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
@@ -1687,8 +1697,9 @@ theorem decodeInline_first_success_copy_destination_step (stepNo : Nat) (args : 
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x10328) retired x10
           (iTypeResult .ADDI 0x020#12 (BitVec.ofNat 64 args.stackBase))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x10328, 0x02010513)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10328, 0x02010513)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10328) 0x13#8 0x05#8 0x01#8 0x02#8 :=
@@ -1738,8 +1749,9 @@ theorem decodeInline_first_success_copy_source_step (stepNo : Nat) (args : Decod
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x1032c) retired x11
           (iTypeResult .ADDI 0x360#12 (BitVec.ofNat 64 args.stackBase))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x1032c, 0x36010593)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x1032c, 0x36010593)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1032c) 0x93#8 0x05#8 0x01#8 0x36#8 :=
@@ -1788,8 +1800,9 @@ theorem decodeInline_first_success_copy_length_step (stepNo : Nat) (args : Decod
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x10330) retired x12
           (iTypeResult .ADDI 0x340#12 (0#64))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x10330, 0x34000613)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10330, 0x34000613)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10330) 0x13#8 0x06#8 0x00#8 0x34#8 :=
@@ -1834,8 +1847,9 @@ theorem decodeInline_first_success_copy_call_page_step (stepNo : Nat) (args : De
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x10334) retired x1
           (BitVec.ofNat 64 0x14334)) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x10334, 0x00004097)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10334, 0x00004097)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10334) 0x97#8 0x40#8 0x00#8 0x00#8 :=
@@ -2455,8 +2469,9 @@ theorem decodeInline_retry_entry_branch_step (stepNo : Nat) (args : DecodeInline
         some (BitVec.ofNat 64 0x10384) := by
   have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10380) := by
     simpa [DecodeInlineArgs.entryPc, phase] using pre.atEntry
-  have pcIn := decodeInline_owned_in_execution_region (0x10380, 0x06b51e63)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10380, 0x06b51e63)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
     hasExactErePrefix_programImage_of_codeIntact pre.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
@@ -2512,8 +2527,9 @@ theorem decodeInline_retry_minus_one_step (stepNo : Nat) (args : DecodeInlineArg
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x10384) retired x10
           (BitVec.ofNat 64 (2 ^ 64 - 1))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x10384, 0xfff00513)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10384, 0xfff00513)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10384) 0x13#8 0x05#8 0xf0#8 0xff#8 :=
@@ -2568,8 +2584,9 @@ theorem decodeInline_retry_shift_constant_step (stepNo : Nat) (args : DecodeInli
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x10388) retired x10
           (BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x10388, 0x02051513)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x10388, 0x02051513)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10388) 0x13#8 0x15#8 0x05#8 0x02#8 :=
@@ -2631,8 +2648,9 @@ theorem decodeInline_retry_minus_four_step (stepNo : Nat) (args : DecodeInlineAr
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x1038c) retired x12
           (BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32 - 4))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x1038c, 0xffc50613)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x1038c, 0xffc50613)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1038c) 0x13#8 0x06#8 0xc5#8 0xff#8 :=
@@ -2974,12 +2992,10 @@ theorem decodeInline_retry_length_branch_step (stepNo : Nat) (args : DecodeInlin
       Agree decoderPreserved state (decodeInlineRetryLengthBranchAfter state retired) ∧
       RetiredCounterPresent (decodeInlineRetryLengthBranchAfter state retired) ∧
       (decodeInlineRetryLengthBranchAfter state retired).mem = state.mem := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
-      (BitVec.ofNat 64 0x10394) := by
+  have pcIn := decoderFetchPc_of_member (pc := BitVec.ofNat 64 0x10394) (by
     apply functionInstanceExecutionPcs_iff_ranges.mpr
     apply RegionPcs.iff_inRanges.mpr
-    native_decide
+    native_decide) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10394) 0x63#8 0x66#8 0xa6#8 0x08#8 :=
@@ -3261,12 +3277,10 @@ theorem decodeInline_retry_prefix_or_step (stepNo : Nat) (args : DecodeInlineArg
         (afterRegisterWrite state (BitVec.ofNat 64 0x103c0) retired x10 (high ||| low)) ∧
       (afterRegisterWrite state (BitVec.ofNat 64 0x103c0) retired x10
         (high ||| low)).mem = state.mem := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
-      (BitVec.ofNat 64 0x103c0) := by
+  have pcIn := decoderFetchPc_of_member (pc := BitVec.ofNat 64 0x103c0) (by
     apply functionInstanceExecutionPcs_iff_ranges.mpr
     apply RegionPcs.iff_inRanges.mpr
-    native_decide
+    native_decide) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103c0) 0x33#8 0x65#8 0xa7#8 0x00#8 :=
@@ -3385,11 +3399,9 @@ theorem decodeInline_retry_prefix_branch_not_taken (stepNo : Nat) (args : Decode
       Agree decoderPreserved state (decodeInlineRetryPrefixBranchFallThrough state retired) ∧
       RetiredCounterPresent (decodeInlineRetryPrefixBranchFallThrough state retired) ∧
       (decodeInlineRetryPrefixBranchFallThrough state retired).mem = state.mem := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
-      (BitVec.ofNat 64 0x103c4) :=
-    decodeInline_owned_in_execution_region (0x103c4, 0x04a69e63)
-      (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103c4, 0x04a69e63)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103c4) 0x63#8 0x9e#8 0xa6#8 0x04#8 :=
@@ -3475,11 +3487,9 @@ theorem decodeInline_retry_prefix_branch_taken (stepNo : Nat) (args : DecodeInli
       Agree decoderPreserved state (decodeInlineRetryPrefixBranchTaken state retired) ∧
       RetiredCounterPresent (decodeInlineRetryPrefixBranchTaken state retired) ∧
       (decodeInlineRetryPrefixBranchTaken state retired).mem = state.mem := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
-      (BitVec.ofNat 64 0x103c4) :=
-    decodeInline_owned_in_execution_region (0x103c4, 0x04a69e63)
-      (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103c4, 0x04a69e63)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103c4) 0x63#8 0x9e#8 0xa6#8 0x04#8 :=
@@ -3666,8 +3676,9 @@ theorem decodeInline_retry_tail_pointer_step (stepNo : Nat) (args : DecodeInline
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x103c8) retired x12
           (iTypeResult .ADDI 0x004#12 (BitVec.ofNat 64 args.inputBase))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103c8, 0x00440613)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103c8, 0x00440613)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103c8) 0x13#8 0x06#8 0x44#8 0x00#8 :=
@@ -3715,8 +3726,9 @@ theorem decodeInline_retry_result_pointer_step (stepNo : Nat) (args : DecodeInli
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x103cc) retired x10
           (iTypeResult .ADDI 0x6b0#12 (BitVec.ofNat 64 args.stackBase))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103cc, 0x6b010513)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103cc, 0x6b010513)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103cc) 0x13#8 0x05#8 0x01#8 0x6b#8 :=
@@ -3764,8 +3776,9 @@ theorem decodeInline_retry_allocator_pointer_step (stepNo : Nat) (args : DecodeI
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x103d0) retired x11
           (iTypeResult .ADDI 0x010#12 (BitVec.ofNat 64 args.stackBase))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103d0, 0x01010593)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103d0, 0x01010593)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103d0) 0x93#8 0x05#8 0x01#8 0x01#8 :=
@@ -3812,8 +3825,9 @@ theorem decodeInline_retry_call_page_step (stepNo : Nat) (args : DecodeInlineArg
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x103d4) retired x1
           (BitVec.ofNat 64 0x103d4)) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103d4, 0x00000097)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103d4, 0x00000097)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103d4) 0x97#8 0x00#8 0x00#8 0x00#8 :=
@@ -4175,8 +4189,9 @@ theorem decodeInline_retry_decodeRaw_call_step (stepNo : Nat) (args : DecodeInli
       Agree decoderPreserved state (decodeInlineRetryCallAfter state retired) ∧
       (decodeInlineRetryCallAfter state retired).mem = state.mem ∧
       RetiredCounterPresent (decodeInlineRetryCallAfter state retired) := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103d8, 0x070080e7)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103d8, 0x070080e7)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -4538,8 +4553,9 @@ theorem decodeInline_retry_copy_destination_step (stepNo : Nat) (args : DecodeIn
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x103dc) retired x10
         (iTypeResult .ADDI 0x020#12 (BitVec.ofNat 64 args.stackBase))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103dc, 0x02010513)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103dc, 0x02010513)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103dc) 0x13#8 0x05#8 0x01#8 0x02#8 :=
@@ -4586,8 +4602,9 @@ theorem decodeInline_retry_copy_source_step (stepNo : Nat) (args : DecodeInlineA
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x103e0) retired x11
         (iTypeResult .ADDI 0x6b0#12 (BitVec.ofNat 64 args.stackBase))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103e0, 0x6b010593)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103e0, 0x6b010593)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103e0) 0x93#8 0x05#8 0x01#8 0x6b#8 :=
@@ -4633,8 +4650,9 @@ theorem decodeInline_retry_copy_length_step (stepNo : Nat) (args : DecodeInlineA
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x103e4) retired x12
         (iTypeResult .ADDI 0x340#12 (0#64))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103e4, 0x34000613)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103e4, 0x34000613)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103e4) 0x13#8 0x06#8 0x00#8 0x34#8 :=
@@ -4676,8 +4694,9 @@ theorem decodeInline_retry_copy_call_page_step (stepNo : Nat) (args : DecodeInli
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x103e8) retired x1
         (BitVec.ofNat 64 0x143e8)) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103e8, 0x00004097)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103e8, 0x00004097)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103e8) 0x97#8 0x40#8 0x00#8 0x00#8 :=
@@ -4897,8 +4916,9 @@ theorem decodeInline_retry_memcpy_call_step (stepNo : Nat) (args : DecodeInlineA
       Agree decoderPreserved state (decodeInlineMemcpyCallAfter state retired) ∧
       (decodeInlineMemcpyCallAfter state retired).mem = state.mem ∧
       RetiredCounterPresent (decodeInlineMemcpyCallAfter state retired) := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103ec, 0xad0080e7)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103ec, 0xad0080e7)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
     hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
@@ -5279,8 +5299,9 @@ theorem decodeInline_retry_final_page_step (stepNo : Nat) (args : DecodeInlineAr
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x103f0) retired x10
           (BitVec.ofNat 64 0x1000)) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103f0, 0x00001537)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103f0, 0x00001537)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103f0) 0x37#8 0x15#8 0x00#8 0x00#8 :=
@@ -5325,8 +5346,9 @@ theorem decodeInline_retry_final_pointer_step (stepNo : Nat) (args : DecodeInlin
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x103f4) retired x10
           (BitVec.ofNat 64 (args.stackBase + 0x1000))) false := by
-  have pcIn := decodeInline_owned_in_execution_region (0x103f4, 0x00a10533)
-    (by simp [decodeInlineOwnedInstructionWords])
+  have pcIn := decoderFetchPc_of_member
+    (decodeInline_owned_in_execution_region (0x103f4, 0x00a10533)
+      (by simp [decodeInlineOwnedInstructionWords])) (by native_decide)
   have image := hasExactErePrefix_programImage_of_codeIntact code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103f4) 0x33#8 0x05#8 0xa1#8 0x00#8 :=
