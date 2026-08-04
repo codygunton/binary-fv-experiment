@@ -34,6 +34,37 @@ theorem WrapperSavedRegisterFrame.of_mem_eq {stackBase : Nat} {link s0 s1 s2 : B
   rw [memory]
   exact frame
 
+/-- The emitted `decodeRaw` child preserves the four wrapper words because its caller-save-area
+clause starts at `allocatorBase + 0x9f0 = stackBase + 0xa00` and covers exactly 32 bytes. -/
+theorem WrapperSavedRegisterFrame.of_decode_raw_caller_save_area
+    {args : BinaryFv.Zesu.Contracts.EntryArgs} {stackBase : Nat} {link s0 s1 s2 : BitVec 64}
+    {before after : State}
+    (allocatorBase : args.allocatorBase = stackBase + 0x10)
+    (frame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 before)
+    (saveArea : BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeRawCallerSaveArea args before after) :
+    WrapperSavedRegisterFrame stackBase link s0 s1 s2 after := by
+  rw [WrapperSavedRegisterFrame] at frame ⊢
+  rcases frame with ⟨linkFrame, s0Frame, s1Frame, s2Frame⟩
+  have preserve (offset : Nat) (minimum : 0xa00 ≤ offset) (offsetBound : offset + 8 ≤ 0xa20)
+      (value : BitVec 64)
+      (saved : SavedWordBytes before (stackBase + offset) value) :
+      SavedWordBytes after (stackBase + offset) value := by
+    intro index indexBound
+    have indexLt : index < 8 := by
+      rw [BinaryFv.RiscV.Sep.leBytes_length] at indexBound
+      exact indexBound
+    have saveIndex : offset - 0xa00 + index < 32 := by omega
+    have preserved := saveArea (offset - 0xa00 + index) saveIndex
+    rw [allocatorBase] at preserved
+    have address : stackBase + 0x10 + 0x9f0 + (offset - 0xa00 + index) =
+        stackBase + offset + index := by omega
+    rw [address] at preserved
+    exact preserved.trans (saved index indexBound)
+  exact ⟨preserve 0xa18 (by omega) (by omega) link linkFrame,
+    preserve 0xa10 (by omega) (by omega) s0 s0Frame,
+    preserve 0xa08 (by omega) (by omega) s1 s1Frame,
+    preserve 0xa00 (by omega) (by omega) s2 s2Frame⟩
+
 /-- A proved `memcpy` into the inline `stored_result` payload leaves every wrapper save slot intact.
 The separation is derived from `ZesuDecodeRawMachinePre.stackFrameWritable`, whose addresses belong to
 the canonical runner stack; no continuation caller supplies a stack/global separation premise. -/
