@@ -1576,9 +1576,12 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
   · simp [s9, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
-  · simp [s9, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+  · have x10s8 : s8.regs.get? x10 = some (BitVec.ofNat 64 0) := by
+      simp [s8, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+        coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+    exact tryStepControlFlowAfterRetired_preserves_register
+      (by simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+        Std.ExtDHashMap.get?_insert] using x10s8) (by decide) (by decide)
   · have x11s8 : s8.regs.get? x11 = some (BitVec.ofNat 64 2) := by
       simp [s8, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
         coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1703,10 +1706,10 @@ theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base stat
     (Trace.step (stepNo + 5) 1 s5 s6 s7 (by simpa [s5, s6] using run6)
     (Trace.step (stepNo + 6) 0 s6 s7 s7 (by simpa [s6] using run7)
       (Trace.refl (stepNo + 7) s7))))))), ?_, ?_, ?_, ?_⟩⟩
-  · simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+  · simp [s7, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
-  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+  · simp [s7, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
   · have x11s6 : s6.regs.get? x11 = some (BitVec.ofNat 64 4) := by
@@ -1796,10 +1799,10 @@ theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base stat
     (Trace.step (stepNo + 3) 1 s3 s4 s5 (by simpa [s3, s4] using run4)
     (Trace.step (stepNo + 4) 0 s4 s5 s5 (by simpa [s4] using run5)
       (Trace.refl (stepNo + 5) s5))))), ?_, ?_, ?_, ?_⟩⟩
-  · simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+  · simp [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
-  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+  · simp [s5, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
   · have x11s4 : s4.regs.get? x11 = some (BitVec.ofNat 64 3) := by
