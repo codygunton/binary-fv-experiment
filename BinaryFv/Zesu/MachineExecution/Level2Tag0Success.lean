@@ -48,6 +48,7 @@ claimed to be a wrapper exit; a later theorem supplies the following owned instr
 structure Tag0StoredResultCopyPhase (args : ZesuDecodeRawArgs) (stackBase : Nat) (entry state : State)
     (contents : ByteArray) (link savedS0 savedS1 savedS2 : BitVec 64) (fromStep used : Nat)
     (callState resumed : State) : Prop where
+  machineEntry : ZesuDecodeRawMachinePre args stackBase entry
   setup : ConfinedPrefix
     (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
     (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
@@ -859,7 +860,7 @@ theorem tag0_stored_result_copy_phase
           (BitVec.ofNat 64 0x10340) r1 x11 (BitVec.ofNat 64 (stackBase + 32)))
         (BitVec.ofNat 64 0x10344) r2 x12 (BitVec.ofNat 64 832))
       (BitVec.ofNat 64 0x10348) r3 x1 (BitVec.ofNat 64 0x14348), resumed, ?_⟩
-  refine ⟨setupPrefix, ⟨transfer⟩,
+  refine ⟨pre.machineEntry, setupPrefix, ⟨transfer⟩,
     by simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using scopedPrefix,
     ?_, by simpa [resumed] using resumePc, resumedFrame, ?_, ?_, ?_, ?_, ?_, resumedMachine⟩
   · simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using Trace.append setupTrace
