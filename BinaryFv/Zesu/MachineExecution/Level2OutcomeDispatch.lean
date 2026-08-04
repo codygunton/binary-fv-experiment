@@ -19,6 +19,18 @@ open RegisterWriteStep
 set_option maxRecDepth 100000
 set_option maxHeartbeats 5000000
 
+/-- Compact concrete evidence for a wrapper result-tag route.  The existential lives inside this
+`Prop`-valued record, so route composition exposes its trace and final frame without a tower of
+retired-counter/state binders in every theorem statement. -/
+private structure DispatchPath (fromStep : Nat) (entry : State)
+    (exit a0 a1 : BitVec 64) : Prop where
+  evidence : ∃ used final,
+    Trace fromStep used entry final ∧
+    final.regs.get? PC = some exit ∧
+    final.regs.get? x10 = some a0 ∧
+    final.regs.get? x11 = some a1 ∧
+    RetiredCounterPresent final
+
 private theorem wrapper_dispatch_register_constant_step {machineArgs : DecoderMachineArgs}
     {base state : State} {destination : Register} {value : RegisterType destination}
     (machine : DecoderMachinePre
@@ -1364,29 +1376,8 @@ theorem wrapper_dispatch_tag0_success_path {machineArgs : DecoderMachineArgs} {b
     (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
     (tag : state.regs.get? x10 = some (BitVec.ofNat 64 0)) :
-    ∃ r1 r2 r3 r4 r5 r6,
-      let s1 := afterRegisterWrite state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
-      let s2 := tryStepControlFlowAfterRetired
-        (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10400))
-        (BitVec.ofNat 64 0x10404) r2
-      let s3 := afterRegisterWrite s2 (BitVec.ofNat 64 0x10404) r3 x11 (BitVec.ofNat 64 1)
-      let s4 := tryStepControlFlowAfterRetired
-        (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10408))
-        (BitVec.ofNat 64 0x1040c) r4
-      let s5 := afterRegisterWrite s4 (BitVec.ofNat 64 0x1040c) r5 x11 (BitVec.ofNat 64 2)
-      let s6 := tryStepControlFlowAfterRetired
-        (controlFlowJumpState (tryStepControlFlowAfterIncrement s5)
-          (BitVec.ofNat 64 0x10410) (BitVec.ofNat 64 0x1033c))
-        (BitVec.ofNat 64 0x1033c) r6
-      Runs (try_step stepNo false) state s1 false ∧
-      Runs (try_step (stepNo + 1) false) s1 s2 false ∧
-      Runs (try_step (stepNo + 2) false) s2 s3 false ∧
-      Runs (try_step (stepNo + 3) false) s3 s4 false ∧
-      Runs (try_step (stepNo + 4) false) s4 s5 false ∧
-      Runs (try_step (stepNo + 5) false) s5 s6 false ∧
-      s6.regs.get? PC = some (BitVec.ofNat 64 0x1033c) ∧
-      s6.regs.get? x10 = some (BitVec.ofNat 64 0) ∧
-      s6.regs.get? x11 = some (BitVec.ofNat 64 2) := by
+    DispatchPath stepNo state (BitVec.ofNat 64 0x1033c) (BitVec.ofNat 64 0)
+      (BitVec.ofNat 64 2) := by
   obtain ⟨r1, r2, r3, r4, r5, run1, run2, run3, run4, run5, pc5, tag5, comparison5⟩ :=
     wrapper_dispatch_non_three_non_one_prefix machine agree retiredPresent code stepNo 0 atPc tag
       (by decide) (by decide)
@@ -1422,14 +1413,15 @@ theorem wrapper_dispatch_tag0_success_path {machineArgs : DecoderMachineArgs} {b
     (controlFlowJumpState (tryStepControlFlowAfterIncrement s5)
       (BitVec.ofNat 64 0x10410) (BitVec.ofNat 64 0x1033c))
     (BitVec.ofNat 64 0x1033c) r6
-  refine ⟨r1, r2, r3, r4, r5, r6, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · exact run1
-  · exact run2
-  · exact run3
-  · exact run4
-  · exact run5
-  · simpa [s6] using run6
-  · simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+  refine ⟨⟨6, s6,
+    Trace.step stepNo 5 state s1 s6 run1
+      (Trace.step (stepNo + 1) 4 s1 s2 s6 run2
+        (Trace.step (stepNo + 2) 3 s2 s3 s6 run3
+          (Trace.step (stepNo + 3) 2 s3 s4 s6 run4
+            (Trace.step (stepNo + 4) 1 s4 s5 s6 run5
+              (Trace.step (stepNo + 5) 0 s5 s6 s6 (by simpa [s6] using run6)
+                (Trace.refl (stepNo + 6) s6)))))), ?_, ?_, ?_, ?_⟩⟩
+  · simp [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
   · apply tryStepControlFlowAfterRetired_preserves_register
@@ -1442,6 +1434,8 @@ theorem wrapper_dispatch_tag0_success_path {machineArgs : DecoderMachineArgs} {b
         Std.ExtDHashMap.get?_insert] using comparison5
     · decide
     · decide
+  · exact ⟨Sail.BitVec.addInt r6 1, by
+      simp [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
 
 /-- The tag-two route reaches the shared rejection continuation with `(a0, a1) = (0, 2)`. -/
 theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base state : State}
@@ -1452,37 +1446,8 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
     (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
     (tag : state.regs.get? x10 = some (BitVec.ofNat 64 2)) :
-    ∃ r1 r2 r3 r4 r5 r6 r7 r8 r9,
-      let s1 := afterRegisterWrite state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
-      let s2 := tryStepControlFlowAfterRetired
-        (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10400))
-        (BitVec.ofNat 64 0x10404) r2
-      let s3 := afterRegisterWrite s2 (BitVec.ofNat 64 0x10404) r3 x11 (BitVec.ofNat 64 1)
-      let s4 := tryStepControlFlowAfterRetired
-        (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x10408))
-        (BitVec.ofNat 64 0x1040c) r4
-      let s5 := afterRegisterWrite s4 (BitVec.ofNat 64 0x1040c) r5 x11 (BitVec.ofNat 64 2)
-      let s6 := tryStepControlFlowAfterRetired
-        (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x10410))
-        (BitVec.ofNat 64 0x10414) r6
-      let s7 := afterRegisterWrite s6 (BitVec.ofNat 64 0x10414) r7 x10 (BitVec.ofNat 64 0)
-      let s8 := afterRegisterWrite s7 (BitVec.ofNat 64 0x10418) r8 x11 (BitVec.ofNat 64 2)
-      let s9 := tryStepControlFlowAfterRetired
-        (controlFlowJumpState (tryStepControlFlowAfterIncrement s8)
-          (BitVec.ofNat 64 0x1041c) (BitVec.ofNat 64 0x1035c))
-        (BitVec.ofNat 64 0x1035c) r9
-      Runs (try_step stepNo false) state s1 false ∧
-      Runs (try_step (stepNo + 1) false) s1 s2 false ∧
-      Runs (try_step (stepNo + 2) false) s2 s3 false ∧
-      Runs (try_step (stepNo + 3) false) s3 s4 false ∧
-      Runs (try_step (stepNo + 4) false) s4 s5 false ∧
-      Runs (try_step (stepNo + 5) false) s5 s6 false ∧
-      Runs (try_step (stepNo + 6) false) s6 s7 false ∧
-      Runs (try_step (stepNo + 7) false) s7 s8 false ∧
-      Runs (try_step (stepNo + 8) false) s8 s9 false ∧
-      s9.regs.get? PC = some (BitVec.ofNat 64 0x1035c) ∧
-      s9.regs.get? x10 = some (BitVec.ofNat 64 0) ∧
-      s9.regs.get? x11 = some (BitVec.ofNat 64 2) := by
+    DispatchPath stepNo state (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0)
+      (BitVec.ofNat 64 2) := by
   obtain ⟨r1, r2, r3, r4, r5, run1, run2, run3, run4, run5, pc5, tag5, comparison5⟩ :=
     wrapper_dispatch_non_three_non_one_prefix machine agree retiredPresent code stepNo 2 atPc tag
       (by decide) (by decide)
@@ -1551,30 +1516,30 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
     simpa [s8] using afterRegisterWrite_pc s7 (BitVec.ofNat 64 0x10418) r8 x11 (BitVec.ofNat 64 2)
   obtain ⟨r9, run9⟩ := wrapper_dispatch_tag2_to_rejection_step machine agree8 retired8 code8
     (stepNo + 8) pc8
-  refine ⟨r1, r2, r3, r4, r5, r6, r7, r8, r9, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · exact run1
-  · exact run2
-  · exact run3
-  · exact run4
-  · exact run5
-  · simpa [s6] using run6
-  · simpa [s6, s7] using run7
-  · simpa [s7, s8] using run8
-  · simpa [s8] using run9
-  · simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+  refine ⟨⟨9, s9, Trace.step stepNo 8 state s1 s9 run1
+    (Trace.step (stepNo + 1) 7 s1 s2 s9 run2
+    (Trace.step (stepNo + 2) 6 s2 s3 s9 run3
+    (Trace.step (stepNo + 3) 5 s3 s4 s9 run4
+    (Trace.step (stepNo + 4) 4 s4 s5 s9 run5
+    (Trace.step (stepNo + 5) 3 s5 s6 s9 (by simpa [s6] using run6)
+    (Trace.step (stepNo + 6) 2 s6 s7 s9 (by simpa [s6, s7] using run7)
+    (Trace.step (stepNo + 7) 1 s7 s8 s9 (by simpa [s7, s8] using run8)
+    (Trace.step (stepNo + 8) 0 s8 s9 s9 (by simpa [s8] using run9)
+      (Trace.refl (stepNo + 9) s9))))))))), ?_, ?_, ?_, ?_⟩⟩
+  · simp [s9, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
-  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  · simp [s9, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert]
   · have x11s8 : s8.regs.get? x11 = some (BitVec.ofNat 64 2) := by
       simp [s8, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
         coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-    apply tryStepControlFlowAfterRetired_preserves_register
-    · simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using x11s8
-    · decide
-    · decide
+    exact tryStepControlFlowAfterRetired_preserves_register
+      (by simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+        Std.ExtDHashMap.get?_insert] using x11s8) (by decide) (by decide)
+  · exact ⟨Sail.BitVec.addInt r9 1, by
+      simp [s9, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
 
 /-- The tag-one route reaches the shared rejection continuation with `(a0, a1) = (0, 4)`. -/
 theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base state : State}
@@ -1585,29 +1550,8 @@ theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base stat
     (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
     (tag : state.regs.get? x10 = some (BitVec.ofNat 64 1)) :
-    ∃ r1 r2 r3 r4 r5 r6 r7,
-      let s1 := afterRegisterWrite state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
-      let s2 := tryStepControlFlowAfterRetired
-        (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x10400))
-        (BitVec.ofNat 64 0x10404) r2
-      let s3 := afterRegisterWrite s2 (BitVec.ofNat 64 0x10404) r3 x11 (BitVec.ofNat 64 1)
-      let s4 := wrapperDispatchTag1BranchAfter s3 r4
-      let s5 := afterRegisterWrite s4 (BitVec.ofNat 64 0x10428) r5 x10 (BitVec.ofNat 64 0)
-      let s6 := afterRegisterWrite s5 (BitVec.ofNat 64 0x1042c) r6 x11 (BitVec.ofNat 64 4)
-      let s7 := tryStepControlFlowAfterRetired
-        (controlFlowJumpState (tryStepControlFlowAfterIncrement s6)
-          (BitVec.ofNat 64 0x10430) (BitVec.ofNat 64 0x1035c))
-        (BitVec.ofNat 64 0x1035c) r7
-      Runs (try_step stepNo false) state s1 false ∧
-      Runs (try_step (stepNo + 1) false) s1 s2 false ∧
-      Runs (try_step (stepNo + 2) false) s2 s3 false ∧
-      Runs (try_step (stepNo + 3) false) s3 s4 false ∧
-      Runs (try_step (stepNo + 4) false) s4 s5 false ∧
-      Runs (try_step (stepNo + 5) false) s5 s6 false ∧
-      Runs (try_step (stepNo + 6) false) s6 s7 false ∧
-      s7.regs.get? PC = some (BitVec.ofNat 64 0x1035c) ∧
-      s7.regs.get? x10 = some (BitVec.ofNat 64 0) ∧
-      s7.regs.get? x11 = some (BitVec.ofNat 64 4) := by
+    DispatchPath stepNo state (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0)
+      (BitVec.ofNat 64 4) := by
   obtain ⟨r1, run1⟩ := wrapper_dispatch_tag3_constant_step machine agree retiredPresent code stepNo atPc
   let s1 := afterRegisterWrite state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
   have agree1 : Agree platformPreserved base s1 := agree.trans
@@ -1697,14 +1641,14 @@ theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base stat
     simpa [s6] using afterRegisterWrite_pc s5 (BitVec.ofNat 64 0x1042c) r6 x11 (BitVec.ofNat 64 4)
   obtain ⟨r7, run7⟩ := wrapper_dispatch_tag1_to_rejection_step machine agree6 retired6 code6
     (stepNo + 6) pc6
-  refine ⟨r1, r2, r3, r4, r5, r6, r7, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · simpa [s1] using run1
-  · simpa [s1, s2] using run2
-  · simpa [s2, s3] using run3
-  · simpa [s3, s4, wrapperDispatchTag1BranchAfter] using run4
-  · simpa [s4, s5] using run5
-  · simpa [s5, s6] using run6
-  · simpa [s6] using run7
+  refine ⟨⟨7, s7, Trace.step stepNo 6 state s1 s7 (by simpa [s1] using run1)
+    (Trace.step (stepNo + 1) 5 s1 s2 s7 (by simpa [s1, s2] using run2)
+    (Trace.step (stepNo + 2) 4 s2 s3 s7 (by simpa [s2, s3] using run3)
+    (Trace.step (stepNo + 3) 3 s3 s4 s7 (by simpa [s3, s4, wrapperDispatchTag1BranchAfter] using run4)
+    (Trace.step (stepNo + 4) 2 s4 s5 s7 (by simpa [s4, s5] using run5)
+    (Trace.step (stepNo + 5) 1 s5 s6 s7 (by simpa [s5, s6] using run6)
+    (Trace.step (stepNo + 6) 0 s6 s7 s7 (by simpa [s6] using run7)
+      (Trace.refl (stepNo + 7) s7))))))), ?_, ?_, ?_, ?_⟩⟩
   · simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
@@ -1720,6 +1664,8 @@ theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base stat
         Std.ExtDHashMap.get?_insert] using x11s6
     · decide
     · decide
+  · exact ⟨Sail.BitVec.addInt r7 1, by
+      simp [s7, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
 
 /-- The tag-three route reaches the shared rejection continuation with `(a0, a1) = (0, 3)`. -/
 theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base state : State}
@@ -1730,23 +1676,8 @@ theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base stat
     (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
     (tag : state.regs.get? x10 = some (BitVec.ofNat 64 3)) :
-    ∃ r1 r2 r3 r4 r5,
-      let s1 := afterRegisterWrite state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
-      let s2 := wrapperDispatchTag3BranchAfter s1 r2
-      let s3 := afterRegisterWrite s2 (BitVec.ofNat 64 0x10434) r3 x10 (BitVec.ofNat 64 0)
-      let s4 := afterRegisterWrite s3 (BitVec.ofNat 64 0x10438) r4 x11 (BitVec.ofNat 64 3)
-      let s5 := tryStepControlFlowAfterRetired
-        (controlFlowJumpState (tryStepControlFlowAfterIncrement s4)
-          (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c))
-        (BitVec.ofNat 64 0x1035c) r5
-      Runs (try_step stepNo false) state s1 false ∧
-      Runs (try_step (stepNo + 1) false) s1 s2 false ∧
-      Runs (try_step (stepNo + 2) false) s2 s3 false ∧
-      Runs (try_step (stepNo + 3) false) s3 s4 false ∧
-      Runs (try_step (stepNo + 4) false) s4 s5 false ∧
-      s5.regs.get? PC = some (BitVec.ofNat 64 0x1035c) ∧
-      s5.regs.get? x10 = some (BitVec.ofNat 64 0) ∧
-      s5.regs.get? x11 = some (BitVec.ofNat 64 3) := by
+    DispatchPath stepNo state (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0)
+      (BitVec.ofNat 64 3) := by
   obtain ⟨r1, run1⟩ := wrapper_dispatch_tag3_constant_step machine agree retiredPresent code stepNo atPc
   let s1 := afterRegisterWrite state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
   have agree1 : Agree platformPreserved base s1 := agree.trans
@@ -1801,12 +1732,12 @@ theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base stat
     simpa [s4] using afterRegisterWrite_pc s3 (BitVec.ofNat 64 0x10438) r4 x11 (BitVec.ofNat 64 3)
   obtain ⟨r5, run5⟩ := wrapper_dispatch_tag3_to_rejection_step machine agree4 retired4 code4
     (stepNo + 4) pc4
-  refine ⟨r1, r2, r3, r4, r5, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · simpa [s1] using run1
-  · simpa [s1, s2] using run2
-  · simpa [s2, s3] using run3
-  · simpa [s3, s4] using run4
-  · simpa [s4] using run5
+  refine ⟨⟨5, s5, Trace.step stepNo 4 state s1 s5 (by simpa [s1] using run1)
+    (Trace.step (stepNo + 1) 3 s1 s2 s5 (by simpa [s1, s2] using run2)
+    (Trace.step (stepNo + 2) 2 s2 s3 s5 (by simpa [s2, s3] using run3)
+    (Trace.step (stepNo + 3) 1 s3 s4 s5 (by simpa [s3, s4] using run4)
+    (Trace.step (stepNo + 4) 0 s4 s5 s5 (by simpa [s4] using run5)
+      (Trace.refl (stepNo + 5) s5))))), ?_, ?_, ?_, ?_⟩⟩
   · simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
@@ -1821,5 +1752,7 @@ theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base stat
         Std.ExtDHashMap.get?_insert] using x11s4
     · decide
     · decide
+  · exact ⟨Sail.BitVec.addInt r5 1, by
+      simp [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
 
 end BinaryFv.Zesu.MachineExecution
