@@ -758,6 +758,10 @@ arbitrary frame contents, not ABI defaults. -/
 structure WrapperEpilogueSavedRegistersResult (fromStep : Nat) (base before after : State)
     (stackBase link savedS0 savedS1 savedS2 stack result status : BitVec 64) : Prop where
   trace : Trace fromStep 3 before after
+  confined : ConfinedPrefix
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary fromStep 3 before after
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x10374)
   memory : after.mem = before.mem
   ra : after.regs.get? x1 = some link
@@ -778,6 +782,10 @@ This retires the six instructions from `0x10360` through `0x10374`, but leaves `
 structure WrapperEpilogueExitResult (fromStep : Nat) (base before after : State)
     (link savedS0 savedS1 savedS2 restoredStack result status : BitVec 64) : Prop where
   trace : Trace fromStep 6 before after
+  confined : ConfinedPrefix
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary fromStep 6 before after
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x10378)
   ra : after.regs.get? x1 = some link
   s0 : after.regs.get? x8 = some savedS0
@@ -868,7 +876,49 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]))
-  refine ⟨afterS2, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
+  have prefixS0 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary fromStep 1 state afterS0 :=
+    ConfinedPrefix.ownStep atPc
+      (by
+        apply functionInstanceExecutionPcs_iff_ranges.mpr
+        apply RegionPcs.iff_inRanges.mpr
+        native_decide)
+      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [afterS0] using s0Run)
+  have prefixS1 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (fromStep + 1) 1 afterS0 afterS1 :=
+    ConfinedPrefix.ownStep atS1
+      (by
+        apply functionInstanceExecutionPcs_iff_ranges.mpr
+        apply RegionPcs.iff_inRanges.mpr
+        native_decide)
+      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [afterS0, afterS1] using s1Run)
+  have prefixS2 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (fromStep + 2) 1 afterS1 afterS2 :=
+    ConfinedPrefix.ownStep atS2
+      (by
+        apply functionInstanceExecutionPcs_iff_ranges.mpr
+        apply RegionPcs.iff_inRanges.mpr
+        native_decide)
+      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [afterS1, afterS2] using s2Run)
+  have savedPrefix : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary fromStep 3 state afterS2 := by
+    have prefixS01 := ConfinedPrefix.trans prefixS0 (by simpa [Nat.add_assoc] using prefixS1)
+    exact ConfinedPrefix.trans prefixS01 (by simpa [Nat.add_assoc] using prefixS2)
+  refine ⟨afterS2, ⟨?_, savedPrefix, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
   · refine Trace.step fromStep 2 state afterS0 afterS2 (by simpa [afterS0] using s0Run) ?_
     refine Trace.step (fromStep + 1) 1 afterS0 afterS1 afterS2 (by simpa [afterS0, afterS1] using s1Run) ?_
     exact Trace.one (fromStep + 2) afterS1 afterS2 (by simpa [afterS1, afterS2] using s2Run)
@@ -997,7 +1047,58 @@ theorem wrapper_epilogue_to_exit {base state : State} {machineArgs : DecoderMach
     refine ⟨Sail.BitVec.addInt retiredStack 1, ?_⟩
     simp [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,
       tryStepStackAddiAfterTick]
-  refine ⟨afterStack, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
+  have atRa : afterFirst.regs.get? PC = some (BitVec.ofNat 64 0x10364) := by
+    simp [afterFirst, wrapperAfterFirstStackRestore, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState,
+      stackAddiNextState, tryStepStackAddiAfterIncrement, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+    decide
+  have prefixFirst : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary fromStep 1 state afterFirst :=
+    ConfinedPrefix.ownStep atPc
+      (by
+        apply functionInstanceExecutionPcs_iff_ranges.mpr
+        apply RegionPcs.iff_inRanges.mpr
+        native_decide)
+      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [afterFirst] using firstRun)
+  have prefixRa : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (fromStep + 1) 1 afterFirst afterRa :=
+    ConfinedPrefix.ownStep atRa
+      (by
+        apply functionInstanceExecutionPcs_iff_ranges.mpr
+        apply RegionPcs.iff_inRanges.mpr
+        native_decide)
+      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [afterFirst, afterRa] using raRun)
+  have prefixStack : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (fromStep + 5) 1 afterS2 afterStack :=
+    ConfinedPrefix.ownStep saved.pc
+      (by
+        apply functionInstanceExecutionPcs_iff_ranges.mpr
+        apply RegionPcs.iff_inRanges.mpr
+        native_decide)
+      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw])
+      (by simpa [afterStack] using stackRun)
+  have confined : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary fromStep 6 state afterStack := by
+    have prefixFirstRa := ConfinedPrefix.trans prefixFirst
+      (by simpa [Nat.add_assoc] using prefixRa)
+    have prefixSaved := ConfinedPrefix.trans prefixFirstRa
+      (by simpa [Nat.add_assoc] using saved.confined)
+    exact ConfinedPrefix.trans prefixSaved (by simpa [Nat.add_assoc] using prefixStack)
+  refine ⟨afterStack, ⟨?_, confined, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
   · simpa only [Nat.add_assoc] using Trace.append firstTrace (Trace.append saved.trace
       (Trace.one (fromStep + 5) afterS2 afterStack (by simpa [afterStack] using stackRun)))
   · simp [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,
