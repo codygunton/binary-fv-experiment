@@ -104,6 +104,50 @@ private theorem wrapperAfterDwordStore_preserves_savedWord (state : State)
     tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using
     preserved.trans (saved index bound)
 
+/-- An eight-byte allocator-object store below the wrapper save area leaves all four saved words
+unchanged. The separation is the actual emitted object layout. -/
+private theorem wrapperAfterDwordStore_preserves_savedFrame (state : State)
+    (pc retired target data : BitVec 64) (stackBase targetBase : Nat)
+    (targetValue : target.toNat = targetBase) (targetBeforeSaveArea : targetBase + 8 ≤ stackBase + 0xa00)
+    {link s0 s1 s2 : BitVec 64}
+    (frame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 state) :
+    WrapperSavedRegisterFrame stackBase link s0 s1 s2
+      (wrapperAfterDwordStore state pc retired target data) := by
+  rw [WrapperSavedRegisterFrame] at frame ⊢
+  rcases frame with ⟨linkFrame, s0Frame, s1Frame, s2Frame⟩
+  exact ⟨
+    wrapperAfterDwordStore_preserves_savedWord state pc retired target data targetBase
+      (stackBase + 0xa18) link targetValue (Or.inl targetBeforeSaveArea) linkFrame,
+    wrapperAfterDwordStore_preserves_savedWord state pc retired target data targetBase
+      (stackBase + 0xa10) s0 targetValue (Or.inl targetBeforeSaveArea) s0Frame,
+    wrapperAfterDwordStore_preserves_savedWord state pc retired target data targetBase
+      (stackBase + 0xa08) s1 targetValue (Or.inl targetBeforeSaveArea) s1Frame,
+    wrapperAfterDwordStore_preserves_savedWord state pc retired target data targetBase
+      (stackBase + 0xa00) s2 targetValue (Or.inl targetBeforeSaveArea) s2Frame⟩
+
+/-- The one-byte attempted-tag store is below the canonical wrapper stack and cannot overwrite a
+saved register word. -/
+private theorem wrapperAfterAllocatorTag_preserves_savedFrame (state : State)
+    (retired target data : BitVec 64) (stackBase : Nat)
+    (targetBeforeSaveArea : target.toNat + 1 ≤ stackBase + 0xa00)
+    {link s0 s1 s2 : BitVec 64}
+    (frame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 state) :
+    WrapperSavedRegisterFrame stackBase link s0 s1 s2
+      (wrapperAfterAllocatorTag state retired target data) := by
+  rw [WrapperSavedRegisterFrame] at frame ⊢
+  rcases frame with ⟨linkFrame, s0Frame, s1Frame, s2Frame⟩
+  have preserve (base : Nat) (value : BitVec 64) (saved : SavedWordBytes state base value) :
+      SavedWordBytes (wrapperAfterAllocatorTag state retired target data) base value := by
+    intro index bound
+    have outside : target.toNat ≠ base + index := by omega
+    change (state.mem.insert target.toNat (Sail.BitVec.extractLsb data 7 0)).get? (base + index) =
+      some (getElem (BinaryFv.RiscV.Sep.leBytes 8 value) index bound)
+    simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
+    rw [if_neg outside]
+    exact saved index bound
+  exact ⟨preserve (stackBase + 0xa18) link linkFrame, preserve (stackBase + 0xa10) s0 s0Frame,
+    preserve (stackBase + 0xa08) s1 s1Frame, preserve (stackBase + 0xa00) s2 s2Frame⟩
+
 /-- A wrapper stack store preserves the borrowed input because the compiled entry premise keeps the
 entire input interval outside the writable frame. -/
 private theorem wrapperAfterDwordStore_inputMemory (args : ZesuDecodeRawArgs) (stackBase : Nat)
@@ -1771,7 +1815,10 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
       final.mem.get? 0x4215020 = some (0#8) ∧
       MemoryRepresentation.MemoryBytes final args.inputBase args.bytes ∧
       Agree platformPreserved entry final ∧ RetiredCounterPresent final ∧
-      canonicalContractParams.env.CodeIntact final := by
+      canonicalContractParams.env.CodeIntact final ∧
+      ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
+        entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
+        WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨s6, trace6, prefix6, pc6, stack6, input6, length6, attempted6, inputMemory6,
     agree6, retired6, code6, frame6⟩ :=
     wrapper_complete_frame_prefix fromStep args stackBase entry source machine
@@ -1912,6 +1959,11 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   have finalCode : canonicalContractParams.env.CodeIntact final := by
     change canonicalContractParams.env.CodeIntact s10
     exact code10
+  obtain ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry,
+    frame6⟩ := frame6
+  have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
+    apply WrapperSavedRegisterFrame.of_mem_eq frame6
+    simp [final, s10, s9, s8, s7, wrapperAfterFreshBranch, afterRegisterWrite_mem]
   have ownStep (stepNo pc : Nat) (before after : State)
       (atPc : before.regs.get? PC = some (BitVec.ofNat 64 pc))
       (inRegion : functionInstanceExecutionPcs generatedProgram
@@ -1969,7 +2021,8 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix10'
       (by simpa [Nat.add_assoc] using prefix11)
   refine ⟨final, ?_, confined, by simpa [final] using pc11, finalStack, finalInput, finalLength,
-    finalGlobals, finalFresh, finalInputMemory, finalAgree, finalRetired, finalCode⟩
+    finalGlobals, finalFresh, finalInputMemory, finalAgree, finalRetired, finalCode,
+    ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
   have trace7 := Trace.snoc trace6 (by simpa [s7] using run7)
   have trace8 := Trace.snoc trace7 (by simpa [s8] using run8)
   have trace9 := Trace.snoc trace8 (by simpa [s9] using run9)
@@ -2110,9 +2163,12 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
       final.mem.get? 0x4215020 = some (0#8) ∧
       MemoryRepresentation.MemoryBytes final args.inputBase args.bytes ∧
       Agree platformPreserved entry final ∧ RetiredCounterPresent final ∧
-      canonicalContractParams.env.CodeIntact final := by
+      canonicalContractParams.env.CodeIntact final ∧
+      ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
+        entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
+        WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨s11, trace11, prefix11, pc11, stack11, input11, length11, globals11, fresh11,
-    inputMemory11, agree11, retired11, code11⟩ :=
+    inputMemory11, agree11, retired11, code11, frame11⟩ :=
     wrapper_fresh_prologue_prefix fromStep args stackBase entry source machine
   obtain ⟨r12, run12⟩ := wrapper_save_input_step (fromStep + 11) args stackBase entry s11
     machine agree11 retired11 code11 pc11 input11
@@ -2167,6 +2223,11 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
     (1#64)
   have finalCode : canonicalContractParams.env.CodeIntact final := by
     simpa [final, afterRegisterWrite_mem] using code12
+  obtain ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry,
+    frame11⟩ := frame11
+  have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
+    apply WrapperSavedRegisterFrame.of_mem_eq frame11
+    simp [final, s12, afterRegisterWrite_mem]
   have prefix12 : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
@@ -2204,7 +2265,8 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
     stack12, keep (by decide) (by decide) (by decide) (by decide) (by decide) savedInput12,
     keep (by decide) (by decide) (by decide) (by decide) (by decide) length12, finalValue,
     keep (by decide) (by decide) (by decide) (by decide) (by decide) globals12, finalFresh,
-    finalInputMemory, finalAgree, finalRetired, finalCode⟩
+    finalInputMemory, finalAgree, finalRetired, finalCode,
+    ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
   have trace12 := Trace.snoc trace11 (by simpa [s12] using run12)
   simpa [final] using Trace.snoc trace12 run13
 
@@ -2281,9 +2343,12 @@ theorem wrapper_through_allocator_tag
       final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
       MemoryRepresentation.MemoryBytes final args.inputBase args.bytes ∧
       Agree decoderPreserved entry final ∧ RetiredCounterPresent final ∧
-      canonicalContractParams.env.CodeIntact final := by
+      canonicalContractParams.env.CodeIntact final ∧
+      ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
+        entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
+        WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨atAllocator, trace13, prefix13, pc13, stack13, savedInput13, length13, data13,
-    globals13, -, inputMemory13, agree13, retired13, code13⟩ :=
+    globals13, -, inputMemory13, agree13, retired13, code13, frame13⟩ :=
     wrapper_to_allocator_entry_prefix fromStep args stackBase entry source machine
   have pc13In : functionInstanceExecutionPcs generatedProgram
       functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x102f0) := by
@@ -2403,6 +2468,18 @@ theorem wrapper_through_allocator_tag
   have finalPc : final.regs.get? PC = some (BitVec.ofNat 64 0x102f8) := by
     simpa [final] using wrapperAfterAllocatorTag_pc afterFirst r15
       (BitVec.ofNat 64 0x4215020) (1#64)
+  obtain ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry,
+    frame13⟩ := frame13
+  have firstFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 afterFirst := by
+    apply WrapperSavedRegisterFrame.of_mem_eq frame13
+    simp [afterFirst, allocatorAfterDataPointer, afterRegisterWrite_mem]
+  have tagBeforeSaveArea : (BitVec.ofNat 64 0x4215020).toNat + 1 ≤ stackBase + 0xa00 := by
+    have stackAfterResult := wrapper_stack_after_stored_result machine
+    norm_num
+    omega
+  have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
+    simpa [final] using wrapperAfterAllocatorTag_preserves_savedFrame afterFirst r15
+      (BitVec.ofNat 64 0x4215020) (1#64) stackBase tagBeforeSaveArea firstFrame
   have firstLevel2 := firstTransfer.mapSummary
     (fun child stepNo used before after run => allocatorChildSummary_to_level2 run)
   have firstPrefix : ConfinedPrefix
@@ -2436,7 +2513,8 @@ theorem wrapper_through_allocator_tag
     simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix14
       (by simpa [Nat.add_assoc] using tagPrefix)
   refine ⟨final, ?_, confined, finalPc, finalStack, finalSavedInput, finalLength, finalContext,
-    finalGlobals, finalInputMemory, finalAgree, finalRetired, finalCode⟩
+    finalGlobals, finalInputMemory, finalAgree, finalRetired, finalCode,
+    ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
   have trace14 := Trace.snoc trace13 firstStep
   simpa [final, Nat.add_assoc] using Trace.snoc trace14 tagStep
 
@@ -2601,6 +2679,9 @@ private structure WrapperSecondAllocatorPost (fromStep : Nat) (args : ZesuDecode
   agree : Agree decoderPreserved entry final
   retired : RetiredCounterPresent final
   code : canonicalContractParams.env.CodeIntact final
+  savedFrame : ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
+    entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
+    WrapperSavedRegisterFrame stackBase link s0 s1 s2 final
 
 /-- Semantic handoff for the allocator's second inline segment. Keeping its state transport
 separate from the enclosing trace splice bounds elaboration cost for the wrapper capstone. -/
@@ -2617,6 +2698,9 @@ private theorem wrapper_second_allocator_semantics
     (agree15 : Agree decoderPreserved entry atSecond)
     (retired15 : RetiredCounterPresent atSecond)
     (code15 : canonicalContractParams.env.CodeIntact atSecond)
+    (frame15 : ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
+      entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
+      WrapperSavedRegisterFrame stackBase link s0 s1 s2 atSecond)
     (machine : ZesuDecodeRawMachinePre args stackBase entry) :
     Nonempty (WrapperSecondAllocatorPost fromStep args stackBase entry atSecond) := by
   have contextTarget : BitVec.ofNat 64 stackBase + sign_extend (0x010#12) =
@@ -2714,6 +2798,36 @@ private theorem wrapper_second_allocator_semantics
     simpa [final, afterContext, afterAddress, afterPage] using
       wrapper_second_allocator_code args stackBase entry atSecond machine pageRetired
         addressRetired contextRetired functionRetired contextNotFile functionNotFile code
+  obtain ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry,
+    frame15⟩ := frame15
+  have pageFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 afterPage := by
+    apply WrapperSavedRegisterFrame.of_mem_eq frame15
+    simp [afterPage, allocatorAfterFunctionPage, afterRegisterWrite_mem]
+  have addressFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 afterAddress := by
+    apply WrapperSavedRegisterFrame.of_mem_eq pageFrame
+    simp [afterAddress, allocatorAfterFunctionAddress, afterRegisterWrite_mem]
+  have contextTargetValue :
+      (BitVec.ofNat 64 stackBase + sign_extend (0x010#12)).toNat = stackBase + 0x10 := by
+    rw [contextTarget, ← BitVec.ofNat_add, BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
+    have frameFits := machine.stackFrameFits
+    omega
+  have contextFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 afterContext := by
+    simpa [afterContext, wrapperAfterDwordStore] using
+      wrapperAfterDwordStore_preserves_savedFrame afterAddress (BitVec.ofNat 64 0x10300)
+        contextRetired (BitVec.ofNat 64 stackBase + sign_extend (0x010#12))
+        (BitVec.ofNat 64 0x4215021) stackBase (stackBase + 0x10) contextTargetValue (by omega)
+        addressFrame
+  have functionTargetValue :
+      (BitVec.ofNat 64 stackBase + sign_extend (0x018#12)).toNat = stackBase + 0x18 := by
+    rw [functionTarget, ← BitVec.ofNat_add, BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
+    have frameFits := machine.stackFrameFits
+    omega
+  have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
+    simpa [final, afterContext, wrapperAfterDwordStore] using
+      wrapperAfterDwordStore_preserves_savedFrame afterContext (BitVec.ofNat 64 0x10304)
+        functionRetired (BitVec.ofNat 64 stackBase + sign_extend (0x018#12))
+        (BitVec.ofNat 64 0x13f70) stackBase (stackBase + 0x18) functionTargetValue (by omega)
+        contextFrame
   refine ⟨
     { final := final
       transfer := transfer
@@ -2725,7 +2839,9 @@ private theorem wrapper_second_allocator_semantics
       inputMemory := finalInputMemory
       agree := finalAgree
       retired := finalRetired
-      code := finalCode }⟩
+      code := finalCode
+      savedFrame := ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry,
+        s2AtEntry, finalFrame⟩ }⟩
   simpa [final] using allocatorAfterFunctionStore_pc _ functionRetired
     (BitVec.ofNat 64 stackBase) (BitVec.ofNat 64 0x13f70)
 
@@ -2751,13 +2867,16 @@ theorem wrapper_through_allocator_setup
       final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
       MemoryRepresentation.MemoryBytes final args.inputBase args.bytes ∧
       Agree decoderPreserved entry final ∧ RetiredCounterPresent final ∧
-      canonicalContractParams.env.CodeIntact final := by
+      canonicalContractParams.env.CodeIntact final ∧
+      ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
+        entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
+        WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨atSecond, trace15, prefix15, pc15, stack15, savedInput15, length15, context15, globals15,
-    inputMemory15, agree15, retired15, code15⟩ :=
+    inputMemory15, agree15, retired15, code15, frame15⟩ :=
     wrapper_through_allocator_tag allocator fromStep args stackBase entry source machine
   obtain ⟨post⟩ :=
     wrapper_second_allocator_semantics allocator fromStep args stackBase entry atSecond pc15
-      stack15 savedInput15 length15 globals15 context15 inputMemory15 agree15 retired15 code15 machine
+      stack15 savedInput15 length15 globals15 context15 inputMemory15 agree15 retired15 code15 frame15 machine
   let final := post.final
   have transfer := post.transfer
   have trace4 := allocator_second_trace_of_inlineTransfer (fromStep + 15) atSecond final transfer
@@ -2782,7 +2901,8 @@ theorem wrapper_through_allocator_setup
     simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix15
       (by simpa [Nat.add_assoc] using secondPrefix)
   exact ⟨final, by simpa [Nat.add_assoc] using complete, confined, post.pc, post.stack,
-    post.savedInput, post.length, post.globals, post.inputMemory, post.agree, post.retired, post.code⟩
+    post.savedInput, post.length, post.globals, post.inputMemory, post.agree, post.retired, post.code,
+    post.savedFrame⟩
 
 /-- The selected inlined `decode` region is contained in its enclosing wrapper's generated
 execution region. This is checked from the generated call relation, not handwritten address bounds. -/
@@ -2842,9 +2962,12 @@ theorem wrapper_reaches_decode_first_contract
               (fromStep + 19) used atDecode after ∧
             DecodeInlinePost decodeArgs atDecode after ∧
             DecodeInlineMachinePost atDecode after ∧
-            DecodeInlineOutgoingFrame decodeArgs after := by
+            DecodeInlineOutgoingFrame decodeArgs after ∧
+            ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
+              entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
+              WrapperSavedRegisterFrame stackBase link s0 s1 s2 atDecode := by
   obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, globals, inputMemory, agree, retired,
-    code⟩ :=
+    code, savedFrame⟩ :=
     wrapper_through_allocator_setup allocator fromStep args stackBase entry source machine
   let decodeArgs : DecodeInlineArgs :=
     { phase := .first
@@ -2880,7 +3003,7 @@ theorem wrapper_reaches_decode_first_contract
       (fromStep + 19) used atDecode after :=
     ⟨rfl, decodeArgs, pre, bound, childTrace, post, machinePost, outgoing⟩
   exact ⟨atDecode, trace, confined, decodeArgs, pre, used, after, .decode level3,
-    bound, childTrace, post, machinePost, outgoing⟩
+    bound, childTrace, post, machinePost, outgoing, savedFrame⟩
 
 def wrapperAfterDecodeFirstErrorBranch (state : State) (retired : BitVec 64) : State :=
   tryStepControlFlowAfterRetired
