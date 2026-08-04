@@ -3649,7 +3649,8 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
     · simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
     · simpa [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
-        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert] using prefixPost.2.2.2.2
+        tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+        Std.ExtDHashMap.get?_insert] using prefixPost.2.2.2
 
 /-! ## Exact-prefix second-call setup -/
 

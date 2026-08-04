@@ -266,23 +266,23 @@ theorem decodeInline_retry_success_reaches_post
       (afterRegisterWrite_register pageState (BitVec.ofNat 64 0x103f4) pointerRetired x10 x2
         (BitVec.ofNat 64 (args.stackBase + 0x1000)) (by decide) (by decide) (by decide)
         (by decide) (by decide)).trans pageStack
-  have tagOffset : Contracts.canonicalContractParams.env.record.entryResultTagOffset = 832 := by
-    have pinned := congrArg (fun record => record.entryResultTagOffset)
-      Contracts.canonicalRecordSizes_pinned
-    simpa [Contracts.canonicalContractParams, Contracts.canonicalEnvironment] using pinned
+  have afterPointer : after.regs.get? x10 =
+      some (BitVec.ofNat 64 (args.stackBase + 0x1000)) := by
+    simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
   have statusFinal : MemoryRepresentation.ResultStatusLERep after
       (args.stackBase + 0x9f0)
       (Contracts.decodeInternalResultTag (Contracts.meaningDecode args.bytes)) := by
     rcases decodedPost.2.2.2.1 with ⟨tagBound, low, high⟩
     refine ⟨by simpa [meaningEq] using tagBound, ?_, ?_⟩
     · rw [finalFrame _ (Or.inr (by
-        simp [decodeInlineRetryCopyArgs, DecodeInlineArgs.retryRawArgs, tagOffset]
-        omega))]
-      simpa [DecodeInlineArgs.retryRawArgs, tagOffset, meaningEq] using low
+        simp [decodeInlineRetryCopyArgs, DecodeInlineArgs.retryRawArgs,
+          DecodeInlineArgs.finalResultBase]))]
+      simpa [DecodeInlineArgs.retryRawArgs, meaningEq] using low
     · rw [finalFrame _ (Or.inr (by
-        simp [decodeInlineRetryCopyArgs, DecodeInlineArgs.retryRawArgs, tagOffset]
-        omega))]
-      simpa [DecodeInlineArgs.retryRawArgs, tagOffset, meaningEq] using high
+        simp [decodeInlineRetryCopyArgs, DecodeInlineArgs.retryRawArgs,
+          DecodeInlineArgs.finalResultBase]))]
+      simpa [DecodeInlineArgs.retryRawArgs, meaningEq] using high
   refine ⟨19 + lengthUsed + prefixUsed + rawUsed + memcpyUsed + 1 + 1,
     after, ?_, ?_, retryPost, ⟨afterAgree, afterCounter, codeFinal⟩, ?_⟩
   · unfold decodeInlineStepBound
@@ -300,7 +300,7 @@ theorem decodeInline_retry_success_reaches_post
         contentsSize] using memcpyBound
     omega
   · simpa [copyStart, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace
-  · simp [DecodeInlineOutgoingFrame, phase, exactPrefix, afterStack, statusFinal]
+  · simp [DecodeInlineOutgoingFrame, phase, exactPrefix, afterPointer, afterStack, statusFinal]
 
 /-- A non-`invalidSsz` first error selects the outgoing edge at the second inline entry. The child
 summary is therefore a zero-step selected exit; Level 2 retires the real branch to `0x103fc`. -/

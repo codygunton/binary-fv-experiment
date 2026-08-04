@@ -172,11 +172,11 @@ theorem wrapper_second_retry_decode_entry
           by simp [secondState, afterRegisterWrite, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]⟩
       propagateReason := by intro error impossible; simp [secondArgs] at impossible }
-  obtain ⟨secondUsed, secondAfter, bound, trace, post, machinePost⟩ :=
+  obtain ⟨secondUsed, secondAfter, bound, trace, post, machinePost, outgoing⟩ :=
     level3DecodeInlineContract decodeRaw secondArgs (fromStep + used + 2) secondState secondPre
   refine ⟨branchRetired, retryRetired, secondUsed, secondAfter, transfer, ?_, ?_⟩
   · simpa [branchState, secondState] using retryRun
-  · exact ⟨rfl, secondArgs, secondPre, bound, trace, post, machinePost⟩
+  · exact ⟨rfl, secondArgs, secondPre, bound, trace, post, machinePost, outgoing⟩
 
 /-- At the same second entry, a non-`invalidSsz` first result builds the propagation phase and
 consumes the zero-step Level 3 exit before Level 2 owns the outgoing branch. -/
@@ -277,9 +277,9 @@ theorem wrapper_second_propagate_decode_entry
         subst selected
         exact ⟨notInvalid, rawResult, secondTag, by simp [secondState, afterRegisterWrite, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]⟩ }
-  obtain ⟨secondUsed, secondAfter, bound, trace, post, machinePost⟩ :=
+  obtain ⟨secondUsed, secondAfter, bound, trace, post, machinePost, outgoing⟩ :=
     level3DecodeInlineContract decodeRaw secondArgs (fromStep + 1) secondState secondPre
   exact ⟨retryRetired, secondUsed, secondAfter, by simpa [secondState] using retryRun,
-    ⟨rfl, secondArgs, secondPre, bound, trace, post, machinePost⟩⟩
+    ⟨rfl, secondArgs, secondPre, bound, trace, post, machinePost, outgoing⟩⟩
 
 end BinaryFv.Zesu.MachineExecution

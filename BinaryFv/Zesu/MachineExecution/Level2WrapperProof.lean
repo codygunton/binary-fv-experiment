@@ -2732,7 +2732,8 @@ theorem wrapper_reaches_decode_first_contract
               (DecodeInlineExit decodeArgs) Level3ChildSummary
               (fromStep + 19) used atDecode after ∧
             DecodeInlinePost decodeArgs atDecode after ∧
-            DecodeInlineMachinePost atDecode after := by
+            DecodeInlineMachinePost atDecode after ∧
+            DecodeInlineOutgoingFrame decodeArgs after := by
   obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, inputMemory, agree, retired,
     code⟩ :=
     wrapper_through_allocator_setup allocator fromStep args stackBase entry source machine
@@ -2762,14 +2763,14 @@ theorem wrapper_reaches_decode_first_contract
       propagateReason := by
         intro error phase
         simp [decodeArgs] at phase }
-  obtain ⟨used, after, bound, childTrace, post, machinePost⟩ :=
+  obtain ⟨used, after, bound, childTrace, post, machinePost, outgoing⟩ :=
     level3DecodeInlineContract decodeRaw decodeArgs (fromStep + 19) atDecode pre
   have level3 : level3DecodeChildSummary
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
       (fromStep + 19) used atDecode after :=
-    ⟨rfl, decodeArgs, pre, bound, childTrace, post, machinePost⟩
+    ⟨rfl, decodeArgs, pre, bound, childTrace, post, machinePost, outgoing⟩
   exact ⟨atDecode, trace, confined, decodeArgs, pre, used, after, .decode level3,
-    bound, childTrace, post, machinePost⟩
+    bound, childTrace, post, machinePost, outgoing⟩
 
 def wrapperAfterDecodeFirstErrorBranch (state : State) (retired : BitVec 64) : State :=
   tryStepControlFlowAfterRetired

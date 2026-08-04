@@ -383,17 +383,19 @@ def DecodeInlineOutgoingFrame (args : DecodeInlineArgs) (after : State) : Prop :
   | .first => True
   | .retryAfterInvalidSsz =>
       if meaningHasExactErePrefix args.bytes then
-        after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
-          MemoryRepresentation.ResultStatusLERep after
-            (args.stackBase + 0x9f0)
-            (decodeInternalResultTag (meaningDecode args.bytes))
+        after.regs.get? x10 = some (BitVec.ofNat 64 (args.stackBase + 0x1000)) ∧
+          after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+            MemoryRepresentation.ResultStatusLERep after
+              (args.stackBase + 0x9f0)
+              (decodeInternalResultTag (meaningDecode args.bytes))
       else if args.bytes.size < 4 then
         after.regs.get? x10 = some (BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32)) ∧
           after.regs.get? x12 = some
             (BitVec.ofNat 64 (args.bytes.size + (2 ^ 64 - 2 ^ 32 - 4)))
       else
         after.regs.get? x10 = some
-            (BitVec.ofNat 64 (prefixHigh16 args.bytes ||| prefixLow16 args.bytes)) ∧
+          (BitVec.ofNat 64 (prefixHigh16 args.bytes) |||
+            BitVec.ofNat 64 (prefixLow16 args.bytes)) ∧
           after.regs.get? x13 = some (BitVec.ofNat 64 (args.bytes.size - 4))
   | .propagateError error =>
       after.regs.get? x10 = some
