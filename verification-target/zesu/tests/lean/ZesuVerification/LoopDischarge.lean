@@ -8,11 +8,12 @@ types can and cannot express about a loop, and what the generated exit inventory
 
 Four things are established.
 
-1. **`FunctionTrace`/`ScopedTrace` halt at an exit pc** (`functionTrace_stuck_at_exit`,
-   `scopedTrace_stuck_at_exit`): if the machine is *at* an exit pc, the only trace from there is the
-   empty one. `step`/`ownStep`/`inlineStep`/`callStep` each carry `¬ exit pc`, so this is not a
-   convention but a property of the types. Consequence: an exit pc that the machine can *continue
-   from inside the same instance* truncates every trace at that pc.
+1. **`FunctionTrace` halts at an exit pc** (`functionTrace_stuck_at_exit`): if the machine is *at* an
+   exit pc, the only trace from there is the empty one. `ScopedTrace` has the same property when no
+   selected child body starts from that state (`scopedTrace_stuck_at_exit`): its owned, inline, and
+   call transitions carry `¬ exit pc`, while `childBody` must be excluded separately. Consequence:
+   an exit pc that the machine can *continue from inside the same instance* truncates every trace at
+   that pc unless a selected child owns the continuation.
 
 2. **The generated exit inventory truncates 97 of its 469 exit rows** (`truncating_rows_generated`),
    spread over 40 of the 141 instances — and **not one of them is an emitted instance**
@@ -61,11 +62,13 @@ theorem functionTrace_stuck_at_exit {region exit : BitVec 64 → Prop} {fromStep
   | step _ n p _ _ _ hp _ hnot _ _ =>
       exact absurd (by rw [pc_eq hp hpc]; exact hexit) hnot
 
-/-- The same for the edge-aware trace: all three transition constructors carry `¬ exit pc`. -/
+/-- The same for the edge-aware trace when no selected child body starts at this state. Its owned,
+inline, and call transitions carry `¬ exit pc`; `childBody` is excluded by `noChildBody`. -/
 theorem scopedTrace_stuck_at_exit {region exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {fromStep count : Nat} {s s' : State} {pc : BitVec 64}
     (hpc : s.regs.get? PC = some pc) (hexit : exit pc)
+    (noChildBody : ∀ child used sChild, ¬ childSummary child fromStep used s sChild)
     (h : ScopedTrace region exit childSummary fromStep count s s') : count = 0 ∧ s' = s := by
   cases h with
   | exitAt _ _ _ _ _ => exact ⟨rfl, rfl⟩
@@ -77,6 +80,8 @@ theorem scopedTrace_stuck_at_exit {region exit : BitVec 64 → Prop}
       exact absurd (by rw [pc_eq htr.atEntry hpc]; exact hexit) htr.entryNotExit
   | callStep _ used n _ _ _ _ _ _ _ htr _ =>
       exact absurd (by rw [pc_eq htr.atCall hpc]; exact hexit) htr.callNotExit
+  | childBody _ used _ child _ sChild _ hbody _ =>
+      exact absurd hbody (noChildBody child used sChild)
 
 /-! ## 2. What the generated exit inventory does to the loops
 
