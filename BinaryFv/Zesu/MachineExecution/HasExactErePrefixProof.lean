@@ -393,6 +393,7 @@ theorem hasExactErePrefix_length_segment (fromStep : Nat)
       after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
       after.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
+      after.regs.get? x11 = state.regs.get? x11 ∧
       after.mem = state.mem := by
   obtain ⟨retired, step⟩ := hasExactErePrefix_length_add_step fromStep args state pre phase
   let result := BitVec.ofNat 64 args.bytes.size +
@@ -451,9 +452,13 @@ theorem hasExactErePrefix_length_segment (fromStep : Nat)
     simpa [after, result, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert] using pre.globalsValue
+  have x11 : after.regs.get? x11 = state.regs.get? x11 := by
+    simp [after, result, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert]
   exact ⟨after, trace, post, agree,
     afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10390) retired x12 result,
-    stackFrame, inputPointer, inputLength, globals, rfl⟩
+    stackFrame, inputPointer, inputLength, globals, x11, rfl⟩
 
 /-! ## Second child segment: reading and assembling the four-byte prefix -/
 
