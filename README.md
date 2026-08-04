@@ -24,6 +24,7 @@ This is a curated `tree -L 2`: comments describe ownership rather than every gen
 │   ├── Binary/             # architecture-independent addresses and program images
 │   ├── RiscV/              # reusable Sail model, ELF, execution, logic, and proof layers
 │   └── SSZ/                # Zesu SSZ decoder proof: contracts, deterministic Elfling scaffold, root
+├── deps/                   # browsable submodules for the exact Zesu source revisions
 ├── docs/
 │   └── evaluations/        # durable design/evaluation records; docs/ai is local and ignored
 ├── nix/
@@ -47,6 +48,15 @@ STATUS.md                   # ignored status for the active workstream
 ```
 
 Each tracked top-level directory has its own README with its boundary and entry points.
+
+Initialize the source submodules after cloning if you want to inspect Zesu locally:
+
+```sh
+git submodule update --init
+```
+
+The submodules are for source review. Nix independently fetches the same pinned revisions and remains
+responsible for every build.
 
 ## Build and run
 
