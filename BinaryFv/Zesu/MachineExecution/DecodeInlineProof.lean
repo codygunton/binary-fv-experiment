@@ -3959,6 +3959,7 @@ theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
       beforeCall.regs.get? x12 = some (BitVec.ofNat 64 (args.inputBase + 4)) ∧
       beforeCall.regs.get? x13 = some (BitVec.ofNat 64 (args.bytes.size - 4)) ∧
       beforeCall.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+      beforeCall.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
       Agree decoderPreserved state beforeCall ∧
       RetiredCounterPresent beforeCall ∧
       Contracts.canonicalContractParams.env.CodeIntact beforeCall ∧
@@ -3968,7 +3969,7 @@ theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
     split at exactPrefix <;> simp_all
   obtain ⟨lengthUsed, prefixUsed, beforeOr, lengthBound, prefixBound, prefixTrace,
     prefixPost, agreeBeforeOr, counterBeforeOr, stackBeforeOr, inputBeforeOr, lengthBeforeOr,
-    codeBeforeOr, memoryBeforeOr⟩ :=
+    globalsBeforeOr, codeBeforeOr, memoryBeforeOr⟩ :=
     decodeInline_retry_uses_prefix_bytes fromStep args state pre phase fourBytes
   obtain ⟨declared, declaredRead, assembled, declaredBound⟩ :=
     prefix_halves_or_eq_readU32LE args.bytes fourBytes
@@ -4201,8 +4202,13 @@ theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
     simp [sBranch, decodeInlineRetryPrefixBranchFallThrough, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, lengthAtOr]
+  have globalsBeforeCall : beforeCall.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simp [beforeCall, sAllocator, sResult, sTail, sBranch, sOr, afterRegisterWrite,
+      decodeInlineRetryPrefixBranchFallThrough, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, globalsBeforeOr]
   refine ⟨lengthUsed, prefixUsed, beforeCall, lengthBound, prefixBound, ?_, ?_, ?_, ?_, ?_,
-    ?_, ?_, ?_, agreeBeforeCall, counterBeforeCall, codeBeforeCall, memoryBeforeCall⟩
+    ?_, ?_, ?_, globalsBeforeCall, agreeBeforeCall, counterBeforeCall, codeBeforeCall, memoryBeforeCall⟩
   · rw [← completeLength]
     exact complete
   · simpa [beforeCall] using afterRegisterWrite_pc sAllocator (BitVec.ofNat 64 0x103d4)
@@ -4473,11 +4479,12 @@ theorem decodeInline_retry_call_transfer
       Agree decoderPreserved state resumed ∧
       RetiredCounterPresent resumed ∧
       resumed.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+      resumed.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
       DecodeRawResultPayloadInitialized args.retryRawArgs resumed ∧
       Contracts.canonicalContractParams.env.CodeIntact resumed := by
   obtain ⟨lengthUsed, prefixUsed, beforeCall, lengthBound, prefixBound, parentPrefix, callPc,
     callBase, resultPointer, allocatorPointer, inputPointer, inputLength, beforeStack,
-    beforeAgree, beforeCounter, beforeCode, beforeMemory⟩ :=
+    beforeGlobals, beforeAgree, beforeCounter, beforeCode, beforeMemory⟩ :=
     decodeInline_retry_before_second_decodeRaw_call fromStep args state pre phase exactPrefix
   obtain ⟨callRetired, callRun, childPc, childLink, childResult, childAllocator, childInput,
     childLength, callAgree, callMemory, childCounter⟩ :=
@@ -4493,6 +4500,11 @@ theorem decodeInline_retry_call_transfer
       tryStepControlFlowAfterTick, callLinkState, controlFlowJumpState,
       tryStepControlFlowAfterIncrement, coreControlFlowNextState, Std.ExtDHashMap.get?_insert,
       beforeStack]
+  have childGlobals : childEntry.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simp [childEntry, decodeInlineRetryCallAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, callLinkState, controlFlowJumpState,
+      tryStepControlFlowAfterIncrement, coreControlFlowNextState, Std.ExtDHashMap.get?_insert,
+      beforeGlobals]
   have fourBytes : 4 ≤ args.bytes.size := by
     rw [Contracts.meaningHasExactErePrefix] at exactPrefix
     split at exactPrefix <;> simp_all
@@ -4585,6 +4597,12 @@ theorem decodeInline_retry_call_transfer
     simp [resumed, decodeRawReturnAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
       coreControlFlowNextState, Std.ExtDHashMap.get?_insert, exitStack]
+  have exitGlobals : childExit.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    (childFrame x18 (by simp [decodeRawCallerPreserved])).trans childGlobals
+  have resumedGlobals : resumed.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simp [resumed, decodeRawReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState, Std.ExtDHashMap.get?_insert, exitGlobals]
   have resumedPost : Contracts.postEntry Contracts.canonicalContractParams.env args.retryRawArgs
       Contracts.canonicalContractParams.repRawV4
       (Contracts.meaningDecodeRaw args.retryRawArgs.bytes) state resumed := by
@@ -4610,7 +4628,7 @@ theorem decodeInline_retry_call_transfer
   exact ⟨lengthUsed, prefixUsed, childUsed, beforeCall, resumed, lengthBound, prefixBound,
     childBound, parentPrefix, ⟨transfer⟩, resumedPost, resumedAgree,
     decodeRawReturnAfter_retired (BitVec.ofNat 64 0x103dc) childExit returnRetired,
-    resumedStack, resumedPayload, resumedCode⟩
+    resumedStack, resumedGlobals, resumedPayload, resumedCode⟩
 
 /-! ## Retry payload copy -/
 
