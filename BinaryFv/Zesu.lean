@@ -65,6 +65,7 @@ import BinaryFv.Zesu.MachineExecution.Level2Tag0Success
 import BinaryFv.Zesu.MachineExecution.Level2Tag0PostCopy
 import BinaryFv.Zesu.MachineExecution.Level2FirstSuccessToExit
 import BinaryFv.Zesu.MachineExecution.Level2RetryRejectionToDispatch
+import BinaryFv.Zesu.MachineExecution.Level2RetryRejectionToExit
 import BinaryFv.Zesu.Interface
 import BinaryFv.Zesu.Root
 
