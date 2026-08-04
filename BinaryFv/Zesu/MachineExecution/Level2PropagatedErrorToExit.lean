@@ -116,6 +116,43 @@ theorem wrapper_dispatch_tag1_after_tag3_miss {machineArgs : DecoderMachineArgs}
   · exact ⟨Sail.BitVec.addInt r2 1, by
       simp [after, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
 
+/-- The tag-one comparison constant is written at `0x10404`. -/
+theorem wrapper_dispatch_tag1_constant_confined {machineArgs : DecoderMachineArgs} {base state : State}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base) (agree : Agree platformPreserved base state) (retired : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (pc : state.regs.get? PC = some (BitVec.ofNat 64 0x10404))
+    (tag : state.regs.get? x10 = some (BitVec.ofNat 64 1)) :
+    ∃ after, ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary stepNo 1 state after ∧ after.regs.get? PC = some (BitVec.ofNat 64 0x10408) ∧
+      after.regs.get? x10 = some (BitVec.ofNat 64 1) ∧ after.regs.get? x11 = some (BitVec.ofNat 64 1) ∧
+      after.regs.get? x2 = state.regs.get? x2 ∧ after.regs.get? x18 = state.regs.get? x18 ∧
+      after.mem = state.mem ∧ Agree platformPreserved base after ∧
+      canonicalContractParams.env.CodeIntact after ∧ RetiredCounterPresent after := by
+  obtain ⟨r, run⟩ := wrapper_dispatch_tag1_constant_step machine agree retired code stepNo pc
+  let after := afterRegisterWrite state (BitVec.ofNat 64 0x10404) r x11 (BitVec.ofNat 64 1)
+  refine ⟨after, ConfinedPrefix.ownStep pc (by
+    apply functionInstanceExecutionPcs_iff_ranges.mpr; apply RegionPcs.iff_inRanges.mpr; native_decide)
+    (by simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+      functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [after] using run),
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · simpa [after] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x10404) r x11 (BitVec.ofNat 64 1)
+  · exact (afterRegisterWrite_register state (BitVec.ofNat 64 0x10404) r x11 x10 (BitVec.ofNat 64 1)
+      (by decide) (by decide) (by decide) (by decide) (by decide)).trans tag
+  · simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  · exact afterRegisterWrite_register state (BitVec.ofNat 64 0x10404) r x11 x2 (BitVec.ofNat 64 1)
+      (by decide) (by decide) (by decide) (by decide) (by decide)
+  · exact afterRegisterWrite_register state (BitVec.ofNat 64 0x10404) r x11 x18 (BitVec.ofNat 64 1)
+      (by decide) (by decide) (by decide) (by decide) (by decide)
+  · rfl
+  · exact agree.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
+  · simpa [after, afterRegisterWrite_mem] using code
+  · exact afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10404) r x11 (BitVec.ofNat 64 1)
+
 private theorem tag3_branch_agree (state : State) (retired : BitVec 64) :
     Agree platformPreserved state (wrapperDispatchTag3BranchAfter state retired) := by
   intro register preserved
