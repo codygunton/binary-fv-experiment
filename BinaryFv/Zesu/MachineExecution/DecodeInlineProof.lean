@@ -3717,8 +3717,10 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
     rw [Contracts.DecoderEnvironment.CodeIntact, orMemory, beforeMemory]
     exact pre.code
   have afterGlobals : after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
-    simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      Std.ExtDHashMap.get?_insert, beforeGlobals]
+    exact (afterRegisterWrite_register beforeOr (BitVec.ofNat 64 0x103c0) orRetired x10 x18
+      (BitVec.ofNat 64 (prefixHigh16 args.bytes) |||
+        BitVec.ofNat 64 (prefixLow16 args.bytes))
+      (by decide) (by decide) (by decide) (by decide) (by decide)).trans beforeGlobals
   refine ⟨6 + lengthUsed + prefixUsed, after, ?_, ?_, ?_,
     ⟨afterAgree, orCounter, afterCode, afterGlobals.trans pre.globalsValue.symm⟩, ?_⟩
   · unfold decodeInlineStepBound
