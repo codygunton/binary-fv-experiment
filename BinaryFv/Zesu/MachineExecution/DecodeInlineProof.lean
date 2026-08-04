@@ -3672,7 +3672,7 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
       DecodeInlineMachinePost state after ∧
       DecodeInlineOutgoingFrame args after := by
   obtain ⟨lengthUsed, prefixUsed, beforeOr, lengthBound, prefixBound, parentPrefix, prefixPost,
-    beforeAgree, beforeCounter, _beforeStack, inputPointer, inputLength, _beforeGlobals,
+    beforeAgree, beforeCounter, _beforeStack, inputPointer, inputLength, beforeGlobals,
     beforeCode, beforeMemory⟩ :=
     decodeInline_retry_uses_prefix_bytes fromStep args state pre phase fourBytes
   obtain ⟨orRetired, orRun, orPc, orPreserves, orCounter, orMemory⟩ :=
@@ -3716,8 +3716,11 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
   have afterCode : Contracts.canonicalContractParams.env.CodeIntact after := by
     rw [Contracts.DecoderEnvironment.CodeIntact, orMemory, beforeMemory]
     exact pre.code
+  have afterGlobals : after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      Std.ExtDHashMap.get?_insert, beforeGlobals]
   refine ⟨6 + lengthUsed + prefixUsed, after, ?_, ?_, ?_,
-    ⟨afterAgree, orCounter, afterCode⟩, ?_⟩
+    ⟨afterAgree, orCounter, afterCode, afterGlobals.trans pre.globalsValue.symm⟩, ?_⟩
   · unfold decodeInlineStepBound
     have prefixBoundValue : prefixUsed ≤ 12 := by
       simpa [hasExactErePrefixInlineStepBound] using prefixBound
@@ -5518,7 +5521,7 @@ theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInl
       DecodeInlinePost args state after ∧
       DecodeInlineMachinePost state after ∧
       DecodeInlineOutgoingFrame args after := by
-  obtain ⟨childUsed, childAfter, childBound, parentPrefix, childPost, agree, counter, -, -, -, -,
+  obtain ⟨childUsed, childAfter, childBound, parentPrefix, childPost, agree, counter, -, -, -, childGlobals,
     code, memory⟩ :=
     decodeInline_retry_uses_length_gate fromStep args state pre phase
   have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
@@ -5538,7 +5541,8 @@ theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInl
     (pre.retryReason phase).1
   have resultInvalid : Contracts.meaningDecode args.bytes = .error .invalidSsz := by
     simp [Contracts.meaningDecode, rawInvalid, prefixFalse]
-  refine ⟨4 + childUsed, childAfter, ?_, ?_, ?_, ⟨agree, counter, code⟩, ?_⟩
+  refine ⟨4 + childUsed, childAfter, ?_, ?_, ?_,
+    ⟨agree, counter, code, childGlobals.trans pre.globalsValue.symm⟩, ?_⟩
   · unfold decodeInlineStepBound
     have lengthBound : hasExactErePrefixInlineStepBound
         { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes } = 12 := rfl
