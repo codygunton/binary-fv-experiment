@@ -666,4 +666,90 @@ theorem wrapper_epilogue_trace (fromStep : Nat) (before afterStore afterFirst af
   refine Trace.step (fromStep + 6) 1 afterS2 afterStack after finalRestore ?_
   exact Trace.one (fromStep + 7) afterStack after returnRun
 
+/-- The public post-status tail boundary.  The capstone establishes this frame after the status
+store; this module consumes it only from `0x10360` onward. -/
+structure WrapperEpilogueTailInput (state : State) : Prop where
+  frame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 state
+  stack : state.regs.get? x2 = some stackValue
+  result : state.regs.get? x10 = some resultValue
+  status : state.regs.get? x11 = some statusValue
+
+/-- A compact tail result exposes the actual return target and restored callee-visible registers. -/
+structure WrapperEpilogueTailResult (fromStep : Nat) (before after : State) (link savedS0 savedS1
+    savedS2 stack result status : BitVec 64) : Prop where
+  trace : Trace fromStep 7 before after
+  pc : after.regs.get? PC = some link
+  ra : after.regs.get? x1 = some link
+  s0 : after.regs.get? x8 = some savedS0
+  s1 : after.regs.get? x9 = some savedS1
+  s2 : after.regs.get? x18 = some savedS2
+  sp : after.regs.get? x2 = some stack
+  a0 : after.regs.get? x10 = some result
+  a1 : after.regs.get? x11 = some status
+  code : canonicalContractParams.env.CodeIntact after
+  retired : RetiredCounterPresent after
+
+/-- The first typed tail phase restores the stack window and then the saved return address. -/
+theorem wrapper_epilogue_first_restore_and_ra {base state : State} {machineArgs : DecoderMachineArgs}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree decoderPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (fromStep : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10360))
+    (stackBase link savedS0 savedS1 savedS2 stack address : BitVec 64)
+    (frame : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 state)
+    (stackValue : state.regs.get? x2 = some stack)
+    (addressEq : (stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7e8#12) = address)
+    (addressNat : stackBase.toNat + 0xa18 = address.toNat)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr address) 8 = true)
+    (allowed : DecoderAccessRange (DecoderReadableByte machineArgs) address 8) :
+    ∃ retired1 retired2,
+      let afterFirst := wrapperAfterFirstStackRestore state retired1 stack
+      let afterRa := afterRegisterWrite afterFirst (BitVec.ofNat 64 0x10364) retired2 x1 link
+      Runs (try_step fromStep false) state afterFirst false ∧
+      Runs (try_step (fromStep + 1) false) afterFirst afterRa false ∧
+      Trace fromStep 2 state afterRa ∧ afterRa.regs.get? x1 = some link ∧
+      WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 afterRa ∧
+      RetiredCounterPresent afterRa := by
+  obtain ⟨retired1, firstRun⟩ := wrapper_epilogue_first_stack_restore_step machine agree retiredPresent
+    code fromStep atPc stack stackValue
+  let afterFirst := wrapperAfterFirstStackRestore state retired1 stack
+  have stepAgree : Agree decoderPreserved state afterFirst := by
+    intro register preserved
+    cases register <;>
+      simp only [afterFirst, wrapperAfterFirstStackRestore, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState,
+      stackAddiNextState, tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert] at preserved ⊢ <;>
+      simp_all [decoderPreserved, platformPreserved]
+  have agreeFirst : Agree decoderPreserved base afterFirst := agree.trans stepAgree
+  have counterFirst : RetiredCounterPresent afterFirst := by
+    refine ⟨Sail.BitVec.addInt retired1 1, ?_⟩
+    simp [afterFirst, wrapperAfterFirstStackRestore, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick]
+  have machineFirst := machine.mono agreeFirst counterFirst
+  have stackFirst : afterFirst.regs.get? x2 = some (stack + sign_extend (m := 64) (0x230#12)) := by
+    simpa [afterFirst] using tryStepStackAddiAfterRetired_stackPointer state
+      (BitVec.ofNat 64 0x10360) 0x230#12 stack retired1
+  have frameFirst : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 afterFirst :=
+    WrapperSavedRegisterFrame.of_mem_eq frame (by rfl)
+  have atRa : afterFirst.regs.get? PC = some (BitVec.ofNat 64 0x10364) := by
+    simp [afterFirst, wrapperAfterFirstStackRestore, tryStepStackAddiAfterRetired,
+      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState,
+      stackAddiNextState, tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert]
+    decide
+  obtain ⟨retired2, raRun⟩ := wrapper_epilogue_load_ra_step machineFirst (Agree.refl afterFirst) counterFirst code
+    (fromStep + 1) atRa (stack + sign_extend (m := 64) (0x230#12)) link address stackFirst addressEq
+    (stackBase.toNat + 0xa18) addressNat frameFirst.1 aligned allowed
+  let afterRa := afterRegisterWrite afterFirst (BitVec.ofNat 64 0x10364) retired2 x1 link
+  refine ⟨retired1, retired2, firstRun, ?_, ?_, ?_, ?_, ?_⟩
+  · simpa [afterFirst, afterRa] using raRun
+  · refine Trace.step fromStep 1 state afterFirst afterRa (by simpa [afterFirst] using firstRun) ?_
+    exact Trace.one (fromStep + 1) afterFirst afterRa (by simpa [afterFirst, afterRa] using raRun)
+  · simp [afterRa, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  · exact WrapperSavedRegisterFrame.of_mem_eq frameFirst (afterRegisterWrite_mem _ _ _ _ _)
+  · exact afterRegisterWrite_retired_present _ _ _ _ _
+
 end BinaryFv.Zesu.MachineExecution
