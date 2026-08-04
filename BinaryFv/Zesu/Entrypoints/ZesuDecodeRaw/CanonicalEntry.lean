@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.EntryBinding
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
+import BinaryFv.RiscV.Elfling.ProgramGeometry
 
 /-!
 # Canonical decoder-entry machine audit
@@ -12,7 +13,7 @@ because the builder pins `htif_tohost_base` to `none`.
 
 namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 
-open BinaryFv BinaryFv.Binary.Elfling BinaryFv.RiscV
+open BinaryFv BinaryFv.Binary.Elfling BinaryFv.RiscV BinaryFv.RiscV.Elfling
 open BinaryFv.Zesu.Contracts BinaryFv.Zesu.Elflings.Generated
 open PreSail LeanRV64DExecutable.Functions Register
 
@@ -246,5 +247,166 @@ theorem canonicalDecoderDataAccess (args : DecoderMachineArgs) (state : State)
       (agree htif_tohost_base (by simp [decoderPreserved, platformPreserved])).trans htif
     exact ⟨physical, storeMemoryNoMMIO_of_state_layout_excluded next address width
       (storeMMIOAddressExcluded_of_layout allowed.1 first.1 first.2.1) htifNext⟩
+
+/-! ## Builder-to-compiled-entry adapter -/
+
+/-- The linked entry symbol used by the wrapper proof is fixed by the parsed canonical ELF. -/
+theorem canonicalZesuDecodeRawEntry_pinned :
+    Artifacts.zesuDecodeRaw.toOption.map (fun symbol => symbol.value) = some 0x102b0 := by
+  native_decide
+
+/-- Every pc in the root wrapper's generated execution extent is before the first MMIO window.
+The check ranges over the actual generated extent, including absorbed inline bodies. -/
+def rawDecoderExecutionBeforeClintB : Bool :=
+  (functionInstanceExecutionRanges generatedProgram
+    functionInstance_raw_decoder_root_zesu_decode_raw).all fun range =>
+      decide (range.stop ≤ BitVec.toNat plat_clint_base ∧ range.stop % 4 = 0)
+
+theorem rawDecoderExecutionBeforeClint : rawDecoderExecutionBeforeClintB = true := by
+  native_decide
+
+theorem rawDecoderExecution_before_clint {pc : BitVec 64}
+    (inExecution : functionInstanceExecutionPcs generatedProgram
+      functionInstance_raw_decoder_root_zesu_decode_raw pc)
+    (aligned : pc.toNat % 4 = 0) :
+    pc.toNat + 4 ≤ BitVec.toNat plat_clint_base := by
+  obtain ⟨range, member, lower, upper⟩ := functionInstanceExecutionPcs_iff_ranges.mp inExecution
+  obtain ⟨index, indexBound, atIndex⟩ := Array.mem_iff_getElem.mp member
+  have allChecked := rawDecoderExecutionBeforeClint
+  unfold rawDecoderExecutionBeforeClintB at allChecked
+  have checked := Array.all_eq_true.mp allChecked index indexBound
+  rw [atIndex] at checked
+  have rangeFacts : range.stop ≤ BitVec.toNat plat_clint_base ∧ range.stop % 4 = 0 :=
+    of_decide_eq_true checked
+  omega
+
+/-- The runner-built state meets the compiled wrapper entry predicate for every public-size input. -/
+theorem buildZesuEntryState_compiled_entry (input : ByteArray)
+    (inputBound : input.size < 2 * 1024 * 1024) :
+    ∃ state, Runs (buildZesuEntryState input) initialState state () ∧
+      compiledZesuDecodeRawContract.binding.entry
+        ⟨canonicalRunnerLayout.inputBase, input⟩ state := by
+  obtain ⟨state, built, source, link, stack, normal, fetchPresent, fetchPinned, loadPinned,
+    entrySymbol, entrySymbolFound, entryPc, nextPc, pma, savedS0, savedS1, savedS2⟩ :=
+    buildZesuEntryState_entry_binding_abi input
+  refine ⟨state, built, source, ?_⟩
+  refine ⟨canonicalZesuDecodeRawStackBase, ?_⟩
+  refine {
+    atEntry := ?_
+    linkAtEntry := ⟨_, link⟩
+    savedS0AtEntry := savedS0
+    savedS1AtEntry := savedS1
+    savedS2AtEntry := savedS2
+    stackAtEntry := ?_
+    inputFits := ?_
+    inputBound := inputBound
+    inputAvoidsStack := ?_
+    inputAvoidsAttempted := ?_
+    stackAligned := ?_
+    stackFrameFits := ?_
+    stackFrameWritable := ?_
+    stackObjectsFit := ?_
+    stackObjectsReadable := ?_
+    machine := ?_ }
+  · have entryValue : entrySymbol.value = 0x102b0 := by
+      have entryPinned := canonicalZesuDecodeRawEntry_pinned
+      rw [entrySymbolFound] at entryPinned
+      exact Option.some.inj entryPinned
+    simpa [entryValue] using entryPc
+  · simpa [canonicalZesuDecodeRawStackBase] using stack
+  · have runnerFits : canonicalRunnerLayout.inputBase + 2 * 1024 * 1024 ≤ 2 ^ 64 := by
+      native_decide
+    change canonicalRunnerLayout.inputBase + input.size ≤ 2 ^ 64
+    omega
+  · change canonicalRunnerLayout.inputBase + input.size ≤ canonicalZesuDecodeRawStackBase ∨
+      canonicalZesuDecodeRawStackBase + 0xa20 ≤ canonicalRunnerLayout.inputBase
+    left
+    have stackBase : canonicalRunnerLayout.inputBase + 2 * 1024 * 1024 ≤
+        canonicalZesuDecodeRawStackBase := by native_decide
+    omega
+  · change canonicalRunnerLayout.inputBase + input.size ≤ 0x4215020 ∨
+      0x4215020 < canonicalRunnerLayout.inputBase
+    right
+    have afterAttempted : 0x4215020 < canonicalRunnerLayout.inputBase := by
+      native_decide
+    omega
+  · native_decide
+  · native_decide
+  · intro index indexBound
+    simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]
+    have stackBasePinned : canonicalZesuDecodeRawStackBase = 0x3000000ff5e0 := by native_decide
+    have stackStartPinned : canonicalRunnerLayout.stackBase = 0x300000000000 := by native_decide
+    have stackSizePinned : canonicalRunnerLayout.stackSize = 1024 * 1024 := by native_decide
+    have lower : canonicalRunnerLayout.stackBase ≤ canonicalZesuDecodeRawStackBase + index := by
+      rw [stackBasePinned, stackStartPinned]
+      omega
+    have upper : canonicalZesuDecodeRawStackBase + index <
+        canonicalRunnerLayout.stackBase + canonicalRunnerLayout.stackSize := by
+      rw [stackBasePinned, stackStartPinned, stackSizePinned]
+      omega
+    exact ⟨lower, upper⟩
+  · native_decide
+  · intro index indexBound
+    simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]
+    have stackBasePinned : canonicalZesuDecodeRawStackBase = 0x3000000ff5e0 := by native_decide
+    have stackStartPinned : canonicalRunnerLayout.stackBase = 0x300000000000 := by native_decide
+    have stackSizePinned : canonicalRunnerLayout.stackSize = 1024 * 1024 := by native_decide
+    have entryResultPinned : canonicalContractParams.env.record.entryResult = 848 := by native_decide
+    have lower : canonicalRunnerLayout.stackBase ≤ canonicalZesuDecodeRawStackBase + index := by
+      rw [stackBasePinned, stackStartPinned]
+      omega
+    have upper : canonicalZesuDecodeRawStackBase + index <
+        canonicalRunnerLayout.stackBase + canonicalRunnerLayout.stackSize := by
+      rw [entryResultPinned] at indexBound
+      rw [stackBasePinned, stackStartPinned, stackSizePinned]
+      omega
+    exact ⟨lower, upper⟩
+  · have loadFacts : LoadPlatformPinned state [] := loadPinned [] (by native_decide)
+    have fetchFacts : FetchPlatformPinned state [] := fetchPinned [] (by native_decide)
+    refine {
+      normal := normal
+      retiredCounter := fetchPresent.1
+      mstatus := loadFacts.mstatus
+      mseccfg := loadFacts.mseccfg
+      platform := ?_
+      dataAccess := canonicalDecoderDataAccess (zesuDecodeRawMachineArgs
+        ⟨canonicalRunnerLayout.inputBase, input⟩) state rfl inputBound normal pma fetchFacts.2
+      landingPad := ?_ }
+    · intro next pc agree atPc pcIn
+      have normalNext : NormalExecutionState next := normalExecutionState_of_agree
+        (Agree.weaken (fun register preserved => by
+          refine ⟨?_, normalRegisters_platformPreserved register preserved⟩
+          intro equal
+          subst register
+          simp [normalRegisters] at preserved) agree) normal
+      obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := loadFacts.mstatus
+      have mstatusNext : next.regs.get? mstatus = some mstatusBits :=
+        (agree mstatus (by simp [decoderPreserved, platformPreserved])).trans mstatusRead
+      have pmaNext : next.regs.get? pma_regions = some [zesuMainMemoryRegion] :=
+        (agree pma_regions (by simp [decoderPreserved, platformPreserved])).trans pma
+      have beforeClint := rawDecoderExecution_before_clint pcIn.1 pcIn.2
+      have clintBelowPma : BitVec.toNat plat_clint_base ≤ 2 ^ 63 := by native_decide
+      have pmaAllows : FetchPmaAllows next pc :=
+        ⟨[zesuMainMemoryRegion], zesuMainMemoryRegion, pmaNext,
+          matching_zesuMainMemoryRegion (by decide) (by omega), by native_decide⟩
+      have htifNext : next.regs.get? htif_tohost_base = some none :=
+        (agree htif_tohost_base (by simp [decoderPreserved, platformPreserved])).trans fetchFacts.2
+      have clintBeforeSignature : BitVec.toNat plat_clint_base ≤ BitVec.toNat plat_sig_base := by
+        native_decide
+      have meipNext : ∃ bit, next.regs.get? sig_meip = some bit := by
+        obtain ⟨bit, meip⟩ := fetchPresent.2.2.1
+        exact ⟨bit,
+          (agree sig_meip (by simp [decoderPreserved, platformPreserved])).trans meip⟩
+      exact ⟨fetchBasePlatform_of_offPC atPc
+          (fetchBasePlatformOffPC_of_normal normalNext mstatusNext pcIn.2 pmaAllows),
+        fetchMemoryNoMMIO_of_state_layout_excluded next pc
+          ⟨fetch_mmio_address_excluded_of_before_layout pc beforeClint (by omega), htifNext⟩,
+        interruptDisabled_of_normal normalNext mstatusNext meipNext,
+        landingPadNotExpected_of_normal normalNext⟩
+    · intro next register _ agree
+      obtain ⟨mseccfgBits, mseccfgRead, _⟩ := loadFacts.mseccfg
+      exact updateElpState_run next register mseccfgBits
+        ((agree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans normal.2.1)
+        ((agree mseccfg (by simp [decoderPreserved, platformPreserved])).trans mseccfgRead)
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
