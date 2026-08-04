@@ -96,9 +96,20 @@ def tag0PostcopyStatusStoreAfter (state : State) (retired : BitVec 64) : State :
     (afterWriteBytes (width := 1) executeState 0x4215370 (BitVec.ofNat 64 1))
     (BitVec.ofNat 64 0x10358) retired
 
+/-- Facts needed specifically by the payload-adjacent status store. -/
+structure Tag0PostcopyStatusStorePre (base state : State) (machineArgs : DecoderMachineArgs) where
+  machine : DecoderMachinePre
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    machineArgs base
+  platform : Agree platformPreserved base state
+  retired : RetiredCounterPresent state
+  code : canonicalContractParams.env.CodeIntact state
+  globalsValue : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
+  statusSlot : DecoderAccessRange DecoderWritableByte (BitVec.ofNat 64 0x4215370) 1
+
 /-- Execute the pinned `sb a1, 848(s2)` at `0x10354`; its target is immediately after the payload. -/
 theorem tag0_postcopy_status_store_step {machineArgs : DecoderMachineArgs} {base state : State}
-    (pre : Tag0PostMemcpyPre base state machineArgs) (stepNo : Nat)
+    (pre : Tag0PostcopyStatusStorePre base state machineArgs) (stepNo : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10354))
     (status : state.regs.get? x11 = some (BitVec.ofNat 64 1)) :
     ∃ retired, Runs (try_step stepNo false) state
@@ -277,20 +288,19 @@ theorem tag0_postcopy_result_register_step {machineArgs : DecoderMachineArgs} {b
     (by unfold BaseInstructionEncoding; decide) decode
     (by decide) (by decide) (by decide) (by decide) execute
 
+/-- Normalize the two wrapper-owned `addi` results used by this suffix. -/
+private theorem tag0_postcopy_one_value :
+    iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0) = BitVec.ofNat 64 1 := by decide
+
 /-- The complete tag-zero suffix reaches the common status-store entry with result and status one. -/
-structure Tag0PostcopyResult (base before after : State) (fromStep : Nat) : Type where
+structure Tag0PostcopyResult (base before after : State) (fromStep : Nat)
+    (contents : ByteArray) (stack link savedS0 savedS1 savedS2 : BitVec 64) : Prop where
   trace : Trace fromStep 3 before after
   atTerminal : after.regs.get? PC = some (BitVec.ofNat 64 0x1035c)
   resultValue : after.regs.get? x10 = some (BitVec.ofNat 64 1)
   statusValue : after.regs.get? x11 = some (BitVec.ofNat 64 1)
-  contents : ByteArray
   payloadLength : contents.size = 832
   payload : MemoryRepresentation.MemoryBytes after 0x4215030 contents
-  stack : BitVec 64
-  link : BitVec 64
-  savedS0 : BitVec 64
-  savedS1 : BitVec 64
-  savedS2 : BitVec 64
   savedFrame : WrapperSavedRegisterFrame stack.toNat link savedS0 savedS1 savedS2 after
   payloadBeforeStack : 0x4215370 ≤ stack.toNat
   platform : Agree platformPreserved base after
@@ -301,7 +311,8 @@ structure Tag0PostcopyResult (base before after : State) (fromStep : Nat) : Type
 
 /-- Forget only the tag-zero-specific memory facts when entering the common status-store epilogue. -/
 def Tag0PostcopyResult.terminal
-    (result : Tag0PostcopyResult base before after fromStep) :
+    (result : Tag0PostcopyResult base before after fromStep contents stack link
+      savedS0 savedS1 savedS2) :
     WrapperTerminalRouteFrame base before after fromStep 3 (BitVec.ofNat 64 0x1035c)
       (BitVec.ofNat 64 1) (BitVec.ofNat 64 1) :=
   { trace := result.trace
@@ -314,10 +325,12 @@ def Tag0PostcopyResult.terminal
 
 theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before : State}
     (pre : Tag0PostMemcpyPre base before machineArgs) (fromStep : Nat) :
-    ∃ after, Tag0PostcopyResult base before after fromStep := by
+    ∃ after, Tag0PostcopyResult base before after fromStep pre.contents pre.stack pre.link
+      pre.savedS0 pre.savedS1 pre.savedS2 := by
   obtain ⟨r1, h1⟩ := tag0_postcopy_status_register_step pre fromStep
+  rw [tag0_postcopy_one_value] at h1
   let s1 := afterRegisterWrite before (BitVec.ofNat 64 0x10350) r1 x11
-    (iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0))
+    (BitVec.ofNat 64 1)
   have a1 : Agree platformPreserved base s1 := pre.platform.trans
     (afterRegisterWrite_agree (by simp [platformPreserved]))
   have c1 : RetiredCounterPresent s1 := afterRegisterWrite_retired_present _ _ _ _ _
@@ -326,17 +339,17 @@ theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before :
     exact pre.code
   have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10354) := by
     simpa [s1] using afterRegisterWrite_pc before (BitVec.ofNat 64 0x10350) r1 x11
-      (iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0))
+      (BitVec.ofNat 64 1)
   have status1 : s1.regs.get? x11 = some (BitVec.ofNat 64 1) := by
     simp [s1, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
   have globals1 : s1.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
     simpa [s1] using afterRegisterWrite_register before (BitVec.ofNat 64 0x10350) r1 x11 x18
-      (iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0)) (by decide) (by decide) (by decide)
+      (BitVec.ofNat 64 1) (by decide) (by decide) (by decide)
       (by decide) (by decide) |>.trans pre.globalsValue
   have stack1 : s1.regs.get? x2 = some pre.stack := by
     simpa [s1] using afterRegisterWrite_register before (BitVec.ofNat 64 0x10350) r1 x11 x2
-      (iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0)) (by decide) (by decide) (by decide)
+      (BitVec.ofNat 64 1) (by decide) (by decide) (by decide)
       (by decide) (by decide) |>.trans pre.stackValue
   have payload1 : MemoryRepresentation.MemoryBytes s1 0x4215030 pre.contents := by
     apply pre.payload.of_mem_eq
@@ -344,12 +357,9 @@ theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before :
     simp [s1, afterRegisterWrite_mem]
   have frame1 : WrapperSavedRegisterFrame pre.stack.toNat pre.link pre.savedS0 pre.savedS1 pre.savedS2 s1 :=
     WrapperSavedRegisterFrame.of_mem_eq pre.savedFrame (afterRegisterWrite_mem _ _ _ _ _)
-  let pre1 : Tag0PostMemcpyPre base s1 machineArgs := {
-    machine := pre.machine, platform := a1, retired := c1, code := code1, atPc := pc1,
-    stack := pre.stack, stackValue := stack1, globalsValue := globals1, statusSlot := pre.statusSlot,
-    contents := pre.contents, payload := payload1, payloadLength := pre.payloadLength,
-    link := pre.link, savedS0 := pre.savedS0, savedS1 := pre.savedS1, savedS2 := pre.savedS2,
-    savedFrame := frame1, payloadBeforeStack := pre.payloadBeforeStack }
+  let pre1 : Tag0PostcopyStatusStorePre base s1 machineArgs := {
+    machine := pre.machine, platform := a1, retired := c1, code := code1,
+    globalsValue := globals1, statusSlot := pre.statusSlot }
   obtain ⟨r2, h2⟩ := tag0_postcopy_status_store_step pre1 (fromStep + 1) pc1 status1
   let s2 := tag0PostcopyStatusStoreAfter s1 r2
   have a2 : Agree platformPreserved base s2 := by
@@ -375,27 +385,27 @@ theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before :
     simp [s2, tag0PostcopyStatusStoreAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
   obtain ⟨r3, h3⟩ := tag0_postcopy_result_register_step pre.machine a2 c2 code2 (fromStep + 2) pc2
+  rw [tag0_postcopy_one_value] at h3
   let after := afterRegisterWrite s2 (BitVec.ofNat 64 0x10358) r3 x10
-    (iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0))
+    (BitVec.ofNat 64 1)
   refine ⟨after, ?_⟩
-  refine { trace := ?_, atTerminal := ?_, resultValue := ?_, statusValue := ?_, contents := pre.contents,
-    payloadLength := pre.payloadLength, payload := ?_, stack := pre.stack, link := pre.link,
-    savedS0 := pre.savedS0, savedS1 := pre.savedS1, savedS2 := pre.savedS2, savedFrame := ?_,
-    payloadBeforeStack := pre.payloadBeforeStack,
-    platform := ?_, code := ?_, retired := ?_, globalsValue := ?_, stackValue := ?_ }
+  refine ⟨?_, ?_, ?_, ?_, pre.payloadLength, ?_, ?_, pre.payloadBeforeStack,
+    ?_, ?_, ?_, ?_, ?_⟩
   · simpa [s1, s2, after, Nat.add_assoc] using
       Trace.append (Trace.one fromStep before s1 (by simpa [s1] using h1))
         (Trace.append (Trace.one (fromStep + 1) s1 s2 (by simpa [s2] using h2))
           (Trace.one (fromStep + 2) s2 after (by simpa [after] using h3)))
   · simpa [after] using afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x10358) r3 x10
-      (iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0))
+      (BitVec.ofNat 64 1)
   · simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
   · simp [after, s2, tag0PostcopyStatusStoreAfter, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  · exact tag0PostcopyStatusStoreAfter_preserves_payload r2 pre.contents payload1 pre.payloadLength |>.of_mem_eq
-      (afterRegisterWrite_mem _ _ _ _ _)
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, status1]
+  · apply (tag0PostcopyStatusStoreAfter_preserves_payload r2 pre.contents payload1
+      pre.payloadLength).of_mem_eq
+    intro index bound
+    simp [after, s2, afterRegisterWrite_mem]
   · exact WrapperSavedRegisterFrame.of_mem_eq
       (tag0PostcopyStatusStoreAfter_preserves_saved_frame r2 pre.stack pre.link pre.savedS0 pre.savedS1
         pre.savedS2 frame1 pre.payloadBeforeStack) (afterRegisterWrite_mem _ _ _ _ _)
@@ -438,7 +448,8 @@ theorem tag0_postcopy_through_epilogue {machineArgs : DecoderMachineArgs} {base 
     (linkEven : Sail.BitVec.update pre.link 0 0#1 = pre.link)
     (linkBit1 : Sail.BitVec.access pre.link 1 = 0#1) :
     ∃ routeAfter afterStore after,
-      Tag0PostcopyResult base before routeAfter fromStep ∧
+      Tag0PostcopyResult base before routeAfter fromStep pre.contents pre.stack pre.link
+        pre.savedS0 pre.savedS1 pre.savedS2 ∧
       Runs (try_step (fromStep + 3) false) routeAfter afterStore false ∧
       Trace fromStep 11 before after ∧
       WrapperEpilogueCompleteResult (fromStep + 4) base afterStore after
@@ -449,7 +460,8 @@ theorem tag0_postcopy_through_epilogue {machineArgs : DecoderMachineArgs} {base 
     wrapper_dispatch_route_through_epilogue pre.machine fromStep 3
       (BitVec.ofNat 64 1) (BitVec.ofNat 64 1) pre.link pre.savedS0 pre.savedS1 pre.savedS2
       pre.stack restoredStack route.terminal route.savedFrame
-      (by right; omega) route.globalsValue route.stackValue
+      (by right; have separated := route.payloadBeforeStack; omega)
+      route.globalsValue route.stackValue
       raAddress s0Address s1Address s2Address raAddressEq s0AddressEq s1AddressEq s2AddressEq
       raAddressNat s0AddressNat s1AddressNat s2AddressNat raAligned s0Aligned s1Aligned s2Aligned
       raAllowed s0Allowed s1Allowed s2Allowed restoredStackEq linkEven linkBit1

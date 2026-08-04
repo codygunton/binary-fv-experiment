@@ -453,7 +453,7 @@ theorem first_memcpy_transfer_of_first_post (fromStep : Nat) (args : DecodeInlin
   exact first_memcpy_call_transfer fromStep args contents before atCall pre contentsSize sourceMemory
     frame.agree frame.retiredCounter frame.code atPc callBase destination source length
 
-/-- At the fixed initial step, retain the first-copy payload and machine frame for the tag-zero
+/-- At an arbitrary trace offset, retain the first-copy payload and machine frame for the tag-zero
 continuation. -/
 theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : DecodeInlineArgs)
     (before atCall : State) (pre : DecodeInlinePre args before)
