@@ -643,7 +643,7 @@ theorem wrapper_epilogue_return_step {base state : State} {machineArgs : Decoder
   · simp [wrapperAfterReturn, pc, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       Std.ExtDHashMap.get?_insert]
 
-/-- Compact public composition rule for the seven concrete instructions from the status store
+/-- Compact public composition rule for the eight concrete instructions from the status store
 through the restored-link return.  The caller supplies the typed intermediate frame facts to the
 individual step theorems; this rule merely records their real machine sequencing. -/
 theorem wrapper_epilogue_trace (fromStep : Nat) (before afterStore afterFirst afterRa afterS0 afterS1
