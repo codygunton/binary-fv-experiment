@@ -12,6 +12,38 @@ open RegisterWriteStep
 set_option maxRecDepth 100000
 set_option maxHeartbeats 5000000
 
+/-- The shared first dispatch instruction is owned by the wrapper and writes comparison tag three. -/
+theorem wrapper_dispatch_tag3_constant_confined {machineArgs : DecoderMachineArgs} {base state : State}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree platformPreserved base state) (retired : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (pc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc)) :
+    ∃ after, ConfinedPrefix
+        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary stepNo 1 state after ∧
+      after.regs.get? PC = some (BitVec.ofNat 64 0x10400) ∧
+      after.regs.get? x11 = some (BitVec.ofNat 64 3) ∧
+      Agree platformPreserved base after ∧ canonicalContractParams.env.CodeIntact after ∧
+      RetiredCounterPresent after ∧ after.mem = state.mem := by
+  obtain ⟨r, run⟩ := wrapper_dispatch_tag3_constant_step machine agree retired code stepNo pc
+  let after := afterRegisterWrite state (BitVec.ofNat 64 0x103fc) r x11 (BitVec.ofNat 64 3)
+  refine ⟨after, ConfinedPrefix.ownStep pc (by
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide) (by simp [functionInstanceExitPred,
+      BinaryFv.Binary.Elfling.FunctionInstance.isExit, functionInstance_raw_decoder_root_zesu_decode_raw])
+    (by simpa [after] using run), ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · simpa [after] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x103fc) r x11 (BitVec.ofNat 64 3)
+  · simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  · exact agree.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
+  · simpa [after, afterRegisterWrite_mem] using code
+  · exact afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x103fc) r x11 (BitVec.ofNat 64 3)
+  · rfl
+
 private theorem tag3_branch_agree (state : State) (retired : BitVec 64) :
     Agree platformPreserved state (wrapperDispatchTag3BranchAfter state retired) := by
   intro register preserved
