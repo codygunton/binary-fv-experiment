@@ -24,13 +24,26 @@ theorem decodeInline_retry_short_reaches_post_save_area (fromStep : Nat) (args :
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep used state after ∧
       DecodeInlinePost args state after ∧ DecodeInlineMachinePost state after ∧
-      DecodeInlineOutgoingFrame args after ∧ DecodeInlineCallerSaveArea args state after := by
-  obtain ⟨childUsed, after, childBound, parentPrefix, childPost, agree, counter, -, -, -,
-    childGlobals, code, memory⟩ := decodeInline_retry_uses_length_gate fromStep args state pre phase
+      DecodeInlineOutgoingFrame args after ∧ DecodeInlineCallerSaveArea args state after ∧
+      after.regs.get? x11 = some (BitVec.ofNat 64 2) := by
+  have childRun := decodeInline_retry_uses_length_gate fromStep args state pre phase
+  let childUsed := Classical.choose childRun
+  have childUsedPayload := Classical.choose_spec childRun
+  let after := Classical.choose childUsedPayload
+  have childPayload := Classical.choose_spec childUsedPayload
+  have childBound := childPayload.1
+  have parentPrefix := childPayload.2.1
+  have childPost := childPayload.2.2.1
+  have agree := childPayload.2.2.2.1
+  have counter := childPayload.2.2.2.2.1
+  have childGlobals := childPayload.2.2.2.2.2.2.2.2.1
+  have childStatus := childPayload.2.2.2.2.2.2.2.2.2.1
+  have code := childPayload.2.2.2.2.2.2.2.2.2.2.1
+  have memory := childPayload.2.2.2.2.2.2.2.2.2.2.2
   have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
     meaningHasExactErePrefix_false_of_size_lt_four args.bytes short
   have atExit : after.regs.get? PC = some (BitVec.ofNat 64 0x10394) := by
-    simpa [HasExactErePrefixInlinePost] using childPost.1
+    simpa [after, HasExactErePrefixInlinePost] using childPost.1
   have selectedExit : DecodeInlineExit args (BitVec.ofNat 64 0x10394) := by
     simp [DecodeInlineExit, phase, prefixFalse, short]
   have tail : ScopedTrace
@@ -43,18 +56,18 @@ theorem decodeInline_retry_short_reaches_post_save_area (fromStep : Nat) (args :
   have resultInvalid : Contracts.meaningDecode args.bytes = .error .invalidSsz := by
     simp [Contracts.meaningDecode, rawInvalid, prefixFalse]
   refine ⟨4 + childUsed, after, ?_, ?_, ?_,
-    ⟨agree, counter, code, childGlobals.trans pre.globalsValue.symm⟩, ?_, ?_⟩
+    ⟨agree, counter, code, childGlobals.trans pre.globalsValue.symm⟩, ?_, ?_, ?_⟩
   · unfold decodeInlineStepBound
-    have lengthBound : hasExactErePrefixInlineStepBound
-        { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes } = 12 := rfl
-    rw [lengthBound] at childBound
+    have childBound' : childUsed ≤ 12 := by
+      simpa [childUsed, hasExactErePrefixInlineStepBound] using childBound
     omega
-  · simpa using parentPrefix 0 after tail
+  · simpa [childUsed, after] using parentPrefix 0 (Classical.choose childUsedPayload) tail
   · simp [DecodeInlinePost, phase, DecodeInlineRetryPost, prefixFalse, resultInvalid, atExit, short]
   · simp [DecodeInlineOutgoingFrame, phase, prefixFalse, short]
     exact ⟨childPost.2.1, childPost.2.2⟩
   · intro index bound
     rw [memory]
+  · simpa [after] using childStatus
 
 /-- The four-byte prefix-mismatch rejection preserves the wrapper's concrete 32-byte save area. -/
 theorem decodeInline_retry_prefix_mismatch_reaches_post_save_area (fromStep : Nat)

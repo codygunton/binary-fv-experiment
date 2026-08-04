@@ -2861,6 +2861,7 @@ theorem decodeInline_retry_reaches_length_gate (fromStep : Nat) (args : DecodeIn
       Agree decoderPreserved state after ∧
       RetiredCounterPresent after ∧
       after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+      after.regs.get? x11 = some (BitVec.ofNat 64 2) ∧
       Contracts.canonicalContractParams.env.CodeIntact after ∧
       after.mem = state.mem ∧
       HasExactErePrefixInlinePre
@@ -2988,6 +2989,11 @@ theorem decodeInline_retry_reaches_length_gate (fromStep : Nat) (args : DecodeIn
     simp [s4, s3, s2, s1, afterRegisterWrite, decodeInlineRetryEntryAfter,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, pre.stackValue]
+  have status4 : s4.regs.get? x11 = some (BitVec.ofNat 64 2) := by
+    obtain ⟨-, -, statusAtEntry⟩ := pre.retryReason phase
+    simp [s4, s3, s2, s1, afterRegisterWrite, decodeInlineRetryEntryAfter,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, statusAtEntry]
   have inputMemory4 : BinaryFv.Zesu.MemoryRepresentation.MemoryBytes s4 args.inputBase args.bytes := by
     intro index bound
     rw [memory4]
@@ -3034,7 +3040,7 @@ theorem decodeInline_retry_reaches_length_gate (fromStep : Nat) (args : DecodeIn
   have prefix12 := ConfinedPrefix.trans p1 p2
   have prefix123 := ConfinedPrefix.trans prefix12 p3
   have prefix1234 := ConfinedPrefix.trans prefix123 p4
-  refine ⟨s4, ?_, pc4, x10At4, x12At4, agree4, counter4, stackPointer4, code4,
+  refine ⟨s4, ?_, pc4, x10At4, x12At4, agree4, counter4, stackPointer4, status4, code4,
     memory4, ?_⟩
   · simpa using prefix1234
   · simpa [childArgs] using childPre
@@ -3059,10 +3065,11 @@ theorem decodeInline_retry_uses_length_gate (fromStep : Nat) (args : DecodeInlin
       childAfter.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
       childAfter.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       childAfter.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
+      childAfter.regs.get? x11 = some (BitVec.ofNat 64 2) ∧
       Contracts.canonicalContractParams.env.CodeIntact childAfter ∧
       childAfter.mem = state.mem := by
   obtain ⟨childEntry, parentPrefix, entryPc, x10Constant, x12Constant, parentAgree,
-    parentCounter, parentStackPointer, parentCode, parentMemory, childPre⟩ :=
+    parentCounter, parentStackPointer, parentStatus, parentCode, parentMemory, childPre⟩ :=
     decodeInline_retry_reaches_length_gate fromStep args state pre phase
   let childArgs : HasExactErePrefixInlineArgs :=
     { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes }
@@ -3080,7 +3087,10 @@ theorem decodeInline_retry_uses_length_gate (fromStep : Nat) (args : DecodeInlin
   have childInputPointer := childPayload.2.2.2.2.2.1
   have childInputLength := childPayload.2.2.2.2.2.2.1
   have childGlobals := childPayload.2.2.2.2.2.2.2.1
-  have childMemory := childPayload.2.2.2.2.2.2.2.2
+  have childStatusEq := childPayload.2.2.2.2.2.2.2.2.1
+  have childMemory := childPayload.2.2.2.2.2.2.2.2.2
+  have childStatus : childAfter.regs.get? x11 = some (BitVec.ofNat 64 2) :=
+    childStatusEq.trans parentStatus
   have childStackPointer : childAfter.regs.get? x2 =
       some (BitVec.ofNat 64 args.stackBase) := childStackFrame.trans parentStackPointer
   let childUsed := 1
@@ -3108,7 +3118,8 @@ theorem decodeInline_retry_uses_length_gate (fromStep : Nat) (args : DecodeInlin
     rw [Contracts.DecoderEnvironment.CodeIntact, childMemory]
     exact parentCode
   refine ⟨childUsed, childAfter, ?_, ?_, ?_, completeAgree, childCounter, childStackPointer,
-    childInputPointer, childInputLength, childGlobals, childCode, childMemory.trans parentMemory⟩
+    childInputPointer, childInputLength, childGlobals, childStatus, childCode,
+    childMemory.trans parentMemory⟩
   · simpa [childArgs] using childBound
   · simpa [Nat.add_assoc] using completePrefix
   · simpa [childArgs] using childPost
@@ -3264,8 +3275,8 @@ theorem decodeInline_retry_reaches_prefix_bytes (fromStep : Nat) (args : DecodeI
       Contracts.canonicalContractParams.env.CodeIntact childEntry ∧
       childEntry.mem = state.mem := by
   obtain ⟨lengthUsed, lengthAfter, lengthBound, lengthPrefix, lengthPost, lengthAgree,
-    lengthCounter, lengthStackPointer, lengthInputPointer, lengthInputLength, lengthGlobals, lengthCode,
-    lengthMemory⟩ :=
+    lengthCounter, lengthStackPointer, lengthInputPointer, lengthInputLength, lengthGlobals,
+    _lengthStatus, lengthCode, lengthMemory⟩ :=
     decodeInline_retry_uses_length_gate fromStep args state pre phase
   have prefixFalseAtLength : ¬ DecodeInlineExit args (BitVec.ofNat 64 0x10394) := by
     simp [DecodeInlineExit, phase, show ¬ args.bytes.size < 4 by omega]
@@ -5626,8 +5637,8 @@ theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInl
       DecodeInlinePost args state after ∧
       DecodeInlineMachinePost state after ∧
       DecodeInlineOutgoingFrame args after := by
-  obtain ⟨childUsed, childAfter, childBound, parentPrefix, childPost, agree, counter, -, -, -, childGlobals,
-    code, memory⟩ :=
+  obtain ⟨childUsed, childAfter, childBound, parentPrefix, childPost, agree, counter, -, -, -,
+    childGlobals, _childStatus, code, memory⟩ :=
     decodeInline_retry_uses_length_gate fromStep args state pre phase
   have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
     meaningHasExactErePrefix_false_of_size_lt_four args.bytes short
