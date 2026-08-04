@@ -196,4 +196,131 @@ theorem wrapper_dispatch_route_through_epilogue
         epilogue.trace)
   exact epilogue
 
+/-- Compose a typed dispatch route through the concrete status store and the six-instruction
+epilogue, stopping at the generated exit `ret` without executing it. -/
+theorem wrapper_dispatch_route_through_exit
+    {base before routeAfter : State} {machineArgs : DecoderMachineArgs}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (fromStep routeSteps : Nat)
+    (result status link savedS0 savedS1 savedS2 stack restoredStack : BitVec 64)
+    (route : WrapperTerminalRouteFrame base before routeAfter fromStep routeSteps
+      (BitVec.ofNat 64 0x1035c) result status)
+    (savedFrame : WrapperSavedRegisterFrame stack.toNat link savedS0 savedS1 savedS2 routeAfter)
+    (stackAvoidsStatusGlobals : stack.toNat + 0xa20 ≤ 0x4215020 ∨ 0x4215028 ≤ stack.toNat)
+    (s2Value : routeAfter.regs.get? x18 = some (BitVec.ofNat 64 0x4215020))
+    (stackValue : routeAfter.regs.get? x2 = some stack)
+    (raAddress s0Address s1Address s2Address : BitVec 64)
+    (raAddressEq : (stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7e8#12) = raAddress)
+    (s0AddressEq : (stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7e0#12) = s0Address)
+    (s1AddressEq : (stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7d8#12) = s1Address)
+    (s2AddressEq : (stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7d0#12) = s2Address)
+    (raAddressNat : stack.toNat + 0xa18 = raAddress.toNat)
+    (s0AddressNat : stack.toNat + 0xa10 = s0Address.toNat)
+    (s1AddressNat : stack.toNat + 0xa08 = s1Address.toNat)
+    (s2AddressNat : stack.toNat + 0xa00 = s2Address.toNat)
+    (raAligned : is_aligned_vaddr (virtaddr.Virtaddr raAddress) 8 = true)
+    (s0Aligned : is_aligned_vaddr (virtaddr.Virtaddr s0Address) 8 = true)
+    (s1Aligned : is_aligned_vaddr (virtaddr.Virtaddr s1Address) 8 = true)
+    (s2Aligned : is_aligned_vaddr (virtaddr.Virtaddr s2Address) 8 = true)
+    (raAllowed : DecoderAccessRange (DecoderReadableByte machineArgs) raAddress 8)
+    (s0Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s0Address 8)
+    (s1Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s1Address 8)
+    (s2Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s2Address 8)
+    (restoredStackEq : (stack + sign_extend (m := 64) (0x230#12)) +
+      sign_extend (m := 64) (0x7f0#12) = restoredStack) :
+    ∃ afterStore after,
+      Runs (try_step (fromStep + routeSteps) false) routeAfter afterStore false ∧
+      Trace fromStep (routeSteps + 7) before after ∧
+      WrapperEpilogueExitResult (fromStep + routeSteps + 1) base afterStore after
+        link savedS0 savedS1 savedS2 restoredStack result status := by
+  have routeAgree : Agree decoderPreserved base routeAfter :=
+    Agree.weaken (fun _ preserved => preserved.2) route.platform
+  have statusTargetNat : (BitVec.ofNat 64 0x4215024).toNat = 0x4215024 := by native_decide
+  obtain ⟨retired, statusStore⟩ := wrapper_epilogue_status_store_step machine routeAgree
+    route.retired route.code (fromStep + routeSteps) route.atTerminal
+    (BitVec.ofNat 64 0x4215020) (BitVec.ofNat 64 0x4215024) status s2Value route.statusValue
+    (by decide) (by decide) (by
+      refine ⟨by decide, by decide, ?_⟩
+      intro index indexBound
+      right; left
+      unfold DecoderGlobalsByte
+      rw [statusTargetNat]
+      simp only [Elflings.GeneratedDecoderGlobals.bssBase,
+        Elflings.GeneratedDecoderGlobals.bssSize]
+      omega)
+  let afterStore := wrapperAfterStatusStore routeAfter retired (BitVec.ofNat 64 0x4215024) status
+  have storeFrame : WrapperSavedRegisterFrame stack.toNat link savedS0 savedS1 savedS2 afterStore := by
+    simpa [afterStore] using wrapper_epilogue_status_store_preserves_saved_frame routeAfter retired
+      status stack.toNat link savedS0 savedS1 savedS2 savedFrame stackAvoidsStatusGlobals
+  have storeAgree : Agree decoderPreserved base afterStore := by
+    apply routeAgree.trans
+    intro register preserved
+    have notPc : PC ≠ register := by
+      intro equal
+      subst register
+      simpa [decoderPreserved, platformPreserved] using preserved
+    have notNextPc : nextPC ≠ register := by
+      intro equal
+      subst register
+      simpa [decoderPreserved, platformPreserved] using preserved
+    have notIncrement : minstret_increment ≠ register := by
+      intro equal
+      subst register
+      simpa [decoderPreserved, platformPreserved] using preserved
+    have notRetired : minstret ≠ register := by
+      intro equal
+      subst register
+      simpa [decoderPreserved, platformPreserved] using preserved
+    simp [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notPc, notNextPc,
+      notIncrement, notRetired]
+  have storeRetired : RetiredCounterPresent afterStore := by
+    refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
+    simp [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick]
+  have storeCode : canonicalContractParams.env.CodeIntact afterStore := by
+    have notFileBacked : ∀ index : Fin 4,
+        Artifacts.programImage.readFileByte? (0x4215024 + index.val) = none := by native_decide
+    have codeAtExecute : Artifacts.programImage.fileBytesMatchMemory
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement routeAfter)
+          (BitVec.ofNat 64 0x1035c)).mem := by
+      simpa [coreControlFlowNextState, tryStepControlFlowAfterIncrement] using route.code
+    apply fileBytesMatchMemory_afterWriteBytes Artifacts.programImage
+    · exact notFileBacked
+    simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterRetired] using codeAtExecute
+  have storePc : afterStore.regs.get? PC = some (BitVec.ofNat 64 0x10360) := by
+    simp [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert]
+  have storeStack : afterStore.regs.get? x2 = some stack := by
+    simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using stackValue
+  have storeResult : afterStore.regs.get? x10 = some result := by
+    simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using route.resultValue
+  have storeStatus : afterStore.regs.get? x11 = some status := by
+    simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using route.statusValue
+  obtain ⟨after, epilogue⟩ := wrapper_epilogue_to_exit machine storeAgree storeRetired storeCode
+    (fromStep + routeSteps + 1) storePc stack link savedS0 savedS1 savedS2 stack restoredStack result
+    status raAddress s0Address s1Address s2Address storeFrame storeStack storeResult storeStatus
+    raAddressEq s0AddressEq s1AddressEq s2AddressEq raAddressNat s0AddressNat s1AddressNat s2AddressNat
+    raAligned s0Aligned s1Aligned s2Aligned raAllowed s0Allowed s1Allowed s2Allowed restoredStackEq
+  refine ⟨afterStore, after, ?_, ?_, epilogue⟩
+  · simpa [afterStore] using statusStore
+  · simpa [Nat.add_assoc] using Trace.append route.trace
+      (Trace.append (Trace.one (fromStep + routeSteps) routeAfter afterStore statusStore)
+        epilogue.trace)
+
 end BinaryFv.Zesu.MachineExecution
