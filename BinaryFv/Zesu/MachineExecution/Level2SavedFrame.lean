@@ -34,14 +34,10 @@ theorem WrapperSavedRegisterFrame.of_mem_eq {stackBase : Nat} {link s0 s1 s2 : B
   rw [memory]
   exact frame
 
-/-- The emitted `decodeRaw` child preserves the four wrapper words because its caller-save-area
-clause starts at `allocatorBase + 0x9f0 = stackBase + 0xa00` and covers exactly 32 bytes. -/
-theorem WrapperSavedRegisterFrame.of_decode_raw_caller_save_area
-    {args : BinaryFv.Zesu.Contracts.EntryArgs} {stackBase : Nat} {link s0 s1 s2 : BitVec 64}
-    {before after : State}
-    (allocatorBase : args.allocatorBase = stackBase + 0x10)
-    (frame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 before)
-    (saveArea : BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeRawCallerSaveArea args before after) :
+private theorem wrapperSavedRegisterFrame_of_save_area {stackBase : Nat} {link s0 s1 s2 : BitVec 64}
+    {before after : State} (frame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 before)
+    (saveArea : ∀ index, index < 32 →
+      after.mem.get? (stackBase + 0xa00 + index) = before.mem.get? (stackBase + 0xa00 + index)) :
     WrapperSavedRegisterFrame stackBase link s0 s1 s2 after := by
   rw [WrapperSavedRegisterFrame] at frame ⊢
   rcases frame with ⟨linkFrame, s0Frame, s1Frame, s2Frame⟩
@@ -55,8 +51,7 @@ theorem WrapperSavedRegisterFrame.of_decode_raw_caller_save_area
       exact indexBound
     have saveIndex : offset - 0xa00 + index < 32 := by omega
     have preserved := saveArea (offset - 0xa00 + index) saveIndex
-    rw [allocatorBase] at preserved
-    have address : stackBase + 0x10 + 0x9f0 + (offset - 0xa00 + index) =
+    have address : stackBase + 0xa00 + (offset - 0xa00 + index) =
         stackBase + offset + index := by omega
     rw [address] at preserved
     exact preserved.trans (saved index indexBound)
@@ -64,6 +59,33 @@ theorem WrapperSavedRegisterFrame.of_decode_raw_caller_save_area
     preserve 0xa10 (by omega) (by omega) s0 s0Frame,
     preserve 0xa08 (by omega) (by omega) s1 s1Frame,
     preserve 0xa00 (by omega) (by omega) s2 s2Frame⟩
+
+/-- The emitted `decodeRaw` child preserves the four wrapper words because its caller-save-area
+clause starts at `allocatorBase + 0x9f0 = stackBase + 0xa00` and covers exactly 32 bytes. -/
+theorem WrapperSavedRegisterFrame.of_decode_raw_caller_save_area
+    {args : BinaryFv.Zesu.Contracts.EntryArgs} {stackBase : Nat} {link s0 s1 s2 : BitVec 64}
+    {before after : State}
+    (allocatorBase : args.allocatorBase = stackBase + 0x10)
+    (frame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 before)
+    (saveArea : BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeRawCallerSaveArea args before after) :
+    WrapperSavedRegisterFrame stackBase link s0 s1 s2 after := by
+  apply wrapperSavedRegisterFrame_of_save_area frame
+  intro index indexBound
+  have preserved := saveArea index indexBound
+  rw [allocatorBase] at preserved
+  have address : stackBase + 0x10 + 0x9f0 + index = stackBase + 0xa00 + index := by omega
+  rw [address] at preserved
+  exact preserved
+
+/-- Every selected `decode` exit carries the wrapper's caller-save equality at its final stack
+base, so it transports the saved frame without an ABI or address-alignment premise. -/
+theorem WrapperSavedRegisterFrame.of_decode_inline_caller_save_area
+    {args : BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeInlineArgs} {link s0 s1 s2 : BitVec 64}
+    {before after : State} (frame : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 before)
+    (saveArea : BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeInlineCallerSaveArea args before after) :
+    WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 after := by
+  apply wrapperSavedRegisterFrame_of_save_area frame
+  simpa only [BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeInlineCallerSaveArea] using saveArea
 
 /-- A proved `memcpy` into the inline `stored_result` payload leaves every wrapper save slot intact.
 The separation is derived from `ZesuDecodeRawMachinePre.stackFrameWritable`, whose addresses belong to
