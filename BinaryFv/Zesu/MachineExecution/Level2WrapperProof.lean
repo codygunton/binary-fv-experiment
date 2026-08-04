@@ -768,6 +768,7 @@ theorem wrapper_save_link_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
       DecoderGlobalsModel.fresh args entry)
     (machine : ZesuDecodeRawMachinePre args stackBase entry) (frameRetired : BitVec 64) :
     ∃ link storeRetired,
+      entry.regs.get? x1 = some link ∧
       Runs (try_step stepNo false)
         (wrapperAfterFirstFrameDecrement entry frameRetired
           (BitVec.ofNat 64 (stackBase + 0xa20)))
@@ -860,7 +861,7 @@ theorem wrapper_save_link_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     (BitVec.ofNat 64 (stackBase + 0xa18)) stateStack dataRun
     (wrapper_saved_link_target stackBase) aligned allowed fetch
     (by unfold BaseInstructionEncoding; decide) decode
-  exact ⟨link, storeRetired, by simpa [state] using run⟩
+  exact ⟨link, storeRetired, linkAtEntry, by simpa [state] using run⟩
 
 /-- Sail executes the wrapper's frame decrement and all four saved-register stores. -/
 theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
@@ -883,12 +884,14 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
       MemoryRepresentation.MemoryBytes final args.inputBase args.bytes ∧
       Agree platformPreserved entry final ∧ RetiredCounterPresent final ∧
       canonicalContractParams.env.CodeIntact final ∧
-      ∃ link s0 s1 s2, WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
+      ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
+        entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
+        WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨frameRetired, frameRun, frameStack⟩ :=
     wrapper_first_frame_decrement_step fromStep args stackBase entry source machine
   let frame := wrapperAfterFirstFrameDecrement entry frameRetired
     (BitVec.ofNat 64 (stackBase + 0xa20))
-  obtain ⟨link, linkRetired, linkRun⟩ :=
+  obtain ⟨link, linkRetired, linkAtEntry, linkRun⟩ :=
     wrapper_save_link_step (fromStep + 1) args stackBase entry source machine frameRetired
   let afterLink := wrapperAfterDwordStore frame (BitVec.ofNat 64 0x102b4) linkRetired
     (BitVec.ofNat 64 (stackBase + 0xa18)) link
@@ -1175,7 +1178,8 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix0123
       (by simpa [Nat.add_assoc] using prefix4)
   refine ⟨final, ?_, confined, finalPc, finalStack, finalInput, finalLength, finalAttempted,
-    finalInputMemory, finalPlatformAgree, finalRetired, finalCode, ⟨link, s0, s1, s2, finalSavedFrame⟩⟩
+    finalInputMemory, finalPlatformAgree, finalRetired, finalCode,
+    ⟨link, s0, s1, s2, linkAtEntry, savedS0, savedS1, savedS2, finalSavedFrame⟩⟩
   refine Trace.step fromStep 4 entry frame final (by simpa [frame] using frameRun) ?_
   refine Trace.step (fromStep + 1) 3 frame afterLink final
     (by simpa [frame, afterLink] using linkRun) ?_
@@ -1281,7 +1285,9 @@ theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
       MemoryRepresentation.MemoryBytes final args.inputBase args.bytes ∧
       Agree platformPreserved entry final ∧ RetiredCounterPresent final ∧
       canonicalContractParams.env.CodeIntact final ∧
-      ∃ link s0 s1 s2, WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
+      ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
+        entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
+        WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨saved, savedTrace, savedPrefix, savedPc, savedStack, savedInput, savedLength,
     savedAttempted, savedInputMemory, savedAgree, savedRetired, savedCode, savedFrame⟩ :=
     wrapper_entry_save_prefix fromStep args stackBase entry source machine
@@ -1310,7 +1316,7 @@ theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     simpa [final, afterRegisterWrite_mem] using savedCode
   have finalRetired := afterRegisterWrite_retired_present saved (BitVec.ofNat 64 0x102c4)
     retired x2 (BitVec.ofNat 64 stackBase)
-  obtain ⟨link, s0, s1, s2, savedFrame⟩ := savedFrame
+  obtain ⟨link, s0, s1, s2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, savedFrame⟩ := savedFrame
   have finalFrame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 final :=
     WrapperSavedRegisterFrame.of_mem_eq savedFrame (by simp [final, afterRegisterWrite_mem])
   have finalStep : ConfinedPrefix
@@ -1332,7 +1338,8 @@ theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
       Level2ChildSummary fromStep 6 entry final := by
     simpa [Nat.add_assoc] using ConfinedPrefix.trans savedPrefix finalStep
   refine ⟨final, ?_, confined, finalPc, by simpa [final] using finalStack, finalInput, finalLength,
-    finalAttempted, finalInputMemory, finalAgree, finalRetired, finalCode, ⟨link, s0, s1, s2, finalFrame⟩⟩
+    finalAttempted, finalInputMemory, finalAgree, finalRetired, finalCode,
+    ⟨link, s0, s1, s2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
   exact Trace.snoc savedTrace (by simpa [final] using run)
 
 /-! ## Preserve the input length in `s1` -/
