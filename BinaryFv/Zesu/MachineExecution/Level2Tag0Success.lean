@@ -31,7 +31,9 @@ structure Tag0StoredResultCopyPre (args : ZesuDecodeRawArgs) (stackBase : Nat) (
     (contents : ByteArray) (link savedS0 savedS1 savedS2 : BitVec 64) : Prop where
   machineEntry : ZesuDecodeRawMachinePre args stackBase entry
   atCopyStart : state.regs.get? PC = some (BitVec.ofNat 64 0x1033c)
-  platform : Agree platformPreserved entry state
+  machine : DecoderMachinePre
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (zesuDecodeRawMachineArgs args) state
   retired : RetiredCounterPresent state
   code : canonicalContractParams.env.CodeIntact state
   stack : state.regs.get? x2 = some (BitVec.ofNat 64 stackBase)
@@ -263,9 +265,11 @@ private theorem tag0_stored_result_length_value :
 /-- Execute the actual stored-result `jalr x1, -0x490(x1)`.  Its arguments are the four values
 established by the preceding wrapper instructions, rather than an ABI premise. -/
 theorem tag0_stored_result_memcpy_call_step
-    {args : ZesuDecodeRawArgs} {stackBase : Nat} {entry state : State}
-    (machine : ZesuDecodeRawMachinePre args stackBase entry)
-    (agree : Agree decoderPreserved entry state) (retiredPresent : RetiredCounterPresent state)
+    {args : ZesuDecodeRawArgs} {state : State}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (zesuDecodeRawMachineArgs args) state)
+    (retiredPresent : RetiredCounterPresent state)
     (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1034c))
     (callBase : state.regs.get? x1 = some (BitVec.ofNat 64 0x14348)) :
@@ -294,12 +298,12 @@ theorem tag0_stored_result_memcpy_call_step
       (BitVec.ofNat 64 0x1034c) 0xe7#8 0x80#8 0x00#8 0xb7#8 :=
     fetchFileInstruction state 0x1034c 0xe7 0x80 0x00 0xb7 image
       (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
-  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform_of_decoderAgree machine.machine
-    agree (BitVec.ofNat 64 0x1034c) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
+    (BitVec.ofNat 64 0x1034c) atPc pcIn _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
   obtain ⟨retired, inhibit, config, hartRead, inhibitRead, configRead, notInhibited,
     machineEnabled, retiredRead⟩ :=
-    decoderStepCounters_of_decoderAgree machine.machine.normal agree retiredPresent
+    decoderStepCounters_of_decoderAgree machine.normal (Agree.refl state) retiredPresent
   have wordEq : fetchWord 0xe7#8 0x80#8 0x00#8 0xb7#8 = (0xb70080e7 : BitVec 32) := by decide
   have decode : Runs (ext_decode (fetchWord 0xe7#8 0x80#8 0x00#8 0xb7#8))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
@@ -308,11 +312,11 @@ theorem tag0_stored_result_memcpy_call_step
     decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x1034c)
-  have executeAgree : Agree decoderPreserved entry executeState := agree.trans
-    (Agree.weaken (fun _ preserved => preserved.2)
-      (agree_stepPremiseState state (BitVec.ofNat 64 0x1034c)))
+  have executeAgree : Agree decoderPreserved state executeState :=
+    Agree.weaken (fun _ preserved => preserved.2)
+      (agree_stepPremiseState state (BitVec.ofNat 64 0x1034c))
   have helpElp : Runs (update_elp_state (.Regidx 1#5)) executeState executeState () :=
-    machine.machine.landingPad executeState (.Regidx 1#5) trivial executeAgree
+    machine.landingPad executeState (.Regidx 1#5) trivial executeAgree
   have linkRead : executeState.regs.get? nextPC = some (BitVec.ofNat 64 0x10350) := by
     change ((tryStepControlFlowAfterIncrement state).regs.insert nextPC
       (Sail.BitVec.addInt (BitVec.ofNat 64 0x1034c) 4)).get? nextPC = _
@@ -332,13 +336,12 @@ theorem tag0_stored_result_memcpy_call_step
         (BitVec.ofNat 64 0x1034c) (BitVec.ofNat 64 0x13eb8) x1
         (BitVec.ofNat 64 0x10350)) () := wX_bits_run_x1 _ _
   obtain ⟨misaBits, misaRead, -⟩ : ∃ misaBits,
-      entry.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
-    have normalMisa := machine.machine.normal.2.2.2.2.2.2.2.2.2.2.2
-    match h : entry.regs.get? misa with
+      state.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
+    have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
+    match h : state.regs.get? misa with
     | none => simp [h] at normalMisa
     | some bits => exact ⟨bits, rfl, by simpa [h] using normalMisa⟩
-  have misaState : state.regs.get? misa = some misaBits :=
-    (agree misa (by simp [decoderPreserved, platformPreserved])).trans misaRead
+  have misaState : state.regs.get? misa = some misaBits := misaRead
   have zca := currentlyEnabledZca_run_atStepPremise state (BitVec.ofNat 64 0x1034c)
     misaBits misaState
   have callRun := tryStepJalrCallRetires stepNo state
@@ -403,15 +406,15 @@ theorem tag0_stored_result_setup
       callState.regs.get? x12 = some (BitVec.ofNat 64 832) ∧
       callState.regs.get? x1 = some (BitVec.ofNat 64 0x14348) ∧
       callState.regs.get? x2 = some (BitVec.ofNat 64 stackBase) ∧
-      Agree decoderPreserved entry callState ∧
+      Agree decoderPreserved state callState ∧
       RetiredCounterPresent callState ∧
       canonicalContractParams.env.CodeIntact callState ∧
       WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 callState ∧
       MemoryRepresentation.MemoryBytes callState (stackBase + 32) contents := by
-  obtain ⟨r0, h0⟩ := tag0_stored_result_destination_step pre.machineEntry.machine pre.platform
+  obtain ⟨r0, h0⟩ := tag0_stored_result_destination_step pre.machine (Agree.refl state)
     pre.retired pre.code fromStep pre.atCopyStart pre.globals
   let s0 := afterRegisterWrite state (BitVec.ofNat 64 0x1033c) r0 x10 (BitVec.ofNat 64 0x4215030)
-  have a0 : Agree platformPreserved entry s0 := pre.platform.trans
+  have a0 : Agree platformPreserved state s0 := (Agree.refl state).trans
     (afterRegisterWrite_agree (by simp [platformPreserved]))
   have c0 : RetiredCounterPresent s0 := afterRegisterWrite_retired_present _ _ _ _ _
   have code0 : canonicalContractParams.env.CodeIntact s0 := by
@@ -426,13 +429,13 @@ theorem tag0_stored_result_setup
         (afterRegisterWrite_register state (BitVec.ofNat 64 0x1033c) r0 x10 x2
           (BitVec.ofNat 64 0x4215030) (by decide) (by decide) (by decide) (by decide) (by decide))
     exact stack0Preserved.trans pre.stack
-  obtain ⟨r1, h1⟩ := tag0_stored_result_source_step pre.machineEntry.machine a0 c0 code0
+  obtain ⟨r1, h1⟩ := tag0_stored_result_source_step pre.machine a0 c0 code0
     (fromStep + 1) pc0 _ stack0
   have sourceValue := tag0_stored_result_source_value stackBase
   rw [sourceValue] at h1
   let s1 := afterRegisterWrite s0 (BitVec.ofNat 64 0x10340) r1 x11
     (BitVec.ofNat 64 (stackBase + 32))
-  have a1 : Agree platformPreserved entry s1 := a0.trans
+  have a1 : Agree platformPreserved state s1 := a0.trans
     (afterRegisterWrite_agree (by simp [platformPreserved]))
   have c1 : RetiredCounterPresent s1 := afterRegisterWrite_retired_present _ _ _ _ _
   have code1 : canonicalContractParams.env.CodeIntact s1 := by
@@ -441,11 +444,11 @@ theorem tag0_stored_result_setup
   have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10344) := by
     simpa [s1] using afterRegisterWrite_pc s0 (BitVec.ofNat 64 0x10340) r1 x11
       (BitVec.ofNat 64 (stackBase + 32))
-  obtain ⟨r2, h2⟩ := tag0_stored_result_length_step pre.machineEntry.machine a1 c1 code1
+  obtain ⟨r2, h2⟩ := tag0_stored_result_length_step pre.machine a1 c1 code1
     (fromStep + 2) pc1
   rw [tag0_stored_result_length_value] at h2
   let s2 := afterRegisterWrite s1 (BitVec.ofNat 64 0x10344) r2 x12 (BitVec.ofNat 64 832)
-  have a2 : Agree platformPreserved entry s2 := a1.trans
+  have a2 : Agree platformPreserved state s2 := a1.trans
     (afterRegisterWrite_agree (by simp [platformPreserved]))
   have c2 : RetiredCounterPresent s2 := afterRegisterWrite_retired_present _ _ _ _ _
   have code2 : canonicalContractParams.env.CodeIntact s2 := by
@@ -454,12 +457,12 @@ theorem tag0_stored_result_setup
   have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10348) := by
     simpa [s2] using afterRegisterWrite_pc s1 (BitVec.ofNat 64 0x10344) r2 x12
       (BitVec.ofNat 64 832)
-  obtain ⟨r3, h3⟩ := tag0_stored_result_call_page_step pre.machineEntry.machine a2 c2 code2
+  obtain ⟨r3, h3⟩ := tag0_stored_result_call_page_step pre.machine a2 c2 code2
     (fromStep + 3) pc2
   let callState := afterRegisterWrite s2 (BitVec.ofNat 64 0x10348) r3 x1 (BitVec.ofNat 64 0x14348)
-  have a2Decoder : Agree decoderPreserved entry s2 := fun register preserved =>
+  have a2Decoder : Agree decoderPreserved state s2 := fun register preserved =>
     a2 register preserved.2
-  have a3 : Agree decoderPreserved entry callState := a2Decoder.trans
+  have a3 : Agree decoderPreserved state callState := a2Decoder.trans
     (afterRegisterWrite_agree_of (P := decoderPreserved)
       (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved])
@@ -511,7 +514,7 @@ theorem tag0_stored_result_memcpy_machine_pre
     {args : ZesuDecodeRawArgs} {stackBase : Nat} {entry state childEntry : State}
     (contents : ByteArray) (pre : Tag0StoredResultCopyPre args stackBase entry state
       contents link savedS0 savedS1 savedS2)
-    (agree : Agree decoderPreserved entry childEntry)
+    (agree : Agree decoderPreserved state childEntry)
     (retired : RetiredCounterPresent childEntry)
     (atEntry : childEntry.regs.get? PC = some (BitVec.ofNat 64 0x13eb8))
     (returnAddress : childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x10350)) :
@@ -520,7 +523,7 @@ theorem tag0_stored_result_memcpy_machine_pre
   let machine : DecoderMachinePre
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
       (zesuDecodeRawMachineArgs args) childEntry :=
-    DecoderMachinePre.mono agree retired pre.machineEntry.machine
+    DecoderMachinePre.mono agree retired pre.machine
   have sourceFits : copyArgs.source + copyArgs.length ≤ 2 ^ 64 := by
     dsimp [copyArgs, tag0StoredResultCopyArgs]
     have frameFits := pre.machineEntry.stackFrameFits
@@ -610,10 +613,11 @@ theorem tag0_stored_result_copy_phase
   obtain ⟨r0, r1, r2, r3, callState, setupTrace, callStateEq, callPc, destination, source,
     length, callBase, stack, setupAgree, setupCounter, setupCode, setupFrame, setupSource⟩ :=
     tag0_stored_result_setup contents link savedS0 savedS1 savedS2 pre fromStep
+  have callMachine := DecoderMachinePre.mono setupAgree setupCounter pre.machine
   subst callState
   obtain ⟨callRetired, callRun, childPc, childLink, childDestination, childSource, childLength,
     childStack, childGlobals, callAgree, callMemory, childCounter⟩ :=
-    tag0_stored_result_memcpy_call_step pre.machineEntry setupAgree setupCounter setupCode
+    tag0_stored_result_memcpy_call_step callMachine setupCounter setupCode
       (fromStep + 4) callPc callBase
   let childEntry := tag0StoredResultMemcpyCallAfter
     (afterRegisterWrite
@@ -626,7 +630,7 @@ theorem tag0_stored_result_copy_phase
         (BitVec.ofNat 64 0x10344) r2 x12 (BitVec.ofNat 64 832))
       (BitVec.ofNat 64 0x10348) r3 x1 (BitVec.ofNat 64 0x14348)) callRetired
   let copyArgs := tag0StoredResultCopyArgs stackBase contents
-  have childAgree : Agree decoderPreserved entry childEntry := setupAgree.trans callAgree
+  have childAgree : Agree decoderPreserved state childEntry := setupAgree.trans callAgree
   have childCode : canonicalContractParams.env.CodeIntact childEntry := by
     rw [DecoderEnvironment.CodeIntact, show childEntry.mem = state.mem by
       simpa [childEntry] using callMemory]
