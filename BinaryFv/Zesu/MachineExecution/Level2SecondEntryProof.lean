@@ -125,6 +125,15 @@ theorem wrapper_second_retry_decode_entry
       retryRetired x11 (BitVec.ofNat 64 2) from rfl]
     exact (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x9
       (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans branchLength
+  have stateGlobals : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    frame.globalsValue.trans pre.globalsValue
+  have branchGlobals : branchState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    (wrapperAfterDecodeFirstErrorBranch_register state branchRetired x18 (by decide) (by decide)
+      (by decide) (by decide)).trans stateGlobals
+  have secondGlobals : secondState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simpa [secondState] using
+      (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x18
+        (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans branchGlobals
   have secondMemory : MemoryRepresentation.MemoryBytes secondState args.inputBase args.bytes := by
     apply inputMemory.of_mem_eq
     simp [secondState, branchState, afterRegisterWrite_mem, wrapperAfterDecodeFirstErrorBranch,
@@ -155,6 +164,7 @@ theorem wrapper_second_retry_decode_entry
       stackValue := by simpa [secondArgs] using secondStack
       inputValue := by simpa [secondArgs] using secondInput
       lengthValue := by simpa [secondArgs] using secondLength
+      globalsValue := by simpa [secondArgs] using secondGlobals
       inputMemory := by simpa [secondArgs] using secondMemory
       code := secondCode
       inputFits := pre.inputFits
@@ -190,6 +200,7 @@ theorem wrapper_second_propagate_decode_entry
     (stackValue : branchState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase))
     (inputValue : branchState.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase))
     (lengthValue : branchState.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size))
+    (globalsValue : branchState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020))
     (inputMemory : MemoryRepresentation.MemoryBytes branchState args.inputBase args.bytes)
     (code : canonicalContractParams.env.CodeIntact branchState)
     (inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64)
@@ -230,7 +241,11 @@ theorem wrapper_second_propagate_decode_entry
   have secondLength : secondState.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
     simpa [secondState] using
       (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x9
-        (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans lengthValue
+      (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans lengthValue
+  have secondGlobals : secondState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simpa [secondState] using
+      (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x18
+        (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans globalsValue
   have secondTag : secondState.regs.get? x10 =
       some (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))) := by
     simpa [secondState] using
@@ -262,6 +277,7 @@ theorem wrapper_second_propagate_decode_entry
       stackValue := by simpa [secondArgs] using secondStack
       inputValue := by simpa [secondArgs] using secondInput
       lengthValue := by simpa [secondArgs] using secondLength
+      globalsValue := by simpa [secondArgs] using secondGlobals
       inputMemory := by simpa [secondArgs] using secondMemory
       code := secondCode
       inputFits := inputFits

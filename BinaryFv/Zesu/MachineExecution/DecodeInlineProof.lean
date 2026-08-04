@@ -2330,7 +2330,8 @@ theorem decodeInline_first_success_reaches_post
     exact afterCall
   have complete := parentPrefix (childUsed + 8) final (by
     exact afterCallCount)
-  refine ⟨childUsed, final, bound, exit, post, ?_, ⟨finalAgree, finalCounter, finalCode⟩⟩
+  refine ⟨childUsed, final, bound, exit, post, ?_,
+    ⟨finalAgree, finalCounter, finalCode, finalGlobals.trans pre.globalsValue.symm⟩⟩
   have countEq : 5 + (childUsed + 8) = childUsed + 13 := by omega
   rw [countEq] at complete
   exact complete
@@ -2455,7 +2456,8 @@ theorem decodeInline_first_error_reaches_post
         (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
           (BitVec.ofNat 64 (Contracts.decodeInternalResultTag
           (Contracts.meaningDecodeRaw args.bytes)))) from
-        ⟨tagAgree, tagCounter, tagCode⟩), by simpa [afterTag, failed] using tagInputBase,
+        ⟨tagAgree, tagCounter, tagCode, tagGlobals.trans pre.globalsValue.symm⟩),
+      by simpa [afterTag, failed] using tagInputBase,
     by simpa [afterTag, failed] using tagInputLength⟩
 
 /-- The complete first-phase arm of the Level 3 contract. This is the single scope showing the

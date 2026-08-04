@@ -144,6 +144,11 @@ theorem decodeInline_retry_success_reaches_post
   have pageValue : pageState.regs.get? x10 = some (BitVec.ofNat 64 0x1000) := by
     simp [pageState, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+  have pageGlobals : pageState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simpa [pageState] using
+      (afterRegisterWrite_register returned (BitVec.ofNat 64 0x103f0) pageRetired x10 x18
+        (BitVec.ofNat 64 0x1000) (by decide) (by decide) (by decide) (by decide) (by decide)).trans
+        returnedGlobals
   have pageCode : Contracts.canonicalContractParams.env.CodeIntact pageState := by
     simpa [pageState, afterRegisterWrite_mem] using returnedCode
   obtain ⟨pointerRetired, pointerRun⟩ := decodeInline_retry_final_pointer_step
@@ -278,6 +283,11 @@ theorem decodeInline_retry_success_reaches_post
       some (BitVec.ofNat 64 (args.stackBase + 0x1000)) := by
     simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+  have afterGlobals : after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    simpa [after] using
+      (afterRegisterWrite_register pageState (BitVec.ofNat 64 0x103f4) pointerRetired x10 x18
+        (BitVec.ofNat 64 (args.stackBase + 0x1000)) (by decide) (by decide) (by decide)
+        (by decide) (by decide)).trans pageGlobals
   have statusFinal : MemoryRepresentation.ResultStatusLERep after
       (args.stackBase + 0x9f0)
       (Contracts.decodeInternalResultTag (Contracts.meaningDecode args.bytes)) := by
@@ -292,7 +302,8 @@ theorem decodeInline_retry_success_reaches_post
           DecodeInlineArgs.finalResultBase]))]
       simpa [DecodeInlineArgs.retryRawArgs, meaningEq] using high
   refine ⟨19 + lengthUsed + prefixUsed + rawUsed + memcpyUsed + 1 + 1,
-    after, ?_, ?_, retryPost, ⟨afterAgree, afterCounter, codeFinal⟩, ?_⟩
+    after, ?_, ?_, retryPost,
+    ⟨afterAgree, afterCounter, codeFinal, afterGlobals.trans pre.globalsValue.symm⟩, ?_⟩
   · unfold decodeInlineStepBound
     have lengthBoundValue : lengthUsed ≤ 12 := by
       simpa [hasExactErePrefixInlineStepBound] using lengthBound
@@ -336,7 +347,7 @@ theorem decodeInline_propagate_error_reaches_post (fromStep : Nat) (args : Decod
     simp [DecodeInlineExit, phase]
   refine ⟨0, before, by simp, ScopedTrace.exitAt fromStep before
     (BitVec.ofNat 64 0x10380) atExit selectedExit, ?_,
-    ⟨Agree.refl before, pre.machine.retiredCounter, pre.code⟩, ?_⟩
+    ⟨Agree.refl before, pre.machine.retiredCounter, pre.code, rfl⟩, ?_⟩
   · simp [DecodeInlinePost, phase, notInvalid, rawResult, result, atExit]
   · simp [DecodeInlineOutgoingFrame, phase, tagA0, tagA1]
 

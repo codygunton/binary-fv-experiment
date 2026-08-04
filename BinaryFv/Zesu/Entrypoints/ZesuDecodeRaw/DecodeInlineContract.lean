@@ -417,6 +417,7 @@ structure DecodeInlineMachinePost (before after : State) : Prop where
   agree : Agree decoderPreserved before after
   retiredCounter : RetiredCounterPresent after
   code : canonicalContractParams.env.CodeIntact after
+  globalsValue : after.regs.get? x18 = before.regs.get? x18
 
 def prefixLow16 (bytes : ByteArray) : Nat :=
   (bytes.get! 0).toNat + (bytes.get! 1).toNat * 2 ^ 8
