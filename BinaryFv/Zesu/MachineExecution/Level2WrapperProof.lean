@@ -117,11 +117,11 @@ private theorem wrapperAfterDwordStore_preserves_savedFrame (state : State)
   rcases frame with ⟨linkFrame, s0Frame, s1Frame, s2Frame⟩
   exact ⟨
     wrapperAfterDwordStore_preserves_savedWord state pc retired target data targetBase
-      (stackBase + 0xa18) link targetValue (Or.inl targetBeforeSaveArea) linkFrame,
+      (stackBase + 0xa18) link targetValue (Or.inl (by omega)) linkFrame,
     wrapperAfterDwordStore_preserves_savedWord state pc retired target data targetBase
-      (stackBase + 0xa10) s0 targetValue (Or.inl targetBeforeSaveArea) s0Frame,
+      (stackBase + 0xa10) s0 targetValue (Or.inl (by omega)) s0Frame,
     wrapperAfterDwordStore_preserves_savedWord state pc retired target data targetBase
-      (stackBase + 0xa08) s1 targetValue (Or.inl targetBeforeSaveArea) s1Frame,
+      (stackBase + 0xa08) s1 targetValue (Or.inl (by omega)) s1Frame,
     wrapperAfterDwordStore_preserves_savedWord state pc retired target data targetBase
       (stackBase + 0xa00) s2 targetValue (Or.inl targetBeforeSaveArea) s2Frame⟩
 
@@ -136,17 +136,22 @@ private theorem wrapperAfterAllocatorTag_preserves_savedFrame (state : State)
       (wrapperAfterAllocatorTag state retired target data) := by
   rw [WrapperSavedRegisterFrame] at frame ⊢
   rcases frame with ⟨linkFrame, s0Frame, s1Frame, s2Frame⟩
-  have preserve (base : Nat) (value : BitVec 64) (saved : SavedWordBytes state base value) :
+  have preserve (base : Nat) (baseInSaveArea : stackBase + 0xa00 ≤ base)
+      (value : BitVec 64) (saved : SavedWordBytes state base value) :
       SavedWordBytes (wrapperAfterAllocatorTag state retired target data) base value := by
     intro index bound
+    have indexLt : index < 8 := by
+      simpa [BinaryFv.RiscV.Sep.leBytes_length] using bound
     have outside : target.toNat ≠ base + index := by omega
     change (state.mem.insert target.toNat (Sail.BitVec.extractLsb data 7 0)).get? (base + index) =
       some (getElem (BinaryFv.RiscV.Sep.leBytes 8 value) index bound)
     simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
     rw [if_neg outside]
     exact saved index bound
-  exact ⟨preserve (stackBase + 0xa18) link linkFrame, preserve (stackBase + 0xa10) s0 s0Frame,
-    preserve (stackBase + 0xa08) s1 s1Frame, preserve (stackBase + 0xa00) s2 s2Frame⟩
+  exact ⟨preserve (stackBase + 0xa18) (by omega) link linkFrame,
+    preserve (stackBase + 0xa10) (by omega) s0 s0Frame,
+    preserve (stackBase + 0xa08) (by omega) s1 s1Frame,
+    preserve (stackBase + 0xa00) (by omega) s2 s2Frame⟩
 
 /-- A wrapper stack store preserves the borrowed input because the compiled entry premise keeps the
 entire input interval outside the writable frame. -/
@@ -1963,7 +1968,7 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     frame6⟩ := frame6
   have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
     apply WrapperSavedRegisterFrame.of_mem_eq frame6
-    simp [final, s10, s9, s8, s7, wrapperAfterFreshBranch, afterRegisterWrite_mem]
+    rfl
   have ownStep (stepNo pc : Nat) (before after : State)
       (atPc : before.regs.get? PC = some (BitVec.ofNat 64 pc))
       (inRegion : functionInstanceExecutionPcs generatedProgram
@@ -2306,7 +2311,7 @@ theorem wrapper_reaches_allocator_first_segment
       Trace fromStep 13 entry atAllocator ∧
       Nonempty (AllocatorInlineTransfer (fromStep + 13) 0 atAllocator
         (allocatorAfterDataPointer atAllocator retired (BitVec.ofNat 64 0x4215020))) := by
-  obtain ⟨atAllocator, trace, -, pc, -, -, -, -, globals, -, -, agree, retired, code⟩ :=
+  obtain ⟨atAllocator, trace, -, pc, -, -, -, -, globals, -, -, agree, retired, code, -⟩ :=
     wrapper_to_allocator_entry_prefix fromStep args stackBase entry source machine
   have pcIn : functionInstanceExecutionPcs generatedProgram
       functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x102f0) := by
@@ -2475,7 +2480,7 @@ theorem wrapper_through_allocator_tag
     simp [afterFirst, allocatorAfterDataPointer, afterRegisterWrite_mem]
   have tagBeforeSaveArea : (BitVec.ofNat 64 0x4215020).toNat + 1 ≤ stackBase + 0xa00 := by
     have stackAfterResult := wrapper_stack_after_stored_result machine
-    norm_num
+    change 0x4215021 ≤ stackBase + 0xa00
     omega
   have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
     simpa [final] using wrapperAfterAllocatorTag_preserves_savedFrame afterFirst r15
@@ -2812,22 +2817,26 @@ private theorem wrapper_second_allocator_semantics
     have frameFits := machine.stackFrameFits
     omega
   have contextFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 afterContext := by
-    simpa [afterContext, wrapperAfterDwordStore] using
-      wrapperAfterDwordStore_preserves_savedFrame afterAddress (BitVec.ofNat 64 0x10300)
-        contextRetired (BitVec.ofNat 64 stackBase + sign_extend (0x010#12))
-        (BitVec.ofNat 64 0x4215021) stackBase (stackBase + 0x10) contextTargetValue (by omega)
-        addressFrame
+    change WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2
+      (wrapperAfterDwordStore afterAddress (BitVec.ofNat 64 0x10300) contextRetired
+        (BitVec.ofNat 64 stackBase + sign_extend (0x010#12)) (BitVec.ofNat 64 0x4215021))
+    exact wrapperAfterDwordStore_preserves_savedFrame afterAddress (BitVec.ofNat 64 0x10300)
+      contextRetired (BitVec.ofNat 64 stackBase + sign_extend (0x010#12))
+      (BitVec.ofNat 64 0x4215021) stackBase (stackBase + 0x10) contextTargetValue (by omega)
+      addressFrame
   have functionTargetValue :
       (BitVec.ofNat 64 stackBase + sign_extend (0x018#12)).toNat = stackBase + 0x18 := by
     rw [functionTarget, ← BitVec.ofNat_add, BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
     have frameFits := machine.stackFrameFits
     omega
   have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
-    simpa [final, afterContext, wrapperAfterDwordStore] using
-      wrapperAfterDwordStore_preserves_savedFrame afterContext (BitVec.ofNat 64 0x10304)
-        functionRetired (BitVec.ofNat 64 stackBase + sign_extend (0x018#12))
-        (BitVec.ofNat 64 0x13f70) stackBase (stackBase + 0x18) functionTargetValue (by omega)
-        contextFrame
+    change WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2
+      (wrapperAfterDwordStore afterContext (BitVec.ofNat 64 0x10304) functionRetired
+        (BitVec.ofNat 64 stackBase + sign_extend (0x018#12)) (BitVec.ofNat 64 0x13f70))
+    exact wrapperAfterDwordStore_preserves_savedFrame afterContext (BitVec.ofNat 64 0x10304)
+      functionRetired (BitVec.ofNat 64 stackBase + sign_extend (0x018#12))
+      (BitVec.ofNat 64 0x13f70) stackBase (stackBase + 0x18) functionTargetValue (by omega)
+      contextFrame
   refine ⟨
     { final := final
       transfer := transfer
