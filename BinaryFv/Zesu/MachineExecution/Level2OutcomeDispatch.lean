@@ -1551,7 +1551,10 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
   have retired8 := afterRegisterWrite_retired_present s7 (BitVec.ofNat 64 0x10418) r8 x11
     (BitVec.ofNat 64 2)
   have code8 : canonicalContractParams.env.CodeIntact s8 := by
-    simpa [s8, afterRegisterWrite_mem] using code7
+    change canonicalContractParams.env.image.fileBytesMatchMemory s8.mem
+    change canonicalContractParams.env.image.fileBytesMatchMemory s7.mem at code7
+    rw [show s8.mem = s7.mem from rfl]
+    exact code7
   have pc8 : s8.regs.get? PC = some (BitVec.ofNat 64 0x1041c) := by
     simpa [s8] using afterRegisterWrite_pc s7 (BitVec.ofNat 64 0x10418) r8 x11 (BitVec.ofNat 64 2)
   obtain ⟨r9, run9⟩ := wrapper_dispatch_tag2_to_rejection_step machine agree8 retired8 code8
@@ -1680,7 +1683,10 @@ theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base stat
   have retired6 := afterRegisterWrite_retired_present s5 (BitVec.ofNat 64 0x1042c) r6 x11
     (BitVec.ofNat 64 4)
   have code6 : canonicalContractParams.env.CodeIntact s6 := by
-    simpa [s6, afterRegisterWrite_mem] using code5
+    change canonicalContractParams.env.image.fileBytesMatchMemory s6.mem
+    change canonicalContractParams.env.image.fileBytesMatchMemory s5.mem at code5
+    rw [show s6.mem = s5.mem from rfl]
+    exact code5
   have pc6 : s6.regs.get? PC = some (BitVec.ofNat 64 0x10430) := by
     simpa [s6] using afterRegisterWrite_pc s5 (BitVec.ofNat 64 0x1042c) r6 x11 (BitVec.ofNat 64 4)
   obtain ⟨r7, run7⟩ := wrapper_dispatch_tag1_to_rejection_step machine agree6 retired6 code6
