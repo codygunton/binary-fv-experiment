@@ -133,6 +133,61 @@ private theorem wrapper_dispatch_branch_not_taken_step {machineArgs : DecoderMac
     byte0 byte1 byte2 byte3 fetch noMMIO fetched interrupts baseEncoding decode notExpected condition
     hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
 
+private theorem wrapper_dispatch_branch_taken_step {machineArgs : DecoderMachineArgs}
+    {base state : State} (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (stepNo : Nat) (pc target : BitVec 64) (imm : BitVec 13) (rs2 rs1 : regidx) (op : bop)
+    (pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc)
+    (atPc : state.regs.get? PC = some pc) (byte0 byte1 byte2 byte3 : BitVec 8)
+    (fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
+    (baseEncoding : BaseInstructionEncoding byte0)
+    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.BTYPE (imm, rs2, rs1, op)))
+    (condition : Runs (bTypeTaken rs2 rs1 op)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) true)
+    (targetEq : pc + sign_extend (m := 64) imm = target)
+    (targetAligned0 : Sail.BitVec.access target 0 = 0#1)
+    (targetAligned1 : Sail.BitVec.access target 1 = 0#1) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) false := by
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine agree pc atPc pcIn
+    byte0 byte1 byte2 byte3 fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  obtain ⟨retired, inhibit, config, counters⟩ :=
+    decoderStepCounters machine.normal agree retiredPresent
+  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
+  have pcRead : executeState.regs.get? PC = some pc := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, atPc]
+  obtain ⟨misaBits, misaBaseRead, -⟩ : ∃ misaBits,
+      base.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
+    have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
+    match read : base.regs.get? misa with
+    | none => simp [read] at normalMisa
+    | some bits => exact ⟨bits, rfl, by simpa [read] using normalMisa⟩
+  have misaRead : state.regs.get? misa = some misaBits :=
+    (agree misa (by simp [platformPreserved])).trans misaBaseRead
+  have zca := currentlyEnabledZca_run_atStepPremise state pc misaBits misaRead
+  have align0 : Sail.BitVec.access (pc + sign_extend (m := 64) imm) 0 = 0#1 := by
+    rw [targetEq]
+    exact targetAligned0
+  have align1 : Sail.BitVec.access (pc + sign_extend (m := 64) imm) 1 = 0#1 := by
+    rw [targetEq]
+    exact targetAligned1
+  refine ⟨retired, ?_⟩
+  simpa [targetEq] using tryStepBranchTakenRetires stepNo state pc pc retired imm rs2 rs1 op
+    inhibit config byte0 byte1 byte2 byte3 (_get_Misa_C misaBits == 1#1)
+    fetch noMMIO fetched interrupts baseEncoding decode notExpected condition
+    (readReg_run executeState PC _ pcRead) align0 align1 zca hartRead inhibitRead configRead
+    notInhibited machineEnabled retiredRead
+
 /-- The first dispatch instruction writes the tag-three comparison constant. -/
 theorem wrapper_dispatch_tag3_constant_step {machineArgs : DecoderMachineArgs} {base state : State}
     (machine : DecoderMachinePre
@@ -403,6 +458,69 @@ theorem wrapper_dispatch_tag1_constant_step {machineArgs : DecoderMachineArgs} {
     (BitVec.ofNat 64 0x10404) fetchPc atPc 0x93#8 0x05#8 0x10#8 0x00#8
     (.ITYPE (0x001#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) fetchBytes decode execute
     (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide) (by decide)
+
+/-- A tag-one result takes the second comparison branch to its rejection tail. -/
+theorem wrapper_dispatch_tag1_branch_step {machineArgs : DecoderMachineArgs} {base state : State}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10408))
+    (tag : state.regs.get? x10 = some (BitVec.ofNat 64 1))
+    (comparison : state.regs.get? x11 = some (BitVec.ofNat 64 1)) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
+          (BitVec.ofNat 64 0x10408) (BitVec.ofNat 64 0x10428))
+        (BitVec.ofNat 64 0x10428) retired) false := by
+  have pcIn : functionInstanceExecutionPcs generatedProgram
+      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10408) := by
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  have fetchPc : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (BitVec.ofNat 64 0x10408) := ⟨pcIn, by native_decide⟩
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10408) 0x63#8 0x00#8 0xb5#8 0x02#8 :=
+    fetchFileInstruction state 0x10408 0x63 0x00 0xb5 0x02
+      (hasExactErePrefix_programImage_of_codeIntact code)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
+    agree.trans (agree_afterIncrement state)
+  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine :=
+    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
+  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
+  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
+    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
+  have decode : Runs (ext_decode (fetchWord 0x63#8 0x00#8 0xb5#8 0x02#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.BTYPE (0x20#13, .Regidx 11#5, .Regidx 10#5, .BEQ)) := by
+    change Runs (ext_decode (0x02b50063 : BitVec 32)) _ _ _
+    decode_run
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x10408)
+  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 1) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, tag]
+  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 1) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, comparison]
+  have condition : Runs (bTypeTaken (.Regidx 11#5) (.Regidx 10#5) .BEQ)
+      executeState executeState true := by
+    unfold bTypeTaken
+    refine Runs.bind (rX_bits_run_x10 executeState _ x10AtExecute) ?_
+    refine Runs.bind (rX_bits_run_x11 executeState _ x11AtExecute) ?_
+    rfl
+  have targetEq : BitVec.ofNat 64 0x10408 + sign_extend (m := 64) (0x20#13) =
+      BitVec.ofNat 64 0x10428 := by decide
+  exact wrapper_dispatch_branch_taken_step machine agree retiredPresent stepNo
+    (BitVec.ofNat 64 0x10408) (BitVec.ofNat 64 0x10428) (0x20#13)
+    (.Regidx 11#5) (.Regidx 10#5) .BEQ fetchPc atPc
+    0x63#8 0x00#8 0xb5#8 0x02#8 fetchBytes (by unfold BaseInstructionEncoding; decide) decode
+    condition targetEq (by decide) (by decide)
 
 /-- The tag-three rejection tail clears the wrapper return value. -/
 theorem wrapper_dispatch_tag3_clear_result_step {machineArgs : DecoderMachineArgs} {base state : State}
