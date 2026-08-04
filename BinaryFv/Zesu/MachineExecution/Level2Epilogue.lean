@@ -2,6 +2,8 @@ import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
 import BinaryFv.Zesu.MachineExecution.HasExactErePrefixProof
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
 import BinaryFv.Zesu.MachineExecution.RegisterWriteStep
+import BinaryFv.Zesu.MachineExecution.RegisterRuns
+import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
 import BinaryFv.RiscV.Step.TryStepStackAddi
 import BinaryFv.RiscV.Step.TryStepStackAddiMemory
 
