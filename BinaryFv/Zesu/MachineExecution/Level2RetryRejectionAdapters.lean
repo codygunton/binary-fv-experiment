@@ -27,6 +27,17 @@ structure RetryShortRejectionEdgeResult (args : DecodeInlineArgs) (fromStep used
   status : after.regs.get? x11 = some (BitVec.ofNat 64 2)
   savedFrame : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 after
   branch : Runs (try_step (fromStep + used) false) after handoff false
+  branchPrefix : ConfinedPrefix
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary (fromStep + used) 1 after handoff
+  handoffFrame : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 handoff
+  handoffRetired : RetiredCounterPresent handoff
+  handoffCode : canonicalContractParams.env.CodeIntact handoff
+  handoffMemory : handoff.mem = after.mem
+  handoffAgree : Agree decoderPreserved before handoff
+  handoffStack : handoff.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase)
+  handoffGlobals : handoff.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
   branchPc : handoff.regs.get? PC = some (BitVec.ofNat 64 0x10420)
 
 /-- The short-input rejection preserves the wrapper's concrete 32-byte save area. -/
@@ -41,6 +52,7 @@ theorem decodeInline_retry_short_reaches_post_save_area (fromStep : Nat) (args :
         (DecodeInlineExit args) Level3ChildSummary fromStep used state after ∧
       DecodeInlinePost args state after ∧ DecodeInlineMachinePost state after ∧
       DecodeInlineOutgoingFrame args after ∧ DecodeInlineCallerSaveArea args state after ∧
+      after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
       after.regs.get? x11 = some (BitVec.ofNat 64 2) := by
   have childRun := decodeInline_retry_uses_length_gate fromStep args state pre phase
   let childUsed := Classical.choose childRun
@@ -52,6 +64,7 @@ theorem decodeInline_retry_short_reaches_post_save_area (fromStep : Nat) (args :
   have childPost := childPayload.2.2.1
   have agree := childPayload.2.2.2.1
   have counter := childPayload.2.2.2.2.1
+  have childStack := childPayload.2.2.2.2.2.1
   have childGlobals := childPayload.2.2.2.2.2.2.2.2.1
   have childStatus := childPayload.2.2.2.2.2.2.2.2.2.1
   have code := childPayload.2.2.2.2.2.2.2.2.2.2.1
@@ -72,7 +85,7 @@ theorem decodeInline_retry_short_reaches_post_save_area (fromStep : Nat) (args :
   have resultInvalid : Contracts.meaningDecode args.bytes = .error .invalidSsz := by
     simp [Contracts.meaningDecode, rawInvalid, prefixFalse]
   refine ⟨4 + childUsed, after, ?_, ?_, ?_,
-    ⟨agree, counter, code, childGlobals.trans pre.globalsValue.symm⟩, ?_, ?_, ?_⟩
+    ⟨agree, counter, code, childGlobals.trans pre.globalsValue.symm⟩, ?_, ?_, ?_, ?_⟩
   · unfold decodeInlineStepBound
     have childBound' : childUsed ≤ 12 := by
       simpa [childUsed, hasExactErePrefixInlineStepBound] using childBound
@@ -83,6 +96,7 @@ theorem decodeInline_retry_short_reaches_post_save_area (fromStep : Nat) (args :
     exact ⟨childPost.2.1, childPost.2.2⟩
   · intro index bound
     rw [memory]
+  · simpa [after] using childStack
   · simpa [after] using childStatus
 
 /-- The four-byte prefix-mismatch rejection preserves the wrapper's concrete 32-byte save area. -/
@@ -174,7 +188,7 @@ theorem retry_short_rejection_edge (fromStep : Nat) (args : DecodeInlineArgs) (b
     (saved : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 before) :
     ∃ used after retired, RetryShortRejectionEdgeResult args fromStep used before after
       (decodeInlineRetryShortBranchAfter after retired) link s0 s1 s2 := by
-  obtain ⟨used, after, -, childTrace, post, machine, outgoing, saveArea, status⟩ :=
+  obtain ⟨used, after, -, childTrace, post, machine, outgoing, saveArea, stack, status⟩ :=
     decodeInline_retry_short_reaches_post_save_area fromStep args before pre phase short
   have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
     meaningHasExactErePrefix_false_of_size_lt_four args.bytes short
@@ -183,7 +197,51 @@ theorem retry_short_rejection_edge (fromStep : Nat) (args : DecodeInlineArgs) (b
     exact post.2
   obtain ⟨retired, branch, branchPc⟩ :=
     retry_short_length_branch_step (fromStep + used) args before after pre machine outgoing phase short atPc
+  have branchPrefix : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (fromStep + used) 1 after
+        (decodeInlineRetryShortBranchAfter after retired) :=
+    ConfinedPrefix.ownStep atPc (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) branch
+  have handoffFrame : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2
+      (decodeInlineRetryShortBranchAfter after retired) :=
+    WrapperSavedRegisterFrame.of_mem_eq
+      (WrapperSavedRegisterFrame.of_decode_inline_caller_save_area saved saveArea) (by rfl)
+  have handoffRetired : RetiredCounterPresent (decodeInlineRetryShortBranchAfter after retired) := by
+    exact ⟨Sail.BitVec.addInt retired 1, by simp [decodeInlineRetryShortBranchAfter,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+  have handoffCode : canonicalContractParams.env.CodeIntact
+      (decodeInlineRetryShortBranchAfter after retired) := by
+    simpa [decodeInlineRetryShortBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement] using machine.code
+  have branchAgree : Agree decoderPreserved after (decodeInlineRetryShortBranchAfter after retired) := by
+    intro register preserved
+    rcases preserved with ⟨notLink, platform⟩
+    rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    all_goals simp [decodeInlineRetryShortBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have handoffStack : (decodeInlineRetryShortBranchAfter after retired).regs.get? x2 =
+      some (BitVec.ofNat 64 args.stackBase) := by
+    simpa [decodeInlineRetryShortBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using stack
+  have handoffGlobals : (decodeInlineRetryShortBranchAfter after retired).regs.get? x18 =
+      some (BitVec.ofNat 64 0x4215020) := by
+    have afterGlobals := machine.globalsValue.trans pre.globalsValue
+    simpa [decodeInlineRetryShortBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using afterGlobals
   exact ⟨used, after, retired, childTrace, post, machine, outgoing, saveArea, status,
-    WrapperSavedRegisterFrame.of_decode_inline_caller_save_area saved saveArea, branch, branchPc⟩
+    WrapperSavedRegisterFrame.of_decode_inline_caller_save_area saved saveArea, branch, branchPrefix,
+    handoffFrame, handoffRetired, handoffCode, rfl, machine.agree.trans branchAgree,
+    handoffStack, handoffGlobals, branchPc⟩
 
 end BinaryFv.Zesu.MachineExecution
