@@ -1,4 +1,6 @@
 import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch
+import BinaryFv.Zesu.MachineExecution.Level2OutgoingBranchSteps
+import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
 
 /-! The tag-three wrapper dispatch owns five concrete instructions before the shared status store. -/
 
@@ -426,5 +428,117 @@ theorem wrapper_dispatch_tag3_confined {machineArgs : DecoderMachineArgs} {base 
   · simp [s1, s2, s3, s4, s5, afterRegisterWrite, wrapperDispatchTag3BranchAfter,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+
+/-- Lossless Level 2 handoff from a propagated non-`invalidSsz` decoder error to result dispatch. -/
+structure PropagatedErrorEdgeResult (args : DecodeInlineArgs) (error : Contracts.DecodeError)
+    (fromStep used : Nat) (before after dispatch : State) (link s0 s1 s2 : BitVec 64) : Prop where
+  bound : used ≤ decodeInlineStepBound args
+  child : level3DecodeChildSummary
+    functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
+    fromStep used before after
+  childTrace : ScopedTrace
+    (functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+    (DecodeInlineExit args) Level3ChildSummary fromStep used before after
+  post : DecodeInlinePost args before after
+  machine : DecodeInlineMachinePost before after
+  outgoing : DecodeInlineOutgoingFrame args after
+  branch : Runs (try_step (fromStep + used) false) after dispatch false
+  branchPrefix : ConfinedPrefix
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary (fromStep + used) 1 after dispatch
+  dispatchTag : dispatch.regs.get? x10 =
+    some (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))
+  dispatchStatus : dispatch.regs.get? x11 = some (BitVec.ofNat 64 2)
+  dispatchPc : dispatch.regs.get? PC = some (BitVec.ofNat 64 0x103fc)
+  dispatchPlatform : Agree platformPreserved before dispatch
+  dispatchDecoder : Agree decoderPreserved before dispatch
+  dispatchCode : canonicalContractParams.env.CodeIntact dispatch
+  dispatchRetired : RetiredCounterPresent dispatch
+  dispatchMemory : dispatch.mem = before.mem
+  dispatchStack : dispatch.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase)
+  dispatchGlobals : dispatch.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
+  frame : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 dispatch
+
+theorem propagated_error_edge (fromStep : Nat) (args : DecodeInlineArgs) (before : State)
+    (pre : DecodeInlinePre args before) (error : Contracts.DecodeError)
+    (phase : args.phase = .propagateError error) (link s0 s1 s2 : BitVec 64)
+    (saved : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 before) :
+    ∃ used after retired, PropagatedErrorEdgeResult args error fromStep used before after
+      (decodeInlinePropagateErrorBranchAfter after retired) link s0 s1 s2 := by
+  obtain ⟨used, after, bound, childTrace, post, machine, outgoing⟩ :=
+    decodeInline_propagate_error_reaches_post fromStep args before pre error phase
+  have child : level3DecodeChildSummary
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
+      fromStep used before after := ⟨rfl, args, pre, bound, childTrace, post, machine, outgoing⟩
+  have identity : after = before := by
+    simp [DecodeInlinePost, phase] at post
+    exact post.2.2.2.2
+  subst after
+  obtain ⟨retired, branch, dispatchPc⟩ :=
+    decodeInline_propagate_error_branch_step (fromStep + used) args before pre error phase
+  have atPc : before.regs.get? PC = some (BitVec.ofNat 64 0x10380) := by
+    simp [DecodeInlinePost, phase] at post
+    exact post.2.2.2
+  have branchPrefix : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (fromStep + used) 1 before
+        (decodeInlinePropagateErrorBranchAfter before retired) :=
+    ConfinedPrefix.ownStep atPc (by
+      show functionInstanceExecutionPcs generatedProgram
+        functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10380)
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) branch
+  have dispatchPlatform : Agree platformPreserved before
+      (decodeInlinePropagateErrorBranchAfter before retired) := by
+    intro register preserved
+    rcases preserved with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    all_goals simp [decodeInlinePropagateErrorBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have dispatchDecoder : Agree decoderPreserved before
+      (decodeInlinePropagateErrorBranchAfter before retired) :=
+    Agree.weaken (fun _ preserved => preserved.2) dispatchPlatform
+  have dispatchCode : canonicalContractParams.env.CodeIntact
+      (decodeInlinePropagateErrorBranchAfter before retired) := by
+    simpa [decodeInlinePropagateErrorBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement] using machine.code
+  have dispatchRetired : RetiredCounterPresent
+      (decodeInlinePropagateErrorBranchAfter before retired) := by
+    exact ⟨Sail.BitVec.addInt retired 1, by simp [decodeInlinePropagateErrorBranchAfter,
+      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+  have dispatchStack : (decodeInlinePropagateErrorBranchAfter before retired).regs.get? x2 =
+      some (BitVec.ofNat 64 args.stackBase) := by
+    simpa [decodeInlinePropagateErrorBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using pre.stackValue
+  have dispatchGlobals : (decodeInlinePropagateErrorBranchAfter before retired).regs.get? x18 =
+      some (BitVec.ofNat 64 0x4215020) := by
+    simpa [decodeInlinePropagateErrorBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using pre.globalsValue
+  have dispatchTag : (decodeInlinePropagateErrorBranchAfter before retired).regs.get? x10 =
+      some (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))) := by
+    obtain ⟨-, -, tagA0, -⟩ := pre.propagateReason error phase
+    simpa [decodeInlinePropagateErrorBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using tagA0
+  have dispatchStatus : (decodeInlinePropagateErrorBranchAfter before retired).regs.get? x11 =
+      some (BitVec.ofNat 64 2) := by
+    obtain ⟨-, -, -, tagA1⟩ := pre.propagateReason error phase
+    simpa [decodeInlinePropagateErrorBranchAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using tagA1
+  exact ⟨used, before, retired, bound, child, childTrace, post, machine, outgoing, branch,
+    branchPrefix, dispatchTag, dispatchStatus, dispatchPc, dispatchPlatform, dispatchDecoder,
+    dispatchCode, dispatchRetired, rfl, dispatchStack, dispatchGlobals,
+    WrapperSavedRegisterFrame.of_mem_eq saved (by rfl)⟩
 
 end BinaryFv.Zesu.MachineExecution
