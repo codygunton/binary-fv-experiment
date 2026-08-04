@@ -275,6 +275,7 @@ theorem first_memcpy_uses_proved_body (fromStep : Nat) (args : DecodeInlineArgs)
     ∃ callRetired childUsed childEntry childExit,
       childEntry = firstMemcpyCallAfter beforeCall callRetired ∧
       Runs (try_step fromStep false) beforeCall childEntry false ∧
+      Agree decoderPreserved beforeCall childEntry ∧
       (compiledMemcpyContract canonicalContractParams.env).binding.entry
         (firstMemcpyCopyArgs args contents) childEntry ∧
       childUsed ≤ (compiledMemcpyContract canonicalContractParams.env).binding.stepBound
@@ -322,7 +323,8 @@ theorem first_memcpy_uses_proved_body (fromStep : Nat) (args : DecodeInlineArgs)
   obtain ⟨childUsed, childExit, childBound, childTrace, childPost⟩ :=
     compiledMemcpyInstanceContract_proved copyArgs (fromStep + 1) childEntry compiledEntry
   exact ⟨callRetired, childUsed, childEntry, childExit, rfl,
-    by simpa [childEntry] using callRun, compiledEntry, childBound, childTrace, childPost⟩
+    by simpa [childEntry] using callRun, by simpa [childEntry] using callAgree, compiledEntry,
+    childBound, childTrace, childPost⟩
 
 /-- The complete checked call phase: the Sail-proved call at `0x10338`, the closed emitted
 `memcpy` summary, and the Sail-proved `ret` to `0x1033c`. -/
@@ -346,7 +348,7 @@ theorem first_memcpy_call_transfer (fromStep : Nat) (args : DecodeInlineArgs)
         functionInstance_raw_decoder_root_zesu_decode_raw functionInstance_memcpy
         fromStep childUsed beforeCall resumed) ∧
       resumed.regs.get? PC = some (BitVec.ofNat 64 0x1033c) := by
-  obtain ⟨callRetired, bodyUsed, childEntry, childExit, childEntryEq, callRun, childPre,
+  obtain ⟨callRetired, bodyUsed, childEntry, childExit, childEntryEq, callRun, -, childPre,
     bodyBound, childTrace, childPost⟩ :=
     first_memcpy_uses_proved_body fromStep args contents baseState beforeCall pre contentsSize
       sourceMemory agree counter code atCall callBase destination source length
@@ -432,6 +434,7 @@ structure FirstMemcpyTransferFrame (fromStep : Nat) (args : DecodeInlineArgs) (c
   retiredCounter : RetiredCounterPresent resumed
   globalsValue : resumed.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
   stackValue : resumed.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase)
+  decoder : Agree decoderPreserved before resumed
   callerSaveArea : DecodeInlineCallerSaveArea args before resumed
 
 /-- Discharge every first-call input from the first `decodeRaw` success frame.  In particular,
@@ -469,7 +472,7 @@ theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : Decod
       FirstMemcpyTransferFrame fromStep args contents before atCall childUsed resumed := by
   simp only [DecodeInlineFirstPost, success] at post
   obtain ⟨-, atPc, destination, source, length, callBase, contents, contentsSize, sourceMemory⟩ := post
-  obtain ⟨callRetired, bodyUsed, childEntry, childExit, childEntryEq, callRun, childPre,
+  obtain ⟨callRetired, bodyUsed, childEntry, childExit, childEntryEq, callRun, callAgree, childPre,
     bodyBound, childTrace, childPost⟩ :=
     first_memcpy_uses_proved_body fromStep args contents before atCall pre contentsSize sourceMemory
       frame.agree frame.retiredCounter frame.code atPc callBase destination source length
@@ -507,6 +510,21 @@ theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : Decod
     simp [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
       coreControlFlowNextState, Std.ExtDHashMap.get?_insert, childExitStack]
+  have childEntryAgree : Agree decoderPreserved before childEntry := frame.agree.trans callAgree
+  have childExitAgree : Agree decoderPreserved before childExit := childEntryAgree.trans
+    (Agree.weaken (fun register preserved => by
+      rcases preserved with ⟨notLink, platform⟩
+      rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      all_goals simp_all [NonW]) machinePost.frame)
+  have resumedAgree : Agree decoderPreserved before resumed := childExitAgree.trans (by
+    intro register preserved
+    rcases preserved with ⟨notLink, platform⟩
+    rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    all_goals simp_all [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState, Std.ExtDHashMap.get?_insert])
   have childEntryMemory : childEntry.mem = atCall.mem := by
     rw [childEntryEq]
     rfl
@@ -552,7 +570,7 @@ theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : Decod
     .memcpy ⟨rfl, firstMemcpyCopyArgs args contents, childPre, bodyBound, childTrace,
       ⟨⟨exitCode, noAllocation, writesOnly, copyFrame, sourceAfter, destinationMemory⟩, machinePost⟩⟩
   refine ⟨contents, bodyUsed, resumed, ⟨⟨?_⟩, ?_, contentsSize, ?_, ?_, ?_, ?_, resumedStack,
-    resumedSaveArea⟩⟩
+    resumedAgree, resumedSaveArea⟩⟩
   exact
     { valid := memcpyFirstDecodeResult_valid
       callPc := BitVec.ofNat 64 0x10338
