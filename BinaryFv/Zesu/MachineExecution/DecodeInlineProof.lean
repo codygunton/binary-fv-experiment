@@ -1951,6 +1951,7 @@ theorem decodeInline_first_success_copy_setup (fromStep : Nat) (args : DecodeInl
       after.regs.get? x12 = some (BitVec.ofNat 64 832) ∧
       after.regs.get? x1 = some (BitVec.ofNat 64 0x14334) ∧
       after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
+      after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
       Agree decoderPreserved baseState after ∧
       RetiredCounterPresent after ∧
       Contracts.canonicalContractParams.env.CodeIntact after ∧
@@ -2030,6 +2031,10 @@ theorem decodeInline_first_success_copy_setup (fromStep : Nat) (args : DecodeInl
     simp [s4, s3, s2, s1, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, globals]
+  have stack4 : s4.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simp [s4, s3, s2, s1, afterRegisterWrite, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, stackRead]
   have region1 := decodeInline_owned_in_execution_region (0x10328, 0x02010513)
     (by simp [decodeInlineOwnedInstructionWords])
   have region2 := decodeInline_owned_in_execution_region (0x1032c, 0x36010593)
@@ -2074,7 +2079,7 @@ theorem decodeInline_first_success_copy_setup (fromStep : Nat) (args : DecodeInl
     have firstThree := ConfinedPrefix.trans firstTwo (by simpa using prefix3)
     have allFour := ConfinedPrefix.trans firstThree (by simpa using prefix4)
     simpa using allFour
-  refine ⟨s4, ?_, completePrefix, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨s4, ?_, completePrefix, ?_, ?_, ?_, ?_, ?_, ?_, stack4, ?_, ?_, ?_, ?_⟩
   · refine Trace.step fromStep 3 state s1 s4 (by simpa [s1, destination] using run1) ?_
     refine Trace.step (fromStep + 1) 2 s1 s2 s4 (by simpa [s2, source] using run2) ?_
     refine Trace.step (fromStep + 2) 1 s2 s3 s4 (by simpa [s3, length] using run3) ?_
@@ -2179,7 +2184,8 @@ theorem decodeInline_first_success_reaches_post
         (functionInstanceExecutionPcs generatedProgram
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep (childUsed + 13) state final ∧
-      DecodeInlineMachinePost state final := by
+      DecodeInlineMachinePost state final ∧
+      final.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
   obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, parentPrefix, bound, transfer,
     tagRun, tagPc, tagCode, tagAgree, tagCounter, tagStackRaw, -, -, tagValue, tagGlobals, tagPost⟩ :=
     decodeInline_first_through_result_tag contract fromStep args state pre phase
@@ -2254,7 +2260,7 @@ theorem decodeInline_first_success_reaches_post
     apply canonicalPostEntry_of_mem_eq args.firstRawArgs (.ok value) rfl branchMemory
     exact tagPostZero
   obtain ⟨final, setupTrace, setupPrefix, finalPc, finalDestination, finalSource, finalLength,
-    finalLink, finalGlobals, finalAgree, finalCounter, finalCode, finalPost⟩ :=
+    finalLink, finalGlobals, finalStack, finalAgree, finalCounter, finalCode, finalPost⟩ :=
     decodeInline_first_success_copy_setup (fromStep + 9 + childUsed) args state branchState pre
       phase value success branchAgree branchCounter branchCode branchPc branchStack branchGlobals
       (by simpa [success] using branchPost)
@@ -2331,7 +2337,7 @@ theorem decodeInline_first_success_reaches_post
   have complete := parentPrefix (childUsed + 8) final (by
     exact afterCallCount)
   refine ⟨childUsed, final, bound, exit, post, ?_,
-    ⟨finalAgree, finalCounter, finalCode, finalGlobals.trans pre.globalsValue.symm⟩⟩
+    ⟨finalAgree, finalCounter, finalCode, finalGlobals.trans pre.globalsValue.symm⟩, finalStack⟩
   have countEq : 5 + (childUsed + 8) = childUsed + 13 := by omega
   rw [countEq] at complete
   exact complete
@@ -2373,9 +2379,12 @@ theorem decodeInline_first_error_reaches_post
           some (BitVec.ofNat 64 args.inputBase) ∧
       (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
         (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))).regs.get? x9 =
-          some (BitVec.ofNat 64 args.bytes.size) := by
+          some (BitVec.ofNat 64 args.bytes.size) ∧
+      (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
+        (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))).regs.get? x2 =
+          some (BitVec.ofNat 64 args.stackBase) := by
   obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, parentPrefix, bound, transfer,
-    tagRun, tagPc, tagCode, tagAgree, tagCounter, -, tagInputBase, tagInputLength, tagValue,
+    tagRun, tagPc, tagCode, tagAgree, tagCounter, tagStackRaw, tagInputBase, tagInputLength, tagValue,
     tagGlobals, tagPost⟩ :=
     decodeInline_first_through_result_tag contract fromStep args state pre phase
   have tagRunError : Runs (try_step (fromStep + 7 + childUsed) false) resumed
@@ -2390,6 +2399,10 @@ theorem decodeInline_first_error_reaches_post
       (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))).regs.get? x10 =
       some (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))) := by
     simpa [failed] using tagValue
+  have tagStackError : (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
+      (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)))).regs.get? x2 =
+      some (BitVec.ofNat 64 args.stackBase) := by
+    simpa [failed] using tagStackRaw
   have tagPostError : Contracts.postEntry Contracts.canonicalContractParams.env args.firstRawArgs
       Contracts.canonicalContractParams.repRawV4 (.error error) state
       (afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
@@ -2458,7 +2471,8 @@ theorem decodeInline_first_error_reaches_post
           (Contracts.meaningDecodeRaw args.bytes)))) from
         ⟨tagAgree, tagCounter, tagCode, tagGlobals.trans pre.globalsValue.symm⟩),
       by simpa [afterTag, failed] using tagInputBase,
-    by simpa [afterTag, failed] using tagInputLength⟩
+    by simpa [afterTag, failed] using tagInputLength,
+    by simpa [afterTag] using tagStackError⟩
 
 /-- The complete first-phase arm of the Level 3 contract. This is the single scope showing the
 conditional `decodeRaw` summary stitched to all parent-owned Sail execution and the selected semantic
@@ -2477,7 +2491,7 @@ theorem decodeInline_first_level3_relation (contract : CompiledDecodeRawInstance
       DecodeInlineOutgoingFrame args after := by
   cases resultEq : Contracts.meaningDecodeRaw args.bytes with
   | ok value =>
-      obtain ⟨childUsed, final, childBound, exit, post, trace, machinePost⟩ :=
+      obtain ⟨childUsed, final, childBound, exit, post, trace, machinePost, outgoingStack⟩ :=
         decodeInline_first_success_reaches_post contract fromStep args before pre phase value resultEq
       refine ⟨childUsed + 13, final, ?_, trace, ?_, machinePost, ?_⟩
       · unfold decodeInlineStepBound
@@ -2487,15 +2501,15 @@ theorem decodeInline_first_level3_relation (contract : CompiledDecodeRawInstance
         rw [stepBoundEq] at rawBound
         omega
       · simpa [DecodeInlinePost, phase] using post
-      · simp [DecodeInlineOutgoingFrame, phase]
+      · simpa [DecodeInlineOutgoingFrame, phase] using outgoingStack
   | error error =>
       obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, childBound, transfer,
-        tagRun, exit, post, trace, machinePost, -, -⟩ :=
+        tagRun, exit, post, trace, machinePost, -, -, outgoingStack⟩ :=
         decodeInline_first_error_reaches_post contract fromStep args before pre phase error resultEq
       refine ⟨childUsed + 8,
         afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
           (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))), ?_, trace, ?_,
-          machinePost, by simp [DecodeInlineOutgoingFrame, phase]⟩
+          machinePost, by simpa [DecodeInlineOutgoingFrame, phase] using outgoingStack⟩
       · unfold decodeInlineStepBound
         have rawBound := childBound
         have stepBoundEq : compiledDecodeRawContract.binding.stepBound args.firstRawArgs =

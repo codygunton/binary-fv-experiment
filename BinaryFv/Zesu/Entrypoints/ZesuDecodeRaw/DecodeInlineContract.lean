@@ -430,7 +430,7 @@ outcome. These are deliberately separate from the platform frame: Level 2 consum
 register comparison or result-tag bytes needed by the next wrapper-owned instruction. -/
 def DecodeInlineOutgoingFrame (args : DecodeInlineArgs) (after : State) : Prop :=
   match args.phase with
-  | .first => True
+  | .first => after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase)
   | .retryAfterInvalidSsz =>
       if meaningHasExactErePrefix args.bytes then
         after.regs.get? x10 = some (BitVec.ofNat 64 (args.stackBase + 0x1000)) ∧
