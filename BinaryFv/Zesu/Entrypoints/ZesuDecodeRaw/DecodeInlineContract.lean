@@ -419,6 +419,14 @@ structure DecodeInlineMachinePost (before after : State) : Prop where
   code : canonicalContractParams.env.CodeIntact after
   globalsValue : after.regs.get? x18 = before.regs.get? x18
 
+/-- The 32 bytes holding the wrapper's saved return address and callee-saved registers.  Level 3
+proves this concrete frame for outcomes that execute `decodeRaw`; Level 2 consumes it before the
+wrapper epilogue reloads those words. -/
+def DecodeInlineCallerSaveArea (args : DecodeInlineArgs) (before after : State) : Prop :=
+  ∀ index, index < 32 →
+    after.mem.get? (args.stackBase + 0xa00 + index) =
+      before.mem.get? (args.stackBase + 0xa00 + index)
+
 def prefixLow16 (bytes : ByteArray) : Nat :=
   (bytes.get! 0).toNat + (bytes.get! 1).toNat * 2 ^ 8
 
