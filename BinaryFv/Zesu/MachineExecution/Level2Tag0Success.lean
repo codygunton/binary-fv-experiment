@@ -70,6 +70,9 @@ structure Tag0StoredResultCopyPhase (args : ZesuDecodeRawArgs) (stackBase : Nat)
   retired : RetiredCounterPresent resumed
   stack : resumed.regs.get? x2 = some (BitVec.ofNat 64 stackBase)
   globals : resumed.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
+  machine : DecoderMachinePre
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (zesuDecodeRawMachineArgs args) resumed
 
 /-- Execute `addi a0, s2, 16` at `0x1033c`, selecting the 832-byte `stored_result` payload. -/
 theorem tag0_stored_result_destination_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -826,6 +829,27 @@ theorem tag0_stored_result_copy_phase
     simp [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
       coreControlFlowNextState]
+  have childExitAgree : Agree decoderPreserved state childExit := childAgree.trans
+    (Agree.weaken (fun register preserved => by
+      rcases preserved with ⟨notLink, platform⟩
+      rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      all_goals simp_all [NonW]) machinePost.frame)
+  have resumedAgree : Agree decoderPreserved state resumed := childExitAgree.trans (by
+    intro register preserved
+    rcases preserved with ⟨notLink, platform⟩
+    rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    all_goals simp_all [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState, Std.ExtDHashMap.get?_insert])
+  have resumedMachine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (zesuDecodeRawMachineArgs args) resumed :=
+    DecoderMachinePre.mono resumedAgree
+      ⟨Sail.BitVec.addInt returnRetired 1, by
+        simp [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
+          tryStepControlFlowAfterTick]⟩ pre.machine
   refine ⟨used,
     afterRegisterWrite
       (afterRegisterWrite
@@ -837,7 +861,7 @@ theorem tag0_stored_result_copy_phase
       (BitVec.ofNat 64 0x10348) r3 x1 (BitVec.ofNat 64 0x14348), resumed, ?_⟩
   refine ⟨setupPrefix, ⟨transfer⟩,
     by simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using scopedPrefix,
-    ?_, by simpa [resumed] using resumePc, resumedFrame, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, by simpa [resumed] using resumePc, resumedFrame, ?_, ?_, ?_, ?_, ?_, resumedMachine⟩
   · simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using Trace.append setupTrace
       (Trace.append (Trace.one (fromStep + 4) _ childEntry (by simpa [childEntry] using callRun))
         (Trace.append childTrace.trace.toTrace
