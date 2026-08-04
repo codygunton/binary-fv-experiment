@@ -75,6 +75,8 @@ gen_wx_run 2 ↦ x2, wX_x2_run
 gen_wx_run 5 ↦ x5, wX_x5_run
 gen_wx_run 6 ↦ x6, wX_x6_run
 gen_wx_run 7 ↦ x7, wX_x7_run
+gen_wx_run 8 ↦ x8, wX_x8_run
+gen_wx_run 9 ↦ x9, wX_x9_run
 gen_wx_run 10 ↦ x10, wX_x10_run
 gen_wx_run 11 ↦ x11, wX_x11_run
 gen_wx_run 12 ↦ x12, wX_x12_run
