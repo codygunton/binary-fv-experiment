@@ -1844,11 +1844,12 @@ theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base stat
     (tag : state.regs.get? x10 = some (BitVec.ofNat 64 1)) :
     DispatchPath base stepNo 7 state (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0)
       (BitVec.ofNat 64 4) := by
-  obtain ⟨⟨s4, prefix, pc4, tag4, status4, retired4, memory4, agree4, code4, x18_4⟩⟩ :=
+  obtain ⟨⟨s4, prefixTrace, pc4, tag4, status4, retired4, memory4, agree4, code4, x18_4⟩⟩ :=
     wrapper_dispatch_tag1_prefix machine agree retiredPresent code stepNo atPc tag
-  obtain ⟨⟨s7, suffix, pc7, result7, status7, retired7, memory7, agree7, code7, x18_7⟩⟩ :=
+  obtain ⟨⟨s7, suffixTrace, pc7, result7, status7, retired7, memory7, agree7, code7, x18_7⟩⟩ :=
     wrapper_dispatch_tag1_suffix machine agree4 retired4 code4 (stepNo + 4) pc4
-  refine ⟨⟨s7, Trace.append prefix suffix, pc7, result7, status7, retired7, ?_, agree7, code7, ?_⟩⟩
+  refine ⟨⟨s7, Trace.append prefixTrace suffixTrace, pc7, result7, status7, retired7, ?_, agree7,
+    code7, ?_⟩⟩
   · exact memory7.trans memory4
   · exact x18_7.trans x18_4
 
