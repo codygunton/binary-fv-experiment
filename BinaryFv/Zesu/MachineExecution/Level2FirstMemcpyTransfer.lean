@@ -415,6 +415,17 @@ theorem first_memcpy_call_transfer (fromStep : Nat) (args : DecodeInlineArgs)
       returnMatches := by decide
       resumeInRegion := returnInRegion }
 
+/-- The real first-copy call/return together with the facts consumed by the following tag-zero
+store.  These are consequences of the compiled `memcpy` proof, not a callable ABI. -/
+structure FirstMemcpyTransferFrame (args : DecodeInlineArgs) (contents : ByteArray)
+    (resumed : State) : Prop where
+  atResume : resumed.regs.get? PC = some (BitVec.ofNat 64 0x1033c)
+  contentsSize : contents.size = 832
+  destinationMemory : MemoryRepresentation.MemoryBytes resumed args.finalResultBase contents
+  code : canonicalContractParams.env.CodeIntact resumed
+  retiredCounter : RetiredCounterPresent resumed
+  globalsValue : resumed.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
+
 /-- Discharge every first-call input from the first `decodeRaw` success frame.  In particular,
 the link value comes from the proved `auipc` at `0x10334`; it is not a source ABI premise. -/
 theorem first_memcpy_transfer_of_first_post (fromStep : Nat) (args : DecodeInlineArgs)
@@ -435,5 +446,56 @@ theorem first_memcpy_transfer_of_first_post (fromStep : Nat) (args : DecodeInlin
   obtain ⟨-, atPc, destination, source, length, callBase, contents, contentsSize, sourceMemory⟩ := post
   exact first_memcpy_call_transfer fromStep args contents before atCall pre contentsSize sourceMemory
     frame.agree frame.retiredCounter frame.code atPc callBase destination source length
+
+/-- At the fixed initial step, retain the first-copy payload and machine frame for the tag-zero
+continuation. -/
+theorem first_memcpy_transfer_frame_of_first_post (args : DecodeInlineArgs)
+    (before atCall : State) (pre : DecodeInlinePre args before)
+    (value : BinaryFv.Specs.SSZ.RawV4)
+    (success : meaningDecodeRaw args.bytes = .ok value)
+    (post : DecodeInlineFirstPost args before atCall)
+    (frame : DecodeInlineMachinePost before atCall) :
+    ∃ contents resumed, FirstMemcpyTransferFrame args contents resumed := by
+  simp only [DecodeInlineFirstPost, success] at post
+  obtain ⟨-, atPc, destination, source, length, callBase, contents, contentsSize, sourceMemory⟩ := post
+  obtain ⟨_, bodyUsed, childEntry, childExit, childEntryEq, _, childPre, _, childTrace, childPost⟩ :=
+    first_memcpy_uses_proved_body 0 args contents before atCall pre contentsSize sourceMemory
+      frame.agree frame.retiredCounter frame.code atPc callBase destination source length
+  have childLink : childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x1033c) := by
+    rw [childEntryEq]
+    simp [firstMemcpyCallAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, callLinkState, Std.ExtDHashMap.get?_insert]
+  rcases childPost with ⟨sourcePost, machinePost⟩
+  rcases sourcePost with ⟨exitCode, noAllocation, writesOnly, copyFrame, sourceAfter,
+    destinationMemory⟩
+  obtain ⟨returnRetired, returnRun, returnedPc⟩ :=
+    memcpy_return_step (1 + bodyUsed) (firstMemcpyCopyArgs args contents)
+      (BitVec.ofNat 64 0x1033c) childEntry childExit (by decide) (by decide) childPre childTrace
+      childLink ⟨⟨exitCode, noAllocation, writesOnly, copyFrame, sourceAfter, destinationMemory⟩,
+        machinePost⟩
+  let resumed := memcpyReturnAfter (BitVec.ofNat 64 0x1033c) childExit returnRetired
+  have atCallGlobals : atCall.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    frame.globalsValue.trans pre.globalsValue
+  have childGlobals : childEntry.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
+    rw [childEntryEq]
+    simp [firstMemcpyCallAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      callLinkState, controlFlowJumpState, tryStepControlFlowAfterIncrement, coreControlFlowNextState,
+      Std.ExtDHashMap.get?_insert, atCallGlobals]
+  refine ⟨contents, resumed, ⟨?_, contentsSize, ?_, ?_, ?_, ?_⟩⟩
+  · simpa [resumed] using returnedPc
+  · simpa [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState] using destinationMemory
+  · rw [DecoderEnvironment.CodeIntact]
+    simpa [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState] using exitCode
+  · exact ⟨Sail.BitVec.addInt returnRetired 1, by
+      simp [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick]⟩
+  · have exitGlobals := (machinePost.frame x18 (by simp [NonW])).trans childGlobals
+    simpa [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState, Std.ExtDHashMap.get?_insert] using exitGlobals
 
 end BinaryFv.Zesu.MachineExecution
