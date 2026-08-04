@@ -418,7 +418,7 @@ theorem first_memcpy_call_transfer (fromStep : Nat) (args : DecodeInlineArgs)
 /-- The real first-copy call/return together with the facts consumed by the following tag-zero
 store.  These are consequences of the compiled `memcpy` proof, not a callable ABI. -/
 structure FirstMemcpyTransferFrame (fromStep : Nat) (args : DecodeInlineArgs) (contents : ByteArray)
-    (atCall : State) (childUsed : Nat) (resumed : State) : Prop where
+    (before atCall : State) (childUsed : Nat) (resumed : State) : Prop where
   transfer : Nonempty (CallTransfer
     (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
     (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
@@ -431,6 +431,8 @@ structure FirstMemcpyTransferFrame (fromStep : Nat) (args : DecodeInlineArgs) (c
   code : canonicalContractParams.env.CodeIntact resumed
   retiredCounter : RetiredCounterPresent resumed
   globalsValue : resumed.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
+  stackValue : resumed.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase)
+  callerSaveArea : DecodeInlineCallerSaveArea args before resumed
 
 /-- Discharge every first-call input from the first `decodeRaw` success frame.  In particular,
 the link value comes from the proved `auipc` at `0x10334`; it is not a source ABI premise. -/
@@ -460,9 +462,11 @@ theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : Decod
     (value : BinaryFv.Specs.SSZ.RawV4)
     (success : meaningDecodeRaw args.bytes = .ok value)
     (post : DecodeInlineFirstPost args before atCall)
-    (frame : DecodeInlineMachinePost before atCall) :
+    (frame : DecodeInlineMachinePost before atCall) (phase : args.phase = .first)
+    (outgoing : DecodeInlineOutgoingFrame args atCall)
+    (saveArea : DecodeInlineCallerSaveArea args before atCall) :
     ∃ contents childUsed resumed,
-      FirstMemcpyTransferFrame fromStep args contents atCall childUsed resumed := by
+      FirstMemcpyTransferFrame fromStep args contents before atCall childUsed resumed := by
   simp only [DecodeInlineFirstPost, success] at post
   obtain ⟨-, atPc, destination, source, length, callBase, contents, contentsSize, sourceMemory⟩ := post
   obtain ⟨callRetired, bodyUsed, childEntry, childExit, childEntryEq, callRun, childPre,
@@ -489,6 +493,32 @@ theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : Decod
     simp [firstMemcpyCallAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       callLinkState, controlFlowJumpState, tryStepControlFlowAfterIncrement, coreControlFlowNextState,
       Std.ExtDHashMap.get?_insert, atCallGlobals]
+  have atCallStack : atCall.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simpa [DecodeInlineOutgoingFrame, phase] using outgoing
+  have childEntryStack : childEntry.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    rw [childEntryEq]
+    simp [firstMemcpyCallAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, callLinkState, controlFlowJumpState,
+      tryStepControlFlowAfterIncrement, coreControlFlowNextState,
+      Std.ExtDHashMap.get?_insert, atCallStack]
+  have childExitStack : childExit.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
+    (machinePost.frame x2 (by simp [NonW])).trans childEntryStack
+  have resumedStack : resumed.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simp [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
+      coreControlFlowNextState, Std.ExtDHashMap.get?_insert, childExitStack]
+  have childEntryMemory : childEntry.mem = atCall.mem := by
+    rw [childEntryEq]
+    rfl
+  have resumedMemory : resumed.mem = childExit.mem := by rfl
+  have resumedSaveArea : DecodeInlineCallerSaveArea args before resumed := by
+    intro index bound
+    rw [resumedMemory]
+    rw [copyFrame (args.stackBase + 0xa00 + index) (Or.inr (by
+      simp [firstMemcpyCopyArgs, DecodeInlineArgs.finalResultBase]
+      omega))]
+    rw [childEntryMemory]
+    exact saveArea index bound
   have callInRegion : functionInstanceExecutionPcs generatedProgram
       functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10338) := by
     apply functionInstanceExecutionPcs_iff_ranges.mpr
@@ -521,7 +551,8 @@ theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : Decod
   have body : Level2ChildSummary functionInstance_memcpyId (fromStep + 1) bodyUsed childEntry childExit :=
     .memcpy ⟨rfl, firstMemcpyCopyArgs args contents, childPre, bodyBound, childTrace,
       ⟨⟨exitCode, noAllocation, writesOnly, copyFrame, sourceAfter, destinationMemory⟩, machinePost⟩⟩
-  refine ⟨contents, bodyUsed, resumed, ⟨⟨?_⟩, ?_, contentsSize, ?_, ?_, ?_, ?_⟩⟩
+  refine ⟨contents, bodyUsed, resumed, ⟨⟨?_⟩, ?_, contentsSize, ?_, ?_, ?_, ?_, resumedStack,
+    resumedSaveArea⟩⟩
   exact
     { valid := memcpyFirstDecodeResult_valid
       callPc := BitVec.ofNat 64 0x10338
