@@ -51,6 +51,8 @@ macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
       encdec_reg_forwards, encdec_reg_forwards_matches, reg_arch_name_raw_forwards,
       LeanRV64DExecutable.Functions.not, zero_extend, regval_into_reg])
 
+gen_rx_run 1 ↦ x1, rX_x1_run
+gen_rx_run 2 ↦ x2, rX_x2_run
 gen_rx_run 5 ↦ x5, rX_x5_run
 gen_rx_run 6 ↦ x6, rX_x6_run
 gen_rx_run 7 ↦ x7, rX_x7_run
@@ -68,6 +70,8 @@ gen_rx_run 28 ↦ x28, rX_x28_run
 gen_rx_run 29 ↦ x29, rX_x29_run
 gen_rx_run 30 ↦ x30, rX_x30_run
 
+gen_wx_run 1 ↦ x1, wX_x1_run
+gen_wx_run 2 ↦ x2, wX_x2_run
 gen_wx_run 5 ↦ x5, wX_x5_run
 gen_wx_run 6 ↦ x6, wX_x6_run
 gen_wx_run 7 ↦ x7, wX_x7_run
