@@ -755,6 +755,20 @@ theorem wrapper_epilogue_first_restore_and_ra {base state : State} {machineArgs 
 /-- Restore the three saved callee registers in the wrapper's real epilogue.  This begins at
 `0x10368`, immediately after `wrapper_epilogue_first_restore_and_ra`; the saved values are
 arbitrary frame contents, not ABI defaults. -/
+structure WrapperEpilogueSavedRegistersResult (fromStep : Nat) (base before after : State)
+    (stackBase link savedS0 savedS1 savedS2 stack result status : BitVec 64) : Prop where
+  trace : Trace fromStep 3 before after
+  s0 : after.regs.get? x8 = some savedS0
+  s1 : after.regs.get? x9 = some savedS1
+  s2 : after.regs.get? x18 = some savedS2
+  sp : after.regs.get? x2 = some stack
+  a0 : after.regs.get? x10 = some result
+  a1 : after.regs.get? x11 = some status
+  frame : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 after
+  code : canonicalContractParams.env.CodeIntact after
+  agree : Agree decoderPreserved base after
+  retired : RetiredCounterPresent after
+
 theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineArgs : DecoderMachineArgs}
     (machine : DecoderMachinePre
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
@@ -779,20 +793,8 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
     (s0Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s0Address 8)
     (s1Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s1Address 8)
     (s2Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s2Address 8) :
-    ∃ retiredS0 retiredS1 retiredS2,
-      let afterS0 := afterRegisterWrite state (BitVec.ofNat 64 0x10368) retiredS0 x8 savedS0
-      let afterS1 := afterRegisterWrite afterS0 (BitVec.ofNat 64 0x1036c) retiredS1 x9 savedS1
-      let afterS2 := afterRegisterWrite afterS1 (BitVec.ofNat 64 0x10370) retiredS2 x18 savedS2
-      Runs (try_step fromStep false) state afterS0 false ∧
-      Runs (try_step (fromStep + 1) false) afterS0 afterS1 false ∧
-      Runs (try_step (fromStep + 2) false) afterS1 afterS2 false ∧
-      Trace fromStep 3 state afterS2 ∧
-      afterS2.regs.get? x8 = some savedS0 ∧ afterS2.regs.get? x9 = some savedS1 ∧
-      afterS2.regs.get? x18 = some savedS2 ∧ afterS2.regs.get? x2 = some stack ∧
-      afterS2.regs.get? x10 = some result ∧ afterS2.regs.get? x11 = some status ∧
-      WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 afterS2 ∧
-      canonicalContractParams.env.CodeIntact afterS2 ∧ Agree decoderPreserved base afterS2 ∧
-      RetiredCounterPresent afterS2 := by
+    ∃ after, WrapperEpilogueSavedRegistersResult fromStep base state after stackBase link savedS0 savedS1
+      savedS2 stack result status := by
   obtain ⟨retiredS0, s0Run⟩ := wrapper_epilogue_load_s0_step machine agree retiredPresent code
     fromStep atPc stack savedS0 s0Address stackValue s0AddressEq (stackBase.toNat + 0xa10)
     s0AddressNat frame.2.1 s0Aligned s0Allowed
@@ -838,35 +840,35 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
     retiredS1Present codeS1 (fromStep + 2) atS2 stack savedS2 s2Address stackS1 s2AddressEq
     (stackBase.toNat + 0xa00) s2AddressNat frameS1.2.2.2 s2Aligned s2Allowed
   let afterS2 := afterRegisterWrite afterS1 (BitVec.ofNat 64 0x10370) retiredS2 x18 savedS2
-  refine ⟨retiredS0, retiredS1, retiredS2, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · simpa [afterS0] using s0Run
-  · simpa [afterS0, afterS1] using s1Run
-  · simpa [afterS1, afterS2] using s2Run
+  have agreeS2 : Agree decoderPreserved base afterS2 :=
+    agreeS1.trans (afterRegisterWrite_agree_of (P := decoderPreserved)
+      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
+      (by simp [decoderPreserved, platformPreserved]))
+  refine ⟨afterS2, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
   · refine Trace.step fromStep 2 state afterS0 afterS2 (by simpa [afterS0] using s0Run) ?_
     refine Trace.step (fromStep + 1) 1 afterS0 afterS1 afterS2 (by simpa [afterS0, afterS1] using s1Run) ?_
     exact Trace.one (fromStep + 2) afterS1 afterS2 (by simpa [afterS1, afterS2] using s2Run)
-  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
-  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
-  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+  · simp [afterS2, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, stackValue]
-  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, resultValue]
-  · simp [afterRegisterWrite, tryStepControlFlowAfterRetired,
+  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, statusValue]
   · exact WrapperSavedRegisterFrame.of_mem_eq frameS1 (afterRegisterWrite_mem _ _ _ _ _)
   · simpa [afterS2, afterRegisterWrite_mem] using codeS1
-  · exact agreeS1.trans (afterRegisterWrite_agree_of (by simp [decoderPreserved, platformPreserved])
-      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
-      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved]))
+  · exact agreeS2
   · exact afterRegisterWrite_retired_present afterS1 (BitVec.ofNat 64 0x10370) retiredS2 x18 savedS2
 
 end BinaryFv.Zesu.MachineExecution
