@@ -120,7 +120,7 @@ def allocatorAfterDwordStore (state : State) (pc retired target data : BitVec 64
 private theorem allocatorStepPlatform {instructionPcs : BitVec 64 → Prop} {args}
     {base state : State} (machine : DecoderMachinePre instructionPcs args base)
     (agree : Agree decoderPreserved base state) (pc : BitVec 64)
-    (atPc : state.regs.get? PC = some pc) (pcIn : instructionPcs pc)
+    (atPc : state.regs.get? PC = some pc) (pcIn : DecoderFetchPc instructionPcs pc)
     (byte0 byte1 byte2 byte3 : BitVec 8)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       byte0 byte1 byte2 byte3) :
@@ -161,7 +161,7 @@ theorem allocator_dword_store_step_configured {instructionPcs : BitVec 64 → Pr
     (machine : DecoderMachinePre instructionPcs machineArgs baseState)
     (agree : Agree decoderPreserved baseState state)
     (retiredPresent : RetiredCounterPresent state)
-    (stepNo : Nat) (pc : BitVec 64) (pcIn : instructionPcs pc)
+    (stepNo : Nat) (pc : BitVec 64) (pcIn : DecoderFetchPc instructionPcs pc)
     (atPc : state.regs.get? PC = some pc)
     (byte0 byte1 byte2 byte3 : BitVec 8) (immediate : BitVec 12)
     (source : regidx) (stackBits data target : BitVec 64)
@@ -208,6 +208,7 @@ theorem allocator_dword_store_step_configured {instructionPcs : BitVec 64 → Pr
     pmmDisabled
   obtain ⟨physical, storeNoMMIO⟩ :=
     machine.dataAccess.store executeState target 8 executeAgree allowed
+      (by simpa [is_aligned_paddr, is_aligned_vaddr] using aligned)
   have memoryWrite : Runs (PreSail.writeBytes (n := 8) target.toNat data)
       executeState afterExec true := by
     simpa [afterExec] using writeBytes_run_exact (width := 8) executeState target.toNat data
@@ -242,7 +243,7 @@ private theorem allocatorInstructionStepPlatform {instructionPcs : BitVec 64 →
     (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
     (code : Artifacts.programImage.fileBytesMatchMemory state.mem) (pc : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
-    (pcIn : instructionPcs (BitVec.ofNat 64 pc)) : InstructionStepPlatform state pc := by
+    (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 pc)) : InstructionStepPlatform state pc := by
   have current := machine.mono agree retired
   obtain ⟨fetch, noMMIO, interrupts, notExpected⟩ :=
     current.platform state (BitVec.ofNat 64 pc) (Agree.refl state) atPc pcIn
@@ -982,7 +983,7 @@ theorem allocator_context_store_step_configured {instructionPcs : BitVec 64 → 
     (agree : Agree decoderPreserved baseState state)
     (retiredPresent : RetiredCounterPresent state)
     (code : Artifacts.programImage.fileBytesMatchMemory state.mem)
-    (fromStep : Nat) (pcIn : instructionPcs (BitVec.ofNat 64 0x10300))
+    (fromStep : Nat) (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 0x10300))
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10300))
     (stackBase context : BitVec 64) (stackValue : state.regs.get? x2 = some stackBase)
     (contextValue : state.regs.get? x11 = some context)
@@ -1120,7 +1121,7 @@ theorem allocator_function_store_transfer_configured {instructionPcs : BitVec 64
     (agree : Agree decoderPreserved baseState state)
     (retiredPresent : RetiredCounterPresent state)
     (code : Artifacts.programImage.fileBytesMatchMemory state.mem)
-    (fromStep : Nat) (pcIn : instructionPcs (BitVec.ofNat 64 0x10304))
+    (fromStep : Nat) (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 0x10304))
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10304))
     (stackBase functionAddress : BitVec 64) (stackValue : state.regs.get? x2 = some stackBase)
     (functionValue : state.regs.get? x10 = some functionAddress)
@@ -1308,7 +1309,7 @@ theorem allocator_second_segment_proved (fromStep : Nat) (entry : State)
     apply RegionPcs.iff_inRanges.mpr
     native_decide
   have pagePlatform := allocatorInstructionStepPlatform pre.machine (Agree.refl entry)
-    pre.machine.retiredCounter pre.code 0x102f8 pre.atEntry pagePcIn
+    pre.machine.retiredCounter pre.code 0x102f8 pre.atEntry ⟨pagePcIn, by native_decide⟩
   obtain ⟨pageRetired, pageStep⟩ := allocator_function_page_step fromStep entry pagePlatform
     pre.atEntry
   let afterPage := allocatorAfterFunctionPage entry pageRetired
@@ -1334,7 +1335,7 @@ theorem allocator_second_segment_proved (fromStep : Nat) (entry : State)
     apply RegionPcs.iff_inRanges.mpr
     native_decide
   have addressPlatform := allocatorInstructionStepPlatform pre.machine pageAgree pageRetiredPresent
-    pageCode 0x102fc pagePc addressPcIn
+    pageCode 0x102fc pagePc ⟨addressPcIn, by native_decide⟩
   obtain ⟨addressRetired, addressStep⟩ := allocator_function_address_step (fromStep + 1)
     afterPage addressPlatform pagePc pageValue
   let afterAddress := allocatorAfterFunctionAddress afterPage addressRetired
@@ -1371,7 +1372,8 @@ theorem allocator_second_segment_proved (fromStep : Nat) (entry : State)
     apply RegionPcs.iff_inRanges.mpr
     native_decide
   obtain ⟨contextRetired, contextStep⟩ := allocator_context_store_step_configured
-    pre.machine addressAgree addressRetiredPresent addressCode (fromStep + 2) contextPcIn
+    pre.machine addressAgree addressRetiredPresent addressCode (fromStep + 2)
+    ⟨contextPcIn, by native_decide⟩
     addressPc stackBase context addressStack addressContext pre.contextWritable pre.contextAligned
   let atOutgoingEdge := allocatorAfterContextStore afterAddress contextRetired stackBase context
   have contextAgree : Agree decoderPreserved entry atOutgoingEdge := addressAgree.trans
@@ -1397,7 +1399,8 @@ theorem allocator_second_segment_proved (fromStep : Nat) (entry : State)
     apply RegionPcs.iff_inRanges.mpr
     native_decide
   obtain ⟨functionRetired, outgoingStep⟩ := allocator_function_store_transfer_configured
-    pre.machine contextAgree contextRetiredPresent contextCode (fromStep + 3) functionPcIn
+    pre.machine contextAgree contextRetiredPresent contextCode (fromStep + 3)
+    ⟨functionPcIn, by native_decide⟩
     outgoingPc stackBase (BitVec.ofNat 64 0x13f70) outgoingStack outgoingFunction
     pre.functionWritable pre.functionAligned
   let afterTransfer := allocatorAfterFunctionStore atOutgoingEdge functionRetired stackBase

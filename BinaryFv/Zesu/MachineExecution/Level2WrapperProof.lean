@@ -102,7 +102,7 @@ theorem wrapper_dword_store_step {instructionPcs : BitVec 64 → Prop}
     (machine : DecoderMachinePre instructionPcs machineArgs baseState)
     (agree : Agree decoderPreserved baseState state)
     (retiredPresent : RetiredCounterPresent state)
-    (stepNo : Nat) (pc : BitVec 64) (pcIn : instructionPcs pc)
+    (stepNo : Nat) (pc : BitVec 64) (pcIn : DecoderFetchPc instructionPcs pc)
     (atPc : state.regs.get? PC = some pc)
     (byte0 byte1 byte2 byte3 : BitVec 8) (immediate : BitVec 12)
     (source : regidx) (stackBits data target : BitVec 64)
@@ -185,7 +185,7 @@ theorem wrapper_allocator_tag_step_configured {instructionPcs : BitVec 64 → Pr
     (machine : DecoderMachinePre instructionPcs machineArgs baseState)
     (agree : Agree decoderPreserved baseState state)
     (retiredPresent : RetiredCounterPresent state) (code : canonicalContractParams.env.CodeIntact state)
-    (stepNo : Nat) (pcIn : instructionPcs (BitVec.ofNat 64 0x102f4))
+    (stepNo : Nat) (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 0x102f4))
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x102f4))
     (target data : BitVec 64) (targetValue : state.regs.get? x18 = some target)
     (dataValue : state.regs.get? x10 = some data)
@@ -2121,7 +2121,7 @@ theorem decoderInstructionStepPlatform {instructionPcs : BitVec 64 → Prop}
     (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
     (code : canonicalContractParams.env.CodeIntact state) (pc : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
-    (pcIn : instructionPcs (BitVec.ofNat 64 pc)) : InstructionStepPlatform state pc := by
+    (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 pc)) : InstructionStepPlatform state pc := by
   have current := machine.mono agree retired
   obtain ⟨fetch, noMMIO, interrupts, notExpected⟩ :=
     current.platform state (BitVec.ofNat 64 pc) (Agree.refl state) atPc pcIn

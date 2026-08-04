@@ -71,6 +71,19 @@ theorem hasExactErePrefix_body_classification :
     | simp [functionInstanceExitPred, FunctionInstance.isExit,
         functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35]
 
+/-- Every explicitly attributed child word is an aligned fetch start as well as a byte-range member. -/
+theorem hasExactErePrefix_body_fetch_classification :
+    ∀ pc ∈ hasExactErePrefixBodyPcs,
+      DecoderFetchPc
+          (functionInstanceExecutionPcs generatedProgram
+            functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35)
+          (BitVec.ofNat 64 pc) := by
+  intro pc member
+  refine ⟨(hasExactErePrefix_body_classification pc member).1, ?_⟩
+  simp only [hasExactErePrefixBodyPcs, List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    native_decide
+
 /-- The other two attributed words are the generated outgoing-instruction sources. -/
 theorem hasExactErePrefix_outgoing_classification :
     ∀ pc ∈ hasExactErePrefixOutgoingPcs,
@@ -96,7 +109,8 @@ theorem hasExactErePrefix_outgoing_classification :
 theorem decoderStepPlatform_of_decoderAgree {instructionPcs : BitVec 64 → Prop} {args}
     {base state : State} (machine : Entrypoints.ZesuDecodeRaw.DecoderMachinePre
       instructionPcs args base) (agree : Agree decoderPreserved base state)
-    (pc : BitVec 64) (atPc : state.regs.get? PC = some pc) (pcIn : instructionPcs pc)
+    (pc : BitVec 64) (atPc : state.regs.get? PC = some pc)
+    (pcIn : DecoderFetchPc instructionPcs pc)
     (byte0 byte1 byte2 byte3 : BitVec 8)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       byte0 byte1 byte2 byte3) :
@@ -123,7 +137,8 @@ theorem decoderStepPlatform_of_decoderAgree {instructionPcs : BitVec 64 → Prop
 theorem decoderStepPlatform {instructionPcs : BitVec 64 → Prop} {args}
     {base state : State} (machine : Entrypoints.ZesuDecodeRaw.DecoderMachinePre
       instructionPcs args base) (agree : Agree platformPreserved base state)
-    (pc : BitVec 64) (atPc : state.regs.get? PC = some pc) (pcIn : instructionPcs pc)
+    (pc : BitVec 64) (atPc : state.regs.get? PC = some pc)
+    (pcIn : DecoderFetchPc instructionPcs pc)
     (byte0 byte1 byte2 byte3 : BitVec 8)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       byte0 byte1 byte2 byte3) :
@@ -221,7 +236,7 @@ theorem decoderInputLbuExecute
         BitVec.toNat_ofNat, Nat.mod_eq_of_lt addressFits]
       omega
   obtain ⟨physAccess, loadNoMMIO⟩ := pre.machine.dataAccess.load state address 1
-    (Agree.weaken (fun _ preserved => preserved.2) agree) allowed
+    (Agree.weaken (fun _ preserved => preserved.2) agree) allowed (by simp [is_aligned_paddr])
   let inputByte := args.bytes[offset]'offsetBound
   have memoryByte : ∀ (index : Nat)
       (indexLt : index < (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)).length),
@@ -244,7 +259,7 @@ theorem decoderRegisterWriteStep {instructionPcs : BitVec 64 → Prop} {args}
     (machine : Entrypoints.ZesuDecodeRaw.DecoderMachinePre instructionPcs args baseState)
     (agree : Agree platformPreserved baseState state)
     (retiredPresent : RetiredCounterPresent state)
-    (stepNo : Nat) (pc : BitVec 64) (pcIn : instructionPcs pc)
+    (stepNo : Nat) (pc : BitVec 64) (pcIn : DecoderFetchPc instructionPcs pc)
     (atPc : state.regs.get? PC = some pc)
     (byte0 byte1 byte2 byte3 : BitVec 8) (instruction : instruction)
     (destination : Register) (value : RegisterType destination)
@@ -306,10 +321,8 @@ theorem hasExactErePrefix_length_add_step (stepNo : Nat)
             BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32 - 4))) false := by
   have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10390) := by
     simpa [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs.entryPc, phase] using pre.atEntry
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35
-      (BitVec.ofNat 64 0x10390) :=
-    (hasExactErePrefix_body_classification 0x10390 (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x10390
+    (by simp [hasExactErePrefixBodyPcs])
   have bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10390) 0x33#8 0x86#8 0xc4#8 0x00#8 :=
     hasExactErePrefix_length_add_fetch state (hasExactErePrefix_programImage_of_codeIntact pre.code)
@@ -451,8 +464,8 @@ theorem hasExactErePrefix_prefix_first_lbu_step (stepNo : Nat)
             omega)).toNat)) false := by
   have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10398) := by
     simpa [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs.entryPc, phase] using pre.atEntry
-  have pcIn := (hasExactErePrefix_body_classification 0x10398
-    (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x10398
+    (by simp [hasExactErePrefixBodyPcs])
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10398) 0x03#8 0x45#8 0x14#8 0x00#8 :=
     fetchFileInstruction state 0x10398 0x03 0x45 0x14 0x00
@@ -530,6 +543,7 @@ theorem hasExactErePrefix_prefix_first_lbu_step (stepNo : Nat)
   obtain ⟨physAccess, loadNoMMIO⟩ :=
     pre.machine.dataAccess.load executeState address 1
       (Agree.weaken (fun _ preserved => preserved.2) executeAgree) allowed
+      (by simp [is_aligned_paddr])
   let inputByte := args.bytes[1]'inputBound
   have memoryByte : ∀ (index : Nat)
       (indexLt : index < (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)).length),
@@ -581,8 +595,8 @@ theorem hasExactErePrefix_prefix_second_lbu_step (stepNo : Nat)
           (BitVec.ofNat 64 (args.bytes[0]'(by
             have := pre.prefixExists phase
             omega)).toNat)) false := by
-  have pcIn := (hasExactErePrefix_body_classification 0x1039c
-    (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x1039c
+    (by simp [hasExactErePrefixBodyPcs])
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -664,6 +678,7 @@ theorem hasExactErePrefix_prefix_second_lbu_step (stepNo : Nat)
   obtain ⟨physAccess, loadNoMMIO⟩ :=
     pre.machine.dataAccess.load executeState address 1
       (Agree.weaken (fun _ preserved => preserved.2) executeAgree) allowed
+      (by simp [is_aligned_paddr])
   let inputByte := args.bytes[0]'inputBound
   have memoryByte : ∀ (index : Nat)
       (indexLt : index < (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)).length),
@@ -751,8 +766,8 @@ theorem hasExactErePrefix_prefix_third_lbu_step (stepNo : Nat)
           (BitVec.ofNat 64 (args.bytes[2]'(by
             have := pre.prefixExists phase
             omega)).toNat)) false := by
-  have pcIn := (hasExactErePrefix_body_classification 0x103a0
-    (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x103a0
+    (by simp [hasExactErePrefixBodyPcs])
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -829,8 +844,8 @@ theorem hasExactErePrefix_prefix_fourth_lbu_step (stepNo : Nat)
           (BitVec.ofNat 64 (args.bytes[3]'(by
             have := pre.prefixExists phase
             omega)).toNat)) false := by
-  have pcIn := (hasExactErePrefix_body_classification 0x103a4
-    (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x103a4
+    (by simp [hasExactErePrefixBodyPcs])
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -968,8 +983,8 @@ theorem hasExactErePrefix_prefix_low_byte_shift_step (stepNo : Nat)
         (afterRegisterWrite state (BitVec.ofNat 64 0x103a8) retired x10
           (Sail.shift_bits_left source
             (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) false := by
-  have pcIn := (hasExactErePrefix_body_classification 0x103a8
-    (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x103a8
+    (by simp [hasExactErePrefixBodyPcs])
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -1029,8 +1044,8 @@ theorem hasExactErePrefix_prefix_low_half_or_step (stepNo : Nat)
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x103ac) retired x10
           (highByte ||| lowByte)) false := by
-  have pcIn := (hasExactErePrefix_body_classification 0x103ac
-    (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x103ac
+    (by simp [hasExactErePrefixBodyPcs])
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -1084,8 +1099,8 @@ theorem hasExactErePrefix_prefix_length_sub_step (stepNo : Nat)
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x103b0) retired x13
           (iTypeResult .ADDI 0xffc#12 length)) false := by
-  have pcIn := (hasExactErePrefix_body_classification 0x103b0
-    (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x103b0
+    (by simp [hasExactErePrefixBodyPcs])
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -1136,8 +1151,8 @@ theorem hasExactErePrefix_prefix_byte2_shift_step (stepNo : Nat)
         (afterRegisterWrite state (BitVec.ofNat 64 0x103b4) retired x14
           (Sail.shift_bits_left source
             (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) false := by
-  have pcIn := (hasExactErePrefix_body_classification 0x103b4
-    (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x103b4
+    (by simp [hasExactErePrefixBodyPcs])
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -1189,8 +1204,8 @@ theorem hasExactErePrefix_prefix_byte3_shift_step (stepNo : Nat)
         (afterRegisterWrite state (BitVec.ofNat 64 0x103b8) retired x15
           (Sail.shift_bits_left source
             (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0))) false := by
-  have pcIn := (hasExactErePrefix_body_classification 0x103b8
-    (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x103b8
+    (by simp [hasExactErePrefixBodyPcs])
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
@@ -1243,8 +1258,8 @@ theorem hasExactErePrefix_prefix_high_half_or_step (stepNo : Nat)
       Runs (try_step stepNo false) state
         (afterRegisterWrite state (BitVec.ofNat 64 0x103bc) retired x14
           (highByte3 ||| highByte2)) false := by
-  have pcIn := (hasExactErePrefix_body_classification 0x103bc
-    (by simp [hasExactErePrefixBodyPcs])).1
+  have pcIn := hasExactErePrefix_body_fetch_classification 0x103bc
+    (by simp [hasExactErePrefixBodyPcs])
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code

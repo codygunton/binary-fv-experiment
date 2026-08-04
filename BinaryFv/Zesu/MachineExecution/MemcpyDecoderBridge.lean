@@ -69,8 +69,11 @@ theorem memcpyMachinePre_of_decoder
   obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := machine.mseccfg
   have platform : AbstractPlatform state := by
     intro next pc stable atPc bodyPc
+    have aligned : pc.toNat % 4 = 0 := by
+      simp only [IsBodyPc] at bodyPc
+      rcases bodyPc with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide
     exact machine.platform next pc (decoderAgree_of_memcpyStable stable) atPc
-      (bodyWithinParent pc bodyPc)
+      ⟨bodyWithinParent pc bodyPc, aligned⟩
   have landingPad : AbstractElp state := by
     intro next register valid stable
     exact machine.landingPad next register trivial (decoderAgree_of_memcpyStable stable)
@@ -118,6 +121,7 @@ theorem memcpyMachinePre_of_decoder
         simpa [sourceAddress] using sourceReadable index indexLt
       obtain ⟨physical, noMMIO⟩ := machine.dataAccess.load next
         (BitVec.ofNat 64 args.source + BitVec.ofNat 64 index) 1 decoderAgree allowed
+        (by simp [is_aligned_paddr])
       exact ⟨by simpa using transformed, physical, noMMIO⟩
     · intro destinationRegister
       have transformed := get_transformed_data_addr_machine_store_run next (.Regidx 14#5) 1
@@ -135,6 +139,7 @@ theorem memcpyMachinePre_of_decoder
         simpa [destinationAddress] using destinationWritable index indexLt
       obtain ⟨physical, noMMIO⟩ := machine.dataAccess.store next
         (BitVec.ofNat 64 args.destination + BitVec.ofNat 64 index) 1 decoderAgree allowed
+        (by simp [is_aligned_paddr])
       exact ⟨by simpa using transformed, physical, noMMIO⟩
   exact
     { normal := machine.normal

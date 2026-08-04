@@ -114,6 +114,30 @@ theorem configure_pma_regions {s : State}
       simpa [hpma] using hcheck
     exact congrArg some (zesuMainMemoryRegions_of_check hregions)
 
+/-- Whether the closed configuration leaves the three wrapper-saved registers readable. The wrapper
+stores `s0`, `s1`, and `s2` before writing any of them, so the canonical entry must expose their
+actual initialized values rather than postulate an ABI value. -/
+private def configureSavedRegistersPresentB : Bool :=
+  match configureZesuMachine.run initialState with
+  | .ok _ state => (state.regs.get? x8).isSome && (state.regs.get? x9).isSome &&
+      (state.regs.get? x18).isSome
+  | .error _ _ => false
+
+private theorem configure_saved_registers_present_check : configureSavedRegistersPresentB = true := by
+  native_decide
+
+/-- The configured machine provides the three live registers the wrapper saves in its frame. -/
+theorem configure_saved_registers_present {s : State}
+    (h : configureZesuMachine.run initialState = .ok () s) :
+    (∃ value, s.regs.get? x8 = some value) ∧
+      (∃ value, s.regs.get? x9 = some value) ∧
+        ∃ value, s.regs.get? x18 = some value := by
+  have hcheck := configure_saved_registers_present_check
+  unfold configureSavedRegistersPresentB at hcheck
+  rw [h] at hcheck
+  simp only [Bool.and_eq_true, Option.isSome_iff_exists] at hcheck
+  exact ⟨hcheck.1.1, hcheck.1.2, hcheck.2⟩
+
 /-! ### The configured machine is a *normal* execution state
 
 `NormalExecutionState` (`RiscV/Platform/NormalState.lean`) bundles the twelve platform reads a
@@ -562,10 +586,18 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
         LoadPlatformPinned s accesses) ∧
       ∃ entrySym, Artifacts.zesuDecodeRaw.toOption = some entrySym ∧
         s.regs.get? PC = some (BitVec.ofNat 64 entrySym.value) ∧
-        s.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) := by
+        s.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) ∧
+          s.regs.get? pma_regions = some [zesuMainMemoryRegion] ∧
+            (∃ value, s.regs.get? x8 = some value) ∧
+              (∃ value, s.regs.get? x9 = some value) ∧
+                ∃ value, s.regs.get? x18 = some value := by
   -- Stage the loaders.
   obtain ⟨seg, hsingle⟩ := programImage_single
   obtain ⟨s1, hrun1, hnormal1, hfetch1, hpinned1, hloadPinned1⟩ := configure_runs
+  have hrun1' : configureZesuMachine.run initialState = .ok () s1 := hrun1
+  have hpma1 : s1.regs.get? pma_regions = some [zesuMainMemoryRegion] :=
+    configure_pma_regions hrun1'
+  have hsaved1 := configure_saved_registers_present hrun1'
   obtain ⟨s2, hrun2, hregs2, _hlow2, _hhigh2, hfile2⟩ :=
     loadFileBackedImage_single_establishes hsingle s1
   obtain ⟨sstack, hrunstack, hregsstack, hframestack, _hwinstack⟩ :=
@@ -604,6 +636,8 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
         (hframestack a (Or.inl (by omega))))))
   have hmem_glob : ∀ a, 86048 ≤ a → s6.mem.get? a = s4.mem.get? a := fun a ha =>
     (hframe6 a (Or.inr (by omega))).trans (hframe5 a (Or.inr (by omega)))
+  have hregs6_1 : s6.regs = s1.regs := by
+    rw [hregs6, hregs5, hregs4, hregs3, hregsstack, hregs2]
   -- Build the entry state, threading `Runs`, and read off the memory and the ABI registers.
   have hbuilt : ∃ sf, Runs (buildZesuEntryState input) initialState sf () ∧
       sf.mem = s6.mem ∧
@@ -617,7 +651,11 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       (∀ addresses : List Nat, configureFetchPinnedB addresses = true →
         FetchPlatformPinned sf addresses) ∧
       (∀ accesses : List (Nat × Nat), configureLoadPinnedB accesses = true →
-        LoadPlatformPinned sf accesses) := by
+        LoadPlatformPinned sf accesses) ∧
+      sf.regs.get? pma_regions = some [zesuMainMemoryRegion] ∧
+      (∃ value, sf.regs.get? x8 = some value) ∧
+        (∃ value, sf.regs.get? x9 = some value) ∧
+          ∃ value, sf.regs.get? x18 = some value := by
     have hrunR : Runs
         (writeReg x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase) >>= fun _ =>
          writeReg x11 (BitVec.ofNat 64 input.size) >>= fun _ =>
@@ -629,7 +667,7 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
         (Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
           (Runs.bind (by rw [Runs, writeReg_run]) (by rw [Runs, writeReg_run])))))
-    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · unfold buildZesuEntryState initStack
       simp only [hentry]
       exact Runs.bind hrun1 (Runs.bind hrun2 (Runs.bind hrunstack (Runs.bind hrun3 (Runs.bind hrun4
@@ -666,11 +704,18 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       intro accesses hchecked
       refine loadPlatformPinned_frame ?_ ?_ ?_ (hloadPinned1 accesses hchecked) <;>
         simp [Std.ExtDHashMap.get?_insert, hchain]
+    · simp [Std.ExtDHashMap.get?_insert, hregs6_1, hpma1]
+    · obtain ⟨value, hvalue⟩ := hsaved1.1
+      exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+    · obtain ⟨value, hvalue⟩ := hsaved1.2.1
+      exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+    · obtain ⟨value, hvalue⟩ := hsaved1.2.2
+      exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
   obtain ⟨sf, hrunsf, hmemsf, hx10, hx11, hx1, hx2, hpc, hnextpc, hnormal, hfetchsf,
-    hpinnedsf, hloadPinnedsf⟩ :=
+    hpinnedsf, hloadPinnedsf, hpmasf, hx8sf, hx9sf, hx18sf⟩ :=
     hbuilt
   refine ⟨sf, hrunsf, ?_, hx1, hx2, hnormal, hfetchsf, hpinnedsf, hloadPinnedsf,
-    entrySym, hentry, hpc, hnextpc⟩
+    entrySym, hentry, hpc, hnextpc, hpmasf, hx8sf, hx9sf, hx18sf⟩
   -- Reduce the argument projections once, then discharge each entry-binding conjunct.
   show MemoryBytes sf canonicalRunnerLayout.inputBase input ∧
       canonicalEnvironment.CodeIntact sf ∧

@@ -95,24 +95,61 @@ def DecoderGlobalsByte (address : Nat) : Prop :=
     address < Elflings.GeneratedDecoderGlobals.bssBase +
       Elflings.GeneratedDecoderGlobals.bssSize
 
-/-- Bytes the decoder and its wrapper may read: the immutable image, input, stack objects, private
-decoder globals, allocator state, or arena. This describes data placement, not an execution result. -/
+/-- Arena bytes that remain ordinary memory under the canonical Sail platform. The CLINT window starts
+at `plat_clint_base` inside the 64 MiB allocator arena, so the whole arena cannot be a data-access
+permission. The root's `< 2 MiB` allocation bound stays below this boundary; the fixed signature
+window is above the arena, and the canonical configuration disables HTIF (`htif_tohost_base = none`). -/
+def DecoderSafeArenaByte (address : Nat) : Prop :=
+  canonicalContractParams.env.arenaBase ≤ address ∧
+    address < Elflings.canonicalHeapLimit ∧ address < BitVec.toNat plat_clint_base
+
+/-- Checked canonical platform/layout facts used to keep dynamic allocator addresses out of MMIO. -/
+theorem canonicalHeapBase_pinned : Elflings.canonicalHeapBase = 86048 := by native_decide
+
+theorem canonicalHeapLimit_pinned : Elflings.canonicalHeapLimit = 67194912 := by native_decide
+
+theorem clintBase_pinned : BitVec.toNat plat_clint_base = 33554432 := by native_decide
+
+theorem clintSize_pinned : BitVec.toNat plat_clint_size = 786432 := by native_decide
+
+theorem signatureBase_pinned : BitVec.toNat plat_sig_base = 201326592 := by native_decide
+
+theorem signatureSize_pinned : BitVec.toNat plat_sig_size = 32 := by native_decide
+
+/-- Under `root_compliance`'s input bound, the allocation ledger cannot reach the CLINT window. -/
+theorem root_allocation_before_clint (inputSize : Nat)
+    (inputBound : inputSize < 2 * 1024 * 1024) :
+    Elflings.canonicalHeapBase + Runtime.rawAllocationBound inputSize <
+      BitVec.toNat plat_clint_base := by
+  rw [canonicalHeapBase_pinned, clintBase_pinned]
+  unfold Runtime.rawAllocationBound
+  omega
+
+/-- The signature window lies above the complete canonical allocator arena. -/
+theorem canonicalArena_before_signature :
+    Elflings.canonicalHeapLimit ≤ BitVec.toNat plat_sig_base := by
+  rw [canonicalHeapLimit_pinned, signatureBase_pinned]
+  omega
+
+/-- Bytes the decoder and its wrapper may read: file-backed immutable image bytes, input, stack
+objects, private decoder globals, allocator state, or the ordinary-memory prefix of the allocator
+arena. `readByte?` is deliberately not used: its zero-filled virtual-memory tail includes CLINT,
+whereas code and immutable constants are established by `CodeIntact.fileBytesMatchMemory`.
+Zero-filled decoder BSS and allocator cells are covered only by their explicit predicates. -/
 def DecoderReadableByte (args : DecoderMachineArgs) (address : Nat) : Prop :=
-  (∃ byte, canonicalContractParams.env.image.readByte? address = some byte) ∨
+  (∃ byte, canonicalContractParams.env.image.readFileByte? address = some byte) ∨
     (args.inputBase ≤ address ∧ address < args.inputBase + args.bytes.size) ∨
     canonicalContractParams.env.stack address ∨
     DecoderGlobalsByte address ∨
     canonicalContractParams.env.allocatorState address ∨
-    (canonicalContractParams.env.arenaBase ≤ address ∧
-      address < Elflings.canonicalHeapLimit)
+    DecoderSafeArenaByte address
 
 /-- Bytes the decoder and wrapper may write. The input and immutable image are deliberately absent. -/
 def DecoderWritableByte (address : Nat) : Prop :=
   canonicalContractParams.env.stack address ∨
     DecoderGlobalsByte address ∨
     canonicalContractParams.env.allocatorState address ∨
-    (canonicalContractParams.env.arenaBase ≤ address ∧
-      address < Elflings.canonicalHeapLimit)
+    DecoderSafeArenaByte address
 
 /-- Every byte in one nonempty machine access belongs to `allowed`; the non-wrapping condition
 makes the address range an ordinary half-open interval rather than a modular one. `0 < width`
@@ -131,38 +168,47 @@ structure DecoderDataAccess (args : DecoderMachineArgs) (base : State) : Prop wh
   load : ∀ (state : State) (address : BitVec 64) (width : Nat),
     Agree decoderPreserved base state →
       DecoderAccessRange (DecoderReadableByte args) address width →
-      Runs (phys_access_check (MemoryAccessType.Load mem_payload.Data) PBMT_PMA .Machine
+      is_aligned_paddr (physaddr.Physaddr address) width = true →
+      Runs (phys_access_check (MemoryAccessType.Load mem_payload.Data) page_based_mem_type.PBMT_PMA .Machine
         (physaddr.Physaddr address) width false) state state none ∧
       Runs (within_mmio_readable (physaddr.Physaddr address) width) state state false
   store : ∀ (state : State) (address : BitVec 64) (width : Nat),
     Agree decoderPreserved base state →
       DecoderAccessRange DecoderWritableByte address width →
-      Runs (phys_access_check (MemoryAccessType.Store mem_payload.Data) PBMT_PMA .Machine
+      is_aligned_paddr (physaddr.Physaddr address) width = true →
+      Runs (phys_access_check (MemoryAccessType.Store mem_payload.Data) page_based_mem_type.PBMT_PMA .Machine
         (physaddr.Physaddr address) width false) state state none ∧
       Runs (within_mmio_writable (physaddr.Physaddr address) width) state state false
 
 theorem DecoderDataAccess.mono {args : DecoderMachineArgs} {before after : State}
     (agree : Agree decoderPreserved before after) (access : DecoderDataAccess args before) :
     DecoderDataAccess args after where
-  load state address width afterAgree allowed :=
-    access.load state address width (Agree.trans agree afterAgree) allowed
-  store state address width afterAgree allowed :=
-    access.store state address width (Agree.trans agree afterAgree) allowed
+  load state address width afterAgree allowed aligned :=
+    access.load state address width (Agree.trans agree afterAgree) allowed aligned
+  store state address width afterAgree allowed aligned :=
+    access.store state address width (Agree.trans agree afterAgree) allowed aligned
 
 /-- A child that reads a subset of the parent's readable bytes inherits the same concrete machine
 access behavior. Writable bytes are program-wide and therefore unchanged. -/
 theorem DecoderDataAccess.narrow {outer inner : DecoderMachineArgs} {state : State}
     (subset : ∀ address, DecoderReadableByte inner address → DecoderReadableByte outer address)
     (access : DecoderDataAccess outer state) : DecoderDataAccess inner state where
-  load next address width agree allowed := access.load next address width agree
+  load next address width agree allowed aligned := access.load next address width agree
     ⟨allowed.1, allowed.2.1, by
     intro index bound
-    exact subset _ (allowed.2.2 index bound)⟩
+    exact subset _ (allowed.2.2 index bound)⟩ aligned
   store := access.store
 
+/-- Fetchable instruction starts inside a byte-range execution scope. `RegionPcs` remains the trace
+confinement predicate because a retired instruction occupies bytes; fetch premises apply only at
+aligned instruction starts. -/
+def DecoderFetchPc (executionPcs : BitVec 64 → Prop) (pc : BitVec 64) : Prop :=
+  executionPcs pc ∧ pc.toNat % 4 = 0
+
 /-- Machine configuration needed to execute either compiled inline phase. Fetch is restricted to
-the generated `decode` PCs; data access is restricted to the concrete image/input/runtime regions.
-These premises are transportable machine facts, not an assumption that the decoder succeeds. -/
+aligned starts in the generated `decode` scope; data access is restricted to the concrete
+image/input/runtime regions. These premises are transportable machine facts, not an assumption that
+the decoder succeeds. -/
 structure DecoderMachinePre (instructionPcs : BitVec 64 → Prop)
     (args : DecoderMachineArgs) (state : State) : Prop where
   normal : NormalExecutionState state
@@ -170,7 +216,7 @@ structure DecoderMachinePre (instructionPcs : BitVec 64 → Prop)
   mstatus : ∃ bits, state.regs.get? mstatus = some bits ∧ _get_Mstatus_MPRV bits = 0#1
   mseccfg : ∃ bits, state.regs.get? mseccfg = some bits ∧
     pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled
-  platform : BinaryFv.RiscV.AbstractPlatform decoderPreserved instructionPcs state
+  platform : BinaryFv.RiscV.AbstractPlatform decoderPreserved (DecoderFetchPc instructionPcs) state
   dataAccess : DecoderDataAccess args state
   landingPad : BinaryFv.RiscV.AbstractElp decoderPreserved (fun _ => True) state
 
@@ -206,7 +252,8 @@ theorem DecoderMachinePre.restrict {outer inner : BitVec 64 → Prop} {args : De
   retiredCounter := machine.retiredCounter
   mstatus := machine.mstatus
   mseccfg := machine.mseccfg
-  platform := fun next pc agree atPc pcIn => machine.platform next pc agree atPc (subset pc pcIn)
+  platform := fun next pc agree atPc pcIn =>
+    machine.platform next pc agree atPc ⟨subset pc pcIn.1, pcIn.2⟩
   dataAccess := machine.dataAccess
   landingPad := machine.landingPad
 
