@@ -156,29 +156,61 @@ measurement of how much `grind` actually covers — see section 9's audit check.
   users see one vocabulary.
 - **A frame fact whose right-hand side is an `if` gets `@[grind =]` without `@[simp]`.** simp would
   rewrite goals into a branch; `grind` handles the branch natively.
-- **A frame fact about a step that can fail needs an explicit `grind_pattern`.** Our steps are stated
-  as `∃ retired, Runs (try_step stepNo false) state …`, so the successor state is bound by a
-  hypothesis rather than being a function application of the predecessor. Automatic pattern
-  inference then determines only the successor and leaves the other variables unknown, and the
-  lemma silently never fires. Write a multi-pattern naming enough terms to determine every variable:
-
-  ```lean
-  grind_pattern pc_after_step => Runs (try_step stepNo false) state, some after, after.regs.get? PC
-  ```
-
-  Verify the lemma fires. A registered lemma that never matches is worse than no lemma, because it
-  looks like coverage.
-- **Prefer a projection to a relation.** `Agree platformPreserved base state` is a relation between
-  two states, so it does not fit the frame-fact shape and its chaining is written by hand — 95
-  `Agree.trans` calls. If it is restated as equality of a projection, `platformView base =
-  platformView state`, congruence closure chains it with no user effort. The survey should test
-  this on `platformPreserved`, `decoderPreserved`, and `DecoderMachinePre` before it is adopted.
+- **Use `attribute [grind =]`, never a per-call `grind [lemma]` hint list.** Measured on one goal:
+  110 ms via hint list, 4.2 ms via the attribute — 26×, and not index warm-up (verified on a
+  single-declaration file).
+- **A `grind_pattern` is needed when automatic inference leaves a variable undetermined** — not
+  because a step can fail. The survey measured this directly: **0 of ~250 frame cells across ten
+  areas are implication-shaped**, because every successor is named as a total function of its
+  predecessor (`afterRegisterWrite state pc retired d v`) with the fallibility pushed into an
+  existential over `retired`, which no observation reads. Automatic inference then determines every
+  variable and fires unaided. Write a multi-pattern only for the minority where it does not — three
+  such cells were found, e.g. `fallThroughMem`, where `{X with regs := …}.mem` reduces the insert
+  away and leaves `rd`, `v` unknown; supplying the pattern turned a failing 25.5 ms `grind` into a
+  7.58 ms success. Always verify the lemma fires; a registered lemma that never matches looks like
+  coverage while providing none.
+- **What cannot be a trigger term.** Both were hit during the survey:
+  - **Anything containing `BitVec.ofNat`.** `grind` normalises `BitVec.ofNat 64 0x102f8` to
+    `66296#64`, so the wrapper is gone from the E-graph and the pattern can never match. This fails
+    **silently** — `ematch` ran 0.006 ms with all trigger terms sitting in the equivalence classes.
+    Index by `BitVec 64` directly. This repository has 2,765 `BitVec.ofNat 64 0x` literals.
+  - **A variable determined only through an `Eq`.** `grind_pattern thm => …, before.regs.get? x2 =
+    some v, …` is rejected with *"invalid pattern, (non-forbidden) application expected"*. Restate
+    the lemma in the frame shape `observer after = observer before` so no value variable needs
+    determining.
+- **Orientation matters.** `s.regs.get? R = (view s).f` lets `grind` chain (3.93 ms);
+  `(view s).f = s.regs.get? R` does not (measured failure).
+- **A frame lemma whose RHS is address arithmetic is inert on its own.** Three areas traced `grind`
+  firing `afterRegisterWrite_pc` correctly, building the right equivalence class, then stalling
+  because it cannot evaluate `Sail.BitVec.addInt 66444#64 4 = 66448#64`; adding `Sail.BitVec.addInt`
+  as an unfold hint does not rescue it, and the same goal **passes** when the RHS is left unreduced.
+  Every `*_pc` cell therefore needs a literal-normalisation companion. See section 2 — this makes
+  generated address facts a precondition, not an optimisation.
+- **`Std.ExtDHashMap.get?_insert` is already `@[grind =]` upstream.** Do not re-register it; Lean
+  warns. All 645 in-repo citations of it are simp-list entries a frame lemma makes unnecessary.
+- **`Agree` chaining needs one hint, not a reformulation.** Registering `Agree.trans` as
+  `@[grind →]` chains four to ten `Agree`s automatically (0.062–5.0 s across three areas); bare
+  `grind` fails, and unfolding `Agree` itself costs 0.90–1.31 s. Restating `Agree` as a
+  `platformView` projection is **not** settled: it is measurably better for chaining (0.62 s bare
+  `grind` on a 5-hop chain where the relation form fails) but does not help instantiation at a
+  register, and its own frame lemmas are expensive (14.4 s failure, 3.27 s at `ematch := 40`,
+  against `simp` at 0.25 s). Do not adopt it without a dedicated probe.
 - **Put facts in a sub-namespace** so file-private lemmas in consumer files do not collide.
   Attributes and tactic macros are reachable without `open`.
 
 ### Don'ts
 
-- **Do not register step-unfolding definitions for `grind`** (section 3).
+- **Do not register step-unfolding definitions for `grind`** (section 3). This is the survey's
+  best-evidenced rule. Five areas measured the penalty at 18× to 126× (e.g. 665 ms against 7.6 ms
+  for the equivalent `simp`), and one ran it as a controlled A/B on a single goal: with the four
+  step-unfolding *definitions* as hints `grind` **fails**; with eleven pure **frame facts**
+  registered `@[grind =]` and no unfolding, bare `grind` closes the same goal in 0.16 s.
+- **Do not expect `grind` to close a deep chain.** With frame facts registered, register-survival
+  chains close at 1–3 hops and fail at 4–5 with defaults; `(ematch := 20)` recovers 6–8; depth 10
+  fails at `ematch := 20`, `40`, and `100`, and needs `(ematch := 40) (gen := 20)` — `gen` alone
+  does not suffice. A tactic macro must therefore carry explicit budgets and a `simp` fallback.
+  This does not block a per-`have` migration, since real proofs advance one hop per `have`, but it
+  rules out collapsing a whole multi-instruction prefix into one `grind`.
 - **Do not `grind` through `@[irreducible]` definitions.** `grind` respects irreducibility and cannot
   see through them; use `delta` first or a different mechanism.
 - **Do not `grind` goals carrying many separation or footprint atoms.** Congruence reasoning degrades
@@ -213,16 +245,121 @@ Extend an existing set instead when the new fact is the same class of goal.
 
 ## 7. Sets currently in the repository
 
-None yet. This table is populated by the survey.
+None. The repository has zero `@[grind …]` attributes and zero `register_simp_attr`.
 
 | Set | File | Closes | Facts | Status | PR |
 |---|---|---|---|---|---|
-| _(empty)_ | | | | | |
+| _(none yet)_ | | | | | |
+
+**Grandfathering note.** An empty table does not mean no simp attributes exist. There are 35 uses of
+the **global** `@[simp]` set, which section 5's first rule forbids for new work:
+`MemoryRepresentation/EntryOffsets.lean` 9, `Entrypoints/ZesuDecodeRaw/Classify.lean` 7,
+`Entrypoints/ZesuDecodeRaw/Accessors.lean` 7, `MemoryRepresentation/ChainOffsets.lean` 6,
+`Entrypoints/ZesuDecodeRaw/DecodeGlue.lean` 3, `RiscV/Elfling/SentinelBridgeWitness.lean` 2,
+`Entrypoints/ZesuDecodeRaw/Runner.lean` 1. They are narrow projections on decoder-local datatypes,
+not step-unfolding facts, so they are left alone; do not add more.
 
 ## 8. Rollout
 
-No phases yet. Phases are proposed from the survey's findings, ordered by measured lines removed per
-unit of risk, and each is one reviewable change following section 6.
+Ordered by measured lines removed per unit of risk, from the ten-area survey. Each phase is one
+reviewable change following section 6. **Phases 0 and 1 are not sets** — they must land first,
+because a set landed on top of the current duplication would preserve it.
+
+**Status legend:** landed · in progress · pending.
+
+### Phase 0 — pending — deletions and one-line reuse, no new automation
+
+Six independent changes, each verifiable on its own:
+
+| Item | Payoff | Evidence |
+|---|---|---|
+| `functionInstanceExecutionPcs_of_inRanges`, composing the two `.mpr`s that always co-occur | **110 sites** | typechecked during the survey; belongs in `RiscV/Elfling/ProgramGeometry.lean` |
+| Delete `RawResultProof.lean:29-172` | 144 lines | duplicates all nine lemmas of `RegisterWriteStep.lean:18-228`, which is the later and more general copy; no import cycle blocks it |
+| Collapse `RawErrorProof.lean:25-81` | 57 lines | verified by `rfl` that `rawErrorAfterAuipc state r = afterRegisterWrite state (BitVec.ofNat 64 0x13780) r x10 …` |
+| Remove 61 byte-identical `have` blocks | ~120 lines | six are character-for-character identical inside one theorem body |
+| Batch the per-byte `native_decide` obligations into per-function table proofs | **~40 s of build time** | cost is fixed per invocation (101 ms for 1 byte, 110 ms for 28), so 448 invocations become ~15 |
+| Import `tryStepControlFlowAfterRetired_pc` where it already exists and is unused | 2 sites, plus precedent | `RiscV/Elfling/SentinelBridge.lean:67` |
+
+**Do not** remove the 34 `have privilege` / `have mseccfg` bindings that a textual scan reports as
+unreferenced. `decode_run` ends in `simp only […, *]` and consumes them from the local context by
+type; removing them was tested and fails at `decode_run`.
+
+### Phase 1 — pending — the parameterised instruction-step lemma
+
+Largest single item in the survey and **not** a grindset. 24 theorems totalling 1,376 lines in
+`DecodeInlineProof.lean` are the identical `decoderRegisterWriteStep` skeleton differing only in a
+pc literal, four instruction bytes, a word literal, imm, rs, rd, and one source-read hypothesis; the
+retry path is 58% a masked-equivalent re-derivation of the first path across 17 theorem pairs.
+`decoderRegisterWriteStep` (`HasExactErePrefixProof.lean:257`) is already the generic step.
+
+The apparent blocker dissolves: `rX_x<n>_run` / `wX_x<n>_run` are already macro-generated from a
+table at `RegisterRuns.lean:54-71`, so a `regidx`-indexed version is mechanical.
+
+**Estimate ~1,180 lines file-wide** — roughly four times any single grind proposal — with no new
+automation surface and no new failure modes. Per-instruction arguments are exactly the
+address-bearing facts `tools/generate_elfling_program.py` already emits, so call sites are a
+generation candidate (section 2).
+
+### Phase 2 — pending — one frame set, keyed to the shared transformers
+
+**Scope discipline is the whole point of this phase.** Independent areas proposed sets keyed to
+their own local composites (`wrapperAfter*`, `allocatorAfter*`, the jump composite,
+`rawErrorAfter*`). Landing those as separate sets would institutionalise the duplication rather
+than remove it: eleven successor-state definitions each carry a hand-rolled
+`_agree`/`_mem`/`_pc`/`_retired_present` family (27, 11, 9, 3 theorems respectively), and every one
+is a composition of the same four transformers in `Step/ControlFlow.lean`.
+
+So: **collapse the ad-hoc composites into instances of `afterRegisterWrite` first, then build one
+set keyed to the five shared transformers** in `Step/ControlFlow.lean` and `Step/Call.lean`.
+
+Measured demand for the two largest rows:
+
+| Row | Inline re-proofs | Files |
+|---|---|---|
+| `coreControlFlowNextState ∘ tryStepControlFlowAfterIncrement` (the `executeState` row) | **284** | 23 |
+| `afterRegisterWrite` register survival | **181** | 15 |
+
+The second row's lemma **already exists** — `afterRegisterWrite_register` — and is used twice in the
+entire repository. Two independent ergonomic causes were diagnosed: it takes five explicit
+disequality arguments, so citing it is longer than re-deriving it; and `let`-bound successor states
+hide it. A grindset fixes both, because `grind` discharges those disequalities itself (they are 22%
+of all obligations in one area, 169 and 81 in two others).
+
+Layout B, `@[riscv_frame, grind =]` for `unchanged`/`derived` cells, `@[grind =]` alone for
+conditional ones, plus the literal-normalisation companion from section 5. Macro carries
+`(ematch := 40) (gen := 20)` and a `simp only [riscv_frame]` fallback.
+
+Expect roughly 1,900–2,000 lines across the ten surveyed areas, but land it one file at a time with
+the section 6 build-time measurement each time.
+
+### Phase 3 — pending — `Agree` chaining
+
+Register `Agree.trans` as `@[grind →]`. Three areas measured that alone as sufficient (0.062–5.0 s
+for four to ten chained `Agree`s). The `platformView` projection restatement is **deferred pending
+its own probe** — see section 5 for the conflicting measurements.
+
+### Phase 4 — pending — generated fetch and region facts
+
+Not a grindset; `grind` fails outright on both populations (1.33–1.41 ms, no progress). Emit
+per-address `readFileByte?` / `fetchWord` identities and region-membership facts from
+`tools/generate_elfling_program.py` alongside the image, as a named simp set with no `grind =`.
+One area counted 68 such facts for its two files alone, which **exceeds the 50-fact cap**, so this
+must be split one generated module per `functionInstance_*`. The in-repo precedent is `decode_run`
+(`DecodeTactic.lean:21`), a macro used 246 times; the fetch side has no equivalent and should get
+one. `SentinelAssembly.lean:608-712` is 105 lines producing six theorems for two functions with
+identical bodies — generate them too.
+
+### Baseline for the section 6 gate
+
+Measured on this worktree, warm: `lake build BinaryFv` completes at 339 cached jobs.
+Direct elaboration of the heaviest surveyed module, `Level2Epilogue.lean`, is **51.7 s** (an
+independent survey measurement put it at 50.9 s), of which profiling attributes **16.55 s (33%) to
+`simp` across 996 calls**. `Level2Tag0PostCopy.lean` is 10.6 s. Compare against these when landing
+any phase.
+
+The build also emits **24 `linter.unusedSimpArgs` warnings**, i.e. sites where the repeated
+unfolding bundle carries lemmas that goal does not need — a mechanical, if small, confirmation that
+the bundle is copied rather than composed.
 
 ## 9. Maintenance
 
