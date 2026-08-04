@@ -2959,6 +2959,7 @@ theorem wrapper_reaches_decode_first_contract
         Level2ChildSummary fromStep 19 entry atDecode ∧
       ∃ decodeArgs : DecodeInlineArgs,
         DecodeInlinePre decodeArgs atDecode ∧
+          Agree decoderPreserved entry atDecode ∧
           ∃ used after,
             Level2ChildSummary
               functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
@@ -3013,7 +3014,7 @@ theorem wrapper_reaches_decode_first_contract
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
       (fromStep + 19) used atDecode after :=
     ⟨rfl, decodeArgs, pre, bound, childTrace, post, machinePost, outgoing⟩
-  exact ⟨atDecode, trace, confined, decodeArgs, pre, used, after, .decode level3,
+  exact ⟨atDecode, trace, confined, decodeArgs, pre, agree, used, after, .decode level3,
     bound, childTrace, post, machinePost, outgoing, saveArea, savedFrame⟩
 
 def wrapperAfterDecodeFirstErrorBranch (state : State) (retired : BitVec 64) : State :=
