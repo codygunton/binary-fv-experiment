@@ -11,7 +11,9 @@ set_option maxHeartbeats 5000000
 
 /-- The concrete saved-frame and address facts required after a result-tag route. -/
 structure WrapperSavedState (base before : State) (machineArgs : DecoderMachineArgs) where
-  machine : DecoderMachinePre (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) machineArgs base
+  machine : DecoderMachinePre
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    machineArgs base
   link : BitVec 64
   savedS0 : BitVec 64
   savedS1 : BitVec 64
@@ -22,6 +24,7 @@ structure WrapperSavedState (base before : State) (machineArgs : DecoderMachineA
   stackAvoidsStatusGlobals : stack.toNat + 0xa20 ≤ 0x4215020 ∨ 0x4215028 ≤ stack.toNat
   globalsValue : before.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
   stackValue : before.regs.get? x2 = some stack
+
 /-- The four saved-register load addresses, alignment facts, and readable-byte permissions. -/
 structure WrapperRestoreAddresses (machineArgs : DecoderMachineArgs) (stack : BitVec 64) where
   raAddress : BitVec 64
@@ -44,6 +47,7 @@ structure WrapperRestoreAddresses (machineArgs : DecoderMachineArgs) (stack : Bi
   s0Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s0Address 8
   s1Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s1Address 8
   s2Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s2Address 8
+
 /-- The final stack restoration and the two low-bit facts required by the generated `ret`. -/
 structure WrapperReturnTarget (stack restoredStack link : BitVec 64) where
   restoredStackEq : (stack + sign_extend (m := 64) (0x230#12)) + sign_extend (m := 64) (0x7f0#12) = restoredStack
@@ -51,14 +55,27 @@ structure WrapperReturnTarget (stack restoredStack link : BitVec 64) where
   linkBit1 : Sail.BitVec.access link 1 = 0#1
 
 theorem dispatch_route_to_epilogue {base before routeAfter : State} {machineArgs : DecoderMachineArgs}
-    (h : WrapperSavedState base before machineArgs) (addresses : WrapperRestoreAddresses machineArgs h.stack)
-    (target : WrapperReturnTarget h.stack h.restoredStack h.link) (n k : Nat) (result status : BitVec 64)
-    (route : WrapperDispatchRouteFrame base before routeAfter n k (BitVec.ofNat 64 0x1035c) result status) :
-    ∃ afterStore after, Runs (try_step (n + k) false) routeAfter afterStore false ∧ Trace n (k + 8) before after ∧
-      WrapperEpilogueCompleteResult (n + k + 1) base afterStore after h.link h.savedS0 h.savedS1 h.savedS2 h.restoredStack result status := by
-  exact wrapper_dispatch_route_through_epilogue h.machine n k result status h.link h.savedS0 h.savedS1 h.savedS2 h.stack h.restoredStack route
-    (WrapperSavedRegisterFrame.of_mem_eq h.savedFrame route.memory) h.stackAvoidsStatusGlobals (route.savedS2.trans h.globalsValue) (route.savedStack.trans h.stackValue)
-    addresses.raAddress addresses.s0Address addresses.s1Address addresses.s2Address addresses.raAddressEq addresses.s0AddressEq addresses.s1AddressEq addresses.s2AddressEq addresses.raAddressNat addresses.s0AddressNat addresses.s1AddressNat addresses.s2AddressNat addresses.raAligned addresses.s0Aligned addresses.s1Aligned addresses.s2Aligned addresses.raAllowed addresses.s0Allowed addresses.s1Allowed addresses.s2Allowed target.restoredStackEq target.linkEven target.linkBit1
+    (h : WrapperSavedState base before machineArgs)
+    (addresses : WrapperRestoreAddresses machineArgs h.stack)
+    (target : WrapperReturnTarget h.stack h.restoredStack h.link)
+    (n k : Nat) (result status : BitVec 64)
+    (route : WrapperDispatchRouteFrame base before routeAfter n k
+      (BitVec.ofNat 64 0x1035c) result status) :
+    ∃ afterStore after,
+      Runs (try_step (n + k) false) routeAfter afterStore false ∧
+      Trace n (k + 8) before after ∧
+      WrapperEpilogueCompleteResult (n + k + 1) base afterStore after
+        h.link h.savedS0 h.savedS1 h.savedS2 h.restoredStack result status := by
+  exact wrapper_dispatch_route_through_epilogue h.machine n k result status h.link h.savedS0
+    h.savedS1 h.savedS2 h.stack h.restoredStack route
+    (WrapperSavedRegisterFrame.of_mem_eq h.savedFrame route.memory)
+    h.stackAvoidsStatusGlobals (route.savedS2.trans h.globalsValue)
+    (route.savedStack.trans h.stackValue) addresses.raAddress addresses.s0Address
+    addresses.s1Address addresses.s2Address addresses.raAddressEq addresses.s0AddressEq
+    addresses.s1AddressEq addresses.s2AddressEq addresses.raAddressNat addresses.s0AddressNat
+    addresses.s1AddressNat addresses.s2AddressNat addresses.raAligned addresses.s0Aligned
+    addresses.s1Aligned addresses.s2Aligned addresses.raAllowed addresses.s0Allowed
+    addresses.s1Allowed addresses.s2Allowed target.restoredStackEq target.linkEven target.linkBit1
 
 theorem tag1_outcome_to_epilogue {base before : State} {machineArgs : DecoderMachineArgs}
     (h : WrapperSavedState base before machineArgs) (addresses : WrapperRestoreAddresses machineArgs h.stack)
@@ -74,15 +91,39 @@ theorem tag1_outcome_to_epilogue {base before : State} {machineArgs : DecoderMac
   exact ⟨routeAfter, afterStore, after, route, store, trace, complete⟩
 
 theorem tag2_outcome_to_epilogue {base before : State} {machineArgs : DecoderMachineArgs}
-    (h : WrapperSavedState base before machineArgs) (addresses : WrapperRestoreAddresses machineArgs h.stack) (target : WrapperReturnTarget h.stack h.restoredStack h.link) (agree : Agree platformPreserved base before) (retired : RetiredCounterPresent before) (code : canonicalContractParams.env.CodeIntact before) (n : Nat) (pc : before.regs.get? PC = some (BitVec.ofNat 64 0x103fc)) (tag : before.regs.get? x10 = some (BitVec.ofNat 64 2)) :
-    ∃ routeAfter afterStore after, WrapperDispatchRouteFrame base before routeAfter n 9 (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 2) ∧ Runs (try_step (n + 9) false) routeAfter afterStore false ∧ Trace n 17 before after ∧ WrapperEpilogueCompleteResult (n + 10) base afterStore after h.link h.savedS0 h.savedS1 h.savedS2 h.restoredStack (BitVec.ofNat 64 0) (BitVec.ofNat 64 2) := by
+    (h : WrapperSavedState base before machineArgs)
+    (addresses : WrapperRestoreAddresses machineArgs h.stack)
+    (target : WrapperReturnTarget h.stack h.restoredStack h.link)
+    (agree : Agree platformPreserved base before) (retired : RetiredCounterPresent before)
+    (code : canonicalContractParams.env.CodeIntact before) (n : Nat)
+    (pc : before.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
+    (tag : before.regs.get? x10 = some (BitVec.ofNat 64 2)) :
+    ∃ routeAfter afterStore after,
+      WrapperDispatchRouteFrame base before routeAfter n 9 (BitVec.ofNat 64 0x1035c)
+        (BitVec.ofNat 64 0) (BitVec.ofNat 64 2) ∧
+      Runs (try_step (n + 9) false) routeAfter afterStore false ∧
+      Trace n 17 before after ∧
+      WrapperEpilogueCompleteResult (n + 10) base afterStore after h.link h.savedS0 h.savedS1
+        h.savedS2 h.restoredStack (BitVec.ofNat 64 0) (BitVec.ofNat 64 2) := by
   obtain ⟨routeAfter, route⟩ := wrapper_dispatch_tag2_route_frame h.machine agree retired code n pc tag
   obtain ⟨afterStore, after, store, trace, complete⟩ := dispatch_route_to_epilogue h addresses target n 9 (BitVec.ofNat 64 0) (BitVec.ofNat 64 2) route
   exact ⟨routeAfter, afterStore, after, route, store, trace, complete⟩
 
 theorem tag3_outcome_to_epilogue {base before : State} {machineArgs : DecoderMachineArgs}
-    (h : WrapperSavedState base before machineArgs) (addresses : WrapperRestoreAddresses machineArgs h.stack) (target : WrapperReturnTarget h.stack h.restoredStack h.link) (agree : Agree platformPreserved base before) (retired : RetiredCounterPresent before) (code : canonicalContractParams.env.CodeIntact before) (n : Nat) (pc : before.regs.get? PC = some (BitVec.ofNat 64 0x103fc)) (tag : before.regs.get? x10 = some (BitVec.ofNat 64 3)) :
-    ∃ routeAfter afterStore after, WrapperDispatchRouteFrame base before routeAfter n 5 (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) ∧ Runs (try_step (n + 5) false) routeAfter afterStore false ∧ Trace n 13 before after ∧ WrapperEpilogueCompleteResult (n + 6) base afterStore after h.link h.savedS0 h.savedS1 h.savedS2 h.restoredStack (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) := by
+    (h : WrapperSavedState base before machineArgs)
+    (addresses : WrapperRestoreAddresses machineArgs h.stack)
+    (target : WrapperReturnTarget h.stack h.restoredStack h.link)
+    (agree : Agree platformPreserved base before) (retired : RetiredCounterPresent before)
+    (code : canonicalContractParams.env.CodeIntact before) (n : Nat)
+    (pc : before.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
+    (tag : before.regs.get? x10 = some (BitVec.ofNat 64 3)) :
+    ∃ routeAfter afterStore after,
+      WrapperDispatchRouteFrame base before routeAfter n 5 (BitVec.ofNat 64 0x1035c)
+        (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) ∧
+      Runs (try_step (n + 5) false) routeAfter afterStore false ∧
+      Trace n 13 before after ∧
+      WrapperEpilogueCompleteResult (n + 6) base afterStore after h.link h.savedS0 h.savedS1
+        h.savedS2 h.restoredStack (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) := by
   obtain ⟨routeAfter, route⟩ := wrapper_dispatch_tag3_route_frame h.machine agree retired code n pc tag
   obtain ⟨afterStore, after, store, trace, complete⟩ := dispatch_route_to_epilogue h addresses target n 5 (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) route
   exact ⟨routeAfter, afterStore, after, route, store, trace, complete⟩
