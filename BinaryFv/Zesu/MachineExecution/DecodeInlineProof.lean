@@ -1362,7 +1362,8 @@ theorem decodeInline_first_call_transfer
       childExit.mem.get? (args.stackBase + 0xa00 + index) =
           childEntry.mem.get? (args.stackBase + 0xa00 + index) := by
         simpa [DecodeInlineCallerSaveArea, DecodeRawCallerSaveArea,
-          DecodeInlineArgs.allocatorBase, Nat.add_assoc] using childSaveArea index bound
+          DecodeInlineArgs.firstRawArgs, DecodeInlineArgs.allocatorBase, Nat.add_assoc] using
+          childSaveArea index bound
       _ = state.mem.get? (args.stackBase + 0xa00 + index) := by rw [childMemory]
   have transfer : CallTransfer
       (functionInstanceExecutionPcs generatedProgram
@@ -4733,7 +4734,8 @@ theorem decodeInline_retry_call_transfer
       childExit.mem.get? (args.stackBase + 0xa00 + index) =
           childEntry.mem.get? (args.stackBase + 0xa00 + index) := by
         simpa [DecodeInlineCallerSaveArea, DecodeRawCallerSaveArea,
-          DecodeInlineArgs.allocatorBase, Nat.add_assoc] using childSaveArea index bound
+          DecodeInlineArgs.retryRawArgs, DecodeInlineArgs.allocatorBase, Nat.add_assoc] using
+          childSaveArea index bound
       _ = state.mem.get? (args.stackBase + 0xa00 + index) := by rw [childMemory]
   exact ⟨lengthUsed, prefixUsed, childUsed, beforeCall, resumed, lengthBound, prefixBound,
     childBound, parentPrefix, ⟨transfer⟩, resumedPost, resumedAgree,
