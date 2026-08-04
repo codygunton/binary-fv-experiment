@@ -16,6 +16,10 @@ set_option maxHeartbeats 4000000
 
 structure RetryShortRejectionEdgeResult (args : DecodeInlineArgs) (fromStep used : Nat)
     (before after handoff : State) (link s0 s1 s2 : BitVec 64) : Prop where
+  bound : used ≤ decodeInlineStepBound args
+  child : level3DecodeChildSummary
+    functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
+    fromStep used before after
   childTrace : ScopedTrace
     (functionInstanceExecutionPcs generatedProgram
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
@@ -188,7 +192,7 @@ theorem retry_short_rejection_edge (fromStep : Nat) (args : DecodeInlineArgs) (b
     (saved : WrapperSavedRegisterFrame args.stackBase link s0 s1 s2 before) :
     ∃ used after retired, RetryShortRejectionEdgeResult args fromStep used before after
       (decodeInlineRetryShortBranchAfter after retired) link s0 s1 s2 := by
-  obtain ⟨used, after, -, childTrace, post, machine, outgoing, saveArea, stack, status⟩ :=
+  obtain ⟨used, after, bound, childTrace, post, machine, outgoing, saveArea, stack, status⟩ :=
     decodeInline_retry_short_reaches_post_save_area fromStep args before pre phase short
   have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
     meaningHasExactErePrefix_false_of_size_lt_four args.bytes short
@@ -239,7 +243,10 @@ theorem retry_short_rejection_edge (fromStep : Nat) (args : DecodeInlineArgs) (b
     simpa [decodeInlineRetryShortBranchAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using afterGlobals
-  exact ⟨used, after, retired, childTrace, post, machine, outgoing, saveArea, status,
+  have child : level3DecodeChildSummary
+      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
+      fromStep used before after := ⟨rfl, args, pre, bound, childTrace, post, machine, outgoing⟩
+  exact ⟨used, after, retired, bound, child, childTrace, post, machine, outgoing, saveArea, status,
     WrapperSavedRegisterFrame.of_decode_inline_caller_save_area saved saveArea, branch, branchPrefix,
     handoffFrame, handoffRetired, handoffCode, rfl, machine.agree.trans branchAgree,
     handoffStack, handoffGlobals, branchPc⟩
