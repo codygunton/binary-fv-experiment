@@ -643,4 +643,27 @@ theorem wrapper_epilogue_return_step {base state : State} {machineArgs : Decoder
   · simp [wrapperAfterReturn, pc, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       Std.ExtDHashMap.get?_insert]
 
+/-- Compact public composition rule for the seven concrete instructions from the status store
+through the restored-link return.  The caller supplies the typed intermediate frame facts to the
+individual step theorems; this rule merely records their real machine sequencing. -/
+theorem wrapper_epilogue_trace (fromStep : Nat) (before afterStore afterFirst afterRa afterS0 afterS1
+    afterS2 afterStack after : State)
+    (statusStore : Runs (try_step fromStep false) before afterStore false)
+    (firstRestore : Runs (try_step (fromStep + 1) false) afterStore afterFirst false)
+    (restoreRa : Runs (try_step (fromStep + 2) false) afterFirst afterRa false)
+    (restoreS0 : Runs (try_step (fromStep + 3) false) afterRa afterS0 false)
+    (restoreS1 : Runs (try_step (fromStep + 4) false) afterS0 afterS1 false)
+    (restoreS2 : Runs (try_step (fromStep + 5) false) afterS1 afterS2 false)
+    (finalRestore : Runs (try_step (fromStep + 6) false) afterS2 afterStack false)
+    (returnRun : Runs (try_step (fromStep + 7) false) afterStack after false) :
+    Trace fromStep 8 before after := by
+  refine Trace.step fromStep 7 before afterStore after statusStore ?_
+  refine Trace.step (fromStep + 1) 6 afterStore afterFirst after firstRestore ?_
+  refine Trace.step (fromStep + 2) 5 afterFirst afterRa after restoreRa ?_
+  refine Trace.step (fromStep + 3) 4 afterRa afterS0 after restoreS0 ?_
+  refine Trace.step (fromStep + 4) 3 afterS0 afterS1 after restoreS1 ?_
+  refine Trace.step (fromStep + 5) 2 afterS1 afterS2 after restoreS2 ?_
+  refine Trace.step (fromStep + 6) 1 afterS2 afterStack after finalRestore ?_
+  exact Trace.one (fromStep + 7) afterStack after returnRun
+
 end BinaryFv.Zesu.MachineExecution
