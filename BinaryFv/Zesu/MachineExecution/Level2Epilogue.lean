@@ -511,4 +511,61 @@ theorem wrapper_epilogue_load_s2_step {base state : State} {machineArgs : Decode
       Std.ExtDHashMap.get?_insert])
   exact ⟨retired, by simpa [afterRegisterWrite, pc, executeState] using run⟩
 
+/-- Exact state after the final `addi sp, sp, 2032` at `0x10374`. -/
+def wrapperAfterFinalStackRestore (state : State) (retired stack : BitVec 64) : State :=
+  tryStepStackAddiAfterRetired state (BitVec.ofNat 64 0x10374) 0x7f0#12 stack retired
+
+/-- Decode the final stack restoration's production ELF word. -/
+theorem wrapper_epilogue_final_stack_restore_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x13#8 0x01#8 0x01#8 0x7f#8)) state state
+      (.ITYPE (0x7f0#12, .Regidx 2#5, .Regidx 2#5, .ADDI)) := by
+  decode_run
+
+/-- Execute the final wrapper stack restoration; with the preceding `+560`, it exactly reverses
+the prologue's `0xa20`-byte allocation. -/
+theorem wrapper_epilogue_final_stack_restore_step {base state : State} {machineArgs : DecoderMachineArgs}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree decoderPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10374))
+    (stack : BitVec 64) (stackValue : state.regs.get? x2 = some stack) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (wrapperAfterFinalStackRestore state retired stack) false := by
+  have pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (BitVec.ofNat 64 0x10374) := by
+    refine ⟨?_, by native_decide⟩
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    native_decide
+  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10374) 0x13#8 0x01#8 0x01#8 0x7f#8 :=
+    fetchFileInstruction state 0x10374 0x13 0x01 0x01 0x7f
+      (hasExactErePrefix_programImage_of_codeIntact code)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  obtain ⟨_, platform⟩ := decoderStepPlatform_of_decoderAgree machine agree
+    (BitVec.ofNat 64 0x10374) atPc pcIn _ _ _ _ fetchBytes
+  obtain ⟨fetch, fetchNoMMIO, fetched, interrupts, notExpected, privilege, mseccfgAtIncrement⟩ :=
+    platform
+  obtain ⟨retired, inhibit, config, counters⟩ :=
+    decoderStepCounters_of_decoderAgree machine.normal agree retiredPresent
+  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  refine ⟨retired, ?_⟩
+  simpa [wrapperAfterFinalStackRestore, tryStepStackAddiAfterIncrement,
+    tryStepControlFlowAfterIncrement] using
+    tryStepStackAddiRetiresWithFetchMemory stepNo state (BitVec.ofNat 64 0x10374) 0x7f0#12 stack
+      retired inhibit config 0x13#8 0x01#8 0x01#8 0x7f#8 fetch
+      (by simpa [tryStepStackAddiAfterIncrement, tryStepControlFlowAfterIncrement] using fetchNoMMIO)
+      (by simpa [tryStepStackAddiAfterIncrement, tryStepControlFlowAfterIncrement] using fetched)
+      interrupts (by unfold BaseInstructionEncoding; decide)
+      (wrapper_epilogue_final_stack_restore_decode _ privilege _ mseccfgAtIncrement) notExpected
+      (by simpa [stackAddiNextState, tryStepStackAddiAfterIncrement,
+        tryStepControlFlowAfterIncrement, coreControlFlowNextState, Std.ExtDHashMap.get?_insert]
+        using stackValue)
+      hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+
 end BinaryFv.Zesu.MachineExecution
