@@ -54,6 +54,10 @@ private structure Tag1PrefixPath (base : State) (fromStep : Nat) (entry : State)
 private structure Tag1SuffixPath (base : State) (fromStep : Nat) (entry : State) : Prop where
   evidence : ∃ final,
     Trace fromStep 3 entry final ∧
+    ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary fromStep 3 entry final ∧
     final.regs.get? PC = some (BitVec.ofNat 64 0x1035c) ∧
     final.regs.get? x10 = some (BitVec.ofNat 64 0) ∧
     final.regs.get? x11 = some (BitVec.ofNat 64 4) ∧
@@ -1819,10 +1823,45 @@ private theorem wrapper_dispatch_tag1_suffix {machineArgs : DecoderMachineArgs} 
     (controlFlowJumpState (tryStepControlFlowAfterIncrement s6)
       (BitVec.ofNat 64 0x10430) (BitVec.ofNat 64 0x1035c))
     (BitVec.ofNat 64 0x1035c) r7
+  have p5 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary stepNo 1 state s5 :=
+    ConfinedPrefix.ownStep atPc (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s5] using run5)
+  have p6 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (stepNo + 1) 1 s5 s6 :=
+    ConfinedPrefix.ownStep pc5 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s5, s6] using run6)
+  have p7 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary (stepNo + 2) 1 s6 s7 :=
+    ConfinedPrefix.ownStep pc6 (by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide) (by
+      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s6] using run7)
+  have suffixPrefix : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary stepNo 3 state s7 := by
+    simpa using ConfinedPrefix.trans (ConfinedPrefix.trans p5 p6) p7
   refine ⟨⟨s7, Trace.step stepNo 2 state s5 s7 (by simpa [s5] using run5)
     (Trace.step (stepNo + 1) 1 s5 s6 s7 (by simpa [s5, s6] using run6)
     (Trace.step (stepNo + 2) 0 s6 s7 s7 (by simpa [s6] using run7)
-      (Trace.refl (stepNo + 3) s7))), ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
+      (Trace.refl (stepNo + 3) s7))), suffixPrefix, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
   · simp [s7, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
@@ -1868,13 +1907,19 @@ theorem wrapper_dispatch_tag1_suffix_frame {machineArgs : DecoderMachineArgs} {b
       machineArgs base) (agree : Agree platformPreserved base state)
     (retired : RetiredCounterPresent state) (code : canonicalContractParams.env.CodeIntact state)
     (stepNo : Nat) (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10428)) :
-    ∃ after, Trace stepNo 3 state after ∧ after.regs.get? PC = some (BitVec.ofNat 64 0x1035c) ∧
+    ∃ after, Trace stepNo 3 state after ∧ ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary stepNo 3 state after ∧
+      after.regs.get? PC = some (BitVec.ofNat 64 0x1035c) ∧
       after.regs.get? x10 = some (BitVec.ofNat 64 0) ∧ after.regs.get? x11 = some (BitVec.ofNat 64 4) ∧
       RetiredCounterPresent after ∧ after.mem = state.mem ∧ Agree platformPreserved base after ∧
-      canonicalContractParams.env.CodeIntact after ∧ after.regs.get? x18 = state.regs.get? x18 := by
-  obtain ⟨⟨after, trace, pc, result, status, retired, memory, platform, code, x18, -⟩⟩ :=
+      canonicalContractParams.env.CodeIntact after ∧ after.regs.get? x18 = state.regs.get? x18 ∧
+      after.regs.get? x2 = state.regs.get? x2 := by
+  obtain ⟨⟨after, trace, tailPrefix, pc, result, status, retired, memory, platform, code, x18,
+    x2⟩⟩ :=
     wrapper_dispatch_tag1_suffix machine agree retired code stepNo atPc
-  exact ⟨after, trace, pc, result, status, retired, memory, platform, code, x18⟩
+  exact ⟨after, trace, tailPrefix, pc, result, status, retired, memory, platform, code, x18, x2⟩
 
 /-- The tag-one route reaches the shared rejection continuation with `(a0, a1) = (0, 4)`. -/
 theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base state : State}
@@ -1890,8 +1935,8 @@ theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base stat
   obtain ⟨⟨s4, prefixTrace, pc4, tag4, status4, retired4, memory4, agree4, code4, x18_4,
     x2_4⟩⟩ :=
     wrapper_dispatch_tag1_prefix machine agree retiredPresent code stepNo atPc tag
-  obtain ⟨⟨s7, suffixTrace, pc7, result7, status7, retired7, memory7, agree7, code7, x18_7,
-    x2_7⟩⟩ :=
+  obtain ⟨⟨s7, suffixTrace, _suffixPrefix, pc7, result7, status7, retired7, memory7, agree7,
+    code7, x18_7, x2_7⟩⟩ :=
     wrapper_dispatch_tag1_suffix machine agree4 retired4 code4 (stepNo + 4) pc4
   refine ⟨⟨s7, Trace.append prefixTrace suffixTrace, pc7, result7, status7, retired7, ?_, agree7,
     code7, ?_, ?_⟩⟩

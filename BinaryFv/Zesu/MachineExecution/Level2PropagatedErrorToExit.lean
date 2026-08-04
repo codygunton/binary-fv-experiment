@@ -205,6 +205,58 @@ theorem wrapper_dispatch_tag1_branch_confined {machineArgs : DecoderMachineArgs}
   · exact ⟨Sail.BitVec.addInt r 1, by simp [after, wrapperDispatchTag1BranchAfter,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
 
+/-- The complete tag-one dispatch route owns all seven wrapper instructions through the common
+status store. -/
+theorem wrapper_dispatch_tag1_confined {machineArgs : DecoderMachineArgs} {base state : State}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base) (agree : Agree platformPreserved base state)
+    (retired : RetiredCounterPresent state) (code : canonicalContractParams.env.CodeIntact state)
+    (stepNo : Nat) (pc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
+    (tag : state.regs.get? x10 = some (BitVec.ofNat 64 1)) :
+    ∃ after, ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary stepNo 7 state after ∧
+      after.regs.get? PC = some (BitVec.ofNat 64 0x1035c) ∧
+      after.regs.get? x10 = some (BitVec.ofNat 64 0) ∧
+      after.regs.get? x11 = some (BitVec.ofNat 64 4) ∧
+      RetiredCounterPresent after ∧ after.mem = state.mem ∧
+      Agree platformPreserved base after ∧ canonicalContractParams.env.CodeIntact after ∧
+      after.regs.get? x2 = state.regs.get? x2 ∧
+      after.regs.get? x18 = state.regs.get? x18 := by
+  obtain ⟨s2, p12, pc2, tag2, stack2, globals2, memory2, agree2, code2, retired2⟩ :=
+    wrapper_dispatch_tag1_after_tag3_miss machine agree retired code stepNo pc tag
+  obtain ⟨s3, p3, pc3, tag3, comparison3, stack3, globals3, memory3, agree3, code3,
+    retired3⟩ :=
+    wrapper_dispatch_tag1_constant_confined machine agree2 retired2 code2 (stepNo + 2) pc2 tag2
+  obtain ⟨s4, p4, pc4, _tag4, _comparison4, stack4, globals4, memory4, agree4, code4,
+    retired4⟩ :=
+    wrapper_dispatch_tag1_branch_confined machine agree3 retired3 code3 (stepNo + 3) pc3 tag3
+      comparison3
+  obtain ⟨after, _trace, tailPrefix, finalPc, result, status, finalRetired, tailMemory,
+    finalAgree, finalCode, tailGlobals, tailStack⟩ :=
+    wrapper_dispatch_tag1_suffix_frame machine agree4 retired4 code4 (stepNo + 4) pc4
+  have p123 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary stepNo 3 state s3 := by
+    simpa using ConfinedPrefix.trans p12 p3
+  have p1234 : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary stepNo 4 state s4 := by
+    simpa using ConfinedPrefix.trans p123 p4
+  have complete : ConfinedPrefix
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Level2ChildSummary stepNo 7 state after := by
+    simpa using ConfinedPrefix.trans p1234 tailPrefix
+  exact ⟨after, complete, finalPc, result, status, finalRetired,
+    tailMemory.trans (memory4.trans (memory3.trans memory2)), finalAgree, finalCode,
+    tailStack.trans (stack4.trans (stack3.trans stack2)),
+    tailGlobals.trans (globals4.trans (globals3.trans globals2))⟩
+
 private theorem tag3_branch_agree (state : State) (retired : BitVec 64) :
     Agree platformPreserved state (wrapperDispatchTag3BranchAfter state retired) := by
   intro register preserved
