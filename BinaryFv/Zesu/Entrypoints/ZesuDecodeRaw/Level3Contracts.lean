@@ -125,12 +125,6 @@ structure HasExactErePrefixInlinePre (args : HasExactErePrefixInlineArgs)
       functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35)
     args.machineArgs state
 
-def prefixLow16 (bytes : ByteArray) : Nat :=
-  (bytes.get! 0).toNat + (bytes.get! 1).toNat * 2 ^ 8
-
-def prefixHigh16 (bytes : ByteArray) : Nat :=
-  (bytes.get! 2).toNat * 2 ^ 16 + (bytes.get! 3).toNat * 2 ^ 24
-
 /-- Exact state immediately before the generated outgoing instruction of either segment. The
 parent owns that outgoing instruction: `bltu` after the length segment and the final `or` after the
 byte segment. -/

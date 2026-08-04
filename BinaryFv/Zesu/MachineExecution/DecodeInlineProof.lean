@@ -2405,12 +2405,13 @@ theorem decodeInline_first_level3_relation (contract : CompiledDecodeRawInstance
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep used before after ∧
       DecodeInlinePost args before after ∧
-      DecodeInlineMachinePost before after := by
+      DecodeInlineMachinePost before after ∧
+      DecodeInlineOutgoingFrame args after := by
   cases resultEq : Contracts.meaningDecodeRaw args.bytes with
   | ok value =>
       obtain ⟨childUsed, final, childBound, exit, post, trace, machinePost⟩ :=
         decodeInline_first_success_reaches_post contract fromStep args before pre phase value resultEq
-      refine ⟨childUsed + 13, final, ?_, trace, ?_, machinePost⟩
+      refine ⟨childUsed + 13, final, ?_, trace, ?_, machinePost, ?_⟩
       · unfold decodeInlineStepBound
         have rawBound := childBound
         have stepBoundEq : compiledDecodeRawContract.binding.stepBound args.firstRawArgs =
@@ -2418,6 +2419,7 @@ theorem decodeInline_first_level3_relation (contract : CompiledDecodeRawInstance
         rw [stepBoundEq] at rawBound
         omega
       · simpa [DecodeInlinePost, phase] using post
+      · simp [DecodeInlineOutgoingFrame, phase]
   | error error =>
       obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, childBound, transfer,
         tagRun, exit, post, trace, machinePost, -, -⟩ :=
@@ -2425,7 +2427,7 @@ theorem decodeInline_first_level3_relation (contract : CompiledDecodeRawInstance
       refine ⟨childUsed + 8,
         afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
           (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))), ?_, trace, ?_,
-          machinePost⟩
+          machinePost, by simp [DecodeInlineOutgoingFrame, phase]⟩
       · unfold decodeInlineStepBound
         have rawBound := childBound
         have stepBoundEq : compiledDecodeRawContract.binding.stepBound args.firstRawArgs =
@@ -3582,7 +3584,8 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep used state after ∧
       DecodeInlinePost args state after ∧
-      DecodeInlineMachinePost state after := by
+      DecodeInlineMachinePost state after ∧
+      DecodeInlineOutgoingFrame args after := by
   obtain ⟨lengthUsed, prefixUsed, beforeOr, lengthBound, prefixBound, parentPrefix, prefixPost,
     beforeAgree, beforeCounter, _beforeStack, inputPointer, inputLength, beforeCode, beforeMemory⟩ :=
     decodeInline_retry_uses_prefix_bytes fromStep args state pre phase fourBytes
@@ -3628,7 +3631,7 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
     rw [Contracts.DecoderEnvironment.CodeIntact, orMemory, beforeMemory]
     exact pre.code
   refine ⟨6 + lengthUsed + prefixUsed, after, ?_, ?_, ?_,
-    ⟨afterAgree, orCounter, afterCode⟩⟩
+    ⟨afterAgree, orCounter, afterCode⟩, ?_⟩
   · unfold decodeInlineStepBound
     have prefixBoundValue : prefixUsed ≤ 12 := by
       simpa [hasExactErePrefixInlineStepBound] using prefixBound
@@ -3640,6 +3643,13 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
     simpa using trace
   · simp [DecodeInlinePost, phase, DecodeInlineRetryPost, notExact, resultInvalid,
       show ¬ args.bytes.size < 4 by omega, after, orPc]
+  · simp only [DecodeInlineOutgoingFrame, phase, notExact, Bool.false_eq_true, ↓reduceIte,
+      show ¬ args.bytes.size < 4 by omega]
+    constructor
+    · simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+    · simpa [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert] using prefixPost.2.2.2.2
 
 /-! ## Exact-prefix second-call setup -/
 
@@ -5378,7 +5388,8 @@ theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInl
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep used state after ∧
       DecodeInlinePost args state after ∧
-      DecodeInlineMachinePost state after := by
+      DecodeInlineMachinePost state after ∧
+      DecodeInlineOutgoingFrame args after := by
   obtain ⟨childUsed, childAfter, childBound, parentPrefix, childPost, agree, counter, -, -, -,
     code, memory⟩ :=
     decodeInline_retry_uses_length_gate fromStep args state pre phase
@@ -5399,7 +5410,7 @@ theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInl
     (pre.retryReason phase).1
   have resultInvalid : Contracts.meaningDecode args.bytes = .error .invalidSsz := by
     simp [Contracts.meaningDecode, rawInvalid, prefixFalse]
-  refine ⟨4 + childUsed, childAfter, ?_, ?_, ?_, ⟨agree, counter, code⟩⟩
+  refine ⟨4 + childUsed, childAfter, ?_, ?_, ?_, ⟨agree, counter, code⟩, ?_⟩
   · unfold decodeInlineStepBound
     have lengthBound : hasExactErePrefixInlineStepBound
         { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes } = 12 := rfl
@@ -5408,5 +5419,7 @@ theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInl
   · simpa using trace
   · simp [DecodeInlinePost, phase, DecodeInlineRetryPost, prefixFalse, resultInvalid, atExit,
       short]
+  · simp [DecodeInlineOutgoingFrame, phase, prefixFalse, short]
+    exact ⟨childPost.2.1, childPost.2.2⟩
 
 end BinaryFv.Zesu.MachineExecution

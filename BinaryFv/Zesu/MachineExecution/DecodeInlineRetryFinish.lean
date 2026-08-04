@@ -34,7 +34,8 @@ theorem decodeInline_retry_success_reaches_post
           functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
         (DecodeInlineExit args) Level3ChildSummary fromStep used state after ∧
       DecodeInlinePost args state after ∧
-      DecodeInlineMachinePost state after := by
+      DecodeInlineMachinePost state after ∧
+      DecodeInlineOutgoingFrame args after := by
   obtain ⟨lengthUsed, prefixUsed, rawUsed, rawCall, decoded,
     lengthBound, prefixBound, rawBound, prefixToRawCall, ⟨rawTransfer⟩, decodedPost,
     decodedAgree, decodedCounter, decodedStack, decodedPayload, decodedCode⟩ :=
@@ -260,8 +261,30 @@ theorem decodeInline_retry_success_reaches_post
   have afterCounter : RetiredCounterPresent after :=
     afterRegisterWrite_retired_present pageState (BitVec.ofNat 64 0x103f4) pointerRetired x10
       (BitVec.ofNat 64 (args.stackBase + 0x1000))
+  have afterStack : after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
+    simpa [after] using
+      (afterRegisterWrite_register pageState (BitVec.ofNat 64 0x103f4) pointerRetired x10 x2
+        (BitVec.ofNat 64 (args.stackBase + 0x1000)) (by decide) (by decide) (by decide)
+        (by decide) (by decide)).trans pageStack
+  have tagOffset : Contracts.canonicalContractParams.env.record.entryResultTagOffset = 832 := by
+    have pinned := congrArg (fun record => record.entryResultTagOffset)
+      Contracts.canonicalRecordSizes_pinned
+    simpa [Contracts.canonicalContractParams, Contracts.canonicalEnvironment] using pinned
+  have statusFinal : MemoryRepresentation.ResultStatusLERep after
+      (args.stackBase + 0x9f0)
+      (Contracts.decodeInternalResultTag (Contracts.meaningDecode args.bytes)) := by
+    rcases decodedPost.2.2.2.1 with ⟨tagBound, low, high⟩
+    refine ⟨by simpa [meaningEq] using tagBound, ?_, ?_⟩
+    · rw [finalFrame _ (Or.inr (by
+        simp [decodeInlineRetryCopyArgs, DecodeInlineArgs.retryRawArgs, tagOffset]
+        omega))]
+      simpa [DecodeInlineArgs.retryRawArgs, tagOffset, meaningEq] using low
+    · rw [finalFrame _ (Or.inr (by
+        simp [decodeInlineRetryCopyArgs, DecodeInlineArgs.retryRawArgs, tagOffset]
+        omega))]
+      simpa [DecodeInlineArgs.retryRawArgs, tagOffset, meaningEq] using high
   refine ⟨19 + lengthUsed + prefixUsed + rawUsed + memcpyUsed + 1 + 1,
-    after, ?_, ?_, retryPost, ⟨afterAgree, afterCounter, codeFinal⟩⟩
+    after, ?_, ?_, retryPost, ⟨afterAgree, afterCounter, codeFinal⟩, ?_⟩
   · unfold decodeInlineStepBound
     have lengthBoundValue : lengthUsed ≤ 12 := by
       simpa [hasExactErePrefixInlineStepBound] using lengthBound
@@ -277,6 +300,7 @@ theorem decodeInline_retry_success_reaches_post
         contentsSize] using memcpyBound
     omega
   · simpa [copyStart, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace
+  · simp [DecodeInlineOutgoingFrame, phase, exactPrefix, afterStack, statusFinal]
 
 /-- A non-`invalidSsz` first error selects the outgoing edge at the second inline entry. The child
 summary is therefore a zero-step selected exit; Level 2 retires the real branch to `0x103fc`. -/
@@ -290,8 +314,9 @@ theorem decodeInline_propagate_error_reaches_post (fromStep : Nat) (args : Decod
             functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
           (DecodeInlineExit args) Level3ChildSummary fromStep used before after ∧
         DecodeInlinePost args before after ∧
-        DecodeInlineMachinePost before after := by
-  obtain ⟨notInvalid, rawResult, -, -⟩ := pre.propagateReason error phase
+        DecodeInlineMachinePost before after ∧
+        DecodeInlineOutgoingFrame args after := by
+  obtain ⟨notInvalid, rawResult, tagA0, tagA1⟩ := pre.propagateReason error phase
   have result : Contracts.meaningDecode args.bytes = .error error := by
     cases error with
     | invalidSsz => exact False.elim (notInvalid rfl)
@@ -303,8 +328,9 @@ theorem decodeInline_propagate_error_reaches_post (fromStep : Nat) (args : Decod
     simp [DecodeInlineExit, phase]
   refine ⟨0, before, by simp, ScopedTrace.exitAt fromStep before
     (BitVec.ofNat 64 0x10380) atExit selectedExit, ?_,
-    ⟨Agree.refl before, pre.machine.retiredCounter, pre.code⟩⟩
-  simp [DecodeInlinePost, phase, notInvalid, rawResult, result, atExit]
+    ⟨Agree.refl before, pre.machine.retiredCounter, pre.code⟩, ?_⟩
+  · simp [DecodeInlinePost, phase, notInvalid, rawResult, result, atExit]
+  · simp [DecodeInlineOutgoingFrame, phase, tagA0, tagA1]
 
 /-- The complete Level 3 theorem. It assumes only the selected compiled `decodeRaw` contract;
 the two prefix segments and emitted `memcpy` are discharged by their Sail proofs. Every phase and

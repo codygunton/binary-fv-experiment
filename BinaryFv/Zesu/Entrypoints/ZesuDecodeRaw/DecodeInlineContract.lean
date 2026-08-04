@@ -369,6 +369,37 @@ structure DecodeInlineMachinePost (before after : State) : Prop where
   retiredCounter : RetiredCounterPresent after
   code : canonicalContractParams.env.CodeIntact after
 
+def prefixLow16 (bytes : ByteArray) : Nat :=
+  (bytes.get! 0).toNat + (bytes.get! 1).toNat * 2 ^ 8
+
+def prefixHigh16 (bytes : ByteArray) : Nat :=
+  (bytes.get! 2).toNat * 2 ^ 16 + (bytes.get! 3).toNat * 2 ^ 24
+
+/-- Facts at the particular `decode` outgoing instruction selected by `args.phase` and the source
+outcome. These are deliberately separate from the platform frame: Level 2 consumes the exact
+register comparison or result-tag bytes needed by the next wrapper-owned instruction. -/
+def DecodeInlineOutgoingFrame (args : DecodeInlineArgs) (after : State) : Prop :=
+  match args.phase with
+  | .first => True
+  | .retryAfterInvalidSsz =>
+      if meaningHasExactErePrefix args.bytes then
+        after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) ∧
+          MemoryRepresentation.ResultStatusLERep after
+            (args.stackBase + 0x9f0)
+            (decodeInternalResultTag (meaningDecode args.bytes))
+      else if args.bytes.size < 4 then
+        after.regs.get? x10 = some (BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32)) ∧
+          after.regs.get? x12 = some
+            (BitVec.ofNat 64 (args.bytes.size + (2 ^ 64 - 2 ^ 32 - 4)))
+      else
+        after.regs.get? x10 = some
+            (BitVec.ofNat 64 (prefixHigh16 args.bytes ||| prefixLow16 args.bytes)) ∧
+          after.regs.get? x13 = some (BitVec.ofNat 64 (args.bytes.size - 4))
+  | .propagateError error =>
+      after.regs.get? x10 = some
+          (BitVec.ofNat 64 (decodeInternalResultTag (.error error))) ∧
+        after.regs.get? x11 = some (BitVec.ofNat 64 2)
+
 /-! ## Generated-boundary checks -/
 
 /-- Each phase starts at one of the two entries accepted by the checked inline boundary. -/
@@ -517,7 +548,8 @@ def DecodeInlineContract
             childSummary
             fromStep used before after ∧
           DecodeInlinePost args before after ∧
-          DecodeInlineMachinePost before after
+          DecodeInlineMachinePost before after ∧
+          DecodeInlineOutgoingFrame args after
 
 /-- The exact caller-side summary carried by a checked Level 2 inline transfer. -/
 def decodeChildSummary
@@ -535,7 +567,8 @@ def decodeChildSummary
           level3ChildSummary
           fromStep used before after ∧
         DecodeInlinePost args before after ∧
-        DecodeInlineMachinePost before after
+        DecodeInlineMachinePost before after ∧
+        DecodeInlineOutgoingFrame args after
 
 /-- The fixed contract produces exactly the child summary consumed by the wrapper scope. -/
 theorem decodeChildSummary_of_contract
@@ -546,7 +579,8 @@ theorem decodeChildSummary_of_contract
     ∃ used after, decodeChildSummary level3ChildSummary
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
       fromStep used before after := by
-  obtain ⟨used, after, bound, trace, post, machinePost⟩ := contract args fromStep before pre
-  exact ⟨used, after, rfl, args, pre, bound, trace, post, machinePost⟩
+  obtain ⟨used, after, bound, trace, post, machinePost, outgoing⟩ :=
+    contract args fromStep before pre
+  exact ⟨used, after, rfl, args, pre, bound, trace, post, machinePost, outgoing⟩
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
