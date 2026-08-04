@@ -61,6 +61,8 @@ structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
     0x4215020 < args.inputBase
   stackAligned : stackBase % 16 = 0
   stackFrameFits : stackBase + 0xa20 ≤ 2 ^ 64
+  /-- The concrete local frame cannot overlap the wrapper's attempted/status globals. -/
+  stackAvoidsStatusGlobals : stackBase + 0xa20 ≤ 0x4215020 ∨ 0x4215028 < stackBase
   stackFrameWritable : ∀ index, index < 0xa20 →
     canonicalContractParams.env.stack (stackBase + index)
   stackObjectsFit : stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤

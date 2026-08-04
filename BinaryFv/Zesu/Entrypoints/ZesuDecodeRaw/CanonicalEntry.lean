@@ -304,6 +304,7 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
     inputAvoidsAttempted := ?_
     stackAligned := ?_
     stackFrameFits := ?_
+    stackAvoidsStatusGlobals := ?_
     stackFrameWritable := ?_
     stackObjectsFit := ?_
     stackObjectsReadable := ?_
@@ -332,6 +333,8 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
     omega
   · native_decide
   · native_decide
+  · right
+    native_decide
   · intro index indexBound
     simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]
     have stackBasePinned : canonicalZesuDecodeRawStackBase = 0x3000000ff5e0 := by native_decide
