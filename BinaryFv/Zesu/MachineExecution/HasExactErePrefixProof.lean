@@ -313,24 +313,7 @@ theorem hasExactErePrefix_prefix_first_lbu_step (stepNo : Nat)
     simpa [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs.entryPc, phase] using pre.atEntry
   have pcIn := hasExactErePrefix_body_fetch_classification 0x10398
     (by simp [hasExactErePrefixBodyPcs])
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10398) 0x03#8 0x45#8 0x14#8 0x00#8 :=
-    fetchInstruction state 0x10398 0x03 0x45 0x14 0x00
-      (hasExactErePrefix_programImage_of_codeIntact pre.code)
-  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine
-    (Agree.refl state) (BitVec.ofNat 64 0x10398) atPc pcIn _ _ _ _ fetchBytes
-  obtain ⟨retired, inhibit, config, counters⟩ :=
-    decoderStepCounters pre.machine.normal (Agree.refl state) pre.machine.retiredCounter
-  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
-  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
-  have base : BaseInstructionEncoding 0x03#8 := by unfold BaseInstructionEncoding; decide
-  have wordEq : fetchWord 0x03#8 0x45#8 0x14#8 0x00#8 =
-      (0x00144503 : BitVec 32) := by decide
-  have decode : Runs (ext_decode (fetchWord 0x03#8 0x45#8 0x14#8 0x00#8))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.LOAD (1#12, .Regidx 8#5, .Regidx 10#5, true, 1)) := by
-    rw [wordEq]
-    decode_run
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine (Agree.refl state)
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10398)
   let address := BitVec.ofNat 64 (args.inputBase + 1)
@@ -402,29 +385,27 @@ theorem hasExactErePrefix_prefix_first_lbu_step (stepNo : Nat)
     simpa [executeState, address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits,
       leBytes, inputByte] using
       pre.inputMemory 1 inputBound
-  let loadedValue := BitVec.ofNat 64 inputByte.toNat
-  have execute : Runs (execute (.LOAD (1#12, .Regidx 8#5, .Regidx 10#5, true, 1)))
-      executeState
-      { executeState with regs := executeState.regs.insert x10 loadedValue }
-      (.Retire_Success ()) := by
-    have zeroExtend : zero_extend (m := 64) (BitVec.ofNat 8 inputByte.toNat) =
-        loadedValue := by
-      apply BitVec.eq_of_toNat_eq
-      simp [zero_extend, Sail.BitVec.zeroExtend, loadedValue]
-    change Runs (execute_LOAD 1#12 (.Regidx 8#5) (.Regidx 10#5) true 1) _ _ _
-    have run := execute_LOAD_lbu_run executeState _ 1#12 (.Regidx 8#5) (.Regidx 10#5)
-      address mstatusBits (BitVec.ofNat 8 inputByte.toNat) mstatusAtExecute
-      privilegeAtExecute mprvZero addressRun (is_aligned_vaddr_one _) physAccess loadNoMMIO
-      memoryByte (wX_x10_run executeState _)
-    rw [zeroExtend] at run
-    exact run
-  refine ⟨retired, ?_⟩
-  simpa [executeState, afterRegisterWrite, loadedValue] using
-    tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x10398) retired inhibit config
-      0x03#8 0x45#8 0x14#8 0x00#8 (.LOAD (1#12, .Regidx 8#5, .Regidx 10#5, true, 1)) x10
-      loadedValue fetch noMMIO fetched interrupts base decode
-      notExpected execute (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead
-      configRead notInhibited machineEnabled retiredRead
+  have readMemory : Runs (vmem_read (.Regidx 8#5) (sign_extend (m := 64) 1#12) 1
+      (MemoryAccessType.Load mem_payload.Data) false false false) executeState executeState
+      (.Ok (BitVec.ofNat 8 inputByte.toNat)) := by
+    have hread := mem_read_load_run executeState address mstatusBits
+      (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)) mstatusAtExecute privilegeAtExecute mprvZero
+      memoryByte physAccess loadNoMMIO
+    rw [show leWord (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)) = BitVec.ofNat 8 inputByte.toNat
+      from by simpa using leWord_leBytes 1 (BitVec.ofNat 8 inputByte.toNat)] at hread
+    exact vmem_read_byte_run executeState (.Regidx 8#5) (sign_extend (m := 64) 1#12) address
+      mstatusBits (BitVec.ofNat 8 inputByte.toNat) mstatusAtExecute privilegeAtExecute mprvZero
+      addressRun (is_aligned_vaddr_one _) hread
+  exact decoderLoadStep pre.machine (Agree.refl state) pre.machine.retiredCounter
+    (hasExactErePrefix_programImage_of_codeIntact pre.code) stepNo 0x10398 0x03 0x45 0x14 0x00
+    1#12 8#5 10#5 true 1 (BitVec.ofNat 8 inputByte.toNat) atPc readMemory
+    (by
+      have zeroExtend : extend_value true (BitVec.ofNat 8 inputByte.toNat) =
+          BitVec.ofNat 64 inputByte.toNat := by
+        apply BitVec.eq_of_toNat_eq
+        simp [extend_value, zero_extend, Sail.BitVec.zeroExtend]
+      rw [zeroExtend]
+      exact wX_x10_run executeState (BitVec.ofNat 64 inputByte.toNat))
 
 theorem hasExactErePrefix_prefix_second_lbu_step (stepNo : Nat)
     (args : Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs) (baseState state : State)
@@ -444,23 +425,7 @@ theorem hasExactErePrefix_prefix_second_lbu_step (stepNo : Nat)
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x1039c) 0x03#8 0x46#8 0x04#8 0x00#8 :=
-    fetchInstruction state 0x1039c 0x03 0x46 0x04 0x00 code
-  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform pre.machine agree
-    (BitVec.ofNat 64 0x1039c) atPc pcIn _ _ _ _ fetchBytes
-  obtain ⟨retired, inhibit, config, counters⟩ :=
-    decoderStepCounters pre.machine.normal agree retiredPresent
-  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
-  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
-  have base : BaseInstructionEncoding 0x03#8 := by unfold BaseInstructionEncoding; decide
-  have wordEq : fetchWord 0x03#8 0x46#8 0x04#8 0x00#8 =
-      (0x00044603 : BitVec 32) := by decide
-  have decode : Runs (ext_decode (fetchWord 0x03#8 0x46#8 0x04#8 0x00#8))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.LOAD (0#12, .Regidx 8#5, .Regidx 12#5, true, 1)) := by
-    rw [wordEq]
-    decode_run
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine agree
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x1039c)
   let address := BitVec.ofNat 64 args.inputBase
@@ -536,28 +501,26 @@ theorem hasExactErePrefix_prefix_second_lbu_step (stepNo : Nat)
     rw [memEq]
     simpa [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits,
       leBytes, inputByte] using pre.inputMemory 0 inputBound
-  let loadedValue := BitVec.ofNat 64 inputByte.toNat
-  have execute : Runs (execute (.LOAD (0#12, .Regidx 8#5, .Regidx 12#5, true, 1)))
-      executeState { executeState with regs := executeState.regs.insert x12 loadedValue }
-      (.Retire_Success ()) := by
-    have zeroExtend : zero_extend (m := 64) (BitVec.ofNat 8 inputByte.toNat) =
-        loadedValue := by
-      apply BitVec.eq_of_toNat_eq
-      simp [zero_extend, Sail.BitVec.zeroExtend, loadedValue]
-    change Runs (execute_LOAD 0#12 (.Regidx 8#5) (.Regidx 12#5) true 1) _ _ _
-    have run := execute_LOAD_lbu_run executeState _ 0#12 (.Regidx 8#5) (.Regidx 12#5)
-      address mstatusBits (BitVec.ofNat 8 inputByte.toNat) mstatusAtExecute
-      privilegeAtExecute mprvZero addressRun (is_aligned_vaddr_one _) physAccess loadNoMMIO
-      memoryByte (wX_x12_run executeState _)
-    rw [zeroExtend] at run
-    exact run
-  refine ⟨retired, ?_⟩
-  simpa [executeState, afterRegisterWrite, loadedValue] using
-    tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x1039c) retired inhibit config
-      0x03#8 0x46#8 0x04#8 0x00#8 (.LOAD (0#12, .Regidx 8#5, .Regidx 12#5, true, 1)) x12
-      loadedValue fetch noMMIO fetched interrupts base decode notExpected execute
-      (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
-      machineEnabled retiredRead
+  have readMemory : Runs (vmem_read (.Regidx 8#5) (sign_extend (m := 64) 0#12) 1
+      (MemoryAccessType.Load mem_payload.Data) false false false) executeState executeState
+      (.Ok (BitVec.ofNat 8 inputByte.toNat)) := by
+    have hread := mem_read_load_run executeState address mstatusBits
+      (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)) mstatusAtExecute privilegeAtExecute mprvZero
+      memoryByte physAccess loadNoMMIO
+    rw [show leWord (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)) = BitVec.ofNat 8 inputByte.toNat
+      from by simpa using leWord_leBytes 1 (BitVec.ofNat 8 inputByte.toNat)] at hread
+    exact vmem_read_byte_run executeState (.Regidx 8#5) (sign_extend (m := 64) 0#12) address
+      mstatusBits (BitVec.ofNat 8 inputByte.toNat) mstatusAtExecute privilegeAtExecute mprvZero
+      addressRun (is_aligned_vaddr_one _) hread
+  exact decoderLoadStep pre.machine agree retiredPresent code stepNo 0x1039c 0x03 0x46 0x04 0x00
+    0#12 8#5 12#5 true 1 (BitVec.ofNat 8 inputByte.toNat) atPc readMemory
+    (by
+      have zeroExtend : extend_value true (BitVec.ofNat 8 inputByte.toNat) =
+          BitVec.ofNat 64 inputByte.toNat := by
+        apply BitVec.eq_of_toNat_eq
+        simp [extend_value, zero_extend, Sail.BitVec.zeroExtend]
+      rw [zeroExtend]
+      exact wX_x12_run executeState (BitVec.ofNat 64 inputByte.toNat))
 
 theorem hasExactErePrefix_prefix_first_two_lbu_steps (fromStep : Nat)
     (args : Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs) (state : State)
@@ -615,12 +578,7 @@ theorem hasExactErePrefix_prefix_third_lbu_step (stepNo : Nat)
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103a0) 0x03#8 0x47#8 0x24#8 0x00#8 :=
     fetchInstruction state 0x103a0 0x03 0x47 0x24 0x00 code
-  obtain ⟨fetchMseccfgBits, platform⟩ := decoderStepPlatform pre.machine agree
-    (BitVec.ofNat 64 0x103a0) atPc pcIn _ _ _ _ fetchBytes
-  obtain ⟨retired, inhibit, config, counters⟩ :=
-    decoderStepCounters pre.machine.normal agree retiredPresent
-  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
-  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine agree
   have base : BaseInstructionEncoding 0x03#8 := by unfold BaseInstructionEncoding; decide
   have wordEq : fetchWord 0x03#8 0x47#8 0x24#8 0x00#8 =
       (0x00244703 : BitVec 32) := by decide
@@ -661,13 +619,9 @@ theorem hasExactErePrefix_prefix_third_lbu_step (stepNo : Nat)
     change Runs (execute_LOAD 2#12 (.Regidx 8#5) (.Regidx 14#5) true 1) _ _ _
     exact decoderInputLbuExecute args baseState executeState _ pre 2 offsetBound addressFits 2#12
       immediateValue (.Regidx 14#5) executeAgree executeMemory inputAtExecute write
-  refine ⟨retired, ?_⟩
-  simpa [executeState, afterRegisterWrite, loadedValue, inputByte] using
-    tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x103a0) retired inhibit config
-      0x03#8 0x47#8 0x24#8 0x00#8 (.LOAD (2#12, .Regidx 8#5, .Regidx 14#5, true, 1)) x14
-      loadedValue fetch noMMIO fetched interrupts base decode notExpected execute
-      (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
-      machineEnabled retiredRead
+  exact decoderRegisterWriteStep pre.machine agree retiredPresent stepNo (BitVec.ofNat 64 0x103a0)
+    pcIn atPc 0x03#8 0x47#8 0x24#8 0x00#8 (.LOAD (2#12, .Regidx 8#5, .Regidx 14#5, true, 1)) x14
+    loadedValue fetchBytes base decode (by decide) (by decide) (by decide) (by decide) execute
 
 theorem hasExactErePrefix_prefix_fourth_lbu_step (stepNo : Nat)
     (args : Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs) (baseState state : State)
@@ -690,12 +644,7 @@ theorem hasExactErePrefix_prefix_fourth_lbu_step (stepNo : Nat)
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x103a4) 0x83#8 0x47#8 0x34#8 0x00#8 :=
     fetchInstruction state 0x103a4 0x83 0x47 0x34 0x00 code
-  obtain ⟨fetchMseccfgBits, platform⟩ := decoderStepPlatform pre.machine agree
-    (BitVec.ofNat 64 0x103a4) atPc pcIn _ _ _ _ fetchBytes
-  obtain ⟨retired, inhibit, config, counters⟩ :=
-    decoderStepCounters pre.machine.normal agree retiredPresent
-  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
-  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine agree
   have base : BaseInstructionEncoding 0x83#8 := by unfold BaseInstructionEncoding; decide
   have wordEq : fetchWord 0x83#8 0x47#8 0x34#8 0x00#8 =
       (0x00344783 : BitVec 32) := by decide
@@ -734,13 +683,9 @@ theorem hasExactErePrefix_prefix_fourth_lbu_step (stepNo : Nat)
     change Runs (execute_LOAD 3#12 (.Regidx 8#5) (.Regidx 15#5) true 1) _ _ _
     exact decoderInputLbuExecute args baseState executeState _ pre 3 offsetBound addressFits 3#12
       immediateValue (.Regidx 15#5) executeAgree executeMemory inputAtExecute write
-  refine ⟨retired, ?_⟩
-  simpa [executeState, afterRegisterWrite, loadedValue, inputByte] using
-    tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x103a4) retired inhibit config
-      0x83#8 0x47#8 0x34#8 0x00#8 (.LOAD (3#12, .Regidx 8#5, .Regidx 15#5, true, 1)) x15
-      loadedValue fetch noMMIO fetched interrupts base decode notExpected execute
-      (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited
-      machineEnabled retiredRead
+  exact decoderRegisterWriteStep pre.machine agree retiredPresent stepNo (BitVec.ofNat 64 0x103a4)
+    pcIn atPc 0x83#8 0x47#8 0x34#8 0x00#8 (.LOAD (3#12, .Regidx 8#5, .Regidx 15#5, true, 1)) x15
+    loadedValue fetchBytes base decode (by decide) (by decide) (by decide) (by decide) execute
 
 theorem hasExactErePrefix_prefix_four_lbu_trace (fromStep : Nat)
     (args : Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs) (state : State)

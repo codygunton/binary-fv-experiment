@@ -275,21 +275,12 @@ theorem wrapper_dispatch_tag3_constant_step {machineArgs : DecoderMachineArgs} {
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x103fc) retired x11 (BitVec.ofNat 64 3)) false := by
-  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
-  have decode : Runs (ext_decode (0x00300593 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x103fc)
-  have execute : Runs (execute (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x11 (BitVec.ofNat 64 3) }
-      (.Retire_Success ()) := by
-    have resultEq : iTypeResult .ADDI 0x003#12 (0#64) = BitVec.ofNat 64 3 := by decide
-    simpa [resultEq] using execute_ITYPE_run executeState _ 0x003#12 (.Regidx 0#5) (.Regidx 11#5)
-      .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 3))
-  exact generatedRegisterWriteStep machine agree retiredPresent
-    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x103fc 0x00300593 atPc
-    decode execute
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  have resultEq : iTypeResult .ADDI 0x003#12 (0#64) = BitVec.ofNat 64 3 := by decide
+  exact decoderITypeStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x103fc 0x93 0x05 0x30 0x00 0x003#12 0#5 11#5 .ADDI atPc
+    (rX_x0_run _) (by rw [resultEq]; exact wX_x11_run _ _)
 
 /-- Exact post-state of the tag-three branch at `0x10400`. -/
 def wrapperDispatchTag3BranchAfter (state : State) (retired : BitVec 64) : State :=
@@ -423,21 +414,12 @@ theorem wrapper_dispatch_tag1_constant_step {machineArgs : DecoderMachineArgs} {
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10404)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10404) retired x11 (BitVec.ofNat 64 1)) false := by
-  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
-  have decode : Runs (ext_decode (0x00100593 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x001#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10404)
-  have execute : Runs (execute (.ITYPE (0x001#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x11 (BitVec.ofNat 64 1) }
-      (.Retire_Success ()) := by
-    have resultEq : iTypeResult .ADDI 0x001#12 (0#64) = BitVec.ofNat 64 1 := by decide
-    simpa [resultEq] using execute_ITYPE_run executeState _ 0x001#12 (.Regidx 0#5) (.Regidx 11#5)
-      .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 1))
-  exact generatedRegisterWriteStep machine agree retiredPresent
-    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10404 0x00100593 atPc
-    decode execute
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  have resultEq : iTypeResult .ADDI 0x001#12 (0#64) = BitVec.ofNat 64 1 := by decide
+  exact decoderITypeStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x10404 0x93 0x05 0x10 0x00 0x001#12 0#5 11#5 .ADDI atPc
+    (rX_x0_run _) (by rw [resultEq]; exact wX_x11_run _ _)
 
 /-- A tag-one result takes the second comparison branch to its rejection tail. -/
 theorem wrapper_dispatch_tag1_branch_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -565,21 +547,12 @@ theorem wrapper_dispatch_tag2_constant_step {machineArgs : DecoderMachineArgs} {
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1040c)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x1040c) retired x11 (BitVec.ofNat 64 2)) false := by
-  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
-  have decode : Runs (ext_decode (0x00200593 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x1040c)
-  have execute : Runs (execute (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x11 (BitVec.ofNat 64 2) }
-      (.Retire_Success ()) := by
-    have resultEq : iTypeResult .ADDI 0x002#12 (0#64) = BitVec.ofNat 64 2 := by decide
-    simpa [resultEq] using execute_ITYPE_run executeState _ 0x002#12 (.Regidx 0#5) (.Regidx 11#5)
-      .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 2))
-  exact generatedRegisterWriteStep machine agree retiredPresent
-    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x1040c 0x00200593 atPc
-    decode execute
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  have resultEq : iTypeResult .ADDI 0x002#12 (0#64) = BitVec.ofNat 64 2 := by decide
+  exact decoderITypeStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x1040c 0x93 0x05 0x20 0x00 0x002#12 0#5 11#5 .ADDI atPc
+    (rX_x0_run _) (by rw [resultEq]; exact wX_x11_run _ _)
 
 /-- A tag-two result falls through the final comparison to its rejection tail. -/
 theorem wrapper_dispatch_tag2_branch_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -629,20 +602,12 @@ theorem wrapper_dispatch_tag2_clear_result_step {machineArgs : DecoderMachineArg
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10414)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10414) retired x10 (BitVec.ofNat 64 0)) false := by
-  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
-  have decode : Runs (ext_decode (0x00000513 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10414)
-  have execute : Runs (execute (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x10 (BitVec.ofNat 64 0) }
-      (.Retire_Success ()) := by
-    simpa using execute_ITYPE_run executeState _ 0#12 (.Regidx 0#5) (.Regidx 10#5) .ADDI
-      (0#64) (rX_x0_run executeState) (wX_x10_run executeState (0#64))
-  exact generatedRegisterWriteStep machine agree retiredPresent
-    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10414 0x00000513 atPc
-    decode execute
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  have resultEq : iTypeResult .ADDI (0#12) (0#64) = BitVec.ofNat 64 0 := by decide
+  exact decoderITypeStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x10414 0x13 0x05 0x00 0x00 0#12 0#5 10#5 .ADDI atPc
+    (rX_x0_run _) (by rw [resultEq]; exact wX_x10_run _ _)
 
 /-- The tag-two rejection tail records status `2`. -/
 theorem wrapper_dispatch_tag2_status_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -654,21 +619,12 @@ theorem wrapper_dispatch_tag2_status_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10418)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10418) retired x11 (BitVec.ofNat 64 2)) false := by
-  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
-  have decode : Runs (ext_decode (0x00200593 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10418)
-  have execute : Runs (execute (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x11 (BitVec.ofNat 64 2) }
-      (.Retire_Success ()) := by
-    have resultEq : iTypeResult .ADDI 0x002#12 (0#64) = BitVec.ofNat 64 2 := by decide
-    simpa [resultEq] using execute_ITYPE_run executeState _ 0x002#12 (.Regidx 0#5) (.Regidx 11#5)
-      .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 2))
-  exact generatedRegisterWriteStep machine agree retiredPresent
-    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10418 0x00200593 atPc
-    decode execute
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  have resultEq : iTypeResult .ADDI 0x002#12 (0#64) = BitVec.ofNat 64 2 := by decide
+  exact decoderITypeStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x10418 0x93 0x05 0x20 0x00 0x002#12 0#5 11#5 .ADDI atPc
+    (rX_x0_run _) (by rw [resultEq]; exact wX_x11_run _ _)
 
 /-- The tag-two tail jumps into the shared wrapper rejection continuation at `0x1035c`. -/
 theorem wrapper_dispatch_tag2_to_rejection_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -860,20 +816,12 @@ theorem wrapper_dispatch_tag3_clear_result_step {machineArgs : DecoderMachineArg
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10434)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10434) retired x10 (BitVec.ofNat 64 0)) false := by
-  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
-  have decode : Runs (ext_decode (0x00000513 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10434)
-  have execute : Runs (execute (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x10 (BitVec.ofNat 64 0) }
-      (.Retire_Success ()) := by
-    simpa using execute_ITYPE_run executeState _ 0#12 (.Regidx 0#5) (.Regidx 10#5) .ADDI
-      (0#64) (rX_x0_run executeState) (wX_x10_run executeState (0#64))
-  exact generatedRegisterWriteStep machine agree retiredPresent
-    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10434 0x00000513 atPc
-    decode execute
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  have resultEq : iTypeResult .ADDI (0#12) (0#64) = BitVec.ofNat 64 0 := by decide
+  exact decoderITypeStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x10434 0x13 0x05 0x00 0x00 0#12 0#5 10#5 .ADDI atPc
+    (rX_x0_run _) (by rw [resultEq]; exact wX_x10_run _ _)
 
 /-- The tag-three rejection tail records status `3`. -/
 theorem wrapper_dispatch_tag3_status_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -885,21 +833,12 @@ theorem wrapper_dispatch_tag3_status_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10438)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10438) retired x11 (BitVec.ofNat 64 3)) false := by
-  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
-  have decode : Runs (ext_decode (0x00300593 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10438)
-  have execute : Runs (execute (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x11 (BitVec.ofNat 64 3) }
-      (.Retire_Success ()) := by
-    have resultEq : iTypeResult .ADDI 0x003#12 (0#64) = BitVec.ofNat 64 3 := by decide
-    simpa [resultEq] using execute_ITYPE_run executeState _ 0x003#12 (.Regidx 0#5) (.Regidx 11#5)
-      .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 3))
-  exact generatedRegisterWriteStep machine agree retiredPresent
-    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10438 0x00300593 atPc
-    decode execute
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  have resultEq : iTypeResult .ADDI 0x003#12 (0#64) = BitVec.ofNat 64 3 := by decide
+  exact decoderITypeStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x10438 0x93 0x05 0x30 0x00 0x003#12 0#5 11#5 .ADDI atPc
+    (rX_x0_run _) (by rw [resultEq]; exact wX_x11_run _ _)
 
 /-- The tag-three tail jumps into the shared wrapper rejection continuation at `0x1035c`. -/
 theorem wrapper_dispatch_tag3_to_rejection_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -939,20 +878,12 @@ theorem wrapper_dispatch_tag1_clear_result_step {machineArgs : DecoderMachineArg
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10428)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10428) retired x10 (BitVec.ofNat 64 0)) false := by
-  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
-  have decode : Runs (ext_decode (0x00000513 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10428)
-  have execute : Runs (execute (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x10 (BitVec.ofNat 64 0) }
-      (.Retire_Success ()) := by
-    simpa using execute_ITYPE_run executeState _ 0#12 (.Regidx 0#5) (.Regidx 10#5) .ADDI
-      (0#64) (rX_x0_run executeState) (wX_x10_run executeState (0#64))
-  exact generatedRegisterWriteStep machine agree retiredPresent
-    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10428 0x00000513 atPc
-    decode execute
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  have resultEq : iTypeResult .ADDI (0#12) (0#64) = BitVec.ofNat 64 0 := by decide
+  exact decoderITypeStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x10428 0x13 0x05 0x00 0x00 0#12 0#5 10#5 .ADDI atPc
+    (rX_x0_run _) (by rw [resultEq]; exact wX_x10_run _ _)
 
 /-- The tag-one rejection tail records status `4`. -/
 theorem wrapper_dispatch_tag1_status_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -964,21 +895,12 @@ theorem wrapper_dispatch_tag1_status_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1042c)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x1042c) retired x11 (BitVec.ofNat 64 4)) false := by
-  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
-  have decode : Runs (ext_decode (0x00400593 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x004#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x1042c)
-  have execute : Runs (execute (.ITYPE (0x004#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x11 (BitVec.ofNat 64 4) }
-      (.Retire_Success ()) := by
-    have resultEq : iTypeResult .ADDI 0x004#12 (0#64) = BitVec.ofNat 64 4 := by decide
-    simpa [resultEq] using execute_ITYPE_run executeState _ 0x004#12 (.Regidx 0#5) (.Regidx 11#5)
-      .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 4))
-  exact generatedRegisterWriteStep machine agree retiredPresent
-    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x1042c 0x00400593 atPc
-    decode execute
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  have resultEq : iTypeResult .ADDI 0x004#12 (0#64) = BitVec.ofNat 64 4 := by decide
+  exact decoderITypeStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x1042c 0x93 0x05 0x40 0x00 0x004#12 0#5 11#5 .ADDI atPc
+    (rX_x0_run _) (by rw [resultEq]; exact wX_x11_run _ _)
 
 /-- The tag-one tail jumps into the shared wrapper rejection continuation at `0x1035c`. -/
 theorem wrapper_dispatch_tag1_to_rejection_step {machineArgs : DecoderMachineArgs} {base state : State}

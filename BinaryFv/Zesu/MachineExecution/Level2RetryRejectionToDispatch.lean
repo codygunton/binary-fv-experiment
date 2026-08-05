@@ -146,31 +146,10 @@ theorem retry_rejection_to_rejection_step {machineArgs : DecoderMachineArgs} {ba
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
           (BitVec.ofNat 64 0x10424) (BitVec.ofNat 64 0x1035c))
         (BitVec.ofNat 64 0x1035c) retired) false := by
-  have fetchPc : DecoderFetchPc decodeRawExecutionPcs (BitVec.ofNat 64 0x10424) :=
-    GeneratedWordStep.fetchPc _
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10424) 0x6f#8 0xf0#8 0x9f#8 0xf3#8 :=
-    fetchInstruction state 0x10424 0x6f 0xf0 0x9f 0xf3
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x6f#8 0xf0#8 0x9f#8 0xf3#8))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.JAL (0x1fff38#21, zreg)) := by
-    change Runs (ext_decode (0xf39ff06f : BitVec 32)) _ _ _
-    decode_run
-  have targetEq : BitVec.ofNat 64 0x10424 + sign_extend (m := 64) (0x1fff38#21) =
-      BitVec.ofNat 64 0x1035c := by decide
-  exact retry_rejection_jump_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10424) (BitVec.ofNat 64 0x1035c) (0x1fff38#21) fetchPc atPc
-    0x6f#8 0xf0#8 0x9f#8 0xf3#8 fetchBytes (by unfold BaseInstructionEncoding; decide) decode
-    targetEq (by decide) (by decide)
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  exact decoderJalStep machine (Agree.weaken (fun _ preserved => preserved.2) agree) retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10424 0x6f 0xf0 0x9f 0xf3
+    (0x1fff38#21) (BitVec.ofNat 64 0x1035c) atPc
 
 /-- The two common retry-rejection instructions, ending at the shared status store. -/
 structure RetryRejectionToStatusStore (base before after : State) (machineArgs : DecoderMachineArgs)

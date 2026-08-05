@@ -47,21 +47,8 @@ theorem retry_short_length_branch_step
     simpa [DecodeInlineOutgoingFrame, phase, prefixFalse, short] using outgoing
   have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
     hasExactErePrefix_programImage_of_codeIntact frame.code
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10394) 0x63#8 0x66#8 0xa6#8 0x08#8 :=
-    fetchInstruction state 0x10394 0x63 0x66 0xa6 0x08 image
   have machine := pre.machine.mono frame.agree frame.retiredCounter
-  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
-    (BitVec.ofNat 64 0x10394) atPc (GeneratedWordStep.fetchPc _) _ _ _ _ fetchBytes
-  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
-  obtain ⟨retired, inhibit, config, counters⟩ :=
-    decoderStepCounters machine.normal (Agree.refl state) frame.retiredCounter
-  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
-  have decode : Runs (ext_decode (fetchWord 0x63#8 0x66#8 0xa6#8 0x08#8))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.BTYPE (0x8c#13, .Regidx 10#5, .Regidx 12#5, .BLTU)) := by
-    change Runs (ext_decode (0x08a66663 : BitVec 32)) _ _ _
-    decode_run
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine (Agree.refl state)
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10394)
   have premise : WritesOnlyRegs stepBookkeeping state executeState :=
@@ -90,31 +77,9 @@ theorem retry_short_length_branch_step
       exact Int.ofNat_lt.mpr (by omega)
     rw [comparison]
     rfl
-  have pcAtExecute : executeState.regs.get? PC = some (BitVec.ofNat 64 0x10394) :=
-    (((tryStepControlFlowAfterIncrement_writes state).trans
-      (coreControlFlowNextState_writes _ (BitVec.ofNat 64 0x10394))).get PC (by decide)).trans atPc
-  have targetEq : BitVec.ofNat 64 0x10394 + sign_extend (m := 64) (0x8c#13) =
-      BitVec.ofNat 64 0x10420 := by decide
-  obtain ⟨misaBits, misaRead, -⟩ : ∃ misaBits,
-      state.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
-    have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
-    match read : state.regs.get? misa with
-    | none => simp [read] at normalMisa
-    | some bits => exact ⟨bits, rfl, by simpa [read] using normalMisa⟩
-  have zca := currentlyEnabledZca_run_atStepPremise state (BitVec.ofNat 64 0x10394)
-    misaBits misaRead
-  have run := tryStepBranchTakenRetires stepNo state (BitVec.ofNat 64 0x10394)
-    (BitVec.ofNat 64 0x10394) retired (0x8c#13) (.Regidx 10#5) (.Regidx 12#5) .BLTU
-    inhibit config 0x63#8 0x66#8 0xa6#8 0x08#8 (_get_Misa_C misaBits == 1#1)
-    fetch noMMIO fetchBytes interrupts (by unfold BaseInstructionEncoding; decide) decode
-    notExpected condition (readReg_run executeState PC _ pcAtExecute)
-    (by decide) (by decide) zca hartRead inhibitRead configRead notInhibited machineEnabled
-    retiredRead
-  have jumped : Runs (try_step stepNo false) state
-      (tryStepControlFlowAfterRetired
-        (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
-          (BitVec.ofNat 64 0x10394) (BitVec.ofNat 64 0x10420))
-        (BitVec.ofNat 64 0x10420) retired) false := by simpa [targetEq] using run
+  obtain ⟨retired, jumped⟩ := decoderBranchTakenStep machine (Agree.refl state)
+    frame.retiredCounter image stepNo 0x10394 0x63 0x66 0xa6 0x08 0x8c#13 10#5 12#5 .BLTU
+    (BitVec.ofNat 64 0x10420) atPc condition
   exact ⟨_, jumped,
     { trace := Trace.one stepNo _ _ jumped
       confined := ConfinedPrefix.ownStep' atPc jumped

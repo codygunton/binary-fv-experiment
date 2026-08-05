@@ -171,24 +171,12 @@ theorem tag0_stored_result_call_page_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10348)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10348) retired x1 (BitVec.ofNat 64 0x14348)) false := by
-  obtain ⟨seccfgBits, privilege, seccfg⟩ := decodeReads machine agree
-  have decode : Runs (ext_decode (0x00004097 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.UTYPE (0x00004#20, .Regidx 1#5, .AUIPC)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10348)
-  have pcAtExecute : executeState.regs.get? PC = some (BitVec.ofNat 64 0x10348) :=
-    (((tryStepControlFlowAfterIncrement_writes state).trans
-      (coreControlFlowNextState_writes _ (BitVec.ofNat 64 0x10348))).get PC (by decide)).trans atPc
-  have execute : Runs (execute (.UTYPE (0x00004#20, .Regidx 1#5, .AUIPC))) executeState
-      { executeState with regs := executeState.regs.insert x1 (BitVec.ofNat 64 0x14348) }
-      (.Retire_Success ()) := by
-    apply execute_UTYPE_auipc_run executeState _ 0x00004#20 (.Regidx 1#5)
-      (BitVec.ofNat 64 0x10348)
-    · exact readReg_run _ _ _ pcAtExecute
-    · simpa using wX_bits_run_x1 executeState (BitVec.ofNat 64 0x14348)
-  exact generatedRegisterWriteStep machine agree retiredPresent
-    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10348 0x00004097 atPc decode execute
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
+  exact decoderAuipcStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x10348 0x97 0x40 0x00 0x00 0x00004#20 1#5 atPc
+    (by simpa [show BitVec.ofNat 64 0x10348 + sign_extend (m := 64) (0x00004#20 ++ 0x000#12) =
+          BitVec.ofNat 64 0x14348 from by decide] using wX_bits_run_x1 _ (BitVec.ofNat 64 0x14348))
 
 /-- State immediately after the stored-result `jalr` at `0x1034c`. -/
 def tag0StoredResultMemcpyCallAfter (state : State) (retired : BitVec 64) : State :=
