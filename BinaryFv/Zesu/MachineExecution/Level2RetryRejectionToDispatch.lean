@@ -1,3 +1,4 @@
+import BinaryFv.Zesu.MachineExecution.Seg
 import BinaryFv.Zesu.MachineExecution.Level2RetryExitSteps
 import BinaryFv.Zesu.MachineExecution.Level2WrapperProof
 
@@ -211,7 +212,17 @@ structure RetryRejectionToStatusStore (base before after : State) (machineArgs :
   stackValue : after.regs.get? x2 = before.regs.get? x2
   globalsValue : after.regs.get? x18 = before.regs.get? x18
 
-/-- Retire the common rejection tail from `0x10420` to the status store at `0x1035c`. -/
+/-- The write set of the whole rejection tail: the `try_step` bookkeeping every retirement performs,
+plus the single architectural register the `addi` targets. Fixed once for both steps -- see
+`WritesOnlyRegs.trans_same` on why the set must not grow per instruction. -/
+@[reducible] private def retryRejectionWrites : RegSet :=
+  RegSet.union stepBookkeeping (RegSet.only x10)
+
+/-- Retire the common rejection tail from `0x10420` to the status store at `0x1035c`.
+
+Both instructions are composed through `Seg`, so no post-state of either is ever named: each
+combinator hands back an opaque successor, and every clause of the result structure is a field
+read or a one-line membership check against `retryRejectionWrites`. -/
 theorem retry_rejection_to_status_store {machineArgs : DecoderMachineArgs} {base before : State}
     (machine : DecoderMachinePre
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
@@ -220,87 +231,50 @@ theorem retry_rejection_to_status_store {machineArgs : DecoderMachineArgs} {base
     (code : canonicalContractParams.env.CodeIntact before) (fromStep : Nat)
     (atPc : before.regs.get? PC = some (BitVec.ofNat 64 0x10420)) :
     ∃ after, RetryRejectionToStatusStore base before after machineArgs fromStep := by
-  obtain ⟨r1, h1⟩ := retry_rejection_clear_result_step machine agree retired code fromStep atPc
-  let s1 := afterRegisterWrite before (BitVec.ofNat 64 0x10420) r1 x10 (BitVec.ofNat 64 0)
-  have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10424) := by
-    simpa [s1] using afterRegisterWrite_pc before (BitVec.ofNat 64 0x10420) r1 x10
-      (BitVec.ofNat 64 0)
-  have agree1 : Agree platformPreserved base s1 :=
-    agree.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
-  have retired1 : RetiredCounterPresent s1 :=
-    afterRegisterWrite_retired_present before (BitVec.ofNat 64 0x10420) r1 x10 (BitVec.ofNat 64 0)
-  have code1 : canonicalContractParams.env.CodeIntact s1 := by
-    simpa [s1, afterRegisterWrite_mem] using code
-  obtain ⟨r2, h2⟩ := retry_rejection_to_rejection_step machine agree1 retired1 code1
-    (fromStep + 1) pc1
-  let after := tryStepControlFlowAfterRetired
-    (controlFlowJumpState (tryStepControlFlowAfterIncrement s1)
-      (BitVec.ofNat 64 0x10424) (BitVec.ofNat 64 0x1035c))
-    (BitVec.ofNat 64 0x1035c) r2
-  have prefix1 : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 1 before s1 :=
-    ConfinedPrefix.ownStep atPc (by
-      apply functionInstanceExecutionPcs_iff_ranges.mpr
-      apply RegionPcs.iff_inRanges.mpr
-      native_decide) (by
-      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s1] using h1)
-  have prefix2 : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 1) 1 s1 after :=
-    ConfinedPrefix.ownStep pc1 (by
-      apply functionInstanceExecutionPcs_iff_ranges.mpr
-      apply RegionPcs.iff_inRanges.mpr
-      native_decide) (by
-      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [after] using h2)
-  refine ⟨after, ?_⟩
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · simpa [s1, after, Nat.add_assoc] using
-      Trace.step fromStep 1 before s1 after (by simpa [s1] using h1)
-        (Trace.one (fromStep + 1) s1 after (by simpa [after] using h2))
-  · simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix1 prefix2
-  · simp [after, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
-  · simp [after, s1, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  · simp [after, s1, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  · intro register preserved
-    have notDestination : x10 ≠ register := by
-      intro equal; subst register; simp [platformPreserved] at preserved
-    have notPc : PC ≠ register := by intro equal; subst register; simp [platformPreserved] at preserved
-    have notNextPc : nextPC ≠ register := by
-      intro equal; subst register; simp [platformPreserved] at preserved
-    have notIncrement : minstret_increment ≠ register := by
-      intro equal; subst register; simp [platformPreserved] at preserved
-    have notRetired : minstret ≠ register := by
-      intro equal; subst register; simp [platformPreserved] at preserved
-    simpa [after, s1, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notPc, notNextPc,
-      notIncrement, notRetired, notDestination] using agree register preserved
-  · refine ⟨Sail.BitVec.addInt r2 1, ?_⟩
-    simp [after, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
-  · rw [DecoderEnvironment.CodeIntact]
-    simp [after, s1, afterRegisterWrite_mem, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement]
-    exact code
-  · simp [after, s1, afterRegisterWrite_mem, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement]
-  · simp [after, s1, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  · simp [after, s1, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have bookkeeping : ∀ r, stepBookkeeping r → retryRejectionWrites r := fun _ h => Or.inl h
+  have disjoint : RegSet.Disjoint platformPreserved retryRejectionWrites :=
+    platformPreserved_disjoint.union (RegSet.Disjoint.only (by simp [platformPreserved]))
+  have codeOf : ∀ {s : State}, s.mem = before.mem → canonicalContractParams.env.CodeIntact s :=
+    fun memory => by rw [DecoderEnvironment.CodeIntact, memory]; exact code
+  obtain ⟨_, seg⟩ :=
+    (Seg.nil
+        (functionInstanceExecutionPcs generatedProgram
+          functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary retryRejectionWrites noMemory fromStep retired atPc).step
+      (by
+        apply functionInstanceExecutionPcs_iff_ranges.mpr
+        apply RegionPcs.iff_inRanges.mpr
+        native_decide)
+      (by
+        simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+          functionInstance_raw_decoder_root_zesu_decode_raw])
+      x10 (BitVec.ofNat 64 0) (BitVec.ofNat 64 0x10424)
+      (retry_rejection_clear_result_step machine agree retired code fromStep atPc)
+      (by decide) bookkeeping (Or.inr rfl) (by decide) (by decide) (by decide)
+  obtain ⟨after, seg⟩ :=
+    seg.stepJump (BitVec.ofNat 64 0x1035c)
+      (by
+        apply functionInstanceExecutionPcs_iff_ranges.mpr
+        apply RegionPcs.iff_inRanges.mpr
+        native_decide)
+      (by
+        simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
+          functionInstance_raw_decoder_root_zesu_decode_raw])
+      (retry_rejection_to_rejection_step machine (agree.trans (seg.agree disjoint)) seg.retired
+        (codeOf (seg.memEq noMemory_empty)) (fromStep + 1) seg.atPc)
+      bookkeeping (by decide)
+  exact ⟨after,
+    { trace := seg.trace
+      confined := seg.confined
+      atStatusStore := seg.atPc
+      resultValue := seg.reg x10 (BitVec.ofNat 64 0) (by simp)
+      statusValue := seg.get x11 (by decide)
+      platform := agree.trans (seg.agree disjoint)
+      retired := seg.retired
+      code := codeOf (seg.memEq noMemory_empty)
+      memory := seg.memEq noMemory_empty
+      stackValue := seg.get x2 (by decide)
+      globalsValue := seg.get x18 (by decide) }⟩
 
 end BinaryFv.Zesu.MachineExecution

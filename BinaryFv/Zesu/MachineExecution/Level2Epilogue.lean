@@ -26,6 +26,28 @@ open RegisterWriteStep
 set_option maxRecDepth 100000
 set_option maxHeartbeats 5000000
 
+/--
+The wrapper's own confined-prefix scope, named once for the whole module: `zesu_decode_raw`'s
+execution addresses, its generated exit pcs, and the Level 2 child summaries.
+
+This is an `abbrev`, so it is the same proposition as the spelled-out `ConfinedPrefix` application
+and unifies with it in either direction; callers outside this module need not know the name. The
+retired step count stays an explicit argument, because it is what the child-summary interface
+consumes.
+-/
+abbrev WrapperPrefix (fromStep len : Nat) (before after : State) : Prop :=
+  ConfinedPrefix
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary fromStep len before after
+
+/-- Discharge a `DecoderFetchPc` premise for a literal pc: `owned_pc` decides that the address lies
+in the function instance's execution ranges, and the alignment conjunct is a closed computation.
+Like `owned_pc` this fails, rather than closing the goal, on an address the generator did not
+attribute to the function instance. -/
+macro "fetch_pc" : tactic =>
+  `(tactic| exact ⟨by owned_pc, by first | decide | native_decide⟩)
+
 /-- Exact state after the shared `sw a1, 4(s2)` at `0x1035c`. -/
 def wrapperAfterStatusStore (state : State) (retired target status : BitVec 64) : State :=
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
@@ -61,10 +83,7 @@ theorem wrapper_epilogue_status_store_step {base state : State} {machineArgs : D
   have pcIn : DecoderFetchPc
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
       (BitVec.ofNat 64 0x1035c) := by
-    refine ⟨?_, by native_decide⟩
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
+    fetch_pc
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x1035c) 0x23#8 0x22#8 0xb9#8 0x00#8 :=
     fetchInstruction state 0x1035c 0x23 0x22 0xb9 0x00
@@ -162,10 +181,7 @@ theorem wrapper_epilogue_first_stack_restore_step {base state : State} {machineA
   have pcIn : DecoderFetchPc
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
       (BitVec.ofNat 64 0x10360) := by
-    refine ⟨?_, by native_decide⟩
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
+    fetch_pc
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10360) 0x13#8 0x01#8 0x01#8 0x23#8 :=
     fetchInstruction state 0x10360 0x13 0x01 0x01 0x23
@@ -309,10 +325,7 @@ theorem wrapper_epilogue_load_ra_step {base state : State} {machineArgs : Decode
     decode_run
   have pcIn : DecoderFetchPc
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc := by
-    refine ⟨?_, by decide⟩
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
+    fetch_pc
   obtain ⟨retired, run⟩ := wrapper_epilogue_saved_load_step machine agree retiredPresent stepNo pc
     0x83#8 0x30#8 0x81#8 0x7e#8 0x7e8#12 (.Regidx 2#5) (.Regidx 1#5) link stack address
     { executeState with regs := executeState.regs.insert x1 link } atPc pcIn
@@ -368,10 +381,7 @@ theorem wrapper_epilogue_load_s0_step {base state : State} {machineArgs : Decode
     decode_run
   have pcIn : DecoderFetchPc
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc := by
-    refine ⟨?_, by decide⟩
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
+    fetch_pc
   obtain ⟨retired, run⟩ := wrapper_epilogue_saved_load_step machine agree retiredPresent stepNo pc
     0x03#8 0x34#8 0x01#8 0x7e#8 0x7e0#12 (.Regidx 2#5) (.Regidx 8#5) s0 stack address
     { executeState with regs := executeState.regs.insert x8 s0 } atPc pcIn
@@ -427,10 +437,7 @@ theorem wrapper_epilogue_load_s1_step {base state : State} {machineArgs : Decode
     decode_run
   have pcIn : DecoderFetchPc
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc := by
-    refine ⟨?_, by decide⟩
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
+    fetch_pc
   obtain ⟨retired, run⟩ := wrapper_epilogue_saved_load_step machine agree retiredPresent stepNo pc
     0x83#8 0x34#8 0x81#8 0x7d#8 0x7d8#12 (.Regidx 2#5) (.Regidx 9#5) s1 stack address
     { executeState with regs := executeState.regs.insert x9 s1 } atPc pcIn
@@ -486,10 +493,7 @@ theorem wrapper_epilogue_load_s2_step {base state : State} {machineArgs : Decode
     decode_run
   have pcIn : DecoderFetchPc
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc := by
-    refine ⟨?_, by decide⟩
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
+    fetch_pc
   obtain ⟨retired, run⟩ := wrapper_epilogue_saved_load_step machine agree retiredPresent stepNo pc
     0x03#8 0x39#8 0x01#8 0x7d#8 0x7d0#12 (.Regidx 2#5) (.Regidx 18#5) s2 stack address
     { executeState with regs := executeState.regs.insert x18 s2 } atPc pcIn
@@ -532,10 +536,7 @@ theorem wrapper_epilogue_final_stack_restore_step {base state : State} {machineA
   have pcIn : DecoderFetchPc
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
       (BitVec.ofNat 64 0x10374) := by
-    refine ⟨?_, by native_decide⟩
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
+    fetch_pc
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10374) 0x13#8 0x01#8 0x01#8 0x7f#8 :=
     fetchInstruction state 0x10374 0x13 0x01 0x01 0x7f
@@ -582,10 +583,7 @@ theorem wrapper_epilogue_return_step {base state : State} {machineArgs : Decoder
   have pcIn : DecoderFetchPc
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
       (BitVec.ofNat 64 0x10378) := by
-    refine ⟨?_, by native_decide⟩
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
+    fetch_pc
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10378) 0x67#8 0x80#8 0x00#8 0x00#8 :=
     fetchInstruction state 0x10378 0x67 0x80 0x00 0x00
@@ -649,14 +647,8 @@ theorem wrapper_epilogue_trace (fromStep : Nat) (before afterStore afterFirst af
     (finalRestore : Runs (try_step (fromStep + 6) false) afterS2 afterStack false)
     (returnRun : Runs (try_step (fromStep + 7) false) afterStack after false) :
     Trace fromStep 8 before after := by
-  refine Trace.step fromStep 7 before afterStore after statusStore ?_
-  refine Trace.step (fromStep + 1) 6 afterStore afterFirst after firstRestore ?_
-  refine Trace.step (fromStep + 2) 5 afterFirst afterRa after restoreRa ?_
-  refine Trace.step (fromStep + 3) 4 afterRa afterS0 after restoreS0 ?_
-  refine Trace.step (fromStep + 4) 3 afterS0 afterS1 after restoreS1 ?_
-  refine Trace.step (fromStep + 5) 2 afterS1 afterS2 after restoreS2 ?_
-  refine Trace.step (fromStep + 6) 1 afterS2 afterStack after finalRestore ?_
-  exact Trace.one (fromStep + 7) afterStack after returnRun
+  trace_steps [statusStore, firstRestore, restoreRa, restoreS0, restoreS1, restoreS2, finalRestore,
+    returnRun]
 
 /-- The public post-status tail boundary.  The capstone establishes this frame after the status
 store; this module consumes it only from `0x10360` onward. -/
@@ -737,8 +729,7 @@ theorem wrapper_epilogue_first_restore_and_ra {base state : State} {machineArgs 
   let afterRa := afterRegisterWrite afterFirst (BitVec.ofNat 64 0x10364) retired2 x1 link
   refine ⟨retired1, retired2, firstRun, ?_, ?_, ?_, ?_, ?_⟩
   · simpa [afterFirst, afterRa] using raRun
-  · refine Trace.step fromStep 1 state afterFirst afterRa (by simpa [afterFirst] using firstRun) ?_
-    exact Trace.one (fromStep + 1) afterFirst afterRa (by simpa [afterFirst, afterRa] using raRun)
+  · trace_steps [(by simpa [afterFirst] using firstRun), (by simpa [afterFirst, afterRa] using raRun)]
   · simp [afterRa, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
   · exact WrapperSavedRegisterFrame.of_mem_eq frameFirst (afterRegisterWrite_mem _ _ _ _ _)
@@ -750,10 +741,7 @@ arbitrary frame contents, not ABI defaults. -/
 structure WrapperEpilogueSavedRegistersResult (fromStep : Nat) (base before after : State)
     (stackBase link savedS0 savedS1 savedS2 stack result status : BitVec 64) : Prop where
   trace : Trace fromStep 3 before after
-  confined : ConfinedPrefix
-    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-    Level2ChildSummary fromStep 3 before after
+  confined : WrapperPrefix fromStep 3 before after
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x10374)
   memory : after.mem = before.mem
   ra : after.regs.get? x1 = some link
@@ -774,10 +762,7 @@ This retires the six instructions from `0x10360` through `0x10374`, but leaves `
 structure WrapperEpilogueExitResult (fromStep : Nat) (base before after : State)
     (link savedS0 savedS1 savedS2 restoredStack result status : BitVec 64) : Prop where
   trace : Trace fromStep 6 before after
-  confined : ConfinedPrefix
-    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-    Level2ChildSummary fromStep 6 before after
+  confined : WrapperPrefix fromStep 6 before after
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x10378)
   ra : after.regs.get? x1 = some link
   s0 : after.regs.get? x8 = some savedS0
@@ -868,52 +853,17 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]))
-  have prefixS0 : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 1 state afterS0 :=
-    ConfinedPrefix.ownStep atPc
-      (by
-        apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
-      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw])
-      (by simpa [afterS0] using s0Run)
-  have prefixS1 : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 1) 1 afterS0 afterS1 :=
-    ConfinedPrefix.ownStep atS1
-      (by
-        apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
-      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw])
-      (by simpa [afterS0, afterS1] using s1Run)
-  have prefixS2 : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 2) 1 afterS1 afterS2 :=
-    ConfinedPrefix.ownStep atS2
-      (by
-        apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
-      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw])
-      (by simpa [afterS1, afterS2] using s2Run)
-  have savedPrefix : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 3 state afterS2 := by
-    have prefixS01 := ConfinedPrefix.trans prefixS0 (by simpa [Nat.add_assoc] using prefixS1)
-    exact ConfinedPrefix.trans prefixS01 (by simpa [Nat.add_assoc] using prefixS2)
+  have prefixS0 : WrapperPrefix fromStep 1 state afterS0 :=
+    ConfinedPrefix.ownStep' atPc (by simpa [afterS0] using s0Run)
+  have prefixS1 : WrapperPrefix (fromStep + 1) 1 afterS0 afterS1 :=
+    ConfinedPrefix.ownStep' atS1 (by simpa [afterS0, afterS1] using s1Run)
+  have prefixS2 : WrapperPrefix (fromStep + 2) 1 afterS1 afterS2 :=
+    ConfinedPrefix.ownStep' atS2 (by simpa [afterS1, afterS2] using s2Run)
+  have savedPrefix : WrapperPrefix fromStep 3 state afterS2 := by
+    confined_steps [prefixS0, prefixS1, prefixS2]
   refine ⟨afterS2, ⟨?_, savedPrefix, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
-  · refine Trace.step fromStep 2 state afterS0 afterS2 (by simpa [afterS0] using s0Run) ?_
-    refine Trace.step (fromStep + 1) 1 afterS0 afterS1 afterS2 (by simpa [afterS0, afterS1] using s1Run) ?_
-    exact Trace.one (fromStep + 2) afterS1 afterS2 (by simpa [afterS1, afterS2] using s2Run)
+  · trace_steps [(by simpa [afterS0] using s0Run), (by simpa [afterS0, afterS1] using s1Run),
+      (by simpa [afterS1, afterS2] using s2Run)]
   · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
@@ -1045,51 +995,14 @@ theorem wrapper_epilogue_to_exit {base state : State} {machineArgs : DecoderMach
       stackAddiNextState, tryStepStackAddiAfterIncrement, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
     decide
-  have prefixFirst : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 1 state afterFirst :=
-    ConfinedPrefix.ownStep atPc
-      (by
-        apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
-      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw])
-      (by simpa [afterFirst] using firstRun)
-  have prefixRa : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 1) 1 afterFirst afterRa :=
-    ConfinedPrefix.ownStep atRa
-      (by
-        apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
-      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw])
-      (by simpa [afterFirst, afterRa] using raRun)
-  have prefixStack : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 5) 1 afterS2 afterStack :=
-    ConfinedPrefix.ownStep saved.pc
-      (by
-        apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
-      (by simp [functionInstanceExitPred, FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw])
-      (by simpa [afterStack] using stackRun)
-  have confined : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 6 state afterStack := by
-    have prefixFirstRa := ConfinedPrefix.trans prefixFirst
-      (by simpa [Nat.add_assoc] using prefixRa)
-    have prefixSaved := ConfinedPrefix.trans prefixFirstRa
-      (by simpa [Nat.add_assoc] using saved.confined)
-    exact ConfinedPrefix.trans prefixSaved (by simpa [Nat.add_assoc] using prefixStack)
+  have prefixFirst : WrapperPrefix fromStep 1 state afterFirst :=
+    ConfinedPrefix.ownStep' atPc (by simpa [afterFirst] using firstRun)
+  have prefixRa : WrapperPrefix (fromStep + 1) 1 afterFirst afterRa :=
+    ConfinedPrefix.ownStep' atRa (by simpa [afterFirst, afterRa] using raRun)
+  have prefixStack : WrapperPrefix (fromStep + 5) 1 afterS2 afterStack :=
+    ConfinedPrefix.ownStep' saved.pc (by simpa [afterStack] using stackRun)
+  have confined : WrapperPrefix fromStep 6 state afterStack := by
+    confined_steps [prefixFirst, prefixRa, saved.confined, prefixStack]
   refine ⟨afterStack, ⟨?_, confined, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
   · simpa only [Nat.add_assoc] using Trace.append firstTrace (Trace.append saved.trace
       (Trace.one (fromStep + 5) afterS2 afterStack (by simpa [afterStack] using stackRun)))
@@ -1205,9 +1118,7 @@ theorem wrapper_epilogue_final_restore_and_return {base before state : State} {m
     linkEven linkBit1
   let afterReturn := wrapperAfterReturn afterStack retiredReturn link
   refine ⟨afterReturn, ⟨?_, pcReturn, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
-  · refine Trace.step (fromStep + 3) 1 state afterStack afterReturn
-      (by simpa [afterStack] using stackRun) ?_
-    exact Trace.one (fromStep + 4) afterStack afterReturn (by simpa [afterReturn] using returnRun)
+  · trace_steps [(by simpa [afterStack] using stackRun), (by simpa [afterReturn] using returnRun)]
   · simp [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
       tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,

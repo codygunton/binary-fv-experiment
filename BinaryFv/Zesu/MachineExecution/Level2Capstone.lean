@@ -19,6 +19,18 @@ open PreSail LeanRV64DExecutable.Functions Register
 set_option maxRecDepth 100000
 set_option maxHeartbeats 5000000
 
+/-- The wrapper's own scope as a `ScopedTrace`, the exit-reaching counterpart of `WrapperPrefix`.
+Every module composing a route through the generated `ret` at `0x10378` builds a chain of these, and
+each link previously respelled the same three arguments over four lines. Like `WrapperPrefix` this is
+an `abbrev`, so it is the same proposition as the spelled-out `ScopedTrace` application and unifies
+with it in either direction; the retired step count stays an explicit argument. This module is where
+it lives because it is the one import the exit-composing modules have in common. -/
+abbrev WrapperScopedTrace (fromStep len : Nat) (before after : State) : Prop :=
+  ScopedTrace
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary fromStep len before after
+
 /-- The concrete `sw a1, 4(s2)` cannot touch any of the four saved wrapper words. -/
 theorem wrapper_epilogue_status_store_preserves_saved_frame
     (state : State) (retired status : BitVec 64) (stackBase : Nat)

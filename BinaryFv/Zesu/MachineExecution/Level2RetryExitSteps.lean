@@ -1,3 +1,4 @@
+import BinaryFv.Zesu.MachineExecution.Seg
 import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryFinish
 
 /-!
@@ -69,14 +70,13 @@ theorem retry_short_length_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
     decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10394)
-  have x10AtExecute : executeState.regs.get? x10 =
-      some (BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32)) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, values.1]
+  have premise : WritesOnlyRegs stepBookkeeping state executeState :=
+    stepPremiseState_writes state (BitVec.ofNat 64 0x10394)
+  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32)) :=
+    (premise.get x10 (by decide)).trans values.1
   have x12AtExecute : executeState.regs.get? x12 = some
-      (BitVec.ofNat 64 (args.bytes.size + (2 ^ 64 - 2 ^ 32 - 4))) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, values.2]
+      (BitVec.ofNat 64 (args.bytes.size + (2 ^ 64 - 2 ^ 32 - 4))) :=
+    (premise.get x12 (by decide)).trans values.2
   have condition : Runs (bTypeTaken (.Regidx 10#5) (.Regidx 12#5) .BLTU)
       executeState executeState true := by
     unfold bTypeTaken
@@ -116,11 +116,8 @@ theorem retry_short_length_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
     notExpected condition (readReg_run executeState PC _ pcAtExecute)
     (by decide) (by decide) zca hartRead inhibitRead configRead notInhibited machineEnabled
     retiredRead
-  refine ⟨retired, ?_, ?_⟩
-  · simpa [decodeInlineRetryShortBranchAfter, targetEq] using run
-  · simp [decodeInlineRetryShortBranchAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  exact ⟨retired, by simpa [decodeInlineRetryShortBranchAfter, targetEq] using run,
+    jumpRetirement_pc state (BitVec.ofNat 64 0x10394) (BitVec.ofNat 64 0x10420) retired⟩
 
 /-- A mismatched four-byte framing word takes the wrapper's `bne a3, a0, 0x10420` exit. -/
 theorem retry_prefix_mismatch_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
@@ -229,9 +226,8 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
     Agree.weaken (fun _ preserved => preserved.2)
       (agree_stepPremiseState state (BitVec.ofNat 64 0x103f8))
   have pointerAtExecute : executeState.regs.get? x10 =
-      some (BitVec.ofNat 64 (args.stackBase + 0x1000)) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, values.1]
+      some (BitVec.ofNat 64 (args.stackBase + 0x1000)) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x103f8)).get x10 (by decide)).trans values.1
   obtain ⟨mstatusBits, mstatusReadBase, mprvZero⟩ := machine.mstatus
   obtain ⟨mseccfgBase, mseccfgReadBase, pmmDisabled⟩ := machine.mseccfg
   have mstatusRead : executeState.regs.get? mstatus = some mstatusBits :=
@@ -278,8 +274,7 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
         ← Int.ofNat_tmod, addressMod]
       rfl)
   rcases values.2.2 with ⟨-, lowByte, highByte⟩
-  have executeMemory : executeState.mem = state.mem := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement]
+  have executeMemory : executeState.mem = state.mem := rfl
   have memoryBytes : ∀ (index : Nat) (indexLt : index < (leBytes 2 (BitVec.ofNat 16 tag)).length),
       executeState.mem.get? (address.toNat + index) =
         some (leBytes 2 (BitVec.ofNat 16 tag))[index] := by

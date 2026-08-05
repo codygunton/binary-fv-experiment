@@ -1,3 +1,4 @@
+import BinaryFv.Zesu.MachineExecution.GeneratedWordStep
 import BinaryFv.Zesu.MachineExecution.Level2SecondEntryProof
 import BinaryFv.Zesu.MachineExecution.Level2RetryExitSteps
 
@@ -14,10 +15,24 @@ open BinaryFv BinaryFv.Binary.Elfling BinaryFv.RiscV BinaryFv.RiscV.Elfling
 open BinaryFv.Zesu.Contracts BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 open BinaryFv.Zesu.Elflings.Generated
 open PreSail LeanRV64DExecutable.Functions Register
-open RegisterWriteStep
+open RegisterWriteStep GeneratedWordStep
 
 set_option maxRecDepth 100000
 set_option maxHeartbeats 5000000
+
+/-- **Pin for `RiscV.callRetirement_writes`.** That lemma writes the link-writing post-execute state
+out by hand, because it lives in `RiscV/Step/ControlFlow.lean` and `RiscV/Step/Call.lean` -- where
+`callLinkState` is defined -- imports it, so it cannot name `callLinkState`. This is the check that
+the hand-written state is still the same one, stated in the lowest module here that sees both. If
+`callLinkState` ever changes shape this fails, rather than `callRetirement_writes` quietly ceasing
+to apply to anything. -/
+theorem callRetirement_writes_callLinkState (state : State) (pc target retired : BitVec 64)
+    (linkReg : Register) (linkVal : RegisterType linkReg) :
+    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only linkReg)) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) pc target linkReg linkVal)
+        target retired) :=
+  callRetirement_writes state pc target retired linkReg linkVal
 
 /-- Compact concrete evidence for a wrapper result-tag route.  The existential lives inside this
 `Prop`-valued record, so route composition exposes its trace and final frame without a tower of
@@ -108,35 +123,6 @@ def WrapperDispatchRouteFrame.terminal
     code := route.code
     retired := route.retired }
 
-private theorem wrapper_dispatch_register_constant_step {machineArgs : DecoderMachineArgs}
-    {base state : State} {destination : Register} {value : RegisterType destination}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
-    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
-    (stepNo : Nat) (pc : BitVec 64)
-    (pcIn : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc)
-    (atPc : state.regs.get? PC = some pc) (byte0 byte1 byte2 byte3 : BitVec 8)
-    (inst : instruction) (fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
-      byte0 byte1 byte2 byte3)
-    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state) inst)
-    (execute : Runs (execute inst) (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
-          destination value }
-      (.Retire_Success ())) (baseEncoding : BaseInstructionEncoding byte0)
-    (destinationNotNextPc : destination ≠ nextPC) (destinationNotHart : destination ≠ hart_state)
-    (destinationNotIncrement : destination ≠ minstret_increment)
-    (destinationNotRetired : destination ≠ minstret) :
-    ∃ retired, Runs (try_step stepNo false) state
-      (afterRegisterWrite state pc retired destination value) false :=
-  decoderRegisterWriteStep machine agree retiredPresent stepNo pc pcIn atPc
-    byte0 byte1 byte2 byte3 inst destination value fetchBytes
-    baseEncoding decode destinationNotNextPc destinationNotHart destinationNotIncrement
-    destinationNotRetired execute
-
 private theorem wrapper_dispatch_jump_step {machineArgs : DecoderMachineArgs} {base state : State}
     (machine : DecoderMachinePre
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
@@ -165,9 +151,10 @@ private theorem wrapper_dispatch_jump_step {machineArgs : DecoderMachineArgs} {b
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
   have linkRead : executeState.regs.get? nextPC = some (Sail.BitVec.addInt pc 4) := by
     simp [executeState, coreControlFlowNextState]
-  have pcRead : executeState.regs.get? PC = some pc := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, atPc]
+  have pcRead : executeState.regs.get? PC = some pc :=
+    ((coreControlFlowNextState_writes (tryStepControlFlowAfterIncrement state)
+      pc).get PC (by decide)).trans
+        (pc_afterIncrement state pc atPc)
   obtain ⟨misaBits, misaBaseRead, -⟩ : ∃ misaBits,
       base.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
     have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
@@ -252,9 +239,10 @@ private theorem wrapper_dispatch_branch_taken_step {machineArgs : DecoderMachine
     decoderStepCounters machine.normal agree retiredPresent
   obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
-  have pcRead : executeState.regs.get? PC = some pc := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, atPc]
+  have pcRead : executeState.regs.get? PC = some pc :=
+    ((coreControlFlowNextState_writes (tryStepControlFlowAfterIncrement state)
+      pc).get PC (by decide)).trans
+        (pc_afterIncrement state pc atPc)
   obtain ⟨misaBits, misaBaseRead, -⟩ : ∃ misaBits,
       base.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
     have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
@@ -287,31 +275,10 @@ theorem wrapper_dispatch_tag3_constant_step {machineArgs : DecoderMachineArgs} {
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x103fc) retired x11 (BitVec.ofNat 64 3)) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x103fc) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x103fc) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x103fc) 0x93#8 0x05#8 0x30#8 0x00#8 :=
-    fetchInstruction state 0x103fc 0x93 0x05 0x30 0x00
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x93#8 0x05#8 0x30#8 0x00#8))
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (0x00300593 : BitVec 32))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by
-    change Runs (ext_decode (0x00300593 : BitVec 32)) _ _ _
-    decode_run
+      (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x103fc)
   have execute : Runs (execute (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
@@ -320,11 +287,9 @@ theorem wrapper_dispatch_tag3_constant_step {machineArgs : DecoderMachineArgs} {
     have resultEq : iTypeResult .ADDI 0x003#12 (0#64) = BitVec.ofNat 64 3 := by decide
     simpa [resultEq] using execute_ITYPE_run executeState _ 0x003#12 (.Regidx 0#5) (.Regidx 11#5)
       .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 3))
-  exact decoderRegisterWriteStep machine agree retiredPresent stepNo (BitVec.ofNat 64 0x103fc)
-    fetchPc atPc 0x93#8 0x05#8 0x30#8 0x00#8
-    (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) x11 (BitVec.ofNat 64 3)
-    fetchBytes (by unfold BaseInstructionEncoding; decide) decode
-    (by decide) (by decide) (by decide) (by decide) execute
+  exact generatedRegisterWriteStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x103fc 0x00300593 atPc
+    decode execute
 
 /-- Exact post-state of the tag-three branch at `0x10400`. -/
 def wrapperDispatchTag3BranchAfter (state : State) (retired : BitVec 64) : State :=
@@ -333,29 +298,13 @@ def wrapperDispatchTag3BranchAfter (state : State) (retired : BitVec 64) : State
       (BitVec.ofNat 64 0x10400) (BitVec.ofNat 64 0x10434))
     (BitVec.ofNat 64 0x10434) retired
 
+/-- A jump writes no architectural register beyond the bookkeeping -- the target goes to `nextPC`,
+which the bookkeeping already contains -- so this is `jumpRetirement_writes` read at
+`platformPreserved`, and the disjointness is the repository-wide one. -/
 private theorem wrapperDispatchTag3BranchAfter_agree (state : State) (retired : BitVec 64) :
-    Agree platformPreserved state (wrapperDispatchTag3BranchAfter state retired) := by
-  intro register preserved
-  have notRetired : minstret ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notPc : PC ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notNextPc : nextPC ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notIncrement : minstret_increment ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  simp [wrapperDispatchTag3BranchAfter, tryStepControlFlowAfterRetired,
-    tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-    tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notRetired, notPc,
-    notNextPc, notIncrement]
+    Agree platformPreserved state (wrapperDispatchTag3BranchAfter state retired) :=
+  (jumpRetirement_writes state (BitVec.ofNat 64 0x10400) (BitVec.ofNat 64 0x10434) retired).agree
+    platformPreserved_disjoint
 
 /-- A tag-three result takes the first comparison branch to its rejection tail. -/
 theorem wrapper_dispatch_tag3_branch_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -370,46 +319,35 @@ theorem wrapper_dispatch_tag3_branch_step {machineArgs : DecoderMachineArgs} {ba
     ∃ retired, Runs (try_step stepNo false) state
       (wrapperDispatchTag3BranchAfter state retired) false ∧
       (wrapperDispatchTag3BranchAfter state retired).regs.get? PC = some (BitVec.ofNat 64 0x10434) := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10400) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10400) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10400) 0x63#8 0x0a#8 0xb5#8 0x02#8 :=
-    fetchInstruction state 0x10400 0x63 0x0a 0xb5 0x02
-      (hasExactErePrefix_programImage_of_codeIntact code)
+  obtain ⟨byte0, byte1, byte2, byte3, fetchBytes, wordEq, baseEncoding⟩ :=
+    generatedFetch state 0x10400 0x02b50a63 (hasExactErePrefix_programImage_of_codeIntact code)
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine agree
-    (BitVec.ofNat 64 0x10400) atPc fetchPc _ _ _ _ fetchBytes
+    (BitVec.ofNat 64 0x10400) atPc (fetchPc _) _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
   obtain ⟨retired, inhibit, config, counters⟩ :=
     decoderStepCounters machine.normal agree retiredPresent
   obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
-  have decode : Runs (ext_decode (fetchWord 0x63#8 0x0a#8 0xb5#8 0x02#8))
+  have decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.BTYPE (0x34#13, .Regidx 11#5, .Regidx 10#5, .BEQ)) := by
-    change Runs (ext_decode (0x02b50a63 : BitVec 32)) _ _ _
+    rw [wordEq]
     decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10400)
-  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 3) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, tag]
-  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 3) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, comparison]
+  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 3) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10400)).get x10 (by decide)).trans tag
+  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 3) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10400)).get x11 (by decide)).trans comparison
   have condition : Runs (bTypeTaken (.Regidx 11#5) (.Regidx 10#5) .BEQ)
       executeState executeState true := by
     unfold bTypeTaken
     refine Runs.bind (rX_bits_run_x10 executeState _ x10AtExecute) ?_
     refine Runs.bind (rX_bits_run_x11 executeState _ x11AtExecute) ?_
     rfl
-  have pcAtExecute : executeState.regs.get? PC = some (BitVec.ofNat 64 0x10400) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, atPc]
+  have pcAtExecute : executeState.regs.get? PC = some (BitVec.ofNat 64 0x10400) :=
+    ((coreControlFlowNextState_writes (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x10400)).get PC (by decide)).trans
+        (pc_afterIncrement state (BitVec.ofNat 64 0x10400) atPc)
   obtain ⟨misaBits, misaBaseRead, -⟩ : ∃ misaBits,
       base.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
     have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
@@ -422,8 +360,8 @@ theorem wrapper_dispatch_tag3_branch_step {machineArgs : DecoderMachineArgs} {ba
     misaBits misaRead
   have run := tryStepBranchTakenRetires stepNo state (BitVec.ofNat 64 0x10400)
     (BitVec.ofNat 64 0x10400) retired (0x34#13) (.Regidx 11#5) (.Regidx 10#5) .BEQ
-    inhibit config 0x63#8 0x0a#8 0xb5#8 0x02#8 (_get_Misa_C misaBits == 1#1)
-    fetch noMMIO fetched interrupts (by unfold BaseInstructionEncoding; decide) decode
+    inhibit config byte0 byte1 byte2 byte3 (_get_Misa_C misaBits == 1#1)
+    fetch noMMIO fetched interrupts baseEncoding decode
     notExpected condition (readReg_run executeState PC _ pcAtExecute)
     (by decide) (by decide) zca hartRead inhibitRead configRead notInhibited machineEnabled
     retiredRead
@@ -448,39 +386,20 @@ theorem wrapper_dispatch_tag3_miss_step {machineArgs : DecoderMachineArgs} {base
       (tryStepControlFlowAfterRetired
         (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10400))
         (BitVec.ofNat 64 0x10404) retired) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10400) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10400) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10400) 0x63#8 0x0a#8 0xb5#8 0x02#8 :=
-    fetchInstruction state 0x10400 0x63 0x0a 0xb5 0x02
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x63#8 0x0a#8 0xb5#8 0x02#8))
+  obtain ⟨byte0, byte1, byte2, byte3, fetchBytes, wordEq, baseEncoding⟩ :=
+    generatedFetch state 0x10400 0x02b50a63 (hasExactErePrefix_programImage_of_codeIntact code)
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.BTYPE (0x34#13, .Regidx 11#5, .Regidx 10#5, .BEQ)) := by
-    change Runs (ext_decode (0x02b50a63 : BitVec 32)) _ _ _
+    rw [wordEq]
     decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10400)
-  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 tagValue) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, tag]
-  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 3) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, comparison]
+  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 tagValue) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10400)).get x10 (by decide)).trans tag
+  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 3) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10400)).get x11 (by decide)).trans comparison
   have condition : Runs (bTypeTaken (.Regidx 11#5) (.Regidx 10#5) .BEQ)
       executeState executeState false := by
     unfold bTypeTaken
@@ -493,8 +412,8 @@ theorem wrapper_dispatch_tag3_miss_step {machineArgs : DecoderMachineArgs} {base
     rw [comparisonFalse]
     rfl
   exact wrapper_dispatch_branch_not_taken_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10400) (0x34#13) (.Regidx 11#5) (.Regidx 10#5) .BEQ fetchPc atPc
-    0x63#8 0x0a#8 0xb5#8 0x02#8 fetchBytes (by unfold BaseInstructionEncoding; decide) decode condition
+    (BitVec.ofNat 64 0x10400) (0x34#13) (.Regidx 11#5) (.Regidx 10#5) .BEQ (fetchPc _) atPc
+    byte0 byte1 byte2 byte3 fetchBytes baseEncoding decode condition
 
 /-- The second dispatch instruction writes the tag-one comparison constant. -/
 theorem wrapper_dispatch_tag1_constant_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -506,31 +425,10 @@ theorem wrapper_dispatch_tag1_constant_step {machineArgs : DecoderMachineArgs} {
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10404)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10404) retired x11 (BitVec.ofNat 64 1)) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10404) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10404) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10404) 0x93#8 0x05#8 0x10#8 0x00#8 :=
-    fetchInstruction state 0x10404 0x93 0x05 0x10 0x00
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x93#8 0x05#8 0x10#8 0x00#8))
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (0x00100593 : BitVec 32))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x001#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by
-    change Runs (ext_decode (0x00100593 : BitVec 32)) _ _ _
-    decode_run
+      (.ITYPE (0x001#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10404)
   have execute : Runs (execute (.ITYPE (0x001#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
@@ -539,10 +437,9 @@ theorem wrapper_dispatch_tag1_constant_step {machineArgs : DecoderMachineArgs} {
     have resultEq : iTypeResult .ADDI 0x001#12 (0#64) = BitVec.ofNat 64 1 := by decide
     simpa [resultEq] using execute_ITYPE_run executeState _ 0x001#12 (.Regidx 0#5) (.Regidx 11#5)
       .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 1))
-  exact wrapper_dispatch_register_constant_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10404) fetchPc atPc 0x93#8 0x05#8 0x10#8 0x00#8
-    (.ITYPE (0x001#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) fetchBytes decode execute
-    (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide) (by decide)
+  exact generatedRegisterWriteStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10404 0x00100593 atPc
+    decode execute
 
 /-- A tag-one result takes the second comparison branch to its rejection tail. -/
 theorem wrapper_dispatch_tag1_branch_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -559,39 +456,20 @@ theorem wrapper_dispatch_tag1_branch_step {machineArgs : DecoderMachineArgs} {ba
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
           (BitVec.ofNat 64 0x10408) (BitVec.ofNat 64 0x10428))
         (BitVec.ofNat 64 0x10428) retired) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10408) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10408) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10408) 0x63#8 0x00#8 0xb5#8 0x02#8 :=
-    fetchInstruction state 0x10408 0x63 0x00 0xb5 0x02
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x63#8 0x00#8 0xb5#8 0x02#8))
+  obtain ⟨byte0, byte1, byte2, byte3, fetchBytes, wordEq, baseEncoding⟩ :=
+    generatedFetch state 0x10408 0x02b50063 (hasExactErePrefix_programImage_of_codeIntact code)
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.BTYPE (0x20#13, .Regidx 11#5, .Regidx 10#5, .BEQ)) := by
-    change Runs (ext_decode (0x02b50063 : BitVec 32)) _ _ _
+    rw [wordEq]
     decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10408)
-  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 1) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, tag]
-  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 1) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, comparison]
+  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 1) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10408)).get x10 (by decide)).trans tag
+  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 1) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10408)).get x11 (by decide)).trans comparison
   have condition : Runs (bTypeTaken (.Regidx 11#5) (.Regidx 10#5) .BEQ)
       executeState executeState true := by
     unfold bTypeTaken
@@ -602,60 +480,23 @@ theorem wrapper_dispatch_tag1_branch_step {machineArgs : DecoderMachineArgs} {ba
       BitVec.ofNat 64 0x10428 := by decide
   exact wrapper_dispatch_branch_taken_step machine agree retiredPresent stepNo
     (BitVec.ofNat 64 0x10408) (BitVec.ofNat 64 0x10428) (0x20#13)
-    (.Regidx 11#5) (.Regidx 10#5) .BEQ fetchPc atPc
-    0x63#8 0x00#8 0xb5#8 0x02#8 fetchBytes (by unfold BaseInstructionEncoding; decide) decode
+    (.Regidx 11#5) (.Regidx 10#5) .BEQ (fetchPc _) atPc
+    byte0 byte1 byte2 byte3 fetchBytes baseEncoding decode
     condition targetEq (by decide) (by decide)
 
 private theorem wrapperDispatchBranchNotTakenAfter_agree (state : State) (pc retired : BitVec 64) :
     Agree platformPreserved state
       (tryStepControlFlowAfterRetired
         (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
-        (Sail.BitVec.addInt pc 4) retired) := by
-  intro register preserved
-  have notRetired : minstret ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notPc : PC ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notNextPc : nextPC ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notIncrement : minstret_increment ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-    tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notRetired, notPc,
-    notNextPc, notIncrement]
+        (Sail.BitVec.addInt pc 4) retired) :=
+  (fallThroughRetirement_writes state pc (Sail.BitVec.addInt pc 4) retired).agree
+    platformPreserved_disjoint
 
 private theorem wrapperDispatchJumpAfter_agree (state : State) (pc target retired : BitVec 64) :
     Agree platformPreserved state
       (tryStepControlFlowAfterRetired
-        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) := by
-  intro register preserved
-  have notRetired : minstret ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notPc : PC ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notNextPc : nextPC ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notIncrement : minstret_increment ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
-    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-    notRetired, notPc, notNextPc, notIncrement]
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) :=
+  (jumpRetirement_writes state pc target retired).agree platformPreserved_disjoint
 
 /-- Exact post-state of the tag-one branch at `0x10408`. -/
 def wrapperDispatchTag1BranchAfter (state : State) (retired : BitVec 64) : State :=
@@ -668,28 +509,9 @@ private theorem wrapperDispatchTag1BranchAfter_mem (state : State) (retired : Bi
     (wrapperDispatchTag1BranchAfter state retired).mem = state.mem := rfl
 
 private theorem wrapperDispatchTag1BranchAfter_agree (state : State) (retired : BitVec 64) :
-    Agree platformPreserved state (wrapperDispatchTag1BranchAfter state retired) := by
-  intro register preserved
-  have notRetired : minstret ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notPc : PC ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notNextPc : nextPC ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  have notIncrement : minstret_increment ≠ register := by
-    intro equal
-    subst register
-    simp [platformPreserved] at preserved
-  simp [wrapperDispatchTag1BranchAfter, tryStepControlFlowAfterRetired,
-    tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-    tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notRetired, notPc,
-    notNextPc, notIncrement]
+    Agree platformPreserved state (wrapperDispatchTag1BranchAfter state retired) :=
+  (jumpRetirement_writes state (BitVec.ofNat 64 0x10408) (BitVec.ofNat 64 0x10428) retired).agree
+    platformPreserved_disjoint
 
 /-- Any tag other than one falls through the second comparison to `0x1040c`. -/
 theorem wrapper_dispatch_tag1_miss_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -706,39 +528,20 @@ theorem wrapper_dispatch_tag1_miss_step {machineArgs : DecoderMachineArgs} {base
       (tryStepControlFlowAfterRetired
         (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10408))
         (BitVec.ofNat 64 0x1040c) retired) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10408) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10408) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10408) 0x63#8 0x00#8 0xb5#8 0x02#8 :=
-    fetchInstruction state 0x10408 0x63 0x00 0xb5 0x02
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x63#8 0x00#8 0xb5#8 0x02#8))
+  obtain ⟨byte0, byte1, byte2, byte3, fetchBytes, wordEq, baseEncoding⟩ :=
+    generatedFetch state 0x10408 0x02b50063 (hasExactErePrefix_programImage_of_codeIntact code)
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.BTYPE (0x20#13, .Regidx 11#5, .Regidx 10#5, .BEQ)) := by
-    change Runs (ext_decode (0x02b50063 : BitVec 32)) _ _ _
+    rw [wordEq]
     decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10408)
-  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 tagValue) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, tag]
-  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 1) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, comparison]
+  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 tagValue) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10408)).get x10 (by decide)).trans tag
+  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 1) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10408)).get x11 (by decide)).trans comparison
   have condition : Runs (bTypeTaken (.Regidx 11#5) (.Regidx 10#5) .BEQ)
       executeState executeState false := by
     unfold bTypeTaken
@@ -751,8 +554,8 @@ theorem wrapper_dispatch_tag1_miss_step {machineArgs : DecoderMachineArgs} {base
     rw [comparisonFalse]
     rfl
   exact wrapper_dispatch_branch_not_taken_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10408) (0x20#13) (.Regidx 11#5) (.Regidx 10#5) .BEQ fetchPc atPc
-    0x63#8 0x00#8 0xb5#8 0x02#8 fetchBytes (by unfold BaseInstructionEncoding; decide) decode condition
+    (BitVec.ofNat 64 0x10408) (0x20#13) (.Regidx 11#5) (.Regidx 10#5) .BEQ (fetchPc _) atPc
+    byte0 byte1 byte2 byte3 fetchBytes baseEncoding decode condition
 
 /-- The third dispatch instruction writes the tag-two comparison constant. -/
 theorem wrapper_dispatch_tag2_constant_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -764,31 +567,10 @@ theorem wrapper_dispatch_tag2_constant_step {machineArgs : DecoderMachineArgs} {
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1040c)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x1040c) retired x11 (BitVec.ofNat 64 2)) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x1040c) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x1040c) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x1040c) 0x93#8 0x05#8 0x20#8 0x00#8 :=
-    fetchInstruction state 0x1040c 0x93 0x05 0x20 0x00
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x93#8 0x05#8 0x20#8 0x00#8))
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (0x00200593 : BitVec 32))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by
-    change Runs (ext_decode (0x00200593 : BitVec 32)) _ _ _
-    decode_run
+      (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x1040c)
   have execute : Runs (execute (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
@@ -797,10 +579,9 @@ theorem wrapper_dispatch_tag2_constant_step {machineArgs : DecoderMachineArgs} {
     have resultEq : iTypeResult .ADDI 0x002#12 (0#64) = BitVec.ofNat 64 2 := by decide
     simpa [resultEq] using execute_ITYPE_run executeState _ 0x002#12 (.Regidx 0#5) (.Regidx 11#5)
       .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 2))
-  exact wrapper_dispatch_register_constant_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x1040c) fetchPc atPc 0x93#8 0x05#8 0x20#8 0x00#8
-    (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) fetchBytes decode execute
-    (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide) (by decide)
+  exact generatedRegisterWriteStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x1040c 0x00200593 atPc
+    decode execute
 
 /-- A tag-two result falls through the final comparison to its rejection tail. -/
 theorem wrapper_dispatch_tag2_branch_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -816,39 +597,20 @@ theorem wrapper_dispatch_tag2_branch_step {machineArgs : DecoderMachineArgs} {ba
       (tryStepControlFlowAfterRetired
         (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10410))
         (BitVec.ofNat 64 0x10414) retired) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10410) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10410) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10410) 0xe3#8 0x16#8 0xb5#8 0xf2#8 :=
-    fetchInstruction state 0x10410 0xe3 0x16 0xb5 0xf2
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0xe3#8 0x16#8 0xb5#8 0xf2#8))
+  obtain ⟨byte0, byte1, byte2, byte3, fetchBytes, wordEq, baseEncoding⟩ :=
+    generatedFetch state 0x10410 0xf2b516e3 (hasExactErePrefix_programImage_of_codeIntact code)
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.BTYPE (0x1f2c#13, .Regidx 11#5, .Regidx 10#5, .BNE)) := by
-    change Runs (ext_decode (0xf2b516e3 : BitVec 32)) _ _ _
+    rw [wordEq]
     decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10410)
-  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 2) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, tag]
-  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 2) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, comparison]
+  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 2) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10410)).get x10 (by decide)).trans tag
+  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 2) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10410)).get x11 (by decide)).trans comparison
   have condition : Runs (bTypeTaken (.Regidx 11#5) (.Regidx 10#5) .BNE)
       executeState executeState false := by
     unfold bTypeTaken
@@ -856,8 +618,8 @@ theorem wrapper_dispatch_tag2_branch_step {machineArgs : DecoderMachineArgs} {ba
     refine Runs.bind (rX_bits_run_x11 executeState _ x11AtExecute) ?_
     rfl
   exact wrapper_dispatch_branch_not_taken_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10410) (0x1f2c#13) (.Regidx 11#5) (.Regidx 10#5) .BNE fetchPc atPc
-    0xe3#8 0x16#8 0xb5#8 0xf2#8 fetchBytes (by unfold BaseInstructionEncoding; decide) decode condition
+    (BitVec.ofNat 64 0x10410) (0x1f2c#13) (.Regidx 11#5) (.Regidx 10#5) .BNE (fetchPc _) atPc
+    byte0 byte1 byte2 byte3 fetchBytes baseEncoding decode condition
 
 /-- The tag-two rejection tail clears the wrapper return value. -/
 theorem wrapper_dispatch_tag2_clear_result_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -869,31 +631,10 @@ theorem wrapper_dispatch_tag2_clear_result_step {machineArgs : DecoderMachineArg
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10414)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10414) retired x10 (BitVec.ofNat 64 0)) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10414) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10414) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10414) 0x13#8 0x05#8 0x00#8 0x00#8 :=
-    fetchInstruction state 0x10414 0x13 0x05 0x00 0x00
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x13#8 0x05#8 0x00#8 0x00#8))
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (0x00000513 : BitVec 32))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by
-    change Runs (ext_decode (0x00000513 : BitVec 32)) _ _ _
-    decode_run
+      (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10414)
   have execute : Runs (execute (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI))) executeState
@@ -901,10 +642,9 @@ theorem wrapper_dispatch_tag2_clear_result_step {machineArgs : DecoderMachineArg
       (.Retire_Success ()) := by
     simpa using execute_ITYPE_run executeState _ 0#12 (.Regidx 0#5) (.Regidx 10#5) .ADDI
       (0#64) (rX_x0_run executeState) (wX_x10_run executeState (0#64))
-  exact wrapper_dispatch_register_constant_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10414) fetchPc atPc 0x13#8 0x05#8 0x00#8 0x00#8
-    (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) fetchBytes decode execute
-    (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide) (by decide)
+  exact generatedRegisterWriteStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10414 0x00000513 atPc
+    decode execute
 
 /-- The tag-two rejection tail records status `2`. -/
 theorem wrapper_dispatch_tag2_status_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -916,31 +656,10 @@ theorem wrapper_dispatch_tag2_status_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10418)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10418) retired x11 (BitVec.ofNat 64 2)) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10418) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10418) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10418) 0x93#8 0x05#8 0x20#8 0x00#8 :=
-    fetchInstruction state 0x10418 0x93 0x05 0x20 0x00
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x93#8 0x05#8 0x20#8 0x00#8))
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (0x00200593 : BitVec 32))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by
-    change Runs (ext_decode (0x00200593 : BitVec 32)) _ _ _
-    decode_run
+      (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10418)
   have execute : Runs (execute (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
@@ -949,10 +668,9 @@ theorem wrapper_dispatch_tag2_status_step {machineArgs : DecoderMachineArgs} {ba
     have resultEq : iTypeResult .ADDI 0x002#12 (0#64) = BitVec.ofNat 64 2 := by decide
     simpa [resultEq] using execute_ITYPE_run executeState _ 0x002#12 (.Regidx 0#5) (.Regidx 11#5)
       .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 2))
-  exact wrapper_dispatch_register_constant_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10418) fetchPc atPc 0x93#8 0x05#8 0x20#8 0x00#8
-    (.ITYPE (0x002#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) fetchBytes decode execute
-    (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide) (by decide)
+  exact generatedRegisterWriteStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10418 0x00200593 atPc
+    decode execute
 
 /-- The tag-two tail jumps into the shared wrapper rejection continuation at `0x1035c`. -/
 theorem wrapper_dispatch_tag2_to_rejection_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -967,36 +685,19 @@ theorem wrapper_dispatch_tag2_to_rejection_step {machineArgs : DecoderMachineArg
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
           (BitVec.ofNat 64 0x1041c) (BitVec.ofNat 64 0x1035c))
         (BitVec.ofNat 64 0x1035c) retired) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x1041c) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x1041c) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x1041c) 0x6f#8 0xf0#8 0x1f#8 0xf4#8 :=
-    fetchInstruction state 0x1041c 0x6f 0xf0 0x1f 0xf4
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x6f#8 0xf0#8 0x1f#8 0xf4#8))
+  obtain ⟨byte0, byte1, byte2, byte3, fetchBytes, wordEq, baseEncoding⟩ :=
+    generatedFetch state 0x1041c 0xf41ff06f (hasExactErePrefix_programImage_of_codeIntact code)
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JAL (0x1fff40#21, zreg)) := by
-    change Runs (ext_decode (0xf41ff06f : BitVec 32)) _ _ _
+    rw [wordEq]
     decode_run
   have targetEq : BitVec.ofNat 64 0x1041c + sign_extend (m := 64) (0x1fff40#21) =
       BitVec.ofNat 64 0x1035c := by decide
   exact wrapper_dispatch_jump_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x1041c) (BitVec.ofNat 64 0x1035c) (0x1fff40#21) fetchPc atPc
-    0x6f#8 0xf0#8 0x1f#8 0xf4#8 fetchBytes (by unfold BaseInstructionEncoding; decide) decode
+    (BitVec.ofNat 64 0x1041c) (BitVec.ofNat 64 0x1035c) (0x1fff40#21) (fetchPc _) atPc
+    byte0 byte1 byte2 byte3 fetchBytes baseEncoding decode
     targetEq (by decide) (by decide)
 
 /-- A zero result takes the final comparison to the success continuation at `0x1033c`. -/
@@ -1014,39 +715,20 @@ theorem wrapper_dispatch_tag0_success_step {machineArgs : DecoderMachineArgs} {b
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
           (BitVec.ofNat 64 0x10410) (BitVec.ofNat 64 0x1033c))
         (BitVec.ofNat 64 0x1033c) retired) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10410) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10410) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10410) 0xe3#8 0x16#8 0xb5#8 0xf2#8 :=
-    fetchInstruction state 0x10410 0xe3 0x16 0xb5 0xf2
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0xe3#8 0x16#8 0xb5#8 0xf2#8))
+  obtain ⟨byte0, byte1, byte2, byte3, fetchBytes, wordEq, baseEncoding⟩ :=
+    generatedFetch state 0x10410 0xf2b516e3 (hasExactErePrefix_programImage_of_codeIntact code)
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.BTYPE (0x1f2c#13, .Regidx 11#5, .Regidx 10#5, .BNE)) := by
-    change Runs (ext_decode (0xf2b516e3 : BitVec 32)) _ _ _
+    rw [wordEq]
     decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10410)
-  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 0) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, tag]
-  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 2) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, comparison]
+  have x10AtExecute : executeState.regs.get? x10 = some (BitVec.ofNat 64 0) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10410)).get x10 (by decide)).trans tag
+  have x11AtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 2) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10410)).get x11 (by decide)).trans comparison
   have condition : Runs (bTypeTaken (.Regidx 11#5) (.Regidx 10#5) .BNE)
       executeState executeState true := by
     unfold bTypeTaken
@@ -1057,8 +739,8 @@ theorem wrapper_dispatch_tag0_success_step {machineArgs : DecoderMachineArgs} {b
       BitVec.ofNat 64 0x1033c := by decide
   exact wrapper_dispatch_branch_taken_step machine agree retiredPresent stepNo
     (BitVec.ofNat 64 0x10410) (BitVec.ofNat 64 0x1033c) (0x1f2c#13)
-    (.Regidx 11#5) (.Regidx 10#5) .BNE fetchPc atPc
-    0xe3#8 0x16#8 0xb5#8 0xf2#8 fetchBytes (by unfold BaseInstructionEncoding; decide) decode
+    (.Regidx 11#5) (.Regidx 10#5) .BNE (fetchPc _) atPc
+    byte0 byte1 byte2 byte3 fetchBytes baseEncoding decode
     condition targetEq (by decide) (by decide)
 
 /-- The shared prefix for result tags that are neither three nor one. -/
@@ -1101,8 +783,8 @@ theorem wrapper_dispatch_non_three_non_one_prefix {machineArgs : DecoderMachineA
   have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10400) := by
     simpa [s1] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
   have tag1 : s1.regs.get? x10 = some (BitVec.ofNat 64 tagValue) := by
-    simpa [s1] using (afterRegisterWrite_register state (BitVec.ofNat 64 0x103fc) r1 x11 x10
-      (BitVec.ofNat 64 3) (by decide) (by decide) (by decide) (by decide) (by decide)).trans tag
+    simpa [s1] using ((afterRegisterWrite_writes state (BitVec.ofNat 64 0x103fc) r1 x11
+      (BitVec.ofNat 64 3)).get x10 (by decide)).trans tag
   have comparison1 : s1.regs.get? x11 = some (BitVec.ofNat 64 3) := by
     simp [s1, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1113,14 +795,12 @@ theorem wrapper_dispatch_non_three_non_one_prefix {machineArgs : DecoderMachineA
     (BitVec.ofNat 64 0x10404) r2
   have agree2 : Agree platformPreserved base s2 := agree1.trans
     (wrapperDispatchBranchNotTakenAfter_agree s1 (BitVec.ofNat 64 0x10400) r2)
-  have retired2 : RetiredCounterPresent s2 := ⟨Sail.BitVec.addInt r2 1, by
-    simp [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+  have retired2 : RetiredCounterPresent s2 := tryStepControlFlowAfterRetired_retired_present _ _ r2
   have code2 : canonicalContractParams.env.CodeIntact s2 := by
     simpa [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code1
-  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10404) := by
-    simp [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10404) :=
+    Elfling.tryStepControlFlowAfterRetired_pc _ _ _
   obtain ⟨r3, run3⟩ := wrapper_dispatch_tag1_constant_step machine agree2 retired2 code2
     (stepNo + 2) pc2
   let s3 := afterRegisterWrite s2 (BitVec.ofNat 64 0x10404) r3 x11 (BitVec.ofNat 64 1)
@@ -1133,11 +813,11 @@ theorem wrapper_dispatch_non_three_non_one_prefix {machineArgs : DecoderMachineA
   have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x10408) := by
     simpa [s3] using afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x10404) r3 x11 (BitVec.ofNat 64 1)
   have tag3 : s3.regs.get? x10 = some (BitVec.ofNat 64 tagValue) := by
-    have tag2 : s2.regs.get? x10 = some (BitVec.ofNat 64 tagValue) := by
-      simp [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-        coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, tag1]
-    simpa [s3] using (afterRegisterWrite_register s2 (BitVec.ofNat 64 0x10404) r3 x11 x10
-      (BitVec.ofNat 64 1) (by decide) (by decide) (by decide) (by decide) (by decide)).trans tag2
+    have tag2 : s2.regs.get? x10 = some (BitVec.ofNat 64 tagValue) :=
+      ((fallThroughRetirement_writes s1 (BitVec.ofNat 64 0x10400) (BitVec.ofNat 64 0x10404) r2).get
+        x10 (by decide)).trans tag1
+    simpa [s3] using ((afterRegisterWrite_writes s2 (BitVec.ofNat 64 0x10404) r3 x11
+      (BitVec.ofNat 64 1)).get x10 (by decide)).trans tag2
   have comparison3 : s3.regs.get? x11 = some (BitVec.ofNat 64 1) := by
     simp [s3, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1148,14 +828,12 @@ theorem wrapper_dispatch_non_three_non_one_prefix {machineArgs : DecoderMachineA
     (BitVec.ofNat 64 0x1040c) r4
   have agree4 : Agree platformPreserved base s4 := agree3.trans
     (wrapperDispatchBranchNotTakenAfter_agree s3 (BitVec.ofNat 64 0x10408) r4)
-  have retired4 : RetiredCounterPresent s4 := ⟨Sail.BitVec.addInt r4 1, by
-    simp [s4, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+  have retired4 : RetiredCounterPresent s4 := tryStepControlFlowAfterRetired_retired_present _ _ r4
   have code4 : canonicalContractParams.env.CodeIntact s4 := by
     simpa [s4, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code3
-  have pc4 : s4.regs.get? PC = some (BitVec.ofNat 64 0x1040c) := by
-    simp [s4, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have pc4 : s4.regs.get? PC = some (BitVec.ofNat 64 0x1040c) :=
+    Elfling.tryStepControlFlowAfterRetired_pc _ _ _
   obtain ⟨r5, run5⟩ := wrapper_dispatch_tag2_constant_step machine agree4 retired4 code4
     (stepNo + 4) pc4
   let s5 := afterRegisterWrite s4 (BitVec.ofNat 64 0x1040c) r5 x11 (BitVec.ofNat 64 2)
@@ -1166,11 +844,11 @@ theorem wrapper_dispatch_non_three_non_one_prefix {machineArgs : DecoderMachineA
   · simpa [s3, s4] using run4
   · simpa [s4, s5] using run5
   · simpa [s5] using afterRegisterWrite_pc s4 (BitVec.ofNat 64 0x1040c) r5 x11 (BitVec.ofNat 64 2)
-  · have tag4 : s4.regs.get? x10 = some (BitVec.ofNat 64 tagValue) := by
-      simp [s4, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-        coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, tag3]
-    simpa [s5] using (afterRegisterWrite_register s4 (BitVec.ofNat 64 0x1040c) r5 x11 x10
-      (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans tag4
+  · have tag4 : s4.regs.get? x10 = some (BitVec.ofNat 64 tagValue) :=
+      ((fallThroughRetirement_writes s3 (BitVec.ofNat 64 0x10408) (BitVec.ofNat 64 0x1040c) r4).get
+        x10 (by decide)).trans tag3
+    simpa [s5] using ((afterRegisterWrite_writes s4 (BitVec.ofNat 64 0x1040c) r5 x11
+      (BitVec.ofNat 64 2)).get x10 (by decide)).trans tag4
   · simp [s5, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
 
@@ -1184,31 +862,10 @@ theorem wrapper_dispatch_tag3_clear_result_step {machineArgs : DecoderMachineArg
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10434)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10434) retired x10 (BitVec.ofNat 64 0)) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10434) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10434) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10434) 0x13#8 0x05#8 0x00#8 0x00#8 :=
-    fetchInstruction state 0x10434 0x13 0x05 0x00 0x00
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x13#8 0x05#8 0x00#8 0x00#8))
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (0x00000513 : BitVec 32))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by
-    change Runs (ext_decode (0x00000513 : BitVec 32)) _ _ _
-    decode_run
+      (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10434)
   have execute : Runs (execute (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI))) executeState
@@ -1216,10 +873,9 @@ theorem wrapper_dispatch_tag3_clear_result_step {machineArgs : DecoderMachineArg
       (.Retire_Success ()) := by
     simpa using execute_ITYPE_run executeState _ 0#12 (.Regidx 0#5) (.Regidx 10#5) .ADDI
       (0#64) (rX_x0_run executeState) (wX_x10_run executeState (0#64))
-  exact wrapper_dispatch_register_constant_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10434) fetchPc atPc 0x13#8 0x05#8 0x00#8 0x00#8
-    (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) fetchBytes decode execute
-    (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide) (by decide)
+  exact generatedRegisterWriteStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10434 0x00000513 atPc
+    decode execute
 
 /-- The tag-three rejection tail records status `3`. -/
 theorem wrapper_dispatch_tag3_status_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -1231,31 +887,10 @@ theorem wrapper_dispatch_tag3_status_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10438)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10438) retired x11 (BitVec.ofNat 64 3)) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10438) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10438) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10438) 0x93#8 0x05#8 0x30#8 0x00#8 :=
-    fetchInstruction state 0x10438 0x93 0x05 0x30 0x00
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x93#8 0x05#8 0x30#8 0x00#8))
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (0x00300593 : BitVec 32))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by
-    change Runs (ext_decode (0x00300593 : BitVec 32)) _ _ _
-    decode_run
+      (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10438)
   have execute : Runs (execute (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
@@ -1264,10 +899,9 @@ theorem wrapper_dispatch_tag3_status_step {machineArgs : DecoderMachineArgs} {ba
     have resultEq : iTypeResult .ADDI 0x003#12 (0#64) = BitVec.ofNat 64 3 := by decide
     simpa [resultEq] using execute_ITYPE_run executeState _ 0x003#12 (.Regidx 0#5) (.Regidx 11#5)
       .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 3))
-  exact wrapper_dispatch_register_constant_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10438) fetchPc atPc 0x93#8 0x05#8 0x30#8 0x00#8
-    (.ITYPE (0x003#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) fetchBytes decode execute
-    (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide) (by decide)
+  exact generatedRegisterWriteStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10438 0x00300593 atPc
+    decode execute
 
 /-- The tag-three tail jumps into the shared wrapper rejection continuation at `0x1035c`. -/
 theorem wrapper_dispatch_tag3_to_rejection_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -1282,36 +916,19 @@ theorem wrapper_dispatch_tag3_to_rejection_step {machineArgs : DecoderMachineArg
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
           (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c))
         (BitVec.ofNat 64 0x1035c) retired) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x1043c) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x1043c) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x1043c) 0x6f#8 0xf0#8 0x1f#8 0xf2#8 :=
-    fetchInstruction state 0x1043c 0x6f 0xf0 0x1f 0xf2
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x6f#8 0xf0#8 0x1f#8 0xf2#8))
+  obtain ⟨byte0, byte1, byte2, byte3, fetchBytes, wordEq, baseEncoding⟩ :=
+    generatedFetch state 0x1043c 0xf21ff06f (hasExactErePrefix_programImage_of_codeIntact code)
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JAL (0x1fff20#21, zreg)) := by
-    change Runs (ext_decode (0xf21ff06f : BitVec 32)) _ _ _
+    rw [wordEq]
     decode_run
   have targetEq : BitVec.ofNat 64 0x1043c + sign_extend (m := 64) (0x1fff20#21) =
       BitVec.ofNat 64 0x1035c := by decide
   exact wrapper_dispatch_jump_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c) (0x1fff20#21) fetchPc atPc
-    0x6f#8 0xf0#8 0x1f#8 0xf2#8 fetchBytes (by unfold BaseInstructionEncoding; decide) decode
+    (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c) (0x1fff20#21) (fetchPc _) atPc
+    byte0 byte1 byte2 byte3 fetchBytes baseEncoding decode
     targetEq (by decide) (by decide)
 
 /-- The tag-one rejection tail clears the wrapper return value. -/
@@ -1324,31 +941,10 @@ theorem wrapper_dispatch_tag1_clear_result_step {machineArgs : DecoderMachineArg
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10428)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10428) retired x10 (BitVec.ofNat 64 0)) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10428) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10428) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10428) 0x13#8 0x05#8 0x00#8 0x00#8 :=
-    fetchInstruction state 0x10428 0x13 0x05 0x00 0x00
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x13#8 0x05#8 0x00#8 0x00#8))
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (0x00000513 : BitVec 32))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by
-    change Runs (ext_decode (0x00000513 : BitVec 32)) _ _ _
-    decode_run
+      (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10428)
   have execute : Runs (execute (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI))) executeState
@@ -1356,10 +952,9 @@ theorem wrapper_dispatch_tag1_clear_result_step {machineArgs : DecoderMachineArg
       (.Retire_Success ()) := by
     simpa using execute_ITYPE_run executeState _ 0#12 (.Regidx 0#5) (.Regidx 10#5) .ADDI
       (0#64) (rX_x0_run executeState) (wX_x10_run executeState (0#64))
-  exact wrapper_dispatch_register_constant_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10428) fetchPc atPc 0x13#8 0x05#8 0x00#8 0x00#8
-    (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) fetchBytes decode execute
-    (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide) (by decide)
+  exact generatedRegisterWriteStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x10428 0x00000513 atPc
+    decode execute
 
 /-- The tag-one rejection tail records status `4`. -/
 theorem wrapper_dispatch_tag1_status_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -1371,31 +966,10 @@ theorem wrapper_dispatch_tag1_status_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1042c)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x1042c) retired x11 (BitVec.ofNat 64 4)) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x1042c) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x1042c) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x1042c) 0x93#8 0x05#8 0x40#8 0x00#8 :=
-    fetchInstruction state 0x1042c 0x93 0x05 0x40 0x00
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x93#8 0x05#8 0x40#8 0x00#8))
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (0x00400593 : BitVec 32))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x004#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by
-    change Runs (ext_decode (0x00400593 : BitVec 32)) _ _ _
-    decode_run
+      (.ITYPE (0x004#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x1042c)
   have execute : Runs (execute (.ITYPE (0x004#12, .Regidx 0#5, .Regidx 11#5, .ADDI))) executeState
@@ -1404,10 +978,9 @@ theorem wrapper_dispatch_tag1_status_step {machineArgs : DecoderMachineArgs} {ba
     have resultEq : iTypeResult .ADDI 0x004#12 (0#64) = BitVec.ofNat 64 4 := by decide
     simpa [resultEq] using execute_ITYPE_run executeState _ 0x004#12 (.Regidx 0#5) (.Regidx 11#5)
       .ADDI (0#64) (rX_x0_run executeState) (wX_x11_run executeState (BitVec.ofNat 64 4))
-  exact wrapper_dispatch_register_constant_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x1042c) fetchPc atPc 0x93#8 0x05#8 0x40#8 0x00#8
-    (.ITYPE (0x004#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) fetchBytes decode execute
-    (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide) (by decide)
+  exact generatedRegisterWriteStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code) stepNo 0x1042c 0x00400593 atPc
+    decode execute
 
 /-- The tag-one tail jumps into the shared wrapper rejection continuation at `0x1035c`. -/
 theorem wrapper_dispatch_tag1_to_rejection_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -1422,36 +995,19 @@ theorem wrapper_dispatch_tag1_to_rejection_step {machineArgs : DecoderMachineArg
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
           (BitVec.ofNat 64 0x10430) (BitVec.ofNat 64 0x1035c))
         (BitVec.ofNat 64 0x1035c) retired) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10430) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10430) := ⟨pcIn, by native_decide⟩
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10430) 0x6f#8 0xf0#8 0xdf#8 0xf2#8 :=
-    fetchInstruction state 0x10430 0x6f 0xf0 0xdf 0xf2
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x6f#8 0xf0#8 0xdf#8 0xf2#8))
+  obtain ⟨byte0, byte1, byte2, byte3, fetchBytes, wordEq, baseEncoding⟩ :=
+    generatedFetch state 0x10430 0xf2dff06f (hasExactErePrefix_programImage_of_codeIntact code)
+  obtain ⟨mseccfgBits, privilege, mseccfg⟩ := decodeReads machine agree
+  have decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JAL (0x1fff2c#21, zreg)) := by
-    change Runs (ext_decode (0xf2dff06f : BitVec 32)) _ _ _
+    rw [wordEq]
     decode_run
   have targetEq : BitVec.ofNat 64 0x10430 + sign_extend (m := 64) (0x1fff2c#21) =
       BitVec.ofNat 64 0x1035c := by decide
   exact wrapper_dispatch_jump_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10430) (BitVec.ofNat 64 0x1035c) (0x1fff2c#21) fetchPc atPc
-    0x6f#8 0xf0#8 0xdf#8 0xf2#8 fetchBytes (by unfold BaseInstructionEncoding; decide) decode
+    (BitVec.ofNat 64 0x10430) (BitVec.ofNat 64 0x1035c) (0x1fff2c#21) (fetchPc _) atPc
+    byte0 byte1 byte2 byte3 fetchBytes baseEncoding decode
     targetEq (by decide) (by decide)
 
 /-- The zero-result route reaches the success continuation with `(a0, a1) = (0, 2)`. -/
@@ -1487,8 +1043,7 @@ theorem wrapper_dispatch_tag0_success_path {machineArgs : DecoderMachineArgs} {b
     (wrapperDispatchBranchNotTakenAfter_agree s3 (BitVec.ofNat 64 0x10408) r4)
   have agree5 : Agree platformPreserved base s5 := agree4.trans
     (afterRegisterWrite_agree (by simp [platformPreserved]))
-  have retired5 : RetiredCounterPresent s5 := ⟨Sail.BitVec.addInt r5 1, by
-    simp [s5, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+  have retired5 : RetiredCounterPresent s5 := tryStepControlFlowAfterRetired_retired_present _ _ r5
   have code5 : canonicalContractParams.env.CodeIntact s5 := by
     simpa [s1, s2, s3, s4, s5, afterRegisterWrite_mem, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code
@@ -1508,21 +1063,12 @@ theorem wrapper_dispatch_tag0_success_path {machineArgs : DecoderMachineArgs} {b
             (Trace.step (stepNo + 4) 1 s4 s5 s6 run5
               (Trace.step (stepNo + 5) 0 s5 s6 s6 (by simpa [s6] using run6)
                 (Trace.refl (stepNo + 6) s6)))))), ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
-  · simp [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
-  · apply tryStepControlFlowAfterRetired_preserves_register
-    · simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using tag5
-    · decide
-    · decide
-  · apply tryStepControlFlowAfterRetired_preserves_register
-    · simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using comparison5
-    · decide
-    · decide
-  · exact ⟨Sail.BitVec.addInt r6 1, by
-      simp [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+  · exact Elfling.tryStepControlFlowAfterRetired_pc _ _ _
+  · exact ((jumpRetirement_writes s5 (BitVec.ofNat 64 0x10410) (BitVec.ofNat 64 0x1033c) r6).get
+      x10 (by decide)).trans tag5
+  · exact ((jumpRetirement_writes s5 (BitVec.ofNat 64 0x10410) (BitVec.ofNat 64 0x1033c) r6).get
+      x11 (by decide)).trans comparison5
+  · exact tryStepControlFlowAfterRetired_retired_present _ _ r6
   · simp [s1, s2, s3, s4, s5, s6, afterRegisterWrite_mem, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement]
@@ -1567,8 +1113,7 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
     (wrapperDispatchBranchNotTakenAfter_agree s3 (BitVec.ofNat 64 0x10408) r4)
   have agree5 : Agree platformPreserved base s5 := agree4.trans
     (afterRegisterWrite_agree (by simp [platformPreserved]))
-  have retired5 : RetiredCounterPresent s5 := ⟨Sail.BitVec.addInt r5 1, by
-    simp [s5, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+  have retired5 : RetiredCounterPresent s5 := tryStepControlFlowAfterRetired_retired_present _ _ r5
   have code5 : canonicalContractParams.env.CodeIntact s5 := by
     simpa [s1, s2, s3, s4, s5, afterRegisterWrite_mem, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code
@@ -1581,14 +1126,12 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
     (BitVec.ofNat 64 0x10414) r6
   have agree6 : Agree platformPreserved base s6 := agree5.trans
     (wrapperDispatchBranchNotTakenAfter_agree s5 (BitVec.ofNat 64 0x10410) r6)
-  have retired6 : RetiredCounterPresent s6 := ⟨Sail.BitVec.addInt r6 1, by
-    simp [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+  have retired6 : RetiredCounterPresent s6 := tryStepControlFlowAfterRetired_retired_present _ _ r6
   have code6 : canonicalContractParams.env.CodeIntact s6 := by
     simpa [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code5
-  have pc6 : s6.regs.get? PC = some (BitVec.ofNat 64 0x10414) := by
-    simp [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have pc6 : s6.regs.get? PC = some (BitVec.ofNat 64 0x10414) :=
+    Elfling.tryStepControlFlowAfterRetired_pc _ _ _
   obtain ⟨r7, run7⟩ := wrapper_dispatch_tag2_clear_result_step machine agree6 retired6 code6
     (stepNo + 6) pc6
   let s7 := afterRegisterWrite s6 (BitVec.ofNat 64 0x10414) r7 x10 (BitVec.ofNat 64 0)
@@ -1630,30 +1173,21 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
     (Trace.step (stepNo + 7) 1 s7 s8 s9 (by simpa [s7, s8] using run8)
     (Trace.step (stepNo + 8) 0 s8 s9 s9 (by simpa [s8] using run9)
       (Trace.refl (stepNo + 9) s9))))))))), ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
-  · simp [s9, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+  · exact Elfling.tryStepControlFlowAfterRetired_pc _ _ _
   · have x10s7 : s7.regs.get? x10 = some (BitVec.ofNat 64 0) := by
       simp [s7, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
         coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
     have x10s8 : s8.regs.get? x10 = some (BitVec.ofNat 64 0) := by
-      simpa [s8] using (afterRegisterWrite_register s7 (BitVec.ofNat 64 0x10418) r8 x11 x10
-        (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans x10s7
-    exact tryStepControlFlowAfterRetired_preserves_register
-      (controlFlowJumpState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x1041c)
-        (BitVec.ofNat 64 0x1035c)) (BitVec.ofNat 64 0x1035c) r9 x10 (BitVec.ofNat 64 0)
-      (by simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using x10s8) (by decide) (by decide)
+      simpa [s8] using ((afterRegisterWrite_writes s7 (BitVec.ofNat 64 0x10418) r8 x11
+        (BitVec.ofNat 64 2)).get x10 (by decide)).trans x10s7
+    exact ((jumpRetirement_writes s8 (BitVec.ofNat 64 0x1041c) (BitVec.ofNat 64 0x1035c) r9).get
+      x10 (by decide)).trans x10s8
   · have x11s8 : s8.regs.get? x11 = some (BitVec.ofNat 64 2) := by
       simp [s8, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
         coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-    exact tryStepControlFlowAfterRetired_preserves_register
-      (controlFlowJumpState (tryStepControlFlowAfterIncrement s8) (BitVec.ofNat 64 0x1041c)
-        (BitVec.ofNat 64 0x1035c)) (BitVec.ofNat 64 0x1035c) r9 x11 (BitVec.ofNat 64 2)
-      (by simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using x11s8) (by decide) (by decide)
-  · exact ⟨Sail.BitVec.addInt r9 1, by
-      simp [s9, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+    exact ((jumpRetirement_writes s8 (BitVec.ofNat 64 0x1041c) (BitVec.ofNat 64 0x1035c) r9).get
+      x11 (by decide)).trans x11s8
+  · exact tryStepControlFlowAfterRetired_retired_present _ _ r9
   · simp [s1, s2, s3, s4, s5, s6, s7, s8, s9, afterRegisterWrite_mem,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement]
@@ -1686,8 +1220,8 @@ private theorem wrapper_dispatch_tag1_prefix {machineArgs : DecoderMachineArgs} 
   have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10400) := by
     simpa [s1] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
   have tag1 : s1.regs.get? x10 = some (BitVec.ofNat 64 1) := by
-    simpa [s1] using (afterRegisterWrite_register state (BitVec.ofNat 64 0x103fc) r1 x11 x10
-      (BitVec.ofNat 64 3) (by decide) (by decide) (by decide) (by decide) (by decide)).trans tag
+    simpa [s1] using ((afterRegisterWrite_writes state (BitVec.ofNat 64 0x103fc) r1 x11
+      (BitVec.ofNat 64 3)).get x10 (by decide)).trans tag
   have comparison1 : s1.regs.get? x11 = some (BitVec.ofNat 64 3) := by
     simp [s1, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1698,14 +1232,12 @@ private theorem wrapper_dispatch_tag1_prefix {machineArgs : DecoderMachineArgs} 
     (BitVec.ofNat 64 0x10404) r2
   have agree2 : Agree platformPreserved base s2 := agree1.trans
     (wrapperDispatchBranchNotTakenAfter_agree s1 (BitVec.ofNat 64 0x10400) r2)
-  have retired2 : RetiredCounterPresent s2 := ⟨Sail.BitVec.addInt r2 1, by
-    simp [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+  have retired2 : RetiredCounterPresent s2 := tryStepControlFlowAfterRetired_retired_present _ _ r2
   have code2 : canonicalContractParams.env.CodeIntact s2 := by
     simpa [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code1
-  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10404) := by
-    simp [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10404) :=
+    Elfling.tryStepControlFlowAfterRetired_pc _ _ _
   obtain ⟨r3, run3⟩ := wrapper_dispatch_tag1_constant_step machine agree2 retired2 code2
     (stepNo + 2) pc2
   let s3 := afterRegisterWrite s2 (BitVec.ofNat 64 0x10404) r3 x11 (BitVec.ofNat 64 1)
@@ -1718,11 +1250,11 @@ private theorem wrapper_dispatch_tag1_prefix {machineArgs : DecoderMachineArgs} 
   have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x10408) := by
     simpa [s3] using afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x10404) r3 x11 (BitVec.ofNat 64 1)
   have tag3 : s3.regs.get? x10 = some (BitVec.ofNat 64 1) := by
-    have tag2 : s2.regs.get? x10 = some (BitVec.ofNat 64 1) := by
-      simp [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-        coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, tag1]
-    simpa [s3] using (afterRegisterWrite_register s2 (BitVec.ofNat 64 0x10404) r3 x11 x10
-      (BitVec.ofNat 64 1) (by decide) (by decide) (by decide) (by decide) (by decide)).trans tag2
+    have tag2 : s2.regs.get? x10 = some (BitVec.ofNat 64 1) :=
+      ((fallThroughRetirement_writes s1 (BitVec.ofNat 64 0x10400) (BitVec.ofNat 64 0x10404) r2).get
+        x10 (by decide)).trans tag1
+    simpa [s3] using ((afterRegisterWrite_writes s2 (BitVec.ofNat 64 0x10404) r3 x11
+      (BitVec.ofNat 64 1)).get x10 (by decide)).trans tag2
   have comparison3 : s3.regs.get? x11 = some (BitVec.ofNat 64 1) := by
     simp [s3, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1731,15 +1263,11 @@ private theorem wrapper_dispatch_tag1_prefix {machineArgs : DecoderMachineArgs} 
   let s4 := wrapperDispatchTag1BranchAfter s3 r4
   have agree4 : Agree platformPreserved base s4 := agree3.trans
     (wrapperDispatchTag1BranchAfter_agree s3 r4)
-  have retired4 : RetiredCounterPresent s4 := ⟨Sail.BitVec.addInt r4 1, by
-    simp [s4, wrapperDispatchTag1BranchAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick]⟩
+  have retired4 : RetiredCounterPresent s4 := tryStepControlFlowAfterRetired_retired_present _ _ r4
   have code4 : canonicalContractParams.env.CodeIntact s4 := by
     simpa [s4, wrapperDispatchTag1BranchAfter] using code3
-  have pc4 : s4.regs.get? PC = some (BitVec.ofNat 64 0x10428) := by
-    simp [s4, wrapperDispatchTag1BranchAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have pc4 : s4.regs.get? PC = some (BitVec.ofNat 64 0x10428) :=
+    Elfling.tryStepControlFlowAfterRetired_pc _ _ _
   refine ⟨⟨s4, Trace.step stepNo 3 state s1 s4 (by simpa [s1] using run1)
     (Trace.step (stepNo + 1) 2 s1 s2 s4 (by simpa [s1, s2] using run2)
     (Trace.step (stepNo + 2) 1 s2 s3 s4 (by simpa [s2, s3] using run3)
@@ -1809,32 +1337,17 @@ private theorem wrapper_dispatch_tag1_suffix {machineArgs : DecoderMachineArgs} 
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
       Level2ChildSummary stepNo 1 state s5 :=
-    ConfinedPrefix.ownStep atPc (by
-      apply functionInstanceExecutionPcs_iff_ranges.mpr
-      apply RegionPcs.iff_inRanges.mpr
-      native_decide) (by
-      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s5] using run5)
+    ConfinedPrefix.ownStep atPc (regionPc _) (notExitPc _) (by simpa [s5] using run5)
   have p6 : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
       Level2ChildSummary (stepNo + 1) 1 s5 s6 :=
-    ConfinedPrefix.ownStep pc5 (by
-      apply functionInstanceExecutionPcs_iff_ranges.mpr
-      apply RegionPcs.iff_inRanges.mpr
-      native_decide) (by
-      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s5, s6] using run6)
+    ConfinedPrefix.ownStep pc5 (regionPc _) (notExitPc _) (by simpa [s5, s6] using run6)
   have p7 : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
       Level2ChildSummary (stepNo + 2) 1 s6 s7 :=
-    ConfinedPrefix.ownStep pc6 (by
-      apply functionInstanceExecutionPcs_iff_ranges.mpr
-      apply RegionPcs.iff_inRanges.mpr
-      native_decide) (by
-      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw]) (by simpa [s6] using run7)
+    ConfinedPrefix.ownStep pc6 (regionPc _) (notExitPc _) (by simpa [s6] using run7)
   have suffixPrefix : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
@@ -1844,32 +1357,23 @@ private theorem wrapper_dispatch_tag1_suffix {machineArgs : DecoderMachineArgs} 
     (Trace.step (stepNo + 1) 1 s5 s6 s7 (by simpa [s5, s6] using run6)
     (Trace.step (stepNo + 2) 0 s6 s7 s7 (by simpa [s6] using run7)
       (Trace.refl (stepNo + 3) s7))), suffixPrefix, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
-  · simp [s7, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+  · exact Elfling.tryStepControlFlowAfterRetired_pc _ _ _
   · have x10s5 : s5.regs.get? x10 = some (BitVec.ofNat 64 0) := by
       simp [s5, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
         wrapperDispatchTag1BranchAfter, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
         Std.ExtDHashMap.get?_insert]
     have x10s6 : s6.regs.get? x10 = some (BitVec.ofNat 64 0) := by
-      simpa [s6] using (afterRegisterWrite_register s5 (BitVec.ofNat 64 0x1042c) r6 x11 x10
-        (BitVec.ofNat 64 4) (by decide) (by decide) (by decide) (by decide) (by decide)).trans x10s5
-    exact tryStepControlFlowAfterRetired_preserves_register
-      (controlFlowJumpState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x10430)
-        (BitVec.ofNat 64 0x1035c)) (BitVec.ofNat 64 0x1035c) r7 x10 (BitVec.ofNat 64 0)
-      (by simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using x10s6) (by decide) (by decide)
+      simpa [s6] using ((afterRegisterWrite_writes s5 (BitVec.ofNat 64 0x1042c) r6 x11
+        (BitVec.ofNat 64 4)).get x10 (by decide)).trans x10s5
+    exact ((jumpRetirement_writes s6 (BitVec.ofNat 64 0x10430) (BitVec.ofNat 64 0x1035c) r7).get
+      x10 (by decide)).trans x10s6
   · have x11s6 : s6.regs.get? x11 = some (BitVec.ofNat 64 4) := by
       simp [s6, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
         controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
         Std.ExtDHashMap.get?_insert]
-    apply tryStepControlFlowAfterRetired_preserves_register
-    · simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using x11s6
-    · decide
-    · decide
-  · exact ⟨Sail.BitVec.addInt r7 1, by
-      simp [s7, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+    exact ((jumpRetirement_writes s6 (BitVec.ofNat 64 0x10430) (BitVec.ofNat 64 0x1035c) r7).get
+      x11 (by decide)).trans x11s6
+  · exact tryStepControlFlowAfterRetired_retired_present _ _ r7
   · calc
       s7.mem = s6.mem := rfl
       _ = s5.mem := rfl
@@ -1948,8 +1452,8 @@ theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base stat
   have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10400) := by
     simpa [s1] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
   have tag1 : s1.regs.get? x10 = some (BitVec.ofNat 64 3) := by
-    simpa [s1] using (afterRegisterWrite_register state (BitVec.ofNat 64 0x103fc) r1 x11 x10
-      (BitVec.ofNat 64 3) (by decide) (by decide) (by decide) (by decide) (by decide)).trans tag
+    simpa [s1] using ((afterRegisterWrite_writes state (BitVec.ofNat 64 0x103fc) r1 x11
+      (BitVec.ofNat 64 3)).get x10 (by decide)).trans tag
   have comparison1 : s1.regs.get? x11 = some (BitVec.ofNat 64 3) := by
     simp [s1, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1958,15 +1462,11 @@ theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base stat
   let s2 := wrapperDispatchTag3BranchAfter s1 r2
   have agree2 : Agree platformPreserved base s2 := agree1.trans
     (wrapperDispatchTag3BranchAfter_agree s1 r2)
-  have retired2 : RetiredCounterPresent s2 := ⟨Sail.BitVec.addInt r2 1, by
-    simp [s2, wrapperDispatchTag3BranchAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick]⟩
+  have retired2 : RetiredCounterPresent s2 := tryStepControlFlowAfterRetired_retired_present _ _ r2
   have code2 : canonicalContractParams.env.CodeIntact s2 := by
     simpa [s2, wrapperDispatchTag3BranchAfter] using code1
-  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10434) := by
-    simp [s2, wrapperDispatchTag3BranchAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10434) :=
+    Elfling.tryStepControlFlowAfterRetired_pc _ _ _
   obtain ⟨r3, run3⟩ := wrapper_dispatch_tag3_clear_result_step machine agree2 retired2 code2
     (stepNo + 2) pc2
   let s3 := afterRegisterWrite s2 (BitVec.ofNat 64 0x10434) r3 x10 (BitVec.ofNat 64 0)
@@ -2001,31 +1501,22 @@ theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base stat
     (Trace.step (stepNo + 3) 1 s3 s4 s5 (by simpa [s3, s4] using run4)
     (Trace.step (stepNo + 4) 0 s4 s5 s5 (by simpa [s4] using run5)
       (Trace.refl (stepNo + 5) s5))))), ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
-  · simp [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+  · exact Elfling.tryStepControlFlowAfterRetired_pc _ _ _
   · have x10s3 : s3.regs.get? x10 = some (BitVec.ofNat 64 0) := by
       simp [s3, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
         wrapperDispatchTag3BranchAfter, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
         Std.ExtDHashMap.get?_insert]
     have x10s4 : s4.regs.get? x10 = some (BitVec.ofNat 64 0) := by
-      simpa [s4] using (afterRegisterWrite_register s3 (BitVec.ofNat 64 0x10438) r4 x11 x10
-        (BitVec.ofNat 64 3) (by decide) (by decide) (by decide) (by decide) (by decide)).trans x10s3
-    exact tryStepControlFlowAfterRetired_preserves_register
-      (controlFlowJumpState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x1043c)
-        (BitVec.ofNat 64 0x1035c)) (BitVec.ofNat 64 0x1035c) r5 x10 (BitVec.ofNat 64 0)
-      (by simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using x10s4) (by decide) (by decide)
+      simpa [s4] using ((afterRegisterWrite_writes s3 (BitVec.ofNat 64 0x10438) r4 x11
+        (BitVec.ofNat 64 3)).get x10 (by decide)).trans x10s3
+    exact ((jumpRetirement_writes s4 (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c) r5).get
+      x10 (by decide)).trans x10s4
   · have x11s4 : s4.regs.get? x11 = some (BitVec.ofNat 64 3) := by
       simp [s4, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
         coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-    apply tryStepControlFlowAfterRetired_preserves_register
-    · simpa [controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-        Std.ExtDHashMap.get?_insert] using x11s4
-    · decide
-    · decide
-  · exact ⟨Sail.BitVec.addInt r5 1, by
-      simp [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+    exact ((jumpRetirement_writes s4 (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c) r5).get
+      x11 (by decide)).trans x11s4
+  · exact tryStepControlFlowAfterRetired_retired_present _ _ r5
   · simp [s1, s2, s3, s4, s5, afterRegisterWrite_mem, wrapperDispatchTag3BranchAfter,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement]

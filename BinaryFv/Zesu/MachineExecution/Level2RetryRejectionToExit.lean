@@ -26,14 +26,8 @@ structure RetryRejectionToExitResult (args : ZesuDecodeRawArgs) (stackBase : Nat
   epilogue : WrapperEpilogueExitResult (fromStep + 3) base afterStore after link savedS0 savedS1
     savedS2 (BitVec.ofNat 64 (stackBase + 0xa20)) (BitVec.ofNat 64 0) (BitVec.ofNat 64 2)
   trace : Trace fromStep 9 before after
-  confined : ConfinedPrefix
-    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-    Level2ChildSummary fromStep 9 before after
-  scopedTrace : ScopedTrace
-    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-    Level2ChildSummary fromStep 9 before after
+  confined : WrapperPrefix fromStep 9 before after
+  scopedTrace : WrapperScopedTrace fromStep 9 before after
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x10378)
   a0 : after.regs.get? x10 = some (BitVec.ofNat 64 0)
   a1 : after.regs.get? x11 = some (BitVec.ofNat 64 2)
@@ -101,52 +95,21 @@ theorem retry_rejection_to_exit
       restore.raAligned restore.s0Aligned restore.s1Aligned restore.s2Aligned
       restore.raAllowed restore.s0Allowed restore.s1Allowed restore.s2Allowed
       (by simpa using wrapper_final_stack_address stackBase)
-  have statusConfined : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 2) 1 afterTail afterStore :=
-    ConfinedPrefix.ownStep tail.atStatusStore (by
-      apply functionInstanceExecutionPcs_iff_ranges.mpr
-      apply RegionPcs.iff_inRanges.mpr
-      native_decide) (by
-      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw]) store
-  have finalExit : ScopedTrace
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 9) 0 after after :=
+  have statusConfined : WrapperPrefix (fromStep + 2) 1 afterTail afterStore :=
+    ConfinedPrefix.ownStep' tail.atStatusStore store
+  have finalExit : WrapperScopedTrace (fromStep + 9) 0 after after :=
     ScopedTrace.exitAt _ after (BitVec.ofNat 64 0x10378) epilogue.pc (by
       simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
         functionInstance_raw_decoder_root_zesu_decode_raw])
-  have suffix : ScopedTrace
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 2) 7 afterTail after := by
-    have epilogueTrace : ScopedTrace
-        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-        Level2ChildSummary (fromStep + 3) 6 afterStore after := by
-      exact epilogue.confined 0 after (by simpa [Nat.add_assoc] using finalExit)
+  have suffix : WrapperScopedTrace (fromStep + 2) 7 afterTail after := by
+    have epilogueTrace : WrapperScopedTrace (fromStep + 3) 6 afterStore after :=
+      epilogue.confined 0 after (by simpa [Nat.add_assoc] using finalExit)
     exact statusConfined 6 after (by simpa [Nat.add_assoc] using epilogueTrace)
-  have scopedTrace : ScopedTrace
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 9 before after := by
-    exact tail.confined 7 after (by simpa [Nat.add_assoc] using suffix)
-  have confined : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 9 before after := by
-    have suffixConfined : ConfinedPrefix
-        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-        Level2ChildSummary (fromStep + 2) 7 afterTail after := by
-      have epilogueConfined : ConfinedPrefix
-          (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-          (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-          Level2ChildSummary (fromStep + 3) 6 afterStore after := epilogue.confined
-      exact ConfinedPrefix.trans statusConfined (by simpa [Nat.add_assoc] using epilogueConfined)
-    exact ConfinedPrefix.trans tail.confined (by simpa [Nat.add_assoc] using suffixConfined)
+  have scopedTrace : WrapperScopedTrace fromStep 9 before after :=
+    tail.confined 7 after (by simpa [Nat.add_assoc] using suffix)
+  have confined : WrapperPrefix fromStep 9 before after := by
+    have epilogueConfined : WrapperPrefix (fromStep + 3) 6 afterStore after := epilogue.confined
+    confined_steps [tail.confined, statusConfined, epilogueConfined]
   refine ⟨afterTail, afterStore, after, ?_⟩
   exact ⟨tail, store, ⟨restore⟩, epilogue, by simpa [Nat.add_assoc] using trace, confined, scopedTrace,
     epilogue.pc, epilogue.a0, epilogue.a1, epilogue.sp, epilogue.s2, tailFrame, epilogue.memory,

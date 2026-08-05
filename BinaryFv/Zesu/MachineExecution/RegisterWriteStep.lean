@@ -20,6 +20,38 @@ open BinaryFv.Binary.ProgramImage
 open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 open PreSail LeanRV64DExecutable.Functions Register
 
+/-! ## The wrapper's own geometry, named once
+
+`functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw`
+is written out **189 times across 14 modules**, 173 of those occurrences occupying a line to
+themselves; the exit predicate accounts for 46 more. Naming them here rather than per-module is
+deliberate: the 14 consumers have **no import in common** — the intersection of their import sets is
+empty, and only three of them reach any one candidate host — so an abbrev defined in any of them
+would be invisible to the rest. This module is the floor they all sit above.
+
+Both are `abbrev`, hence reducible, so a proof written against the spelled-out form still
+elaborates unchanged; `decodeRawGeometry_transparent` below pins that rather than assuming it. -/
+abbrev decodeRawExecutionPcs : BitVec 64 → Prop :=
+  BinaryFv.RiscV.Elfling.functionInstanceExecutionPcs
+    BinaryFv.Zesu.Elflings.Generated.generatedProgram
+    BinaryFv.Zesu.Elflings.Generated.functionInstance_raw_decoder_root_zesu_decode_raw
+
+abbrev decodeRawExit : BitVec 64 → Prop :=
+  BinaryFv.RiscV.Elfling.functionInstanceExitPred
+    BinaryFv.Zesu.Elflings.Generated.functionInstance_raw_decoder_root_zesu_decode_raw
+
+/-- Regression: both abbrevs must stay definitionally transparent. If either stops being reducible,
+every existing proof that spells the region out by hand breaks at once. -/
+theorem decodeRawGeometry_transparent :
+    decodeRawExecutionPcs =
+      BinaryFv.RiscV.Elfling.functionInstanceExecutionPcs
+        BinaryFv.Zesu.Elflings.Generated.generatedProgram
+        BinaryFv.Zesu.Elflings.Generated.functionInstance_raw_decoder_root_zesu_decode_raw ∧
+    decodeRawExit =
+      BinaryFv.RiscV.Elfling.functionInstanceExitPred
+        BinaryFv.Zesu.Elflings.Generated.functionInstance_raw_decoder_root_zesu_decode_raw :=
+  ⟨rfl, rfl⟩
+
 /-- Exact post-state of a register-writing fall-through instruction. -/
 def afterRegisterWrite (state : State) (pc retired : BitVec 64) (destination : Register)
     (value : RegisterType destination) : State :=
