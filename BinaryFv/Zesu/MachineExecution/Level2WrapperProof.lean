@@ -755,7 +755,7 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
       ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
         entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
         WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
-  obtain ⟨frameRetired, frameRun, frameStack⟩ :=
+  obtain ⟨frameRetired, frameRun, frameStackRaw⟩ :=
     wrapper_first_frame_decrement_step fromStep args stackBase entry source machine
   let frame := wrapperAfterFirstFrameDecrement entry frameRetired
     (BitVec.ofNat 64 (stackBase + 0xa20))
@@ -763,6 +763,18 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     wrapper_save_link_step (fromStep + 1) args stackBase entry source machine frameRetired
   let afterLink := wrapperAfterDwordStore frame (BitVec.ofNat 64 0x102b4) linkRetired
     (BitVec.ofNat 64 (stackBase + 0xa18)) link
+  -- The write set of each step, stated once. Every register carried forward below -- through one
+  -- store or through all five -- is then a single `grind` against these facts and the value the
+  -- register held at the last state that wrote it, whatever the register is.
+  have wFrame : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x2)) entry frame :=
+    afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
+      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))
+  have wLink : WritesOnlyRegs stepBookkeeping frame afterLink :=
+    wrapperAfterDwordStore_writes frame _ _ _ _
+  have frameStack : frame.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) := frameStackRaw
+  have inputAtEntry : entry.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) := source.2.2.1
+  have lengthAtEntry : entry.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) :=
+    source.2.2.2.1
   have frameAgree : Agree decoderPreserved entry frame := by
     exact afterRegisterWrite_agree_of
       (by simp [decoderPreserved, platformPreserved])
@@ -779,9 +791,7 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     frameAgree.trans (wrapperAfterDwordStore_agree frame _ _ _ _)
   have linkPlatformAgree : Agree platformPreserved entry afterLink :=
     framePlatformAgree.trans (wrapperAfterDwordStore_platformAgree frame _ _ _ _)
-  have linkStack : afterLink.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) :=
-    (wrapperAfterDwordStore_register frame _ _ _ _ x2 (by decide) (by decide) (by decide)
-      (by decide)).trans (by simpa [frame] using frameStack)
+  have linkStack : afterLink.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) := by grind
   have linkPc : afterLink.regs.get? PC = some (BitVec.ofNat 64 0x102b8) := by
     simpa [afterLink] using wrapperAfterDwordStore_pc frame (BitVec.ofNat 64 0x102b4)
       linkRetired (BitVec.ofNat 64 (stackBase + 0xa18)) link
@@ -791,24 +801,18 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have linkRetiredPresent := wrapperAfterDwordStore_retired frame
     (BitVec.ofNat 64 0x102b4) linkRetired (BitVec.ofNat 64 (stackBase + 0xa18)) link
   obtain ⟨s0, savedS0⟩ := machine.savedS0AtEntry
-  have s0AtFrame : frame.regs.get? x8 = some s0 :=
-    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
-      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x8
-        (by decide)).trans savedS0
-  have s0AtLink : afterLink.regs.get? x8 = some s0 :=
-    (wrapperAfterDwordStore_register frame _ _ _ _ x8 (by decide) (by decide) (by decide)
-      (by decide)).trans s0AtFrame
+  have s0AtLink : afterLink.regs.get? x8 = some s0 := by grind
   obtain ⟨s0Retired, s0Run⟩ := wrapper_save_s0_step (fromStep + 2) args stackBase entry
     afterLink machine linkAgree linkRetiredPresent linkCode linkPc linkStack s0 s0AtLink
   let afterS0 := wrapperAfterDwordStore afterLink (BitVec.ofNat 64 0x102b8) s0Retired
     (BitVec.ofNat 64 (stackBase + 0xa10)) s0
+  have wS0 : WritesOnlyRegs stepBookkeeping afterLink afterS0 :=
+    wrapperAfterDwordStore_writes afterLink _ _ _ _
   have s0Agree : Agree decoderPreserved entry afterS0 :=
     linkAgree.trans (wrapperAfterDwordStore_agree afterLink _ _ _ _)
   have s0PlatformAgree : Agree platformPreserved entry afterS0 :=
     linkPlatformAgree.trans (wrapperAfterDwordStore_platformAgree afterLink _ _ _ _)
-  have s0Stack : afterS0.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) :=
-    (wrapperAfterDwordStore_register afterLink _ _ _ _ x2 (by decide) (by decide) (by decide)
-      (by decide)).trans linkStack
+  have s0Stack : afterS0.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) := by grind
   have s0Pc : afterS0.regs.get? PC = some (BitVec.ofNat 64 0x102bc) := by
     simpa [afterS0] using wrapperAfterDwordStore_pc afterLink (BitVec.ofNat 64 0x102b8)
       s0Retired (BitVec.ofNat 64 (stackBase + 0xa10)) s0
@@ -817,27 +821,18 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have s0RetiredPresent := wrapperAfterDwordStore_retired afterLink
     (BitVec.ofNat 64 0x102b8) s0Retired (BitVec.ofNat 64 (stackBase + 0xa10)) s0
   obtain ⟨s1, savedS1⟩ := machine.savedS1AtEntry
-  have s1AtFrame : frame.regs.get? x9 = some s1 :=
-    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
-      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x9
-        (by decide)).trans savedS1
-  have s1AtLink : afterLink.regs.get? x9 = some s1 :=
-    (wrapperAfterDwordStore_register frame _ _ _ _ x9 (by decide) (by decide) (by decide)
-      (by decide)).trans s1AtFrame
-  have s1AtS0 : afterS0.regs.get? x9 = some s1 :=
-    (wrapperAfterDwordStore_register afterLink _ _ _ _ x9 (by decide) (by decide) (by decide)
-      (by decide)).trans s1AtLink
+  have s1AtS0 : afterS0.regs.get? x9 = some s1 := by grind
   obtain ⟨s1Retired, s1Run⟩ := wrapper_save_s1_step (fromStep + 3) args stackBase entry
     afterS0 machine s0Agree s0RetiredPresent s0Code s0Pc s0Stack s1 s1AtS0
   let afterS1 := wrapperAfterDwordStore afterS0 (BitVec.ofNat 64 0x102bc) s1Retired
     (BitVec.ofNat 64 (stackBase + 0xa08)) s1
+  have wS1 : WritesOnlyRegs stepBookkeeping afterS0 afterS1 :=
+    wrapperAfterDwordStore_writes afterS0 _ _ _ _
   have s1Agree : Agree decoderPreserved entry afterS1 :=
     s0Agree.trans (wrapperAfterDwordStore_agree afterS0 _ _ _ _)
   have s1PlatformAgree : Agree platformPreserved entry afterS1 :=
     s0PlatformAgree.trans (wrapperAfterDwordStore_platformAgree afterS0 _ _ _ _)
-  have s1Stack : afterS1.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) :=
-    (wrapperAfterDwordStore_register afterS0 _ _ _ _ x2 (by decide) (by decide) (by decide)
-      (by decide)).trans s0Stack
+  have s1Stack : afterS1.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) := by grind
   have s1Pc : afterS1.regs.get? PC = some (BitVec.ofNat 64 0x102c0) := by
     simpa [afterS1] using wrapperAfterDwordStore_pc afterS0 (BitVec.ofNat 64 0x102bc)
       s1Retired (BitVec.ofNat 64 (stackBase + 0xa08)) s1
@@ -846,30 +841,23 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have s1RetiredPresent := wrapperAfterDwordStore_retired afterS0
     (BitVec.ofNat 64 0x102bc) s1Retired (BitVec.ofNat 64 (stackBase + 0xa08)) s1
   obtain ⟨s2, savedS2⟩ := machine.savedS2AtEntry
-  have s2AtFrame : frame.regs.get? x18 = some s2 :=
-    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
-      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x18
-        (by decide)).trans savedS2
-  have s2AtLink : afterLink.regs.get? x18 = some s2 :=
-    (wrapperAfterDwordStore_register frame _ _ _ _ x18 (by decide) (by decide) (by decide)
-      (by decide)).trans s2AtFrame
-  have s2AtS0 : afterS0.regs.get? x18 = some s2 :=
-    (wrapperAfterDwordStore_register afterLink _ _ _ _ x18 (by decide) (by decide) (by decide)
-      (by decide)).trans s2AtLink
-  have s2AtS1 : afterS1.regs.get? x18 = some s2 :=
-    (wrapperAfterDwordStore_register afterS0 _ _ _ _ x18 (by decide) (by decide) (by decide)
-      (by decide)).trans s2AtS0
+  have s2AtS1 : afterS1.regs.get? x18 = some s2 := by grind
   obtain ⟨s2Retired, s2Run⟩ := wrapper_save_s2_step (fromStep + 4) args stackBase entry
     afterS1 machine s1Agree s1RetiredPresent s1Code s1Pc s1Stack s2 s2AtS1
   let final := wrapperAfterDwordStore afterS1 (BitVec.ofNat 64 0x102c0) s2Retired
     (BitVec.ofNat 64 (stackBase + 0xa00)) s2
+  have wFinal : WritesOnlyRegs stepBookkeeping afterS1 final :=
+    wrapperAfterDwordStore_writes afterS1 _ _ _ _
   have finalAgree : Agree decoderPreserved entry final :=
     s1Agree.trans (wrapperAfterDwordStore_agree afterS1 _ _ _ _)
   have finalPlatformAgree : Agree platformPreserved entry final :=
     s1PlatformAgree.trans (wrapperAfterDwordStore_platformAgree afterS1 _ _ _ _)
-  have finalStack : final.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) :=
-    (wrapperAfterDwordStore_register afterS1 _ _ _ _ x2 (by decide) (by decide) (by decide)
-      (by decide)).trans s1Stack
+  -- Three registers, across up to five steps, in one `grind`: `x2` back to the frame decrement
+  -- that set it, `x10` and `x11` all the way back to `entry`.
+  obtain ⟨finalStack, finalInput, finalLength⟩ :
+      final.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) ∧
+      final.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) ∧
+      final.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) := by grind
   have finalPc : final.regs.get? PC = some (BitVec.ofNat 64 0x102c4) := by
     simpa [final] using wrapperAfterDwordStore_pc afterS1 (BitVec.ofNat 64 0x102c0)
       s2Retired (BitVec.ofNat 64 (stackBase + 0xa00)) s2
@@ -920,31 +908,6 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     (by simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt s2Fits]) (by omega) s1Bytes
   have finalSavedFrame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 final :=
     ⟨linkFinal, s0Final, s1Final, s2Bytes⟩
-  have preserveFourStores (register : Register) (notPc : PC ≠ register)
-      (notNextPc : nextPC ≠ register) (notIncrement : minstret_increment ≠ register)
-      (notRetired : minstret ≠ register) {value : RegisterType register}
-      (atFrame : frame.regs.get? register = some value) :
-      final.regs.get? register = some value := by
-    exact (wrapperAfterDwordStore_register afterS1 _ _ _ _ register notPc notNextPc
-      notIncrement notRetired).trans
-      ((wrapperAfterDwordStore_register afterS0 _ _ _ _ register notPc notNextPc
-        notIncrement notRetired).trans
-      ((wrapperAfterDwordStore_register afterLink _ _ _ _ register notPc notNextPc
-        notIncrement notRetired).trans
-      ((wrapperAfterDwordStore_register frame _ _ _ _ register notPc notNextPc
-        notIncrement notRetired).trans atFrame)))
-  have inputAtFrame : frame.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) :=
-    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
-      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x10
-        (by decide)).trans source.2.2.1
-  have lengthAtFrame : frame.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) :=
-    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
-      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x11
-        (by decide)).trans source.2.2.2.1
-  have finalInput := preserveFourStores x10 (by decide) (by decide) (by decide) (by decide)
-    inputAtFrame
-  have finalLength := preserveFourStores x11 (by decide) (by decide) (by decide) (by decide)
-    lengthAtFrame
   have frameAttempted : frame.mem.get? 0x4215020 = entry.mem.get? 0x4215020 := by
     simpa [frame, wrapperAfterFirstFrameDecrement, afterRegisterWrite_mem]
   have linkAttempted : afterLink.mem.get? 0x4215020 = frame.mem.get? 0x4215020 :=
@@ -1542,62 +1505,25 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   obtain ⟨r11, run11, pc11⟩ := wrapper_fresh_branch_step (fromStep + 10) args stackBase
     entry s10 machine agree10 retired10 code10 pc10 fresh10
   let final := wrapperAfterFreshBranch s10 r11
-  have preserveWrite {before : State} {pc retired : BitVec 64} {destination register : Register}
-      {value : RegisterType destination} (different : destination ≠ register) :
-      PC ≠ register → nextPC ≠ register → minstret_increment ≠ register → minstret ≠ register →
-      (afterRegisterWrite before pc retired destination value).regs.get? register =
-        before.regs.get? register := by
-    intro notPc notNextPc notIncrement notRetired
-    exact afterRegisterWrite_register before pc retired destination register value different
-      notPc notNextPc notIncrement notRetired
-  have stack7 : s7.regs.get? x2 = some (BitVec.ofNat 64 stackBase) :=
-    (preserveWrite (destination := x9) (register := x2) (by decide)
-      (by decide) (by decide) (by decide) (by decide)).trans stack6
-  have stack8 : s8.regs.get? x2 = some (BitVec.ofNat 64 stackBase) :=
-    (preserveWrite (destination := x11) (register := x2) (by decide)
-      (by decide) (by decide) (by decide) (by decide)).trans stack7
-  have stack9 : s9.regs.get? x2 = some (BitVec.ofNat 64 stackBase) :=
-    (preserveWrite (destination := x18) (register := x2) (by decide)
-      (by decide) (by decide) (by decide) (by decide)).trans stack8
-  have stack10 : s10.regs.get? x2 = some (BitVec.ofNat 64 stackBase) :=
-    (preserveWrite (destination := x11) (register := x2) (by decide)
-      (by decide) (by decide) (by decide) (by decide)).trans stack9
-  have finalStack := (wrapperAfterFreshBranch_register s10 r11 x2 (by decide) (by decide)
-    (by decide) (by decide)).trans stack10
-  have input7 : s7.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) :=
-    (preserveWrite (destination := x9) (register := x10) (by decide)
-      (by decide) (by decide) (by decide) (by decide)).trans input6
-  have input8 : s8.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) :=
-    (preserveWrite (destination := x11) (register := x10) (by decide)
-      (by decide) (by decide) (by decide) (by decide)).trans input7
-  have input9 : s9.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) :=
-    (preserveWrite (destination := x18) (register := x10) (by decide)
-      (by decide) (by decide) (by decide) (by decide)).trans input8
-  have input10 : s10.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) :=
-    (preserveWrite (destination := x11) (register := x10) (by decide)
-      (by decide) (by decide) (by decide) (by decide)).trans input9
-  have finalInput := (wrapperAfterFreshBranch_register s10 r11 x10 (by decide) (by decide)
-    (by decide) (by decide)).trans input10
+  -- The write set of each of the five steps. Every register carried across them below is one
+  -- `grind` against these facts, whatever the register and however many steps it crosses.
+  have w7 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x9)) s6 s7 :=
+    afterRegisterWrite_writes s6 (BitVec.ofNat 64 0x102c8) r7 x9 (BitVec.ofNat 64 args.bytes.size)
+  have w8 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x11)) s7 s8 :=
+    afterRegisterWrite_writes s7 (BitVec.ofNat 64 0x102cc) r8 x11 (BitVec.ofNat 64 0x42152cc)
+  have w9 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x18)) s8 s9 :=
+    afterRegisterWrite_writes s8 (BitVec.ofNat 64 0x102d0) r9 x18 (BitVec.ofNat 64 0x4215020)
+  have w10 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x11)) s9 s10 :=
+    afterRegisterWrite_writes s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64)
+  have wFinal : WritesOnlyRegs stepBookkeeping s10 final := wrapperAfterFreshBranch_writes s10 r11
   have length7 : s7.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
     afterRegisterWrite_destination s6 (BitVec.ofNat 64 0x102c8) r7 x9 (BitVec.ofNat 64 args.bytes.size) (by decide) (by decide)
-  have length8 : s8.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
-    exact (afterRegisterWrite_register s7 (BitVec.ofNat 64 0x102cc) r8 x11 x9
-      (BitVec.ofNat 64 0x42152cc) (by decide) (by decide) (by decide) (by decide)
-      (by decide)).trans length7
-  have length9 : s9.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
-    exact (afterRegisterWrite_register s8 (BitVec.ofNat 64 0x102d0) r9 x18 x9
-      (BitVec.ofNat 64 0x4215020) (by decide) (by decide) (by decide) (by decide)
-      (by decide)).trans length8
-  have length10 : s10.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
-    exact (afterRegisterWrite_register s9 (BitVec.ofNat 64 0x102d4) r10 x11 x9 (0#64)
-      (by decide) (by decide) (by decide) (by decide) (by decide)).trans length9
-  have finalLength := (wrapperAfterFreshBranch_register s10 r11 x9 (by decide) (by decide)
-    (by decide) (by decide)).trans length10
-  have globals10 : s10.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
-    exact (afterRegisterWrite_register s9 (BitVec.ofNat 64 0x102d4) r10 x11 x18 (0#64)
-      (by decide) (by decide) (by decide) (by decide) (by decide)).trans globals9
-  have finalGlobals := (wrapperAfterFreshBranch_register s10 r11 x18 (by decide) (by decide)
-    (by decide) (by decide)).trans globals10
+  -- Four registers, each from the last state that wrote it, in one `grind`.
+  obtain ⟨finalStack, finalInput, finalLength, finalGlobals⟩ :
+      final.regs.get? x2 = some (BitVec.ofNat 64 stackBase) ∧
+      final.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) ∧
+      final.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
+      final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by grind
   have finalFresh : final.mem.get? 0x4215020 = some (0#8) := by
     change s9.mem.get? 0x4215020 = some (0#8)
     exact fresh9
@@ -1753,25 +1679,15 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
   let final := afterRegisterWrite s12 (BitVec.ofNat 64 0x102ec) r13 x10 (1#64)
   have savedInput12 : s12.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) :=
     afterRegisterWrite_destination s11 (BitVec.ofNat 64 0x102e8) r12 x8 (BitVec.ofNat 64 args.inputBase) (by decide) (by decide)
-  have keep {register : Register} {value : RegisterType register}
-      (different : x10 ≠ register) (notPc : PC ≠ register)
-      (notNextPc : nextPC ≠ register) (notIncrement : minstret_increment ≠ register)
-      (notRetired : minstret ≠ register) (read : s12.regs.get? register = some value) :
-      final.regs.get? register = some value := by
-    exact (afterRegisterWrite_register s12 (BitVec.ofNat 64 0x102ec) r13 x10 register (1#64)
-      different notPc notNextPc notIncrement notRetired).trans read
-  have stack12 : s12.regs.get? x2 = some (BitVec.ofNat 64 stackBase) :=
-    (afterRegisterWrite_register s11 (BitVec.ofNat 64 0x102e8) r12 x8 x2
-      (BitVec.ofNat 64 args.inputBase) (by decide) (by decide) (by decide) (by decide)
-      (by decide)).trans stack11
-  have length12 : s12.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
-    (afterRegisterWrite_register s11 (BitVec.ofNat 64 0x102e8) r12 x8 x9
-      (BitVec.ofNat 64 args.inputBase) (by decide) (by decide) (by decide) (by decide)
-      (by decide)).trans length11
-  have globals12 : s12.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
-    (afterRegisterWrite_register s11 (BitVec.ofNat 64 0x102e8) r12 x8 x18
-      (BitVec.ofNat 64 args.inputBase) (by decide) (by decide) (by decide) (by decide)
-      (by decide)).trans globals11
+  have w12 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x8)) s11 s12 :=
+    afterRegisterWrite_writes s11 (BitVec.ofNat 64 0x102e8) r12 x8 (BitVec.ofNat 64 args.inputBase)
+  have wFinal : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x10)) s12 final :=
+    afterRegisterWrite_writes s12 (BitVec.ofNat 64 0x102ec) r13 x10 (1#64)
+  obtain ⟨finalStack, finalSavedInput, finalLength, finalGlobals⟩ :
+      final.regs.get? x2 = some (BitVec.ofNat 64 stackBase) ∧
+      final.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
+      final.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
+      final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by grind
   have finalPc : final.regs.get? PC = some (BitVec.ofNat 64 0x102f0) := by
     simpa [final] using afterRegisterWrite_pc s12 (BitVec.ofNat 64 0x102ec) r13 x10 (1#64)
   have finalValue : final.regs.get? x10 = some (1#64) :=
@@ -1809,11 +1725,8 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
       Level2ChildSummary fromStep 13 entry final := by
     confined_steps [prefix11, prefix12, prefix13]
-  refine ⟨final, ?_, confined, finalPc,
-    keep (by decide) (by decide) (by decide) (by decide) (by decide)
-    stack12, keep (by decide) (by decide) (by decide) (by decide) (by decide) savedInput12,
-    keep (by decide) (by decide) (by decide) (by decide) (by decide) length12, finalValue,
-    keep (by decide) (by decide) (by decide) (by decide) (by decide) globals12, finalFresh,
+  refine ⟨final, ?_, confined, finalPc, finalStack, finalSavedInput, finalLength, finalValue,
+    finalGlobals, finalFresh,
     finalInputMemory, finalAgree, finalRetired, finalCode,
     ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
   have trace12 := Trace.snoc trace11 (by simpa [s12] using run12)
@@ -1918,26 +1831,15 @@ theorem wrapper_through_allocator_tag
       (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1)
   have firstCode : canonicalContractParams.env.CodeIntact afterFirst := by
     simpa [afterFirst, allocatorAfterDataPointer, afterRegisterWrite_mem] using code13
-  have firstStack : afterFirst.regs.get? x2 = some (BitVec.ofNat 64 stackBase) :=
-    (afterRegisterWrite_register atAllocator (BitVec.ofNat 64 0x102f0) r14 x11 x2
+  -- The data-pointer step writes `x11` and the bookkeeping, and nothing else; every register the
+  -- allocator entry carries forward is one `grind` against that.
+  have wFirst : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x11)) atAllocator
+      afterFirst :=
+    afterRegisterWrite_writes atAllocator (BitVec.ofNat 64 0x102f0) r14 x11
       (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1)
-      (by decide) (by decide) (by decide) (by decide) (by decide)).trans stack13
-  have firstTarget : afterFirst.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
-    (afterRegisterWrite_register atAllocator (BitVec.ofNat 64 0x102f0) r14 x11 x18
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1)
-      (by decide) (by decide) (by decide) (by decide) (by decide)).trans globals13
-  have firstSavedInput : afterFirst.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) :=
-    (afterRegisterWrite_register atAllocator (BitVec.ofNat 64 0x102f0) r14 x11 x8
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1)
-      (by decide) (by decide) (by decide) (by decide) (by decide)).trans savedInput13
-  have firstLength : afterFirst.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
-    (afterRegisterWrite_register atAllocator (BitVec.ofNat 64 0x102f0) r14 x11 x9
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1)
-      (by decide) (by decide) (by decide) (by decide) (by decide)).trans length13
-  have firstData : afterFirst.regs.get? x10 = some (1#64) :=
-    (afterRegisterWrite_register atAllocator (BitVec.ofNat 64 0x102f0) r14 x11 x10
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1)
-      (by decide) (by decide) (by decide) (by decide) (by decide)).trans data13
+  obtain ⟨firstTarget, firstData⟩ :
+      afterFirst.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
+      afterFirst.regs.get? x10 = some (1#64) := by grind
   have writable : DecoderAccessRange DecoderWritableByte (BitVec.ofNat 64 0x4215020) 1 := by
     refine ⟨by decide, ?_, ?_⟩
     · simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
@@ -1954,27 +1856,22 @@ theorem wrapper_through_allocator_tag
     (BitVec.ofNat 64 0x4215020)
     (1#64) firstTarget firstData writable
   let final := wrapperAfterAllocatorTag afterFirst r15 (BitVec.ofNat 64 0x4215020) (1#64)
-  have finalStack := (wrapperAfterAllocatorTag_register afterFirst r15
-    (BitVec.ofNat 64 0x4215020) (1#64) x2 (by decide) (by decide) (by decide)
-    (by decide)).trans firstStack
-  have finalSavedInput := (wrapperAfterAllocatorTag_register afterFirst r15
-    (BitVec.ofNat 64 0x4215020) (1#64) x8 (by decide) (by decide) (by decide)
-    (by decide)).trans firstSavedInput
-  have finalLength := (wrapperAfterAllocatorTag_register afterFirst r15
-    (BitVec.ofNat 64 0x4215020) (1#64) x9 (by decide) (by decide) (by decide)
-    (by decide)).trans firstLength
-  have finalGlobals := (wrapperAfterAllocatorTag_register afterFirst r15
-    (BitVec.ofNat 64 0x4215020) (1#64) x18 (by decide) (by decide) (by decide)
-    (by decide)).trans firstTarget
+  have wTag : WritesOnlyRegs stepBookkeeping afterFirst final :=
+    wrapperAfterAllocatorTag_writes afterFirst r15 (BitVec.ofNat 64 0x4215020) (1#64)
   have firstContext : afterFirst.regs.get? x11 = some (BitVec.ofNat 64 0x4215021) := by
     have valueEq : Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1 =
         BitVec.ofNat 64 0x4215021 := by native_decide
     rw [← valueEq]
     exact afterRegisterWrite_destination atAllocator (BitVec.ofNat 64 0x102f0) r14 x11
       (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1) (by decide) (by decide)
-  have finalContext := (wrapperAfterAllocatorTag_register afterFirst r15
-    (BitVec.ofNat 64 0x4215020) (1#64) x11 (by decide) (by decide) (by decide)
-    (by decide)).trans firstContext
+  -- Five registers across both steps in one `grind`: `x11` from the state that wrote it, the rest
+  -- straight back through the allocator entry.
+  obtain ⟨finalStack, finalSavedInput, finalLength, finalContext, finalGlobals⟩ :
+      final.regs.get? x2 = some (BitVec.ofNat 64 stackBase) ∧
+      final.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
+      final.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
+      final.regs.get? x11 = some (BitVec.ofNat 64 0x4215021) ∧
+      final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by grind
   have firstInputMemory : MemoryRepresentation.MemoryBytes afterFirst args.inputBase args.bytes := by
     simpa [afterFirst, allocatorAfterDataPointer, afterRegisterWrite_mem] using inputMemory13
   have finalInputMemory : MemoryRepresentation.MemoryBytes final args.inputBase args.bytes := by
@@ -2289,35 +2186,26 @@ private theorem wrapper_second_allocator_semantics
   have finalAgree : Agree decoderPreserved entry final := agree15.trans segmentAgree
   have finalRetired : RetiredCounterPresent final :=
     tryStepControlFlowAfterRetired_retired_present _ _ functionRetired
-  have segmentRegister (register : Register) (notX10 : x10 ≠ register)
-      (notPc : register ≠ PC) (notNextPc : register ≠ nextPC)
-      (notIncrement : register ≠ minstret_increment) (notRetired : register ≠ minstret) :
-      final.regs.get? register = atSecond.regs.get? register := by
-    have functionPreserved := allocatorAfterFunctionStore_get?_of_ne afterContext functionRetired
-      (BitVec.ofNat 64 stackBase) (BitVec.ofNat 64 0x13f70) register notPc notNextPc
-      notIncrement notRetired
-    have contextPreserved := allocatorAfterContextStore_get?_of_ne afterAddress contextRetired
-      (BitVec.ofNat 64 stackBase) (BitVec.ofNat 64 0x4215021) register notPc notNextPc
-      notIncrement notRetired
-    have addressPreserved := afterRegisterWrite_register afterPage
-      (BitVec.ofNat 64 0x102fc) addressRetired x10
-      register (BitVec.ofNat 64 0x13f70) notX10 (Ne.symm notPc) (Ne.symm notNextPc)
-      (Ne.symm notIncrement) (Ne.symm notRetired)
-    have pagePreserved := afterRegisterWrite_register atSecond
-      (BitVec.ofNat 64 0x102f8) pageRetired x10 register
-      (BitVec.ofNat 64 0x142f8) notX10 (Ne.symm notPc) (Ne.symm notNextPc)
-      (Ne.symm notIncrement) (Ne.symm notRetired)
-    exact ((functionPreserved.trans contextPreserved).trans addressPreserved).trans pagePreserved
-  have finalStack : final.regs.get? x2 = some (BitVec.ofNat 64 stackBase) :=
-    (segmentRegister x2 (by decide) (by decide) (by decide) (by decide) (by decide)).trans stack15
-  have finalSavedInput : final.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) :=
-    (segmentRegister x8 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
-      savedInput15
-  have finalLength : final.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
-    (segmentRegister x9 (by decide) (by decide) (by decide) (by decide) (by decide)).trans length15
-  have finalGlobals : final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
-    (segmentRegister x18 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
-      globals15
+  -- The write set of each of the segment's four steps; the two register writes both target `x10`,
+  -- the two stores write only the bookkeeping.
+  have wPage : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x10)) atSecond afterPage :=
+    afterRegisterWrite_writes atSecond (BitVec.ofNat 64 0x102f8) pageRetired x10
+      (BitVec.ofNat 64 0x142f8)
+  have wAddress : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x10)) afterPage
+      afterAddress :=
+    afterRegisterWrite_writes afterPage (BitVec.ofNat 64 0x102fc) addressRetired x10
+      (BitVec.ofNat 64 0x13f70)
+  have wContext : WritesOnlyRegs stepBookkeeping afterAddress afterContext :=
+    allocatorAfterContextStore_writes afterAddress contextRetired (BitVec.ofNat 64 stackBase)
+      (BitVec.ofNat 64 0x4215021)
+  have wFunction : WritesOnlyRegs stepBookkeeping afterContext final :=
+    allocatorAfterFunctionStore_writes afterContext functionRetired (BitVec.ofNat 64 stackBase)
+      (BitVec.ofNat 64 0x13f70)
+  obtain ⟨finalStack, finalSavedInput, finalLength, finalGlobals⟩ :
+      final.regs.get? x2 = some (BitVec.ofNat 64 stackBase) ∧
+      final.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
+      final.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
+      final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by grind
   have finalCode : canonicalContractParams.env.CodeIntact final := by
     simpa [final, afterContext, afterAddress, afterPage] using
       wrapper_second_allocator_code args stackBase entry atSecond machine pageRetired
