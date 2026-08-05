@@ -124,6 +124,34 @@ If your goal is not in the table and you are about to reach for `simp [<a state 
 the anti-pattern this table exists to prevent. Ask for a frame lemma instead — the answer is almost
 always that one exists, or should, and is three lines.
 
+### One function instance is at least two modules: steps, then composition
+
+Lean elaborates a file **serially** — measured at 135% CPU across 34 threads, i.e. one core. Lake
+parallelizes across *modules* only. So a module's elaboration time is a serial segment of the build,
+and a chain of big modules is a critical path no number of cores can shorten.
+
+Measured on this repository: the critical path is ~1245 s of a ~1050 s wall-clock build, with 1076 s
+of it in five proof modules that import one another in a line. **86% of the total work is on the
+critical path**, on a 64-core machine. Adding cores does nothing; splitting a module into a *chain*
+does nothing either. Only widening the graph helps.
+
+The proofs are shaped to allow that, if you write them that way. `Level2WrapperProof` has 97
+declarations of which **47 depend on nothing else in the file** — the single-instruction step lemmas
+— narrowing to a spine of compositions 11 deep. The steps can all elaborate in parallel; only the
+spine is inherently serial.
+
+**So: put the step lemmas for a function instance in their own module, and the compositions that
+consume them in another.** `<Instance>Steps.lean` then `<Instance>Proof.lean`. Step lemmas do not
+reference each other, so several instances' step modules build simultaneously; the composition
+modules chain, and are much smaller.
+
+**Target: no module over ~60 s.** Not a style preference — a module over that is a serial segment
+everyone waits on, and with 141 function instances still to prove the convention chosen now is
+multiplied by 141. If a module exceeds it, split it along a dependency layer (declarations that
+reference nothing else in the file), never down the middle of the spine.
+
+Check yours before adding it: `lake build <module>` prints the elaboration time.
+
 ### If you define a new state transformer, you owe it a frame equation
 
 This is what keeps the automation from silently decaying, and it is cheap.

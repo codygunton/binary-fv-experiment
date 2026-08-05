@@ -61,6 +61,12 @@ worth internalising:
   lines. Five wrapper composition proofs, −112 lines, elaboration time unchanged (363 s → 362 s);
   fourteen `DecodeInlineProof` compositions, −117; `memcpy_adv` 534 → 271.
 
+  *A correction to an earlier claim in this file's history: Lean does **not** parallelize elaboration
+  within a module. Measured at 135% CPU across 34 threads — one core. Summing profiler tactic times
+  and comparing to wall-clock does not show parallelism, because those times are nested and
+  double-count. Module elaboration time is a serial segment of the build; see `AGENTS.md` on module
+  granularity.*
+
   **Arming it costs one line, not three.** Write
 
   ```lean
