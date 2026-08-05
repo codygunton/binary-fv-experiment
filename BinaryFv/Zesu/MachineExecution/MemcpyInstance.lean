@@ -134,6 +134,17 @@ private theorem memcpy_body_pc_in_generated_region (pc : BitVec 64) (h : IsBodyP
     refine ⟨{ start := 81592, size := 36 }, ?_, ?_, ?_⟩ <;>
     simp [functionInstance_memcpy, BinaryFv.Binary.AddressRange.stop]
 
+/-- A runtime window address reads back as plain arithmetic: `(ofNat base + ofNat index).toNat` is
+`base + index` whenever the whole window `[base, base + limit)` fits the address space.  The
+source/destination index conversions below need exactly this six times, each previously spelled as a
+`windowAddr_toNat` rewrite plus a separate `toNat_ofNat` fact and a separate in-range side lemma. -/
+private theorem windowNat {base limit index : Nat} (baseFits : base < 2 ^ 64)
+    (windowFits : base + limit ≤ 2 ^ 64) (inBounds : index < limit) :
+    (BitVec.ofNat 64 base + BitVec.ofNat 64 index).toNat = base + index := by
+  have hbase : (BitVec.ofNat 64 base).toNat = base := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt baseFits]
+  rw [windowAddr_toNat _ _ (by rw [hbase]; omega), hbase]
+
 private def copySourceByte (contents : ByteArray) (index : Nat) : BitVec 8 :=
   BitVec.ofNat 8 (contents.get! index).toNat
 
@@ -176,25 +187,14 @@ theorem memcpy_body_satisfies_source_post (args : CopyArgs) (fromStep : Nat) (st
     rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt machine.sourceAddressFits]
   have lengthNat : (BitVec.ofNat 64 args.length).toNat = args.length := by
     rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt machine.lengthFits]
-  have sourceIndexFits (index : Nat) (inBounds : index < args.length) :
-      (BitVec.ofNat 64 args.source).toNat + index < 2 ^ 64 := by
-    have fits := machine.sourceFits
-    rw [sourceNat]
-    omega
-  have destinationIndexFits (index : Nat) (inBounds : index < args.length) :
-      (BitVec.ofNat 64 args.destination).toNat + index < 2 ^ 64 := by
-    have fits := machine.destinationFits
-    rw [destinationNat]
-    omega
   have sourceBytes : ∀ index : Nat, index < (BitVec.ofNat 64 args.length).toNat →
       state.mem.get? (BitVec.ofNat 64 args.source + BitVec.ofNat 64 index).toNat =
         some (copySourceByte args.contents index) := by
     intro index inBounds
     rw [lengthNat] at inBounds
     have contentsBounds : index < args.contents.size := contentsLength ▸ inBounds
-    rw [windowAddr_toNat (BitVec.ofNat 64 args.source) index
-      (sourceIndexFits index inBounds),
-      sourceNat, copySourceByte_eq args.contents index contentsBounds]
+    rw [windowNat machine.sourceAddressFits machine.sourceFits inBounds,
+      copySourceByte_eq args.contents index contentsBounds]
     exact sourceMemory index contentsBounds
   have destinationNotFile : ∀ index : Nat,
       index < (BitVec.ofNat 64 args.length).toNat →
@@ -202,8 +202,7 @@ theorem memcpy_body_satisfies_source_post (args : CopyArgs) (fromStep : Nat) (st
         (BitVec.ofNat 64 args.destination + BitVec.ofNat 64 index).toNat = none := by
     intro index inBounds
     rw [lengthNat] at inBounds
-    rw [windowAddr_toNat (BitVec.ofNat 64 args.destination) index
-      (destinationIndexFits index inBounds), destinationNat]
+    rw [windowNat machine.destinationAddressFits machine.destinationFits inBounds]
     exact machine.destinationNotFile index inBounds
   have disjoint : ∀ j k : Nat,
       j < (BitVec.ofNat 64 args.length).toNat →
@@ -212,11 +211,12 @@ theorem memcpy_body_satisfies_source_post (args : CopyArgs) (fromStep : Nat) (st
         (BitVec.ofNat 64 args.source + BitVec.ofNat 64 k).toNat := by
     intro j k jBounds kBounds equal
     rw [lengthNat] at jBounds kBounds
-    rw [windowAddr_toNat (BitVec.ofNat 64 args.destination) j
-      (destinationIndexFits j jBounds), destinationNat,
-      windowAddr_toNat (BitVec.ofNat 64 args.source) k (sourceIndexFits k kBounds),
-      sourceNat] at equal
+    rw [windowNat machine.destinationAddressFits machine.destinationFits jBounds,
+      windowNat machine.sourceAddressFits machine.sourceFits kBounds] at equal
     rcases nonoverlap with before | after <;> omega
+  have destinationFits : (BitVec.ofNat 64 args.destination).toNat
+      + (BitVec.ofNat 64 args.length).toNat ≤ 2 ^ 64 := by
+    simpa [destinationNat, lengthNat] using machine.destinationFits
   obtain ⟨final, run, confined, atExit, copied, _, _, _, _, codeFinal, stable, stackPreserved,
     frame, sourcePreserved, finalCounter⟩ :=
     memcpy_body (BitVec.ofNat 64 args.destination) (BitVec.ofNat 64 args.source)
@@ -228,43 +228,37 @@ theorem memcpy_body_satisfies_source_post (args : CopyArgs) (fromStep : Nat) (st
       machineCounterEnabled machine.retiredCounter machine.imageIsZesu code sourceBytes
       (by simpa [lengthNat] using machine.lengthFits)
       (by simpa [sourceNat, lengthNat] using machine.sourceFits)
-      (by simpa [destinationNat, lengthNat] using machine.destinationFits)
-      destinationNotFile disjoint machine.platform machine.dataAccess machine.landingPad
-  have noAllocation : canonicalContractParams.env.NoAllocation state final := by
-    intro address allocatorAddress
-    exact frame.mem_unchanged_outside (by simpa [destinationNat, lengthNat] using
-      machine.destinationFits) address
-        (by simpa [destinationNat, lengthNat] using
-          machine.destinationNotAllocatorState address allocatorAddress)
+      destinationFits destinationNotFile disjoint machine.platform machine.dataAccess
+      machine.landingPad
+  -- Every memory-frame consequence below reads the same frame off outside the same window.
+  have unchanged := frame.mem_unchanged_outside destinationFits
+  have noAllocation : canonicalContractParams.env.NoAllocation state final :=
+    fun address allocatorAddress => unchanged address
+      (by simpa [destinationNat, lengthNat] using
+        machine.destinationNotAllocatorState address allocatorAddress)
   have writesOnly : canonicalContractParams.env.WritesOnlyWithinOwnRecord
       args.destination args.length state final := by
     intro address outside
-    apply frame.mem_unchanged_outside (by simpa [destinationNat, lengthNat] using
-      machine.destinationFits) address
-    have notRange : ¬ Contracts.range args.destination args.length address := by
-      intro inRange
-      exact outside (Or.inl (Or.inl inRange))
+    apply unchanged address
+    have notRange : ¬ Contracts.range args.destination args.length address :=
+      fun inRange => outside (Or.inl (Or.inl inRange))
     simp only [Contracts.range] at notRange
     omega
-  have exactFrame : CopyDestinationFrame args state final := by
-    intro address outside
-    exact frame.mem_unchanged_outside (by simpa [destinationNat, lengthNat] using
-      machine.destinationFits) address (by simpa [destinationNat, lengthNat] using outside)
+  have exactFrame : CopyDestinationFrame args state final := fun address outside =>
+    unchanged address (by simpa [destinationNat, lengthNat] using outside)
   have destinationMemory : MemoryRepresentation.MemoryBytes final args.destination
       args.contents := by
     intro index inBounds
     have argsBounds : index < args.length := by simpa [contentsLength] using inBounds
     have copiedIndex := copied index (by rw [lengthNat]; exact argsBounds)
-    rw [windowAddr_toNat (BitVec.ofNat 64 args.destination) index
-      (destinationIndexFits index argsBounds), destinationNat,
+    rw [windowNat machine.destinationAddressFits machine.destinationFits argsBounds,
       copySourceByte_eq args.contents index inBounds] at copiedIndex
     exact copiedIndex
   have sourceMemoryFinal : MemoryRepresentation.MemoryBytes final args.source args.contents := by
     intro index inBounds
     have argsBounds : index < args.length := by simpa [contentsLength] using inBounds
     have preserved := sourcePreserved index (by rw [lengthNat]; exact argsBounds)
-    rw [windowAddr_toNat (BitVec.ofNat 64 args.source) index
-      (sourceIndexFits index argsBounds), sourceNat] at preserved
+    rw [windowNat machine.sourceAddressFits machine.sourceFits argsBounds] at preserved
     rw [preserved]
     exact sourceMemory index inBounds
   have generatedTrace : FunctionTrace
