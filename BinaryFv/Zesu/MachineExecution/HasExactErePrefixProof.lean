@@ -206,8 +206,6 @@ theorem hasExactErePrefix_length_add_step (stepNo : Nat)
   have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10390) := by
     simpa [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs.entryPc, phase] using pre.atEntry
   obtain ⟨-, constant⟩ := pre.preparedConstants phase
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ :=
-    decoderDecodeContext pre.machine (Agree.refl state)
   exact decoderRTypeStep pre.machine (Agree.refl state) pre.machine.retiredCounter
     (hasExactErePrefix_programImage_of_codeIntact pre.code)
     stepNo 0x10390 0x33 0x86 0xc4 0x00 12#5 9#5 12#5 .ADD atPc
@@ -311,9 +309,6 @@ theorem hasExactErePrefix_prefix_first_lbu_step (stepNo : Nat)
         omega)).toNat) := by
   have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10398) := by
     simpa [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlineArgs.entryPc, phase] using pre.atEntry
-  have pcIn := hasExactErePrefix_body_fetch_classification 0x10398
-    (by simp [hasExactErePrefixBodyPcs])
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine (Agree.refl state)
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10398)
   let address := BitVec.ofNat 64 (args.inputBase + 1)
@@ -420,12 +415,9 @@ theorem hasExactErePrefix_prefix_second_lbu_step (stepNo : Nat)
       (BitVec.ofNat 64 (args.bytes[0]'(by
         have := pre.prefixExists phase
         omega)).toNat) := by
-  have pcIn := hasExactErePrefix_body_fetch_classification 0x1039c
-    (by simp [hasExactErePrefixBodyPcs])
   have code : Artifacts.programImage.fileBytesMatchMemory state.mem := by
     rw [memory]
     exact hasExactErePrefix_programImage_of_codeIntact pre.code
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine agree
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x1039c)
   let address := BitVec.ofNat 64 args.inputBase
@@ -773,7 +765,6 @@ theorem hasExactErePrefix_prefix_low_byte_shift_step
     StepWritesRegister stepNo state 0x103a8 x10
       (Sail.shift_bits_left source
         (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)) := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine agree
   exact decoderShiftIopStep pre.machine agree retiredPresent
     (by rw [memory]; exact hasExactErePrefix_programImage_of_codeIntact pre.code)
     stepNo 0x103a8 0x13 0x15 0x85 0x00 8#6 10#5 10#5 .SLLI atPc
@@ -785,7 +776,6 @@ theorem hasExactErePrefix_prefix_low_half_or_step
     (highRead : state.regs.get? x10 = some highByte)
     (lowRead : state.regs.get? x12 = some lowByte) :
     StepWritesRegister stepNo state 0x103ac x10 (highByte ||| lowByte) := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine agree
   exact decoderRTypeStep pre.machine agree retiredPresent
     (by rw [memory]; exact hasExactErePrefix_programImage_of_codeIntact pre.code)
     stepNo 0x103ac 0x33 0x65 0xc5 0x00 12#5 10#5 10#5 .OR atPc
@@ -796,7 +786,6 @@ theorem hasExactErePrefix_prefix_length_sub_step
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103b0))
     (length : BitVec 64) (lengthRead : state.regs.get? x9 = some length) :
     StepWritesRegister stepNo state 0x103b0 x13 (iTypeResult .ADDI 0xffc#12 length) := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine agree
   exact decoderITypeStep pre.machine agree retiredPresent
     (by rw [memory]; exact hasExactErePrefix_programImage_of_codeIntact pre.code)
     stepNo 0x103b0 0x93 0x86 0xc4 0xff 0xffc#12 9#5 13#5 .ADDI atPc
@@ -808,7 +797,6 @@ theorem hasExactErePrefix_prefix_byte2_shift_step
     StepWritesRegister stepNo state 0x103b4 x14
       (Sail.shift_bits_left source
         (Sail.BitVec.extractLsb 16#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)) := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine agree
   exact decoderShiftIopStep pre.machine agree retiredPresent
     (by rw [memory]; exact hasExactErePrefix_programImage_of_codeIntact pre.code)
     stepNo 0x103b4 0x13 0x17 0x07 0x01 16#6 14#5 14#5 .SLLI atPc
@@ -820,7 +808,6 @@ theorem hasExactErePrefix_prefix_byte3_shift_step
     StepWritesRegister stepNo state 0x103b8 x15
       (Sail.shift_bits_left source
         (Sail.BitVec.extractLsb 24#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)) := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine agree
   exact decoderShiftIopStep pre.machine agree retiredPresent
     (by rw [memory]; exact hasExactErePrefix_programImage_of_codeIntact pre.code)
     stepNo 0x103b8 0x93 0x97 0x87 0x01 24#6 15#5 15#5 .SLLI atPc
@@ -832,7 +819,6 @@ theorem hasExactErePrefix_prefix_high_half_or_step
     (byte2Read : state.regs.get? x14 = some highByte2)
     (byte3Read : state.regs.get? x15 = some highByte3) :
     StepWritesRegister stepNo state 0x103bc x14 (highByte3 ||| highByte2) := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext pre.machine agree
   exact decoderRTypeStep pre.machine agree retiredPresent
     (by rw [memory]; exact hasExactErePrefix_programImage_of_codeIntact pre.code)
     stepNo 0x103bc 0x33 0xe7 0xe7 0x00 14#5 15#5 14#5 .OR atPc
