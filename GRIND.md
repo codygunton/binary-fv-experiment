@@ -286,7 +286,15 @@ file to HEAD mid-task. The second agent noticed its edits had vanished, re-appli
 correctly — but that recovery was luck, not design.
 
 Rules: **never run a repo-wide `git` command** (`stash`, `checkout`, `restore`, `clean`, `reset`)
-from an agent working alongside others — scope every path explicitly. To get a clean baseline for
+from an agent working alongside others — scope every path explicitly.
+
+**`git add -A` and `git commit -a` belong on that list, and they are the easy ones to miss** because
+they are not destructive: they *capture* rather than discard. The coordinator doing docs work while a
+sweep agent was mid-run committed seven files of unverified, in-progress proof edits under a commit
+message describing only the documentation. Nothing was lost, but the history now misattributes the
+work and the commit was never verified as a unit. Stage explicit paths — `git add <path> <path>` —
+whenever anything else is live in the tree, and check `git status` before every commit rather than
+after. To get a clean baseline for
 timing, read the file from git (`git show HEAD:path`) into a scratch copy instead of mutating the
 tree. If a stash does happen, do not drop it: it may be the only copy of another agent's state.
 
