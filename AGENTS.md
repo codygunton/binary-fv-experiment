@@ -156,6 +156,43 @@ reference nothing else in the file), never down the middle of the spine.
 
 Check yours before adding it: `lake build <module>` prints the elaboration time.
 
+### Contract-statement modules must not import proof modules
+
+The single largest build win in this project came from moving **two declarations**, and this is the
+rule that would have prevented the problem.
+
+Lean elaborates a module on one core, so a module's time is a serial segment of the build. If a
+contract-statement module imports a proof module, every module downstream of that contract is
+sequenced *after* the proof — however unrelated they are. Here `Level2Contracts.lean` (239 lines) had
+picked up one proof import for **one identifier**, and that put a 361 s module behind a 275 s one.
+Moving the single bridging declaration into its own module cut the whole build's critical path by
+**19%**, changing no proof.
+
+So: a module that *states* contracts imports only what the statements need. When a statement genuinely
+needs a fact from a proof, put the bridging declaration in its own module and let the consumers that
+already depend on the proof import that. Its cost is then paid only by things that were paying it
+anyway.
+
+Watch for the second-order case: after breaking one such edge, a consumer that had been resolving a
+name *transitively* through the contract module suddenly needs a direct import, which restores the
+dependency on a shorter path. Re-check the closure after every fix.
+
+### Answer dependency questions from the import graph, not from a build
+
+Every question in this area — what waits on what, which import costs what, whether an edge is real —
+is answerable from the import graph in **under a second**. Builds here cost minutes. Probe first,
+build last.
+
+The technique that found both choke points: **delete an import from the small file at the top of the
+dependency and read which errors appear.** Four probes at about a second each, on a 239-line file
+whose dependents are enormous, located what no amount of building the 361 s module would have shown.
+Probe the cheap file at the top, not the expensive one at the bottom.
+
+**Do not conclude an import is dead from a name scan.** "Imports X but references none of X's
+declaration names" produced a confident false positive worth an apparent 621 s; the module genuinely
+needed a name the scan had missed. Confirm by deleting the import and compiling — that is the only
+check that cannot lie to you.
+
 ### If you define a new state transformer, you owe it a frame equation
 
 This is what keeps the automation from silently decaying, and it is cheap.
