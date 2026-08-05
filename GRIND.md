@@ -1008,35 +1008,49 @@ the ceiling from measurement — per file, at what it actually needs once the si
 budget is indifferent to *how* a proof got expensive: it catches the pattern nobody has thought of
 yet, at the line, in seconds.
 
-## 14. The frame-fact grid, and the obligation that keeps it filled
+## 14. The frame-fact grid, and what filling a column is actually worth
 
 Section 5 predicted this grid — roughly 22 observations by 15 transformers, of which about 30 cells
-were named. Filling one column measured what the empty cells cost.
+were named. Filling one column measured what an empty cell costs, and the answer was **not** what was
+predicted.
 
 **The column.** 25 `@[grind =] …_mem` equations, one per memory-preserving transformer, each `rfl`.
-Before them, `grind` could not close a memory transport at any real site: the sites go through
-project wrapper definitions (`allocatorAfterFunctionPage`, `wrapperAfterDwordStore`, …), and grind
-does not delta-unfold semireducible defs. The transports were registered and inert.
+Before them `grind` could not close a memory transport at any real site: the sites go through project
+wrapper definitions, and grind does not delta-unfold semireducible defs. The transports were
+registered and inert.
 
-**The cost of the empty cells.** ~279 sites open-coded the transport as
-`simpa [<state defs>, <wrapper>, afterRegisterWrite_mem] using h`, at 25-37 s each. Nineteen in one
-file total ~636 s. After the column was filled, cumulative `grind` time for that entire file is
-~2.5 s.
+**What it is worth, measured — and it is not speed.** The column was filled on the premise that
+`simpa [<step definitions>] using h` dominated build time at 24-36 s a call. That premise came from
+summing nested profiler times and was arithmetically impossible: a module elaborating in 364 s on one
+core cannot contain 636 s of tactic work. Two clean A/Bs on a quiet machine, on 100%-converted files:
+
+| file | `simpa` | `grind` |
+|---|---|---|
+| `ParserBlocks` (21 sites) | 10.37 s | 10.92 s |
+| `BlobScheduleAndResultStores` (68 sites) | 39.3 s | 42.4 s |
+
+**`grind` is 6-8% slower, and the line count is identical** (2151→2151, 4415→4415). A sweep of 167
+sites was reverted on this evidence.
+
+**So why keep the column?** Because its value is *availability*, not speed. With it, an agent writing
+a new proof types `grind` — one word, no lemma name, no definition name — and therefore cannot type
+`simpa [five state definitions]`, which is the idiom that actually costs 20-100x. Paying 6-8% to make
+the cheap path the obvious one is a good trade. Rewriting proofs that are already one cheap line is
+not; those are different questions and only the first has a yes.
 
 **Not every cell exists, and inventing one would be unsound.** Six transformers genuinely write
 memory; `mem = mem` is false for them. That they reject `rfl` was verified by probe, not inferred
-from their names — the probe produced six type mismatches. A frame fact asserted for a transformer
-that does not have it is worse than a missing one, because it is automation that lies.
+from their names. A frame fact asserted for a transformer that lacks it is automation that lies.
 
-**Three of the 37 candidates were not transformers at all** (`SailM` actions writing CSRs, with no
-`.mem` projection). Check the type before writing the lemma.
+**Three of the 37 candidates were not transformers at all** — `SailM` actions writing CSRs, with no
+`.mem` projection. Check the type before writing the lemma.
 
 ### The obligation
 
 A new `State → State` definition is **unfinished** until its frame facts exist: `_mem` if it preserves
 memory, `_pc`, `_retired`, and a `_writes` register write set. Each is one line and usually `rfl`.
-Skipping them does not fail anything — it just moves the cost to every future call site, invisibly,
-at 25-37 seconds a call. That is precisely how the 279 accumulated.
+Skipping them does not fail anything — it removes the one-word path for every future call site, which
+is how the expensive idiom spreads.
 
 Search pattern note: `def .*After[A-Za-z]+` misses transformers whose name *ends* in `After`. There
 are 14 such, and grepping only the first form is why they were initially missed.

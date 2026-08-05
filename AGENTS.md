@@ -107,15 +107,19 @@ load-bearing.
 
 ### Before writing a proof, find your goal in this table
 
-Do not search for a tactic. Look the goal up. Every row is measured, and the wrong choice is 20x-100x
-slower rather than wrong.
+Do not search for a tactic. Look the goal up. Every row is measured.
+
+The right-hand column is what costs 20x-100x, not 6%. `grind` itself is marginally *slower* than a
+terse hand-written `simpa` — about 6-8% — and saves no lines. Its value is that it needs **no names**,
+so reaching for it is what stops you writing the multi-definition unfolding in the third column. Use
+it for new proofs; do not rewrite existing one-line proofs to use it.
 
 | your goal | write this | never write |
 |---|---|---|
 | one machine instruction executes | the class lemma for its mnemonic (`InstructionClassSteps.lean`) — one call, obligations are `autoParam`s | a hand-derived fetch/decode/execute/retire chain |
 | a register's value survives a step | `have w : WritesOnlyRegs _ s t := <shape>_writes _ _ _ _ _` then `grind` | `simp [<step defs>, Std.ExtDHashMap.get?_insert]` |
 | several registers across several steps | the same **one** `have` per step, then `grind` for all of them | one `have` per (register × step) |
-| a memory-shaped fact survives a step | `grind` (the transports and `_mem` frame equations are registered) | `simpa [<state defs>, <wrapper>, afterRegisterWrite_mem] using h` |
+| a memory-shaped fact survives a step | `grind` — no lemma or definition name needed | `simpa [<state defs>, <wrapper>, afterRegisterWrite_mem] using h` |
 | agreement across a step | `(…_writes …).agree …`, or the chained two-line form | a `cases register <;> simp_all` over every register |
 | a pc/exit membership for a literal address | `owned_pc`, or the `regionPc`/`notExitPc` autoParams | a hand-written `native_decide` block |
 | an instruction's bytes or operands | look it up in `build/machine-regions-lean/machine-regions.json` | decode it from byte literals by hand |
