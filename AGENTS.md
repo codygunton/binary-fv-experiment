@@ -165,8 +165,8 @@ Lean elaborates a module on one core, so a module's time is a serial segment of 
 contract-statement module imports a proof module, every module downstream of that contract is
 sequenced *after* the proof — however unrelated they are. Here `Level2Contracts.lean` (239 lines) had
 picked up one proof import for **one identifier**, and that put a 361 s module behind a 275 s one.
-Moving the single bridging declaration into its own module cut the whole build's critical path by
-**19%**, changing no proof.
+Moving the bridging declarations into their own modules cut the whole build by **18.2%** — measured,
+cold full builds at both ends: **1234 s → 1009 s** — changing no proof.
 
 So: a module that *states* contracts imports only what the statements need. When a statement genuinely
 needs a fact from a proof, put the bridging declaration in its own module and let the consumers that
@@ -182,6 +182,11 @@ dependency on a shorter path. Re-check the closure after every fix.
 Every question in this area — what waits on what, which import costs what, whether an edge is real —
 is answerable from the import graph in **under a second**. Builds here cost minutes. Probe first,
 build last.
+
+The graph is not just fast, it is *accurate*. A critical-path model built from the import graph plus
+per-module elaboration times predicted 1245 s → 1004 s for a change that measured **1234 s → 1009 s**
+— under 1% error at both ends. Trust it for deciding what to do; measure only to confirm the result
+you are going to write down.
 
 The technique that found both choke points: **delete an import from the small file at the top of the
 dependency and read which errors appear.** Four probes at about a second each, on a 239-line file
