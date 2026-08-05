@@ -183,7 +183,7 @@ theorem raw_parser_u32_first_lbu_fetch (state : State)
   rcases raw_parser_u32_first_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10764 (by omega)
     afterIncrement 0x83 0x42 0x4c 0x1b read0 read1 read2 read3
@@ -210,7 +210,7 @@ theorem raw_parser_u32_second_lbu_fetch (state : State)
   rcases raw_parser_u32_second_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10768 (by omega)
     afterIncrement 0x83 0x45 0x5c 0x1b read0 read1 read2 read3
@@ -236,7 +236,7 @@ theorem raw_parser_u32_third_lbu_fetch (state : State)
   rcases raw_parser_u32_third_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x1076c (by omega)
     afterIncrement 0x03 0x46 0x6c 0x1b read0 read1 read2 read3
@@ -262,7 +262,7 @@ theorem raw_parser_u32_fourth_lbu_fetch (state : State)
   rcases raw_parser_u32_fourth_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10770 (by omega)
     afterIncrement 0x83 0x46 0x7c 0x1b read0 read1 read2 read3
@@ -432,7 +432,7 @@ theorem raw_parser_u32_adjacent_third_lbu_retire_exact (stepNo : Nat) (state : S
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x1077c (by omega) afterIncrement
     0x03 0x48 0xac 0x1f read0 read1 read2 read3
@@ -497,7 +497,7 @@ theorem raw_parser_u32_adjacent_fourth_lbu_retire_exact (stepNo : Nat) (state : 
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10780 (by omega) afterIncrement
     0x83 0x48 0xbc 0x1f read0 read1 read2 read3
@@ -573,7 +573,7 @@ theorem raw_parser_u32_next_word_first_lbu_retire_exact (stepNo : Nat) (state : 
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10798 (by omega) afterIncrement
     0x83 0x45 0xcc 0x1f read0 read1 read2 read3
@@ -638,7 +638,7 @@ theorem raw_parser_u32_next_word_second_lbu_retire_exact (stepNo : Nat) (state :
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x1079c (by omega) afterIncrement
     0x83 0x46 0xdc 0x1f read0 read1 read2 read3
@@ -703,7 +703,7 @@ theorem raw_parser_u32_next_word_third_lbu_retire_exact (stepNo : Nat) (state : 
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x107a0 (by omega) afterIncrement
     0x83 0x42 0xec 0x1f read0 read1 read2 read3
@@ -768,7 +768,7 @@ theorem raw_parser_u32_next_word_fourth_lbu_retire_exact (stepNo : Nat) (state :
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x107a4 (by omega) afterIncrement
     0x03 0x43 0xfc 0x1f read0 read1 read2 read3
@@ -994,7 +994,7 @@ theorem raw_parser_u32_next_word_third_byte_shift_retire_exact (stepNo : Nat) (s
           Artifacts.programImage.readByte? 0x107af = some 0x01 := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
-      (tryStepControlFlowAfterIncrement state).mem := by grind
+      (tryStepControlFlowAfterIncrement state).mem := by simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x107ac (by omega) afterIncrement
     0x13 0x18 0x08 0x01 read0 read1 read2 read3
@@ -1047,7 +1047,7 @@ theorem raw_parser_u32_next_word_second_byte_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x107a8 (by omega) afterIncrement
     0x93 0x97 0x87 0x00 read0 read1 read2 read3
@@ -1080,7 +1080,7 @@ theorem raw_parser_u32_second_byte_shift_fetch (state : State)
   rcases raw_parser_u32_second_byte_shift_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10784 (by omega)
     afterIncrement 0x93 0x95 0x85 0x00 read0 read1 read2 read3
@@ -1161,7 +1161,7 @@ theorem raw_parser_u32_third_byte_shift_fetch (state : State)
   rcases raw_parser_u32_third_byte_shift_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10788 (by omega)
     afterIncrement 0x13 0x16 0x06 0x01 read0 read1 read2 read3
@@ -1242,7 +1242,7 @@ theorem raw_parser_u32_fourth_byte_shift_fetch (state : State)
   rcases raw_parser_u32_fourth_byte_shift_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x1078c (by omega)
     afterIncrement 0x93 0x96 0x86 0x01 read0 read1 read2 read3
@@ -1317,7 +1317,7 @@ theorem raw_parser_u32_low_half_or_fetch (state : State)
   rcases raw_parser_u32_low_half_or_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10790 (by omega)
     afterIncrement 0x33 0xee 0x55 0x00 read0 read1 read2 read3
@@ -1390,7 +1390,7 @@ theorem raw_parser_u32_high_half_or_fetch (state : State)
   rcases raw_parser_u32_high_half_or_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10794 (by omega)
     afterIncrement 0x33 0xe6 0xc6 0x00 read0 read1 read2 read3
@@ -1463,7 +1463,7 @@ theorem raw_parser_u32_word_or_fetch (state : State)
   rcases raw_parser_u32_word_or_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x107f4 (by omega)
     afterIncrement 0x33 0x69 0xc6 0x01 read0 read1 read2 read3
@@ -1553,7 +1553,7 @@ theorem raw_header_first_lbu_image_bytes :
 theorem image_loaded_after_increment (state : State)
     (loaded : Artifacts.programImage.matchesMemory state.mem) :
     Artifacts.programImage.matchesMemory (tryStepControlFlowAfterIncrement state).mem := by
-  grind
+  simpa [tryStepControlFlowAfterIncrement] using loaded
 
 /-- The generated Sail fetch at the first raw-header read sees its exact ELF instruction bytes. -/
 theorem raw_header_first_lbu_fetch (state : State)
@@ -1861,7 +1861,7 @@ theorem raw_parser_u32_adjacent_first_lbu_retire_exact (stepNo : Nat) (state : S
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10774 (by omega) afterIncrement
     0x03 0x47 0x8c 0x1f read0 read1 read2 read3
@@ -1926,7 +1926,7 @@ theorem raw_parser_u32_adjacent_second_lbu_retire_exact (stepNo : Nat) (state : 
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x10778 (by omega) afterIncrement
     0x83 0x47 0x9c 0x1f read0 read1 read2 read3

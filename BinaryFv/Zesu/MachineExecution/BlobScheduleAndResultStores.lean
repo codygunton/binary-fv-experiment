@@ -227,7 +227,7 @@ theorem raw_blob_schedule_first_lbu_fetch (state : State)
   rcases raw_blob_schedule_first_lbu_image_bytes with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cbc (by omega)
     afterIncrement 0x03 0xc5 0x0b 0x00 read0 read1 read2 read3
@@ -336,7 +336,7 @@ theorem raw_blob_schedule_second_byte_shift_fetch (state : State)
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cec (by omega) afterIncrement
     0x93 0x95 0x85 0x00 read0 read1 read2 read3
@@ -420,7 +420,7 @@ theorem raw_blob_schedule_third_byte_shift_retire_exact (stepNo : Nat) (state : 
           Artifacts.programImage.readByte? 0x12cf3 = some 0x01 := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
-      (tryStepControlFlowAfterIncrement state).mem := by grind
+      (tryStepControlFlowAfterIncrement state).mem := by simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cf0 (by omega) afterIncrement
     0x13 0x16 0x06 0x01 read0 read1 read2 read3
@@ -468,7 +468,7 @@ theorem raw_blob_schedule_fourth_byte_shift_retire_exact (stepNo : Nat) (state :
           Artifacts.programImage.readByte? 0x12cf7 = some 0x01 := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cf4 (by omega) afterIncrement
     0x93 0x96 0x86 0x01 read0 read1 read2 read3
@@ -511,7 +511,7 @@ theorem raw_blob_schedule_sixth_byte_shift_retire_exact (stepNo : Nat) (state : 
         (BitVec.ofNat 64 0x12cfc) retired) false := by
   have image : Artifacts.programImage.readByte? 0x12cf8 = some 0x93 ∧ Artifacts.programImage.readByte? 0x12cf9 = some 0x97 ∧ Artifacts.programImage.readByte? 0x12cfa = some 0x87 ∧ Artifacts.programImage.readByte? 0x12cfb = some 0x00 := by native_decide
   rcases image with ⟨read0, read1, read2, read3⟩
-  have afterIncrement : Artifacts.programImage.matchesMemory (tryStepControlFlowAfterIncrement state).mem := by grind
+  have afterIncrement : Artifacts.programImage.matchesMemory (tryStepControlFlowAfterIncrement state).mem := by simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage (tryStepControlFlowAfterIncrement state) 0x12cf8 (by omega) afterIncrement 0x93 0x97 0x87 0x00 read0 read1 read2 read3
   have decode : Runs (ext_decode (fetchWord 0x93#8 0x97#8 0x87#8 0x00#8)) (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state) (.SHIFTIOP (8#6, .Regidx 15#5, .Regidx 15#5, .SLLI)) := by decode_run
   simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12cf8) retired inhibit config 0x93#8 0x97#8 0x87#8 0x00 (.SHIFTIOP (8#6, .Regidx 15#5, .Regidx 15#5, .SLLI)) x15 (Sail.shift_bits_left value (Sail.BitVec.extractLsb 8#6 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)) platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected (raw_blob_schedule_sixth_byte_shift_execute (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12cf8)) value stored) (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
@@ -536,7 +536,7 @@ theorem raw_blob_schedule_first_word_low_or_retire_exact (stepNo : Nat) (state :
         (BitVec.ofNat 64 0x12d00) retired) false := by
   have image : Artifacts.programImage.readByte? 0x12cfc = some 0x33 ∧ Artifacts.programImage.readByte? 0x12cfd = some 0xe5 ∧ Artifacts.programImage.readByte? 0x12cfe = some 0xa5 ∧ Artifacts.programImage.readByte? 0x12cff = some 0x00 := by native_decide
   rcases image with ⟨r0,r1,r2,r3⟩
-  have afterIncrement : Artifacts.programImage.matchesMemory (tryStepControlFlowAfterIncrement state).mem := by grind
+  have afterIncrement : Artifacts.programImage.matchesMemory (tryStepControlFlowAfterIncrement state).mem := by simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage (tryStepControlFlowAfterIncrement state) 0x12cfc (by omega) afterIncrement 0x33 0xe5 0xa5 0x00 r0 r1 r2 r3
   have decode : Runs (ext_decode (fetchWord 0x33#8 0xe5#8 0xa5#8 0x00#8)) (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state) (.RTYPE (.Regidx 10#5, .Regidx 11#5, .Regidx 10#5, .OR)) := by decode_run
   simpa only using tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 0x12cfc) retired inhibit config 0x33#8 0xe5#8 0xa5#8 0x00 (.RTYPE (.Regidx 10#5, .Regidx 11#5, .Regidx 10#5, .OR)) x10 (high ||| low) platform fetchNoMMIO bytes interrupts (by rfl) decode notExpected (raw_blob_schedule_first_word_low_or_execute (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x12cfc)) high low highStored lowStored) (by decide) (by decide) (by decide) (by decide) hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
@@ -577,7 +577,7 @@ theorem raw_blob_schedule_first_word_high_or_retire_exact (stepNo : Nat) (state 
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d00 (by omega) afterIncrement
     0x33 0xe6 0xc6 0x00 read0 read1 read2 read3
@@ -630,7 +630,7 @@ theorem raw_blob_schedule_second_word_low_or_retire_exact (stepNo : Nat) (state 
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d04 (by omega) afterIncrement
     0x33 0xe7 0xe7 0x00 read0 read1 read2 read3
@@ -780,7 +780,7 @@ theorem raw_blob_schedule_second_lbu_fetch (state : State)
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   exact fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cc0 (by omega)
     afterIncrement 0x83 0xc5 0x1b 0x00 read0 read1 read2 read3
@@ -920,7 +920,7 @@ theorem raw_blob_schedule_third_lbu_retire_exact (stepNo : Nat) (state : State)
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cc4 (by omega)
     afterIncrement 0x03 0xc6 0x2b 0x00 read0 read1 read2 read3
@@ -1001,7 +1001,7 @@ theorem raw_blob_schedule_fourth_lbu_retire_exact (stepNo : Nat) (state : State)
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cc8 (by omega)
     afterIncrement 0x83 0xc6 0x3b 0x00 read0 read1 read2 read3
@@ -1082,7 +1082,7 @@ theorem raw_blob_schedule_fifth_lbu_retire_exact (stepNo : Nat) (state : State)
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12ccc (by omega)
     afterIncrement 0x03 0xc7 0x4b 0x00 read0 read1 read2 read3
@@ -1162,7 +1162,7 @@ theorem raw_blob_schedule_sixth_lbu_retire_exact (stepNo : Nat) (state : State)
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cd0 (by omega)
     afterIncrement 0x83 0xc7 0x5b 0x00 read0 read1 read2 read3
@@ -1242,7 +1242,7 @@ theorem raw_blob_schedule_seventh_lbu_retire_exact (stepNo : Nat) (state : State
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cd4 (by omega)
     afterIncrement 0x03 0xc8 0x6b 0x00 read0 read1 read2 read3
@@ -1307,7 +1307,7 @@ theorem raw_blob_schedule_eighth_lbu_retire_exact (stepNo : Nat) (state : State)
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cd8 (by omega)
     afterIncrement 0x83 0xc8 0x7b 0x00 read0 read1 read2 read3
@@ -1372,7 +1372,7 @@ theorem raw_blob_schedule_ninth_lbu_retire_exact (stepNo : Nat) (state : State)
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12cdc (by omega)
     afterIncrement 0x83 0xc2 0x8b 0x00 read0 read1 read2 read3
@@ -1437,7 +1437,7 @@ theorem raw_blob_schedule_tenth_lbu_retire_exact (stepNo : Nat) (state : State)
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12ce0 (by omega)
     afterIncrement 0x03 0xc3 0x9b 0x00 read0 read1 read2 read3
@@ -1502,7 +1502,7 @@ theorem raw_blob_schedule_eleventh_lbu_retire_exact (stepNo : Nat) (state : Stat
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12ce4 (by omega)
     afterIncrement 0x83 0xc3 0xab 0x00 read0 read1 read2 read3
@@ -1567,7 +1567,7 @@ theorem raw_blob_schedule_twelfth_lbu_retire_exact (stepNo : Nat) (state : State
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12ce8 (by omega)
     afterIncrement 0x03 0xce 0xbb 0x00 read0 read1 read2 read3
@@ -1657,7 +1657,7 @@ theorem raw_blob_schedule_thirteenth_lbu_retire_exact (stepNo : Nat) (state : St
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d08 (by omega)
     afterIncrement 0x83 0xc5 0xcb 0x00 read0 read1 read2 read3
@@ -1722,7 +1722,7 @@ theorem raw_blob_schedule_fourteenth_lbu_retire_exact (stepNo : Nat) (state : St
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d0c (by omega)
     afterIncrement 0x83 0xc6 0xdb 0x00 read0 read1 read2 read3
@@ -1787,7 +1787,7 @@ theorem raw_blob_schedule_fifteenth_lbu_retire_exact (stepNo : Nat) (state : Sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d10 (by omega)
     afterIncrement 0x83 0xc7 0xeb 0x00 read0 read1 read2 read3
@@ -1852,7 +1852,7 @@ theorem raw_blob_schedule_sixteenth_lbu_retire_exact (stepNo : Nat) (state : Sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d14 (by omega)
     afterIncrement 0x83 0xce 0xfb 0x00 read0 read1 read2 read3
@@ -1904,7 +1904,7 @@ theorem raw_blob_schedule_second_assembly_a6_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d18 (by omega)
     afterIncrement 0x13 0x18 0x08 0x01 read0 read1 read2 read3
@@ -1957,7 +1957,7 @@ theorem raw_blob_schedule_second_assembly_a7_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d1c (by omega)
     afterIncrement 0x93 0x98 0x88 0x01 read0 read1 read2 read3
@@ -2010,7 +2010,7 @@ theorem raw_blob_schedule_second_assembly_t1_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d20 (by omega)
     afterIncrement 0x13 0x13 0x83 0x00 read0 read1 read2 read3
@@ -2063,7 +2063,7 @@ theorem raw_blob_schedule_second_assembly_t2_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d24 (by omega)
     afterIncrement 0x93 0x93 0x03 0x01 read0 read1 read2 read3
@@ -2116,7 +2116,7 @@ theorem raw_blob_schedule_second_assembly_t3_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d28 (by omega)
     afterIncrement 0x13 0x1e 0x8e 0x01 read0 read1 read2 read3
@@ -2169,7 +2169,7 @@ theorem raw_blob_schedule_second_assembly_a3_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d2c (by omega)
     afterIncrement 0x93 0x96 0x86 0x00 read0 read1 read2 read3
@@ -2223,7 +2223,7 @@ theorem raw_blob_schedule_second_assembly_a6_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d30 (by omega)
     afterIncrement 0x33 0xe8 0x08 0x01 read0 read1 read2 read3
@@ -2276,7 +2276,7 @@ theorem raw_blob_schedule_second_assembly_a7_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d34 (by omega)
     afterIncrement 0xb3 0x68 0x53 0x00 read0 read1 read2 read3
@@ -2329,7 +2329,7 @@ theorem raw_blob_schedule_second_assembly_t0_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d38 (by omega)
     afterIncrement 0xb3 0x62 0x7e 0x00 read0 read1 read2 read3
@@ -2382,7 +2382,7 @@ theorem raw_blob_schedule_second_assembly_a1_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d3c (by omega)
     afterIncrement 0xb3 0xe5 0xb6 0x00 read0 read1 read2 read3
@@ -2447,7 +2447,7 @@ theorem raw_blob_schedule_seventeenth_lbu_retire_exact (stepNo : Nat) (state : S
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d40 (by omega)
     afterIncrement 0x83 0xc6 0x0b 0x01 read0 read1 read2 read3
@@ -2512,7 +2512,7 @@ theorem raw_blob_schedule_eighteenth_lbu_retire_exact (stepNo : Nat) (state : St
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d44 (by omega)
     afterIncrement 0x03 0xc3 0x1b 0x01 read0 read1 read2 read3
@@ -2577,7 +2577,7 @@ theorem raw_blob_schedule_nineteenth_lbu_retire_exact (stepNo : Nat) (state : St
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d48 (by omega)
     afterIncrement 0x83 0xc3 0x2b 0x01 read0 read1 read2 read3
@@ -2642,7 +2642,7 @@ theorem raw_blob_schedule_twentieth_lbu_retire_exact (stepNo : Nat) (state : Sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d4c (by omega)
     afterIncrement 0x03 0xce 0x3b 0x01 read0 read1 read2 read3
@@ -2694,7 +2694,7 @@ theorem raw_blob_schedule_third_assembly_a5_shift_retire_exact (stepNo : Nat) (s
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d50 (by omega)
     afterIncrement 0x93 0x97 0x07 0x01 read0 read1 read2 read3
@@ -2747,7 +2747,7 @@ theorem raw_blob_schedule_third_assembly_t4_shift_retire_exact (stepNo : Nat) (s
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d54 (by omega)
     afterIncrement 0x93 0x9e 0x8e 0x01 read0 read1 read2 read3
@@ -2800,7 +2800,7 @@ theorem raw_blob_schedule_third_assembly_t1_shift_retire_exact (stepNo : Nat) (s
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d58 (by omega)
     afterIncrement 0x13 0x13 0x83 0x00 read0 read1 read2 read3
@@ -2853,7 +2853,7 @@ theorem raw_blob_schedule_third_assembly_t2_shift_retire_exact (stepNo : Nat) (s
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d5c (by omega)
     afterIncrement 0x93 0x93 0x03 0x01 read0 read1 read2 read3
@@ -2906,7 +2906,7 @@ theorem raw_blob_schedule_third_assembly_t3_shift_retire_exact (stepNo : Nat) (s
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d60 (by omega)
     afterIncrement 0x13 0x1e 0x8e 0x01 read0 read1 read2 read3
@@ -2960,7 +2960,7 @@ theorem raw_blob_schedule_third_assembly_a5_or_retire_exact (stepNo : Nat) (stat
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d64 (by omega)
     afterIncrement 0xb3 0xe7 0xfe 0x00 read0 read1 read2 read3
@@ -3013,7 +3013,7 @@ theorem raw_blob_schedule_third_assembly_a3_or_retire_exact (stepNo : Nat) (stat
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d68 (by omega)
     afterIncrement 0xb3 0x66 0xd3 0x00 read0 read1 read2 read3
@@ -3066,7 +3066,7 @@ theorem raw_blob_schedule_third_assembly_t1_or_retire_exact (stepNo : Nat) (stat
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d6c (by omega)
     afterIncrement 0x33 0x63 0x7e 0x00 read0 read1 read2 read3
@@ -3131,7 +3131,7 @@ theorem raw_blob_schedule_twenty_first_lbu_retire_exact (stepNo : Nat) (state : 
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d70 (by omega)
     afterIncrement 0x83 0xc3 0x5b 0x01 read0 read1 read2 read3
@@ -3196,7 +3196,7 @@ theorem raw_blob_schedule_twenty_second_lbu_retire_exact (stepNo : Nat) (state :
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d74 (by omega)
     afterIncrement 0x03 0xce 0x4b 0x01 read0 read1 read2 read3
@@ -3261,7 +3261,7 @@ theorem raw_blob_schedule_twenty_third_lbu_retire_exact (stepNo : Nat) (state : 
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d78 (by omega)
     afterIncrement 0x83 0xce 0x6b 0x01 read0 read1 read2 read3
@@ -3326,7 +3326,7 @@ theorem raw_blob_schedule_twenty_fourth_lbu_retire_exact (stepNo : Nat) (state :
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d7c (by omega)
     afterIncrement 0x03 0xcf 0x7b 0x01 read0 read1 read2 read3
@@ -3378,7 +3378,7 @@ theorem raw_blob_schedule_fourth_assembly_t2_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d80 (by omega)
     afterIncrement 0x93 0x93 0x83 0x00 read0 read1 read2 read3
@@ -3432,7 +3432,7 @@ theorem raw_blob_schedule_fourth_assembly_t2_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d84 (by omega)
     afterIncrement 0xb3 0xe3 0xc3 0x01 read0 read1 read2 read3
@@ -3484,7 +3484,7 @@ theorem raw_blob_schedule_fourth_assembly_t4_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d88 (by omega)
     afterIncrement 0x93 0x9e 0x0e 0x01 read0 read1 read2 read3
@@ -3537,7 +3537,7 @@ theorem raw_blob_schedule_fourth_assembly_t5_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d8c (by omega)
     afterIncrement 0x13 0x1f 0x8f 0x01 read0 read1 read2 read3
@@ -3591,7 +3591,7 @@ theorem raw_blob_schedule_fourth_assembly_t3_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d90 (by omega)
     afterIncrement 0x33 0x6e 0xdf 0x01 read0 read1 read2 read3
@@ -3644,7 +3644,7 @@ theorem raw_blob_schedule_fourth_assembly_a0_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d94 (by omega)
     afterIncrement 0x33 0x65 0xa6 0x00 read0 read1 read2 read3
@@ -3697,7 +3697,7 @@ theorem raw_blob_schedule_fourth_assembly_a2_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d98 (by omega)
     afterIncrement 0x33 0x66 0xe8 0x00 read0 read1 read2 read3
@@ -3750,7 +3750,7 @@ theorem raw_blob_schedule_fourth_assembly_a4_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12d9c (by omega)
     afterIncrement 0x33 0xe7 0x12 0x01 read0 read1 read2 read3
@@ -3803,7 +3803,7 @@ theorem raw_blob_schedule_fourth_assembly_a1_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12da0 (by omega)
     afterIncrement 0xb3 0xe5 0xb7 0x00 read0 read1 read2 read3
@@ -3856,7 +3856,7 @@ theorem raw_blob_schedule_fourth_assembly_a3_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12da4 (by omega)
     afterIncrement 0xb3 0x66 0xd3 0x00 read0 read1 read2 read3
@@ -3909,7 +3909,7 @@ theorem raw_blob_schedule_fourth_assembly_a5_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12da8 (by omega)
     afterIncrement 0xb3 0x67 0x7e 0x00 read0 read1 read2 read3
@@ -3961,7 +3961,7 @@ theorem raw_blob_schedule_fourth_assembly_a2_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12dac (by omega)
     afterIncrement 0x13 0x16 0x06 0x02 read0 read1 read2 read3
@@ -4014,7 +4014,7 @@ theorem raw_blob_schedule_fourth_assembly_a1_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12db0 (by omega)
     afterIncrement 0x93 0x95 0x05 0x02 read0 read1 read2 read3
@@ -4067,7 +4067,7 @@ theorem raw_blob_schedule_fourth_assembly_a5_shift_retire_exact (stepNo : Nat) (
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12db4 (by omega)
     afterIncrement 0x93 0x97 0x07 0x02 read0 read1 read2 read3
@@ -4121,7 +4121,7 @@ theorem raw_blob_schedule_fourth_assembly_s6_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12db8 (by omega)
     afterIncrement 0x33 0x6b 0xa6 0x00 read0 read1 read2 read3
@@ -4174,7 +4174,7 @@ theorem raw_blob_schedule_fourth_assembly_s5_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12dbc (by omega)
     afterIncrement 0xb3 0xea 0xe5 0x00 read0 read1 read2 read3
@@ -4227,7 +4227,7 @@ theorem raw_blob_schedule_fourth_assembly_s3_or_retire_exact (stepNo : Nat) (sta
   rcases image with ⟨read0, read1, read2, read3⟩
   have afterIncrement : Artifacts.programImage.matchesMemory
       (tryStepControlFlowAfterIncrement state).mem := by
-    grind
+    simpa [tryStepControlFlowAfterIncrement] using loaded
   have bytes := fetchBytesAt_of_image_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) 0x12dc0 (by omega)
     afterIncrement 0xb3 0xe9 0xd7 0x00 read0 read1 read2 read3

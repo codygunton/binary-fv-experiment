@@ -668,17 +668,27 @@ theorem rawResultInstanceObligation_proved
     rw [entryWord, ← rawResult_entry_address]
     exact machine.entry
   have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x13790) := by
-    grind
+    simpa [s1, rawResultAfterAuipc] using
+      afterRegisterWrite_pc state (BitVec.ofNat 64 0x1378c) r1 x10
+        (BitVec.ofNat 64 0x421578c)
   have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x13794) := by
-    grind
+    simpa [s2, rawResultAfterBaseAdd] using
+      afterRegisterWrite_pc s1 (BitVec.ofNat 64 0x13790) r2 x10
+        (BitVec.ofNat 64 0x4215020)
   have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x13798) := by
-    grind
+    simpa [s3, rawResultAfterDiscriminant] using
+      afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x13794) r3 x11
+        (zero_extend (m := 64) (rawResultTag model))
   have pc4 : s4.regs.get? PC = some (BitVec.ofNat 64 0x1379c) := by
-    grind
+    simpa [s4, rawResultAfterPayloadAdd] using
+      afterRegisterWrite_pc s3 (BitVec.ofNat 64 0x13798) r4 x10
+        (BitVec.ofNat 64 canonicalContractParams.resultBuffer)
   have pc5 : s5.regs.get? PC = some (BitVec.ofNat 64 0x137a0) := by
-    grind
+    simpa [s5, rawResultAfterSeqz] using
+      afterRegisterWrite_pc s4 (BitVec.ofNat 64 0x1379c) r5 x11 (rawResultSeqzValue model)
   have pc6 : s6.regs.get? PC = some (BitVec.ofNat 64 0x137a4) := by
-    grind
+    simpa [s6, rawResultAfterMask] using
+      afterRegisterWrite_pc s5 (BitVec.ofNat 64 0x137a0) r6 x11 (rawResultMaskValue model)
   have finalPc : final.regs.get? PC = some (BitVec.ofNat 64 0x137a8) := by
     simpa [final, rawResultAfterSelect] using
       afterRegisterWrite_pc s6 (BitVec.ofNat 64 0x137a4) r7 x10 (rawResultPointerValue model)

@@ -1128,7 +1128,7 @@ theorem decodeInline_first_through_result_tag
     apply afterRegisterWrite_agree_of
     all_goals simp [decoderPreserved, platformPreserved]
   have afterCode : Contracts.canonicalContractParams.env.CodeIntact afterTag := by
-    grind
+    simpa [afterTag, tagValue, afterRegisterWrite_mem] using code
   have afterX10 : afterTag.regs.get? x10 = some tagValue := by
     simp [afterTag, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
@@ -1145,7 +1145,7 @@ theorem decodeInline_first_through_result_tag
       rfl (afterRegisterWrite_mem resumed (BitVec.ofNat 64 0x10320) retired x10 tagValue)
     exact resumedPost
   have afterSaveArea : DecodeInlineCallerSaveArea args state afterTag := by
-    grind
+    simpa [afterTag, afterRegisterWrite_mem] using resumedSaveArea
   refine ⟨beforeCall, childUsed, resumed, retired, parentTrace, parentPrefix, bound, ⟨callTransfer⟩,
     by simpa [afterTag, tagValue] using tagRun, ?_, afterCode,
     Agree.trans resumedAgree tagAgree, ?_, afterStack, afterInputBase, afterInputLength, afterX10,
@@ -1311,7 +1311,7 @@ theorem decodeInline_first_success_copy_setup (fromStep : Nat) (args : DecodeInl
     simpa [s1] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x10328) retired1 x10 destination
   have stack1 : s1.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by grind
   have code1 : Contracts.canonicalContractParams.env.CodeIntact s1 := by
-    grind
+    simpa [s1, afterRegisterWrite_mem] using code
   let source := iTypeResult .ADDI 0x360#12 (BitVec.ofNat 64 args.stackBase)
   obtain ⟨retired2, run2⟩ := decodeInline_first_success_copy_source_step (fromStep + 1) args
     baseState s1 pre agree1
@@ -1325,7 +1325,7 @@ theorem decodeInline_first_success_copy_setup (fromStep : Nat) (args : DecodeInl
   have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10330) := by
     simpa [s2] using afterRegisterWrite_pc s1 (BitVec.ofNat 64 0x1032c) retired2 x11 source
   have code2 : Contracts.canonicalContractParams.env.CodeIntact s2 := by
-    grind
+    simpa [s2, afterRegisterWrite_mem] using code1
   let length := iTypeResult .ADDI 0x340#12 (0#64)
   obtain ⟨retired3, run3⟩ := decodeInline_first_success_copy_length_step (fromStep + 2) args
     baseState s2 pre agree2
@@ -1339,7 +1339,7 @@ theorem decodeInline_first_success_copy_setup (fromStep : Nat) (args : DecodeInl
   have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x10334) := by
     simpa [s3] using afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x10330) retired3 x12 length
   have code3 : Contracts.canonicalContractParams.env.CodeIntact s3 := by
-    grind
+    simpa [s3, afterRegisterWrite_mem] using code2
   obtain ⟨retired4, run4⟩ := decodeInline_first_success_copy_call_page_step
     (fromStep + 3) args baseState s3 pre agree3
     (afterRegisterWrite_retired_present s2 (BitVec.ofNat 64 0x10330) retired3 x12 length)
@@ -1912,7 +1912,7 @@ theorem decodeInline_retry_reaches_length_gate (fromStep : Nat) (args : DecodeIn
     simp [s2, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
   have code2 : Contracts.canonicalContractParams.env.CodeIntact s2 := by
-    grind
+    simpa [s2, afterRegisterWrite_mem] using branchCode
   obtain ⟨shiftRetired, shiftRun⟩ := decodeInline_retry_shift_constant_step
     (fromStep + 2) args state s2 pre agree2
     (afterRegisterWrite_retired_present s1 (BitVec.ofNat 64 0x10384) minusOneRetired x10
@@ -1932,7 +1932,7 @@ theorem decodeInline_retry_reaches_length_gate (fromStep : Nat) (args : DecodeIn
     simp [s3, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
   have code3 : Contracts.canonicalContractParams.env.CodeIntact s3 := by
-    grind
+    simpa [s3, afterRegisterWrite_mem] using code2
   obtain ⟨minusFourRetired, minusFourRun⟩ := decodeInline_retry_minus_four_step
     (fromStep + 3) args state s3 pre agree3
     (afterRegisterWrite_retired_present s2 (BitVec.ofNat 64 0x10388) shiftRetired x10
@@ -1954,7 +1954,7 @@ theorem decodeInline_retry_reaches_length_gate (fromStep : Nat) (args : DecodeIn
     simp [s4, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
   have code4 : Contracts.canonicalContractParams.env.CodeIntact s4 := by
-    grind
+    simpa [s4, afterRegisterWrite_mem] using code3
   have counter4 := afterRegisterWrite_retired_present s3 (BitVec.ofNat 64 0x1038c)
     minusFourRetired x12 (BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32 - 4))
   let childArgs : HasExactErePrefixInlineArgs :=
@@ -2549,7 +2549,9 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
     constructor
     · simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
-    · grind
+    · simpa [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+        Std.ExtDHashMap.get?_insert] using prefixPost.2.2.2
 
 /-! ## Exact-prefix second-call setup -/
 
@@ -2719,7 +2721,7 @@ theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
       x12 (iTypeResult .ADDI 0x004#12 (BitVec.ofNat 64 args.inputBase))
   have stackTail : sTail.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by grind
   have codeTail : Contracts.canonicalContractParams.env.CodeIntact sTail := by
-    grind
+    simpa [sTail, afterRegisterWrite_mem] using codeBranch
   obtain ⟨resultRetired, resultRun⟩ := decodeInline_retry_result_pointer_step
     (fromStep + (8 + lengthUsed + prefixUsed)) args state sTail pre agreeTail counterTail codeTail
       pcTail stackTail
@@ -2736,7 +2738,7 @@ theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
       x10 (iTypeResult .ADDI 0x6b0#12 (BitVec.ofNat 64 args.stackBase))
   have stackResult : sResult.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by grind
   have codeResult : Contracts.canonicalContractParams.env.CodeIntact sResult := by
-    grind
+    simpa [sResult, afterRegisterWrite_mem] using codeTail
   obtain ⟨allocatorRetired, allocatorRun⟩ := decodeInline_retry_allocator_pointer_step
     (fromStep + (9 + lengthUsed + prefixUsed)) args state sResult pre agreeResult counterResult
       codeResult pcResult stackResult
@@ -2752,7 +2754,7 @@ theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
     simpa [sAllocator] using afterRegisterWrite_pc sResult (BitVec.ofNat 64 0x103d0)
       allocatorRetired x11 (iTypeResult .ADDI 0x010#12 (BitVec.ofNat 64 args.stackBase))
   have codeAllocator : Contracts.canonicalContractParams.env.CodeIntact sAllocator := by
-    grind
+    simpa [sAllocator, afterRegisterWrite_mem] using codeResult
   obtain ⟨pageRetired, pageRun⟩ := decodeInline_retry_call_page_step
     (fromStep + (10 + lengthUsed + prefixUsed)) args state sAllocator pre agreeAllocator
       counterAllocator codeAllocator pcAllocator
@@ -2764,9 +2766,9 @@ theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
   have counterBeforeCall := afterRegisterWrite_retired_present sAllocator
     (BitVec.ofNat 64 0x103d4) pageRetired x1 (BitVec.ofNat 64 0x103d4)
   have codeBeforeCall : Contracts.canonicalContractParams.env.CodeIntact beforeCall := by
-    grind
+    simpa [beforeCall, afterRegisterWrite_mem] using codeAllocator
   have memoryBeforeCall : beforeCall.mem = state.mem := by
-    grind
+    simpa [beforeCall, sAllocator, sResult, sTail, afterRegisterWrite_mem] using memoryBranch
   have notExit (pc : Nat) (pcFits : pc < 2 ^ 64) (notFinal : pc ≠ 0x103f8) :
       ¬ DecodeInlineExit args (BitVec.ofNat 64 pc) := by
     simp only [DecodeInlineExit, phase, exactPrefix, ↓reduceIte]
@@ -3249,7 +3251,7 @@ theorem decodeInline_retry_copy_setup (fromStep : Nat) (args : DecodeInlineArgs)
     simpa [s1] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x103dc) retired1 x10 destination
   have stack1 : s1.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by grind
   have code1 : Contracts.canonicalContractParams.env.CodeIntact s1 := by
-    grind
+    simpa [s1, afterRegisterWrite_mem] using code
   let source := iTypeResult .ADDI 0x6b0#12 (BitVec.ofNat 64 args.stackBase)
   obtain ⟨retired2, run2⟩ := decodeInline_retry_copy_source_step (fromStep + 1) args
     baseState s1 pre agree1
@@ -3262,7 +3264,7 @@ theorem decodeInline_retry_copy_setup (fromStep : Nat) (args : DecodeInlineArgs)
   have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x103e4) := by
     simpa [s2] using afterRegisterWrite_pc s1 (BitVec.ofNat 64 0x103e0) retired2 x11 source
   have code2 : Contracts.canonicalContractParams.env.CodeIntact s2 := by
-    grind
+    simpa [s2, afterRegisterWrite_mem] using code1
   let length := iTypeResult .ADDI 0x340#12 (0#64)
   obtain ⟨retired3, run3⟩ := decodeInline_retry_copy_length_step (fromStep + 2) args
     baseState s2 pre agree2
@@ -3275,7 +3277,7 @@ theorem decodeInline_retry_copy_setup (fromStep : Nat) (args : DecodeInlineArgs)
   have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x103e8) := by
     simpa [s3] using afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x103e4) retired3 x12 length
   have code3 : Contracts.canonicalContractParams.env.CodeIntact s3 := by
-    grind
+    simpa [s3, afterRegisterWrite_mem] using code2
   obtain ⟨retired4, run4⟩ := decodeInline_retry_copy_call_page_step (fromStep + 3) args
     baseState s3 pre agree3
       (afterRegisterWrite_retired_present s2 (BitVec.ofNat 64 0x103e4) retired3 x12 length)
@@ -3345,7 +3347,7 @@ theorem decodeInline_retry_copy_setup (fromStep : Nat) (args : DecodeInlineArgs)
       apply afterRegisterWrite_agree_of <;> simp [decoderPreserved, platformPreserved])
   · exact afterRegisterWrite_retired_present s3 (BitVec.ofNat 64 0x103e8) retired4 x1
       (BitVec.ofNat 64 0x143e8)
-  · grind
+  · simpa [beforeCall, afterRegisterWrite_mem] using code3
   · simp [beforeCall, s3, s2, s1, afterRegisterWrite_mem]
 
 def decodeInlineMemcpyCallAfter (state : State) (retired : BitVec 64) : State :=
