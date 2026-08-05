@@ -59,6 +59,14 @@ theorem rawError_entry_mem_level1PlatformPcs :
     resolvedSymbols.rawError ∈ level1PlatformPcs := by
   native_decide
 
+/-- Transport pinned load permissions across any frame that preserves the platform registers.
+Every accessor step in this module frames its loads exactly this way. -/
+private theorem loadPlatformPinned_of_agree {before after : State} {accesses : List (Nat × Nat)}
+    (agree : Agree platformPreserved before after) (pinned : LoadPlatformPinned before accesses) :
+    LoadPlatformPinned after accesses :=
+  loadPlatformPinned_frame (platformPreserved_mstatus agree) (platformPreserved_mseccfg agree)
+    (platformPreserved_pmaRegions agree) pinned
+
 /-- Transport a caller-selected set of fetch conditions across a contract frame. -/
 theorem exitPlatformsFor_of_agree {pcs : List Nat} {before after : State}
     (agree : Agree platformPreserved before after) (retired : RetiredCounterPresent after)
@@ -138,13 +146,9 @@ theorem decodeRun_of_compiledLevel1 (decode : DecodeInstanceObligation) (input :
         (hplatformEntry 0x10378 (by simp [level1PlatformPcs])))
       htrace
   have hloadsAtExit : LoadPlatformPinned atExit level1LoadAccesses :=
-    loadPlatformPinned_frame (platformPreserved_mstatus hexit.2.2.2.1)
-      (platformPreserved_mseccfg hexit.2.2.2.1)
-      (platformPreserved_pmaRegions hexit.2.2.2.1) hloadsEntry
+    loadPlatformPinned_of_agree hexit.2.2.2.1 hloadsEntry
   have hloadsFinal : LoadPlatformPinned finalState level1LoadAccesses :=
-    loadPlatformPinned_frame (platformPreserved_mstatus hframe.agree)
-      (platformPreserved_mseccfg hframe.agree)
-      (platformPreserved_pmaRegions hframe.agree) hloadsAtExit
+    loadPlatformPinned_of_agree hframe.agree hloadsAtExit
   have hbound' : count ≤ entryStepBound input.size := by
     simpa [compiledZesuDecodeRawContract, functionInstanceZesuDecodeRaw, entryStepBound] using hbound
   exact ⟨entryState, atExit, finalState, count, hrun, hsentinel,
@@ -185,8 +189,7 @@ theorem rawResultHandoff_of_compiled
   have hsetup : Agree platformPreserved state setup :=
     agree_accessorSetup _ (hplatform resolvedSymbols.rawResult (by native_decide)).link
   have hloadsSetup : LoadPlatformPinned setup level1LoadAccesses :=
-    loadPlatformPinned_frame (platformPreserved_mstatus hsetup)
-      (platformPreserved_mseccfg hsetup) (platformPreserved_pmaRegions hsetup) hloads
+    loadPlatformPinned_of_agree hsetup hloads
   have hmachine : RawResultMachinePre setup :=
     { entry := by simp [setup, accessorSetup, Std.ExtDHashMap.get?_insert]
       instructions := by
@@ -221,13 +224,9 @@ theorem rawResultHandoff_of_compiled
     have : loadedCeiling < 2 ^ 64 := by decide
     split <;> omega
   have hloadsAtExit : LoadPlatformPinned atExit level1LoadAccesses :=
-    loadPlatformPinned_frame (platformPreserved_mstatus hpost.2.2.2.1)
-      (platformPreserved_mseccfg hpost.2.2.2.1)
-      (platformPreserved_pmaRegions hpost.2.2.2.1) hloadsSetup
+    loadPlatformPinned_of_agree hpost.2.2.2.1 hloadsSetup
   have hloadsMiddle : LoadPlatformPinned middle level1LoadAccesses :=
-    loadPlatformPinned_frame (platformPreserved_mstatus hframe.agree)
-      (platformPreserved_mseccfg hframe.agree)
-      (platformPreserved_pmaRegions hframe.agree) hloadsAtExit
+    loadPlatformPinned_of_agree hframe.agree hloadsAtExit
   refine ⟨middle, hreach,
     observeReturnCode_of_a0 hpointerBound (hframe.returnValue.trans hpost.2.2.2.2.2.2),
     codeIntact_of_mem_eq hframe.mem hpost.1,
@@ -255,8 +254,7 @@ theorem rawErrorResult_of_compiled
     agree_accessorSetup _
       (handoff.platform resolvedSymbols.rawError rawError_entry_mem_level1PlatformPcs).link
   have hloadsSetup : LoadPlatformPinned setup level1LoadAccesses :=
-    loadPlatformPinned_frame (platformPreserved_mstatus hsetup)
-      (platformPreserved_mseccfg hsetup) (platformPreserved_pmaRegions hsetup) handoff.loads
+    loadPlatformPinned_of_agree hsetup handoff.loads
   have hmachine : RawErrorMachinePre setup :=
     { entry := by simp [setup, accessorSetup, Std.ExtDHashMap.get?_insert]
       instructions := by

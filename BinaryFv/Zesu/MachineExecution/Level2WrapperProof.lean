@@ -731,6 +731,27 @@ theorem wrapper_save_link_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     (by unfold BaseInstructionEncoding; decide) decode
   exact ⟨link, storeRetired, linkAtEntry, by simpa [state] using run⟩
 
+/-- The wrapper's own confined-prefix shape, named once so each step composition states it in a
+line. As an `abbrev` it is reducible, so it *is* the spelled-out application. -/
+private abbrev WrapperConfinedPrefix (fromStep used : Nat) (before after : State) : Prop :=
+  ConfinedPrefix
+    (functionInstanceExecutionPcs generatedProgram
+      functionInstance_raw_decoder_root_zesu_decode_raw)
+    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    Level2ChildSummary fromStep used before after
+
+/-- One wrapper-owned Sail step, packaged at the numeric-pc spelling every prefix proof in this
+file uses. -/
+private theorem wrapperOwnStep (stepNo pc : Nat) (before after : State)
+    (atPc : before.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (inRegion : functionInstanceExecutionPcs generatedProgram
+      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 pc))
+    (notExit : ¬ functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw
+      (BitVec.ofNat 64 pc))
+    (run : Runs (try_step stepNo false) before after false) :
+    WrapperConfinedPrefix stepNo 1 before after :=
+  ConfinedPrefix.ownStep atPc inRegion notExit run
+
 /-- Sail executes the wrapper's frame decrement and all four saved-register stores. -/
 theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     (stackBase : Nat) (entry : State)
@@ -866,46 +887,47 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have finalRetired := wrapperAfterDwordStore_retired afterS1
     (BitVec.ofNat 64 0x102c0) s2Retired (BitVec.ofNat 64 (stackBase + 0xa00)) s2
   have frameFits := machine.stackFrameFits
-  have linkFits : stackBase + 0xa18 < 2 ^ 64 := by omega
-  have s0Fits : stackBase + 0xa10 < 2 ^ 64 := by omega
-  have s1Fits : stackBase + 0xa08 < 2 ^ 64 := by omega
-  have s2Fits : stackBase + 0xa00 < 2 ^ 64 := by omega
+  -- Every slot this proof stores to lies inside the wrapper's own frame, so its address literal
+  -- reads back as the plain sum. Stated once, it discharges all fourteen `targetValue` premises.
+  have offsetToNat : ∀ offset : Nat, offset + 8 ≤ 0xa20 →
+      (BitVec.ofNat 64 (stackBase + offset)).toNat = stackBase + offset := by
+    intro offset bound
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
   have linkBytes : SavedWordBytes afterLink (stackBase + 0xa18) link :=
-    wrapperAfterDwordStore_savedWord frame _ _ _ _ (stackBase + 0xa18) (by
-      simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt linkFits])
+    wrapperAfterDwordStore_savedWord frame _ _ _ _ (stackBase + 0xa18) (offsetToNat 0xa18 (by omega))
   have s0Bytes : SavedWordBytes afterS0 (stackBase + 0xa10) s0 :=
-    wrapperAfterDwordStore_savedWord afterLink _ _ _ _ (stackBase + 0xa10) (by
-      simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt s0Fits])
+    wrapperAfterDwordStore_savedWord afterLink _ _ _ _ (stackBase + 0xa10)
+      (offsetToNat 0xa10 (by omega))
   have s1Bytes : SavedWordBytes afterS1 (stackBase + 0xa08) s1 :=
-    wrapperAfterDwordStore_savedWord afterS0 _ _ _ _ (stackBase + 0xa08) (by
-      simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt s1Fits])
+    wrapperAfterDwordStore_savedWord afterS0 _ _ _ _ (stackBase + 0xa08)
+      (offsetToNat 0xa08 (by omega))
   have s2Bytes : SavedWordBytes final (stackBase + 0xa00) s2 :=
-    wrapperAfterDwordStore_savedWord afterS1 _ _ _ _ (stackBase + 0xa00) (by
-      simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt s2Fits])
+    wrapperAfterDwordStore_savedWord afterS1 _ _ _ _ (stackBase + 0xa00)
+      (offsetToNat 0xa00 (by omega))
   have linkAfterS0 := wrapperAfterDwordStore_preserves_savedWord afterLink
     (BitVec.ofNat 64 0x102b8) s0Retired (BitVec.ofNat 64 (stackBase + 0xa10)) s0
     (stackBase + 0xa10) (stackBase + 0xa18) link
-    (by simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt s0Fits]) (by omega) linkBytes
+    (offsetToNat 0xa10 (by omega)) (by omega) linkBytes
   have linkAfterS1 := wrapperAfterDwordStore_preserves_savedWord afterS0
     (BitVec.ofNat 64 0x102bc) s1Retired (BitVec.ofNat 64 (stackBase + 0xa08)) s1
     (stackBase + 0xa08) (stackBase + 0xa18) link
-    (by simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt s1Fits]) (by omega) linkAfterS0
+    (offsetToNat 0xa08 (by omega)) (by omega) linkAfterS0
   have linkFinal := wrapperAfterDwordStore_preserves_savedWord afterS1
     (BitVec.ofNat 64 0x102c0) s2Retired (BitVec.ofNat 64 (stackBase + 0xa00)) s2
     (stackBase + 0xa00) (stackBase + 0xa18) link
-    (by simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt s2Fits]) (by omega) linkAfterS1
+    (offsetToNat 0xa00 (by omega)) (by omega) linkAfterS1
   have s0AfterS1 := wrapperAfterDwordStore_preserves_savedWord afterS0
     (BitVec.ofNat 64 0x102bc) s1Retired (BitVec.ofNat 64 (stackBase + 0xa08)) s1
     (stackBase + 0xa08) (stackBase + 0xa10) s0
-    (by simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt s1Fits]) (by omega) s0Bytes
+    (offsetToNat 0xa08 (by omega)) (by omega) s0Bytes
   have s0Final := wrapperAfterDwordStore_preserves_savedWord afterS1
     (BitVec.ofNat 64 0x102c0) s2Retired (BitVec.ofNat 64 (stackBase + 0xa00)) s2
     (stackBase + 0xa00) (stackBase + 0xa10) s0
-    (by simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt s2Fits]) (by omega) s0AfterS1
+    (offsetToNat 0xa00 (by omega)) (by omega) s0AfterS1
   have s1Final := wrapperAfterDwordStore_preserves_savedWord afterS1
     (BitVec.ofNat 64 0x102c0) s2Retired (BitVec.ofNat 64 (stackBase + 0xa00)) s2
     (stackBase + 0xa00) (stackBase + 0xa08) s1
-    (by simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt s2Fits]) (by omega) s1Bytes
+    (offsetToNat 0xa00 (by omega)) (by omega) s1Bytes
   have finalSavedFrame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 final :=
     ⟨linkFinal, s0Final, s1Final, s2Bytes⟩
   have frameAttempted : frame.mem.get? 0x4215020 = entry.mem.get? 0x4215020 := by
@@ -924,49 +946,20 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     simpa [frame, wrapperAfterFirstFrameDecrement, afterRegisterWrite_mem] using source.1
   have linkInput := wrapperAfterDwordStore_inputMemory args stackBase machine frame
     (BitVec.ofNat 64 0x102b4) linkRetired (BitVec.ofNat 64 (stackBase + 0xa18)) link
-    (stackBase + 0xa18) (by
-      simp only [BitVec.toNat_ofNat]
-      apply Nat.mod_eq_of_lt
-      have frameFits := machine.stackFrameFits
-      omega)
+    (stackBase + 0xa18) (offsetToNat 0xa18 (by omega))
     (by omega) (by omega) frameInput
   have s0Input := wrapperAfterDwordStore_inputMemory args stackBase machine afterLink
     (BitVec.ofNat 64 0x102b8) s0Retired (BitVec.ofNat 64 (stackBase + 0xa10)) s0
-    (stackBase + 0xa10) (by
-      simp only [BitVec.toNat_ofNat]
-      apply Nat.mod_eq_of_lt
-      have frameFits := machine.stackFrameFits
-      omega)
+    (stackBase + 0xa10) (offsetToNat 0xa10 (by omega))
     (by omega) (by omega) linkInput
   have s1Input := wrapperAfterDwordStore_inputMemory args stackBase machine afterS0
     (BitVec.ofNat 64 0x102bc) s1Retired (BitVec.ofNat 64 (stackBase + 0xa08)) s1
-    (stackBase + 0xa08) (by
-      simp only [BitVec.toNat_ofNat]
-      apply Nat.mod_eq_of_lt
-      have frameFits := machine.stackFrameFits
-      omega)
+    (stackBase + 0xa08) (offsetToNat 0xa08 (by omega))
     (by omega) (by omega) s0Input
   have finalInputMemory := wrapperAfterDwordStore_inputMemory args stackBase machine afterS1
     (BitVec.ofNat 64 0x102c0) s2Retired (BitVec.ofNat 64 (stackBase + 0xa00)) s2
-    (stackBase + 0xa00) (by
-      simp only [BitVec.toNat_ofNat]
-      apply Nat.mod_eq_of_lt
-      have frameFits := machine.stackFrameFits
-      omega)
+    (stackBase + 0xa00) (offsetToNat 0xa00 (by omega))
     (by omega) (by omega) s1Input
-  have ownStep (stepNo pc : Nat) (before after : State)
-      (atPc : before.regs.get? PC = some (BitVec.ofNat 64 pc))
-      (inRegion : functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 pc))
-      (notExit : ¬ functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw
-        (BitVec.ofNat 64 pc))
-      (run : Runs (try_step stepNo false) before after false) :
-      ConfinedPrefix
-        (functionInstanceExecutionPcs generatedProgram
-          functionInstance_raw_decoder_root_zesu_decode_raw)
-        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-        Level2ChildSummary stepNo 1 before after := by
-    exact ConfinedPrefix.ownStep atPc inRegion notExit run
   have framePc : frame.regs.get? PC = some (BitVec.ofNat 64 0x102b4) := by
     change (wrapperAfterFirstFrameDecrement entry frameRetired
       (BitVec.ofNat 64 (stackBase + 0xa20))).regs.get? PC =
@@ -974,26 +967,22 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     unfold wrapperAfterFirstFrameDecrement
     exact afterRegisterWrite_pc entry (BitVec.ofNat 64 0x102b0) frameRetired x2
       (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))
-  have prefix0 := ownStep fromStep 0x102b0 entry frame machine.atEntry (regionPc _)
+  have prefix0 := wrapperOwnStep fromStep 0x102b0 entry frame machine.atEntry (regionPc _)
     (notExitPc _)
     (by simpa [frame] using frameRun)
-  have prefix1 := ownStep (fromStep + 1) 0x102b4 frame afterLink framePc (regionPc _)
+  have prefix1 := wrapperOwnStep (fromStep + 1) 0x102b4 frame afterLink framePc (regionPc _)
     (notExitPc _)
     (by simpa [frame, afterLink] using linkRun)
-  have prefix2 := ownStep (fromStep + 2) 0x102b8 afterLink afterS0 linkPc (regionPc _)
+  have prefix2 := wrapperOwnStep (fromStep + 2) 0x102b8 afterLink afterS0 linkPc (regionPc _)
     (notExitPc _)
     (by simpa [afterS0] using s0Run)
-  have prefix3 := ownStep (fromStep + 3) 0x102bc afterS0 afterS1 s0Pc (regionPc _)
+  have prefix3 := wrapperOwnStep (fromStep + 3) 0x102bc afterS0 afterS1 s0Pc (regionPc _)
     (notExitPc _)
     (by simpa [afterS1] using s1Run)
-  have prefix4 := ownStep (fromStep + 4) 0x102c0 afterS1 final s1Pc (regionPc _)
+  have prefix4 := wrapperOwnStep (fromStep + 4) 0x102c0 afterS1 final s1Pc (regionPc _)
     (notExitPc _)
     (by simpa [final] using s2Run)
-  have confined : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 5 entry final := by
+  have confined : WrapperConfinedPrefix fromStep 5 entry final := by
     confined_steps [prefix0, prefix1, prefix2, prefix3, prefix4]
   refine ⟨final, ?_, confined, finalPc, finalStack, finalInput, finalLength, finalAttempted,
     finalInputMemory, finalPlatformAgree, finalRetired, finalCode,
@@ -1100,17 +1089,9 @@ theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   obtain ⟨link, s0, s1, s2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, savedFrame⟩ := savedFrame
   have finalFrame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 final :=
     WrapperSavedRegisterFrame.of_mem_eq savedFrame (by simp [final, afterRegisterWrite_mem])
-  have finalStep : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 5) 1 saved final :=
+  have finalStep : WrapperConfinedPrefix (fromStep + 5) 1 saved final :=
     ConfinedPrefix.ownStep' savedPc (by simpa [final] using run)
-  have confined : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 6 entry final := by
+  have confined : WrapperConfinedPrefix fromStep 6 entry final := by
     confined_steps [savedPrefix, finalStep]
   refine ⟨final, ?_, confined, finalPc, by simpa [final] using finalStack, finalInput, finalLength,
     finalAttempted, finalInputMemory, finalAgree, finalRetired, finalCode,
@@ -1540,36 +1521,19 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
     apply WrapperSavedRegisterFrame.of_mem_eq frame6
     rfl
-  have ownStep (stepNo pc : Nat) (before after : State)
-      (atPc : before.regs.get? PC = some (BitVec.ofNat 64 pc))
-      (inRegion : functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 pc))
-      (notExit : ¬ functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw
-        (BitVec.ofNat 64 pc))
-      (run : Runs (try_step stepNo false) before after false) :
-      ConfinedPrefix
-        (functionInstanceExecutionPcs generatedProgram
-          functionInstance_raw_decoder_root_zesu_decode_raw)
-        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-        Level2ChildSummary stepNo 1 before after := by
-    exact ConfinedPrefix.ownStep atPc inRegion notExit run
-  have prefix7 := ownStep (fromStep + 6) 0x102c8 s6 s7 pc6 (regionPc _)
+  have prefix7 := wrapperOwnStep (fromStep + 6) 0x102c8 s6 s7 pc6 (regionPc _)
     (notExitPc _) (by simpa [s7] using run7)
-  have prefix8 := ownStep (fromStep + 7) 0x102cc s7 s8 pc7 (regionPc _)
+  have prefix8 := wrapperOwnStep (fromStep + 7) 0x102cc s7 s8 pc7 (regionPc _)
     (notExitPc _) (by simpa [s8] using run8)
-  have prefix9 := ownStep (fromStep + 8) 0x102d0 s8 s9 pc8 (regionPc _)
+  have prefix9 := wrapperOwnStep (fromStep + 8) 0x102d0 s8 s9 pc8 (regionPc _)
     (notExitPc _) (by simpa [s9] using run9)
-  have prefix10 := ownStep (fromStep + 9) 0x102d4 s9 s10 pc9 (regionPc _)
+  have prefix10 := wrapperOwnStep (fromStep + 9) 0x102d4 s9 s10 pc9 (regionPc _)
     (notExitPc _) (by simpa [s10] using run10)
-  have prefix11 := ownStep (fromStep + 10) 0x102d8 s10 final pc10
+  have prefix11 := wrapperOwnStep (fromStep + 10) 0x102d8 s10 final pc10
     (regionPc _)
     (notExitPc _)
     (by simpa [final] using run11)
-  have confined : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 11 entry final := by
+  have confined : WrapperConfinedPrefix fromStep 11 entry final := by
     confined_steps [prefix6, prefix7, prefix8, prefix9, prefix10, prefix11]
   refine ⟨final, ?_, confined, by simpa [final] using pc11, finalStack, finalInput, finalLength,
     finalGlobals, finalFresh, finalInputMemory, finalAgree, finalRetired, finalCode,
@@ -1707,23 +1671,11 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
   have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
     apply WrapperSavedRegisterFrame.of_mem_eq frame11
     simp [final, s12, afterRegisterWrite_mem]
-  have prefix12 : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 11) 1 s11 s12 :=
+  have prefix12 : WrapperConfinedPrefix (fromStep + 11) 1 s11 s12 :=
     ConfinedPrefix.ownStep' pc11 (by simpa [s12] using run12)
-  have prefix13 : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 12) 1 s12 final :=
+  have prefix13 : WrapperConfinedPrefix (fromStep + 12) 1 s12 final :=
     ConfinedPrefix.ownStep' pc12 (by simpa [final] using run13)
-  have confined : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 13 entry final := by
+  have confined : WrapperConfinedPrefix fromStep 13 entry final := by
     confined_steps [prefix11, prefix12, prefix13]
   refine ⟨final, ?_, confined, finalPc, finalStack, finalSavedInput, finalLength, finalValue,
     finalGlobals, finalFresh,
@@ -1913,27 +1865,15 @@ theorem wrapper_through_allocator_tag
       (BitVec.ofNat 64 0x4215020) (1#64) stackBase tagBeforeSaveArea firstFrame
   have firstLevel2 := firstTransfer.mapSummary
     (fun child stepNo used before after run => allocatorChildSummary_to_level2 run)
-  have firstPrefix : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 13) 1 atAllocator afterFirst := by
+  have firstPrefix : WrapperConfinedPrefix (fromStep + 13) 1 atAllocator afterFirst := by
     intro count tail rest
     simpa [Nat.add_assoc] using ScopedTrace.inlineStep (fromStep + 13) 0 count
       allocatorInlineBoundary generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw
       functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41
       atAllocator afterFirst tail firstLevel2 (by simpa [Nat.add_assoc] using rest)
-  have tagPrefix : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 14) 1 afterFirst final :=
+  have tagPrefix : WrapperConfinedPrefix (fromStep + 14) 1 afterFirst final :=
     ConfinedPrefix.ownStep' firstPc (by simpa [final] using tagStep)
-  have confined : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 15 entry final := by
+  have confined : WrapperConfinedPrefix fromStep 15 entry final := by
     confined_steps [prefix13, firstPrefix, tagPrefix]
   refine ⟨final, ?_, confined, finalPc, finalStack, finalSavedInput, finalLength, finalContext,
     finalGlobals, finalInputMemory, finalAgree, finalRetired, finalCode,
@@ -2299,21 +2239,13 @@ theorem wrapper_through_allocator_setup
   have complete := Trace.append trace15 (by simpa [Nat.add_assoc] using trace4)
   have secondLevel2 := transfer.mapSummary
     (fun child stepNo used before after run => allocatorChildSummary_to_level2 run)
-  have secondPrefix : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 15) 4 atSecond final := by
+  have secondPrefix : WrapperConfinedPrefix (fromStep + 15) 4 atSecond final := by
     intro count tail rest
     simpa [Nat.add_assoc] using ScopedTrace.inlineStep (fromStep + 15) 3 count
       allocatorInlineBoundary generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw
       functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41
       atSecond final tail secondLevel2 (by simpa [Nat.add_assoc] using rest)
-  have confined : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep 19 entry final := by
+  have confined : WrapperConfinedPrefix fromStep 19 entry final := by
     confined_steps [prefix15, secondPrefix]
   exact ⟨final, by simpa [Nat.add_assoc] using complete, confined, post.pc, post.stack,
     post.savedInput, post.length, post.globals, post.inputMemory, post.agree, post.retired, post.code,
