@@ -177,4 +177,64 @@ Dropping either makes typeclass synthesis unable to build the `Decidable` instan
 Decidable` -- an error that names the goal and not the missing attribute. Keep this example. -/
 example : ¬ (RegSet.union (RegSet.only PC) (RegSet.only x13)) x2 := by decide
 
+/-! ## Automation
+
+The two rules below are the only `grind` registrations in the repository, and they are deliberately
+narrow. Nothing that unfolds a step definition is registered: five separate measurements found an
+18x-126x slowdown when step-unfolding equations enter a grind set, because every `try_step` in scope
+then re-elaborates. These two rules add no such equations -- they are a forward rule on an opaque
+relation and a multi-pattern over the write-set kit.
+-/
+
+/-! `Agree.trans` chains agreement forward, so a proof states the endpoints and not the intermediate
+states. `Agree` is a plain `def`, so `grind` treats it as an opaque symbol and matches on it
+structurally, which is what makes this cheap. -/
+attribute [grind →] Agree.trans
+
+/-! `WritesOnlyRegs.get` discharges a register read through a step whose write set is known,
+including the membership side condition and any number of intermediate steps.
+
+A multi-pattern is required rather than `@[grind →]` or `@[grind ←]`, and the failure is instructive:
+the conclusion `t.regs.get? r = s.regs.get? r` does not mention `W`, and the antecedent
+`WritesOnlyRegs W s t` does not mention `r`, so *neither* side alone determines the instantiation and
+both single-sided attributes are rejected outright with "failed to find patterns". Taken together
+they determine all four variables.
+
+This is what makes the write-set kit self-composing. Given a chain of per-step facts, `grind` walks
+the intermediate states itself and discharges `¬ W r` by `decide` against the `@[reducible]`
+constructors above -- so a four-step read needs neither `trans_same`, nor `mono`, nor a named
+intermediate state, none of which the caller now writes. The examples below pin both halves: that it
+closes preserved reads through a chain, and that it still *fails* on a register the chain writes. -/
+grind_pattern WritesOnlyRegs.get => WritesOnlyRegs W s t, t.regs.get? r
+
+section GrindRegression
+variable {s t u v : State}
+
+/-- A read of a preserved register through one step. -/
+example (h : WritesOnlyRegs (RegSet.union (RegSet.only PC) (RegSet.only x13)) s t) :
+    t.regs.get? x2 = s.regs.get? x2 := by grind
+
+/-- Through three steps that write different registers, with no intermediate state named. -/
+example (h1 : WritesOnlyRegs (RegSet.union (RegSet.only PC) (RegSet.only x13)) s t)
+    (h2 : WritesOnlyRegs (RegSet.union (RegSet.only PC) (RegSet.only x14)) t u)
+    (h3 : WritesOnlyRegs (RegSet.union (RegSet.only PC) (RegSet.only x15)) u v) :
+    v.regs.get? x8 = s.regs.get? x8 := by grind
+
+/-- The rule must not prove a register the chain writes. Without this the two above would be
+satisfied by a rule that ignored its side condition entirely.
+
+The goal is genuinely underivable here, so the check wraps the `have` rather than sitting inside a
+proof of it: `fail_if_success` succeeds exactly when `grind` cannot build the term. -/
+example (_h1 : WritesOnlyRegs (RegSet.union (RegSet.only PC) (RegSet.only x13)) s t)
+    (_h2 : WritesOnlyRegs (RegSet.union (RegSet.only PC) (RegSet.only x14)) t u) : True := by
+  fail_if_success (have : u.regs.get? x14 = s.regs.get? x14 := by grind)
+  trivial
+
+/-- Nor a register written by the bookkeeping half of the set. -/
+example (_h : WritesOnlyRegs (RegSet.union (RegSet.only PC) (RegSet.only x13)) s t) : True := by
+  fail_if_success (have : t.regs.get? PC = s.regs.get? PC := by grind)
+  trivial
+
+end GrindRegression
+
 end BinaryFv.RiscV
