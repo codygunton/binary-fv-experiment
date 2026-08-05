@@ -128,7 +128,7 @@ theorem fetchBytesAt_of_ownedEncodedWord (image : ProgramImage) (state : State)
 
 /-- Sparse file-backed memory provides generated fetch bytes for a file-owned instruction word. -/
 theorem fetchBytesAt_of_file_bytes (image : ProgramImage) (state : State) (address : Nat)
-    (addressFits : address < 2 ^ 64) (loaded : image.fileBytesMatchMemory state.mem)
+    (addressFits : address < 2 ^ 64) (loaded : image.fileBytesLoadedFaithfully state.mem)
     (byte0 byte1 byte2 byte3 : UInt8)
     (read0 : image.readFileByte? address = some byte0)
     (read1 : image.readFileByte? (address + 1) = some byte1)
@@ -145,7 +145,7 @@ theorem fetchBytesAt_of_file_bytes (image : ProgramImage) (state : State) (addre
 /-- Assemble generated fetch bytes directly from a file-owned encoded word. -/
 theorem fetchBytesAt_of_ownedFileEncodedWord (image : ProgramImage) (state : State)
     (word : EncodedWord) (addressFits : word.address < 2 ^ 64)
-    (loaded : image.fileBytesMatchMemory state.mem) (owned : image.ownsFileEncodedWord word) :
+    (loaded : image.fileBytesLoadedFaithfully state.mem) (owned : image.ownsFileEncodedWord word) :
     ∃ (byte0 byte1 byte2 byte3 : UInt8),
       FetchBytesAt state (BitVec.ofNat 64 word.address)
         (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)

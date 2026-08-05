@@ -49,7 +49,7 @@ import BinaryFv.RiscV.Instruction.Frame.Store.Pmp
 import BinaryFv.RiscV.Instruction.Frame.Store.Translation
 import BinaryFv.RiscV.Logic.BlockStep
 import BinaryFv.RiscV.Logic.Framing
-import BinaryFv.RiscV.Logic.ImageMemory
+import BinaryFv.RiscV.Logic.LoadedImage
 import BinaryFv.RiscV.Logic.LoopInduction
 import BinaryFv.RiscV.Logic.MemFrame
 import BinaryFv.RiscV.Logic.ReadFrame

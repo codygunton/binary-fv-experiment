@@ -1,6 +1,6 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.StateBuilder
 import BinaryFv.RiscV.Logic.Framing
-import BinaryFv.RiscV.Proof.ImageLoadFrame
+import BinaryFv.RiscV.Proof.ImageLoadCorrectness
 import BinaryFv.Zesu.Contracts.CanonicalParams
 import BinaryFv.Zesu.Contracts.ExportedDecoder
 
@@ -16,9 +16,9 @@ The threading splits at the one input-independent seam. `configureZesuMachine` i
 (machine setup: `sail_model_init` + M-extension + the pinned PMA region), so its success is a finite
 evaluation `native_decide` settles — this is the SSZ layer, where that is permitted, and it sidesteps
 hand-threading `sail_model_init`'s ~40 register writes and its `misa`-dependent `legalize_*` reads.
-Everything after configuration is input-dependent and is threaded with the `ImageLoadFrame` establishment
-lemmas: each loader sets its own addresses and frames the complement, so the earlier-established facts
-survive because the runner's ranges are pairwise disjoint.
+Everything after configuration is input-dependent and is threaded with the establishment lemmas in
+`ImageLoadCorrectness`: each loader sets its own addresses and frames the complement, so the
+earlier-established facts survive because the runner's ranges are pairwise disjoint.
 -/
 
 namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
@@ -347,7 +347,7 @@ theorem storeU64_establishes (addr value : Nat) (s0 : State) :
 /-- **Every file-backed byte of the canonical image lies below `86028`** — the single load segment's
 `initialEndAddress`. The runner adds its input (`0x2000…`), decoder globals (`0x421D…`), and heap
 globals (`0x1503…`) strictly above every file byte, so a file-backed address is outside every runner
-window and each loader's frame preserves `fileBytesMatchMemory`. -/
+window and each loader's frame preserves `fileBytesLoadedFaithfully`. -/
 theorem file_addr_lt {addr : Nat} {byte : UInt8}
     (h : Artifacts.programImage.readFileByte? addr = some byte) : addr < 86028 := by
   obtain ⟨seg, hmem, _, hlt⟩ := ProgramImage.readFileByte?_mem_segment h
@@ -529,11 +529,11 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
     intro i hi
     rw [hmemsf, hmem_high (canonicalRunnerLayout.inputBase + i) (by omega)]
     exact hwin3 i hi
-  · -- CodeIntact: fileBytesMatchMemory transports from `s2`. Rewrite `env.image` to the artifact
+  · -- CodeIntact: fileBytesLoadedFaithfully transports from `s2`. Rewrite `env.image` to the artifact
     -- image with a syntactic projection lemma — reducing it by `whnf` would force the ELF parse.
     have hcanimg : canonicalEnvironment.image = Artifacts.programImage := by
       simp only [canonicalEnvironment]
-    show canonicalEnvironment.image.fileBytesMatchMemory sf.mem
+    show canonicalEnvironment.image.fileBytesLoadedFaithfully sf.mem
     rw [hcanimg]
     intro addr byte hread
     rw [hmemsf, hmem_low addr (file_addr_lt hread)]

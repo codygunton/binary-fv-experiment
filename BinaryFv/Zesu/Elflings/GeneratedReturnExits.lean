@@ -126,7 +126,7 @@ def returnExitPcs (nodes : Array ControlFlowNode) (functionInstance : FunctionIn
 /-- Every listed exit pc decodes to a node at exactly that address and fits a machine word; and every
 one the CFG calls a return carries `retEncoding`, both as the CFG saw it and as the *file-backed*
 image reads it back. The file-backed read is deliberate: it is the currency `CodeIntact`
-(`fileBytesMatchMemory`) preserves, so this composes with a running machine without a second
+(`fileBytesLoadedFaithfully`) preserves, so this composes with a running machine without a second
 image-agreement argument. -/
 def returnExitsAreRetB (nodes : Array ControlFlowNode) (image : ProgramImage) (program : Program) :
     Bool :=
@@ -282,7 +282,7 @@ this module's business. -/
 return, a machine whose memory agrees with the pinned image's *file bytes* fetches four bytes that
 decode, through the generated Sail decoder, to `jalr x0, 0(ra)`.
 
-`fileBytesMatchMemory` rather than `matchesMemory` on purpose: that is exactly
+`fileBytesLoadedFaithfully` rather than `matchesMemory` on purpose: that is exactly
 `DecoderEnvironment.CodeIntact`, the clause every contract in this target already carries, so a
 caller spends a fact it has instead of proving a new one. -/
 theorem returnExit_fetch_and_decode {nodes : Array ControlFlowNode} (hn : controlFlow? = some nodes)
@@ -291,7 +291,7 @@ theorem returnExit_fetch_and_decode {nodes : Array ControlFlowNode} (hn : contro
     {pc : Nat} (hpc : pc ∈ functionInstance.exitPcs)
     {node : ControlFlowNode} (hnode : ControlFlowNodeAt? nodes pc = some node)
     (hret : node.returnSite = true)
-    (state : State) (intact : Artifacts.programImage.fileBytesMatchMemory state.mem)
+    (state : State) (intact : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
     (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? Register.mseccfg = some mseccfgBits) :
     ∃ byte0 byte1 byte2 byte3 : UInt8,

@@ -5,7 +5,7 @@ import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.StateBuilder
 /-!
 # Regression: `CodeIntact` ignores BSS writes but catches code corruption
 
-`CodeIntact` was corrected from a full-image `matchesMemory` to a file-backed `fileBytesMatchMemory`
+`CodeIntact` was corrected from a full-image `matchesMemory` to a file-backed `fileBytesLoadedFaithfully`
 (see `DecoderEnvironment.CodeIntact`). The full-image version was unsatisfiable on every mutating
 path: it pinned every BSS byte to its static zero, so `postAlloc`'s `CodeIntact after` demanded the
 heap cursor still be zero after the allocator advanced it, and the wrapper's `CodeIntact after`
@@ -43,16 +43,16 @@ is the fact the old full-image definition made false, and the reason the entry s
 Stated at the memory-map level (`CodeIntact` quantifies only over `state.mem`), so it applies to any
 state whose memory the runner updates at the heap cursor. -/
 theorem codeIntact_insert_heapPos {mem : Std.ExtHashMap Nat (BitVec 8)} {value : BitVec 8}
-    (h : Artifacts.programImage.fileBytesMatchMemory mem) :
-    Artifacts.programImage.fileBytesMatchMemory (mem.insert zkvmHeapPos value) :=
-  ProgramImage.fileBytesMatchMemory_insert_non_file heapPos_not_file_backed h
+    (h : Artifacts.programImage.fileBytesLoadedFaithfully mem) :
+    Artifacts.programImage.fileBytesLoadedFaithfully (mem.insert zkvmHeapPos value) :=
+  ProgramImage.fileBytesLoadedFaithfully_insert_non_file heapPos_not_file_backed h
 
-/-- **Corrupting a code byte breaks `CodeIntact`.** The companion negative: `fileBytesMatchMemory`
+/-- **Corrupting a code byte breaks `CodeIntact`.** The companion negative: `fileBytesLoadedFaithfully`
 genuinely pins the code, so a wrong value at the `decodeRaw` entry is caught. -/
 theorem not_codeIntact_corrupt_code {mem : Std.ExtHashMap Nat (BitVec 8)} :
-    ∃ value : BitVec 8, ¬ Artifacts.programImage.fileBytesMatchMemory (mem.insert 0x10444 value) := by
+    ∃ value : BitVec 8, ¬ Artifacts.programImage.fileBytesLoadedFaithfully (mem.insert 0x10444 value) := by
   obtain ⟨byte, hbyte⟩ := Option.isSome_iff_exists.mp codeByte_file_backed
-  refine ⟨BitVec.ofNat 8 (byte.toNat + 1), ProgramImage.not_fileBytesMatchMemory_insert_file hbyte ?_⟩
+  refine ⟨BitVec.ofNat 8 (byte.toNat + 1), ProgramImage.not_fileBytesLoadedFaithfully_insert_file hbyte ?_⟩
   intro heq
   have hb : byte.toNat < 256 := byte.toNat_lt
   have hval := congrArg BitVec.toNat heq

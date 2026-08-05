@@ -70,7 +70,7 @@ theorem memoryBytes_of_mem_eq {s t : State} {base : Nat} {bytes : ByteArray}
 /-- The pinned image's file bytes. -/
 theorem codeIntact_of_mem_eq {env : DecoderEnvironment} {s t : State} (hmem : t.mem = s.mem)
     (h : env.CodeIntact s) : env.CodeIntact t :=
-  show env.image.fileBytesMatchMemory t.mem from hmem ▸ h
+  show env.image.fileBytesLoadedFaithfully t.mem from hmem ▸ h
 
 /-- The `attempted` flag and the 32-bit status word. -/
 theorem decoderGlobalsScalarRep_of_mem_eq {layout : DecoderGlobalsLayout}
@@ -193,10 +193,10 @@ other two would have to be re-run. -/
 an 86 KB byte array, and letting the elaborator discover the projection at each use costs a `whnf`
 timeout instead of a rewrite. -/
 theorem programImage_of_codeIntact {state : State} (h : canonicalEnvironment.CodeIntact state) :
-    Artifacts.programImage.fileBytesMatchMemory state.mem := by
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem := by
   have himage : canonicalEnvironment.image = Artifacts.programImage := by
     simp only [canonicalEnvironment]
-  have h' : canonicalEnvironment.image.fileBytesMatchMemory state.mem := h
+  have h' : canonicalEnvironment.image.fileBytesLoadedFaithfully state.mem := h
   rwa [himage] at h'
 
 /-- One hop across a callee that honours the frame clauses — which is every contract in this
@@ -344,7 +344,7 @@ theorem decodeRun_of_exported (contracts : ExportedContractAssumptions) (input :
   obtain ⟨entryState, hrun, hbinding, hlink, -, hnormal, hpresent, hpinned, -⟩ :=
     buildZesuEntryState_entry_binding_abi input
   obtain ⟨hpma, hhtif⟩ := hpinned sentinelExitPcs configureFetchPinned_sentinelExits
-  have hcodeEntry : Artifacts.programImage.fileBytesMatchMemory entryState.mem :=
+  have hcodeEntry : Artifacts.programImage.fileBytesLoadedFaithfully entryState.mem :=
     programImage_of_codeIntact hbinding.2.1
   have hplatformEntry : ∀ pc ∈ sentinelExitPcs, ExitPlatform entryState pc := by
     intro pc hpc

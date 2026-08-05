@@ -95,7 +95,7 @@ theorem frame_conjuncts_survive_write {env : DecoderEnvironment} {state : State}
     (code : env.CodeIntact state) :
     env.CodeIntact { state with mem := state.mem.insert address value } ∧
       env.NoAllocation state { state with mem := state.mem.insert address value } := by
-  refine ⟨ProgramImage.fileBytesMatchMemory_insert_non_file notFile code, ?_⟩
+  refine ⟨ProgramImage.fileBytesLoadedFaithfully_insert_non_file notFile code, ?_⟩
   intro a ha
   have hne : a ≠ address := by rintro rfl; exact notAlloc ha
   simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]
@@ -164,9 +164,9 @@ theorem sibling_clobber_permitted_historical
     · show (s0.mem.insert rA 7).get? rA = some 7
       simp [Std.ExtHashMap.get?_eq_getElem?]
   · -- child B: same, and B's own representation holds at `s2`
-    have hcodeA := ProgramImage.fileBytesMatchMemory_insert_non_file (value := (7 : BitVec 8)) hAfile code
-    have hcodeB := ProgramImage.fileBytesMatchMemory_insert_non_file (value := (3 : BitVec 8)) hBfile hcodeA
-    have hcode2 := ProgramImage.fileBytesMatchMemory_insert_non_file (value := (0 : BitVec 8)) hAfile hcodeB
+    have hcodeA := ProgramImage.fileBytesLoadedFaithfully_insert_non_file (value := (7 : BitVec 8)) hAfile code
+    have hcodeB := ProgramImage.fileBytesLoadedFaithfully_insert_non_file (value := (3 : BitVec 8)) hBfile hcodeA
+    have hcode2 := ProgramImage.fileBytesLoadedFaithfully_insert_non_file (value := (0 : BitVec 8)) hAfile hcodeB
     refine ⟨?_, hcode2, ?_, ?_⟩
     · intro index h; exact absurd h (by simp)
     · intro a ha

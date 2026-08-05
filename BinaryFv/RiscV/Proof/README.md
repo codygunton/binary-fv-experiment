@@ -3,8 +3,10 @@
 The execution modules define programs that manipulate Sail state. This directory proves that those
 programs establish the memory and execution facts used by higher-level runners.
 
-[ImageLoadFrame.lean](ImageLoadFrame.lean) proves that the sparse image, input, and fill loaders write
-the intended bytes and leave every other address unchanged.
+[ImageLoadCorrectness.lean](ImageLoadCorrectness.lean) proves that the sparse image, input, and fill
+loaders write the intended bytes and leave every other address unchanged. In particular, loading a
+single-segment `ProgramImage` establishes `fileBytesLoadedFaithfully`; ELF parsing into that image is
+a separate step.
 [RunnerCorrespondence.lean](RunnerCorrespondence.lean) connects a proved sentinel trace to the
 executable runner's result.
 

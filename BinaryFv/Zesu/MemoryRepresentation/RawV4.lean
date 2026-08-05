@@ -1,5 +1,5 @@
 import BinaryFv.RiscV.Execution.MemoryIo
-import BinaryFv.RiscV.Logic.ImageMemory
+import BinaryFv.RiscV.Logic.LoadedImage
 import BinaryFv.Zesu.Artifacts.AbiManifest
 import BinaryFv.Specs.SSZ.AmsterdamV4
 

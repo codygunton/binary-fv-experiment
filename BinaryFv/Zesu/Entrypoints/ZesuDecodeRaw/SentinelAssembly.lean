@@ -160,7 +160,7 @@ theorem returnExit_fetch_decode_base {nodes : Array ControlFlowNode}
     {pc : Nat} (hpc : pc ∈ functionInstance.exitPcs)
     {node : ControlFlowNode} (hnode : ControlFlowNodeAt? nodes pc = some node)
     (hret : node.returnSite = true)
-    (state : State) (intact : Artifacts.programImage.fileBytesMatchMemory state.mem)
+    (state : State) (intact : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
     (mseccfgBits : BitVec 64) (seccfg : state.regs.get? Register.mseccfg = some mseccfgBits) :
     pc < 2 ^ 64 ∧ ∃ byte0 byte1 byte2 byte3 : BitVec 8,
@@ -205,7 +205,7 @@ structure ExitPlatform (state : State) (pc : Nat) : Prop where
   /-- `ra` holds the return sentinel: this is what makes the `ret` observable as a return. -/
   link : state.regs.get? x1 = some sentinelWord
   /-- The pinned image's file bytes are still in memory, so the exit instruction is fetchable. -/
-  code : Artifacts.programImage.fileBytesMatchMemory state.mem
+  code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
 
 /-- **From the contracts' own exit clauses to the retirement's premises.**
 
@@ -217,7 +217,7 @@ and the exit state. -/
 theorem exitPlatform_of_agree {before after : State} {pc : Nat}
     (agree : Agree platformPreserved before after)
     (retired : RetiredCounterPresent after)
-    (code : Artifacts.programImage.fileBytesMatchMemory after.mem)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem)
     (h : ExitPlatform before pc) : ExitPlatform after pc where
   normal := normalExecutionState_of_platformPreserved agree h.normal
   mstatusRead := h.mstatusRead.imp fun _ hv => (platformPreserved_mstatus agree).trans hv
@@ -721,8 +721,8 @@ theorem buildZesuEntryState_exitPlatform (input : ByteArray) :
   obtain ⟨s, hrun, hbind, hx1, -, hnormal, hpresent, hpinned, -⟩ :=
     buildZesuEntryState_entry_binding_abi input
   obtain ⟨hpma, hhtif⟩ := hpinned sentinelExitPcs configureFetchPinned_sentinelExits
-  have hcode : Artifacts.programImage.fileBytesMatchMemory s.mem := by
-    have h : canonicalEnvironment.image.fileBytesMatchMemory s.mem := hbind.2.1
+  have hcode : Artifacts.programImage.fileBytesLoadedFaithfully s.mem := by
+    have h : canonicalEnvironment.image.fileBytesLoadedFaithfully s.mem := hbind.2.1
     have himg : canonicalEnvironment.image = Artifacts.programImage := by
       simp only [canonicalEnvironment]
     rwa [himg] at h

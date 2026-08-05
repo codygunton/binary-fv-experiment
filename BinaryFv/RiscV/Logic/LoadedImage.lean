@@ -8,10 +8,11 @@ open Register
 namespace BinaryFv.Binary
 
 /-!
-These relate a `BinaryFv.Binary` image to the generated Sail sparse memory, so they are RISC-V-layer
-content. They are declared in the image's own namespace, rather than `BinaryFv.RiscV`, only so that
-`image.matchesMemory` dot-notation resolves; the architecture-independent `Binary` layer itself does
-not depend on them.
+These predicates state when bytes from a parsed `ProgramImage` appear at the correct addresses in
+the generated Sail sparse memory. They belong to the RISC-V layer because they mention that machine
+memory, but they are declared in the image's namespace so dot notation such as
+`image.fileBytesLoadedFaithfully memory` works. The architecture-independent `Binary` layer does not
+depend on them.
 -/
 
 /-- The parsed image agrees pointwise with the Sail sparse memory. -/
@@ -25,36 +26,35 @@ def ProgramImage.matchesMemory (image : ProgramImage) (memory : Std.ExtHashMap N
   ∀ address byte,
     image.readByte? address = some byte → memory.get? address = some (BitVec.ofNat 8 byte.toNat)
 
-/-- Sparse-memory agreement for bytes actually present in the executable file. -/
-def ProgramImage.fileBytesMatchMemory (image : ProgramImage)
+/-- Every byte stored in the executable file has been loaded at its specified machine address. -/
+def ProgramImage.fileBytesLoadedFaithfully (image : ProgramImage)
     (memory : Std.ExtHashMap Nat (BitVec 8)) : Prop :=
   ∀ address byte,
     image.readFileByte? address = some byte →
       memory.get? address = some (BitVec.ofNat 8 byte.toNat)
 
-/-- **File-backed agreement is insensitive to writes at non-file-backed (BSS) addresses.** This is
-the property that makes `fileBytesMatchMemory` the right notion of "code intact": the decoder's and
-host's writes to the mutable BSS globals (heap cursor, arena, decoder globals) do not disturb it,
-while a write to a file-backed code/rodata byte would. -/
-theorem ProgramImage.fileBytesMatchMemory_insert_non_file {image : ProgramImage}
+/-- **Writes outside the file-backed image preserve faithful loading.** This makes
+`fileBytesLoadedFaithfully` suitable for stating that code and read-only data remain intact: writes
+to mutable BSS globals such as the heap cursor, arena, and decoder globals do not affect it. -/
+theorem ProgramImage.fileBytesLoadedFaithfully_insert_non_file {image : ProgramImage}
     {memory : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} {value : BitVec 8}
     (notFileBacked : image.readFileByte? address = none)
-    (h : image.fileBytesMatchMemory memory) :
-    image.fileBytesMatchMemory (memory.insert address value) := by
+    (h : image.fileBytesLoadedFaithfully memory) :
+    image.fileBytesLoadedFaithfully (memory.insert address value) := by
   intro a byte hread
   have hne : a ≠ address := by rintro rfl; rw [notFileBacked] at hread; exact absurd hread (by simp)
   have : (memory.insert address value).get? a = memory.get? a := by
     simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]; simp [hne.symm]
   rw [this]; exact h a byte hread
 
-/-- **A write of the wrong value at a file-backed address breaks file-backed agreement.** The
-companion to the lemma above: `fileBytesMatchMemory` genuinely constrains the code and rodata, so a
-corrupted code byte is caught. -/
-theorem ProgramImage.not_fileBytesMatchMemory_insert_file {image : ProgramImage}
+/-- **Writing the wrong value over a file-backed byte violates faithful loading.** This is the
+companion to the preservation lemma above and ensures that corrupting code or read-only data is
+detected. -/
+theorem ProgramImage.not_fileBytesLoadedFaithfully_insert_file {image : ProgramImage}
     {memory : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} {byte : UInt8} {value : BitVec 8}
     (fileBacked : image.readFileByte? address = some byte)
     (wrong : value ≠ BitVec.ofNat 8 byte.toNat) :
-    ¬ image.fileBytesMatchMemory (memory.insert address value) := by
+    ¬ image.fileBytesLoadedFaithfully (memory.insert address value) := by
   intro h
   have hget := h address byte fileBacked
   rw [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert] at hget

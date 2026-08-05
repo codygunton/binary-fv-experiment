@@ -282,11 +282,11 @@ the decoder's private globals (`attempted`, `last_status`, `stored_result`). The
 `ZKVM_HEAP_POS` on every allocation; the wrapper writes all three decoder globals. So a full-image
 `matchesMemory` — which pins every BSS byte to its static zero — is **unsatisfiable** on any
 mutating path: `postAlloc`'s `CodeIntact after` would demand the cursor still be zero after the
-allocator advanced it. `fileBytesMatchMemory` preserves exactly the code and rodata the decoder must
+allocator advanced it. `fileBytesLoadedFaithfully` preserves exactly the code and rodata the decoder must
 not corrupt, and leaves the mutable BSS to the predicates that actually pin it (`DecoderGlobalsRep`
 for the decoder globals, the allocation ledger for the heap), which is the correct division. -/
 def CodeIntact (env : DecoderEnvironment) (state : State) : Prop :=
-  env.image.fileBytesMatchMemory state.mem
+  env.image.fileBytesLoadedFaithfully state.mem
 
 end DecoderEnvironment
 

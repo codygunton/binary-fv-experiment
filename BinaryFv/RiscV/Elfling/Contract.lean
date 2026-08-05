@@ -1,6 +1,6 @@
 import BinaryFv.RiscV.Elfling.Boundary
 import BinaryFv.RiscV.Logic.RegisterAgree
-import BinaryFv.RiscV.Logic.ImageMemory
+import BinaryFv.RiscV.Logic.LoadedImage
 
 /-!
 # Contracts for compiled function instances

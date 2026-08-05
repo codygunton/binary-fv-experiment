@@ -104,7 +104,7 @@ def readFileByte? (image : ProgramImage) (address : Nat) : Option UInt8 :=
 /-- A file-backed address lies inside one segment's file-backed window
 `[virtualAddress, initialEndAddress)`. The file-byte companion to `readByte?_mem_segment`: stated
 generically, so a proof about a concrete image bounds its file addresses without unfolding the parsed
-segment data — the intended use is to confine `fileBytesMatchMemory`'s addresses below a runner range
+segment data — the intended use is to confine `fileBytesLoadedFaithfully`'s addresses below a runner range
 so a later loader's frame preserves them. -/
 theorem readFileByte?_mem_segment {image : ProgramImage} {address : Nat} {byte : UInt8}
     (h : image.readFileByte? address = some byte) :

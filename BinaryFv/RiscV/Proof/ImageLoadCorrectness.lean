@@ -125,14 +125,14 @@ theorem loadFileSegment_establishes (segment : LoadSegment) (s0 : State) :
 
 For a one-segment image `image.readFileByte?` is exactly that segment's `readFileByte?` (the only
 segment is the one `fileSegmentAt?` can find), and `loadFileBackedImage image = loadFileSegment seg`.
-So the segment establishment lifts directly to `image.fileBytesMatchMemory`. -/
+So the segment establishment lifts directly to `image.fileBytesLoadedFaithfully`. -/
 theorem loadFileBackedImage_single_establishes {image : ProgramImage} {segment : LoadSegment}
     (single : image.segments = #[segment]) (s0 : State) :
     ∃ s, Runs (loadFileBackedImage image) s0 s () ∧
       s.regs = s0.regs ∧
       (∀ addr, addr < segment.virtualAddress → s.mem.get? addr = s0.mem.get? addr) ∧
       (∀ addr, segment.initialEndAddress ≤ addr → s.mem.get? addr = s0.mem.get? addr) ∧
-      image.fileBytesMatchMemory s.mem := by
+      image.fileBytesLoadedFaithfully s.mem := by
   obtain ⟨s, hrun, hregs, hlow, hhigh, hfile⟩ := loadFileSegment_establishes segment s0
   have hlist : image.segments.toList.reverse = [segment] := by rw [single]; rfl
   have hrun' : Runs (loadFileBackedImage image) s0 s () := by
