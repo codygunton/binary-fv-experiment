@@ -92,75 +92,16 @@ theorem tag0_postcopy_status_store_step {machineArgs : DecoderMachineArgs} {base
     (status : state.regs.get? x11 = some (BitVec.ofNat 64 1)) :
     ∃ retired, Runs (try_step stepNo false) state
       (tag0PostcopyStatusStoreAfter state retired) false := by
-  obtain ⟨byte0, byte1, byte2, byte3, fetchBytes, wordEq, baseEncoding⟩ :=
-    generatedFetch state 0x10354 0x34b90823
-      (hasExactErePrefix_programImage_of_codeIntact pre.code)
-  obtain ⟨mstatusBits, mstatusRead, mprvDisabled⟩ := pre.machine.mstatus
-  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := pre.machine.mseccfg
   have decoderAgree : Agree decoderPreserved base state :=
     Agree.weaken (fun _ preserved => preserved.2) pre.platform
-  obtain ⟨_, platform⟩ := decoderStepPlatform_of_decoderAgree pre.machine decoderAgree
-    (BitVec.ofNat 64 0x10354) atPc (fetchPc _) _ _ _ _ fetchBytes
-  obtain ⟨fetch, fetchNoMMIO, fetched, interrupts, notExpected, privilege, mseccfgAtIncrement⟩ :=
-    platform
-  obtain ⟨retired, inhibit, config, counters⟩ :=
-    decoderStepCounters_of_decoderAgree pre.machine.normal decoderAgree pre.retired
-  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10354)
-  let afterExec := afterWriteBytes (width := 1) executeState 0x4215370 (BitVec.ofNat 64 1)
-  have stepAgree : Agree decoderPreserved state executeState :=
-    Agree.weaken (fun _ preserved => preserved.2)
-      (agree_stepPremiseState state (BitVec.ofNat 64 0x10354))
-  have executeAgree : Agree decoderPreserved base executeState := decoderAgree.trans stepAgree
-  have globalsAtExecute : executeState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
-    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10354)).get x18 (by decide)).trans
-      pre.globalsValue
-  have statusAtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 1) :=
-    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10354)).get x11 (by decide)).trans status
-  have targetEq : (BitVec.ofNat 64 0x4215020) + sign_extend (m := 64) 0x350#12 =
-      BitVec.ofNat 64 0x4215370 := by decide
-  have addressRun := get_transformed_data_addr_machine_store_run executeState
-    (.Regidx 18#5) 8 (BitVec.ofNat 64 0x4215020) (sign_extend (m := 64) 0x350#12)
-    mstatusBits mseccfgBits (rX_bits_run_x18 executeState _ globalsAtExecute)
-    ((executeAgree mstatus (by simp [decoderPreserved, platformPreserved])).trans mstatusRead)
-    ((executeAgree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans
-      pre.machine.normal.2.1)
-    mprvDisabled
-    ((executeAgree mseccfg (by simp [decoderPreserved, platformPreserved])).trans mseccfgRead)
-    pmmDisabled
-  obtain ⟨physical, storeNoMMIO⟩ :=
-    pre.machine.dataAccess.store executeState (BitVec.ofNat 64 0x4215370) 1 executeAgree pre.statusSlot
-      (by decide)
-  have memoryWrite : Runs (PreSail.writeBytes (n := 1) 0x4215370 (BitVec.ofNat 64 1))
-      executeState afterExec true := by
-    simpa [afterExec] using writeBytes_run_exact (width := 1) executeState 0x4215370
-      (BitVec.ofNat 64 1)
-  have execute : Runs (execute (.STORE (0x350#12, .Regidx 11#5, .Regidx 18#5, 1)))
-      executeState afterExec (.Retire_Success ()) :=
-    execute_STORE_byte_run executeState afterExec (.Regidx 11#5) (.Regidx 18#5) 0x350#12
-      (BitVec.ofNat 64 0x4215370) mstatusBits (BitVec.ofNat 64 1)
-      ((executeAgree mstatus (by simp [decoderPreserved, platformPreserved])).trans mstatusRead)
-      ((executeAgree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans
-        pre.machine.normal.2.1)
-      mprvDisabled (rX_bits_run_x11 executeState _ statusAtExecute)
-      (by simpa [targetEq] using addressRun) physical storeNoMMIO memoryWrite
-  have afterExecRegs : afterExec.regs = executeState.regs := by
-    simpa [afterExec] using afterWriteBytes_regs executeState 0x4215370 (BitVec.ofNat 64 1)
-  refine ⟨retired, ?_⟩
-  simpa [tag0PostcopyStatusStoreAfter, executeState, afterExec] using
-    tryStepFallThroughRetires stepNo state afterExec (BitVec.ofNat 64 0x10354) retired
-      inhibit config byte0 byte1 byte2 byte3
-      (.STORE (0x350#12, .Regidx 11#5, .Regidx 18#5, 1)) fetch fetchNoMMIO fetched interrupts
-      baseEncoding (by rw [wordEq]; decode_run) notExpected execute
-      (by rw [afterExecRegs]; simp [executeState, coreControlFlowNextState])
-      (by rw [afterExecRegs]; simp [executeState, coreControlFlowNextState,
-        Std.ExtDHashMap.get?_insert])
-      (by rw [afterExecRegs]; simp [executeState, coreControlFlowNextState,
-        Std.ExtDHashMap.get?_insert])
-      (by rw [afterExecRegs]; simp [executeState, coreControlFlowNextState,
-        Std.ExtDHashMap.get?_insert])
-      hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+  obtain ⟨retired, run⟩ := decoderStoreByteStep pre.machine decoderAgree pre.retired
+    (hasExactErePrefix_programImage_of_codeIntact pre.code)
+    stepNo 0x10354 0x23 0x08 0xb9 0x34 0x350#12 11#5 18#5
+    (BitVec.ofNat 64 0x4215020) (BitVec.ofNat 64 1) (BitVec.ofNat 64 0x4215370) atPc
+    (rX_bits_run_x18 _ _ (decoderExecuteState_get? pre.globalsValue))
+    (rX_bits_run_x11 _ _ (decoderExecuteState_get? status))
+    (by decide) pre.statusSlot
+  exact ⟨retired, by simpa [tag0PostcopyStatusStoreAfter, afterMemoryWrite] using run⟩
 
 /-- The one-byte status store starts exactly at the first byte after the 832-byte payload. -/
 theorem tag0PostcopyStatusStoreAfter_preserves_payload {state : State} (retired : BitVec 64)

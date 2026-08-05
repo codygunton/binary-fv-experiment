@@ -64,80 +64,18 @@ theorem first_memcpy_call_step (stepNo : Nat) (args : DecodeInlineArgs)
       Agree decoderPreserved state (firstMemcpyCallAfter state retired) ∧
       (firstMemcpyCallAfter state retired).mem = state.mem ∧
       RetiredCounterPresent (firstMemcpyCallAfter state retired) := by
-  have pcIn : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
-      (BitVec.ofNat 64 0x10338) :=
-    ⟨decodeInline_owned_in_execution_region (0x10338, 0xb84080e7)
-      (by simp [decodeInlineOwnedInstructionWords]), by native_decide⟩
-  have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
-    hasExactErePrefix_programImage_of_codeIntact code
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10338) 0xe7#8 0x80#8 0x40#8 0xb8#8 :=
-    fetchInstruction state 0x10338 0xe7 0x80 0x40 0xb8 image
-  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform_of_decoderAgree pre.machine agree
-    (BitVec.ofNat 64 0x10338) atPc pcIn _ _ _ _ fetchBytes
-  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
-  obtain ⟨retired, inhibit, config, hartRead, inhibitRead, configRead, notInhibited,
-    machineEnabled, retiredRead⟩ :=
-    decoderStepCounters_of_decoderAgree pre.machine.normal agree retiredPresent
-  have wordEq : fetchWord 0xe7#8 0x80#8 0x40#8 0xb8#8 = (0xb84080e7 : BitVec 32) := by decide
-  have decode : Runs (ext_decode (fetchWord 0xe7#8 0x80#8 0x40#8 0xb8#8))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.JALR (0xb84#12, .Regidx 1#5, .Regidx 1#5)) := by
-    rw [wordEq]
-    decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10338)
-  have executeAgree : Agree decoderPreserved baseState executeState := Agree.trans agree
-    (Agree.weaken (fun _ preserved => preserved.2)
-      (agree_stepPremiseState state (BitVec.ofNat 64 0x10338)))
-  have helpElp : Runs (update_elp_state (.Regidx 1#5)) executeState executeState () :=
-    pre.machine.landingPad executeState (.Regidx 1#5) trivial executeAgree
-  have linkRead : executeState.regs.get? nextPC = some (BitVec.ofNat 64 0x1033c) := by
-    change ((tryStepControlFlowAfterIncrement state).regs.insert nextPC
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x10338) 4)).get? nextPC = _
-    rw [Std.ExtDHashMap.get?_insert]
-    simp
-    decide
-  have sourceRead : executeState.regs.get? x1 = some (BitVec.ofNat 64 0x14334) :=
-    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10338)).get x1 (by decide)).trans callBase
-  have targetEq : Sail.BitVec.update
-      ((BitVec.ofNat 64 0x14334) + sign_extend (m := 64) (0xb84#12)) 0 0#1 =
-      BitVec.ofNat 64 0x13eb8 := by decide
-  have hwrite : Runs (wX_bits (.Regidx 1#5) (BitVec.ofNat 64 0x1033c))
-      (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
-        (BitVec.ofNat 64 0x10338) (BitVec.ofNat 64 0x13eb8))
-      (callLinkState (tryStepControlFlowAfterIncrement state)
-        (BitVec.ofNat 64 0x10338) (BitVec.ofNat 64 0x13eb8) x1
-        (BitVec.ofNat 64 0x1033c)) () := wX_bits_run_x1 _ _
-  obtain ⟨misaBits, misaRead, -⟩ : ∃ misaBits,
-      baseState.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
-    have normalMisa := pre.machine.normal.2.2.2.2.2.2.2.2.2.2.2
-    match misaRead : baseState.regs.get? misa with
-    | none => simp [misaRead] at normalMisa
-    | some misaBits => exact ⟨misaBits, rfl, by simpa [misaRead] using normalMisa⟩
-  have misaState : state.regs.get? misa = some misaBits :=
-    (agree misa (by simp [decoderPreserved, platformPreserved])).trans misaRead
-  have zca := currentlyEnabledZca_run_atStepPremise state (BitVec.ofNat 64 0x10338)
-    misaBits misaState
-  have callRun := tryStepJalrCallRetires stepNo state
-    (BitVec.ofNat 64 0x10338) (BitVec.ofNat 64 0x14334) retired
-    (BitVec.ofNat 64 0x1033c) (0xb84#12) (.Regidx 1#5) (.Regidx 1#5) x1
-    (BitVec.ofNat 64 0x1033c) inhibit config 0xe7#8 0x80#8 0x40#8 0xb8#8
-    (_get_Misa_C misaBits == 1#1)
-    (by simpa [targetEq] using hwrite) (by decide) (by decide) (by decide) (by decide)
-    fetch noMMIO fetchBytes interrupts (by unfold BaseInstructionEncoding; decide) decode
-    notExpected helpElp (get_next_pc_run executeState _ linkRead)
-    (rX_bits_run_x1 executeState _ sourceRead) (by decide) zca hartRead inhibitRead configRead
-    notInhibited machineEnabled retiredRead
-  have run : Runs (try_step stepNo false) state (firstMemcpyCallAfter state retired) false := by
-    simpa [firstMemcpyCallAfter, targetEq] using callRun
+  obtain ⟨retired, run⟩ := decoderJalrCallStep (linkReg := x1) (linkValue := BitVec.ofNat 64 0x1033c)
+    pre.machine agree retiredPresent (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x10338 0xe7 0x80 0x40 0xb8 0xb84#12 1#5 1#5 (BitVec.ofNat 64 0x14334)
+    (BitVec.ofNat 64 0x1033c) (BitVec.ofNat 64 0x13eb8) atPc
+    (rX_bits_run_x1 _ _ (decoderExecuteState_get? callBase)) (wX_bits_run_x1 _ _)
+  have run' : Runs (try_step stepNo false) state (firstMemcpyCallAfter state retired) false := by
+    simpa [firstMemcpyCallAfter] using run
   have callWrites : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x1)) state
       (firstMemcpyCallAfter state retired) :=
     callRetirement_writes state (BitVec.ofNat 64 0x10338) (BitVec.ofNat 64 0x13eb8) retired x1
       (BitVec.ofNat 64 0x1033c)
-  refine ⟨retired, run, ?_, ?_, callWrites.get x10 (by decide), callWrites.get x11 (by decide),
+  refine ⟨retired, run', ?_, ?_, callWrites.get x10 (by decide), callWrites.get x11 (by decide),
     callWrites.get x12 (by decide), callWrites.get x2 (by decide), ?_,
     jalrCallAfterRetired_mem _ _ _ _ _ _, ?_⟩
   · exact tryStepControlFlowAfterRetired_pc _ (BitVec.ofNat 64 0x13eb8) retired

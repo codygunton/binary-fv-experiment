@@ -163,27 +163,7 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
     omega
   have addressNat : address.toNat = args.stackBase + 0x9f0 := by
     simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : args.stackBase + 0x9f0 < 2 ^ 64)]
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
-      (BitVec.ofNat 64 0x103f8) := GeneratedWordStep.fetchPc _
-  have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
-    hasExactErePrefix_programImage_of_codeIntact frame.code
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x103f8) 0x03#8 0x55#8 0x05#8 0x9f#8 :=
-    fetchInstruction state 0x103f8 0x03 0x55 0x05 0x9f image
   have machine := pre.machine.mono frame.agree frame.retiredCounter
-  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
-    (BitVec.ofNat 64 0x103f8) atPc fetchPc _ _ _ _ fetchBytes
-  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
-  obtain ⟨retired, inhibit, config, counters⟩ :=
-    decoderStepCounters machine.normal (Agree.refl state) frame.retiredCounter
-  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
-  have decode : Runs (ext_decode (fetchWord 0x03#8 0x55#8 0x05#8 0x9f#8))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.LOAD (0x9f0#12, .Regidx 10#5, .Regidx 10#5, true, 2)) := by
-    change Runs (ext_decode (0x9f055503 : BitVec 32)) _ _ _
-    decode_run
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x103f8)
   have executeAgree : Agree decoderPreserved state executeState :=
@@ -259,16 +239,9 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
   have write : Runs (wX_bits (.Regidx 10#5) (BitVec.ofNat 64 tag)) executeState
       { executeState with regs := executeState.regs.insert x10 (BitVec.ofNat 64 tag) } () :=
     wX_x10_run executeState (BitVec.ofNat 64 tag)
-  have execute : Runs (execute (.LOAD (0x9f0#12, .Regidx 10#5, .Regidx 10#5, true, 2)))
-      executeState { executeState with regs := executeState.regs.insert x10 (BitVec.ofNat 64 tag) }
-      (.Retire_Success ()) := by
-    change Runs (execute_LOAD (0x9f0#12) (.Regidx 10#5) (.Regidx 10#5) true 2) _ _ _
-    exact execute_LOAD_lhu_run executeState _ (0x9f0#12) (.Regidx 10#5) (.Regidx 10#5)
-      (BitVec.ofNat 16 tag) hread (by simpa [extended] using write)
-  exact decoderRegisterWriteStep machine (Agree.refl state) frame.retiredCounter stepNo
-    (BitVec.ofNat 64 0x103f8) fetchPc atPc 0x03#8 0x55#8 0x05#8 0x9f#8
-    (.LOAD (0x9f0#12, .Regidx 10#5, .Regidx 10#5, true, 2)) x10 (BitVec.ofNat 64 tag)
-    fetchBytes (by unfold BaseInstructionEncoding; decide) decode
-    (by decide) (by decide) (by decide) (by decide) execute
+  exact decoderLhuStepOfDecoderAgree machine (Agree.refl state) frame.retiredCounter
+    (hasExactErePrefix_programImage_of_codeIntact frame.code)
+    stepNo 0x103f8 0x03 0x55 0x05 0x9f 0x9f0#12 10#5 10#5 atPc
+    hread (by simpa [extended] using write)
 
 end BinaryFv.Zesu.MachineExecution
