@@ -325,28 +325,18 @@ private theorem gpFrameNextPc (Y : State) (pc : BitVec 64) (rd : Register) (v : 
 fall-through instruction back to the pre-`nextPC` state `Y`. -/
 private theorem gpFrameGet (Y : State) (pc : BitVec 64) (rd : Register) (v : RegisterType rd)
     (r : Register) (hrd : r ≠ rd) (hnp : r ≠ nextPC) :
-    ((coreControlFlowNextState Y pc).regs.insert rd v).get? r = Y.regs.get? r := by
-  calc ((coreControlFlowNextState Y pc).regs.insert rd v).get? r
-      = (coreControlFlowNextState Y pc).regs.get? r :=
-        writeReg_read_unchanged (coreControlFlowNextState Y pc) rd r v hrd
-    _ = Y.regs.get? r := by
-        simpa [coreControlFlowNextState] using
-          writeReg_read_unchanged Y nextPC r (Sail.BitVec.addInt pc 4) hnp
+    ((coreControlFlowNextState Y pc).regs.insert rd v).get? r = Y.regs.get? r :=
+  ((afterOneRegisterWrite_writes (coreControlFlowNextState Y pc) rd v).get r hrd).trans
+    ((coreControlFlowNextState_writes Y pc).get r hnp)
 
 /-- Bridge a register read from the pre-step state through the counter-increment and `nextPC` writes
 to the execute state `coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc`. -/
 theorem xGet (state : State) (pc : BitVec 64) (r : Register)
     (hnp : r ≠ nextPC) (hmi : r ≠ minstret_increment) :
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? r =
-      state.regs.get? r := by
-  calc (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? r
-      = (tryStepControlFlowAfterIncrement state).regs.get? r := by
-        simpa [coreControlFlowNextState] using
-          writeReg_read_unchanged (tryStepControlFlowAfterIncrement state) nextPC r
-            (Sail.BitVec.addInt pc 4) hnp
-    _ = state.regs.get? r := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment r true hmi
+      state.regs.get? r :=
+  ((coreControlFlowNextState_writes _ pc).get r hnp).trans
+    ((tryStepControlFlowAfterIncrement_writes state).get r hmi)
 
 /-! ## Step 2: `add a3, a1, a5` at `0x13ec4` (`a3 = src + i`) -/
 
@@ -494,9 +484,8 @@ private theorem coreNextPc (Y : State) (pc : BitVec 64) :
 
 /-- Any register other than `nextPC` reads through `coreControlFlowNextState Y pc` back to `Y`. -/
 private theorem coreGetInc (Y : State) (pc : BitVec 64) (r : Register) (hnp : r ≠ nextPC) :
-    (coreControlFlowNextState Y pc).regs.get? r = Y.regs.get? r := by
-  simpa [coreControlFlowNextState] using
-    writeReg_read_unchanged Y nextPC r (Sail.BitVec.addInt pc 4) hnp
+    (coreControlFlowNextState Y pc).regs.get? r = Y.regs.get? r :=
+  (coreControlFlowNextState_writes Y pc).get r hnp
 
 /-- The `j 0x13ebc` back-edge (`JAL imm x0`, `imm` byte-offset `-28`), lifted through the generated
 `try_step`.  Fetch bytes at `0x13ed8` are `6f f0 5f fe` (`fe5ff06f`); the jump target is
@@ -848,47 +837,51 @@ theorem StableAgree.refl (s : State) : StableAgree s s := fun _ _ => rfl
 theorem StableAgree.trans {a b c : State} (h1 : StableAgree a b) (h2 : StableAgree b c) :
     StableAgree a c := fun r hr => (h2 r hr).trans (h1 r hr)
 
+/-- No register outside the loop's write set is one the `try_step` bookkeeping writes. -/
+theorem nonW_disjoint_bookkeeping : RegSet.Disjoint NonW stepBookkeeping :=
+  fun _ hr h => h.elim hr.1 fun h => h.elim hr.2.1 fun h => h.elim hr.2.2.1 hr.2.2.2.1
+
+/-- ... nor is it the destination of a body instruction, which is one of `a3`, `a4`, `a5`. -/
+theorem nonW_disjoint (rd : Register) (hrdW : rd = x13 ∨ rd = x14 ∨ rd = x15) :
+    RegSet.Disjoint NonW (RegSet.union stepBookkeeping (RegSet.only rd)) :=
+  nonW_disjoint_bookkeeping.union
+    (RegSet.Disjoint.only (by rcases hrdW with rfl | rfl | rfl <;> simp [NonW]))
+
+/-- The write set of a byte-store retirement, whose post-write state is known only through its
+register file: a store writes memory, so on the register side it writes exactly the bookkeeping. -/
+theorem sbRetirement_writes (base s' : State) (pc ret : BitVec 64)
+    (regsEq : s'.regs = (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs) :
+    WritesOnlyRegs stepBookkeeping base
+      (tryStepControlFlowAfterRetired s' (Sail.BitVec.addInt pc 4) ret) :=
+  ((stepPremiseState_writes base pc).congr_regs regsEq).trans_same
+    ((tryStepControlFlowAfterRetired_writes s' _ ret).mono
+      (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h)))))
+
 /-- The counter-increment write reads through to the base for any register other than
 `minstret_increment`. -/
 theorem afterIncGet (base : State) (r : Register) (hmi : r ≠ minstret_increment) :
-    (tryStepControlFlowAfterIncrement base).regs.get? r = base.regs.get? r := by
-  simpa [tryStepControlFlowAfterIncrement] using
-    writeReg_read_unchanged base minstret_increment r true hmi
+    (tryStepControlFlowAfterIncrement base).regs.get? r = base.regs.get? r :=
+  (tryStepControlFlowAfterIncrement_writes base).get r hmi
 
 /-- The `try_step` retirement postlude (`minstret`, `PC` writes) reads through for any register
 other than those two. -/
 theorem retiredFrameGet (afterExec : State) (tPC ret : BitVec 64) (r : Register)
     (hPC : r ≠ PC) (hmr : r ≠ minstret) :
-    (tryStepControlFlowAfterRetired afterExec tPC ret).regs.get? r = afterExec.regs.get? r := by
-  calc (tryStepControlFlowAfterRetired afterExec tPC ret).regs.get? r
-      = (tryStepControlFlowAfterTick afterExec tPC).regs.get? r := by
-        simpa [tryStepControlFlowAfterRetired] using
-          writeReg_read_unchanged (tryStepControlFlowAfterTick afterExec tPC) minstret r
-            (Sail.BitVec.addInt ret 1) hmr
-    _ = afterExec.regs.get? r := by
-        simpa [tryStepControlFlowAfterTick] using
-          writeReg_read_unchanged afterExec PC r tPC hPC
+    (tryStepControlFlowAfterRetired afterExec tPC ret).regs.get? r = afterExec.regs.get? r :=
+  (tryStepControlFlowAfterRetired_writes afterExec tPC ret).get r (fun h => h.elim hPC hmr)
 
 /-- The `nextPC`-overwrite of a jump reads through for any register other than `nextPC`. -/
 theorem jumpFrameGet (base : State) (pc tgt : BitVec 64) (r : Register) (hnpc : r ≠ nextPC)
     (hmi : r ≠ minstret_increment) :
     (controlFlowJumpState (tryStepControlFlowAfterIncrement base) pc tgt).regs.get? r =
-      base.regs.get? r := by
-  calc (controlFlowJumpState (tryStepControlFlowAfterIncrement base) pc tgt).regs.get? r
-      = (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs.get? r := by
-        simpa [controlFlowJumpState] using
-          writeReg_read_unchanged
-            (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc) nextPC r tgt hnpc
-    _ = base.regs.get? r := by
-        rw [coreGetInc (tryStepControlFlowAfterIncrement base) pc r hnpc]; exact afterIncGet base r hmi
+      base.regs.get? r :=
+  ((controlFlowJumpState_writes _ pc tgt).get r hnpc).trans (afterIncGet base r hmi)
 
 /-- A taken-branch / jump `try_step` retirement only writes registers in `W`. -/
 theorem stableAgree_jump (base : State) (pc tgt ret : BitVec 64) :
     StableAgree base (tryStepControlFlowAfterRetired
-      (controlFlowJumpState (tryStepControlFlowAfterIncrement base) pc tgt) tgt ret) := by
-  intro r hr
-  obtain ⟨hPC, hnpc, hmr, hmi, _, _, _⟩ := hr
-  rw [retiredFrameGet _ _ _ r hPC hmr, jumpFrameGet base pc tgt r hnpc hmi]
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement base) pc tgt) tgt ret) :=
+  (jumpRetirement_writes base pc tgt ret).agree nonW_disjoint_bookkeeping
 
 /-- A GP-writing fall-through `try_step` retirement only writes registers in `W`
 (`rd ∈ {x13, x14, x15}`). -/
@@ -898,25 +891,15 @@ theorem stableAgree_fallThrough (base : State) (pc ret : BitVec 64) (rd : Regist
       { coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc with
         regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs.insert
           rd v }
-      (Sail.BitVec.addInt pc 4) ret) := by
-  intro r hr
-  obtain ⟨hPC, hnpc, hmr, hmi, h13, h14, h15⟩ := hr
-  have hrd : r ≠ rd := by rcases hrdW with rfl | rfl | rfl <;> assumption
-  rw [retiredFrameGet _ _ _ r hPC hmr]
-  show ((coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs.insert rd v).get? r
-      = base.regs.get? r
-  rw [gpFrameGet (tryStepControlFlowAfterIncrement base) pc rd v r hrd hnpc]
-  exact afterIncGet base r hmi
+      (Sail.BitVec.addInt pc 4) ret) :=
+  (RegisterWriteStep.afterRegisterWrite_writes base pc ret rd v).agree (nonW_disjoint rd hrdW)
 
 /-- A memory-writing fall-through (`sb`) retirement leaves the register file as the plain
 `coreControlFlowNextState`, hence only writes `W` registers. -/
 theorem stableAgree_sb (base s' : State) (pc ret : BitVec 64)
     (regsEq : s'.regs = (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs) :
-    StableAgree base (tryStepControlFlowAfterRetired s' (Sail.BitVec.addInt pc 4) ret) := by
-  intro r hr
-  obtain ⟨hPC, hnpc, hmr, hmi, _, _, _⟩ := hr
-  rw [retiredFrameGet _ _ _ r hPC hmr, regsEq, coreGetInc (tryStepControlFlowAfterIncrement base) pc r hnpc]
-  exact afterIncGet base r hmi
+    StableAgree base (tryStepControlFlowAfterRetired s' (Sail.BitVec.addInt pc 4) ret) :=
+  (sbRetirement_writes base s' pc ret regsEq).agree nonW_disjoint_bookkeeping
 
 /-- The counter-increment write preserves `StableAgree` on the right. -/
 theorem StableAgree.afterInc {base t : State} (h : StableAgree base t) :
@@ -928,9 +911,8 @@ state, back to a `StableAgree`-equal base. -/
 theorem coreGetStable {s : State} (s_k : State) (pc : BitVec 64) (r : Register) (hr : NonW r)
     (hSt : StableAgree s s_k) :
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement s_k) pc).regs.get? r =
-      s.regs.get? r := by
-  rw [coreGetInc (tryStepControlFlowAfterIncrement s_k) pc r hr.2.1, afterIncGet s_k r hr.2.2.2.1]
-  exact hSt r hr
+      s.regs.get? r :=
+  ((stepPremiseState_writes s_k pc).get r (nonW_disjoint_bookkeeping r hr)).trans (hSt r hr)
 
 /-- The retirement postlude ticks `PC := tPC`. -/
 theorem retiredGetPC (afterExec : State) (tPC ret : BitVec 64) :
@@ -987,8 +969,9 @@ theorem jumpRetiredGet (base : State) (pc tgt ret : BitVec 64) (r : Register)
     (hPC : r ≠ PC) (hmr : r ≠ minstret) (hnpc : r ≠ nextPC) (hmi : r ≠ minstret_increment) :
     (tryStepControlFlowAfterRetired
       (controlFlowJumpState (tryStepControlFlowAfterIncrement base) pc tgt) tgt ret).regs.get? r =
-      base.regs.get? r := by
-  rw [retiredFrameGet _ _ _ r hPC hmr, jumpFrameGet base pc tgt r hnpc hmi]
+      base.regs.get? r :=
+  (jumpRetirement_writes base pc tgt ret).get r
+    (fun h => h.elim hPC (fun h => h.elim hnpc (fun h => h.elim hmr hmi)))
 
 /-- Read a register other than the written `rd` untouched by a GP fall-through retirement. -/
 theorem fallThroughRetiredGet (base : State) (pc ret : BitVec 64) (rd : Register)
@@ -998,12 +981,9 @@ theorem fallThroughRetiredGet (base : State) (pc ret : BitVec 64) (rd : Register
       { coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc with
         regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs.insert
           rd v }
-      (Sail.BitVec.addInt pc 4) ret).regs.get? r = base.regs.get? r := by
-  rw [retiredFrameGet _ _ _ r hPC hmr]
-  show ((coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs.insert rd v).get? r
-      = base.regs.get? r
-  rw [gpFrameGet (tryStepControlFlowAfterIncrement base) pc rd v r hrd hnpc]
-  exact afterIncGet base r hmi
+      (Sail.BitVec.addInt pc 4) ret).regs.get? r = base.regs.get? r :=
+  (RegisterWriteStep.afterRegisterWrite_writes base pc ret rd v).get r
+    (fun h => h.elim (fun h => h.elim hPC (fun h => h.elim hnpc (fun h => h.elim hmr hmi))) hrd)
 
 /-- The written destination register of a GP fall-through retirement holds the written value. -/
 theorem fallThroughRetiredRd (base : State) (pc ret : BitVec 64) (rd : Register)
@@ -1037,10 +1017,10 @@ theorem sbRetiredGet (base s' : State) (pc ret : BitVec 64)
     (regsEq : s'.regs = (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs)
     (r : Register) (hPC : r ≠ PC) (hmr : r ≠ minstret) (hnpc : r ≠ nextPC)
     (hmi : r ≠ minstret_increment) :
-    (tryStepControlFlowAfterRetired s' (Sail.BitVec.addInt pc 4) ret).regs.get? r = base.regs.get? r := by
-  rw [retiredFrameGet _ _ _ r hPC hmr, regsEq,
-    coreGetInc (tryStepControlFlowAfterIncrement base) pc r hnpc]
-  exact afterIncGet base r hmi
+    (tryStepControlFlowAfterRetired s' (Sail.BitVec.addInt pc 4) ret).regs.get? r =
+      base.regs.get? r :=
+  (sbRetirement_writes base s' pc ret regsEq).get r
+    (fun h => h.elim hPC (fun h => h.elim hnpc (fun h => h.elim hmr hmi)))
 
 /-- Reading a distinct address through a memory insert. -/
 theorem getInsertNe (mem : Std.ExtHashMap Nat (BitVec 8)) (k a : Nat) (v : BitVec 8) (h : k ≠ a) :
@@ -1088,6 +1068,85 @@ theorem writeBytes_byte_run (s : State) (a : Nat) (value : BitVec (8 * 1)) :
   rw [hlist]
   simp only [List.forM]
   exact Runs.bind (writeByte_run s a value) rfl
+
+/-! ### Per-shape step post-conditions
+
+The loop body has three retirement shapes — jump, register-writing fall-through, byte store — and at
+every site the same six consequences of a step are needed: the successor state, its write set, the
+`StableAgree` that write set induces, its `PC`, its `minstret`, and its memory (plus, for a register
+write, the destination's new value). Packaged here once per shape, a step becomes a single `obtain`
+whose successor is opaque, which is what the `generalize` blocks used to buy at five lines each.
+
+The write set is the component that pays twice. Handing `WritesOnlyRegs` to the caller puts it in
+range of `grind_pattern WritesOnlyRegs.get` (see `BinaryFv/RiscV/Logic/RegisterAgree.lean`), so every
+register a step does not write is carried across any number of steps by a bare `grind`, with no
+intermediate `have` and no named intermediate state. `retired` is a universal parameter here exactly
+as it is in `jumpRetirement_writes`, `afterRegisterWrite_writes` and `storeRetirement_writes`
+upstream, so none of this needs it existentially quantified. -/
+
+/-- Everything a taken-branch or jump retirement establishes about its successor. -/
+theorem jumpStepPost {stepNo : Nat} {base : State} {pc tgt ret : BitVec 64}
+    (hrun : Runs (try_step stepNo false) base
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement base) pc tgt) tgt ret) false) :
+    ∃ t, Runs (try_step stepNo false) base t false ∧
+      WritesOnlyRegs stepBookkeeping base t ∧ StableAgree base t ∧
+      t.regs.get? PC = some tgt ∧
+      t.regs.get? minstret = some (Sail.BitVec.addInt ret 1) ∧ t.mem = base.mem :=
+  let w := jumpRetirement_writes base pc tgt ret
+  ⟨_, hrun, w, w.agree nonW_disjoint_bookkeeping, retiredGetPC _ tgt ret, retiredMinstret _ tgt ret,
+    (retiredMem _ tgt ret).trans (jumpMem base pc tgt)⟩
+
+/-- Everything a register-writing fall-through retirement establishes about its successor. -/
+theorem gpStepPost {stepNo : Nat} {base : State} {pc ret : BitVec 64} {rd : Register}
+    {v : RegisterType rd} (hrdW : rd = x13 ∨ rd = x14 ∨ rd = x15)
+    (hrun : Runs (try_step stepNo false) base
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc with
+          regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs.insert
+            rd v }
+        (Sail.BitVec.addInt pc 4) ret) false) :
+    ∃ t, Runs (try_step stepNo false) base t false ∧
+      WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only rd)) base t ∧
+      StableAgree base t ∧
+      t.regs.get? PC = some (Sail.BitVec.addInt pc 4) ∧
+      t.regs.get? minstret = some (Sail.BitVec.addInt ret 1) ∧
+      t.regs.get? rd = some v ∧ t.mem = base.mem :=
+  let w := RegisterWriteStep.afterRegisterWrite_writes base pc ret rd v
+  ⟨_, hrun, w, w.agree (nonW_disjoint rd hrdW), retiredGetPC _ _ ret, retiredMinstret _ _ ret,
+    fallThroughRetiredRd base pc ret rd v (by rcases hrdW with rfl | rfl | rfl <;> decide)
+      (by rcases hrdW with rfl | rfl | rfl <;> decide),
+    (retiredMem _ _ ret).trans (fallThroughMem base pc rd v)⟩
+
+/-- Everything a not-taken-branch retirement establishes about its successor: it falls through and
+writes no register beyond the bookkeeping, so its write set is `stepBookkeeping` exactly. -/
+theorem notTakenStepPost {stepNo : Nat} {base : State} {pc ret : BitVec 64}
+    (hrun : Runs (try_step stepNo false) base
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc)
+        (Sail.BitVec.addInt pc 4) ret) false) :
+    ∃ t, Runs (try_step stepNo false) base t false ∧
+      WritesOnlyRegs stepBookkeeping base t ∧ StableAgree base t ∧
+      t.regs.get? PC = some (Sail.BitVec.addInt pc 4) ∧
+      t.regs.get? minstret = some (Sail.BitVec.addInt ret 1) ∧ t.mem = base.mem :=
+  let w := fallThroughRetirement_writes base pc (Sail.BitVec.addInt pc 4) ret
+  ⟨_, hrun, w, w.agree nonW_disjoint_bookkeeping, retiredGetPC _ _ ret, retiredMinstret _ _ ret, rfl⟩
+
+/-- Everything a byte-store retirement establishes about its successor.  The store's post-write state
+`s'` is known only through `regsEq` and `memEq`, which is all `writeBytes` delivers. -/
+theorem sbStepPost {stepNo : Nat} {base s' : State} {pc ret : BitVec 64}
+    {m : Std.ExtHashMap Nat (BitVec 8)}
+    (hrun : Runs (try_step stepNo false) base
+      (tryStepControlFlowAfterRetired s' (Sail.BitVec.addInt pc 4) ret) false)
+    (regsEq : s'.regs = (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc).regs)
+    (memEq : s'.mem = m) :
+    ∃ t, Runs (try_step stepNo false) base t false ∧
+      WritesOnlyRegs stepBookkeeping base t ∧ StableAgree base t ∧
+      t.regs.get? PC = some (Sail.BitVec.addInt pc 4) ∧
+      t.regs.get? minstret = some (Sail.BitVec.addInt ret 1) ∧ t.mem = m :=
+  let w := sbRetirement_writes base s' pc ret regsEq
+  ⟨_, hrun, w, w.agree nonW_disjoint_bookkeeping, retiredGetPC _ _ ret, retiredMinstret _ _ ret,
+    (retiredMem s' _ ret).trans memEq⟩
 
 /-! ## Deliverable 2: single-iteration advance `memcpy_adv` -/
 
@@ -1156,479 +1215,223 @@ theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
       MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte sInit (i + 1) s' := by
   obtain ⟨retired0, hret0⟩ := hInv.hminstret
   have hi2 : i < 2 ^ 64 := Nat.lt_trans hi hInv.hnLt
+  have ha5 := hInv.ha5
   -- Step 0: bne a5,a2 (taken, i ≠ n), pc = 0x13ebc.
   have hbytes0 : FetchBytesAt (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc)
       0x63#8 0x94#8 0xc7#8 0x00#8 :=
     fetchBytesAt_13ebc (tryStepControlFlowAfterIncrement s) image hInv.himageEq hInv.hmatches
-  have hplat0 : StepPlatform s (BitVec.ofNat 64 0x13ebc) 0x63#8 0x94#8 0xc7#8 0x00#8 mseccfgBits :=
-    mkStepPlatform s mseccfgBits (BitVec.ofNat 64 0x13ebc) 0x63#8 0x94#8 0xc7#8 0x00#8
-      hInv.hplat hInv.hcur hInv.hmseccfg (StableAgree.refl s)
-      ((afterIncGet s PC (by decide)).trans hInv.hPC) (Or.inr (Or.inl rfl)) hbytes0
+  have hplat0 := mkStepPlatform s mseccfgBits (BitVec.ofNat 64 0x13ebc) 0x63#8 0x94#8 0xc7#8 0x00#8
+    hInv.hplat hInv.hcur hInv.hmseccfg (StableAgree.refl s)
+    ((afterIncGet s PC (by decide)).trans hInv.hPC) (Or.inr (Or.inl rfl)) hbytes0
   have hcnt0 : StepCounters s retired0 inhibit cfg :=
     ⟨hInv.hhart, hInv.hinhibit, hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hret0⟩
-  have h15_0 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-      (BitVec.ofNat 64 0x13ebc)).regs.get? x15 = some (BitVec.ofNat 64 i) :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s) _ x15 (by decide)).trans
-      ((afterIncGet s x15 (by decide)).trans hInv.ha5)
-  have h12_0 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-      (BitVec.ofNat 64 0x13ebc)).regs.get? x12 = some n :=
-    (coreGetStable s _ x12 (by decide) (StableAgree.refl s)).trans hInv.ha2
   have hneq0 : BitVec.ofNat 64 i ≠ n := by
     intro heq
     have h1 : (BitVec.ofNat 64 i).toNat = n.toNat := by rw [heq]
     rw [BitVec.toNat_ofNat] at h1; omega
-  have hpc0 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-      (BitVec.ofNat 64 0x13ebc)).regs.get? PC = some (BitVec.ofNat 64 0x13ebc) :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s) _ PC (by decide)).trans
-      ((afterIncGet s PC (by decide)).trans hInv.hPC)
   obtain ⟨misaBits0, _mstatus0, _pcr0, hmisaAfter0, _rest0⟩ := hplat0.1
-  have hmisa0 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-      (BitVec.ofNat 64 0x13ebc)).regs.get? misa = some misaBits0 :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s) _ misa (by decide)).trans hmisaAfter0
-  have hsum0 : (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) (8#13)) = BitVec.ofNat 64 0x13ec4 := by
+  have hsum0 : (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) (8#13))
+      = BitVec.ofNat 64 0x13ec4 := by
     simp only [sign_extend, Sail.BitVec.signExtend]; bv_decide
-  have halign0 : Sail.BitVec.access (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) (8#13)) 0 = 0#1 := by
-    rw [hsum0]; decide
-  have hbit1_0 : Sail.BitVec.access (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) (8#13)) 1 = 0#1 := by
-    rw [hsum0]; decide
-  have h0 := memcpy_step_bne_taken (start + i * 7) s (BitVec.ofNat 64 0x13ebc) n retired0
-    mseccfgBits inhibit cfg i hplat0 hcnt0 h15_0 h12_0 hneq0 hpc0 misaBits0 hmisa0 halign0 hbit1_0
-  have hSt1 : StableAgree s _ :=
-    stableAgree_jump s (BitVec.ofNat 64 0x13ebc) (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13)
-      retired0
-  have hPC1 := afterIncRetiredPC (controlFlowJumpState (tryStepControlFlowAfterIncrement s)
-    (BitVec.ofNat 64 0x13ebc) (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13))
-    (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13) retired0
-  have hmin1 := retiredMinstret (controlFlowJumpState (tryStepControlFlowAfterIncrement s)
-    (BitVec.ofNat 64 0x13ebc) (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13))
-    (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13) retired0
-  have hx15_1 : _ = some (BitVec.ofNat 64 i) :=
-    (jumpRetiredGet s (BitVec.ofNat 64 0x13ebc)
-      (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13) retired0 x15
-      (by decide) (by decide) (by decide) (by decide)).trans hInv.ha5
-  have hmem1 : _ = s.mem :=
-    (retiredMem (controlFlowJumpState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc)
-      (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13))
-      (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13) retired0).trans
-      (jumpMem s (BitVec.ofNat 64 0x13ebc) (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13))
-  generalize hgen1 : tryStepControlFlowAfterRetired (controlFlowJumpState
-      (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc)
-      (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13))
-      (BitVec.ofNat 64 0x13ebc + sign_extend (m := 64) 8#13) retired0 = s1
-    at h0 hSt1 hPC1 hmin1 hx15_1 hmem1
+  obtain ⟨s1, h0, w0, hSt1, hPC1, hmin1, hmem1⟩ :=
+    jumpStepPost (memcpy_step_bne_taken (start + i * 7) s (BitVec.ofNat 64 0x13ebc) n retired0
+      mseccfgBits inhibit cfg i hplat0 hcnt0
+      ((xGet s (BitVec.ofNat 64 0x13ebc) x15 (by decide) (by decide)).trans ha5)
+      ((xGet s (BitVec.ofNat 64 0x13ebc) x12 (by decide) (by decide)).trans hInv.ha2) hneq0
+      ((xGet s (BitVec.ofNat 64 0x13ebc) PC (by decide) (by decide)).trans hInv.hPC) misaBits0
+      ((coreGetInc (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc) misa
+        (by decide)).trans hmisaAfter0)
+      (by rw [hsum0]; decide) (by rw [hsum0]; decide))
   -- Step 1: add a3,a1,a5 (a3 = src+i), pc = 0x13ec4.
+  have hPCi1 : (tryStepControlFlowAfterIncrement s1).regs.get? PC
+      = some (BitVec.ofNat 64 0x13ec4) := (afterIncGet s1 PC (by decide)).trans (hsum0 ▸ hPC1)
   have hbytes1 : FetchBytesAt (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec4)
       0xb3#8 0x86#8 0xf5#8 0x00#8 :=
     fetchBytesAt_13ec4 (tryStepControlFlowAfterIncrement s1) image hInv.himageEq
       (hmem1.symm ▸ hInv.hmatches)
-  have hplat1 : StepPlatform s1 (BitVec.ofNat 64 0x13ec4) 0xb3#8 0x86#8 0xf5#8 0x00#8 mseccfgBits :=
-    mkStepPlatform s1 mseccfgBits (BitVec.ofNat 64 0x13ec4) 0xb3#8 0x86#8 0xf5#8 0x00#8
-      hInv.hplat hInv.hcur hInv.hmseccfg hSt1 (hsum0 ▸ hPC1) (by decide) hbytes1
+  have hplat1 := mkStepPlatform s1 mseccfgBits (BitVec.ofNat 64 0x13ec4) 0xb3#8 0x86#8 0xf5#8 0x00#8
+    hInv.hplat hInv.hcur hInv.hmseccfg hSt1 hPCi1 (by decide) hbytes1
   have hcnt1 : StepCounters s1 (Sail.BitVec.addInt retired0 1) inhibit cfg :=
     ⟨(hSt1 hart_state (by decide)).trans hInv.hhart,
       (hSt1 mcountinhibit (by decide)).trans hInv.hinhibit,
-      (hSt1 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin1⟩
-  have h11_1 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1)
-      (BitVec.ofNat 64 0x13ec4)).regs.get? x11 = some src :=
-    (coreGetStable s1 _ x11 (by decide) hSt1).trans hInv.ha1
-  have h15_1 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1)
-      (BitVec.ofNat 64 0x13ec4)).regs.get? x15 = some (BitVec.ofNat 64 i) :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s1) _ x15 (by decide)).trans
-      ((afterIncGet s1 x15 (by decide)).trans hx15_1)
-  have h1 := memcpy_step_add_a3 (start + i * 7 + 1) s1 src (BitVec.ofNat 64 i)
-    (Sail.BitVec.addInt retired0 1) mseccfgBits inhibit cfg hplat1 hcnt1 h11_1 h15_1
-  have hSt2 : StableAgree s _ :=
-    hSt1.trans (stableAgree_fallThrough s1 (BitVec.ofNat 64 0x13ec4) (Sail.BitVec.addInt retired0 1)
-      x13 (src + BitVec.ofNat 64 i) (Or.inl rfl))
-  have hPC2 := afterIncRetiredPC
-    { coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec4) with
-      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1)
-        (BitVec.ofNat 64 0x13ec4)).regs.insert x13 (src + BitVec.ofNat 64 i) }
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec4) 4) (Sail.BitVec.addInt retired0 1)
-  have hmin2 := retiredMinstret
-    { coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec4) with
-      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1)
-        (BitVec.ofNat 64 0x13ec4)).regs.insert x13 (src + BitVec.ofNat 64 i) }
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec4) 4) (Sail.BitVec.addInt retired0 1)
-  have hx13_2 := fallThroughRetiredRd s1 (BitVec.ofNat 64 0x13ec4) (Sail.BitVec.addInt retired0 1)
-    x13 (src + BitVec.ofNat 64 i) (by decide) (by decide)
-  have hx15_2 : _ = some (BitVec.ofNat 64 i) :=
-    (fallThroughRetiredGet s1 (BitVec.ofNat 64 0x13ec4) (Sail.BitVec.addInt retired0 1) x13
-      (src + BitVec.ofNat 64 i) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
-      hx15_1
-  have hmem2 : _ = s.mem :=
-    (retiredMem
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec4) with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1)
-          (BitVec.ofNat 64 0x13ec4)).regs.insert x13 (src + BitVec.ofNat 64 i) }
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec4) 4) (Sail.BitVec.addInt retired0 1)).trans
-      ((fallThroughMem s1 (BitVec.ofNat 64 0x13ec4) x13 (src + BitVec.ofNat 64 i)).trans hmem1)
-  generalize hgen2 : tryStepControlFlowAfterRetired
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec4) with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1)
-          (BitVec.ofNat 64 0x13ec4)).regs.insert x13 (src + BitVec.ofNat 64 i) }
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec4) 4) (Sail.BitVec.addInt retired0 1) = s2
-    at h1 hSt2 hPC2 hmin2 hx13_2 hx15_2 hmem2
+      (hSt1 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled,
+      hmin1⟩
+  have hx15_1 : s1.regs.get? x15 = some (BitVec.ofNat 64 i) := by grind
+  obtain ⟨s2, h1, w1, hSt12, hPC2, hmin2, hx13_2, hmem21⟩ :=
+    gpStepPost (Or.inl rfl) (memcpy_step_add_a3 (start + i * 7 + 1) s1 src (BitVec.ofNat 64 i)
+      (Sail.BitVec.addInt retired0 1) mseccfgBits inhibit cfg hplat1 hcnt1
+      ((coreGetStable s1 (BitVec.ofNat 64 0x13ec4) x11 (by decide) hSt1).trans hInv.ha1)
+      ((xGet s1 (BitVec.ofNat 64 0x13ec4) x15 (by decide) (by decide)).trans hx15_1))
+  have hSt2 : StableAgree s s2 := hSt1.trans hSt12
+  have hmem2 : s2.mem = s.mem := hmem21.trans hmem1
   -- Step 2: lbu a3,0(a3) (a3 = mem[src+i]), pc = 0x13ec8.
   have hsum24 : Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec4) 4 = BitVec.ofNat 64 0x13ec8 := by decide
+  have hPCi2 : (tryStepControlFlowAfterIncrement s2).regs.get? PC
+      = some (BitVec.ofNat 64 0x13ec8) := (afterIncGet s2 PC (by decide)).trans (hsum24 ▸ hPC2)
   have hbytes2 : FetchBytesAt (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x13ec8)
       0x83#8 0xc6#8 0x06#8 0x00#8 :=
     fetchBytesAt_13ec8 (tryStepControlFlowAfterIncrement s2) image hInv.himageEq
       (hmem2.symm ▸ hInv.hmatches)
-  have hplat2 : StepPlatform s2 (BitVec.ofNat 64 0x13ec8) 0x83#8 0xc6#8 0x06#8 0x00#8 mseccfgBits :=
-    mkStepPlatform s2 mseccfgBits (BitVec.ofNat 64 0x13ec8) 0x83#8 0xc6#8 0x06#8 0x00#8
-      hInv.hplat hInv.hcur hInv.hmseccfg hSt2 (hsum24 ▸ hPC2) (by decide) hbytes2
+  have hplat2 := mkStepPlatform s2 mseccfgBits (BitVec.ofNat 64 0x13ec8) 0x83#8 0xc6#8 0x06#8 0x00#8
+    hInv.hplat hInv.hcur hInv.hmseccfg hSt2 hPCi2 (by decide) hbytes2
   have hcnt2 : StepCounters s2 (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) inhibit cfg :=
     ⟨(hSt2 hart_state (by decide)).trans hInv.hhart,
       (hSt2 mcountinhibit (by decide)).trans hInv.hinhibit,
-      (hSt2 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin2⟩
-  have hmstat2 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2)
-      (BitVec.ofNat 64 0x13ec8)).regs.get? mstatus = some mstatusBits :=
-    (coreGetStable s2 _ mstatus (by decide) hSt2).trans hInv.hmstatus
-  have hpriv2 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2)
-      (BitVec.ofNat 64 0x13ec8)).regs.get? cur_privilege = some Privilege.Machine :=
-    (coreGetStable s2 _ cur_privilege (by decide) hSt2).trans hInv.hcur
-  have hx13t2 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2)
-      (BitVec.ofNat 64 0x13ec8)).regs.get? x13 = some (src + BitVec.ofNat 64 i) :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s2) _ x13 (by decide)).trans
-      ((afterIncGet s2 x13 (by decide)).trans hx13_2)
+      (hSt2 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled,
+      hmin2⟩
+  have hx13t2 := (xGet s2 (BitVec.ofNat 64 0x13ec8) x13 (by decide) (by decide)).trans hx13_2
   obtain ⟨addrReg2, physAccess2, noMMIOr2⟩ :=
     (hInv.hdata i _ hi (coreStableAgree s2 (BitVec.ofNat 64 0x13ec8) hSt2)).1 hx13t2
   have hbyte2 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2)
       (BitVec.ofNat 64 0x13ec8)).mem.get? (src + BitVec.ofNat 64 i).toNat = some (srcByte i) :=
     hmem2 ▸ hInv.hsrc i hi
-  have h2 := memcpy_step_lbu (start + i * 7 + 2) s2 (src + BitVec.ofNat 64 i) mstatusBits
-    (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) mseccfgBits (srcByte i) inhibit cfg
-    hplat2 hcnt2 hmstat2 hpriv2 hInv.hmprv addrReg2 (is_aligned_vaddr_one _) physAccess2 noMMIOr2
-    (leBytes_one_mem _ _ (srcByte i) hbyte2)
-  have hSt3 : StableAgree s _ :=
-    hSt2.trans (stableAgree_fallThrough s2 (BitVec.ofNat 64 0x13ec8)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) x13 (zero_extend (m := 64) (srcByte i))
-      (Or.inl rfl))
-  have hPC3 := afterIncRetiredPC
-    { coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x13ec8) with
-      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2)
-        (BitVec.ofNat 64 0x13ec8)).regs.insert x13 (zero_extend (m := 64) (srcByte i)) }
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec8) 4)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
-  have hmin3 := retiredMinstret
-    { coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x13ec8) with
-      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2)
-        (BitVec.ofNat 64 0x13ec8)).regs.insert x13 (zero_extend (m := 64) (srcByte i)) }
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec8) 4)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
-  have hx13_3 := fallThroughRetiredRd s2 (BitVec.ofNat 64 0x13ec8)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) x13 (zero_extend (m := 64) (srcByte i))
-    (by decide) (by decide)
-  have hx15_3 : _ = some (BitVec.ofNat 64 i) :=
-    (fallThroughRetiredGet s2 (BitVec.ofNat 64 0x13ec8)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) x13 (zero_extend (m := 64) (srcByte i))
-      x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans hx15_2
-  have hmem3 : _ = s.mem :=
-    (retiredMem
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x13ec8) with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2)
-          (BitVec.ofNat 64 0x13ec8)).regs.insert x13 (zero_extend (m := 64) (srcByte i)) }
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec8) 4)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)).trans
-      ((fallThroughMem s2 (BitVec.ofNat 64 0x13ec8) x13 (zero_extend (m := 64) (srcByte i))).trans
-        hmem2)
-  generalize hgen3 : tryStepControlFlowAfterRetired
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement s2) (BitVec.ofNat 64 0x13ec8) with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s2)
-          (BitVec.ofNat 64 0x13ec8)).regs.insert x13 (zero_extend (m := 64) (srcByte i)) }
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec8) 4)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) = s3
-    at h2 hSt3 hPC3 hmin3 hx13_3 hx15_3 hmem3
+  obtain ⟨s3, h2, w2, hSt23, hPC3, hmin3, hx13_3, hmem32⟩ :=
+    gpStepPost (Or.inl rfl) (memcpy_step_lbu (start + i * 7 + 2) s2 (src + BitVec.ofNat 64 i)
+      mstatusBits (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) mseccfgBits (srcByte i)
+      inhibit cfg hplat2 hcnt2
+      ((coreGetStable s2 (BitVec.ofNat 64 0x13ec8) mstatus (by decide) hSt2).trans hInv.hmstatus)
+      ((coreGetStable s2 (BitVec.ofNat 64 0x13ec8) cur_privilege (by decide) hSt2).trans hInv.hcur)
+      hInv.hmprv addrReg2 (is_aligned_vaddr_one _) physAccess2 noMMIOr2
+      (leBytes_one_mem _ _ (srcByte i) hbyte2))
+  have hSt3 : StableAgree s s3 := hSt2.trans hSt23
+  have hmem3 : s3.mem = s.mem := hmem32.trans hmem2
   -- Step 3: add a4,a0,a5 (a4 = dst+i), pc = 0x13ecc.
   have hsum28 : Sail.BitVec.addInt (BitVec.ofNat 64 0x13ec8) 4 = BitVec.ofNat 64 0x13ecc := by decide
+  have hPCi3 : (tryStepControlFlowAfterIncrement s3).regs.get? PC
+      = some (BitVec.ofNat 64 0x13ecc) := (afterIncGet s3 PC (by decide)).trans (hsum28 ▸ hPC3)
   have hbytes3 : FetchBytesAt (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x13ecc)
       0x33#8 0x07#8 0xf5#8 0x00#8 :=
     fetchBytesAt_13ecc (tryStepControlFlowAfterIncrement s3) image hInv.himageEq
       (hmem3.symm ▸ hInv.hmatches)
-  have hplat3 : StepPlatform s3 (BitVec.ofNat 64 0x13ecc) 0x33#8 0x07#8 0xf5#8 0x00#8 mseccfgBits :=
-    mkStepPlatform s3 mseccfgBits (BitVec.ofNat 64 0x13ecc) 0x33#8 0x07#8 0xf5#8 0x00#8
-      hInv.hplat hInv.hcur hInv.hmseccfg hSt3 (hsum28 ▸ hPC3) (by decide) hbytes3
+  have hplat3 := mkStepPlatform s3 mseccfgBits (BitVec.ofNat 64 0x13ecc) 0x33#8 0x07#8 0xf5#8 0x00#8
+    hInv.hplat hInv.hcur hInv.hmseccfg hSt3 hPCi3 (by decide) hbytes3
   have hcnt3 : StepCounters s3
       (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) inhibit cfg :=
     ⟨(hSt3 hart_state (by decide)).trans hInv.hhart,
       (hSt3 mcountinhibit (by decide)).trans hInv.hinhibit,
-      (hSt3 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin3⟩
-  have h10_3 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3)
-      (BitVec.ofNat 64 0x13ecc)).regs.get? x10 = some dst :=
-    (coreGetStable s3 _ x10 (by decide) hSt3).trans hInv.ha0
-  have h15_3 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3)
-      (BitVec.ofNat 64 0x13ecc)).regs.get? x15 = some (BitVec.ofNat 64 i) :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s3) _ x15 (by decide)).trans
-      ((afterIncGet s3 x15 (by decide)).trans hx15_3)
-  have h3 := memcpy_step_add_a4 (start + i * 7 + 3) s3 dst (BitVec.ofNat 64 i)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) mseccfgBits inhibit
-    cfg hplat3 hcnt3 h10_3 h15_3
-  have hSt4 : StableAgree s _ :=
-    hSt3.trans (stableAgree_fallThrough s3 (BitVec.ofNat 64 0x13ecc)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x14
-      (dst + BitVec.ofNat 64 i) (Or.inr (Or.inl rfl)))
-  have hPC4 := afterIncRetiredPC
-    { coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x13ecc) with
-      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3)
-        (BitVec.ofNat 64 0x13ecc)).regs.insert x14 (dst + BitVec.ofNat 64 i) }
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ecc) 4)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1)
-  have hmin4 := retiredMinstret
-    { coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x13ecc) with
-      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3)
-        (BitVec.ofNat 64 0x13ecc)).regs.insert x14 (dst + BitVec.ofNat 64 i) }
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ecc) 4)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1)
-  have hx13_4 : _ = some (zero_extend (m := 64) (srcByte i)) :=
-    (fallThroughRetiredGet s3 (BitVec.ofNat 64 0x13ecc)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x14
-      (dst + BitVec.ofNat 64 i) x13 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
-      hx13_3
-  have hx14_4 := fallThroughRetiredRd s3 (BitVec.ofNat 64 0x13ecc)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x14
-    (dst + BitVec.ofNat 64 i) (by decide) (by decide)
-  have hx15_4 : _ = some (BitVec.ofNat 64 i) :=
-    (fallThroughRetiredGet s3 (BitVec.ofNat 64 0x13ecc)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) x14
-      (dst + BitVec.ofNat 64 i) x15 (by decide) (by decide) (by decide) (by decide) (by decide)).trans
-      hx15_3
-  have hmem4 : _ = s.mem :=
-    (retiredMem
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x13ecc) with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3)
-          (BitVec.ofNat 64 0x13ecc)).regs.insert x14 (dst + BitVec.ofNat 64 i) }
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ecc) 4)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1)).trans
-      ((fallThroughMem s3 (BitVec.ofNat 64 0x13ecc) x14 (dst + BitVec.ofNat 64 i)).trans hmem3)
-  generalize hgen4 : tryStepControlFlowAfterRetired
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement s3) (BitVec.ofNat 64 0x13ecc) with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s3)
-          (BitVec.ofNat 64 0x13ecc)).regs.insert x14 (dst + BitVec.ofNat 64 i) }
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ecc) 4)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) = s4
-    at h3 hSt4 hPC4 hmin4 hx13_4 hx14_4 hx15_4 hmem4
+      (hSt3 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled,
+      hmin3⟩
+  have hx15_3 : s3.regs.get? x15 = some (BitVec.ofNat 64 i) := by grind
+  obtain ⟨s4, h3, w3, hSt34, hPC4, hmin4, hx14_4, hmem43⟩ :=
+    gpStepPost (Or.inr (Or.inl rfl)) (memcpy_step_add_a4 (start + i * 7 + 3) s3 dst
+      (BitVec.ofNat 64 i)
+      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) mseccfgBits
+      inhibit cfg hplat3 hcnt3
+      ((coreGetStable s3 (BitVec.ofNat 64 0x13ecc) x10 (by decide) hSt3).trans hInv.ha0)
+      ((xGet s3 (BitVec.ofNat 64 0x13ecc) x15 (by decide) (by decide)).trans hx15_3))
+  have hSt4 : StableAgree s s4 := hSt3.trans hSt34
+  have hmem4 : s4.mem = s.mem := hmem43.trans hmem3
   -- Step 4: addi a5,a5,1 (i++), pc = 0x13ed0.
   have hsum2c : Sail.BitVec.addInt (BitVec.ofNat 64 0x13ecc) 4 = BitVec.ofNat 64 0x13ed0 := by decide
+  have hPCi4 : (tryStepControlFlowAfterIncrement s4).regs.get? PC
+      = some (BitVec.ofNat 64 0x13ed0) := (afterIncGet s4 PC (by decide)).trans (hsum2c ▸ hPC4)
   have hbytes4 : FetchBytesAt (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x13ed0)
       0x93#8 0x87#8 0x17#8 0x00#8 :=
     fetchBytesAt_13ed0 (tryStepControlFlowAfterIncrement s4) image hInv.himageEq
       (hmem4.symm ▸ hInv.hmatches)
-  have hplat4 : StepPlatform s4 (BitVec.ofNat 64 0x13ed0) 0x93#8 0x87#8 0x17#8 0x00#8 mseccfgBits :=
-    mkStepPlatform s4 mseccfgBits (BitVec.ofNat 64 0x13ed0) 0x93#8 0x87#8 0x17#8 0x00#8
-      hInv.hplat hInv.hcur hInv.hmseccfg hSt4 (hsum2c ▸ hPC4) (by decide) hbytes4
-  have hcnt4 : StepCounters s4
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
-        1) 1) inhibit cfg :=
+  have hplat4 := mkStepPlatform s4 mseccfgBits (BitVec.ofNat 64 0x13ed0) 0x93#8 0x87#8 0x17#8 0x00#8
+    hInv.hplat hInv.hcur hInv.hmseccfg hSt4 hPCi4 (by decide) hbytes4
+  have hcnt4 : StepCounters s4 (Sail.BitVec.addInt (Sail.BitVec.addInt
+      (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) inhibit cfg :=
     ⟨(hSt4 hart_state (by decide)).trans hInv.hhart,
       (hSt4 mcountinhibit (by decide)).trans hInv.hinhibit,
-      (hSt4 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin4⟩
-  have h15_4 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4)
-      (BitVec.ofNat 64 0x13ed0)).regs.get? x15 = some (BitVec.ofNat 64 i) :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s4) _ x15 (by decide)).trans
-      ((afterIncGet s4 x15 (by decide)).trans hx15_4)
-  have h4 := memcpy_step_addi_a5 (start + i * 7 + 4) s4 (BitVec.ofNat 64 i)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
-      1) 1) mseccfgBits inhibit cfg hplat4 hcnt4 h15_4
-  have hSt5 : StableAgree s _ :=
-    hSt4.trans (stableAgree_fallThrough s4 (BitVec.ofNat 64 0x13ed0)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
-        1) 1) x15 (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) (Or.inr (Or.inr rfl)))
-  have hPC5 := afterIncRetiredPC
-    { coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x13ed0) with
-      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4)
-        (BitVec.ofNat 64 0x13ed0)).regs.insert x15 (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) }
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ed0) 4)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1)
-  have hmin5 := retiredMinstret
-    { coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x13ed0) with
-      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4)
-        (BitVec.ofNat 64 0x13ed0)).regs.insert x15 (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) }
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ed0) 4)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1)
-  have hx13_5 : _ = some (zero_extend (m := 64) (srcByte i)) :=
-    (fallThroughRetiredGet s4 (BitVec.ofNat 64 0x13ed0)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
-        1) 1) x15 (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) x13
-      (by decide) (by decide) (by decide) (by decide) (by decide)).trans hx13_4
-  have hx14_5 : _ = some (dst + BitVec.ofNat 64 i) :=
-    (fallThroughRetiredGet s4 (BitVec.ofNat 64 0x13ed0)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
-        1) 1) x15 (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) x14
-      (by decide) (by decide) (by decide) (by decide) (by decide)).trans hx14_4
-  have hx15_5 := fallThroughRetiredRd s4 (BitVec.ofNat 64 0x13ed0)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
-      1) 1) x15 (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) (by decide) (by decide)
-  have hmem5 : _ = s.mem :=
-    (retiredMem
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x13ed0) with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4)
-          (BitVec.ofNat 64 0x13ed0)).regs.insert x15
-            (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) }
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ed0) 4)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
-        1) 1)).trans
-      ((fallThroughMem s4 (BitVec.ofNat 64 0x13ed0) x15
-        (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12)).trans hmem4)
-  generalize hgen5 : tryStepControlFlowAfterRetired
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x13ed0) with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s4)
-          (BitVec.ofNat 64 0x13ed0)).regs.insert x15
-            (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) }
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ed0) 4)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
-        1) 1) = s5
-    at h4 hSt5 hPC5 hmin5 hx13_5 hx14_5 hx15_5 hmem5
+      (hSt4 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled,
+      hmin4⟩
+  have hx15_4 : s4.regs.get? x15 = some (BitVec.ofNat 64 i) := by grind
+  obtain ⟨s5, h4, w4, hSt45, hPC5, hmin5, hx15_5, hmem54⟩ :=
+    gpStepPost (Or.inr (Or.inr rfl)) (memcpy_step_addi_a5 (start + i * 7 + 4) s4
+      (BitVec.ofNat 64 i) (Sail.BitVec.addInt (Sail.BitVec.addInt
+        (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) mseccfgBits inhibit cfg
+      hplat4 hcnt4
+      ((xGet s4 (BitVec.ofNat 64 0x13ed0) x15 (by decide) (by decide)).trans hx15_4))
+  have hSt5 : StableAgree s s5 := hSt4.trans hSt45
+  have hmem5 : s5.mem = s.mem := hmem54.trans hmem4
   -- Step 5: sb a3,0(a4) (mem[dst+i] = a3), pc = 0x13ed4.
   have hsum30 : Sail.BitVec.addInt (BitVec.ofNat 64 0x13ed0) 4 = BitVec.ofNat 64 0x13ed4 := by decide
+  have hPCi5 : (tryStepControlFlowAfterIncrement s5).regs.get? PC
+      = some (BitVec.ofNat 64 0x13ed4) := (afterIncGet s5 PC (by decide)).trans (hsum30 ▸ hPC5)
   have hbytes5 : FetchBytesAt (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x13ed4)
       0x23#8 0x00#8 0xd7#8 0x00#8 :=
     fetchBytesAt_13ed4 (tryStepControlFlowAfterIncrement s5) image hInv.himageEq
       (hmem5.symm ▸ hInv.hmatches)
-  have hplat5 : StepPlatform s5 (BitVec.ofNat 64 0x13ed4) 0x23#8 0x00#8 0xd7#8 0x00#8 mseccfgBits :=
-    mkStepPlatform s5 mseccfgBits (BitVec.ofNat 64 0x13ed4) 0x23#8 0x00#8 0xd7#8 0x00#8
-      hInv.hplat hInv.hcur hInv.hmseccfg hSt5 (hsum30 ▸ hPC5) (by decide) hbytes5
+  have hplat5 := mkStepPlatform s5 mseccfgBits (BitVec.ofNat 64 0x13ed4) 0x23#8 0x00#8 0xd7#8 0x00#8
+    hInv.hplat hInv.hcur hInv.hmseccfg hSt5 hPCi5 (by decide) hbytes5
   have hcnt5 : StepCounters s5 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
       (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) inhibit cfg :=
     ⟨(hSt5 hart_state (by decide)).trans hInv.hhart,
       (hSt5 mcountinhibit (by decide)).trans hInv.hinhibit,
-      (hSt5 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin5⟩
-  have hmstat5 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-      (BitVec.ofNat 64 0x13ed4)).regs.get? mstatus = some mstatusBits :=
-    (coreGetStable s5 _ mstatus (by decide) hSt5).trans hInv.hmstatus
-  have hpriv5 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-      (BitVec.ofNat 64 0x13ed4)).regs.get? cur_privilege = some Privilege.Machine :=
-    (coreGetStable s5 _ cur_privilege (by decide) hSt5).trans hInv.hcur
-  have hx13_at5 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-      (BitVec.ofNat 64 0x13ed4)).regs.get? x13 = some (BitVec.setWidth 64 (srcByte i)) :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s5) _ x13 (by decide)).trans
-      ((afterIncGet s5 x13 (by decide)).trans
-        (hx13_5.trans (congrArg some (zero_extend_setWidth (srcByte i)))))
-  have hx14_at5 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-      (BitVec.ofNat 64 0x13ed4)).regs.get? x14 = some (dst + BitVec.ofNat 64 i) :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s5) _ x14 (by decide)).trans
-      ((afterIncGet s5 x14 (by decide)).trans hx14_5)
+      (hSt5 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled,
+      hmin5⟩
+  have hx13_5 : s5.regs.get? x13 = some (zero_extend (m := 64) (srcByte i)) := by grind
+  have hx14_5 : s5.regs.get? x14 = some (dst + BitVec.ofNat 64 i) := by grind
+  have hx14t5 := (xGet s5 (BitVec.ofNat 64 0x13ed4) x14 (by decide) (by decide)).trans hx14_5
   obtain ⟨addrReg5, physAccess5, noMMIOw5⟩ :=
-    (hInv.hdata i _ hi (coreStableAgree s5 (BitVec.ofNat 64 0x13ed4) hSt5)).2 hx14_at5
+    (hInv.hdata i _ hi (coreStableAgree s5 (BitVec.ofNat 64 0x13ed4) hSt5)).2 hx14t5
   have hwrite5 := writeBytes_byte_run
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5) (BitVec.ofNat 64 0x13ed4))
     (dst + BitVec.ofNat 64 i).toNat (srcByte i)
-  have hs'mem : ({ coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-        (BitVec.ofNat 64 0x13ed4) with
-      mem := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-        (BitVec.ofNat 64 0x13ed4)).mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i) }).mem =
-      s.mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i) := by
-    show (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-        (BitVec.ofNat 64 0x13ed4)).mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i) =
-        s.mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i)
-    rw [show (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-      (BitVec.ofNat 64 0x13ed4)).mem = s.mem from hmem5]
-  generalize hgens' : ({ coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-        (BitVec.ofNat 64 0x13ed4) with
-      mem := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-        (BitVec.ofNat 64 0x13ed4)).mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i) }) = s'
-    at hwrite5 hs'mem
-  have h5 := memcpy_step_sb (start + i * 7 + 5) s5 s' (dst + BitVec.ofNat 64 i) mstatusBits
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-      (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) mseccfgBits (srcByte i) inhibit cfg
-    hplat5 hcnt5 hmstat5 hpriv5 hInv.hmprv hx13_at5 addrReg5 physAccess5 noMMIOw5 hwrite5
-  have hregsEq : s'.regs = (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
-      (BitVec.ofNat 64 0x13ed4)).regs := by rw [← hgens']
-  have hSt6 : StableAgree s _ :=
-    hSt5.trans (stableAgree_sb s5 s' (BitVec.ofNat 64 0x13ed4)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-        (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) hregsEq)
-  have hPC6 := afterIncRetiredPC s' (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ed4) 4)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-      (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1)
-  have hmin6 := retiredMinstret s' (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ed4) 4)
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-      (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1)
-  have hx15_6 : _ = some (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) :=
-    (sbRetiredGet s5 s' (BitVec.ofNat 64 0x13ed4)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-        (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) hregsEq x15
-      (by decide) (by decide) (by decide) (by decide)).trans hx15_5
-  have hmem6 : _ = s.mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i) :=
-    (retiredMem s' (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ed4) 4)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-        (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1)).trans hs'mem
-  generalize hgen6 : tryStepControlFlowAfterRetired s' (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ed4) 4)
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-        (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) = s6
-    at h5 hSt6 hPC6 hmin6 hx15_6 hmem6
+  obtain ⟨s6, h5, w5, hSt56, hPC6, hmin6, hmem6⟩ :=
+    sbStepPost (memcpy_step_sb (start + i * 7 + 5) s5 _ (dst + BitVec.ofNat 64 i) mstatusBits
+        (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
+          (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) mseccfgBits (srcByte i) inhibit cfg
+        hplat5 hcnt5
+        ((coreGetStable s5 (BitVec.ofNat 64 0x13ed4) mstatus (by decide) hSt5).trans hInv.hmstatus)
+        ((coreGetStable s5 (BitVec.ofNat 64 0x13ed4) cur_privilege (by decide) hSt5).trans
+          hInv.hcur)
+        hInv.hmprv
+        ((xGet s5 (BitVec.ofNat 64 0x13ed4) x13 (by decide) (by decide)).trans
+          (hx13_5.trans (congrArg some (zero_extend_setWidth (srcByte i)))))
+        addrReg5 physAccess5 noMMIOw5 hwrite5)
+      rfl
+      (by
+        show (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
+            (BitVec.ofNat 64 0x13ed4)).mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i) =
+            s.mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i)
+        rw [show (coreControlFlowNextState (tryStepControlFlowAfterIncrement s5)
+          (BitVec.ofNat 64 0x13ed4)).mem = s.mem from hmem5])
+  have hSt6 : StableAgree s s6 := hSt5.trans hSt56
   -- Step 6: j 0x13ebc (back-edge), pc = 0x13ed8.
   have hsum34 : Sail.BitVec.addInt (BitVec.ofNat 64 0x13ed4) 4 = BitVec.ofNat 64 0x13ed8 := by decide
+  have hPCi6 : (tryStepControlFlowAfterIncrement s6).regs.get? PC
+      = some (BitVec.ofNat 64 0x13ed8) := (afterIncGet s6 PC (by decide)).trans (hsum34 ▸ hPC6)
+  have hmatches6 := fileBytesMatchMemory_insert image s.mem (dst + BitVec.ofNat 64 i).toNat
+    (srcByte i) hInv.hmatches (hInv.hdstImg i hi)
   have hbytes6 : FetchBytesAt (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x13ed8)
       0x6f#8 0xf0#8 0x5f#8 0xfe#8 :=
     fetchBytesAt_13ed8 (tryStepControlFlowAfterIncrement s6) image hInv.himageEq
-      (hmem6.symm ▸ fileBytesMatchMemory_insert image s.mem (dst + BitVec.ofNat 64 i).toNat (srcByte i)
-        hInv.hmatches (hInv.hdstImg i hi))
-  have hplat6 : StepPlatform s6 (BitVec.ofNat 64 0x13ed8) 0x6f#8 0xf0#8 0x5f#8 0xfe#8 mseccfgBits :=
-    mkStepPlatform s6 mseccfgBits (BitVec.ofNat 64 0x13ed8) 0x6f#8 0xf0#8 0x5f#8 0xfe#8
-      hInv.hplat hInv.hcur hInv.hmseccfg hSt6 (hsum34 ▸ hPC6) (by decide) hbytes6
+      (hmem6.symm ▸ hmatches6)
+  have hplat6 := mkStepPlatform s6 mseccfgBits (BitVec.ofNat 64 0x13ed8) 0x6f#8 0xf0#8 0x5f#8 0xfe#8
+    hInv.hplat hInv.hcur hInv.hmseccfg hSt6 hPCi6 (by decide) hbytes6
   have hcnt6 : StepCounters s6 (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) inhibit
-      cfg :=
+      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1)
+      inhibit cfg :=
     ⟨(hSt6 hart_state (by decide)).trans hInv.hhart,
       (hSt6 mcountinhibit (by decide)).trans hInv.hinhibit,
-      (hSt6 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hmin6⟩
-  have h6 := memcpy_step_j (start + i * 7 + 6) s6 (Sail.BitVec.addInt (Sail.BitVec.addInt
-    (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1)
-      1) 1) 1) mseccfgBits inhibit cfg hplat6 hcnt6
-  -- Assemble the 7-step trace and re-establish the invariant at i+1.
-  have hSt7 : StableAgree s _ :=
-    hSt6.trans (stableAgree_jump s6 (BitVec.ofNat 64 0x13ed8)
-      (BitVec.ofNat 64 0x13ed8 + sign_extend (m := 64) (0x1FFFE4#21))
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-        (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1))
+      (hSt6 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled,
+      hmin6⟩
   have hsumJ : (BitVec.ofNat 64 0x13ed8 + sign_extend (m := 64) (0x1FFFE4#21))
       = BitVec.ofNat 64 0x13ebc := by
     simp only [sign_extend, Sail.BitVec.signExtend]; bv_decide
-  have hmemS7 : _ = s.mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i) :=
-    (retiredMem (controlFlowJumpState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x13ed8)
-      (BitVec.ofNat 64 0x13ed8 + sign_extend (m := 64) (0x1FFFE4#21)))
-      (BitVec.ofNat 64 0x13ed8 + sign_extend (m := 64) (0x1FFFE4#21))
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-        (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1)).trans
-      ((jumpMem s6 (BitVec.ofNat 64 0x13ed8)
-        (BitVec.ofNat 64 0x13ed8 + sign_extend (m := 64) (0x1FFFE4#21))).trans hmem6)
-  have htr : Trace (start + i * 7) 7 s
-      (tryStepControlFlowAfterRetired
-        (controlFlowJumpState (tryStepControlFlowAfterIncrement s6) (BitVec.ofNat 64 0x13ed8)
-          (BitVec.ofNat 64 0x13ed8 + sign_extend (m := 64) (0x1FFFE4#21)))
-        (BitVec.ofNat 64 0x13ed8 + sign_extend (m := 64) (0x1FFFE4#21))
-        (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-          (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1)) := by
-    trace_steps [h0, h1, h2, h3, h4, h5, h6]
-  have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x13ec4) :=
-    (afterIncGet s1 PC (by decide)).symm.trans (hsum0 ▸ hPC1)
-  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x13ec8) :=
-    (afterIncGet s2 PC (by decide)).symm.trans (hsum24 ▸ hPC2)
-  have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x13ecc) :=
-    (afterIncGet s3 PC (by decide)).symm.trans (hsum28 ▸ hPC3)
-  have pc4 : s4.regs.get? PC = some (BitVec.ofNat 64 0x13ed0) :=
-    (afterIncGet s4 PC (by decide)).symm.trans (hsum2c ▸ hPC4)
-  have pc5 : s5.regs.get? PC = some (BitVec.ofNat 64 0x13ed4) :=
-    (afterIncGet s5 PC (by decide)).symm.trans (hsum30 ▸ hPC5)
-  have pc6 : s6.regs.get? PC = some (BitVec.ofNat 64 0x13ed8) :=
-    (afterIncGet s6 PC (by decide)).symm.trans (hsum34 ▸ hPC6)
-  refine ⟨_, htr, ?_, ?_⟩
-  · exact ⟨s1, s2, s3, s4, s5, s6, hInv.hPC, pc1, pc2, pc3, pc4, pc5, pc6,
-      h0, h1, h2, h3, h4, h5, h6⟩
+  obtain ⟨s7, h6, w6, hSt67, hPC7, hmin7, hmem7⟩ :=
+    jumpStepPost (memcpy_step_j (start + i * 7 + 6) s6 (Sail.BitVec.addInt (Sail.BitVec.addInt
+      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1)
+        1) 1) 1) 1) mseccfgBits inhibit cfg hplat6 hcnt6)
+  have hSt7 : StableAgree s s7 := hSt6.trans hSt67
+  have hmemS7 : s7.mem = s.mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i) :=
+    hmem7.trans hmem6
+  -- Assemble the 7-step trace and re-establish the invariant at i+1.
+  have htr : Trace (start + i * 7) 7 s s7 := by trace_steps [h0, h1, h2, h3, h4, h5, h6]
+  refine ⟨s7, htr, ⟨s1, s2, s3, s4, s5, s6, hInv.hPC, hsum0 ▸ hPC1, hsum24 ▸ hPC2, hsum28 ▸ hPC3,
+    hsum2c ▸ hPC4, hsum30 ▸ hPC5, hsum34 ▸ hPC6, h0, h1, h2, h3, h4, h5, h6⟩, ?_⟩
   refine ⟨?hPC, ?ha5, ?ha0, ?ha1, ?ha2, ?hra, ?hcur, ?hmstatus, ?hmprv, ?hmseccfg, ?hhart,
       ?hinhibit, ?hnotInhibited, ?hcfg, ?hmachineEnabled, ?hminstret, ?himageEq, ?hmatches, ?hsrc,
       ?hcopy, ?hle, ?hnLt, ?hsrcFits, ?hdstFits, ?hdstImg, ?hdisj, ?hplat, ?hdata, ?hElp,
       ?hstable, ?hframe⟩
-  case hPC =>
-    rw [retiredGetPC _ _ _, hsumJ]
+  case hPC => exact hsumJ ▸ hPC7
   case ha5 =>
-    exact (jumpRetiredGet s6 (BitVec.ofNat 64 0x13ed8)
-      (BitVec.ofNat 64 0x13ed8 + sign_extend (m := 64) (0x1FFFE4#21))
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-        (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1) x15
-      (by decide) (by decide) (by decide) (by decide)).trans
-      (hx15_6.trans (congrArg some (ofNat_add_one i)))
+    have hcarry : s7.regs.get? x15 = some (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) := by
+      grind
+    exact hcarry.trans (congrArg some (ofNat_add_one i))
   case ha0 => exact (hSt7 x10 (by decide)).trans hInv.ha0
   case ha1 => exact (hSt7 x11 (by decide)).trans hInv.ha1
   case ha2 => exact (hSt7 x12 (by decide)).trans hInv.ha2
@@ -1642,16 +1445,9 @@ theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
   case hnotInhibited => exact hInv.hnotInhibited
   case hcfg => exact (hSt7 minstretcfg (by decide)).trans hInv.hcfg
   case hmachineEnabled => exact hInv.hmachineEnabled
-  case hminstret =>
-    exact ⟨_, retiredMinstret (controlFlowJumpState (tryStepControlFlowAfterIncrement s6)
-      (BitVec.ofNat 64 0x13ed8) (BitVec.ofNat 64 0x13ed8 + sign_extend (m := 64) (0x1FFFE4#21)))
-      (BitVec.ofNat 64 0x13ed8 + sign_extend (m := 64) (0x1FFFE4#21))
-      (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt (Sail.BitVec.addInt
-        (Sail.BitVec.addInt (Sail.BitVec.addInt retired0 1) 1) 1) 1) 1) 1)⟩
+  case hminstret => exact ⟨_, hmin7⟩
   case himageEq => exact hInv.himageEq
-  case hmatches =>
-    exact hmemS7.symm ▸ fileBytesMatchMemory_insert image s.mem (dst + BitVec.ofNat 64 i).toNat
-      (srcByte i) hInv.hmatches (hInv.hdstImg i hi)
+  case hmatches => exact hmemS7.symm ▸ hmatches6
   case hsrc =>
     intro j hj
     rw [hmemS7, getInsertNe _ _ _ _ (hInv.hdisj i j hi hj)]
@@ -1797,10 +1593,9 @@ theorem memcpy_step_ret (stepNo : Nat) (state : State)
 theorem stableAgree_notTaken (base : State) (pc ret : BitVec 64) :
     StableAgree base (tryStepControlFlowAfterRetired
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement base) pc)
-      (Sail.BitVec.addInt pc 4) ret) := by
-  intro r hr
-  rw [retiredFrameGet _ _ _ r hr.1 hr.2.2.1, coreGetInc _ pc r hr.2.1]
-  exact afterIncGet base r hr.2.2.2.1
+      (Sail.BitVec.addInt pc 4) ret) :=
+  (fallThroughRetirement_writes base pc (Sail.BitVec.addInt pc 4) ret).agree
+    nonW_disjoint_bookkeeping
 
 /-- The not-taken branch does not write memory. -/
 theorem notTakenMem (base : State) (pc ret : BitVec 64) :
@@ -1892,37 +1687,25 @@ theorem memcpy_reach_ret (dst src n retAddr : BitVec 64) (image : ProgramImage)
   have bytes : FetchBytesAt (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc)
       0x63#8 0x94#8 0xc7#8 0x00#8 :=
     fetchBytesAt_13ebc (tryStepControlFlowAfterIncrement s) image hInv.himageEq hInv.hmatches
-  have platform : StepPlatform s (BitVec.ofNat 64 0x13ebc)
-      0x63#8 0x94#8 0xc7#8 0x00#8 mseccfgBits :=
-    mkStepPlatform s mseccfgBits (BitVec.ofNat 64 0x13ebc)
-      0x63#8 0x94#8 0xc7#8 0x00#8 hInv.hplat hInv.hcur hInv.hmseccfg
-      (StableAgree.refl s) ((afterIncGet s PC (by decide)).trans hInv.hPC)
-      (Or.inr (Or.inl rfl)) bytes
+  have platform := mkStepPlatform s mseccfgBits (BitVec.ofNat 64 0x13ebc)
+    0x63#8 0x94#8 0xc7#8 0x00#8 hInv.hplat hInv.hcur hInv.hmseccfg
+    (StableAgree.refl s) ((afterIncGet s PC (by decide)).trans hInv.hPC)
+    (Or.inr (Or.inl rfl)) bytes
   have counters : StepCounters s retired inhibit cfg :=
     ⟨hInv.hhart, hInv.hinhibit, hInv.hcfg, hInv.hnotInhibited,
       hInv.hmachineEnabled, retiredRead⟩
-  have indexRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-      (BitVec.ofNat 64 0x13ebc)).regs.get? x15 = some (BitVec.ofNat 64 n.toNat) :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s) _ x15 (by decide)).trans
-      ((afterIncGet s x15 (by decide)).trans hInv.ha5)
-  have lengthRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-      (BitVec.ofNat 64 0x13ebc)).regs.get? x12 = some n :=
-    (coreGetStable s _ x12 (by decide) (StableAgree.refl s)).trans hInv.ha2
   have equal : BitVec.ofNat 64 n.toNat = n := by
     apply BitVec.eq_of_toNat_eq
     rw [BitVec.toNat_ofNat]
     omega
-  have step := memcpy_step_bne_not_taken start s n retired mseccfgBits inhibit cfg n.toNat
-    platform counters indexRead lengthRead equal
-  let final := tryStepControlFlowAfterRetired
-    (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc))
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ebc) 4) retired
-  have stable : StableAgree s final := stableAgree_notTaken s (BitVec.ofNat 64 0x13ebc) retired
-  have memory : final.mem = s.mem := notTakenMem s (BitVec.ofNat 64 0x13ebc) retired
-  refine ⟨final, Trace.one start s final step, step, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · simpa [final] using retiredGetPC
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc))
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ebc) 4) retired
+  have hsumL4 : Sail.BitVec.addInt (BitVec.ofNat 64 0x13ebc) 4 = BitVec.ofNat 64 0x13ec0 := by decide
+  obtain ⟨final, step, w0, stable, atExit, counter, memory⟩ :=
+    notTakenStepPost (memcpy_step_bne_not_taken start s n retired mseccfgBits inhibit cfg n.toNat
+      platform counters
+      ((xGet s (BitVec.ofNat 64 0x13ebc) x15 (by decide) (by decide)).trans hInv.ha5)
+      ((xGet s (BitVec.ofNat 64 0x13ebc) x12 (by decide) (by decide)).trans hInv.ha2) equal)
+  refine ⟨final, Trace.one start s final step, step, hsumL4 ▸ atExit, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+    ?_, ⟨_, counter⟩⟩
   · intro j hj
     rw [memory]
     exact hInv.hcopy j hj
@@ -1936,8 +1719,6 @@ theorem memcpy_reach_ret (dst src n retAddr : BitVec 64) (image : ProgramImage)
   · intro address outside
     rw [memory]
     exact hInv.hframe address outside
-  · exact ⟨Sail.BitVec.addInt retired 1, by
-      simp [final, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
 
 /-- Execute every remaining loop iteration and the final not-taken branch as one confined trace to
 the generated `ret` exit. The recursion is over the runtime loop counter, not an unrolling limit. -/
@@ -2012,81 +1793,44 @@ theorem memcpy_exit (dst src n retAddr : BitVec 64) (image : ProgramImage)
   have hbytes0 : FetchBytesAt (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc)
       0x63#8 0x94#8 0xc7#8 0x00#8 :=
     fetchBytesAt_13ebc (tryStepControlFlowAfterIncrement s) image hInv.himageEq hInv.hmatches
-  have hplat0 : StepPlatform s (BitVec.ofNat 64 0x13ebc) 0x63#8 0x94#8 0xc7#8 0x00#8 mseccfgBits :=
-    mkStepPlatform s mseccfgBits (BitVec.ofNat 64 0x13ebc) 0x63#8 0x94#8 0xc7#8 0x00#8
-      hInv.hplat hInv.hcur hInv.hmseccfg (StableAgree.refl s)
-      ((afterIncGet s PC (by decide)).trans hInv.hPC) (Or.inr (Or.inl rfl)) hbytes0
+  have hplat0 := mkStepPlatform s mseccfgBits (BitVec.ofNat 64 0x13ebc) 0x63#8 0x94#8 0xc7#8 0x00#8
+    hInv.hplat hInv.hcur hInv.hmseccfg (StableAgree.refl s)
+    ((afterIncGet s PC (by decide)).trans hInv.hPC) (Or.inr (Or.inl rfl)) hbytes0
   have hcnt0 : StepCounters s retired0 inhibit cfg :=
     ⟨hInv.hhart, hInv.hinhibit, hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled, hret0⟩
-  have h15_0 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-      (BitVec.ofNat 64 0x13ebc)).regs.get? x15 = some (BitVec.ofNat 64 n.toNat) :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s) _ x15 (by decide)).trans
-      ((afterIncGet s x15 (by decide)).trans hInv.ha5)
-  have h12_0 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-      (BitVec.ofNat 64 0x13ebc)).regs.get? x12 = some n :=
-    (coreGetStable s _ x12 (by decide) (StableAgree.refl s)).trans hInv.ha2
   have heq0 : BitVec.ofNat 64 n.toNat = n := by
     apply BitVec.eq_of_toNat_eq; rw [BitVec.toNat_ofNat]; omega
-  have hb := memcpy_step_bne_not_taken start s n retired0 mseccfgBits inhibit cfg n.toNat
-    hplat0 hcnt0 h15_0 h12_0 heq0
-  have hSt1 : StableAgree s _ :=
-    stableAgree_notTaken s (BitVec.ofNat 64 0x13ebc) retired0
-  have hPC1 := afterIncRetiredPC
-    (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc))
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ebc) 4) retired0
-  have hmem1 : _ = s.mem := notTakenMem s (BitVec.ofNat 64 0x13ebc) retired0
-  have hmin1 := retiredMinstret
-    (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc))
-    (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ebc) 4) retired0
-  generalize hgen1 : tryStepControlFlowAfterRetired
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13ebc))
-      (Sail.BitVec.addInt (BitVec.ofNat 64 0x13ebc) 4) retired0 = s1
-    at hb hSt1 hPC1 hmem1 hmin1
+  obtain ⟨s1, hb, w0, hSt1, hPC1, hmin1, hmem1⟩ :=
+    notTakenStepPost (memcpy_step_bne_not_taken start s n retired0 mseccfgBits inhibit cfg n.toNat
+      hplat0 hcnt0 ((xGet s (BitVec.ofNat 64 0x13ebc) x15 (by decide) (by decide)).trans hInv.ha5)
+      ((xGet s (BitVec.ofNat 64 0x13ebc) x12 (by decide) (by decide)).trans hInv.ha2) heq0)
   -- Step 1: ret.
   have hsumL4 : Sail.BitVec.addInt (BitVec.ofNat 64 0x13ebc) 4 = BitVec.ofNat 64 0x13ec0 := by decide
+  have hPCi1 : (tryStepControlFlowAfterIncrement s1).regs.get? PC
+      = some (BitVec.ofNat 64 0x13ec0) := (afterIncGet s1 PC (by decide)).trans (hsumL4 ▸ hPC1)
   have hbytes1 : FetchBytesAt (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec0)
       0x67#8 0x80#8 0x00#8 0x00#8 :=
     fetchBytesAt_13ec0 (tryStepControlFlowAfterIncrement s1) image hInv.himageEq
       (hmem1.symm ▸ hInv.hmatches)
-  have hplat1 : StepPlatform s1 (BitVec.ofNat 64 0x13ec0) 0x67#8 0x80#8 0x00#8 0x00#8 mseccfgBits :=
-    mkStepPlatform s1 mseccfgBits (BitVec.ofNat 64 0x13ec0) 0x67#8 0x80#8 0x00#8 0x00#8
-      hInv.hplat hInv.hcur hInv.hmseccfg hSt1 (hsumL4 ▸ hPC1) (by decide) hbytes1
+  have hplat1 := mkStepPlatform s1 mseccfgBits (BitVec.ofNat 64 0x13ec0) 0x67#8 0x80#8 0x00#8 0x00#8
+    hInv.hplat hInv.hcur hInv.hmseccfg hSt1 hPCi1 (by decide) hbytes1
   have hcnt1 : StepCounters s1 (Sail.BitVec.addInt retired0 1) inhibit cfg :=
     ⟨(hSt1 hart_state (by decide)).trans hInv.hhart,
       (hSt1 mcountinhibit (by decide)).trans hInv.hinhibit,
       (hSt1 minstretcfg (by decide)).trans hInv.hcfg, hInv.hnotInhibited, hInv.hmachineEnabled,
       hmin1⟩
-  have hrs1 : Runs (rX_bits (.Regidx 1#5))
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec0))
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec0))
-      retAddr :=
-    rX_bits_x1_run _ retAddr ((coreGetStable s1 _ x1 (by decide) hSt1).trans hInv.hra)
   obtain ⟨misaBits1, _, _, hmisaA1, _⟩ := hplat1.1
-  have hmisa1 : (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1)
-      (BitVec.ofNat 64 0x13ec0)).regs.get? misa = some misaBits1 :=
-    (coreGetInc (tryStepControlFlowAfterIncrement s1) _ misa (by decide)).trans hmisaA1
-  have hElp1 : Runs (update_elp_state (.Regidx 1#5))
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec0))
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec0)) () :=
-    hInv.hElp _ (.Regidx 1#5) rfl (coreStableAgree s1 (BitVec.ofNat 64 0x13ec0) hSt1)
-  have hr := memcpy_step_ret (start + 1) s1 retAddr (Sail.BitVec.addInt retired0 1) mseccfgBits
-    misaBits1 inhibit cfg hplat1 hcnt1 hrs1 hretAlign hElp1 hmisa1
-  have hSt2 : StableAgree s _ :=
-    hSt1.trans (stableAgree_jump s1 (BitVec.ofNat 64 0x13ec0)
-      (Sail.BitVec.update retAddr 0 0#1) (Sail.BitVec.addInt retired0 1))
-  have hmem2 : _ = s.mem :=
-    (retiredMem (controlFlowJumpState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec0)
-      (Sail.BitVec.update retAddr 0 0#1)) (Sail.BitVec.update retAddr 0 0#1)
-      (Sail.BitVec.addInt retired0 1)).trans
-      ((jumpMem s1 (BitVec.ofNat 64 0x13ec0) (Sail.BitVec.update retAddr 0 0#1)).trans hmem1)
-  have htr : Trace start 2 s
-      (tryStepControlFlowAfterRetired
-        (controlFlowJumpState (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec0)
-          (Sail.BitVec.update retAddr 0 0#1))
-        (Sail.BitVec.update retAddr 0 0#1) (Sail.BitVec.addInt retired0 1)) :=
-    Trace.step _ _ _ _ _ hb (Trace.one _ _ _ hr)
-  refine ⟨_, htr, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · exact retiredGetPC _ _ _
+  obtain ⟨s2, hr, w1, hSt12, hPC2, hmin2, hmem21⟩ :=
+    jumpStepPost (memcpy_step_ret (start + 1) s1 retAddr (Sail.BitVec.addInt retired0 1) mseccfgBits
+      misaBits1 inhibit cfg hplat1 hcnt1
+      (rX_bits_x1_run _ retAddr
+        ((coreGetStable s1 (BitVec.ofNat 64 0x13ec0) x1 (by decide) hSt1).trans hInv.hra))
+      hretAlign (hInv.hElp _ (.Regidx 1#5) rfl (coreStableAgree s1 (BitVec.ofNat 64 0x13ec0) hSt1))
+      ((coreGetInc (tryStepControlFlowAfterIncrement s1) (BitVec.ofNat 64 0x13ec0) misa
+        (by decide)).trans hmisaA1))
+  have hSt2 : StableAgree s s2 := hSt1.trans hSt12
+  have hmem2 : s2.mem = s.mem := hmem21.trans hmem1
+  refine ⟨s2, Trace.step _ _ _ _ _ hb (Trace.one _ _ _ hr), hPC2, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro j hj; rw [hmem2]; exact hInv.hcopy j hj
   · exact (hSt2 x10 (by decide)).trans hInv.ha0
   · exact (hSt2 x11 (by decide)).trans hInv.ha1
@@ -2152,54 +1896,23 @@ theorem memcpy_contract (dst src n retAddr : BitVec 64) (image : ProgramImage)
       ((afterIncGet s PC (by decide)).trans hPC) (Or.inl rfl) hbytesE
   have hcntE : StepCounters s retired0 inhibit cfg :=
     ⟨hhart, hinhibit, hcfg, hnotInhibited, hmachineEnabled, hret0⟩
-  have hli := memcpy_step_li start s retired0 mseccfgBits inhibit cfg hplatE hcntE
-  have hSt0 : StableAgree s _ :=
-    stableAgree_fallThrough s (BitVec.ofNat 64 0x13eb8) retired0 x15 (BitVec.ofNat 64 0)
-      (Or.inr (Or.inr rfl))
+  obtain ⟨s0, hli, w0, hSt0, hPC0, hmin0, hx15_0, hmem0⟩ :=
+    gpStepPost (Or.inr (Or.inr rfl))
+      (memcpy_step_li start s retired0 mseccfgBits inhibit cfg hplatE hcntE)
   have hsum18 : Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4 = BitVec.ofNat 64 0x13ebc := by decide
   -- The i = 0 loop-head invariant at the post-entry state.
   have hInv0 : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte s 0
-      (tryStepControlFlowAfterRetired
-        { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13eb8) with
-          regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-            (BitVec.ofNat 64 0x13eb8)).regs.insert x15 (BitVec.ofNat 64 0) }
-        (Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4) retired0) := by
-    refine ⟨?_, ?_, (hSt0 x10 (by decide)).trans ha0, (hSt0 x11 (by decide)).trans ha1,
+      s0 :=
+    ⟨hsum18 ▸ hPC0, hx15_0, (hSt0 x10 (by decide)).trans ha0, (hSt0 x11 (by decide)).trans ha1,
       (hSt0 x12 (by decide)).trans ha2, (hSt0 x1 (by decide)).trans hra,
       (hSt0 cur_privilege (by decide)).trans hcur, (hSt0 mstatus (by decide)).trans hmstatus, hmprv,
       (hSt0 mseccfg (by decide)).trans hmseccfg, (hSt0 hart_state (by decide)).trans hhart,
       (hSt0 mcountinhibit (by decide)).trans hinhibit, hnotInhibited,
-      (hSt0 minstretcfg (by decide)).trans hcfg, hmachineEnabled, ⟨_, retiredMinstret _ _ _⟩,
-      himageEq, ?_, ?_, ?_, Nat.zero_le _, hnLt, hsrcFits, hdstFits, hdstImg, hdisj,
-      AbstractPlatform.mono hSt0 hplat, AbstractDataAccess.mono hSt0 hdata, AbstractElp.mono hSt0 hElp,
-      hSt0, ?_⟩
-    · rw [retiredGetPC _ _ _, hsum18]
-    · exact (fallThroughRetiredRd s (BitVec.ofNat 64 0x13eb8) retired0 x15 (BitVec.ofNat 64 0)
-        (by decide) (by decide))
-    · have hmemE : (tryStepControlFlowAfterRetired
-          { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13eb8) with
-            regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-              (BitVec.ofNat 64 0x13eb8)).regs.insert x15 (BitVec.ofNat 64 0) }
-          (Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4) retired0).mem = s.mem :=
-        (retiredMem _ _ _).trans (fallThroughMem s (BitVec.ofNat 64 0x13eb8) x15 (BitVec.ofNat 64 0))
-      rw [hmemE]; exact hmatches
-    · intro j hj
-      have hmemE : (tryStepControlFlowAfterRetired
-          { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13eb8) with
-            regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-              (BitVec.ofNat 64 0x13eb8)).regs.insert x15 (BitVec.ofNat 64 0) }
-          (Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4) retired0).mem = s.mem :=
-        (retiredMem _ _ _).trans (fallThroughMem s (BitVec.ofNat 64 0x13eb8) x15 (BitVec.ofNat 64 0))
-      rw [hmemE]; exact hsrc j hj
-    · intro j hj; exact absurd hj (Nat.not_lt_zero j)
-    · intro addr _
-      have hmemE : (tryStepControlFlowAfterRetired
-          { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13eb8) with
-            regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-              (BitVec.ofNat 64 0x13eb8)).regs.insert x15 (BitVec.ofNat 64 0) }
-          (Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4) retired0).mem = s.mem :=
-        (retiredMem _ _ _).trans (fallThroughMem s (BitVec.ofNat 64 0x13eb8) x15 (BitVec.ofNat 64 0))
-      rw [hmemE]
+      (hSt0 minstretcfg (by decide)).trans hcfg, hmachineEnabled, ⟨_, hmin0⟩, himageEq,
+      (by rw [hmem0]; exact hmatches), (fun j hj => by rw [hmem0]; exact hsrc j hj),
+      (fun j hj => absurd hj (Nat.not_lt_zero j)), Nat.zero_le _, hnLt, hsrcFits, hdstFits, hdstImg,
+      hdisj, AbstractPlatform.mono hSt0 hplat, AbstractDataAccess.mono hSt0 hdata,
+      AbstractElp.mono hSt0 hElp, hSt0, (fun addr _ => by rw [hmem0])⟩
   -- Loop.
   obtain ⟨sN, htrLoop, hInvN⟩ := memcpy_loop dst src n retAddr image mseccfgBits mstatusBits inhibit
     cfg srcByte s (start + 1) _ hInv0
@@ -2271,54 +1984,23 @@ theorem memcpy_body (dst src n retAddr : BitVec 64) (image : ProgramImage)
       ((afterIncGet s PC (by decide)).trans hPC) (Or.inl rfl) hbytesE
   have hcntE : StepCounters s retired0 inhibit cfg :=
     ⟨hhart, hinhibit, hcfg, hnotInhibited, hmachineEnabled, hret0⟩
-  have hli := memcpy_step_li start s retired0 mseccfgBits inhibit cfg hplatE hcntE
-  have hSt0 : StableAgree s _ :=
-    stableAgree_fallThrough s (BitVec.ofNat 64 0x13eb8) retired0 x15 (BitVec.ofNat 64 0)
-      (Or.inr (Or.inr rfl))
+  obtain ⟨s0, hli, w0, hSt0, hPC0, hmin0, hx15_0, hmem0⟩ :=
+    gpStepPost (Or.inr (Or.inr rfl))
+      (memcpy_step_li start s retired0 mseccfgBits inhibit cfg hplatE hcntE)
   have hsum18 : Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4 = BitVec.ofNat 64 0x13ebc := by decide
   -- The i = 0 loop-head invariant at the post-entry state.
   have hInv0 : MemcpyInv dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte s 0
-      (tryStepControlFlowAfterRetired
-        { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13eb8) with
-          regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-            (BitVec.ofNat 64 0x13eb8)).regs.insert x15 (BitVec.ofNat 64 0) }
-        (Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4) retired0) := by
-    refine ⟨?_, ?_, (hSt0 x10 (by decide)).trans ha0, (hSt0 x11 (by decide)).trans ha1,
+      s0 :=
+    ⟨hsum18 ▸ hPC0, hx15_0, (hSt0 x10 (by decide)).trans ha0, (hSt0 x11 (by decide)).trans ha1,
       (hSt0 x12 (by decide)).trans ha2, (hSt0 x1 (by decide)).trans hra,
       (hSt0 cur_privilege (by decide)).trans hcur, (hSt0 mstatus (by decide)).trans hmstatus, hmprv,
       (hSt0 mseccfg (by decide)).trans hmseccfg, (hSt0 hart_state (by decide)).trans hhart,
       (hSt0 mcountinhibit (by decide)).trans hinhibit, hnotInhibited,
-      (hSt0 minstretcfg (by decide)).trans hcfg, hmachineEnabled, ⟨_, retiredMinstret _ _ _⟩,
-      himageEq, ?_, ?_, ?_, Nat.zero_le _, hnLt, hsrcFits, hdstFits, hdstImg, hdisj,
-      AbstractPlatform.mono hSt0 hplat, AbstractDataAccess.mono hSt0 hdata, AbstractElp.mono hSt0 hElp,
-      hSt0, ?_⟩
-    · rw [retiredGetPC _ _ _, hsum18]
-    · exact (fallThroughRetiredRd s (BitVec.ofNat 64 0x13eb8) retired0 x15 (BitVec.ofNat 64 0)
-        (by decide) (by decide))
-    · have hmemE : (tryStepControlFlowAfterRetired
-          { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13eb8) with
-            regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-              (BitVec.ofNat 64 0x13eb8)).regs.insert x15 (BitVec.ofNat 64 0) }
-          (Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4) retired0).mem = s.mem :=
-        (retiredMem _ _ _).trans (fallThroughMem s (BitVec.ofNat 64 0x13eb8) x15 (BitVec.ofNat 64 0))
-      rw [hmemE]; exact hmatches
-    · intro j hj
-      have hmemE : (tryStepControlFlowAfterRetired
-          { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13eb8) with
-            regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-              (BitVec.ofNat 64 0x13eb8)).regs.insert x15 (BitVec.ofNat 64 0) }
-          (Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4) retired0).mem = s.mem :=
-        (retiredMem _ _ _).trans (fallThroughMem s (BitVec.ofNat 64 0x13eb8) x15 (BitVec.ofNat 64 0))
-      rw [hmemE]; exact hsrc j hj
-    · intro j hj; exact absurd hj (Nat.not_lt_zero j)
-    · intro addr _
-      have hmemE : (tryStepControlFlowAfterRetired
-          { coreControlFlowNextState (tryStepControlFlowAfterIncrement s) (BitVec.ofNat 64 0x13eb8) with
-            regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement s)
-              (BitVec.ofNat 64 0x13eb8)).regs.insert x15 (BitVec.ofNat 64 0) }
-          (Sail.BitVec.addInt (BitVec.ofNat 64 0x13eb8) 4) retired0).mem = s.mem :=
-        (retiredMem _ _ _).trans (fallThroughMem s (BitVec.ofNat 64 0x13eb8) x15 (BitVec.ofNat 64 0))
-      rw [hmemE]
+      (hSt0 minstretcfg (by decide)).trans hcfg, hmachineEnabled, ⟨_, hmin0⟩, himageEq,
+      (by rw [hmem0]; exact hmatches), (fun j hj => by rw [hmem0]; exact hsrc j hj),
+      (fun j hj => absurd hj (Nat.not_lt_zero j)), Nat.zero_le _, hnLt, hsrcFits, hdstFits, hdstImg,
+      hdisj, AbstractPlatform.mono hSt0 hplat, AbstractDataAccess.mono hSt0 hdata,
+      AbstractElp.mono hSt0 hElp, hSt0, (fun addr _ => by rw [hmem0])⟩
   -- Execute the runtime loop and stop at the generated return exit.
   obtain ⟨s'', htrLoop, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN,
     hStableExit, hFrameExit, hCounterExit⟩ :=
