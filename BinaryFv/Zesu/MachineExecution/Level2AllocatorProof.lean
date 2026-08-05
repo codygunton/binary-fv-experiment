@@ -183,60 +183,20 @@ theorem allocator_dword_store_step_configured {instructionPcs : BitVec 64 → Pr
       (.STORE (immediate, source, .Regidx 2#5, 8))) :
     ∃ retired, Runs (try_step stepNo false) state
       (allocatorAfterDwordStore state pc retired target data) false := by
-  obtain ⟨mstatusBits, mstatusRead, mprvDisabled⟩ := machine.mstatus
-  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := machine.mseccfg
-  obtain ⟨_stepMseccfgBits, platform⟩ := allocatorStepPlatform machine agree
-    pc atPc pcIn byte0 byte1 byte2 byte3 fetchBytes
-  obtain ⟨fetch, fetchNoMMIO, fetched, interrupts, notExpected, -, -⟩ := platform
-  obtain ⟨retired, inhibit, config, counters⟩ :=
-    allocatorStepCounters machine.normal agree retiredPresent
-  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ :=
-    counters
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
-  let afterExec := afterWriteBytes (width := 8) executeState target.toNat data
-  have stepAgree : Agree decoderPreserved state executeState :=
-    Agree.weaken (fun _ preserved => preserved.2) (agree_stepPremiseState state pc)
-  have executeAgree : Agree decoderPreserved baseState executeState := agree.trans stepAgree
-  have stackAtExecute : executeState.regs.get? x2 = some stackBits :=
-    ((stepPremiseState_writes state pc).get x2 (by decide)).trans stackValue
-  have addressRun := get_transformed_data_addr_machine_store_run executeState
-    (.Regidx 2#5) 8 stackBits (sign_extend immediate) mstatusBits mseccfgBits
-    (rX_bits_run_x2 executeState stackBits stackAtExecute)
-    ((executeAgree mstatus (by simp [decoderPreserved, platformPreserved])).trans mstatusRead)
-    ((executeAgree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans
-      machine.normal.2.1)
-    mprvDisabled
-    ((executeAgree mseccfg (by simp [decoderPreserved, platformPreserved])).trans mseccfgRead)
-    pmmDisabled
-  obtain ⟨physical, storeNoMMIO⟩ :=
-    machine.dataAccess.store executeState target 8 executeAgree allowed
-      (by simpa [is_aligned_paddr, is_aligned_vaddr] using aligned)
-  have memoryWrite : Runs (PreSail.writeBytes (n := 8) target.toNat data)
-      executeState afterExec true := by
-    simpa [afterExec] using writeBytes_run_exact (width := 8) executeState target.toNat data
+  obtain ⟨mstatusBits, mstatusRead, privilege, mprvDisabled, addressRun, physical, noMMIO⟩ :=
+    decoderStoreAccess machine agree pc 2#5 immediate 8 stackBits target
+      (rX_bits_run_x2 _ _ (decoderExecuteState_get? stackValue)) targetEq allowed aligned
   have execute : Runs (execute (.STORE (immediate, source, .Regidx 2#5, 8)))
-      executeState afterExec (.Retire_Success ()) :=
-    execute_STORE_dword_run executeState afterExec source (.Regidx 2#5) immediate target
-      mstatusBits data
-      ((executeAgree mstatus (by simp [decoderPreserved, platformPreserved])).trans mstatusRead)
-      ((executeAgree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans
-        machine.normal.2.1)
-      mprvDisabled dataAtExecute (by simpa [targetEq] using addressRun) aligned physical
-      storeNoMMIO memoryWrite
-  have afterExecFrame : WritesOnlyRegs (RegSet.only nextPC)
-      (tryStepControlFlowAfterIncrement state) afterExec :=
-    (coreControlFlowNextState_writes _ pc).congr_regs
-      (by simpa [afterExec] using afterWriteBytes_regs executeState target.toNat data)
-  refine ⟨retired, ?_⟩
-  simpa [allocatorAfterDwordStore, executeState, afterExec] using
-    tryStepFallThroughRetires stepNo state afterExec pc retired inhibit config
-      byte0 byte1 byte2 byte3 (.STORE (immediate, source, .Regidx 2#5, 8))
-      fetch fetchNoMMIO fetched interrupts baseEncoding decode notExpected execute
-      (by rw [afterWriteBytes_regs]; simp [executeState, coreControlFlowNextState])
-      (afterExecFrame.get hart_state (by decide))
-      (afterExecFrame.get minstret_increment (by decide))
-      (afterExecFrame.get minstret (by decide))
-      hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (afterWriteBytes (width := 8)
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) target.toNat data)
+      (.Retire_Success ()) :=
+    execute_STORE_dword_run _ _ source (.Regidx 2#5) immediate target mstatusBits data
+      mstatusRead privilege mprvDisabled dataAtExecute addressRun aligned physical noMMIO
+      (writeBytes_run_exact _ target.toNat data)
+  exact decoderStoreStepOfExecute machine agree retiredPresent stepNo pc pcIn atPc
+    byte0 byte1 byte2 byte3 (.STORE (immediate, source, .Regidx 2#5, 8)) target.toNat 8 data
+    fetchBytes baseEncoding decode execute
 
 private theorem allocatorInstructionStepPlatform {instructionPcs : BitVec 64 → Prop}
     {machineArgs : DecoderMachineArgs} {base state : State}

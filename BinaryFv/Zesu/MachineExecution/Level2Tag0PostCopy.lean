@@ -50,23 +50,11 @@ theorem tag0_postcopy_status_register_step {machineArgs : DecoderMachineArgs} {b
     (pre : Tag0PostMemcpyPre base state machineArgs) (stepNo : Nat) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10350) retired x11
-        (iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0))) false := by
-  obtain ⟨seccfgBits, privilege, seccfg⟩ := decodeReads pre.machine pre.platform
-  have decode : Runs (ext_decode (0x00100593 : BitVec 32))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0x001#12, .Regidx 0#5, .Regidx 11#5, .ADDI)) := by decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10350)
-  let result := iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0)
-  have execute : Runs (execute (.ITYPE (0x001#12, .Regidx 0#5, .Regidx 11#5, .ADDI)))
-      executeState { executeState with regs := executeState.regs.insert x11 result }
-      (.Retire_Success ()) := by
-    change Runs (execute_ITYPE 0x001#12 (.Regidx 0#5) (.Regidx 11#5) .ADDI) _ _ _
-    exact execute_ITYPE_run executeState _ 0x001#12 (.Regidx 0#5) (.Regidx 11#5) .ADDI
-      (BitVec.ofNat 64 0) (rX_x0_run executeState) (wX_x11_run executeState result)
-  exact generatedRegisterWriteStep pre.machine pre.platform pre.retired
-    (hasExactErePrefix_programImage_of_codeIntact pre.code) stepNo 0x10350 0x00100593 pre.atPc
-    decode execute
+        (iTypeResult .ADDI 0x001#12 (BitVec.ofNat 64 0))) false :=
+  decoderITypeStep pre.machine pre.platform pre.retired
+    (hasExactErePrefix_programImage_of_codeIntact pre.code)
+    stepNo 0x10350 0x93 0x05 0x10 0x00 0x001#12 0#5 11#5 .ADDI pre.atPc
+    (rX_x0_run _) (wX_x11_run _ _)
 
 /-- Exact state after the tag-zero `sb a1, 848(s2)` at `0x10354`. -/
 def tag0PostcopyStatusStoreAfter (state : State) (retired : BitVec 64) : State :=

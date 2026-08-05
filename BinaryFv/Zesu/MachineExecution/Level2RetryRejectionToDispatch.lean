@@ -62,39 +62,21 @@ private theorem retry_rejection_jump_step {machineArgs : DecoderMachineArgs} {ba
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepControlFlowAfterRetired
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) false := by
+  subst targetEq
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine agree pc atPc pcIn
     byte0 byte1 byte2 byte3 fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
   obtain ⟨retired, inhibit, config, counters⟩ :=
     decoderStepCounters machine.normal agree retiredPresent
   obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
-  have linkRead : executeState.regs.get? nextPC = some (Sail.BitVec.addInt pc 4) := by
-    simp [executeState, coreControlFlowNextState]
-  have pcRead : executeState.regs.get? PC = some pc :=
-    (((tryStepControlFlowAfterIncrement_writes state).trans
-      (coreControlFlowNextState_writes _ pc)).get PC (by decide)).trans atPc
-  obtain ⟨misaBits, misaBaseRead, -⟩ : ∃ misaBits,
-      base.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
-    have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
-    match read : base.regs.get? misa with
-    | none => simp [read] at normalMisa
-    | some bits => exact ⟨bits, rfl, by simpa [read] using normalMisa⟩
-  have misaRead : state.regs.get? misa = some misaBits :=
-    (agree misa (by simp [platformPreserved])).trans misaBaseRead
-  have zca := currentlyEnabledZca_run_atStepPremise state pc misaBits misaRead
-  have align0 : Sail.BitVec.access (pc + sign_extend (m := 64) imm) 0 = 0#1 := by
-    rw [targetEq]
-    exact targetAligned0
-  have align1 : Sail.BitVec.access (pc + sign_extend (m := 64) imm) 1 = 0#1 := by
-    rw [targetEq]
-    exact targetAligned1
-  refine ⟨retired, ?_⟩
-  simpa [targetEq] using tryStepJRetires stepNo state pc pc retired imm inhibit config
-    byte0 byte1 byte2 byte3 (Sail.BitVec.addInt pc 4) (_get_Misa_C misaBits == 1#1)
+  obtain ⟨zcaEnabled, zca⟩ :=
+    decoderZcaEnabled machine (Agree.weaken (fun _ preserved => preserved.2) agree) pc
+  exact ⟨retired, tryStepJRetires stepNo state pc pc retired imm inhibit config
+    byte0 byte1 byte2 byte3 (Sail.BitVec.addInt pc 4) zcaEnabled
     fetch noMMIO fetched interrupts baseEncoding decode notExpected
-    (get_next_pc_run executeState _ linkRead) (readReg_run executeState PC _ pcRead)
-    align0 align1 zca hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+    (decoderReturnAddress state pc) (readReg_run _ PC _ (decoderExecuteState_get? atPc))
+    targetAligned0 targetAligned1 zca hartRead inhibitRead configRead notInhibited machineEnabled
+    retiredRead⟩
 
 /-- `addi a0, zero, 0` at the common retry-rejection entry. -/
 theorem retry_rejection_clear_result_step {machineArgs : DecoderMachineArgs} {base state : State}
@@ -104,36 +86,11 @@ theorem retry_rejection_clear_result_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10420)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10420) retired x10 (BitVec.ofNat 64 0)) false := by
-  have fetchPc : DecoderFetchPc decodeRawExecutionPcs (BitVec.ofNat 64 0x10420) :=
-    GeneratedWordStep.fetchPc _
-  have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10420) 0x13#8 0x05#8 0x00#8 0x00#8 :=
-    fetchInstruction state 0x10420 0x13 0x05 0x00 0x00
-      (hasExactErePrefix_programImage_of_codeIntact code)
-  have afterIncrementAgree : Agree platformPreserved base (tryStepControlFlowAfterIncrement state) :=
-    agree.trans (agree_afterIncrement state)
-  have privilege : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine :=
-    (afterIncrementAgree cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1
-  obtain ⟨mseccfgBits, mseccfgRead, -⟩ := machine.mseccfg
-  have mseccfg : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits :=
-    (afterIncrementAgree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have decode : Runs (ext_decode (fetchWord 0x13#8 0x05#8 0x00#8 0x00#8))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by
-    change Runs (ext_decode (0x00000513 : BitVec 32)) _ _ _
-    decode_run
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-    (BitVec.ofNat 64 0x10420)
-  have execute : Runs (execute (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI))) executeState
-      { executeState with regs := executeState.regs.insert x10 (BitVec.ofNat 64 0) }
-      (.Retire_Success ()) := by
-    simpa using execute_ITYPE_run executeState _ 0#12 (.Regidx 0#5) (.Regidx 10#5) .ADDI
-      (0#64) (rX_x0_run executeState) (wX_x10_run executeState (0#64))
-  exact retry_rejection_constant_step machine agree retiredPresent stepNo
-    (BitVec.ofNat 64 0x10420) fetchPc atPc 0x13#8 0x05#8 0x00#8 0x00#8
-    (.ITYPE (0#12, .Regidx 0#5, .Regidx 10#5, .ADDI)) fetchBytes decode execute
-    (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide) (by decide)
+  have resultEq : iTypeResult .ADDI (0#12) (0#64) = BitVec.ofNat 64 0 := by decide
+  exact decoderITypeStep machine agree retiredPresent
+    (hasExactErePrefix_programImage_of_codeIntact code)
+    stepNo 0x10420 0x13 0x05 0x00 0x00 0#12 0#5 10#5 .ADDI atPc
+    (rX_x0_run _) (by rw [resultEq]; exact wX_x10_run _ _)
 
 /-- `jal zero, 0x1035c` joins the shared rejection continuation. -/
 theorem retry_rejection_to_rejection_step {machineArgs : DecoderMachineArgs} {base state : State}
