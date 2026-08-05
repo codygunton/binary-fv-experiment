@@ -275,7 +275,6 @@ theorem wrapper_dispatch_tag3_constant_step {machineArgs : DecoderMachineArgs} {
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x103fc) retired x11 (BitVec.ofNat 64 3)) false := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
   have resultEq : iTypeResult .ADDI 0x003#12 (0#64) = BitVec.ofNat 64 3 := by decide
   exact decoderITypeStep machine agree retiredPresent
     (hasExactErePrefix_programImage_of_codeIntact code)
@@ -414,7 +413,6 @@ theorem wrapper_dispatch_tag1_constant_step {machineArgs : DecoderMachineArgs} {
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10404)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10404) retired x11 (BitVec.ofNat 64 1)) false := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
   have resultEq : iTypeResult .ADDI 0x001#12 (0#64) = BitVec.ofNat 64 1 := by decide
   exact decoderITypeStep machine agree retiredPresent
     (hasExactErePrefix_programImage_of_codeIntact code)
@@ -547,7 +545,6 @@ theorem wrapper_dispatch_tag2_constant_step {machineArgs : DecoderMachineArgs} {
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1040c)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x1040c) retired x11 (BitVec.ofNat 64 2)) false := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
   have resultEq : iTypeResult .ADDI 0x002#12 (0#64) = BitVec.ofNat 64 2 := by decide
   exact decoderITypeStep machine agree retiredPresent
     (hasExactErePrefix_programImage_of_codeIntact code)
@@ -602,7 +599,6 @@ theorem wrapper_dispatch_tag2_clear_result_step {machineArgs : DecoderMachineArg
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10414)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10414) retired x10 (BitVec.ofNat 64 0)) false := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
   have resultEq : iTypeResult .ADDI (0#12) (0#64) = BitVec.ofNat 64 0 := by decide
   exact decoderITypeStep machine agree retiredPresent
     (hasExactErePrefix_programImage_of_codeIntact code)
@@ -619,7 +615,6 @@ theorem wrapper_dispatch_tag2_status_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10418)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10418) retired x11 (BitVec.ofNat 64 2)) false := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
   have resultEq : iTypeResult .ADDI 0x002#12 (0#64) = BitVec.ofNat 64 2 := by decide
   exact decoderITypeStep machine agree retiredPresent
     (hasExactErePrefix_programImage_of_codeIntact code)
@@ -816,7 +811,6 @@ theorem wrapper_dispatch_tag3_clear_result_step {machineArgs : DecoderMachineArg
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10434)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10434) retired x10 (BitVec.ofNat 64 0)) false := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
   have resultEq : iTypeResult .ADDI (0#12) (0#64) = BitVec.ofNat 64 0 := by decide
   exact decoderITypeStep machine agree retiredPresent
     (hasExactErePrefix_programImage_of_codeIntact code)
@@ -833,7 +827,6 @@ theorem wrapper_dispatch_tag3_status_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10438)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10438) retired x11 (BitVec.ofNat 64 3)) false := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
   have resultEq : iTypeResult .ADDI 0x003#12 (0#64) = BitVec.ofNat 64 3 := by decide
   exact decoderITypeStep machine agree retiredPresent
     (hasExactErePrefix_programImage_of_codeIntact code)
@@ -878,7 +871,6 @@ theorem wrapper_dispatch_tag1_clear_result_step {machineArgs : DecoderMachineArg
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10428)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10428) retired x10 (BitVec.ofNat 64 0)) false := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
   have resultEq : iTypeResult .ADDI (0#12) (0#64) = BitVec.ofNat 64 0 := by decide
   exact decoderITypeStep machine agree retiredPresent
     (hasExactErePrefix_programImage_of_codeIntact code)
@@ -895,7 +887,6 @@ theorem wrapper_dispatch_tag1_status_step {machineArgs : DecoderMachineArgs} {ba
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1042c)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x1042c) retired x11 (BitVec.ofNat 64 4)) false := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
   have resultEq : iTypeResult .ADDI 0x004#12 (0#64) = BitVec.ofNat 64 4 := by decide
   exact decoderITypeStep machine agree retiredPresent
     (hasExactErePrefix_programImage_of_codeIntact code)
