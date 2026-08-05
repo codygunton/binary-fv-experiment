@@ -4,6 +4,7 @@ import BinaryFv.Zesu.MachineExecution.MemcpyDecoderBridge
 import BinaryFv.Zesu.Elflings.GeneratedProgramGeometry
 import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Elfling.SequentialSplice
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-!
 # Sail proof for the inlined `decode` scope

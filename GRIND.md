@@ -914,3 +914,45 @@ Audit each set when a third set is about to land, and every six months thereafte
 - `Veir/Rewriter/LinkedList/GetSet.lean` in github.com/opencompl/veir — 264 frame facts over 23
   observations and 11 transformers, proved by `grind`, with 101 explicit `grind_pattern`
   declarations for its fallible transformers. The closest published example of the grid in section 3.
+
+## 11. CI gates — run BOTH, and run them per branch
+
+`nix/proof.nix` enforces two independent layer rules. A review caught this stack failing the second
+because only the first had been checked:
+
+```bash
+# 1. the RISC-V/Binary layers must not import the Zesu target
+grep -rn '^import BinaryFv\.Zesu' BinaryFv/RiscV/ BinaryFv/Binary/
+
+# 2. native_decide is not permitted in the generic RISC-V/Binary layers
+grep -rn 'native_decide' BinaryFv/RiscV/ BinaryFv/Binary/
+
+# 3. no standalone `sorry`
+grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/
+```
+
+All three must be empty. Two things about gate 2 in particular:
+
+- **It greps for the string, so a docstring trips it.** Prose explaining why a tactic uses
+  `native_decide` fails the build just as surely as the tactic does. Reword the prose or move the
+  whole thing.
+- **The rule has a reason, and it constrains design.** The fixed-artifact exception covers closed
+  facts about the pinned ELF; such facts are *target* facts by construction, so no generic module may
+  state one. A tactic that decides its side conditions against the generated program tables therefore
+  belongs in the Zesu layer, however generic its statement looks. `owned_pc` and
+  `ConfinedPrefix.ownStep'` live in `Zesu/MachineExecution/OwnedPc.lean` for exactly this reason —
+  `ownStep'` has to move with the tactic because its `autoParam` defaults must parse where it is
+  declared. Everything genuinely generic (`reindex`, `trans'`, `consume`, `confined_steps`) stays put.
+
+**Run these on every branch of a stack, not just the tip.** A gate is per-commit in CI, so a stack
+whose tip passes can still have three red PRs beneath it.
+
+## 12. Do not expand a combinator before it has a second consumer
+
+`Seg` is the standing example, and the constraint is external review's, not ours: it has **one** real
+consumer, exercising only its register-write and jump steps, and its store/memory interface is
+untested. Keep it — it earns its place where it is used — but do not extend it until a second real
+composition benefits.
+
+This is the same failure this project already paid for four times (section 0, rule 2): a correct,
+well-tested abstraction with no population. The tell is an interface with more cases than callers.

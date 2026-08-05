@@ -7,6 +7,7 @@ import BinaryFv.Zesu.MachineExecution.Seg
 import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
 import BinaryFv.Zesu.MachineExecution.MemcpyInstance
 import BinaryFv.Zesu.MachineExecution.MemcpyDecoderBridge
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-!
 # Tag-zero stored-result continuation

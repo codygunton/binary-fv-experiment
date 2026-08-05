@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.MachineExecution.GeneratedWordStep
 import BinaryFv.Zesu.MachineExecution.Seg
 import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryFinish
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-!
 # Sail steps for the retry exits owned by `zesu_decode_raw`

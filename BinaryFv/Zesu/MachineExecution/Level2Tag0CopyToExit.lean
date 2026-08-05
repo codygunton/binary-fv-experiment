@@ -2,6 +2,7 @@ import BinaryFv.Zesu.MachineExecution.Level2FirstSuccessAdapter
 import BinaryFv.Zesu.MachineExecution.Level2Tag0PostCopy
 import BinaryFv.Zesu.MachineExecution.Level2WrapperRestoreAddresses
 import BinaryFv.Zesu.MachineExecution.Level2Capstone
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-! The tag-zero stored-result copy followed by the wrapper-owned exit suffix. -/
 

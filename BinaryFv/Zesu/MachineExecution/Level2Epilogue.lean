@@ -6,6 +6,7 @@ import BinaryFv.Zesu.MachineExecution.RegisterRuns
 import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
 import BinaryFv.RiscV.Step.TryStepStackAddi
 import BinaryFv.RiscV.Step.TryStepStackAddiMemory
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-!
 # Shared `zesu_decode_raw` epilogue

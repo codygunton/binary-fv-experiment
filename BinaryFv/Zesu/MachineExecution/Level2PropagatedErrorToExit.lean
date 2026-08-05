@@ -5,6 +5,7 @@ import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
 import BinaryFv.Zesu.MachineExecution.Seg
 import BinaryFv.Zesu.MachineExecution.Level2Capstone
 import BinaryFv.Zesu.MachineExecution.Level2WrapperRestoreAddresses
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-! The tag-three wrapper dispatch owns five concrete instructions before the shared status store. -/
 

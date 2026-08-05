@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof
 import BinaryFv.Zesu.MachineExecution.RegisterWriteStep
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-!
 # The first `memcpy` transfer in `zesu_decode_raw`

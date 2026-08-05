@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.MachineExecution.Level2RetryRejectionToDispatch
 import BinaryFv.Zesu.MachineExecution.Level2WrapperRestoreAddresses
 import BinaryFv.Zesu.MachineExecution.Level2Capstone
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-! The common retry-rejection tail through the generated wrapper exit. -/
 

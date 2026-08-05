@@ -400,13 +400,13 @@ end BinaryFv.RiscV.Elfling
 every confined site paid by hand for the same three things:
 
 * the two pc-literal side conditions of `ownStep` — "this address is owned" and "this address is not
-  a generated exit" — each spelled out as a four-line `apply … native_decide` / `simp […]` block;
+  a generated exit" -- each spelled out as a four-line `apply …` / `simp […]` decision block;
 * a re-association of the step index and the step count, because `trans` demands the second prefix
   start at the *syntactic* index `a + n` and produces the *syntactic* count `n + m`;
 * nothing at all for chaining: a `k`-link chain was `k - 1` nested `trans`es, each with its own
   `simpa [Nat.add_assoc]`.
 
-This section supplies the three missing pieces: `owned_pc` decides the side conditions, `reindex`
+This section supplies the pieces that stay generic: `reindex`
 and `trans'` state the index and the count instead of computing them, and `confined_steps` folds a
 list of links. None of them touches the step *counts* the child-summary interface consumes: a link
 still carries the literal number of machine steps it retires, and `trans'`/`confined_steps` only
@@ -422,31 +422,6 @@ open BinaryFv.Binary
 open BinaryFv.Binary.Elfling
 open BinaryFv.RiscV
 
-/--
-Discharge one pc-literal side condition of a confined step against the generated program data.
-
-Two goal shapes are handled, both decidable checks on the generated tables:
-
-* `functionInstanceExecutionPcs program functionInstance pc` — the address is inside the function
-  instance's execution ranges, decided through `functionInstanceExecutionPcs_iff_ranges` and
-  `RegionPcs.iff_inRanges`;
-* `¬ functionInstanceExitPred functionInstance pc` — the address is not one of the generated exit
-  pcs, decided by unfolding `FunctionInstance.isExit` to array membership.
-
-This is a decision procedure over the generated image, not a search: on an address outside the
-region the `native_decide` evaluates to `false` and the tactic *fails*. It therefore cannot be used
-to claim ownership of an address the generator did not attribute to the function instance.
--/
-macro "owned_pc" : tactic =>
-  `(tactic|
-    first
-    | (apply functionInstanceExecutionPcs_iff_ranges.mpr
-       apply RegionPcs.iff_inRanges.mpr
-       native_decide)
-    | (simp only [functionInstanceExitPred, FunctionInstance.isExit] <;> native_decide)
-    | fail "owned_pc: the goal is neither a provable `functionInstanceExecutionPcs …` membership \
-            nor a provable `¬ functionInstanceExitPred …`; check the address against the \
-            generated ranges and exit pcs")
 
 namespace ConfinedPrefix
 
@@ -486,16 +461,6 @@ theorem consume {a n k : Nat} {s s1 s2 : State}
   have hk : n + (k - n) = k := by omega
   rwa [hk] at joined
 
-/-- One retired owned instruction as a confined prefix, with the two pc-literal side conditions
-discharged by `owned_pc` unless the caller supplies them. Same statement as `ownStep`, same
-premises; only the two decidable checks move from the call site into the default. -/
-theorem ownStep' {a : Nat} {s s' : State} {pc : BitVec 64}
-    (atPc : s.regs.get? PC = some pc)
-    (step : Runs (try_step a false) s s' false)
-    (inRegion : own pc := by owned_pc)
-    (notExit : ¬ exit pc := by owned_pc) :
-    ConfinedPrefix own exit childSummary a 1 s s' :=
-  ConfinedPrefix.ownStep atPc inRegion notExit step
 
 end ConfinedPrefix
 

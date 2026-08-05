@@ -5,6 +5,7 @@ import BinaryFv.Zesu.MachineExecution.Level2WrapperProof
 import BinaryFv.Zesu.MachineExecution.RegisterWriteStep
 import BinaryFv.Zesu.MachineExecution.RegisterRuns
 import BinaryFv.Zesu.MachineExecution.Level2Capstone
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-!
 # Tag-zero post-copy wrapper instructions

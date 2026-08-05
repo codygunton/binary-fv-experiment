@@ -2,6 +2,7 @@ import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
 import BinaryFv.Zesu.MachineExecution.GeneratedWordStep
 import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
 import BinaryFv.Zesu.MachineExecution.Seg
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-!
 # Sail execution of the `zesu_decode_raw` wrapper
