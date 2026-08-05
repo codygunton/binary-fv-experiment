@@ -85,11 +85,30 @@ These instructions apply repository-wide.
   attributes, the entry criteria for a new set, and the registry of sets that exist. Read it before
   adding a shared `@[simp]` or `@[grind =]` attribute or writing a closing tactic more than one proof
   will call. Do not duplicate its content here.
+- **Read `GRIND.md` section 0 before anything else** — it is what was measured, and it overrides the
+  older sections wherever they disagree. Section 8a is the shape to reach for when writing a *new*
+  machine proof.
+- **Never hand-derive a single instruction step.** Call the class lemma for its mnemonic in
+  `Zesu/MachineExecution/InstructionClassSteps.lean`; its obligations are `autoParam`s you do not
+  write. A 40–80 line proof becomes one call.
+- **Never carry a register forward by hand.** Write one `have w := <transformer>_writes …` per step
+  and let `grind` discharge every read through it — the multi-pattern in
+  `RiscV/Logic/RegisterAgree.lean` chains arbitrarily deep and checks membership itself. The
+  `have`-per-(register × step) ladder is the largest single cost in this proof tree and is obsolete.
 - Do not add a definitional unfolding to a `grind` set, and do not put a step-unfolding fact in the
-  global `@[simp]` set. `GRIND.md` section 3 gives the reason for each.
-- A `grind` frame lemma about a step stated as `∃ retired, Runs (try_step stepNo false) state …`
-  needs an explicit `grind_pattern`; without one it never fires and reads as coverage it does not
-  provide. `GRIND.md` section 5.
+  global `@[simp]` set. `GRIND.md` section 3 gives the reason for each; the penalty was measured at
+  18×–126× across five independent areas.
+- A lemma concluding something about a *member* from a fact about a *set* needs a `grind_pattern`
+  over both — the single-sided attributes are rejected outright, because the conclusion omits the set
+  and the antecedent omits the member. `GRIND.md` section 0, rule 1.
+- **Before applying any automation in bulk, count the sites and count what one invocation costs.**
+  Two mechanisms in this repository were built, verified, and then reverted for having nothing to
+  automate. `GRIND.md` section 0, rule 2.
+- **`lake build <module>` before checking any consumer of a module you edited.** `lake env lean`
+  resolves imports from the prebuilt `.olean`, so the check otherwise measures the old code. This has
+  produced both a hidden failure and two fabricated errors. `GRIND.md` section 0, rule 4.
+- **Every registration ships with a control that fails**, and confirm the control *can* fail by
+  pointing it at a case that should succeed.
 
 ## Verification
 

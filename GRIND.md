@@ -7,9 +7,123 @@ proposing a new named set.
 
 `AGENTS.md` links here from its proof-automation section. Do not duplicate this content there.
 
-**Status: skeleton.** Section 7's registry is empty and section 8 has no phases yet. Both are filled
-from the survey described in [`docs/agents/proof-pattern-survey.md`](docs/agents/proof-pattern-survey.md),
-which is running now. Do not land a new set before its survey row exists.
+---
+
+## 0. Read this first — what is built, and the four rules that matter
+
+Everything below section 1 was written before the mechanisms existed. This section is what was
+actually built and measured; where it disagrees with a later section, it wins.
+
+### What exists
+
+| mechanism | where | what it removes |
+|---|---|---|
+| 13 instruction-class lemmas | `Zesu/MachineExecution/InstructionClassSteps.lean` | a 40–80 line single-instruction proof becomes one call; every obligation is an `autoParam` the caller never writes |
+| write-set frame | `RiscV/Logic/RegisterAgree.lean`, `RiscV/Step/ControlFlow.lean` | `WritesOnlyRegs W s t` states a step's write set once; any read outside it is a membership check |
+| **the frame multi-pattern** | `RegisterAgree.lean` §Automation | `grind` walks a chain of write-set facts itself and discharges the membership condition |
+| hypothetical decode | `InstructionClassSteps.lean` | the class lemma derives its own decode context; the caller supplies nothing |
+| `Seg` / `ConfinedPrefix` | `Seg.lean`, `SequentialSplice.lean` §6 | straight-line segment composition |
+
+The repository's **only two grind registrations** are:
+
+```lean
+attribute [grind →] Agree.trans
+grind_pattern WritesOnlyRegs.get => WritesOnlyRegs W s t, t.regs.get? r
+```
+
+### Rule 1 — you need a multi-pattern when the conclusion and the antecedent each omit what the other has
+
+This is the single most useful thing learned, and it is stated too weakly in section 5. Both
+registrations that pay in this repository needed a multi-pattern, and both were **rejected outright**
+by the single-sided attributes — not silently inert, but a hard error naming the problem:
+
+```
+`@[grind ←] theorem WritesOnlyRegs.get` failed to find patterns in the theorem's conclusion
+`@[grind →] theorem WritesOnlyRegs.get` failed to find patterns in the antecedents of the theorem
+```
+
+The conclusion `t.regs.get? r = s.regs.get? r` never mentions the write set `W`; the antecedent
+`WritesOnlyRegs W s t` never mentions the register `r`. Neither side alone determines the
+instantiation. The pattern over **both** determines all four variables.
+
+**The tell:** a lemma of the form "given a fact about a *set*, conclude something about a *member*"
+always has this shape, because the set and the member never appear together in one subterm. Reach for
+`grind_pattern` immediately rather than trying attributes first.
+
+### Rule 2 — the payoff is (sites × lines saved) − setup, and the setup is not zero
+
+The mechanism above pays enormously in one place and is **net negative** in another, for a reason
+worth internalising:
+
+- **Composition ladders — pays.** A proof carrying *n* registers through *m* steps writes one `have`
+  per (register × step). One `have w := <transformer>_writes …` per step collapses the whole product.
+  Measured: four registers through two steps close in **one `grind`**, replacing ~8 `have`s / ~32
+  lines. Five wrapper composition proofs, −112 lines, elaboration time unchanged (363 s → 362 s).
+- **Isolated reads — does not pay, and was reverted.** Replacing `(...).get x2 (by decide)` with
+  `have w := …_writes …` plus `grind` is *two lines replacing two lines*. Applied to 53 such sites
+  across four files it came to **net +6 lines**.
+
+So before applying any mechanism in bulk: count the sites, and count what one invocation *costs*.
+The rate at which a mechanism collapses its best case tells you nothing about its average case.
+
+### Rule 3 — know which kind of side condition you have, because one kind is fatal
+
+The multi-pattern only works if `grind` can discharge the membership obligation. Three cases, all
+measured here:
+
+- **Decidable by `decide`** — registers. `RegSet.only` and `RegSet.union` are `@[reducible]`
+  precisely so typeclass synthesis can build the `Decidable` instance; without it every `(by decide)`
+  fails with `failed to synthesize Decidable`. A regression `example` in `RegisterAgree.lean` pins
+  this. **This is the case that works best.**
+- **Arithmetic** — memory regions. `Region := Nat → Prop`, so `¬ range base size a` is an arithmetic
+  obligation, not a decidable one. Registering the membership equivalences (`range_apply` etc.) as
+  `@[grind =]` lets `grind` see through the constructors and hand the residue to its arithmetic core.
+  This *works* — verified through unions, chains, and a symbolic base separated by a hypothesis — but
+  see rule 2: in this repository it had only ~31 links to collapse and was reverted. The technique is
+  in commit `f78d965` if a memory-heavy layer ever needs it.
+- **Not decidable at all** — `platformPreserved`. `WritesOnlyRegs.agree` (write set ⇒ `Agree`)
+  **cannot be a grind rule**, with or without a multi-pattern. Its `RegSet.Disjoint P W` side
+  condition bottoms out in `¬ platformPreserved r`, and `platformPreserved` is a plain `def`. That is
+  exactly why the existing disjointness lemmas case-split its eighteen disjuncts by hand. Do not
+  retry this; the two-line chained form is minimal.
+
+### Rule 4 — the verification traps here are worse than the proofs
+
+Three checks in this project reported the *opposite* of the truth. All three were mine.
+
+- **Stale `.olean`.** `lake env lean <consumer>` elaborates only that file and resolves imports from
+  the `.olean`s that already exist. After editing a framework module, a consumer check is meaningless
+  until `lake build <that module>` runs. This caught two people on the same file the same day — once
+  hiding a real failure, once manufacturing two fake errors that caused a working mechanism to be
+  reported as broken. **Always `lake build` the edited module first.**
+- **A strip test on a site where the mechanism was never load-bearing.** Deleting the boilerplate from
+  a file whose call sites all had the hypotheses in scope proved nothing; the failing shape
+  (`f pre.machine (Agree.refl state)`) lived in a different file. Pick the proving ground by the shape
+  that fails, not by convenience.
+- **A negative control that cannot fire.** `fail_if_success grind` passes both when the rule correctly
+  refuses *and* when the goal was malformed. Run the meta-control: point `fail_if_success` at a case
+  that **is** derivable and confirm it reports "the tactic succeeded but was expected to fail."
+
+For a goal that is genuinely underivable, the control must wrap the `have` — `fail_if_success (have :
+G := by grind)` — because there is no proof of `G` for the check to sit inside.
+
+### Two syntax facts that cost real time
+
+- `grind [...]` brackets accept only **bare identifiers**, not applied terms: `grind [foo x y]` is a
+  parse error. They also reject facts already reachable from context as "redundant parameter". The
+  reliable idiom is a local `have := <term>` before a bare `grind`.
+- When an intermediate state is a `let`-bound alias for a project wrapper def
+  (`wrapperAfterDwordStore`, `rawResultAfterDiscriminant`, …) rather than a raw `afterRegisterWrite`
+  application, the introduced `have` needs an **explicit type ascription in the alias's name**.
+  Otherwise its inferred type mentions the unfolded primitive, which does not syntactically match the
+  goal — `grind` does not delta-unfold semireducible defs, by design (see the 18×–126× rule).
+
+### Correction to section 5's depth claim
+
+Section 5 says chains close at 1–3 hops and fail at 4–5. That is true of **frame-fact chaining through
+equalities**. It is *not* true of the write-set multi-pattern, which chains arbitrarily deep because
+each hop is one E-match rather than a rewrite: a four-step chain with three simultaneous register
+reads closes with a bare `grind` in ~1 s. Depth is a property of the mechanism, not of `grind`.
 
 ---
 
@@ -145,7 +259,12 @@ They are the set worth building.
 The `Agree platformPreserved base state` family sits awkwardly across this split, because it relates
 two states rather than observing one. See section 3a, which is the more general answer.
 
-## 3a. The write-set frame — the general mechanism, currently missing
+## 3a. The write-set frame — BUILT (`784ab8a`, automated in `1b40460`)
+
+> **Status corrected.** This section was written as a proposal and its "currently missing" framing is
+> obsolete. The design below was built essentially as described and is live in
+> `RiscV/Logic/RegisterAgree.lean` and `RiscV/Step/ControlFlow.lean`. Read section 0 for what it
+> automates and where it does and does not pay; the design rationale below is still accurate.
 
 A grid of frame facts is O(observations × transformers) lemmas and **does not generalise across
 observations**: every new observation needs a new row against every transformer. With 141 function
@@ -354,11 +473,24 @@ Extend an existing set instead when the new fact is the same class of goal.
 
 ## 7. Sets currently in the repository
 
-None. The repository has zero `@[grind …]` attributes and zero `register_simp_attr`.
+There is still **no named simp set and no `register_simp_attr`** — deliberately. What exists is two
+grind registrations, both narrow, both with negative controls in the same file.
 
-| Set | File | Closes | Facts | Status | PR |
-|---|---|---|---|---|---|
-| _(none yet)_ | | | | | |
+| Registration | File | Closes | Controls |
+|---|---|---|---|
+| `attribute [grind →] Agree.trans` | `RiscV/Logic/RegisterAgree.lean` | agreement chains stated by endpoints | 3- and 5-link chains close; a **gapped** chain and a **reversed** chain both still fail |
+| `grind_pattern WritesOnlyRegs.get => WritesOnlyRegs W s t, t.regs.get? r` | same | a register read through any chain of steps whose write sets are known, membership condition included | a register the chain **writes** must still fail; so must a bookkeeping register |
+
+Nothing that unfolds a step definition is registered, and nothing should be — see section 5's
+best-evidenced rule (18×–126×).
+
+**Why no named simp set yet.** The frame-fact grid that would populate one is largely obviated: the
+class lemmas discharge those obligations as `autoParam`s, and the write-set pattern handles reads.
+A set should be opened only when section 6's bar is met by goals those two do *not* reach.
+
+**Every registration must ship with a control that fails.** Both above do. Without the negative
+cases, a rule that silently ignored its side condition would satisfy every positive test — and the
+positive tests are the ones you are tempted to write.
 
 **Grandfathering note.** An empty table does not mean no simp attributes exist. There are 35 uses of
 the **global** `@[simp]` set, which section 5's first rule forbids for new work:
@@ -369,6 +501,33 @@ the **global** `@[simp]` set, which section 5's first rule forbids for new work:
 not step-unfolding facts, so they are left alone; do not add more.
 
 ## 8. Rollout
+
+> **Status: phases 0–4 are done or superseded; the "pending" markers below are historical.** What
+> actually landed, measured against branch base `8a85d1c`:
+>
+> | | |
+> |---|---|
+> | 12 big proof files | 21,384 → 17,019 lines = **−20.4%** |
+> | best individual files | −28% to −31% |
+> | library added (a one-time charge) | ~2,000 lines |
+>
+> **What the plan got wrong, kept because the error is instructive.** Phase 3 lists `Agree` chaining
+> as a headline item on the strength of three areas measuring `@[grind →] Agree.trans` as sufficient.
+> It *is* sufficient, and it is registered — but its reach is tiny. Of 98 `Agree.trans` uses, nearly
+> all are single-link with a **constructed** second argument
+> (`Agree.trans agree1 (afterRegisterWrite_agree (by simp [...]))`), which no chaining rule collapses.
+> Perhaps 4–6 sites are genuine multi-link chains. The survey measured *whether the tactic works*
+> without measuring *how many sites have the shape it works on*. That is rule 2 in section 0, and it
+> is the most expensive recurring mistake in this project.
+>
+> Two mechanisms were also built and **reverted for having no consumer population**: a per-address
+> instruction-fact table that duplicated `MachineRegions.words` (`bc83463`, reverted `6626781`), and
+> the memory-side grind rule (`f78d965`, reverted `5dfbe96`). Both were correct and tested. Neither
+> had anything to automate. **Count the sites before building the artifact.**
+>
+> Remaining opportunity, measured: 8,333 raw lines inside PR #60's files, split roughly evenly
+> between never-migrated files (4,202, over half of it `MemcpyProof.lean`) and unexploited depth in
+> partly-migrated files (4,131).
 
 Ordered by measured lines removed per unit of risk, from the ten-area survey. Each phase is one
 reviewable change following section 6. **Phases 0 and 1 are not sets** — they must land first,
@@ -494,6 +653,55 @@ any phase.
 The build also emits **24 `linter.unusedSimpArgs` warnings**, i.e. sites where the repeated
 unfolding bundle carries lemmas that goal does not need — a mechanical, if small, confirmation that
 the bundle is copied rather than composed.
+
+## 8a. Writing a NEW machine proof — the shape to reach for
+
+Everything above is about removing structure already written. This is how to not write it in the
+first place. If you are proving that a compiled function does what its contract says, follow this.
+
+**Do not hand-derive a single instruction.** Find the class lemma for its mnemonic in
+`InstructionClassSteps.lean` and call it. You supply the state, the machine and agreement facts, the
+program counter and the instruction fields; you supply *nothing else* — the fetch bytes, the base
+encoding, the decode, the fit bound and the register disequalities are all `autoParam`s. If a
+mnemonic has no class lemma, add one beside its siblings rather than inlining a proof; the family is
+parameterised, so a new width or signedness is usually an instance rather than a new lemma.
+
+**State each step's write set, once.** A step lemma should conclude
+`WritesOnlyRegs W s t` — not a list of per-register preservation facts. `W` is
+`RegSet.union stepBookkeeping (RegSet.only destination)` for a register write; keep the parametric
+half (`only destination`) structurally separate from the closed half so `RegSet.Disjoint.union` can
+split it. Never widen a parametric set into a closed over-approximation: that turns the disjointness
+obligation into something false for `platformPreserved`.
+
+**Then never carry a register by hand.** In the composition proof, write one
+`have w := <transformer>_writes …` per step and let `grind` produce every register read through it.
+Do not write the `have`-per-(register × step) ladder; that ladder is the single largest cost in this
+proof tree and it is now unnecessary.
+
+**Compose at a fixed write set, not by unioning.** Widen each step with `WritesOnlyRegs.mono` into
+the write set of the whole function, then compose with `trans_same`. Composing with `trans` and
+letting the set grow builds an `Or`-chain one disjunct per instruction, and at roughly eight steps
+the `Decidable` instance for a membership goal exceeds `synthInstance.maxSize` and aborts before the
+kernel sees it.
+
+**Keep `Agree` derivation to the two-line chained form.** It cannot be automated (section 0, rule 3),
+so do not fight it.
+
+**State frame facts as `observer after = observer before`.** Both write-set relations are oriented
+this way, which is why the bridge to `Agree` is a term with no `Eq.symm` in it. A frame lemma stated
+the other way makes every downstream use carry a symmetry step, and — per section 5 — an orientation
+that reads `(view s).f = s.regs.get? R` measurably fails to chain where the reverse succeeds.
+
+**Prefer a predicate over a list for any register or address set.** `Register → Prop` lets a set hold
+a *variable* element (a `destination` or a `linkReg`), destructures under `rintro (rfl | rfl)`, and
+needs no coercion to meet `Agree`/`platformPreserved`/`decoderPreserved`, which are already that type.
+
+**Two things worth doing before you write the proof at all.** Look up the instruction in
+`build/machine-regions-lean/machine-regions.json`, which already carries every address's mnemonic,
+operands and register read/write sets — do not re-derive from bytes. And check whether the fact you
+are about to generate already exists under another name by grepping for its **validation theorem**
+(`native_decide.*programImage`) rather than its name; a duplicate built under a different name is
+invisible to a name search.
 
 ## 9. Maintenance
 
