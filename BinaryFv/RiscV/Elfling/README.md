@@ -63,8 +63,11 @@ spliced into the parent's trace without omitting the call, return, or outgoing i
    selected code until it reaches the next boundary.
 7. [`SentinelBridge.lean`](SentinelBridge.lean) connects a function proof that stops at its final
    `ret` with the runner, which stops after that instruction returns to a reserved sentinel address.
-   The target proves that the sentinel lies outside the function's code and that the final
-   instruction really returns there.
+   Normally `ret` continues at the caller address stored in `ra`. For an isolated function proof,
+   the runner puts the sentinel in `ra` instead, making the return a controlled stopping point. This
+   lets the function be proved without also constructing an execution of its caller; the resulting
+   proof can later be composed with proofs of surrounding code. The target proves that the sentinel
+   lies outside the function's code and that the final instruction really returns there.
 
 The generated files and extracted addresses are evidence, not trusted axioms. Boolean checks and
 Lean theorems in this layer reject stale edges, invented boundaries, missing parameter locations,
