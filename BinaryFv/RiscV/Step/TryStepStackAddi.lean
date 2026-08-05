@@ -31,6 +31,31 @@ def tryStepStackAddiAfterRetired (state : State) (pc : BitVec 64) (immediate : B
     regs := (tryStepStackAddiAfterTick state pc immediate stackValue).regs.insert minstret
       (Sail.BitVec.addInt retired 1) }
 
+/-! ### Memory frames
+
+`addi sp, sp, immediate` is a register write, so every post-state above hands memory through
+unchanged. Registered as `@[grind =]` so a caller transports memory-shaped facts across the step
+with a bare `grind`, rather than unfolding the step definitions to rediscover an `rfl`. -/
+
+/-- The counter-increment write leaves memory alone. -/
+@[grind =] theorem tryStepStackAddiAfterIncrement_mem (state : State) :
+    (tryStepStackAddiAfterIncrement state).mem = state.mem := rfl
+
+/-- The `addi sp, sp, immediate` retirement leaves memory alone. -/
+@[grind =] theorem tryStepStackAddiAfterActive_mem (state : State) (pc : BitVec 64)
+    (immediate : BitVec 12) (stackValue : BitVec 64) :
+    (tryStepStackAddiAfterActive state pc immediate stackValue).mem = state.mem := rfl
+
+/-- The PC tick leaves memory alone. -/
+@[grind =] theorem tryStepStackAddiAfterTick_mem (state : State) (pc : BitVec 64)
+    (immediate : BitVec 12) (stackValue : BitVec 64) :
+    (tryStepStackAddiAfterTick state pc immediate stackValue).mem = state.mem := rfl
+
+/-- The retired-counter write leaves memory alone. -/
+@[grind =] theorem tryStepStackAddiAfterRetired_mem (state : State) (pc : BitVec 64)
+    (immediate : BitVec 12) (stackValue retired : BitVec 64) :
+    (tryStepStackAddiAfterRetired state pc immediate stackValue retired).mem = state.mem := rfl
+
 /-- Lift an arbitrary generated `addi sp, sp, immediate` retirement through generated `try_step`. -/
 theorem tryStepStackAddiRetires (stepNo : Nat) (state : State) (pc : BitVec 64)
     (immediate : BitVec 12) (stackValue retired : BitVec 64) (inhibit : BitVec 32)

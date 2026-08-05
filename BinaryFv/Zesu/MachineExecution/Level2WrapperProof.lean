@@ -396,6 +396,11 @@ def wrapperAfterFirstFrameDecrement (state : State) (retired stackAtEntry : BitV
   afterRegisterWrite state (BitVec.ofNat 64 0x102b0) retired x2
     (iTypeResult .ADDI 0x810#12 stackAtEntry)
 
+/-- The first frame decrement writes `x2`, so memory is the memory it was handed. -/
+@[grind =] theorem wrapperAfterFirstFrameDecrement_mem (state : State)
+    (retired stackAtEntry : BitVec 64) :
+    (wrapperAfterFirstFrameDecrement state retired stackAtEntry).mem = state.mem := rfl
+
 theorem wrapper_first_frame_decrement_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
     (mseccfgBits : BitVec 64) (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits) :
@@ -1300,6 +1305,10 @@ def wrapperAfterFreshBranch (state : State) (retired : BitVec 64) : State :=
       (BitVec.ofNat 64 0x102d8) (BitVec.ofNat 64 0x102e8))
     (BitVec.ofNat 64 0x102e8) retired
 
+/-- The taken fresh-flag branch touches no memory. -/
+@[grind =] theorem wrapperAfterFreshBranch_mem (state : State) (retired : BitVec 64) :
+    (wrapperAfterFreshBranch state retired).mem = state.mem := rfl
+
 /-- The taken fresh-flag branch is a jump, so it writes exactly the bookkeeping. -/
 theorem wrapperAfterFreshBranch_writes (state : State) (retired : BitVec 64) :
     WritesOnlyRegs stepBookkeeping state (wrapperAfterFreshBranch state retired) :=
@@ -1941,7 +1950,7 @@ private theorem wrapper_second_allocator_inputMemory
   let final := allocatorAfterFunctionStore afterContext functionRetired
     (BitVec.ofNat 64 stackBase) (BitVec.ofNat 64 0x13f70)
   have pageInput : MemoryRepresentation.MemoryBytes afterPage args.inputBase args.bytes := by
-    simpa [afterPage, allocatorAfterFunctionPage, afterRegisterWrite_mem] using inputMemory
+    grind
   have addressInput : MemoryRepresentation.MemoryBytes afterAddress args.inputBase args.bytes := by
     simpa [afterAddress, allocatorAfterFunctionAddress, afterRegisterWrite_mem] using pageInput
   have contextInput : MemoryRepresentation.MemoryBytes afterContext args.inputBase args.bytes := by
@@ -2369,6 +2378,10 @@ def wrapperAfterDecodeFirstErrorBranch (state : State) (retired : BitVec 64) : S
     (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10324) (BitVec.ofNat 64 0x1037c))
     (BitVec.ofNat 64 0x1037c) retired
+
+/-- The taken decode-error branch touches no memory. -/
+@[grind =] theorem wrapperAfterDecodeFirstErrorBranch_mem (state : State) (retired : BitVec 64) :
+    (wrapperAfterDecodeFirstErrorBranch state retired).mem = state.mem := rfl
 
 /-- Retire the first `decode` segment's real outgoing `bne a0, x0, 0x1037c`. Every internal error
 tag is nonzero, so the checked edge must enter the wrapper's retry dispatch. -/

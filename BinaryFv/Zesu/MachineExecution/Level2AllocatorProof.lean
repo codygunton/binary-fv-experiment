@@ -29,6 +29,14 @@ open PreSail LeanRV64DExecutable.Functions Register
 def allocatorAfterDataPointer (state : State) (retired source : BitVec 64) : State :=
   afterRegisterWrite state (BitVec.ofNat 64 0x102f0) retired x11 (Sail.BitVec.addInt source 1)
 
+/-- `addi a1, s2, 1` writes a register, so memory is the memory it was handed.
+
+`grind` will not delta-unfold this wrapper to reach `afterRegisterWrite_mem` -- deliberately, since
+unfolding step definitions is this project's measured 18x-126x penalty -- so the wrapper needs its
+own frame equation for the memory transports to fire on it. -/
+@[grind =] theorem allocatorAfterDataPointer_mem (state : State) (retired source : BitVec 64) :
+    (allocatorAfterDataPointer state retired source).mem = state.mem := rfl
+
 theorem allocator_data_pointer_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102f0)
@@ -112,6 +120,14 @@ def allocatorAfterFunctionPage (state : State) (retired : BitVec 64) : State :=
 def allocatorAfterFunctionAddress (state : State) (retired : BitVec 64) : State :=
   afterRegisterWrite state (BitVec.ofNat 64 0x102fc) retired x10
     (BitVec.ofNat 64 0x13f70)
+
+/-- The `auipc` page write leaves memory alone. -/
+@[grind =] theorem allocatorAfterFunctionPage_mem (state : State) (retired : BitVec 64) :
+    (allocatorAfterFunctionPage state retired).mem = state.mem := rfl
+
+/-- The function-address resolution leaves memory alone. -/
+@[grind =] theorem allocatorAfterFunctionAddress_mem (state : State) (retired : BitVec 64) :
+    (allocatorAfterFunctionAddress state retired).mem = state.mem := rfl
 
 /-- Exact state of an allocator-owned eight-byte stack store. -/
 def allocatorAfterDwordStore (state : State) (pc retired target data : BitVec 64) : State :=

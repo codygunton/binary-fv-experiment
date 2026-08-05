@@ -67,6 +67,10 @@ theorem rawErrorAfterLoad_retired_present (state : State) (retired : BitVec 64) 
   afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x13784) retired x10
     (BitVec.ofNat 64 value)
 
+-- Register the two frame equations above with `grind`, so the memory transports fire on these
+-- wrappers without the caller naming either the transport or the frame lemma.
+attribute [grind =] rawErrorAfterAuipc_mem rawErrorAfterLoad_mem
+
 theorem rawErrorAfterLoad_pc (state : State) (retired : BitVec 64) (value : Nat) :
     (rawErrorAfterLoad state retired value).regs.get? PC = some (BitVec.ofNat 64 0x13788) :=
   afterRegisterWrite_pc state (BitVec.ofNat 64 0x13784) retired x10 (BitVec.ofNat 64 value)

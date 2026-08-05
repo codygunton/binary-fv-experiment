@@ -97,6 +97,10 @@ theorem wrapper_epilogue_status_store_step {base state : State} {machineArgs : D
 def wrapperAfterFirstStackRestore (state : State) (retired stack : BitVec 64) : State :=
   tryStepStackAddiAfterRetired state (BitVec.ofNat 64 0x10360) 0x230#12 stack retired
 
+/-- The first stack restoration writes `x2`, so memory is the memory it was handed. -/
+@[grind =] theorem wrapperAfterFirstStackRestore_mem (state : State) (retired stack : BitVec 64) :
+    (wrapperAfterFirstStackRestore state retired stack).mem = state.mem := rfl
+
 /-- An `addi sp, sp, imm` post-state *is* the generic register-write post-state at `x2`: both
 insert `minstret_increment`, `nextPC`, `x2`, `PC` and `minstret`, in that order and with the same
 values, so the two definitions are literally the same state.
@@ -307,6 +311,10 @@ theorem wrapper_epilogue_load_s2_step {base state : State} {machineArgs : Decode
 def wrapperAfterFinalStackRestore (state : State) (retired stack : BitVec 64) : State :=
   tryStepStackAddiAfterRetired state (BitVec.ofNat 64 0x10374) 0x7f0#12 stack retired
 
+/-- The final stack restoration writes `x2`, so memory is the memory it was handed. -/
+@[grind =] theorem wrapperAfterFinalStackRestore_mem (state : State) (retired stack : BitVec 64) :
+    (wrapperAfterFinalStackRestore state retired stack).mem = state.mem := rfl
+
 /-- Execute the final wrapper stack restoration; with the preceding `+560`, it exactly reverses
 the prologue's `0xa20`-byte allocation. `decoderITypeStepOfDecoderAgree` again, as for the first
 restoration. -/
@@ -334,6 +342,10 @@ def wrapperAfterReturn (state : State) (retired link : BitVec 64) : State :=
   tryStepControlFlowAfterRetired
     (controlFlowJumpState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10378) link)
     link retired
+
+/-- The wrapper's final `ret` touches no memory. -/
+@[grind =] theorem wrapperAfterReturn_mem (state : State) (retired link : BitVec 64) :
+    (wrapperAfterReturn state retired link).mem = state.mem := rfl
 
 /-- Retire the actual final `ret`, jumping to the explicitly restored return address. -/
 theorem wrapper_epilogue_return_step {base state : State} {machineArgs : DecoderMachineArgs}

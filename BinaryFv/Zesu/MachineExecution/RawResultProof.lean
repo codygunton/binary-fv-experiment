@@ -164,6 +164,37 @@ def rawResultAfterSelect (state : State) (retired : BitVec 64)
   afterRegisterWrite state (BitVec.ofNat 64 0x137a4) retired x10
     (rawResultPointerValue model)
 
+/-! ### Memory frames
+
+The raw-result tail is seven register writes and no store, so each post-state hands memory through
+unchanged. `grind` does not delta-unfold these wrappers to reach `afterRegisterWrite_mem`, so each
+needs its own frame equation for the memory transports to fire on it. -/
+
+@[grind =] theorem rawResultAfterAuipc_mem (state : State) (retired : BitVec 64) :
+    (rawResultAfterAuipc state retired).mem = state.mem := rfl
+
+@[grind =] theorem rawResultAfterBaseAdd_mem (state : State) (retired : BitVec 64) :
+    (rawResultAfterBaseAdd state retired).mem = state.mem := rfl
+
+@[grind =] theorem rawResultAfterDiscriminant_mem (state : State) (retired : BitVec 64)
+    (model : DecoderGlobalsModel) :
+    (rawResultAfterDiscriminant state retired model).mem = state.mem := rfl
+
+@[grind =] theorem rawResultAfterPayloadAdd_mem (state : State) (retired : BitVec 64) :
+    (rawResultAfterPayloadAdd state retired).mem = state.mem := rfl
+
+@[grind =] theorem rawResultAfterSeqz_mem (state : State) (retired : BitVec 64)
+    (model : DecoderGlobalsModel) :
+    (rawResultAfterSeqz state retired model).mem = state.mem := rfl
+
+@[grind =] theorem rawResultAfterMask_mem (state : State) (retired : BitVec 64)
+    (model : DecoderGlobalsModel) :
+    (rawResultAfterMask state retired model).mem = state.mem := rfl
+
+@[grind =] theorem rawResultAfterSelect_mem (state : State) (retired : BitVec 64)
+    (model : DecoderGlobalsModel) :
+    (rawResultAfterSelect state retired model).mem = state.mem := rfl
+
 theorem raw_result_auipc_step (fromStep : Nat) (state : State)
     (machine : RawResultMachinePre state) :
     ∃ retired, Runs (try_step fromStep false) state (rawResultAfterAuipc state retired) false := by

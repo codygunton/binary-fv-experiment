@@ -144,6 +144,35 @@ def tryStepControlFlowAfterRetired (afterExec : State) (targetPC retired : BitVe
     regs := (tryStepControlFlowAfterTick afterExec targetPC).regs.insert minstret
       (Sail.BitVec.addInt retired 1) }
 
+/-! ### Memory frames of the `try_step` bookkeeping
+
+Each bookkeeping post-state above is a register update, so its memory is the memory it was handed.
+Registering these as `@[grind =]` is what lets a caller transport a memory-shaped fact across a
+step with a bare `grind`, instead of naming the step definitions in a `simp` set and paying the
+step-unfolding penalty to rediscover an equation that is `rfl`. -/
+
+/-- The counter-increment write leaves memory alone. -/
+@[grind =] theorem tryStepControlFlowAfterIncrement_mem (state : State) :
+    (tryStepControlFlowAfterIncrement state).mem = state.mem := rfl
+
+/-- The PC tick leaves memory alone. -/
+@[grind =] theorem tryStepControlFlowAfterTick_mem (afterExec : State) (targetPC : BitVec 64) :
+    (tryStepControlFlowAfterTick afterExec targetPC).mem = afterExec.mem := rfl
+
+/-- The retired-counter write leaves memory alone; whatever the execute step did to memory is
+carried in `afterExec`. -/
+@[grind =] theorem tryStepControlFlowAfterRetired_mem (afterExec : State)
+    (targetPC retired : BitVec 64) :
+    (tryStepControlFlowAfterRetired afterExec targetPC retired).mem = afterExec.mem := rfl
+
+/-- The generated next-PC write leaves memory alone. -/
+@[grind =] theorem coreControlFlowNextState_mem (state : State) (pc : BitVec 64) :
+    (coreControlFlowNextState state pc).mem = state.mem := rfl
+
+/-- A taken jump's `nextPC` overwrite leaves memory alone. -/
+@[grind =] theorem controlFlowJumpState_mem (state : State) (pc target : BitVec 64) :
+    (controlFlowJumpState state pc target).mem = state.mem := rfl
+
 /-! ## Write sets of the generated post-states
 
 Each definition above writes a fixed, small set of registers. Naming that set once lets any later
