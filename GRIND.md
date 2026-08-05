@@ -58,7 +58,18 @@ worth internalising:
 - **Composition ladders — pays.** A proof carrying *n* registers through *m* steps writes one `have`
   per (register × step). One `have w := <transformer>_writes …` per step collapses the whole product.
   Measured: four registers through two steps close in **one `grind`**, replacing ~8 `have`s / ~32
-  lines. Five wrapper composition proofs, −112 lines, elaboration time unchanged (363 s → 362 s).
+  lines. Five wrapper composition proofs, −112 lines, elaboration time unchanged (363 s → 362 s);
+  fourteen `DecodeInlineProof` compositions, −117; `memcpy_adv` 534 → 271.
+
+  **Arming it costs one line, not three.** Write
+
+  ```lean
+  have w : WritesOnlyRegs _ s t := <shape>_writes _ _ _ _ _
+  ```
+
+  — the write set and every explicit argument unify against the `let`-bound alias. The explicit
+  ascription is what makes it match a goal stated in terms of a project wrapper def; `..` does *not*
+  work in place of the underscores, because `WritesOnlyRegs` unfolds to a Pi and over-applies.
 - **Isolated reads — does not pay, and was reverted.** Replacing `(...).get x2 (by decide)` with
   `have w := …_writes …` plus `grind` is *two lines replacing two lines*. Applied to 53 such sites
   across four files it came to **net +6 lines**.
@@ -121,7 +132,26 @@ Three checks in this project reported the *opposite* of the truth. All three wer
   that **is** derivable and confirm it reports "the tactic succeeded but was expected to fail."
 
 For a goal that is genuinely underivable, the control must wrap the `have` — `fail_if_success (have :
-G := by grind)` — because there is no proof of `G` for the check to sit inside.
+G := by grind)` — because there is no proof of `G` for the check to sit inside. Place it *before* the
+`have`s that would make the goal derivable, so a failure is the rule declining rather than a
+contradiction. Keeping a few of these in the file permanently is cheap and worth it.
+
+A fourth trap, this one about the goal rather than the check: **a control whose goal is false proves
+nothing either.** I wrote `Agree platformPreserved s t ⊢ t.regs.get? x2 = …` as a power check and
+concluded the rule was broken. `x2` is not in `platformPreserved` — it holds `x1` and seventeen CSRs
+— so `grind` was right to fail. Read the predicate's definition before writing a test against it.
+
+### Concurrency: agents in one worktree can destroy each other's work
+
+Two agents editing disjoint *files* in one worktree are still not isolated. One ran `git stash` to
+get a clean timing baseline; `stash` is repo-wide, so it silently reverted the other agent's live
+file to HEAD mid-task. The second agent noticed its edits had vanished, re-applied them, and shipped
+correctly — but that recovery was luck, not design.
+
+Rules: **never run a repo-wide `git` command** (`stash`, `checkout`, `restore`, `clean`, `reset`)
+from an agent working alongside others — scope every path explicitly. To get a clean baseline for
+timing, read the file from git (`git show HEAD:path`) into a scratch copy instead of mutating the
+tree. If a stash does happen, do not drop it: it may be the only copy of another agent's state.
 
 ### Two syntax facts that cost real time
 
