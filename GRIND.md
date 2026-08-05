@@ -956,3 +956,40 @@ composition benefits.
 
 This is the same failure this project already paid for four times (section 0, rule 2): a correct,
 well-tested abstraction with no population. The tell is an interface with more cases than callers.
+
+## 13. The heartbeat budget is the authoring-time guardrail
+
+The expensive idiom here does not fail — it **succeeds, slowly**. That is why documentation alone
+never stopped it, and why a CI gate is the wrong instrument: by the time CI rejects, the agent has
+already paid to write the proof and must pay again to rewrite it. The feedback has to land inside the
+edit loop.
+
+`maxHeartbeats` does exactly that, and it is already in the language.
+
+Measured on `Level2WrapperProof.lean`:
+
+| ceiling | outcome |
+|---|---|
+| `5000000` (what the file set) | **succeeds in 364 s** |
+| `400000` (the default) | **fails in 29 s**, errors pointing at the exact offending lines |
+
+The slow proofs exist *because* the ceiling was raised. Raising it converts "this proof is the wrong
+shape" into "this proof is merely slow", and slow proofs compile, get accepted, and merge. Every
+expensive idiom found in this repository lives under a raised ceiling.
+
+`MemcpyProof` is the proof that a low ceiling is achievable rather than aspirational: four
+`maxHeartbeats 1000000` overrides removed, after which those theorems compiled at **50,000** — eight
+times *under* the default. The overrides were masking duplication, not paying for hard proofs.
+
+**Policy.** Do not raise `maxHeartbeats`. A proof that needs more is telling you its shape is wrong;
+change the proof. If a raise is genuinely unavoidable, it needs a written reason naming what is
+irreducibly expensive — and that reason is reviewable in a way "it was slow" is not.
+
+**Sequencing matters.** Cap the ceiling only *after* the fast path exists and is reachable. Capping
+first leaves an agent with a failing build and no route through, which is worse than the slow proof.
+The order is: make the frame lemma reachable, register the grind pattern, sweep the sites, then set
+the ceiling from measurement — per file, at what it actually needs once the sites are fixed.
+
+**Why the ceiling beats a lint.** A lint enumerates known-bad patterns and misses the next one. The
+budget is indifferent to *how* a proof got expensive: it catches the pattern nobody has thought of
+yet, at the line, in seconds.

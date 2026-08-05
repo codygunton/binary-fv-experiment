@@ -295,7 +295,7 @@ theorem jumpRetirement_retired_present (state : State) (pc target retired : BitV
     simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
 
 /-- A jump retirement writes no memory. -/
-theorem jumpRetirement_mem (state : State) (pc target retired : BitVec 64) :
+@[grind =] theorem jumpRetirement_mem (state : State) (pc target retired : BitVec 64) :
     (tryStepControlFlowAfterRetired
       (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target)
       target retired).mem = state.mem := rfl

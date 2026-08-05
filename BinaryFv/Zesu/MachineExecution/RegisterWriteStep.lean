@@ -1,6 +1,7 @@
 import BinaryFv.RiscV.Instruction.Execute.Arithmetic
 import BinaryFv.RiscV.Instruction.Execute.Load
 import BinaryFv.RiscV.Proof.ImageFetch
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.SentinelAssembly
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
 
@@ -133,7 +134,7 @@ theorem afterRegisterWrite_writes (state : State) (pc retired : BitVec 64)
       (fun h => hr (Or.inl (Or.inr (Or.inr (Or.inr h.symm)))))
       (fun h => hr (Or.inl (Or.inr (Or.inr (Or.inl h.symm)))))
 
-theorem afterRegisterWrite_mem (state : State) (pc retired : BitVec 64)
+@[grind =] theorem afterRegisterWrite_mem (state : State) (pc retired : BitVec 64)
     (destination : Register) (value : RegisterType destination) :
     (afterRegisterWrite state pc retired destination value).mem = state.mem := rfl
 

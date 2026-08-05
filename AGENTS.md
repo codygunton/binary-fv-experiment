@@ -85,30 +85,61 @@ These instructions apply repository-wide.
   attributes, the entry criteria for a new set, and the registry of sets that exist. Read it before
   adding a shared `@[simp]` or `@[grind =]` attribute or writing a closing tactic more than one proof
   will call. Do not duplicate its content here.
-- **Read `GRIND.md` section 0 before anything else** — it is what was measured, and it overrides the
-  older sections wherever they disagree. Section 8a is the shape to reach for when writing a *new*
-  machine proof.
-- **Never hand-derive a single instruction step.** Call the class lemma for its mnemonic in
-  `Zesu/MachineExecution/InstructionClassSteps.lean`; its obligations are `autoParam`s you do not
-  write. A 40–80 line proof becomes one call.
-- **Never carry a register forward by hand.** Write one `have w := <transformer>_writes …` per step
-  and let `grind` discharge every read through it — the multi-pattern in
-  `RiscV/Logic/RegisterAgree.lean` chains arbitrarily deep and checks membership itself. The
-  `have`-per-(register × step) ladder is the largest single cost in this proof tree and is obsolete.
-- Do not add a definitional unfolding to a `grind` set, and do not put a step-unfolding fact in the
-  global `@[simp]` set. `GRIND.md` section 3 gives the reason for each; the penalty was measured at
-  18×–126× across five independent areas.
-- A lemma concluding something about a *member* from a fact about a *set* needs a `grind_pattern`
-  over both — the single-sided attributes are rejected outright, because the conclusion omits the set
-  and the antecedent omits the member. `GRIND.md` section 0, rule 1.
-- **Before applying any automation in bulk, count the sites and count what one invocation costs.**
-  Two mechanisms in this repository were built, verified, and then reverted for having nothing to
-  automate. `GRIND.md` section 0, rule 2.
+### The budget is the guardrail — do not raise it
+
+**`maxHeartbeats` is capped at the ambient value. Raising it is forbidden without a written reason.**
+
+This is the single most important rule here, and it is a *time* rule, not a style rule. The expensive
+idiom in this repository does not fail — it succeeds, slowly. `simp [<step definitions>]` is a
+universal solvent: it eventually closes almost any goal by unfolding the machine state, at 24-36
+seconds a call. An agent writing one gets a green tick and moves on, and the cost lands on everyone
+later. Measured: 279 such sites, and one file where twenty of them account for essentially the whole
+364-second build.
+
+Those sites exist because the ceiling was raised to let them through. At the *default* ceiling that
+same file fails in **29 seconds**, pointing at the exact offending lines. That is the feedback you
+want — in your own edit loop, in seconds, at the line — not from CI after the proof is written.
+
+So: if a proof needs more heartbeats, **the proof is the wrong shape**. Stop and change the proof.
+`MemcpyProof` carried four `maxHeartbeats 1000000` overrides; once its duplication was removed the
+same theorems compiled at **50,000**, eight times *under* the default. The overrides were never
+load-bearing.
+
+### Before writing a proof, find your goal in this table
+
+Do not search for a tactic. Look the goal up. Every row is measured, and the wrong choice is 20x-100x
+slower rather than wrong.
+
+| your goal | write this | never write |
+|---|---|---|
+| one machine instruction executes | the class lemma for its mnemonic (`InstructionClassSteps.lean`) — one call, obligations are `autoParam`s | a hand-derived fetch/decode/execute/retire chain |
+| a register's value survives a step | `have w : WritesOnlyRegs _ s t := <shape>_writes _ _ _ _ _` then `grind` | `simp [<step defs>, Std.ExtDHashMap.get?_insert]` |
+| several registers across several steps | the same **one** `have` per step, then `grind` for all of them | one `have` per (register × step) |
+| a memory-shaped fact survives a step | `grind` (the transports and `_mem` frame equations are registered) | `simpa [<state defs>, <wrapper>, afterRegisterWrite_mem] using h` |
+| agreement across a step | `(…_writes …).agree …`, or the chained two-line form | a `cases register <;> simp_all` over every register |
+| a pc/exit membership for a literal address | `owned_pc`, or the `regionPc`/`notExitPc` autoParams | a hand-written `native_decide` block |
+| an instruction's bytes or operands | look it up in `build/machine-regions-lean/machine-regions.json` | decode it from byte literals by hand |
+
+If your goal is not in the table and you are about to reach for `simp [<a state definition>]`: that is
+the anti-pattern this table exists to prevent. Ask for a frame lemma instead — the answer is almost
+always that one exists, or should, and is three lines.
+
+### Non-negotiables
+
+- **Never change a theorem statement.** Only proof bodies. This is what makes the work splittable by
+  technique, lets a reviewer trust a diff, and keeps mutation testing meaningful. A reduction that
+  genuinely needs a statement change lands as its own labelled commit.
+- **Never unfold a step definition inside `simp`/`grind`.** Measured at 18x-126x, five times
+  independently. `GRIND.md` section 3.
 - **`lake build <module>` before checking any consumer of a module you edited.** `lake env lean`
-  resolves imports from the prebuilt `.olean`, so the check otherwise measures the old code. This has
-  produced both a hidden failure and two fabricated errors. `GRIND.md` section 0, rule 4.
-- **Every registration ships with a control that fails**, and confirm the control *can* fail by
-  pointing it at a case that should succeed.
+  resolves imports from the prebuilt `.olean`, so the check otherwise measures the old code.
+- **A deleted theorem still compiles.** Before any merge or refactor that removes something, diff the
+  declaration-name sets. `GRIND.md` section 0, rule 5.
+- **Run all three CI gates locally** (`GRIND.md` section 11) — including that `native_decide` is
+  forbidden in `BinaryFv/RiscV/` and `BinaryFv/Binary/`, docstrings included.
+
+Full reasoning, measurements and the four mechanisms that were built and reverted: `GRIND.md`
+section 0.
 
 ## Verification
 
