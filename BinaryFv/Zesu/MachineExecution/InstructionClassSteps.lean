@@ -116,17 +116,9 @@ theorem decoderStepPlatform {instructionPcs : BitVec 64 → Prop} {args}
     (Agree.weaken (fun _ preserved => preserved.2) agree) pc atPc pcIn
     byte0 byte1 byte2 byte3 bytes
 
-theorem decoderStepCounters {base state : State}
-    (normal : NormalExecutionState base) (agree : Agree platformPreserved base state)
-    (retiredPresent : RetiredCounterPresent state) :
-    ∃ retired inhibit config, StepCounters state retired inhibit config := by
-  obtain ⟨retired, retiredRead⟩ := retiredPresent
-  refine ⟨retired, 0, 0, ?_, ?_, ?_, by decide, by decide, retiredRead⟩
-  · exact (agree hart_state (by simp [platformPreserved])).trans normal.1
-  · exact (agree mcountinhibit (by simp [platformPreserved])).trans normal.2.2.2.2.2.2.2.2.1
-  · exact (agree minstretcfg (by simp [platformPreserved])).trans
-      normal.2.2.2.2.2.2.2.2.2.1
-
+/-- The three counter-control reads a `try_step` postlude makes. All three are platform CSRs, so
+`decoderPreserved` covers them; the `platformPreserved` form below is this one after
+`Agree.weaken`. -/
 theorem decoderStepCounters_of_decoderAgree {base state : State}
     (normal : NormalExecutionState base) (agree : Agree decoderPreserved base state)
     (retiredPresent : RetiredCounterPresent state) :
@@ -138,6 +130,13 @@ theorem decoderStepCounters_of_decoderAgree {base state : State}
       normal.2.2.2.2.2.2.2.2.1
   · exact (agree minstretcfg (by simp [decoderPreserved, platformPreserved])).trans
       normal.2.2.2.2.2.2.2.2.2.1
+
+theorem decoderStepCounters {base state : State}
+    (normal : NormalExecutionState base) (agree : Agree platformPreserved base state)
+    (retiredPresent : RetiredCounterPresent state) :
+    ∃ retired inhibit config, StepCounters state retired inhibit config :=
+  decoderStepCounters_of_decoderAgree normal
+    (Agree.weaken (fun _ preserved => preserved.2) agree) retiredPresent
 
 theorem agree_coreControlFlowNextState (state : State) (pc : BitVec 64) :
     Agree platformPreserved state (coreControlFlowNextState state pc) := by
@@ -153,6 +152,54 @@ theorem agree_decoderExecuteState (state : State) (pc : BitVec 64) :
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) :=
   Agree.trans (agree_afterIncrement state)
     (agree_coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+
+/-- Lift one decoded register-writing instruction through the configured decoder `try_step`, from
+the decoder's own agreement.
+
+`agree` reaches exactly two places here — `decoderStepPlatform` and `decoderStepCounters` — and
+between them they read `cur_privilege`, `mseccfg`, `hart_state`, `mcountinhibit` and `minstretcfg`.
+None of those is `x1`, which is the only register `decoderPreserved` gives up relative to
+`platformPreserved`, so the weaker agreement suffices for the whole retirement. That is what lets a
+block whose `x1` an earlier `jalr` already clobbered retire a register write at all; the
+`platformPreserved` form below is this one after `Agree.weaken`. -/
+theorem decoderRegisterWriteStepOfDecoderAgree {instructionPcs : BitVec 64 → Prop} {args}
+    {baseState state : State}
+    (machine : Entrypoints.ZesuDecodeRaw.DecoderMachinePre instructionPcs args baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (stepNo : Nat) (pc : BitVec 64) (pcIn : DecoderFetchPc instructionPcs pc)
+    (atPc : state.regs.get? PC = some pc)
+    (byte0 byte1 byte2 byte3 : BitVec 8) (instruction : instruction)
+    (destination : Register) (value : RegisterType destination)
+    (fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
+      byte0 byte1 byte2 byte3)
+    (baseEncoding : BaseInstructionEncoding byte0)
+    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state) instruction)
+    (destinationNotNextPc : destination ≠ nextPC)
+    (destinationNotHart : destination ≠ hart_state)
+    (destinationNotIncrement : destination ≠ minstret_increment)
+    (destinationNotRetired : destination ≠ minstret)
+    (execute : Runs (execute instruction)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
+          destination value }
+      (.Retire_Success ())) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state pc retired destination value) false := by
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform_of_decoderAgree machine agree pc atPc pcIn
+    byte0 byte1 byte2 byte3 fetchBytes
+  obtain ⟨retired, inhibit, config, counters⟩ :=
+    decoderStepCounters_of_decoderAgree machine.normal agree retiredPresent
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  refine ⟨retired, ?_⟩
+  exact tryStepFallThroughWriteRegRetires stepNo state pc retired inhibit config
+    byte0 byte1 byte2 byte3 instruction destination value fetch noMMIO fetched interrupts
+    baseEncoding decode notExpected execute destinationNotNextPc destinationNotHart
+    destinationNotIncrement destinationNotRetired
+    hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
 
 /-- Lift one decoded register-writing instruction through the configured decoder `try_step`. -/
 theorem decoderRegisterWriteStep {instructionPcs : BitVec 64 → Prop} {args}
@@ -180,38 +227,17 @@ theorem decoderRegisterWriteStep {instructionPcs : BitVec 64 → Prop} {args}
           destination value }
       (.Retire_Success ())) :
     ∃ retired, Runs (try_step stepNo false) state
-      (afterRegisterWrite state pc retired destination value) false := by
-  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine agree pc atPc pcIn
-    byte0 byte1 byte2 byte3 fetchBytes
-  obtain ⟨retired, inhibit, config, counters⟩ :=
-    decoderStepCounters machine.normal agree retiredPresent
-  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
-  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
-  refine ⟨retired, ?_⟩
-  exact tryStepFallThroughWriteRegRetires stepNo state pc retired inhibit config
-    byte0 byte1 byte2 byte3 instruction destination value fetch noMMIO fetched interrupts
-    baseEncoding decode notExpected execute destinationNotNextPc destinationNotHart
-    destinationNotIncrement destinationNotRetired
-    hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+      (afterRegisterWrite state pc retired destination value) false :=
+  decoderRegisterWriteStepOfDecoderAgree machine
+    (Agree.weaken (fun _ preserved => preserved.2) agree) retiredPresent stepNo pc pcIn atPc
+    byte0 byte1 byte2 byte3 instruction destination value fetchBytes baseEncoding decode
+    destinationNotNextPc destinationNotHart destinationNotIncrement destinationNotRetired execute
 
 /-- The two post-increment register reads `decode_run` consults. Every call site of the class step
-lemmas below opens by destructuring this, which is what makes their `decode` premise automatic. -/
-theorem decoderDecodeContext {instructionPcs : BitVec 64 → Prop} {margs : DecoderMachineArgs}
-    {baseState state : State} (machine : DecoderMachinePre instructionPcs margs baseState)
-    (agree : Agree platformPreserved baseState state) :
-    (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-        some Privilege.Machine ∧
-      ∃ bits, (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some bits := by
-  have afterIncrement : Agree platformPreserved baseState
-      (tryStepControlFlowAfterIncrement state) :=
-    Agree.trans agree (agree_afterIncrement state)
-  obtain ⟨bits, read, -⟩ := machine.mseccfg
-  exact ⟨(afterIncrement cur_privilege (by simp [platformPreserved])).trans machine.normal.2.1,
-    bits, (afterIncrement Register.mseccfg (by simp [platformPreserved])).trans read⟩
+lemmas below opens by destructuring this, which is what makes their `decode` premise automatic.
 
-/-- `decoderDecodeContext` for a caller that only has the decoder's own agreement. `cur_privilege`
-and `mseccfg` are not the link register, so `decoderPreserved` already covers both reads; the
-`platformPreserved` form above is this one after `Agree.weaken`. -/
+`cur_privilege` and `mseccfg` are not the link register, so `decoderPreserved` already covers both
+reads; the `platformPreserved` form below is this one after `Agree.weaken`. -/
 theorem decoderDecodeContextOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
     {margs : DecoderMachineArgs} {baseState state : State}
     (machine : DecoderMachinePre instructionPcs margs baseState)
@@ -228,6 +254,15 @@ theorem decoderDecodeContextOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
       machine.normal.2.1,
     bits, (afterIncrement Register.mseccfg (by simp [decoderPreserved, platformPreserved])).trans
       read⟩
+
+theorem decoderDecodeContext {instructionPcs : BitVec 64 → Prop} {margs : DecoderMachineArgs}
+    {baseState state : State} (machine : DecoderMachinePre instructionPcs margs baseState)
+    (agree : Agree platformPreserved baseState state) :
+    (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+        some Privilege.Machine ∧
+      ∃ bits, (tryStepControlFlowAfterIncrement state).regs.get? Register.mseccfg = some bits :=
+  decoderDecodeContextOfDecoderAgree machine
+    (Agree.weaken (fun _ preserved => preserved.2) agree)
 
 /-- A register read survives the `try_step` fetch bookkeeping into the state at which `execute`
 runs. The bookkeeping writes only `minstret_increment` and `nextPC`, so the two disequalities
@@ -291,18 +326,8 @@ abbrev DecodeAfterIncrement (state : State) (word : BitVec 32) (inst : instructi
       Runs (ext_decode word) (tryStepControlFlowAfterIncrement state)
         (tryStepControlFlowAfterIncrement state) inst
 
-/-- Discharge a hypothetical decode obligation from the machine premise. -/
-theorem decoderDecode {instructionPcs : BitVec 64 → Prop} {margs : DecoderMachineArgs}
-    {baseState state : State} {word : BitVec 32} {inst : instruction}
-    (machine : DecoderMachinePre instructionPcs margs baseState)
-    (agree : Agree platformPreserved baseState state)
-    (decode : DecodeAfterIncrement state word inst) :
-    Runs (ext_decode word) (tryStepControlFlowAfterIncrement state)
-      (tryStepControlFlowAfterIncrement state) inst := by
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine agree
-  exact decode privilege mseccfgBits mseccfgRead
-
-/-- `decoderDecode` for a caller that only has the decoder's own agreement. -/
+/-- Discharge a hypothetical decode obligation from the machine premise and the decoder's own
+agreement. -/
 theorem decoderDecodeOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
     {margs : DecoderMachineArgs} {baseState state : State} {word : BitVec 32} {inst : instruction}
     (machine : DecoderMachinePre instructionPcs margs baseState)
@@ -313,10 +338,78 @@ theorem decoderDecodeOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
   obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContextOfDecoderAgree machine agree
   exact decode privilege mseccfgBits mseccfgRead
 
+/-- Discharge a hypothetical decode obligation from the machine premise. -/
+theorem decoderDecode {instructionPcs : BitVec 64 → Prop} {margs : DecoderMachineArgs}
+    {baseState state : State} {word : BitVec 32} {inst : instruction}
+    (machine : DecoderMachinePre instructionPcs margs baseState)
+    (agree : Agree platformPreserved baseState state)
+    (decode : DecodeAfterIncrement state word inst) :
+    Runs (ext_decode word) (tryStepControlFlowAfterIncrement state)
+      (tryStepControlFlowAfterIncrement state) inst :=
+  decoderDecodeOfDecoderAgree machine (Agree.weaken (fun _ preserved => preserved.2) agree) decode
+
 /-- Close a class lemma's `decode` obligation with no help from the call site: introduce the two
 platform reads the obligation is stated under, then run the unchanged `decode_run`. -/
 macro "decoder_decode" : tactic => `(tactic|
   (intro decodePrivilege decodeMseccfgBits decodeMseccfgRead; decode_run))
+
+/-! ### Which agreement a fall-through class lemma needs
+
+Each of the six register-writing classes uses its `agree` in exactly two places: the decode
+(`decoderDecodeOfDecoderAgree`) and the retirement (`decoderRegisterWriteStepOfDecoderAgree`).
+Neither reads `x1`, so each class is stated at the *weaker* `Agree decoderPreserved` — the
+`…OfDecoderAgree` lemma is the real content — and the `Agree platformPreserved` name every existing
+call site cites is a wrapper that weakens with `Agree.weaken (fun _ preserved => preserved.2)` and
+delegates. Both entry points are therefore available everywhere: a block that still holds platform
+agreement keeps its existing call unchanged, and a block whose `x1` an earlier `jalr` clobbered —
+the wrapper epilogue, every `Agree decoderPreserved` site in the tree — can now call the class
+lemma at all, which before it could not. -/
+
+/-- One `ITYPE` (immediate ALU) instruction, retired, from the decoder's own agreement. -/
+theorem decoderITypeStepOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
+    {margs : DecoderMachineArgs}
+    {baseState state : State} {dest : Register} {value : RegisterType dest} {source : BitVec 64}
+    (machine : DecoderMachinePre instructionPcs margs baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesMatchMemory state.mem)
+    (stepNo pcNat : Nat) (b0 b1 b2 b3 : UInt8)
+    (imm : BitVec 12) (rs rd : BitVec 5) (op : iop)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pcNat))
+    (readSource : Runs (rX_bits (.Regidx rs))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      source)
+    (writeDest : Runs (wX_bits (.Regidx rd) (iTypeResult op imm source))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat)
+        with regs :=
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pcNat)).regs.insert dest value } ())
+    (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 pcNat) := by decoder_fetch_pc)
+    (read0 : Artifacts.programImage.readFileByte? pcNat = some b0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pcNat + 1) = some b1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pcNat + 2) = some b2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pcNat + 3) = some b3 := by native_decide)
+    (fits : pcNat < 2 ^ 64 := by decide)
+    (decode : DecodeAfterIncrement state
+        (fetchWord (BitVec.ofNat 8 b0.toNat) (BitVec.ofNat 8 b1.toNat)
+          (BitVec.ofNat 8 b2.toNat) (BitVec.ofNat 8 b3.toNat))
+        (.ITYPE (imm, .Regidx rs, .Regidx rd, op)) := by decoder_decode)
+    (baseEncoding : BaseInstructionEncoding (BitVec.ofNat 8 b0.toNat) := by
+      unfold BaseInstructionEncoding; decide)
+    (notNextPc : dest ≠ nextPC := by decide) (notHart : dest ≠ hart_state := by decide)
+    (notIncrement : dest ≠ minstret_increment := by decide)
+    (notRetired : dest ≠ minstret := by decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
+  decoderRegisterWriteStepOfDecoderAgree machine agree retiredPresent stepNo
+    (BitVec.ofNat 64 pcNat) pcIn atPc
+    _ _ _ _ (.ITYPE (imm, .Regidx rs, .Regidx rd, op)) dest value
+    (fetchFileInstruction state pcNat b0 b1 b2 b3 code read0 read1 read2 read3 fits)
+    baseEncoding (decoderDecodeOfDecoderAgree machine agree decode) notNextPc notHart notIncrement
+    notRetired
+    (execute_ITYPE_run _ _ imm (.Regidx rs) (.Regidx rd) op source readSource writeDest)
 
 /-- One `ITYPE` (immediate ALU) instruction, retired. -/
 theorem decoderITypeStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderMachineArgs}
@@ -355,11 +448,55 @@ theorem decoderITypeStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderM
     (notRetired : dest ≠ minstret := by decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
-  decoderRegisterWriteStep machine agree retiredPresent stepNo (BitVec.ofNat 64 pcNat) pcIn atPc
-    _ _ _ _ (.ITYPE (imm, .Regidx rs, .Regidx rd, op)) dest value
+  decoderITypeStepOfDecoderAgree machine (Agree.weaken (fun _ preserved => preserved.2) agree)
+    retiredPresent code stepNo pcNat b0 b1 b2 b3 imm rs rd op atPc readSource writeDest pcIn
+    read0 read1 read2 read3 fits decode baseEncoding notNextPc notHart notIncrement notRetired
+
+/-- One `SHIFTIOP` (immediate shift) instruction, retired, from the decoder's own agreement. -/
+theorem decoderShiftIopStepOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
+    {margs : DecoderMachineArgs}
+    {baseState state : State} {dest : Register} {value : RegisterType dest} {source : BitVec 64}
+    (machine : DecoderMachinePre instructionPcs margs baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesMatchMemory state.mem)
+    (stepNo pcNat : Nat) (b0 b1 b2 b3 : UInt8)
+    (shamt : BitVec 6) (rs rd : BitVec 5) (op : sop)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pcNat))
+    (readSource : Runs (rX_bits (.Regidx rs))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      source)
+    (writeDest : Runs (wX_bits (.Regidx rd) (shiftIopResult op shamt source))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat)
+        with regs :=
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pcNat)).regs.insert dest value } ())
+    (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 pcNat) := by decoder_fetch_pc)
+    (read0 : Artifacts.programImage.readFileByte? pcNat = some b0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pcNat + 1) = some b1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pcNat + 2) = some b2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pcNat + 3) = some b3 := by native_decide)
+    (fits : pcNat < 2 ^ 64 := by decide)
+    (decode : DecodeAfterIncrement state
+        (fetchWord (BitVec.ofNat 8 b0.toNat) (BitVec.ofNat 8 b1.toNat)
+          (BitVec.ofNat 8 b2.toNat) (BitVec.ofNat 8 b3.toNat))
+        (.SHIFTIOP (shamt, .Regidx rs, .Regidx rd, op)) := by decoder_decode)
+    (baseEncoding : BaseInstructionEncoding (BitVec.ofNat 8 b0.toNat) := by
+      unfold BaseInstructionEncoding; decide)
+    (notNextPc : dest ≠ nextPC := by decide) (notHart : dest ≠ hart_state := by decide)
+    (notIncrement : dest ≠ minstret_increment := by decide)
+    (notRetired : dest ≠ minstret := by decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
+  decoderRegisterWriteStepOfDecoderAgree machine agree retiredPresent stepNo
+    (BitVec.ofNat 64 pcNat) pcIn atPc
+    _ _ _ _ (.SHIFTIOP (shamt, .Regidx rs, .Regidx rd, op)) dest value
     (fetchFileInstruction state pcNat b0 b1 b2 b3 code read0 read1 read2 read3 fits)
-    baseEncoding (decoderDecode machine agree decode) notNextPc notHart notIncrement notRetired
-    (execute_ITYPE_run _ _ imm (.Regidx rs) (.Regidx rd) op source readSource writeDest)
+    baseEncoding (decoderDecodeOfDecoderAgree machine agree decode) notNextPc notHart notIncrement
+    notRetired
+    (execute_SHIFTIOP_run _ _ shamt (.Regidx rs) (.Regidx rd) op source readSource writeDest)
 
 /-- One `SHIFTIOP` (immediate shift) instruction, retired. -/
 theorem decoderShiftIopStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderMachineArgs}
@@ -398,11 +535,61 @@ theorem decoderShiftIopStep {instructionPcs : BitVec 64 → Prop} {margs : Decod
     (notRetired : dest ≠ minstret := by decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
-  decoderRegisterWriteStep machine agree retiredPresent stepNo (BitVec.ofNat 64 pcNat) pcIn atPc
-    _ _ _ _ (.SHIFTIOP (shamt, .Regidx rs, .Regidx rd, op)) dest value
+  decoderShiftIopStepOfDecoderAgree machine (Agree.weaken (fun _ preserved => preserved.2) agree)
+    retiredPresent code stepNo pcNat b0 b1 b2 b3 shamt rs rd op atPc readSource writeDest pcIn
+    read0 read1 read2 read3 fits decode baseEncoding notNextPc notHart notIncrement notRetired
+
+/-- One `RTYPE` (register ALU) instruction, retired, from the decoder's own agreement. -/
+theorem decoderRTypeStepOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
+    {margs : DecoderMachineArgs}
+    {baseState state : State} {dest : Register} {value : RegisterType dest}
+    {source1 source2 : BitVec 64}
+    (machine : DecoderMachinePre instructionPcs margs baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesMatchMemory state.mem)
+    (stepNo pcNat : Nat) (b0 b1 b2 b3 : UInt8)
+    (rs2 rs1 rd : BitVec 5) (op : rop)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pcNat))
+    (readSource1 : Runs (rX_bits (.Regidx rs1))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      source1)
+    (readSource2 : Runs (rX_bits (.Regidx rs2))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      source2)
+    (writeDest : Runs (wX_bits (.Regidx rd) (rTypeResult op source1 source2))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat)
+        with regs :=
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pcNat)).regs.insert dest value } ())
+    (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 pcNat) := by decoder_fetch_pc)
+    (read0 : Artifacts.programImage.readFileByte? pcNat = some b0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pcNat + 1) = some b1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pcNat + 2) = some b2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pcNat + 3) = some b3 := by native_decide)
+    (fits : pcNat < 2 ^ 64 := by decide)
+    (decode : DecodeAfterIncrement state
+        (fetchWord (BitVec.ofNat 8 b0.toNat) (BitVec.ofNat 8 b1.toNat)
+          (BitVec.ofNat 8 b2.toNat) (BitVec.ofNat 8 b3.toNat))
+        (.RTYPE (.Regidx rs2, .Regidx rs1, .Regidx rd, op)) := by decoder_decode)
+    (baseEncoding : BaseInstructionEncoding (BitVec.ofNat 8 b0.toNat) := by
+      unfold BaseInstructionEncoding; decide)
+    (notNextPc : dest ≠ nextPC := by decide) (notHart : dest ≠ hart_state := by decide)
+    (notIncrement : dest ≠ minstret_increment := by decide)
+    (notRetired : dest ≠ minstret := by decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
+  decoderRegisterWriteStepOfDecoderAgree machine agree retiredPresent stepNo
+    (BitVec.ofNat 64 pcNat) pcIn atPc
+    _ _ _ _ (.RTYPE (.Regidx rs2, .Regidx rs1, .Regidx rd, op)) dest value
     (fetchFileInstruction state pcNat b0 b1 b2 b3 code read0 read1 read2 read3 fits)
-    baseEncoding (decoderDecode machine agree decode) notNextPc notHart notIncrement notRetired
-    (execute_SHIFTIOP_run _ _ shamt (.Regidx rs) (.Regidx rd) op source readSource writeDest)
+    baseEncoding (decoderDecodeOfDecoderAgree machine agree decode) notNextPc notHart notIncrement
+    notRetired
+    (execute_RTYPE_run _ _ (.Regidx rs2) (.Regidx rs1) (.Regidx rd) op source1 source2
+      readSource1 readSource2 writeDest)
 
 /-- One `RTYPE` (register ALU) instruction, retired. -/
 theorem decoderRTypeStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderMachineArgs}
@@ -446,12 +633,55 @@ theorem decoderRTypeStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderM
     (notRetired : dest ≠ minstret := by decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
-  decoderRegisterWriteStep machine agree retiredPresent stepNo (BitVec.ofNat 64 pcNat) pcIn atPc
-    _ _ _ _ (.RTYPE (.Regidx rs2, .Regidx rs1, .Regidx rd, op)) dest value
+  decoderRTypeStepOfDecoderAgree machine (Agree.weaken (fun _ preserved => preserved.2) agree)
+    retiredPresent code stepNo pcNat b0 b1 b2 b3 rs2 rs1 rd op atPc readSource1 readSource2
+    writeDest pcIn read0 read1 read2 read3 fits decode baseEncoding notNextPc notHart notIncrement
+    notRetired
+
+/-- One `AUIPC` instruction, retired, from the decoder's own agreement. Its source is the
+architectural `PC`, so the read premise is discharged from the caller's `atPc` rather than from a
+general-purpose register. -/
+theorem decoderAuipcStepOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
+    {margs : DecoderMachineArgs}
+    {baseState state : State} {dest : Register} {value : RegisterType dest}
+    (machine : DecoderMachinePre instructionPcs margs baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesMatchMemory state.mem)
+    (stepNo pcNat : Nat) (b0 b1 b2 b3 : UInt8) (imm : BitVec 20) (rd : BitVec 5)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pcNat))
+    (writeDest : Runs (wX_bits (.Regidx rd)
+        (BitVec.ofNat 64 pcNat + sign_extend (m := 64) (imm ++ 0x000#12)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat)
+        with regs :=
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pcNat)).regs.insert dest value } ())
+    (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 pcNat) := by decoder_fetch_pc)
+    (read0 : Artifacts.programImage.readFileByte? pcNat = some b0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pcNat + 1) = some b1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pcNat + 2) = some b2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pcNat + 3) = some b3 := by native_decide)
+    (fits : pcNat < 2 ^ 64 := by decide)
+    (decode : DecodeAfterIncrement state
+        (fetchWord (BitVec.ofNat 8 b0.toNat) (BitVec.ofNat 8 b1.toNat)
+          (BitVec.ofNat 8 b2.toNat) (BitVec.ofNat 8 b3.toNat))
+        (.UTYPE (imm, .Regidx rd, .AUIPC)) := by decoder_decode)
+    (baseEncoding : BaseInstructionEncoding (BitVec.ofNat 8 b0.toNat) := by
+      unfold BaseInstructionEncoding; decide)
+    (notNextPc : dest ≠ nextPC := by decide) (notHart : dest ≠ hart_state := by decide)
+    (notIncrement : dest ≠ minstret_increment := by decide)
+    (notRetired : dest ≠ minstret := by decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
+  decoderRegisterWriteStepOfDecoderAgree machine agree retiredPresent stepNo
+    (BitVec.ofNat 64 pcNat) pcIn atPc
+    _ _ _ _ (.UTYPE (imm, .Regidx rd, .AUIPC)) dest value
     (fetchFileInstruction state pcNat b0 b1 b2 b3 code read0 read1 read2 read3 fits)
-    baseEncoding (decoderDecode machine agree decode) notNextPc notHart notIncrement notRetired
-    (execute_RTYPE_run _ _ (.Regidx rs2) (.Regidx rs1) (.Regidx rd) op source1 source2
-      readSource1 readSource2 writeDest)
+    baseEncoding (decoderDecodeOfDecoderAgree machine agree decode) notNextPc notHart notIncrement
+    notRetired
+    (execute_UTYPE_auipc_run _ _ imm (.Regidx rd) (BitVec.ofNat 64 pcNat)
+      (readReg_run _ _ _ (decoderExecuteState_get? atPc)) writeDest)
 
 /-- One `AUIPC` instruction, retired. Its source is the architectural `PC`, so the read premise is
 discharged from the caller's `atPc` rather than from a general-purpose register. -/
@@ -487,12 +717,50 @@ theorem decoderAuipcStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderM
     (notRetired : dest ≠ minstret := by decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
-  decoderRegisterWriteStep machine agree retiredPresent stepNo (BitVec.ofNat 64 pcNat) pcIn atPc
-    _ _ _ _ (.UTYPE (imm, .Regidx rd, .AUIPC)) dest value
+  decoderAuipcStepOfDecoderAgree machine (Agree.weaken (fun _ preserved => preserved.2) agree)
+    retiredPresent code stepNo pcNat b0 b1 b2 b3 imm rd atPc writeDest pcIn read0 read1 read2 read3
+    fits decode baseEncoding notNextPc notHart notIncrement notRetired
+
+/-- One `LUI` instruction, retired, from the decoder's own agreement. It reads nothing. -/
+theorem decoderLuiStepOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
+    {margs : DecoderMachineArgs}
+    {baseState state : State} {dest : Register} {value : RegisterType dest}
+    (machine : DecoderMachinePre instructionPcs margs baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesMatchMemory state.mem)
+    (stepNo pcNat : Nat) (b0 b1 b2 b3 : UInt8) (imm : BitVec 20) (rd : BitVec 5)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pcNat))
+    (writeDest : Runs (wX_bits (.Regidx rd) (sign_extend (m := 64) (imm ++ 0x000#12)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat)
+        with regs :=
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pcNat)).regs.insert dest value } ())
+    (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 pcNat) := by decoder_fetch_pc)
+    (read0 : Artifacts.programImage.readFileByte? pcNat = some b0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pcNat + 1) = some b1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pcNat + 2) = some b2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pcNat + 3) = some b3 := by native_decide)
+    (fits : pcNat < 2 ^ 64 := by decide)
+    (decode : DecodeAfterIncrement state
+        (fetchWord (BitVec.ofNat 8 b0.toNat) (BitVec.ofNat 8 b1.toNat)
+          (BitVec.ofNat 8 b2.toNat) (BitVec.ofNat 8 b3.toNat))
+        (.UTYPE (imm, .Regidx rd, .LUI)) := by decoder_decode)
+    (baseEncoding : BaseInstructionEncoding (BitVec.ofNat 8 b0.toNat) := by
+      unfold BaseInstructionEncoding; decide)
+    (notNextPc : dest ≠ nextPC := by decide) (notHart : dest ≠ hart_state := by decide)
+    (notIncrement : dest ≠ minstret_increment := by decide)
+    (notRetired : dest ≠ minstret := by decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
+  decoderRegisterWriteStepOfDecoderAgree machine agree retiredPresent stepNo
+    (BitVec.ofNat 64 pcNat) pcIn atPc
+    _ _ _ _ (.UTYPE (imm, .Regidx rd, .LUI)) dest value
     (fetchFileInstruction state pcNat b0 b1 b2 b3 code read0 read1 read2 read3 fits)
-    baseEncoding (decoderDecode machine agree decode) notNextPc notHart notIncrement notRetired
-    (execute_UTYPE_auipc_run _ _ imm (.Regidx rd) (BitVec.ofNat 64 pcNat)
-      (readReg_run _ _ _ (decoderExecuteState_get? atPc)) writeDest)
+    baseEncoding (decoderDecodeOfDecoderAgree machine agree decode) notNextPc notHart notIncrement
+    notRetired
+    (execute_UTYPE_lui_run _ _ imm (.Regidx rd) writeDest)
 
 /-- One `LUI` instruction, retired. It reads nothing. -/
 theorem decoderLuiStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderMachineArgs}
@@ -526,11 +794,9 @@ theorem decoderLuiStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderMac
     (notRetired : dest ≠ minstret := by decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
-  decoderRegisterWriteStep machine agree retiredPresent stepNo (BitVec.ofNat 64 pcNat) pcIn atPc
-    _ _ _ _ (.UTYPE (imm, .Regidx rd, .LUI)) dest value
-    (fetchFileInstruction state pcNat b0 b1 b2 b3 code read0 read1 read2 read3 fits)
-    baseEncoding (decoderDecode machine agree decode) notNextPc notHart notIncrement notRetired
-    (execute_UTYPE_lui_run _ _ imm (.Regidx rd) writeDest)
+  decoderLuiStepOfDecoderAgree machine (Agree.weaken (fun _ preserved => preserved.2) agree)
+    retiredPresent code stepNo pcNat b0 b1 b2 b3 imm rd atPc writeDest pcIn read0 read1 read2 read3
+    fits decode baseEncoding notNextPc notHart notIncrement notRetired
 
 /-- One `LOAD` of any width and signedness, retired. Only the address and data reasoning is left to
 the caller; the fetch, decode and retirement are the same as for the ALU classes.
@@ -539,6 +805,55 @@ the caller; the fetch, decode and retirement are the same as for the ALU classes
 `execute_LOAD_run` is already width-polymorphic: the only width-dependent obligation is
 `widthFits`, which `decide`s. So unlike the stores below this class needs no generated family, and
 `decoderLhuStep` is the `true`/`2` instance rather than a sibling lemma. -/
+theorem decoderLoadStepOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
+    {margs : DecoderMachineArgs}
+    {baseState state : State} {dest : Register} {value : RegisterType dest}
+    (machine : DecoderMachinePre instructionPcs margs baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesMatchMemory state.mem)
+    (stepNo pcNat : Nat) (b0 b1 b2 b3 : UInt8) (imm : BitVec 12) (rs rd : BitVec 5)
+    (isUnsigned : Bool) (width : Nat) (data : BitVec (8 * width))
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pcNat))
+    (readMemory : Runs (vmem_read (.Regidx rs) (sign_extend (m := 64) imm) width
+        (MemoryAccessType.Load mem_payload.Data) false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      (.Ok data))
+    (writeDest : Runs (wX_bits (.Regidx rd) (extend_value isUnsigned data))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat)
+        with regs :=
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pcNat)).regs.insert dest value } ())
+    (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 pcNat) := by decoder_fetch_pc)
+    (read0 : Artifacts.programImage.readFileByte? pcNat = some b0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pcNat + 1) = some b1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pcNat + 2) = some b2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pcNat + 3) = some b3 := by native_decide)
+    (fits : pcNat < 2 ^ 64 := by decide)
+    (decode : DecodeAfterIncrement state
+        (fetchWord (BitVec.ofNat 8 b0.toNat) (BitVec.ofNat 8 b1.toNat)
+          (BitVec.ofNat 8 b2.toNat) (BitVec.ofNat 8 b3.toNat))
+        (.LOAD (imm, .Regidx rs, .Regidx rd, isUnsigned, width)) := by decoder_decode)
+    (baseEncoding : BaseInstructionEncoding (BitVec.ofNat 8 b0.toNat) := by
+      unfold BaseInstructionEncoding; decide)
+    (widthFits : (width ≤b LeanRV64DExecutable.Functions.xlen_bytes) = true := by decide)
+    (notNextPc : dest ≠ nextPC := by decide) (notHart : dest ≠ hart_state := by decide)
+    (notIncrement : dest ≠ minstret_increment := by decide)
+    (notRetired : dest ≠ minstret := by decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
+  decoderRegisterWriteStepOfDecoderAgree machine agree retiredPresent stepNo
+    (BitVec.ofNat 64 pcNat) pcIn atPc
+    _ _ _ _ (.LOAD (imm, .Regidx rs, .Regidx rd, isUnsigned, width)) dest value
+    (fetchFileInstruction state pcNat b0 b1 b2 b3 code read0 read1 read2 read3 fits)
+    baseEncoding (decoderDecodeOfDecoderAgree machine agree decode) notNextPc notHart notIncrement
+    notRetired
+    (execute_LOAD_run _ _ imm (.Regidx rs) (.Regidx rd) isUnsigned width data widthFits
+      readMemory writeDest)
+
+/-- One `LOAD` of any width and signedness, retired. See `decoderLoadStepOfDecoderAgree`. -/
 theorem decoderLoadStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderMachineArgs}
     {baseState state : State} {dest : Register} {value : RegisterType dest}
     (machine : DecoderMachinePre instructionPcs margs baseState)
@@ -577,12 +892,53 @@ theorem decoderLoadStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderMa
     (notRetired : dest ≠ minstret := by decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
-  decoderRegisterWriteStep machine agree retiredPresent stepNo (BitVec.ofNat 64 pcNat) pcIn atPc
-    _ _ _ _ (.LOAD (imm, .Regidx rs, .Regidx rd, isUnsigned, width)) dest value
-    (fetchFileInstruction state pcNat b0 b1 b2 b3 code read0 read1 read2 read3 fits)
-    baseEncoding (decoderDecode machine agree decode) notNextPc notHart notIncrement notRetired
-    (execute_LOAD_run _ _ imm (.Regidx rs) (.Regidx rd) isUnsigned width data widthFits
-      readMemory writeDest)
+  decoderLoadStepOfDecoderAgree machine (Agree.weaken (fun _ preserved => preserved.2) agree)
+    retiredPresent code stepNo pcNat b0 b1 b2 b3 imm rs rd isUnsigned width data atPc readMemory
+    writeDest pcIn read0 read1 read2 read3 fits decode baseEncoding widthFits notNextPc notHart
+    notIncrement notRetired
+
+/-- One `lhu` (unsigned halfword load), retired, from the decoder's own agreement:
+`decoderLoadStepOfDecoderAgree` at `isUnsigned = true`, `width = 2`. -/
+theorem decoderLhuStepOfDecoderAgree {instructionPcs : BitVec 64 → Prop}
+    {margs : DecoderMachineArgs}
+    {baseState state : State} {dest : Register} {value : RegisterType dest} {data : BitVec 16}
+    (machine : DecoderMachinePre instructionPcs margs baseState)
+    (agree : Agree decoderPreserved baseState state)
+    (retiredPresent : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesMatchMemory state.mem)
+    (stepNo pcNat : Nat) (b0 b1 b2 b3 : UInt8) (imm : BitVec 12) (rs rd : BitVec 5)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pcNat))
+    (readMemory : Runs (vmem_read (.Regidx rs) (sign_extend (m := 64) imm) 2
+        (MemoryAccessType.Load mem_payload.Data) false false false)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      (.Ok data))
+    (writeDest : Runs (wX_bits (.Regidx rd) (extend_value true data))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat)
+        with regs :=
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pcNat)).regs.insert dest value } ())
+    (pcIn : DecoderFetchPc instructionPcs (BitVec.ofNat 64 pcNat) := by decoder_fetch_pc)
+    (read0 : Artifacts.programImage.readFileByte? pcNat = some b0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pcNat + 1) = some b1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pcNat + 2) = some b2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pcNat + 3) = some b3 := by native_decide)
+    (fits : pcNat < 2 ^ 64 := by decide)
+    (decode : DecodeAfterIncrement state
+        (fetchWord (BitVec.ofNat 8 b0.toNat) (BitVec.ofNat 8 b1.toNat)
+          (BitVec.ofNat 8 b2.toNat) (BitVec.ofNat 8 b3.toNat))
+        (.LOAD (imm, .Regidx rs, .Regidx rd, true, 2)) := by decoder_decode)
+    (baseEncoding : BaseInstructionEncoding (BitVec.ofNat 8 b0.toNat) := by
+      unfold BaseInstructionEncoding; decide)
+    (notNextPc : dest ≠ nextPC := by decide) (notHart : dest ≠ hart_state := by decide)
+    (notIncrement : dest ≠ minstret_increment := by decide)
+    (notRetired : dest ≠ minstret := by decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
+  decoderLoadStepOfDecoderAgree machine agree retiredPresent code stepNo pcNat b0 b1 b2 b3 imm rs rd
+    true 2 data atPc readMemory writeDest pcIn read0 read1 read2 read3 fits decode baseEncoding
+    (by decide) notNextPc notHart notIncrement notRetired
 
 /-- One `lhu` (unsigned halfword load), retired: `decoderLoadStep` at `isUnsigned = true`,
 `width = 2`. Kept as its own name because sixteen sites already cite it. -/
@@ -622,9 +978,9 @@ theorem decoderLhuStep {instructionPcs : BitVec 64 → Prop} {margs : DecoderMac
     (notRetired : dest ≠ minstret := by decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired dest value) false :=
-  decoderLoadStep machine agree retiredPresent code stepNo pcNat b0 b1 b2 b3 imm rs rd true 2 data
-    atPc readMemory writeDest pcIn read0 read1 read2 read3 fits decode baseEncoding (by decide)
-    notNextPc notHart notIncrement notRetired
+  decoderLhuStepOfDecoderAgree machine (Agree.weaken (fun _ preserved => preserved.2) agree)
+    retiredPresent code stepNo pcNat b0 b1 b2 b3 imm rs rd atPc readMemory writeDest pcIn read0
+    read1 read2 read3 fits decode baseEncoding notNextPc notHart notIncrement notRetired
 
 /-! ## Stores
 
