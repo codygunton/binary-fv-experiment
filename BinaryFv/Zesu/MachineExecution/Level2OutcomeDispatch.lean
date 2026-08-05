@@ -1,4 +1,5 @@
-import BinaryFv.Zesu.MachineExecution.Level2SecondEntryProof
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
+import BinaryFv.Zesu.MachineExecution.Level2TerminalRouteFrame
 import BinaryFv.Zesu.MachineExecution.Level2RetryExitSteps
 
 /-!
@@ -87,19 +88,6 @@ structure WrapperDispatchRouteFrame (base before after : State) (fromStep steps 
   retired : RetiredCounterPresent after
   savedS2 : after.regs.get? x18 = before.regs.get? x18
   savedStack : after.regs.get? x2 = before.regs.get? x2
-
-/-- Facts shared by every wrapper route arriving at the status store.  Memory framing and live
-register values remain separate because the tag-zero route performs a real payload-adjacent store,
-while rejection routes leave memory unchanged. -/
-structure WrapperTerminalRouteFrame (base before after : State) (fromStep steps : Nat)
-    (terminalPc result status : BitVec 64) : Prop where
-  trace : Trace fromStep steps before after
-  atTerminal : after.regs.get? PC = some terminalPc
-  resultValue : after.regs.get? x10 = some result
-  statusValue : after.regs.get? x11 = some status
-  platform : Agree platformPreserved base after
-  code : canonicalContractParams.env.CodeIntact after
-  retired : RetiredCounterPresent after
 
 /-- A result-tag route whose flat Sail trace and Level 2 ownership have the same endpoint. -/
 structure WrapperOwnedTerminalRouteFrame (base before after : State) (fromStep steps : Nat)

@@ -1,6 +1,6 @@
 import BinaryFv.Zesu.MachineExecution.GeneratedWordStep
 import BinaryFv.Zesu.MachineExecution.Seg
-import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryFinish
+import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryPrefix
 import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-!
