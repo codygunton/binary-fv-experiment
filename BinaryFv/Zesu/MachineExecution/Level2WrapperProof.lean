@@ -235,10 +235,7 @@ theorem wrapper_allocator_tag_step_configured {instructionPcs : BitVec 64 → Pr
     (rX_bits_run_x10 _ data (decoderExecuteState_get? dataValue))
     (by simp [show sign_extend (m := 64) (0#12) = (0#64) from by decide]) allowed
   exact ⟨retired, by
-    simpa [wrapperAfterAllocatorTag, afterMemoryWrite, afterWriteBytes, afterByteWrites,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      show Sail.BitVec.addInt (BitVec.ofNat 64 0x102f4) 4 = BitVec.ofNat 64 0x102f8 from by decide]
-      using run⟩
+    grind⟩
 
 /-- The write set of an emitted stack store: exactly the `try_step` bookkeeping, by
 `storeRetirement_writes`. The five observations below are all readings of this one fact -- at one
@@ -298,9 +295,8 @@ theorem wrapperAfterDwordStore_code (state : State) (pc retired target data : Bi
   have written := fileBytesMatchMemory_afterWriteBytes canonicalContractParams.env.image
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
     target.toNat data notFile
-    (by simpa [coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code)
-  simpa [wrapperAfterDwordStore, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
-    using written
+    (by grind)
+  grind
 
 /-- Instantiate the shared store theorem at an aligned offset in the declared wrapper stack frame. -/
 theorem wrapper_stack_store_step (args : ZesuDecodeRawArgs) (stackBase : Nat)
@@ -683,7 +679,7 @@ theorem wrapper_save_link_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     exact afterRegisterWrite_retired_present entry (BitVec.ofNat 64 0x102b0) frameRetired x2
       (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))
   have code : canonicalContractParams.env.CodeIntact state := by
-    simpa [state, wrapperAfterFirstFrameDecrement, afterRegisterWrite_mem] using source.2.1
+    grind
   have fetch := wrapper_save_link_fetch state code
   have decode : Runs (ext_decode (fetchWord 0x23#8 0x34#8 0x11#8 0x7e#8))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
@@ -824,7 +820,7 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
       linkRetired (BitVec.ofNat 64 (stackBase + 0xa18)) link
   have linkCode : canonicalContractParams.env.CodeIntact afterLink := by
     apply wrapperAfterStackStore_code args stackBase 0xa18 entry frame machine (by decide)
-    simpa [frame, wrapperAfterFirstFrameDecrement, afterRegisterWrite_mem] using source.2.1
+    grind
   have linkRetiredPresent := wrapperAfterDwordStore_retired frame
     (BitVec.ofNat 64 0x102b4) linkRetired (BitVec.ofNat 64 (stackBase + 0xa18)) link
   obtain ⟨s0, savedS0⟩ := machine.savedS0AtEntry
@@ -937,7 +933,7 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have finalSavedFrame : WrapperSavedRegisterFrame stackBase link s0 s1 s2 final :=
     ⟨linkFinal, s0Final, s1Final, s2Bytes⟩
   have frameAttempted : frame.mem.get? 0x4215020 = entry.mem.get? 0x4215020 := by
-    simpa [frame, wrapperAfterFirstFrameDecrement, afterRegisterWrite_mem]
+    grind
   have linkAttempted : afterLink.mem.get? 0x4215020 = frame.mem.get? 0x4215020 :=
     wrapperAfterStackStore_attempted args stackBase 0xa18 entry frame machine (by decide) _ _ _
   have s0Attempted : afterS0.mem.get? 0x4215020 = afterLink.mem.get? 0x4215020 :=
@@ -949,7 +945,7 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have finalAttempted := finalAttemptedStep.trans
     (s1Attempted.trans (s0Attempted.trans (linkAttempted.trans frameAttempted)))
   have frameInput : MemoryRepresentation.MemoryBytes frame args.inputBase args.bytes := by
-    simpa [frame, wrapperAfterFirstFrameDecrement, afterRegisterWrite_mem] using source.1
+    grind
   have linkInput := wrapperAfterDwordStore_inputMemory args stackBase machine frame
     (BitVec.ofNat 64 0x102b4) linkRetired (BitVec.ofNat 64 (stackBase + 0xa18)) link
     (stackBase + 0xa18) (offsetToNat 0xa18 (by omega))
@@ -1083,13 +1079,13 @@ theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     ((afterRegisterWrite_writes saved (BitVec.ofNat 64 0x102c4) retired x2
       (BitVec.ofNat 64 stackBase)).get x11 (by decide)).trans savedLength
   have finalAttempted : final.mem.get? 0x4215020 = entry.mem.get? 0x4215020 := by
-    simpa [final, afterRegisterWrite_mem] using savedAttempted
+    grind
   have finalInputMemory : MemoryRepresentation.MemoryBytes final args.inputBase args.bytes := by
-    simpa [final, afterRegisterWrite_mem] using savedInputMemory
+    grind
   have finalAgree : Agree platformPreserved entry final :=
     savedAgree.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   have finalCode : canonicalContractParams.env.CodeIntact final := by
-    simpa [final, afterRegisterWrite_mem] using savedCode
+    grind
   have finalRetired := afterRegisterWrite_retired_present saved (BitVec.ofNat 64 0x102c4)
     retired x2 (BitVec.ofNat 64 stackBase)
   obtain ⟨link, s0, s1, s2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, savedFrame⟩ := savedFrame
@@ -1399,7 +1395,7 @@ theorem wrapper_fresh_branch_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     (by decide) (by decide) zca hartRead inhibitRead configRead notInhibited machineEnabled
     retiredRead
   refine ⟨retired, ?_, ?_⟩
-  · simpa [wrapperAfterFreshBranch, targetEq] using run
+  · grind
   · exact Elfling.tryStepControlFlowAfterRetired_pc _ _ _
 
 /-- Eleven wrapper-owned Sail steps reach the selected allocator setup on the fresh-call path. -/
@@ -1442,7 +1438,7 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   have retired7 := afterRegisterWrite_retired_present s6 (BitVec.ofNat 64 0x102c8) r7 x9
     (BitVec.ofNat 64 args.bytes.size)
   have code7 : canonicalContractParams.env.CodeIntact s7 := by
-    simpa [s7, afterRegisterWrite_mem] using code6
+    grind
   obtain ⟨r8, run8⟩ := wrapper_globals_page_step (fromStep + 7) args stackBase entry s7
     machine agree7 retired7 code7 pc7
   let s8 := afterRegisterWrite s7 (BitVec.ofNat 64 0x102cc) r8 x11
@@ -1457,7 +1453,7 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   have retired8 := afterRegisterWrite_retired_present s7 (BitVec.ofNat 64 0x102cc) r8 x11
     (BitVec.ofNat 64 0x42152cc)
   have code8 : canonicalContractParams.env.CodeIntact s8 := by
-    simpa [s8, afterRegisterWrite_mem] using code7
+    grind
   obtain ⟨r9, run9⟩ := wrapper_globals_address_step (fromStep + 8) args stackBase entry s8
     machine agree8 retired8 code8 pc8 page8
   let s9 := afterRegisterWrite s8 (BitVec.ofNat 64 0x102d0) r9 x18
@@ -1472,14 +1468,14 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   have retired9 := afterRegisterWrite_retired_present s8 (BitVec.ofNat 64 0x102d0) r9 x18
     (BitVec.ofNat 64 0x4215020)
   have code9 : canonicalContractParams.env.CodeIntact s9 := by
-    simpa [s9, afterRegisterWrite_mem] using code8
+    grind
   have entryFresh : entry.mem.get? 0x4215020 = some (0#8) := by
     have represented := source.2.2.2.2.1.1
     have address : canonicalContractParams.globals.attempted = 0x4215020 := by native_decide
     rw [← address]
     simpa [FlagRep, DecoderGlobalsModel.fresh] using represented
   have fresh9 : s9.mem.get? 0x4215020 = some (0#8) := by
-    simpa [s9, s8, s7, afterRegisterWrite_mem] using attempted6.trans entryFresh
+    grind
   obtain ⟨r10, run10⟩ := wrapper_attempted_load_step (fromStep + 9) args stackBase entry s9
     machine agree9 retired9 code9 pc9 globals9 fresh9
   let s10 := afterRegisterWrite s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64)
@@ -1492,7 +1488,7 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   have retired10 := afterRegisterWrite_retired_present s9 (BitVec.ofNat 64 0x102d4) r10 x11
     (0#64)
   have code10 : canonicalContractParams.env.CodeIntact s10 := by
-    simpa [s10, afterRegisterWrite_mem] using code9
+    grind
   obtain ⟨r11, run11, pc11⟩ := wrapper_fresh_branch_step (fromStep + 10) args stackBase
     entry s10 machine agree10 retired10 code10 pc10 fresh10
   let final := wrapperAfterFreshBranch s10 r11
@@ -1519,8 +1515,7 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     change s9.mem.get? 0x4215020 = some (0#8)
     exact fresh9
   have finalInputMemory : MemoryRepresentation.MemoryBytes final args.inputBase args.bytes := by
-    simpa [final, s10, s9, s8, s7, wrapperAfterFreshBranch, wrapperAfterFreshBranch,
-      afterRegisterWrite_mem] using inputMemory6
+    grind
   have finalAgree := agree10.trans (wrapperAfterFreshBranch_platformAgree s10 r11)
   have finalRetired := wrapperAfterFreshBranch_retired s10 r11
   have finalCode : canonicalContractParams.env.CodeIntact final := by
@@ -1647,7 +1642,7 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
   have retired12 := afterRegisterWrite_retired_present s11 (BitVec.ofNat 64 0x102e8) r12 x8
     (BitVec.ofNat 64 args.inputBase)
   have code12 : canonicalContractParams.env.CodeIntact s12 := by
-    simpa [s12, afterRegisterWrite_mem] using code11
+    grind
   obtain ⟨r13, run13⟩ := wrapper_attempted_value_step (fromStep + 12) args stackBase entry s12
     machine agree12 retired12 code12 pc12
   let final := afterRegisterWrite s12 (BitVec.ofNat 64 0x102ec) r13 x10 (1#64)
@@ -1667,15 +1662,15 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
   have finalValue : final.regs.get? x10 = some (1#64) :=
     afterRegisterWrite_destination s12 (BitVec.ofNat 64 0x102ec) r13 x10 (1#64) (by decide) (by decide)
   have finalFresh : final.mem.get? 0x4215020 = some (0#8) := by
-    simpa [final, s12, afterRegisterWrite_mem] using fresh11
+    grind
   have finalInputMemory : MemoryRepresentation.MemoryBytes final args.inputBase args.bytes := by
-    simpa [final, s12, afterRegisterWrite_mem] using inputMemory11
+    grind
   have finalAgree : Agree platformPreserved entry final :=
     agree12.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   have finalRetired := afterRegisterWrite_retired_present s12 (BitVec.ofNat 64 0x102ec) r13 x10
     (1#64)
   have finalCode : canonicalContractParams.env.CodeIntact final := by
-    simpa [final, afterRegisterWrite_mem] using code12
+    grind
   obtain ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry,
     frame11⟩ := frame11
   have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
@@ -1780,9 +1775,7 @@ theorem wrapper_through_allocator_tag
     exact allocator_data_pointer_step_of_inlineTransfer (fromStep + 13) atAllocator afterFirst
       firstTransfer
   have firstPc : afterFirst.regs.get? PC = some (BitVec.ofNat 64 0x102f4) := by
-    simpa [afterFirst, allocatorAfterDataPointer] using
-      afterRegisterWrite_pc atAllocator (BitVec.ofNat 64 0x102f0) r14 x11
-        (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1)
+    grind
   have firstAgreePlatform : Agree platformPreserved atAllocator afterFirst := by
     exact afterRegisterWrite_agree (by simp [platformPreserved])
   have firstAgree : Agree decoderPreserved entry afterFirst :=
@@ -1792,7 +1785,7 @@ theorem wrapper_through_allocator_tag
     exact afterRegisterWrite_retired_present atAllocator (BitVec.ofNat 64 0x102f0) r14 x11
       (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1)
   have firstCode : canonicalContractParams.env.CodeIntact afterFirst := by
-    simpa [afterFirst, allocatorAfterDataPointer, afterRegisterWrite_mem] using code13
+    grind
   -- The data-pointer step writes `x11` and the bookkeeping, and nothing else; every register the
   -- allocator entry carries forward is one `grind` against that.
   have wFirst : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x11)) atAllocator
@@ -1835,7 +1828,7 @@ theorem wrapper_through_allocator_tag
       final.regs.get? x11 = some (BitVec.ofNat 64 0x4215021) ∧
       final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by grind
   have firstInputMemory : MemoryRepresentation.MemoryBytes afterFirst args.inputBase args.bytes := by
-    simpa [afterFirst, allocatorAfterDataPointer, afterRegisterWrite_mem] using inputMemory13
+    grind
   have finalInputMemory : MemoryRepresentation.MemoryBytes final args.inputBase args.bytes := by
     apply firstInputMemory.of_mem_eq
     intro inputIndex inputBound
@@ -1952,7 +1945,7 @@ private theorem wrapper_second_allocator_inputMemory
   have pageInput : MemoryRepresentation.MemoryBytes afterPage args.inputBase args.bytes := by
     grind
   have addressInput : MemoryRepresentation.MemoryBytes afterAddress args.inputBase args.bytes := by
-    simpa [afterAddress, allocatorAfterFunctionAddress, afterRegisterWrite_mem] using pageInput
+    grind
   have contextInput : MemoryRepresentation.MemoryBytes afterContext args.inputBase args.bytes := by
     apply addressInput.of_mem_eq
     intro inputIndex inputBound
@@ -1965,13 +1958,7 @@ private theorem wrapper_second_allocator_inputMemory
         (BitVec.ofNat 64 0x10300))
       (stackBase + 0x10) (BitVec.ofNat 64 0x4215021)
       (args.inputBase + inputIndex) outside
-    simpa [afterContext, allocatorAfterContextStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      show (BitVec.ofNat 64 stackBase + sign_extend (0x010#12)).toNat = stackBase + 0x10 by
-        rw [show sign_extend (m := 64) (0x010#12) = BitVec.ofNat 64 0x10 by decide,
-          ← BitVec.ofNat_add, BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
-        have frameFits := machine.stackFrameFits
-        omega] using preserved
+    grind
   apply contextInput.of_mem_eq
   intro inputIndex inputBound
   have outside : ∀ storeIndex : Fin 8,
@@ -1983,14 +1970,7 @@ private theorem wrapper_second_allocator_inputMemory
       (BitVec.ofNat 64 0x10304))
     (stackBase + 0x18) (BitVec.ofNat 64 0x13f70)
     (args.inputBase + inputIndex) outside
-  simpa [final, afterContext, afterAddress, afterPage, allocatorAfterFunctionStore,
-    tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-    tryStepControlFlowAfterIncrement,
-    show (BitVec.ofNat 64 stackBase + sign_extend (0x018#12)).toNat = stackBase + 0x18 by
-      rw [show sign_extend (m := 64) (0x018#12) = BitVec.ofNat 64 0x18 by decide,
-        ← BitVec.ofNat_add, BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
-      have frameFits := machine.stackFrameFits
-      omega] using preserved
+  grind
 
 private theorem wrapper_second_allocator_contextCode
     (stackBase : Nat) (atSecond : State) (pageRetired addressRetired contextRetired : BitVec 64)
@@ -2006,8 +1986,7 @@ private theorem wrapper_second_allocator_contextCode
   let afterAddress := allocatorAfterFunctionAddress afterPage addressRetired
   exact allocatorAfterContextStore_code afterAddress contextRetired
     (BitVec.ofNat 64 stackBase) (BitVec.ofNat 64 0x4215021) contextNotFile
-    (by simpa [afterAddress, afterPage, allocatorAfterFunctionAddress,
-      allocatorAfterFunctionPage, afterRegisterWrite_mem] using code)
+    (by grind)
 
 private theorem wrapper_second_allocator_code
     (args : ZesuDecodeRawArgs) (stackBase : Nat) (entry atSecond : State)
@@ -2451,7 +2430,7 @@ theorem wrapper_decode_first_error_branch_step (stepNo : Nat) (args : DecodeInli
     (by decide) (by decide) zca hartRead inhibitRead configRead notInhibited machineEnabled
     retiredRead
   refine ⟨retired, ?_, ?_⟩
-  · simpa [wrapperAfterDecodeFirstErrorBranch, targetEq] using run
+  · grind
   · exact Elfling.tryStepControlFlowAfterRetired_pc _ _ _
 
 /-- Package a failed first `decode` segment with its real checked outgoing edge. -/
@@ -2530,9 +2509,7 @@ theorem wrapperAfterDecodeFirstErrorBranch_retired (state : State) (retired : Bi
 theorem wrapperAfterDecodeFirstErrorBranch_code (state : State) (retired : BitVec 64)
     (code : canonicalContractParams.env.CodeIntact state) :
     canonicalContractParams.env.CodeIntact (wrapperAfterDecodeFirstErrorBranch state retired) := by
-  simpa [wrapperAfterDecodeFirstErrorBranch, tryStepControlFlowAfterRetired,
-    tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-    tryStepControlFlowAfterIncrement] using code
+  grind
 
 /-- Execute the wrapper-owned `li a1, 2` between the two selected `decode` segments. -/
 theorem wrapper_retry_reason_step {machineArgs : DecoderMachineArgs} {base state : State}

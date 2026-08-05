@@ -993,3 +993,36 @@ the ceiling from measurement — per file, at what it actually needs once the si
 **Why the ceiling beats a lint.** A lint enumerates known-bad patterns and misses the next one. The
 budget is indifferent to *how* a proof got expensive: it catches the pattern nobody has thought of
 yet, at the line, in seconds.
+
+## 14. The frame-fact grid, and the obligation that keeps it filled
+
+Section 5 predicted this grid — roughly 22 observations by 15 transformers, of which about 30 cells
+were named. Filling one column measured what the empty cells cost.
+
+**The column.** 25 `@[grind =] …_mem` equations, one per memory-preserving transformer, each `rfl`.
+Before them, `grind` could not close a memory transport at any real site: the sites go through
+project wrapper definitions (`allocatorAfterFunctionPage`, `wrapperAfterDwordStore`, …), and grind
+does not delta-unfold semireducible defs. The transports were registered and inert.
+
+**The cost of the empty cells.** ~279 sites open-coded the transport as
+`simpa [<state defs>, <wrapper>, afterRegisterWrite_mem] using h`, at 25-37 s each. Nineteen in one
+file total ~636 s. After the column was filled, cumulative `grind` time for that entire file is
+~2.5 s.
+
+**Not every cell exists, and inventing one would be unsound.** Six transformers genuinely write
+memory; `mem = mem` is false for them. That they reject `rfl` was verified by probe, not inferred
+from their names — the probe produced six type mismatches. A frame fact asserted for a transformer
+that does not have it is worse than a missing one, because it is automation that lies.
+
+**Three of the 37 candidates were not transformers at all** (`SailM` actions writing CSRs, with no
+`.mem` projection). Check the type before writing the lemma.
+
+### The obligation
+
+A new `State → State` definition is **unfinished** until its frame facts exist: `_mem` if it preserves
+memory, `_pc`, `_retired`, and a `_writes` register write set. Each is one line and usually `rfl`.
+Skipping them does not fail anything — it just moves the cost to every future call site, invisibly,
+at 25-37 seconds a call. That is precisely how the 279 accumulated.
+
+Search pattern note: `def .*After[A-Za-z]+` misses transformers whose name *ends* in `After`. There
+are 14 such, and grepping only the first form is why they were initially missed.

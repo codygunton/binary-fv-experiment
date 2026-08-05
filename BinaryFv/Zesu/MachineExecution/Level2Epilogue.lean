@@ -89,9 +89,7 @@ theorem wrapper_epilogue_status_store_step {base state : State} {machineArgs : D
     (rX_bits_run_x11 _ status (decoderExecuteState_get? statusValue))
     targetEq allowed
   exact ⟨retired, by
-    simpa [wrapperAfterStatusStore, afterMemoryWrite,
-      show Sail.BitVec.addInt (BitVec.ofNat 64 0x1035c) 4 = BitVec.ofNat 64 0x10360 from by decide]
-      using run⟩
+    grind⟩
 
 /-- Exact state after the first epilogue stack restoration at `0x10360`. -/
 def wrapperAfterFirstStackRestore (state : State) (retired stack : BitVec 64) : State :=
@@ -136,8 +134,7 @@ theorem wrapper_epilogue_first_stack_restore_step {base state : State} {machineA
     (rX_x2_run _ stack (decoderExecuteState_get? stackValue))
     (wX_x2_run _ (stack + sign_extend (m := 64) 0x230#12))
   exact ⟨retired, by
-    simpa [wrapperAfterFirstStackRestore, tryStepStackAddiAfterRetired_eq_afterRegisterWrite]
-      using run⟩
+    grind⟩
 
 /-- A `ld` writes its data unchanged: sign-extending a double word to 64 bits is the identity.
 `Load.lean` proves the same fact, but privately, so the four `ld` sites below need their own copy to
@@ -198,8 +195,7 @@ theorem wrapper_epilogue_saved_load_read {base state : State} {machineArgs : Dec
         some (getElem (BinaryFv.RiscV.Sep.leBytes 8 value) index bound) := by
     intro index bound
     rw [← savedBaseEq]
-    simpa [SavedWordBytes, executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using saved index bound
+    grind
   have hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data)
       page_based_mem_type.PBMT_PMA (physaddr.Physaddr address) 8 false false false)
       executeState executeState (Sail.Ok value) := by
@@ -334,8 +330,7 @@ theorem wrapper_epilogue_final_stack_restore_step {base state : State} {machineA
     (rX_x2_run _ stack (decoderExecuteState_get? stackValue))
     (wX_x2_run _ (stack + sign_extend (m := 64) 0x7f0#12))
   exact ⟨retired, by
-    simpa [wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired_eq_afterRegisterWrite]
-      using run⟩
+    grind⟩
 
 /-- Exact state after the wrapper's final `ret` at `0x10378`. -/
 def wrapperAfterReturn (state : State) (retired link : BitVec 64) : State :=
@@ -365,7 +360,7 @@ theorem wrapper_epilogue_return_step {base state : State} {machineArgs : Decoder
     stepNo 0x10378 0x67 0x80 0x00 0x00 1#5 link link atPc
     (rX_bits_run_x1 _ _ (decoderExecuteState_get? linkValue))
   refine ⟨retired, ?_, ?_⟩
-  · simpa [wrapperAfterReturn] using run
+  · grind
   · simp [wrapperAfterReturn, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       Std.ExtDHashMap.get?_insert]
 
@@ -554,7 +549,7 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
   have frameS0 : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 afterS0 :=
     WrapperSavedRegisterFrame.of_mem_eq frame (afterRegisterWrite_mem _ _ _ _ _)
   have codeS0 : canonicalContractParams.env.CodeIntact afterS0 := by
-    simpa [afterS0, afterRegisterWrite_mem] using code
+    grind
   have machineS0 := machine.mono agreeS0 retiredS0Present
   obtain ⟨retiredS1, s1Run⟩ := wrapper_epilogue_load_s1_step machineS0 (Agree.refl afterS0)
     retiredS0Present codeS0 (fromStep + 1) atS1 stack savedS1 s1Address stackS0 s1AddressEq
@@ -573,7 +568,7 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
   have frameS1 : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 afterS1 :=
     WrapperSavedRegisterFrame.of_mem_eq frameS0 (afterRegisterWrite_mem _ _ _ _ _)
   have codeS1 : canonicalContractParams.env.CodeIntact afterS1 := by
-    simpa [afterS1, afterRegisterWrite_mem] using codeS0
+    grind
   have machineS1 := machine.mono agreeS1 retiredS1Present
   obtain ⟨retiredS2, s2Run⟩ := wrapper_epilogue_load_s2_step machineS1 (Agree.refl afterS1)
     retiredS1Present codeS1 (fromStep + 2) atS2 stack savedS2 s2Address stackS1 s2AddressEq
@@ -619,7 +614,7 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
       (((afterRegisterWrite_writes _ _ _ _ _).get x11 (by decide)).trans
         (((afterRegisterWrite_writes _ _ _ _ _).get x11 (by decide)).trans statusValue))
   · exact WrapperSavedRegisterFrame.of_mem_eq frameS1 (afterRegisterWrite_mem _ _ _ _ _)
-  · simpa [afterS2, afterRegisterWrite_mem] using codeS1
+  · grind
   · exact agreeS2
   · exact afterRegisterWrite_retired_present afterS1 (BitVec.ofNat 64 0x10370) retiredS2 x18 savedS2
 
@@ -675,7 +670,7 @@ theorem wrapper_epilogue_to_exit {base state : State} {machineArgs : DecoderMach
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved]))
   have codeRa : canonicalContractParams.env.CodeIntact afterRa := by
-    simpa [afterRa, afterFirst, wrapperAfterFirstStackRestore, afterRegisterWrite_mem] using code
+    grind
   have memoryRa : afterRa.mem = state.mem := by rfl
   have stackRa : afterRa.regs.get? x2 = some (stack + sign_extend (m := 64) (0x230#12)) :=
     ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans
@@ -761,7 +756,7 @@ theorem wrapper_epilogue_to_exit {base state : State} {machineArgs : DecoderMach
   · calc afterStack.mem = afterS2.mem := by rfl
       _ = afterRa.mem := saved.memory
       _ = state.mem := memoryRa
-  · simpa [afterStack, wrapperAfterFinalStackRestore] using saved.code
+  · grind
   · exact saved.agree.trans stackAgree
   · exact retiredStackPresent
 
@@ -829,7 +824,7 @@ theorem wrapper_epilogue_final_restore_and_return {base before state : State} {m
     simp [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,
       tryStepStackAddiAfterTick]
   have codeStack : canonicalContractParams.env.CodeIntact afterStack := by
-    simpa [afterStack, wrapperAfterFinalStackRestore] using saved.code
+    grind
   have machineStack := machine.mono agreeStack retiredStackPresent
   have atReturn : afterStack.regs.get? PC = some (BitVec.ofNat 64 0x10378) := by
     simp [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,
@@ -882,7 +877,7 @@ theorem wrapper_epilogue_final_restore_and_return {base before state : State} {m
       tryStepStackAddiAfterIncrement, controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, saved.a1]
   · rfl
-  · simpa [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore] using saved.code
+  · grind
   · have returnAgree : Agree decoderPreserved afterStack afterReturn :=
       Agree.weaken (fun _ preserved => preserved.2)
         ((jumpRetirement_writes _ _ _ _).agree platformPreserved_disjoint)
@@ -941,7 +936,7 @@ theorem wrapper_epilogue_complete {base state : State} {machineArgs : DecoderMac
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved]))
   have codeRa : canonicalContractParams.env.CodeIntact afterRa := by
-    simpa [afterRa, afterFirst, wrapperAfterFirstStackRestore, afterRegisterWrite_mem] using code
+    grind
   have memoryRa : afterRa.mem = state.mem := by rfl
   have stackRa : afterRa.regs.get? x2 = some (stack + sign_extend (m := 64) (0x230#12)) :=
     ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans

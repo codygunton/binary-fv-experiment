@@ -124,6 +124,30 @@ If your goal is not in the table and you are about to reach for `simp [<a state 
 the anti-pattern this table exists to prevent. Ask for a frame lemma instead — the answer is almost
 always that one exists, or should, and is three lines.
 
+### If you define a new state transformer, you owe it a frame equation
+
+This is what keeps the automation from silently decaying, and it is cheap.
+
+Every `def` producing a `State` from a `State` needs, beside it:
+
+```lean
+@[grind =] theorem <name>_mem (…explicit args…) : (<name> …).mem = state.mem := rfl
+```
+
+Without it `grind` cannot see through your definition — it does not delta-unfold semireducible defs,
+deliberately — so every downstream memory-transport proof silently falls back to the 25-37 second
+`simpa`. That is exactly how 279 such sites accumulated: the wrapper definitions were added without
+their frame equations, and each call site then paid for it.
+
+**If your transformer writes memory, do NOT write that equation.** `mem = mem` is false for it and
+`rfl` will not close it. Six transformers here are in that class; they have no `_mem` lemma on
+purpose. State what it writes instead, in the shape of `storeRetirement_mem_writes`.
+
+The same applies to any other observation your transformer preserves — `_pc`, `_retired`, and the
+register write set (`_writes`). A transformer landing without its frame facts is unfinished work, not
+a small omission: it is the difference between a downstream proof being one word and being forty
+lines.
+
 ### Non-negotiables
 
 - **Never change a theorem statement.** Only proof bodies. This is what makes the work splittable by

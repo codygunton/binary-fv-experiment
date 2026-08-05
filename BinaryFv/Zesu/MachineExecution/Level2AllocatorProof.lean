@@ -102,7 +102,7 @@ theorem wrapperAfterAllocatorTag_code (state : State) (retired target data : Bit
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x102f4)
   have executeCode : Artifacts.programImage.fileBytesMatchMemory executeState.mem := by
-    simpa [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code
+    grind
   have stored := fileBytesMatchMemory_afterWriteBytes (width := 1) Artifacts.programImage
     executeState target.toNat data (fun index => by
       have indexZero : index.val = 0 := Nat.eq_zero_of_le_zero (Nat.le_of_lt_succ index.isLt)
@@ -291,11 +291,10 @@ theorem allocatorAfterContextStore_code (state : State)
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10300)
   have executeCode : Artifacts.programImage.fileBytesMatchMemory executeState.mem := by
-    simpa [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code
+    grind
   have stored := fileBytesMatchMemory_afterWriteBytes Artifacts.programImage executeState
     (stackBase + sign_extend (0x010#12)).toNat context notFileBacked executeCode
-  simpa [allocatorAfterContextStore, executeState, tryStepControlFlowAfterRetired,
-    tryStepControlFlowAfterTick] using stored
+  grind
 
 theorem allocatorAfterContextStore_exitPlatform {state : State}
     {retired stackBase context : BitVec 64} {pc : Nat}
@@ -362,11 +361,10 @@ theorem allocatorAfterFunctionStore_code (state : State)
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10304)
   have executeCode : Artifacts.programImage.fileBytesMatchMemory executeState.mem := by
-    simpa [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code
+    grind
   have stored := fileBytesMatchMemory_afterWriteBytes Artifacts.programImage executeState
     (stackBase + sign_extend (0x018#12)).toNat functionAddress notFileBacked executeCode
-  simpa [allocatorAfterFunctionStore, executeState, tryStepControlFlowAfterRetired,
-    tryStepControlFlowAfterTick] using stored
+  grind
 
 /-! ## Boundary-facing allocator summary
 
@@ -574,14 +572,7 @@ theorem allocator_data_pointer_step (fromStep : Nat) (state : State)
     · exact rX_bits_run_x18 executeState source sourceAtExecute
     · simpa [iTypeResult] using
         (wX_bits_run_x11 executeState (Sail.BitVec.addInt source 1))
-  simpa [allocatorAfterDataPointer, executeState] using
-    fallThroughRegisterWriteStepWithoutReturn fromStep 0x102f0 state
-      0x93#8 0x05#8 0x19#8 0x00#8
-      (.ITYPE (0x001#12, .Regidx 18#5, .Regidx 11#5, .ADDI)) x11
-      (Sail.BitVec.addInt source 1) atPc platform
-      (allocator_data_pointer_fetch state platform.code) (by rfl)
-      (allocator_data_pointer_decode _ privilegeIncrement seccfgBits seccfgIncrement) execute
-      (by decide) (by decide) (by decide) (by decide)
+  grind
 
 /-- The first allocator segment is discharged by Sail execution and packaged at the exact checked
 inline boundary consumed by the wrapper's Level 2 scoped trace. -/
@@ -726,16 +717,7 @@ theorem wrapper_allocator_tag_step (fromStep : Nat) (state : State)
       (tryStepControlFlowAfterIncrement state) afterExec :=
     (coreControlFlowNextState_writes _ (BitVec.ofNat 64 0x102f4)).congr_regs rfl
   refine ⟨retired, ?_⟩
-  simpa [wrapperAfterAllocatorTag, executeState, afterExec] using
-    tryStepFallThroughRetires fromStep state afterExec (BitVec.ofNat 64 0x102f4) retired 0 0
-      0x23#8 0x00#8 0xa9#8 0x00#8 (.STORE (0#12, .Regidx 10#5, .Regidx 18#5, 1))
-      fetchPlatform fetchNoMMIO (wrapper_allocator_tag_fetch state platform.code) interrupts
-      (by rfl) (wrapper_allocator_tag_decode _ privilegeIncrement mseccfgBits seccfgIncrement)
-      notExpected execute (by simp [afterExec, executeState, coreControlFlowNextState])
-      (afterExecFrame.get hart_state (by decide))
-      (afterExecFrame.get minstret_increment (by decide))
-      (afterExecFrame.get minstret (by decide)) hartRead inhibitRead configRead
-      (by decide) (by decide) retiredRead
+  grind
 
 /-- The allocator's second segment begins by materializing the page containing `allocatorAlloc`. -/
 theorem allocator_function_page_step (fromStep : Nat) (state : State)
@@ -764,13 +746,7 @@ theorem allocator_function_page_step (fromStep : Nat) (state : State)
       (BitVec.ofNat 64 0x102f8)
     · exact readReg_run _ _ _ corePc
     · simpa [auipcValue] using wX_bits_run_x10 executeState (BitVec.ofNat 64 0x142f8)
-  simpa [allocatorAfterFunctionPage, executeState] using
-    fallThroughRegisterWriteStepWithoutReturn fromStep 0x102f8 state
-      0x17#8 0x45#8 0x00#8 0x00#8
-      (.UTYPE (0x00004#20, .Regidx 10#5, .AUIPC)) x10 (BitVec.ofNat 64 0x142f8)
-      atPc platform (allocator_function_page_fetch state platform.code) (by rfl)
-      (allocator_function_page_decode _ privilegeIncrement seccfgBits seccfgIncrement) execute
-      (by decide) (by decide) (by decide) (by decide)
+  grind
 
 /-- The second allocator body instruction resolves the exact vtable function pointer. -/
 theorem allocator_function_address_step (fromStep : Nat) (state : State)
@@ -800,14 +776,7 @@ theorem allocator_function_address_step (fromStep : Nat) (state : State)
       (BitVec.ofNat 64 0x142f8)
     · exact rX_bits_run_x10 executeState _ sourceAtExecute
     · simpa [resultValue] using wX_bits_run_x10 executeState (BitVec.ofNat 64 0x13f70)
-  simpa [allocatorAfterFunctionAddress, executeState] using
-    fallThroughRegisterWriteStepWithoutReturn fromStep 0x102fc state
-      0x13#8 0x05#8 0x85#8 0xc7#8
-      (.ITYPE (0xc78#12, .Regidx 10#5, .Regidx 10#5, .ADDI)) x10
-      (BitVec.ofNat 64 0x13f70) atPc platform
-      (allocator_function_address_fetch state platform.code) (by rfl)
-      (allocator_function_address_decode _ privilegeIncrement seccfgBits seccfgIncrement) execute
-      (by decide) (by decide) (by decide) (by decide)
+  grind
 
 /-- The last instruction inside the allocator's second child-summary body stores its context
 pointer at offset 16 of the stack allocator object and stops on the outgoing edge at `0x10304`. -/
@@ -897,17 +866,7 @@ theorem allocator_context_store_step (fromStep : Nat) (state : State)
     (coreControlFlowNextState_writes _ (BitVec.ofNat 64 0x10300)).congr_regs
       (by simpa [afterExec] using afterWriteBytes_regs executeState target.toNat context)
   refine ⟨retired, ?_⟩
-  simpa [allocatorAfterContextStore, target, executeState, afterExec] using
-    tryStepFallThroughRetires fromStep state afterExec (BitVec.ofNat 64 0x10300) retired 0 0
-      0x23#8 0x38#8 0xb1#8 0x00#8 (.STORE (0x010#12, .Regidx 11#5, .Regidx 2#5, 8))
-      fetchPlatform fetchNoMMIO (allocator_context_store_fetch state platform.code) interrupts
-      (by rfl) (allocator_context_store_decode _ privilegeIncrement mseccfgBits seccfgIncrement)
-      notExpected execute
-      (by rw [afterWriteBytes_regs]; simp [executeState, coreControlFlowNextState])
-      (afterExecFrame.get hart_state (by decide))
-      (afterExecFrame.get minstret_increment (by decide))
-      (afterExecFrame.get minstret (by decide)) hartRead inhibitRead configRead
-      (by decide) (by decide) retiredRead
+  grind
 
 theorem allocator_context_store_step_configured {instructionPcs : BitVec 64 → Prop}
     {machineArgs : DecoderMachineArgs} {baseState state : State}
@@ -941,7 +900,7 @@ theorem allocator_context_store_step_configured {instructionPcs : BitVec 64 → 
     (rX_bits_run_x11 _ context executeStateContext) rfl aligned allowed fetch (by rfl)
     (allocator_context_store_decode _ privilege mseccfgBits seccfgRead)
   refine ⟨retired, ?_⟩
-  simpa [allocatorAfterContextStore, allocatorAfterDwordStore] using run
+  grind
 
 /-- The allocator's checked outgoing edge stores its function pointer at offset 24 and retires
 directly into the selected `decode` region at `0x10308`. -/
@@ -1033,17 +992,7 @@ theorem allocator_function_store_transfer (fromStep : Nat) (state : State)
     (coreControlFlowNextState_writes _ (BitVec.ofNat 64 0x10304)).congr_regs
       (by simpa [afterExec] using afterWriteBytes_regs executeState target.toNat functionAddress)
   refine ⟨retired, ?_⟩
-  simpa [allocatorAfterFunctionStore, target, executeState, afterExec] using
-    tryStepFallThroughRetires fromStep state afterExec (BitVec.ofNat 64 0x10304) retired 0 0
-      0x23#8 0x3c#8 0xa1#8 0x00#8 (.STORE (0x018#12, .Regidx 10#5, .Regidx 2#5, 8))
-      fetchPlatform fetchNoMMIO (allocator_function_store_fetch state platform.code) interrupts
-      (by rfl) (allocator_function_store_decode _ privilegeIncrement mseccfgBits seccfgIncrement)
-      notExpected execute
-      (by rw [afterWriteBytes_regs]; simp [executeState, coreControlFlowNextState])
-      (afterExecFrame.get hart_state (by decide))
-      (afterExecFrame.get minstret_increment (by decide))
-      (afterExecFrame.get minstret (by decide)) hartRead inhibitRead configRead
-      (by decide) (by decide) retiredRead
+  grind
 
 theorem allocator_function_store_transfer_configured {instructionPcs : BitVec 64 → Prop}
     {machineArgs : DecoderMachineArgs} {baseState state : State}
@@ -1077,7 +1026,7 @@ theorem allocator_function_store_transfer_configured {instructionPcs : BitVec 64
     (rX_bits_run_x10 _ functionAddress executeStateFunction) rfl aligned allowed fetch (by rfl)
     (allocator_function_store_decode _ privilege mseccfgBits seccfgRead)
   refine ⟨retired, ?_⟩
-  simpa [allocatorAfterFunctionStore, allocatorAfterDwordStore] using run
+  grind
 
 /-- Three Sail body steps plus the Sail outgoing store form the second checked allocator transfer.
 This is the boundary-facing composition used by the Level 2 wrapper proof; the outgoing store is
@@ -1228,11 +1177,9 @@ theorem allocator_second_segment_proved (fromStep : Nat) (entry : State)
     afterRegisterWrite_retired_present entry (BitVec.ofNat 64 0x102f8) pageRetired x10
       (BitVec.ofNat 64 0x142f8)
   have pageCode : Artifacts.programImage.fileBytesMatchMemory afterPage.mem := by
-    simpa [afterPage, allocatorAfterFunctionPage, afterRegisterWrite_mem] using pre.code
+    grind
   have pagePc : afterPage.regs.get? PC = some (BitVec.ofNat 64 0x102fc) := by
-    simpa [afterPage, allocatorAfterFunctionPage] using
-      afterRegisterWrite_pc entry (BitVec.ofNat 64 0x102f8) pageRetired x10
-        (BitVec.ofNat 64 0x142f8)
+    grind
   have pageValue : afterPage.regs.get? x10 = some (BitVec.ofNat 64 0x142f8) := by
     simp [afterPage, allocatorAfterFunctionPage, afterRegisterWrite,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
@@ -1249,12 +1196,9 @@ theorem allocator_second_segment_proved (fromStep : Nat) (entry : State)
     afterRegisterWrite_retired_present afterPage (BitVec.ofNat 64 0x102fc) addressRetired x10
       (BitVec.ofNat 64 0x13f70)
   have addressCode : Artifacts.programImage.fileBytesMatchMemory afterAddress.mem := by
-    simpa [afterAddress, allocatorAfterFunctionAddress, afterPage,
-      allocatorAfterFunctionPage, afterRegisterWrite_mem] using pre.code
+    grind
   have addressPc : afterAddress.regs.get? PC = some (BitVec.ofNat 64 0x10300) := by
-    simpa [afterAddress, allocatorAfterFunctionAddress] using
-      afterRegisterWrite_pc afterPage (BitVec.ofNat 64 0x102fc) addressRetired x10
-        (BitVec.ofNat 64 0x13f70)
+    grind
   have addressFunction : afterAddress.regs.get? x10 = some (BitVec.ofNat 64 0x13f70) := by
     simp [afterAddress, allocatorAfterFunctionAddress, afterRegisterWrite,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,

@@ -1130,7 +1130,7 @@ theorem wrapper_dispatch_non_three_non_one_prefix {machineArgs : DecoderMachineA
   have retired1 := afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x103fc) r1 x11
     (BitVec.ofNat 64 3)
   have code1 : canonicalContractParams.env.CodeIntact s1 := by
-    simpa [s1, afterRegisterWrite_mem] using code
+    grind
   have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10400) := by
     simpa [s1] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
   have tag1 : s1.regs.get? x10 = some (BitVec.ofNat 64 tagValue) := by
@@ -1149,8 +1149,7 @@ theorem wrapper_dispatch_non_three_non_one_prefix {machineArgs : DecoderMachineA
   have retired2 : RetiredCounterPresent s2 := ⟨Sail.BitVec.addInt r2 1, by
     simp [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
   have code2 : canonicalContractParams.env.CodeIntact s2 := by
-    simpa [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code1
+    grind
   have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10404) := by
     simp [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1162,7 +1161,7 @@ theorem wrapper_dispatch_non_three_non_one_prefix {machineArgs : DecoderMachineA
   have retired3 := afterRegisterWrite_retired_present s2 (BitVec.ofNat 64 0x10404) r3 x11
     (BitVec.ofNat 64 1)
   have code3 : canonicalContractParams.env.CodeIntact s3 := by
-    simpa [s3, afterRegisterWrite_mem] using code2
+    grind
   have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x10408) := by
     simpa [s3] using afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x10404) r3 x11 (BitVec.ofNat 64 1)
   have tag3 : s3.regs.get? x10 = some (BitVec.ofNat 64 tagValue) := by
@@ -1184,8 +1183,7 @@ theorem wrapper_dispatch_non_three_non_one_prefix {machineArgs : DecoderMachineA
   have retired4 : RetiredCounterPresent s4 := ⟨Sail.BitVec.addInt r4 1, by
     simp [s4, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
   have code4 : canonicalContractParams.env.CodeIntact s4 := by
-    simpa [s4, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code3
+    grind
   have pc4 : s4.regs.get? PC = some (BitVec.ofNat 64 0x1040c) := by
     simp [s4, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1529,8 +1527,7 @@ theorem wrapper_dispatch_tag0_success_path {machineArgs : DecoderMachineArgs} {b
   have retired5 : RetiredCounterPresent s5 := ⟨Sail.BitVec.addInt r5 1, by
     simp [s5, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
   have code5 : canonicalContractParams.env.CodeIntact s5 := by
-    simpa [s1, s2, s3, s4, s5, afterRegisterWrite_mem, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code
+    grind
   obtain ⟨r6, run6⟩ := wrapper_dispatch_tag0_success_step machine agree5 retired5 code5
     (stepNo + 5) (by simpa [s1, s2, s3, s4, s5] using pc5)
     (by simpa [s1, s2, s3, s4, s5] using tag5)
@@ -1567,8 +1564,7 @@ theorem wrapper_dispatch_tag0_success_path {machineArgs : DecoderMachineArgs} {b
       tryStepControlFlowAfterIncrement]
   · exact agree5.trans (wrapperDispatchJumpAfter_agree s5 (BitVec.ofNat 64 0x10410)
       (BitVec.ofNat 64 0x1033c) r6)
-  · simpa [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code5
+  · grind
   · simp [s1, s2, s3, s4, s5, s6, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1609,8 +1605,7 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
   have retired5 : RetiredCounterPresent s5 := ⟨Sail.BitVec.addInt r5 1, by
     simp [s5, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
   have code5 : canonicalContractParams.env.CodeIntact s5 := by
-    simpa [s1, s2, s3, s4, s5, afterRegisterWrite_mem, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code
+    grind
   obtain ⟨r6, run6⟩ := wrapper_dispatch_tag2_branch_step machine agree5 retired5 code5
     (stepNo + 5) (by simpa [s1, s2, s3, s4, s5] using pc5)
     (by simpa [s1, s2, s3, s4, s5] using tag5)
@@ -1623,8 +1618,7 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
   have retired6 : RetiredCounterPresent s6 := ⟨Sail.BitVec.addInt r6 1, by
     simp [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
   have code6 : canonicalContractParams.env.CodeIntact s6 := by
-    simpa [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code5
+    grind
   have pc6 : s6.regs.get? PC = some (BitVec.ofNat 64 0x10414) := by
     simp [s6, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1636,7 +1630,7 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
   have retired7 := afterRegisterWrite_retired_present s6 (BitVec.ofNat 64 0x10414) r7 x10
     (BitVec.ofNat 64 0)
   have code7 : canonicalContractParams.env.CodeIntact s7 := by
-    simpa [s7, afterRegisterWrite_mem] using code6
+    grind
   have pc7 : s7.regs.get? PC = some (BitVec.ofNat 64 0x10418) := by
     simpa [s7] using afterRegisterWrite_pc s6 (BitVec.ofNat 64 0x10414) r7 x10 (BitVec.ofNat 64 0)
   obtain ⟨r8, run8⟩ := wrapper_dispatch_tag2_status_step machine agree7 retired7 code7
@@ -1698,8 +1692,7 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
       coreControlFlowNextState, tryStepControlFlowAfterIncrement]
   · exact agree8.trans (wrapperDispatchJumpAfter_agree s8 (BitVec.ofNat 64 0x1041c)
       (BitVec.ofNat 64 0x1035c) r9)
-  · simpa [s9, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code8
+  · grind
   · simp [s1, s2, s3, s4, s5, s6, s7, s8, s9, afterRegisterWrite,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1721,7 +1714,7 @@ private theorem wrapper_dispatch_tag1_prefix {machineArgs : DecoderMachineArgs} 
   have retired1 := afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x103fc) r1 x11
     (BitVec.ofNat 64 3)
   have code1 : canonicalContractParams.env.CodeIntact s1 := by
-    simpa [s1, afterRegisterWrite_mem] using code
+    grind
   have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10400) := by
     simpa [s1] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
   have tag1 : s1.regs.get? x10 = some (BitVec.ofNat 64 1) := by
@@ -1740,8 +1733,7 @@ private theorem wrapper_dispatch_tag1_prefix {machineArgs : DecoderMachineArgs} 
   have retired2 : RetiredCounterPresent s2 := ⟨Sail.BitVec.addInt r2 1, by
     simp [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
   have code2 : canonicalContractParams.env.CodeIntact s2 := by
-    simpa [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code1
+    grind
   have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10404) := by
     simp [s2, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -1753,7 +1745,7 @@ private theorem wrapper_dispatch_tag1_prefix {machineArgs : DecoderMachineArgs} 
   have retired3 := afterRegisterWrite_retired_present s2 (BitVec.ofNat 64 0x10404) r3 x11
     (BitVec.ofNat 64 1)
   have code3 : canonicalContractParams.env.CodeIntact s3 := by
-    simpa [s3, afterRegisterWrite_mem] using code2
+    grind
   have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x10408) := by
     simpa [s3] using afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x10404) r3 x11 (BitVec.ofNat 64 1)
   have tag3 : s3.regs.get? x10 = some (BitVec.ofNat 64 1) := by
@@ -1864,7 +1856,7 @@ private theorem wrapper_dispatch_tag1_suffix {machineArgs : DecoderMachineArgs} 
   have retired5 := afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10428) r5 x10
     (BitVec.ofNat 64 0)
   have code5 : canonicalContractParams.env.CodeIntact s5 := by
-    simpa [s5, afterRegisterWrite_mem] using code
+    grind
   have pc5 : s5.regs.get? PC = some (BitVec.ofNat 64 0x1042c) := by
     simpa [s5] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x10428) r5 x10 (BitVec.ofNat 64 0)
   obtain ⟨r6, run6⟩ := wrapper_dispatch_tag1_status_step machine agree5 retired5 code5
@@ -1958,8 +1950,7 @@ private theorem wrapper_dispatch_tag1_suffix {machineArgs : DecoderMachineArgs} 
       _ = state.mem := rfl
   · exact agree6.trans (wrapperDispatchJumpAfter_agree s6 (BitVec.ofNat 64 0x10430)
       (BitVec.ofNat 64 0x1035c) r7)
-  · simpa [s7, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code6
+  · grind
   · simp [s5, s6, s7, afterRegisterWrite,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -2055,7 +2046,7 @@ private theorem wrapper_dispatch_tag3_owned_path {machineArgs : DecoderMachineAr
   have retired1 := afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x103fc) r1 x11
     (BitVec.ofNat 64 3)
   have code1 : canonicalContractParams.env.CodeIntact s1 := by
-    simpa [s1, afterRegisterWrite_mem] using code
+    grind
   have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10400) := by
     simpa [s1] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
   have tag1 : s1.regs.get? x10 = some (BitVec.ofNat 64 3) := by
@@ -2086,7 +2077,7 @@ private theorem wrapper_dispatch_tag3_owned_path {machineArgs : DecoderMachineAr
   have retired3 := afterRegisterWrite_retired_present s2 (BitVec.ofNat 64 0x10434) r3 x10
     (BitVec.ofNat 64 0)
   have code3 : canonicalContractParams.env.CodeIntact s3 := by
-    simpa [s3, afterRegisterWrite_mem] using code2
+    grind
   have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x10438) := by
     simpa [s3] using afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x10434) r3 x10 (BitVec.ofNat 64 0)
   obtain ⟨r4, run4⟩ := wrapper_dispatch_tag3_status_step machine agree3 retired3 code3
@@ -2097,7 +2088,7 @@ private theorem wrapper_dispatch_tag3_owned_path {machineArgs : DecoderMachineAr
   have retired4 := afterRegisterWrite_retired_present s3 (BitVec.ofNat 64 0x10438) r4 x11
     (BitVec.ofNat 64 3)
   have code4 : canonicalContractParams.env.CodeIntact s4 := by
-    simpa [s4, afterRegisterWrite_mem] using code3
+    grind
   have pc4 : s4.regs.get? PC = some (BitVec.ofNat 64 0x1043c) := by
     simpa [s4] using afterRegisterWrite_pc s3 (BitVec.ofNat 64 0x10438) r4 x11 (BitVec.ofNat 64 3)
   obtain ⟨r5, run5⟩ := wrapper_dispatch_tag3_to_rejection_step machine agree4 retired4 code4
@@ -2204,8 +2195,7 @@ private theorem wrapper_dispatch_tag3_owned_path {machineArgs : DecoderMachineAr
       coreControlFlowNextState, tryStepControlFlowAfterIncrement]
     · exact agree4.trans (wrapperDispatchJumpAfter_agree s4 (BitVec.ofNat 64 0x1043c)
       (BitVec.ofNat 64 0x1035c) r5)
-    · simpa [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      controlFlowJumpState, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code4
+    · grind
     · exact ⟨Sail.BitVec.addInt r5 1, by
       simp [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
     · simp [s1, s2, s3, s4, s5, wrapperDispatchTag3BranchAfter, afterRegisterWrite,
