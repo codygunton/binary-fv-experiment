@@ -141,6 +141,143 @@ nothing either.** I wrote `Agree platformPreserved s t ⊢ t.regs.get? x2 = …`
 concluded the rule was broken. `x2` is not in `platformPreserved` — it holds `x1` and seventeen CSRs
 — so `grind` was right to fail. Read the predicate's definition before writing a test against it.
 
+### Rule 5 — a deleted theorem still compiles, so the compiler cannot guard a refactor
+
+**This is the most dangerous rule here.** Every other failure mode in this document announces itself
+as a build error. This one does not: if a refactor, a merge resolution, or an over-eager `simp`
+cleanup *removes* a declaration, the file still elaborates. Nothing references it, so nothing breaks.
+
+It happened on a real merge. `ssz-level1` had moved ahead and both sides had rewritten the same proof
+bodies; a hunk-level resolution silently dropped two theorems, **one of them newly added upstream**,
+and the merged file compiled clean. It was caught only by diffing theorem-name sets.
+
+**Do this on every merge, every large refactor, and before every commit that deletes anything:**
+
+```bash
+comm -23 <(git show <other>:path | grep -oE '^(private )?(theorem|lemma) [A-Za-z0-9_]+' | awk '{print $NF}' | sort) \
+         <(grep -oE '^(private )?(theorem|lemma) [A-Za-z0-9_]+' path | awk '{print $NF}' | sort)
+```
+
+Empty output means nothing was lost. A non-empty result is either a bug or an intentional deletion
+you must be able to name and justify. Track the whole-repo count too — it must never drop:
+
+```bash
+git grep -chE '^(@\[[^]]*\]\s*)?(private )?(theorem|lemma) ' <rev> -- 'BinaryFv/**/*.lean' | awk '{s+=$1} END {print s}'
+```
+
+**When a merge conflicts inside proof bodies both sides rewrote, take the other side wholesale for
+that file and re-apply your work on top.** Losing your own refactor is cheap; losing someone else's
+theorem is not, and you cannot tell the difference by building.
+
+### Rule 6 — a skip is a verdict on one lever, not on a file
+
+Work in this tree is done by passes, each applying one mechanism. When a pass reports "skipped", it
+means *that mechanism* did not apply. It does **not** mean the theorem is irreducible or that the
+file is finished — and reading it that way is what makes work look exhausted when it is not.
+
+Concretely: after a pass reported diminishing returns at −23.6%, re-measuring per *theorem* rather
+than per *file* found **859 lines still servable by the class lemmas**, eight of them in a file
+logged as effectively complete. Pressing on took the total to −27.2%.
+
+Its sibling: **re-test a blocker before trusting it.** Two of the largest wins in this project were
+sitting behind written-down verdicts that predated the tools which dissolve them —
+`MemcpyProof` ("takes `retired` universally, so the class lemmas don't apply" — true of the class
+lemmas, false of the write-set frame, −318 lines) and `HasExactErePrefixProof` (a conclusion-shape
+mismatch that did not exist, because the conclusion was a *reducible* `abbrev` for exactly what the
+class lemmas produce).
+
+**Write verdicts that name the mechanism they block.** "Blocked" with no named mechanism is a note to
+re-test, not a result. Re-measure after every round rather than trusting the previous round's
+inventory.
+
+### Rule 7 — triage a theorem by its premise bundle, not by how it looks
+
+Before attempting any migration, check what the theorem *carries*. This decides servability outright
+and saves a wasted attempt:
+
+| the theorem has | class lemmas can serve it? |
+|---|---|
+| `DecoderMachinePre` + `Agree platformPreserved` | yes — plain lemma names |
+| `DecoderMachinePre` + `Agree decoderPreserved` | yes — the `…OfDecoderAgree` siblings |
+| `ExitPlatform`, `RawResultMachinePre`, `InstructionStepPlatform` | **no** — different bundle entirely |
+| a conclusion `∀ retired, …` | **no** — the lemmas conclude `∃ retired, …`, and `∀ retired, P` does not follow from `∃ retired, P`. This is logical strength, not a unification failure, and no amount of massaging fixes it |
+| generic over a symbolic `pc`, or a store target `stackBase + off` for symbolic `stackBase` | **no** — `pcIn`/`allowed`/`aligned` are `native_decide`/`decide` autoParams and cannot discharge a symbol |
+
+Also check *what the theorem proves*, not which lemmas it cites. A theorem that mentions `try_step`
+more than once, or concludes a `Trace`/`SegmentChain`, is a **composition** and wants the write-set
+frame; a theorem concluding one `Runs (try_step …)` is a **step** and wants a class lemma. Value and
+classification lemmas are neither. Counting "theorems that do not cite a class lemma" as migration
+targets inflates the estimate badly — it sweeps in every composition and every definition.
+
+### Rule 8 — syntax counts locate bulk; they do not identify repetition
+
+A line-category count over proof bodies will tell you where the lines are and mislead you about why.
+Measuring "39% of these lines are argument continuations" led to an autoParam campaign that recovered
+9 lines; the actual causes were invisible to the count because **repetition looks like ordinary
+content**.
+
+The shapes that were actually costing lines, worth checking for by hand:
+
+- **A closed sub-proof pasted verbatim.** One was 21 lines with *no free variables at all*, inlined
+  three times — and the identical extraction already existed one level up in the import graph.
+- **An un-named per-step bundle.** Eleven steps each rebuilt the same two records from the same five
+  facts through a four-`have` block. One helper: −99 lines over ten sites.
+- **Local twins of lemmas that already exist upstream and are already imported.** Six of them in one
+  file. Two were *named in the upstream file's own doc comments* as twins awaiting deduplication.
+- **A postcondition re-stated per retained fact.** Consumers of a twelve-conjunct result each
+  re-declared five to nine of them with full type annotations; one `rw … at` retypes them in place.
+- **Projection chains** — `payload.2.2.2.2.2.2.2.1`, one `have` per field, where an `obtain` does it.
+- **A long type spelled in proof-internal `have` annotations.** A five-line type at thirteen sites; a
+  `private abbrev` collapses each to one. (Occurrences in *statements* are a different matter — see
+  the invariant below.)
+- **A side-condition list that is always the same tactic.** Five conditions spelled across five lines
+  at fourteen sites, all `by simp [decoderPreserved, platformPreserved]`; `<;> simp [...]` closes
+  them. Worth −53.
+
+**`maxHeartbeats` overrides are a symptom, not a setting.** Four `set_option maxHeartbeats 1000000`
+in one file all became removable once its duplication was gone — the theorems then compiled at
+`50000`, four times *under* the default. Treat an override as a marker of duplicated or unfactored
+work, and re-check it after any reduction rather than carrying it forward.
+
+### The invariant everything rests on: never change a theorem statement
+
+Every pass in this project changed proof bodies only. That is not fastidiousness — it buys three
+things that are hard to get any other way:
+
+- **The work is splittable by technique.** Because no statement moved, any subset of the changes
+  compiles as long as the toolkit is present, which is what allowed a 25-commit branch to be
+  re-cut as a four-PR stack, one per technique, with the top provably identical to the original.
+- **A reviewer can trust the diff.** A changed proof cannot weaken a claim; a changed statement can.
+- **Mutation testing stays meaningful.** Non-vacuity checks mutate an operand and expect rejection;
+  that only proves something if the statement is fixed.
+
+When a reduction genuinely needs a statement change — bundling loose hypotheses into a structure is
+the usual case, and is worth about −45 lines where two theorems share a long prelude — land it as its
+own clearly-labelled change, never folded into a body-only pass.
+
+### Splitting work into a stacked PR series — the check that is not the compiler
+
+Body-only changes make a branch splittable by technique, but "no statement changed" does **not** mean
+any subset compiles. A pass also *adds* declarations — private helpers, extracted lemmas, write-set
+facts — and a file in an earlier PR that references one defined in a later PR breaks, even though
+nothing about it looks wrong. Both breakages found while cutting this stack were of exactly that
+shape, and neither was visible from imports alone: one file needed a lemma extracted in a later PR's
+file, another needed a `_writes` helper added there.
+
+Do not guess the coupling from the import graph. Compute it: enumerate every declaration the work
+*adds* (diff the declaration-name sets per file, base versus head), map each to the PR that defines
+it, then grep for references and flag any referencing file assigned to an **earlier** PR than its
+definer. Zero violations is the precondition for cutting; anything else names the file to move and
+where to move it.
+
+That check runs in seconds and found the one remaining violation after a full 5-minute build had
+found only the first. Run it before every build, not after.
+
+Two cheap invariants worth asserting on the finished stack: the top branch's tree should be
+**identical** to the un-split branch (`git diff <top> <original>` empty), which proves nothing was
+lost or duplicated in the division; and each PR should be built standalone, since a stack that only
+builds at the tip is not reviewable one PR at a time.
+
 ### Concurrency: agents in one worktree can destroy each other's work
 
 Two agents editing disjoint *files* in one worktree are still not isolated. One ran `git stash` to
@@ -158,6 +295,9 @@ tree. If a stash does happen, do not drop it: it may be the only copy of another
 - `grind [...]` brackets accept only **bare identifiers**, not applied terms: `grind [foo x y]` is a
   parse error. They also reject facts already reachable from context as "redundant parameter". The
   reliable idiom is a local `have := <term>` before a bare `grind`.
+- **A `rw … at h₁ h₂ h₃` location list must stay on ONE line.** A continuation line parses as a new
+  tactic, so the rewrite half-applies and the rest silently does nothing. It compiles or fails for
+  reasons that look unrelated to the real cause.
 - When an intermediate state is a `let`-bound alias for a project wrapper def
   (`wrapperAfterDwordStore`, `rawResultAfterDiscriminant`, …) rather than a raw `afterRegisterWrite`
   application, the introduced `have` needs an **explicit type ascription in the alias's name**.
