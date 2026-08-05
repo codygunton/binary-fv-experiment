@@ -128,6 +128,45 @@ If your goal is not in the table and you are about to reach for `simp [<a state 
 the anti-pattern this table exists to prevent. Ask for a frame lemma instead — the answer is almost
 always that one exists, or should, and is three lines.
 
+### Module scope: keep the dependency graph flat and wide
+
+Lean elaborates a module on one core; Lake parallelizes across modules only. A module's elaboration
+time is therefore a serial segment of the build, and a chain of modules is a critical path that no
+number of cores can shorten. This build was **996 s of critical path out of 1009 s** — nine modules in
+a queue, one core busy, sixty-three idle.
+
+**Target: no module over ~60 s.** Check with `lake build <module>`, which prints the time.
+
+**Measure time, never line count.** Line count is a useless proxy here — the spread is 250x:
+
+| module | | ms/line |
+|---|---|---|
+| `Level2OutcomeEpilogue` | 131 lines / 169 s | **1290** |
+| `Level2Capstone` | 276 lines / 86 s | 312 |
+| `Level2WrapperProof` | 1900 lines / 353 s | 186 |
+| `BlobScheduleAndResultStores` | **4416 lines** / 40 s | 9 |
+| `MemcpyProof` | 1791 lines / 7 s | 4 |
+
+The largest file in the repository builds in 40 s and needs no attention; a 131-line file with seven
+declarations takes 169 s. Splitting by size sends you after the wrong files.
+
+**Two different problems, two different fixes.**
+
+*Accidental chaining.* Modules that do not use each other's proofs still queue behind one another,
+because a later one needs a single small thing from an earlier one — a structure, one lemma. Measured
+here: `Level2Capstone` waited 192 s on `Level2OutcomeDispatch` for `WrapperTerminalRouteFrame`, a
+**structure definition**. Move the small thing into its own module that both import, and the two
+expensive modules elaborate concurrently. Two such moves cut this build 1234→1009 s, measured cold at
+both ends, changing no proof.
+
+*A genuinely expensive module.* Split it along a **dependency layer** — the declarations that
+reference nothing else in the file can become their own module and elaborate in parallel. Never split
+down the middle of a chain of dependent declarations; that just makes two serial modules out of one.
+`Level2WrapperProof` split this way: 57 declarations out, 38 s off the path.
+
+**When you add a module, check what it will wait for**, not just what it needs. `import` is a
+scheduling decision as much as a namespace one.
+
 ### One function instance is at least two modules: steps, then composition
 
 Lean elaborates a file **serially** — measured at 135% CPU across 34 threads, i.e. one core. Lake
