@@ -685,18 +685,18 @@ theorem hasExactErePrefix_prefix_four_lbu_trace (fromStep : Nat)
     (phase : args.phase = .prefixBytes) :
     ∃ after, Trace fromStep 4 state after := by
   obtain ⟨retired1, first⟩ := hasExactErePrefix_prefix_first_lbu_step fromStep args state pre phase
+  have preInput := pre.inputPointer
   let byte1 := args.bytes[1]'(by have := pre.prefixExists phase; omega)
   let after1 := afterRegisterWrite state (BitVec.ofNat 64 0x10398) retired1 x10
     (BitVec.ofNat 64 byte1.toNat)
+  have w1 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x10)) state after1 :=
+    afterRegisterWrite_writes _ _ _ _ _
   have agree1 : Agree platformPreserved state after1 :=
     afterRegisterWrite_agree (by simp [platformPreserved])
   have atSecond : after1.regs.get? PC = some (BitVec.ofNat 64 0x1039c) := by
     simpa [after1] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x10398) retired1 x10
       (BitVec.ofNat 64 byte1.toNat)
-  have input1 : after1.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
-    simp [after1, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-      pre.inputPointer]
+  have input1 : after1.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by grind
   obtain ⟨retired2, second⟩ := hasExactErePrefix_prefix_second_lbu_step (fromStep + 1)
     args state after1 pre phase agree1 rfl
     (afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10398) retired1 x10
@@ -704,15 +704,14 @@ theorem hasExactErePrefix_prefix_four_lbu_trace (fromStep : Nat)
   let byte0 := args.bytes[0]'(by have := pre.prefixExists phase; omega)
   let after2 := afterRegisterWrite after1 (BitVec.ofNat 64 0x1039c) retired2 x12
     (BitVec.ofNat 64 byte0.toNat)
+  have w2 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x12)) after1 after2 :=
+    afterRegisterWrite_writes _ _ _ _ _
   have agree2 : Agree platformPreserved state after2 :=
     Agree.trans agree1 (afterRegisterWrite_agree (by simp [platformPreserved]))
   have atThird : after2.regs.get? PC = some (BitVec.ofNat 64 0x103a0) := by
     simpa [after2] using afterRegisterWrite_pc after1 (BitVec.ofNat 64 0x1039c) retired2 x12
       (BitVec.ofNat 64 byte0.toNat)
-  have input2 : after2.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
-    simp [after2, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-      input1]
+  have input2 : after2.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by grind
   obtain ⟨retired3, third⟩ := hasExactErePrefix_prefix_third_lbu_step (fromStep + 2)
     args state after2 pre phase agree2 rfl
     (afterRegisterWrite_retired_present after1 (BitVec.ofNat 64 0x1039c) retired2 x12
@@ -720,15 +719,14 @@ theorem hasExactErePrefix_prefix_four_lbu_trace (fromStep : Nat)
   let byte2 := args.bytes[2]'(by have := pre.prefixExists phase; omega)
   let after3 := afterRegisterWrite after2 (BitVec.ofNat 64 0x103a0) retired3 x14
     (BitVec.ofNat 64 byte2.toNat)
+  have w3 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x14)) after2 after3 :=
+    afterRegisterWrite_writes _ _ _ _ _
   have agree3 : Agree platformPreserved state after3 :=
     Agree.trans agree2 (afterRegisterWrite_agree (by simp [platformPreserved]))
   have atFourth : after3.regs.get? PC = some (BitVec.ofNat 64 0x103a4) := by
     simpa [after3] using afterRegisterWrite_pc after2 (BitVec.ofNat 64 0x103a0) retired3 x14
       (BitVec.ofNat 64 byte2.toNat)
-  have input3 : after3.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
-    simp [after3, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-      input2]
+  have input3 : after3.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by grind
   obtain ⟨retired4, fourth⟩ := hasExactErePrefix_prefix_fourth_lbu_step (fromStep + 3)
     args state after3 pre phase agree3 rfl
     (afterRegisterWrite_retired_present after2 (BitVec.ofNat 64 0x103a0) retired3 x14

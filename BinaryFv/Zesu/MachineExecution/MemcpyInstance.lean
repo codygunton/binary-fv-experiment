@@ -378,11 +378,9 @@ theorem memcpy_return_step (stepNo : Nat) (args : CopyArgs) (returnPc : BitVec 6
     (stableAtExit x1 (by simp [NonW])).trans entryLink
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement childExit)
     (BitVec.ofNat 64 0x13ec0)
-  have executeStable : StableAgree childExit executeState := by
-    intro register preserved
-    rcases preserved with ⟨notPc, notNextPc, notRetired, notIncrement, notX13, notX14, notX15⟩
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, Ne.symm notNextPc, Ne.symm notIncrement]
+  have w2 : WritesOnlyRegs stepBookkeeping childExit executeState :=
+    stepPremiseState_writes childExit (BitVec.ofNat 64 0x13ec0)
+  have executeStable : StableAgree childExit executeState := w2.agree nonW_disjoint_bookkeeping
   have landingPadAtExit : AbstractElp childExit := machine.landingPad.mono stableAtExit
   have helpElp : Runs (update_elp_state (.Regidx 1#5)) executeState executeState () :=
     landingPadAtExit executeState (.Regidx 1#5) rfl executeStable
@@ -392,9 +390,7 @@ theorem memcpy_return_step (stepNo : Nat) (args : CopyArgs) (returnPc : BitVec 6
     rw [Std.ExtDHashMap.get?_insert]
     simp
     decide
-  have sourceRead : executeState.regs.get? x1 = some returnPc := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, exitLink]
+  have sourceRead : executeState.regs.get? x1 = some returnPc := by grind
   obtain ⟨misaBits, misaReadEntry, misaBit⟩ : ∃ misaBits,
       childEntry.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
     have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
@@ -406,11 +402,7 @@ theorem memcpy_return_step (stepNo : Nat) (args : CopyArgs) (returnPc : BitVec 6
       childExit.regs.get? misa = childEntry.regs.get? misa :=
         stableAtExit misa (by simp [NonW])
       _ = some misaBits := misaReadEntry
-  have misaExecute : executeState.regs.get? misa = some misaBits :=
-    calc
-      executeState.regs.get? misa = childExit.regs.get? misa :=
-        executeStable misa (by simp [NonW])
-      _ = some misaBits := misaRead
+  have misaExecute : executeState.regs.get? misa = some misaBits := by grind
   have retRun := memcpy_step_ret stepNo childExit returnPc retired mseccfgBits misaBits inhibit config
     stepPlatform stepCounters (rX_bits_run_x1 executeState _ sourceRead) returnBit1 helpElp misaExecute
   refine ⟨retired, ?_, ?_⟩

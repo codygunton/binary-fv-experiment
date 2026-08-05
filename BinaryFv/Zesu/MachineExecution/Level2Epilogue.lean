@@ -423,13 +423,11 @@ theorem wrapper_epilogue_first_restore_and_ra {base state : State} {machineArgs 
   obtain ⟨retired1, firstRun⟩ := wrapper_epilogue_first_stack_restore_step machine agree retiredPresent
     code fromStep atPc stack stackValue
   let afterFirst := wrapperAfterFirstStackRestore state retired1 stack
-  have stepAgree : Agree decoderPreserved state afterFirst := by
-    intro register preserved
-    cases register <;>
-      simp only [afterFirst, wrapperAfterFirstStackRestore, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState,
-      stackAddiNextState, tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert] at preserved ⊢ <;>
-      simp_all [decoderPreserved, platformPreserved]
+  have w1 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x2)) state afterFirst :=
+    stackAddiRetirement_writes state (BitVec.ofNat 64 0x10360) 0x230#12 stack retired1
+  have stepAgree : Agree decoderPreserved state afterFirst :=
+    w1.agree ((platformPreserved_disjoint.weaken (fun _ h => h.2)).union
+      (RegSet.Disjoint.only (by simp [decoderPreserved, platformPreserved])))
   have agreeFirst : Agree decoderPreserved base afterFirst := agree.trans stepAgree
   have counterFirst : RetiredCounterPresent afterFirst := by
     refine ⟨Sail.BitVec.addInt retired1 1, ?_⟩
