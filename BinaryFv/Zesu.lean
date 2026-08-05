@@ -24,6 +24,7 @@ import BinaryFv.Zesu.MachineExecution.AccessorBlocks
 import BinaryFv.Zesu.MachineExecution.Level2AllocatorProof
 import BinaryFv.Zesu.MachineExecution.Level2WrapperSteps
 import BinaryFv.Zesu.MachineExecution.Level2WrapperProof
+import BinaryFv.Zesu.MachineExecution.Level2WrapperDecodeEntry
 import BinaryFv.Zesu.MachineExecution.Level2OutgoingBranchSteps
 import BinaryFv.Zesu.MachineExecution.Level2RetryExitSteps
 import BinaryFv.Zesu.MachineExecution.Level2RetryExactHandoff
@@ -36,6 +37,7 @@ import BinaryFv.Zesu.MachineExecution.HasExactErePrefixProof
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Boundaries
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2DecodeChildSummary
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Contracts
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level4BoundaryInventory
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level4ContractSurface

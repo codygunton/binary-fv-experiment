@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.MachineExecution.Level2FirstMemcpyInlineAdapter
 import BinaryFv.Zesu.MachineExecution.Level2Tag0CopyToExit
+import BinaryFv.Zesu.MachineExecution.Level2WrapperDecodeEntry
 
 /-! The complete first-success route from the wrapper entry to its generated exit. -/
 

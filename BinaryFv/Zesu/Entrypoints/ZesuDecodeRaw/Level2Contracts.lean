@@ -2,7 +2,6 @@ import BinaryFv.Zesu.Contracts.CanonicalParams
 import BinaryFv.Zesu.Contracts.Catalog.Dispatch
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Contracts
 import BinaryFv.Zesu.MachineExecution.Level2AllocatorProof
-import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryFinish
 import BinaryFv.Zesu.MachineExecution.MemcpyInstance
 
 /-!
@@ -179,20 +178,6 @@ inductive Level2ChildSummary : MachineChildSummary where
   | memcpy {fromStep used before after}
       (run : memcpyChildSummary functionInstance_memcpyId fromStep used before after) :
       Level2ChildSummary functionInstance_memcpyId fromStep used before after
-
-/-- The complete Level 3 theorem embeds as the selected Level 2 `decode` child. The only remaining
-condition is the emitted `decodeRaw` contract that Level 4 will refine. -/
-theorem level2DecodeChildSummary_of_decodeRaw
-    (decodeRaw : CompiledDecodeRawInstanceContract)
-    (args : DecodeInlineArgs) (fromStep : Nat) (before : State)
-    (pre : DecodeInlinePre args before) :
-    ∃ used after,
-      Level2ChildSummary
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
-        fromStep used before after := by
-  obtain ⟨used, after, run⟩ := level3DecodeChildSummary_of_contract
-    (MachineExecution.level3DecodeInlineContract decodeRaw) args fromStep before pre
-  exact ⟨used, after, .decode run⟩
 
 /-- Every proved allocator segment embeds in the one Level 2 child relation. -/
 theorem allocatorChildSummary_to_level2
