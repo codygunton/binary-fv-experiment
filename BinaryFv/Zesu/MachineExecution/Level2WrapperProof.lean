@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
 import BinaryFv.Zesu.MachineExecution.GeneratedWordStep
 import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
+import BinaryFv.Zesu.MachineExecution.Seg
 
 /-!
 # Sail execution of the `zesu_decode_raw` wrapper
@@ -525,9 +526,9 @@ theorem wrapper_first_frame_decrement_step (stepNo : Nat) (args : ZesuDecodeRawA
     (BitVec.ofNat 64 0x102b0)
   let stackAtEntry := BitVec.ofNat 64 (stackBase + 0xa20)
   let result := iTypeResult .ADDI 0x810#12 stackAtEntry
-  have stackRead : executeState.regs.get? x2 = some stackAtEntry := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement, stackAtEntry,
-      Std.ExtDHashMap.get?_insert, machine.stackAtEntry]
+  have stackRead : executeState.regs.get? x2 = some stackAtEntry :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x102b0)).get x2 (by decide)).trans
+      machine.stackAtEntry
   have execute : Runs (execute (.ITYPE (0x810#12, .Regidx 2#5, .Regidx 2#5, .ADDI)))
       executeState { executeState with regs := executeState.regs.insert x2 result }
       (.Retire_Success ()) := by
@@ -540,10 +541,9 @@ theorem wrapper_first_frame_decrement_step (stepNo : Nat) (args : ZesuDecodeRawA
       (by simpa [canonicalContractParams, canonicalEnvironment] using source.2.1)
       stepNo 0x102b0 0x81010113 machine.atEntry decode execute
   refine ⟨retired, by simpa [wrapperAfterFirstFrameDecrement, stackAtEntry, result] using run, ?_⟩
-  simp [wrapperAfterFirstFrameDecrement, afterRegisterWrite, tryStepControlFlowAfterRetired,
-    tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-    Std.ExtDHashMap.get?_insert, wrapper_first_frame_decrement_value stackBase
-      machine.stackFrameFits]
+  rw [← wrapper_first_frame_decrement_value stackBase machine.stackFrameFits]
+  exact afterRegisterWrite_destination state (BitVec.ofNat 64 0x102b0) retired x2
+    (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20))) (by decide) (by decide)
 
 /-! ## Saved return address -/
 
@@ -763,14 +763,13 @@ theorem wrapper_save_link_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     simp [state, wrapperAfterFirstFrameDecrement, afterRegisterWrite_pc]
     decide
   have stateStack : state.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) := by
-    simp [state, wrapperAfterFirstFrameDecrement, afterRegisterWrite,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-      wrapper_first_frame_decrement_value stackBase machine.stackFrameFits]
-  have stateLink : state.regs.get? x1 = some link := by
-    simp [state, wrapperAfterFirstFrameDecrement, afterRegisterWrite,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, linkAtEntry]
+    rw [← wrapper_first_frame_decrement_value stackBase machine.stackFrameFits]
+    exact afterRegisterWrite_destination entry (BitVec.ofNat 64 0x102b0) frameRetired x2
+      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20))) (by decide) (by decide)
+  have stateLink : state.regs.get? x1 = some link :=
+    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
+      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x1
+        (by decide)).trans linkAtEntry
   have stateAgree : Agree decoderPreserved entry state := by
     exact afterRegisterWrite_agree_of
       (by simp [decoderPreserved, platformPreserved])
@@ -896,10 +895,10 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have linkRetiredPresent := wrapperAfterDwordStore_retired frame
     (BitVec.ofNat 64 0x102b4) linkRetired (BitVec.ofNat 64 (stackBase + 0xa18)) link
   obtain ⟨s0, savedS0⟩ := machine.savedS0AtEntry
-  have s0AtFrame : frame.regs.get? x8 = some s0 := by
-    simpa [frame, wrapperAfterFirstFrameDecrement, afterRegisterWrite,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using savedS0
+  have s0AtFrame : frame.regs.get? x8 = some s0 :=
+    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
+      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x8
+        (by decide)).trans savedS0
   have s0AtLink : afterLink.regs.get? x8 = some s0 :=
     (wrapperAfterDwordStore_register frame _ _ _ _ x8 (by decide) (by decide) (by decide)
       (by decide)).trans s0AtFrame
@@ -922,10 +921,10 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have s0RetiredPresent := wrapperAfterDwordStore_retired afterLink
     (BitVec.ofNat 64 0x102b8) s0Retired (BitVec.ofNat 64 (stackBase + 0xa10)) s0
   obtain ⟨s1, savedS1⟩ := machine.savedS1AtEntry
-  have s1AtFrame : frame.regs.get? x9 = some s1 := by
-    simpa [frame, wrapperAfterFirstFrameDecrement, afterRegisterWrite,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using savedS1
+  have s1AtFrame : frame.regs.get? x9 = some s1 :=
+    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
+      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x9
+        (by decide)).trans savedS1
   have s1AtLink : afterLink.regs.get? x9 = some s1 :=
     (wrapperAfterDwordStore_register frame _ _ _ _ x9 (by decide) (by decide) (by decide)
       (by decide)).trans s1AtFrame
@@ -951,10 +950,10 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have s1RetiredPresent := wrapperAfterDwordStore_retired afterS0
     (BitVec.ofNat 64 0x102bc) s1Retired (BitVec.ofNat 64 (stackBase + 0xa08)) s1
   obtain ⟨s2, savedS2⟩ := machine.savedS2AtEntry
-  have s2AtFrame : frame.regs.get? x18 = some s2 := by
-    simpa [frame, wrapperAfterFirstFrameDecrement, afterRegisterWrite,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using savedS2
+  have s2AtFrame : frame.regs.get? x18 = some s2 :=
+    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
+      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x18
+        (by decide)).trans savedS2
   have s2AtLink : afterLink.regs.get? x18 = some s2 :=
     (wrapperAfterDwordStore_register frame _ _ _ _ x18 (by decide) (by decide) (by decide)
       (by decide)).trans s2AtFrame
@@ -1038,14 +1037,14 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
         notIncrement notRetired).trans
       ((wrapperAfterDwordStore_register frame _ _ _ _ register notPc notNextPc
         notIncrement notRetired).trans atFrame)))
-  have inputAtFrame : frame.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) := by
-    simpa [frame, wrapperAfterFirstFrameDecrement, afterRegisterWrite,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using source.2.2.1
-  have lengthAtFrame : frame.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) := by
-    simpa [frame, wrapperAfterFirstFrameDecrement, afterRegisterWrite,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using source.2.2.2.1
+  have inputAtFrame : frame.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) :=
+    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
+      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x10
+        (by decide)).trans source.2.2.1
+  have lengthAtFrame : frame.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) :=
+    ((afterRegisterWrite_writes entry (BitVec.ofNat 64 0x102b0) frameRetired x2
+      (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stackBase + 0xa20)))).get x11
+        (by decide)).trans source.2.2.2.1
   have finalInput := preserveFourStores x10 (by decide) (by decide) (by decide) (by decide)
     inputAtFrame
   have finalLength := preserveFourStores x11 (by decide) (by decide) (by decide) (by decide)
@@ -1131,16 +1130,12 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have prefix4 := ownStep (fromStep + 4) 0x102c0 afterS1 final s1Pc (regionPc _)
     (notExitPc _)
     (by simpa [final] using s2Run)
-  have prefix01 := ConfinedPrefix.trans prefix0 (by simpa using prefix1)
-  have prefix012 := ConfinedPrefix.trans prefix01 (by simpa [Nat.add_assoc] using prefix2)
-  have prefix0123 := ConfinedPrefix.trans prefix012 (by simpa [Nat.add_assoc] using prefix3)
   have confined : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
       Level2ChildSummary fromStep 5 entry final := by
-    simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix0123
-      (by simpa [Nat.add_assoc] using prefix4)
+    confined_steps [prefix0, prefix1, prefix2, prefix3, prefix4]
   refine ⟨final, ?_, confined, finalPc, finalStack, finalInput, finalLength, finalAttempted,
     finalInputMemory, finalPlatformAgree, finalRetired, finalCode,
     ⟨link, s0, s1, s2, linkAtEntry, savedS0, savedS1, savedS2, finalSavedFrame⟩⟩
@@ -1205,9 +1200,8 @@ theorem wrapper_final_frame_decrement_step (stepNo : Nat) (args : ZesuDecodeRawA
   obtain ⟨retired, run⟩ := generatedRegisterWriteStep machine.machine agree retiredPresent
     (by simpa [canonicalContractParams, canonicalEnvironment] using code)
     stepNo 0x102c4 0xdd010113 atPc decode execute
-  refine ⟨retired, run, ?_⟩
-  simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  exact ⟨retired, run, afterRegisterWrite_destination state (BitVec.ofNat 64 0x102c4) retired x2
+    (BitVec.ofNat 64 stackBase) (by decide) (by decide)⟩
 
 /-- The complete six-instruction frame setup, ending with the exact final stack pointer. -/
 theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
@@ -1243,14 +1237,12 @@ theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   have finalPc : final.regs.get? PC = some (BitVec.ofNat 64 0x102c8) := by
     simpa [final] using afterRegisterWrite_pc saved (BitVec.ofNat 64 0x102c4) retired x2
       (BitVec.ofNat 64 stackBase)
-  have finalInput : final.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) := by
-    simpa [final, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using savedInput
-  have finalLength : final.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) := by
-    simpa [final, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using savedLength
+  have finalInput : final.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) :=
+    ((afterRegisterWrite_writes saved (BitVec.ofNat 64 0x102c4) retired x2
+      (BitVec.ofNat 64 stackBase)).get x10 (by decide)).trans savedInput
+  have finalLength : final.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size) :=
+    ((afterRegisterWrite_writes saved (BitVec.ofNat 64 0x102c4) retired x2
+      (BitVec.ofNat 64 stackBase)).get x11 (by decide)).trans savedLength
   have finalAttempted : final.mem.get? 0x4215020 = entry.mem.get? 0x4215020 := by
     simpa [final, afterRegisterWrite_mem] using savedAttempted
   have finalInputMemory : MemoryRepresentation.MemoryBytes final args.inputBase args.bytes := by
@@ -1268,17 +1260,14 @@ theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 5) 1 saved final := by
-    apply ConfinedPrefix.ownStep savedPc
-    · exact regionPc _
-    · exact notExitPc _
-    · simpa [final] using run
+      Level2ChildSummary (fromStep + 5) 1 saved final :=
+    ConfinedPrefix.ownStep' savedPc (by simpa [final] using run)
   have confined : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
       Level2ChildSummary fromStep 6 entry final := by
-    simpa [Nat.add_assoc] using ConfinedPrefix.trans savedPrefix finalStep
+    confined_steps [savedPrefix, finalStep]
   refine ⟨final, ?_, confined, finalPc, by simpa [final] using finalStack, finalInput, finalLength,
     finalAttempted, finalInputMemory, finalAgree, finalRetired, finalCode,
     ⟨link, s0, s1, s2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
@@ -1449,9 +1438,8 @@ theorem wrapper_attempted_load_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
   let address := BitVec.ofNat 64 0x4215020
   have executeAgree : Agree platformPreserved entry executeState :=
     agree.trans (agree_decoderExecuteState state (BitVec.ofNat 64 0x102d4))
-  have globalsAtExecute : executeState.regs.get? x18 = some address := by
-    simpa [executeState, address, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using globals
+  have globalsAtExecute : executeState.regs.get? x18 = some address :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x102d4)).get x18 (by decide)).trans globals
   obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := machine.machine.mstatus
   obtain ⟨machineMseccfgBits, machineMseccfgRead, pmmDisabled⟩ := machine.machine.mseccfg
   have mstatusAtExecute := (executeAgree mstatus (by simp [platformPreserved])).trans mstatusRead
@@ -1605,9 +1593,7 @@ theorem wrapper_fresh_branch_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     retiredRead
   refine ⟨retired, ?_, ?_⟩
   · simpa [wrapperAfterFreshBranch, targetEq] using run
-  · simp [wrapperAfterFreshBranch, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  · exact Elfling.tryStepControlFlowAfterRetired_pc _ _ _
 
 /-- Eleven wrapper-owned Sail steps reach the selected allocator setup on the fresh-call path. -/
 theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
@@ -1657,9 +1643,8 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   have pc8 : s8.regs.get? PC = some (BitVec.ofNat 64 0x102d0) := by
     simpa [s8] using afterRegisterWrite_pc s7 (BitVec.ofNat 64 0x102cc) r8 x11
       (BitVec.ofNat 64 0x42152cc)
-  have page8 : s8.regs.get? x11 = some (BitVec.ofNat 64 0x42152cc) := by
-    simp [s8, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have page8 : s8.regs.get? x11 = some (BitVec.ofNat 64 0x42152cc) :=
+    afterRegisterWrite_destination s7 (BitVec.ofNat 64 0x102cc) r8 x11 (BitVec.ofNat 64 0x42152cc) (by decide) (by decide)
   have agree8 : Agree platformPreserved entry s8 :=
     agree7.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   have retired8 := afterRegisterWrite_retired_present s7 (BitVec.ofNat 64 0x102cc) r8 x11
@@ -1673,9 +1658,8 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   have pc9 : s9.regs.get? PC = some (BitVec.ofNat 64 0x102d4) := by
     simpa [s9] using afterRegisterWrite_pc s8 (BitVec.ofNat 64 0x102d0) r9 x18
       (BitVec.ofNat 64 0x4215020)
-  have globals9 : s9.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
-    simp [s9, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have globals9 : s9.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    afterRegisterWrite_destination s8 (BitVec.ofNat 64 0x102d0) r9 x18 (BitVec.ofNat 64 0x4215020) (by decide) (by decide)
   have agree9 : Agree platformPreserved entry s9 :=
     agree8.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   have retired9 := afterRegisterWrite_retired_present s8 (BitVec.ofNat 64 0x102d0) r9 x18
@@ -1694,9 +1678,8 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   let s10 := afterRegisterWrite s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64)
   have pc10 : s10.regs.get? PC = some (BitVec.ofNat 64 0x102d8) := by
     simpa [s10] using afterRegisterWrite_pc s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64)
-  have fresh10 : s10.regs.get? x11 = some (0#64) := by
-    simp [s10, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have fresh10 : s10.regs.get? x11 = some (0#64) :=
+    afterRegisterWrite_destination s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64) (by decide) (by decide)
   have agree10 : Agree platformPreserved entry s10 :=
     agree9.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   have retired10 := afterRegisterWrite_retired_present s9 (BitVec.ofNat 64 0x102d4) r10 x11
@@ -1742,9 +1725,8 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
       (by decide) (by decide) (by decide) (by decide)).trans input9
   have finalInput := (wrapperAfterFreshBranch_register s10 r11 x10 (by decide) (by decide)
     (by decide) (by decide)).trans input10
-  have length7 : s7.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
-    simp [s7, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have length7 : s7.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
+    afterRegisterWrite_destination s6 (BitVec.ofNat 64 0x102c8) r7 x9 (BitVec.ofNat 64 args.bytes.size) (by decide) (by decide)
   have length8 : s8.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
     exact (afterRegisterWrite_register s7 (BitVec.ofNat 64 0x102cc) r8 x11 x9
       (BitVec.ofNat 64 0x42152cc) (by decide) (by decide) (by decide) (by decide)
@@ -1804,17 +1786,12 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     (regionPc _)
     (notExitPc _)
     (by simpa [final] using run11)
-  have prefix7' := ConfinedPrefix.trans prefix6 (by simpa [Nat.add_assoc] using prefix7)
-  have prefix8' := ConfinedPrefix.trans prefix7' (by simpa [Nat.add_assoc] using prefix8)
-  have prefix9' := ConfinedPrefix.trans prefix8' (by simpa [Nat.add_assoc] using prefix9)
-  have prefix10' := ConfinedPrefix.trans prefix9' (by simpa [Nat.add_assoc] using prefix10)
   have confined : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
       Level2ChildSummary fromStep 11 entry final := by
-    simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix10'
-      (by simpa [Nat.add_assoc] using prefix11)
+    confined_steps [prefix6, prefix7, prefix8, prefix9, prefix10, prefix11]
   refine ⟨final, ?_, confined, by simpa [final] using pc11, finalStack, finalInput, finalLength,
     finalGlobals, finalFresh, finalInputMemory, finalAgree, finalRetired, finalCode,
     ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
@@ -1944,9 +1921,8 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
   obtain ⟨r13, run13⟩ := wrapper_attempted_value_step (fromStep + 12) args stackBase entry s12
     machine agree12 retired12 code12 pc12
   let final := afterRegisterWrite s12 (BitVec.ofNat 64 0x102ec) r13 x10 (1#64)
-  have savedInput12 : s12.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
-    simp [s12, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have savedInput12 : s12.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) :=
+    afterRegisterWrite_destination s11 (BitVec.ofNat 64 0x102e8) r12 x8 (BitVec.ofNat 64 args.inputBase) (by decide) (by decide)
   have keep {register : Register} {value : RegisterType register}
       (different : x10 ≠ register) (notPc : PC ≠ register)
       (notNextPc : nextPC ≠ register) (notIncrement : minstret_increment ≠ register)
@@ -1968,9 +1944,8 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
       (by decide)).trans globals11
   have finalPc : final.regs.get? PC = some (BitVec.ofNat 64 0x102f0) := by
     simpa [final] using afterRegisterWrite_pc s12 (BitVec.ofNat 64 0x102ec) r13 x10 (1#64)
-  have finalValue : final.regs.get? x10 = some (1#64) := by
-    simp [final, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have finalValue : final.regs.get? x10 = some (1#64) :=
+    afterRegisterWrite_destination s12 (BitVec.ofNat 64 0x102ec) r13 x10 (1#64) (by decide) (by decide)
   have finalFresh : final.mem.get? 0x4215020 = some (0#8) := by
     simpa [final, s12, afterRegisterWrite_mem] using fresh11
   have finalInputMemory : MemoryRepresentation.MemoryBytes final args.inputBase args.bytes := by
@@ -1990,28 +1965,20 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 11) 1 s11 s12 := by
-    apply ConfinedPrefix.ownStep pc11
-    · exact regionPc _
-    · exact notExitPc _
-    · simpa [s12] using run12
+      Level2ChildSummary (fromStep + 11) 1 s11 s12 :=
+    ConfinedPrefix.ownStep' pc11 (by simpa [s12] using run12)
   have prefix13 : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 12) 1 s12 final := by
-    apply ConfinedPrefix.ownStep pc12
-    · exact regionPc _
-    · exact notExitPc _
-    · simpa [final] using run13
-  have prefix12' := ConfinedPrefix.trans prefix11 (by simpa [Nat.add_assoc] using prefix12)
+      Level2ChildSummary (fromStep + 12) 1 s12 final :=
+    ConfinedPrefix.ownStep' pc12 (by simpa [final] using run13)
   have confined : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
       Level2ChildSummary fromStep 13 entry final := by
-    simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix12'
-      (by simpa [Nat.add_assoc] using prefix13)
+    confined_steps [prefix11, prefix12, prefix13]
   refine ⟨final, ?_, confined, finalPc,
     keep (by decide) (by decide) (by decide) (by decide) (by decide)
     stack12, keep (by decide) (by decide) (by decide) (by decide) (by decide) savedInput12,
@@ -2172,9 +2139,9 @@ theorem wrapper_through_allocator_tag
   have firstContext : afterFirst.regs.get? x11 = some (BitVec.ofNat 64 0x4215021) := by
     have valueEq : Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1 =
         BitVec.ofNat 64 0x4215021 := by native_decide
-    simp [afterFirst, allocatorAfterDataPointer, afterRegisterWrite,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, valueEq]
+    rw [← valueEq]
+    exact afterRegisterWrite_destination atAllocator (BitVec.ofNat 64 0x102f0) r14 x11
+      (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1) (by decide) (by decide)
   have finalContext := (wrapperAfterAllocatorTag_register afterFirst r15
     (BitVec.ofNat 64 0x4215020) (1#64) x11 (by decide) (by decide) (by decide)
     (by decide)).trans firstContext
@@ -2233,19 +2200,14 @@ theorem wrapper_through_allocator_tag
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 14) 1 afterFirst final := by
-    apply ConfinedPrefix.ownStep firstPc
-    · exact regionPc _
-    · exact notExitPc _
-    · simpa [final] using tagStep
-  have prefix14 := ConfinedPrefix.trans prefix13 (by simpa [Nat.add_assoc] using firstPrefix)
+      Level2ChildSummary (fromStep + 14) 1 afterFirst final :=
+    ConfinedPrefix.ownStep' firstPc (by simpa [final] using tagStep)
   have confined : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
       Level2ChildSummary fromStep 15 entry final := by
-    simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix14
-      (by simpa [Nat.add_assoc] using tagPrefix)
+    confined_steps [prefix13, firstPrefix, tagPrefix]
   refine ⟨final, ?_, confined, finalPc, finalStack, finalSavedInput, finalLength, finalContext,
     finalGlobals, finalInputMemory, finalAgree, finalRetired, finalCode,
     ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
@@ -2634,8 +2596,7 @@ theorem wrapper_through_allocator_setup
         functionInstance_raw_decoder_root_zesu_decode_raw)
       (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
       Level2ChildSummary fromStep 19 entry final := by
-    simpa [Nat.add_assoc] using ConfinedPrefix.trans prefix15
-      (by simpa [Nat.add_assoc] using secondPrefix)
+    confined_steps [prefix15, secondPrefix]
   exact ⟨final, by simpa [Nat.add_assoc] using complete, confined, post.pc, post.stack,
     post.savedInput, post.length, post.globals, post.inputMemory, post.agree, post.retired, post.code,
     post.savedFrame⟩
@@ -2793,9 +2754,8 @@ theorem wrapper_decode_first_error_branch_step (stepNo : Nat) (args : DecodeInli
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x10324)
   have tagAtExecute : executeState.regs.get? x10 = some
-      (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, tagRead]
+      (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10324)).get x10 (by decide)).trans tagRead
   have tagNonzero : BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error)) ≠ 0#64 := by
     cases error <;> simp [Contracts.decodeInternalResultTag]
   have condition : Runs (bTypeTaken (.Regidx 0#5) (.Regidx 10#5) .BNE)
@@ -2828,9 +2788,7 @@ theorem wrapper_decode_first_error_branch_step (stepNo : Nat) (args : DecodeInli
     retiredRead
   refine ⟨retired, ?_, ?_⟩
   · simpa [wrapperAfterDecodeFirstErrorBranch, targetEq] using run
-  · simp [wrapperAfterDecodeFirstErrorBranch, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  · exact Elfling.tryStepControlFlowAfterRetired_pc _ _ _
 
 /-- Package a failed first `decode` segment with its real checked outgoing edge. -/
 theorem wrapper_decode_first_error_inlineTransfer (fromStep used : Nat) (args : DecodeInlineArgs)

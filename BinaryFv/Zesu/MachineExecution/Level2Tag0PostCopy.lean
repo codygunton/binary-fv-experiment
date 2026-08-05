@@ -26,9 +26,7 @@ set_option maxHeartbeats 5000000
 
 /-- The exact post-`memcpy` facts consumed by the three tag-zero wrapper instructions. -/
 structure Tag0PostMemcpyPre (base state : State) (machineArgs : DecoderMachineArgs) where
-  machine : DecoderMachinePre
-    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-    machineArgs base
+  machine : DecoderMachinePre decodeRawExecutionPcs machineArgs base
   platform : Agree platformPreserved base state
   retired : RetiredCounterPresent state
   code : canonicalContractParams.env.CodeIntact state
@@ -80,9 +78,7 @@ def tag0PostcopyStatusStoreAfter (state : State) (retired : BitVec 64) : State :
 
 /-- Facts needed specifically by the payload-adjacent status store. -/
 structure Tag0PostcopyStatusStorePre (base state : State) (machineArgs : DecoderMachineArgs) where
-  machine : DecoderMachinePre
-    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-    machineArgs base
+  machine : DecoderMachinePre decodeRawExecutionPcs machineArgs base
   platform : Agree platformPreserved base state
   retired : RetiredCounterPresent state
   code : canonicalContractParams.env.CodeIntact state
@@ -117,12 +113,11 @@ theorem tag0_postcopy_status_store_step {machineArgs : DecoderMachineArgs} {base
     Agree.weaken (fun _ preserved => preserved.2)
       (agree_stepPremiseState state (BitVec.ofNat 64 0x10354))
   have executeAgree : Agree decoderPreserved base executeState := decoderAgree.trans stepAgree
-  have globalsAtExecute : executeState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
-    simpa [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using pre.globalsValue
-  have statusAtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 1) := by
-    simpa [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using status
+  have globalsAtExecute : executeState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10354)).get x18 (by decide)).trans
+      pre.globalsValue
+  have statusAtExecute : executeState.regs.get? x11 = some (BitVec.ofNat 64 1) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10354)).get x11 (by decide)).trans status
   have targetEq : (BitVec.ofNat 64 0x4215020) + sign_extend (m := 64) 0x350#12 =
       BitVec.ofNat 64 0x4215370 := by decide
   have addressRun := get_transformed_data_addr_machine_store_run executeState
@@ -216,9 +211,7 @@ theorem tag0PostcopyStatusStoreAfter_preserves_saved_frame {state : State} (reti
 
 /-- Execute `addi a0, x0, 1` at `0x10358`. -/
 theorem tag0_postcopy_result_register_step {machineArgs : DecoderMachineArgs} {base state : State}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
+    (machine : DecoderMachinePre decodeRawExecutionPcs machineArgs base)
     (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
     (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10358)) :
@@ -294,17 +287,15 @@ theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before :
   have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10354) := by
     simpa [s1] using afterRegisterWrite_pc before (BitVec.ofNat 64 0x10350) r1 x11
       (BitVec.ofNat 64 1)
-  have status1 : s1.regs.get? x11 = some (BitVec.ofNat 64 1) := by
-    simp [s1, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  have globals1 : s1.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
-    simpa [s1] using afterRegisterWrite_register before (BitVec.ofNat 64 0x10350) r1 x11 x18
-      (BitVec.ofNat 64 1) (by decide) (by decide) (by decide)
-      (by decide) (by decide) |>.trans pre.globalsValue
-  have stack1 : s1.regs.get? x2 = some pre.stack := by
-    simpa [s1] using afterRegisterWrite_register before (BitVec.ofNat 64 0x10350) r1 x11 x2
-      (BitVec.ofNat 64 1) (by decide) (by decide) (by decide)
-      (by decide) (by decide) |>.trans pre.stackValue
+  have s1Writes : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x11)) before s1 :=
+    afterRegisterWrite_writes before (BitVec.ofNat 64 0x10350) r1 x11 (BitVec.ofNat 64 1)
+  have status1 : s1.regs.get? x11 = some (BitVec.ofNat 64 1) :=
+    afterRegisterWrite_destination before (BitVec.ofNat 64 0x10350) r1 x11 (BitVec.ofNat 64 1)
+      (by decide) (by decide)
+  have globals1 : s1.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    (s1Writes.get x18 (by decide)).trans pre.globalsValue
+  have stack1 : s1.regs.get? x2 = some pre.stack :=
+    (s1Writes.get x2 (by decide)).trans pre.stackValue
   have payload1 : MemoryRepresentation.MemoryBytes s1 0x4215030 pre.contents := by
     apply pre.payload.of_mem_eq
     intro index bound
@@ -316,32 +307,26 @@ theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before :
     globalsValue := globals1, statusSlot := pre.statusSlot }
   obtain ⟨r2, h2⟩ := tag0_postcopy_status_store_step pre1 (fromStep + 1) pc1 status1
   let s2 := tag0PostcopyStatusStoreAfter s1 r2
-  have a2 : Agree platformPreserved base s2 := by
-    intro register preserved
-    have notPc : PC ≠ register := by intro h; subst register; simp [platformPreserved] at preserved
-    have notNextPc : nextPC ≠ register := by intro h; subst register; simp [platformPreserved] at preserved
-    have notIncrement : minstret_increment ≠ register := by intro h; subst register; simp [platformPreserved] at preserved
-    have notRetired : minstret ≠ register := by intro h; subst register; simp [platformPreserved] at preserved
-    simpa [s2, tag0PostcopyStatusStoreAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notPc, notNextPc,
-      notIncrement, notRetired] using a1 register preserved
-  have c2 : RetiredCounterPresent s2 := by
-    refine ⟨Sail.BitVec.addInt r2 1, ?_⟩
-    simp [s2, tag0PostcopyStatusStoreAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
+  have s2Writes : WritesOnlyRegs stepBookkeeping s1 s2 :=
+    storeRetirement_writes s1 (BitVec.ofNat 64 0x10354) (BitVec.ofNat 64 0x10358) r2 0x4215370 _
+  have a2 : Agree platformPreserved base s2 :=
+    a1.trans (s2Writes.agree platformPreserved_disjoint)
+  have c2 : RetiredCounterPresent s2 :=
+    tryStepControlFlowAfterRetired_retired_present _ (BitVec.ofNat 64 0x10358) r2
   have code2 : canonicalContractParams.env.CodeIntact s2 := by
     have unbacked : ∀ index : Fin 1, Artifacts.programImage.readFileByte? (0x4215370 + index.val) = none := by native_decide
     apply fileBytesMatchMemory_afterWriteBytes Artifacts.programImage
     · exact unbacked
     simpa [s2, tag0PostcopyStatusStoreAfter, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement] using code1
-  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10358) := by
-    simp [s2, tag0PostcopyStatusStoreAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10358) :=
+    tryStepControlFlowAfterRetired_pc _ (BitVec.ofNat 64 0x10358) r2
   obtain ⟨r3, h3⟩ := tag0_postcopy_result_register_step pre.machine a2 c2 code2 (fromStep + 2) pc2
   rw [tag0_postcopy_one_value] at h3
   let after := afterRegisterWrite s2 (BitVec.ofNat 64 0x10358) r3 x10
     (BitVec.ofNat 64 1)
+  have afterWrites : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x10)) s2 after :=
+    afterRegisterWrite_writes s2 (BitVec.ofNat 64 0x10358) r3 x10 (BitVec.ofNat 64 1)
   have prefix1 : WrapperPrefix fromStep 1 before s1 :=
     ConfinedPrefix.ownStep' pre.atPc (by simpa [s1] using h1)
   have prefix2 : WrapperPrefix (fromStep + 1) 1 s1 s2 :=
@@ -356,11 +341,9 @@ theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before :
   · trace_steps [(by simpa [s1] using h1), (by simpa [s2] using h2), (by simpa [after] using h3)]
   · simpa [after] using afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x10358) r3 x10
       (BitVec.ofNat 64 1)
-  · simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  · simp [after, s2, tag0PostcopyStatusStoreAfter, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, status1]
+  · exact afterRegisterWrite_destination s2 (BitVec.ofNat 64 0x10358) r3 x10 (BitVec.ofNat 64 1)
+      (by decide) (by decide)
+  · exact (afterWrites.get x11 (by decide)).trans ((s2Writes.get x11 (by decide)).trans status1)
   · apply (tag0PostcopyStatusStoreAfter_preserves_payload r2 pre.contents payload1
       pre.payloadLength).of_mem_eq
     intro index bound
@@ -371,12 +354,8 @@ theorem tag0_postcopy_complete {machineArgs : DecoderMachineArgs} {base before :
   · exact a2.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   · rw [DecoderEnvironment.CodeIntact, afterRegisterWrite_mem]; exact code2
   · exact afterRegisterWrite_retired_present _ _ _ _ _
-  · simp [after, s2, tag0PostcopyStatusStoreAfter, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, globals1]
-  · simp [after, s2, tag0PostcopyStatusStoreAfter, afterRegisterWrite,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, afterWriteBytes_regs,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, stack1]
+  · exact (afterWrites.get x18 (by decide)).trans ((s2Writes.get x18 (by decide)).trans globals1)
+  · exact (afterWrites.get x2 (by decide)).trans ((s2Writes.get x2 (by decide)).trans stack1)
 
 /-- Compose the real tag-zero suffix through the common status store and wrapper return. -/
 theorem tag0_postcopy_through_epilogue {machineArgs : DecoderMachineArgs} {base before : State}

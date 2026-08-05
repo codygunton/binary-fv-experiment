@@ -4,6 +4,8 @@ import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.SentinelAssembly
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
+import BinaryFv.Zesu.MachineExecution.RegisterWriteStep
+import BinaryFv.Zesu.MachineExecution.Seg
 
 /-!
 # Concrete Sail execution of `zesu_raw_result`
@@ -22,203 +24,52 @@ open BinaryFv.Zesu.Contracts
 open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 open BinaryFv.Zesu.Elflings.Generated
 open PreSail LeanRV64DExecutable.Functions Register
+open RegisterWriteStep
 
 set_option maxRecDepth 100000
 set_option maxHeartbeats 800000
-
-/-- Exact post-state of a register-writing fall-through instruction. -/
-def afterRegisterWrite (state : State) (pc retired : BitVec 64) (destination : Register)
-    (value : RegisterType destination) : State :=
-  tryStepControlFlowAfterRetired
-    { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
-      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
-        destination value }
-    (Sail.BitVec.addInt pc 4) retired
-
-theorem afterRegisterWrite_agree {state : State} {pc retired : BitVec 64}
-    {destination : Register} {value : RegisterType destination}
-    (notPreserved : ¬ platformPreserved destination) :
-    Agree platformPreserved state (afterRegisterWrite state pc retired destination value) := by
-  intro register preserved
-  have different : destination ≠ register := by
-    intro equal
-    exact notPreserved (equal ▸ preserved)
-  have notPc : PC ≠ register := by
-    intro equal
-    subst register
-    simpa [platformPreserved] using preserved
-  have notNextPc : nextPC ≠ register := by
-    intro equal
-    subst register
-    simpa [platformPreserved] using preserved
-  have notIncrement : minstret_increment ≠ register := by
-    intro equal
-    subst register
-    simpa [platformPreserved] using preserved
-  have notRetired : minstret ≠ register := by
-    intro equal
-    subst register
-    simpa [platformPreserved] using preserved
-  simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-    different, notPc, notNextPc, notIncrement, notRetired]
-
-theorem afterRegisterWrite_mem (state : State) (pc retired : BitVec 64)
-    (destination : Register) (value : RegisterType destination) :
-    (afterRegisterWrite state pc retired destination value).mem = state.mem := rfl
-
-theorem afterRegisterWrite_retired_present (state : State) (pc retired : BitVec 64)
-    (destination : Register) (value : RegisterType destination) :
-    RetiredCounterPresent (afterRegisterWrite state pc retired destination value) := by
-  refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
-  simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
-
-theorem afterRegisterWrite_pc (state : State) (pc retired : BitVec 64)
-    (destination : Register) (value : RegisterType destination) :
-    (afterRegisterWrite state pc retired destination value).regs.get? PC =
-      some (Sail.BitVec.addInt pc 4) := by
-  simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    Std.ExtDHashMap.get?_insert]
-
-theorem afterRegisterWrite_exitPlatform {state : State} {pc retired : BitVec 64}
-    {destination : Register} {value : RegisterType destination} {nextPc : Nat}
-    (notPreserved : ¬ platformPreserved destination) (platform : ExitPlatform state nextPc) :
-    ExitPlatform (afterRegisterWrite state pc retired destination value) nextPc := by
-  have code : Artifacts.programImage.fileBytesMatchMemory
-      (afterRegisterWrite state pc retired destination value).mem := by
-    simpa [afterRegisterWrite_mem] using platform.code
-  exact exitPlatform_of_agree (afterRegisterWrite_agree notPreserved)
-    (afterRegisterWrite_retired_present state pc retired destination value) code platform
-
-theorem exitPlatform_of_executionState {before after : State} {pc : Nat}
-    (agree : Agree platformPreserved before after) (retired : RetiredCounterPresent after)
-    (memoryUnchanged : after.mem = before.mem) (platform : ExitPlatform before pc) :
-    ExitPlatform after pc := by
-  have code : Artifacts.programImage.fileBytesMatchMemory after.mem := by
-    simpa [memoryUnchanged] using platform.code
-  exact exitPlatform_of_agree agree retired code platform
-
-/-- Derive all common machine premises for one register-writing straight-line instruction. -/
-theorem fallThroughRegisterWriteStep (stepNo pcNat : Nat) (state : State)
-    (byte0 byte1 byte2 byte3 : BitVec 8) (instruction : instruction)
-    (destination : Register) (value : RegisterType destination)
-    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pcNat))
-    (platform : ExitPlatform state pcNat)
-    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat)
-      byte0 byte1 byte2 byte3)
-    (base : BaseInstructionEncoding byte0)
-    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state) instruction)
-    (execute : Runs (execute instruction)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat))
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pcNat) with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-          (BitVec.ofNat 64 pcNat)).regs.insert destination value }
-      (.Retire_Success ()))
-    (addressExcluded : FetchMMIOAddressExcluded (BitVec.ofNat 64 pcNat))
-    (aligned : (BitVec.ofNat 64 pcNat).toNat % 4 = 0)
-    (destinationNotNextPc : destination ≠ nextPC)
-    (destinationNotHart : destination ≠ hart_state)
-    (destinationNotIncrement : destination ≠ minstret_increment)
-    (destinationNotRetired : destination ≠ minstret) :
-    ∃ retired, Runs (try_step stepNo false) state
-      (afterRegisterWrite state (BitVec.ofNat 64 pcNat) retired destination value) false := by
-  obtain ⟨hartRead, privilege, satpRead, midelegRead, mieRead, mipRead, pmpcfgRead,
-    pmpaddrRead, inhibitRead, configRead, elpRead, misaCase⟩ := platform.normal
-  obtain ⟨mstatusBits, mstatusRead⟩ := platform.mstatusRead
-  obtain ⟨retired, retiredRead⟩ := platform.retired
-  have incrementAgree := agree_afterIncrement state
-  have incrementNormal := normalExecutionState_of_platformPreserved incrementAgree platform.normal
-  have fetchPlatform : FetchBasePlatform (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 pcNat) :=
-    fetchBasePlatform_of_offPC
-      (pc_afterIncrement state (BitVec.ofNat 64 pcNat) atPc)
-      (fetchBasePlatformOffPC_of_normal incrementNormal
-        ((platformPreserved_mstatus incrementAgree).trans mstatusRead) aligned
-        (fetchPmaAllows_of_agree incrementAgree platform.pmaAllows))
-  have noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 pcNat) :=
-    fetchMemoryNoMMIO_of_state_layout_excluded _ _
-      ⟨addressExcluded, (platformPreserved_htifBase incrementAgree).trans platform.htifRead⟩
-  have interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state) :=
-    interruptDisabled_of_normal incrementNormal
-      ((platformPreserved_mstatus incrementAgree).trans mstatusRead)
-      (platform.meipRead.imp fun _ read => (platformPreserved_sigMeip incrementAgree).trans read)
-  have notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state) :=
-    landingPadNotExpected_of_normal incrementNormal
-  refine ⟨retired, ?_⟩
-  exact tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 pcNat) retired 0 0
-    byte0 byte1 byte2 byte3 instruction destination value fetchPlatform noMMIO bytes interrupts
-    base decode notExpected execute destinationNotNextPc destinationNotHart
-    destinationNotIncrement destinationNotRetired
-    hartRead inhibitRead configRead (by decide) (by decide) retiredRead
-
-theorem fetchFileInstruction (state : State) (pc : Nat)
-    (byte0 byte1 byte2 byte3 : UInt8)
-    (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem)
-    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
-    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
-    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
-    (fits : pc < 2 ^ 64) :
-    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
-      (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
-      (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat) := by
-  have loadedAfter : Artifacts.programImage.fileBytesMatchMemory
-      (tryStepControlFlowAfterIncrement state).mem := by
-    simpa [tryStepControlFlowAfterIncrement] using loaded
-  exact fetchBytesAt_of_file_bytes Artifacts.programImage
-    (tryStepControlFlowAfterIncrement state) pc fits loadedAfter byte0 byte1 byte2 byte3
-    read0 read1 read2 read3
 
 theorem raw_result_auipc_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x1378c)
       0x17#8 0x25#8 0x20#8 0x04#8 :=
-  fetchFileInstruction state 0x1378c 0x17 0x25 0x20 0x04 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x1378c 0x17 0x25 0x20 0x04 loaded
 
 theorem raw_result_base_add_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x13790)
       0x13#8 0x05#8 0x45#8 0x89#8 :=
-  fetchFileInstruction state 0x13790 0x13 0x05 0x45 0x89 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x13790 0x13 0x05 0x45 0x89 loaded
 
 theorem raw_result_discriminant_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x13794)
       0x83#8 0x45#8 0x05#8 0x35#8 :=
-  fetchFileInstruction state 0x13794 0x83 0x45 0x05 0x35 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x13794 0x83 0x45 0x05 0x35 loaded
 
 theorem raw_result_payload_add_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x13798)
       0x13#8 0x05#8 0x05#8 0x01#8 :=
-  fetchFileInstruction state 0x13798 0x13 0x05 0x05 0x01 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x13798 0x13 0x05 0x05 0x01 loaded
 
 theorem raw_result_seqz_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x1379c)
       0x93#8 0xb5#8 0x15#8 0x00#8 :=
-  fetchFileInstruction state 0x1379c 0x93 0xb5 0x15 0x00 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x1379c 0x93 0xb5 0x15 0x00 loaded
 
 theorem raw_result_mask_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x137a0)
       0x93#8 0x85#8 0xf5#8 0xff#8 :=
-  fetchFileInstruction state 0x137a0 0x93 0x85 0xf5 0xff loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x137a0 0x93 0x85 0xf5 0xff loaded
 
 theorem raw_result_select_fetch (state : State)
     (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x137a4)
       0x33#8 0xf5#8 0xa5#8 0x00#8 :=
-  fetchFileInstruction state 0x137a4 0x33 0xf5 0xa5 0x00 loaded
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+  fetchInstruction state 0x137a4 0x33 0xf5 0xa5 0x00 loaded
 
 theorem raw_result_auipc_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -331,9 +182,10 @@ theorem raw_result_auipc_step (fromStep : Nat) (state : State)
     (platformPreserved_mseccfg incrementAgree).trans seccfgRead
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x1378c)
-  have corePc : executeState.regs.get? PC = some (BitVec.ofNat 64 0x1378c) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, atPc]
+  have corePc : executeState.regs.get? PC = some (BitVec.ofNat 64 0x1378c) :=
+    ((coreControlFlowNextState_writes (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x1378c)).get PC (by decide)).trans
+      (pc_afterIncrement state (BitVec.ofNat 64 0x1378c) atPc)
   have execute : Runs
       (execute (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC))) executeState
       { executeState with regs := executeState.regs.insert x10 (BitVec.ofNat 64 0x421578c) }
@@ -370,9 +222,9 @@ theorem raw_result_base_add_step (fromStep : Nat) (state : State)
     (platformPreserved_mseccfg incrementAgree).trans seccfgRead
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x13790)
-  have source : executeState.regs.get? x10 = some (BitVec.ofNat 64 0x421578c) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, sourceValue]
+  have source : executeState.regs.get? x10 = some (BitVec.ofNat 64 0x421578c) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x13790)).get x10 (by decide)).trans
+      sourceValue
   have execute : Runs
       (execute (.ITYPE (0x894#12, .Regidx 10#5, .Regidx 10#5, .ADDI))) executeState
       { executeState with regs := executeState.regs.insert x10 (BitVec.ofNat 64 0x4215020) }
@@ -420,9 +272,9 @@ theorem raw_result_discriminant_step (fromStep : Nat) (initial state : State)
     (BitVec.ofNat 64 0x13794)
   have executeAgree : Agree platformPreserved initial executeState :=
     initialAgree.trans (agree_stepPremiseState state (BitVec.ofNat 64 0x13794))
-  have executeBase : executeState.regs.get? x10 = some (BitVec.ofNat 64 0x4215020) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, baseStored]
+  have executeBase : executeState.regs.get? x10 = some (BitVec.ofNat 64 0x4215020) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x13794)).get x10 (by decide)).trans
+      baseStored
   have addressCalculation : Runs
       (get_transformed_data_addr (.Regidx 10#5) (sign_extend (m := 64) 0x350#12)
         (MemoryAccessType.Load mem_payload.Data) 1) executeState executeState
@@ -504,9 +356,9 @@ theorem raw_result_payload_add_step (fromStep : Nat) (state : State)
   have seccfgIncrement := (platformPreserved_mseccfg incrementAgree).trans seccfgRead
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x13798)
-  have source : executeState.regs.get? x10 = some (BitVec.ofNat 64 0x4215020) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, sourceValue]
+  have source : executeState.regs.get? x10 = some (BitVec.ofNat 64 0x4215020) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x13798)).get x10 (by decide)).trans
+      sourceValue
   have execute : Runs
       (execute (.ITYPE (0x010#12, .Regidx 10#5, .Regidx 10#5, .ADDI))) executeState
       { executeState with
@@ -551,9 +403,9 @@ theorem raw_result_seqz_step (fromStep : Nat) (state : State) (model : DecoderGl
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x1379c)
   have source : executeState.regs.get? x11 =
-      some (zero_extend (m := 64) (rawResultTag model)) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, sourceValue]
+      some (zero_extend (m := 64) (rawResultTag model)) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x1379c)).get x11 (by decide)).trans
+      sourceValue
   have execute : Runs
       (execute (.ITYPE (0x001#12, .Regidx 11#5, .Regidx 11#5, .SLTIU))) executeState
       { executeState with regs := executeState.regs.insert x11 (rawResultSeqzValue model) }
@@ -589,9 +441,9 @@ theorem raw_result_mask_step (fromStep : Nat) (state : State) (model : DecoderGl
   have seccfgIncrement := (platformPreserved_mseccfg incrementAgree).trans seccfgRead
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x137a0)
-  have source : executeState.regs.get? x11 = some (rawResultSeqzValue model) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, sourceValue]
+  have source : executeState.regs.get? x11 = some (rawResultSeqzValue model) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x137a0)).get x11 (by decide)).trans
+      sourceValue
   have execute : Runs
       (execute (.ITYPE (0xfff#12, .Regidx 11#5, .Regidx 11#5, .ADDI))) executeState
       { executeState with regs := executeState.regs.insert x11 (rawResultMaskValue model) }
@@ -631,12 +483,12 @@ theorem raw_result_select_step (fromStep : Nat) (state : State) (model : Decoder
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x137a4)
   have payload : executeState.regs.get? x10 =
-      some (BitVec.ofNat 64 canonicalContractParams.resultBuffer) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, payloadValue]
-  have mask : executeState.regs.get? x11 = some (rawResultMaskValue model) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, maskValue]
+      some (BitVec.ofNat 64 canonicalContractParams.resultBuffer) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x137a4)).get x10 (by decide)).trans
+      payloadValue
+  have mask : executeState.regs.get? x11 = some (rawResultMaskValue model) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x137a4)).get x11 (by decide)).trans
+      maskValue
   have execute : Runs
       (execute (.RTYPE (.Regidx 10#5, .Regidx 11#5, .Regidx 10#5, .AND))) executeState
       { executeState with regs := executeState.regs.insert x10 (rawResultPointerValue model) }
@@ -671,10 +523,9 @@ theorem rawResultInstanceObligation_proved
   have platform2 : ExitPlatform s1 0x13790 :=
     exitPlatform_of_executionState agree1 (afterRegisterWrite_retired_present _ _ _ _ _) mem1
       (machine.instructions 0x13790 (by simp [rawResultInstructionPcs]))
-  have x10s1 : s1.regs.get? x10 = some (BitVec.ofNat 64 0x421578c) := by
-    simp [s1, rawResultAfterAuipc, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+  have x10s1 : s1.regs.get? x10 = some (BitVec.ofNat 64 0x421578c) :=
+    afterRegisterWrite_destination state (BitVec.ofNat 64 0x1378c) r1 x10
+      (BitVec.ofNat 64 0x421578c) (by decide) (by decide)
   have at2 : s1.regs.get? PC = some (BitVec.ofNat 64 0x13790) := by
     simpa [s1, rawResultAfterAuipc] using
       afterRegisterWrite_pc state (BitVec.ofNat 64 0x1378c) r1 x10
@@ -688,10 +539,9 @@ theorem rawResultInstanceObligation_proved
   have platform3 : ExitPlatform s2 0x13794 :=
     exitPlatform_of_executionState agree2 (afterRegisterWrite_retired_present _ _ _ _ _) mem2
       (machine.instructions 0x13794 (by simp [rawResultInstructionPcs]))
-  have x10s2 : s2.regs.get? x10 = some (BitVec.ofNat 64 0x4215020) := by
-    simp [s2, rawResultAfterBaseAdd, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+  have x10s2 : s2.regs.get? x10 = some (BitVec.ofNat 64 0x4215020) :=
+    afterRegisterWrite_destination s1 (BitVec.ofNat 64 0x13790) r2 x10
+      (BitVec.ofNat 64 0x4215020) (by decide) (by decide)
   have at3 : s2.regs.get? PC = some (BitVec.ofNat 64 0x13794) := by
     simpa [s2, rawResultAfterBaseAdd] using
       afterRegisterWrite_pc s1 (BitVec.ofNat 64 0x13790) r2 x10
@@ -706,10 +556,9 @@ theorem rawResultInstanceObligation_proved
   have platform4 : ExitPlatform s3 0x13798 :=
     exitPlatform_of_executionState agree3 (afterRegisterWrite_retired_present _ _ _ _ _) mem3
       (machine.instructions 0x13798 (by simp [rawResultInstructionPcs]))
-  have x10s3 : s3.regs.get? x10 = some (BitVec.ofNat 64 0x4215020) := by
-    simp [s3, rawResultAfterDiscriminant, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, x10s2]
+  have x10s3 : s3.regs.get? x10 = some (BitVec.ofNat 64 0x4215020) :=
+    ((afterRegisterWrite_writes s2 (BitVec.ofNat 64 0x13794) r3 x11
+      (zero_extend (m := 64) (rawResultTag model))).get x10 (by decide)).trans x10s2
   have at4 : s3.regs.get? PC = some (BitVec.ofNat 64 0x13798) := by
     simpa [s3, rawResultAfterDiscriminant] using
       afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x13794) r3 x11
@@ -723,10 +572,11 @@ theorem rawResultInstanceObligation_proved
   have platform5 : ExitPlatform s4 0x1379c :=
     exitPlatform_of_executionState agree4 (afterRegisterWrite_retired_present _ _ _ _ _) mem4
       (machine.instructions 0x1379c (by simp [rawResultInstructionPcs]))
-  have x11s4 : s4.regs.get? x11 = some (zero_extend (m := 64) (rawResultTag model)) := by
-    simp [s4, rawResultAfterPayloadAdd, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, s3, rawResultAfterDiscriminant]
+  have x11s4 : s4.regs.get? x11 = some (zero_extend (m := 64) (rawResultTag model)) :=
+    ((afterRegisterWrite_writes s3 (BitVec.ofNat 64 0x13798) r4 x10
+      (BitVec.ofNat 64 canonicalContractParams.resultBuffer)).get x11 (by decide)).trans
+      (afterRegisterWrite_destination s2 (BitVec.ofNat 64 0x13794) r3 x11
+        (zero_extend (m := 64) (rawResultTag model)) (by decide) (by decide))
   have at5 : s4.regs.get? PC = some (BitVec.ofNat 64 0x1379c) := by
     simpa [s4, rawResultAfterPayloadAdd] using
       afterRegisterWrite_pc s3 (BitVec.ofNat 64 0x13798) r4 x10
@@ -740,10 +590,9 @@ theorem rawResultInstanceObligation_proved
   have platform6 : ExitPlatform s5 0x137a0 :=
     exitPlatform_of_executionState agree5 (afterRegisterWrite_retired_present _ _ _ _ _) mem5
       (machine.instructions 0x137a0 (by simp [rawResultInstructionPcs]))
-  have x11s5 : s5.regs.get? x11 = some (rawResultSeqzValue model) := by
-    simp [s5, rawResultAfterSeqz, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+  have x11s5 : s5.regs.get? x11 = some (rawResultSeqzValue model) :=
+    afterRegisterWrite_destination s4 (BitVec.ofNat 64 0x1379c) r5 x11
+      (rawResultSeqzValue model) (by decide) (by decide)
   have at6 : s5.regs.get? PC = some (BitVec.ofNat 64 0x137a0) := by
     simpa [s5, rawResultAfterSeqz] using
       afterRegisterWrite_pc s4 (BitVec.ofNat 64 0x1379c) r5 x11 (rawResultSeqzValue model)
@@ -757,14 +606,16 @@ theorem rawResultInstanceObligation_proved
     exitPlatform_of_executionState agree6 (afterRegisterWrite_retired_present _ _ _ _ _) mem6
       (machine.instructions 0x137a4 (by simp [rawResultInstructionPcs]))
   have x10s6 : s6.regs.get? x10 =
-      some (BitVec.ofNat 64 canonicalContractParams.resultBuffer) := by
-    simp [s6, rawResultAfterMask, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, s5, rawResultAfterSeqz, s4, rawResultAfterPayloadAdd]
-  have x11s6 : s6.regs.get? x11 = some (rawResultMaskValue model) := by
-    simp [s6, rawResultAfterMask, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+      some (BitVec.ofNat 64 canonicalContractParams.resultBuffer) :=
+    ((afterRegisterWrite_writes s5 (BitVec.ofNat 64 0x137a0) r6 x11
+      (rawResultMaskValue model)).get x10 (by decide)).trans
+      (((afterRegisterWrite_writes s4 (BitVec.ofNat 64 0x1379c) r5 x11
+        (rawResultSeqzValue model)).get x10 (by decide)).trans
+        (afterRegisterWrite_destination s3 (BitVec.ofNat 64 0x13798) r4 x10
+          (BitVec.ofNat 64 canonicalContractParams.resultBuffer) (by decide) (by decide)))
+  have x11s6 : s6.regs.get? x11 = some (rawResultMaskValue model) :=
+    afterRegisterWrite_destination s5 (BitVec.ofNat 64 0x137a0) r6 x11
+      (rawResultMaskValue model) (by decide) (by decide)
   have at7 : s6.regs.get? PC = some (BitVec.ofNat 64 0x137a4) := by
     simpa [s6, rawResultAfterMask] using
       afterRegisterWrite_pc s5 (BitVec.ofNat 64 0x137a0) r6 x11 (rawResultMaskValue model)
@@ -849,10 +700,9 @@ theorem rawResultInstanceObligation_proved
     refine .step (fromStep + 5) 1 _ s5 s6 final pc5 region6 pc5NotExit step6 ?_
     refine .step (fromStep + 6) 0 _ s6 final final pc6 region7 pc6NotExit step7 ?_
     exact .exitAt (fromStep + 7) final _ finalPc atExit
-  have finalX10 : final.regs.get? x10 = some (rawResultPointerValue model) := by
-    simp [final, rawResultAfterSelect, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+  have finalX10 : final.regs.get? x10 = some (rawResultPointerValue model) :=
+    afterRegisterWrite_destination s6 (BitVec.ofNat 64 0x137a4) r7 x10
+      (rawResultPointerValue model) (by decide) (by decide)
   have post : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer).post model
       ((contractRawResult canonicalContractParams.env canonicalContractParams.globals

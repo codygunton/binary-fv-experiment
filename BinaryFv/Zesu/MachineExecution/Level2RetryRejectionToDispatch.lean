@@ -22,13 +22,10 @@ set_option maxHeartbeats 5000000
 
 private theorem retry_rejection_constant_step {machineArgs : DecoderMachineArgs}
     {base state : State} {destination : Register} {value : RegisterType destination}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
+    (machine : DecoderMachinePre decodeRawExecutionPcs machineArgs base)
     (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
     (stepNo : Nat) (pc : BitVec 64)
-    (pcIn : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc)
+    (pcIn : DecoderFetchPc decodeRawExecutionPcs pc)
     (atPc : state.regs.get? PC = some pc) (byte0 byte1 byte2 byte3 : BitVec 8)
     (inst : instruction) (fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       byte0 byte1 byte2 byte3)
@@ -50,13 +47,10 @@ private theorem retry_rejection_constant_step {machineArgs : DecoderMachineArgs}
     destinationNotRetired execute
 
 private theorem retry_rejection_jump_step {machineArgs : DecoderMachineArgs} {base state : State}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
+    (machine : DecoderMachinePre decodeRawExecutionPcs machineArgs base)
     (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
     (stepNo : Nat) (pc target : BitVec 64) (imm : BitVec 21)
-    (pcIn : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc)
+    (pcIn : DecoderFetchPc decodeRawExecutionPcs pc)
     (atPc : state.regs.get? PC = some pc) (byte0 byte1 byte2 byte3 : BitVec 8)
     (fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
     (baseEncoding : BaseInstructionEncoding byte0)
@@ -77,9 +71,9 @@ private theorem retry_rejection_jump_step {machineArgs : DecoderMachineArgs} {ba
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
   have linkRead : executeState.regs.get? nextPC = some (Sail.BitVec.addInt pc 4) := by
     simp [executeState, coreControlFlowNextState]
-  have pcRead : executeState.regs.get? PC = some pc := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, atPc]
+  have pcRead : executeState.regs.get? PC = some pc :=
+    (((tryStepControlFlowAfterIncrement_writes state).trans
+      (coreControlFlowNextState_writes _ pc)).get PC (by decide)).trans atPc
   obtain ⟨misaBits, misaBaseRead, -⟩ : ∃ misaBits,
       base.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
     have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
@@ -104,22 +98,14 @@ private theorem retry_rejection_jump_step {machineArgs : DecoderMachineArgs} {ba
 
 /-- `addi a0, zero, 0` at the common retry-rejection entry. -/
 theorem retry_rejection_clear_result_step {machineArgs : DecoderMachineArgs} {base state : State}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
+    (machine : DecoderMachinePre decodeRawExecutionPcs machineArgs base)
     (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
     (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10420)) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10420) retired x10 (BitVec.ofNat 64 0)) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10420) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10420) := ⟨pcIn, by native_decide⟩
+  have fetchPc : DecoderFetchPc decodeRawExecutionPcs (BitVec.ofNat 64 0x10420) :=
+    GeneratedWordStep.fetchPc _
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10420) 0x13#8 0x05#8 0x00#8 0x00#8 :=
     fetchInstruction state 0x10420 0x13 0x05 0x00 0x00
@@ -151,9 +137,7 @@ theorem retry_rejection_clear_result_step {machineArgs : DecoderMachineArgs} {ba
 
 /-- `jal zero, 0x1035c` joins the shared rejection continuation. -/
 theorem retry_rejection_to_rejection_step {machineArgs : DecoderMachineArgs} {base state : State}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
+    (machine : DecoderMachinePre decodeRawExecutionPcs machineArgs base)
     (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
     (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10424)) :
@@ -162,14 +146,8 @@ theorem retry_rejection_to_rejection_step {machineArgs : DecoderMachineArgs} {ba
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
           (BitVec.ofNat 64 0x10424) (BitVec.ofNat 64 0x1035c))
         (BitVec.ofNat 64 0x1035c) retired) false := by
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw (BitVec.ofNat 64 0x10424) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
-  have fetchPc : DecoderFetchPc
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (BitVec.ofNat 64 0x10424) := ⟨pcIn, by native_decide⟩
+  have fetchPc : DecoderFetchPc decodeRawExecutionPcs (BitVec.ofNat 64 0x10424) :=
+    GeneratedWordStep.fetchPc _
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x10424) 0x6f#8 0xf0#8 0x9f#8 0xf3#8 :=
     fetchInstruction state 0x10424 0x6f 0xf0 0x9f 0xf3
@@ -198,10 +176,8 @@ theorem retry_rejection_to_rejection_step {machineArgs : DecoderMachineArgs} {ba
 structure RetryRejectionToStatusStore (base before after : State) (machineArgs : DecoderMachineArgs)
     (fromStep : Nat) : Prop where
   trace : Trace fromStep 2 before after
-  confined : ConfinedPrefix
-    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-    Level2ChildSummary fromStep 2 before after
+  confined : ConfinedPrefix decodeRawExecutionPcs decodeRawExit Level2ChildSummary
+    fromStep 2 before after
   atStatusStore : after.regs.get? PC = some (BitVec.ofNat 64 0x1035c)
   resultValue : after.regs.get? x10 = some (BitVec.ofNat 64 0)
   statusValue : after.regs.get? x11 = before.regs.get? x11
@@ -224,9 +200,7 @@ Both instructions are composed through `Seg`, so no post-state of either is ever
 combinator hands back an opaque successor, and every clause of the result structure is a field
 read or a one-line membership check against `retryRejectionWrites`. -/
 theorem retry_rejection_to_status_store {machineArgs : DecoderMachineArgs} {base before : State}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
+    (machine : DecoderMachinePre decodeRawExecutionPcs machineArgs base)
     (agree : Agree platformPreserved base before) (retired : RetiredCounterPresent before)
     (code : canonicalContractParams.env.CodeIntact before) (fromStep : Nat)
     (atPc : before.regs.get? PC = some (BitVec.ofNat 64 0x10420)) :
@@ -237,30 +211,15 @@ theorem retry_rejection_to_status_store {machineArgs : DecoderMachineArgs} {base
   have codeOf : ∀ {s : State}, s.mem = before.mem → canonicalContractParams.env.CodeIntact s :=
     fun memory => by rw [DecoderEnvironment.CodeIntact, memory]; exact code
   obtain ⟨_, seg⟩ :=
-    (Seg.nil
-        (functionInstanceExecutionPcs generatedProgram
-          functionInstance_raw_decoder_root_zesu_decode_raw)
-        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+    (Seg.nil decodeRawExecutionPcs decodeRawExit
         Level2ChildSummary retryRejectionWrites noMemory fromStep retired atPc).step
-      (by
-        apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
-      (by
-        simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
-          functionInstance_raw_decoder_root_zesu_decode_raw])
+      (GeneratedWordStep.regionPc _) (GeneratedWordStep.notExitPc _)
       x10 (BitVec.ofNat 64 0) (BitVec.ofNat 64 0x10424)
       (retry_rejection_clear_result_step machine agree retired code fromStep atPc)
       (by decide) bookkeeping (Or.inr rfl) (by decide) (by decide) (by decide)
   obtain ⟨after, seg⟩ :=
     seg.stepJump (BitVec.ofNat 64 0x1035c)
-      (by
-        apply functionInstanceExecutionPcs_iff_ranges.mpr
-        apply RegionPcs.iff_inRanges.mpr
-        native_decide)
-      (by
-        simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
-          functionInstance_raw_decoder_root_zesu_decode_raw])
+      (GeneratedWordStep.regionPc _) (GeneratedWordStep.notExitPc _)
       (retry_rejection_to_rejection_step machine (agree.trans (seg.agree disjoint)) seg.retired
         (codeOf (seg.memEq noMemory_empty)) (fromStep + 1) seg.atPc)
       bookkeeping (by decide)

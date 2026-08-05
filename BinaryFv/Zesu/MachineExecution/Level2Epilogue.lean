@@ -105,12 +105,10 @@ theorem wrapper_epilogue_status_store_step {base state : State} {machineArgs : D
     Agree.weaken (fun _ preserved => preserved.2)
       (agree_stepPremiseState state (BitVec.ofNat 64 0x1035c))
   have executeAgree : Agree decoderPreserved base executeState := agree.trans stepAgree
-  have targetAtExecute : executeState.regs.get? x18 = some statusBase := by
-    simpa [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using targetValue
-  have statusAtExecute : executeState.regs.get? x11 = some status := by
-    simpa [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using statusValue
+  have targetAtExecute : executeState.regs.get? x18 = some statusBase :=
+    decoderExecuteState_get? targetValue
+  have statusAtExecute : executeState.regs.get? x11 = some status :=
+    decoderExecuteState_get? statusValue
   have addressRun := get_transformed_data_addr_machine_store_run executeState
     (.Regidx 18#5) 4 statusBase (sign_extend (m := 64) 0x4#12) mstatusBits mseccfgBits
     (rX_bits_run_x18 executeState statusBase targetAtExecute)
@@ -303,9 +301,8 @@ theorem wrapper_epilogue_load_ra_step {base state : State} {machineArgs : Decode
       (afterRegisterWrite state (BitVec.ofNat 64 0x10364) retired x1 link) false := by
   let pc := BitVec.ofNat 64 0x10364
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
-  have stackAtExecute : executeState.regs.get? x2 = some stack := by
-    simpa [executeState, pc, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using stackValue
+  have stackAtExecute : executeState.regs.get? x2 = some stack :=
+    decoderExecuteState_get? stackValue
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       0x83#8 0x30#8 0x81#8 0x7e#8 :=
     fetchInstruction state 0x10364 0x83 0x30 0x81 0x7e
@@ -359,9 +356,8 @@ theorem wrapper_epilogue_load_s0_step {base state : State} {machineArgs : Decode
       (afterRegisterWrite state (BitVec.ofNat 64 0x10368) retired x8 s0) false := by
   let pc := BitVec.ofNat 64 0x10368
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
-  have stackAtExecute : executeState.regs.get? x2 = some stack := by
-    simpa [executeState, pc, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using stackValue
+  have stackAtExecute : executeState.regs.get? x2 = some stack :=
+    decoderExecuteState_get? stackValue
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       0x03#8 0x34#8 0x01#8 0x7e#8 :=
     fetchInstruction state 0x10368 0x03 0x34 0x01 0x7e
@@ -415,9 +411,8 @@ theorem wrapper_epilogue_load_s1_step {base state : State} {machineArgs : Decode
       (afterRegisterWrite state (BitVec.ofNat 64 0x1036c) retired x9 s1) false := by
   let pc := BitVec.ofNat 64 0x1036c
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
-  have stackAtExecute : executeState.regs.get? x2 = some stack := by
-    simpa [executeState, pc, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using stackValue
+  have stackAtExecute : executeState.regs.get? x2 = some stack :=
+    decoderExecuteState_get? stackValue
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       0x83#8 0x34#8 0x81#8 0x7d#8 :=
     fetchInstruction state 0x1036c 0x83 0x34 0x81 0x7d
@@ -471,9 +466,8 @@ theorem wrapper_epilogue_load_s2_step {base state : State} {machineArgs : Decode
       (afterRegisterWrite state (BitVec.ofNat 64 0x10370) retired x18 s2) false := by
   let pc := BitVec.ofNat 64 0x10370
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
-  have stackAtExecute : executeState.regs.get? x2 = some stack := by
-    simpa [executeState, pc, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using stackValue
+  have stackAtExecute : executeState.regs.get? x2 = some stack :=
+    decoderExecuteState_get? stackValue
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
       0x03#8 0x39#8 0x01#8 0x7d#8 :=
     fetchInstruction state 0x10370 0x03 0x39 0x01 0x7d
@@ -610,9 +604,8 @@ theorem wrapper_epilogue_return_step {base state : State} {machineArgs : Decoder
     simp [executeState, pc, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
     decide
-  have sourceRead : executeState.regs.get? x1 = some link := by
-    simp [executeState, pc, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, linkValue]
+  have sourceRead : executeState.regs.get? x1 = some link :=
+    decoderExecuteState_get? linkValue
   obtain ⟨misaBits, misaRead, misaC⟩ : ∃ misaBits,
       state.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
     have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
@@ -815,9 +808,8 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
     afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10368) retiredS0 x8 savedS0
   have atS1 : afterS0.regs.get? PC = some (BitVec.ofNat 64 0x1036c) := by
     simpa [afterS0] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x10368) retiredS0 x8 savedS0
-  have stackS0 : afterS0.regs.get? x2 = some stack := by
-    simp [afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, stackValue]
+  have stackS0 : afterS0.regs.get? x2 = some stack :=
+    ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans stackValue
   have frameS0 : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 afterS0 :=
     WrapperSavedRegisterFrame.of_mem_eq frame (afterRegisterWrite_mem _ _ _ _ _)
   have codeS0 : canonicalContractParams.env.CodeIntact afterS0 := by
@@ -835,10 +827,8 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
     afterRegisterWrite_retired_present afterS0 (BitVec.ofNat 64 0x1036c) retiredS1 x9 savedS1
   have atS2 : afterS1.regs.get? PC = some (BitVec.ofNat 64 0x10370) := by
     simpa [afterS1] using afterRegisterWrite_pc afterS0 (BitVec.ofNat 64 0x1036c) retiredS1 x9 savedS1
-  have stackS1 : afterS1.regs.get? x2 = some stack := by
-    simp [afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, stackValue]
+  have stackS1 : afterS1.regs.get? x2 = some stack :=
+    ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans stackS0
   have frameS1 : WrapperSavedRegisterFrame stackBase.toNat link savedS0 savedS1 savedS2 afterS1 :=
     WrapperSavedRegisterFrame.of_mem_eq frameS0 (afterRegisterWrite_mem _ _ _ _ _)
   have codeS1 : canonicalContractParams.env.CodeIntact afterS1 := by
@@ -864,14 +854,12 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
   refine ⟨afterS2, ⟨?_, savedPrefix, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
   · trace_steps [(by simpa [afterS0] using s0Run), (by simpa [afterS0, afterS1] using s1Run),
       (by simpa [afterS1, afterS2] using s2Run)]
-  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
-    decide
+  · simpa [afterS2] using
+      afterRegisterWrite_pc afterS1 (BitVec.ofNat 64 0x10370) retiredS2 x18 savedS2
   · rfl
-  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, raValue]
+  · exact ((afterRegisterWrite_writes _ _ _ _ _).get x1 (by decide)).trans
+      (((afterRegisterWrite_writes _ _ _ _ _).get x1 (by decide)).trans
+        (((afterRegisterWrite_writes _ _ _ _ _).get x1 (by decide)).trans raValue))
   · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
@@ -880,15 +868,15 @@ theorem wrapper_epilogue_restore_saved_registers {base state : State} {machineAr
       Std.ExtDHashMap.get?_insert]
   · simp [afterS2, afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, stackValue]
-  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, resultValue]
-  · simp [afterS2, afterS1, afterS0, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, statusValue]
+  · exact ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans
+      (((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans
+        (((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans stackValue))
+  · exact ((afterRegisterWrite_writes _ _ _ _ _).get x10 (by decide)).trans
+      (((afterRegisterWrite_writes _ _ _ _ _).get x10 (by decide)).trans
+        (((afterRegisterWrite_writes _ _ _ _ _).get x10 (by decide)).trans resultValue))
+  · exact ((afterRegisterWrite_writes _ _ _ _ _).get x11 (by decide)).trans
+      (((afterRegisterWrite_writes _ _ _ _ _).get x11 (by decide)).trans
+        (((afterRegisterWrite_writes _ _ _ _ _).get x11 (by decide)).trans statusValue))
   · exact WrapperSavedRegisterFrame.of_mem_eq frameS1 (afterRegisterWrite_mem _ _ _ _ _)
   · simpa [afterS2, afterRegisterWrite_mem] using codeS1
   · exact agreeS2
@@ -948,12 +936,10 @@ theorem wrapper_epilogue_to_exit {base state : State} {machineArgs : DecoderMach
   have codeRa : canonicalContractParams.env.CodeIntact afterRa := by
     simpa [afterRa, afterFirst, wrapperAfterFirstStackRestore, afterRegisterWrite_mem] using code
   have memoryRa : afterRa.mem = state.mem := by rfl
-  have stackRa : afterRa.regs.get? x2 = some (stack + sign_extend (m := 64) (0x230#12)) := by
-    simp [afterRa, afterFirst, afterRegisterWrite, wrapperAfterFirstStackRestore,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
-      tryStepStackAddiAfterIncrement, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+  have stackRa : afterRa.regs.get? x2 = some (stack + sign_extend (m := 64) (0x230#12)) :=
+    ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans
+      (tryStepStackAddiAfterRetired_stackPointer state (BitVec.ofNat 64 0x10360) 0x230#12 stack
+        retiredFirst)
   have resultRa : afterRa.regs.get? x10 = some result := by
     simp [afterRa, afterFirst, afterRegisterWrite, wrapperAfterFirstStackRestore,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
@@ -1156,14 +1142,9 @@ theorem wrapper_epilogue_final_restore_and_return {base before state : State} {m
       Std.ExtDHashMap.get?_insert, saved.a1]
   · rfl
   · simpa [afterReturn, wrapperAfterReturn, afterStack, wrapperAfterFinalStackRestore] using saved.code
-  · have returnAgree : Agree decoderPreserved afterStack afterReturn := by
-      intro register preserved
-      rcases preserved with ⟨notLink, platform⟩
-      rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-        rfl | rfl | rfl | rfl | rfl | rfl | rfl
-      all_goals simp_all [afterReturn, wrapperAfterReturn, tryStepControlFlowAfterRetired,
-        tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
-        coreControlFlowNextState, Std.ExtDHashMap.get?_insert]
+  · have returnAgree : Agree decoderPreserved afterStack afterReturn :=
+      Agree.weaken (fun _ preserved => preserved.2)
+        ((jumpRetirement_writes _ _ _ _).agree platformPreserved_disjoint)
     exact agreeStack.trans returnAgree
   · unfold RetiredCounterPresent
     simp [afterReturn, wrapperAfterReturn, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
@@ -1221,12 +1202,10 @@ theorem wrapper_epilogue_complete {base state : State} {machineArgs : DecoderMac
   have codeRa : canonicalContractParams.env.CodeIntact afterRa := by
     simpa [afterRa, afterFirst, wrapperAfterFirstStackRestore, afterRegisterWrite_mem] using code
   have memoryRa : afterRa.mem = state.mem := by rfl
-  have stackRa : afterRa.regs.get? x2 = some (stack + sign_extend (m := 64) (0x230#12)) := by
-    simp [afterRa, afterFirst, afterRegisterWrite, wrapperAfterFirstStackRestore,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
-      tryStepStackAddiAfterIncrement, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
+  have stackRa : afterRa.regs.get? x2 = some (stack + sign_extend (m := 64) (0x230#12)) :=
+    ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans
+      (tryStepStackAddiAfterRetired_stackPointer state (BitVec.ofNat 64 0x10360) 0x230#12 stack
+        retiredFirst)
   have resultRa : afterRa.regs.get? x10 = some result := by
     simp [afterRa, afterFirst, afterRegisterWrite, wrapperAfterFirstStackRestore,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,

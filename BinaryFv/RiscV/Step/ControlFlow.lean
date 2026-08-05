@@ -8,6 +8,7 @@ import BinaryFv.RiscV.Logic.Framing
 import BinaryFv.RiscV.Instruction.Execute.ControlFlow
 import BinaryFv.RiscV.Model.SailEnumAux
 import BinaryFv.RiscV.Platform.StoreMemoryWrite
+import BinaryFv.RiscV.Step.TryStepStackAddi
 
 /-!
 # Normal-execution `try_step` rules for control-flow instructions
@@ -243,6 +244,31 @@ theorem jumpRetirement_writes (state : State) (pc target retired : BitVec 64) :
         (fun _ h => Or.inr (Or.inl h))).trans_same
       ((tryStepControlFlowAfterRetired_writes _ target retired).mono
         (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h))))))
+
+/-- The write set of a complete `addi sp, sp, imm` retirement: the `try_step` bookkeeping plus the
+stack pointer itself.
+
+This is the fourth retirement shape, alongside fall-through, jump and store. It was the gap that
+left `Level2Epilogue`'s prologue and epilogue stack restores — `wrapperAfterFirstStackRestore` and
+`wrapperAfterFinalStackRestore` — with no frame lemma to reduce to, so their register reads and
+`Agree` blocks stayed hand-written while every other shape collapsed.
+
+`x2` is kept as a separate `RegSet.only` rather than folded into a closed set for the same reason
+`afterRegisterWrite`'s destination is: `RegSet.Disjoint.union` then splits a later obligation into
+the bookkeeping fact, proved once per preserved predicate, and the single disequality about `x2`. -/
+theorem stackAddiRetirement_writes (state : State) (pc : BitVec 64) (immediate : BitVec 12)
+    (stackValue retired : BitVec 64) :
+    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x2)) state
+      (tryStepStackAddiAfterRetired state pc immediate stackValue retired) :=
+  fun r hr => by
+    have hx2 : x2 ≠ r := fun h => hr (Or.inr h.symm)
+    have hpc : PC ≠ r := fun h => hr (Or.inl (Or.inl h.symm))
+    have hnpc : nextPC ≠ r := fun h => hr (Or.inl (Or.inr (Or.inl h.symm)))
+    have hmr : minstret ≠ r := fun h => hr (Or.inl (Or.inr (Or.inr (Or.inl h.symm))))
+    have hmi : minstret_increment ≠ r := fun h => hr (Or.inl (Or.inr (Or.inr (Or.inr h.symm))))
+    simp [tryStepStackAddiAfterRetired, tryStepStackAddiAfterTick, tryStepStackAddiAfterActive,
+      tryStepStackAddiAfterIncrement, stackAddiRetiredState, stackAddiNextState,
+      Std.ExtDHashMap.get?_insert, hx2, hpc, hnpc, hmr, hmi]
 
 /-- No register the platform preserves is one the `try_step` bookkeeping writes.
 

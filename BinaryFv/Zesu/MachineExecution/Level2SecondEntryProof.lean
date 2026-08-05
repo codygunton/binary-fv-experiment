@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.Level2WrapperProof
+import BinaryFv.Zesu.MachineExecution.Seg
 import BinaryFv.Zesu.MachineExecution.Level2OutgoingBranchSteps
 
 /-!
@@ -53,9 +54,7 @@ theorem wrapper_second_retry_decode_entry
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
       fromStep used before state)
     (frame : DecodeInlineMachinePost before state)
-    (wrapperMachine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      args.machineArgs before)
+    (wrapperMachine : DecoderMachinePre decodeRawExecutionPcs args.machineArgs before)
     (phase : args.phase = .first)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10324))
     (tagRead : state.regs.get? x10 = some (BitVec.ofNat 64 2))
@@ -65,9 +64,7 @@ theorem wrapper_second_retry_decode_entry
     (inputMemory : MemoryRepresentation.MemoryBytes state args.inputBase args.bytes)
     (invalid : Contracts.meaningDecodeRaw args.bytes = .error .invalidSsz) :
     ∃ branchRetired retryRetired secondUsed secondAfter,
-      Nonempty (InlineTransfer
-        (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+      Nonempty (InlineTransfer decodeRawExecutionPcs decodeRawExit
         Level2ChildSummary decodeInlineBoundary generatedProgram
         functionInstance_raw_decoder_root_zesu_decode_raw
         functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
@@ -84,10 +81,10 @@ theorem wrapper_second_retry_decode_entry
   obtain ⟨branchRetired, transfer⟩ := wrapper_decode_first_error_inlineTransfer fromStep used args
     before state pre body frame .invalidSsz phase atPc (by simpa [Contracts.decodeInternalResultTag] using tagRead)
   let branchState := wrapperAfterDecodeFirstErrorBranch state branchRetired
-  have branchPc : branchState.regs.get? PC = some (BitVec.ofNat 64 0x1037c) := by
-    simp [branchState, wrapperAfterDecodeFirstErrorBranch, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+  have branchWrites : WritesOnlyRegs stepBookkeeping state branchState :=
+    wrapperAfterDecodeFirstErrorBranch_writes state branchRetired
+  have branchPc : branchState.regs.get? PC = some (BitVec.ofNat 64 0x1037c) :=
+    tryStepControlFlowAfterRetired_pc _ (BitVec.ofNat 64 0x1037c) branchRetired
   have beforeToBranch : Agree decoderPreserved before branchState :=
     frame.agree.trans (wrapperAfterDecodeFirstErrorBranch_agree state branchRetired)
   have branchCounter := wrapperAfterDecodeFirstErrorBranch_retired state branchRetired
@@ -100,40 +97,28 @@ theorem wrapper_second_retry_decode_entry
   have secondPc : secondState.regs.get? PC = some (BitVec.ofNat 64 0x10380) := by
     simpa [secondState] using afterRegisterWrite_pc branchState (BitVec.ofNat 64 0x1037c)
       retryRetired x11 (BitVec.ofNat 64 2)
+  have secondWrites : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x11))
+      branchState secondState :=
+    afterRegisterWrite_writes branchState (BitVec.ofNat 64 0x1037c) retryRetired x11
+      (BitVec.ofNat 64 2)
   have branchStack : branchState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
-    (wrapperAfterDecodeFirstErrorBranch_register state branchRetired x2 (by decide) (by decide)
-      (by decide) (by decide)).trans
-      stackValue
-  have secondStack : secondState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
-    rw [show secondState = afterRegisterWrite branchState (BitVec.ofNat 64 0x1037c)
-      retryRetired x11 (BitVec.ofNat 64 2) from rfl]
-    exact (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x2
-      (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans branchStack
+    (branchWrites.get x2 (by decide)).trans stackValue
+  have secondStack : secondState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
+    (secondWrites.get x2 (by decide)).trans branchStack
   have branchInput : branchState.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) :=
-    (wrapperAfterDecodeFirstErrorBranch_register state branchRetired x8 (by decide) (by decide)
-      (by decide) (by decide)).trans inputValue
-  have secondInput : secondState.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
-    rw [show secondState = afterRegisterWrite branchState (BitVec.ofNat 64 0x1037c)
-      retryRetired x11 (BitVec.ofNat 64 2) from rfl]
-    exact (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x8
-      (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans branchInput
+    (branchWrites.get x8 (by decide)).trans inputValue
+  have secondInput : secondState.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) :=
+    (secondWrites.get x8 (by decide)).trans branchInput
   have branchLength : branchState.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
-    (wrapperAfterDecodeFirstErrorBranch_register state branchRetired x9 (by decide) (by decide)
-      (by decide) (by decide)).trans lengthValue
-  have secondLength : secondState.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
-    rw [show secondState = afterRegisterWrite branchState (BitVec.ofNat 64 0x1037c)
-      retryRetired x11 (BitVec.ofNat 64 2) from rfl]
-    exact (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x9
-      (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans branchLength
+    (branchWrites.get x9 (by decide)).trans lengthValue
+  have secondLength : secondState.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
+    (secondWrites.get x9 (by decide)).trans branchLength
   have stateGlobals : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
     frame.globalsValue.trans pre.globalsValue
   have branchGlobals : branchState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
-    (wrapperAfterDecodeFirstErrorBranch_register state branchRetired x18 (by decide) (by decide)
-      (by decide) (by decide)).trans stateGlobals
-  have secondGlobals : secondState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
-    simpa [secondState] using
-      (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x18
-        (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans branchGlobals
+    (branchWrites.get x18 (by decide)).trans stateGlobals
+  have secondGlobals : secondState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    (secondWrites.get x18 (by decide)).trans branchGlobals
   have secondMemory : MemoryRepresentation.MemoryBytes secondState args.inputBase args.bytes := by
     apply inputMemory.of_mem_eq
     simp [secondState, branchState, afterRegisterWrite_mem, wrapperAfterDecodeFirstErrorBranch,
@@ -175,12 +160,10 @@ theorem wrapper_second_retry_decode_entry
       machine := by simpa [secondArgs] using secondMachine
       retryReason := by
         intro _
-        exact ⟨invalid, by simpa [secondState, branchState, afterRegisterWrite,
-          wrapperAfterDecodeFirstErrorBranch, tryStepControlFlowAfterRetired,
-          tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
-          tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using tagRead,
-          by simp [secondState, afterRegisterWrite, tryStepControlFlowAfterRetired,
-            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]⟩
+        exact ⟨invalid,
+          (secondWrites.get x10 (by decide)).trans ((branchWrites.get x10 (by decide)).trans tagRead),
+          afterRegisterWrite_destination branchState (BitVec.ofNat 64 0x1037c) retryRetired x11
+            (BitVec.ofNat 64 2) (by decide) (by decide)⟩
       propagateReason := by intro error impossible; simp [secondArgs] at impossible }
   obtain ⟨secondUsed, secondAfter, bound, trace, post, machinePost, outgoing⟩ :=
     level3DecodeInlineContract decodeRaw secondArgs (fromStep + used + 2) secondState secondPre
@@ -193,9 +176,7 @@ consumes the zero-step Level 3 exit before Level 2 owns the outgoing branch. -/
 theorem wrapper_second_propagate_decode_entry
     (decodeRaw : CompiledDecodeRawInstanceContract) (fromStep : Nat) (args : DecodeInlineArgs)
     (branchState : State)
-    (wrapperMachine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      args.machineArgs branchState)
+    (wrapperMachine : DecoderMachinePre decodeRawExecutionPcs args.machineArgs branchState)
     (atPc : branchState.regs.get? PC = some (BitVec.ofNat 64 0x1037c))
     (stackValue : branchState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase))
     (inputValue : branchState.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase))
@@ -230,27 +211,21 @@ theorem wrapper_second_propagate_decode_entry
   have secondPc : secondState.regs.get? PC = some (BitVec.ofNat 64 0x10380) := by
     simpa [secondState] using afterRegisterWrite_pc branchState (BitVec.ofNat 64 0x1037c)
       retryRetired x11 (BitVec.ofNat 64 2)
-  have secondStack : secondState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
-    simpa [secondState] using
-      (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x2
-        (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans stackValue
-  have secondInput : secondState.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) := by
-    simpa [secondState] using
-      (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x8
-        (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans inputValue
-  have secondLength : secondState.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) := by
-    simpa [secondState] using
-      (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x9
-      (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans lengthValue
-  have secondGlobals : secondState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
-    simpa [secondState] using
-      (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x18
-        (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans globalsValue
+  have secondWrites : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x11))
+      branchState secondState :=
+    afterRegisterWrite_writes branchState (BitVec.ofNat 64 0x1037c) retryRetired x11
+      (BitVec.ofNat 64 2)
+  have secondStack : secondState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
+    (secondWrites.get x2 (by decide)).trans stackValue
+  have secondInput : secondState.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) :=
+    (secondWrites.get x8 (by decide)).trans inputValue
+  have secondLength : secondState.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
+    (secondWrites.get x9 (by decide)).trans lengthValue
+  have secondGlobals : secondState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    (secondWrites.get x18 (by decide)).trans globalsValue
   have secondTag : secondState.regs.get? x10 =
-      some (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))) := by
-    simpa [secondState] using
-      (afterRegisterWrite_register branchState (BitVec.ofNat 64 0x1037c) retryRetired x11 x10
-        (BitVec.ofNat 64 2) (by decide) (by decide) (by decide) (by decide) (by decide)).trans tagRead
+      some (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error error))) :=
+    (secondWrites.get x10 (by decide)).trans tagRead
   have secondMemory : MemoryRepresentation.MemoryBytes secondState args.inputBase args.bytes := by
     apply inputMemory.of_mem_eq
     simp [secondState, afterRegisterWrite_mem]
@@ -291,8 +266,9 @@ theorem wrapper_second_propagate_decode_entry
         intro selected selectedPhase
         simp [secondArgs] at selectedPhase
         subst selected
-        exact ⟨notInvalid, rawResult, secondTag, by simp [secondState, afterRegisterWrite, tryStepControlFlowAfterRetired,
-            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]⟩ }
+        exact ⟨notInvalid, rawResult, secondTag,
+          afterRegisterWrite_destination branchState (BitVec.ofNat 64 0x1037c) retryRetired x11
+            (BitVec.ofNat 64 2) (by decide) (by decide)⟩ }
   obtain ⟨secondUsed, secondAfter, bound, trace, post, machinePost, outgoing⟩ :=
     level3DecodeInlineContract decodeRaw secondArgs (fromStep + 1) secondState secondPre
   exact ⟨retryRetired, secondUsed, secondAfter, by simpa [secondState] using retryRun,

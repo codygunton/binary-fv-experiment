@@ -31,9 +31,7 @@ with it in either direction. The child's retired step count stays an explicit ar
 what the child-summary interface consumes.
 -/
 abbrev FirstMemcpyCallTransfer (fromStep childUsed : Nat) (before resumed : State) : Type :=
-  CallTransfer
-    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+  CallTransfer decodeRawExecutionPcs decodeRawExit
     Level2ChildSummary memcpyFirstDecodeResult generatedProgram
     functionInstance_raw_decoder_root_zesu_decode_raw functionInstance_memcpy
     fromStep childUsed before resumed
@@ -102,9 +100,8 @@ theorem first_memcpy_call_step (stepNo : Nat) (args : DecodeInlineArgs)
     rw [Std.ExtDHashMap.get?_insert]
     simp
     decide
-  have sourceRead : executeState.regs.get? x1 = some (BitVec.ofNat 64 0x14334) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, callBase]
+  have sourceRead : executeState.regs.get? x1 = some (BitVec.ofNat 64 0x14334) :=
+    ((stepPremiseState_writes state (BitVec.ofNat 64 0x10338)).get x1 (by decide)).trans callBase
   have targetEq : Sail.BitVec.update
       ((BitVec.ofNat 64 0x14334) + sign_extend (m := 64) (0xb84#12)) 0 0#1 =
       BitVec.ofNat 64 0x13eb8 := by decide
@@ -136,32 +133,21 @@ theorem first_memcpy_call_step (stepNo : Nat) (args : DecodeInlineArgs)
     notInhibited machineEnabled retiredRead
   have run : Runs (try_step stepNo false) state (firstMemcpyCallAfter state retired) false := by
     simpa [firstMemcpyCallAfter, targetEq] using callRun
-  have preserveGeneral (register : Register) (notLink : register ≠ x1)
-      (notPc : register ≠ PC) (notNextPc : register ≠ nextPC)
-      (notIncrement : register ≠ minstret_increment) (notRetired : register ≠ minstret) :
-      (firstMemcpyCallAfter state retired).regs.get? register = state.regs.get? register := by
-    have preserved := jalrCallAfterRetired_agree_of
-      (P := fun candidate => candidate = register) state (BitVec.ofNat 64 0x10338)
-      (BitVec.ofNat 64 0x13eb8) retired x1 (BitVec.ofNat 64 0x1033c)
-      (Ne.symm notLink) (Ne.symm notPc) (Ne.symm notNextPc)
-      (Ne.symm notIncrement) (Ne.symm notRetired)
-    exact preserved register rfl
-  refine ⟨retired, run, ?_, ?_, preserveGeneral x10 (by decide) (by decide) (by decide)
-    (by decide) (by decide), preserveGeneral x11 (by decide) (by decide) (by decide)
-    (by decide) (by decide), preserveGeneral x12 (by decide) (by decide) (by decide)
-    (by decide) (by decide), preserveGeneral x2 (by decide) (by decide) (by decide)
-    (by decide) (by decide), ?_, jalrCallAfterRetired_mem _ _ _ _ _ _, ?_⟩
-  · simp [firstMemcpyCallAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+  have callWrites : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x1)) state
+      (firstMemcpyCallAfter state retired) :=
+    callRetirement_writes state (BitVec.ofNat 64 0x10338) (BitVec.ofNat 64 0x13eb8) retired x1
+      (BitVec.ofNat 64 0x1033c)
+  refine ⟨retired, run, ?_, ?_, callWrites.get x10 (by decide), callWrites.get x11 (by decide),
+    callWrites.get x12 (by decide), callWrites.get x2 (by decide), ?_,
+    jalrCallAfterRetired_mem _ _ _ _ _ _, ?_⟩
+  · exact tryStepControlFlowAfterRetired_pc _ (BitVec.ofNat 64 0x13eb8) retired
   · apply tryStepControlFlowAfterRetired_preserves_register
     · exact callLinkState_link _ _ _ x1 (BitVec.ofNat 64 0x1033c)
     · decide
     · decide
   · apply jalrCallAfterRetired_agree_of
     all_goals simp [decoderPreserved, platformPreserved]
-  · exact ⟨Sail.BitVec.addInt retired 1, by
-      simp [firstMemcpyCallAfter, tryStepControlFlowAfterRetired,
-        tryStepControlFlowAfterTick]⟩
+  · exact tryStepControlFlowAfterRetired_retired_present _ (BitVec.ofNat 64 0x13eb8) retired
 
 /-- The first successful `decodeRaw` payload copy has the same emitted body as the retry copy,
 but reads the first temporary record at `sp + 0x360`. -/
@@ -467,25 +453,24 @@ theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : Decod
   let resumed := memcpyReturnAfter (BitVec.ofNat 64 0x1033c) childExit returnRetired
   have atCallGlobals : atCall.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
     frame.globalsValue.trans pre.globalsValue
+  have callWrites : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x1)) atCall
+      (firstMemcpyCallAfter atCall callRetired) :=
+    callRetirement_writes atCall (BitVec.ofNat 64 0x10338) (BitVec.ofNat 64 0x13eb8) callRetired x1
+      (BitVec.ofNat 64 0x1033c)
   have childGlobals : childEntry.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
     rw [childEntryEq]
-    simp [firstMemcpyCallAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      callLinkState, controlFlowJumpState, tryStepControlFlowAfterIncrement, coreControlFlowNextState,
-      Std.ExtDHashMap.get?_insert, atCallGlobals]
+    exact (callWrites.get x18 (by decide)).trans atCallGlobals
   have atCallStack : atCall.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
     simpa [DecodeInlineOutgoingFrame, phase] using outgoing
   have childEntryStack : childEntry.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
     rw [childEntryEq]
-    simp [firstMemcpyCallAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, callLinkState, controlFlowJumpState,
-      tryStepControlFlowAfterIncrement, coreControlFlowNextState,
-      Std.ExtDHashMap.get?_insert, atCallStack]
+    exact (callWrites.get x2 (by decide)).trans atCallStack
   have childExitStack : childExit.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
     (machinePost.frame x2 (by simp [NonW])).trans childEntryStack
-  have resumedStack : resumed.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
-    simp [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
-      coreControlFlowNextState, Std.ExtDHashMap.get?_insert, childExitStack]
+  have returnWrites : WritesOnlyRegs stepBookkeeping childExit resumed :=
+    jumpRetirement_writes childExit (BitVec.ofNat 64 0x13ec0) (BitVec.ofNat 64 0x1033c) returnRetired
+  have resumedStack : resumed.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
+    (returnWrites.get x2 (by decide)).trans childExitStack
   have childEntryAgree : Agree decoderPreserved before childEntry := frame.agree.trans callAgree
   have childExitAgree : Agree decoderPreserved before childExit := childEntryAgree.trans
     (Agree.weaken (fun register preserved => by
@@ -493,14 +478,9 @@ theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : Decod
       rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl | rfl | rfl | rfl | rfl
       all_goals simp_all [NonW]) machinePost.frame)
-  have resumedAgree : Agree decoderPreserved before resumed := childExitAgree.trans (by
-    intro register preserved
-    rcases preserved with ⟨notLink, platform⟩
-    rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    all_goals simp_all [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
-      coreControlFlowNextState, Std.ExtDHashMap.get?_insert])
+  have resumedAgree : Agree decoderPreserved before resumed :=
+    childExitAgree.trans
+      (returnWrites.agree (platformPreserved_disjoint.weaken (fun _ preserved => preserved.2)))
   have childEntryMemory : childEntry.mem = atCall.mem := by
     rw [childEntryEq]
     rfl
@@ -555,12 +535,8 @@ theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : Decod
     simpa [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
       coreControlFlowNextState] using exitCode
-  · exact ⟨Sail.BitVec.addInt returnRetired 1, by
-      simp [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
-        tryStepControlFlowAfterTick]⟩
-  · have exitGlobals := (machinePost.frame x18 (by simp [NonW])).trans childGlobals
-    simpa [resumed, memcpyReturnAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
-      coreControlFlowNextState, Std.ExtDHashMap.get?_insert] using exitGlobals
+  · exact tryStepControlFlowAfterRetired_retired_present _ (BitVec.ofNat 64 0x1033c) returnRetired
+  · exact (returnWrites.get x18 (by decide)).trans
+      ((machinePost.frame x18 (by simp [NonW])).trans childGlobals)
 
 end BinaryFv.Zesu.MachineExecution

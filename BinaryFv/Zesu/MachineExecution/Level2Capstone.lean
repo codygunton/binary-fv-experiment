@@ -26,9 +26,7 @@ an `abbrev`, so it is the same proposition as the spelled-out `ScopedTrace` appl
 with it in either direction; the retired step count stays an explicit argument. This module is where
 it lives because it is the one import the exit-composing modules have in common. -/
 abbrev WrapperScopedTrace (fromStep len : Nat) (before after : State) : Prop :=
-  ScopedTrace
-    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+  ScopedTrace RegisterWriteStep.decodeRawExecutionPcs RegisterWriteStep.decodeRawExit
     Level2ChildSummary fromStep len before after
 
 /-- The concrete `sw a1, 4(s2)` cannot touch any of the four saved wrapper words. -/
@@ -75,9 +73,7 @@ store target is exactly `0x4215024`; the saved-frame transport above proves that
 the caller-save words readable by the following loads. -/
 theorem wrapper_dispatch_route_through_epilogue
     {base before routeAfter : State} {machineArgs : DecoderMachineArgs}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
+    (machine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs machineArgs base)
     (fromStep routeSteps : Nat)
     (result status link savedS0 savedS1 savedS2 stack restoredStack : BitVec 64)
     (route : WrapperTerminalRouteFrame base before routeAfter fromStep routeSteps
@@ -138,33 +134,13 @@ theorem wrapper_dispatch_route_through_epilogue
     simpa [afterStore] using
       wrapper_epilogue_status_store_preserves_saved_frame routeAfter retired status
       stack.toNat link savedS0 savedS1 savedS2 savedFrame stackAvoidsStatusGlobals
-  have storeAgree : Agree decoderPreserved base afterStore := by
-    apply routeAgree.trans
-    intro register preserved
-    have notPc : PC ≠ register := by
-      intro equal
-      subst register
-      simpa [decoderPreserved, platformPreserved] using preserved
-    have notNextPc : nextPC ≠ register := by
-      intro equal
-      subst register
-      simpa [decoderPreserved, platformPreserved] using preserved
-    have notIncrement : minstret_increment ≠ register := by
-      intro equal
-      subst register
-      simpa [decoderPreserved, platformPreserved] using preserved
-    have notRetired : minstret ≠ register := by
-      intro equal
-      subst register
-      simpa [decoderPreserved, platformPreserved] using preserved
-    simp [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notPc, notNextPc,
-      notIncrement, notRetired]
-  have storeRetired : RetiredCounterPresent afterStore := by
-    refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
-    simp [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick]
+  have storeWrites : WritesOnlyRegs stepBookkeeping routeAfter afterStore :=
+    storeRetirement_writes routeAfter (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0x10360) retired _ _
+  have storeAgree : Agree decoderPreserved base afterStore :=
+    routeAgree.trans
+      (storeWrites.agree (platformPreserved_disjoint.weaken (fun _ preserved => preserved.2)))
+  have storeRetired : RetiredCounterPresent afterStore :=
+    tryStepControlFlowAfterRetired_retired_present _ (BitVec.ofNat 64 0x10360) retired
   have storeCode : canonicalContractParams.env.CodeIntact afterStore := by
     have notFileBacked : ∀ index : Fin 4,
         Artifacts.programImage.readFileByte? (0x4215024 + index.val) = none := by
@@ -177,22 +153,14 @@ theorem wrapper_dispatch_route_through_epilogue
     · exact notFileBacked
     simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterRetired] using codeAtExecute
-  have storePc : afterStore.regs.get? PC = some (BitVec.ofNat 64 0x10360) := by
-    simp [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
-  have storeStack : afterStore.regs.get? x2 = some stack := by
-    simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using stackValue
-  have storeResult : afterStore.regs.get? x10 = some result := by
-    simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using route.resultValue
-  have storeStatus : afterStore.regs.get? x11 = some status := by
-    simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using route.statusValue
+  have storePc : afterStore.regs.get? PC = some (BitVec.ofNat 64 0x10360) :=
+    tryStepControlFlowAfterRetired_pc _ (BitVec.ofNat 64 0x10360) retired
+  have storeStack : afterStore.regs.get? x2 = some stack :=
+    (storeWrites.get x2 (by decide)).trans stackValue
+  have storeResult : afterStore.regs.get? x10 = some result :=
+    (storeWrites.get x10 (by decide)).trans route.resultValue
+  have storeStatus : afterStore.regs.get? x11 = some status :=
+    (storeWrites.get x11 (by decide)).trans route.statusValue
   obtain ⟨after, epilogue⟩ :=
     wrapper_epilogue_complete machine storeAgree storeRetired storeCode
     (fromStep + routeSteps + 1) storePc stack link savedS0 savedS1 savedS2 stack restoredStack result
@@ -212,9 +180,7 @@ theorem wrapper_dispatch_route_through_epilogue
 epilogue, stopping at the generated exit `ret` without executing it. -/
 theorem wrapper_dispatch_route_through_exit
     {base before routeAfter : State} {machineArgs : DecoderMachineArgs}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
+    (machine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs machineArgs base)
     (fromStep routeSteps : Nat)
     (result status link savedS0 savedS1 savedS2 stack restoredStack : BitVec 64)
     (route : WrapperTerminalRouteFrame base before routeAfter fromStep routeSteps
@@ -270,33 +236,13 @@ theorem wrapper_dispatch_route_through_exit
   have storeFrame : WrapperSavedRegisterFrame stack.toNat link savedS0 savedS1 savedS2 afterStore := by
     simpa [afterStore] using wrapper_epilogue_status_store_preserves_saved_frame routeAfter retired
       status stack.toNat link savedS0 savedS1 savedS2 savedFrame stackAvoidsStatusGlobals
-  have storeAgree : Agree decoderPreserved base afterStore := by
-    apply routeAgree.trans
-    intro register preserved
-    have notPc : PC ≠ register := by
-      intro equal
-      subst register
-      simpa [decoderPreserved, platformPreserved] using preserved
-    have notNextPc : nextPC ≠ register := by
-      intro equal
-      subst register
-      simpa [decoderPreserved, platformPreserved] using preserved
-    have notIncrement : minstret_increment ≠ register := by
-      intro equal
-      subst register
-      simpa [decoderPreserved, platformPreserved] using preserved
-    have notRetired : minstret ≠ register := by
-      intro equal
-      subst register
-      simpa [decoderPreserved, platformPreserved] using preserved
-    simp [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert, notPc, notNextPc,
-      notIncrement, notRetired]
-  have storeRetired : RetiredCounterPresent afterStore := by
-    refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
-    simp [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick]
+  have storeWrites : WritesOnlyRegs stepBookkeeping routeAfter afterStore :=
+    storeRetirement_writes routeAfter (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0x10360) retired _ _
+  have storeAgree : Agree decoderPreserved base afterStore :=
+    routeAgree.trans
+      (storeWrites.agree (platformPreserved_disjoint.weaken (fun _ preserved => preserved.2)))
+  have storeRetired : RetiredCounterPresent afterStore :=
+    tryStepControlFlowAfterRetired_retired_present _ (BitVec.ofNat 64 0x10360) retired
   have storeCode : canonicalContractParams.env.CodeIntact afterStore := by
     have notFileBacked : ∀ index : Fin 4,
         Artifacts.programImage.readFileByte? (0x4215024 + index.val) = none := by native_decide
@@ -308,22 +254,14 @@ theorem wrapper_dispatch_route_through_exit
     · exact notFileBacked
     simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterRetired] using codeAtExecute
-  have storePc : afterStore.regs.get? PC = some (BitVec.ofNat 64 0x10360) := by
-    simp [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
-  have storeStack : afterStore.regs.get? x2 = some stack := by
-    simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using stackValue
-  have storeResult : afterStore.regs.get? x10 = some result := by
-    simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using route.resultValue
-  have storeStatus : afterStore.regs.get? x11 = some status := by
-    simpa [afterStore, wrapperAfterStatusStore, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, afterWriteBytes_regs, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert] using route.statusValue
+  have storePc : afterStore.regs.get? PC = some (BitVec.ofNat 64 0x10360) :=
+    tryStepControlFlowAfterRetired_pc _ (BitVec.ofNat 64 0x10360) retired
+  have storeStack : afterStore.regs.get? x2 = some stack :=
+    (storeWrites.get x2 (by decide)).trans stackValue
+  have storeResult : afterStore.regs.get? x10 = some result :=
+    (storeWrites.get x10 (by decide)).trans route.resultValue
+  have storeStatus : afterStore.regs.get? x11 = some status :=
+    (storeWrites.get x11 (by decide)).trans route.statusValue
   obtain ⟨after, epilogue⟩ := wrapper_epilogue_to_exit machine storeAgree storeRetired storeCode
     (fromStep + routeSteps + 1) storePc stack link savedS0 savedS1 savedS2 stack restoredStack result
     status raAddress s0Address s1Address s2Address storeFrame storeStack storeResult storeStatus

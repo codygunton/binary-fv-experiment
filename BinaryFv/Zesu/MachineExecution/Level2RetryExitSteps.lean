@@ -1,3 +1,4 @@
+import BinaryFv.Zesu.MachineExecution.GeneratedWordStep
 import BinaryFv.Zesu.MachineExecution.Seg
 import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryFinish
 
@@ -21,36 +22,29 @@ open BinaryFv.RiscV.Sep
 set_option maxRecDepth 100000
 set_option maxHeartbeats 5000000
 
-def decodeInlineRetryShortBranchAfter (state : State) (retired : BitVec 64) : State :=
-  tryStepControlFlowAfterRetired
-    (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10394) (BitVec.ofNat 64 0x10420))
-    (BitVec.ofNat 64 0x10420) retired
+/-- A short retry input takes the wrapper's `bltu a2, a0, 0x10420` exit.
 
-/-- A short retry input takes the wrapper's `bltu a2, a0, 0x10420` exit. -/
-theorem retry_short_length_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
+The successor is existential: what the caller used to re-derive by unfolding a named
+`decodeInlineRetryShortBranchAfter` is read off the `Seg` fields instead. `childSummary` is a
+variable because a single owned step is confined whatever the enclosing summary is. -/
+theorem retry_short_length_branch_step
+    {childSummary : BinaryFv.Binary.Elfling.FunctionInstanceId → Nat → Nat → State → State → Prop}
+    (stepNo : Nat) (args : DecodeInlineArgs)
     (before state : State) (pre : DecodeInlinePre args before)
     (frame : DecodeInlineMachinePost before state)
     (outgoing : DecodeInlineOutgoingFrame args state)
     (phase : args.phase = .retryAfterInvalidSsz) (short : args.bytes.size < 4)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10394)) :
-    ∃ retired,
-      Runs (try_step stepNo false) state
-        (decodeInlineRetryShortBranchAfter state retired) false ∧
-      (decodeInlineRetryShortBranchAfter state retired).regs.get? PC =
-        some (BitVec.ofNat 64 0x10420) := by
+    ∃ handoff,
+      Runs (try_step stepNo false) state handoff false ∧
+      Seg decodeRawExecutionPcs decodeRawExit childSummary stepBookkeeping noMemory []
+        stepNo 1 state handoff (BitVec.ofNat 64 0x10420) := by
   have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
     meaningHasExactErePrefix_false_of_size_lt_four args.bytes short
   have values : state.regs.get? x10 = some (BitVec.ofNat 64 (2 ^ 64 - 2 ^ 32)) ∧
       state.regs.get? x12 = some
         (BitVec.ofNat 64 (args.bytes.size + (2 ^ 64 - 2 ^ 32 - 4))) := by
     simpa [DecodeInlineOutgoingFrame, phase, prefixFalse, short] using outgoing
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
-      (BitVec.ofNat 64 0x10394) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
   have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
     hasExactErePrefix_programImage_of_codeIntact frame.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
@@ -58,7 +52,7 @@ theorem retry_short_length_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
     fetchInstruction state 0x10394 0x63 0x66 0xa6 0x08 image
   have machine := pre.machine.mono frame.agree frame.retiredCounter
   obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine (Agree.refl state)
-    (BitVec.ofNat 64 0x10394) atPc ⟨pcIn, by native_decide⟩ _ _ _ _ fetchBytes
+    (BitVec.ofNat 64 0x10394) atPc (GeneratedWordStep.fetchPc _) _ _ _ _ fetchBytes
   obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
   obtain ⟨retired, inhibit, config, counters⟩ :=
     decoderStepCounters machine.normal (Agree.refl state) frame.retiredCounter
@@ -96,9 +90,9 @@ theorem retry_short_length_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
       exact Int.ofNat_lt.mpr (by omega)
     rw [comparison]
     rfl
-  have pcAtExecute : executeState.regs.get? PC = some (BitVec.ofNat 64 0x10394) := by
-    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, atPc]
+  have pcAtExecute : executeState.regs.get? PC = some (BitVec.ofNat 64 0x10394) :=
+    (((tryStepControlFlowAfterIncrement_writes state).trans
+      (coreControlFlowNextState_writes _ (BitVec.ofNat 64 0x10394))).get PC (by decide)).trans atPc
   have targetEq : BitVec.ofNat 64 0x10394 + sign_extend (m := 64) (0x8c#13) =
       BitVec.ofNat 64 0x10420 := by decide
   obtain ⟨misaBits, misaRead, -⟩ : ∃ misaBits,
@@ -116,8 +110,19 @@ theorem retry_short_length_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
     notExpected condition (readReg_run executeState PC _ pcAtExecute)
     (by decide) (by decide) zca hartRead inhibitRead configRead notInhibited machineEnabled
     retiredRead
-  exact ⟨retired, by simpa [decodeInlineRetryShortBranchAfter, targetEq] using run,
-    jumpRetirement_pc state (BitVec.ofNat 64 0x10394) (BitVec.ofNat 64 0x10420) retired⟩
+  have jumped : Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
+          (BitVec.ofNat 64 0x10394) (BitVec.ofNat 64 0x10420))
+        (BitVec.ofNat 64 0x10420) retired) false := by simpa [targetEq] using run
+  exact ⟨_, jumped,
+    { trace := Trace.one stepNo _ _ jumped
+      confined := ConfinedPrefix.ownStep' atPc jumped
+      writes := jumpRetirement_writes state _ _ retired
+      mem := writesOnlyWithin_of_mem_eq (jumpRetirement_mem state _ _ retired)
+      retired := jumpRetirement_retired_present state _ _ retired
+      atPc := jumpRetirement_pc state _ _ retired
+      regs := RegsHold.nil _ }⟩
 
 /-- A mismatched four-byte framing word takes the wrapper's `bne a3, a0, 0x10420` exit. -/
 theorem retry_prefix_mismatch_branch_step (stepNo : Nat) (args : DecodeInlineArgs)
@@ -193,16 +198,10 @@ theorem retry_exact_result_tag_step (stepNo : Nat) (args : DecodeInlineArgs)
     omega
   have addressNat : address.toNat = args.stackBase + 0x9f0 := by
     simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : args.stackBase + 0x9f0 < 2 ^ 64)]
-  have pcIn : functionInstanceExecutionPcs generatedProgram
-      functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
-      (BitVec.ofNat 64 0x103f8) := by
-    apply functionInstanceExecutionPcs_iff_ranges.mpr
-    apply RegionPcs.iff_inRanges.mpr
-    native_decide
   have fetchPc : DecoderFetchPc
       (functionInstanceExecutionPcs generatedProgram
         functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
-      (BitVec.ofNat 64 0x103f8) := ⟨pcIn, by native_decide⟩
+      (BitVec.ofNat 64 0x103f8) := GeneratedWordStep.fetchPc _
   have image : Artifacts.programImage.fileBytesMatchMemory state.mem :=
     hasExactErePrefix_programImage_of_codeIntact frame.code
   have fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state)
