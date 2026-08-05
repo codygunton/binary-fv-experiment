@@ -66,6 +66,22 @@ worth internalising:
 So before applying any mechanism in bulk: count the sites, and count what one invocation *costs*.
 The rate at which a mechanism collapses its best case tells you nothing about its average case.
 
+**Three registrations have now been built, verified, and reverted for having no population.** All
+three were correct; none had enough to automate. Do not rebuild them without new evidence:
+
+| rule | why it was reverted |
+|---|---|
+| per-address instruction fact table (`bc83463`) | duplicated `MachineRegions.words`, which already exists and is already consumed |
+| memory-side `WritesOnlyWithin.get` multi-pattern (`f78d965`) | works through unions, chains and symbolic bases — but only ~31 links tree-wide sit in chains of 3+ |
+| `Agree.get` multi-pattern + `platformPreserved_apply` | works, and needs **no** per-site setup since the `Agree` is already in scope — but only **11** multi-line Agree-derived reads exist tree-wide; the other 27 are already one-liners like `(agree misa (by simp [platformPreserved])).trans misaBaseRead`, where `grind` saves one line |
+
+The `Agree.get` case is the sharpest lesson, because it looked like the *best* candidate on the
+count that first came to hand — 239 register-carrying `have`s across 56 theorems holding an `Agree`
+hypothesis. Nearly all of those carries turned out to go through a **write set**, not the `Agree`,
+and the ones that did use the `Agree` were already terse. **Count the sites in the shape the rule
+actually matches, not the sites that merely mention its hypothesis.** The working patch is preserved
+in the session scratchpad if a memory- or agreement-heavy layer ever grows the population.
+
 ### Rule 3 — know which kind of side condition you have, because one kind is fatal
 
 The multi-pattern only works if `grind` can discharge the membership obligation. Three cases, all
