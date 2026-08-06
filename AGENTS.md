@@ -218,9 +218,32 @@ reproduces the blow-up in the *elaborator* instead:
 - **The named body must not mention the dispatching `Option`.** `witnessValidC` becomes
   `(controlFlow?.map witnessValidAt).getD false` -- one delta step to match, no reduction.
 
-Generalising: **any `unfold`/`rw`/`subst` whose motive captures a large generated constant is a
-kernel bomb.** The sibling lemma `forwardClosed_some` did the same `unfold`+`rw` and cost under 1 s,
-so the pattern is not always fatal -- which is exactly why you profile instead of guessing.
+Generalising: **any `unfold`/`rw`/`subst` whose motive captures a heavy constant is a kernel bomb** --
+"heavy" meaning anything whose value is computed rather than written down: a parsed ELF, a resolved
+symbol table, a decoded program, a generated array. The constant does not have to appear in the
+*statement*; `unfold`ing a three-line definition that merely mentions it is enough.
+
+The second instance found was exactly this, and it was four bombs at once. `executeDecode` is
+
+```lean
+def executeDecode (input : ByteArray) : Except ExecutionError DecodeOutcome :=
+  match runnerSymbols with
+  | none => .error .invalidArtifact
+  | some symbols => runAnswer (runZesuDecodeRaw symbols input)
+```
+
+Three lines -- but `unfold executeDecode` leaves that `match` in the motive, and the kernel resolves
+the ELF symbol table to check it. Four separate proofs unfolded it and each paid: 22.6 s, 21.5 s,
+21.3 s, 21.4 s. One `executeDecode_some` lemma stating the dispatch against a *variable* `symbols`,
+with all four sites rewritten through it, took the module **89 s -> 24 s**.
+
+So the rule has a cheap form: **if a definition mentioning a heavy constant is unfolded at more than
+one site, state its characterising equation once and rewrite through it.** You are not optimising a
+proof, you are refusing to re-verify the same reduction N times.
+
+Counter-example worth keeping in mind: `forwardClosed_some` does the same `unfold`+`rw` over the same
+generated arrays and costs under 1 s. The shape is a *suspect*, not a verdict -- which is exactly why
+you profile instead of guessing.
 
 **2. Suspect definitional equality before you suspect tactics.** The most expensive single thing in
 this repository was `canonicalContractParams.env.image` versus `Artifacts.programImage` — definitionally
