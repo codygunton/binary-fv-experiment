@@ -9,14 +9,46 @@ import BinaryFv.Zesu.MachineExecution.OwnedPc
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_1
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_2
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_3
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_4
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_5
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_6
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_7
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_8
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_9
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_10
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_11
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_12
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_13
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_14
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_15
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_16
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_17
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_18
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_19
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_20
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L1_21
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L2_1
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L2_2
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L2_3
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L2_4
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L2_5
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L2_6
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L2_7
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L2_8
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L2_9
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L3_1
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L3_2
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L3_3
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L3_4
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L4_1
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L4_2
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L5_1
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L5_2
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L5_3
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L6_1
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L6_2
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L7_1
+import BinaryFv.Zesu.MachineExecution.DecodeInlineProof.L7_2
 
 /-!
 # Sail proof for the inlined `decode` scope

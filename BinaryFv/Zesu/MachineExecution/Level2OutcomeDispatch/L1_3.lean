@@ -20,52 +20,86 @@ open RegisterWriteStep
 set_option maxRecDepth 100000
 set_option maxHeartbeats 5000000
 
-/-- Exact post-state of the tag-one branch at `0x10408`. -/
-def wrapperDispatchTag1BranchAfter (state : State) (retired : BitVec 64) : State :=
-  tryStepControlFlowAfterRetired
-    (controlFlowJumpState (tryStepControlFlowAfterIncrement state)
-      (BitVec.ofNat 64 0x10408) (BitVec.ofNat 64 0x10428))
-    (BitVec.ofNat 64 0x10428) retired
+theorem wrapper_dispatch_register_constant_step {machineArgs : DecoderMachineArgs}
+    {base state : State} {destination : Register} {value : RegisterType destination}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (stepNo : Nat) (pc : BitVec 64)
+    (pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc)
+    (atPc : state.regs.get? PC = some pc) (byte0 byte1 byte2 byte3 : BitVec 8)
+    (inst : instruction) (fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
+      byte0 byte1 byte2 byte3)
+    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state) inst)
+    (execute : Runs (execute inst) (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
+          destination value }
+      (.Retire_Success ())) (baseEncoding : BaseInstructionEncoding byte0)
+    (destinationNotNextPc : destination ≠ nextPC) (destinationNotHart : destination ≠ hart_state)
+    (destinationNotIncrement : destination ≠ minstret_increment)
+    (destinationNotRetired : destination ≠ minstret) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state pc retired destination value) false :=
+  decoderRegisterWriteStep machine agree retiredPresent stepNo pc pcIn atPc
+    byte0 byte1 byte2 byte3 inst destination value fetchBytes
+    baseEncoding decode destinationNotNextPc destinationNotHart destinationNotIncrement
+    destinationNotRetired execute
 
-/-- The short prefix of the tag-one route, kept separate from its result-tail frame. -/
-theorem wrapper_dispatch_tag1_trace_prefix {state s1 s2 s3 s4 : State} (stepNo : Nat)
-    (run1 : Runs (try_step stepNo false) state s1 false)
-    (run2 : Runs (try_step (stepNo + 1) false) s1 s2 false)
-    (run3 : Runs (try_step (stepNo + 2) false) s2 s3 false)
-    (run4 : Runs (try_step (stepNo + 3) false) s3 s4 false) :
-    Trace stepNo 4 state s4 := by
-  exact Trace.step _ _ _ _ _ run1 <| Trace.step _ _ _ _ _ run2 <|
-    Trace.step _ _ _ _ _ run3 <| Trace.one (stepNo + 3) _ _ run4
-
-/-- The short result-tail of the tag-one route. -/
-theorem wrapper_dispatch_tag1_trace_suffix {s4 s5 s6 s7 : State} (stepNo : Nat)
-    (run5 : Runs (try_step (stepNo + 4) false) s4 s5 false)
-    (run6 : Runs (try_step (stepNo + 5) false) s5 s6 false)
-    (run7 : Runs (try_step (stepNo + 6) false) s6 s7 false) :
-    Trace (stepNo + 4) 3 s4 s7 := by
-  exact Trace.step _ _ _ _ _ run5 <| Trace.step _ _ _ _ _ run6 <|
-    Trace.one (stepNo + 6) _ _ run7
-
-/-- The short prefix of the tag-two route, before it writes the rejection result. -/
-theorem wrapper_dispatch_tag2_trace_prefix {state s1 s2 s3 s4 s5 : State} (stepNo : Nat)
-    (run1 : Runs (try_step stepNo false) state s1 false)
-    (run2 : Runs (try_step (stepNo + 1) false) s1 s2 false)
-    (run3 : Runs (try_step (stepNo + 2) false) s2 s3 false)
-    (run4 : Runs (try_step (stepNo + 3) false) s3 s4 false)
-    (run5 : Runs (try_step (stepNo + 4) false) s4 s5 false) :
-    Trace stepNo 5 state s5 := by
-  exact Trace.step _ _ _ _ _ run1 <| Trace.step _ _ _ _ _ run2 <|
-    Trace.step _ _ _ _ _ run3 <| Trace.step _ _ _ _ _ run4 <|
-    Trace.one (stepNo + 4) _ _ run5
-
-/-- The short rejection tail of the tag-two route. -/
-theorem wrapper_dispatch_tag2_trace_suffix {s5 s6 s7 s8 s9 : State} (stepNo : Nat)
-    (run6 : Runs (try_step (stepNo + 5) false) s5 s6 false)
-    (run7 : Runs (try_step (stepNo + 6) false) s6 s7 false)
-    (run8 : Runs (try_step (stepNo + 7) false) s7 s8 false)
-    (run9 : Runs (try_step (stepNo + 8) false) s8 s9 false) :
-    Trace (stepNo + 5) 4 s5 s9 := by
-  exact Trace.step _ _ _ _ _ run6 <| Trace.step _ _ _ _ _ run7 <|
-    Trace.step _ _ _ _ _ run8 <| Trace.one (stepNo + 8) _ _ run9
+theorem wrapper_dispatch_jump_step {machineArgs : DecoderMachineArgs} {base state : State}
+    (machine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+      machineArgs base)
+    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
+    (stepNo : Nat) (pc target : BitVec 64) (imm : BitVec 21)
+    (pcIn : DecoderFetchPc
+      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw) pc)
+    (atPc : state.regs.get? PC = some pc) (byte0 byte1 byte2 byte3 : BitVec 8)
+    (fetchBytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
+    (baseEncoding : BaseInstructionEncoding byte0)
+    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state) (.JAL (imm, zreg)))
+    (targetEq : pc + sign_extend (m := 64) imm = target)
+    (targetAligned0 : Sail.BitVec.access target 0 = 0#1)
+    (targetAligned1 : Sail.BitVec.access target 1 = 0#1) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) false := by
+  obtain ⟨mseccfgBits, platform⟩ := decoderStepPlatform machine agree pc atPc pcIn
+    byte0 byte1 byte2 byte3 fetchBytes
+  obtain ⟨fetch, noMMIO, fetched, interrupts, notExpected, privilege, mseccfgRead⟩ := platform
+  obtain ⟨retired, inhibit, config, counters⟩ :=
+    decoderStepCounters machine.normal agree retiredPresent
+  obtain ⟨hartRead, inhibitRead, configRead, notInhibited, machineEnabled, retiredRead⟩ := counters
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
+  have linkRead : executeState.regs.get? nextPC = some (Sail.BitVec.addInt pc 4) := by
+    simp [executeState, coreControlFlowNextState]
+  have pcRead : executeState.regs.get? PC = some pc := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, atPc]
+  obtain ⟨misaBits, misaBaseRead, -⟩ : ∃ misaBits,
+      base.regs.get? misa = some misaBits ∧ Sail.BitVec.access misaBits 12 = 1#1 := by
+    have normalMisa := machine.normal.2.2.2.2.2.2.2.2.2.2.2
+    match read : base.regs.get? misa with
+    | none => simp [read] at normalMisa
+    | some bits => exact ⟨bits, rfl, by simpa [read] using normalMisa⟩
+  have misaRead : state.regs.get? misa = some misaBits :=
+    (agree misa (by simp [platformPreserved])).trans misaBaseRead
+  have zca := currentlyEnabledZca_run_atStepPremise state pc misaBits misaRead
+  have align0 : Sail.BitVec.access (pc + sign_extend (m := 64) imm) 0 = 0#1 := by
+    rw [targetEq]
+    exact targetAligned0
+  have align1 : Sail.BitVec.access (pc + sign_extend (m := 64) imm) 1 = 0#1 := by
+    rw [targetEq]
+    exact targetAligned1
+  refine ⟨retired, ?_⟩
+  simpa [targetEq] using tryStepJRetires stepNo state pc pc retired imm inhibit config
+    byte0 byte1 byte2 byte3 (Sail.BitVec.addInt pc 4) (_get_Misa_C misaBits == 1#1)
+    fetch noMMIO fetched interrupts baseEncoding decode notExpected
+    (get_next_pc_run executeState _ linkRead) (readReg_run executeState PC _ pcRead)
+    align0 align1 zca hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
 
 end BinaryFv.Zesu.MachineExecution

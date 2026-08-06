@@ -4,10 +4,26 @@ import BinaryFv.Zesu.MachineExecution.Level2RetryExitSteps
 import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L1_1
 import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L1_2
 import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L1_3
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L1_4
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L1_5
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L1_6
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L1_7
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L1_8
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L1_9
 import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_1
 import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_2
 import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_3
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_4
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_5
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_6
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_7
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_8
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_9
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_10
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_11
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L2_12
 import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L3_1
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch.L3_2
 
 /-!
 # Level 2 result-tag dispatch
@@ -236,110 +252,5 @@ theorem wrapper_dispatch_tag2_path {machineArgs : DecoderMachineArgs} {base stat
   · simp [s1, s2, s3, s4, s5, s6, s7, s8, s9, afterRegisterWrite,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
       coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-
-/-- Public lossless frame of the three-instruction tag-one rejection tail. -/
-theorem wrapper_dispatch_tag1_suffix_frame {machineArgs : DecoderMachineArgs} {base state : State}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base) (agree : Agree platformPreserved base state)
-    (retired : RetiredCounterPresent state) (code : canonicalContractParams.env.CodeIntact state)
-    (stepNo : Nat) (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10428)) :
-    ∃ after, Trace stepNo 3 state after ∧ ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary stepNo 3 state after ∧
-      after.regs.get? PC = some (BitVec.ofNat 64 0x1035c) ∧
-      after.regs.get? x10 = some (BitVec.ofNat 64 0) ∧ after.regs.get? x11 = some (BitVec.ofNat 64 4) ∧
-      RetiredCounterPresent after ∧ after.mem = state.mem ∧ Agree platformPreserved base after ∧
-      canonicalContractParams.env.CodeIntact after ∧ after.regs.get? x18 = state.regs.get? x18 ∧
-      after.regs.get? x2 = state.regs.get? x2 := by
-  obtain ⟨⟨after, trace, tailPrefix, pc, result, status, retired, memory, platform, code, x18,
-    x2⟩⟩ :=
-    wrapper_dispatch_tag1_suffix machine agree retired code stepNo atPc
-  exact ⟨after, trace, tailPrefix, pc, result, status, retired, memory, platform, code, x18, x2⟩
-
-/-- The tag-one route reaches the shared rejection continuation with `(a0, a1) = (0, 4)`. -/
-theorem wrapper_dispatch_tag1_path {machineArgs : DecoderMachineArgs} {base state : State}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
-    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
-    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
-    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
-    (tag : state.regs.get? x10 = some (BitVec.ofNat 64 1)) :
-    DispatchPath base stepNo 7 state (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0)
-      (BitVec.ofNat 64 4) := by
-  obtain ⟨⟨s4, prefixTrace, _prefixConfined, pc4, tag4, status4, retired4, memory4, agree4, code4, x18_4,
-    x2_4⟩⟩ :=
-    wrapper_dispatch_tag1_prefix machine agree retiredPresent code stepNo atPc tag
-  obtain ⟨⟨s7, suffixTrace, _suffixPrefix, pc7, result7, status7, retired7, memory7, agree7,
-    code7, x18_7, x2_7⟩⟩ :=
-    wrapper_dispatch_tag1_suffix machine agree4 retired4 code4 (stepNo + 4) pc4
-  refine ⟨⟨s7, Trace.append prefixTrace suffixTrace, pc7, result7, status7, retired7, ?_, agree7,
-    code7, ?_, ?_⟩⟩
-  · exact memory7.trans memory4
-  · exact x18_7.trans x18_4
-  · exact x2_7.trans x2_4
-
-/-- Tag one supplies one terminal state carrying both its seven-step Sail trace and wrapper ownership. -/
-theorem wrapper_dispatch_tag1_owned_terminal_route {machineArgs : DecoderMachineArgs} {base state : State}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
-    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
-    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
-    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
-    (tag : state.regs.get? x10 = some (BitVec.ofNat 64 1)) :
-    ∃ after, WrapperOwnedTerminalRouteFrame base state after stepNo 7
-      (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 4) := by
-  obtain ⟨⟨s4, prefixTrace, prefixConfined, pc4, _tag4, _status4, retired4, memory4, agree4,
-    code4, x18_4, x2_4⟩⟩ := wrapper_dispatch_tag1_prefix machine agree retiredPresent code stepNo atPc tag
-  obtain ⟨⟨after, suffixTrace, suffixConfined, pc, result, status, retired, memory, platform,
-    finalCode, x18, x2⟩⟩ := wrapper_dispatch_tag1_suffix machine agree4 retired4 code4 (stepNo + 4) pc4
-  let route : WrapperDispatchRouteFrame base state after stepNo 7
-      (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 4) :=
-    { trace := Trace.append prefixTrace suffixTrace
-      atTerminal := pc
-      resultValue := result
-      statusValue := status
-      platform := platform
-      code := finalCode
-      retired := retired
-      memory := memory.trans memory4
-      savedS2 := x18.trans x18_4
-      savedStack := x2.trans x2_4 }
-  refine ⟨after, ⟨route, ?_⟩⟩
-  simpa [Nat.add_assoc] using ConfinedPrefix.trans prefixConfined suffixConfined
-
-/-- The original tag-three route frame projected from its richer shared-state proof. -/
-theorem wrapper_dispatch_tag3_path {machineArgs : DecoderMachineArgs} {base state : State}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
-    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
-    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
-    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
-    (tag : state.regs.get? x10 = some (BitVec.ofNat 64 3)) :
-    DispatchPath base stepNo 5 state (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0)
-      (BitVec.ofNat 64 3) := by
-  obtain ⟨⟨after, route, -⟩⟩ := wrapper_dispatch_tag3_owned_path machine agree retiredPresent code
-    stepNo atPc tag
-  exact ⟨⟨after, route.trace, route.atTerminal, route.resultValue, route.statusValue, route.retired,
-    route.memory, route.platform, route.code, route.savedS2, route.savedStack⟩⟩
-
-/-- Tag three supplies one terminal state carrying both its five-step Sail trace and wrapper ownership. -/
-theorem wrapper_dispatch_tag3_owned_terminal_route {machineArgs : DecoderMachineArgs} {base state : State}
-    (machine : DecoderMachinePre
-      (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
-      machineArgs base)
-    (agree : Agree platformPreserved base state) (retiredPresent : RetiredCounterPresent state)
-    (code : canonicalContractParams.env.CodeIntact state) (stepNo : Nat)
-    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x103fc))
-    (tag : state.regs.get? x10 = some (BitVec.ofNat 64 3)) :
-    ∃ after, WrapperOwnedTerminalRouteFrame base state after stepNo 5
-      (BitVec.ofNat 64 0x1035c) (BitVec.ofNat 64 0) (BitVec.ofNat 64 3) := by
-  obtain ⟨⟨after, terminal, confined⟩⟩ := wrapper_dispatch_tag3_owned_path machine agree retiredPresent
-    code stepNo atPc tag
-  exact ⟨after, ⟨terminal, confined⟩⟩
 
 end BinaryFv.Zesu.MachineExecution

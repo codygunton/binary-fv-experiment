@@ -14,6 +14,7 @@ import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L2_2
 import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L3_1
 import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L4_1
 import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L5_1
+import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L5_2
 
 /-!
 # Shared `zesu_decode_raw` epilogue
@@ -73,39 +74,22 @@ theorem wrapper_epilogue_to_exit {base state : State} {machineArgs : DecoderMach
       savedS0 savedS1 savedS2 stack raAddress frame stackValue raAddressEq raAddressNat raAligned raAllowed
   let afterFirst := wrapperAfterFirstStackRestore state retiredFirst stack
   let afterRa := afterRegisterWrite afterFirst (BitVec.ofNat 64 0x10364) retiredRa x1 link
-  have agreeFirst : Agree decoderPreserved base afterFirst := by
-    apply agree.trans
-    intro register preserved
-    cases register <;>
-      simp only [afterFirst, wrapperAfterFirstStackRestore, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
-      tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert] at preserved ⊢ <;>
-      simp_all [decoderPreserved, platformPreserved]
-  have agreeRa : Agree decoderPreserved base afterRa := agreeFirst.trans
-    (afterRegisterWrite_agree_of (P := decoderPreserved) (by simp [decoderPreserved, platformPreserved])
-      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
-      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved]))
-  have codeRa : canonicalContractParams.env.CodeIntact afterRa := by
-    simpa [afterRa, afterFirst, wrapperAfterFirstStackRestore, afterRegisterWrite_mem] using code
-  have memoryRa : afterRa.mem = state.mem := by rfl
+  have agreeFirst : Agree decoderPreserved base afterFirst :=
+    epilogue_afterFirst_agree agree retiredFirst stack
+  have agreeRa : Agree decoderPreserved base afterRa :=
+    epilogue_afterRa_agree agree retiredFirst retiredRa stack link
+  have codeRa : canonicalContractParams.env.CodeIntact afterRa :=
+    epilogue_afterRa_code code retiredFirst retiredRa stack link
+  have memoryRa : afterRa.mem = state.mem :=
+    epilogue_afterRa_mem retiredFirst retiredRa stack link
   have stackRa : afterRa.regs.get? x2 = some (stack + sign_extend (m := 64) (0x230#12)) :=
-    ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans
-      (tryStepStackAddiAfterRetired_stackPointer state (BitVec.ofNat 64 0x10360) 0x230#12 stack
-        retiredFirst)
-  have resultRa : afterRa.regs.get? x10 = some result := by
-    simp [afterRa, afterFirst, afterRegisterWrite, wrapperAfterFirstStackRestore,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
-      tryStepStackAddiAfterIncrement, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, resultValue]
-  have statusRa : afterRa.regs.get? x11 = some status := by
-    simp [afterRa, afterFirst, afterRegisterWrite, wrapperAfterFirstStackRestore,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
-      tryStepStackAddiAfterIncrement, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, statusValue]
-  have atS0 : afterRa.regs.get? PC = some (BitVec.ofNat 64 0x10368) := by
-    simpa [afterRa] using afterRegisterWrite_pc afterFirst (BitVec.ofNat 64 0x10364) retiredRa x1 link
+    epilogue_afterRa_sp retiredFirst retiredRa stack link
+  have resultRa : afterRa.regs.get? x10 = some result :=
+    epilogue_afterRa_a0 resultValue retiredFirst retiredRa stack link
+  have statusRa : afterRa.regs.get? x11 = some status :=
+    epilogue_afterRa_a1 statusValue retiredFirst retiredRa stack link
+  have atS0 : afterRa.regs.get? PC = some (BitVec.ofNat 64 0x10368) :=
+    epilogue_afterRa_pc retiredFirst retiredRa stack link
   obtain ⟨afterS2, saved⟩ := wrapper_epilogue_restore_saved_registers machine agreeRa retiredRaPresent
     codeRa (fromStep + 2) atS0 stackBase link savedS0 savedS1 savedS2
     (stack + sign_extend (m := 64) (0x230#12)) result status s0Address s1Address s2Address frameRa raAtRa
@@ -214,39 +198,22 @@ theorem wrapper_epilogue_complete {base state : State} {machineArgs : DecoderMac
       savedS0 savedS1 savedS2 stack raAddress frame stackValue raAddressEq raAddressNat raAligned raAllowed
   let afterFirst := wrapperAfterFirstStackRestore state retiredFirst stack
   let afterRa := afterRegisterWrite afterFirst (BitVec.ofNat 64 0x10364) retiredRa x1 link
-  have agreeFirst : Agree decoderPreserved base afterFirst := by
-    apply agree.trans
-    intro register preserved
-    cases register <;>
-      simp only [afterFirst, wrapperAfterFirstStackRestore, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
-      tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert] at preserved ⊢ <;>
-      simp_all [decoderPreserved, platformPreserved]
-  have agreeRa : Agree decoderPreserved base afterRa := agreeFirst.trans
-    (afterRegisterWrite_agree_of (P := decoderPreserved) (by simp [decoderPreserved, platformPreserved])
-      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
-      (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved]))
-  have codeRa : canonicalContractParams.env.CodeIntact afterRa := by
-    simpa [afterRa, afterFirst, wrapperAfterFirstStackRestore, afterRegisterWrite_mem] using code
-  have memoryRa : afterRa.mem = state.mem := by rfl
+  have agreeFirst : Agree decoderPreserved base afterFirst :=
+    epilogue_afterFirst_agree agree retiredFirst stack
+  have agreeRa : Agree decoderPreserved base afterRa :=
+    epilogue_afterRa_agree agree retiredFirst retiredRa stack link
+  have codeRa : canonicalContractParams.env.CodeIntact afterRa :=
+    epilogue_afterRa_code code retiredFirst retiredRa stack link
+  have memoryRa : afterRa.mem = state.mem :=
+    epilogue_afterRa_mem retiredFirst retiredRa stack link
   have stackRa : afterRa.regs.get? x2 = some (stack + sign_extend (m := 64) (0x230#12)) :=
-    ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans
-      (tryStepStackAddiAfterRetired_stackPointer state (BitVec.ofNat 64 0x10360) 0x230#12 stack
-        retiredFirst)
-  have resultRa : afterRa.regs.get? x10 = some result := by
-    simp [afterRa, afterFirst, afterRegisterWrite, wrapperAfterFirstStackRestore,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
-      tryStepStackAddiAfterIncrement, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, resultValue]
-  have statusRa : afterRa.regs.get? x11 = some status := by
-    simp [afterRa, afterFirst, afterRegisterWrite, wrapperAfterFirstStackRestore,
-      tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
-      tryStepStackAddiAfterIncrement, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, statusValue]
-  have atS0 : afterRa.regs.get? PC = some (BitVec.ofNat 64 0x10368) := by
-    simpa [afterRa] using afterRegisterWrite_pc afterFirst (BitVec.ofNat 64 0x10364) retiredRa x1 link
+    epilogue_afterRa_sp retiredFirst retiredRa stack link
+  have resultRa : afterRa.regs.get? x10 = some result :=
+    epilogue_afterRa_a0 resultValue retiredFirst retiredRa stack link
+  have statusRa : afterRa.regs.get? x11 = some status :=
+    epilogue_afterRa_a1 statusValue retiredFirst retiredRa stack link
+  have atS0 : afterRa.regs.get? PC = some (BitVec.ofNat 64 0x10368) :=
+    epilogue_afterRa_pc retiredFirst retiredRa stack link
   obtain ⟨afterS2, saved⟩ := wrapper_epilogue_restore_saved_registers machine agreeRa retiredRaPresent
     codeRa (fromStep + 2) atS0 stackBase link savedS0 savedS1 savedS2
     (stack + sign_extend (m := 64) (0x230#12)) result status s0Address s1Address s2Address frameRa raAtRa
