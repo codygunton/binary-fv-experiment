@@ -241,6 +241,38 @@ So the rule has a cheap form: **if a definition mentioning a heavy constant is u
 one site, state its characterising equation once and rewrite through it.** You are not optimising a
 proof, you are refusing to re-verify the same reduction N times.
 
+**The one-line check before you write the proof.** Is the scrutinee of any `match` you are about to
+unfold a *computed* constant? If yes, name the branch body and transport through a lemma generic in
+the scrutinee. Concretely, prefer
+
+```lean
+def check : Bool := (heavy.toOption.map checkAt).getD false   -- determined by a transport lemma
+```
+
+over
+
+```lean
+def check : Bool := match heavy with | .ok x => <body> | .error _ => false   -- stuck; kernel re-reduces
+```
+
+Four modules on this project's critical path -- `GeneratedReachabilityExact`, `Layout`, `Preflight`,
+`Runner` -- each cost ~23 s for exactly this, and all four dropped under 1 s. Nothing was shared
+between them because oleans store terms, not reduction results: every module that leaves a `match`
+stuck on the parsed ELF re-parses it in full.
+
+A corollary worth knowing before you optimise a slow `native_decide`: **check what else in the module
+forces the same value first.** `canonicalResultBuffer_ne_zero` profiled at 22.9 s and looked like an
+expensive `native_decide`; it was not, and it vanished when an unrelated declaration in the same
+module stopped forcing the artifact. Whichever declaration forces a heavy value first pays, and the
+others can look guilty by overlapping it.
+
+**Reverted here, so you do not repeat it:** replacing six of `wrapper_epilogue_to_exit`'s register
+bullets with the write-set frame (`wrapperAfterFinalStackRestore_writes` + `.get r`) is better
+hygiene and the codebase even records the frame lemma as missing -- but it measured *slower*, 26.7 s
+to 30.7 s with `by decide` and 28.2 s with `of_decide_eq_true rfl`. The frame is the right tool when
+it replaces a *composition* of steps; against a single `afterRegisterWrite` whose `simp` set is
+already direct, the membership obligation costs more than it saves.
+
 Counter-example worth keeping in mind: `forwardClosed_some` does the same `unfold`+`rw` over the same
 generated arrays and costs under 1 s. The shape is a *suspect*, not a verdict -- which is exactly why
 you profile instead of guessing.
