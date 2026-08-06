@@ -133,12 +133,20 @@ always that one exists, or should, and is three lines.
 Build time here is dominated by a handful of pathological *declarations*, not by proof volume. The
 spread across modules is 250x per line. Three rules, each bought with a measurement:
 
-**1. Bisect with `head -n`; do not trust the profiler.** Lean's profiler reports tactic times
-*inclusively*, so nested entries double-count and can sum past the file's own wall-clock. Summing them
-produced three separate wrong conclusions in one session, including a 167-site rewrite that was
-reverted for measuring slower. Instead, truncate the file at successive declaration boundaries and
-time each — a few seconds per probe, and it attributes cost exactly. Watch the off-by-one:
-`head -n <line-of-X>` truncates *before* X, so a delta belongs to the **previous** declaration.
+**1. Profile with `-Dtrace.profiler=true`, reading `Elab.definition.value` and per-tactic
+durations.** That attributes cost to a single tactic, which is what you need.
+
+Two traps, both of which cost real time here:
+
+- **Do not sum the plain profiler's tactic times.** They are reported *inclusively*, so nested entries
+  double-count and can total more than the file's own wall-clock. Summing them produced three separate
+  wrong conclusions in one session, including a 167-site rewrite reverted for measuring slower.
+- **Do not trust `head -n` wall-clock bisection either.** Lean elaborates declarations in parallel, so
+  truncating the file misattributes cost to neighbours. A "160 s region" identified this way turned
+  out to be one theorem at 153 s, with the two neighbours it implicated costing 3.5 s and 4.6 s. It is
+  useful as a first cut to find the *file region*, but never as the attribution you act on. (And if you
+  do use it: `head -n <line-of-X>` truncates *before* X, so a delta belongs to the **previous**
+  declaration.)
 
 **2. Suspect definitional equality before you suspect tactics.** The most expensive single thing in
 this repository was `canonicalContractParams.env.image` versus `Artifacts.programImage` — definitionally
@@ -152,6 +160,11 @@ Two fixes, in order of preference:
   marking it irreducible stopped every defeq from re-parsing it and took `Level2Capstone` 86 s to 2 s,
   `Level2WrapperProof` 235 s to 140 s, with `native_decide` unaffected because compilation ignores
   reducibility.
+- **Write the transport in term mode, not through `simp`.** The worst single tactic found in this
+  repository was `simpa [<let-alias>, afterRegisterWrite_mem] using <previous>` at **187 s**: `simp`
+  zeta-expands the whole `let`-chain, then `isDefEq` re-unifies two nine-deep state records. The term
+  form `codeIntact_of_mem_eq (afterRegisterWrite_mem s pc r d v) prev` never builds that term, because
+  the frame equation is `rfl` by construction. Two modules went 428 s to 89 s on this alone.
 - **Pay the defeq once in a transport lemma** and route call sites through it. Note the statement
   matters: through `CodeIntact` it exhausts the recursion depth, and even the projection equation fails
   at `rfl` because `rfl` unfolds both sides. `by simp only [theEnvDef]` reduces the projection
