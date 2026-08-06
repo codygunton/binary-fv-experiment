@@ -1025,7 +1025,18 @@ theorem wrapper_fresh_branch_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
   · simpa [wrapperAfterFreshBranch, targetEq] using run
   · exact Elfling.tryStepControlFlowAfterRetired_pc _ _ _
 
-/-- Eleven wrapper-owned Sail steps reach the selected allocator setup on the fresh-call path. -/
+/-- The fixed write set of the five prologue instructions that follow the frame setup: the
+`try_step` bookkeeping plus the three architectural registers they target. Chosen once for the whole
+segment rather than accumulated one `Or` per step -- see `Seg`'s module docstring. -/
+@[reducible] private def wrapperFreshPrologueWrites : RegSet :=
+  RegSet.union stepBookkeeping
+    (RegSet.union (RegSet.only x9) (RegSet.union (RegSet.only x11) (RegSet.only x18)))
+
+/-- Eleven wrapper-owned Sail steps reach the selected allocator setup on the fresh-call path.
+
+The five instructions after the frame setup are composed through `Seg`, so no post-state of any of
+them is ever named: each combinator hands back an opaque successor and every clause of the
+conclusion is a field read or a one-line membership check. -/
 theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     (stackBase : Nat) (entry : State)
     (source : preZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
@@ -1053,129 +1064,86 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   obtain ⟨s6, trace6, prefix6, pc6, stack6, input6, length6, attempted6, inputMemory6,
     agree6, retired6, code6, frame6⟩ :=
     wrapper_complete_frame_prefix fromStep args stackBase entry source machine
-  obtain ⟨r7, run7⟩ := wrapper_preserve_length_step (fromStep + 6) args stackBase entry s6
-    machine agree6 retired6 code6 pc6 length6
-  let s7 := afterRegisterWrite s6 (BitVec.ofNat 64 0x102c8) r7 x9
-    (BitVec.ofNat 64 args.bytes.size)
-  have pc7 : s7.regs.get? PC = some (BitVec.ofNat 64 0x102cc) := by
-    simpa [s7] using afterRegisterWrite_pc s6 (BitVec.ofNat 64 0x102c8) r7 x9
-      (BitVec.ofNat 64 args.bytes.size)
-  have agree7 : Agree platformPreserved entry s7 :=
-    agree6.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
-  have retired7 := afterRegisterWrite_retired_present s6 (BitVec.ofNat 64 0x102c8) r7 x9
-    (BitVec.ofNat 64 args.bytes.size)
-  have code7 : canonicalContractParams.env.CodeIntact s7 :=
-    codeIntact_of_mem_eq (afterRegisterWrite_mem s6 (BitVec.ofNat 64 0x102c8) r7 x9 (BitVec.ofNat 64 args.bytes.size)) code6
-  obtain ⟨r8, run8⟩ := wrapper_globals_page_step (fromStep + 7) args stackBase entry s7
-    machine agree7 retired7 code7 pc7
-  let s8 := afterRegisterWrite s7 (BitVec.ofNat 64 0x102cc) r8 x11
-    (BitVec.ofNat 64 0x42152cc)
-  have pc8 : s8.regs.get? PC = some (BitVec.ofNat 64 0x102d0) := by
-    simpa [s8] using afterRegisterWrite_pc s7 (BitVec.ofNat 64 0x102cc) r8 x11
-      (BitVec.ofNat 64 0x42152cc)
-  have page8 : s8.regs.get? x11 = some (BitVec.ofNat 64 0x42152cc) :=
-    afterRegisterWrite_destination s7 (BitVec.ofNat 64 0x102cc) r8 x11 (BitVec.ofNat 64 0x42152cc) (by decide) (by decide)
-  have agree8 : Agree platformPreserved entry s8 :=
-    agree7.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
-  have retired8 := afterRegisterWrite_retired_present s7 (BitVec.ofNat 64 0x102cc) r8 x11
-    (BitVec.ofNat 64 0x42152cc)
-  have code8 : canonicalContractParams.env.CodeIntact s8 :=
-    codeIntact_of_mem_eq (afterRegisterWrite_mem s7 (BitVec.ofNat 64 0x102cc) r8 x11 (BitVec.ofNat 64 0x42152cc)) code7
-  obtain ⟨r9, run9⟩ := wrapper_globals_address_step (fromStep + 8) args stackBase entry s8
-    machine agree8 retired8 code8 pc8 page8
-  let s9 := afterRegisterWrite s8 (BitVec.ofNat 64 0x102d0) r9 x18
-    (BitVec.ofNat 64 0x4215020)
-  have pc9 : s9.regs.get? PC = some (BitVec.ofNat 64 0x102d4) := by
-    simpa [s9] using afterRegisterWrite_pc s8 (BitVec.ofNat 64 0x102d0) r9 x18
-      (BitVec.ofNat 64 0x4215020)
-  have globals9 : s9.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
-    afterRegisterWrite_destination s8 (BitVec.ofNat 64 0x102d0) r9 x18 (BitVec.ofNat 64 0x4215020) (by decide) (by decide)
-  have agree9 : Agree platformPreserved entry s9 :=
-    agree8.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
-  have retired9 := afterRegisterWrite_retired_present s8 (BitVec.ofNat 64 0x102d0) r9 x18
-    (BitVec.ofNat 64 0x4215020)
-  have code9 : canonicalContractParams.env.CodeIntact s9 :=
-    codeIntact_of_mem_eq (afterRegisterWrite_mem s8 (BitVec.ofNat 64 0x102d0) r9 x18 (BitVec.ofNat 64 0x4215020)) code8
+  obtain ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry,
+    frame6⟩ := frame6
   have entryFresh : entry.mem.get? 0x4215020 = some (0#8) := by
     have represented := source.2.2.2.2.1.1
     have address : canonicalContractParams.globals.attempted = 0x4215020 := by native_decide
     rw [← address]
     simpa [FlagRep, DecoderGlobalsModel.fresh] using represented
-  have fresh9 : s9.mem.get? 0x4215020 = some (0#8) := by
-    simpa [s9, s8, s7, afterRegisterWrite_mem] using attempted6.trans entryFresh
-  obtain ⟨r10, run10⟩ := wrapper_attempted_load_step (fromStep + 9) args stackBase entry s9
-    machine agree9 retired9 code9 pc9 globals9 fresh9
-  let s10 := afterRegisterWrite s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64)
-  have pc10 : s10.regs.get? PC = some (BitVec.ofNat 64 0x102d8) := by
-    simpa [s10] using afterRegisterWrite_pc s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64)
-  have fresh10 : s10.regs.get? x11 = some (0#64) :=
-    afterRegisterWrite_destination s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64) (by decide) (by decide)
-  have agree10 : Agree platformPreserved entry s10 :=
-    agree9.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
-  have retired10 := afterRegisterWrite_retired_present s9 (BitVec.ofNat 64 0x102d4) r10 x11
-    (0#64)
-  have code10 : canonicalContractParams.env.CodeIntact s10 :=
-    codeIntact_of_mem_eq (afterRegisterWrite_mem s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64)) code9
-  obtain ⟨r11, run11, pc11⟩ := wrapper_fresh_branch_step (fromStep + 10) args stackBase
-    entry s10 machine agree10 retired10 code10 pc10 fresh10
-  let final := wrapperAfterFreshBranch s10 r11
-  -- The write set of each of the five steps. Every register carried across them below is one
-  -- `grind` against these facts, whatever the register and however many steps it crosses.
-  have w7 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x9)) s6 s7 :=
-    afterRegisterWrite_writes s6 (BitVec.ofNat 64 0x102c8) r7 x9 (BitVec.ofNat 64 args.bytes.size)
-  have w8 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x11)) s7 s8 :=
-    afterRegisterWrite_writes s7 (BitVec.ofNat 64 0x102cc) r8 x11 (BitVec.ofNat 64 0x42152cc)
-  have w9 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x18)) s8 s9 :=
-    afterRegisterWrite_writes s8 (BitVec.ofNat 64 0x102d0) r9 x18 (BitVec.ofNat 64 0x4215020)
-  have w10 : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x11)) s9 s10 :=
-    afterRegisterWrite_writes s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64)
-  have wFinal : WritesOnlyRegs stepBookkeeping s10 final := wrapperAfterFreshBranch_writes s10 r11
-  have length7 : s7.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) :=
-    afterRegisterWrite_destination s6 (BitVec.ofNat 64 0x102c8) r7 x9 (BitVec.ofNat 64 args.bytes.size) (by decide) (by decide)
-  -- Four registers, each from the last state that wrote it, in one `grind`.
-  obtain ⟨finalStack, finalInput, finalLength, finalGlobals⟩ :
-      final.regs.get? x2 = some (BitVec.ofNat 64 stackBase) ∧
-      final.regs.get? x10 = some (BitVec.ofNat 64 args.inputBase) ∧
-      final.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
-      final.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by grind
-  have finalFresh : final.mem.get? 0x4215020 = some (0#8) := by
-    change s9.mem.get? 0x4215020 = some (0#8)
-    exact fresh9
-  have finalInputMemory : MemoryRepresentation.MemoryBytes final args.inputBase args.bytes := by
-    simpa [final, s10, s9, s8, s7, wrapperAfterFreshBranch, wrapperAfterFreshBranch,
-      afterRegisterWrite_mem] using inputMemory6
-  have finalAgree := agree10.trans (wrapperAfterFreshBranch_platformAgree s10 r11)
-  have finalRetired := wrapperAfterFreshBranch_retired s10 r11
-  have finalCode : canonicalContractParams.env.CodeIntact final := by
-    change canonicalContractParams.env.CodeIntact s10
-    exact code10
-  obtain ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry,
-    frame6⟩ := frame6
-  have finalFrame : WrapperSavedRegisterFrame stackBase link savedS0 savedS1 savedS2 final := by
-    apply WrapperSavedRegisterFrame.of_mem_eq frame6
-    rfl
-  have prefix7 := wrapperOwnStep (fromStep + 6) 0x102c8 s6 s7 pc6 (regionPc _)
-    (notExitPc _) (by simpa [s7] using run7)
-  have prefix8 := wrapperOwnStep (fromStep + 7) 0x102cc s7 s8 pc7 (regionPc _)
-    (notExitPc _) (by simpa [s8] using run8)
-  have prefix9 := wrapperOwnStep (fromStep + 8) 0x102d0 s8 s9 pc8 (regionPc _)
-    (notExitPc _) (by simpa [s9] using run9)
-  have prefix10 := wrapperOwnStep (fromStep + 9) 0x102d4 s9 s10 pc9 (regionPc _)
-    (notExitPc _) (by simpa [s10] using run10)
-  have prefix11 := wrapperOwnStep (fromStep + 10) 0x102d8 s10 final pc10
-    (regionPc _)
-    (notExitPc _)
-    (by simpa [final] using run11)
-  have confined : WrapperConfinedPrefix fromStep 11 entry final := by
-    confined_steps [prefix6, prefix7, prefix8, prefix9, prefix10, prefix11]
-  refine ⟨final, ?_, confined, by simpa [final] using pc11, finalStack, finalInput, finalLength,
-    finalGlobals, finalFresh, finalInputMemory, finalAgree, finalRetired, finalCode,
-    ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
-  have trace7 := Trace.snoc trace6 (by simpa [s7] using run7)
-  have trace8 := Trace.snoc trace7 (by simpa [s8] using run8)
-  have trace9 := Trace.snoc trace8 (by simpa [s9] using run9)
-  have trace10 := Trace.snoc trace9 (by simpa [s10] using run10)
-  simpa [final] using Trace.snoc trace10 run11
+  have fresh6 : s6.mem.get? 0x4215020 = some (0#8) := attempted6.trans entryFresh
+  have bookkeeping : ∀ r, stepBookkeeping r → wrapperFreshPrologueWrites r := fun _ h => Or.inl h
+  have disjoint : RegSet.Disjoint platformPreserved wrapperFreshPrologueWrites :=
+    platformPreserved_disjoint.union
+      ((RegSet.Disjoint.only (by simp [platformPreserved])).union
+        ((RegSet.Disjoint.only (by simp [platformPreserved])).union
+          (RegSet.Disjoint.only (by simp [platformPreserved]))))
+  -- `mv s1, a1` at `0x102c8`.
+  obtain ⟨_, seg⟩ :=
+    (Seg.nil
+        (functionInstanceExecutionPcs generatedProgram
+          functionInstance_raw_decoder_root_zesu_decode_raw)
+        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
+        Level2ChildSummary wrapperFreshPrologueWrites noMemory (fromStep + 6) retired6 pc6).step
+      (regionPc _) (notExitPc _)
+      x9 (BitVec.ofNat 64 args.bytes.size) (BitVec.ofNat 64 0x102cc)
+      (wrapper_preserve_length_step _ args stackBase entry _ machine agree6 retired6 code6 pc6
+        length6)
+      (by decide) bookkeeping (Or.inr (Or.inl rfl)) (by decide) (by decide) (by decide)
+  -- `auipc a1, 0x4205` at `0x102cc`.
+  obtain ⟨_, seg⟩ :=
+    seg.step (regionPc _) (notExitPc _)
+      x11 (BitVec.ofNat 64 0x42152cc) (BitVec.ofNat 64 0x102d0)
+      (wrapper_globals_page_step _ args stackBase entry _ machine
+        (agree6.trans (seg.agree disjoint)) seg.retired
+        (codeIntact_of_mem_eq (seg.memEq noMemory_empty) code6) seg.atPc)
+      (by decide) bookkeeping (Or.inr (Or.inr (Or.inl rfl))) (by decide) (by decide)
+      (of_decide_eq_true rfl)
+  -- `addi s2, a1, 0xd54` at `0x102d0`.
+  obtain ⟨_, seg⟩ :=
+    seg.step (regionPc _) (notExitPc _)
+      x18 (BitVec.ofNat 64 0x4215020) (BitVec.ofNat 64 0x102d4)
+      (wrapper_globals_address_step _ args stackBase entry _ machine
+        (agree6.trans (seg.agree disjoint)) seg.retired
+        (codeIntact_of_mem_eq (seg.memEq noMemory_empty) code6) seg.atPc
+        (seg.reg x11 (BitVec.ofNat 64 0x42152cc) (by simp)))
+      (by decide) bookkeeping (Or.inr (Or.inr (Or.inr rfl))) (by decide) (by decide)
+      (of_decide_eq_true rfl)
+  -- `lbu a1, 0(s2)` at `0x102d4` overwrites the `auipc` page value, which the `addi` above already
+  -- consumed, so it is forgotten before the write that would invalidate it.
+  obtain ⟨_, seg⟩ :=
+    (seg.forget
+        (kv' := [⟨x18, BitVec.ofNat 64 0x4215020⟩, ⟨x9, BitVec.ofNat 64 args.bytes.size⟩])
+        (by simp)).step
+      (regionPc _) (notExitPc _) x11 (0#64) (BitVec.ofNat 64 0x102d8)
+      (wrapper_attempted_load_step _ args stackBase entry _ machine
+        (agree6.trans (seg.agree disjoint)) seg.retired
+        (codeIntact_of_mem_eq (seg.memEq noMemory_empty) code6) seg.atPc
+        (seg.reg x18 (BitVec.ofNat 64 0x4215020) (by simp))
+        (by rw [seg.memEq noMemory_empty]; exact fresh6))
+      (by decide) bookkeeping (Or.inr (Or.inr (Or.inl rfl))) (by decide) (by decide)
+      (of_decide_eq_true rfl)
+  -- `beqz a1, 0x102e8` at `0x102d8`, taken.
+  obtain ⟨final, seg⟩ :=
+    seg.stepJump (BitVec.ofNat 64 0x102e8) (regionPc _) (notExitPc _)
+      (by
+        obtain ⟨branchRetired, run, -⟩ := wrapper_fresh_branch_step _ args stackBase entry _
+          machine (agree6.trans (seg.agree disjoint)) seg.retired
+          (codeIntact_of_mem_eq (seg.memEq noMemory_empty) code6) seg.atPc
+          (seg.reg x11 (0#64) (by simp))
+        exact ⟨branchRetired, run⟩)
+      bookkeeping (of_decide_eq_true rfl)
+  have memory : final.mem = s6.mem := seg.memEq noMemory_empty
+  exact ⟨final, Trace.append trace6 seg.trace, by confined_steps [prefix6, seg.confined],
+    seg.atPc, (seg.get x2 (by decide)).trans stack6, (seg.get x10 (by decide)).trans input6,
+    seg.reg x9 (BitVec.ofNat 64 args.bytes.size) (by simp),
+    seg.reg x18 (BitVec.ofNat 64 0x4215020) (by simp),
+    by rw [memory]; exact fresh6,
+    inputMemory6.of_mem_eq (fun _ _ => by rw [memory]),
+    agree6.trans (seg.agree disjoint), seg.retired,
+    codeIntact_of_mem_eq memory code6,
+    ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry,
+      WrapperSavedRegisterFrame.of_mem_eq frame6 memory⟩⟩
 
 /-! ## Enter the selected allocator segment -/
 

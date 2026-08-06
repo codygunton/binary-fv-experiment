@@ -213,6 +213,20 @@ theorem know (seg : Seg own exit childSummary W M kv a n base cur pc) (r : Regis
     Seg own exit childSummary W M (⟨r, v⟩ :: kv) a n base cur pc :=
   { seg with regs := seg.regs.cons r v hv }
 
+/-- **Drop recorded values a later step is about to invalidate.**
+
+A register written *twice* inside one segment -- the wrapper prologue materializes `a1` at
+`0x102cc` and reloads it at `0x102d4`, four instructions later -- leaves the first value recorded
+after the instruction that consumed it has retired. `stepOf`'s `keep` obligation then rightly
+rejects the second write, since the accumulator would otherwise carry a value the step destroys.
+Nothing else can be done about it from the caller's side: `step` always conses what it wrote, and
+`RegsHold` is a conjunction, so the stale entry has to come off before the clobbering step.
+
+`sub` is the sublist condition and is `by simp` at every concrete list. -/
+theorem forget (seg : Seg own exit childSummary W M kv a n base cur pc) {kv' : List RegVal}
+    (sub : ∀ p ∈ kv', p ∈ kv) : Seg own exit childSummary W M kv' a n base cur pc :=
+  { seg with regs := fun p hp => seg.regs p (sub p hp) }
+
 /-! ### Extending a segment -/
 
 /--
