@@ -209,19 +209,50 @@ built against the transparent value, so they then mismatch), swapping `rfl` for 
 `afterRegisterWrite_mem` chain (the `_`s cannot be synthesised), and `WritesOnlyRegs` + `grind` (two
 `grind failed`, no gain).
 
-**What does**: make the successor genuinely opaque *at construction*, so zeta-expansion is impossible
-rather than merely undesirable —
+**What does — use `Seg`.** It exists for exactly this and is measured: rewriting one prologue with it
+took the proof **110 s → 0.8 s** and its module **126 s → 19 s**, statement untouched, body 119 → 87
+lines.
+
+`Seg` makes the successor state *existentially opaque*: every combinator concludes
+`∃ next, Seg … next …`, so you write `obtain ⟨next, seg⟩ := seg.step …` and never name a post-state.
+The deep term is never constructed, so nothing can zeta-expand it. It accumulates `trace`, `confined`,
+`writes` (register frame), `mem` (`WritesOnlyWithin` over a `Region`), and `regs` (`RegsHold`,
+last-write-wins — the write frame only says which registers were left *alone*, so written values must
+be carried positively).
+
+**Recognising the ritual it replaces**, ~206 occurrences across 9 files:
 
 ```lean
-obtain ⟨s7, hs7⟩ : ∃ s, s = afterRegisterWrite s6 pc r7 x9 v := ⟨_, rfl⟩
+obtain ⟨rN, runN⟩ := someStep …
+let sN := afterRegisterWrite s(N-1) pc rN dest val
+have pcN … ; have agreeN … ; have retiredN … ; have codeN …     -- six haves per instruction
+…
+have prefixN := wrapperOwnStep … ; confined_steps [prefix6, …]   -- then rebuild the trace by hand
 ```
 
-and state every subsequent fact through `hs7`. This is exactly what `Seg` was built for: an opaque
-successor state with a last-write-wins accumulator. A prologue written with `Seg` never constructs the
-deep term, so the final `refine` unifies opaque variables structurally.
+Each instruction's six `have`s become one `obtain ⟨_, seg⟩ := seg.step …`, and the whole trailing
+`prefixN`/`confined_steps`/`Trace.snoc` block becomes `seg.confined` and `seg.trace`. The incoming
+context is the *same four expressions at every step*: `agree.trans (seg.agree disjoint)`,
+`seg.retired`, `codeIntact_of_mem_eq (seg.memEq noMemory_empty) code`, `seg.atPc`. Pass `_` for each
+step lemma's `stepNo` and let unification pick `a + n`, which sidesteps all the `fromStep + 6 + 1`
+versus `+ 3` defeq work.
 
-Alternatively, bundle a wide conclusion into a structure so the `refine` is one application instead
-of thirteen unifications — but note the structure-field warning above before making it wide.
+**Three things that need judgement, not pattern-matching:**
+
+1. **Choose `W` once, up front** — enumerate every register the whole segment writes before starting.
+   The `destination` arguments are positional `Or.inr (Or.inl rfl)` terms, so inserting a register
+   later renumbers them all.
+2. **Register lifetimes.** A register written twice in one segment needs `Seg.forget` at the right
+   point: `Seg.step` unconditionally records `⟨dest, value⟩`, so a later overwrite makes the `keep`
+   obligation *correctly* false. `forget` weakens the recorded list along `sub : ∀ p ∈ kv', p ∈ kv`,
+   which is `by simp` at any concrete list.
+3. **Shapes that are not `step`/`stepJump`.** A step lemma bundling an extra conjunct into its `∃`
+   needs a short adapter. **Stores have no `Seg` combinator at all**, and would be the first users of
+   its memory interface with a non-empty `Region` — try one store site before committing to a sweep.
+
+Two frictions the docstrings do not mention: `by decide` stops closing `keep` once a recorded value is
+symbolic (use `of_decide_eq_true rfl`), and `Seg.memEq noMemory_empty` discharges every memory
+obligation in one line when the segment is register-only.
 
 ### Module scope: keep the dependency graph flat and wide
 
