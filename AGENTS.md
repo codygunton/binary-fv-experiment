@@ -133,10 +133,33 @@ always that one exists, or should, and is three lines.
 Build time here is dominated by a handful of pathological *declarations*, not by proof volume. The
 spread across modules is 250x per line. Three rules, each bought with a measurement:
 
-**1. Profile with `-Dtrace.profiler=true`, reading `Elab.definition.value` and per-tactic
-durations.** That attributes cost to a single tactic, which is what you need.
+**1. Profile with the profiler. Always `-Dtrace.profiler=true`, never `-Dprofiler=true`.**
 
-Two traps, both of which cost real time here:
+```bash
+lake env lean --tstack=65536 -Dtrace.profiler=true -Dtrace.profiler.threshold=1000 <File>.lean
+```
+
+This is the *only* instrument here that names the declaration it is timing. It prints a nested tree:
+
+```
+[Elab.async] [313.34] Lean.addDecl
+  [Kernel] [313.34] typechecking declarations [Validation.witnessValid_some]   <-- the answer
+```
+
+Read all three layers before concluding — they mean different things and the fix differs:
+`Elab.definition.value` / `Elab.step` is **elaboration** (tactics, defeq, unification), `Kernel` is
+**final typechecking of the proof term** (Lean already accepted it; the kernel is re-checking it).
+Note the top offender may sit under a bare `Lean.addDecl` async block with NO
+`Elab.definition.value` above it — a pure kernel cost has no tactic to blame, so a search restricted
+to `Elab.definition.value` silently misses exactly the worst cases.
+
+**`-Dprofiler=true` emits `type checking took 313s` with no declaration name and no source
+position.** It cannot attribute anything. Reaching for it costs an hour and produces confident wrong
+answers: it drove three rounds of invalid elimination here (see trap 3) before `trace.profiler`
+named the culprit in one run. If you find yourself inferring which declaration is slow, stop — you
+are using the wrong flag.
+
+Three traps, all of which cost real time here:
 
 - **Do not sum the plain profiler's tactic times.** They are reported *inclusively*, so nested entries
   double-count and can total more than the file's own wall-clock. Summing them produced three separate
@@ -147,6 +170,57 @@ Two traps, both of which cost real time here:
   useful as a first cut to find the *file region*, but never as the attribution you act on. (And if you
   do use it: `head -n <line-of-X>` truncates *before* X, so a delta belongs to the **previous**
   declaration.)
+- **Never attribute by elimination — `sorry` one declaration, keep the rest.** Two ways this lies.
+  If the cost is *shared* (a forced value, a kernel cache), removing one payer just hands the bill to
+  the next, and every variant looks guilty. And it only tests what you actually varied: three rounds
+  of sorrying the three `native_decide`s here all reported ~293 s, "proving" each in turn, when the
+  real cost was an ordinary transport lemma that no variant ever touched. Elimination is only valid
+  when you have *positively* measured each candidate alone.
+
+**1b. Kernel cost is a separate disease from elaboration cost, and the fix is different.** When
+`[Kernel]` dominates, the tactics are *already done* — Lean accepted the proof and the kernel is
+re-checking the term it produced. Rewriting tactics will not help; the term itself is wrong-shaped.
+
+The single worst declaration in this repository was of this kind: `witnessValid_some`, a four-line
+transport lemma, cost **313 s of kernel time in a 321 s module** -- 91% of the entire project build,
+in a file whose elaboration totalled 23 ms. It read
+
+```lean
+have h := witnessValidC_true
+unfold witnessValidC at h      -- puts the concrete `controlFlow?` into the rewrite motive
+rw [hn] at h
+simpa only [...] using h
+```
+
+`unfold`+`rw` specialises a general fact *at the use site*, so the motive the kernel must check
+mentions `controlFlow?` and the generated 3369-element arrays -- and checking it re-runs the Sail
+decoder inside the kernel. Swapping `simpa` for `simp only`+`exact` changed nothing (308 s): the
+tactic was never the cost.
+
+**The fix is to move the transport into a lemma that is generic in the data**, so the kernel checks
+it once against variables:
+
+```lean
+private theorem getD_map_eq_true {α} {o : Option α} {f : α → Bool} {a : α}
+    (ho : o = some a) (h : (o.map f).getD false = true) : f a = true := by
+  subst ho; simpa using h
+
+theorem witnessValid_some (hn : controlFlow? = some nodes) : witnessValidAt nodes = true :=
+  getD_map_eq_true (f := witnessValidAt) hn witnessValidC_true
+```
+
+**313 s -> 3 s, statement byte-identical.** Two things are load-bearing, and skipping either
+reproduces the blow-up in the *elaborator* instead:
+
+- **Leave nothing to unification.** With `f` implicit, solving `?f` made the elaborator unfold
+  `controlFlow?` and die on `maximum recursion depth`. Name the map body as its own `def`
+  (`witnessValidAt`) and pass it explicitly, so both `o` and `f` are already determined.
+- **The named body must not mention the dispatching `Option`.** `witnessValidC` becomes
+  `(controlFlow?.map witnessValidAt).getD false` -- one delta step to match, no reduction.
+
+Generalising: **any `unfold`/`rw`/`subst` whose motive captures a large generated constant is a
+kernel bomb.** The sibling lemma `forwardClosed_some` did the same `unfold`+`rw` and cost under 1 s,
+so the pattern is not always fatal -- which is exactly why you profile instead of guessing.
 
 **2. Suspect definitional equality before you suspect tactics.** The most expensive single thing in
 this repository was `canonicalContractParams.env.image` versus `Artifacts.programImage` — definitionally
