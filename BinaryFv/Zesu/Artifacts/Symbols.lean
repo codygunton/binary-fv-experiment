@@ -5,7 +5,7 @@ namespace BinaryFv.Zesu.Artifacts
 open BinaryFv.Binary
 open BinaryFv.RiscV
 
-def programImage : ProgramImage :=
+@[irreducible] def programImage : ProgramImage :=
   match parsed with
   | .ok parsedElf => parsedElf.programImage
   | .error _ => { segments := #[] }

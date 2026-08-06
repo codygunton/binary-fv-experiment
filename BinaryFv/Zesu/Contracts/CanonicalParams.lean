@@ -372,4 +372,11 @@ theorem canonicalCodeIntact_image {state : BinaryFv.RiscV.State}
     BinaryFv.Zesu.Artifacts.programImage.fileBytesMatchMemory state.mem :=
   canonicalEnvironment_image ▸ code
 
+/-- The reverse of `canonicalCodeIntact_image`, for goals stated at the raw image. -/
+theorem canonicalCodeIntact_of_image {state : BinaryFv.RiscV.State}
+    (h : BinaryFv.Zesu.Artifacts.programImage.fileBytesMatchMemory state.mem) :
+    canonicalContractParams.env.CodeIntact state := by
+  show canonicalEnvironment.image.fileBytesMatchMemory state.mem
+  rw [canonicalEnvironment_image]; exact h
+
 end BinaryFv.Zesu.Contracts

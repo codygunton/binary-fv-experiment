@@ -128,6 +128,47 @@ If your goal is not in the table and you are about to reach for `simp [<a state 
 the anti-pattern this table exists to prevent. Ask for a frame lemma instead — the answer is almost
 always that one exists, or should, and is three lines.
 
+### Elaboration cost: find it by bisect, and suspect defeq before tactics
+
+Build time here is dominated by a handful of pathological *declarations*, not by proof volume. The
+spread across modules is 250x per line. Three rules, each bought with a measurement:
+
+**1. Bisect with `head -n`; do not trust the profiler.** Lean's profiler reports tactic times
+*inclusively*, so nested entries double-count and can sum past the file's own wall-clock. Summing them
+produced three separate wrong conclusions in one session, including a 167-site rewrite that was
+reverted for measuring slower. Instead, truncate the file at successive declaration boundaries and
+time each — a few seconds per probe, and it attributes cost exactly. Watch the off-by-one:
+`head -n <line-of-X>` truncates *before* X, so a delta belongs to the **previous** declaration.
+
+**2. Suspect definitional equality before you suspect tactics.** The most expensive single thing in
+this repository was `canonicalContractParams.env.image` versus `Artifacts.programImage` — definitionally
+equal, but deciding it re-parses the entire pinned ELF, about 29 s. The give-away: the site looked like
+an expensive `simpa [bigConfig, bigEnv] using code`, and replacing it with a bare `exact code` cost
+**exactly the same**. If stripping a simp set changes nothing, the tactic was never the cost.
+
+Two fixes, in order of preference:
+
+- **Make the huge definition `@[irreducible]`.** `Artifacts.programImage` is a `match` on a parsed ELF;
+  marking it irreducible stopped every defeq from re-parsing it and took `Level2Capstone` 86 s to 2 s,
+  `Level2WrapperProof` 235 s to 140 s, with `native_decide` unaffected because compilation ignores
+  reducibility.
+- **Pay the defeq once in a transport lemma** and route call sites through it. Note the statement
+  matters: through `CodeIntact` it exhausts the recursion depth, and even the projection equation fails
+  at `rfl` because `rfl` unfolds both sides. `by simp only [theEnvDef]` reduces the projection
+  syntactically and closes in seconds.
+
+**3. Watch for superlinear scopes.** A `structure` whose fields mix representation levels — bitvector
+equalities beside `.toNat` equalities about the same values — costs far more than its parts: 4 of one
+kind cost 3.6 s, 2 of the other 1.1 s, all six together **62 s**. The cost is `mk.injEq` generation
+over the telescope (`set_option genInjectivity false` takes the same structure 179 s to 1.1 s).
+Splitting the structure along the representation boundary, composed back with `extends`, measured
+178 s to 3.7 s and keeps every consumer's statement byte-identical. The same facts as *loose theorem
+binders* cost nothing, so this is `structure` elaboration specifically.
+
+**Try the change rather than modelling it.** Every isolated micro-benchmark in this project either
+misled or cost more than just applying the edit and timing the module. Apply, measure the module,
+revert if flat — reverting is cheap and a flat result is information.
+
 ### Module scope: keep the dependency graph flat and wide
 
 Lean elaborates a module on one core; Lake parallelizes across modules only. A module's elaboration
