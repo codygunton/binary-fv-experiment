@@ -1,5 +1,7 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.SentinelAssembly
 import BinaryFv.Zesu.MachineExecution.AccessorBlocks
+import BinaryFv.Zesu.MachineExecution.RegisterWriteStep
+import BinaryFv.Zesu.MachineExecution.Seg
 
 /-!
 # Concrete Sail execution of `zesu_raw_error`
@@ -18,6 +20,7 @@ open BinaryFv.Zesu.Contracts
 open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 open BinaryFv.Zesu.Elflings.Generated
 open PreSail LeanRV64DExecutable.Functions Register
+open RegisterWriteStep
 
 set_option maxRecDepth 100000
 set_option maxHeartbeats 2000000
@@ -39,46 +42,43 @@ def rawErrorAfterLoad (state : State) (retired : BitVec 64) (value : Nat) : Stat
     (BitVec.ofNat 64 0x13788) retired
 
 theorem rawErrorAfterAuipc_agree (state : State) (retired : BitVec 64) :
-    Agree platformPreserved state (rawErrorAfterAuipc state retired) := by
-  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl) <;>
-    simp [rawErrorAfterAuipc, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+    Agree platformPreserved state (rawErrorAfterAuipc state retired) :=
+  afterRegisterWrite_agree (state := state) (pc := BitVec.ofNat 64 0x13780) (retired := retired)
+    (destination := x10) (value := BitVec.ofNat 64 0x4215780) (by simp [platformPreserved])
 
 theorem rawErrorAfterAuipc_mem (state : State) (retired : BitVec 64) :
     (rawErrorAfterAuipc state retired).mem = state.mem := rfl
 
 theorem rawErrorAfterAuipc_retired_present (state : State) (retired : BitVec 64) :
-    RetiredCounterPresent (rawErrorAfterAuipc state retired) := by
-  refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
-  simp [rawErrorAfterAuipc, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    Std.ExtDHashMap.get?_insert]
+    RetiredCounterPresent (rawErrorAfterAuipc state retired) :=
+  afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x13780) retired x10
+    (BitVec.ofNat 64 0x4215780)
 
 theorem rawErrorAfterLoad_agree (state : State) (retired : BitVec 64) (value : Nat) :
-    Agree platformPreserved state (rawErrorAfterLoad state retired value) := by
-  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl) <;>
-    simp [rawErrorAfterLoad, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+    Agree platformPreserved state (rawErrorAfterLoad state retired value) :=
+  afterRegisterWrite_agree (state := state) (pc := BitVec.ofNat 64 0x13784) (retired := retired)
+    (destination := x10) (value := BitVec.ofNat 64 value) (by simp [platformPreserved])
 
 theorem rawErrorAfterLoad_mem (state : State) (retired : BitVec 64) (value : Nat) :
     (rawErrorAfterLoad state retired value).mem = state.mem := rfl
 
 theorem rawErrorAfterLoad_retired_present (state : State) (retired : BitVec 64) (value : Nat) :
-    RetiredCounterPresent (rawErrorAfterLoad state retired value) := by
-  refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
-  simp [rawErrorAfterLoad, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    Std.ExtDHashMap.get?_insert]
+    RetiredCounterPresent (rawErrorAfterLoad state retired value) :=
+  afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x13784) retired x10
+    (BitVec.ofNat 64 value)
+
+-- Register the two frame equations above with `grind`, so the memory transports fire on these
+-- wrappers without the caller naming either the transport or the frame lemma.
+attribute [grind =] rawErrorAfterAuipc_mem rawErrorAfterLoad_mem
 
 theorem rawErrorAfterLoad_pc (state : State) (retired : BitVec 64) (value : Nat) :
-    (rawErrorAfterLoad state retired value).regs.get? PC = some (BitVec.ofNat 64 0x13788) := by
-  simp [rawErrorAfterLoad, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    Std.ExtDHashMap.get?_insert]
+    (rawErrorAfterLoad state retired value).regs.get? PC = some (BitVec.ofNat 64 0x13788) :=
+  afterRegisterWrite_pc state (BitVec.ofNat 64 0x13784) retired x10 (BitVec.ofNat 64 value)
 
 theorem rawErrorAfterLoad_x10 (state : State) (retired : BitVec 64) (value : Nat) :
-    (rawErrorAfterLoad state retired value).regs.get? x10 = some (BitVec.ofNat 64 value) := by
-  simp [rawErrorAfterLoad, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+    (rawErrorAfterLoad state retired value).regs.get? x10 = some (BitVec.ofNat 64 value) :=
+  afterRegisterWrite_destination state (BitVec.ofNat 64 0x13784) retired x10
+    (BitVec.ofNat 64 value) (by decide) (by decide)
 
 theorem decodeStatus_extend_value (status : DecodeStatus) :
     extend_value false (BitVec.ofNat 32 status.code) = BitVec.ofNat 64 status.code := by
@@ -127,9 +127,10 @@ theorem raw_error_auipc_step (fromStep : Nat) (state : State)
     (platformPreserved_mseccfg agreeIncrement).trans seccfgRead
   have corePc :
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
-        (BitVec.ofNat 64 0x13780)).regs.get? PC = some (BitVec.ofNat 64 0x13780) := by
-    simp [coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, atPc]
+        (BitVec.ofNat 64 0x13780)).regs.get? PC = some (BitVec.ofNat 64 0x13780) :=
+    ((coreControlFlowNextState_writes (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 0x13780)).get PC (by decide)).trans
+      (pc_afterIncrement state (BitVec.ofNat 64 0x13780) atPc)
   have execute := raw_error_auipc_execute_exact
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
       (BitVec.ofNat 64 0x13780)) corePc
@@ -162,9 +163,9 @@ theorem raw_error_load_step (fromStep : Nat) (state : State) (status : DecodeSta
   obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := machine.mstatus
   obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := machine.mseccfg
   obtain ⟨retired, retiredRead⟩ := firstPlatform.retired
-  have atPc : afterAuipc.regs.get? PC = some pc := by
-    simp [afterAuipc, pc, rawErrorAfterAuipc, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+  have atPc : afterAuipc.regs.get? PC = some pc :=
+    afterRegisterWrite_pc state (BitVec.ofNat 64 0x13780) firstRetired x10
+      (BitVec.ofNat 64 0x4215780)
   have agreeIncrement : Agree platformPreserved afterAuipc
       (tryStepControlFlowAfterIncrement afterAuipc) := agree_afterIncrement afterAuipc
   have normalIncrement : NormalExecutionState (tryStepControlFlowAfterIncrement afterAuipc) :=
@@ -194,10 +195,10 @@ theorem raw_error_load_step (fromStep : Nat) (state : State) (status : DecodeSta
       (platformPreserved_mseccfg agreeIncrement).trans
   have executeAgree : Agree platformPreserved state executeState :=
     firstAgree.trans (agree_stepPremiseState afterAuipc pc)
-  have baseStored : executeState.regs.get? x10 = some (BitVec.ofNat 64 0x4215780) := by
-    simp [executeState, pc, afterAuipc, rawErrorAfterAuipc, coreControlFlowNextState,
-      tryStepControlFlowAfterIncrement, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+  have baseStored : executeState.regs.get? x10 = some (BitVec.ofNat 64 0x4215780) :=
+    ((stepPremiseState_writes afterAuipc pc).get x10 (by decide)).trans
+      (afterRegisterWrite_destination state (BitVec.ofNat 64 0x13780) firstRetired x10
+        (BitVec.ofNat 64 0x4215780) (by decide) (by decide))
   have addressCalculation : Runs
       (get_transformed_data_addr (.Regidx 10#5) (sign_extend (m := 64) 0x8a4#12)
         (MemoryAccessType.Load mem_payload.Data) 4) executeState executeState
@@ -294,9 +295,9 @@ theorem rawErrorInstanceObligation_proved
     exact machine.entry
   have entryNotExit : ¬ functionInstanceExitPred functionInstance (BitVec.ofNat 64 0x13780) := by
     simp [functionInstanceExitPred, FunctionInstance.isExit, exits]
-  have afterAuipcPc : afterAuipc.regs.get? PC = some (BitVec.ofNat 64 0x13784) := by
-    simp [afterAuipc, rawErrorAfterAuipc, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+  have afterAuipcPc : afterAuipc.regs.get? PC = some (BitVec.ofNat 64 0x13784) :=
+    afterRegisterWrite_pc state (BitVec.ofNat 64 0x13780) firstRetired x10
+      (BitVec.ofNat 64 0x4215780)
   have loadNotExit : ¬ functionInstanceExitPred functionInstance (BitVec.ofNat 64 0x13784) := by
     simp [functionInstanceExitPred, FunctionInstance.isExit, exits]
   have finalPc : final.regs.get? PC = some (BitVec.ofNat 64 0x13788) := by

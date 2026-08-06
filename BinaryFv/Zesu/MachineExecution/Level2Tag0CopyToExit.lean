@@ -2,6 +2,7 @@ import BinaryFv.Zesu.MachineExecution.Level2FirstSuccessAdapter
 import BinaryFv.Zesu.MachineExecution.Level2Tag0PostCopy
 import BinaryFv.Zesu.MachineExecution.Level2WrapperRestoreAddresses
 import BinaryFv.Zesu.MachineExecution.Level2Capstone
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-! The tag-zero stored-result copy followed by the wrapper-owned exit suffix. -/
 
@@ -29,11 +30,7 @@ structure Tag0CopyToExitResult (args : ZesuDecodeRawArgs) (stackBase : Nat)
     link savedS0 savedS1 savedS2 (BitVec.ofNat 64 (stackBase + 0xa20))
     (BitVec.ofNat 64 1) (BitVec.ofNat 64 1)
   trace : Trace fromStep (16 + used) before after
-  scopedTrace : ScopedTrace
-    (functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw)
-    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-    Level2ChildSummary fromStep (16 + used) before after
+  scopedTrace : WrapperScopedTrace fromStep (16 + used) before after
 
 /-- Compose a stored-result-copy phase through its three tag-zero instructions, status store, and
 the six wrapper-owned epilogue instructions, stopping at the generated `ret` at `0x10378`. -/
@@ -98,49 +95,20 @@ theorem tag0_copy_to_exit
       restore.raAligned restore.s0Aligned restore.s1Aligned restore.s2Aligned
       restore.raAllowed restore.s0Allowed restore.s1Allowed restore.s2Allowed
       (by simpa [stack] using wrapper_final_stack_address stackBase)
-  have statusConfined : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 6 + used + 3) 1 routeAfter afterStore :=
-    ConfinedPrefix.ownStep postcopy.atTerminal (by
-      apply functionInstanceExecutionPcs_iff_ranges.mpr
-      apply RegionPcs.iff_inRanges.mpr
-      native_decide) (by
-      simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
-        functionInstance_raw_decoder_root_zesu_decode_raw]) store
-  have finalExit : ScopedTrace
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 6 + used + 10) 0 after after :=
+  have statusConfined : WrapperPrefix (fromStep + 6 + used + 3) 1 routeAfter afterStore :=
+    ConfinedPrefix.ownStep' postcopy.atTerminal store
+  have finalExit : WrapperScopedTrace (fromStep + 6 + used + 10) 0 after after :=
     ScopedTrace.exitAt _ after (BitVec.ofNat 64 0x10378) epilogue.pc (by
       simp [functionInstanceExitPred, BinaryFv.Binary.Elfling.FunctionInstance.isExit,
         functionInstance_raw_decoder_root_zesu_decode_raw])
-  have tail : ScopedTrace
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 6 + used) 10 afterCopy after := by
-    have afterPostcopy : ScopedTrace
-        (functionInstanceExecutionPcs generatedProgram
-          functionInstance_raw_decoder_root_zesu_decode_raw)
-        (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-        Level2ChildSummary (fromStep + 6 + used + 3) 7 routeAfter after := by
-      have afterEpilogue : ScopedTrace
-          (functionInstanceExecutionPcs generatedProgram
-            functionInstance_raw_decoder_root_zesu_decode_raw)
-          (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-          Level2ChildSummary (fromStep + 6 + used + 4) 6 afterStore after := by
-        exact epilogue.confined 0 after (by simpa [Nat.add_assoc] using finalExit)
+  have tail : WrapperScopedTrace (fromStep + 6 + used) 10 afterCopy after := by
+    have afterPostcopy : WrapperScopedTrace (fromStep + 6 + used + 3) 7 routeAfter after := by
+      have afterEpilogue : WrapperScopedTrace (fromStep + 6 + used + 4) 6 afterStore after :=
+        epilogue.confined 0 after (by simpa [Nat.add_assoc] using finalExit)
       exact statusConfined 6 after (by simpa [Nat.add_assoc] using afterEpilogue)
     exact postcopy.confined 7 after (by simpa [Nat.add_assoc] using afterPostcopy)
-  have scopedTrace : ScopedTrace
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep (6 + used + 10) before after := by
-    exact phase.scopedPrefix 10 after (by simpa [Nat.add_assoc] using tail)
+  have scopedTrace : WrapperScopedTrace fromStep (6 + used + 10) before after :=
+    phase.scopedPrefix 10 after (by simpa [Nat.add_assoc] using tail)
   refine ⟨routeAfter, afterStore, after, ?_⟩
   refine ⟨phase, postcopy, store, ?_, ?_, ?_⟩
   · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm, stack] using epilogue

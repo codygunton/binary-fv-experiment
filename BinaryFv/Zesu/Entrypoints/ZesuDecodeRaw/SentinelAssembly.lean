@@ -118,18 +118,15 @@ caller has at the pre-step state holds at the state the fetch happens in.
 (`agree_stepPremiseState`); `tryStepRetRetires` states its fetch premises one step earlier than
 that, so it needs this one too. -/
 theorem agree_afterIncrement (state : State) :
-    Agree platformPreserved state (tryStepControlFlowAfterIncrement state) := by
-  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl) <;>
-    simp [tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+    Agree platformPreserved state (tryStepControlFlowAfterIncrement state) :=
+  (tryStepControlFlowAfterIncrement_writes state).agree
+    (platformPreserved_disjoint.subset (fun _ h => Or.inr (Or.inr (Or.inr h))))
 
 /-- The pc is not preserved — a step changes it — so it is framed separately. -/
 theorem pc_afterIncrement (state : State) (pc : BitVec 64)
     (read : state.regs.get? PC = some pc) :
-    (tryStepControlFlowAfterIncrement state).regs.get? PC = some pc := by
-  change (state.regs.insert minstret_increment true).get? PC = some pc
-  rw [Std.ExtDHashMap.get?_insert]
-  simpa using read
+    (tryStepControlFlowAfterIncrement state).regs.get? PC = some pc :=
+  ((tryStepControlFlowAfterIncrement_writes state).get PC (by decide)).trans read
 
 /-! ## The exit instruction, fetched with its base-encoding bits
 
@@ -373,10 +370,10 @@ theorem retiredJump_regs_frame (state : State) (pc target retired : BitVec 64) {
     (hinc : r ≠ minstret_increment) :
     (tryStepControlFlowAfterRetired
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target)
-        target retired).regs.get? r = state.regs.get? r := by
-  simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
-    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-    Ne.symm hpc, Ne.symm hnext, Ne.symm hcounter, Ne.symm hinc]
+        target retired).regs.get? r = state.regs.get? r :=
+  (jumpRetirement_writes state pc target retired).get r
+    (fun written => written.elim hpc fun written => written.elim hnext fun written =>
+      written.elim hcounter hinc)
 
 /-- **The frame holds at the concrete post-state of a control-flow retirement.** `platformPreserved`
 names eighteen registers and none of them is one of the four the retirement writes, which is what the

@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.MachineExecution.Level2FirstMemcpyInlineAdapter
 import BinaryFv.Zesu.MachineExecution.Level2Tag0CopyToExit
+import BinaryFv.Zesu.MachineExecution.Level2WrapperDecodeEntry
 
 /-! The complete first-success route from the wrapper entry to its generated exit. -/
 
@@ -21,11 +22,7 @@ structure FirstSuccessToExitResult (args : ZesuDecodeRawArgs) (stackBase fromSte
     (link savedS0 savedS1 savedS2 : BitVec 64) (childUsed calleeUsed copyUsed : Nat) : Prop where
   semanticSuccess : meaningDecodeRaw args.bytes = .ok value
   wrapperTrace : Trace fromStep 19 entry atDecode
-  wrapperPrefix : ConfinedPrefix
-    (functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw)
-    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-    Level2ChildSummary fromStep 19 entry atDecode
+  wrapperPrefix : WrapperPrefix fromStep 19 entry atDecode
   decodeBody : level3DecodeChildSummary
     functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
     (fromStep + 19) childUsed atDecode atCall
@@ -45,11 +42,7 @@ structure FirstSuccessToExitResult (args : ZesuDecodeRawArgs) (stackBase fromSte
     (fromStep + 19 + childUsed + 1 + calleeUsed + 1) copyUsed
   totalSteps : 19 + childUsed + 1 + calleeUsed + 1 + (16 + copyUsed) =
     37 + childUsed + calleeUsed + copyUsed
-  scopedTrace : ScopedTrace
-    (functionInstanceExecutionPcs generatedProgram
-      functionInstance_raw_decoder_root_zesu_decode_raw)
-    (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-    Level2ChildSummary fromStep (37 + childUsed + calleeUsed + copyUsed) entry after
+  scopedTrace : WrapperScopedTrace fromStep (37 + childUsed + calleeUsed + copyUsed) entry after
   exitPc : after.regs.get? PC = some (BitVec.ofNat 64 0x10378)
   exitResult : after.regs.get? x10 = some (BitVec.ofNat 64 1)
   exitStatus : after.regs.get? x11 = some (BitVec.ofNat 64 1)
@@ -91,23 +84,16 @@ theorem first_success_to_exit
       (fromStep + 19 + childUsed + 1 + calleeUsed + 1)
   obtain ⟨routeAfter, afterStore, after, tag0⟩ :=
     tag0_copy_to_exit contents link savedS0 savedS1 savedS2 tag0Phase
-  have tail : ScopedTrace
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary (fromStep + 19) (childUsed + 1 + calleeUsed + 1 + (16 + copyUsed))
-        atDecode after := by
+  have tail : WrapperScopedTrace (fromStep + 19)
+      (childUsed + 1 + calleeUsed + 1 + (16 + copyUsed)) atDecode after := by
     rcases inlineTransfer with ⟨transfer⟩
     exact ScopedTrace.inlineCallStep (fromStep + 19) childUsed calleeUsed (16 + copyUsed)
       decodeFirstMemcpyExit generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
       functionInstance_memcpy atDecode resumed after transfer (by
         simpa [Nat.add_assoc] using tag0.scopedTrace)
-  have scopedTrace : ScopedTrace
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_raw_decoder_root_zesu_decode_raw)
-      (functionInstanceExitPred functionInstance_raw_decoder_root_zesu_decode_raw)
-      Level2ChildSummary fromStep (37 + childUsed + calleeUsed + copyUsed) entry after := by
+  have scopedTrace : WrapperScopedTrace fromStep (37 + childUsed + calleeUsed + copyUsed)
+      entry after := by
     have complete := wrapperPrefix
       (childUsed + 1 + calleeUsed + 1 + (16 + copyUsed)) after tail
     simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using complete
