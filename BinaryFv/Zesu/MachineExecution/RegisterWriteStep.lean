@@ -1,6 +1,7 @@
 import BinaryFv.RiscV.Instruction.Execute.Arithmetic
 import BinaryFv.RiscV.Instruction.Execute.Load
 import BinaryFv.RiscV.Proof.ImageFetch
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.SentinelAssembly
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
 
@@ -19,6 +20,38 @@ open BinaryFv BinaryFv.Binary BinaryFv.RiscV
 open BinaryFv.Binary.ProgramImage
 open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 open PreSail LeanRV64DExecutable.Functions Register
+
+/-! ## The wrapper's own geometry, named once
+
+`functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw`
+is written out **189 times across 14 modules**, 173 of those occurrences occupying a line to
+themselves; the exit predicate accounts for 46 more. Naming them here rather than per-module is
+deliberate: the 14 consumers have **no import in common** — the intersection of their import sets is
+empty, and only three of them reach any one candidate host — so an abbrev defined in any of them
+would be invisible to the rest. This module is the floor they all sit above.
+
+Both are `abbrev`, hence reducible, so a proof written against the spelled-out form still
+elaborates unchanged; `decodeRawGeometry_transparent` below pins that rather than assuming it. -/
+abbrev decodeRawExecutionPcs : BitVec 64 → Prop :=
+  BinaryFv.RiscV.Elfling.functionInstanceExecutionPcs
+    BinaryFv.Zesu.Elflings.Generated.generatedProgram
+    BinaryFv.Zesu.Elflings.Generated.functionInstance_raw_decoder_root_zesu_decode_raw
+
+abbrev decodeRawExit : BitVec 64 → Prop :=
+  BinaryFv.RiscV.Elfling.functionInstanceExitPred
+    BinaryFv.Zesu.Elflings.Generated.functionInstance_raw_decoder_root_zesu_decode_raw
+
+/-- Regression: both abbrevs must stay definitionally transparent. If either stops being reducible,
+every existing proof that spells the region out by hand breaks at once. -/
+theorem decodeRawGeometry_transparent :
+    decodeRawExecutionPcs =
+      BinaryFv.RiscV.Elfling.functionInstanceExecutionPcs
+        BinaryFv.Zesu.Elflings.Generated.generatedProgram
+        BinaryFv.Zesu.Elflings.Generated.functionInstance_raw_decoder_root_zesu_decode_raw ∧
+    decodeRawExit =
+      BinaryFv.RiscV.Elfling.functionInstanceExitPred
+        BinaryFv.Zesu.Elflings.Generated.functionInstance_raw_decoder_root_zesu_decode_raw :=
+  ⟨rfl, rfl⟩
 
 /-- Exact post-state of a register-writing fall-through instruction. -/
 def afterRegisterWrite (state : State) (pc retired : BitVec 64) (destination : Register)
@@ -77,7 +110,31 @@ theorem afterRegisterWrite_register (state : State) (pc retired : BitVec 64)
     coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
     notDestination, notPc, notNextPc, notIncrement, notRetired]
 
-theorem afterRegisterWrite_mem (state : State) (pc retired : BitVec 64)
+/-- The write set of a full register-writing retirement: the `try_step` bookkeeping, plus the
+instruction's destination.
+
+`destination` is a parameter, so it is kept as a separate `RegSet.only` rather than folded into a
+closed set. That is what lets `RegSet.Disjoint.union` split a later disjointness obligation into a
+fact about the bookkeeping — proved once per preserved predicate — and the single disequality about
+the destination. Widening the destination into a closed over-approximation would look tempting and
+is wrong: it strengthens the disjointness obligation into something false for `platformPreserved`,
+which holds `x1`.
+
+The proof is a repackaging of `afterRegisterWrite_register` and adds no machine reasoning; the
+hypotheses that lemma already takes one at a time are exactly this set, enumerated. -/
+theorem afterRegisterWrite_writes (state : State) (pc retired : BitVec 64)
+    (destination : Register) (value : RegisterType destination) :
+    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only destination)) state
+      (afterRegisterWrite state pc retired destination value) :=
+  fun r hr =>
+    afterRegisterWrite_register state pc retired destination r value
+      (fun h => hr (Or.inr h.symm))
+      (fun h => hr (Or.inl (Or.inl h.symm)))
+      (fun h => hr (Or.inl (Or.inr (Or.inl h.symm))))
+      (fun h => hr (Or.inl (Or.inr (Or.inr (Or.inr h.symm)))))
+      (fun h => hr (Or.inl (Or.inr (Or.inr (Or.inl h.symm)))))
+
+@[grind =] theorem afterRegisterWrite_mem (state : State) (pc retired : BitVec 64)
     (destination : Register) (value : RegisterType destination) :
     (afterRegisterWrite state pc retired destination value).mem = state.mem := rfl
 
@@ -226,6 +283,28 @@ theorem fetchFileInstruction (state : State) (pc : Nat)
   exact fetchBytesAt_of_file_bytes Artifacts.programImage
     (tryStepControlFlowAfterIncrement state) pc fits loadedAfter byte0 byte1 byte2 byte3
     read0 read1 read2 read3
+
+/-- `fetchFileInstruction` with its four image lookups and its alignment check discharged
+automatically, so a call site names only the address and the four instruction bytes.
+
+The obligations are the same work either way, so this is a proof-size and vocabulary change, not a
+build-time one — measured at 1.26s against 1.23s for the hand-written form, within noise. What it
+removes is the five-argument tail `(by native_decide) (by native_decide) (by native_decide)
+(by native_decide) (by decide)`, written out at 111 call sites across 13 files.
+
+A wrong byte still fails, and fails informatively: `native_decide` reports the proposition false and
+names the address and the byte the image actually holds. -/
+theorem fetchInstruction (state : State) (pc : Nat) (byte0 byte1 byte2 byte3 : UInt8)
+    (loaded : Artifacts.programImage.fileBytesMatchMemory state.mem)
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (fits : pc < 2 ^ 64 := by decide) :
+    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+      (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
+      (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat) :=
+  fetchFileInstruction state pc byte0 byte1 byte2 byte3 loaded read0 read1 read2 read3 fits
 
 end RegisterWriteStep
 

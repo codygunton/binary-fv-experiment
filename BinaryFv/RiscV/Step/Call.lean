@@ -301,7 +301,7 @@ theorem jalrCallAfterRetired_agree_of {P : Register → Prop} (state : State)
     Std.ExtDHashMap.get?_insert, differentLink, differentPc, differentNextPc,
     differentIncrement, differentRetired]
 
-theorem jalrCallAfterRetired_mem (state : State) (pc target retired : BitVec 64)
+@[grind =] theorem jalrCallAfterRetired_mem (state : State) (pc target retired : BitVec 64)
     (linkReg : Register) (linkVal : RegisterType linkReg) :
     (tryStepControlFlowAfterRetired
       (callLinkState (tryStepControlFlowAfterIncrement state) pc target linkReg linkVal)

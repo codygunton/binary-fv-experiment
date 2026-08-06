@@ -1,4 +1,5 @@
 import BinaryFv.RiscV.Elfling.Boundary
+import BinaryFv.RiscV.Elfling.ProgramGeometry
 
 /-!
 # The sequential splice: composing two adjacent disjoint regions
@@ -389,5 +390,97 @@ theorem FunctionTrace.spliceAdjacent {firstPcs secondPcs outer firstExit exit : 
   FunctionTrace.append_within hFirstSub hOuterExitsStopFirst hFirst
     (FunctionTrace.step (a + n) m crossPc sCross sResume s' hAtCross (hFirstSub _ hCrossInFirst)
       hCrossNotExit hRetireCross (hSecond.mono_region hSecondSub))
+
+end BinaryFv.RiscV.Elfling
+
+/-! ## 6. Composition combinators for `ConfinedPrefix`
+
+`Trace` and `ConfinedPrefix` are proved side by side from the same `Runs` facts, but `Trace` has
+`trace_step`/`trace_steps` (`BinaryFv.RiscV.Logic.BlockStep`) and `ConfinedPrefix` had nothing, so
+every confined site paid by hand for the same three things:
+
+* the two pc-literal side conditions of `ownStep` — "this address is owned" and "this address is not
+  a generated exit" -- each spelled out as a four-line `apply …` / `simp […]` decision block;
+* a re-association of the step index and the step count, because `trans` demands the second prefix
+  start at the *syntactic* index `a + n` and produces the *syntactic* count `n + m`;
+* nothing at all for chaining: a `k`-link chain was `k - 1` nested `trans`es, each with its own
+  `simpa [Nat.add_assoc]`.
+
+This section supplies the pieces that stay generic: `reindex`
+and `trans'` state the index and the count instead of computing them, and `confined_steps` folds a
+list of links. None of them touches the step *counts* the child-summary interface consumes: a link
+still carries the literal number of machine steps it retires, and `trans'`/`confined_steps` only
+choose how that number is spelled.
+-/
+
+namespace BinaryFv.RiscV.Elfling
+
+open PreSail
+open LeanRV64DExecutable.Functions
+open Register
+open BinaryFv.Binary
+open BinaryFv.Binary.Elfling
+open BinaryFv.RiscV
+
+
+namespace ConfinedPrefix
+
+variable {own exit : BitVec 64 → Prop}
+  {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
+
+/-- Restate a confined prefix at an equal start index and length, proved by `omega` rather than by
+`simpa [Nat.add_assoc]` at the use site. The prefix itself is unchanged: only the spelling of two
+`Nat`s is. -/
+theorem reindex {a n : Nat} (a' n' : Nat) {s s' : State}
+    (h : ConfinedPrefix own exit childSummary a n s s')
+    (ha : a' = a := by omega) (hn : n' = n := by omega) :
+    ConfinedPrefix own exit childSummary a' n' s s' := by
+  subst ha; subst hn; exact h
+
+/-- `trans` at a *stated* total length `k`, with both index obligations discharged by `omega`.
+
+`trans` forces the second prefix to be written at the syntactic index `a + n` and yields the
+syntactic count `n + m`; every real site then had to re-associate. Here the caller writes the total
+it wants and the arithmetic is checked, not reshaped. -/
+theorem trans' {a n m b : Nat} (k : Nat) {s s1 s2 : State}
+    (h1 : ConfinedPrefix own exit childSummary a n s s1)
+    (h2 : ConfinedPrefix own exit childSummary b m s1 s2)
+    (hb : b = a + n := by omega) (hk : k = n + m := by omega) :
+    ConfinedPrefix own exit childSummary a k s s2 := by
+  subst hb; subst hk; exact h1.trans h2
+
+/-- Peel the first `n` steps off a goal of length `k`, leaving the remaining `k - n`. This is the
+link `confined_steps` folds with: `h1` fixes `n` and the intermediate state, so the residual goal is
+fully determined and the fold needs no annotation. -/
+theorem consume {a n k : Nat} {s s1 s2 : State}
+    (h1 : ConfinedPrefix own exit childSummary a n s s1)
+    (h2 : ConfinedPrefix own exit childSummary (a + n) (k - n) s1 s2)
+    (hn : n ≤ k := by omega) :
+    ConfinedPrefix own exit childSummary a k s s2 := by
+  have joined := h1.trans h2
+  have hk : n + (k - n) = k := by omega
+  rwa [hk] at joined
+
+
+end ConfinedPrefix
+
+/--
+Fold a list of confined prefixes into one, mirroring `trace_steps` for `Trace`.
+
+Each `hᵢ` supplies its own retired length and intermediate state; the goal supplies the total. The
+lengths must add up — `consume`'s `n ≤ k` and the final `reindex`'s `n' = n` are checked by `omega`,
+so a chain that does not account for exactly the goal's steps fails rather than being absorbed.
+
+`SegmentChain` (§3) is the same fold as an inductive family, and `SegmentChain.toPrefix` is this
+tactic's term-level counterpart. The difference is only where the total lives: the chain carries the
+list of lengths and yields `lens.sum`, which a use site must then normalize, whereas here the goal
+states the total and the tactic checks it.
+-/
+syntax "confined_steps " "[" term,* "]" : tactic
+macro_rules
+  | `(tactic| confined_steps []) => `(tactic| exact ConfinedPrefix.nil)
+  | `(tactic| confined_steps [$h:term]) => `(tactic| exact ConfinedPrefix.reindex _ _ $h)
+  | `(tactic| confined_steps [$h:term, $hs:term,*]) =>
+      `(tactic| refine ConfinedPrefix.consume $h ?_; confined_steps [$hs,*])
 
 end BinaryFv.RiscV.Elfling

@@ -107,6 +107,44 @@ theorem rawV4Rep_of_mem_eq {s t : State} {inputBase rootBase : Nat} {input : Byt
       BinaryFv.Zesu.Artifacts.raw_stateless_input_layout.1 h
   exact htransport _ (fun address _ => (congrArg (·.get? address) hmem).symm)
 
+/-! ### Automating the memory transports
+
+Every lemma above says "this memory-shaped fact survives a step that did not touch memory". Without
+automation each use is written by hand, and the shape it is written in matters enormously: the
+tempting form is `simpa [<the step definitions>] using h`, which makes `simp` unfold the whole state
+to rediscover an equation that is `rfl`. Profiling one composition file found twenty such calls at
+24-36 s each -- the documented 18x-126x step-unfolding penalty, arriving as build time rather than as
+a failure.
+
+A `grind_pattern` is required rather than `@[grind →]`, for the reason in `GRIND.md` section 0 rule
+1: the antecedent `MemoryBytes s ..` does not mention the *after* state, and the conclusion does not
+mention the *before* state, so neither side alone determines the instantiation. Pairing the two
+occurrences determines both, and `grind` then discharges `t.mem = s.mem` from the frame equations
+registered alongside the step definitions.
+
+With these registered the caller writes `grind`, and needs to know neither the transport's name nor
+the frame lemma's.
+-/
+
+grind_pattern memoryBytes_of_mem_eq => MemoryBytes s base bytes, MemoryBytes t base bytes
+
+grind_pattern codeIntact_of_mem_eq =>
+  DecoderEnvironment.CodeIntact env s, DecoderEnvironment.CodeIntact env t
+
+grind_pattern decoderGlobalsScalarRep_of_mem_eq =>
+  DecoderGlobalsScalarRep layout model s, DecoderGlobalsScalarRep layout model t
+
+grind_pattern storedResultDiscriminantRep_of_mem_eq =>
+  StoredResultDiscriminantRep layout model s, StoredResultDiscriminantRep layout model t
+
+-- `observeOptionTag_of_mem_eq` is deliberately NOT registered. Its `tag` is determined only through
+-- an `Eq` (`observeOptionTag? s base = some tag`), which `grind_pattern` rejects outright -- see
+-- `GRIND.md` section 5. Registering it would need the lemma restated in the frame shape
+-- `observer t = observer s`, which is a statement change and is not worth it for one lemma.
+
+grind_pattern rawV4Rep_of_mem_eq =>
+  RawV4Rep s inputBase input rootBase value, RawV4Rep t inputBase input rootBase value
+
 /-- The C-ABI return code, at a state that agrees on `a0`. -/
 theorem observeReturnCode_of_regs_eq {s t : State} {code : Nat}
     (hregs : t.regs.get? x10 = s.regs.get? x10) (h : observeReturnCode? s = some code) :

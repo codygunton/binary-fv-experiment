@@ -78,6 +78,206 @@ These instructions apply repository-wide.
   Do not unroll a loop merely because observed test inputs make it short; runtime-dependent lengths are
   compatible with an inductive proof.
 
+## Proof automation
+
+- [`GRIND.md`](GRIND.md) is the single source of truth for named `simp` and `grind` sets: which facts
+  belong in which kind of set, the attribute variants, the two-file constraint on named simp
+  attributes, the entry criteria for a new set, and the registry of sets that exist. Read it before
+  adding a shared `@[simp]` or `@[grind =]` attribute or writing a closing tactic more than one proof
+  will call. Do not duplicate its content here.
+### The budget is the guardrail — do not raise it
+
+**`maxHeartbeats` is capped at the ambient value. Raising it is forbidden without a written reason.**
+
+This is the single most important rule here, and it is a *time* rule, not a style rule. The expensive
+idiom in this repository does not fail — it succeeds, slowly. `simp [<step definitions>]` is a
+universal solvent: it eventually closes almost any goal by unfolding the machine state, at 24-36
+seconds a call. An agent writing one gets a green tick and moves on, and the cost lands on everyone
+later. Measured: 279 such sites, and one file where twenty of them account for essentially the whole
+364-second build.
+
+Those sites exist because the ceiling was raised to let them through. At the *default* ceiling that
+same file fails in **29 seconds**, pointing at the exact offending lines. That is the feedback you
+want — in your own edit loop, in seconds, at the line — not from CI after the proof is written.
+
+So: if a proof needs more heartbeats, **the proof is the wrong shape**. Stop and change the proof.
+`MemcpyProof` carried four `maxHeartbeats 1000000` overrides; once its duplication was removed the
+same theorems compiled at **50,000**, eight times *under* the default. The overrides were never
+load-bearing.
+
+### Before writing a proof, find your goal in this table
+
+Do not search for a tactic. Look the goal up. Every row is measured.
+
+The right-hand column is what costs 20x-100x, not 6%. `grind` itself is marginally *slower* than a
+terse hand-written `simpa` — about 6-8% — and saves no lines. Its value is that it needs **no names**,
+so reaching for it is what stops you writing the multi-definition unfolding in the third column. Use
+it for new proofs; do not rewrite existing one-line proofs to use it.
+
+| your goal | write this | never write |
+|---|---|---|
+| one machine instruction executes | the class lemma for its mnemonic (`InstructionClassSteps.lean`) — one call, obligations are `autoParam`s | a hand-derived fetch/decode/execute/retire chain |
+| a register's value survives a step | `have w : WritesOnlyRegs _ s t := <shape>_writes _ _ _ _ _` then `grind` | `simp [<step defs>, Std.ExtDHashMap.get?_insert]` |
+| several registers across several steps | the same **one** `have` per step, then `grind` for all of them | one `have` per (register × step) |
+| a memory-shaped fact survives a step | `grind` — no lemma or definition name needed | `simpa [<state defs>, <wrapper>, afterRegisterWrite_mem] using h` |
+| agreement across a step | `(…_writes …).agree …`, or the chained two-line form | a `cases register <;> simp_all` over every register |
+| a pc/exit membership for a literal address | `owned_pc`, or the `regionPc`/`notExitPc` autoParams | a hand-written `native_decide` block |
+| an instruction's bytes or operands | look it up in `build/machine-regions-lean/machine-regions.json` | decode it from byte literals by hand |
+
+If your goal is not in the table and you are about to reach for `simp [<a state definition>]`: that is
+the anti-pattern this table exists to prevent. Ask for a frame lemma instead — the answer is almost
+always that one exists, or should, and is three lines.
+
+### Module scope: keep the dependency graph flat and wide
+
+Lean elaborates a module on one core; Lake parallelizes across modules only. A module's elaboration
+time is therefore a serial segment of the build, and a chain of modules is a critical path that no
+number of cores can shorten. This build was **996 s of critical path out of 1009 s** — nine modules in
+a queue, one core busy, sixty-three idle.
+
+**Target: no module over ~60 s.** Check with `lake build <module>`, which prints the time.
+
+**Measure time, never line count.** Line count is a useless proxy here — the spread is 250x:
+
+| module | | ms/line |
+|---|---|---|
+| `Level2OutcomeEpilogue` | 131 lines / 169 s | **1290** |
+| `Level2Capstone` | 276 lines / 86 s | 312 |
+| `Level2WrapperProof` | 1900 lines / 353 s | 186 |
+| `BlobScheduleAndResultStores` | **4416 lines** / 40 s | 9 |
+| `MemcpyProof` | 1791 lines / 7 s | 4 |
+
+The largest file in the repository builds in 40 s and needs no attention; a 131-line file with seven
+declarations takes 169 s. Splitting by size sends you after the wrong files.
+
+**Two different problems, two different fixes.**
+
+*Accidental chaining.* Modules that do not use each other's proofs still queue behind one another,
+because a later one needs a single small thing from an earlier one — a structure, one lemma. Measured
+here: `Level2Capstone` waited 192 s on `Level2OutcomeDispatch` for `WrapperTerminalRouteFrame`, a
+**structure definition**. Move the small thing into its own module that both import, and the two
+expensive modules elaborate concurrently. Two such moves cut this build 1234→1009 s, measured cold at
+both ends, changing no proof.
+
+*A genuinely expensive module.* Split it along a **dependency layer** — the declarations that
+reference nothing else in the file can become their own module and elaborate in parallel. Never split
+down the middle of a chain of dependent declarations; that just makes two serial modules out of one.
+`Level2WrapperProof` split this way: 57 declarations out, 38 s off the path.
+
+**When you add a module, check what it will wait for**, not just what it needs. `import` is a
+scheduling decision as much as a namespace one.
+
+### One function instance is at least two modules: steps, then composition
+
+Lean elaborates a file **serially** — measured at 135% CPU across 34 threads, i.e. one core. Lake
+parallelizes across *modules* only. So a module's elaboration time is a serial segment of the build,
+and a chain of big modules is a critical path no number of cores can shorten.
+
+Measured on this repository: the critical path is ~1245 s of a ~1050 s wall-clock build, with 1076 s
+of it in five proof modules that import one another in a line. **86% of the total work is on the
+critical path**, on a 64-core machine. Adding cores does nothing; splitting a module into a *chain*
+does nothing either. Only widening the graph helps.
+
+The proofs are shaped to allow that, if you write them that way. `Level2WrapperProof` has 97
+declarations of which **47 depend on nothing else in the file** — the single-instruction step lemmas
+— narrowing to a spine of compositions 11 deep. The steps can all elaborate in parallel; only the
+spine is inherently serial.
+
+**So: put the step lemmas for a function instance in their own module, and the compositions that
+consume them in another.** `<Instance>Steps.lean` then `<Instance>Proof.lean`. Step lemmas do not
+reference each other, so several instances' step modules build simultaneously; the composition
+modules chain, and are much smaller.
+
+**Target: no module over ~60 s.** Not a style preference — a module over that is a serial segment
+everyone waits on, and with 141 function instances still to prove the convention chosen now is
+multiplied by 141. If a module exceeds it, split it along a dependency layer (declarations that
+reference nothing else in the file), never down the middle of the spine.
+
+Check yours before adding it: `lake build <module>` prints the elaboration time.
+
+### Contract-statement modules must not import proof modules
+
+The single largest build win in this project came from moving **two declarations**, and this is the
+rule that would have prevented the problem.
+
+Lean elaborates a module on one core, so a module's time is a serial segment of the build. If a
+contract-statement module imports a proof module, every module downstream of that contract is
+sequenced *after* the proof — however unrelated they are. Here `Level2Contracts.lean` (239 lines) had
+picked up one proof import for **one identifier**, and that put a 361 s module behind a 275 s one.
+Moving the bridging declarations into their own modules cut the whole build by **18.2%** — measured,
+cold full builds at both ends: **1234 s → 1009 s** — changing no proof.
+
+So: a module that *states* contracts imports only what the statements need. When a statement genuinely
+needs a fact from a proof, put the bridging declaration in its own module and let the consumers that
+already depend on the proof import that. Its cost is then paid only by things that were paying it
+anyway.
+
+Watch for the second-order case: after breaking one such edge, a consumer that had been resolving a
+name *transitively* through the contract module suddenly needs a direct import, which restores the
+dependency on a shorter path. Re-check the closure after every fix.
+
+### Answer dependency questions from the import graph, not from a build
+
+Every question in this area — what waits on what, which import costs what, whether an edge is real —
+is answerable from the import graph in **under a second**. Builds here cost minutes. Probe first,
+build last.
+
+The graph is not just fast, it is *accurate*. A critical-path model built from the import graph plus
+per-module elaboration times predicted 1245 s → 1004 s for a change that measured **1234 s → 1009 s**
+— under 1% error at both ends. Trust it for deciding what to do; measure only to confirm the result
+you are going to write down.
+
+The technique that found both choke points: **delete an import from the small file at the top of the
+dependency and read which errors appear.** Four probes at about a second each, on a 239-line file
+whose dependents are enormous, located what no amount of building the 361 s module would have shown.
+Probe the cheap file at the top, not the expensive one at the bottom.
+
+**Do not conclude an import is dead from a name scan.** "Imports X but references none of X's
+declaration names" produced a confident false positive worth an apparent 621 s; the module genuinely
+needed a name the scan had missed. Confirm by deleting the import and compiling — that is the only
+check that cannot lie to you.
+
+### If you define a new state transformer, you owe it a frame equation
+
+This is what keeps the automation from silently decaying, and it is cheap.
+
+Every `def` producing a `State` from a `State` needs, beside it:
+
+```lean
+@[grind =] theorem <name>_mem (…explicit args…) : (<name> …).mem = state.mem := rfl
+```
+
+Without it `grind` cannot see through your definition — it does not delta-unfold semireducible defs,
+deliberately — so every downstream memory-transport proof silently falls back to the 25-37 second
+`simpa`. That is exactly how 279 such sites accumulated: the wrapper definitions were added without
+their frame equations, and each call site then paid for it.
+
+**If your transformer writes memory, do NOT write that equation.** `mem = mem` is false for it and
+`rfl` will not close it. Six transformers here are in that class; they have no `_mem` lemma on
+purpose. State what it writes instead, in the shape of `storeRetirement_mem_writes`.
+
+The same applies to any other observation your transformer preserves — `_pc`, `_retired`, and the
+register write set (`_writes`). A transformer landing without its frame facts is unfinished work, not
+a small omission: it is the difference between a downstream proof being one word and being forty
+lines.
+
+### Non-negotiables
+
+- **Never change a theorem statement.** Only proof bodies. This is what makes the work splittable by
+  technique, lets a reviewer trust a diff, and keeps mutation testing meaningful. A reduction that
+  genuinely needs a statement change lands as its own labelled commit.
+- **Never unfold a step definition inside `simp`/`grind`.** Measured at 18x-126x, five times
+  independently. `GRIND.md` section 3.
+- **`lake build <module>` before checking any consumer of a module you edited.** `lake env lean`
+  resolves imports from the prebuilt `.olean`, so the check otherwise measures the old code.
+- **A deleted theorem still compiles.** Before any merge or refactor that removes something, diff the
+  declaration-name sets. `GRIND.md` section 0, rule 5.
+- **Run all three CI gates locally** (`GRIND.md` section 11) — including that `native_decide` is
+  forbidden in `BinaryFv/RiscV/` and `BinaryFv/Binary/`, docstrings included.
+
+Full reasoning, measurements and the four mechanisms that were built and reverted: `GRIND.md`
+section 0.
+
 ## Verification
 
 - Use focused Lean targets and evidence tests while iterating. Run the full `lake build` at coherent
