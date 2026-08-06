@@ -128,6 +128,40 @@ If your goal is not in the table and you are about to reach for `simp [<a state 
 the anti-pattern this table exists to prevent. Ask for a frame lemma instead — the answer is almost
 always that one exists, or should, and is three lines.
 
+### Build shape: what parallelising can and cannot buy
+
+Measured on this project, and each number changed a decision:
+
+- **The whole build is 125s wall / 800s user = ~7 of 64 cores.** It is chain-bound, not CPU-bound.
+- **One module runs on ~1.25 cores.** Lean elaborates a module essentially serially; Lake
+  parallelises only *across* modules. So a wide module is a serial segment of the build however
+  independent its contents are.
+- **The critical path is ~123s of the 125s**, and there are *four near-equal chains*. Fixing the
+  single biggest module bought **3s**, because the second chain was only 3s shorter. Before
+  optimising anything, compute what the path becomes *after* the fix -- "it is the biggest module"
+  is not a reason.
+
+**Splitting a module is a tool for flat piles of lemmas, not for proof chains.** Enumerate the
+declarations, compute for each the earliest declaration it references, and keep only cut points that
+no later declaration crosses. `BlobScheduleAndResultStores` had 128 declarations and 37 such cuts:
+41s became three concurrent parts of 28s/10s/5.2s. `DecodeInlineProof`, `Level2Epilogue` and
+`Level2OutcomeDispatch` have **zero** -- step one feeds step two feeds the composition -- so no
+partition into independent modules exists and the technique simply does not apply. Check for cut
+points before planning a split. (Enumerate `private theorem` too: missing three of them produced a
+split that cut a real dependency and failed to build.)
+
+**You cannot delete an unused import.** Lean imports are transitive re-exports, so `B` importing `A`
+without using any of `A`'s declarations is *not* dead: consumers of `B` may be relying on `B` to
+re-export `A`. A 62-edge rewrite justified by "B never names anything from A" broke four modules in
+unrelated parts of the tree and was reverted wholesale. The condition to check is over `B`'s whole
+dependent cone, not over `B`.
+
+**Not all of the build is the theorem.** `root_compliance` needs 153 modules and builds in 83s; the
+full library is 241 modules and 126s. Generated-artifact validation is real kernel-checked evidence
+but nothing in the conformance argument depends on it, which is why it lives in the separate
+`BinaryFv.Evidence` target. Check whether the work you are optimising is on the path to the theorem
+at all.
+
 ### Elaboration cost: find it by bisect, and suspect defeq before tactics
 
 Build time here is dominated by a handful of pathological *declarations*, not by proof volume. The
