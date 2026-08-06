@@ -308,7 +308,7 @@ COMPAT
     fi
 
 
-    lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
+    lake build repl BinaryFv BinaryFv.Evidence GeneratedProgram BinaryFv.Binary.ProgramImageTest
 
     # Zesu production-binary validation remains diagnostic-only.
     lake build ZesuVerificationTests

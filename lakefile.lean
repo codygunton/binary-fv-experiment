@@ -80,3 +80,14 @@ lean_lib ZesuVerificationTests where
 lean_lib BinaryFv where
   roots := #[`BinaryFv]
   moreLeanArgs := #["--tstack=4000000"]
+
+/-
+Validation of the *generated* artifact description. Kernel-checked theorems, built by CI, but
+deliberately outside `BinaryFv`'s import closure: `root_compliance` does not depend on any of them,
+and they are the slowest evidence in the project. Separating them lets the compliance proof build
+without waiting on work it does not use. See `BinaryFv/Evidence.lean`.
+-/
+@[default_target]
+lean_lib BinaryFvEvidence where
+  roots := #[`BinaryFv.Evidence]
+  moreLeanArgs := #["--tstack=4000000"]
