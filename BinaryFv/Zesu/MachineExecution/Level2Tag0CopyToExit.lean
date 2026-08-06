@@ -91,9 +91,9 @@ theorem tag0_copy_to_exit
       postcopy.globalsValue postcopy.stackValue
       restore.raAddress restore.s0Address restore.s1Address restore.s2Address
       restore.raAddressEq restore.s0AddressEq restore.s1AddressEq restore.s2AddressEq
-      restore.raAddressNat restore.s0AddressNat restore.s1AddressNat restore.s2AddressNat
-      restore.raAligned restore.s0Aligned restore.s1Aligned restore.s2Aligned
-      restore.raAllowed restore.s0Allowed restore.s1Allowed restore.s2Allowed
+      restore.facts.raAddressNat restore.facts.s0AddressNat restore.facts.s1AddressNat restore.facts.s2AddressNat
+      restore.facts.raAligned restore.facts.s0Aligned restore.facts.s1Aligned restore.facts.s2Aligned
+      restore.facts.raAllowed restore.facts.s0Allowed restore.facts.s1Allowed restore.facts.s2Allowed
       (by simpa [stack] using wrapper_final_stack_address stackBase)
   have statusConfined : WrapperPrefix (fromStep + 6 + used + 3) 1 routeAfter afterStore :=
     ConfinedPrefix.ownStep' postcopy.atTerminal store

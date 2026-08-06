@@ -26,8 +26,11 @@ structure WrapperSavedState (base before : State) (machineArgs : DecoderMachineA
   globalsValue : before.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
   stackValue : before.regs.get? x2 = some stack
 
-/-- The four saved-register load addresses, alignment facts, and readable-byte permissions. -/
-structure WrapperRestoreAddresses (machineArgs : DecoderMachineArgs) (stack : BitVec 64) where
+/-- The four saved-register load addresses together with the bitvector offset arithmetic that
+produces them.  Kept separate from `WrapperRestoreAddressFacts` deliberately: stating the
+bitvector-level address equalities and the `toNat`-level ones in a single structure costs ~175 s
+of elaboration here, against ~2 s once the two representation levels are separated. -/
+structure WrapperRestoreAddressWords (stack : BitVec 64) where
   raAddress : BitVec 64
   s0Address : BitVec 64
   s1Address : BitVec 64
@@ -36,6 +39,11 @@ structure WrapperRestoreAddresses (machineArgs : DecoderMachineArgs) (stack : Bi
   s0AddressEq : (stack + sign_extend (m := 64) (0x230#12)) + sign_extend (m := 64) (0x7e0#12) = s0Address
   s1AddressEq : (stack + sign_extend (m := 64) (0x230#12)) + sign_extend (m := 64) (0x7d8#12) = s1Address
   s2AddressEq : (stack + sign_extend (m := 64) (0x230#12)) + sign_extend (m := 64) (0x7d0#12) = s2Address
+
+/-- The natural-number values, alignment facts, and readable-byte permissions of the four
+saved-register load addresses. -/
+structure WrapperRestoreAddressFacts (machineArgs : DecoderMachineArgs) (stack : BitVec 64)
+    (raAddress s0Address s1Address s2Address : BitVec 64) : Prop where
   raAddressNat : stack.toNat + 0xa18 = raAddress.toNat
   s0AddressNat : stack.toNat + 0xa10 = s0Address.toNat
   s1AddressNat : stack.toNat + 0xa08 = s1Address.toNat
@@ -48,6 +56,11 @@ structure WrapperRestoreAddresses (machineArgs : DecoderMachineArgs) (stack : Bi
   s0Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s0Address 8
   s1Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s1Address 8
   s2Allowed : DecoderAccessRange (DecoderReadableByte machineArgs) s2Address 8
+
+/-- The four saved-register load addresses, alignment facts, and readable-byte permissions. -/
+structure WrapperRestoreAddresses (machineArgs : DecoderMachineArgs) (stack : BitVec 64)
+    extends WrapperRestoreAddressWords stack where
+  facts : WrapperRestoreAddressFacts machineArgs stack raAddress s0Address s1Address s2Address
 
 /-- The final stack restoration and the two low-bit facts required by the generated `ret`. -/
 structure WrapperReturnTarget (stack restoredStack link : BitVec 64) where
@@ -73,10 +86,12 @@ theorem dispatch_route_to_epilogue {base before routeAfter : State} {machineArgs
     h.stackAvoidsStatusGlobals (route.savedS2.trans h.globalsValue)
     (route.savedStack.trans h.stackValue) addresses.raAddress addresses.s0Address
     addresses.s1Address addresses.s2Address addresses.raAddressEq addresses.s0AddressEq
-    addresses.s1AddressEq addresses.s2AddressEq addresses.raAddressNat addresses.s0AddressNat
-    addresses.s1AddressNat addresses.s2AddressNat addresses.raAligned addresses.s0Aligned
-    addresses.s1Aligned addresses.s2Aligned addresses.raAllowed addresses.s0Allowed
-    addresses.s1Allowed addresses.s2Allowed target.restoredStackEq target.linkEven target.linkBit1
+    addresses.s1AddressEq addresses.s2AddressEq addresses.facts.raAddressNat
+    addresses.facts.s0AddressNat addresses.facts.s1AddressNat addresses.facts.s2AddressNat
+    addresses.facts.raAligned addresses.facts.s0Aligned addresses.facts.s1Aligned
+    addresses.facts.s2Aligned addresses.facts.raAllowed addresses.facts.s0Allowed
+    addresses.facts.s1Allowed addresses.facts.s2Allowed target.restoredStackEq target.linkEven
+    target.linkBit1
 
 theorem tag1_outcome_to_epilogue {base before : State} {machineArgs : DecoderMachineArgs}
     (h : WrapperSavedState base before machineArgs) (addresses : WrapperRestoreAddresses machineArgs h.stack)

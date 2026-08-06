@@ -443,9 +443,9 @@ private theorem propagated_error_to_exit_of_route
       route.route.terminal (by simpa [stackNat] using routeFrame)
       (by simpa [stackNat] using machineEntry.stackAvoidsStatusGlobals) routeGlobals routeStack
       restore.raAddress restore.s0Address restore.s1Address restore.s2Address restore.raAddressEq
-      restore.s0AddressEq restore.s1AddressEq restore.s2AddressEq restore.raAddressNat restore.s0AddressNat
-      restore.s1AddressNat restore.s2AddressNat restore.raAligned restore.s0Aligned restore.s1Aligned
-      restore.s2Aligned restore.raAllowed restore.s0Allowed restore.s1Allowed restore.s2Allowed
+      restore.s0AddressEq restore.s1AddressEq restore.s2AddressEq restore.facts.raAddressNat restore.facts.s0AddressNat
+      restore.facts.s1AddressNat restore.facts.s2AddressNat restore.facts.raAligned restore.facts.s0Aligned restore.facts.s1Aligned
+      restore.facts.s2Aligned restore.facts.raAllowed restore.facts.s0Allowed restore.facts.s1Allowed restore.facts.s2Allowed
       (by simpa using wrapper_final_stack_address args.stackBase)
   have storeConfined : ConfinedPrefix
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)

@@ -55,9 +55,9 @@ def wrapperRestoreAddresses_of_machinePre (args : ZesuDecodeRawArgs) (stackBase 
     rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by
       have frameFits := machine.stackFrameFits
       omega)]
-  refine ⟨ra.val, s0.val, s1.val, s2.val, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ra.property.2.1,
-    s0.property.2.1, s1.property.2.1,
-    s2.property.2.1, ra.property.2.2, s0.property.2.2, s1.property.2.2, s2.property.2.2⟩
+  refine ⟨⟨ra.val, s0.val, s1.val, s2.val, ?_, ?_, ?_, ?_⟩,
+    ⟨?_, ?_, ?_, ?_, ra.property.2.1, s0.property.2.1, s1.property.2.1, s2.property.2.1,
+      ra.property.2.2, s0.property.2.2, s1.property.2.2, s2.property.2.2⟩⟩
   · simpa [← ra.property.1] using restoreAddressEq stackBase 0x230 0x7e8 0xa18
       (by decide) (by decide) (by decide)
   · simpa [← s0.property.1] using restoreAddressEq stackBase 0x230 0x7e0 0xa10
