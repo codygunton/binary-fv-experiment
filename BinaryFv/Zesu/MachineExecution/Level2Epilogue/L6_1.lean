@@ -100,13 +100,8 @@ theorem wrapper_epilogue_to_exit {base state : State} {machineArgs : DecoderMach
     (stack + sign_extend (m := 64) (0x230#12)) saved.sp
   let afterStack := wrapperAfterFinalStackRestore afterS2 retiredStack
     (stack + sign_extend (m := 64) (0x230#12))
-  have stackAgree : Agree decoderPreserved afterS2 afterStack := by
-    intro register preserved
-    cases register <;>
-      simp only [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
-      tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert] at preserved ⊢ <;>
-      simp_all [decoderPreserved, platformPreserved]
+  have stackAgree : Agree decoderPreserved afterS2 afterStack :=
+    epilogue_afterFinalStackRestore_agree afterS2 retiredStack _
   have retiredStackPresent : RetiredCounterPresent afterStack := by
     refine ⟨Sail.BitVec.addInt retiredStack 1, ?_⟩
     simp [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,

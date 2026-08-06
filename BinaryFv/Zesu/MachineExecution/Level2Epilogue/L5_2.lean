@@ -13,7 +13,6 @@ import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L2_1
 import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L2_2
 import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L3_1
 import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L4_1
-import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L5_1
 
 /-!
 # Shared `zesu_decode_raw` epilogue
@@ -46,17 +45,53 @@ definitionally transparent, so the lemmas apply directly. -/
 
 variable {base state : State}
 
+/-! ## Write-set frames for the two stack restores
+
+Both `addi sp, sp, imm` steps write only the bookkeeping registers and `x2`, so agreement across them
+is a frame fact -- no need to case-split forty registers against a deep state term. Proving
+`stackAgree` that way cost **11.4s of `wrapper_epilogue_to_exit`'s 13.3s**, 8.5s of it in the closing
+`simp_all`; through the frame it is free. -/
+
+/-- `decoderPreserved` is `platformPreserved` plus `x1`, so it inherits its disjointness. -/
+theorem decoderPreserved_disjoint : RegSet.Disjoint decoderPreserved stepBookkeeping :=
+  fun r hr => platformPreserved_disjoint r hr.2
+
+/-- `decoderPreserved` is disjoint from a stack-restore write set. -/
+theorem decoderPreserved_disjoint_sp :
+    RegSet.Disjoint decoderPreserved (RegSet.union stepBookkeeping (RegSet.only x2)) :=
+  decoderPreserved_disjoint.union
+    (RegSet.Disjoint.only (by simp [decoderPreserved, platformPreserved]))
+
+/-- The first stack restoration writes only the bookkeeping registers and `x2`. -/
+theorem wrapperAfterFirstStackRestore_writes (state : State) (retired stack : BitVec 64) :
+    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x2)) state
+      (wrapperAfterFirstStackRestore state retired stack) :=
+  afterRegisterWrite_writes state (BitVec.ofNat 64 0x10360) retired x2
+    (stack + sign_extend (m := 64) 0x230#12)
+
+/-- The final stack restoration writes only the bookkeeping registers and `x2`. -/
+theorem wrapperAfterFinalStackRestore_writes (state : State) (retired stack : BitVec 64) :
+    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x2)) state
+      (wrapperAfterFinalStackRestore state retired stack) :=
+  afterRegisterWrite_writes state (BitVec.ofNat 64 0x10374) retired x2
+    (stack + sign_extend (m := 64) 0x7f0#12)
+
+/-- The first stack restore preserves everything the decoder contract preserves. -/
+theorem epilogue_afterFirstStackRestore_agree (state : State) (retired stack : BitVec 64) :
+    Agree decoderPreserved state (wrapperAfterFirstStackRestore state retired stack) :=
+  (wrapperAfterFirstStackRestore_writes state retired stack).agree decoderPreserved_disjoint_sp
+
+/-- The final stack restore preserves everything the decoder contract preserves. -/
+theorem epilogue_afterFinalStackRestore_agree (state : State) (retired stack : BitVec 64) :
+    Agree decoderPreserved state (wrapperAfterFinalStackRestore state retired stack) :=
+  (wrapperAfterFinalStackRestore_writes state retired stack).agree decoderPreserved_disjoint_sp
+
+
 /-- The first stack restore preserves decoder agreement. -/
 theorem epilogue_afterFirst_agree (agree : Agree decoderPreserved base state)
     (retiredFirst stack : BitVec 64) :
-    Agree decoderPreserved base (wrapperAfterFirstStackRestore state retiredFirst stack) := by
-  apply agree.trans
-  intro register preserved
-  cases register <;>
-    simp only [wrapperAfterFirstStackRestore, tryStepStackAddiAfterRetired,
-    tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState, stackAddiNextState,
-    tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert] at preserved ⊢ <;>
-    simp_all [decoderPreserved, platformPreserved]
+    Agree decoderPreserved base (wrapperAfterFirstStackRestore state retiredFirst stack) :=
+  agree.trans (epilogue_afterFirstStackRestore_agree state retiredFirst stack)
 
 /-- The `ra` reload preserves decoder agreement. -/
 theorem epilogue_afterRa_agree (agree : Agree decoderPreserved base state)

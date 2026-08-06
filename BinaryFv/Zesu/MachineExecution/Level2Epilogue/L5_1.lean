@@ -13,6 +13,7 @@ import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L2_1
 import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L2_2
 import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L3_1
 import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L4_1
+import BinaryFv.Zesu.MachineExecution.Level2Epilogue.L5_2
 
 /-!
 # Shared `zesu_decode_raw` epilogue
@@ -162,13 +163,8 @@ theorem wrapper_epilogue_final_restore_and_return {base before state : State} {m
   obtain ⟨retiredStack, stackRun⟩ := wrapper_epilogue_final_stack_restore_step machine saved.agree
     saved.retired saved.code (fromStep + 3) atPc stack saved.sp
   let afterStack := wrapperAfterFinalStackRestore state retiredStack stack
-  have stackAgree : Agree decoderPreserved state afterStack := by
-    intro register preserved
-    cases register <;>
-      simp only [afterStack, wrapperAfterFinalStackRestore, tryStepStackAddiAfterRetired,
-      tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState,
-      stackAddiNextState, tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert] at preserved ⊢ <;>
-      simp_all [decoderPreserved, platformPreserved]
+  have stackAgree : Agree decoderPreserved state afterStack :=
+    epilogue_afterFinalStackRestore_agree state retiredStack _
   have agreeStack : Agree decoderPreserved base afterStack := saved.agree.trans stackAgree
   have retiredStackPresent : RetiredCounterPresent afterStack := by
     refine ⟨Sail.BitVec.addInt retiredStack 1, ?_⟩
