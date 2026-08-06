@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.Level2Capstone
+import BinaryFv.Zesu.MachineExecution.Level2OutcomeDispatch
 
 /-! Tags one, two, and three reach `0x1035c`; tag zero ends at `0x1033c` and requires the separate
 success-continuation proof from `0x1033c` to `0x1035c` before this epilogue theorem applies. -/

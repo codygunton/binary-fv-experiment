@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.Level2RetryExitSteps
+import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryFinish
 import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
 
 /-!

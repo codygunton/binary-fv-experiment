@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof
+import BinaryFv.Zesu.MachineExecution.OwnedPc
 
 /-!
 # Level 3 retry-success composition
@@ -29,9 +30,7 @@ theorem decodeInline_retry_success_reaches_post
     (exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true) :
     ∃ used after,
       used ≤ decodeInlineStepBound args ∧
-      ScopedTrace
-        (functionInstanceExecutionPcs generatedProgram
-          functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+      ScopedTrace decodeInlineOwnPcs
         (DecodeInlineExit args) Level3ChildSummary fromStep used state after ∧
       DecodeInlinePost args state after ∧
       DecodeInlineMachinePost state after ∧
@@ -69,9 +68,7 @@ theorem decodeInline_retry_success_reaches_post
       (BitVec.ofNat 64 0x103f0) childEntry childExit (by decide) (by decide) childPre childTrace
       childLink childPost
   let returned := memcpyReturnAfter (BitVec.ofNat 64 0x103f0) childExit returnRetired
-  have memcpyTransfer : CallTransfer
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+  have memcpyTransfer : CallTransfer decodeInlineOwnPcs
       (DecodeInlineExit args) Level3ChildSummary memcpyRetryCall generatedProgram
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
       functionInstance_memcpy (copyStart + 4) memcpyUsed memcpyCall returned :=
@@ -93,14 +90,9 @@ theorem decodeInline_retry_success_reaches_post
       rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl | rfl | rfl | rfl | rfl
       all_goals simp_all [NonW]) machinePost.frame)
-  have returnedAgree : Agree decoderPreserved state returned := Agree.trans childExitAgree (by
-    intro register preserved
-    rcases preserved with ⟨notLink, platform⟩
-    rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    all_goals simp_all [returned, memcpyReturnAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
-      coreControlFlowNextState, Std.ExtDHashMap.get?_insert])
+  have returnedAgree : Agree decoderPreserved state returned :=
+    Agree.trans childExitAgree (Agree.weaken (fun _ preserved => preserved.2)
+      ((jumpRetirement_writes _ _ _ _).agree platformPreserved_disjoint))
   have returnedCounter : RetiredCounterPresent returned := ⟨Sail.BitVec.addInt returnRetired 1, by
     simp [returned, memcpyReturnAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick]⟩
@@ -108,24 +100,17 @@ theorem decodeInline_retry_success_reaches_post
     simpa [returned, memcpyReturnAfter] using copiedCode
   have childEntryStack : childEntry.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
     rw [childEntryEq]
-    simp [decodeInlineMemcpyCallAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, callLinkState, controlFlowJumpState,
-      tryStepControlFlowAfterIncrement, coreControlFlowNextState,
-      Std.ExtDHashMap.get?_insert, memcpyStack]
+    exact ((callRetirement_writes _ _ _ _ _ _).get x2 (by decide)).trans memcpyStack
   have childEntryGlobals : childEntry.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
     childEntryPreservesGlobals.trans memcpyGlobals
   have childExitStack : childExit.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
     (machinePost.frame x2 (by simp [NonW])).trans childEntryStack
-  have returnedStack : returned.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
-    simp [returned, memcpyReturnAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
-      coreControlFlowNextState, Std.ExtDHashMap.get?_insert, childExitStack]
+  have returnedStack : returned.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
+    ((jumpRetirement_writes _ _ _ _).get x2 (by decide)).trans childExitStack
   have childExitGlobals : childExit.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
     (machinePost.frame x18 (by simp [NonW])).trans childEntryGlobals
-  have returnedGlobals : returned.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
-    simp [returned, memcpyReturnAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement,
-      coreControlFlowNextState, Std.ExtDHashMap.get?_insert, childExitGlobals]
+  have returnedGlobals : returned.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    ((jumpRetirement_writes _ _ _ _).get x18 (by decide)).trans childExitGlobals
 
   obtain ⟨pageRetired, pageRun⟩ := decodeInline_retry_final_page_step
     (copyStart + 6 + memcpyUsed) args state returned pre returnedAgree returnedCounter returnedCode
@@ -139,18 +124,13 @@ theorem decodeInline_retry_success_reaches_post
   have pagePc : pageState.regs.get? PC = some (BitVec.ofNat 64 0x103f4) := by
     simpa [pageState] using afterRegisterWrite_pc returned (BitVec.ofNat 64 0x103f0)
       pageRetired x10 (BitVec.ofNat 64 0x1000)
-  have pageStack : pageState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
-    simp [pageState, afterRegisterWrite, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, returnedStack]
+  have pageStack : pageState.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
+    ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans returnedStack
   have pageValue : pageState.regs.get? x10 = some (BitVec.ofNat 64 0x1000) := by
     simp [pageState, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
-  have pageGlobals : pageState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
-    simpa [pageState] using
-      (afterRegisterWrite_register returned (BitVec.ofNat 64 0x103f0) pageRetired x10 x18
-        (BitVec.ofNat 64 0x1000) (by decide) (by decide) (by decide) (by decide) (by decide)).trans
-        returnedGlobals
+  have pageGlobals : pageState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    ((afterRegisterWrite_writes _ _ _ _ _).get x18 (by decide)).trans returnedGlobals
   have pageCode : Contracts.canonicalContractParams.env.CodeIntact pageState := by
     simpa [pageState, afterRegisterWrite_mem] using returnedCode
   obtain ⟨pointerRetired, pointerRun⟩ := decodeInline_retry_final_pointer_step
@@ -164,46 +144,33 @@ theorem decodeInline_retry_success_reaches_post
       pointerRetired x10 (BitVec.ofNat 64 (args.stackBase + 0x1000))
 
   have rawPrefix := ConfinedPrefix.trans prefixToRawCall (ConfinedPrefix.ofCall rawTransfer)
-  have rawPrefixAtCopy : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+  have rawPrefixAtCopy : ConfinedPrefix decodeInlineOwnPcs
       (DecodeInlineExit args) Level3ChildSummary fromStep
       (13 + lengthUsed + prefixUsed + rawUsed) state decoded := by
     simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using rawPrefix
   have throughSetup := ConfinedPrefix.trans rawPrefixAtCopy copySetup
   have throughMemcpy := ConfinedPrefix.trans throughSetup (ConfinedPrefix.ofCall memcpyTransfer)
-  have throughMemcpyAtPage : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+  have throughMemcpyAtPage : ConfinedPrefix decodeInlineOwnPcs
       (DecodeInlineExit args) Level3ChildSummary fromStep
       (19 + lengthUsed + prefixUsed + rawUsed + memcpyUsed) state returned := by
     simpa [copyStart, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using throughMemcpy
-  have pagePrefix : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+  have pagePrefix : ConfinedPrefix decodeInlineOwnPcs
       (DecodeInlineExit args) Level3ChildSummary (copyStart + 6 + memcpyUsed) 1
-      returned pageState := ConfinedPrefix.ownStep (by simpa [returned] using returnedPc)
-    (decodeInline_owned_in_execution_region (0x103f0, 0x00001537)
-      (by simp [decodeInlineOwnedInstructionWords]))
-    (by simp [DecodeInlineExit, phase, exactPrefix]) (by simpa [pageState] using pageRun)
-  have pointerPrefix : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+      returned pageState :=
+    ConfinedPrefix.ownStep' (by simpa [returned] using returnedPc)
+      (by simpa [pageState] using pageRun)
+      (notExit := by simp [DecodeInlineExit, phase, exactPrefix])
+  have pointerPrefix : ConfinedPrefix decodeInlineOwnPcs
       (DecodeInlineExit args) Level3ChildSummary (copyStart + 7 + memcpyUsed) 1
-      pageState after := ConfinedPrefix.ownStep pagePc
-    (decodeInline_owned_in_execution_region (0x103f4, 0x00a10533)
-      (by simp [decodeInlineOwnedInstructionWords]))
-    (by simp [DecodeInlineExit, phase, exactPrefix]) (by simpa [after] using pointerRun)
-  have pagePrefixAtEnd : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+      pageState after :=
+    ConfinedPrefix.ownStep' pagePc (by simpa [after] using pointerRun)
+      (notExit := by simp [DecodeInlineExit, phase, exactPrefix])
+  have pagePrefixAtEnd : ConfinedPrefix decodeInlineOwnPcs
       (DecodeInlineExit args) Level3ChildSummary
       (fromStep + (19 + lengthUsed + prefixUsed + rawUsed + memcpyUsed)) 1
       returned pageState := by
     simpa [copyStart, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using pagePrefix
-  have pointerPrefixAtEnd : ConfinedPrefix
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+  have pointerPrefixAtEnd : ConfinedPrefix decodeInlineOwnPcs
       (DecodeInlineExit args) Level3ChildSummary
       (fromStep + (19 + lengthUsed + prefixUsed + rawUsed + memcpyUsed + 1)) 1
       pageState after := by
@@ -212,16 +179,11 @@ theorem decodeInline_retry_success_reaches_post
     (ConfinedPrefix.trans throughMemcpyAtPage pagePrefixAtEnd) pointerPrefixAtEnd
   have selectedExit : DecodeInlineExit args (BitVec.ofNat 64 0x103f8) := by
     simp [DecodeInlineExit, phase, exactPrefix]
-  have tailAtCopyEnd : ScopedTrace
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+  have tailAtCopyEnd : ScopedTrace decodeInlineOwnPcs
       (DecodeInlineExit args) Level3ChildSummary (copyStart + 8 + memcpyUsed) 0 after after :=
     ScopedTrace.exitAt (copyStart + 8 + memcpyUsed) after
       (BitVec.ofNat 64 0x103f8) afterPc selectedExit
-  have tail : ScopedTrace
-      (functionInstanceExecutionPcs generatedProgram
-        functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
-      (DecodeInlineExit args) Level3ChildSummary
+  have tail : ScopedTrace decodeInlineOwnPcs (DecodeInlineExit args) Level3ChildSummary
       (fromStep + (19 + lengthUsed + prefixUsed + rawUsed + memcpyUsed + 1 + 1))
       0 after after := by
     simpa [copyStart, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using tailAtCopyEnd
@@ -284,20 +246,14 @@ theorem decodeInline_retry_success_reaches_post
   have afterCounter : RetiredCounterPresent after :=
     afterRegisterWrite_retired_present pageState (BitVec.ofNat 64 0x103f4) pointerRetired x10
       (BitVec.ofNat 64 (args.stackBase + 0x1000))
-  have afterStack : after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) := by
-    simpa [after] using
-      (afterRegisterWrite_register pageState (BitVec.ofNat 64 0x103f4) pointerRetired x10 x2
-        (BitVec.ofNat 64 (args.stackBase + 0x1000)) (by decide) (by decide) (by decide)
-        (by decide) (by decide)).trans pageStack
+  have afterStack : after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
+    ((afterRegisterWrite_writes _ _ _ _ _).get x2 (by decide)).trans pageStack
   have afterPointer : after.regs.get? x10 =
       some (BitVec.ofNat 64 (args.stackBase + 0x1000)) := by
     simp [after, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
-  have afterGlobals : after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) := by
-    simpa [after] using
-      (afterRegisterWrite_register pageState (BitVec.ofNat 64 0x103f4) pointerRetired x10 x18
-        (BitVec.ofNat 64 (args.stackBase + 0x1000)) (by decide) (by decide) (by decide)
-        (by decide) (by decide)).trans pageGlobals
+  have afterGlobals : after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
+    ((afterRegisterWrite_writes _ _ _ _ _).get x18 (by decide)).trans pageGlobals
   have statusFinal : MemoryRepresentation.ResultStatusLERep after
       (args.stackBase + 0x9f0)
       (Contracts.decodeInternalResultTag (Contracts.meaningDecode args.bytes)) := by
@@ -341,9 +297,7 @@ theorem decodeInline_retry_success_level3_save_area
     (exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true) :
     ∃ used after,
       used ≤ decodeInlineStepBound args ∧
-      ScopedTrace
-        (functionInstanceExecutionPcs generatedProgram
-          functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+      ScopedTrace decodeInlineOwnPcs
         (DecodeInlineExit args) Level3ChildSummary fromStep used state after ∧
       DecodeInlinePost args state after ∧
       DecodeInlineMachinePost state after ∧
@@ -358,9 +312,7 @@ theorem decodeInline_propagate_error_reaches_post (fromStep : Nat) (args : Decod
     (phase : args.phase = .propagateError error) :
     ∃ used after,
       used ≤ decodeInlineStepBound args ∧
-        ScopedTrace
-          (functionInstanceExecutionPcs generatedProgram
-            functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
+        ScopedTrace decodeInlineOwnPcs
           (DecodeInlineExit args) Level3ChildSummary fromStep used before after ∧
         DecodeInlinePost args before after ∧
         DecodeInlineMachinePost before after ∧
