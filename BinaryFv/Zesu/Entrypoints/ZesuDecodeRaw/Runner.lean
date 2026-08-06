@@ -164,9 +164,8 @@ def runAnswer (action : SailM (Except RiscvSpec.ExecutionError DecodeOutcome)) :
 
 /-- Execute the decoder on `input` from the pinned artifact. -/
 def executeDecode (input : ByteArray) : Except RiscvSpec.ExecutionError DecodeOutcome :=
-  match runnerSymbols with
-  | none => .error .invalidArtifact
-  | some symbols => runAnswer (runZesuDecodeRaw symbols input)
+  (runnerSymbols.map fun symbols => runAnswer (runZesuDecodeRaw symbols input)).getD
+    (.error .invalidArtifact)
 
 /-- The public entry: reject a non-canonical artifact or an out-of-bound input first, then run.
 
@@ -218,11 +217,14 @@ that stalled and came back, this covers a run that never came back at all. -/
 /-- `executeDecode` at a resolved symbol table. Factored out because `unfold executeDecode` leaves
 `runnerSymbols` in the caller's rewrite motive, and the kernel then resolves the ELF symbol table
 while checking it -- 21 s per site, four sites. Proved once here against a variable `symbols`. -/
+private theorem getD_map_some {α β : Type _} {o : Option α} {f : α → β} {a : α} {d : β}
+    (ho : o = some a) : (o.map f).getD d = f a := by
+  subst ho; rfl
+
 theorem executeDecode_some {symbols : RunnerSymbols} (hsymbols : runnerSymbols = some symbols)
     (input : ByteArray) :
-    executeDecode input = runAnswer (runZesuDecodeRaw symbols input) := by
-  unfold executeDecode
-  rw [hsymbols]
+    executeDecode input = runAnswer (runZesuDecodeRaw symbols input) :=
+  getD_map_some (f := fun s => runAnswer (runZesuDecodeRaw s input)) hsymbols
 
 /-- **A run the Sail model could not complete answers `.error .trapped`.** An access outside
 materialized memory, a failed model assertion or an unreachable model branch escapes as an
