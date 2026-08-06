@@ -29,12 +29,12 @@ The main checks are organized by the question they answer:
 - `GeneratedProvenanceCheck.lean` checks the source locations and hashes attached to generated
   function instances. `GeneratedValidationBridges.lean` contains the general lemmas that turn these
   concrete Boolean checks into propositions used by the rest of the library.
-- `GeneratedExtentReadability.lean` extends byte readability from each instance's own ranges to the
-  complete execution extent, including resolved callees and explicitly absorbed excluded code. It
-  also proves those addresses cannot equal the runner's sentinel.
-- `GeneratedReturnExits.lean` decodes the actual return exits used by the exported wrapper and two
-  accessors. Generated exits are not assumed to be returns: most are branches, calls, or fragment
-  boundaries, so the module proves the three facts the sentinel assembly actually consumes.
+- `GeneratedExtentReadability.lean` proves that the loaded binary contains every instruction a
+  function may execute, including instructions in functions it calls, and that none of those
+  instruction addresses is the runner's stop address.
+- `GeneratedReturnExits.lean` proves that the exit instructions used by the exported decoder and its
+  two accessors are actual `ret` instructions. Other generated exits may be branches, calls, or the
+  end of a compiled fragment, so they are not treated as returns.
 
 This directory does not try to prove a complete nesting geometry or classify every edge by its role
 in a particular composition strategy. Those are obligations of the proof decomposition that uses
