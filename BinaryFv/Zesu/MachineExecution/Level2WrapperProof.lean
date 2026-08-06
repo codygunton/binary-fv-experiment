@@ -1064,8 +1064,8 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     agree6.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   have retired7 := afterRegisterWrite_retired_present s6 (BitVec.ofNat 64 0x102c8) r7 x9
     (BitVec.ofNat 64 args.bytes.size)
-  have code7 : canonicalContractParams.env.CodeIntact s7 := by
-    simpa [s7, afterRegisterWrite_mem] using code6
+  have code7 : canonicalContractParams.env.CodeIntact s7 :=
+    codeIntact_of_mem_eq (afterRegisterWrite_mem s6 (BitVec.ofNat 64 0x102c8) r7 x9 (BitVec.ofNat 64 args.bytes.size)) code6
   obtain ⟨r8, run8⟩ := wrapper_globals_page_step (fromStep + 7) args stackBase entry s7
     machine agree7 retired7 code7 pc7
   let s8 := afterRegisterWrite s7 (BitVec.ofNat 64 0x102cc) r8 x11
@@ -1079,8 +1079,8 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     agree7.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   have retired8 := afterRegisterWrite_retired_present s7 (BitVec.ofNat 64 0x102cc) r8 x11
     (BitVec.ofNat 64 0x42152cc)
-  have code8 : canonicalContractParams.env.CodeIntact s8 := by
-    simpa [s8, afterRegisterWrite_mem] using code7
+  have code8 : canonicalContractParams.env.CodeIntact s8 :=
+    codeIntact_of_mem_eq (afterRegisterWrite_mem s7 (BitVec.ofNat 64 0x102cc) r8 x11 (BitVec.ofNat 64 0x42152cc)) code7
   obtain ⟨r9, run9⟩ := wrapper_globals_address_step (fromStep + 8) args stackBase entry s8
     machine agree8 retired8 code8 pc8 page8
   let s9 := afterRegisterWrite s8 (BitVec.ofNat 64 0x102d0) r9 x18
@@ -1094,8 +1094,8 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     agree8.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   have retired9 := afterRegisterWrite_retired_present s8 (BitVec.ofNat 64 0x102d0) r9 x18
     (BitVec.ofNat 64 0x4215020)
-  have code9 : canonicalContractParams.env.CodeIntact s9 := by
-    simpa [s9, afterRegisterWrite_mem] using code8
+  have code9 : canonicalContractParams.env.CodeIntact s9 :=
+    codeIntact_of_mem_eq (afterRegisterWrite_mem s8 (BitVec.ofNat 64 0x102d0) r9 x18 (BitVec.ofNat 64 0x4215020)) code8
   have entryFresh : entry.mem.get? 0x4215020 = some (0#8) := by
     have represented := source.2.2.2.2.1.1
     have address : canonicalContractParams.globals.attempted = 0x4215020 := by native_decide
@@ -1114,8 +1114,8 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     agree9.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   have retired10 := afterRegisterWrite_retired_present s9 (BitVec.ofNat 64 0x102d4) r10 x11
     (0#64)
-  have code10 : canonicalContractParams.env.CodeIntact s10 := by
-    simpa [s10, afterRegisterWrite_mem] using code9
+  have code10 : canonicalContractParams.env.CodeIntact s10 :=
+    codeIntact_of_mem_eq (afterRegisterWrite_mem s9 (BitVec.ofNat 64 0x102d4) r10 x11 (0#64)) code9
   obtain ⟨r11, run11, pc11⟩ := wrapper_fresh_branch_step (fromStep + 10) args stackBase
     entry s10 machine agree10 retired10 code10 pc10 fresh10
   let final := wrapperAfterFreshBranch s10 r11
@@ -1255,8 +1255,8 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
     agree11.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
   have retired12 := afterRegisterWrite_retired_present s11 (BitVec.ofNat 64 0x102e8) r12 x8
     (BitVec.ofNat 64 args.inputBase)
-  have code12 : canonicalContractParams.env.CodeIntact s12 := by
-    simpa [s12, afterRegisterWrite_mem] using code11
+  have code12 : canonicalContractParams.env.CodeIntact s12 :=
+    codeIntact_of_mem_eq (afterRegisterWrite_mem s11 (BitVec.ofNat 64 0x102e8) r12 x8 (BitVec.ofNat 64 args.inputBase)) code11
   obtain ⟨r13, run13⟩ := wrapper_attempted_value_step (fromStep + 12) args stackBase entry s12
     machine agree12 retired12 code12 pc12
   let final := afterRegisterWrite s12 (BitVec.ofNat 64 0x102ec) r13 x10 (1#64)
