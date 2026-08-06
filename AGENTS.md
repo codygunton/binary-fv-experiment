@@ -182,6 +182,47 @@ binders* cost nothing, so this is `structure` elaboration specifically.
 misled or cost more than just applying the edit and timing the module. Apply, measure the module,
 revert if flat — reverting is cheap and a flat result is information.
 
+### `let`-bound successor states are the dominant elaboration cost
+
+A composition proof usually names its intermediate machine states with `let`:
+
+```lean
+let s7 := afterRegisterWrite s6 pc r7 x9 v
+let s8 := afterRegisterWrite s7 …
+…
+refine ⟨final, ?_, confined, pc11, finalStack, finalInput, …⟩   -- 13 components
+```
+
+Every component's type mentions `final`, which is `let`-bound to a chain six deep. Unifying each
+component against the goal's expected type **zeta-expands that whole chain**, once per component. That
+single `refine` measured **~95 s** — against 15 s for the other 23 declarations in its module
+combined.
+
+Measure it this way, because nothing else attributes correctly: replace a proof body with `sorry` and
+read the delta. In this file `sorry`ing seven candidate theorems took it 140 s to 15 s, and leaving
+one live at a time showed six cost ~1 s and one cost 110 s. The profiler could not split them — with
+async elaboration it reported ~150 s for each of the seven — and `head -n` truncation smears cost
+across neighbours for the same reason.
+
+**What does not fix it**, all measured: `clear_value` on the chain (the component types were already
+built against the transparent value, so they then mismatch), swapping `rfl` for an explicit
+`afterRegisterWrite_mem` chain (the `_`s cannot be synthesised), and `WritesOnlyRegs` + `grind` (two
+`grind failed`, no gain).
+
+**What does**: make the successor genuinely opaque *at construction*, so zeta-expansion is impossible
+rather than merely undesirable —
+
+```lean
+obtain ⟨s7, hs7⟩ : ∃ s, s = afterRegisterWrite s6 pc r7 x9 v := ⟨_, rfl⟩
+```
+
+and state every subsequent fact through `hs7`. This is exactly what `Seg` was built for: an opaque
+successor state with a last-write-wins accumulator. A prologue written with `Seg` never constructs the
+deep term, so the final `refine` unifies opaque variables structurally.
+
+Alternatively, bundle a wide conclusion into a structure so the `refine` is one application instead
+of thirteen unifications — but note the structure-field warning above before making it wide.
+
 ### Module scope: keep the dependency graph flat and wide
 
 Lean elaborates a module on one core; Lake parallelizes across modules only. A module's elaboration
