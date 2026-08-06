@@ -136,7 +136,7 @@ theorem wrapper_allocator_tag_step_configured {instructionPcs : BitVec 64 → Pr
       (wrapperAfterAllocatorTag state retired target data) false := by
   obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContextOfDecoderAgree machine agree
   obtain ⟨retired, run⟩ := decoderStoreByteStep machine agree retiredPresent
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
     stepNo 0x102f4 0x23 0x00 0xa9 0x00 (0#12) 10#5 18#5 target data target atPc
     (rX_bits_run_x18 _ target (decoderExecuteState_get? targetValue))
     (rX_bits_run_x10 _ data (decoderExecuteState_get? dataValue))
@@ -739,7 +739,7 @@ theorem wrapper_final_frame_decrement_step (stepNo : Nat) (args : ZesuDecodeRawA
           (BitVec.ofNat 64 stackBase)).regs.get? x2 = some (BitVec.ofNat 64 stackBase) := by
   obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine.machine agree
   obtain ⟨retired, run⟩ := decoderITypeStep machine.machine agree retiredPresent
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
     stepNo 0x102c4 0x13 0x01 0x01 0xdd 0xdd0#12 2#5 2#5 .ADDI atPc
     (rX_x2_run _ _ (decoderExecuteState_get? stack))
     (by rw [wrapper_final_frame_decrement_value]; exact wX_x2_run _ _)
@@ -826,7 +826,7 @@ theorem wrapper_preserve_length_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
       BitVec.ofNat 64 args.bytes.size := by
     simp [iTypeResult, show sign_extend (0#12) = (0#64) by decide]
   exact decoderITypeStep machine.machine agree retiredPresent
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
     stepNo 0x102c8 0x93 0x84 0x05 0x00 0#12 11#5 9#5 .ADDI atPc
     (rX_x11_run _ _ (decoderExecuteState_get? length))
     (by rw [resultEq]; exact wX_x9_run _ _)
@@ -861,7 +861,7 @@ theorem wrapper_globals_page_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
     · exact readReg_run _ _ _ pcAtExecute
     · simpa [resultValue] using wX_bits_run_x11 executeState (BitVec.ofNat 64 0x42152cc)
   exact generatedRegisterWriteStep machine.machine agree retiredPresent
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
     stepNo 0x102cc 0x04205597 atPc decode execute
 
 theorem wrapper_globals_address_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
@@ -878,7 +878,7 @@ theorem wrapper_globals_address_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
   have resultValue : iTypeResult .ADDI 0xd54#12 (BitVec.ofNat 64 0x42152cc) =
       BitVec.ofNat 64 0x4215020 := by native_decide
   exact decoderITypeStep machine.machine agree retiredPresent
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
     stepNo 0x102d0 0x13 0x89 0x45 0xd5 0xd54#12 11#5 18#5 .ADDI atPc
     (rX_x11_run _ _ (decoderExecuteState_get? page))
     (by rw [resultValue]; exact wX_x18_run _ _)
@@ -1194,7 +1194,7 @@ theorem wrapper_save_input_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
       BitVec.ofNat 64 args.inputBase := by
     simp [iTypeResult, show sign_extend (0#12) = (0#64) by decide]
   exact decoderITypeStep machine.machine agree retiredPresent
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
     stepNo 0x102e8 0x13 0x04 0x05 0x00 0#12 10#5 8#5 .ADDI atPc
     (rX_x10_run _ _ (decoderExecuteState_get? input))
     (by rw [resultEq]; exact wX_x8_run _ _)
@@ -1210,7 +1210,7 @@ theorem wrapper_attempted_value_step (stepNo : Nat) (args : ZesuDecodeRawArgs)
   obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContext machine.machine agree
   have resultEq : iTypeResult .ADDI 1#12 (0#64) = (1#64) := by native_decide
   exact decoderITypeStep machine.machine agree retiredPresent
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
     stepNo 0x102ec 0x13 0x05 0x10 0x00 1#12 0#5 10#5 .ADDI atPc
     (rX_x0_run _) (by rw [resultEq]; exact wX_x10_run _ _)
 
@@ -1673,7 +1673,7 @@ private theorem wrapper_second_allocator_semantics
   obtain ⟨functionWritable, functionAligned, functionNotFile⟩ :=
     wrapperAllocatorStackAccess args stackBase 0x18 machine (by decide) (by decide)
   have code : Artifacts.programImage.fileBytesMatchMemory atSecond.mem := by
-    simpa [canonicalContractParams, canonicalEnvironment] using code15
+    exact Contracts.canonicalCodeIntact_image code15
   let secondPre : AllocatorSecondSegmentPreconditions atSecond
       (BitVec.ofNat 64 stackBase) (BitVec.ofNat 64 0x4215021) :=
     { atEntry := pc15

@@ -214,7 +214,7 @@ theorem wrapper_save_link_fetch (state : State)
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102b4)
       0x23#8 0x34#8 0x11#8 0x7e#8 :=
   fetchInstruction state 0x102b4 0x23 0x34 0x11 0x7e
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
 
 theorem wrapper_save_link_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -238,21 +238,21 @@ theorem wrapper_save_s0_fetch (state : State)
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102b8)
       0x23#8 0x30#8 0x81#8 0x7e#8 :=
   fetchInstruction state 0x102b8 0x23 0x30 0x81 0x7e
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
 
 theorem wrapper_save_s1_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102bc)
       0x23#8 0x3c#8 0x91#8 0x7c#8 :=
   fetchInstruction state 0x102bc 0x23 0x3c 0x91 0x7c
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
 
 theorem wrapper_save_s2_fetch (state : State)
     (code : canonicalContractParams.env.CodeIntact state) :
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102c0)
       0x23#8 0x38#8 0x21#8 0x7d#8 :=
   fetchInstruction state 0x102c0 0x23 0x38 0x21 0x7d
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
 
 theorem wrapper_save_s0_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -347,7 +347,7 @@ theorem wrapper_attempted_load_fetch (state : State)
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102d4)
       0x83#8 0x45#8 0x09#8 0x00#8 :=
   fetchInstruction state 0x102d4 0x83 0x45 0x09 0x00
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
 
 theorem wrapper_attempted_load_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -393,7 +393,7 @@ theorem wrapper_fresh_branch_fetch (state : State)
     FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x102d8)
       0x63#8 0x88#8 0x05#8 0x00#8 :=
   fetchInstruction state 0x102d8 0x63 0x88 0x05 0x00
-    (by simpa [canonicalContractParams, canonicalEnvironment] using code)
+    (by exact Contracts.canonicalCodeIntact_image code)
 
 theorem wrapper_fresh_branch_decode (state : State)
     (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
@@ -437,7 +437,7 @@ theorem decoderInstructionStepPlatform {instructionPcs : BitVec 64 → Prop}
       notExpected := notExpected
       seccfgRead := ⟨seccfgBits, seccfgRead⟩
       retired := retired
-      code := by simpa [canonicalContractParams, canonicalEnvironment] using code }
+      code := by exact Contracts.canonicalCodeIntact_image code }
 
 def wrapperAfterDecodeFirstErrorBranch (state : State) (retired : BitVec 64) : State :=
   tryStepControlFlowAfterRetired

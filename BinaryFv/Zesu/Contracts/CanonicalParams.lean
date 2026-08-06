@@ -348,4 +348,28 @@ theorem fresh_call_status_is_never_alreadyDecoded
     cases error <;>
       simp [callOutcome, DecodeCallOutcome.status, DecoderGlobalsModel.fresh, statusOfResult]
 
+
+/-- The pinned image behind `canonicalContractParams`, as a projection equation.
+
+Stated at the *projection* rather than through `CodeIntact`: deciding
+`canonicalContractParams.env.CodeIntact state` against
+`Artifacts.programImage.fileBytesMatchMemory state.mem` directly forces evaluation of the whole
+program image (~29 s, and it exhausts the default recursion depth). This equation is two projections
+and closes by `rfl`. -/
+theorem canonicalEnvironment_image :
+    canonicalEnvironment.image = BinaryFv.Zesu.Artifacts.programImage := by
+  simp only [canonicalEnvironment]
+
+/-- Transport a canonical `CodeIntact` to the raw pinned image, without the expensive defeq.
+
+Every site that hands a `CodeIntact` where the raw image is expected otherwise pays that defeq in
+full; there are hundreds of such sites. Note the `simpa [canonicalContractParams,
+canonicalEnvironment] using code` idiom found at them is not what costs the time -- a bare
+`exact code` measures the same -- so the fix is routing through this transport, not dropping the
+simp set. -/
+theorem canonicalCodeIntact_image {state : BinaryFv.RiscV.State}
+    (code : canonicalContractParams.env.CodeIntact state) :
+    BinaryFv.Zesu.Artifacts.programImage.fileBytesMatchMemory state.mem :=
+  canonicalEnvironment_image ▸ code
+
 end BinaryFv.Zesu.Contracts
