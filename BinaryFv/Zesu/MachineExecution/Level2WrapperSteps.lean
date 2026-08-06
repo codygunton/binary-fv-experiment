@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.GeneratedWordStep
+import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.Seg
 import BinaryFv.Zesu.MachineExecution.OwnedPc
 
