@@ -480,10 +480,16 @@ here: `Level2Capstone` waited 192 s on `Level2OutcomeDispatch` for `WrapperTermi
 expensive modules elaborate concurrently. Two such moves cut this build 1234→1009 s, measured cold at
 both ends, changing no proof.
 
-*A genuinely expensive module.* Split it along a **dependency layer** — the declarations that
-reference nothing else in the file can become their own module and elaborate in parallel. Never split
-down the middle of a chain of dependent declarations; that just makes two serial modules out of one.
-`Level2WrapperProof` split this way: 57 declarations out, 38 s off the path.
+*A genuinely expensive module.* Move out a **semantically coherent group** that references nothing
+else in the file — step lemmas, a frame kit, a structure definition — into a module with a name that
+says what it holds. `Level2WrapperProof` split this way: 57 step lemmas out, 38 s off the path, and
+the result is still navigable.
+
+What does **not** work is applying that mechanically: chunking a file into machine-named
+`L<layer>_<chunk>` modules was tried across four modules and reverted (see the splitting verdict
+above). The difference is not the technique, it is whether the new module boundary means something to
+a reader. Never split down the middle of a chain of dependent declarations either; that just makes
+two serial modules out of one.
 
 **When you add a module, check what it will wait for**, not just what it needs. `import` is a
 scheduling decision as much as a namespace one.
@@ -509,10 +515,11 @@ consume them in another.** `<Instance>Steps.lean` then `<Instance>Proof.lean`. S
 reference each other, so several instances' step modules build simultaneously; the composition
 modules chain, and are much smaller.
 
-**Target: no module over ~60 s.** Not a style preference — a module over that is a serial segment
-everyone waits on, and with 141 function instances still to prove the convention chosen now is
-multiplied by 141. If a module exceeds it, split it along a dependency layer (declarations that
-reference nothing else in the file), never down the middle of the spine.
+**Target: no module over ~15 s** (the figure was 60 s when the build was 1009 s; it is now ~123 s).
+Not a style preference — a module over that is a serial segment everyone waits on, and with 141
+function instances still to prove the convention chosen now is multiplied by 141. Reach it by making
+the expensive declarations cheap; if the module is genuinely a pile of independent lemmas, move a
+named group out, never a machine-named chunk and never down the middle of the spine.
 
 Check yours before adding it: `lake build <module>` prints the elaboration time.
 
