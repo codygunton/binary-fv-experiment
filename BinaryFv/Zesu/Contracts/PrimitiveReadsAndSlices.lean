@@ -76,8 +76,10 @@ control flow, which is why it is admissible here where a hand-rolled container w
 def meaningReadU256 (bytes : ByteArray) (offset : Nat) : Except SszDecodeError (BitVec 256) :=
   match meaningBytesAt bytes offset 32 with
   | .ok slice =>
+      -- Little-endian: `slice[0]` is the least-significant byte. Folding right over `range 32` adds
+      -- `slice[index]` after `index` further `*256` steps, giving it place value `256^index`.
       .ok (BitVec.ofNat 256
-        ((List.range 32).foldr (fun index acc => acc * 256 + (slice.get! (31 - index)).toNat) 0))
+        ((List.range 32).foldr (fun index acc => acc * 256 + (slice.get! index).toNat) 0))
   | .error error => .error error
 
 /-- `readArray(N, data, offset)`: `N` bytes copied out, or `InvalidSsz`.
