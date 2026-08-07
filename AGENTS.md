@@ -141,14 +141,29 @@ Measured on this project, and each number changed a decision:
   optimising anything, compute what the path becomes *after* the fix -- "it is the biggest module"
   is not a reason.
 
-**Splitting a module is a tool for flat piles of lemmas, not for proof chains.** Enumerate the
-declarations, compute for each the earliest declaration it references, and keep only cut points that
-no later declaration crosses. `BlobScheduleAndResultStores` had 128 declarations and 37 such cuts:
-41s became three concurrent parts of 28s/10s/5.2s. `DecodeInlineProof`, `Level2Epilogue` and
-`Level2OutcomeDispatch` have **zero** -- step one feeds step two feeds the composition -- so no
-partition into independent modules exists and the technique simply does not apply. Check for cut
-points before planning a split. (Enumerate `private theorem` too: missing three of them produced a
-split that cut a real dependency and failed to build.)
+**Splitting modules was tried project-wide and reverted. Do not reach for it.** Splitting the four
+biggest modules by dependency layer -- 118 machine-named files -- bought **12.5s** (110s vs 122.7s)
+and cost 121 files, 23 declarations that silently lost `private`, and **63s more CPU** than it saved
+in wall. The names carried no meaning (`DecodeInlineProof/L2_8.lean`), the parent module became an
+empty shim, and files were grouped by dependency depth rather than topic. See `128fe43`.
+
+Two things make it unattractive even where it works:
+
+- **It only applies to flat piles.** `BlobScheduleAndResultStores` (128 declarations, nearly all
+  independent) split cleanly, 41s to 28s. `DecodeInlineProof`, `Level2Epilogue` and
+  `Level2OutcomeDispatch` have **zero contiguous cut points** -- step one feeds step two feeds the
+  composition. And where the cost sits in a *single* declaration, no partition subdivides it: one
+  theorem in `Level2Epilogue` was 27s on its own.
+- **`private` is module-scoped.** Moving a declaration away from its dependents forces you to make it
+  public. That is an API change made by a refactoring script, not by a person.
+
+If you still need it, cut only at points no later declaration crosses, and enumerate `private
+theorem` and `set_option ... in` when you do -- missing three `private`s cut a real dependency, and
+`set_option ... in` modifies the *next* declaration, so orphaning it leaves a dangling `in`.
+
+**The alternative that actually paid: make the expensive declaration cheap.** Same module,
+`Level2Epilogue`, **47s to 12s in one file** with no new modules -- see the agreement-frame rule
+below and the duplicate-block rule above it.
 
 **You cannot delete an unused import.** Lean imports are transitive re-exports, so `B` importing `A`
 without using any of `A`'s declarations is *not* dead: consumers of `B` may be relying on `B` to
@@ -192,6 +207,21 @@ position.** It cannot attribute anything. Reaching for it costs an hour and prod
 answers: it drove three rounds of invalid elimination here (see trap 3) before `trace.profiler`
 named the culprit in one run. If you find yourself inferring which declaration is slow, stop — you
 are using the wrong flag.
+
+**Read the per-tactic tree, not just the per-declaration total.** This is what finally located the
+11.4s `stackAgree`, after two wrong guesses at the same theorem: lower the threshold and the tree
+nests tactic steps under the declaration, so the offending `have` is named directly.
+
+```bash
+lake env lean --tstack=65536 -Dtrace.profiler=true -Dtrace.profiler.threshold=400 <File>.lean
+```
+
+**For a shareable profile, `-Dtrace.profiler.output=<file>.json` writes Firefox Profiler format**,
+loadable at profiler.firefox.com. In the UI use the **inverted call stack** to rank by *self* time.
+Two cautions: the file has no declaration-level frames -- its frames are trace classes (`Kernel`,
+`Elab.step: …simpAll`) -- and its sample weights come from the trace tree, not from sampling, so they
+carry the same inclusive-overlap problem as the text output. Proportions are informative; absolute
+per-declaration numbers are not there to be read off.
 
 Three traps, all of which cost real time here:
 
@@ -424,7 +454,9 @@ time is therefore a serial segment of the build, and a chain of modules is a cri
 number of cores can shorten. This build was **996 s of critical path out of 1009 s** — nine modules in
 a queue, one core busy, sixty-three idle.
 
-**Target: no module over ~60 s.** Check with `lake build <module>`, which prints the time.
+**Target: no module over ~15 s** (the build is now ~123s end to end; the old 60s target dates from
+when it was 1009s). Check with `lake build <module>`, which prints the time. Reach that by making the
+expensive declarations cheap, not by splitting the file -- see the splitting verdict above.
 
 **Measure time, never line count.** Line count is a useless proxy here — the spread is 250x:
 
@@ -525,6 +557,45 @@ Probe the cheap file at the top, not the expensive one at the bottom.
 declaration names" produced a confident false positive worth an apparent 621 s; the module genuinely
 needed a name the scan had missed. Confirm by deleting the import and compiling — that is the only
 check that cannot lie to you.
+
+### Agreement across a step is a frame fact, never a case split
+
+The single most expensive tactic found in this project:
+
+```lean
+have stackAgree : Agree decoderPreserved afterS2 afterStack := by
+  intro register preserved
+  cases register <;> simp only [...] at preserved ⊢ <;> simp_all [decoderPreserved, platformPreserved]
+```
+
+**11.4s of one theorem's 13.3s**, 8.5s of it in the closing `simp_all`. It splits all forty-odd
+RISC-V registers against a six-deep state term to prove something disjointness settles without
+looking at the state at all. The step writes only the bookkeeping registers and `x2`; write it as
+
+```lean
+have stackAgree : Agree decoderPreserved afterS2 afterStack :=
+  (wrapperAfterFinalStackRestore_writes afterS2 retiredStack _).agree decoderPreserved_disjoint_sp
+```
+
+and it is free. `WritesOnlyRegs.agree` and `RegSet.Disjoint.{union, only}` already exist; a preserved
+predicate needs its disjointness proved once (`decoderPreserved_disjoint` just inherits
+`platformPreserved_disjoint`, since `decoderPreserved r = r ≠ x1 ∧ platformPreserved r`).
+
+**The counter-case, because the same tool has the opposite verdict two lines away.** Using the write
+set for the individual register *reads* -- `(…_writes …).get r (by decide)` in place of a direct
+`simp` that reads one field -- measured **slower**: 26.7s to 30.7s, and 28.2s with
+`of_decide_eq_true rfl`. The frame pays against a proof that would otherwise case-split every
+register; it does not pay against a `simp` already reading one field. Measure, do not generalise.
+
+### Before you optimise a proof, check whether it is proved twice
+
+`wrapper_epilogue_to_exit` and `wrapper_epilogue_complete` opened with a **character-identical
+34-line block** -- a stack restore, a register reload, and eight facts about the result -- so all of
+it, including the agreement case-split above, elaborated twice. Eight named lemmas replaced it.
+
+Finding these is mechanical: hash every window of N consecutive indented lines across the proof files
+and report windows occurring more than once. Filter out repeated *signatures* (hypothesis lists on
+class lemmas are legitimately similar); what you want is repeated tactic blocks.
 
 ### If you define a new state transformer, you owe it a frame equation
 
