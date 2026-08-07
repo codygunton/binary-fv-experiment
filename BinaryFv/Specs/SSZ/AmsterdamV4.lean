@@ -8,7 +8,7 @@ This executable specification uses the pinned SizzLean interpreter.
 It owns the outer schema identifier, raw/Ere framing, a canonical-wire
 wrapper, and a lossless named projection boundary.  V3 is deliberately
 quarantined: no V3 value is emitted because this project has no independently
-pinned V3 oracle.
+pinned V3 spec.
 
 SizzLean's executable decoder accepts one non-canonical variable-list alias
 (`00 00 00 00` for an empty `List[ByteList]`).  `decodeCanonical` closes that

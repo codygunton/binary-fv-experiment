@@ -77,14 +77,14 @@ where
 
 /-- Every claim the catalog makes about the decoder's meaning, as one conjunction.
 
-`sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` carry the root theorem; the rest
+`sourceShapedDecodeAgreesWithSpec` and `catalogGroundsInSpec` carry the root theorem; the rest
 bound which errors each group can produce and record the known asymmetries. -/
 def catalogSemanticObligations : Prop :=
-  sourceShapedDecodeAgreesWithOracle ∧
+  sourceShapedDecodeAgreesWithSpec ∧
   catalogGroundsInSpec ∧
   retryTailNeverSchemaValid ∧
   v3ShapeExcludesCanonicalV4 ∧
-  sourceShapedContainersAgreeWithOracle ∧
+  sourceShapedContainersAgreeWithSpec ∧
   canonicalOffsetsCharacterization ∧
   zeroFirstOffsetAliasRejected ∧
   bytesAtSucceedsIffFits ∧
@@ -101,7 +101,7 @@ def catalogSemanticObligations : Prop :=
   meaningOtherLengthIsInvalid ∧
   meaningNeverForkOrMemory
 
-/-- The two known asymmetries between the binary and the oracle, conjoined so the navigation surfaces
+/-- The two known asymmetries between the binary and the spec, conjoined so the navigation surfaces
 them rather than letting them read as oversights. -/
 def knownDivergences : Prop :=
   forkErrorOrderingDiffers ∧ ereRetryReachedAboveU32Gate

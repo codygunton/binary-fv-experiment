@@ -15,7 +15,7 @@ difficulty actually lives:
   meanings, and the machinery below (`FailsOnly` and its bind/ite combinators) is what makes them
   compose instead of being re-derived by hand for each of the twenty-odd meanings.
 * **Characterizations.** The exact acceptance condition of one function instance, stated over all inputs.
-* **Oracle agreement.** That the source-shaped composition and the pinned oracle agree on the
+* **Spec agreement.** That the source-shaped composition and the pinned spec agree on the
   decoded *value*, not merely on acceptance. This is the hard content: it is stated over
   `BinaryFv.Specs.SSZ.decodeCanonical`, whose canonicality test is a global re-serialization equality the
   binary never performs.
@@ -24,7 +24,7 @@ Everything proved here is proved over *all* inputs; nothing is decided on a fixt
 
 ## Axioms — the module is no longer clean, and that is a real change
 
-`catalogSemanticObligations_of_oracleAgreement` now depends on `Lean.ofReduceBool` and
+`catalogSemanticObligations_of_specAgreement` now depends on `Lean.ofReduceBool` and
 `Lean.trustCompiler`. It did not when this module was written. **Exactly one** proof brings them in:
 
 * `meaningTwentyFourIsSome_holds` reaches `MemoryRepresentation.uint64LE_of_readUInt64LE`, whose eight
@@ -205,7 +205,7 @@ theorem meaningRequireCanonicalOffsets_onlyInvalid (bytes : ByteArray) (fixedSiz
       unfold meaningRequireCanonicalOffsets.walk
       exact FailsOnly.ite (FailsOnly.of_error rfl) (ih offset)
 
-/-! ### Oracle-shaped meanings
+/-! ### Spec-shaped meanings
 
 Each of these is `decodeCanonical` at a closed schema followed by a projection, and
 `sszToDecodeError` is constant `invalidSsz`, so none of them can reach the other two errors. The
@@ -344,7 +344,7 @@ attribute [local irreducible] meaningChainConfig
 
 `decodeRaw` composes the four top-level children; only `decodeChainConfig` among them can raise
 `unknownFork`, and none of them has an allocation-failure outcome, because every meaning below is
-either a pure read or the pinned oracle. `decode` adds only a retry of `decodeRaw`. -/
+either a pure read or the pinned spec. `decode` adds only a retry of `decodeRaw`. -/
 
 theorem meaningDecodeRaw_onlyInvalidOrFork (bytes : ByteArray) :
     OnlyInvalidOrFork (meaningDecodeRaw bytes) := by
@@ -408,8 +408,8 @@ fixed-section size `16`.
 Both facts the fork-ordering divergence needs come from that one choice. The offset table is
 canonical, so `meaningForkConfig` gets past `requireCanonicalOffsets` and stops at the fork bound,
 which is the whole point — the binary rejects *before* looking at the children. And the offsets being
-`16` in a 16-byte buffer leaves the activation slice empty, which is what makes the oracle reject
-too, since it decodes the children first and a variable-field container cannot be empty. The oracle
+`16` in a 16-byte buffer leaves the activation slice empty, which is what makes the spec reject
+too, since it decodes the children first and a variable-field container cannot be empty. The spec
 half is at the end of this file; only the binary's half is needed here. -/
 def forkOrderingWitness : ByteArray := ⟨#[21, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0]⟩
 
@@ -444,7 +444,7 @@ theorem allocatorVtableEntriesAreConstant_holds : allocatorVtableEntriesAreConst
 /-- **Out-of-memory is unreachable below the root theorem's input bound.**
 
 Stated over the *meaning*, this is the specification-side half: `meaningDecode` is built from pure
-reads and the pinned oracle, neither of which has an allocation-failure outcome, so no input — inside
+reads and the pinned spec, neither of which has an allocation-failure outcome, so no input — inside
 the scope bound or outside it — can make it produce `outOfMemory`. That is what makes the arm
 dischargeable rather than normalizable, and it is why the scope hypothesis is not used.
 
@@ -453,7 +453,7 @@ exhaustion branch, and `Runtime.raw_allocation_bound_fits_arena` is what rules i
 theorem outOfMemoryUnreachableBelowBound_holds : outOfMemoryUnreachableBelowBound :=
   fun bytes _ => (meaningDecode_onlyInvalidOrFork bytes).ne (by simp)
 
-/-! ## Characterizations that need no oracle reasoning -/
+/-! ## Characterizations that need no spec reasoning -/
 
 /-- A read succeeds exactly when its window fits. -/
 theorem bytesAtSucceedsIffFits_holds : bytesAtSucceedsIffFits := by
@@ -516,7 +516,7 @@ theorem walk_ok_iff (bytes : ByteArray) (offsets : List Nat) (previous : Nat) :
 
 The first entry must *equal* the fixed size, not merely reach it: that equality is what forbids
 padding between a container's fixed section and its first variable field, and it is the clause the
-oracle's re-serialization check enforces by a completely different route. -/
+spec's re-serialization check enforces by a completely different route. -/
 theorem canonicalOffsetsCharacterization_holds : canonicalOffsetsCharacterization := by
   intro bytes fixedSize offsets
   unfold meaningRequireCanonicalOffsets
@@ -546,7 +546,7 @@ theorem canonicalOffsetsCharacterization_holds : canonicalOffsetsCharacterizatio
 
 /-! ### The asymmetric ERE retry
 
-The binary retries the four-byte-stripped input on `invalidSsz` while the oracle retries on every
+The binary retries the four-byte-stripped input on `invalidSsz` while the spec retries on every
 bridge error but `v3Quarantined`. That asymmetry is only safe because the retry can never *succeed*
 on an input that reached the top-level offset table, and this is the byte-level reason why. -/
 
@@ -570,7 +570,7 @@ theorem get!_extract_suffix (bytes : ByteArray) (start index : Nat)
 An input that reaches the top-level offset table has `hasSchemaId`, so it starts `00 01`, and a first
 offset of exactly `16` forces its bytes 2..6 to be `10 00 00 00`. Byte 5 is therefore `00` — and byte
 5 is the tail's *second* byte, the one `hasSchemaId` demands be `01`. So the retry cannot succeed on
-precisely the inputs where the binary and the oracle disagree about attempting it. -/
+precisely the inputs where the binary and the spec disagree about attempting it. -/
 theorem retryTailNeverSchemaValid_holds : retryTailNeverSchemaValid := by
   intro bytes _ hfirst
   rw [BinaryFv.Specs.SSZ.readU32LE?] at hfirst
@@ -599,10 +599,10 @@ theorem retryTailNeverSchemaValid_holds : retryTailNeverSchemaValid := by
       exact absurd htail (by decide)
     simp [BinaryFv.Specs.SSZ.hasSchemaId, hne]
 
-/-! ### Evaluating the oracle
+/-! ### Evaluating the spec
 
 The three option-length cases are claims about what `decodeCanonical` *does*, so unlike everything
-above they need it to reduce. Two obstacles: the oracle is written in `do` notation, and the
+above they need it to reduce. Two obstacles: the spec is written in `do` notation, and the
 serializer is a mutual structural recursion whose arms do not fire by `rfl` (its `[]` lives in the
 dependent `List schema.interp`, so `simp` cannot match the generated equation either). The bridge
 below removes the first obstacle once, and the two arms are then supplied at the exact schema. -/
@@ -636,7 +636,7 @@ theorem meaningEmptyIsNone_holds : meaningEmptyIsNone := by
 
 /-- **Every length other than 0 and 24 is `invalidSsz`.**
 
-The two rejections are the oracle's own, and which one fires is genuinely input-dependent: more than
+The two rejections are the spec's own, and which one fires is genuinely input-dependent: more than
 one element's worth of bytes is `outOfRange`, and anything that is not a whole number of 24-byte
 elements is `trailingBytes`. What rules out the remaining case is arithmetic — a size that survives
 both checks has `size / 24 ≤ 1` and `size / 24 * 24 = size`, which for `size ∉ {0, 24}` is
@@ -780,7 +780,7 @@ theorem readU32LE?_of_meaningReadOffset (bytes : ByteArray) (offset value : Nat)
 
 /-! ## `meaningTwentyFourIsSome`
 
-The one oracle-agreement premise that is neither blocked on the upstream `private` declarations
+The one spec-agreement premise that is neither blocked on the upstream `private` declarations
 nor on the entry composition theorem, which is why it is the one that closes. It is the *encode-after-decode* direction — the value
 being re-serialized came out of `deserialize`, not into it — which upstream's `decode_encode` does not
 give in either fragment. `uint64LE_of_readUInt64LE` supplies it at `u64`, which is the only width the
@@ -851,18 +851,18 @@ theorem meaningTwentyFourIsSome_holds : meaningTwentyFourIsSome := by
 /-! ## What the semantic obligations still rest on
 
 The two obligations the navigation calls out as carrying the root theorem —
-`sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` — are not independent, and saying so
+`sourceShapedDecodeAgreesWithSpec` and `catalogGroundsInSpec` — are not independent, and saying so
 is worth a theorem rather than a comment: the second follows from the first, because
 `BinaryFv.Specs.SSZ.decode bytes = .accepted value` *is* `decodeStatelessInput bytes = .ok value`. So the
 catalog's remaining semantic content is one agreement claim about the entry, one about the fixed
 containers, and three byte-level facts. -/
 
-/-- **The catalog's meanings are grounded in the pinned oracle** — given that the source-shaped
-composition and the oracle agree on the decoded *value*. `BinaryFv.Specs.SSZ.decode` returns `.accepted value`
+/-- **The catalog's meanings are grounded in the pinned spec** — given that the source-shaped
+composition and the spec agree on the decoded *value*. `BinaryFv.Specs.SSZ.decode` returns `.accepted value`
 exactly when `decodeStatelessInput` returns `.ok value`, so the two statements differ only in how
 they spell "accepted with this value". The scope hypothesis threads straight through, which is what
 it means for the two to be scoped for the same reason. -/
-theorem catalogGroundsInSpec_of_agreement (agrees : sourceShapedDecodeAgreesWithOracle) :
+theorem catalogGroundsInSpec_of_agreement (agrees : sourceShapedDecodeAgreesWithSpec) :
     catalogGroundsInSpec := by
   intro bytes scope value
   rw [agrees bytes scope value]
@@ -871,15 +871,15 @@ theorem catalogGroundsInSpec_of_agreement (agrees : sourceShapedDecodeAgreesWith
   | ok value => simp
   | error error => simp
 
-/-- **The catalog's semantic obligations, reduced to the oracle-agreement content.**
+/-- **The catalog's semantic obligations, reduced to the spec-agreement content.**
 
 Sixteen of the twenty conjuncts are discharged above; the four premises here are what is left, and
 they are all of one kind — the binary decides canonicality by per-container offset checks while the
-oracle decides it by re-serializing, and these say the two coincide. `catalogGroundsInSpec` is not a
+spec decides it by re-serializing, and these say the two coincide. `catalogGroundsInSpec` is not a
 premise because it follows from the first one. -/
-theorem catalogSemanticObligations_of_oracleAgreement
-    (entryAgrees : sourceShapedDecodeAgreesWithOracle)
-    (containersAgree : sourceShapedContainersAgreeWithOracle)
+theorem catalogSemanticObligations_of_specAgreement
+    (entryAgrees : sourceShapedDecodeAgreesWithSpec)
+    (containersAgree : sourceShapedContainersAgreeWithSpec)
     (v3Excluded : v3ShapeExcludesCanonicalV4) (zeroAlias : zeroFirstOffsetAliasRejected) :
     catalogSemanticObligations :=
   ⟨entryAgrees, catalogGroundsInSpec_of_agreement entryAgrees, retryTailNeverSchemaValid_holds,
@@ -893,11 +893,11 @@ theorem catalogSemanticObligations_of_oracleAgreement
 
 /-! ## Negative test: the scope hypothesis cannot be dropped
 
-`sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` carry `rootComplianceScope`, and a
+`sourceShapedDecodeAgreesWithSpec` and `catalogGroundsInSpec` carry `rootComplianceScope`, and a
 reader tidying up might reasonably take that for defensive noise. It is not: **without it the
 catalog is unsatisfiable and the root theorem is vacuous.** `ereGateDivergesAboveU32` asserts a
-witness, outside the bound, that the composition accepts and the oracle rejects as `tooLarge`; at
-that witness the unscoped agreement makes the oracle return a value it demonstrably does not.
+witness, outside the bound, that the composition accepts and the spec rejects as `tooLarge`; at
+that witness the unscoped agreement makes the spec return a value it demonstrably does not.
 
 Stating that in a comment would let it rot, so it is a theorem. The unscoped forms are defined here,
 used nowhere else, purely so their inconsistency with the recorded divergence is machine-checked —
@@ -915,7 +915,7 @@ the obligations rather than left alone.
 `ereRetryReachedAboveU32Gate` (below) — and the tempting tidy-up is to follow it here so that
 everything in this file cites one divergence. **The tidy-up is not available, and the reason is
 machine-checked rather than argued.** Each test works by pitting "the source *accepts* this buffer"
-against an unscoped agreement with an oracle that rejects it. The gate-level form supplies no
+against an unscoped agreement with the specification, which rejects it. The gate-level form supplies no
 acceptance at all: it says the binary reaches the retry, and at the witness that discharges it the
 retry then fails, so the source rejects — `ereGateWitness_not_accepted`, below, is exactly that fact.
 A version of these tests re-based on the gate-level `Prop` would therefore be guarding strictly less
@@ -926,9 +926,9 @@ rather than written over this one: restating `ereGateDivergesAboveU32` in place 
 theorems reading identically while their content collapsed, and the reader here would have nothing to
 notice. Keeping two names is what makes the difference visible in the citation. -/
 
-/-- `sourceShapedDecodeAgreesWithOracle` without its scope hypothesis. Deliberately unused except by
+/-- `sourceShapedDecodeAgreesWithSpec` without its scope hypothesis. Deliberately unused except by
 the theorem below. -/
-def unscopedDecodeAgreesWithOracle : Prop :=
+def unscopedDecodeAgreesWithSpec : Prop :=
   ∀ (bytes : ByteArray) (value : BinaryFv.Specs.SSZ.StatelessInput),
     meaningDecode bytes = .ok value ↔ BinaryFv.Specs.SSZ.decodeStatelessInput bytes = .ok value
 
@@ -936,7 +936,7 @@ def unscopedDecodeAgreesWithOracle : Prop :=
 
 So `rootComplianceScope` is not a convenience: it is what makes the catalog satisfiable at all. -/
 theorem unscopedAgreement_contradicts_ereGate :
-    ¬ (unscopedDecodeAgreesWithOracle ∧ ereGateDivergesAboveU32) := by
+    ¬ (unscopedDecodeAgreesWithSpec ∧ ereGateDivergesAboveU32) := by
   rintro ⟨agree, bytes, _, accepts, tooLarge⟩
   cases hm : meaningDecode bytes with
   | error error => rw [hm] at accepts; exact absurd accepts (by simp [isAccepted])
@@ -973,8 +973,8 @@ the acceptance predicate is unchanged — `isAccepted` is a `Bool`, and a `Bool`
 `StatelessInput`. So no amount of acceptance agreement constrains which value comes out.
 
 **The conditional half, and why it cannot be made unconditional here.** The relabelled source
-violates the value predicate — but only at a buffer the oracle actually accepts. That hypothesis is
-not removable: if the oracle rejected every in-scope buffer, acceptance agreement would force the
+violates the value predicate — but only at a buffer the spec actually accepts. That hypothesis is
+not removable: if the spec rejected every in-scope buffer, acceptance agreement would force the
 source to reject them all too and the value agreement would hold vacuously, so "acceptance implies
 value" would be *true*. The separation is therefore equivalent to the existence of an accepted
 in-scope buffer, and exhibiting one means importing a decoding fixture — which lives under
@@ -993,7 +993,7 @@ def AcceptanceAgreement (source : ByteArray → Except DecodeError BinaryFv.Spec
 
 /-- The abstraction is the obligation, not a lookalike. -/
 theorem valueAgreement_meaningDecode :
-    ValueAgreement meaningDecode = sourceShapedDecodeAgreesWithOracle := rfl
+    ValueAgreement meaningDecode = sourceShapedDecodeAgreesWithSpec := rfl
 
 /-- The new obligation entails the old one at every source, so the change is a strengthening in the
 strict sense and not a replacement. -/
@@ -1030,22 +1030,22 @@ theorem acceptanceAgreement_does_not_imply_valueAgreement
     (f : BinaryFv.Specs.SSZ.StatelessInput → BinaryFv.Specs.SSZ.StatelessInput) (agrees : AcceptanceAgreement source)
     {witness : BinaryFv.Specs.SSZ.StatelessInput} {buffer : ByteArray} (scope : rootComplianceScope buffer)
     (decoded : source buffer = .ok witness) (moved : f witness ≠ witness)
-    (oracle : BinaryFv.Specs.SSZ.decodeStatelessInput buffer = .ok witness) :
+    (spec : BinaryFv.Specs.SSZ.decodeStatelessInput buffer = .ok witness) :
     AcceptanceAgreement (fun bytes => (source bytes).map f) ∧
       ¬ ValueAgreement (fun bytes => (source bytes).map f) := by
   refine ⟨acceptanceAgreement_invariant_under_relabelling f agrees, ?_⟩
   intro values
-  have h : (source buffer).map f = Except.ok witness := (values buffer scope witness).mpr oracle
+  have h : (source buffer).map f = Except.ok witness := (values buffer scope witness).mpr spec
   rw [decoded] at h
   exact moved (by simpa [Except.map] using h)
 
 /-- **The acceptance equation, as a corollary rather than as the obligation.**
 
-This is exactly what `sourceShapedDecodeAgreesWithOracle` said before it was strengthened, and
+This is exactly what `sourceShapedDecodeAgreesWithSpec` said before it was strengthened, and
 everything that only needs "the two accept the same buffers" should cite this rather than restating
 it. Keeping it available is what lets the strengthening be a pure addition: no consumer of the old
 granularity loses anything. -/
-theorem sourceShapedDecodeAgreesOnAcceptance (agrees : sourceShapedDecodeAgreesWithOracle)
+theorem sourceShapedDecodeAgreesOnAcceptance (agrees : sourceShapedDecodeAgreesWithSpec)
     (bytes : ByteArray) (scope : rootComplianceScope bytes) :
     isAccepted (meaningDecode bytes) = (BinaryFv.Specs.SSZ.decodeStatelessInput bytes).toOption.isSome :=
   acceptanceAgreement_of_valueAgreement (source := meaningDecode) agrees bytes scope
@@ -1055,7 +1055,7 @@ theorem sourceShapedDecodeAgreesOnAcceptance (agrees : sourceShapedDecodeAgreesW
 `forkErrorOrderingDiffers` is one half of `knownDivergences`. It is an existential, so it needs a
 witness and both of the witness's facts.
 
-**Why the oracle half is not the `decodeCanonical_eq` cascade.** Rewriting with `decodeCanonical_eq`
+**Why the spec half is not the `decodeCanonical_eq` cascade.** Rewriting with `decodeCanonical_eq`
 works and leaves a `match` on `forkConfigType.deserialize`, which is where it stops: reducing that
 needs upstream's `extractFieldOffsets`, and that definition is `private` in the pinned
 `Spec/Deserialize.lean` — the same obstacle as `extractCollOffsets`, one definition over. `rfl` and
@@ -1065,11 +1065,11 @@ kernel gets no unfolding from it.
 **Axioms, and why this costs nothing.** `native_decide` puts `Lean.ofReduceBool` and
 `Lean.trustCompiler` on this theorem. `BinaryFv.Zesu.binary_is_canonical` — and so `root_compliance` —
 already depends on both, from the pinned-artifact facts, so the root's trust class is unchanged.
-`catalogSemanticObligations_of_oracleAgreement` is a separate declaration and stays clean. If the
+`catalogSemanticObligations_of_specAgreement` is a separate declaration and stays clean. If the
 `extractCollOffsets` shim lands and is widened to `extractFieldOffsets`, this becomes provable by
 reduction and the axioms can be dropped. -/
 
-/-- The oracle's side: a structural rejection, having never reached the fork bound. -/
+/-- The spec's side: a structural rejection, having never reached the fork bound. -/
 theorem decodeCanonical_forkOrderingWitness :
     (BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.forkConfigType forkOrderingWitness).toOption = none := by
   have h : (BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.forkConfigType forkOrderingWitness).toOption.isNone
@@ -1181,8 +1181,8 @@ theorem decodeRaw_ereGateWitnessOf (n : Nat) (h : 4294967295 < n) :
   rw [hreq]
   rfl
 
-/-- The oracle's side: `tooLarge` at the outer gate, with no retry of any kind. -/
-theorem oracle_ereGateWitnessOf (n : Nat) (h : 2 ^ 32 ≤ n) :
+/-- The spec's side: `tooLarge` at the outer gate, with no retry of any kind. -/
+theorem decodeStatelessInput_ereGateWitnessOf (n : Nat) (h : 2 ^ 32 ≤ n) :
     BinaryFv.Specs.SSZ.decodeStatelessInput (ereGateWitnessOf n) = .error .tooLarge := by
   simp [BinaryFv.Specs.SSZ.decodeStatelessInput, size_ereGateWitnessOf, h]
 
@@ -1222,9 +1222,9 @@ theorem ereRetryAboveGateAt_ereGateWitness : ereRetryAboveGateAt ereGateWitness 
   · rw [ereGateWitness, erePrefix_ereGateWitnessOf 4294967296 (by omega)]; rfl
   · exact decodeRaw_ereGateWitnessOf 4294967296 (by omega)
   · exact decode_ereGateWitnessOf 4294967296 (by omega) (by omega)
-  · exact oracle_ereGateWitnessOf 4294967296 (by omega)
+  · exact decodeStatelessInput_ereGateWitnessOf 4294967296 (by omega)
 
-/-- **The binary reaches the ERE retry where the oracle has already answered `tooLarge`.** -/
+/-- **The binary reaches the ERE retry where the spec has already answered `tooLarge`.** -/
 theorem ereRetryReachedAboveU32Gate_holds : ereRetryReachedAboveU32Gate :=
   ⟨ereGateWitness, ereRetryAboveGateAt_ereGateWitness⟩
 

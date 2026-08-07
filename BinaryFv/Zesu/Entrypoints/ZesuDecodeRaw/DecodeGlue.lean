@@ -41,7 +41,7 @@ permits it, and specialized only where the conclusion names an address.
 
 * `CanonicalDecodeExit` — the exported decoder contract supplied by the L1 seam. The `Iff.rfl` pin
   above checks that the contract and this projection use the same predicate.
-* `catalogGroundsInSpec` — proved from source/oracle agreement by `catalogGroundsInSpec_holds`, so it
+* `catalogGroundsInSpec` — proved from source/spec agreement by `catalogGroundsInSpec_holds`, so it
   is not a new premise for the capstone.
 * the input bound — the root theorem's own hypothesis, definitionally `rootComplianceScope input`.
 
@@ -72,8 +72,8 @@ namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 /-- The value-carrying specification link needed by the exported decoder assembly. -/
 theorem catalogGroundsInSpec_holds : Contracts.catalogGroundsInSpec :=
   Contracts.catalogGroundsInSpec_of_agreement
-    (MemoryRepresentation.sourceShapedDecodeAgreesWithOracle_holds
-      MemoryRepresentation.sourceShapedContainersAgreeWithOracle_holds
+    (MemoryRepresentation.sourceShapedDecodeAgreesWithSpec_holds
+      MemoryRepresentation.sourceShapedContainersAgreeWithSpec_holds
       Contracts.retryTailNeverSchemaValid_holds)
 
 open BinaryFv.RiscV

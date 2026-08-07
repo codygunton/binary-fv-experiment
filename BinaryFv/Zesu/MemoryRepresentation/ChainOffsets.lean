@@ -36,7 +36,7 @@ structural, and it is that **the all-variable entry schema never reads or writes
 prefix**, so every place the prefix is touched needs its own bridge between the schema vocabulary and the
 byte-level one. Five independent pieces turned out not to port from `EntryOffsets`:
 
-1. `deserialize_u64_extract` — the oracle reads the prefix field as a *slice* while the source reads it
+1. `deserialize_u64_extract` — the spec reads the prefix field as a *slice* while the source reads it
    *in place*; a new reader pairing the entry never needed.
 2. `deserializeVarFields_fixed_step` — the arity-free `_var_guard` is stated for a *variable* head and
    cannot step over a prefix-read field.
@@ -56,10 +56,10 @@ Compare the failing-field lemmas: `decodeCanonical_forkActivation_rejects_of_fie
 `entry_forkGuard_false` carries a fourth disjunct of *different shape*, because `meaningChainConfig` is
 source-shaped and its acceptance is a match carrying `fork ≤ 20` rather than plain `isSome`.
 
-So: **a homogeneous disjunction means the link rests on no oracle-agreement assumption; an inhomogeneous
+So: **a homogeneous disjunction means the link rests on no spec-agreement assumption; an inhomogeneous
 one means it does.** `forkActivation` is homogeneous and is closed unconditionally; `forkConfig` and
 `chainConfig` are not, and their acceptance joins consume
-`sourceShapedContainersAgreeWithOracle`. A reader can check which is which without reading any comment.
+`sourceShapedContainersAgreeWithSpec`. A reader can check which is which without reading any comment.
 
 The three fixed-section sizes are *derived* by `decide` from the field lists rather than quoted, exactly
 as `entryFields_fixedSectionSize` is: 8, 16 and 12 are what the source hard-codes at each level, so if a
@@ -129,7 +129,7 @@ reduction rewrites under `extractFieldOffsets`' `if` and needs each guard separa
 
 `chainConfigFields` is the sharpest case: one fixed `u64` then one variable field, so the table has a
 single entry read at **8**, not at 0. The skip is what puts it there, and the source reads
-`meaningReadOffset bytes 8` — so this lemma is where "the oracle reads the offset where the source does"
+`meaningReadOffset bytes 8` — so this lemma is where "the spec reads the offset where the source does"
 stops being trivial. -/
 
 theorem extractFieldOffsets_chainConfig (b : ByteArray) :
@@ -209,8 +209,8 @@ theorem deserialize_u64_extract (b : ByteArray) (i : Nat) (h : i + 8 ≤ b.size)
   rw [SSZType.deserialize]
   simp only [hlocal]
 
-/-- **The oracle slices `chainConfig` where the source does**, and reads its fixed field from the
-prefix. Consumes `deserialize_u64_extract`: the `u64` arrives as a slice on the oracle side and as an
+/-- **The spec slices `chainConfig` where the source does**, and reads its fixed field from the
+prefix. Consumes `deserialize_u64_extract`: the `u64` arrives as a slice on the spec side and as an
 in-place read on the source side, and this is where those two meet. -/
 theorem deserializeVarFields_chainConfig (b : ByteArray) (o : Nat)
     (h8 : 8 ≤ b.size) (ho : o ≤ b.size) {v : UInt64} (hv : readUInt64LE b 0 = some v) :
@@ -239,7 +239,7 @@ containers have leading fixed fields, and this one does not. The `8` coinciding 
 `u64` width is a numerical accident of two four-byte offsets, and reading it as "the same skip again"
 is exactly the confusion the separate module was meant to prevent. -/
 
-/-- **The oracle slices `forkActivation` where the source does.** Both fields are variable, so this is
+/-- **The spec slices `forkActivation` where the source does.** Both fields are variable, so this is
 `deserializeVarFields_entry` at arity two; the source's two slices are `bytes.extract first second` and
 `bytes.extract second bytes.size`.
 
@@ -281,11 +281,11 @@ theorem deserializeVarFields_forkActivation (b : ByteArray) (o0 o1 : Nat)
 
 **The `fork > 20` test is deliberately absent here.** In the source it sits *between* the offset-table
 check and the child decodes, and that ordering is what makes `forkErrorOrderingDiffers` true and the
-obligation acceptance-only. This lemma is about the oracle's walk alone, so the test has no place in it;
+obligation acceptance-only. This lemma is about the spec's walk alone, so the test has no place in it;
 it enters at the schema-level join, on the source side, in the position the source puts it. Commuting it
 past the child decodes to make the join cheaper would be a statement defect, not a simplification. -/
 
-/-- **The oracle slices `forkConfig` where the source does**, reading `fork` from the prefix. -/
+/-- **The spec slices `forkConfig` where the source does**, reading `fork` from the prefix. -/
 theorem deserializeVarFields_forkConfig (b : ByteArray) (o0 o1 : Nat)
     (h8 : 8 ≤ b.size) (h01 : o0 ≤ o1) (h1 : o1 ≤ b.size)
     {v : UInt64} (hv : readUInt64LE b 0 = some v) :
@@ -316,7 +316,7 @@ theorem deserializeVarFields_forkConfig (b : ByteArray) (o0 o1 : Nat)
 
 Same obligation as at the entry schema, load-bearing for the same reason: the source decodes each child
 with `decodeCanonical`, which checks `used = slice.size`, while `deserializeVarFields` **discards** each
-field's `used`. If the check were not redundant the source would be strictly stronger than the oracle and
+field's `used`. If the check were not redundant the source would be strictly stronger than the spec and
 the agreement would be false.
 
 **`chainConfig`'s case was already proved, and finding that out is the useful part.**
@@ -470,7 +470,7 @@ their `fits` lemmas read the *last* offset position rather than the first: `fork
 quoted — the same two numbers, reached the other way round.
 
 **The `fork > 20` test does not appear in `decodeCanonical_forkConfig_unfold`, and that is correct rather
-than an omission.** These lemmas are pure oracle: `decodeCanonical` at a schema, and `forkConfigType`
+than an omission.** These lemmas are pure spec: `decodeCanonical` at a schema, and `forkConfigType`
 types `fork` as an unbounded `u64`. The bound is *source*-side, applied inside `meaningForkConfig` between
 the offset check and the child decodes, and it enters only at the join. So there is no ordering question at
 this layer — the risk lead flagged arrives one layer up, where the two sides' orderings have to be matched,
@@ -612,9 +612,9 @@ theorem requireCanonicalOffsets_chainConfig (b : ByteArray) (o : Nat) :
 /-! ### The rejection side of the `forkActivation` join
 
 The three places the two sides differ, at this schema, closed the same way as at the entry: the
-eight-byte test (source explicit, oracle via the derived `fixedSectionSizeFields`), the table's existence
+eight-byte test (source explicit, spec via the derived `fixedSectionSizeFields`), the table's existence
 above eight bytes, and the offset discipline — which again has to be run *backwards*, from a successful
-walk to the inequalities it must have passed, because the oracle has no single counterpart check.
+walk to the inequalities it must have passed, because the spec has no single counterpart check.
 
 **One application of `deserializeVarFields_var_guard` suffices here where the entry needed three.** At
 arity two the first application already reads `o1 ≤ b.size` off the last offset's sentinel, so both
@@ -622,7 +622,7 @@ conjuncts fall out at once. That is the arity-free guard paying off a third time
 entry, reused at `chainConfig`, and here it collapses the whole iteration.
 
 **Not gated.** Lead's differential gate is on the join to `meaningChainConfig` specifically, which is where
-`sourceShapedContainersAgreeWithOracle` is stated and where a false statement gets expensive. Nothing here
+`sourceShapedContainersAgreeWithSpec` is stated and where a false statement gets expensive. Nothing here
 touches that obligation: `forkActivation` carries no fork bound and no obligation is stated at it.
 
 **Still owed for this join:** the accepting case — the value-level decomposition and the re-serialization
@@ -660,7 +660,7 @@ theorem deserializeVarFields_forkActivation_offsets_sound {b : ByteArray} {o0 o1
   simp only [List.head?_cons, Option.getD_some] at a01 a1
   exact ⟨a01, a1⟩
 
-/-- **The oracle rejects exactly the `forkActivation` tables the source rejects.** -/
+/-- **The spec rejects exactly the `forkActivation` tables the source rejects.** -/
 theorem decodeCanonical_forkActivation_rejects_noncanonical (b : ByteArray) (o0 o1 : Nat)
     (hoffs : extractFieldOffsets b forkActivationFields 0 = .ok [o0, o1])
     (hbad : ¬ (o0 = 8 ∧ o0 ≤ o1 ∧ o1 ≤ b.size)) :
@@ -791,7 +791,7 @@ theorem serialize_forkActivation_eq_body_iff (b : ByteArray)
   rw [append_eq_extract_iff b 0 4 8 (by omega) (by omega) (by omega) (by rw [uint32LE_size])]
   rw [and_assoc]
 
-/-! ### The accepting case, and `forkActivation`'s oracle-side decomposition is complete
+/-! ### The accepting case, and `forkActivation`'s spec-side decomposition is complete
 
 Two canonical field decodes make the whole `forkActivation` decode canonical. This is where every piece
 above meets: the unfold, the walk, the join condition, the bytes-to-values step, and the per-field `used`
@@ -847,9 +847,9 @@ theorem decodeCanonical_forkActivation_eq_of_fields (b : ByteArray) (o0 o1 : Nat
 
 The source side of `forkActivation` is easier than the entry's was, and for a structural reason worth
 naming: **both** its fields are `meaningOptionalU64`, which is `decodeCanonical` plus a projection. So both
-agree with the oracle *by construction* rather than by theorem, and unlike the entry there is no
+agree with the spec *by construction* rather than by theorem, and unlike the entry there is no
 source-shaped field here at all — no `meaningChainConfig` analogue, no fork bound. The asymmetry that made
-`entry_field_meanings_in_oracle_terms` interesting is simply absent at this schema.
+`entry_field_meanings_in_spec_terms` interesting is simply absent at this schema.
 
 That is also why `forkActivation` is where the chain should have been started: it is the one link whose
 source side carries no assumption. -/
@@ -860,8 +860,8 @@ spellings of one schema" is where a source-side bridge silently fails to apply. 
 theorem optionalU64Type_eq_forkActivation_field :
     optionalU64Type = .list BinaryFv.Specs.SSZ.u64 BinaryFv.Specs.SSZ.maxOptionalForkActivationValues := rfl
 
-/-- `meaningOptionalU64` is oracle-shaped: `decodeCanonical` plus a projection, so its acceptance is the
-oracle's by construction. The projection is applied only on the `.ok` arm and cannot turn acceptance into
+/-- `meaningOptionalU64` is defined directly from the specification: `decodeCanonical` plus a projection, so its acceptance is the
+spec's by construction. The projection is applied only on the `.ok` arm and cannot turn acceptance into
 rejection or back. -/
 theorem meaningOptionalU64_accepted (b : ByteArray) :
     isAccepted (meaningOptionalU64 b)
@@ -911,7 +911,7 @@ theorem decodeCanonical_forkActivation_of_accepted (b : ByteArray) (o0 o1 : Nat)
 
 /-! ### The forward direction, and `forkActivation`'s composition is both-ways
 
-From the oracle's acceptance of the whole `forkActivation` body to the two per-field canonical decodes.
+From the spec's acceptance of the whole `forkActivation` body to the two per-field canonical decodes.
 The same pieces as the backward direction run the other way: the re-serialization equality is *given*
 here and has to be taken apart rather than assembled.
 
@@ -922,7 +922,7 @@ the goal carries `optionalU64Type` while `decodeCanonical_of_used_eq` produces t
 first where the note was consulted *before* guessing — which is the only reason it cost one line instead
 of a round trip.
 
-With this and `_of_accepted`, `forkActivation`'s oracle-side composition holds in both directions. What
+With this and `_of_accepted`, `forkActivation`'s spec-side composition holds in both directions. What
 remains for the link is the join to `meaningForkActivation`, which now has both halves available. -/
 
 theorem decodeCanonical_forkActivation_fields_of (b : ByteArray) (o0 o1 : Nat)
@@ -978,7 +978,7 @@ theorem decodeCanonical_forkActivation_fields_of (b : ByteArray) (o0 o1 : Nat)
 
 `isAccepted_entry_join` at arity two. Both fields' decoded values feed only the returned record, so
 acceptance of the whole depends on their acceptance alone — which is what lets the source side be reduced
-to a `Bool` conjunction and then matched against the oracle field by field.
+to a `Bool` conjunction and then matched against the spec field by field.
 
 Kept as its own lemma rather than inlined for the same reason as the entry's: the `do` block has to be
 matched *syntactically* for the rewrite to fire, and unfolding `bind` first turns it into nested
@@ -1006,7 +1006,7 @@ because `meaningChainConfig` is source-shaped and its acceptance is not plain `i
 has no such field, so the disjunction is homogeneous.
 
 That difference is the whole reason this link can be finished without
-`sourceShapedContainersAgreeWithOracle` while the other two cannot, and it is visible right here in the
+`sourceShapedContainersAgreeWithSpec` while the other two cannot, and it is visible right here in the
 shape of the hypothesis rather than only in the prose. -/
 
 /-- One failing field decode kills the whole `forkActivation` decode. The contrapositive of
@@ -1031,9 +1031,9 @@ theorem decodeCanonical_forkActivation_rejects_of_field (b : ByteArray) (o0 o1 :
 
 /-! ## The first chain link is CLOSED
 
-`forkActivation_acceptance_agrees`: the source-shaped `meaningForkActivation` and the oracle's
+`forkActivation_acceptance_agrees`: the source-shaped `meaningForkActivation` and the spec's
 `decodeCanonical forkActivationType` accept the same buffers — **with no assumption at all.** Both fields
-are oracle-shaped, so nothing here rests on `sourceShapedContainersAgreeWithOracle`, which makes this the
+are defined directly from the specification, so nothing here rests on `sourceShapedContainersAgreeWithSpec`, which makes this the
 one link of the three that is unconditionally true rather than conditionally.
 
 The only new lemma the assembly needed was `except_bind_pure`, and it is the defeq family a sixth time:
@@ -1048,8 +1048,8 @@ theorem except_bind_pure {α β : Type} (a : α) (f : α → Except DecodeError 
     (pure a : Except DecodeError α) >>= f = f a := rfl
 
 /-- **The `forkActivation` link, closed.** Acceptance agreement between the source-shaped
-`meaningForkActivation` and the oracle's `decodeCanonical`, with **no assumption** -- both fields are
-oracle-shaped, so nothing here rests on `sourceShapedContainersAgreeWithOracle`. -/
+`meaningForkActivation` and the spec's `decodeCanonical`, with **no assumption** -- both fields are
+defined directly from the specification, so nothing here rests on `sourceShapedContainersAgreeWithSpec`. -/
 theorem forkActivation_acceptance_agrees (b : ByteArray) (hu32 : b.size < UInt32.size) :
     isAccepted (meaningForkActivation b)
       = (BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.forkActivationType b).toOption.isSome := by
@@ -1212,7 +1212,7 @@ theorem deserializeVarFields_chainConfig_offsets_sound {b : ByteArray} {o : Nat}
   simp only [List.head?_nil, Option.getD_none] at a0
   exact a0
 
-/-- **The oracle rejects exactly the `forkConfig` tables the source rejects.** -/
+/-- **The spec rejects exactly the `forkConfig` tables the source rejects.** -/
 theorem decodeCanonical_forkConfig_rejects_noncanonical (b : ByteArray) (o0 o1 : Nat)
     (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1])
     (hbad : ¬ (o0 = 16 ∧ o0 ≤ o1 ∧ o1 ≤ b.size)) :
@@ -1231,7 +1231,7 @@ theorem decodeCanonical_forkConfig_rejects_noncanonical (b : ByteArray) (o0 o1 :
       rw [forkConfigFields_fixedSection, List.head?_cons, Option.some.injEq] at hhead
       exact hbad ⟨hhead, deserializeVarFields_forkConfig_offsets_sound hwalk⟩
 
-/-- **The oracle rejects exactly the `chainConfig` tables the source rejects.** The conjunction has two
+/-- **The spec rejects exactly the `chainConfig` tables the source rejects.** The conjunction has two
 parts rather than three: a single-offset table has no monotonicity pair. -/
 theorem decodeCanonical_chainConfig_rejects_noncanonical (b : ByteArray) (o : Nat)
     (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o])
@@ -1459,9 +1459,9 @@ theorem uint64LE_eq_extract_iff (body : ByteArray) (i n : Nat) (o : UInt64)
 
 /-- **A canonical `forkConfig` child plus the inline `chainId` read make the `chainConfig` decode
 canonical.** Note the asymmetry in the hypotheses: the variable field arrives as a `decodeCanonical`, the
-fixed field as a raw `readUInt64LE`. That is not a stylistic choice -- the oracle reads the prefix field
+fixed field as a raw `readUInt64LE`. That is not a stylistic choice -- the spec reads the prefix field
 directly rather than through `decodeCanonical`, so a `decodeCanonical` hypothesis there would be about a
-function the oracle never calls at that position. -/
+function the spec never calls at that position. -/
 theorem decodeCanonical_chainConfig_eq_of_fields (b : ByteArray) (o : Nat)
     (hoffs : extractFieldOffsets b chainConfigFields 0 = .ok [o])
     (h0 : o = 12) (h1 : o ≤ b.size) (hu32 : b.size < UInt32.size)
@@ -1494,7 +1494,7 @@ theorem decodeCanonical_chainConfig_eq_of_fields (b : ByteArray) (o : Nat)
 hypothesis asymmetry as `chainConfig`'s: the inline `fork` field arrives as a raw `readUInt64LE`, the two
 variable children as `decodeCanonical`s.
 
-**No `fork > 20` anywhere, deliberately.** This is pure oracle at the schema, and `forkConfigType` types
+**No `fork > 20` anywhere, deliberately.** This is pure spec at the schema, and `forkConfigType` types
 `fork` as an unbounded `u64`. The bound is the *source*'s, applied inside `meaningForkConfig` between the
 offset check and the child decodes, and it enters only at the acceptance join. -/
 theorem decodeCanonical_forkConfig_eq_of_fields (b : ByteArray) (o0 o1 : Nat)
@@ -1542,11 +1542,11 @@ Lead's standing instruction is to stop and escalate if a decomposition wants to 
 true. **It does not want to, and the reason is worth stating before the proof rather than discovered
 inside it.**
 
-The source checks the bound *before* decoding children; the oracle-shaped right-hand side decodes
+The source checks the bound *before* decoding children; the right-hand side defined from the specification decodes
 everything and then applies it. Those differ in *which error* surfaces, and agree on *acceptance*, case by
 case:
 
-| buffer | source | oracle-shaped RHS |
+| buffer | source | specification-based RHS |
 |---|---|---|
 | `fork > 20`, children fine | `unknownFork` | decodes, bound fails → `false` |
 | `fork > 20`, child malformed | `unknownFork` | decode fails → `false` |
@@ -1581,15 +1581,15 @@ theorem optionalBlobScheduleType_eq_forkConfig_field :
     optionalBlobScheduleType
       = .list BinaryFv.Specs.SSZ.blobScheduleType BinaryFv.Specs.SSZ.maxBlobSchedulesPerFork := rfl
 
-/-- `meaningOptionalBlobSchedule` is oracle-shaped: `decodeCanonical` plus a projection, so its
-acceptance is the oracle's by construction. -/
+/-- `meaningOptionalBlobSchedule` is defined directly from the specification: `decodeCanonical` plus a projection, so its
+acceptance is the spec's by construction. -/
 theorem meaningOptionalBlobSchedule_accepted (b : ByteArray) :
     isAccepted (meaningOptionalBlobSchedule b)
       = (BinaryFv.Specs.SSZ.decodeCanonical optionalBlobScheduleType b).toOption.isSome := by
   cases h : BinaryFv.Specs.SSZ.decodeCanonical optionalBlobScheduleType b <;>
     simp [meaningOptionalBlobSchedule, isAccepted, Except.toOption, h]
 
-/-- The source's inline `fork` read, in the form the oracle-side bridges consume. `meaningReadU64` is
+/-- The source's inline `fork` read, in the form the spec-side bridges consume. `meaningReadU64` is
 `Option.toDecodeResult` over `readUInt64LE`, so this is a re-spelling rather than content -- but it is the
 spelling that lets `deserialize_u64_extract` and `uint64LE_of_readUInt64LE` apply. -/
 theorem meaningReadU64_eq_some {b : ByteArray} {i : Nat} {x : UInt64}
@@ -1607,7 +1607,7 @@ theorem meaningReadU64_eq_some {b : ByteArray} {i : Nat} {x : UInt64}
       exact congrArg some h
 
 /-- **The fork bound is spelled two ways and they agree.** The source tests `fork.toNat > 20` -- a `Nat`
-comparison on the widened value -- while `sourceShapedContainersAgreeWithOracle` states the bound as
+comparison on the widened value -- while `sourceShapedContainersAgreeWithSpec` states the bound as
 `… .fork ≤ 20` at `UInt64`. Nothing forces those to coincide until it is proved: this is the same
 two-spellings hazard as `readU32LE?`-versus-`readUInt32LE` (R2) and the `u64` write vocabularies, now on
 the *comparison* rather than on a read or a write.
@@ -1633,7 +1633,7 @@ theorem meaningReadU64_exists (b : ByteArray) (i : Nat) (fits : i + 8 ≤ b.size
 
 /-- **A successful `forkConfig` decode's `fork` field IS the inline read.** Stated narrowly rather than as
 the full forward direction, because the acceptance join needs exactly this and nothing more: to compare the
-source's `fork > 20` test against the oracle-shaped bound it must know the two are looking at the same
+source's `fork > 20` test against the bound stated using the specification value it must know the two are looking at the same
 value. -/
 theorem decodeCanonical_forkConfig_fork_eq (b : ByteArray) (o0 o1 : Nat)
     (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1])
@@ -1723,7 +1723,7 @@ in the disjunctive form the acceptance join's case analysis produces.
 **The disjunction is homogeneous** -- two conjuncts of the same `isSome = false` form -- even though
 `forkConfig` is a link that DOES rest on an assumption. So the homogeneity tell recorded in the module
 preamble is about the *acceptance join's* failing-field shape at the source level, not about every
-`rejects_of_field` lemma: here both children are compared oracle-to-oracle, and the assumption enters
+`rejects_of_field` lemma: here both children are compared spec-to-spec, and the assumption enters
 later, at the join, through `meaningForkActivation`. Worth stating so the tell is not over-read. -/
 theorem decodeCanonical_forkConfig_rejects_of_field (b : ByteArray) (o0 o1 : Nat)
     (hoffs : extractFieldOffsets b forkConfigFields 0 = .ok [o0, o1])
@@ -1775,13 +1775,13 @@ theorem forkConfig_forkGuard_false (b : ByteArray) (o0 o1 : Nat)
       exact absurd hrej (by simp [Except.toOption])
 
 /-- **The `forkConfig` link, closed.** Acceptance agreement between the source-shaped `meaningForkConfig`
-and the oracle's canonical decode with the fork bound applied after it.
+and the spec's canonical decode with the fork bound applied after it.
 
 The `fork > 20` test stays exactly where the source puts it -- between the offset-table check and the child
 decodes -- and is never commuted past them. The four-case acceptance table at the head of this section is why
 that costs nothing.
 
-**Every leaf that faces the oracle's match destructures the scrutinee rather than rewriting through it.**
+**Every leaf that faces the spec's match destructures the scrutinee rather than rewriting through it.**
 `rw` will not cross two `match` terms elaborated in different contexts even when they print identically; the
 obstruction dissolves once the scrutinee is a constructor. Same lesson as the fixed-head walk step, where
 `cases varOffs` had to come before the unfold. -/
@@ -1914,7 +1914,7 @@ theorem isAccepted_chainConfig_join (chainId : UInt64) (s : ByteArray) :
   cases meaningForkConfig s <;> rfl
 
 /-- **The `chainConfig` link, closed -- third of three.** And this statement is
-`sourceShapedContainersAgreeWithOracle`'s body verbatim, restricted to `b.size < UInt32.size`.
+`sourceShapedContainersAgreeWithSpec`'s body verbatim, restricted to `b.size < UInt32.size`.
 
 The parent's bound and the child's are the SAME projection, definitionally: `rawChainConfigOf` sets
 `activeFork := rawForkConfigOf value.2.1` (`Core.lean:343-347`), so once
@@ -2125,7 +2125,7 @@ theorem decodeCanonical_forkConfig_rejects_oversized {b : ByteArray}
       rw [hser] at hle
       omega
 
-/-- **Both sides reject above the bound**, oracle side. -/
+/-- **Both sides reject above the bound**, spec side. -/
 theorem decodeCanonical_chainConfig_rejects_oversized {b : ByteArray}
     (hb : SSZType.maxByteLength BinaryFv.Specs.SSZ.chainConfigType < b.size) :
     (BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.chainConfigType b).toOption.isSome = false := by
@@ -2154,7 +2154,7 @@ theorem decodeCanonical_chainConfig_size_lt_u32 {b : ByteArray}
 
 /-! ### The source side above the bound, and the obligation it discharges
 
-The oracle side bounds acceptance because `decodeCanonical` re-serializes. The source-shaped side has
+The spec side bounds acceptance because `decodeCanonical` re-serializes. The source-shaped side has
 no such property -- `meaningChainConfig` never re-serializes anything -- so its bound has to be built
 from the shape of the source itself. It bounds out to the *same* number, and the reason is worth
 stating: at the leaves the source is not source-shaped at all. `meaningOptionalU64` and
@@ -2169,7 +2169,7 @@ caps the buffer.
 
 **Why this closes the obligation rather than merely supporting it.** `chainConfig_acceptance_agrees`
 is the obligation's body verbatim but carries `hu32 : b.size < UInt32.size`. Above `2 ^ 32` neither
-side can accept -- the oracle by `decodeCanonical_chainConfig_rejects_oversized`, the source by the
+side can accept -- the spec by `decodeCanonical_chainConfig_rejects_oversized`, the source by the
 bound below -- so both sides are `false` and the equation holds for a different reason than in the
 small case. Two branches, two mechanisms, one theorem, and `hu32` disappears entirely. -/
 
@@ -2186,7 +2186,7 @@ theorem optionalBlobScheduleType_size_le (v : optionalBlobScheduleType.interp) :
       ≤ SSZType.maxByteLength optionalBlobScheduleType :=
   blobScheduleList_size_le v
 
-/-- The leaves, where the source **is** the oracle: `meaningOptionalU64` is defined as
+/-- The leaves, where the source **is** the spec: `meaningOptionalU64` is defined as
 `decodeCanonical optionalU64Type`, so acceptance re-serializes and the upstream bound applies. -/
 theorem meaningOptionalU64_accepted_size_le {b : ByteArray}
     (h : isAccepted (meaningOptionalU64 b) = true) :
@@ -2339,17 +2339,17 @@ theorem meaningChainConfig_accepted_size_le {b : ByteArray}
 
 /-- **ITEM 6.3. The obligation is discharged.**
 
-`sourceShapedContainersAgreeWithOracle` was the single premise the whole oracle-agreement story
-rested on -- load-bearing twice over, directly and through `sourceShapedDecodeAgreesWithOracle`.
+`sourceShapedContainersAgreeWithSpec` was the single premise the whole spec-agreement story
+rested on -- load-bearing twice over, directly and through `sourceShapedDecodeAgreesWithSpec`.
 It is now a theorem.
 
 Below `2 ^ 32` this is `chainConfig_acceptance_agrees` verbatim. Above it, both sides reject and the
-equation holds vacuously-in-the-useful-sense: the oracle cannot accept because acceptance would make
+equation holds vacuously-in-the-useful-sense: the spec cannot accept because acceptance would make
 the buffer a re-serialization, and the source cannot accept because acceptance would make it a
 partition of bounded spans. Neither branch subsumes the other, which is why the size bound was
-needed on both sides rather than only on the oracle. -/
-theorem sourceShapedContainersAgreeWithOracle_holds :
-    sourceShapedContainersAgreeWithOracle := by
+needed on both sides rather than only on the spec. -/
+theorem sourceShapedContainersAgreeWithSpec_holds :
+    sourceShapedContainersAgreeWithSpec := by
   intro bytes
   have husz : UInt32.size = 4294967296 := rfl
   by_cases hu32 : bytes.size < UInt32.size
@@ -2374,8 +2374,8 @@ theorem sourceShapedContainersAgreeWithOracle_holds :
 
 /-! ## The chain, with the value
 
-`sourceShapedContainersAgreeWithOracle` is acceptance-only **by construction** — it has to be, since
-the source applies the fork bound before decoding children and the oracle after, so the two disagree
+`sourceShapedContainersAgreeWithSpec` is acceptance-only **by construction** — it has to be, since
+the source applies the fork bound before decoding children and the spec after, so the two disagree
 about the error constructor and only agree about acceptance (`forkErrorOrderingDiffers` records
 exactly that). But `root_compliance`'s accepted branch needs the entry's *value*, and the entry's
 third field is a `chainConfig`. So the acceptance-only obligation is not enough here and a genuinely
@@ -2439,7 +2439,7 @@ theorem meaningOptionalBlobSchedule_value {b : ByteArray} {x : optionalBlobSched
   rw [meaningOptionalBlobSchedule, h]
 
 /-- **The `forkActivation` link, with the value.** Unconditional, like its acceptance twin and for
-the same reason: both fields are oracle-shaped, so nothing here rests on an assumption. -/
+the same reason: both fields are defined directly from the specification, so nothing here rests on an assumption. -/
 theorem meaningForkActivation_value_agrees {b : ByteArray}
     {x : BinaryFv.Specs.SSZ.forkActivationType.interp}
     (hdc : BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.forkActivationType b = .ok x) :
@@ -2587,20 +2587,20 @@ theorem chainConfigValue_holds : ChainConfigValueHypothesis :=
 
 `EntryOffsets` proves the two halves separately — acceptance in one direction, value in the other —
 and this is the two-line join. The `mp` direction is where the split pays off: a source success
-implies *some* oracle success by the acceptance half, and the value half then names it, so
+implies *some* spec success by the acceptance half, and the value half then names it, so
 injectivity of `.ok` identifies the two. Neither half is a special case of the other, which is why
 the obligation is a biconditional rather than an implication. -/
 
-/-- **`sourceShapedDecodeAgreesWithOracle`, at value granularity.**
+/-- **`sourceShapedDecodeAgreesWithSpec`, at value granularity.**
 
 Its two explicit premises are unchanged from when this was the acceptance-only statement: the chain's
 value agreement is *not* a third premise, because it is proved outright above. Stated here rather
 than in `EntryOffsets` for exactly that reason — that module cannot see `meaningChainConfig`'s value
 agreement, since the chain imports it. -/
-theorem sourceShapedDecodeAgreesWithOracle_holds
-    (containersAgree : sourceShapedContainersAgreeWithOracle)
+theorem sourceShapedDecodeAgreesWithSpec_holds
+    (containersAgree : sourceShapedContainersAgreeWithSpec)
     (retryTail : retryTailNeverSchemaValid) :
-    sourceShapedDecodeAgreesWithOracle := by
+    sourceShapedDecodeAgreesWithSpec := by
   intro bytes h value
   constructor
   · intro hm

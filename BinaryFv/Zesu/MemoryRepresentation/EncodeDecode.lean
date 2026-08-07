@@ -5,7 +5,7 @@ import Std.Tactic.BVDecide
 # Encoding after decoding
 
 Upstream's pinned proofs give `decode_encode`: deserializing a *serialized* value returns it. The
-oracle's canonicality test needs the other direction. `decodeCanonical` deserializes a body and then
+spec's canonicality test needs the other direction. `decodeCanonical` deserializes a body and then
 asks whether re-serializing the result reproduces it byte for byte, so the value it re-serializes
 came *out* of `deserialize`, not into it.
 
@@ -27,7 +27,7 @@ upstream's own `decode_encode` carries, for the same reason — but it is worth 
 theorems have it.
 
 **And it has since reached one.** `meaningTwentyFourIsSome_holds` uses this primitive, so
-`catalogSemanticObligations_of_oracleAgreement` now carries both axioms where it previously carried
+`catalogSemanticObligations_of_specAgreement` now carries both axioms where it previously carried
 none. Recorded here as well as at that theorem because this module is where the class enters.
 Nothing cheaper closes the arms — `omega` sees no constraints through `|||`/`<<<`, `decide` cannot
 run on free variables, `simp` makes no progress — so removing it means hand-proving the bit-level

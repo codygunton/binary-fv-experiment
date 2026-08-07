@@ -4,7 +4,7 @@ import BinaryFv.Zesu.MemoryRepresentation.EncodeDecode
 /-!
 # The all-zero first-offset alias
 
-`zeroFirstOffsetAliasRejected`, the last of the four oracle-agreement facts. Its own module rather
+`zeroFirstOffsetAliasRejected`, the last of the four spec-agreement facts. Its own module rather
 than an addition to `EntryOffsets` or `ChainOffsets`: those are about two concrete schemas, while
 this quantifies over *every* variable-size element type and every capacity. Nothing here mentions
 the entry or the chain.

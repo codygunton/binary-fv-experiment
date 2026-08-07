@@ -13,7 +13,7 @@ That reduction is the first half of the entry composition theorem, and it is the
 previously unreachable: `extractFieldOffsets` was `private` in the pinned `Spec/Deserialize.lean`
 until the visibility shim widened to both offset-table walkers (`efb3793`). Everything here is a
 statement *about* the pinned upstream walker rather than a re-implementation of it, which is the
-whole point — a hand-rolled four-offset reader would prove nothing about what the oracle does.
+whole point — a hand-rolled four-offset reader would prove nothing about what the spec does.
 
 ## Mechanical notes for this project
 
@@ -120,7 +120,7 @@ theorem entryFields_fixedSectionSize : SSZType.fixedSectionSizeFields entryField
 
 /-! ## The two tables coincide -/
 
-/-- **The oracle's offset table is the source's four reads.**
+/-- **The spec's offset table is the source's four reads.**
 
 `extractFieldOffsets` walks the field list once. With all four entry fields variable-size it takes
 the `else` branch every time, so it reads a `uint32` at 0, 4, 8 and 12 — `BYTES_PER_LENGTH_OFFSET`
@@ -144,9 +144,9 @@ theorem extractFieldOffsets_entry (b : ByteArray) :
 This is the step that says those two descriptions produce the same four numbers, which is what lets
 the entry composition theorem move between them. -/
 
-/-- **The oracle's table and the source's four `readOffset` calls agree.**
+/-- **The spec's table and the source's four `readOffset` calls agree.**
 
-Note the error taxonomies do *not* agree — a short buffer is `.tooShort` on the oracle side and
+Note the error taxonomies do *not* agree — a short buffer is `.tooShort` on the spec side and
 `.invalidSsz` on the source side — which is exactly why the entry obligation is stated at acceptance
 granularity rather than at error-constructor granularity. This equivalence is about the accepting
 case, where the taxonomy question does not arise. -/
@@ -185,7 +185,7 @@ theorem requireCanonicalOffsets_entry (body : ByteArray) (o0 o1 o2 o3 : Nat) :
     simp only [or_false] at hmem
     rcases hmem with rfl | rfl | rfl | rfl <;> omega
 
-/-! ## The oracle's field slices
+/-! ## The spec's field slices
 
 `deserializeVarFields` walks the field list carrying the offset table, and for each variable field
 takes the slice from its own offset to the *next* one — with `bufEnd` standing in as the sentinel
@@ -195,7 +195,7 @@ exactly the four `body.extract` calls `meaningDecodeRaw` makes.
 The `prefixOff` argument is threaded but never reaches the result on an all-variable field list: it
 only advances the fixed-section cursor, which has no fixed fields to read. -/
 
-/-- **The oracle slices the entry body exactly where the source does.**
+/-- **The spec slices the entry body exactly where the source does.**
 
 Stated as the full nested match rather than at acceptance granularity, because the composition
 theorem needs the decoded *values*, not just whether the decode succeeded — and because the nesting
@@ -239,13 +239,13 @@ theorem deserializeVarFields_entry (body : ByteArray) (o0 o1 o2 o3 : Nat)
 /-! ## The per-field `used` check is redundant
 
 **What breaks if this does not hold.** The source decodes each entry field with `decodeCanonical`,
-which checks `used = slice.size`. The oracle does *not*: the top-level check is vacuous at the entry
+which checks `used = slice.size`. The spec does *not*: the top-level check is vacuous at the entry
 container — the variable-container arm returns `(v, b.size)`, so `used = body.size` unconditionally
 — and `deserializeVarFields` discards each field's `used` (`Deserialize.lean:513` matches
 `.ok (x, _)`). So the re-serialization equality is the only thing constraining the fields. If the
 per-field `used` check were *not* redundant, the source side would be strictly stronger than the
-oracle, there would be a body the oracle accepts and the source rejects, and
-`sourceShapedDecodeAgreesWithOracle` would be **false**. This is a fourth statement defect avoided,
+spec, there would be a body the spec accepts and the source rejects, and
+`sourceShapedDecodeAgreesWithSpec` would be **false**. This is a fourth statement defect avoided,
 not a convenience lemma.
 
 **It is not the general fact it looks like.** `used = (serialize value).size` for arbitrary shapes is
@@ -281,7 +281,7 @@ theorem extractFieldOffsets_ne_nil (b : ByteArray) :
 /-- **A variable-size container reports consuming its whole buffer.**
 
 So `decodeCanonical`'s `used = body.size` check is redundant at every variable container — which is
-what makes the source's per-field `decodeCanonical` no stronger than what the oracle does per field.
+what makes the source's per-field `decodeCanonical` no stronger than what the spec does per field.
 See the section docstring for what would break otherwise. -/
 theorem deserialize_container_used (fs : List SSZType) (b : ByteArray)
     (hvar : SSZType.allFixedSize fs = false)
@@ -595,13 +595,13 @@ theorem entry_join_fourth_conjunct_fails_short :
 /-! ## Wiring to the source's field meanings
 
 Three of `meaningDecodeRaw`'s four field decodes are `decodeCanonical` at their pinned schema
-followed by a projection, so they agree with the oracle **by construction** rather than by theorem:
+followed by a projection, so they agree with the spec **by construction** rather than by theorem:
 the projection is applied only on the `.ok` arm and cannot turn acceptance into rejection or back.
 The three lemmas below say exactly that and nothing more.
 
 The fourth field decode is `meaningChainConfig`, which is *source-shaped* — its `fork > 20` check
 sits between the offset-table check and the child decodes, so it is not `decodeCanonical` at any
-schema. That is `sourceShapedContainersAgreeWithOracle`, a separate component of item 6, and nothing
+schema. That is `sourceShapedContainersAgreeWithSpec`, a separate component of item 6, and nothing
 in this module touches it.
 
 Load-bearing audit: these four have no hypotheses, so there is nothing to audit. Recorded because the
@@ -979,7 +979,7 @@ theorem entry_offsetBytes_iff (body : ByteArray) (o0 o1 o2 o3 : Nat)
 
 /-! ## The entry composition, backward direction
 
-From the four per-field canonical decodes to the oracle's acceptance of the whole body. This is the
+From the four per-field canonical decodes to the spec's acceptance of the whole body. This is the
 direction that has to *construct* the accepted value and show its re-serialization reproduces the
 buffer, so it is where every piece built above finally meets. -/
 
@@ -1061,7 +1061,7 @@ theorem decodeCanonical_entry_of_fields
 /-! ### The fork bound is the same projection on both sides
 
 `decodeRawInput` throws `unknownFork` on `raw.chainConfig.activeFork.fork > 20`, where
-`raw = statelessInputOfInterp value`. `sourceShapedContainersAgreeWithOracle` bounds
+`raw = statelessInputOfInterp value`. `sourceShapedContainersAgreeWithSpec` bounds
 `(rawChainConfigOf value').activeFork.fork` for the chainConfig *field's* decode. Those are the same
 number, and the reason is definitional rather than analogous: `statelessInputOfInterp` sets
 `chainConfig := rawChainConfigOf value.2.2.1`, so the whole-body projection *is* the field
@@ -1077,7 +1077,7 @@ theorem statelessInput_fork_eq_field_fork (value : BinaryFv.Specs.SSZ.statelessI
 
 /-! ## The entry composition, forward direction
 
-From the oracle's acceptance of the whole body to the four per-field canonical decodes. The same
+From the spec's acceptance of the whole body to the four per-field canonical decodes. The same
 pieces as the backward direction, run the other way: the re-serialization equality is *given* here
 and has to be taken apart, rather than assembled. -/
 
@@ -1155,21 +1155,21 @@ theorem decodeCanonical_entry_fields_of
 
 /-! ## The entry composition theorem
 
-Both directions together. This is what item 6 was sized around: the oracle's canonical decode of the
+Both directions together. This is what item 6 was sized around: the spec's canonical decode of the
 whole body and the four per-field canonical decodes accept **the same inputs**, not merely one
 implying the other.
 
 **Where the container obligation does *not* enter, and why that is not an omission.**
-`sourceShapedContainersAgreeWithOracle` equates `isAccepted (meaningChainConfig bytes)` with
+`sourceShapedContainersAgreeWithSpec` equates `isAccepted (meaningChainConfig bytes)` with
 `decodeCanonical chainConfigType bytes` succeeding *and* `fork ≤ 20`. That bound is not part of the
-schema: `chainConfigType` types `fork` as an unbounded `u64`, and the oracle applies the bound one
+schema: `chainConfigType` types `fork` as an unbounded `u64`, and the spec applies the bound one
 layer up in `decodeRawInput`, after a complete canonical decode. So at *this* layer — `decodeCanonical`
 against `decodeCanonical` — neither side applies it, and stating the theorem with the container
 hypothesis would be stating a hypothesis it does not use.
 
 The bound enters when this decomposition is composed towards `decodeRawInput` and `meaningDecodeRaw`,
-where the oracle's post-decode `fork > 20` check has to be matched against the source's check inside
-`meaningChainConfig`. That is exactly the layering `sourceShapedContainersAgreeWithOracle` was
+where the spec's post-decode `fork > 20` check has to be matched against the source's check inside
+`meaningChainConfig`. That is exactly the layering `sourceShapedContainersAgreeWithSpec` was
 corrected for (`d652aff`), and it is why the container fact is an *ingredient* of the entry agreement
 rather than a corollary of it. -/
 
@@ -1236,20 +1236,20 @@ theorem append_eq_extract_iff (body : ByteArray) (a b c : Nat) {s t : ByteArray}
   · rintro ⟨rfl, rfl⟩
     exact extract_pair body a b c hab hbc
 
-/-! ## The four field meanings in oracle terms
+/-! ## The four field meanings in spec terms
 
-**This is where `sourceShapedContainersAgreeWithOracle` is consumed.** Three of the four field
-meanings are `decodeCanonical` plus a projection, so their acceptance equals the oracle's by
+**This is where `sourceShapedContainersAgreeWithSpec` is consumed.** Three of the four field
+meanings are `decodeCanonical` plus a projection, so their acceptance equals the spec's by
 construction. The fourth, `meaningChainConfig`, is source-shaped and its acceptance carries the
 `fork ≤ 20` bound that the schema does not — which is exactly what the container obligation states,
 and why its conjunct below has a different shape from the other three.
 
 That asymmetry is the whole content of this step. A reader looking for where the container fact is
 discharged should find it here, and should see that it is *not* discharged by the four-field
-decomposition, which is pure oracle on both sides. -/
+decomposition, which is pure spec on both sides. -/
 
-theorem entry_field_meanings_in_oracle_terms
-    (containersAgree : sourceShapedContainersAgreeWithOracle) (b : ByteArray) :
+theorem entry_field_meanings_in_spec_terms
+    (containersAgree : sourceShapedContainersAgreeWithSpec) (b : ByteArray) :
     isAccepted (meaningNewPayloadRequest b)
         = (BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.newPayloadRequestType b).toOption.isSome ∧
       isAccepted (meaningExecutionWitness b)
@@ -1746,18 +1746,18 @@ theorem decodeStatelessInput_in_scope {bytes : ByteArray} (h : rootComplianceSco
 
 /-! ## Item 5: the ERE retry arm
 
-The source retries only on `invalidSsz`; the oracle retries on any non-quarantine error. So the two
+The source retries only on `invalidSsz`; the spec retries on any non-quarantine error. So the two
 disagree about *whether to retry* exactly when the source's error is `unknownFork` or `outOfMemory`,
-and the agreement survives only if the oracle's retry then fails.
+and the agreement survives only if the spec's retry then fails.
 
 `outOfMemory` is excluded in scope by `outOfMemoryUnreachableBelowBound`. `unknownFork` is this lemma:
 for the source to raise it at all, `meaningForkConfig` must have been reached, which means
 `meaningDecodeRaw` got past `hasSchemaId` *and* past `requireCanonicalOffsets`, and that check demands
 the first offset equal 16. Those are exactly `retryTailNeverSchemaValid`'s two hypotheses — so the
-lemma stated about the *source* retry is what kills the *oracle* one. -/
+lemma stated about the *source* retry is what kills the *spec* one. -/
 
-/-- **The oracle's ERE retry rejects** whenever the body's first offset is canonical. -/
-theorem oracle_retry_rejects {bytes : ByteArray}
+/-- **The spec's ERE retry rejects** whenever the body's first offset is canonical. -/
+theorem spec_retry_rejects {bytes : ByteArray}
     (hschema : BinaryFv.Specs.SSZ.hasSchemaId bytes = true)
     (hfirst : BinaryFv.Specs.SSZ.readU32LE? (bytes.extract 2 bytes.size) 0 = some 16) :
     (BinaryFv.Specs.SSZ.decodeRawOrQuarantineV3 (bytes.extract 4 bytes.size)).toOption = none := by
@@ -1778,7 +1778,7 @@ theorem oracle_retry_rejects {bytes : ByteArray}
 
 Before the four-field content can be used, the two entry points' *envelope* checks have to be matched.
 The source runs `requireU32Length`, then `size < 2`, then `hasSchemaId`, then `body.size < 16`. The
-oracle runs `size ≥ 2 ^ 32`, then `size < 2`, then `hasSchemaId`, then hands the body to
+spec runs `size ≥ 2 ^ 32`, then `size < 2`, then `hasSchemaId`, then hands the body to
 `decodeCanonical`, whose container arm rejects when the body is shorter than the sixteen-byte prefix.
 
 Inside scope the first check on each side is dead — `requireU32Length` always succeeds and the
@@ -1791,13 +1791,13 @@ theorem meaningRequireU32Length_ok_in_scope {bytes : ByteArray} (h : rootComplia
   rw [rootComplianceScope] at h
   rw [meaningRequireU32Length, if_pos (by omega)]
 
-/-- Both `tooLarge`-class gates are dead in scope: the oracle's `2 ^ 32` test and the source's
+/-- Both `tooLarge`-class gates are dead in scope: the spec's `2 ^ 32` test and the source's
 `requireU32Length` are the same bound seen from the two sides, and neither fires below 2 MiB. -/
 theorem both_size_gates_dead_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
     meaningRequireU32Length bytes = .ok () ∧ ¬ (bytes.size ≥ 2 ^ 32) :=
   ⟨meaningRequireU32Length_ok_in_scope h, tooLarge_gate_unreachable_in_scope h⟩
 
-/-- `decodeRawInput` with its dead `tooLarge` gate removed — the oracle-side reduction at the raw level,
+/-- `decodeRawInput` with its dead `tooLarge` gate removed — the spec-side reduction at the raw level,
 the analogue of `decodeStatelessInput_in_scope` one layer up. What is left is exactly the three
 envelope tests the source also runs, then the canonical decode, then the fork bound. -/
 theorem decodeRawInput_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
@@ -1822,27 +1822,27 @@ theorem decodeRawInput_in_scope {bytes : ByteArray} (h : rootComplianceScope byt
 
 /-! ### The fork bound, matched across the layer boundary
 
-The source checks `fork > 20` *inside* `meaningChainConfig`; the oracle checks it in `decodeRawInput`,
+The source checks `fork > 20` *inside* `meaningChainConfig`; the spec checks it in `decodeRawInput`,
 after a complete canonical decode of the whole body. These two lemmas move the bound across the layer boundary.
 
-**Nothing here is discharged, and the wording matters.** `sourceShapedContainersAgreeWithOracle`
-already states the `fork ≤ 20` bound in the oracle's terms — the bound is written into the obligation
+**Nothing here is discharged, and the wording matters.** `sourceShapedContainersAgreeWithSpec`
+already states the `fork ≤ 20` bound in the spec's terms — the bound is written into the obligation
 at `Containers.lean:365`. So `chainConfig_acceptance_is_fork_bound` is that *assumed* fact specialised
 to its accepting branch, and the only new content in the pair is `statelessInput_fork_eq_field_fork`, which is
 `rfl`. What these lemmas do is move a supplied bound to the layer that consumes it; they do not prove
 the two checks agree. A reader must not mistake this for the match having been established. -/
 
 theorem chainConfig_acceptance_is_fork_bound
-    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (containersAgree : sourceShapedContainersAgreeWithSpec)
     {slice : ByteArray} {value : BinaryFv.Specs.SSZ.chainConfigType.interp}
     (hdec : BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.chainConfigType slice = .ok value) :
     isAccepted (meaningChainConfig slice)
       = decide ((BinaryFv.Specs.SSZ.rawChainConfigOf value).activeFork.fork ≤ 20) := by
   rw [containersAgree slice, hdec]
 
-/-- The same bound, stated against the whole-body value the oracle actually reads it from. -/
+/-- The same bound, stated against the whole-body value the spec actually reads it from. -/
 theorem chainConfig_acceptance_is_statelessInput_fork_bound
-    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (containersAgree : sourceShapedContainersAgreeWithSpec)
     {slice : ByteArray} {v : BinaryFv.Specs.SSZ.statelessInputV4Type.interp}
     (hdec : BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.chainConfigType slice = .ok v.2.2.1) :
     isAccepted (meaningChainConfig slice)
@@ -1911,7 +1911,7 @@ theorem raw_envelope_rejects_both {bytes : ByteArray} (h : rootComplianceScope b
 
 /-! ### Bodies too short for the offset table
 
-The source tests `body.size < 16` explicitly. The oracle has no such test: sixteen is the container
+The source tests `body.size < 16` explicitly. The spec has no such test: sixteen is the container
 arm's `b.size < prefixSize` guard, and `prefixSize` is `fixedSectionSizeFields entryFields`, *derived*
 from the schema rather than written down. So the two sides reach the same number by different routes,
 and `entryFields_fixedSectionSize` being a `decide` rather than a numeral is what makes the agreement
@@ -1943,10 +1943,10 @@ theorem entry_offsets_of_sixteen (body : ByteArray) (h : 16 ≤ body.size) :
   exact ⟨w0.toNat, w1.toNat, w2.toNat, w3.toNat, by
     rw [extractFieldOffsets_entry, e0, e1, e2, e3]⟩
 
-/-! ### The oracle's offset discipline, recovered from a successful walk
+/-! ### The spec's offset discipline, recovered from a successful walk
 
 The source rejects a non-canonical table with `requireCanonicalOffsets`, one explicit check. The
-oracle has no such check: its discipline is spread across the container arm's first-offset test and
+spec has no such check: its discipline is spread across the container arm's first-offset test and
 `deserializeVarFields`' per-field `curOff > nextOff || nextOff > bufEnd` guard. To match a *rejection*
 the argument therefore has to run backwards — from a successful walk to the inequalities it must have
 passed — which is why this is stated as soundness of the walk rather than as a rejection lemma.
@@ -2001,7 +2001,7 @@ theorem deserializeVarFields_entry_offsets_sound {body : ByteArray} {o0 o1 o2 o3
   simp only [List.head?_cons, Option.getD_some] at a23 a3
   exact ⟨a01, a12, a23, a3⟩
 
-/-- **The oracle rejects exactly the tables `requireCanonicalOffsets` rejects.**
+/-- **The spec rejects exactly the tables `requireCanonicalOffsets` rejects.**
 
 The `16 ≤ body.size` conjunct of the source's check is absent from the hypothesis because a successful
 table read already forces it (`extractFieldOffsets_entry_fits`) — the fifth already-implied hypothesis
@@ -2027,20 +2027,20 @@ theorem decodeCanonical_entry_rejects_noncanonical (body : ByteArray) (o0 o1 o2 
 /-! ## The raw-level intermediate
 
 `meaningDecodeRaw` against `decodeRawInput`, at acceptance granularity, inside the root's scope. This is
-the lower half of `sourceShapedDecodeAgreesWithOracle`: everything above this point is machinery, and
+the lower half of `sourceShapedDecodeAgreesWithSpec`: everything above this point is machinery, and
 everything below the outer assembly's two retry arms consumes it.
 
 The two sides are *not* the same shape, and the whole difficulty is in the three places they differ.
 
-* **The sixteen-byte test.** The source tests `body.size < 16` explicitly; the oracle reaches the same
+* **The sixteen-byte test.** The source tests `body.size < 16` explicitly; the spec reaches the same
   number as `fixedSectionSizeFields entryFields` inside the container arm.
-* **The offset discipline.** The source has one check, `requireCanonicalOffsets`. The oracle spreads it
+* **The offset discipline.** The source has one check, `requireCanonicalOffsets`. The spec spreads it
   across the container arm's first-offset equality and `deserializeVarFields`' per-field guard, so
   matching a *rejection* runs backwards — from a successful walk to the inequalities it must have
   passed.
 * **The fork bound.** The source applies it inside `meaningChainConfig`, before decoding children; the
-  oracle applies it in `decodeRawInput`, after a complete canonical decode. This is the one place an
-  assumption enters: `sourceShapedContainersAgreeWithOracle` is what carries the bound, and it is
+  spec applies it in `decodeRawInput`, after a complete canonical decode. This is the one place an
+  assumption enters: `sourceShapedContainersAgreeWithSpec` is what carries the bound, and it is
   consumed here through `containersAgree`.
 
 **Supplied versus proved.** `containersAgree` is a hypothesis, so the fork-bound half of the agreement
@@ -2071,8 +2071,8 @@ theorem isAccepted_entry_join (s0 s1 s2 s3 : ByteArray) :
   cases meaningNewPayloadRequest s0 <;> cases meaningExecutionWitness s1 <;>
     cases meaningChainConfig s2 <;> cases meaningPublicKeys s3 <;> rfl
 
-/-- One failing field decode kills the whole entry decode, so the oracle's post-decode fork test never
-runs. The `chainConfig` disjunct is included even though its *meaning* can reject a body the oracle's
+/-- One failing field decode kills the whole entry decode, so the spec's post-decode fork test never
+runs. The `chainConfig` disjunct is included even though its *meaning* can reject a body the spec's
 field decode accepts (`fork > 20`): that case is not this lemma's, and is handled by the fork bound. -/
 theorem entry_forkGuard_false (body : ByteArray) (o0 o1 o2 o3 : Nat)
     (hoffs : extractFieldOffsets body entryFields 0 = .ok [o0, o1, o2, o3])
@@ -2104,14 +2104,14 @@ theorem entry_forkGuard_false (body : ByteArray) (o0 o1 o2 o3 : Nat)
 
 /-- **The body-passing case of the raw-level intermediate.**
 
-Stated about the body alone, with the oracle side written as the fork-bounded acceptance of the whole
-container rather than as `decodeRawInput`'s `Result`. That keeps the oracle's error taxonomy out of a
+Stated about the body alone, with the spec side written as the fork-bounded acceptance of the whole
+container rather than as `decodeRawInput`'s `Result`. That keeps the spec's error taxonomy out of a
 statement whose whole point is that acceptance agrees while the taxonomies do not.
 
 Both halves of the statement have been shown load-bearing by must-fail probes: replacing the RHS's
 `fork ≤ 20` with `true` breaks the proof, and moving the source's threshold from sixteen to twelve
 breaks it too. Neither probe is kept — a check that must fail cannot also be a regression guard. -/
-theorem raw_body_agrees (containersAgree : sourceShapedContainersAgreeWithOracle)
+theorem raw_body_agrees (containersAgree : sourceShapedContainersAgreeWithSpec)
     (body : ByteArray) (hu32 : body.size < UInt32.size) :
     isAccepted
         (if body.size < 16 then (.error .invalidSsz : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput)
@@ -2175,7 +2175,7 @@ theorem raw_body_agrees (containersAgree : sourceShapedContainersAgreeWithOracle
               rw [decodeCanonical_entry_eq_of_fields body o0 o1 o2 o3 hoffs hc0 hc01 hc12 hc23 hc3
                 hu32 hd0 hd1 hd2 hd3]
               simp [statelessInput_fork_eq_field_fork, Except.toOption]
-  · -- The source's offset check fails; the oracle's spread-out discipline has to reject too.
+  · -- The source's offset check fails; the spec's spread-out discipline has to reject too.
     have herr : ∃ e, meaningRequireCanonicalOffsets body 16 [o0, o1, o2, o3] = .error e := by
       cases hc : meaningRequireCanonicalOffsets body 16 [o0, o1, o2, o3] with
       | error e => exact ⟨e, rfl⟩
@@ -2200,7 +2200,7 @@ the root's scope, given the container obligation.
 The scope hypothesis is load-bearing in the strong sense recorded above: `ereGateDivergesAboveU32`
 exhibits a witness beyond the bound where the two genuinely disagree, so this is not a narrowing a
 later reader can tidy away. -/
-theorem raw_acceptance_agrees (containersAgree : sourceShapedContainersAgreeWithOracle)
+theorem raw_acceptance_agrees (containersAgree : sourceShapedContainersAgreeWithSpec)
     {bytes : ByteArray} (h : rootComplianceScope bytes) :
     isAccepted (meaningDecodeRaw bytes) = (BinaryFv.Specs.SSZ.decodeRawInput bytes).toOption.isSome := by
   have hscope : bytes.size < 2 * 1024 * 1024 := h
@@ -2218,7 +2218,7 @@ theorem raw_acceptance_agrees (containersAgree : sourceShapedContainersAgreeWith
     rfl
   -- The condition must be pinned by a named hypothesis: with `if_neg (by simp …)` the `c`
   -- metavariable is solved from whichever `ite` the traversal reaches first, which here is the
-  -- source's *inner* `body.size < 16` rather than the oracle's schema test.
+  -- source's *inner* `body.size < 16` rather than the spec's schema test.
   have hschema' : ¬ ((!BinaryFv.Specs.SSZ.hasSchemaId bytes) = true) := by simp [hschema]
   rw [if_neg hsize, if_neg hsize, if_neg hschema', if_neg hschema']
   simp only []
@@ -2248,18 +2248,18 @@ theorem raw_acceptance_agrees (containersAgree : sourceShapedContainersAgreeWith
 decoders; what is left is that the two *retry* behaviours agree on acceptance despite being triggered
 differently, and that is genuinely three separate arguments rather than one.
 
-* **The V3-quarantine arm** (below). The oracle does not retry at all on `v3Quarantined`; the source
+* **The V3-quarantine arm** (below). The spec does not retry at all on `v3Quarantined`; the source
   does retry if its error was `invalidSsz`. The gap is closed from the *source* side, by
   `retryTailNeverSchemaValid`.
-* **The `unknownFork` / `outOfMemory` arm** (still open). Here it is the other way round: the oracle
-  retries and the source does not, so the oracle's retry has to fail. `oracle_retry_rejects` is the
+* **The `unknownFork` / `outOfMemory` arm** (still open). Here it is the other way round: the spec
+  retries and the source does not, so the spec's retry has to fail. `spec_retry_rejects` is the
   lemma, and `outOfMemoryUnreachableBelowBound` covers the second constructor.
-* **The both-retry arm** (still open). Needs `meaningHasExactErePrefix` and the oracle's length test
+* **The both-retry arm** (still open). Needs `meaningHasExactErePrefix` and the spec's length test
   to be the same condition, then the intermediate applied a second time at the stripped tail.
 
 Recording which direction each asymmetry runs matters, because the reflex is to assume one lemma
 covers "the retries differ" and it does not: the two arms need opposite facts, and the first is about
-the source's retry while the second is about the oracle's. -/
+the source's retry while the second is about the spec's. -/
 
 theorem hasSchemaId_size {bytes : ByteArray} (h : BinaryFv.Specs.SSZ.hasSchemaId bytes = true) :
     2 ≤ bytes.size := by
@@ -2286,7 +2286,7 @@ theorem meaningDecode_rejects_of {bytes : ByteArray}
       | unknownFork => rfl
       | outOfMemory => rfl
 
-/-- The oracle quarantines a V3-shaped buffer and never reaches its ERE retry. -/
+/-- The spec quarantines a V3-shaped buffer and never reaches its ERE retry. -/
 theorem decodeStatelessInput_quarantines {bytes : ByteArray} (h : rootComplianceScope bytes)
     (hv3 : BinaryFv.Specs.SSZ.hasV3PayloadShape bytes = true) :
     (BinaryFv.Specs.SSZ.decodeStatelessInput bytes).toOption.isSome = false := by
@@ -2295,7 +2295,7 @@ theorem decodeStatelessInput_quarantines {bytes : ByteArray} (h : rootCompliance
 
 /-- The source's raw decode rejects a V3-shaped buffer, via the proved exclusion. -/
 theorem meaningDecodeRaw_rejects_of_v3
-    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (containersAgree : sourceShapedContainersAgreeWithSpec)
     {bytes : ByteArray} (h : rootComplianceScope bytes)
     (hv3 : BinaryFv.Specs.SSZ.hasV3PayloadShape bytes = true) :
     isAccepted (meaningDecodeRaw bytes) = false := by
@@ -2309,17 +2309,17 @@ theorem meaningDecodeRaw_rejects_of_v3
   | error e => rfl
   | ok v => rw [hdc] at hexcl; exact absurd hexcl (by simp [Except.toOption])
 
-/-- **The V3-quarantine arm.** Both sides reject, and for genuinely different reasons: the oracle
+/-- **The V3-quarantine arm.** Both sides reject, and for genuinely different reasons: the spec
 because it quarantines before decoding, the source because the exclusion makes its canonical decode
 fail and `retryTailNeverSchemaValid` then kills its retry.
 
-The asymmetry is real and is why this arm needs its own proof: the oracle **does not retry at all** on
+The asymmetry is real and is why this arm needs its own proof: the spec **does not retry at all** on
 `v3Quarantined`, while the source *does* retry if its error was `invalidSsz`. Acceptance still agrees
 because the source's retry cannot succeed — a V3-shaped buffer satisfies exactly the two hypotheses of
 `retryTailNeverSchemaValid`, so the four-byte-stripped tail fails `hasSchemaId`. So the lemma stated
-about the *source's* retry is what closes a gap created by the *oracle's* refusal to retry. -/
+about the *source's* retry is what closes a gap created by the *spec's* refusal to retry. -/
 theorem v3_arm_rejects_both
-    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (containersAgree : sourceShapedContainersAgreeWithSpec)
     (retryTail : retryTailNeverSchemaValid)
     {bytes : ByteArray} (h : rootComplianceScope bytes)
     (hv3 : BinaryFv.Specs.SSZ.hasV3PayloadShape bytes = true) :
@@ -2342,7 +2342,7 @@ theorem v3_arm_rejects_both
 function `decodeStatelessInput` actually calls, which is what the outer assembly consumes twice —
 once for the first attempt and once for the ERE retry. -/
 theorem rawOrQuarantine_acceptance_agrees
-    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (containersAgree : sourceShapedContainersAgreeWithSpec)
     {bytes : ByteArray} (h : rootComplianceScope bytes) :
     isAccepted (meaningDecodeRaw bytes)
       = (BinaryFv.Specs.SSZ.decodeRawOrQuarantineV3 bytes).toOption.isSome := by
@@ -2384,16 +2384,16 @@ theorem quarantined_of_rawOrQuarantine {bytes : ByteArray} (hs : rootComplianceS
 /-! ### Arm 3's condition, and arm 2's groundwork
 
 Arm 3 turned out to be transcription rather than content, which was the prediction recorded before
-checking it: the source tests `size >= 4 && declared == size - 4` and the oracle tests only
+checking it: the source tests `size >= 4 && declared == size - 4` and the spec tests only
 `declared == size - 4`, and the extra conjunct is already implied by `readU32LE?` returning `some`.
 Recorded as a confirmed prediction rather than silently, because a predicted-easy step is where this
 proof was previously expected to be easy and was not.
 
 Arm 2 needs the opposite kind of fact, and the lemmas below are what make `unknownFork` *locate its own
 cause*: every step of `meaningDecodeRaw` before the four field decodes fails only with `invalidSsz`,
-and so do the three oracle-shaped field meanings, because `sszToDecodeError` is the constant function.
+and so do the three field meanings defined directly from the specification, because `sszToDecodeError` is the constant function.
 So an `unknownFork` can only have come from `meaningChainConfig`, which pins how far the decode got —
-and that is exactly what supplies `oracle_retry_rejects`' two hypotheses. -/
+and that is exactly what supplies `spec_retry_rejects`' two hypotheses. -/
 
 /-- A successful `readU32LE?` at offset 0 already forces four bytes. -/
 theorem readU32LE?_fits {bytes : ByteArray} {d : Nat}
@@ -2419,7 +2419,7 @@ theorem meaningHasExactErePrefix_none {bytes : ByteArray}
 
 Needed for arm 2, and it is the fact that makes `unknownFork` *locate* its own cause: if every step of
 `meaningDecodeRaw` before the four field decodes can only fail with `invalidSsz`, then an
-`unknownFork` pins down how far the decode got, which is what supplies `oracle_retry_rejects`'
+`unknownFork` pins down how far the decode got, which is what supplies `spec_retry_rejects`'
 hypotheses. -/
 
 theorem canonicalOffsets_walk_only_invalidSsz (bytes : ByteArray) :
@@ -2447,13 +2447,13 @@ theorem meaningRequireCanonicalOffsets_only_invalidSsz (bytes : ByteArray) (fixe
 
 /-! ### Arm 2: `unknownFork` pins how far the decode got
 
-`oracle_retry_rejects` needs `hasSchemaId bytes` and a first offset of exactly 16. Both follow from the
+`spec_retry_rejects` needs `hasSchemaId bytes` and a first offset of exactly 16. Both follow from the
 source having raised `unknownFork` at all, and the reason is the offset check: it can only fail with
 `invalidSsz`, so an `unknownFork` proves it *succeeded*, and a successful check pins the first offset to
 16 by equality rather than by bound.
 
 **A prediction that did not hold, and the lemma it produced has been deleted.** I expected this to need
-a fact that the three oracle-shaped field meanings cannot raise `unknownFork` either, in order to locate
+a fact that the three field meanings defined directly from the specification cannot raise `unknownFork` either, in order to locate
 the error at `meaningChainConfig`, and wrote one. It is not needed: the conclusion is only about the
 offset check, so *which* field decode raised the error is irrelevant. It was kept for one commit on the
 theory that the `outOfMemory` half would want its shape — and that half turned out to be four lines
@@ -2501,7 +2501,7 @@ theorem unknownFork_forces_canonical_prefix {bytes : ByteArray} (h : rootComplia
     exact absurd herr (by simp)
 
 /-- **The `outOfMemory` half of arm 2.** The source's raw decode never demands an allocation failure,
-so the oracle's retry has nothing to be matched against on that constructor.
+so the spec's retry has nothing to be matched against on that constructor.
 
 Routed through `outOfMemoryUnreachableBelowBound_holds` rather than proved again structurally:
 `meaningDecode` propagates every non-`invalidSsz` raw error unchanged, so the raw-level statement is
@@ -2514,25 +2514,25 @@ theorem meaningDecodeRaw_ne_outOfMemory {bytes : ByteArray} (h : rootComplianceS
   rw [meaningDecode, hoom] at hne
   exact hne rfl
 
-/-! ## The outer assembly: the acceptance half of `sourceShapedDecodeAgreesWithOracle`
+/-! ## The outer assembly: the acceptance half of `sourceShapedDecodeAgreesWithSpec`
 
 The three arms joined. What makes this provable at all is that the two entry points agree on
 *acceptance* while disagreeing about *when to retry* in both directions at once:
 
-* on `v3Quarantined` the oracle refuses to retry and the source retries — closed from the source side
+* on `v3Quarantined` the spec refuses to retry and the source retries — closed from the source side
   by `retryTailNeverSchemaValid`;
-* on `unknownFork` the oracle retries and the source refuses — closed from the oracle side by
-  `oracle_retry_rejects`, whose two hypotheses the error constructor itself supplies;
+* on `unknownFork` the spec retries and the source refuses — closed from the spec side by
+  `spec_retry_rejects`, whose two hypotheses the error constructor itself supplies;
 * on `outOfMemory` the question does not arise, because the source cannot raise it;
 * on `invalidSsz` both retry on the same condition, and the intermediate applies again at the tail.
 
-**Supplied versus proved.** Two hypotheses: `sourceShapedContainersAgreeWithOracle`, which carries the
+**Supplied versus proved.** Two hypotheses: `sourceShapedContainersAgreeWithSpec`, which carries the
 `fork ≤ 20` bound the schema does not, and `retryTailNeverSchemaValid`. Everything else is proved —
 both envelopes, the sixteen-byte test, the offset table, the four field slices, the four-field
 composition, the V3 exclusion, and all three retry arms.
 
 **A dead lemma removed on the spot rather than left in.** The proof was written expecting to need an
-explicit collapse of the oracle's six-way error match once `v3Quarantined` was excluded; `simp only []`
+explicit collapse of the spec's six-way error match once `v3Quarantined` was excluded; `simp only []`
 reduces it without help, so the lemma was deleted before this landed. Third dead lemma this session,
 all three predicted-necessary and none necessary — the pattern being that I over-estimate how much
 case analysis an error-taxonomy argument needs. -/
@@ -2543,19 +2543,19 @@ theorem tail_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
   rw [rootComplianceScope, ByteArray.size_extract]
   omega
 
-/-- **The acceptance half of `sourceShapedDecodeAgreesWithOracle`.**
+/-- **The acceptance half of `sourceShapedDecodeAgreesWithSpec`.**
 
 This *was* the obligation, and is now half of it: the obligation carries the decoded value, and this
 says only that the two entry points accept the same buffers. The value half is
-`meaningDecode_value_agrees` below, and `ChainOffsets.sourceShapedDecodeAgreesWithOracle_holds`
+`meaningDecode_value_agrees` below, and `ChainOffsets.sourceShapedDecodeAgreesWithSpec_holds`
 joins them.
 
 Why the split rather than one proof of the biconditional: the three retry arms below are a case
 analysis on *errors*, which is a `Bool` argument end to end, and re-running it carrying a value would
-duplicate it for no content. The value half runs the other way — from an oracle success — and shares
+duplicate it for no content. The value half runs the other way — from a specification success — and shares
 none of this case analysis. -/
 theorem meaningDecode_acceptance_agrees
-    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (containersAgree : sourceShapedContainersAgreeWithSpec)
     (retryTail : retryTailNeverSchemaValid) :
     ∀ (bytes : ByteArray), rootComplianceScope bytes →
       isAccepted (meaningDecode bytes) = (BinaryFv.Specs.SSZ.decodeStatelessInput bytes).toOption.isSome := by
@@ -2605,9 +2605,9 @@ theorem meaningDecode_acceptance_agrees
                 cases e with
                 | invalidSsz => rw [if_pos (by rw [hpre]; exact hmatch)]; exact htail
                 | unknownFork =>
-                    -- The oracle retries and the source does not; the oracle's retry must fail.
+                    -- The spec retries and the source does not; the spec's retry must fail.
                     obtain ⟨hschema, hfirst⟩ := unknownFork_forces_canonical_prefix h hA
-                    have := oracle_retry_rejects hschema hfirst
+                    have := spec_retry_rejects hschema hfirst
                     rw [this]
                     rfl
                 | outOfMemory => exact absurd hA (meaningDecodeRaw_ne_outOfMemory h)
@@ -2623,12 +2623,12 @@ Acceptance agreement is not what `root_compliance` needs. Its accepted branch ha
 `BinaryFv.Specs.SSZ.decode input = .accepted value`, which *is* `decodeStatelessInput input = .ok value`, and it
 must produce that exact `value` — while the machine stores `meaningDecode input`'s. An acceptance
 equation gives only `meaningDecode input = .ok v'` for some `v'`. So the obligation carries the
-value, and this section is the direction that supplies it: **from an oracle success to the same
+value, and this section is the direction that supplies it: **from a specification success to the same
 success on the source side.**
 
 Only one direction is proved here. The converse — meaning-accepts-with-`v` implies
-oracle-returns-`v` — is a two-line consequence of this one plus the acceptance half, since the two
-values must then coincide by injectivity of `.ok`; `ChainOffsets.sourceShapedDecodeAgreesWithOracle_holds`
+spec-returns-`v` — is a two-line consequence of this one plus the acceptance half, since the two
+values must then coincide by injectivity of `.ok`; `ChainOffsets.sourceShapedDecodeAgreesWithSpec_holds`
 does that join.
 
 **What was already available and what was not, recorded because the estimate was tested.** The
@@ -2636,7 +2636,7 @@ machinery above turned out to be value-level *in the backward direction only*
 (`decodeCanonical_entry_eq_of_fields` concludes `= .ok (x0, x1, x2, x3, unit)`), with every forward
 decomposition stated at `isSome`. That is enough: forward-with-values is backward-with-values plus
 forward-at-`isSome` plus injectivity of `.ok`, and every step below is that three-line move. So no
-new decomposition of the oracle was needed at the entry. It was **not** enough at the chain: the
+new decomposition of the spec was needed at the entry. It was **not** enough at the chain: the
 container obligation is acceptance-only by construction, so `meaningChainConfig` had to gain a
 genuinely new value-level agreement, and that is `ChainOffsets.meaningChainConfig_value_agrees`.
 This module consumes it as a hypothesis, exactly as it consumes the acceptance-level container fact. -/
@@ -2644,7 +2644,7 @@ This module consumes it as a hypothesis, exactly as it consumes the acceptance-l
 /-- The chain-side hypothesis this module consumes: a canonical `chainConfig` decode inside the fork
 bound is reproduced *with its value* by the source-shaped meaning.
 
-A hypothesis rather than a theorem for the same reason `sourceShapedContainersAgreeWithOracle` is:
+A hypothesis rather than a theorem for the same reason `sourceShapedContainersAgreeWithSpec` is:
 the chain lives in `ChainOffsets`, which imports this module. It is discharged there by
 `chainConfigValue_holds`. -/
 abbrev ChainConfigValueHypothesis : Prop :=
@@ -2655,10 +2655,10 @@ abbrev ChainConfigValueHypothesis : Prop :=
 
 /-- **The raw level, with the value.** `decodeRawInput` and `meaningDecodeRaw` return the same `StatelessInput`.
 
-The three oracle-shaped fields need no lemma: each meaning *is* `decodeCanonical` at its schema
+The three fields defined directly from the specification need no lemma: each meaning *is* `decodeCanonical` at its schema
 followed by the bridge's own projection, so a field decode `= .ok xᵢ` rewrites the meaning to
 `.ok (rawᵢOf xᵢ)` by definition. Only `meaningChainConfig` needs `containersMatch`, and the fork
-bound it needs is the one the oracle's own `fork > 20` guard just failed — the same projection on
+bound it needs is the one the spec's own `fork > 20` guard just failed — the same projection on
 both sides by `statelessInput_fork_eq_field_fork`. -/
 theorem meaningDecodeRaw_value_agrees (containersMatch : ChainConfigValueHypothesis)
     {bytes : ByteArray} (h : rootComplianceScope bytes) {value : BinaryFv.Specs.SSZ.StatelessInput}
@@ -2758,19 +2758,19 @@ theorem rawOrQuarantine_value_agrees (containersMatch : ChainConfigValueHypothes
   · exact absurd hdec (by simp)
   · exact meaningDecodeRaw_value_agrees containersMatch h hdec
 
-/-- **The outer assembly, with the value.** An oracle success is reproduced by `meaningDecode`, value
+/-- **The outer assembly, with the value.** An spec success is reproduced by `meaningDecode`, value
 and all.
 
 The retry arms enter differently from the acceptance proof and it is worth saying how. Here the
-oracle has *succeeded*, so the only live question is which of its two routes it took. On the direct
+spec has *succeeded*, so the only live question is which of its two routes it took. On the direct
 route the source's raw decode succeeds with the same value and `meaningDecode` returns it
 unchanged. On the retry route the source's raw decode must have failed — that is the acceptance
-half — and its error must be `invalidSsz`: `unknownFork` would force the oracle's own retry to
-reject (`oracle_retry_rejects`), contradicting its success, and `outOfMemory` is unreachable in
+half — and its error must be `invalidSsz`: `unknownFork` would force the spec's own retry to
+reject (`spec_retry_rejects`), contradicting its success, and `outOfMemory` is unreachable in
 scope. So the source retries on exactly the same condition, at exactly the same tail, and the raw
 lemma applies a second time. -/
 theorem meaningDecode_value_agrees
-    (containersAgree : sourceShapedContainersAgreeWithOracle)
+    (containersAgree : sourceShapedContainersAgreeWithSpec)
     (containersMatch : ChainConfigValueHypothesis)
     {bytes : ByteArray} (h : rootComplianceScope bytes) {value : BinaryFv.Specs.SSZ.StatelessInput}
     (hdec : BinaryFv.Specs.SSZ.decodeStatelessInput bytes = .ok value) :
@@ -2812,7 +2812,7 @@ theorem meaningDecode_value_agrees
                   | unknownFork =>
                       exfalso
                       obtain ⟨hs, hfirst⟩ := unknownFork_forces_canonical_prefix h hA
-                      have hrej := oracle_retry_rejects hs hfirst
+                      have hrej := spec_retry_rejects hs hfirst
                       rw [hdec] at hrej
                       exact absurd hrej (by simp [Except.toOption])
                   | outOfMemory => exact absurd hA (meaningDecodeRaw_ne_outOfMemory h)

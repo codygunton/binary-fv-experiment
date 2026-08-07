@@ -20,11 +20,11 @@ allocate transitively through their collection children.
 
 By meaning: the four allocating containers are `decodeCanonical` at their pinned schema followed by
 the bridge's own `raw*Of` projection. The three non-allocating ones are **source-shaped**, because
-their error ordering genuinely differs from the oracle's — see below.
+their error ordering genuinely differs from the spec's — see below.
 
 `decodeForkConfig` is the decoder's only source of `UnknownFork`, and the audit recorded on issue #39
-established that its *ordering* differs from the oracle: the binary raises `UnknownFork` after
-validating offsets but before decoding activation and blob schedule, whereas the oracle checks
+established that its *ordering* differs from the spec: the binary raises `UnknownFork` after
+validating offsets but before decoding activation and blob schedule, whereas the spec checks
 `fork > 20` only after a complete canonical decode. The two therefore disagree about which error a
 malformed `fork = 21` payload yields, while always agreeing on rejection. `forkErrorOrderingDiffers`
 records that explicitly so no container contract silently assumes error-constructor agreement.
@@ -63,7 +63,7 @@ this when the first draft tried it.
 
 Issue #39 permits "a small source-shaped Lean wrapper with an explicit equivalence theorem" for
 precisely this case. The wrappers are built from cataloged leaf meanings, not from fresh byte
-arithmetic, and `sourceShapedContainersAgreeWithOracle` below is the required equivalence obligation.
+arithmetic, and `sourceShapedContainersAgreeWithSpec` below is the required equivalence obligation.
 -/
 
 /-- `decodeForkActivation`, source-shaped: fixed-size check, offset table, then two optional `u64`s. -/
@@ -358,17 +358,17 @@ def fixedContainersNeverAllocate : Prop :=
     meaningChainConfig bytes ≠ .error .outOfMemory
 
 /--
-The source-shaped container meanings agree with the oracle on acceptance.
+The source-shaped container meanings agree with the spec on acceptance.
 
 They cannot agree on *error constructors* — that is the whole reason they are source-shaped — so the
 obligation is stated at the granularity `root_compliance` actually observes.
 
-**The oracle side is not `decodeCanonical chainConfigType` alone, and saying which layer applies the
+**The spec side is not `decodeCanonical chainConfigType` alone, and saying which layer applies the
 fork bound is the whole point of this docstring.** `chainConfigType` types `fork` as an unbounded
-`u64`; nothing in the *schema* rejects an unknown fork. The oracle applies that constraint one layer
+`u64`; nothing in the *schema* rejects an unknown fork. The spec applies that constraint one layer
 up, in `decodeRawInput` (`BinaryFv.Specs.SSZ/Core.lean:415-420`), which decodes the container canonically and
 *then* throws `unknownFork` on `raw.chainConfig.activeFork.fork > 20`. The binary applies the same
-constraint inside `meaningForkConfig`, which `meaningChainConfig` calls. So the oracle side here has
+constraint inside `meaningForkConfig`, which `meaningChainConfig` calls. So the spec side here has
 to be that composite; against the bare schema decode the obligation is **false**, and was — see
 `DECISIONS.md`. Four zero-extra-work counterexamples exist: `chain_config(fork=21)` is
 `valid-v4-raw`'s own chainConfig with only the fork changed, and the schema decode accepts it while
@@ -382,7 +382,7 @@ disagreement is exactly what `forkErrorOrderingDiffers` records. An equality of 
 insensitive to the ordering, so the two obligations describe the same decoder without contradicting
 each other. Stated with error constructors, they could not both be true.
 -/
-def sourceShapedContainersAgreeWithOracle : Prop :=
+def sourceShapedContainersAgreeWithSpec : Prop :=
   ∀ (bytes : ByteArray),
     isAccepted (meaningChainConfig bytes) =
       match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.chainConfigType bytes with
@@ -390,17 +390,17 @@ def sourceShapedContainersAgreeWithOracle : Prop :=
       | .error _ => false
 
 /--
-The binary and the oracle classify a malformed unknown-fork payload differently.
+The binary and the spec classify a malformed unknown-fork payload differently.
 
-`meaningForkConfig` rejects on `fork > 20` before decoding children. The oracle applies that bound in
+`meaningForkConfig` rejects on `fork > 20` before decoding children. The spec applies that bound in
 `decodeRawInput` (`BinaryFv.Specs.SSZ/Core.lean:415-420`), *after* a successful canonical decode of the whole
 container — **not** in `decodeCanonical forkConfigType`, which never checks it at all. So on a
 payload with `fork = 21` *and* a malformed activation the source-shaped meaning yields `unknownFork`
-while the oracle never reaches the bound and yields a structural error.
+while the spec never reaches the bound and yields a structural error.
 
 That the bound lives one layer above the schema decode is the same fact
-`sourceShapedContainersAgreeWithOracle` had to be corrected for; an earlier wording of this docstring
-said the oracle checks the bound "only then", which is true of `decodeRawInput` and false of
+`sourceShapedContainersAgreeWithSpec` had to be corrected for; an earlier wording of this docstring
+said the spec checks the bound "only then", which is true of `decodeRawInput` and false of
 `decodeCanonical forkConfigType`, and reading the two conjuncts against each other would have caught
 that.
 

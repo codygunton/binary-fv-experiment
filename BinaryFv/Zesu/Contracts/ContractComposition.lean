@@ -134,7 +134,7 @@ theorem sszContractComposition_perInstance {program : Program} {p : ContractPara
   exact global_of_local hranked hlocals
 
 /-- Everything the root theorem depends on: program correctness for the **one concrete**
-`canonicalContractParams`, plus the two recorded binary/oracle divergences.
+`canonicalContractParams`, plus the two recorded binary/spec divergences.
 
 This no longer quantifies the parameters existentially: `canonicalContractParams` fixes every
 address- and layout-bearing field to a validated pinned artifact (`CanonicalParams`), so a proof can

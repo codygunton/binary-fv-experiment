@@ -14,10 +14,10 @@ open LeanRV64DExecutable.Functions Register
 
 `decodeRaw`, `decode`, and the exported `zesu_decode_raw`.
 
-This is where the decoder's observable behaviour is finally compared against the oracle, and where
+This is where the decoder's observable behaviour is finally compared against the spec, and where
 the equivalence audit recorded on issue #39 becomes machine-checkable rather than prose.
 
-`decode` is raw-first with an ERE fallback, and the fallback is **not** symmetric with the oracle's:
+`decode` is raw-first with an ERE fallback, and the fallback is **not** symmetric with the spec's:
 the source retries the four-byte-stripped input only on `InvalidSsz`, never on `UnknownFork`, while
 `BinaryFv.Specs.SSZ.decodeStatelessInput` retries on every `BridgeError` except `v3Quarantined`. That
 difference is unreachable, and `retryTailNeverSchemaValid` below is the reason why — stated as an
@@ -28,7 +28,7 @@ obligation rather than left as a comment, because the whole root theorem leans o
 ## Meanings
 
 The entry points are source-shaped for the same reason the fixed containers are: their error
-*ordering* and their retry *conditions* are observable, and an oracle-shaped meaning would be false
+*ordering* and their retry *conditions* are observable, and a meaning defined directly from the specification would be false
 about the binary.
 -/
 
@@ -229,11 +229,11 @@ owes a Lean proof.
 def rootComplianceScope (bytes : ByteArray) : Prop :=
   bytes.size < 2 * 1024 * 1024
 
-/-- **The catalog's central obligation.** The source-shaped composition agrees with the oracle on the
+/-- **The catalog's central obligation.** The source-shaped composition agrees with the spec on the
 **decoded value**, at the granularity `root_compliance` observes.
 
 The binary decides canonicality by per-container offset checks plus `decodeByteListList`'s
-zero-first-offset rejection; the oracle decides it globally by re-serializing. This says the two
+zero-first-offset rejection; the spec decides it globally by re-serializing. This says the two
 coincide on the pinned V4 schema. If it were false, every individual contract would still be
 provable — the machine faithfully implements its own weaker discipline — while the root theorem
 quietly failed.
@@ -251,8 +251,8 @@ acceptance equation is still available — it is a corollary
 
 **The scope hypothesis is load-bearing: without it this obligation is FALSE, not merely unproved.**
 Dropped, it contradicts `ereGateDivergesAboveU32`, which asserts a witness — outside the bound — that
-the composition accepts and the oracle rejects as `tooLarge`. At that witness the unscoped
-biconditional makes the oracle return a value it does not. That is not an argument in a comment:
+the composition accepts and the spec rejects as `tooLarge`. At that witness the unscoped
+biconditional makes the spec return a value it does not. That is not an argument in a comment:
 `unscopedAgreement_contradicts_ereGate` in `Contracts/SemanticObligations.lean` proves it **at this
 statement's own shape**, so the hypothesis cannot be tidied away without breaking the build.
 `root_compliance` is itself stated under `input.size < 2 * 1024 * 1024`, so nothing it consumes is
@@ -267,21 +267,21 @@ conjunction is no longer the vehicle. The refutation above is unaffected, becaus
 through `knownDivergences` — it is a direct contradiction with the recorded acceptance-level
 divergence, which is exactly why the two negative tests must keep citing that `Prop` and not the
 provable one. -/
-def sourceShapedDecodeAgreesWithOracle : Prop :=
+def sourceShapedDecodeAgreesWithSpec : Prop :=
   ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : BinaryFv.Specs.SSZ.StatelessInput),
     meaningDecode bytes = .ok value ↔ BinaryFv.Specs.SSZ.decodeStatelessInput bytes = .ok value
 
-/-- The catalog's meanings are grounded in the pinned oracle, not in a private re-implementation:
+/-- The catalog's meanings are grounded in the pinned spec, not in a private re-implementation:
 the entry meaning determines exactly the public `BinaryFv.Specs.SSZ.decode` outcome — **including which value it
 carries**.
 
-This is `sourceShapedDecodeAgreesWithOracle` in the public spelling, and the two are now the same
+This is `sourceShapedDecodeAgreesWithSpec` in the public spelling, and the two are now the same
 statement rather than the same statement with the value dropped. The spelling is not cosmetic: it is
 the one `root_compliance`'s accepted branch arrives holding, since that branch case-splits on
 `BinaryFv.Specs.SSZ.decode input` and gets `= .accepted value` — so a consumer needs no unfolding of the bridge
 to apply it.
 
-Scoped for the same reason as `sourceShapedDecodeAgreesWithOracle`, and refuted unscoped by the same
+Scoped for the same reason as `sourceShapedDecodeAgreesWithSpec`, and refuted unscoped by the same
 `ereGateDivergesAboveU32` witness (`unscopedGrounds_contradicts_ereGate`). -/
 def catalogGroundsInSpec : Prop :=
   ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : BinaryFv.Specs.SSZ.StatelessInput),
@@ -293,7 +293,7 @@ Why the asymmetric ERE retry is unobservable.
 Any input that reaches the top-level offset table must satisfy `hasSchemaId` and have a first offset
 of exactly 16, which forces its bytes 2..6 to be `10 00 00 00`. Its four-byte-stripped tail therefore
 begins `00 00` and fails `hasSchemaId`. So the retry can never succeed on precisely the inputs where
-the binary and the oracle disagree about whether to attempt it.
+the binary and the spec disagree about whether to attempt it.
 -/
 def retryTailNeverSchemaValid : Prop :=
   ∀ (bytes : ByteArray),
@@ -303,7 +303,7 @@ def retryTailNeverSchemaValid : Prop :=
 
 /-- A V3-shaped buffer is never a canonical V4 one: the V3 classifier demands the u32 at
 execution-payload offset 436 be `528`, while a valid V4 payload demands `540`. This closes the
-direct-accept route where the oracle quarantines and the binary would accept. -/
+direct-accept route where the spec quarantines and the binary would accept. -/
 def v3ShapeExcludesCanonicalV4 : Prop :=
   ∀ (bytes : ByteArray),
     BinaryFv.Specs.SSZ.hasV3PayloadShape bytes = true →
@@ -313,15 +313,15 @@ def v3ShapeExcludesCanonicalV4 : Prop :=
 /-!
 ## The ERE-gate divergence, recorded twice
 
-`decode`'s ERE retry sits above the oracle's `size ≥ 2 ^ 32` gate, and the divergence there is
+`decode`'s ERE retry sits above the spec's `size ≥ 2 ^ 32` gate, and the divergence there is
 recorded at **two** strengths. That is deliberate, and this is the one place the relationship between
 them is stated.
 
 * `ereGateDivergesAboveU32` — the **acceptance-level** form: some oversized buffer the composition
-  *accepts* while the oracle rejects it as `tooLarge`. **True, and deliberately unproved**; its own
+  *accepts* while the spec rejects it as `tooLarge`. **True, and deliberately unproved**; its own
   docstring carries the evidence and the cost.
 * `ereRetryReachedAboveU32Gate` — the **gate-level** form: some oversized buffer on which the binary
-  *reaches* the ERE retry while the oracle has already answered `tooLarge` without one. **Proved**,
+  *reaches* the ERE retry while the spec has already answered `tooLarge` without one. **Proved**,
   on an exhibited `2 ^ 32`-byte witness, in `Contracts/SemanticObligations`.
 
 The gate-level form is strictly weaker: it says the two sides take different *paths*, not that they
@@ -338,7 +338,7 @@ assumed anywhere.
 **And why the acceptance-level form must nevertheless stay.** The two negative tests in
 `Contracts/SemanticObligations` — `unscopedAgreement_contradicts_ereGate` and
 `unscopedGrounds_contradicts_ereGate` — need *acceptance*: they contradict an unscoped agreement by
-pitting "the source accepts here" against an oracle that rejects. The gate-level form supplies none,
+pitting "the source accepts here" against a specification that rejects. The gate-level form supplies none,
 and that is checked rather than asserted: at the witness discharging it the source rejects. So the
 weaker fact was given a **new name** instead of being written over the old one. Restating
 `ereGateDivergesAboveU32` in place would have left those two theorems reading identically while their
@@ -391,7 +391,7 @@ pointwise so a candidate witness can be refuted as well as exhibited.
 
 Read as a description of one buffer: it is outside the root's scope; the binary's `decodeRaw` rejects
 it as `invalidSsz` (its own `requireU32Length` is what fires); it nevertheless carries an exact ERE
-prefix, so `decode` proceeds into the retry on the four-byte-stripped tail; and the oracle has
+prefix, so `decode` proceeds into the retry on the four-byte-stripped tail; and the spec has
 already answered `tooLarge` at its outer gate, with no retry of any kind.
 
 **The two sides therefore take different paths at the same buffer**, which is the whole of what this

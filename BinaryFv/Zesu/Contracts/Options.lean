@@ -48,7 +48,7 @@ structure SliceToResultArgs where
 
 Each `meaning` is the pinned canonical decode at a closed schema literal followed by the specification's
 projection. No new recursion and no mirror of the Zig control flow appears here: a hand-rolled
-byte-walker would always be provable and would say nothing about the oracle.
+byte-walker would always be provable and would say nothing about the spec.
 -/
 
 /-- `decodeOptionalBlobSchedule`: canonical decoding of a zero-or-one-element blob-schedule list,

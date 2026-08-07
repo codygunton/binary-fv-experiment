@@ -424,7 +424,7 @@ Every allocation the decoder performs is bounded by a function of the input leng
 for 2 MiB of input cannot be exhausted.
 
 **What this does not establish, and it is less than the name suggests.** It is stated against
-`meaningDecode`, which is built from pure reads and the oracle and has **no allocation-failure
+`meaningDecode`, which is built from pure reads and the spec and has **no allocation-failure
 outcome at all** — so it holds for a reason that has nothing to do with the arena, and the scope
 hypothesis goes unused. It does **not** discharge the entry contract's `outOfMemory` arm. That arm is
 about the machine, and the theorem that closes it is `raw_allocation_bound_fits_arena` in
