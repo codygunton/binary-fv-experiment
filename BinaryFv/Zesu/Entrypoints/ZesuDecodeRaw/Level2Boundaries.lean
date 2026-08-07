@@ -31,7 +31,7 @@ theorem allocatorInlineBoundary_valid :
     allocatorInlineBoundary.validFor generatedProgram
       functionInstance_raw_decoder_root_zesu_decode_raw
       functionInstance_raw_decoder_root_allocator_in_raw_decoder_root_zesu_decode_raw_at_112_41 := by
-  simp [allocatorInlineBoundary, InlineBoundary.validFor, InlineBoundary.acceptsEntry,
+  simp [allocatorInlineBoundary, InlineBoundary.validFor,
     programContainsEdge, FunctionInstance.containsAddress,
     BinaryFv.Binary.AddressRange.stop]
   <;> native_decide
@@ -58,7 +58,7 @@ theorem decodeInlineBoundary_valid :
     decodeInlineBoundary.validFor generatedProgram
       functionInstance_raw_decoder_root_zesu_decode_raw
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31 := by
-  simp [decodeInlineBoundary, InlineBoundary.validFor, InlineBoundary.acceptsEntry,
+  simp [decodeInlineBoundary, InlineBoundary.validFor,
     programContainsEdge, FunctionInstance.containsAddress,
     BinaryFv.Binary.AddressRange.stop, functionInstance_raw_decoder_root_zesu_decode_raw,
     functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31]

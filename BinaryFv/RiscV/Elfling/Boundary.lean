@@ -179,8 +179,7 @@ def InlineBoundary.validFor (ib : InlineBoundary) (program : Program)
     (∀ e ∈ ib.entries, programContainsEdge program e = true ∧
         functionInstance.containsAddress e.source = true ∧
         childFunctionInstance.containsAddress e.source = false ∧
-        childFunctionInstance.containsAddress e.target = true ∧
-        ib.acceptsEntry childFunctionInstance e.target) ∧
+        childFunctionInstance.containsAddress e.target = true) ∧
     (∀ e ∈ ib.exits, programContainsEdge program e = true ∧
         childFunctionInstance.containsAddress e.source = true ∧
         childFunctionInstance.containsAddress e.target = false ∧
