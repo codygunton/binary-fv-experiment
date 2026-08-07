@@ -1,6 +1,6 @@
-import BinaryFv.Zesu.MemoryRepresentation.RawV4
+import BinaryFv.Zesu.DecodedValue.StatelessInput
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 open BinaryFv.RiscV
 
@@ -55,7 +55,7 @@ theorem observe_fixed_byte_vector_of_rep {length : Nat} (state : State) (base : 
     simpa [FixedByteVectorRep] using representation index vectorBound
   simpa using observe_bytes_of_memory state base value.toArray.toList memory
 
-/-- The little-endian bytes of a specification bit vector, least-significant byte first. -/
+/-- The little-endian bytes of a bridge bit vector, least-significant byte first. -/
 def bitVectorLEBytes {width : Nat} (value : BitVec width) : List UInt8 :=
   (List.range (width / 8)).map fun index =>
     UInt8.ofNat ((value.toNat / 256 ^ index) % 256)
@@ -76,7 +76,7 @@ theorem observe_bit_vector_le_of_rep {width : Nat} (state : State) (base : Nat)
       (bit_vector_le_memory_list state base value representation)
 
 /-- The fixed byte vectors embedded in the root's execution-payload portion. -/
-structure RawV4FixedVectorObservation where
+structure StatelessInputFixedVectorObservation where
   parentHash : List UInt8
   feeRecipient : List UInt8
   stateRoot : List UInt8
@@ -86,8 +86,8 @@ structure RawV4FixedVectorObservation where
   blockHash : List UInt8
   parentBeaconBlockRoot : List UInt8
 
-def observeRawV4FixedVectors? (state : State) (rootBase : Nat) :
-    Option RawV4FixedVectorObservation := do
+def observeStatelessInputFixedVectors? (state : State) (rootBase : Nat) :
+    Option StatelessInputFixedVectorObservation := do
   let parentHash ← observeBytes? state (rootBase + 152) 32
   let feeRecipient ← observeBytes? state (rootBase + 184) 20
   let stateRoot ← observeBytes? state (rootBase + 204) 32
@@ -99,9 +99,9 @@ def observeRawV4FixedVectors? (state : State) (rootBase : Nat) :
   pure ⟨parentHash, feeRecipient, stateRoot, receiptsRoot, logsBloom, prevRandao, blockHash,
     parentBeaconBlockRoot⟩
 
-theorem observe_raw_v4_fixed_vectors_of_rep (state : State) (rootBase : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
-    observeRawV4FixedVectors? state rootBase = some
+theorem observe_stateless_input_fixed_vectors_of_rep (state : State) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (representation : StatelessInputFixedFieldsRep state rootBase value) :
+    observeStatelessInputFixedVectors? state rootBase = some
       { parentHash := value.newPayloadRequest.executionPayload.parentHash.toArray.toList,
         feeRecipient := value.newPayloadRequest.executionPayload.feeRecipient.toArray.toList,
         stateRoot := value.newPayloadRequest.executionPayload.stateRoot.toArray.toList,
@@ -111,7 +111,7 @@ theorem observe_raw_v4_fixed_vectors_of_rep (state : State) (rootBase : Nat)
         blockHash := value.newPayloadRequest.executionPayload.blockHash.toArray.toList,
         parentBeaconBlockRoot :=
           value.newPayloadRequest.parentBeaconBlockRoot.toArray.toList } := by
-  unfold observeRawV4FixedVectors?
+  unfold observeStatelessInputFixedVectors?
   rw [observe_fixed_byte_vector_of_rep state (rootBase + 152) _ representation.parentHash,
     observe_fixed_byte_vector_of_rep state (rootBase + 184) _ representation.feeRecipient,
     observe_fixed_byte_vector_of_rep state (rootBase + 204) _ representation.stateRoot,
@@ -123,19 +123,19 @@ theorem observe_raw_v4_fixed_vectors_of_rep (state : State) (rootBase : Nat)
   rfl
 
 /-- Observe the exact 32-byte little-endian representation of the V4 base fee. -/
-def observeRawV4BaseFee? (state : State) (rootBase : Nat) : Option (List UInt8) :=
+def observeStatelessInputBaseFee? (state : State) (rootBase : Nat) : Option (List UInt8) :=
   observeBytes? state rootBase 32
 
-theorem observe_raw_v4_base_fee_of_rep (state : State) (rootBase : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
-    observeRawV4BaseFee? state rootBase = some
+theorem observe_stateless_input_base_fee_of_rep (state : State) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (representation : StatelessInputFixedFieldsRep state rootBase value) :
+    observeStatelessInputBaseFee? state rootBase = some
       (bitVectorLEBytes value.newPayloadRequest.executionPayload.baseFeePerGas) := by
-  unfold observeRawV4BaseFee?
+  unfold observeStatelessInputBaseFee?
   simpa using observe_bit_vector_le_of_rep state rootBase
     value.newPayloadRequest.executionPayload.baseFeePerGas representation.baseFeePerGas
 
 /-- The inline 64-bit scalar fields embedded in the root's execution payload. -/
-structure RawV4ScalarObservation where
+structure StatelessInputScalarObservation where
   blockNumber : Nat
   gasLimit : Nat
   gasUsed : Nat
@@ -146,7 +146,7 @@ structure RawV4ScalarObservation where
   chainId : Nat
   activeFork : Nat
 
-def observeRawV4Scalars? (state : State) (rootBase : Nat) : Option RawV4ScalarObservation := do
+def observeStatelessInputScalars? (state : State) (rootBase : Nat) : Option StatelessInputScalarObservation := do
   let blockNumber ← observeWord64? state (rootBase + 32)
   let gasLimit ← observeWord64? state (rootBase + 40)
   let gasUsed ← observeWord64? state (rootBase + 48)
@@ -159,9 +159,9 @@ def observeRawV4Scalars? (state : State) (rootBase : Nat) : Option RawV4ScalarOb
   pure ⟨blockNumber, gasLimit, gasUsed, timestamp, blobGasUsed, excessBlobGas, slotNumber,
     chainId, activeFork⟩
 
-theorem observe_raw_v4_scalars_of_rep (state : State) (rootBase : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
-    observeRawV4Scalars? state rootBase = some
+theorem observe_stateless_input_scalars_of_rep (state : State) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (representation : StatelessInputFixedFieldsRep state rootBase value) :
+    observeStatelessInputScalars? state rootBase = some
       { blockNumber := value.newPayloadRequest.executionPayload.blockNumber.toNat,
         gasLimit := value.newPayloadRequest.executionPayload.gasLimit.toNat,
         gasUsed := value.newPayloadRequest.executionPayload.gasUsed.toNat,
@@ -171,7 +171,7 @@ theorem observe_raw_v4_scalars_of_rep (state : State) (rootBase : Nat)
         slotNumber := value.newPayloadRequest.executionPayload.slotNumber.toNat,
         chainId := value.chainConfig.chainId.toNat,
         activeFork := value.chainConfig.activeFork.fork.toNat } := by
-  unfold observeRawV4Scalars?
+  unfold observeStatelessInputScalars?
   rw [observe_word64_of_rep state (rootBase + 32) _
       (UInt64.toNat_lt value.newPayloadRequest.executionPayload.blockNumber) representation.blockNumber,
     observe_word64_of_rep state (rootBase + 40) _
@@ -188,9 +188,9 @@ theorem observe_raw_v4_scalars_of_rep (state : State) (rootBase : Nat)
     observe_word64_of_rep state (rootBase + 144) _
       (UInt64.toNat_lt value.newPayloadRequest.executionPayload.slotNumber) representation.slotNumber,
     observe_word64_of_rep state (rootBase + 736) _ (UInt64.toNat_lt value.chainConfig.chainId)
-      representation.chainId,
+      representation.chainConfig.1,
     observe_word64_of_rep state (rootBase + 744) _ (UInt64.toNat_lt value.chainConfig.activeFork.fork)
-      representation.activeFork]
+      (by simpa [Nat.add_assoc] using representation.chainConfig.2.1)]
   rfl
 
 theorem input_slice_descriptor_memory_list (state : State) (inputBase : Nat) (input : ByteArray)
@@ -236,9 +236,9 @@ theorem observe_input_slice_descriptor_of_rep (state : State) (inputBase : Nat) 
     sliceBase bytes inputMemory representation
   simpa using observe_bytes_of_memory state sliceBase bytes.toList owned
 
-theorem raw_v4_extra_data_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
-    (representation : RawV4Rep state inputBase input rootBase value) :
+theorem stateless_input_extra_data_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) (inputMemory : MemoryBytes state inputBase input)
+    (representation : StatelessInputRep state inputBase input rootBase value) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.newPayloadRequest.executionPayload.extraData.size =
         some value.newPayloadRequest.executionPayload.extraData.toList := by
@@ -249,9 +249,9 @@ theorem raw_v4_extra_data_observes (state : State) (inputBase : Nat) (input : By
     observe_input_slice_descriptor_of_rep state inputBase input (rootBase + 64) inputOffset sliceBase
       value.newPayloadRequest.executionPayload.extraData inputMemory sliceRepresentation⟩
 
-theorem raw_v4_block_access_list_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
-    (representation : RawV4Rep state inputBase input rootBase value) :
+theorem stateless_input_block_access_list_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) (inputMemory : MemoryBytes state inputBase input)
+    (representation : StatelessInputRep state inputBase input rootBase value) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.newPayloadRequest.executionPayload.blockAccessList.size =
         some value.newPayloadRequest.executionPayload.blockAccessList.toList := by
@@ -262,9 +262,9 @@ theorem raw_v4_block_access_list_observes (state : State) (inputBase : Nat) (inp
     observe_input_slice_descriptor_of_rep state inputBase input (rootBase + 128) inputOffset sliceBase
       value.newPayloadRequest.executionPayload.blockAccessList inputMemory sliceRepresentation⟩
 
-theorem raw_v4_transaction_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
-    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+theorem stateless_input_transaction_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) (inputMemory : MemoryBytes state inputBase input)
+    (representation : StatelessInputRep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.executionPayload.transactions.size) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.newPayloadRequest.executionPayload.transactions[index].size =
@@ -277,9 +277,9 @@ theorem raw_v4_transaction_observes (state : State) (inputBase : Nat) (input : B
       (bases.transactionsBase + 16 * index) inputOffset sliceBase
       value.newPayloadRequest.executionPayload.transactions[index] inputMemory sliceRepresentation⟩
 
-theorem raw_v4_witness_state_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
-    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+theorem stateless_input_witness_state_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) (inputMemory : MemoryBytes state inputBase input)
+    (representation : StatelessInputRep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.witness.state.size) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.witness.state[index].size =
@@ -292,9 +292,9 @@ theorem raw_v4_witness_state_observes (state : State) (inputBase : Nat) (input :
       (bases.witnessStateBase + 16 * index) inputOffset sliceBase
       value.witness.state[index] inputMemory sliceRepresentation⟩
 
-theorem raw_v4_witness_codes_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
-    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+theorem stateless_input_witness_codes_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) (inputMemory : MemoryBytes state inputBase input)
+    (representation : StatelessInputRep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.witness.codes.size) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.witness.codes[index].size =
@@ -307,9 +307,9 @@ theorem raw_v4_witness_codes_observes (state : State) (inputBase : Nat) (input :
       (bases.witnessCodesBase + 16 * index) inputOffset sliceBase
       value.witness.codes[index] inputMemory sliceRepresentation⟩
 
-theorem raw_v4_witness_headers_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) (inputMemory : MemoryBytes state inputBase input)
-    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+theorem stateless_input_witness_headers_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) (inputMemory : MemoryBytes state inputBase input)
+    (representation : StatelessInputRep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.witness.headers.size) :
     ∃ inputOffset : Nat, ∃ sliceBase : Nat,
       observeBytes? state sliceBase value.witness.headers[index].size =
@@ -322,9 +322,9 @@ theorem raw_v4_witness_headers_observes (state : State) (inputBase : Nat) (input
       (bases.witnessHeadersBase + 16 * index) inputOffset sliceBase
       value.witness.headers[index] inputMemory sliceRepresentation⟩
 
-theorem raw_v4_public_key_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+theorem stateless_input_public_key_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (representation : StatelessInputRep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.publicKeys.size) :
     ∃ base,
       observeBytes? state (base + 65 * index) 65 = some value.publicKeys[index].toArray.toList := by
@@ -333,9 +333,9 @@ theorem raw_v4_public_key_observes (state : State) (inputBase : Nat) (input : By
     observe_fixed_byte_vector_of_rep state (bases.publicKeysBase + 65 * index)
       value.publicKeys[index] (allocations.publicKeyContents index indexBound)⟩
 
-theorem raw_v4_versioned_hash_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+theorem stateless_input_versioned_hash_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (representation : StatelessInputRep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.versionedHashes.size) :
     ∃ base,
       observeBytes? state (base + 32 * index) 32 =
@@ -372,9 +372,9 @@ theorem observe_raw_withdrawal_of_rep (state : State) (base : Nat) (value : Bina
     observe_fixed_byte_vector_of_rep state (base + 24) value.address representation.2.2.2]
   rfl
 
-theorem raw_v4_withdrawal_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+theorem stateless_input_withdrawal_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (representation : StatelessInputRep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.executionPayload.withdrawals.size) :
     ∃ base,
       observeRawWithdrawal? state (base + 48 * index) = some
@@ -411,9 +411,9 @@ theorem observe_raw_withdrawal_request_of_rep (state : State) (base : Nat)
     observe_fixed_byte_vector_of_rep state (base + 28) value.validatorPubkey representation.2.2]
   rfl
 
-theorem raw_v4_withdrawal_request_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+theorem stateless_input_withdrawal_request_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (representation : StatelessInputRep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.executionRequests.withdrawals.size) :
     ∃ base,
       observeRawWithdrawalRequest? state (base + 80 * index) = some
@@ -450,9 +450,9 @@ theorem observe_raw_consolidation_request_of_rep (state : State) (base : Nat)
     observe_fixed_byte_vector_of_rep state (base + 68) value.targetPubkey representation.2.2]
   rfl
 
-theorem raw_v4_consolidation_request_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+theorem stateless_input_consolidation_request_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (representation : StatelessInputRep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.executionRequests.consolidations.size) :
     ∃ base,
       observeRawConsolidationRequest? state (base + 116 * index) = some
@@ -494,9 +494,9 @@ theorem observe_raw_deposit_request_of_rep (state : State) (base : Nat)
     observe_fixed_byte_vector_of_rep state (base + 96) value.signature representation.2.2.2.2]
   rfl
 
-theorem raw_v4_deposit_observes (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (representation : RawV4Rep state inputBase input rootBase value) (index : Nat)
+theorem stateless_input_deposit_observes (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (representation : StatelessInputRep state inputBase input rootBase value) (index : Nat)
     (indexBound : index < value.newPayloadRequest.executionRequests.deposits.size) :
     ∃ base,
       observeRawDepositRequest? state (base + 192 * index) = some
@@ -511,4 +511,212 @@ theorem raw_v4_deposit_observes (state : State) (inputBase : Nat) (input : ByteA
       value.newPayloadRequest.executionRequests.deposits[index]
       (allocations.depositContents index indexBound)⟩
 
-end BinaryFv.Zesu.MemoryRepresentation
+/-! ## Two foundations for spec-typed observation
+
+The observers above return *observation records* (`Nat`, `List UInt8`) rather than the bridge's own
+types, because they were written to compare against captured evidence. Reconstructing a real
+`BinaryFv.Specs.SSZ` value needs two things they do not yet provide: that a successful `observeBytes?` returns
+exactly the requested number of bytes (so a fixed-width vector can be built from it), and a way to
+observe a whole heap array element by element. Both are stated once here and reused by every array.
+-/
+
+/-- A successful byte observation returns exactly the requested length. This is what lets an observed
+byte list be turned into a fixed-width `RawByteVector`. -/
+theorem observeBytes?_length (state : State) :
+    ∀ (length base : Nat) (bytes : List UInt8),
+      observeBytes? state base length = some bytes → bytes.length = length := by
+  intro length
+  induction length with
+  | zero =>
+    intro base bytes h
+    rw [observeBytes?] at h
+    exact (Option.some.inj h) ▸ rfl
+  | succ n ih =>
+    intro base bytes h
+    rw [observeBytes?] at h
+    cases hbyte : state.mem.get? base with
+    | none => rw [hbyte] at h; exact absurd h (by simp)
+    | some byte =>
+      rw [hbyte] at h
+      cases htail : observeBytes? state (base + 1) n with
+      | none => rw [htail] at h; exact absurd h (by simp)
+      | some tail =>
+        rw [htail] at h
+        simp only [Option.pure_def, Option.bind_eq_bind, Option.some_bind,
+          Option.some.injEq] at h
+        subst h
+        simp [ih (base + 1) tail htail]
+
+/-- Observe `count` consecutive elements, given an index-indexed element observer. Kept generic over
+the element type so every heap array — withdrawals, deposits, public keys, versioned hashes — uses the
+same combinator and the same correspondence lemma below. -/
+def observeElementsFrom? {α : Type} (observeAt : Nat → Option α) (start : Nat) :
+    Nat → Option (List α)
+  | 0 => some []
+  | count + 1 => do
+    let head ← observeAt start
+    let tail ← observeElementsFrom? observeAt (start + 1) count
+    pure (head :: tail)
+
+/-- **An element-wise correspondence lifts to the whole array.** If every element at index `start + i`
+observes to `values[i]`, the array observation returns exactly `values`. -/
+theorem observeElementsFrom_of_all {α : Type} (observeAt : Nat → Option α) :
+    ∀ (values : List α) (start : Nat),
+      (∀ i (hi : i < values.length), observeAt (start + i) = some values[i]) →
+      observeElementsFrom? observeAt start values.length = some values := by
+  intro values
+  induction values with
+  | nil => intro _ _; rfl
+  | cons head tail ih =>
+    intro start hall
+    have hhead : observeAt start = some head := by
+      simpa using hall 0 (by simp)
+    have htail : ∀ i (hi : i < tail.length), observeAt (start + 1 + i) = some tail[i] := by
+      intro i hi
+      have := hall (i + 1) (by simp [hi])
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using this
+    rw [List.length_cons, observeElementsFrom?, hhead]
+    simp [ih (start + 1) htail]
+
+/-! ## Observing the chain config
+
+`StatelessInputFixedFieldsRep` now pins the whole chain config through `ChainConfigRep`, so — unlike the
+earlier version, which pinned only `chainId` and `activeFork.fork` — the fork activation and the
+optional blob schedule can actually be read back. These observers invert that representation exactly,
+bottom-up: tag byte, `?u64`, blob schedule, `?RawBlobSchedule`, activation, fork config, chain config.
+-/
+
+/-- Read an option's discriminant byte. Anything other than the two documented values is rejected
+rather than silently treated as absent. -/
+def observeOptionTag? (state : State) (base : Nat) : Option Bool := do
+  let byte ← state.mem.get? base
+  if byte = BitVec.ofNat 8 1 then pure true
+  else if byte = BitVec.ofNat 8 0 then pure false
+  else none
+
+theorem observe_option_tag_of_rep (state : State) (base : Nat) (present : Bool)
+    (representation : OptionTagRep state base present) :
+    observeOptionTag? state base = some present := by
+  unfold observeOptionTag?
+  rw [show state.mem.get? base = some (BitVec.ofNat 8 (if present then 1 else 0)) from representation]
+  cases present <;> simp
+
+/-- Read a `?u64`: the discriminant at `base + 8` decides whether the payload at `base` is taken. -/
+def observeOptionU64? (state : State) (base : Nat) : Option (Option UInt64) := do
+  let present ← observeOptionTag? state (base + 8)
+  if present then
+    let word ← observeWord64? state base
+    pure (some (UInt64.ofNat word))
+  else
+    pure none
+
+theorem observe_option_u64_of_rep (state : State) (base : Nat) (value : Option UInt64)
+    (representation : OptionU64Rep state base value) :
+    observeOptionU64? state base = some value := by
+  unfold observeOptionU64? OptionU64Rep at *
+  cases value with
+  | none => rw [observe_option_tag_of_rep state (base + 8) false representation]; rfl
+  | some v =>
+    obtain ⟨word, tag⟩ := representation
+    rw [observe_option_tag_of_rep state (base + 8) true tag]
+    simp [observe_word64_of_rep state base v.toNat (UInt64.toNat_lt v) word, UInt64.ofNat_toNat]
+
+/-- Read a `RawBlobSchedule`: three consecutive little-endian words. -/
+def observeBlobSchedule? (state : State) (base : Nat) : Option BinaryFv.Specs.SSZ.RawBlobSchedule := do
+  let target ← observeWord64? state base
+  let max ← observeWord64? state (base + 8)
+  let baseFeeUpdateFraction ← observeWord64? state (base + 16)
+  pure { target := UInt64.ofNat target, max := UInt64.ofNat max,
+         baseFeeUpdateFraction := UInt64.ofNat baseFeeUpdateFraction }
+
+theorem observe_blob_schedule_of_rep (state : State) (base : Nat)
+    (value : BinaryFv.Specs.SSZ.RawBlobSchedule) (representation : BlobScheduleRep state base value) :
+    observeBlobSchedule? state base = some value := by
+  obtain ⟨target, max, fraction⟩ := representation
+  unfold observeBlobSchedule?
+  rw [observe_word64_of_rep state base value.target.toNat (UInt64.toNat_lt value.target) target,
+    observe_word64_of_rep state (base + 8) value.max.toNat (UInt64.toNat_lt value.max) max,
+    observe_word64_of_rep state (base + 16) value.baseFeeUpdateFraction.toNat
+      (UInt64.toNat_lt value.baseFeeUpdateFraction) fraction]
+  simp [UInt64.ofNat_toNat]
+
+/-- Read a `?RawBlobSchedule`: the discriminant sits after the 24-byte payload. -/
+def observeOptionBlobSchedule? (state : State) (base : Nat) :
+    Option (Option BinaryFv.Specs.SSZ.RawBlobSchedule) := do
+  let present ← observeOptionTag? state (base + 24)
+  if present then
+    let schedule ← observeBlobSchedule? state base
+    pure (some schedule)
+  else
+    pure none
+
+theorem observe_option_blob_schedule_of_rep (state : State) (base : Nat)
+    (value : Option BinaryFv.Specs.SSZ.RawBlobSchedule)
+    (representation : OptionBlobScheduleRep state base value) :
+    observeOptionBlobSchedule? state base = some value := by
+  unfold observeOptionBlobSchedule? OptionBlobScheduleRep at *
+  cases value with
+  | none => rw [observe_option_tag_of_rep state (base + 24) false representation]; rfl
+  | some schedule =>
+    obtain ⟨payload, tag⟩ := representation
+    rw [observe_option_tag_of_rep state (base + 24) true tag]
+    simp [observe_blob_schedule_of_rep state base schedule payload]
+
+/-- Read a `RawForkActivation`: two `?u64`s, 16 bytes apart. -/
+def observeForkActivation? (state : State) (base : Nat) : Option BinaryFv.Specs.SSZ.RawForkActivation := do
+  let blockNumber ← observeOptionU64? state base
+  let timestamp ← observeOptionU64? state (base + 16)
+  pure { blockNumber := blockNumber, timestamp := timestamp }
+
+theorem observe_fork_activation_of_rep (state : State) (base : Nat)
+    (value : BinaryFv.Specs.SSZ.RawForkActivation) (representation : ForkActivationRep state base value) :
+    observeForkActivation? state base = some value := by
+  obtain ⟨blockNumber, timestamp⟩ := representation
+  unfold observeForkActivation?
+  rw [observe_option_u64_of_rep state base value.blockNumber blockNumber,
+    observe_option_u64_of_rep state (base + 16) value.timestamp timestamp]
+  rfl
+
+/-- Read a `RawForkConfig`: `fork` at 0, `activation` at 8, `blob_schedule` at 40. -/
+def observeForkConfig? (state : State) (base : Nat) : Option BinaryFv.Specs.SSZ.RawForkConfig := do
+  let fork ← observeWord64? state base
+  let activation ← observeForkActivation? state (base + 8)
+  let blobSchedule ← observeOptionBlobSchedule? state (base + 40)
+  pure { fork := UInt64.ofNat fork, activation := activation, blobSchedule := blobSchedule }
+
+theorem observe_fork_config_of_rep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawForkConfig)
+    (representation : ForkConfigRep state base value) :
+    observeForkConfig? state base = some value := by
+  obtain ⟨fork, activation, blobSchedule⟩ := representation
+  unfold observeForkConfig?
+  rw [observe_word64_of_rep state base value.fork.toNat (UInt64.toNat_lt value.fork) fork,
+    observe_fork_activation_of_rep state (base + 8) value.activation activation,
+    observe_option_blob_schedule_of_rep state (base + 40) value.blobSchedule blobSchedule]
+  simp [UInt64.ofNat_toNat]
+
+/-- Read a `RawChainConfig`: `chain_id` at 0, `active_fork` at 8. -/
+def observeChainConfig? (state : State) (base : Nat) : Option BinaryFv.Specs.SSZ.RawChainConfig := do
+  let chainId ← observeWord64? state base
+  let activeFork ← observeForkConfig? state (base + 8)
+  pure { chainId := UInt64.ofNat chainId, activeFork := activeFork }
+
+theorem observe_chain_config_of_rep (state : State) (base : Nat)
+    (value : BinaryFv.Specs.SSZ.RawChainConfig) (representation : ChainConfigRep state base value) :
+    observeChainConfig? state base = some value := by
+  obtain ⟨chainId, activeFork⟩ := representation
+  unfold observeChainConfig?
+  rw [observe_word64_of_rep state base value.chainId.toNat (UInt64.toNat_lt value.chainId) chainId,
+    observe_fork_config_of_rep state (base + 8) value.activeFork activeFork]
+  simp [UInt64.ofNat_toNat]
+
+/-- **The chain config of a represented `StatelessInput` reads back exactly.** This is the part of the value
+observer that the earlier representation made impossible: with only `chainId` and `activeFork.fork`
+pinned, `activation` and `blobSchedule` were unconstrained and no observer could recover them. -/
+theorem observe_chain_config_of_stateless_input_rep (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (representation : StatelessInputRep state inputBase input rootBase value) :
+    observeChainConfig? state (rootBase + 736) = some value.chainConfig :=
+  observe_chain_config_of_rep state (rootBase + 736) value.chainConfig
+    representation.fixedFields.chainConfig
+
+end BinaryFv.Zesu.DecodedValue

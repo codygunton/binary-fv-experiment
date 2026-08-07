@@ -1,28 +1,30 @@
 import BinaryFv.Zesu.Contracts.Entry
+import BinaryFv.RiscV.Platform.NormalState
 
 namespace BinaryFv.Zesu.Contracts
 
 open BinaryFv.RiscV
 open BinaryFv.RiscV.Elfling
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open LeanRV64DExecutable.Functions Register
 
 /-!
-# The real exported decoder
+# Contract for the public decoder API
 
-`zesu_decode_raw` is not the internal `decodeRaw`. Its machine interface was previously modelled with
-the internal four-register hidden-result convention (`x10 = resultBase`, …), and its effect was
-modelled as a free 64-bit status word written to an arbitrary `statusBase`. Both are wrong about the
-shipped binary.
+This file models the three functions visible to a caller:
 
-The exported wrapper's real interface is the C ABI `zesu_decode_raw(input, len) -> i32`: the input
-pointer in `a0`, the length in `a1`, and a `1`/`0` return in `a0`. Its real effect is on three private
-globals — an `attempted` flag, a 32-bit `last_status`, and an optional `stored_result` pointer — read
-back out through the exported accessors `zesu_raw_result` and `zesu_raw_error`. It does not write a
-caller result buffer, and there is no free public status slot.
+- `zesu_decode_raw(input, len) -> i32` runs the decoder once and returns `1` for success or `0` for
+  failure;
+- `zesu_raw_result()` returns the address of the stored value after a successful call, or null;
+- `zesu_raw_error()` returns the recorded 32-bit status.
 
-This module models that interface. The `resultBase + 832` 16-bit union stays where it belongs, on the
-*internal* `decodeRaw` (see `MemoryRepresentation.Result`); nothing here uses it.
+The wrapper receives the input pointer in RISC-V register `a0` and its length in `a1`. It stores its
+state in three private globals: a one-byte `attempted` flag, `last_status`, and an inline
+`?RawStatelessInput` object named `stored_result`. That object is 848 bytes: its 832-byte payload
+starts at offset 0 and its discriminant is at offset 832. It is not a pointer slot.
+
+The internal Zig function `decodeRaw` uses a different hidden-result ABI. Its representation remains
+in `DecodedValue.Result`; none of that internal calling convention is used here.
 -/
 
 /-- The addresses of the three private decoder globals, as pinned by the linker map.
@@ -46,14 +48,14 @@ deriving Repr, Inhabited
 /-- The ghost model of the decoder globals: whether a decode was attempted, the recorded status, and
 the stored result value if one was produced.
 
-`stored` holds the decoded *value*; how a value is realized in memory (a canonical result buffer and a
-pointer to it) is the representation's job, not the model's. These are ghost values, not ABI
+`stored` holds the decoded value; how that value is realized in the inline global object is the
+representation's job. These are ghost values, not ABI
 arguments: the exported accessors observe canonical global memory and this model is what that memory
 represents. -/
 structure DecoderGlobalsModel where
   attempted : Bool
   status : DecodeStatus
-  stored : Option BinaryFv.Specs.SSZ.RawV4
+  stored : Option BinaryFv.Specs.SSZ.StatelessInput
 
 /-- The real C ABI arguments of `zesu_decode_raw`: the borrowed input pointer and its length.
 
@@ -69,8 +71,8 @@ wrapper refuses to run once `attempted` is set. Modelling it as a distinct outco
 "second call" behaviour statable, and is why the root theorem's precondition must pin a fresh
 `attempted = false`. -/
 inductive DecodeCallOutcome
-  | success (value : BinaryFv.Specs.SSZ.RawV4)
-  | rejected (error : SszDecodeError)
+  | success (value : BinaryFv.Specs.SSZ.StatelessInput)
+  | rejected (error : DecodeError)
   | alreadyDecoded
 
 namespace DecodeCallOutcome
@@ -89,7 +91,7 @@ def status : DecodeCallOutcome → DecodeStatus
   | alreadyDecoded => .alreadyDecoded
 
 /-- The stored result value this outcome leaves behind, if any. -/
-def stored : DecodeCallOutcome → Option BinaryFv.Specs.SSZ.RawV4
+def stored : DecodeCallOutcome → Option BinaryFv.Specs.SSZ.StatelessInput
   | success value => some value
   | rejected _ => none
   | alreadyDecoded => none
@@ -108,7 +110,7 @@ result.
 If a decode was already attempted the call is refused and yields `alreadyDecoded`; otherwise the
 decode result becomes `success`/`rejected`. -/
 def callOutcome (incoming : DecoderGlobalsModel)
-    (result : Except SszDecodeError BinaryFv.Specs.SSZ.RawV4) : DecodeCallOutcome :=
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) : DecodeCallOutcome :=
   if incoming.attempted then
     .alreadyDecoded
   else
@@ -119,7 +121,7 @@ def callOutcome (incoming : DecoderGlobalsModel)
 /-- The globals model after a wrapper call: a fresh call records the attempt, its status, and its
 stored value; a refused second call leaves the globals exactly as they were. -/
 def resultingGlobals (incoming : DecoderGlobalsModel)
-    (result : Except SszDecodeError BinaryFv.Specs.SSZ.RawV4) : DecoderGlobalsModel :=
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) : DecoderGlobalsModel :=
   if incoming.attempted then
     incoming
   else
@@ -130,9 +132,10 @@ def resultingGlobals (incoming : DecoderGlobalsModel)
 /-!
 ## Representing the globals in canonical memory
 
-An `attempted` flag is one byte; `last_status` is a 32-bit little-endian word. The stored-result
-pointer and the buffer it points at are represented separately (`StoredResultRep`) because that ties
-a *value* to memory and needs the canonical result-buffer location.
+An `attempted` flag is one byte; `last_status` is a 32-bit little-endian word. The inline
+`stored_result` object — its discriminant byte and, on success, the `StatelessInput` payload laid out at the
+object's payload address — is represented separately (`StoredResultRep`) because that ties a *value*
+to memory and needs the canonical payload location.
 -/
 
 /-- A concrete little-endian 32-bit word in Sail sparse memory. -/
@@ -145,7 +148,7 @@ def FlagRep (state : State) (base : Nat) (value : Bool) : Prop :=
   state.mem.get? base = some (BitVec.ofNat 8 (if value then 1 else 0))
 
 /-- The scalar part of the decoder globals — the `attempted` flag and the 32-bit `last_status` —
-represents `model` at `layout`. The stored-result pointer is `StoredResultRep`. -/
+represents `model` at `layout`. The inline `stored_result` object is `StoredResultRep`. -/
 def DecoderGlobalsScalarRep (layout : DecoderGlobalsLayout) (model : DecoderGlobalsModel)
     (state : State) : Prop :=
   FlagRep state layout.attempted model.attempted ∧
@@ -157,14 +160,14 @@ whether to return the payload address or null, so the accessor needs neither the
 representation nor the input. -/
 def StoredResultDiscriminantRep (layout : DecoderGlobalsLayout) (model : DecoderGlobalsModel)
     (state : State) : Prop :=
-  MemoryRepresentation.OptionTagRep state
+  DecodedValue.OptionTagRep state
     (layout.storedResult + layout.storedResultObject.discriminantOffset) model.stored.isSome
 
-/-- The complete inline `stored_result` object: its discriminant, and — on success — the `RawV4`
+/-- The complete inline `stored_result` object: its discriminant, and — on success — the `StatelessInput`
 payload laid out at `resultBase` (the object's payload address) under the full container
 representation. The value arm carries the caller's input base/bytes so the borrowed input slices of
-the stored `RawV4` are represented. -/
-def StoredResultRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+the stored `StatelessInput` are represented. -/
+def StoredResultRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (inputBase : Nat) (input : ByteArray) (resultBase : Nat) (model : DecoderGlobalsModel)
     (state : State) : Prop :=
   StoredResultDiscriminantRep layout model state ∧
@@ -174,7 +177,7 @@ def StoredResultRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentati
 
 /-- The complete incoming/outgoing representation of all three decoder globals against a ghost model:
 the scalar `attempted`/`last_status` words and the full inline `stored_result` object. -/
-def DecoderGlobalsRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+def DecoderGlobalsRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (inputBase : Nat) (input : ByteArray) (resultBase : Nat) (model : DecoderGlobalsModel)
     (state : State) : Prop :=
   DecoderGlobalsScalarRep layout model state ∧
@@ -184,14 +187,14 @@ def DecoderGlobalsRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresenta
 ## Model-level facts
 
 These are `Prop`-level checks on the model, independent of any Sail execution — the definitional
-half of the function-instance contract tests.
+half of the exported-function contract tests.
 -/
 
 /-- **Second decoder call produces `alreadyDecoded`.** Once `attempted` is set, any call outcome is
 `alreadyDecoded` with status `.alreadyDecoded` and a `0` return, regardless of the input's decode
 result, and the globals are left untouched. -/
 theorem second_call_is_alreadyDecoded (incoming : DecoderGlobalsModel)
-    (result : Except SszDecodeError BinaryFv.Specs.SSZ.RawV4) (h : incoming.attempted = true) :
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) (h : incoming.attempted = true) :
     callOutcome incoming result = .alreadyDecoded ∧
     (callOutcome incoming result).status = .alreadyDecoded ∧
     (callOutcome incoming result).returnCode = 0 ∧
@@ -201,7 +204,7 @@ theorem second_call_is_alreadyDecoded (incoming : DecoderGlobalsModel)
 
 /-- **A fresh successful call returns `1` and stores the value.** The exact stored-result tag and
 payload and the accessor's return follow. -/
-theorem fresh_success_stores_value (incoming : DecoderGlobalsModel) (value : BinaryFv.Specs.SSZ.RawV4)
+theorem fresh_success_stores_value (incoming : DecoderGlobalsModel) (value : BinaryFv.Specs.SSZ.StatelessInput)
     (hfresh : incoming.attempted = false) :
     callOutcome incoming (.ok value) = .success value ∧
     (callOutcome incoming (.ok value)).returnCode = 1 ∧
@@ -212,7 +215,7 @@ theorem fresh_success_stores_value (incoming : DecoderGlobalsModel) (value : Bin
       DecodeCallOutcome.stored, hfresh]
 
 /-- **A fresh rejected call returns `0` and stores nothing**, recording the exact rejection status. -/
-theorem fresh_rejection_stores_nothing (incoming : DecoderGlobalsModel) (error : SszDecodeError)
+theorem fresh_rejection_stores_nothing (incoming : DecoderGlobalsModel) (error : DecodeError)
     (hfresh : incoming.attempted = false) :
     callOutcome incoming (.error error) = .rejected error ∧
     (callOutcome incoming (.error error)).returnCode = 0 ∧
@@ -234,18 +237,101 @@ internal contracts use. Its binding is the real one: the C ABI on entry, and the
 globals plus the return code on exit, read against an incoming ghost globals model. The catalog
 instantiates it at `DecoderGlobalsModel.fresh`; a second call is the same binding at an already
 `attempted` model.
+
+### The callee-frame clauses, and why these two exactly
+
+`postZesuDecodeRaw` here and `postRawResult`/`postRawError` in `Contracts.Runtime` each carry
+
+```
+Agree platformPreserved before after   -- the eighteen registers a `ret` needs, unchanged
+RetiredCounterPresent after            -- `minstret` still readable
+```
+
+and this is the one place the reasoning is written out; the accessors' docstrings point here.
+
+**What consumes them.** A `TraceToSentinel` — what the runner's fuel argument and the root theorem
+are stated against — is built from a contract's `EnteredFunctionTrace` by
+`RiscV/Elfling/SentinelBridge.lean`, which appends the function's final `ret`. That bridge has two
+demands at the *exit* state, and they are not the same demand:
+
+* `traceToSentinel_of_functionTrace_ret`'s `linkIsSentinel` needs the value `ret` reads out of the
+  link register to be the sentinel. The runner put the sentinel there
+  (`buildZesuEntryState_entry_binding_abi` exposes `x1 := canonicalRunnerLayout.sentinel` at the
+  entry state), so what is missing is that the *call* did not disturb it.
+* `tryStepRetRetires`, which supplies that bridge's `ret` premise, wants ~20 hypotheses about the
+  exit state, and every one of them bottoms out in register reads.
+
+Before these clauses existed the contract layer supplied **neither**: no `post*` predicate in this
+directory mentioned `x1` at all, and `NormalExecutionState` was reachable only at the state the
+runner builds.
+
+**One frame clause rather than a list of predicates.** The first version of these clauses was
+`after.regs.get? x1 = before.regs.get? x1 ∧ NormalExecutionState after`. Walking `tryStepRetRetires`'
+premises down to the registers they actually read — rather than reading its signature — showed that
+pair leaves **five** registers open, not one: `mstatus` and `sig_meip` (`InterruptDisabled`),
+`mstatus` again and `pma_regions` (`FetchBasePlatform`, through `FetchPmaAllows`), `mseccfg` (the
+decode, and `update_elp_state`'s `Zicfilp` gate), and `htif_tohost_base` (`FetchMemoryNoMMIO`).
+`RiscV/Platform/NormalState.lean`'s `platformPreserved` names all of them plus `x1` and
+`NormalExecutionState`'s own twelve, and `Agree` — the register half of `RiscV/Elfling/Contract.lean`'s
+`CalleeFrame`, already existing vocabulary — is the one clause that carries the lot.
+
+It is not weaker than what it replaces. `normalExecutionState_of_platformPreserved` recovers
+`NormalExecutionState after` from it given `NormalExecutionState before`, which the runner proves at
+the state it builds; `platformPreserved_link` recovers the `x1` equation verbatim; and it *adds* the
+five, at their values rather than merely present, which is what `FetchPmaAllows` needs
+(it evaluates `matching_pma_region` on `pma_regions`) and what `update_elp_state` needs of `mseccfg`.
+
+**The MMIO dispatch needs no conjunct of its own**, which is not obvious from its shape:
+`FetchMemoryNoMMIO` is a *run* of `within_mmio_readable`, not a register equation. That run
+dispatches to `within_clint`, `within_sig` and `within_htif_readable`; the first two read no register
+and depend on the address alone, and the third reads exactly `htif_tohost_base`.
+`Platform/FetchMmio.lean`'s `fetchMemoryNoMMIO_of_agree` proves the transport from this clause, so it
+is a fact rather than an argument.
+
+**`minstret` is a separate clause because preservation of it is false.** `retiredRead` reads the
+retired-instruction counter, so the exit state must have it — but the machine writes `minstret` on
+every retirement (`tryStepControlFlowAfterRetired` *is* `writeReg minstret (retired + 1)`), so a
+callee that preserved it would have executed no instructions. Folding it into `platformPreserved`
+would have made every one of these three postconditions false, and a false conjunct inside an assumed
+hypothesis makes the root vacuous rather than merely under-specified. `RetiredCounterPresent` is the
+claim that is true: presence at an existentially bound value, which is exactly the form `retiredRead`
+consumes.
+
+**Preservation, not equality with the sentinel.** The `x1` component is deliberately *not*
+`after.regs.get? x1 = some sentinelWord`. The sentinel is the **runner's** choice of an unmapped
+address, and a contract in this layer may not name it — that is the same address-freedom rule the
+rest of the file follows. Preservation is also the form that composes: it is what turns the entry
+state's `x1 := sentinel` into the exit state's, and it stays true of a function instance called from anywhere
+else, which an equation naming one caller's sentinel would not. The same argument applies to the
+platform registers, and is why the whole clause is relative.
+
+**True of the binary, established before the clauses were accepted rather than after.** `ra` is
+callee-saved under RV64 LP64; the whole-program disassembly found `zesu_raw_result` (8 instructions)
+and `zesu_raw_error` (3) are leaves with no prologue and zero stores, so they cannot disturb `ra` or
+any CSR, and `zesu_decode_raw` saves and restores `ra` conventionally. The decoder writes no CSRs,
+and none of `sig_meip`, `pma_regions`, `mseccfg`, `htif_tohost_base` is writable by any instruction
+the decoder contains.
+
+**Satisfiability is exhibited, not argued.** `ExportedDecoderAudit` carries a run for each of the
+three predicates that satisfies the strengthened form, and four clobbering runs — `x1`, a
+`NormalExecutionState` register, one of the five, and the MMIO register — each of which the previous
+form of the clauses **permitted** and this one refuses. The witnesses also *move* `minstret`, so a
+future edit that folds the counter into `platformPreserved` stops them compiling rather than passing
+silently. That order matters: a strengthening of an assumed hypothesis that is *false* of the
+implementation makes the root vacuous, which is strictly worse than a missing clause, and "free
+because nothing discharges it yet" is the same fact as "unverified" seen twice.
 -/
 
 /-- The shared specification of `zesu_decode_raw`: the pure `decode` outcome. Shared by every
-occurrence; it names no register, global, or address. -/
-def specZesuDecodeRaw : SourceFunctionSpec ZesuDecodeRawArgs (Except SszDecodeError BinaryFv.Specs.SSZ.RawV4) where
+function instance; it names no register, global, or address. -/
+def specZesuDecodeRaw : SourceFunctionSpec ZesuDecodeRawArgs (Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) where
   meaning := fun args => meaningDecode args.bytes
 
 /-- The wrapper entry binding: the real C ABI `zesu_decode_raw(input, len)` — the input pointer in
 `a0`, the length in `a1` — over valid code and input, with the *complete* incoming decoder-globals
 representation (the scalar words and the full inline `stored_result` object). -/
 def preZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs) (state : State) : Prop :=
   MemoryBytes state args.inputBase args.bytes ∧
   env.CodeIntact state ∧
@@ -256,22 +342,51 @@ def preZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
 /-- The wrapper exit binding, after retiring the return: the exact `a0` return code, the complete
 updated decoder globals (`attempted`, 32-bit status, and the inline `stored_result` object), and the
 preserved input and code. Allocation effects and preserved frames are added when the runner is proved
-by the execution proof; this fixes the observable interface. -/
+by the execution proof; this fixes the observable interface.
+
+**This is the one `post*` of the eighteen that does NOT carry the ownership clause, and the reason is
+its shape rather than an omission.** `DecoderEnvironment.ownedRegion` names one contiguous record
+range plus one allocation interval, the allocator state and the stack. The wrapper's owned set adds
+*three separately addressed globals* — `globals.attempted`, `globals.status`, and the 848-byte
+`globals.storedResult` object. `DecoderGlobalsLayout` carries the three addresses and no span relating
+them, so no choice of `recordBase`/`recordSize` covers them; and a clause naming only `storedResult`
+would be **false**, because the wrapper certainly writes `attempted`. A false conjunct here would
+make the exported-contract premise unsatisfiable and the conditional root vacuous.
+
+**Re-examined when the stack region was added, and the exclusion stands.** The stack made the *other*
+seventeen clauses satisfiable; it does nothing for this one, because what this predicate cannot name
+is the private-globals block, not the frame. The clean fix is a span field on `DecoderGlobalsLayout`,
+and that structure is instantiated by `Elfling/GeneratedDecoderGlobals.lean` from the generated
+artifact — the same `bssBase`/`bssSize` the block already has — so it is a generated-layout change
+rather than a contracts change, and inventing a span here would be guessing at it.
+
+Nothing is lost at the composition either: the wrapper is the top-level function instance with no siblings, so
+no `SiblingChain` is ever built from its postcondition. `DECISIONS.md` records the same scope fact
+from the other direction — the root's accepted branch closes without any ownership clause.
+
+**`before` is now used, and this predicate is no longer the exception to that.** It was the last of
+the four `before`-taking postconditions to ignore its `before` binder; the `Agree` clause below is a
+relative claim and cannot be stated absolutely, which is exactly the shape `Entry.lean`'s note said
+was missing. -/
 def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
-    (result : Except SszDecodeError BinaryFv.Specs.SSZ.RawV4) (before after : State) : Prop :=
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) (before after : State) : Prop :=
   MemoryBytes after args.inputBase args.bytes ∧
   env.CodeIntact after ∧
   after.regs.get? x10 = some (BitVec.ofNat 64 (callOutcome incoming result).returnCode) ∧
+  -- **The two callee-frame clauses.** See the section note above: the eighteen registers a retiring
+  -- `ret` reads come back unchanged, and the retired counter is still readable.
+  Agree platformPreserved before after ∧
+  RetiredCounterPresent after ∧
   DecoderGlobalsRep globals rep args.inputBase args.bytes resultBuffer (resultingGlobals incoming result) after
 
-/-- The wrapper as a full occurrence contract: the shared spec paired with the real exported binding
+/-- The wrapper as a full function instance contract: the shared spec paired with the real exported binding
 at a given incoming globals model. -/
-def occurrenceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+def functionInstanceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (incoming : DecoderGlobalsModel) :
-    OccurrenceContract ZesuDecodeRawArgs (Except SszDecodeError BinaryFv.Specs.SSZ.RawV4) where
+    FunctionInstanceContract ZesuDecodeRawArgs (Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) where
   spec := specZesuDecodeRaw
   binding :=
     { entry := preZesuDecodeRaw env globals resultBuffer rep incoming
@@ -280,17 +395,17 @@ def occurrenceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobals
 
 /-- The exported wrapper's correctness claim, at the fresh incoming model the root theorem uses. -/
 def correctnessClaimZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  OccurrenceContract.ImplementsInstance instance_ entry exit
-    (occurrenceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
+  FunctionInstanceContract.ImplementsFunctionInstance functionInstance reached entry exit
+    (functionInstanceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
 
 /-- The exported wrapper's entry binding is satisfiable under a valid environment. -/
 def satisfiableZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) : Prop :=
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) : Prop :=
   ValidEnvironment env →
-    OccurrenceContract.PreSatisfiable
-      (occurrenceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
+    FunctionInstanceContract.PreSatisfiable
+      (functionInstanceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)
 
 end BinaryFv.Zesu.Contracts

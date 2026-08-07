@@ -1,4 +1,4 @@
-import BinaryFv.RiscV.Logic.ImageMemory
+import BinaryFv.RiscV.Logic.LoadedImage
 import BinaryFv.RiscV.ELF.Elf64
 
 open PreSail

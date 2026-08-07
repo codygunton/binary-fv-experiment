@@ -5,7 +5,7 @@ namespace BinaryFv.Zesu.Contracts
 open SizzLean.Spec
 open BinaryFv.RiscV
 open BinaryFv.RiscV.Elfling
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open LeanRV64DExecutable.Functions Register
 
 /-!
@@ -61,37 +61,37 @@ def publicKeysType : SSZType :=
   .list (BinaryFv.Specs.SSZ.byteVector BinaryFv.Specs.SSZ.publicKeyBytes) BinaryFv.Specs.SSZ.maxPublicKeys
 
 def meaningVersionedHashes (bytes : ByteArray) :
-    Except SszDecodeError (Array (BinaryFv.Specs.SSZ.RawByteVector 32)) :=
+    Except DecodeError (Array (BinaryFv.Specs.SSZ.RawByteVector 32)) :=
   match BinaryFv.Specs.SSZ.decodeCanonical versionedHashesType bytes with
   | .ok value => .ok value.1
   | .error error => .error (sszToDecodeError error)
 
 def meaningWithdrawals (bytes : ByteArray) :
-    Except SszDecodeError (Array BinaryFv.Specs.SSZ.RawWithdrawal) :=
+    Except DecodeError (Array BinaryFv.Specs.SSZ.RawWithdrawal) :=
   match BinaryFv.Specs.SSZ.decodeCanonical withdrawalsType bytes with
   | .ok value => .ok (value.1.map BinaryFv.Specs.SSZ.rawWithdrawalOf)
   | .error error => .error (sszToDecodeError error)
 
 def meaningDepositRequests (bytes : ByteArray) :
-    Except SszDecodeError (Array BinaryFv.Specs.SSZ.RawDepositRequest) :=
+    Except DecodeError (Array BinaryFv.Specs.SSZ.RawDepositRequest) :=
   match BinaryFv.Specs.SSZ.decodeCanonical depositRequestsType bytes with
   | .ok value => .ok (value.1.map BinaryFv.Specs.SSZ.rawDepositRequestOf)
   | .error error => .error (sszToDecodeError error)
 
 def meaningWithdrawalRequests (bytes : ByteArray) :
-    Except SszDecodeError (Array BinaryFv.Specs.SSZ.RawWithdrawalRequest) :=
+    Except DecodeError (Array BinaryFv.Specs.SSZ.RawWithdrawalRequest) :=
   match BinaryFv.Specs.SSZ.decodeCanonical withdrawalRequestsType bytes with
   | .ok value => .ok (value.1.map BinaryFv.Specs.SSZ.rawWithdrawalRequestOf)
   | .error error => .error (sszToDecodeError error)
 
 def meaningConsolidationRequests (bytes : ByteArray) :
-    Except SszDecodeError (Array BinaryFv.Specs.SSZ.RawConsolidationRequest) :=
+    Except DecodeError (Array BinaryFv.Specs.SSZ.RawConsolidationRequest) :=
   match BinaryFv.Specs.SSZ.decodeCanonical consolidationRequestsType bytes with
   | .ok value => .ok (value.1.map BinaryFv.Specs.SSZ.rawConsolidationRequestOf)
   | .error error => .error (sszToDecodeError error)
 
 def meaningPublicKeys (bytes : ByteArray) :
-    Except SszDecodeError (Array (BinaryFv.Specs.SSZ.RawByteVector BinaryFv.Specs.SSZ.publicKeyBytes)) :=
+    Except DecodeError (Array (BinaryFv.Specs.SSZ.RawByteVector BinaryFv.Specs.SSZ.publicKeyBytes)) :=
   match BinaryFv.Specs.SSZ.decodeCanonical publicKeysType bytes with
   | .ok value => .ok value.1
   | .error error => .error (sszToDecodeError error)
@@ -106,7 +106,7 @@ def byteListListType (maxItems maxItemBytes : Nat) : SSZType :=
   .list (BinaryFv.Specs.SSZ.byteList maxItemBytes) maxItems
 
 def meaningByteListList (maxItems maxItemBytes : Nat) (bytes : ByteArray) :
-    Except SszDecodeError (Array BinaryFv.Specs.SSZ.RawBytes) :=
+    Except DecodeError (Array BinaryFv.Specs.SSZ.RawBytes) :=
   match BinaryFv.Specs.SSZ.decodeCanonical (byteListListType maxItems maxItemBytes) bytes with
   | .ok value => .ok (value.1.map fun item => item.1)
   | .error error => .error (sszToDecodeError error)
@@ -146,60 +146,72 @@ discipline means elements of a byte-list collection *alias* the caller's input r
 
 The error arm admits `invalidSsz` and `outOfMemory` and excludes `unknownFork`: no collection decoder
 reads a fork index.
+
+**The ownership clause.** Every collection allocates, so it takes the allocating form: its permitted
+region is the slice descriptor it publishes at `args.resultBase`, the arena interval its allocations
+consumed, the allocator's own state, and its stack frame. The heap array itself needs no separate mention — it was
+allocated by the same call, so it is inside the interval, which is precisely the containment
+`postAlloc`'s `cursorBefore ≤ address ∧ address + bytes ≤ cursorAfter` was added to make derivable.
+The record is the descriptor, not the array, and `env.record.sliceDescriptor` is its ABI size.
+
+Note `_before` is no longer unused: the clause is the first thing in this predicate that relates the
+two states rather than describing `after` absolutely. The docstring on `postEntry` explaining why the
+binder was decorative describes the shape these predicates *used* to have.
 -/
 def postCollection {α : Type} (env : DecoderEnvironment) (args : CollectionArgs)
     (elementSize : Nat) (count : α → Nat)
-    (result : Except SszDecodeError α) (before after : State) : Prop :=
+    (result : Except DecodeError α) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
+  env.WritesOnlyWithinOwnAllocation args.resultBase env.record.sliceDescriptor before after ∧
   match result with
   | .ok value =>
       ∃ dataBase,
         AllocatedDescriptorArray after args.resultBase dataBase (count value) elementSize
   | .error error =>
-      error = SszDecodeError.invalidSsz ∨ error = SszDecodeError.outOfMemory
+      error = DecodeError.invalidSsz ∨ error = DecodeError.outOfMemory
 
 /-!
 ## Contracts
 -/
 
 def contractVersionedHashes (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs (Array (BinaryFv.Specs.SSZ.RawByteVector 32)) where
+    FunctionContract DecodeError CollectionArgs (Array (BinaryFv.Specs.SSZ.RawByteVector 32)) where
   meaning := fun args => meaningVersionedHashes args.bytes
   pre := preCollection env
   post := fun args => postCollection env args 32 Array.size
   stepBound := fun args => 128 + 64 * (args.bytes.size / 32 + 1)
 
 def contractWithdrawals (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawWithdrawal) where
+    FunctionContract DecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawWithdrawal) where
   meaning := fun args => meaningWithdrawals args.bytes
   pre := preCollection env
   post := fun args => postCollection env args 44 Array.size
   stepBound := fun args => 128 + 256 * (args.bytes.size / 44 + 1)
 
 def contractDepositRequests (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawDepositRequest) where
+    FunctionContract DecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawDepositRequest) where
   meaning := fun args => meaningDepositRequests args.bytes
   pre := preCollection env
   post := fun args => postCollection env args 192 Array.size
   stepBound := fun args => 128 + 512 * (args.bytes.size / 192 + 1)
 
 def contractWithdrawalRequests (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawWithdrawalRequest) where
+    FunctionContract DecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawWithdrawalRequest) where
   meaning := fun args => meaningWithdrawalRequests args.bytes
   pre := preCollection env
   post := fun args => postCollection env args 76 Array.size
   stepBound := fun args => 128 + 256 * (args.bytes.size / 76 + 1)
 
 def contractConsolidationRequests (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawConsolidationRequest) where
+    FunctionContract DecodeError CollectionArgs (Array BinaryFv.Specs.SSZ.RawConsolidationRequest) where
   meaning := fun args => meaningConsolidationRequests args.bytes
   pre := preCollection env
   post := fun args => postCollection env args 116 Array.size
   stepBound := fun args => 128 + 256 * (args.bytes.size / 116 + 1)
 
 def contractPublicKeys (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError CollectionArgs
+    FunctionContract DecodeError CollectionArgs
       (Array (BinaryFv.Specs.SSZ.RawByteVector BinaryFv.Specs.SSZ.publicKeyBytes)) where
   meaning := fun args => meaningPublicKeys args.bytes
   pre := preCollection env
@@ -209,7 +221,7 @@ def contractPublicKeys (env : DecoderEnvironment) :
 /-- `decodeByteListList` produces 16-byte slice descriptors, one per item. One contract, one
 identity; the bounds ride in `ByteListListArgs`. -/
 def contractByteListList (env : DecoderEnvironment) :
-    FunctionContract SszDecodeError ByteListListArgs (Array BinaryFv.Specs.SSZ.RawBytes) where
+    FunctionContract DecodeError ByteListListArgs (Array BinaryFv.Specs.SSZ.RawBytes) where
   meaning := fun args => meaningByteListList args.maxItems args.maxItemBytes args.bytes
   pre := fun args => preCollection env args.toCollectionArgs
   post := fun args => postCollection env args.toCollectionArgs 16 Array.size
@@ -220,39 +232,39 @@ def contractByteListList (env : DecoderEnvironment) :
 -/
 
 def correctnessClaimVersionedHashes (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractVersionedHashes env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractVersionedHashes env)
 
 def correctnessClaimWithdrawals (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractWithdrawals env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractWithdrawals env)
 
 def correctnessClaimDepositRequests (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractDepositRequests env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractDepositRequests env)
 
 def correctnessClaimWithdrawalRequests (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractWithdrawalRequests env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractWithdrawalRequests env)
 
 def correctnessClaimConsolidationRequests (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractConsolidationRequests env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractConsolidationRequests env)
 
 def correctnessClaimPublicKeys (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractPublicKeys env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractPublicKeys env)
 
 def correctnessClaimByteListList (env : DecoderEnvironment)
-    (instance_ : BinaryFv.Binary.Elfling.FunctionInstance)
+    (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
-  ImplementsInstance instance_ entry exit (contractByteListList env)
+  ImplementsFunctionInstance functionInstance reached entry exit (contractByteListList env)
 
 /-!
 ## Satisfiability
@@ -298,9 +310,15 @@ def byteListListLoopInvariant (bytes : ByteArray) (maxItemBytes : Nat)
   ∀ pair ∈ starts.zip ends,
     pair.1 ≤ pair.2 ∧ pair.2 ≤ bytes.size ∧ pair.2 - pair.1 ≤ maxItemBytes
 
-/-- A zero-length input still allocates: the source takes `alloc.alloc(_, 0)` rather than returning
-a static empty slice, so "no allocation" would be the wrong postcondition even here. -/
-def emptyByteListListStillAllocates : Prop :=
+/-- A zero-length input decodes to the empty array rather than failing.
+
+**Renamed from `emptyByteListListIsEmptyArray`, and the old name overclaimed.** A zero-length input
+does still allocate — the source takes `alloc.alloc(_, 0)` rather than returning a static empty
+slice, so "no allocation" would be the wrong postcondition even here — but *this statement says
+nothing about that*. It is about the meaning, which has no allocation effect to observe. The
+allocation claim is `postCollection`'s `AllocatedDescriptorArray`, and restating it here would create
+a second source for a proof-relevant fact, which is what this project rejects everywhere else. -/
+def emptyByteListListIsEmptyArray : Prop :=
   ∀ maxItems maxItemBytes,
     meaningByteListList maxItems maxItemBytes ByteArray.empty = .ok #[]
 

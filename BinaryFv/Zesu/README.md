@@ -1,10 +1,11 @@
 # Zesu verification modules
 
-This directory contains the proof that the pinned Zesu Amsterdam V4 decoder binary implements the
-pinned Ethereum SSZ decoding specification. SizzLean supplies the executable Lean specification;
-the generated Sail model supplies the RISC-V machine semantics; and the Elfling model connects
-source-level function identities to instruction regions in the compiled binary. The
-implementation-independent specification lives in `BinaryFv/Specs/SSZ`, outside this Zesu target.
+This directory verifies the pinned Zesu stateless-input decoder against the pinned Ethereum SSZ
+decoding specification. The public result is conditional on machine proofs of the exported decoder
+and its two accessors. SizzLean supplies the executable Lean specification; the generated Sail model
+supplies the RISC-V machine semantics; and the Elfling model connects source-level function
+identities to instruction regions in the compiled binary. The implementation-independent
+specification lives in `BinaryFv/Specs/SSZ`, outside this Zesu target.
 
 The directory names describe the role of each definition or theorem; there is no catch-all `Proof`
 namespace.
@@ -22,12 +23,15 @@ namespace.
   `ZesuDecodeRaw` covers `zesu_decode_raw`.
 - `MachineExecution`: proofs about concrete Zesu instructions using the executable Sail RISC-V
   semantics, including composed basic-block traces.
-- `MemoryRepresentation`: predicates, observers, and primitive-read lemmas connecting Sail memory
-  to native Zesu values and the SSZ specification.
+- `DecodedValue`: reads Zesu's decoded result from native RISC-V memory and proves that it is the
+  `StatelessInput` value returned by the SSZ specification.
 - `Runtime`: the Zesu allocator, allocation bounds, and other runtime implementation details.
 
 `Interface.lean` defines the public API for executing a validated Zesu ELF on an input. `Root.lean`
-states the final theorem relating that execution to `BinaryFv.Specs.SSZ` for every input in scope.
+defines the pinned binary, proves that successful public results come from the checked runner state,
+and states `root_compliance_of_exported_contracts`. That theorem assumes exactly the three exported
+machine contracts used by the runner and concludes agreement with `BinaryFv.Specs.SSZ` for every
+input in scope.
 
 `MachineExecution/BlobScheduleAndResultStores.lean` is an early standalone proof of selected
 blob-schedule decoding and result-store instructions. It predates the current whole-program

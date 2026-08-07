@@ -18,9 +18,10 @@ global obligation is derived rather than assumed.
 /-- The obligation a single generated occurrence owes: the correctness claim for the source function its
 identity names. `catalogEntryFor` is a single-valued lookup, so this is a genuine dispatch, not a
 choice. An occurrence with no catalog entry owes `False`, which coverage forbids from ever arising. -/
-def instanceObligation (p : ContractParams) (instance_ : FunctionInstance) : Prop :=
+def instanceObligation (p : ContractParams) (program : Program) (instance_ : FunctionInstance) : Prop :=
   match catalogEntryFor instance_.id.function with
-  | some entry => functionInstanceObligation p instance_ entry.tag
+  | some entry => functionInstanceObligation p instance_
+      (functionInstanceReachedPcs program instance_) entry.tag
   | none => False
 
 /-- Every live source function's contract has a satisfiable precondition under a valid environment. Stated
@@ -49,8 +50,8 @@ entry's local obligation never presumes the entry's own global obligation — th
 prior circular statement. A leaf (no callees) reduces to its unconditional obligation. -/
 def instanceLocalObligation (p : ContractParams) (program : Program)
     (instance_ : FunctionInstance) : Prop :=
-  (∀ callee ∈ calleeInstances program instance_, instanceObligation p callee) →
-    instanceObligation p instance_
+  (∀ callee ∈ calleeInstances program instance_, instanceObligation p program callee) →
+    instanceObligation p program instance_
 
 /-- A rank witnessing that the call/inline graph is acyclic: every callee ranks strictly below its
 caller. Its existence is what makes the local-to-global induction well-founded, and it is where a
@@ -70,8 +71,8 @@ step cannot be circular or vacuous. -/
 theorem global_of_local {program : Program} {p : ContractParams} {rank : FunctionInstance → Nat}
     (ranked : CallGraphRanked program rank)
     (locals : ∀ instance_ ∈ program.instances, instanceLocalObligation p program instance_) :
-    ∀ instance_ ∈ program.instances, instanceObligation p instance_ := by
-  have key : ∀ n, ∀ inst, inst ∈ program.instances → rank inst = n → instanceObligation p inst := by
+    ∀ instance_ ∈ program.instances, instanceObligation p program instance_ := by
+  have key : ∀ n, ∀ inst, inst ∈ program.instances → rank inst = n → instanceObligation p program inst := by
     intro n
     induction n using Nat.strongRecOn with
     | ind n IH =>
@@ -105,15 +106,15 @@ The complete program-correctness obligation for a fixed set of contract paramete
 Its components are exactly the review's required pieces: validated canonical-ELF coverage and source
 provenance; semantic correspondence; contract-precondition satisfiability; and the explicit
 local-to-global composition (from which the per-instance dispatch is *derived* — see
-`sszProgramCorrectness_perInstance` — rather than assumed). `IsCanonicalEnvironment` pins the
+`sszContractComposition_perInstance` — rather than assumed). `IsCanonicalEnvironment` pins the
 environment so none of these can be trivialized.
 
-Note the container/`RawV4` result representations in `p` are still free parameters here; they are
+Note the container/`StatelessInput` result representations in `p` are still free parameters here; they are
 pinned to concrete ABI memory layouts in the containers row. The per-instance obligations are
 non-vacuous regardless, because `ImplementsInstance` demands an actual entered trace that reaches a
 generated exit with frame preservation — a trivial representation weakens the success arm but cannot
 make the obligation vacuous. -/
-def sszProgramCorrectness (program : Program) (p : ContractParams) : Prop :=
+def sszContractComposition (program : Program) (p : ContractParams) : Prop :=
   IsCanonicalGeneratedProgram program ∧
   IsCanonicalEnvironment p.env ∧
   coverage program ∧
@@ -121,39 +122,38 @@ def sszProgramCorrectness (program : Program) (p : ContractParams) : Prop :=
   catalogSatisfiability p ∧
   LocalToGlobal program p
 
-/-- The per-instance **global** obligation is a *consequence* of `sszProgramCorrectness`, derived
+/-- The per-instance **global** obligation is a *consequence* of `sszContractComposition`, derived
 through `global_of_local` from the local obligations and acyclicity. This is what makes coverage
 entail that every live occurrence implements its contract; it is stronger than assuming the
 per-instance obligation as a conjunct, because here it is proved from the compositional pieces. -/
-theorem sszProgramCorrectness_perInstance {program : Program} {p : ContractParams}
-    (correct : sszProgramCorrectness program p) :
-    ∀ instance_ ∈ program.instances, instanceObligation p instance_ := by
+theorem sszContractComposition_perInstance {program : Program} {p : ContractParams}
+    (correct : sszContractComposition program p) :
+    ∀ instance_ ∈ program.instances, instanceObligation p program instance_ := by
   obtain ⟨_, _, _, _, _, ltg⟩ := correct
   obtain ⟨_, _, ⟨_, hranked⟩, hlocals, _⟩ := ltg
   exact global_of_local hranked hlocals
 
 /-- Everything the root theorem depends on: program correctness for the **one concrete**
-`canonicalContractParams`, plus the two recorded binary/oracle divergences.
+`canonicalContractParams`, plus the two recorded binary/spec divergences.
 
 This no longer quantifies the parameters existentially: `canonicalContractParams` fixes every
 address- and layout-bearing field to a validated pinned artifact (`CanonicalParams`), so a proof can
 neither choose a convenient environment nor leave the parameters open. -/
 def sszComplianceObligations (program : Program) : Prop :=
-  sszProgramCorrectness program canonicalContractParams ∧ knownDivergences
+  sszContractComposition program canonicalContractParams ∧ knownDivergences
 
 /-- Coverage plus the composition entails that the specific occurrence at a cataloged identity
-implements its source function's correctness claim. This is the lemma that makes "`sszProgramCorrectness`
+implements its source function's correctness claim. This is the lemma that makes "`sszContractComposition`
 means what its name says" a theorem rather than a comment. -/
 theorem instance_implements_its_contract
     {program : Program} {p : ContractParams}
-    (correct : sszProgramCorrectness program p)
+    (correct : sszContractComposition program p)
     {instance_ : FunctionInstance} (mem : instance_ ∈ program.instances)
     {entry : CatalogEntry} (found : catalogEntryFor instance_.id.function = some entry) :
-    functionInstanceObligation p instance_ entry.tag := by
-  have h := sszProgramCorrectness_perInstance correct instance_ mem
+    functionInstanceObligation p instance_ (functionInstanceReachedPcs program instance_) entry.tag := by
+  have h := sszContractComposition_perInstance correct instance_ mem
   unfold instanceObligation at h
   rw [found] at h
   exact h
 
 end BinaryFv.Zesu.Contracts
-

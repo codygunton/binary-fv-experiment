@@ -1,6 +1,6 @@
 import BinaryFv.RiscV.Elfling.Boundary
 import BinaryFv.RiscV.Logic.RegisterAgree
-import BinaryFv.RiscV.Logic.ImageMemory
+import BinaryFv.RiscV.Logic.LoadedImage
 
 /-!
 # Contracts for compiled function instances
@@ -267,7 +267,7 @@ theorem Implements.not_vacuous {Error Args Result : Type}
 
 `LocallyImplements` is `Implements` phrased against `ScopedTrace`: a function instance implements its
 contract *given* summaries of the function instances below it. This is the compositional unit the whole
-proof campaign is organized around — the thing a later row proves once per function instance — and the point
+proof campaign is organized around — the proposition proved once per function instance — and the point
 of the pair below is the discharge direction: once those summaries are real (`SummariesCompose`), a
 local implementation *is* a closed `Implements`.
 
@@ -310,9 +310,9 @@ def LocallyImplements {Error Args Result : Type}
 The local obligation of a generated Elfling function instance: it implements its contract against summaries
 of the function instances below it, retiring its own steps only inside what it owns.
 
-`own` is generated data — the function instance's ranges plus the ranges of the uncataloged source functions it
-absorbs — so the local obligation cannot be relaxed by choosing a bigger address set. This is the
-proposition `LocalContractAssumptions` quantifies, and the one an execution proof discharges per function instance.
+`own` is generated data — the function instance's ranges plus the ranges of the uncataloged source
+functions it absorbs — so the local obligation cannot be relaxed by choosing a bigger address set.
+Hierarchical refinement theorems may use this form when a parent genuinely composes child summaries.
 -/
 def FunctionInstanceContract.LocallyImplementsFunctionInstance {Args Outcome : Type}
     (own : BitVec 64 → Prop) (entry : BitVec 64) (exit : BitVec 64 → Prop)

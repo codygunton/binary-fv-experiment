@@ -8,7 +8,7 @@ This executable specification uses the pinned SizzLean interpreter.
 It owns the outer schema identifier, raw/Ere framing, a canonical-wire
 wrapper, and a lossless named projection boundary.  V3 is deliberately
 quarantined: no V3 value is emitted because this project has no independently
-pinned V3 oracle.
+pinned V3 spec.
 
 SizzLean's executable decoder accepts one non-canonical variable-list alias
 (`00 00 00 00` for an empty `List[ByteList]`).  `decodeCanonical` closes that
@@ -235,13 +235,16 @@ structure RawChainConfig where
   activeFork : RawForkConfig
   deriving Repr
 
-/-- A named lossless representation of the complete Amsterdam V4 schema. -/
-structure RawV4 where
+/-- The decoded stateless input consumed by the verification proofs. -/
+structure StatelessInput where
   newPayloadRequest : RawNewPayloadRequest
   witness : RawExecutionWitness
   chainConfig : RawChainConfig
   publicKeys : Array (RawByteVector publicKeyBytes)
   deriving Repr
+
+/-- Compatibility name for specification code that still exposes the former fork-specific API. -/
+abbrev RawV4 := StatelessInput
 
 def rawWithdrawalOf (value : withdrawalType.interp) : RawWithdrawal :=
   {
@@ -346,13 +349,16 @@ def rawChainConfigOf (value : chainConfigType.interp) : RawChainConfig :=
     activeFork := rawForkConfigOf value.2.1
   }
 
-def rawV4OfInterp (value : statelessInputV4Type.interp) : RawV4 :=
+def statelessInputOfInterp (value : statelessInputV4Type.interp) : StatelessInput :=
   {
     newPayloadRequest := rawNewPayloadRequestOf value.1
     witness := rawWitnessOf value.2.1
     chainConfig := rawChainConfigOf value.2.2.1
     publicKeys := value.2.2.2.1.1
   }
+
+/-- Compatibility name for callers of the former fork-specific specification API. -/
+abbrev rawV4OfInterp := statelessInputOfInterp
 
 def readU32LE? (input : ByteArray) (offset : Nat) : Option Nat :=
   if offset + 4 > input.size then
@@ -403,7 +409,7 @@ def hasV3PayloadShape (input : ByteArray) : Bool :=
           | _, _ => false
     | _, _ => false
 
-def decodeRawV4 (input : ByteArray) : Result RawV4 := do
+def decodeRawInput (input : ByteArray) : Result StatelessInput := do
   if input.size >= 2 ^ 32 then
     throw .tooLarge
   else if input.size < 2 then
@@ -413,24 +419,27 @@ def decodeRawV4 (input : ByteArray) : Result RawV4 := do
   else
     match decodeCanonical statelessInputV4Type (input.extract 2 input.size) with
     | .ok value =>
-        let raw := rawV4OfInterp value
+        let raw := statelessInputOfInterp value
         if raw.chainConfig.activeFork.fork > 20 then
           throw .unknownFork
         else
           pure raw
     | .error error => throw (.ssz error)
 
-def decodeRawOrQuarantineV3 (input : ByteArray) : Result RawV4 :=
+/-- Compatibility name for callers of the former fork-specific specification API. -/
+abbrev decodeRawV4 := decodeRawInput
+
+def decodeRawOrQuarantineV3 (input : ByteArray) : Result StatelessInput :=
   if hasV3PayloadShape input then
     .error .v3Quarantined
   else
-    decodeRawV4 input
+    decodeRawInput input
 
 /--
 Decode V4 raw bytes first.  A length-prefixed Ere interpretation is attempted
 only after raw failure and only when its little-endian declared length is exact.
 -/
-def decodeStatelessInput (input : ByteArray) : Result RawV4 :=
+def decodeStatelessInput (input : ByteArray) : Result StatelessInput :=
   if input.size >= 2 ^ 32 then
     .error .tooLarge
   else
@@ -582,14 +591,14 @@ def renderChainConfig (path : String) (value : RawChainConfig) : List String :=
   renderU64 (path ++ ".chain_id") value.chainId ++
     renderForkConfig (path ++ ".active_fork") value.activeFork
 
-def RawV4.renderLines (value : RawV4) : List String :=
+def StatelessInput.renderLines (value : StatelessInput) : List String :=
   renderNewPayloadRequest "new_payload_request" value.newPayloadRequest ++
     renderWitness "witness" value.witness ++
     renderChainConfig "chain_config" value.chainConfig ++
     renderList "public_keys" value.publicKeys renderVectorField
 
 /-- Deterministic, complete, versioned raw-value protocol for the V4 schema. -/
-def RawV4.render (value : RawV4) : String :=
+def StatelessInput.render (value : StatelessInput) : String :=
   "\n".intercalate ("version\tssz-value-v1" :: value.renderLines)
 
 end BinaryFv.Specs.SSZ

@@ -77,21 +77,21 @@ where
 
 /-- Every claim the catalog makes about the decoder's meaning, as one conjunction.
 
-`sourceShapedDecodeAgreesWithOracle` and `catalogGroundsInSpec` carry the root theorem; the rest
+`sourceShapedDecodeAgreesWithSpec` and `catalogGroundsInSpec` carry the root theorem; the rest
 bound which errors each group can produce and record the known asymmetries. -/
 def catalogSemanticObligations : Prop :=
-  sourceShapedDecodeAgreesWithOracle ∧
+  sourceShapedDecodeAgreesWithSpec ∧
   catalogGroundsInSpec ∧
   retryTailNeverSchemaValid ∧
   v3ShapeExcludesCanonicalV4 ∧
-  sourceShapedContainersAgreeWithOracle ∧
+  sourceShapedContainersAgreeWithSpec ∧
   canonicalOffsetsCharacterization ∧
   zeroFirstOffsetAliasRejected ∧
   bytesAtSucceedsIffFits ∧
   readOffsetIsWidenedReadU32 ∧
   leafReadsOnlyFailInvalid ∧
   collectionsNeverUnknownFork ∧
-  emptyByteListListStillAllocates ∧
+  emptyByteListListIsEmptyArray ∧
   onlyForkConfigRaisesUnknownFork ∧
   fixedContainersNeverAllocate ∧
   allocatorVtableEntriesAreConstant ∧
@@ -101,10 +101,10 @@ def catalogSemanticObligations : Prop :=
   meaningOtherLengthIsInvalid ∧
   meaningNeverForkOrMemory
 
-/-- The two known asymmetries between the binary and the oracle, conjoined so the navigation surfaces
+/-- The two known asymmetries between the binary and the spec, conjoined so the navigation surfaces
 them rather than letting them read as oversights. -/
 def knownDivergences : Prop :=
-  forkErrorOrderingDiffers ∧ ereGateDivergesAboveU32
+  forkErrorOrderingDiffers ∧ ereRetryReachedAboveU32Gate
 
 /-! Compatibility vocabulary for the function-instance data-model migration. -/
 
@@ -113,4 +113,3 @@ abbrev everyFunctionInstanceIsCataloged := everyInstanceIsCataloged
 abbrev functionInstancesDispatchUniquely := instancesDispatchUniquely
 
 end BinaryFv.Zesu.Contracts
-

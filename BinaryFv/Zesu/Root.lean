@@ -1,7 +1,6 @@
 import BinaryFv.Zesu.Artifacts.Layout
 import BinaryFv.Zesu.Interface
-import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Execution
-import BinaryFv.Zesu.Contracts.ContractComposition
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.ExportedContractExecution
 
 namespace BinaryFv.Zesu
 
@@ -10,76 +9,171 @@ open BinaryFv.Binary.Elfling
 
 /-- The one canonical, Nix-built Zesu executable covered by the SSZ proof. -/
 noncomputable def binary : RiscvSpec.ValidatedElf := {
-  bytes := Artifacts.bytes
-  elf := Artifacts.elf
-  parsed_ok := by exact Artifacts.parsed_ok
-  layout := Artifacts.elf_layout
+  bytes := Zesu.Artifacts.bytes
+  elf := Zesu.Artifacts.elf
+  parsed_ok := by exact Zesu.Artifacts.parsed_ok
+  layout := Zesu.Artifacts.elf_layout
 }
 
 /-!
-## Navigation from the root theorem to the source-oriented catalog
+## Conditional compliance theorem
 
-`root_compliance` descends through the generated Elfling program's correctness rather than around it.
-The two authorized trace-construction theorems each *produce* a canonical generated program together
-with `Contracts.sszComplianceObligations program`, and the two runner/result theorems below
-*consume* that program and obligation. So the spine is literal: no witness exists without program
-correctness, and the root claim is built only from witnesses.
+`root_compliance_of_exported_contracts` assumes the three exported machine contracts used by the
+runner, then derives the public Ethereum SSZ agreement claim through the concrete runner and
+observers. Instruction-level proofs can discharge those contract assumptions independently.
 
-Read the spine outward from the root:
-
-* `root_compliance` — the public claim.
-* `Contracts.sszComplianceObligations` — some canonical contract parameters make
-  `sszProgramCorrectness` hold, plus the two recorded divergences.
-* `Contracts.sszProgramCorrectness` — canonical coverage, semantic correspondence, the
-  per-instance dispatch asserting each occurrence's `correctnessClaim`, precondition satisfiability,
-  and the explicit local-to-global composition.
-* `Contracts.catalog` — the 43 live source functions, address-free, matched by full identity.
-* the generated Elfling program — canonical-ELF ranges, checked against the pinned bytes.
-
-None of these is a `sorry`; they are named `Prop`s, so an unfinished obligation is stated exactly
-without changing the `nix/proof.nix` hole count.
+The active spine is the concrete wrapper/accessor run assembly and the public execution classifier.
+Canonical ELF and source-provenance checks remain available separately as decomposition-independent
+evidence.
 -/
 
-/-- Authorized navigation scaffold connecting the executable runner/result observer to a successful
-live Sail trace, *given* the canonical generated program and its compliance obligation.
+/-- The proof's own binary passes the runner's canonicality gate — by definition, since `binary`'s
+bytes *are* the artifact's. Stated once so the two lemmas below can open the gate without
+re-evaluating an 86 KB byte comparison. -/
+theorem binary_is_canonical :
+    Zesu.Entrypoints.ZesuDecodeRaw.artifactIsCanonical binary = true :=
+  decide_eq_true (show binary.bytes = Zesu.Artifacts.bytes from rfl)
 
-`program` and `obligations` are genuine premises, not manufactured by the root: they are produced by
-`successful_trace_of_spec_accepts` and threaded in here, so the eventual proof of this theorem may —
-and must — use program correctness to establish the runner result. -/
-theorem execute_accepts_of_successful_trace (input : ByteArray) (value : BinaryFv.Specs.SSZ.RawV4)
-    (program : Program) (canonical : Contracts.IsCanonicalGeneratedProgram program)
-    (obligations : Contracts.sszComplianceObligations program)
-    (execution : Entrypoints.ZesuDecodeRaw.SuccessfulTraceWitness input value) :
-    RiscvSpec.execute binary input = .ok (.accepted value) := by
-  sorry
+/-- **No failure mode becomes a rejection — proved at the layer where that is claimed.**
 
-/-- Authorized navigation scaffold connecting a classified nonzero-status trace to the executable
-runner's normalized rejection result, given the same canonical program and obligation. -/
-theorem execute_rejects_of_rejected_trace (input : ByteArray)
-    (program : Program) (canonical : Contracts.IsCanonicalGeneratedProgram program)
-    (obligations : Contracts.sszComplianceObligations program)
-    (execution : Entrypoints.ZesuDecodeRaw.RejectedTraceWitness input) :
-    RiscvSpec.execute binary input = .ok .rejected := by
-  sorry
+`RiscvSpec.execute`'s own docstring says "every failure mode keeps its own error; none of them
+becomes a rejection". That claim is made about `execute`; until now the theorem backing it
+(`executeDecode_rejected_forces_checks`) stopped one layer below, at `executeDecode`. The claim was
+true — `execute` is `executeChecked` by `rfl`, and the preflight gate can only contribute
+`.invalidArtifact` — but true-and-unproved-at-the-level-it-is-stated is the shape of every defect the
+reachability pass turned up, so it is worth the twenty lines to close rather than to argue.
 
-/-- The final Amsterdam V4 compliance statement.  Its dependency spine is intentionally visible:
-spec classification, the canonical Elfling program and its compliance obligation, live Sail traces,
-runner/result observation, and the public execution API. -/
-theorem root_compliance :
-    forall input : ByteArray,
-      input.size < 2 * 1024 * 1024 ->
+Stated over an arbitrary `ValidatedElf` rather than `binary`, so it constrains the public API itself
+and not merely the proof's own instance of it.
+
+**A second defect, found afterwards: this statement used to be strictly weaker than the theorem it
+is derived from, and the loss was in the destructuring rather than anywhere a reader would look.**
+`executeDecode_rejected_forces_checks` produces five things; the `obtain` here bound two of them to
+`_htag` and `-` and the statement kept three. What went missing was the discriminant conjunct
+(`observeOptionTag? final storedResultDiscriminantAddr = some false`) and the equation saying the
+run *classified* as a rejection at all — which is also what pins `final`, `rawResult` and `rawError`
+to a real run. Without it those three existentials were tied to nothing but each other, and the
+statement said only "some state and some pair of accessor outcomes look like this", not "the run
+that produced this answer looked like this".
+
+`ZesuDecodeRaw.rejection_checks_without_discriminant_admit_a_non_rejection` measures the difference
+rather than asserting it: the three retained conjuncts are satisfied by a state whose discriminant
+reads *present* — the shape a refused second call leaves — on which the classifier answers
+`.error .badReturn`. So neither dropped conjunct followed from what was kept.
+
+**The acceptance twin below was not affected in the same way, and the asymmetry is real but smaller
+than it looks.** It kept the discriminant conjunct, and it drops the same classification equation —
+but there that equation is *derivable* from the conjuncts it does carry, as
+`accepted_checks_determine_classification` below checks. On the rejection side, without the
+discriminant, it was not. -/
+theorem execute_rejected_forces_checks {b : RiscvSpec.ValidatedElf} {input : ByteArray}
+    (h : RiscvSpec.execute b input = .ok .rejected) :
+    Zesu.Entrypoints.ZesuDecodeRaw.preflight b input = .ok () ∧
+      ∃ (final : BinaryFv.RiscV.State) (steps : Nat)
+        (rawResult rawError : Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome),
+        Zesu.Entrypoints.ZesuDecodeRaw.observeReturnCode? final = some 0 ∧
+        rawResult = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned 0 ∧
+        Zesu.DecodedValue.observeOptionTag? final
+          Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr = some false ∧
+        (∃ status, rawError = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned status ∧
+          Zesu.Entrypoints.ZesuDecodeRaw.statusCategory status = .specRejection) ∧
+        Zesu.Entrypoints.ZesuDecodeRaw.classifyWrapperRun
+          Zesu.Entrypoints.ZesuDecodeRaw.observeDecodedValue
+          Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr
+          Zesu.Elflings.canonicalResultBuffer rawResult rawError (.reached steps) final
+          = .ok .rejected := by
+  rw [RiscvSpec.execute_eq_executeChecked] at h
+  obtain ⟨hgate, hdec⟩ := Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_rejected_forces_gate h
+  obtain ⟨final, steps, rawResult, rawError, hcode, hnull, htag, hstatus, hclass⟩ :=
+    Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_rejected_forces_checks hdec
+  exact ⟨hgate, final, steps, rawResult, rawError, hcode, hnull, htag, hstatus, hclass⟩
+
+/-- **The public API never invents an acceptance, and the value it reports is the one memory held.**
+
+The twin of `execute_rejected_forces_checks`, and the sharper of the two. Rejection has one shape, so
+its converse mostly rules failure modes out. Acceptance carries a *value*, and `classifyWrapperRun`
+takes that value from `observeDecodedValue final` — so without this, nothing at the public layer ties
+the reported value to the observation. The final conjunct is that tie: an `accepted value` answer
+forces `observeDecodedValue final = some value`, the same `value`.
+
+Stated over an arbitrary `ValidatedElf`, like its twin. -/
+theorem execute_accepted_forces_checks {b : RiscvSpec.ValidatedElf} {input : ByteArray}
+    {value : BinaryFv.Specs.SSZ.StatelessInput} (h : RiscvSpec.execute b input = .ok (.accepted value)) :
+    Zesu.Entrypoints.ZesuDecodeRaw.preflight b input = .ok () ∧
+      ∃ (final : BinaryFv.RiscV.State)
+        (rawResult rawError : Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome),
+        Zesu.Entrypoints.ZesuDecodeRaw.observeReturnCode? final = some 1 ∧
+        rawError = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned
+          Zesu.Contracts.DecodeStatus.ok.code ∧
+        rawResult = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned
+          Zesu.Elflings.canonicalResultBuffer ∧
+        Zesu.DecodedValue.observeOptionTag? final
+          Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr = some true ∧
+        Zesu.Entrypoints.ZesuDecodeRaw.observeDecodedValue final = some value := by
+  rw [RiscvSpec.execute_eq_executeChecked] at h
+  obtain ⟨hgate, hdec⟩ := Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_accepted_forces_gate h
+  obtain ⟨final, _steps, rawResult, rawError, hcode, herror, hnull, htag, hvalue, -⟩ :=
+    Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_accepted_forces_checks hdec
+  exact ⟨hgate, final, rawResult, rawError, hcode, herror, hnull, htag, hvalue⟩
+
+/-- **Why the acceptance twin does not also need to carry the classification equation.**
+
+`execute_accepted_forces_checks` drops the same `classifyWrapperRun … = .ok (.accepted value)`
+conjunct that `execute_rejected_forces_checks` was strengthened to keep, and that asymmetry is
+deliberate: here the equation is recoverable from the conjuncts already stated, so keeping it would
+add a longer statement and no information. This lemma is that recovery, so the claim is checked
+rather than asserted — and so a future edit that weakens the acceptance conjuncts breaks a build
+instead of quietly making the asymmetry unjustified.
+
+Unlike its rejection counterpart it holds for *every* step count, not just the one the run took:
+nothing in the classifier's success branch reads the step count.
+
+**It is the one new declaration here that is not classical-only.** It needs
+`canonicalResultBuffer_ne_zero`, a `native_decide`, so it carries the compiler pair — the same
+inversion of the usual expectation the runner's provenance note records, from the other side: the
+*forward* direction is the expensive one. The strengthened converse above and its independence
+witness are `propext`/`Classical.choice`/`Quot.sound` only. -/
+theorem accepted_checks_determine_classification {final : BinaryFv.RiscV.State}
+    {value : BinaryFv.Specs.SSZ.StatelessInput} (steps : Nat)
+    (hcode : Zesu.Entrypoints.ZesuDecodeRaw.observeReturnCode? final = some 1)
+    (htag : Zesu.DecodedValue.observeOptionTag? final
+      Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr = some true)
+    (hvalue : Zesu.Entrypoints.ZesuDecodeRaw.observeDecodedValue final = some value) :
+    Zesu.Entrypoints.ZesuDecodeRaw.classifyWrapperRun
+        Zesu.Entrypoints.ZesuDecodeRaw.observeDecodedValue
+        Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr
+        Zesu.Elflings.canonicalResultBuffer
+        (.returned Zesu.Elflings.canonicalResultBuffer)
+        (.returned Zesu.Contracts.DecodeStatus.ok.code) (.reached steps) final
+      = .ok (.accepted value) :=
+  Zesu.Entrypoints.ZesuDecodeRaw.classifyWrapperRun_accepted _ _ _ steps _ _ final value hcode rfl
+    rfl Zesu.Entrypoints.ZesuDecodeRaw.canonicalResultBuffer_ne_zero htag hvalue
+
+/-- The conditional root theorem. Its premise is exactly the three exported contracts consumed by
+the concrete runner. Instruction-level proofs can discharge or strengthen that premise without
+changing the public statement. -/
+theorem root_compliance_of_exported_contracts
+    (contracts : Zesu.Entrypoints.ZesuDecodeRaw.ExportedContractAssumptions) :
+    ∀ input : ByteArray,
+      input.size < 2 * 1024 * 1024 →
         RiscvSpec.execute binary input = .ok (BinaryFv.Specs.SSZ.decode input) := by
   intro input inputBound
   cases specResult : BinaryFv.Specs.SSZ.decode input with
   | accepted value =>
-      obtain ⟨program, canonical, obligations, ⟨execution⟩⟩ :=
-        Entrypoints.ZesuDecodeRaw.successful_trace_of_spec_accepts
-          input inputBound value specResult
-      exact execute_accepts_of_successful_trace input value program canonical obligations execution
+      obtain ⟨execution⟩ :=
+        Zesu.Entrypoints.ZesuDecodeRaw.successfulRun_of_exported contracts inputBound specResult
+      rw [RiscvSpec.execute_eq_executeChecked,
+        Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_eq_executeDecode binary_is_canonical inputBound]
+      exact Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_accepted_of_run input value
+        execution.builds execution.trace execution.withinStepBound execution.accessors
+        execution.returnCode execution.storedPresent execution.inputPreserved execution.storedValue
   | rejected =>
-      obtain ⟨program, canonical, obligations, ⟨execution⟩⟩ :=
-        Entrypoints.ZesuDecodeRaw.rejected_trace_of_spec_rejects
-          input inputBound specResult
-      exact execute_rejects_of_rejected_trace input program canonical obligations execution
+      obtain ⟨execution⟩ :=
+        Zesu.Entrypoints.ZesuDecodeRaw.rejectedRun_of_exported contracts inputBound specResult
+      rw [RiscvSpec.execute_eq_executeChecked,
+        Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_eq_executeDecode binary_is_canonical inputBound]
+      exact Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_rejected_of_run input
+        execution.builds execution.trace execution.withinStepBound execution.accessors
+        execution.returnCode execution.specRejection execution.storedAbsent
 
 end BinaryFv.Zesu
