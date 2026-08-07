@@ -69,6 +69,7 @@ class MachineRegionTests(unittest.TestCase):
 
     def valid_database(self) -> dict:
         return {
+            "inputs": {},
             "instructions": [{
                 "address": 4,
                 "owner": "unit",
@@ -85,7 +86,24 @@ class MachineRegionTests(unittest.TestCase):
             "sccForwardTree": [{"address": 4, "parent": 4, "depth": 0}],
             "sccReverseTree": [{"address": 4, "parent": 4, "depth": 0}],
             "unresolvedIndirectTransfers": [],
+            "callGraph": {
+                "owners": [{
+                    "id": "unit", "qualified": "unit", "kind": "emitted",
+                    "parent": None, "instructions": [4], "entryPc": 4,
+                }],
+                "calls": [{"caller": "program", "callee": "unit", "kind": "runner"}],
+                "reachableOwners": ["unit"],
+                "unreachableOwners": [],
+                "dominatorParent": {"unit": "program"},
+                "instructionAddresses": [4],
+            },
         }
+
+    def test_call_hierarchy_has_one_runner_root(self) -> None:
+        flame = machine_regions.build_flame(self.valid_database())
+        binary_children = flame["tree"]["children"]
+        program = next(node for node in binary_children if node["name"] == "program")
+        self.assertEqual([node["name"] for node in program["children"]], ["unit [unit]"])
 
     def assert_corruption_rejected(self, mutate) -> None:
         database = copy.deepcopy(self.valid_database())

@@ -56,18 +56,33 @@ theorem forwardClosedC_true : forwardClosedC = true := by native_decide
 /-! ## Reverse witnesses: each address has a smaller-distance predecessor with a real edge -/
 
 /-- Every witness row is either the entry (distance 0) or has a predecessor row of distance one less
-with a REAL decoded edge into it and a decoded target. Dispatched through `controlFlow?`. -/
-def witnessValidC : Bool :=
-  (controlFlow?.map fun nodes =>
-    reachableWitness.all fun r =>
-      (decide (r.addr = reachableEntry) && decide (r.distance = 0)) ||
-      (reachableWitness.any (fun pr => decide (pr.addr = r.predecessor ∧ pr.distance + 1 = r.distance)) &&
-        (directSuccessorsAt nodes r.predecessor).contains r.addr &&
-        hasControlFlowAddress nodes r.addr)).getD false
+with a REAL decoded edge into it and a decoded target, at explicit decoded nodes.
+
+Named, rather than left as an inline lambda under `Option.map`, so `witnessValid_some` can transport
+it with both `o` and `f` already determined: leaving either to unification makes the elaborator
+unfold `controlFlow?` into the decoder. -/
+def witnessValidAt (nodes : Array ControlFlowNode) : Bool :=
+  reachableWitness.all fun r =>
+    (decide (r.addr = reachableEntry) && decide (r.distance = 0)) ||
+    (reachableWitness.any (fun pr => decide (pr.addr = r.predecessor ∧ pr.distance + 1 = r.distance)) &&
+      (directSuccessorsAt nodes r.predecessor).contains r.addr &&
+      hasControlFlowAddress nodes r.addr)
+
+/-- The witness check, dispatched through `controlFlow?` so a decode failure is `false`. -/
+def witnessValidC : Bool := (controlFlow?.map witnessValidAt).getD false
 
 theorem witnessValidC_true : witnessValidC = true := by native_decide
 
 /-! ## Specialise the dispatched checks to explicit decoded nodes -/
+
+/-- Transport a `(o.map f).getD false = true` fact across `o = some a`. Stated generically so the
+kernel checks it once against variables: specialising it by `unfold`+`rw` at the use site instead
+puts the concrete `controlFlow?` and the generated arrays into the rewrite motive, and typechecking
+that costs 300 s. -/
+private theorem getD_map_eq_true {α : Type _} {o : Option α} {f : α → Bool} {a : α}
+    (ho : o = some a) (h : (o.map f).getD false = true) : f a = true := by
+  subst ho
+  simpa using h
 
 theorem forwardClosed_some {nodes : Array ControlFlowNode} (hn : controlFlow? = some nodes) :
     hasControlFlowAddress nodes reachableEntry = true ∧
@@ -86,11 +101,8 @@ theorem witnessValid_some {nodes : Array ControlFlowNode} (hn : controlFlow? = s
       (decide (r.addr = reachableEntry) && decide (r.distance = 0)) ||
       (reachableWitness.any (fun pr => decide (pr.addr = r.predecessor ∧ pr.distance + 1 = r.distance)) &&
         (directSuccessorsAt nodes r.predecessor).contains r.addr &&
-        hasControlFlowAddress nodes r.addr)) = true := by
-  have h := witnessValidC_true
-  unfold witnessValidC at h
-  rw [hn] at h
-  simpa only [Option.map_some, Option.getD_some] using h
+        hasControlFlowAddress nodes r.addr)) = true :=
+  getD_map_eq_true (f := witnessValidAt) hn witnessValidC_true
 
 /-! ## Reverse: build a reachability path for every witnessed address -/
 

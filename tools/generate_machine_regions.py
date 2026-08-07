@@ -120,6 +120,7 @@ def assign_owners(program: dict, reachable: set[int]) -> tuple[dict[int, str], d
             "declLine": instance.get("declLine", 0),
             "inlineStack": instance.get("inlineStack", []),
             "regions": instance["regions"],
+            "entryPc": instance["entryPc"],
         }
         depth = instance_depth(index, instances)
         for address in reachable:
@@ -137,6 +138,7 @@ def assign_owners(program: dict, reachable: set[int]) -> tuple[dict[int, str], d
             "declLine": 0,
             "inlineStack": [],
             "regions": excluded_function_instance["regions"],
+            "entryPc": excluded_function_instance["entryPc"],
         }
         for address in reachable:
             if in_regions(address, excluded_function_instance["regions"]):
@@ -154,6 +156,287 @@ def assign_owners(program: dict, reachable: set[int]) -> tuple[dict[int, str], d
         index = best[0]
         assignment[address] = f"fi:{index}" if index >= 0 else f"excluded:{-index - 1}"
     return assignment, owners
+
+
+def owner_rows_for_addresses(
+    owners_by_address: dict[int, str], owners: dict[str, dict]
+) -> list[dict]:
+    return [
+        {
+            **owners[owner],
+            "instructions": sorted(
+                address for address, selected in owners_by_address.items() if selected == owner
+            ),
+        }
+        for owner in sorted(owners)
+    ]
+
+
+def addresses_in_declared_regions(program: dict, disassembly: dict[int, dict]) -> set[int]:
+    """All instructions in generated function-instance or explicitly excluded regions."""
+    regions = [
+        region
+        for item in program["function_instances"] + program.get("excludedFunctionInstances", [])
+        for region in item["regions"]
+    ]
+    return {
+        address for address in disassembly
+        if any(in_regions(address, [region]) for region in regions)
+    }
+
+
+def function_instance_ref(reference: list) -> str:
+    kind, index = reference
+    if kind == "function_instance":
+        return f"fi:{index}"
+    if kind == "excl":
+        return f"excluded:{index}"
+    raise ValueError(f"unknown generated call target kind {kind!r}")
+
+
+def allocator_vtable_slot(
+    source: int, owner: str, instructions: dict[int, dict], owners_by_address: dict[int, str]
+) -> tuple[int, int] | None:
+    """Resolve only reviewed Zig Allocator.VTable transfers to their byte slot."""
+    instruction = instructions[source]
+    if instruction["mnemonic"] == "jalr":
+        _rd, rs1 = jalr_registers(instruction)
+        call_register = REGISTERS[rs1]
+    elif instruction["mnemonic"] == "jr":
+        parts = operands(instruction)
+        call_register = parts[0] if len(parts) == 1 else None
+    else:
+        return None
+    if call_register is None:
+        return None
+    for address in sorted(
+        (address for address in instructions
+         if source - 32 <= address < source and owners_by_address.get(address) == owner),
+        reverse=True,
+    ):
+        candidate = instructions[address]
+        parts = operands(candidate)
+        if candidate["mnemonic"] != "ld" or len(parts) != 2 or parts[0] != call_register:
+            continue
+        match = MEMORY.fullmatch(parts[1])
+        if match:
+            return address, int(match.group(1), 0)
+    return None
+
+
+def dominator_parents(nodes: set[str], edges: set[tuple[str, str]], root: str) -> dict[str, str]:
+    """Immediate dominators turn the production call DAG into one reviewable tree."""
+    predecessors = {node: set() for node in nodes}
+    for caller, callee in edges:
+        if caller in nodes and callee in nodes:
+            predecessors[callee].add(caller)
+    dominators = {node: ({root} if node == root else set(nodes)) for node in nodes}
+    changed = True
+    while changed:
+        changed = False
+        for node in sorted(nodes - {root}):
+            incoming = predecessors[node]
+            new = {node} if not incoming else {
+                node
+            } | set.intersection(*(dominators[parent] for parent in incoming))
+            if new != dominators[node]:
+                dominators[node] = new
+                changed = True
+    result = {}
+    for node in sorted(nodes - {root}):
+        strict = dominators[node] - {node}
+        if strict:
+            result[node] = max(strict, key=lambda candidate: len(dominators[candidate]))
+    return result
+
+
+def build_call_graph(
+    program: dict, disassembly: dict[int, dict], addresses: set[int]
+) -> dict:
+    owners_by_address, owners = assign_owners(program, addresses)
+    owner_rows = owner_rows_for_addresses(owners_by_address, owners)
+    owner_ids = {row["id"] for row in owner_rows}
+    qualified = {row["id"]: row["qualified"] for row in owner_rows}
+    by_qualified: dict[str, list[str]] = defaultdict(list)
+    for owner, name in qualified.items():
+        by_qualified[name].append(owner)
+
+    calls: set[tuple[str, str, str, int | None, int | None]] = set()
+    for index, instance in enumerate(program["function_instances"]):
+        caller = f"fi:{index}"
+        if instance.get("parentIdx") is not None:
+            calls.add((f"fi:{instance['parentIdx']}", caller, "inlined", instance["entryPc"], None))
+        for reference in instance.get("externalCalls", []):
+            calls.add((caller, function_instance_ref(reference), "direct", None, None))
+
+    graph, transfers = {}, {}
+    for address in sorted(addresses):
+        next_addresses, transfer = successors(address, disassembly[address], disassembly, addresses)
+        graph[address], transfers[address] = next_addresses, transfer
+    entry_owner = {
+        instance["entryPc"]: f"fi:{index}"
+        for index, instance in enumerate(program["function_instances"])
+    }
+    for source, next_addresses in graph.items():
+        if transfers[source] not in {"directCall", "directJump"}:
+            continue
+        caller = owners_by_address[source]
+        for destination in next_addresses:
+            callee = entry_owner.get(destination)
+            if callee and callee != caller and owners[callee]["kind"] == "emitted":
+                kind = "direct" if transfers[source] == "directCall" else "tail"
+                calls.add((caller, callee, kind, source, destination))
+    # The Elfling CFG records exact decoded edges even when LLVM prints a transfer operand in a
+    # form the presentation parser does not recognize. Use those checked edges as a second source.
+    for instance in program["function_instances"]:
+        for edge in instance.get("edges", []):
+            source, destination = edge["source"], edge["target"]
+            if source not in owners_by_address:
+                continue
+            caller, callee = owners_by_address[source], entry_owner.get(destination)
+            if callee and callee != caller and owners[callee]["kind"] == "emitted":
+                transfer = transfers.get(source)
+                kind = "direct" if transfer == "directCall" else "tail"
+                calls.add((caller, callee, kind, source, destination))
+
+    allocator_targets = {
+        0: "raw_decoder_root.allocatorAlloc",
+        8: "raw_decoder_root.allocatorResize",
+        16: "raw_decoder_root.allocatorRemap",
+        24: "raw_decoder_root.allocatorFree",
+    }
+    reviewed_slots = {
+        "ssz_raw.decodePublicKeys": 24,
+        "mem.Allocator.free__anon_1214": 24,
+        "mem.Allocator.allocBytesWithAlignment__anon_1331": 0,
+        "mem.Allocator.free__anon_1471": 24,
+        "mem.Allocator.free__anon_1468": 24,
+        "mem.Allocator.allocBytesWithAlignment__anon_1511": 0,
+        "mem.Allocator.free__anon_1465": 24,
+        "mem.Allocator.free__anon_1428": 24,
+        "mem.Allocator.free__anon_1555": 24,
+    }
+    resolved_indirect, unresolved_indirect = [], []
+    for source in sorted(address for address, transfer in transfers.items()
+                         if transfer.startswith("indirect")):
+        caller = owners_by_address[source]
+        expected_slot = reviewed_slots.get(qualified[caller])
+        loaded = allocator_vtable_slot(source, caller, disassembly, owners_by_address)
+        if expected_slot is None or loaded is None or loaded[1] != expected_slot:
+            unresolved_indirect.append(source)
+            continue
+        load_address, slot = loaded
+        targets = by_qualified[allocator_targets[slot]]
+        if len(targets) != 1:
+            raise ValueError(f"allocator vtable slot {slot} has no unique emitted target")
+        callee = targets[0]
+        calls.add((caller, callee, "allocatorVtable", source, load_address))
+        resolved_indirect.append({
+            "source": source, "load": load_address, "slot": slot,
+            "caller": caller, "callee": callee,
+        })
+
+    program_node = "program"
+    runner_names = (
+        "raw_decoder_root.zesu_decode_raw",
+        "raw_decoder_root.zesu_raw_result",
+        "raw_decoder_root.zesu_raw_error",
+    )
+    for name in runner_names:
+        targets = by_qualified[name]
+        if len(targets) != 1:
+            raise ValueError(f"runner target {name} is not unique")
+        calls.add((program_node, targets[0], "runner", None, None))
+
+    call_edges = {(caller, callee) for caller, callee, *_ in calls}
+    reachable = {program_node}
+    changed = True
+    while changed:
+        changed = False
+        for caller, callee in call_edges:
+            if caller in reachable and callee not in reachable:
+                reachable.add(callee)
+                changed = True
+    reachable_owners = reachable - {program_node}
+    result = {
+        "owners": owner_rows,
+        "calls": [
+            {"caller": caller, "callee": callee, "kind": kind,
+             "source": source, "evidence": evidence}
+            for caller, callee, kind, source, evidence in sorted(
+                calls, key=lambda row: (row[0], row[1], row[2], row[3] or -1)
+            )
+        ],
+        "resolvedIndirectCalls": resolved_indirect,
+        "unresolvedIndirectCalls": unresolved_indirect,
+        "dominatorParent": dominator_parents(reachable, call_edges, program_node),
+        "reachableOwners": sorted(reachable_owners),
+        "unreachableOwners": sorted(owner_ids - reachable_owners),
+        "instructionAddresses": sorted(addresses),
+    }
+    validate_reviewed_call_spots(result)
+    return result
+
+
+def validate_reviewed_call_spots(call_graph: dict) -> None:
+    """Reject drift at representative runner, inline, direct-tail, and vtable edges."""
+    ids: dict[str, list[str]] = defaultdict(list)
+    for owner in call_graph["owners"]:
+        ids[owner["qualified"]].append(owner["id"])
+
+    def unique(name: str) -> str:
+        if len(ids[name]) != 1:
+            raise ValueError(f"reviewed call spot {name} is not unique")
+        return ids[name][0]
+
+    calls = {(row["caller"], row["callee"], row["kind"]) for row in call_graph["calls"]}
+    decoder = unique("raw_decoder_root.zesu_decode_raw")
+    raw_result = unique("raw_decoder_root.zesu_raw_result")
+    raw_error = unique("raw_decoder_root.zesu_raw_error")
+    if {callee for caller, callee, kind in calls if caller == "program" and kind == "runner"} != {
+        decoder, raw_result, raw_error,
+    }:
+        raise ValueError("program runner calls are not exactly decoder, result, and error")
+    if (decoder, unique("ssz_raw.decode"), "inlined") not in calls:
+        raise ValueError("reviewed inlined decode edge is absent")
+    if (unique("raw_decoder_root.allocatorAlloc"), unique("raw_allocator.zesu_raw_alloc"), "tail") not in calls:
+        raise ValueError("allocatorAlloc tail call to zesu_raw_alloc is absent")
+    for name, slot in (("raw_decoder_root.allocatorAlloc", 0),
+                       ("raw_decoder_root.allocatorFree", 24)):
+        if not any(row["callee"] == unique(name) and row["slot"] == slot
+                   for row in call_graph["resolvedIndirectCalls"]):
+            raise ValueError(f"no allocator slot-{slot} call resolves to {name}")
+    for name in ("raw_decoder_root.allocatorResize", "raw_decoder_root.allocatorRemap"):
+        if unique(name) not in call_graph["unreachableOwners"]:
+            raise ValueError(f"uncalled vtable entry {name} incorrectly appears reachable")
+
+    parents = call_graph["dominatorParent"]
+    memcpy = unique("memcpy")
+    decode_inline = unique("ssz_raw.decode")
+    allocator_inline = unique("raw_decoder_root.allocator")
+    decode_raw = unique("ssz_raw.decodeRaw")
+    prefix = unique("ssz_raw.hasExactErePrefix")
+    if parents[decoder] != "program" or parents[raw_result] != "program" or parents[raw_error] != "program":
+        raise ValueError("Level 1 runner hierarchy changed")
+    if {parents[allocator_inline], parents[decode_inline], parents[memcpy]} != {decoder}:
+        raise ValueError("Level 2 decoder hierarchy changed")
+    if parents[prefix] != decode_inline or parents[decode_raw] != decode_inline:
+        raise ValueError("Level 3 decode hierarchy changed")
+    level4_names = {
+        "ssz_raw.decodeNewPayloadRequest",
+        "ssz_raw.decodeExecutionWitness",
+        "ssz_raw.decodeChainConfig",
+        "ssz_raw.decodePublicKeys",
+    }
+    for name in level4_names:
+        if parents[unique(name)] != decode_raw:
+            raise ValueError(f"Level 4 parent of {name} changed")
+    level4_offsets = [
+        owner["id"] for owner in call_graph["owners"]
+        if owner["qualified"] == "ssz_raw.readOffset" and parents.get(owner["id"]) == decode_raw
+    ]
+    if len(level4_offsets) != 4:
+        raise ValueError("Level 4 no longer has exactly four immediate readOffset instances")
 
 
 def operands(instruction: dict) -> list[str]:
@@ -520,7 +803,7 @@ def build_database(elf: pathlib.Path, program_path: pathlib.Path, llvm_objdump: 
         row["address"] for row in instructions
         if row["transfer"] in {"indirectCall", "indirectTransfer"}
     ]
-    return {
+    database = {
         "schemaVersion": 1,
         "producer": "tools/generate_machine_regions.py",
         "inputs": {
@@ -561,6 +844,10 @@ def build_database(elf: pathlib.Path, program_path: pathlib.Path, llvm_objdump: 
             "unknownEffectCount": sum(not row["knownEffects"] for row in instructions),
         },
     }
+    complete_addresses = addresses_in_declared_regions(program, disassembly)
+    database["callGraph"] = build_call_graph(program, disassembly, complete_addresses)
+    database["summary"]["binaryInstructionCount"] = len(complete_addresses)
+    return database
 
 
 def validate(database: dict) -> None:
@@ -624,6 +911,30 @@ def validate(database: dict) -> None:
             raise ValueError(f"owner {owner['id']} exit inventory disagrees with ownership and CFG")
         if set(owner["entries"]) != expected_entries[owner["id"]]:
             raise ValueError(f"owner {owner['id']} entry inventory disagrees with ownership and CFG")
+
+    call_graph = database["callGraph"]
+    call_owner_ids = {owner["id"] for owner in call_graph["owners"]}
+    call_addresses = call_graph["instructionAddresses"]
+    call_owned = sorted(
+        address for owner in call_graph["owners"] for address in owner["instructions"]
+    )
+    if call_owned != call_addresses or call_addresses != sorted(set(call_addresses)):
+        raise ValueError("call-graph owners do not exactly tile the instruction inventory")
+    for call in call_graph["calls"]:
+        if call["caller"] != "program" and call["caller"] not in call_owner_ids:
+            raise ValueError("call edge names an absent caller")
+        if call["callee"] not in call_owner_ids:
+            raise ValueError("call edge names an absent callee")
+    reachable_owners = set(call_graph["reachableOwners"])
+    unreachable_owners = set(call_graph["unreachableOwners"])
+    if reachable_owners & unreachable_owners or reachable_owners | unreachable_owners != call_owner_ids:
+        raise ValueError("reachable and uncalled owners do not partition owners")
+    parents = call_graph["dominatorParent"]
+    if set(parents) != reachable_owners:
+        raise ValueError("call-dominator parents do not cover every reachable owner")
+    for parent in parents.values():
+        if parent != "program" and parent not in reachable_owners:
+            raise ValueError("call-dominator parent is not reachable")
 
 
 def validate_input_hashes(database: dict, elf: pathlib.Path, program_path: pathlib.Path) -> None:
@@ -733,35 +1044,62 @@ def instruction_runs(indices: list[int]) -> list[list[int]]:
 
 
 def build_flame(database: dict) -> dict:
-    address_index = {
-        row["address"]: index for index, row in enumerate(database["instructions"])
-    }
-    by_id = {owner["id"]: owner for owner in database["owners"]}
-    children: dict[str | None, list[str]] = defaultdict(list)
-    for owner in database["owners"]:
-        parent = owner["parent"] if owner.get("parent") in by_id else None
-        children[parent].append(owner["id"])
+    call_graph = database["callGraph"]
+    all_addresses = call_graph["instructionAddresses"]
+    address_index = {address: index for index, address in enumerate(all_addresses)}
+    by_id = {owner["id"]: owner for owner in call_graph["owners"]}
+    checked_by_id = {owner["id"]: owner for owner in database["owners"]}
+    callers: dict[str, list[dict]] = defaultdict(list)
+    callees: dict[str, list[dict]] = defaultdict(list)
+    for call in call_graph["calls"]:
+        callees[call["caller"]].append(call)
+        callers[call["callee"]].append(call)
+
+    binary_node, program_node, unused_node = "binary", "program", "not-called-by-program"
+    parents = dict(call_graph["dominatorParent"])
+    parents[program_node] = binary_node
+    parents[unused_node] = binary_node
+    unreachable = set(call_graph["unreachableOwners"])
+    for owner_id in unreachable:
+        structural_parent = by_id[owner_id].get("parent")
+        parents[owner_id] = structural_parent if structural_parent in unreachable else unused_node
+
+    children: dict[str, list[str]] = defaultdict(list)
+    for child, parent in parents.items():
+        children[parent].append(child)
     for child_ids in children.values():
         child_ids.sort(key=lambda owner: (
-            min(by_id[owner]["instructions"] or [2**64]), owner
+            min(by_id.get(owner, {}).get("instructions", []) or [2**64]), owner
         ))
 
     meta: dict[str, dict] = {}
-    keys_by_owner: dict[str, str] = {}
 
-    def make_node(owner_id: str, parent_key: str) -> tuple[dict, set[int]]:
-        owner = by_id[owner_id]
-        name = f"{owner['qualified']} [{owner_id}]"
-        key = f"{parent_key}|{name}"
-        keys_by_owner[owner_id] = key
+    def make_node(owner_id: str, parent_key: str | None) -> tuple[dict, set[int]]:
+        synthetic = owner_id in {binary_node, program_node, unused_node}
+        if synthetic:
+            names = {
+                binary_node: "binary",
+                program_node: "program",
+                unused_node: "not called by program",
+            }
+            name = names[owner_id]
+            qualified = owner_id
+            own_addresses: set[int] = set()
+            owner = None
+        else:
+            owner = by_id[owner_id]
+            name = f"{owner['qualified']} [{owner_id}]"
+            qualified = owner["qualified"]
+            own_addresses = set(owner["instructions"])
+        key = name if parent_key is None else f"{parent_key}|{name}"
         child_nodes = []
-        subtree = set(owner["instructions"])
+        subtree = set(own_addresses)
         for child_id in children[owner_id]:
             child_node, child_addresses = make_node(child_id, key)
             child_nodes.append(child_node)
             subtree.update(child_addresses)
         indices = sorted(address_index[address] for address in subtree)
-        own_indices = sorted(address_index[address] for address in owner["instructions"])
+        own_indices = sorted(address_index[address] for address in own_addresses)
         node = {
             "name": name,
             "value": len(indices),
@@ -769,53 +1107,33 @@ def build_flame(database: dict) -> dict:
             "children": child_nodes,
             "key": key,
         }
+        checked = checked_by_id.get(owner_id, {})
         meta[key] = {
-            "owner": owner_id,
+            "owner": None if synthetic else owner_id,
+            "qualified": qualified,
+            "kind": "synthetic" if synthetic else owner["kind"],
+            "hierarchy": "synthetic" if synthetic else "callDominator",
             "runs": instruction_runs(indices),
             "frags": len(instruction_runs(indices)),
             "value": len(indices),
             "self": len(own_indices),
-            "file": owner.get("sourceFile"),
-            "line": owner.get("declLine", 0),
-            "entries": owner["entries"],
-            "exits": owner["exits"],
-            "loopSccs": owner["loopSccs"],
+            "file": None if synthetic else owner.get("sourceFile"),
+            "line": 0 if synthetic else owner.get("declLine", 0),
+            "entries": [] if synthetic else checked.get("entries", []),
+            "exits": [] if synthetic else checked.get("exits", []),
+            "loopSccs": [] if synthetic else checked.get("loopSccs", []),
+            "callers": callers[owner_id],
+            "callees": callees[owner_id],
             "src": None,
         }
         return node, subtree
 
-    root_children = []
-    covered: set[int] = set()
-    for owner_id in children[None]:
-        node, addresses = make_node(owner_id, "program")
-        root_children.append(node)
-        covered.update(addresses)
-    all_addresses = {row["address"] for row in database["instructions"]}
-    if covered != all_addresses:
-        raise ValueError("flame hierarchy does not cover the instruction database")
-    root_indices = list(range(len(database["instructions"])))
-    meta["program"] = {
-        "owner": None,
-        "runs": instruction_runs(root_indices),
-        "frags": 1,
-        "value": len(root_indices),
-        "self": 0,
-        "file": None,
-        "line": 0,
-        "entries": [database["entry"]],
-        "exits": [],
-        "loopSccs": [],
-        "src": None,
-    }
-    tree = {
-        "name": "program",
-        "value": len(root_indices),
-        "self": 0,
-        "children": root_children,
-        "key": "program",
-    }
-
-    cap = max(1, len(root_indices) // 10)
+    tree, covered = make_node(binary_node, None)
+    if covered != set(all_addresses):
+        raise ValueError("call hierarchy does not exactly cover the instruction inventory")
+    program_key = "binary|program"
+    program_total = meta[program_key]["value"]
+    cap = max(1, program_total // 10)
     selected: list[str] = []
     residual: dict[str, int] = {}
     needs_split: list[str] = []
@@ -834,18 +1152,20 @@ def build_flame(database: dict) -> dict:
             if node["self"] > cap:
                 needs_split.append(key)
 
-    for child in root_children:
+    program_tree = next(child for child in tree["children"] if child["name"] == "program")
+    for child in program_tree["children"]:
         select(child)
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "machineRegionInputs": database["inputs"],
-        "total": len(root_indices),
+        "total": len(all_addresses),
+        "programTotal": program_total,
         "loAddr": min(all_addresses),
         "tree": tree,
         "meta": meta,
         "suggest": {
             "cap": cap,
-            "coverage": len(root_indices),
+            "coverage": program_total,
             "units": selected,
             "residual": residual,
             "needsSubFunctionSplit": needs_split,
