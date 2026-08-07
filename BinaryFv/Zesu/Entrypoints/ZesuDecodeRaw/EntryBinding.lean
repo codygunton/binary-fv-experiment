@@ -178,7 +178,7 @@ is exactly what the premise consumes.
 
 `FetchPmaAllows` (`RiscV/Platform/Fetch.lean`) is spelled out rather than imported: this module sits
 below the fetch layer and pulling it in would enlarge the root's import closure for one definition.
-The two are the same conjunction, and `SentinelAssembly.lean` re-packs one into the other in a
+The two are the same conjunction, and `ReturnToSentinel.lean` re-packs one into the other in a
 line. -/
 
 /-- Whether a PMA table grants an executable four-byte instruction fetch at `pc`. Phrased on the

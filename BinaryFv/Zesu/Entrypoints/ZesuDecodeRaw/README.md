@@ -33,10 +33,10 @@ groups.
 
 1. [GeneratedReturnExits.lean](../../Elflings/GeneratedReturnExits.lean) establishes that the three
    exported exits used here really decode as returns.
-2. [SentinelAssembly.lean](SentinelAssembly.lean) retires those returns and joins each proved
-   function-instance trace to the runner's sentinel trace.
-3. [Assembly.lean](Assembly.lean) combines the wrapper, accessor, ownership, and value-observation
-   pieces into `ExportedContractAssumptions` and the complete conditional runner theorem consumed by
+2. [ReturnToSentinel.lean](ReturnToSentinel.lean) proves that executing those returns reaches the
+   runner's stop address.
+3. [ExportedContractExecution.lean](ExportedContractExecution.lean) assumes the contracts for the
+   exported decoder and two accessors, then derives the successful and rejected machine runs used by
    `Root.lean`.
 
 Only file-backed ELF bytes are loaded eagerly. The roughly 69 MiB BSS and arena tail remain sparse;

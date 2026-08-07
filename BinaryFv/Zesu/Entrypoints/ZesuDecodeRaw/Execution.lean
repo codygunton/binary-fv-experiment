@@ -113,7 +113,7 @@ structure RejectedRun (input : ByteArray) where
 /-! ## What used to be here
 
 Two old `sorry`-carrying scaffolds asserted machine runs directly from specification outcomes. They
-remain deleted: `Assembly.lean` constructs those runs only from the explicit exported-contract seam.
+remain deleted: `ExportedContractExecution.lean` constructs those runs only from the explicit exported-contract seam.
 Keeping an unconditional route alongside it would make the root's real premises unclear. -/
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw

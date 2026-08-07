@@ -1,24 +1,25 @@
-import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.SentinelAssembly
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.ReturnToSentinel
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeGlue
 
 /-!
-# The capstone: a complete run of the wrapper, from the local contract assumptions alone
+# Complete runner executions from the three exported contracts
 
-Three layers were built to meet here and this module is the joint.
+This module assumes that the exported decoder and its two accessors satisfy their contracts, then
+derives the successful and rejected machine runs consumed by the public root theorem.
 
-* **The machine half** (`SentinelAssembly.lean`) turns a function instance's own
+* `ReturnToSentinel.lean` turns a function instance's own
   `EnteredFunctionTrace` into a `TraceToSentinel`, by proving the exit `ret` retires onto the
   runner's sentinel. It needs the instance's obligation and an `ExitPlatform` bundle, nothing else.
-* **The value half** (`DecodeGlue.lean`) turns the wrapper's exit binding into every non-trace field
+* `DecodeGlue.lean` turns the wrapper's exit binding into every non-trace field
   of `SuccessfulRun`/`RejectedRun`, from `catalogGroundsInSpec` and the input bound.
-* **The joint** (`Accessors.lean`) assembles the two witnesses from exactly those pieces.
+* `Accessors.lean` connects the accessor contracts to the two accessor calls made by the runner.
 
-What this module supplies is the exported-contract seam and the three transports that carry a fact
-established at one state to the state the next layer speaks about.
+This module packages the three contract assumptions and proves that facts established before a
+return or accessor call remain true in the state observed afterward.
 
 ## The three transports, and why each is not bookkeeping
 
-**Across the exit `ret`** (`ExitRetFrame`, proved in `SentinelAssembly.lean`). Every contract
+**Across the exit `ret`** (`ExitRetFrame`, proved in `ReturnToSentinel.lean`). Every contract
 postcondition is about the state the exit instruction is *reached in*; every observation the runner
 makes is at the state the trace *ends in*, one retirement later. The two are not the same state and
 nothing related them, so `SuccessfulRun.returnCode` — `observeReturnCode? finalState = some 1` —

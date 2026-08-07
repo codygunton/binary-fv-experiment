@@ -4,14 +4,13 @@ import BinaryFv.RiscV.Step.AbstractPremise
 import BinaryFv.RiscV.Step.Call
 
 /-!
-# The three sentinel attachments, assembled
+# Returning the three exported functions to the runner's stop address
 
-`RiscV/Elfling/SentinelBridge.lean` turns an `EnteredFunctionTrace` into a `TraceToSentinel` given
-three things it says outright it cannot know: the two avoidance conditions, and one `Runs (try_step
-…)` for the `ret` that moves the pc from the exit address onto the sentinel. This module supplies all
-three, at the three places the runner attaches them — the exported wrapper `zesu_decode_raw` and the
-two exported accessors `zesu_raw_result` and `zesu_raw_error` — and it *proves* the `ret` rather than
-assuming it.
+`RiscV/Elfling/SentinelBridge.lean` can extend a function trace through its final `ret`, but it cannot
+know facts about a particular binary. This module supplies those facts for `zesu_decode_raw`,
+`zesu_raw_result`, and `zesu_raw_error`: their selected exits are real return instructions, their
+code and exit addresses differ from the runner's stop address, and executing each `ret` places that
+stop address in the program counter.
 
 ## What is proved and what is still a hypothesis
 

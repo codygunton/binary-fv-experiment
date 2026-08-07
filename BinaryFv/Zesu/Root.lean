@@ -1,6 +1,6 @@
 import BinaryFv.Zesu.Artifacts.Layout
 import BinaryFv.Zesu.Interface
-import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Assembly
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.ExportedContractExecution
 
 namespace BinaryFv.Zesu
 
