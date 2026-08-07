@@ -59,4 +59,4 @@ a rejection — `wrapper_rejection_forces_checks` states that as a converse and
 
 `Root.root_compliance_of_exported_contracts` is the public conclusion. It does not assume that an
 arbitrary generated program is correct: it assumes the three exported contracts used by this
-runner. Later refinement PRs prove those contracts by concrete Sail execution.
+runner. Concrete Sail proofs discharge those assumptions one contract at a time.

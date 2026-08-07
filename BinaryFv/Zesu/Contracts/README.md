@@ -69,6 +69,6 @@ specifications, including which errors functions can return and exact acceptance
 also identifies the remaining specification-level assumption: agreement between the composed Zesu
 decoder meaning and the pinned Ethereum SSZ specification on the decoded value.
 
-D′ does not yet prove the machine execution of every cataloged function instance. Its public theorem
-assumes the contracts for `zesu_decode_raw`, `zesu_raw_result`, and `zesu_raw_error`; later PRs replace
-those assumptions with instruction-level Sail proofs.
+The library does not yet prove the machine execution of every cataloged function instance. Its
+public theorem assumes the contracts for `zesu_decode_raw`, `zesu_raw_result`, and `zesu_raw_error`.
+Those assumptions are discharged by instruction-level Sail proofs as the verification progresses.

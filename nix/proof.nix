@@ -211,7 +211,7 @@ COMPAT
     ${pkgs.gnused}/bin/sed -i '1i import SizzLean.Compat' "$out/SizzLean/Proofs/UInt.lean"
     ${pkgs.gnused}/bin/sed -i '1i import SizzLean.Compat' "$out/SizzLean/Proofs/BitPack.lean"
 
-    # D′ proves facts about the pinned decoder's two offset-table walkers. Widen only their
+    # The offset-correspondence proofs use the pinned decoder's two offset-table walkers. Widen only their
     # visibility after checking the pristine source hash above; their definitions are unchanged.
     deserialize="$out/SizzLean/Spec/Deserialize.lean"
     test "$(${pkgs.gnugrep}/bin/grep -c -x -F 'private def extractFieldOffsets (b : ByteArray) :' "$deserialize")" = 1
@@ -298,7 +298,7 @@ COMPAT
       exit 1
     fi
 
-    # The retained D′ assembly has no proof placeholders. Fail on any declaration whose proof is a
+    # The checked proof tree has no proof placeholders. Fail on any declaration whose proof is a
     # standalone `sorry`; prose that discusses historical scaffolds does not match this audit.
     sorrySites=$(grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/ || true)
     if [ -n "$sorrySites" ]; then

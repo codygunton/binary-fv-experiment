@@ -16,12 +16,11 @@ noncomputable def binary : RiscvSpec.ValidatedElf := {
 }
 
 /-!
-## Navigation from the conditional root theorem
+## Conditional compliance theorem
 
-`root_compliance_of_exported_contracts` is the foundation's conditional product theorem. It assumes
-the three exported machine contracts used by the runner, then derives the public Ethereum SSZ
-agreement claim through the concrete runner and observers. Later refinement levels belong in stacked
-PRs above this foundation.
+`root_compliance_of_exported_contracts` assumes the three exported machine contracts used by the
+runner, then derives the public Ethereum SSZ agreement claim through the concrete runner and
+observers. Instruction-level proofs can discharge those contract assumptions independently.
 
 The active spine is the concrete wrapper/accessor run assembly and the public execution classifier.
 Canonical ELF and source-provenance checks remain available separately as decomposition-independent
@@ -150,9 +149,9 @@ theorem accepted_checks_determine_classification {final : BinaryFv.RiscV.State}
   Zesu.Entrypoints.ZesuDecodeRaw.classifyWrapperRun_accepted _ _ _ steps _ _ final value hcode rfl
     rfl Zesu.Entrypoints.ZesuDecodeRaw.canonicalResultBuffer_ne_zero htag hvalue
 
-/-- The foundation's conditional root theorem. Its premise is exactly the three exported contracts
-consumed by the concrete runner. Refinement PRs may prove or strengthen this premise without changing
-the public statement. -/
+/-- The conditional root theorem. Its premise is exactly the three exported contracts consumed by
+the concrete runner. Instruction-level proofs can discharge or strengthen that premise without
+changing the public statement. -/
 theorem root_compliance_of_exported_contracts
     (contracts : Zesu.Entrypoints.ZesuDecodeRaw.ExportedContractAssumptions) :
     ∀ input : ByteArray,
