@@ -319,11 +319,16 @@ COMPAT
       python3 tools/lean_profile.py --out "$out/profiles" merge
     fi
 
-    lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest 2>&1 \
+    # Serial residual build: after the compliance-closure prebuild above, the modules left here are
+    # dominated by the heavyweight generated-evidence `native_decide` elaborations
+    # (`ParserBlocks`, `GeneratedReachabilityExact`, ...). Running those four-wide exhausts the
+    # 16 GB CI runner — main's pre-existing required job already fails this way — so the residual
+    # builds run one module at a time; the compliance prebuild keeps its full parallelism.
+    lake build --jobs 1 repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest 2>&1 \
       | tee "$out/full-build.log"
 
     # Zesu production-binary validation remains diagnostic-only.
-    lake build ZesuVerificationTests
+    lake build --jobs 1 ZesuVerificationTests
   '';
 
   devShell = pkgs.mkShell {
