@@ -11,6 +11,10 @@ the production binary, and that selected production executions return the expect
 Passing those finite tests does not prove either claim universally. The compliance argument itself is
 the Lean refinement from `BinaryFv/Specs/SSZ` through Zesu's contracts to machine execution.
 
+`elfling_program_test.py` checks that generated Lean names identify the source function,
+specialization, and full inline call path, and that generation fails if two instances would receive
+the same name.
+
 `lean/ZesuVerification/` contains Lean checks tied to the production binary. The occurrence checks
 compare extracted instructions, call boundaries, and source bindings with committed execution
 observations. The scaled checks attempt those tests for all 141 compiled function instances under
