@@ -409,7 +409,7 @@ records why the clause was not spelled with it.)
 theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
     ∃ s, Runs (buildZesuEntryState input) initialState s () ∧
       preZesuDecodeRaw canonicalEnvironment canonicalDecoderGlobalsLayout canonicalResultBuffer
-        canonicalRepRawV4 DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ s ∧
+        canonicalStatelessInputRep DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ s ∧
       s.regs.get? x1 = some (BitVec.ofNat 64 canonicalRunnerLayout.sentinel) ∧
       s.regs.get? x2 = some (BitVec.ofNat 64 canonicalRunnerLayout.stackStop) ∧
       NormalExecutionState s ∧ FetchPlatformPresent s ∧
@@ -522,7 +522,7 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       canonicalEnvironment.CodeIntact sf ∧
       sf.regs.get? x10 = some (BitVec.ofNat 64 canonicalRunnerLayout.inputBase) ∧
       sf.regs.get? x11 = some (BitVec.ofNat 64 input.size) ∧
-      DecoderGlobalsRep canonicalDecoderGlobalsLayout canonicalRepRawV4
+      DecoderGlobalsRep canonicalDecoderGlobalsLayout canonicalStatelessInputRep
         canonicalRunnerLayout.inputBase input canonicalResultBuffer DecoderGlobalsModel.fresh sf
   refine ⟨?_, ?_, hx10, hx11, ?_, ?_⟩
   · -- MemoryBytes: the input reads back.
@@ -576,7 +576,7 @@ entry state and one place a change to the builder has to be reflected. -/
 theorem buildZesuEntryState_entry_binding (input : ByteArray) :
     ∃ s, Runs (buildZesuEntryState input) initialState s () ∧
       preZesuDecodeRaw canonicalEnvironment canonicalDecoderGlobalsLayout canonicalResultBuffer
-        canonicalRepRawV4 DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ s := by
+        canonicalStatelessInputRep DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ s := by
   obtain ⟨s, hrun, hbind, -⟩ := buildZesuEntryState_entry_binding_abi input
   exact ⟨s, hrun, hbind⟩
 

@@ -929,7 +929,7 @@ notice. Keeping two names is what makes the difference visible in the citation. 
 /-- `sourceShapedDecodeAgreesWithOracle` without its scope hypothesis. Deliberately unused except by
 the theorem below. -/
 def unscopedDecodeAgreesWithOracle : Prop :=
-  ∀ (bytes : ByteArray) (value : BinaryFv.Specs.SSZ.RawV4),
+  ∀ (bytes : ByteArray) (value : BinaryFv.Specs.SSZ.StatelessInput),
     meaningDecode bytes = .ok value ↔ BinaryFv.Specs.SSZ.decodeStatelessInput bytes = .ok value
 
 /-- **The unscoped obligation contradicts the recorded ERE divergence.**
@@ -948,7 +948,7 @@ theorem unscopedAgreement_contradicts_ereGate :
 /-- The same for `catalogGroundsInSpec`, which is the obligation above in the public spelling and so
 fails the same way. -/
 def unscopedGroundsInSpec : Prop :=
-  ∀ (bytes : ByteArray) (value : BinaryFv.Specs.SSZ.RawV4),
+  ∀ (bytes : ByteArray) (value : BinaryFv.Specs.SSZ.StatelessInput),
     meaningDecode bytes = .ok value ↔ BinaryFv.Specs.SSZ.decode bytes = .accepted value
 
 theorem unscopedGrounds_contradicts_ereGate :
@@ -970,7 +970,7 @@ the separation cannot drift into being about some other pair of propositions.
 
 **The unconditional half.** Post-compose the source with *any* relabelling of the decoded value and
 the acceptance predicate is unchanged — `isAccepted` is a `Bool`, and a `Bool` cannot carry a
-`RawV4`. So no amount of acceptance agreement constrains which value comes out.
+`StatelessInput`. So no amount of acceptance agreement constrains which value comes out.
 
 **The conditional half, and why it cannot be made unconditional here.** The relabelled source
 violates the value predicate — but only at a buffer the oracle actually accepts. That hypothesis is
@@ -982,12 +982,12 @@ in-scope buffer, and exhibiting one means importing a decoding fixture — which
 stated rather than discharged, and that is a property of the statement, not a gap in the proof. -/
 
 /-- The obligation's shape, as a predicate on an arbitrary source-shaped decode. -/
-def ValueAgreement (source : ByteArray → Except DecodeError BinaryFv.Specs.SSZ.RawV4) : Prop :=
-  ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : BinaryFv.Specs.SSZ.RawV4),
+def ValueAgreement (source : ByteArray → Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) : Prop :=
+  ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : BinaryFv.Specs.SSZ.StatelessInput),
     source bytes = .ok value ↔ BinaryFv.Specs.SSZ.decodeStatelessInput bytes = .ok value
 
 /-- The obligation's shape **before** this strengthening, as the same kind of predicate. -/
-def AcceptanceAgreement (source : ByteArray → Except DecodeError BinaryFv.Specs.SSZ.RawV4) : Prop :=
+def AcceptanceAgreement (source : ByteArray → Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) : Prop :=
   ∀ (bytes : ByteArray), rootComplianceScope bytes →
     isAccepted (source bytes) = (BinaryFv.Specs.SSZ.decodeStatelessInput bytes).toOption.isSome
 
@@ -998,7 +998,7 @@ theorem valueAgreement_meaningDecode :
 /-- The new obligation entails the old one at every source, so the change is a strengthening in the
 strict sense and not a replacement. -/
 theorem acceptanceAgreement_of_valueAgreement
-    {source : ByteArray → Except DecodeError BinaryFv.Specs.SSZ.RawV4}
+    {source : ByteArray → Except DecodeError BinaryFv.Specs.SSZ.StatelessInput}
     (agrees : ValueAgreement source) : AcceptanceAgreement source := by
   intro bytes scope
   cases hm : source bytes with
@@ -1014,8 +1014,8 @@ theorem acceptanceAgreement_of_valueAgreement
 /-- **Acceptance agreement is blind to the value.** Relabel every decoded value however you like and
 the predicate is untouched — which is exactly why it could not entail the value agreement. -/
 theorem acceptanceAgreement_invariant_under_relabelling
-    {source : ByteArray → Except DecodeError BinaryFv.Specs.SSZ.RawV4}
-    (f : BinaryFv.Specs.SSZ.RawV4 → BinaryFv.Specs.SSZ.RawV4) (agrees : AcceptanceAgreement source) :
+    {source : ByteArray → Except DecodeError BinaryFv.Specs.SSZ.StatelessInput}
+    (f : BinaryFv.Specs.SSZ.StatelessInput → BinaryFv.Specs.SSZ.StatelessInput) (agrees : AcceptanceAgreement source) :
     AcceptanceAgreement (fun bytes => (source bytes).map f) := by
   intro bytes scope
   show isAccepted ((source bytes).map f) = (BinaryFv.Specs.SSZ.decodeStatelessInput bytes).toOption.isSome
@@ -1026,9 +1026,9 @@ theorem acceptanceAgreement_invariant_under_relabelling
 longer satisfies the new one, so the old cannot imply the new. See the section note for why the
 accepted witness is a hypothesis rather than a fixture. -/
 theorem acceptanceAgreement_does_not_imply_valueAgreement
-    {source : ByteArray → Except DecodeError BinaryFv.Specs.SSZ.RawV4}
-    (f : BinaryFv.Specs.SSZ.RawV4 → BinaryFv.Specs.SSZ.RawV4) (agrees : AcceptanceAgreement source)
-    {witness : BinaryFv.Specs.SSZ.RawV4} {buffer : ByteArray} (scope : rootComplianceScope buffer)
+    {source : ByteArray → Except DecodeError BinaryFv.Specs.SSZ.StatelessInput}
+    (f : BinaryFv.Specs.SSZ.StatelessInput → BinaryFv.Specs.SSZ.StatelessInput) (agrees : AcceptanceAgreement source)
+    {witness : BinaryFv.Specs.SSZ.StatelessInput} {buffer : ByteArray} (scope : rootComplianceScope buffer)
     (decoded : source buffer = .ok witness) (moved : f witness ≠ witness)
     (oracle : BinaryFv.Specs.SSZ.decodeStatelessInput buffer = .ok witness) :
     AcceptanceAgreement (fun bytes => (source bytes).map f) ∧

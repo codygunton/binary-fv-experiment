@@ -24,7 +24,7 @@ stated against exactly those real registers, which is the correction.
 does not satisfy the entry binding — so a mutated argument register fails. -/
 theorem wrapper_entry_requires_input_in_a0 (env : DecoderEnvironment)
     (globals : DecoderGlobalsLayout) (resultBuffer : Nat)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) (incoming : DecoderGlobalsModel)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) (incoming : DecoderGlobalsModel)
     (args : ZesuDecodeRawArgs)
     (state : State) (hbad : state.regs.get? x10 ≠ some (BitVec.ofNat 64 args.inputBase)) :
     ¬ preZesuDecodeRaw env globals resultBuffer rep incoming args state := by
@@ -35,7 +35,7 @@ theorem wrapper_entry_requires_input_in_a0 (env : DecoderEnvironment)
 not satisfy the entry binding. -/
 theorem wrapper_entry_requires_length_in_a1 (env : DecoderEnvironment)
     (globals : DecoderGlobalsLayout) (resultBuffer : Nat)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) (incoming : DecoderGlobalsModel)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) (incoming : DecoderGlobalsModel)
     (args : ZesuDecodeRawArgs)
     (state : State) (hbad : state.regs.get? x11 ≠ some (BitVec.ofNat 64 args.bytes.size)) :
     ¬ preZesuDecodeRaw env globals resultBuffer rep incoming args state := by
@@ -47,7 +47,7 @@ independent of the global locations and result-buffer address, so relinking the 
 those addresses) changes bindings but never what the function instance means. -/
 theorem wrapper_spec_is_relocation_invariant (env : DecoderEnvironment)
     (g₁ g₂ : DecoderGlobalsLayout) (rb₁ rb₂ : Nat)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) (incoming : DecoderGlobalsModel) :
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) (incoming : DecoderGlobalsModel) :
     (functionInstanceZesuDecodeRaw env g₁ rb₁ rep incoming).spec
       = (functionInstanceZesuDecodeRaw env g₂ rb₂ rep incoming).spec :=
   rfl
@@ -70,7 +70,7 @@ theorem raw_result_reads_model_pointer (env : DecoderEnvironment) (globals : Dec
 wrapper stores a decoded value, `zesu_raw_result` yields the canonical buffer and `zesu_raw_error`
 yields `ok`. -/
 theorem accessors_after_fresh_success (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (value : BinaryFv.Specs.SSZ.RawV4) :
+    (resultBuffer : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) :
     (contractRawResult env globals resultBuffer).meaning
         (resultingGlobals DecoderGlobalsModel.fresh (.ok value)) = .ok resultBuffer ∧
     (contractRawError env globals).meaning
@@ -95,8 +95,8 @@ representation holds after a fresh successful decode, the `stored_result` discri
 (at the reflected offset within the object) and the payload buffer holds the value under the container
 representation — the value lives in the 848-byte object, not behind a pointer. -/
 theorem stored_object_holds_value_after_fresh_success (globals : DecoderGlobalsLayout)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) (inputBase : Nat) (input : ByteArray)
-    (resultBase : Nat) (incoming : DecoderGlobalsModel) (value : BinaryFv.Specs.SSZ.RawV4) (state : State)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) (inputBase : Nat) (input : ByteArray)
+    (resultBase : Nat) (incoming : DecoderGlobalsModel) (value : BinaryFv.Specs.SSZ.StatelessInput) (state : State)
     (hfresh : incoming.attempted = false)
     (h : StoredResultRep globals rep inputBase input resultBase
           (resultingGlobals incoming (.ok value)) state) :
@@ -114,7 +114,7 @@ theorem stored_object_holds_value_after_fresh_success (globals : DecoderGlobalsL
 /-- **A fresh rejection clears the discriminant.** After a fresh rejected decode, the outgoing
 stored-result discriminant byte is absent. -/
 theorem stored_object_absent_after_fresh_rejection (globals : DecoderGlobalsLayout)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) (inputBase : Nat) (input : ByteArray)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) (inputBase : Nat) (input : ByteArray)
     (resultBase : Nat) (incoming : DecoderGlobalsModel) (error : DecodeError) (state : State)
     (hfresh : incoming.attempted = false)
     (h : StoredResultRep globals rep inputBase input resultBase
@@ -130,9 +130,9 @@ theorem stored_object_absent_after_fresh_rejection (globals : DecoderGlobalsLayo
 /-- **A second call leaves the object untouched.** Once `attempted` is set the globals are unchanged,
 so the outgoing stored-result representation is exactly the incoming one. -/
 theorem stored_object_unchanged_after_second_call (globals : DecoderGlobalsLayout)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) (inputBase : Nat) (input : ByteArray)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) (inputBase : Nat) (input : ByteArray)
     (resultBase : Nat) (incoming : DecoderGlobalsModel)
-    (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4) (state : State) (h : incoming.attempted = true)
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) (state : State) (h : incoming.attempted = true)
     (hrep : StoredResultRep globals rep inputBase input resultBase
               (resultingGlobals incoming result) state) :
     StoredResultRep globals rep inputBase input resultBase incoming state := by
@@ -180,7 +180,7 @@ retired counter into `platformPreserved` fail here instead of silently making al
 postconditions false. The wrapper's run additionally writes the two decoder globals a rejected decode
 really writes. Deliberately the *rejection* path: it is a real path of the real wrapper, and its
 stored-result arm is `True`, so the witness holds for **every** container representation rather than
-for a convenient one. The success arm would additionally have to realise a `RawV4` in memory, which
+for a convenient one. The success arm would additionally have to realise a `StatelessInput` in memory, which
 is orthogonal to the clauses under test.
 -/
 
@@ -968,7 +968,7 @@ holds for every container representation because the rejected arm stores no valu
 The conjuncts after the postcondition are what make the run non-degenerate: it wrote its record (the
 `attempted` byte moved) and its stack frame, it retired instructions (so `minstret` moved), and the
 caller's frame — `ra` and the platform state included — came back. -/
-theorem wrapper_run_satisfies_the_clauses (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+theorem wrapper_run_satisfies_the_clauses (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (inputBase resultBuffer : Nat) :
     postZesuDecodeRaw calleeFrameEnv calleeFrameGlobals resultBuffer rep DecoderGlobalsModel.fresh
         ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz) wrapperBefore wrapperAfter ∧
@@ -1017,9 +1017,9 @@ theorem wrapper_run_satisfies_the_clauses (rep : ContainerRepresentation BinaryF
 
 /-- **`postZesuDecodeRaw` as it stood before the callee-frame clauses.** -/
 def postZesuDecodeRawHistorical (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
-    (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4) (_before after : State) : Prop :=
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) (_before after : State) : Prop :=
   MemoryBytes after args.inputBase args.bytes ∧
   env.CodeIntact after ∧
   after.regs.get? x10 = some (BitVec.ofNat 64 (callOutcome incoming result).returnCode) ∧
@@ -1029,17 +1029,17 @@ def postZesuDecodeRawHistorical (env : DecoderEnvironment) (globals : DecoderGlo
 /-- **`postZesuDecodeRaw` as it stood under the two clauses this change replaced**, named for the
 reason `postRawErrorTwoClause` is. -/
 def postZesuDecodeRawTwoClause (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
-    (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4) (before after : State) : Prop :=
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) (before after : State) : Prop :=
   postZesuDecodeRawHistorical env globals resultBuffer rep incoming args result before after ∧
     after.regs.get? x1 = before.regs.get? x1 ∧ NormalExecutionState after
 
 /-- The wrapper's historical predicate is likewise the live one minus exactly the two clauses. -/
 theorem postZesuDecodeRaw_eq_historical_and_clauses (env : DecoderEnvironment)
     (globals : DecoderGlobalsLayout) (resultBuffer : Nat)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) (incoming : DecoderGlobalsModel)
-    (args : ZesuDecodeRawArgs) (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) (incoming : DecoderGlobalsModel)
+    (args : ZesuDecodeRawArgs) (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput)
     (before after : State) :
     postZesuDecodeRaw env globals resultBuffer rep incoming args result before after ↔
       postZesuDecodeRawHistorical env globals resultBuffer rep incoming args result before after ∧
@@ -1052,7 +1052,7 @@ theorem postZesuDecodeRaw_eq_historical_and_clauses (env : DecoderEnvironment)
 
 /-- The historical wrapper postcondition holds of any after-state with `wrapperAfter`'s memory and
 return code — which all four clobbers have. -/
-theorem wrapper_historical_of_same_memory (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+theorem wrapper_historical_of_same_memory (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (inputBase resultBuffer : Nat) {after : State}
     (hmem : ∀ address, after.mem.get? address = wrapperAfter.mem.get? address)
     (hx10 : after.regs.get? x10 = some (BitVec.ofNat 64 0)) :
@@ -1071,7 +1071,7 @@ theorem wrapper_historical_of_same_memory (rep : ContainerRepresentation BinaryF
 Same globals, same return code, same stack frame, an advanced counter, and a normal machine — the old
 postcondition cannot tell `wrapperRaClobber` from `wrapperAfter`, and neither can the platform
 clause. Only the return-address register refuses it. -/
-theorem wrapper_ra_clobber_permitted_historical (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+theorem wrapper_ra_clobber_permitted_historical (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (inputBase resultBuffer : Nat) :
     postZesuDecodeRawHistorical calleeFrameEnv calleeFrameGlobals resultBuffer rep
         DecoderGlobalsModel.fresh ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz)
@@ -1100,7 +1100,7 @@ theorem wrapper_ra_clobber_permitted_historical (rep : ContainerRepresentation B
 through a different register of the same frame. `ra` is intact here, so the return-address half is
 satisfied and the refutation can only come from `mie`. -/
 theorem wrapper_platform_clobber_permitted_historical
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) (inputBase resultBuffer : Nat) :
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) (inputBase resultBuffer : Nat) :
     postZesuDecodeRawHistorical calleeFrameEnv calleeFrameGlobals resultBuffer rep
         DecoderGlobalsModel.fresh ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz)
         wrapperBefore wrapperPlatformClobber ∧
@@ -1130,7 +1130,7 @@ here rather than delegated to the accessors because `postZesuDecodeRaw` is a dif
 `postZesuDecodeRaw_eq_historical_and_clauses` is what names the clause in *its* conjunction, and a
 theorem about `postRawError` says nothing about it. -/
 theorem wrapper_fetch_and_mmio_clobbers_permitted_by_the_old_pair
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) (inputBase resultBuffer : Nat) :
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) (inputBase resultBuffer : Nat) :
     postZesuDecodeRawTwoClause calleeFrameEnv calleeFrameGlobals resultBuffer rep
         DecoderGlobalsModel.fresh ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz)
         wrapperBefore wrapperFetchClobber ∧
@@ -1187,7 +1187,7 @@ below is it in one line: the same run that satisfies the strengthened `postZesuD
 `CalleeFrame` at any register set whatsoever — `platformPreserved` included. -/
 
 theorem calleeFrame_is_not_the_vocabulary (preserved : Register → Prop)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) (inputBase resultBuffer : Nat) :
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) (inputBase resultBuffer : Nat) :
     postZesuDecodeRaw calleeFrameEnv calleeFrameGlobals resultBuffer rep DecoderGlobalsModel.fresh
         ⟨inputBase, ByteArray.empty⟩ (.error .invalidSsz) wrapperBefore wrapperAfter ∧
       ¬ CalleeFrame preserved calleeFrameEnv.image wrapperBefore wrapperAfter := by

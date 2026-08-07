@@ -83,8 +83,8 @@ theorem stored_result_layout :
       storedResultPayloadOffset = some 0 ∧ storedResultTagOffset = some 832 := by
   native_decide
 
-/-- Nested descriptor offsets used by the guarded native `RawV4` observer. -/
-def rawV4DescriptorOffsetsValid : Bool :=
+/-- Nested descriptor offsets used by the guarded native `StatelessInput` observer. -/
+def statelessInputDescriptorOffsetsValid : Bool :=
   abiDatum "ssz_raw.RawNewPayloadRequest|versioned_hashes" == some 592 &&
     abiDatum "ssz_raw.RawNewPayloadRequest|execution_requests" == some 608 &&
     abiDatum "ssz_raw.RawExecutionPayload|transactions" == some 80 &&
@@ -96,28 +96,28 @@ def rawV4DescriptorOffsetsValid : Bool :=
     abiDatum "ssz_raw.RawExecutionWitness|codes" == some 16 &&
     abiDatum "ssz_raw.RawExecutionWitness|headers" == some 32
 
-theorem raw_v4_descriptor_offsets_valid : rawV4DescriptorOffsetsValid = true := by
+theorem stateless_input_descriptor_offsets_valid : statelessInputDescriptorOffsetsValid = true := by
   native_decide
 
-/-- Compiler-reflected element sizes for every heap-backed fixed-record collection in `RawV4`. -/
-def rawV4HeapElementSizesValid : Bool :=
+/-- Compiler-reflected element sizes for every heap-backed fixed-record collection in `StatelessInput`. -/
+def statelessInputHeapElementSizesValid : Bool :=
   abiDatum "ssz_raw.RawWithdrawal|size" == some 48 &&
     abiDatum "ssz_raw.RawDepositRequest|size" == some 192 &&
     abiDatum "ssz_raw.RawWithdrawalRequest|size" == some 80 &&
     abiDatum "ssz_raw.RawConsolidationRequest|size" == some 116
 
-theorem raw_v4_heap_element_sizes_valid : rawV4HeapElementSizesValid = true := by
+theorem stateless_input_heap_element_sizes_valid : statelessInputHeapElementSizesValid = true := by
   native_decide
 
 /-! ### The same four sizes as `Option Nat`
 
-`rawV4HeapElementSizesValid` pins the four heap element sizes as a `Bool`, which is the form the
+`statelessInputHeapElementSizesValid` pins the four heap element sizes as a `Bool`, which is the form the
 guarded native observer wants. A footprint wants the size itself, so that `range base recordSize`
 takes its bound from the manifest instead of a written literal.
 
 **Derived from the existing pinning, not from a second `native_decide`.** A fresh `native_decide` here
 would be a second appeal to `ofReduceBool` asserting the same four facts, so a manifest change could
-in principle move one and not the other. Going through `raw_v4_heap_element_sizes_valid` keeps one
+in principle move one and not the other. Going through `stateless_input_heap_element_sizes_valid` keeps one
 trust door for one fact. -/
 
 def rawWithdrawalSize : Option Nat := abiDatum "ssz_raw.RawWithdrawal|size"
@@ -128,12 +128,12 @@ def rawConsolidationRequestSize : Option Nat := abiDatum "ssz_raw.RawConsolidati
 theorem heap_element_size_layout :
     rawWithdrawalSize = some 48 ∧ rawDepositRequestSize = some 192 ∧
       rawWithdrawalRequestSize = some 80 ∧ rawConsolidationRequestSize = some 116 := by
-  have h := raw_v4_heap_element_sizes_valid
-  simp only [rawV4HeapElementSizesValid, Bool.and_eq_true, beq_iff_eq] at h
+  have h := stateless_input_heap_element_sizes_valid
+  simp only [statelessInputHeapElementSizesValid, Bool.and_eq_true, beq_iff_eq] at h
   exact ⟨h.1.1.1, h.1.1.2, h.1.2, h.2⟩
 
-/-- Compiler-reflected offsets for the inline fixed fields represented by `RawV4FixedFieldsRep`. -/
-def rawV4FixedFieldOffsetsValid : Bool :=
+/-- Compiler-reflected offsets for the inline fixed fields represented by `StatelessInputFixedFieldsRep`. -/
+def statelessInputFixedFieldOffsetsValid : Bool :=
   abiDatum "ssz_raw.RawExecutionPayload|parent_hash" == some 152 &&
     abiDatum "ssz_raw.RawExecutionPayload|fee_recipient" == some 184 &&
     abiDatum "ssz_raw.RawExecutionPayload|state_root" == some 204 &&
@@ -146,7 +146,7 @@ def rawV4FixedFieldOffsetsValid : Bool :=
     abiDatum "ssz_raw.RawChainConfig|active_fork" == some 8 &&
     abiDatum "ssz_raw.RawForkConfig|fork" == some 0
 
-theorem raw_v4_fixed_field_offsets_valid : rawV4FixedFieldOffsetsValid = true := by
+theorem stateless_input_fixed_field_offsets_valid : statelessInputFixedFieldOffsetsValid = true := by
   native_decide
 
 /-! ### The four allocating containers' record sizes
@@ -177,10 +177,10 @@ theorem allocating_container_size_layout :
   exact ⟨h.1.1.1, h.1.1.2, h.1.2, h.2⟩
 
 /-- Every queried member is produced by Zig reflection over every field of each raw result type. -/
-def completeRawV4AbiManifest : Bool :=
+def completeStatelessInputAbiManifest : Bool :=
   ZesuSszAbi.manifest.size == 96 && ZesuSszAbi.manifest.all fun entry => entry.2 < 1024
 
-theorem complete_raw_v4_abi_manifest : completeRawV4AbiManifest = true := by
+theorem complete_stateless_input_abi_manifest : completeStatelessInputAbiManifest = true := by
   native_decide
 
 end BinaryFv.Zesu.Artifacts

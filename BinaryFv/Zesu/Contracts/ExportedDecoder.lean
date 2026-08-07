@@ -55,7 +55,7 @@ represents. -/
 structure DecoderGlobalsModel where
   attempted : Bool
   status : DecodeStatus
-  stored : Option BinaryFv.Specs.SSZ.RawV4
+  stored : Option BinaryFv.Specs.SSZ.StatelessInput
 
 /-- The real C ABI arguments of `zesu_decode_raw`: the borrowed input pointer and its length.
 
@@ -71,7 +71,7 @@ wrapper refuses to run once `attempted` is set. Modelling it as a distinct outco
 "second call" behaviour statable, and is why the root theorem's precondition must pin a fresh
 `attempted = false`. -/
 inductive DecodeCallOutcome
-  | success (value : BinaryFv.Specs.SSZ.RawV4)
+  | success (value : BinaryFv.Specs.SSZ.StatelessInput)
   | rejected (error : DecodeError)
   | alreadyDecoded
 
@@ -91,7 +91,7 @@ def status : DecodeCallOutcome → DecodeStatus
   | alreadyDecoded => .alreadyDecoded
 
 /-- The stored result value this outcome leaves behind, if any. -/
-def stored : DecodeCallOutcome → Option BinaryFv.Specs.SSZ.RawV4
+def stored : DecodeCallOutcome → Option BinaryFv.Specs.SSZ.StatelessInput
   | success value => some value
   | rejected _ => none
   | alreadyDecoded => none
@@ -110,7 +110,7 @@ result.
 If a decode was already attempted the call is refused and yields `alreadyDecoded`; otherwise the
 decode result becomes `success`/`rejected`. -/
 def callOutcome (incoming : DecoderGlobalsModel)
-    (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4) : DecodeCallOutcome :=
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) : DecodeCallOutcome :=
   if incoming.attempted then
     .alreadyDecoded
   else
@@ -121,7 +121,7 @@ def callOutcome (incoming : DecoderGlobalsModel)
 /-- The globals model after a wrapper call: a fresh call records the attempt, its status, and its
 stored value; a refused second call leaves the globals exactly as they were. -/
 def resultingGlobals (incoming : DecoderGlobalsModel)
-    (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4) : DecoderGlobalsModel :=
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) : DecoderGlobalsModel :=
   if incoming.attempted then
     incoming
   else
@@ -133,7 +133,7 @@ def resultingGlobals (incoming : DecoderGlobalsModel)
 ## Representing the globals in canonical memory
 
 An `attempted` flag is one byte; `last_status` is a 32-bit little-endian word. The inline
-`stored_result` object — its discriminant byte and, on success, the `RawV4` payload laid out at the
+`stored_result` object — its discriminant byte and, on success, the `StatelessInput` payload laid out at the
 object's payload address — is represented separately (`StoredResultRep`) because that ties a *value*
 to memory and needs the canonical payload location.
 -/
@@ -163,11 +163,11 @@ def StoredResultDiscriminantRep (layout : DecoderGlobalsLayout) (model : Decoder
   MemoryRepresentation.OptionTagRep state
     (layout.storedResult + layout.storedResultObject.discriminantOffset) model.stored.isSome
 
-/-- The complete inline `stored_result` object: its discriminant, and — on success — the `RawV4`
+/-- The complete inline `stored_result` object: its discriminant, and — on success — the `StatelessInput`
 payload laid out at `resultBase` (the object's payload address) under the full container
 representation. The value arm carries the caller's input base/bytes so the borrowed input slices of
-the stored `RawV4` are represented. -/
-def StoredResultRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+the stored `StatelessInput` are represented. -/
+def StoredResultRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (inputBase : Nat) (input : ByteArray) (resultBase : Nat) (model : DecoderGlobalsModel)
     (state : State) : Prop :=
   StoredResultDiscriminantRep layout model state ∧
@@ -177,7 +177,7 @@ def StoredResultRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentati
 
 /-- The complete incoming/outgoing representation of all three decoder globals against a ghost model:
 the scalar `attempted`/`last_status` words and the full inline `stored_result` object. -/
-def DecoderGlobalsRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+def DecoderGlobalsRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (inputBase : Nat) (input : ByteArray) (resultBase : Nat) (model : DecoderGlobalsModel)
     (state : State) : Prop :=
   DecoderGlobalsScalarRep layout model state ∧
@@ -194,7 +194,7 @@ half of the exported-function contract tests.
 `alreadyDecoded` with status `.alreadyDecoded` and a `0` return, regardless of the input's decode
 result, and the globals are left untouched. -/
 theorem second_call_is_alreadyDecoded (incoming : DecoderGlobalsModel)
-    (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4) (h : incoming.attempted = true) :
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) (h : incoming.attempted = true) :
     callOutcome incoming result = .alreadyDecoded ∧
     (callOutcome incoming result).status = .alreadyDecoded ∧
     (callOutcome incoming result).returnCode = 0 ∧
@@ -204,7 +204,7 @@ theorem second_call_is_alreadyDecoded (incoming : DecoderGlobalsModel)
 
 /-- **A fresh successful call returns `1` and stores the value.** The exact stored-result tag and
 payload and the accessor's return follow. -/
-theorem fresh_success_stores_value (incoming : DecoderGlobalsModel) (value : BinaryFv.Specs.SSZ.RawV4)
+theorem fresh_success_stores_value (incoming : DecoderGlobalsModel) (value : BinaryFv.Specs.SSZ.StatelessInput)
     (hfresh : incoming.attempted = false) :
     callOutcome incoming (.ok value) = .success value ∧
     (callOutcome incoming (.ok value)).returnCode = 1 ∧
@@ -324,14 +324,14 @@ because nothing discharges it yet" is the same fact as "unverified" seen twice.
 
 /-- The shared specification of `zesu_decode_raw`: the pure `decode` outcome. Shared by every
 function instance; it names no register, global, or address. -/
-def specZesuDecodeRaw : SourceFunctionSpec ZesuDecodeRawArgs (Except DecodeError BinaryFv.Specs.SSZ.RawV4) where
+def specZesuDecodeRaw : SourceFunctionSpec ZesuDecodeRawArgs (Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) where
   meaning := fun args => meaningDecode args.bytes
 
 /-- The wrapper entry binding: the real C ABI `zesu_decode_raw(input, len)` — the input pointer in
 `a0`, the length in `a1` — over valid code and input, with the *complete* incoming decoder-globals
 representation (the scalar words and the full inline `stored_result` object). -/
 def preZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs) (state : State) : Prop :=
   MemoryBytes state args.inputBase args.bytes ∧
   env.CodeIntact state ∧
@@ -369,9 +369,9 @@ the four `before`-taking postconditions to ignore its `before` binder; the `Agre
 relative claim and cannot be stated absolutely, which is exactly the shape `Entry.lean`'s note said
 was missing. -/
 def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)
-    (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4) (before after : State) : Prop :=
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) (before after : State) : Prop :=
   MemoryBytes after args.inputBase args.bytes ∧
   env.CodeIntact after ∧
   after.regs.get? x10 = some (BitVec.ofNat 64 (callOutcome incoming result).returnCode) ∧
@@ -384,9 +384,9 @@ def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout
 /-- The wrapper as a full function instance contract: the shared spec paired with the real exported binding
 at a given incoming globals model. -/
 def functionInstanceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (incoming : DecoderGlobalsModel) :
-    FunctionInstanceContract ZesuDecodeRawArgs (Except DecodeError BinaryFv.Specs.SSZ.RawV4) where
+    FunctionInstanceContract ZesuDecodeRawArgs (Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) where
   spec := specZesuDecodeRaw
   binding :=
     { entry := preZesuDecodeRaw env globals resultBuffer rep incoming
@@ -395,7 +395,7 @@ def functionInstanceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderG
 
 /-- The exported wrapper's correctness claim, at the fresh incoming model the root theorem uses. -/
 def correctnessClaimZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   FunctionInstanceContract.ImplementsFunctionInstance functionInstance reached entry exit
@@ -403,7 +403,7 @@ def correctnessClaimZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderG
 
 /-- The exported wrapper's entry binding is satisfiable under a valid environment. -/
 def satisfiableZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
-    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) : Prop :=
+    (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) : Prop :=
   ValidEnvironment env →
     FunctionInstanceContract.PreSatisfiable
       (functionInstanceZesuDecodeRaw env globals resultBuffer rep DecoderGlobalsModel.fresh)

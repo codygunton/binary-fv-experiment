@@ -10,7 +10,7 @@ open BinaryFv.RiscV.Elfling
 
 /--
 Everything a per-function-instance obligation needs beyond the instance itself: the pinned environment, the
-allocator heap, the status slot, and the container/RawV4 result representations.
+allocator heap, the status slot, and the container/StatelessInput result representations.
 
 Bundling these keeps `functionInstanceObligation` a total function while letting each container assert its own
 result layout. -/
@@ -30,7 +30,7 @@ structure ContractParams where
   repExecutionRequests : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionRequests
   repExecutionPayload : ContainerRepresentation BinaryFv.Specs.SSZ.RawExecutionPayload
   repNewPayloadRequest : ContainerRepresentation BinaryFv.Specs.SSZ.RawNewPayloadRequest
-  repRawV4 : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4
+  repStatelessInput : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput
 
 /-- One source function's handwritten contract with its argument and outcome types packaged alongside it.
 
@@ -56,10 +56,10 @@ def sourceFunctionContract (p : ContractParams) (function : FunctionId) (tag : C
     TaggedContract :=
   match tag with
   | .zesuDecodeRaw =>
-      ⟨_, _, functionInstanceZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4
+      ⟨_, _, functionInstanceZesuDecodeRaw p.env p.globals p.resultBuffer p.repStatelessInput
                 DecoderGlobalsModel.fresh⟩
-  | .decode => ⟨_, _, (contractDecode p.env p.repRawV4).toFunctionInstance⟩
-  | .decodeRaw => ⟨_, _, (contractDecodeRaw p.env p.repRawV4).toFunctionInstance⟩
+  | .decode => ⟨_, _, (contractDecode p.env p.repStatelessInput).toFunctionInstance⟩
+  | .decodeRaw => ⟨_, _, (contractDecodeRaw p.env p.repStatelessInput).toFunctionInstance⟩
   | .newPayloadRequest => ⟨_, _, (contractNewPayloadRequest p.env p.repNewPayloadRequest).toFunctionInstance⟩
   | .executionPayload => ⟨_, _, (contractExecutionPayload p.env p.repExecutionPayload).toFunctionInstance⟩
   | .executionRequests => ⟨_, _, (contractExecutionRequests p.env p.repExecutionRequests).toFunctionInstance⟩
@@ -137,9 +137,9 @@ contract must have a satisfiable precondition under a valid environment, stated 
 parameter level. -/
 def sourceFunctionContractSatisfiable (p : ContractParams) (function : FunctionId) (tag : ContractTag) : Prop :=
   match tag with
-  | .zesuDecodeRaw => satisfiableZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4
-  | .decode => satisfiableDecode p.env p.repRawV4
-  | .decodeRaw => satisfiableDecodeRaw p.env p.repRawV4
+  | .zesuDecodeRaw => satisfiableZesuDecodeRaw p.env p.globals p.resultBuffer p.repStatelessInput
+  | .decode => satisfiableDecode p.env p.repStatelessInput
+  | .decodeRaw => satisfiableDecodeRaw p.env p.repStatelessInput
   | .newPayloadRequest => satisfiableNewPayloadRequest p.env p.repNewPayloadRequest
   | .executionPayload => satisfiableExecutionPayload p.env p.repExecutionPayload
   | .executionRequests => satisfiableExecutionRequests p.env p.repExecutionRequests

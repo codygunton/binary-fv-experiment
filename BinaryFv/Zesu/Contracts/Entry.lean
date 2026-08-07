@@ -33,7 +33,7 @@ about the binary.
 -/
 
 /-- `decodeRaw`, source-shaped. -/
-def meaningDecodeRaw (bytes : ByteArray) : Except DecodeError BinaryFv.Specs.SSZ.RawV4 := do
+def meaningDecodeRaw (bytes : ByteArray) : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput := do
   let _ ← meaningRequireU32Length bytes
   if bytes.size < 2 then throw .invalidSsz
   if !(BinaryFv.Specs.SSZ.hasSchemaId bytes) then throw .invalidSsz
@@ -59,7 +59,7 @@ def meaningDecodeRaw (bytes : ByteArray) : Except DecodeError BinaryFv.Specs.SSZ
 
 `unknownFork` and `outOfMemory` propagate without a retry. That asymmetry is the source's, and
 writing it any other way would make the contract false. -/
-def meaningDecode (bytes : ByteArray) : Except DecodeError BinaryFv.Specs.SSZ.RawV4 :=
+def meaningDecode (bytes : ByteArray) : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput :=
   match meaningDecodeRaw bytes with
   | .ok value => .ok value
   | .error .invalidSsz =>
@@ -87,7 +87,7 @@ def DecodeStatus.code : DecodeStatus → Nat
   | .outOfMemory => 4
   | .alreadyDecoded => 5
 
-def statusOfResult : Except DecodeError BinaryFv.Specs.SSZ.RawV4 → DecodeStatus
+def statusOfResult : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput → DecodeStatus
   | .ok _ => .ok
   | .error .invalidSsz => .invalidSsz
   | .error .unknownFork => .unknownFork
@@ -132,9 +132,9 @@ forbids the decoder scribbling on unrelated memory.
 
 **Why that is survivable here, corrected.** An earlier version of this note said `root_compliance` is
 unaffected because it "observes only the classification and never reads memory". *That is false.*
-`MemoryRepresentation.observeRawV4?` reads memory extensively — dozens of `observe*?` calls across the
+`MemoryRepresentation.observeStatelessInput?` reads memory extensively — dozens of `observe*?` calls across the
 result buffer and the heap descriptors. The argument that actually holds is different: the
-representation is established **at the final state** (`rep … after …` here, `observeRawV4? state
+representation is established **at the final state** (`rep … after …` here, `observeStatelessInput? state
 canonicalResultBuffer` at the runner) rather than *preserved* from an intermediate one. Nothing has to
 survive a later function instance, so no frame condition is needed to connect two states.
 
@@ -156,8 +156,8 @@ frame and a clause omitting it would be false of the binary; see
 `DecoderEnvironment.ownedRegion` for why each of the four is there and what permitting the stack gives
 away. -/
 def postEntry (env : DecoderEnvironment) (args : EntryArgs)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
-    (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4) (before after : State) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) (before after : State) : Prop :=
   MemoryBytes after args.base args.bytes ∧
   env.CodeIntact after ∧
   env.WritesOnlyWithinOwnAllocation args.resultBase env.record.entryResult before after ∧
@@ -167,15 +167,15 @@ def postEntry (env : DecoderEnvironment) (args : EntryArgs)
       error = DecodeError.invalidSsz ∨ error = DecodeError.unknownFork ∨
         error = DecodeError.outOfMemory
 
-def contractDecodeRaw (env : DecoderEnvironment) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) :
-    FunctionContract DecodeError EntryArgs BinaryFv.Specs.SSZ.RawV4 where
+def contractDecodeRaw (env : DecoderEnvironment) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) :
+    FunctionContract DecodeError EntryArgs BinaryFv.Specs.SSZ.StatelessInput where
   meaning := fun args => meaningDecodeRaw args.bytes
   pre := preEntry env
   post := fun args => postEntry env args rep
   stepBound := fun args => 16384 + 512 * args.bytes.size
 
-def contractDecode (env : DecoderEnvironment) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) :
-    FunctionContract DecodeError EntryArgs BinaryFv.Specs.SSZ.RawV4 where
+def contractDecode (env : DecoderEnvironment) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) :
+    FunctionContract DecodeError EntryArgs BinaryFv.Specs.SSZ.StatelessInput where
   meaning := fun args => meaningDecode args.bytes
   pre := preEntry env
   -- Twice the raw bound: the ERE fallback can run `decodeRaw` a second time.
@@ -194,13 +194,13 @@ uses the `resultBase + 832` layout.
 -/
 
 def correctnessClaimDecodeRaw (env : DecoderEnvironment)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsFunctionInstance functionInstance reached entry exit (contractDecodeRaw env rep)
 
 def correctnessClaimDecode (env : DecoderEnvironment)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput)
     (functionInstance : BinaryFv.Binary.Elfling.FunctionInstance) (reached : BitVec 64 → Prop)
     (entry : BitVec 64) (exit : BitVec 64 → Prop) : Prop :=
   ImplementsFunctionInstance functionInstance reached entry exit (contractDecode env rep)
@@ -210,11 +210,11 @@ def correctnessClaimDecode (env : DecoderEnvironment)
 -/
 
 def satisfiableDecodeRaw (env : DecoderEnvironment)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractDecodeRaw env rep)
 
 def satisfiableDecode (env : DecoderEnvironment)
-    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4) : Prop :=
+    (rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput) : Prop :=
   ValidEnvironment env → PreSatisfiable (contractDecode env rep)
 
 /-!
@@ -268,7 +268,7 @@ through `knownDivergences` — it is a direct contradiction with the recorded ac
 divergence, which is exactly why the two negative tests must keep citing that `Prop` and not the
 provable one. -/
 def sourceShapedDecodeAgreesWithOracle : Prop :=
-  ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : BinaryFv.Specs.SSZ.RawV4),
+  ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : BinaryFv.Specs.SSZ.StatelessInput),
     meaningDecode bytes = .ok value ↔ BinaryFv.Specs.SSZ.decodeStatelessInput bytes = .ok value
 
 /-- The catalog's meanings are grounded in the pinned oracle, not in a private re-implementation:
@@ -284,7 +284,7 @@ to apply it.
 Scoped for the same reason as `sourceShapedDecodeAgreesWithOracle`, and refuted unscoped by the same
 `ereGateDivergesAboveU32` witness (`unscopedGrounds_contradicts_ereGate`). -/
 def catalogGroundsInSpec : Prop :=
-  ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : BinaryFv.Specs.SSZ.RawV4),
+  ∀ (bytes : ByteArray), rootComplianceScope bytes → ∀ (value : BinaryFv.Specs.SSZ.StatelessInput),
     meaningDecode bytes = .ok value ↔ BinaryFv.Specs.SSZ.decode bytes = .accepted value
 
 /--

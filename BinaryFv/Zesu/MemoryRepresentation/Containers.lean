@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.MemoryRepresentation.RawV4
+import BinaryFv.Zesu.MemoryRepresentation.StatelessInput
 
 /-!
 # The seven Zesu container types in RISC-V memory
@@ -19,8 +19,8 @@ open BinaryFv.RiscV
 /-! ## The three fixed (non-allocating) containers
 
 `OptionU64Rep`, `BlobScheduleRep`, `OptionBlobScheduleRep`, `ForkActivationRep`, `ForkConfigRep`, and
-`ChainConfigRep` now live in `RawV4.lean`. They were moved there unchanged so that
-`RawV4FixedFieldsRep` can state the chain config with `ChainConfigRep`; this file imports `RawV4`, so
+`ChainConfigRep` now live in `StatelessInput.lean`. They were moved there unchanged so that
+`StatelessInputFixedFieldsRep` can state the chain config with `ChainConfigRep`; this file imports `StatelessInput`, so
 the definitions are still in scope here and every use below is unaffected. -/
 
 /-! ## The four allocating containers -/
@@ -56,7 +56,7 @@ def ExecutionWitnessRep (state : State) (inputBase : Nat) (input : ByteArray) (b
         InputSliceDescriptorArrayRep state inputBase input headersBase value.headers
 
 /-- The inline fixed-vector, scalar, and `u256` fields of a standalone `RawExecutionPayload`. The
-offsets are the same compiler-reflected values `RawV4FixedFieldsRep` uses, because the execution
+offsets are the same compiler-reflected values `StatelessInputFixedFieldsRep` uses, because the execution
 payload sits at offset 0 of both the new-payload request and the root object. -/
 structure ExecutionPayloadFixedRep (state : State) (base : Nat)
     (value : BinaryFv.Specs.SSZ.RawExecutionPayload) : Prop where
@@ -112,8 +112,8 @@ def NewPayloadRequestRep (state : State) (inputBase : Nat) (input : ByteArray) (
 /-! ## Offset audit
 
 Every literal field offset used above is pinned against the compiler-reflected ABI manifest. The
-offsets `RawV4.lean` already re-uses (fixed fields, root descriptors, heap element sizes) are audited
-by `Artifacts.raw_v4_*` ; these are the additional container-relative offsets this module introduces. -/
+offsets `StatelessInput.lean` already re-uses (fixed fields, root descriptors, heap element sizes) are audited
+by `Artifacts.stateless_input_*` ; these are the additional container-relative offsets this module introduces. -/
 
 open BinaryFv.Zesu.Artifacts in
 def containerFieldOffsetsValid : Bool :=

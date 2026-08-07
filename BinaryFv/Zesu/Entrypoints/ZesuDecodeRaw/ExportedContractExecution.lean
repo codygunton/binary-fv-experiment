@@ -99,12 +99,12 @@ theorem observeOptionTag_of_mem_eq {s t : State} {base : Nat} {tag : Bool} (hmem
 /-- The decoded value's whole representation. Not memory-only definitionally — it is a nest of
 structures — so this goes through the root's own footprint transport, with the agreement discharged
 from the memory equation at every address rather than at a chosen region. -/
-theorem rawV4Rep_of_mem_eq {s t : State} {inputBase rootBase : Nat} {input : ByteArray}
-    {value : BinaryFv.Specs.SSZ.RawV4} (hmem : t.mem = s.mem)
-    (h : RawV4Rep s inputBase input rootBase value) :
-    RawV4Rep t inputBase input rootBase value := by
+theorem statelessInputRep_of_mem_eq {s t : State} {inputBase rootBase : Nat} {input : ByteArray}
+    {value : BinaryFv.Specs.SSZ.StatelessInput} (hmem : t.mem = s.mem)
+    (h : StatelessInputRep s inputBase input rootBase value) :
+    StatelessInputRep t inputBase input rootBase value := by
   obtain ⟨_, htransport⟩ :=
-    Footprint.rawV4_footprint_abi inputBase input rootBase value s
+    Footprint.statelessInput_footprint_abi inputBase input rootBase value s
       BinaryFv.Zesu.Artifacts.raw_stateless_input_layout.1 h
   exact htransport _ (fun address _ => (congrArg (·.get? address) hmem).symm)
 
@@ -231,7 +231,7 @@ structure ExportedContractAssumptions : Prop where
           (functionInstanceEntryWord functionInstance)
           (functionInstanceZesuDecodeRaw canonicalContractParams.env
             canonicalContractParams.globals canonicalContractParams.resultBuffer
-            canonicalContractParams.repRawV4 DecoderGlobalsModel.fresh)
+            canonicalContractParams.repStatelessInput DecoderGlobalsModel.fresh)
   rawResult :
     ∀ {functionInstance : FunctionInstance},
       functionInstance ∈ generatedProgram.functionInstances →
@@ -380,7 +380,7 @@ transports or one of the two halves. -/
 
 /-- **An accepted input has a successful run.** -/
 theorem successfulRun_of_exported (contracts : ExportedContractAssumptions) {input : ByteArray}
-    (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.RawV4}
+    (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.StatelessInput}
     (accepts : BinaryFv.Specs.SSZ.decode input = .accepted value) : Nonempty (SuccessfulRun input value) := by
   obtain ⟨entryState, atExit, finalState, count, hrun, htrace, hbound, hexit, hframe, hplatform⟩ :=
     decodeRun_of_exported contracts input
@@ -393,8 +393,8 @@ theorem successfulRun_of_exported (contracts : ExportedContractAssumptions) {inp
     observeOptionTag_of_mem_eq hframe.mem htag
   have hinputFinal : MemoryBytes finalState canonicalRunnerLayout.inputBase input :=
     memoryBytes_of_mem_eq hframe.mem hinput
-  have hvalueFinal : RawV4Rep finalState canonicalRunnerLayout.inputBase input
-      Elflings.canonicalResultBuffer value := rawV4Rep_of_mem_eq hframe.mem hvalue
+  have hvalueFinal : StatelessInputRep finalState canonicalRunnerLayout.inputBase input
+      Elflings.canonicalResultBuffer value := statelessInputRep_of_mem_eq hframe.mem hvalue
   -- The model the wrapper recorded, and the accessor residue at it.
   have hmeaning : meaningDecode input = .ok value :=
     meaningDecode_ok_of_spec_accepts catalogGroundsInSpec_holds inputBound accepts

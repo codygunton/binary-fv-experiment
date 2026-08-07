@@ -76,10 +76,10 @@ def storedResultDiscriminantAddr : Nat :=
   Elflings.canonicalDecoderGlobalsLayout.storedResult +
     Elflings.canonicalDecoderGlobalsLayout.storedResultObject.discriminantOffset
 
-/-- The runner's value observation: the complete `RawV4` read from the canonical result buffer —
+/-- The runner's value observation: the complete `StatelessInput` read from the canonical result buffer —
 the address `zesu_raw_result` returns on success. -/
-def observeDecodedValue (state : State) : Option BinaryFv.Specs.SSZ.RawV4 :=
-  observeRawV4? state Elflings.canonicalResultBuffer
+def observeDecodedValue (state : State) : Option BinaryFv.Specs.SSZ.StatelessInput :=
+  observeStatelessInput? state Elflings.canonicalResultBuffer
 
 /-- The return sentinel as a machine word. Reaching it ends a run; it is in no mapped range, so it
 cannot be a real instruction fetch. -/
@@ -303,7 +303,7 @@ distinguishable from returning nothing. -/
 theorem canonicalResultBuffer_ne_zero : Elflings.canonicalResultBuffer ≠ 0 := by native_decide
 
 /-- **A successful run answers with exactly the value its memory represents.** -/
-theorem executeDecode_accepted_of_run (input : ByteArray) (value : BinaryFv.Specs.SSZ.RawV4)
+theorem executeDecode_accepted_of_run (input : ByteArray) (value : BinaryFv.Specs.SSZ.StatelessInput)
     {entry final after : State} {count : Nat}
     (hbuild : Runs (buildZesuEntryState input) initialState entry ())
     (htrace : TraceToSentinel sentinelWord 0 count entry final)
@@ -313,14 +313,14 @@ theorem executeDecode_accepted_of_run (input : ByteArray) (value : BinaryFv.Spec
     (hcode : observeReturnCode? final = some 1)
     (htag : observeOptionTag? final storedResultDiscriminantAddr = some true)
     (hinput : MemoryBytes final canonicalRunnerLayout.inputBase input)
-    (hvalue : RawV4Rep final canonicalRunnerLayout.inputBase input Elflings.canonicalResultBuffer
+    (hvalue : StatelessInputRep final canonicalRunnerLayout.inputBase input Elflings.canonicalResultBuffer
       value) :
     executeDecode input = .ok (.accepted value) := by
   rw [executeDecode_of_trace input runnerSymbols_eq_resolved hbuild htrace hbound haccessors]
   exact classifyWrapperRun_accepted observeDecodedValue storedResultDiscriminantAddr
     Elflings.canonicalResultBuffer count _ _ final value hcode rfl rfl
     canonicalResultBuffer_ne_zero htag
-    (observe_raw_v4_of_rep final canonicalRunnerLayout.inputBase input
+    (observe_stateless_input_of_rep final canonicalRunnerLayout.inputBase input
       Elflings.canonicalResultBuffer value hinput hvalue)
 
 /-- **A rejected run answers with the normalized rejection.** The status must be one the
@@ -509,7 +509,7 @@ theorem executeChecked_rejected_forces_gate {binary : RiscvSpec.ValidatedElf} {i
 came from a machine that reached the sentinel with `a0 = 1`, an executed `zesu_raw_error` reporting
 `ok`, an executed `zesu_raw_result` returning the canonical non-null buffer, a discriminant reading
 `present` — and, the conjunct that matters, an observation of **that same value**. -/
-theorem executeDecode_accepted_forces_checks {input : ByteArray} {value : BinaryFv.Specs.SSZ.RawV4}
+theorem executeDecode_accepted_forces_checks {input : ByteArray} {value : BinaryFv.Specs.SSZ.StatelessInput}
     (h : executeDecode input = .ok (.accepted value)) :
     ∃ (final : State) (steps : Nat) (rawResult rawError : AccessorOutcome),
       observeReturnCode? final = some 1 ∧
@@ -542,7 +542,7 @@ theorem executeDecode_accepted_forces_checks {input : ByteArray} {value : Binary
 /-- **The preflight gate cannot manufacture an acceptance either.** Same two-way match as the
 rejection version; the gate contributes only `.invalidArtifact`. -/
 theorem executeChecked_accepted_forces_gate {binary : RiscvSpec.ValidatedElf} {input : ByteArray}
-    {value : BinaryFv.Specs.SSZ.RawV4} (h : executeChecked binary input = .ok (.accepted value)) :
+    {value : BinaryFv.Specs.SSZ.StatelessInput} (h : executeChecked binary input = .ok (.accepted value)) :
     preflight binary input = .ok () ∧ executeDecode input = .ok (.accepted value) := by
   unfold executeChecked at h
   match hp : preflight binary input with

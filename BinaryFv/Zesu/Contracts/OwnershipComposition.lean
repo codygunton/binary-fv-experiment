@@ -90,7 +90,7 @@ theorem chain_agrees_on_region {region : Region} :
 /-- **The composition, stated once for the shape every container footprint has.**
 
 `Witness` is whatever the representation bound existentially — three heap bases, six, or a whole
-`RawV4DescriptorBases`. The caller receives it and owes disjointness against the region it names,
+`StatelessInputDescriptorBases`. The caller receives it and owes disjointness against the region it names,
 exactly as at a single call site; the run adds nothing to what the parent must discharge except that
 it must hold for every sibling rather than one. -/
 theorem witnessed_survives_chain {Witness : Type} {P : State → Prop} {region : Witness → Region}
@@ -248,19 +248,19 @@ theorem newPayloadRequest_survives_chain (inputBase : Nat) (input : ByteArray) (
     requestWithdrawalsBase, consolidationsBase, fun disjoint =>
       transport _ (chain_agrees_on_region start steps chain disjoint)⟩
 
-/-- **The root.** This is the one the entry point needs: the decoded `RawV4` must still be there when
+/-- **The root.** This is the one the entry point needs: the decoded `StatelessInput` must still be there when
 control reaches the sentinel, however many siblings ran in between. -/
-theorem rawV4_survives_chain (inputBase : Nat) (input : ByteArray) (rootBase rootSize : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (start : State) (fits : 832 ≤ rootSize)
+theorem statelessInput_survives_chain (inputBase : Nat) (input : ByteArray) (rootBase rootSize : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (start : State) (fits : 832 ≤ rootSize)
     (hsize : BinaryFv.Zesu.Artifacts.rawStatelessInputSize = some rootSize)
-    (established : RawV4Rep start inputBase input rootBase value)
+    (established : StatelessInputRep start inputBase input rootBase value)
     (steps : List SiblingStep) (chain : SiblingChain start steps) :
-    ∃ bases : RawV4DescriptorBases,
-      (∀ step ∈ steps, ∀ address, rawV4Region rootBase rootSize value bases address →
+    ∃ bases : StatelessInputDescriptorBases,
+      (∀ step ∈ steps, ∀ address, statelessInputRegion rootBase rootSize value bases address →
         ¬ step.2 address) →
-      RawV4Rep (chainFinal start steps) inputBase input rootBase value := by
+      StatelessInputRep (chainFinal start steps) inputBase input rootBase value := by
   obtain ⟨bases, transport⟩ :=
-    rawV4_footprint inputBase input rootBase rootSize value start fits hsize established
+    statelessInput_footprint inputBase input rootBase rootSize value start fits hsize established
   exact ⟨bases, fun disjoint =>
     transport _ (chain_agrees_on_region start steps chain disjoint)⟩
 

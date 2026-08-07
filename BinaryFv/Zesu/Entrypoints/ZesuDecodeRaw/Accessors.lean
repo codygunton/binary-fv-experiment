@@ -44,7 +44,7 @@ The threading itself is compiler-free: `runAccessor_returned_of_trace`,
 satisfiability witnesses reach only `propext`/`Classical.choice`/`Quot.sound`. Three doors enter
 elsewhere and each is inherited rather than opened here: `resolvedSymbols` (Runner's
 `runnerSymbols_isSome`) in everything phrased at the pinned symbols, `raw_stateless_input_layout` (the
-ABI manifest) in `rawV4Rep_accessorSetup`, and the builder's own `native_decide`s in
+ABI manifest) in `statelessInputRep_accessorSetup`, and the builder's own `native_decide`s in
 `accessor_entry_bindings_satisfiable`.
 -/
 
@@ -88,7 +88,7 @@ theorem accessorSetup_runs (entryPc : Nat) (state : State) :
 
 /-- **The prologue writes no memory.** This is the load-bearing half: every memory predicate
 established at the decode's final state — `MemoryBytes`, `CodeIntact`, the decoder globals, the
-stored `RawV4` — holds verbatim at the accessor's entry state, because the two states have the *same*
+stored `StatelessInput` — holds verbatim at the accessor's entry state, because the two states have the *same*
 memory, not merely agreeing memory. -/
 @[simp] theorem accessorSetup_mem (entryPc : Nat) (state : State) :
     (accessorSetup entryPc state).mem = state.mem := rfl
@@ -131,7 +131,7 @@ setup installed. -/
 
 Each of these is `rfl`-cheap because the predicate reads only `.mem`, and each is stated anyway: the
 assembly consumes them by name, and a predicate that quietly stopped being memory-only would break
-here rather than at the point of use. `RawV4Rep` is the exception — it is a nest of structures, so it
+here rather than at the point of use. `StatelessInputRep` is the exception — it is a nest of structures, so it
 transports through the footprint machinery rather than definitionally. -/
 
 /-- The input window the decode preserved is still there when the accessor is entered. -/
@@ -161,15 +161,15 @@ unchanged by entering an accessor. -/
 @[simp] theorem observeOptionTag_accessorSetup (entryPc : Nat) (state : State) (base : Nat) :
     observeOptionTag? (accessorSetup entryPc state) base = observeOptionTag? state base := rfl
 
-/-- **The decoded value's representation survives the prologue.** `RawV4Rep` is a nest of structures
+/-- **The decoded value's representation survives the prologue.** `StatelessInputRep` is a nest of structures
 rather than a memory-reading `def`, so this goes through the root's footprint transport with the
 memory agreement discharged by `rfl` — the two states share one `mem`, so every address agrees. -/
-theorem rawV4Rep_accessorSetup {state : State} {inputBase rootBase : Nat} {input : ByteArray}
-    {value : BinaryFv.Specs.SSZ.RawV4} (entryPc : Nat)
-    (h : RawV4Rep state inputBase input rootBase value) :
-    RawV4Rep (accessorSetup entryPc state) inputBase input rootBase value := by
+theorem statelessInputRep_accessorSetup {state : State} {inputBase rootBase : Nat} {input : ByteArray}
+    {value : BinaryFv.Specs.SSZ.StatelessInput} (entryPc : Nat)
+    (h : StatelessInputRep state inputBase input rootBase value) :
+    StatelessInputRep (accessorSetup entryPc state) inputBase input rootBase value := by
   obtain ⟨_, htransport⟩ :=
-    Footprint.rawV4_footprint_abi inputBase input rootBase value state
+    Footprint.statelessInput_footprint_abi inputBase input rootBase value state
       BinaryFv.Zesu.Artifacts.raw_stateless_input_layout.1 h
   exact htransport _ (fun _ _ => rfl)
 
@@ -484,7 +484,7 @@ obligations. -/
 
 /-- **A successful run, assembled.** Every field but the accessors comes from the decode; the
 accessors come from the named residue. -/
-theorem successfulRun_of_acceptedAccessorTraces (input : ByteArray) (value : BinaryFv.Specs.SSZ.RawV4)
+theorem successfulRun_of_acceptedAccessorTraces (input : ByteArray) (value : BinaryFv.Specs.SSZ.StatelessInput)
     {entryState finalState : State} {stepCount : Nat}
     (hbuild : Runs (buildZesuEntryState input) initialState entryState ())
     (htrace : TraceToSentinel sentinelWord 0 stepCount entryState finalState)
@@ -492,7 +492,7 @@ theorem successfulRun_of_acceptedAccessorTraces (input : ByteArray) (value : Bin
     (hcode : observeReturnCode? finalState = some 1)
     (htag : observeOptionTag? finalState storedResultDiscriminantAddr = some true)
     (hinput : MemoryBytes finalState canonicalRunnerLayout.inputBase input)
-    (hvalue : RawV4Rep finalState canonicalRunnerLayout.inputBase input
+    (hvalue : StatelessInputRep finalState canonicalRunnerLayout.inputBase input
       Elflings.canonicalResultBuffer value)
     (haccessors : AcceptedAccessorTraces finalState) :
     Nonempty (SuccessfulRun input value) := by

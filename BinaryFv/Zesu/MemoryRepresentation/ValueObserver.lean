@@ -1,19 +1,19 @@
 import BinaryFv.Zesu.MemoryRepresentation.Observers
 
 /-!
-# Observing a complete `BinaryFv.Specs.SSZ.RawV4` value
+# Observing a complete `BinaryFv.Specs.SSZ.StatelessInput` value
 
 The observers in `Observers.lean` return observation records (`Nat`, `List UInt8`) because they were
 written to compare against captured evidence. This module builds the *value* observer item (d)
-needs: one guarded, executable `observeRawV4?` that reconstructs the bridge's own `BinaryFv.Specs.SSZ.RawV4`
+needs: one guarded, executable `observeStatelessInput?` that reconstructs the bridge's own `BinaryFv.Specs.SSZ.StatelessInput`
 — every fixed scalar and vector, the 256-bit base fee, both borrowed input slices, all ten
 descriptor-backed collections, and the full chain config — together with the correspondence
 
-  `RawV4Rep state inputBase input rootBase value → observeRawV4? state rootBase = some value`.
+  `StatelessInputRep state inputBase input rootBase value → observeStatelessInput? state rootBase = some value`.
 
 The correspondence carries one extra hypothesis, `MemoryBytes state inputBase input`: the borrowed
-slices of a represented `RawV4` alias the caller's input buffer, so reading them back requires the
-input bytes to actually be in memory. `RawV4Rep` deliberately does not include that clause — it is a
+slices of a represented `StatelessInput` alias the caller's input buffer, so reading them back requires the
+input bytes to actually be in memory. `StatelessInputRep` deliberately does not include that clause — it is a
 separate conjunct of the entry/exit contracts — so the observer states it explicitly.
 
 Nothing here is a partial observer: a single failed byte read, a bad option tag, or a short slice
@@ -137,7 +137,7 @@ theorem observe_byte_slice_of_rep (state : State) (inputBase : Nat) (input : Byt
 /-! ## Spec-typed record observers
 
 One observer per fixed-width heap record, each producing the bridge's own structure. Offsets repeat
-the corresponding `…Rep` predicates in `RawV4.lean` field for field. -/
+the corresponding `…Rep` predicates in `StatelessInput.lean` field for field. -/
 
 /-- Observe one native withdrawal record as the bridge's own `RawWithdrawal`. -/
 def observeWithdrawalValue? (state : State) (base : Nat) : Option BinaryFv.Specs.SSZ.RawWithdrawal := do
@@ -256,11 +256,11 @@ theorem observe_descriptor_array_of_rep {α : Type} (state : State) (descriptorB
 
 /-! ## The complete value observer -/
 
-/-- **One guarded observation of the complete `BinaryFv.Specs.SSZ.RawV4`.** Reconstructs every fixed scalar
+/-- **One guarded observation of the complete `BinaryFv.Specs.SSZ.StatelessInput`.** Reconstructs every fixed scalar
 and vector, the 256-bit base fee, the two borrowed input slices, all ten descriptor-backed
 collections (with their nested records), and the full chain config, at the offsets pinned by the
 compiler-reflected ABI. Any failed read makes the whole observation `none`. -/
-def observeRawV4? (state : State) (rootBase : Nat) : Option BinaryFv.Specs.SSZ.RawV4 := do
+def observeStatelessInput? (state : State) (rootBase : Nat) : Option BinaryFv.Specs.SSZ.StatelessInput := do
   let baseFeePerGas ← observeBaseFeePerGas? state rootBase
   let blockNumber ← observeUInt64? state (rootBase + 32)
   let gasLimit ← observeUInt64? state (rootBase + 40)
@@ -312,17 +312,17 @@ def observeRawV4? (state : State) (rootBase : Nat) : Option BinaryFv.Specs.SSZ.R
     witness := { state := witnessState, codes := witnessCodes, headers := witnessHeaders }
     chainConfig, publicKeys }
 
-/-- **A represented `RawV4` observes back exactly.** The one extra hypothesis is the caller's input
-in memory, which the borrowed slices alias; everything else is `RawV4Rep`. -/
-theorem observe_raw_v4_of_rep (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
+/-- **A represented `StatelessInput` observes back exactly.** The one extra hypothesis is the caller's input
+in memory, which the borrowed slices alias; everything else is `StatelessInputRep`. -/
+theorem observe_stateless_input_of_rep (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
     (inputMemory : MemoryBytes state inputBase input)
-    (representation : RawV4Rep state inputBase input rootBase value) :
-    observeRawV4? state rootBase = some value := by
+    (representation : StatelessInputRep state inputBase input rootBase value) :
+    observeStatelessInput? state rootBase = some value := by
   obtain ⟨bases, allocations, descriptors, inputSlices⟩ := representation.layout
   obtain ⟨extraOffset, extraBase, extraRep⟩ := inputSlices.extraData
   obtain ⟨accessOffset, accessBase, accessRep⟩ := inputSlices.blockAccessList
-  unfold observeRawV4?
+  unfold observeStatelessInput?
   rw [observe_base_fee_of_rep state rootBase _ representation.fixedFields.baseFeePerGas,
     observe_uint64_of_rep state (rootBase + 32) _ representation.fixedFields.blockNumber,
     observe_uint64_of_rep state (rootBase + 40) _ representation.fixedFields.gasLimit,
@@ -403,34 +403,34 @@ theorem observe_raw_v4_of_rep (state : State) (inputBase : Nat) (input : ByteArr
   rfl
 
 /-- **Observer failure is impossible under the representation.** A represented value is always
-observable, so `none` from `observeRawV4?` is positive evidence that the memory does *not* represent
+observable, so `none` from `observeStatelessInput?` is positive evidence that the memory does *not* represent
 any value — which is what lets the runner report a failed observation as `malformedResult` rather
 than having to treat it as inconclusive. -/
-theorem observe_raw_v4_isSome_of_rep (state : State) (inputBase : Nat) (input : ByteArray)
-    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
+theorem observe_stateless_input_isSome_of_rep (state : State) (inputBase : Nat) (input : ByteArray)
+    (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
     (inputMemory : MemoryBytes state inputBase input)
-    (representation : RawV4Rep state inputBase input rootBase value) :
-    (observeRawV4? state rootBase).isSome = true := by
-  rw [observe_raw_v4_of_rep state inputBase input rootBase value inputMemory representation]
+    (representation : StatelessInputRep state inputBase input rootBase value) :
+    (observeStatelessInput? state rootBase).isSome = true := by
+  rw [observe_stateless_input_of_rep state inputBase input rootBase value inputMemory representation]
   rfl
 
-/-- **A memory state represents at most one value.** `RawV4Rep` is a big conjunction of reads, and
+/-- **A memory state represents at most one value.** `StatelessInputRep` is a big conjunction of reads, and
 nothing in its *definition* says two values cannot both satisfy it — that fact comes from the
-observer: both would have to equal `observeRawV4? state rootBase`, which is a function.
+observer: both would have to equal `observeStatelessInput? state rootBase`, which is a function.
 
 It matters for reading `executeDecode_accepted_of_run`, whose `value` is a premise. Without this,
 "the machine accepted *the* value memory represents" is only "…*a* value memory represents", and a
 second representation of the same memory would be an equally licensed answer.
 
-The `MemoryBytes` hypothesis is inherited from `observe_raw_v4_of_rep` and cannot be dropped: the
+The `MemoryBytes` hypothesis is inherited from `observe_stateless_input_of_rep` and cannot be dropped: the
 borrowed input slices are represented by an offset into the caller's `input`, so a state that does
 not hold `input` at `inputBase` does not determine their contents. -/
-theorem raw_v4_rep_unique (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
-    {first second : BinaryFv.Specs.SSZ.RawV4} (inputMemory : MemoryBytes state inputBase input)
-    (firstRep : RawV4Rep state inputBase input rootBase first)
-    (secondRep : RawV4Rep state inputBase input rootBase second) : first = second :=
+theorem stateless_input_rep_unique (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    {first second : BinaryFv.Specs.SSZ.StatelessInput} (inputMemory : MemoryBytes state inputBase input)
+    (firstRep : StatelessInputRep state inputBase input rootBase first)
+    (secondRep : StatelessInputRep state inputBase input rootBase second) : first = second :=
   Option.some.inj
-    ((observe_raw_v4_of_rep state inputBase input rootBase first inputMemory firstRep).symm.trans
-      (observe_raw_v4_of_rep state inputBase input rootBase second inputMemory secondRep))
+    ((observe_stateless_input_of_rep state inputBase input rootBase first inputMemory firstRep).symm.trans
+      (observe_stateless_input_of_rep state inputBase input rootBase second inputMemory secondRep))
 
 end BinaryFv.Zesu.MemoryRepresentation

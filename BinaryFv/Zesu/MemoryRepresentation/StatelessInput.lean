@@ -194,7 +194,7 @@ theorem raw_stateless_input_rep_size (state : State) (base : Nat)
   exact representation
 
 /-- Heap bases carried by the root's ten slice descriptors. -/
-structure RawV4DescriptorBases where
+structure StatelessInputDescriptorBases where
   versionedHashesBase : Nat
   transactionsBase : Nat
   withdrawalsBase : Nat
@@ -206,12 +206,12 @@ structure RawV4DescriptorBases where
   witnessHeadersBase : Nat
   publicKeysBase : Nat
 
-/-- Heap-allocation portion of the native representation of a complete specification `RawV4` value.
+/-- Heap-allocation portion of the native representation of a complete specification `StatelessInput` value.
 
 Fixed records are sized from the pinned RV64 ABI manifest. The eventual observer additionally
 connects these bases to the corresponding slice descriptors stored in the root object. -/
-structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (bases : RawV4DescriptorBases) : Prop where
+structure StatelessInputAllocationRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (bases : StatelessInputDescriptorBases) : Prop where
   root : RawStatelessInputRep state rootBase
   versionedHashes : HeapArrayRep state bases.versionedHashesBase
     value.newPayloadRequest.versionedHashes.size 32
@@ -241,14 +241,14 @@ structure RawV4AllocationRep (state : State) (rootBase : Nat) (value : BinaryFv.
   publicKeys : HeapArrayRep state bases.publicKeysBase value.publicKeys.size 65
   publicKeyContents : HeapFixedVectorArrayRep state bases.publicKeysBase value.publicKeys
 
-theorem raw_v4_allocation_root_size (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (bases : RawV4DescriptorBases)
-    (representation : RawV4AllocationRep state rootBase value bases) : HeapArrayRep state rootBase 1 832 :=
+theorem stateless_input_allocation_root_size (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (bases : StatelessInputDescriptorBases)
+    (representation : StatelessInputAllocationRep state rootBase value bases) : HeapArrayRep state rootBase 1 832 :=
   raw_stateless_input_rep_size state rootBase representation.root
 
-/-- Descriptor-level portion of the root layout, with every collection count tied to `RawV4`. -/
-structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (bases : RawV4DescriptorBases) : Prop where
+/-- Descriptor-level portion of the root layout, with every collection count tied to `StatelessInput`. -/
+structure StatelessInputDescriptorRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (bases : StatelessInputDescriptorBases) : Prop where
   versionedHashes : SliceDescriptorRep state (rootBase + 592) bases.versionedHashesBase
     value.newPayloadRequest.versionedHashes.size
   transactions : SliceDescriptorRep state (rootBase + 80) bases.transactionsBase
@@ -266,10 +266,10 @@ structure RawV4DescriptorRep (state : State) (rootBase : Nat) (value : BinaryFv.
   witnessHeaders : SliceDescriptorRep state (rootBase + 720) bases.witnessHeadersBase value.witness.headers.size
   publicKeys : SliceDescriptorRep state (rootBase + 816) bases.publicKeysBase value.publicKeys.size
 
-/-- Borrowed byte slices in `RawV4`, including every transaction and witness element. -/
-structure RawV4InputSlicesRep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (bases : RawV4DescriptorBases)
-    (descriptors : RawV4DescriptorRep state rootBase value bases) : Prop where
+/-- Borrowed byte slices in `StatelessInput`, including every transaction and witness element. -/
+structure StatelessInputInputSlicesRep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (bases : StatelessInputDescriptorBases)
+    (descriptors : StatelessInputDescriptorRep state rootBase value bases) : Prop where
   extraData : ∃ inputOffset sliceBase,
     InputSliceDescriptorRep state inputBase input (rootBase + 64) inputOffset sliceBase
       value.newPayloadRequest.executionPayload.extraData
@@ -286,7 +286,7 @@ structure RawV4InputSlicesRep (state : State) (inputBase : Nat) (input : ByteArr
 /-! ## The chain-config representation
 
 These six predicates were moved here unchanged from `Containers.lean` (which imports this file) so
-that `RawV4FixedFieldsRep` below can state the root's chain config with `ChainConfigRep` instead of
+that `StatelessInputFixedFieldsRep` below can state the root's chain config with `ChainConfigRep` instead of
 pinning only two of its words. Every existing use in `Containers.lean` still resolves. -/
 
 /-- A `?u64` (16 bytes): the `u64` payload at offset 0 and the discriminant byte at offset 8. When
@@ -324,7 +324,7 @@ def ChainConfigRep (state : State) (base : Nat) (value : BinaryFv.Specs.SSZ.RawC
   Word64LERep state base value.chainId.toNat ∧ ForkConfigRep state (base + 8) value.activeFork
 
 /-- Inline fixed vectors and scalar fields in the root's nested execution payload. -/
-structure RawV4FixedFieldsRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) : Prop where
+structure StatelessInputFixedFieldsRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) : Prop where
   baseFeePerGas : BitVectorLERep state rootBase value.newPayloadRequest.executionPayload.baseFeePerGas
   parentHash : FixedByteVectorRep state (rootBase + 152) value.newPayloadRequest.executionPayload.parentHash
   feeRecipient : FixedByteVectorRep state (rootBase + 184)
@@ -353,18 +353,18 @@ structure RawV4FixedFieldsRep (state : State) (rootBase : Nat) (value : BinaryFv
   the `publicKeys` slice descriptor at `+816` ends exactly at the pinned 832-byte root size.
 
   The narrower version left `activation` and `blobSchedule` completely unconstrained, so a single
-  state satisfied `RawV4Rep` for values differing in those fields. That made any *total* value
-  observer impossible: `RawV4Rep → observeRawV4? = some value` would have forced two different values
+  state satisfied `StatelessInputRep` for values differing in those fields. That made any *total* value
+  observer impossible: `StatelessInputRep → observeStatelessInput? = some value` would have forced two different values
   to be observed from one state. Strengthening here is what makes the observer well-posed. -/
   chainConfig : ChainConfigRep state (rootBase + 736) value.chainConfig
 
 /-- **Regression for the observer under-determination fix.** The representation now pins the fork
 activation and the optional blob schedule, at the exact offsets the pinned ABI gives them. Before the
 `chainConfig` clause replaced the two narrower `chainId`/`activeFork.fork` clauses, neither of these
-was constrained anywhere in `RawV4Rep`, so one state represented values differing in those fields and
+was constrained anywhere in `StatelessInputRep`, so one state represented values differing in those fields and
 no total value observer could exist. If someone narrows the clause again, this fails. -/
-theorem rawV4FixedFields_pins_fork_activation_and_blob_schedule (state : State) (rootBase : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
+theorem statelessInputFixedFields_pins_fork_activation_and_blob_schedule (state : State) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (representation : StatelessInputFixedFieldsRep state rootBase value) :
     ForkActivationRep state (rootBase + 752) value.chainConfig.activeFork.activation ∧
       OptionBlobScheduleRep state (rootBase + 784) value.chainConfig.activeFork.blobSchedule := by
   refine ⟨?_, ?_⟩
@@ -373,27 +373,27 @@ theorem rawV4FixedFields_pins_fork_activation_and_blob_schedule (state : State) 
 
 /-- The strengthened clause still gives back the two words the narrower version pinned, at the same
 addresses — so the change is a strict strengthening and nothing downstream lost a fact. -/
-theorem rawV4FixedFields_still_pins_chain_id_and_fork (state : State) (rootBase : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (representation : RawV4FixedFieldsRep state rootBase value) :
+theorem statelessInputFixedFields_still_pins_chain_id_and_fork (state : State) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (representation : StatelessInputFixedFieldsRep state rootBase value) :
     Word64LERep state (rootBase + 736) value.chainConfig.chainId.toNat ∧
       Word64LERep state (rootBase + 744) value.chainConfig.activeFork.fork.toNat := by
   refine ⟨representation.chainConfig.1, ?_⟩
   simpa [Nat.add_assoc] using representation.chainConfig.2.1
 
-/-- Native `RawV4` ownership representation: root allocation, all heap arrays, and borrowed slices.
+/-- Native `StatelessInput` ownership representation: root allocation, all heap arrays, and borrowed slices.
 
 Scalar and fixed-vector byte contents are added by the later field observer; this layer establishes
 the ownership and aliasing boundary used by all parser and runtime contracts. -/
-structure RawV4Rep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) : Prop where
-  layout : ∃ bases : RawV4DescriptorBases,
-    RawV4AllocationRep state rootBase value bases ∧
-      ∃ descriptors : RawV4DescriptorRep state rootBase value bases,
-        RawV4InputSlicesRep state inputBase input rootBase value bases descriptors
-  fixedFields : RawV4FixedFieldsRep state rootBase value
+structure StatelessInputRep (state : State) (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) : Prop where
+  layout : ∃ bases : StatelessInputDescriptorBases,
+    StatelessInputAllocationRep state rootBase value bases ∧
+      ∃ descriptors : StatelessInputDescriptorRep state rootBase value bases,
+        StatelessInputInputSlicesRep state inputBase input rootBase value bases descriptors
+  fixedFields : StatelessInputFixedFieldsRep state rootBase value
 
 /-- The executable descriptor-only observation of the native root object. -/
-structure RawV4DescriptorObservation where
+structure StatelessInputDescriptorObservation where
   versionedHashes : Nat × Nat
   transactions : Nat × Nat
   withdrawals : Nat × Nat
@@ -405,7 +405,7 @@ structure RawV4DescriptorObservation where
   witnessHeaders : Nat × Nat
   publicKeys : Nat × Nat
 
-def observeRawV4Descriptors? (state : State) (rootBase : Nat) : Option RawV4DescriptorObservation := do
+def observeStatelessInputDescriptors? (state : State) (rootBase : Nat) : Option StatelessInputDescriptorObservation := do
   let versionedHashes ← observeSliceDescriptor? state (rootBase + 592)
   let transactions ← observeSliceDescriptor? state (rootBase + 80)
   let withdrawals ← observeSliceDescriptor? state (rootBase + 96)
@@ -419,10 +419,10 @@ def observeRawV4Descriptors? (state : State) (rootBase : Nat) : Option RawV4Desc
   pure ⟨versionedHashes, transactions, withdrawals, deposits, withdrawalRequests,
     consolidationRequests, witnessState, witnessCodes, witnessHeaders, publicKeys⟩
 
-theorem observe_raw_v4_descriptors_of_rep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (bases : RawV4DescriptorBases)
-    (representation : RawV4DescriptorRep state rootBase value bases) :
-    observeRawV4Descriptors? state rootBase = some
+theorem observe_stateless_input_descriptors_of_rep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (bases : StatelessInputDescriptorBases)
+    (representation : StatelessInputDescriptorRep state rootBase value bases) :
+    observeStatelessInputDescriptors? state rootBase = some
       { versionedHashes := (bases.versionedHashesBase, value.newPayloadRequest.versionedHashes.size),
         transactions := (bases.transactionsBase,
           value.newPayloadRequest.executionPayload.transactions.size),
@@ -437,7 +437,7 @@ theorem observe_raw_v4_descriptors_of_rep (state : State) (rootBase : Nat) (valu
         witnessCodes := (bases.witnessCodesBase, value.witness.codes.size),
         witnessHeaders := (bases.witnessHeadersBase, value.witness.headers.size),
         publicKeys := (bases.publicKeysBase, value.publicKeys.size) } := by
-  unfold observeRawV4Descriptors?
+  unfold observeStatelessInputDescriptors?
   rw [observe_slice_descriptor_of_rep state (rootBase + 592) bases.versionedHashesBase
       value.newPayloadRequest.versionedHashes.size representation.versionedHashes,
     observe_slice_descriptor_of_rep state (rootBase + 80) bases.transactionsBase

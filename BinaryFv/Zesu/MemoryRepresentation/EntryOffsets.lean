@@ -1060,10 +1060,10 @@ theorem decodeCanonical_entry_of_fields
 
 /-! ### The fork bound is the same projection on both sides
 
-`decodeRawV4` throws `unknownFork` on `raw.chainConfig.activeFork.fork > 20`, where
-`raw = rawV4OfInterp value`. `sourceShapedContainersAgreeWithOracle` bounds
+`decodeRawInput` throws `unknownFork` on `raw.chainConfig.activeFork.fork > 20`, where
+`raw = statelessInputOfInterp value`. `sourceShapedContainersAgreeWithOracle` bounds
 `(rawChainConfigOf value').activeFork.fork` for the chainConfig *field's* decode. Those are the same
-number, and the reason is definitional rather than analogous: `rawV4OfInterp` sets
+number, and the reason is definitional rather than analogous: `statelessInputOfInterp` sets
 `chainConfig := rawChainConfigOf value.2.2.1`, so the whole-body projection *is* the field
 projection applied to the third component.
 
@@ -1071,8 +1071,8 @@ This is why the value-level decomposition matters and the acceptance-level one d
 bound is a predicate on the decoded VALUE, so matching it needs to know the entry decode's third
 component is exactly what the chainConfig field decode returned. -/
 
-theorem rawV4_fork_eq_field_fork (value : BinaryFv.Specs.SSZ.statelessInputV4Type.interp) :
-    (BinaryFv.Specs.SSZ.rawV4OfInterp value).chainConfig.activeFork.fork
+theorem statelessInput_fork_eq_field_fork (value : BinaryFv.Specs.SSZ.statelessInputV4Type.interp) :
+    (BinaryFv.Specs.SSZ.statelessInputOfInterp value).chainConfig.activeFork.fork
       = (BinaryFv.Specs.SSZ.rawChainConfigOf value.2.2.1).activeFork.fork := rfl
 
 /-! ## The entry composition, forward direction
@@ -1163,11 +1163,11 @@ implying the other.
 `sourceShapedContainersAgreeWithOracle` equates `isAccepted (meaningChainConfig bytes)` with
 `decodeCanonical chainConfigType bytes` succeeding *and* `fork ≤ 20`. That bound is not part of the
 schema: `chainConfigType` types `fork` as an unbounded `u64`, and the oracle applies the bound one
-layer up in `decodeRawV4`, after a complete canonical decode. So at *this* layer — `decodeCanonical`
+layer up in `decodeRawInput`, after a complete canonical decode. So at *this* layer — `decodeCanonical`
 against `decodeCanonical` — neither side applies it, and stating the theorem with the container
 hypothesis would be stating a hypothesis it does not use.
 
-The bound enters when this decomposition is composed towards `decodeRawV4` and `meaningDecodeRaw`,
+The bound enters when this decomposition is composed towards `decodeRawInput` and `meaningDecodeRaw`,
 where the oracle's post-decode `fork > 20` check has to be matched against the source's check inside
 `meaningChainConfig`. That is exactly the layering `sourceShapedContainersAgreeWithOracle` was
 corrected for (`d652aff`), and it is why the container fact is an *ingredient* of the entry agreement
@@ -1702,7 +1702,7 @@ theorem v3ShapeExcludesCanonicalV4_holds : v3ShapeExcludesCanonicalV4 := by
 
 /-! ## The `tooLarge` gate is dead inside the root's scope
 
-`decodeStatelessInput` opens with `size ≥ 2 ^ 32 → tooLarge`, and `decodeRawV4` repeats it. Inside
+`decodeStatelessInput` opens with `size ≥ 2 ^ 32 → tooLarge`, and `decodeRawInput` repeats it. Inside
 `rootComplianceScope` — `size < 2 * 1024 * 1024` — neither can fire, because 2 MiB is three orders of
 magnitude below 2^32.
 
@@ -1766,7 +1766,7 @@ theorem oracle_retry_rejects {bytes : ByteArray}
   rw [BinaryFv.Specs.SSZ.decodeRawOrQuarantineV3]
   split
   · rfl
-  · rw [BinaryFv.Specs.SSZ.decodeRawV4]
+  · rw [BinaryFv.Specs.SSZ.decodeRawInput]
     split
     · rfl
     · split
@@ -1797,22 +1797,22 @@ theorem both_size_gates_dead_in_scope {bytes : ByteArray} (h : rootComplianceSco
     meaningRequireU32Length bytes = .ok () ∧ ¬ (bytes.size ≥ 2 ^ 32) :=
   ⟨meaningRequireU32Length_ok_in_scope h, tooLarge_gate_unreachable_in_scope h⟩
 
-/-- `decodeRawV4` with its dead `tooLarge` gate removed — the oracle-side reduction at the raw level,
+/-- `decodeRawInput` with its dead `tooLarge` gate removed — the oracle-side reduction at the raw level,
 the analogue of `decodeStatelessInput_in_scope` one layer up. What is left is exactly the three
 envelope tests the source also runs, then the canonical decode, then the fork bound. -/
-theorem decodeRawV4_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
-    BinaryFv.Specs.SSZ.decodeRawV4 bytes =
+theorem decodeRawInput_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    BinaryFv.Specs.SSZ.decodeRawInput bytes =
       (if bytes.size < 2 then .error .tooShort
         else if !(BinaryFv.Specs.SSZ.hasSchemaId bytes) then .error .badSchema
         else
           match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.statelessInputV4Type
               (bytes.extract 2 bytes.size) with
           | .ok value =>
-              if (BinaryFv.Specs.SSZ.rawV4OfInterp value).chainConfig.activeFork.fork > 20 then
+              if (BinaryFv.Specs.SSZ.statelessInputOfInterp value).chainConfig.activeFork.fork > 20 then
                 .error .unknownFork
-              else .ok (BinaryFv.Specs.SSZ.rawV4OfInterp value)
+              else .ok (BinaryFv.Specs.SSZ.statelessInputOfInterp value)
           | .error error => .error (.ssz error)) := by
-  rw [BinaryFv.Specs.SSZ.decodeRawV4, if_neg (tooLarge_gate_unreachable_in_scope h)]
+  rw [BinaryFv.Specs.SSZ.decodeRawInput, if_neg (tooLarge_gate_unreachable_in_scope h)]
   split
   · rfl
   · split
@@ -1822,13 +1822,13 @@ theorem decodeRawV4_in_scope {bytes : ByteArray} (h : rootComplianceScope bytes)
 
 /-! ### The fork bound, matched across the layer boundary
 
-The source checks `fork > 20` *inside* `meaningChainConfig`; the oracle checks it in `decodeRawV4`,
+The source checks `fork > 20` *inside* `meaningChainConfig`; the oracle checks it in `decodeRawInput`,
 after a complete canonical decode of the whole body. These two lemmas move the bound across the layer boundary.
 
 **Nothing here is discharged, and the wording matters.** `sourceShapedContainersAgreeWithOracle`
 already states the `fork ≤ 20` bound in the oracle's terms — the bound is written into the obligation
 at `Containers.lean:365`. So `chainConfig_acceptance_is_fork_bound` is that *assumed* fact specialised
-to its accepting branch, and the only new content in the pair is `rawV4_fork_eq_field_fork`, which is
+to its accepting branch, and the only new content in the pair is `statelessInput_fork_eq_field_fork`, which is
 `rfl`. What these lemmas do is move a supplied bound to the layer that consumes it; they do not prove
 the two checks agree. A reader must not mistake this for the match having been established. -/
 
@@ -1841,13 +1841,13 @@ theorem chainConfig_acceptance_is_fork_bound
   rw [containersAgree slice, hdec]
 
 /-- The same bound, stated against the whole-body value the oracle actually reads it from. -/
-theorem chainConfig_acceptance_is_rawV4_fork_bound
+theorem chainConfig_acceptance_is_statelessInput_fork_bound
     (containersAgree : sourceShapedContainersAgreeWithOracle)
     {slice : ByteArray} {v : BinaryFv.Specs.SSZ.statelessInputV4Type.interp}
     (hdec : BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.chainConfigType slice = .ok v.2.2.1) :
     isAccepted (meaningChainConfig slice)
-      = decide ((BinaryFv.Specs.SSZ.rawV4OfInterp v).chainConfig.activeFork.fork ≤ 20) := by
-  rw [chainConfig_acceptance_is_fork_bound containersAgree hdec, rawV4_fork_eq_field_fork]
+      = decide ((BinaryFv.Specs.SSZ.statelessInputOfInterp v).chainConfig.activeFork.fork ≤ 20) := by
+  rw [chainConfig_acceptance_is_fork_bound containersAgree hdec, statelessInput_fork_eq_field_fork]
 
 /-- **The source side at the raw level, with its length check eliminated.**
 
@@ -1899,8 +1899,8 @@ hypothesis. -/
 theorem raw_envelope_rejects_both {bytes : ByteArray} (h : rootComplianceScope bytes)
     (henv : bytes.size < 2 ∨ BinaryFv.Specs.SSZ.hasSchemaId bytes = false) :
     isAccepted (meaningDecodeRaw bytes) = false ∧
-      (BinaryFv.Specs.SSZ.decodeRawV4 bytes).toOption.isSome = false := by
-  rw [meaningDecodeRaw_in_scope h, decodeRawV4_in_scope h]
+      (BinaryFv.Specs.SSZ.decodeRawInput bytes).toOption.isSome = false := by
+  rw [meaningDecodeRaw_in_scope h, decodeRawInput_in_scope h]
   by_cases hsize : bytes.size < 2
   · rw [if_pos hsize, if_pos hsize]
     exact ⟨rfl, rfl⟩
@@ -2026,7 +2026,7 @@ theorem decodeCanonical_entry_rejects_noncanonical (body : ByteArray) (o0 o1 o2 
 
 /-! ## The raw-level intermediate
 
-`meaningDecodeRaw` against `decodeRawV4`, at acceptance granularity, inside the root's scope. This is
+`meaningDecodeRaw` against `decodeRawInput`, at acceptance granularity, inside the root's scope. This is
 the lower half of `sourceShapedDecodeAgreesWithOracle`: everything above this point is machinery, and
 everything below the outer assembly's two retry arms consumes it.
 
@@ -2039,7 +2039,7 @@ The two sides are *not* the same shape, and the whole difficulty is in the three
   matching a *rejection* runs backwards — from a successful walk to the inequalities it must have
   passed.
 * **The fork bound.** The source applies it inside `meaningChainConfig`, before decoding children; the
-  oracle applies it in `decodeRawV4`, after a complete canonical decode. This is the one place an
+  oracle applies it in `decodeRawInput`, after a complete canonical decode. This is the one place an
   assumption enters: `sourceShapedContainersAgreeWithOracle` is what carries the bound, and it is
   consumed here through `containersAgree`.
 
@@ -2065,7 +2065,7 @@ theorem isAccepted_entry_join (s0 s1 s2 s3 : ByteArray) :
         return ({ newPayloadRequest := newPayloadRequest
                   witness := witness
                   chainConfig := chainConfig
-                  publicKeys := publicKeys } : BinaryFv.Specs.SSZ.RawV4))
+                  publicKeys := publicKeys } : BinaryFv.Specs.SSZ.StatelessInput))
       = (isAccepted (meaningNewPayloadRequest s0) && isAccepted (meaningExecutionWitness s1) &&
           isAccepted (meaningChainConfig s2) && isAccepted (meaningPublicKeys s3)) := by
   cases meaningNewPayloadRequest s0 <;> cases meaningExecutionWitness s1 <;>
@@ -2088,7 +2088,7 @@ theorem entry_forkGuard_false (body : ByteArray) (o0 o1 o2 o3 : Nat)
       (BinaryFv.Specs.SSZ.decodeCanonical publicKeysType (body.extract o3 body.size)).toOption.isSome
           = false) :
     (match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.statelessInputV4Type body with
-      | .ok value => decide ((BinaryFv.Specs.SSZ.rawV4OfInterp value).chainConfig.activeFork.fork ≤ 20)
+      | .ok value => decide ((BinaryFv.Specs.SSZ.statelessInputOfInterp value).chainConfig.activeFork.fork ≤ 20)
       | .error _ => false) = false := by
   cases hdc : BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.statelessInputV4Type body with
   | error e => rfl
@@ -2105,7 +2105,7 @@ theorem entry_forkGuard_false (body : ByteArray) (o0 o1 o2 o3 : Nat)
 /-- **The body-passing case of the raw-level intermediate.**
 
 Stated about the body alone, with the oracle side written as the fork-bounded acceptance of the whole
-container rather than as `decodeRawV4`'s `Result`. That keeps the oracle's error taxonomy out of a
+container rather than as `decodeRawInput`'s `Result`. That keeps the oracle's error taxonomy out of a
 statement whose whole point is that acceptance agrees while the taxonomies do not.
 
 Both halves of the statement have been shown load-bearing by must-fail probes: replacing the RHS's
@@ -2114,7 +2114,7 @@ breaks it too. Neither probe is kept — a check that must fail cannot also be a
 theorem raw_body_agrees (containersAgree : sourceShapedContainersAgreeWithOracle)
     (body : ByteArray) (hu32 : body.size < UInt32.size) :
     isAccepted
-        (if body.size < 16 then (.error .invalidSsz : Except DecodeError BinaryFv.Specs.SSZ.RawV4)
+        (if body.size < 16 then (.error .invalidSsz : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput)
           else do
             let zeroth ← meaningReadOffset body 0
             let first ← meaningReadOffset body 4
@@ -2132,7 +2132,7 @@ theorem raw_body_agrees (containersAgree : sourceShapedContainersAgreeWithOracle
               publicKeys := publicKeys
             })
       = (match BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.statelessInputV4Type body with
-          | .ok value => decide ((BinaryFv.Specs.SSZ.rawV4OfInterp value).chainConfig.activeFork.fork ≤ 20)
+          | .ok value => decide ((BinaryFv.Specs.SSZ.statelessInputOfInterp value).chainConfig.activeFork.fork ≤ 20)
           | .error _ => false) := by
   by_cases h16 : body.size < 16
   · rw [if_pos h16, decodeCanonical_entry_short h16]
@@ -2174,7 +2174,7 @@ theorem raw_body_agrees (containersAgree : sourceShapedContainersAgreeWithOracle
           | ok x3 =>
               rw [decodeCanonical_entry_eq_of_fields body o0 o1 o2 o3 hoffs hc0 hc01 hc12 hc23 hc3
                 hu32 hd0 hd1 hd2 hd3]
-              simp [rawV4_fork_eq_field_fork, Except.toOption]
+              simp [statelessInput_fork_eq_field_fork, Except.toOption]
   · -- The source's offset check fails; the oracle's spread-out discipline has to reject too.
     have herr : ∃ e, meaningRequireCanonicalOffsets body 16 [o0, o1, o2, o3] = .error e := by
       cases hc : meaningRequireCanonicalOffsets body 16 [o0, o1, o2, o3] with
@@ -2194,7 +2194,7 @@ theorem raw_body_agrees (containersAgree : sourceShapedContainersAgreeWithOracle
         rw [hdc] at hrej
         exact absurd hrej (by simp [Except.toOption])
 
-/-- **The raw-level intermediate.** `meaningDecodeRaw` and `decodeRawV4` accept the same buffers inside
+/-- **The raw-level intermediate.** `meaningDecodeRaw` and `decodeRawInput` accept the same buffers inside
 the root's scope, given the container obligation.
 
 The scope hypothesis is load-bearing in the strong sense recorded above: `ereGateDivergesAboveU32`
@@ -2202,14 +2202,14 @@ exhibits a witness beyond the bound where the two genuinely disagree, so this is
 later reader can tidy away. -/
 theorem raw_acceptance_agrees (containersAgree : sourceShapedContainersAgreeWithOracle)
     {bytes : ByteArray} (h : rootComplianceScope bytes) :
-    isAccepted (meaningDecodeRaw bytes) = (BinaryFv.Specs.SSZ.decodeRawV4 bytes).toOption.isSome := by
+    isAccepted (meaningDecodeRaw bytes) = (BinaryFv.Specs.SSZ.decodeRawInput bytes).toOption.isSome := by
   have hscope : bytes.size < 2 * 1024 * 1024 := h
   have hu32 : (bytes.extract 2 bytes.size).size < UInt32.size := by
     have husz : UInt32.size = 4294967296 := rfl
     rw [ByteArray.size_extract, husz]
     omega
   have hb := raw_body_agrees containersAgree (bytes.extract 2 bytes.size) hu32
-  rw [meaningDecodeRaw_in_scope h, decodeRawV4_in_scope h]
+  rw [meaningDecodeRaw_in_scope h, decodeRawInput_in_scope h]
   by_cases hsize : bytes.size < 2
   · rw [if_pos hsize, if_pos hsize]; rfl
   by_cases hschema : BinaryFv.Specs.SSZ.hasSchemaId bytes = false
@@ -2233,7 +2233,7 @@ theorem raw_acceptance_agrees (containersAgree : sourceShapedContainersAgreeWith
       rw [hb]
       -- Both sides still show `match Except.ok v with …`; iota-reduce so the fork test is reachable.
       simp only []
-      by_cases hf : (BinaryFv.Specs.SSZ.rawV4OfInterp v).chainConfig.activeFork.fork > 20
+      by_cases hf : (BinaryFv.Specs.SSZ.statelessInputOfInterp v).chainConfig.activeFork.fork > 20
       -- `fork : UInt64`, so `omega` cannot see this comparison at all.
       · rw [if_pos hf]
         simp only [Except.toOption, Option.isSome_none, decide_eq_false_iff_not]
@@ -2302,7 +2302,7 @@ theorem meaningDecodeRaw_rejects_of_v3
   obtain ⟨hashes, pe, hschema, hr16, _, _, _, _⟩ := hasV3PayloadShape_parts hv3
   have hsize : ¬ (bytes.size < 2) := by have := hasSchemaId_size hschema; omega
   have hnot : ¬ ((!BinaryFv.Specs.SSZ.hasSchemaId bytes) = true) := by simp [hschema]
-  rw [raw_acceptance_agrees containersAgree h, decodeRawV4_in_scope h, if_neg hsize, if_neg hnot]
+  rw [raw_acceptance_agrees containersAgree h, decodeRawInput_in_scope h, if_neg hsize, if_neg hnot]
   have hexcl := v3ShapeExcludesCanonicalV4_holds bytes hv3
   cases hdc : BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.statelessInputV4Type
       (bytes.extract 2 bytes.size) with
@@ -2353,12 +2353,12 @@ theorem rawOrQuarantine_acceptance_agrees
   · rw [if_neg hv3]
     exact raw_acceptance_agrees containersAgree h
 
-/-- `decodeRawV4` never raises `v3Quarantined`: that constructor belongs to the wrapper, not to the
+/-- `decodeRawInput` never raises `v3Quarantined`: that constructor belongs to the wrapper, not to the
 V4 decoder. Needed so that seeing `v3Quarantined` at the top level identifies the V3 arm rather than
 leaving it as one more error to reason about. -/
-theorem decodeRawV4_ne_quarantined {bytes : ByteArray} (h : rootComplianceScope bytes) :
-    BinaryFv.Specs.SSZ.decodeRawV4 bytes ≠ .error .v3Quarantined := by
-  rw [decodeRawV4_in_scope h]
+theorem decodeRawInput_ne_quarantined {bytes : ByteArray} (h : rootComplianceScope bytes) :
+    BinaryFv.Specs.SSZ.decodeRawInput bytes ≠ .error .v3Quarantined := by
+  rw [decodeRawInput_in_scope h]
   split
   · simp
   · split
@@ -2369,7 +2369,7 @@ theorem decodeRawV4_ne_quarantined {bytes : ByteArray} (h : rootComplianceScope 
       | ok v =>
           -- Iota-reduce `match Except.ok v with …` so the fork test is reachable.
           simp only []
-          by_cases hf : (BinaryFv.Specs.SSZ.rawV4OfInterp v).chainConfig.activeFork.fork > 20
+          by_cases hf : (BinaryFv.Specs.SSZ.statelessInputOfInterp v).chainConfig.activeFork.fork > 20
           · rw [if_pos hf]; simp
           · rw [if_neg hf]; simp
 
@@ -2379,7 +2379,7 @@ theorem quarantined_of_rawOrQuarantine {bytes : ByteArray} (hs : rootComplianceS
   rw [BinaryFv.Specs.SSZ.decodeRawOrQuarantineV3] at h
   split at h
   · assumption
-  · exact absurd h (decodeRawV4_ne_quarantined hs)
+  · exact absurd h (decodeRawInput_ne_quarantined hs)
 
 /-! ### Arm 3's condition, and arm 2's groundwork
 
@@ -2617,7 +2617,7 @@ theorem meaningDecode_acceptance_agrees
                 | unknownFork => rfl
                 | outOfMemory => rfl
 
-/-! ## The value half: the two sides produce the *same* `RawV4`
+/-! ## The value half: the two sides produce the *same* `StatelessInput`
 
 Acceptance agreement is not what `root_compliance` needs. Its accepted branch has
 `BinaryFv.Specs.SSZ.decode input = .accepted value`, which *is* `decodeStatelessInput input = .ok value`, and it
@@ -2653,18 +2653,18 @@ abbrev ChainConfigValueHypothesis : Prop :=
     (BinaryFv.Specs.SSZ.rawChainConfigOf value).activeFork.fork ≤ 20 →
     meaningChainConfig slice = .ok (BinaryFv.Specs.SSZ.rawChainConfigOf value)
 
-/-- **The raw level, with the value.** `decodeRawV4` and `meaningDecodeRaw` return the same `RawV4`.
+/-- **The raw level, with the value.** `decodeRawInput` and `meaningDecodeRaw` return the same `StatelessInput`.
 
 The three oracle-shaped fields need no lemma: each meaning *is* `decodeCanonical` at its schema
 followed by the bridge's own projection, so a field decode `= .ok xᵢ` rewrites the meaning to
 `.ok (rawᵢOf xᵢ)` by definition. Only `meaningChainConfig` needs `containersMatch`, and the fork
 bound it needs is the one the oracle's own `fork > 20` guard just failed — the same projection on
-both sides by `rawV4_fork_eq_field_fork`. -/
+both sides by `statelessInput_fork_eq_field_fork`. -/
 theorem meaningDecodeRaw_value_agrees (containersMatch : ChainConfigValueHypothesis)
-    {bytes : ByteArray} (h : rootComplianceScope bytes) {value : BinaryFv.Specs.SSZ.RawV4}
-    (hdec : BinaryFv.Specs.SSZ.decodeRawV4 bytes = .ok value) :
+    {bytes : ByteArray} (h : rootComplianceScope bytes) {value : BinaryFv.Specs.SSZ.StatelessInput}
+    (hdec : BinaryFv.Specs.SSZ.decodeRawInput bytes = .ok value) :
     meaningDecodeRaw bytes = .ok value := by
-  rw [decodeRawV4_in_scope h] at hdec
+  rw [decodeRawInput_in_scope h] at hdec
   by_cases hsize : bytes.size < 2
   · rw [if_pos hsize] at hdec; exact absurd hdec (by simp)
   by_cases hschema : BinaryFv.Specs.SSZ.hasSchemaId bytes = false
@@ -2683,10 +2683,10 @@ theorem meaningDecodeRaw_value_agrees (containersMatch : ChainConfigValueHypothe
       rw [hdc] at hdec
       -- Iota-reduce `match Except.ok v with …` so the fork guard is reachable.
       simp only [] at hdec
-      by_cases hf : (BinaryFv.Specs.SSZ.rawV4OfInterp v).chainConfig.activeFork.fork > 20
+      by_cases hf : (BinaryFv.Specs.SSZ.statelessInputOfInterp v).chainConfig.activeFork.fork > 20
       · rw [if_pos hf] at hdec; exact absurd hdec (by simp)
       rw [if_neg hf] at hdec
-      have hval : BinaryFv.Specs.SSZ.rawV4OfInterp v = value := by injection hdec
+      have hval : BinaryFv.Specs.SSZ.statelessInputOfInterp v = value := by injection hdec
       subst hval
       have hacc : (BinaryFv.Specs.SSZ.decodeCanonical BinaryFv.Specs.SSZ.statelessInputV4Type
           (bytes.extract 2 bytes.size)).toOption.isSome = true := by rw [hdc]; rfl
@@ -2750,7 +2750,7 @@ theorem meaningDecodeRaw_value_agrees (containersMatch : ChainConfigValueHypothe
 /-- The quarantine wrapper, with the value. A quarantined buffer never returns `.ok`, so the arm
 that made `rawOrQuarantine_acceptance_agrees` interesting collapses outright here. -/
 theorem rawOrQuarantine_value_agrees (containersMatch : ChainConfigValueHypothesis)
-    {bytes : ByteArray} (h : rootComplianceScope bytes) {value : BinaryFv.Specs.SSZ.RawV4}
+    {bytes : ByteArray} (h : rootComplianceScope bytes) {value : BinaryFv.Specs.SSZ.StatelessInput}
     (hdec : BinaryFv.Specs.SSZ.decodeRawOrQuarantineV3 bytes = .ok value) :
     meaningDecodeRaw bytes = .ok value := by
   rw [BinaryFv.Specs.SSZ.decodeRawOrQuarantineV3] at hdec
@@ -2772,7 +2772,7 @@ lemma applies a second time. -/
 theorem meaningDecode_value_agrees
     (containersAgree : sourceShapedContainersAgreeWithOracle)
     (containersMatch : ChainConfigValueHypothesis)
-    {bytes : ByteArray} (h : rootComplianceScope bytes) {value : BinaryFv.Specs.SSZ.RawV4}
+    {bytes : ByteArray} (h : rootComplianceScope bytes) {value : BinaryFv.Specs.SSZ.StatelessInput}
     (hdec : BinaryFv.Specs.SSZ.decodeStatelessInput bytes = .ok value) :
     meaningDecode bytes = .ok value := by
   rw [decodeStatelessInput_in_scope h] at hdec

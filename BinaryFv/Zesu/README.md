@@ -1,11 +1,12 @@
 # Zesu verification modules
 
-This directory contains the verification of the pinned Zesu Amsterdam V4 decoder against the pinned
-Ethereum SSZ decoding specification. D′ proves the public result conditionally on machine proofs of
-the exported decoder and its two accessors; later refinement PRs discharge those contracts. SizzLean supplies the executable Lean specification;
-the generated Sail model supplies the RISC-V machine semantics; and the Elfling model connects
-source-level function identities to instruction regions in the compiled binary. The
-implementation-independent specification lives in `BinaryFv/Specs/SSZ`, outside this Zesu target.
+This directory verifies the pinned Zesu stateless-input decoder against the pinned Ethereum SSZ
+decoding specification. D′ proves the public result conditionally on machine proofs of the exported
+decoder and its two accessors; later refinement PRs discharge those contracts. SizzLean supplies the
+executable Lean specification; the generated Sail model supplies the RISC-V machine semantics; and
+the Elfling model connects source-level function identities to instruction regions in the compiled
+binary. The implementation-independent specification lives in `BinaryFv/Specs/SSZ`, outside this
+Zesu target.
 
 The directory names describe the role of each definition or theorem; there is no catch-all `Proof`
 namespace.

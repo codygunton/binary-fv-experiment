@@ -17,7 +17,7 @@ the representation is **memory-only** — it closes the `localTo_is_a_real_oblig
 the container eligible for the discipline.
 
 It does **not** give disjointness. That needs the representation's actual *footprint* — the region it
-is local to — which is a strictly stronger and more laborious result: for `RawV4Rep` the footprint is
+is local to — which is a strictly stronger and more laborious result: for `StatelessInputRep` the footprint is
 the root allocation, ten heap arrays, the descriptor table and every borrowed input slice. Footprints
 are not computed here.
 
@@ -28,13 +28,13 @@ So a container appearing below is eligible for the discipline, not yet protected
 **All eight are memory-determined, proved below.** `canonicalRepForkActivation`,
 `canonicalRepForkConfig`, `canonicalRepChainConfig`, `canonicalRepExecutionRequests`,
 `canonicalRepExecutionWitness`, `canonicalRepExecutionPayload`, `canonicalRepNewPayloadRequest`,
-`canonicalRepRawV4`. So the `localTo_is_a_real_obligation` hole is closed for every representation
+`canonicalStatelessInputRep`. So the `localTo_is_a_real_obligation` hole is closed for every representation
 the root actually uses, and no representation reads outside memory.
 
 The earlier mechanical scan — no reference to `regs`, `pc`, `choiceState`, `tags`, `cycleCount` or
 `sailOutput` under `MemoryRepresentation/` — predicted this, but is now superseded by proof rather
 than relied on. Keeping the distinction visible is the point: the grep was evidence, not a result,
-and one field (`RawV4FixedFieldsRep.chainConfig`) was in fact missed by the field-extraction grep used
+and one field (`StatelessInputFixedFieldsRep.chainConfig`) was in fact missed by the field-extraction grep used
 to draft these proofs and surfaced only when the compiler demanded it.
 -/
 
@@ -311,17 +311,17 @@ theorem memDetermined_newPayloadRequest (inputBase : Nat) (input : ByteArray) (b
 
 /-! ## The root object
 
-`RawV4Rep` is the last one and the only one that needed a shape the combinators do not reach. See
-`memDetermined_rawV4` for why. -/
+`StatelessInputRep` is the last one and the only one that needed a shape the combinators do not reach. See
+`memDetermined_statelessInput` for why. -/
 
 theorem memDetermined_rawStatelessInput (base : Nat) :
     MemDetermined (fun s => RawStatelessInputRep s base) :=
   memDetermined_exists fun _ =>
     memDetermined_and memDetermined_const (memDetermined_heapArray _ _ _)
 
-theorem memDetermined_rawV4Allocation (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (bases : RawV4DescriptorBases) :
-    MemDetermined (fun s => RawV4AllocationRep s rootBase value bases) :=
+theorem memDetermined_statelessInputAllocation (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (bases : StatelessInputDescriptorBases) :
+    MemDetermined (fun s => StatelessInputAllocationRep s rootBase value bases) :=
   fun s1 s2 agree h =>
     { root := memDetermined_rawStatelessInput _ s1 s2 agree h.root
       versionedHashes := memDetermined_heapArray _ _ _ s1 s2 agree h.versionedHashes
@@ -344,9 +344,9 @@ theorem memDetermined_rawV4Allocation (rootBase : Nat) (value : BinaryFv.Specs.S
       publicKeys := memDetermined_heapArray _ _ _ s1 s2 agree h.publicKeys
       publicKeyContents := memDetermined_heapFixedVectorArray _ _ s1 s2 agree h.publicKeyContents }
 
-theorem memDetermined_rawV4Descriptor (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (bases : RawV4DescriptorBases) :
-    MemDetermined (fun s => RawV4DescriptorRep s rootBase value bases) :=
+theorem memDetermined_statelessInputDescriptor (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (bases : StatelessInputDescriptorBases) :
+    MemDetermined (fun s => StatelessInputDescriptorRep s rootBase value bases) :=
   fun s1 s2 agree h =>
     { versionedHashes := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.versionedHashes
       transactions := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.transactions
@@ -360,13 +360,13 @@ theorem memDetermined_rawV4Descriptor (rootBase : Nat) (value : BinaryFv.Specs.S
       witnessHeaders := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.witnessHeaders
       publicKeys := memDetermined_sliceDescriptor _ _ _ s1 s2 agree h.publicKeys }
 
-theorem memDetermined_rawV4InputSlices (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (bases : RawV4DescriptorBases)
+theorem memDetermined_statelessInputInputSlices (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (bases : StatelessInputDescriptorBases)
     {s1 s2 : State} (agree : ∀ address, s1.mem.get? address = s2.mem.get? address)
-    (d1 : RawV4DescriptorRep s1 rootBase value bases)
-    (d2 : RawV4DescriptorRep s2 rootBase value bases)
-    (h : RawV4InputSlicesRep s1 inputBase input rootBase value bases d1) :
-    RawV4InputSlicesRep s2 inputBase input rootBase value bases d2 :=
+    (d1 : StatelessInputDescriptorRep s1 rootBase value bases)
+    (d2 : StatelessInputDescriptorRep s2 rootBase value bases)
+    (h : StatelessInputInputSlicesRep s1 inputBase input rootBase value bases d1) :
+    StatelessInputInputSlicesRep s2 inputBase input rootBase value bases d2 :=
   { extraData := h.extraData.imp fun _ h' => h'.imp fun _ h'' =>
       memDetermined_inputSliceDescriptor _ _ _ _ _ _ s1 s2 agree h''
     blockAccessList := h.blockAccessList.imp fun _ h' => h'.imp fun _ h'' =>
@@ -376,8 +376,8 @@ theorem memDetermined_rawV4InputSlices (inputBase : Nat) (input : ByteArray) (ro
     witnessCodes := memDetermined_inputSliceDescriptorArray _ _ _ _ s1 s2 agree h.witnessCodes
     witnessHeaders := memDetermined_inputSliceDescriptorArray _ _ _ _ s1 s2 agree h.witnessHeaders }
 
-theorem memDetermined_rawV4FixedFields (rootBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) :
-    MemDetermined (fun s => RawV4FixedFieldsRep s rootBase value) :=
+theorem memDetermined_statelessInputFixedFields (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) :
+    MemDetermined (fun s => StatelessInputFixedFieldsRep s rootBase value) :=
   fun s1 s2 agree h =>
     { baseFeePerGas := memDetermined_bitVectorLE _ _ s1 s2 agree h.baseFeePerGas
       parentHash := memDetermined_fixedByteVector _ _ s1 s2 agree h.parentHash
@@ -400,25 +400,25 @@ theorem memDetermined_rawV4FixedFields (rootBase : Nat) (value : BinaryFv.Specs.
 
 /-- **The root object, and the one case the combinators did not reach.**
 
-`RawV4Rep.layout` is `∃ bases, RawV4AllocationRep … ∧ ∃ descriptors : RawV4DescriptorRep …,
-RawV4InputSlicesRep … descriptors` — an existential over a **proof**, whose type mentions the state.
+`StatelessInputRep.layout` is `∃ bases, StatelessInputAllocationRep … ∧ ∃ descriptors : StatelessInputDescriptorRep …,
+StatelessInputInputSlicesRep … descriptors` — an existential over a **proof**, whose type mentions the state.
 `memDetermined_exists` cannot apply: it quantifies over an `α` fixed independently of the state,
 and here the binder's type changes as the state does.
 
 So the transport is written by hand: build the descriptor witness at `s2` first, then carry the
-input-slice facts across against *that* witness rather than the original. `RawV4InputSlicesRep` does
+input-slice facts across against *that* witness rather than the original. `StatelessInputInputSlicesRep` does
 not use its `descriptors` argument in any field, so the two are interchangeable once both exist —
 but that is a fact about this definition, not something the combinator could have known. -/
-theorem memDetermined_rawV4 (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) :
-    MemDetermined (fun s => RawV4Rep s inputBase input rootBase value) :=
+theorem memDetermined_statelessInput (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) :
+    MemDetermined (fun s => StatelessInputRep s inputBase input rootBase value) :=
   fun s1 s2 agree h =>
     { layout := by
         obtain ⟨bases, halloc, d1, hslices⟩ := h.layout
-        have d2 := memDetermined_rawV4Descriptor rootBase value bases s1 s2 agree d1
-        exact ⟨bases, memDetermined_rawV4Allocation rootBase value bases s1 s2 agree halloc, d2,
-          memDetermined_rawV4InputSlices inputBase input rootBase value bases agree d1 d2 hslices⟩
-      fixedFields := memDetermined_rawV4FixedFields _ _ s1 s2 agree h.fixedFields }
+        have d2 := memDetermined_statelessInputDescriptor rootBase value bases s1 s2 agree d1
+        exact ⟨bases, memDetermined_statelessInputAllocation rootBase value bases s1 s2 agree halloc, d2,
+          memDetermined_statelessInputInputSlices inputBase input rootBase value bases agree d1 d2 hslices⟩
+      fixedFields := memDetermined_statelessInputFixedFields _ _ s1 s2 agree h.fixedFields }
 
 /-! ## The audit results, stated as `LocalTo`
 
@@ -461,9 +461,9 @@ theorem localTo_canonicalRepNewPayloadRequest :
   fun inputBase input value s1 s2 base agree h =>
     memDetermined_newPayloadRequest inputBase input base value s1 s2 (fun a => agree a trivial) h
 
-theorem localTo_canonicalRepRawV4 :
-    LocalTo canonicalRepRawV4 (fun _ _ => True) :=
+theorem localTo_canonicalStatelessInputRep :
+    LocalTo canonicalStatelessInputRep (fun _ _ => True) :=
   fun inputBase input value s1 s2 base agree h =>
-    memDetermined_rawV4 inputBase input base value s1 s2 (fun a => agree a trivial) h
+    memDetermined_statelessInput inputBase input base value s1 s2 (fun a => agree a trivial) h
 
 end BinaryFv.Zesu.Contracts.RepresentationAudit

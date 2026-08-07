@@ -366,7 +366,7 @@ obligation is stated at the granularity `root_compliance` actually observes.
 **The oracle side is not `decodeCanonical chainConfigType` alone, and saying which layer applies the
 fork bound is the whole point of this docstring.** `chainConfigType` types `fork` as an unbounded
 `u64`; nothing in the *schema* rejects an unknown fork. The oracle applies that constraint one layer
-up, in `decodeRawV4` (`BinaryFv.Specs.SSZ/Core.lean:415-420`), which decodes the container canonically and
+up, in `decodeRawInput` (`BinaryFv.Specs.SSZ/Core.lean:415-420`), which decodes the container canonically and
 *then* throws `unknownFork` on `raw.chainConfig.activeFork.fork > 20`. The binary applies the same
 constraint inside `meaningForkConfig`, which `meaningChainConfig` calls. So the oracle side here has
 to be that composite; against the bare schema decode the obligation is **false**, and was — see
@@ -393,14 +393,14 @@ def sourceShapedContainersAgreeWithOracle : Prop :=
 The binary and the oracle classify a malformed unknown-fork payload differently.
 
 `meaningForkConfig` rejects on `fork > 20` before decoding children. The oracle applies that bound in
-`decodeRawV4` (`BinaryFv.Specs.SSZ/Core.lean:415-420`), *after* a successful canonical decode of the whole
+`decodeRawInput` (`BinaryFv.Specs.SSZ/Core.lean:415-420`), *after* a successful canonical decode of the whole
 container — **not** in `decodeCanonical forkConfigType`, which never checks it at all. So on a
 payload with `fork = 21` *and* a malformed activation the source-shaped meaning yields `unknownFork`
 while the oracle never reaches the bound and yields a structural error.
 
 That the bound lives one layer above the schema decode is the same fact
 `sourceShapedContainersAgreeWithOracle` had to be corrected for; an earlier wording of this docstring
-said the oracle checks the bound "only then", which is true of `decodeRawV4` and false of
+said the oracle checks the bound "only then", which is true of `decodeRawInput` and false of
 `decodeCanonical forkConfigType`, and reading the two conjuncts against each other would have caught
 that.
 

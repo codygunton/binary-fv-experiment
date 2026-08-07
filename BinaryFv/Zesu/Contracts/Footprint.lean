@@ -60,7 +60,7 @@ theorem memDeterminedOn_const {r : Region} {p : Prop} : MemDeterminedOn r (fun _
   fun _ _ _ h => h
 
 /-! `Region.union` is needed under **either** footprint policy: a container's read set is not one
-contiguous range once heap arrays and borrowed input slices are involved — `RawV4Rep` touches the root
+contiguous range once heap arrays and borrowed input slices are involved — `StatelessInputRep` touches the root
 allocation, ten separately-based heap arrays, a descriptor table and input-relative slices, and no
 choice of "tight" versus "record boundary" makes those contiguous. It is defined in
 `Contracts/Environment.lean` with the rest of the ownership vocabulary. -/
@@ -599,7 +599,7 @@ theorem localTo_canonicalRepChainConfig_record {recordSize : Nat}
 
 /-! ## Heap-allocated children: the allocation interval
 
-The ruled shape for the four non-chain containers and for `RawV4Rep`. A heap-allocated child's
+The ruled shape for the four non-chain containers and for `StatelessInputRep`. A heap-allocated child's
 footprint is its **record/descriptor range** together with the **allocation interval it consumed** —
 and nothing else. There is no input component: `InputSliceRep` is an address equation, not a memory
 claim (`subst` its first conjunct and the second becomes `x = x`), so a borrowed-input descriptor's
@@ -748,7 +748,7 @@ theorem memDeterminedOn_of_localTo {α : Type} {rep : ContainerRepresentation α
 /-! # The heap layer
 
 Everything above works at the chain containers, whose fields sit at fixed offsets from one base. The
-four remaining containers and `RawV4Rep` instead hold *heap arrays*: a slice descriptor pointing at an
+four remaining containers and `StatelessInputRep` instead hold *heap arrays*: a slice descriptor pointing at an
 allocator-chosen base, a `HeapArrayRep` asserting the array's bytes exist, and a contents
 representation pinning the records inside it. This section computes the footprints of that layer, and
 it is the foundation the container footprints will be assembled from — so it carries its power half
@@ -947,7 +947,7 @@ theorem heapDepositRequestArray_footprint (base : Nat)
 /-! ## The strides, taken from the manifest
 
 The literal strides above appear in the *representations* (`HeapWithdrawalArrayRep` is defined with
-`base + 48 * index`) and are already pinned there by `Artifacts.raw_v4_heap_element_sizes_valid`. That
+`base + 48 * index`) and are already pinned there by `Artifacts.stateless_input_heap_element_sizes_valid`. That
 pinning does **not** carry to the region, for the same reason `range base 4096` proves as easily as
 `range base 32`: a footprint may over-state its size and nothing objects. So the consumable forms take
 the stride from `Artifacts.heap_element_size_layout` instead. -/
@@ -1014,7 +1014,7 @@ theorem heapDepositRequestArray_footprint_abi (base : Nat)
 The content is nothing new — it is the five `_abi` results conjoined. Its purpose is the axiom-hygiene
 guard: an anchor's coverage is whatever that one declaration reaches, so anchoring a single theorem
 leaves a door added to any of its siblings invisible. The chain layer already needed two anchors for
-one door, and per-theorem anchoring does not survive `RawV4Rep`.
+one door, and per-theorem anchoring does not survive `StatelessInputRep`.
 
 Offered as a candidate answer to the open anchor-collapse question rather than a decision on it — the
 question is whether a *layer* can be anchored at one declaration, and a conjunction that reaches the
@@ -2156,7 +2156,7 @@ theorem newPayloadRequest_footprint_abi (inputBase : Nat) (input : ByteArray) (b
   subst h688
   exact newPayloadRequest_footprint inputBase input base value s1 established
 
-/-! ## `RawV4Rep`, the root
+/-! ## `StatelessInputRep`, the root
 
 One 832-byte record and **ten** separately-based heap arrays. This is the case the union combinator
 was introduced for at the top of the module: no choice of policy makes eleven allocator-chosen
@@ -2166,9 +2166,9 @@ Everything else is inside the root record — all ten slice descriptors (the las
 exactly at 832), the two borrowed single slices at `+64` and `+128`, and every fixed field including
 the whole chain config at `+736`. So the region is the record plus ten arrays, and nothing more.
 
-**The root record size is a hypothesis, not a manifest read.** `rawV4_footprint` takes
+**The root record size is a hypothesis, not a manifest read.** `statelessInput_footprint` takes
 `rawStatelessInputSize = some rootSize` as a premise and therefore opens **no trust door of its own**;
-`rawV4_footprint_abi` discharges it and carries the door. The split matters because
+`statelessInput_footprint_abi` discharges it and carries the door. The split matters because
 `RawStatelessInputRep` binds its size existentially — the premise is what identifies the existential
 witness with the region's bound, which is a proof step rather than a lookup. -/
 
@@ -2188,8 +2188,8 @@ theorem rawStatelessInput_footprint (base recordSize : Nat)
       (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) harray⟩
 
 /-- The root's read set: the record and the ten heap arrays its descriptors point at. -/
-def rawV4Region (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (bases : RawV4DescriptorBases) : Region :=
+def statelessInputRegion (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (bases : StatelessInputDescriptorBases) : Region :=
   Region.union (range rootBase rootSize)
     (Region.union
       (range bases.versionedHashesBase (value.newPayloadRequest.versionedHashes.size * 32))
@@ -2214,10 +2214,10 @@ def rawV4Region (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
                       (range bases.witnessHeadersBase (value.witness.headers.size * 16))
                       (range bases.publicKeysBase (value.publicKeys.size * 65)))))))))))
 
-theorem rawV4Descriptor_footprint (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (bases : RawV4DescriptorBases) (fits : 832 ≤ rootSize) :
+theorem statelessInputDescriptor_footprint (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (bases : StatelessInputDescriptorBases) (fits : 832 ≤ rootSize) :
     MemDeterminedOn (range rootBase rootSize)
-      (fun s => RawV4DescriptorRep s rootBase value bases) :=
+      (fun s => StatelessInputDescriptorRep s rootBase value bases) :=
   fun s1 s2 agree h =>
     { versionedHashes := sliceDescriptor_footprint (rootBase + 592) _ _ s1 s2
         (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.versionedHashes
@@ -2242,10 +2242,10 @@ theorem rawV4Descriptor_footprint (rootBase rootSize : Nat) (value : BinaryFv.Sp
 
 /-- The fixed inline fields. The chain config at `+736` is 80 bytes, ending at 816 — the last thing
 before the public-key descriptor, and the reason the record is 832 rather than 816. -/
-theorem rawV4FixedFields_footprint (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
+theorem statelessInputFixedFields_footprint (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
     (fits : 832 ≤ rootSize) :
     MemDeterminedOn (range rootBase rootSize)
-      (fun s => RawV4FixedFieldsRep s rootBase value) :=
+      (fun s => StatelessInputFixedFieldsRep s rootBase value) :=
   fun s1 s2 agree h =>
     { baseFeePerGas := bitVectorLE_footprint rootBase _ s1 s2
         (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) h.baseFeePerGas
@@ -2284,18 +2284,18 @@ theorem rawV4FixedFields_footprint (rootBase rootSize : Nat) (value : BinaryFv.S
 
 /-- The borrowed slices, transported against the `s2` descriptor witness rather than the `s1` one.
 
-Same shape the audit needed: `RawV4InputSlicesRep`'s `descriptors` argument has a type that mentions
+Same shape the audit needed: `StatelessInputInputSlicesRep`'s `descriptors` argument has a type that mentions
 the state, so the combinators cannot see through it. It is used by no field, so the two witnesses are
 interchangeable once both exist — a fact about this definition, not something structural. -/
-theorem rawV4InputSlices_footprint (inputBase : Nat) (input : ByteArray) (rootBase rootSize : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (bases : RawV4DescriptorBases) (fits : 832 ≤ rootSize)
+theorem statelessInputInputSlices_footprint (inputBase : Nat) (input : ByteArray) (rootBase rootSize : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (bases : StatelessInputDescriptorBases) (fits : 832 ≤ rootSize)
     {s1 s2 : State}
-    (agree : ∀ address, rawV4Region rootBase rootSize value bases address →
+    (agree : ∀ address, statelessInputRegion rootBase rootSize value bases address →
       s1.mem.get? address = s2.mem.get? address)
-    (d1 : RawV4DescriptorRep s1 rootBase value bases)
-    (d2 : RawV4DescriptorRep s2 rootBase value bases)
-    (h : RawV4InputSlicesRep s1 inputBase input rootBase value bases d1) :
-    RawV4InputSlicesRep s2 inputBase input rootBase value bases d2 :=
+    (d1 : StatelessInputDescriptorRep s1 rootBase value bases)
+    (d2 : StatelessInputDescriptorRep s2 rootBase value bases)
+    (h : StatelessInputInputSlicesRep s1 inputBase input rootBase value bases d1) :
+    StatelessInputInputSlicesRep s2 inputBase input rootBase value bases d2 :=
   { extraData := h.extraData.imp fun _ h' => h'.imp fun _ h'' =>
       inputSliceDescriptor_footprint inputBase input (rootBase + 64) _ _ _ s1 s2
         (fun _ ⟨hl, hr⟩ => agree _ (Or.inl ⟨by omega, by omega⟩)) h''
@@ -2319,20 +2319,20 @@ theorem rawV4InputSlices_footprint (inputBase : Nat) (input : ByteArray) (rootBa
           (Or.inl ⟨by omega, by omega⟩))))))))))) h.witnessHeaders }
 
 /-- **The root's witnessed footprint.** Ten allocator-chosen bases come out in one
-`RawV4DescriptorBases`, which is the shape the representation already binds them in — so the caller
+`StatelessInputDescriptorBases`, which is the shape the representation already binds them in — so the caller
 receives exactly the record the composition allocated, not a tuple this module invented.
 
-Takes the root record size as a premise and therefore opens no trust door; `rawV4_footprint_abi`
+Takes the root record size as a premise and therefore opens no trust door; `statelessInput_footprint_abi`
 supplies it. -/
-theorem rawV4_footprint (inputBase : Nat) (input : ByteArray) (rootBase rootSize : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (s1 : State) (fits : 832 ≤ rootSize)
+theorem statelessInput_footprint (inputBase : Nat) (input : ByteArray) (rootBase rootSize : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (s1 : State) (fits : 832 ≤ rootSize)
     (hsize : BinaryFv.Zesu.Artifacts.rawStatelessInputSize = some rootSize)
-    (established : RawV4Rep s1 inputBase input rootBase value) :
-    ∃ bases : RawV4DescriptorBases,
+    (established : StatelessInputRep s1 inputBase input rootBase value) :
+    ∃ bases : StatelessInputDescriptorBases,
       ∀ s2 : State,
-        (∀ address, rawV4Region rootBase rootSize value bases address →
+        (∀ address, statelessInputRegion rootBase rootSize value bases address →
           s1.mem.get? address = s2.mem.get? address) →
-        RawV4Rep s2 inputBase input rootBase value := by
+        StatelessInputRep s2 inputBase input rootBase value := by
   obtain ⟨bases, allocation, descriptors, slices⟩ := established.layout
   refine ⟨bases, fun s2 agree => ?_⟩
   have agreeRecord : ∀ address, range rootBase rootSize address →
@@ -2342,13 +2342,13 @@ theorem rawV4_footprint (inputBase : Nat) (input : ByteArray) (rootBase rootSize
       MemDeterminedOn (range bases.publicKeysBase (65 * value.publicKeys.size))
         (fun s => HeapFixedVectorArrayRep s bases.publicKeysBase value.publicKeys) :=
     heapFixedVectorArray_footprint _ _
-  have descriptors2 : RawV4DescriptorRep s2 rootBase value bases :=
-    rawV4Descriptor_footprint rootBase rootSize value bases fits s1 s2 agreeRecord descriptors
+  have descriptors2 : StatelessInputDescriptorRep s2 rootBase value bases :=
+    statelessInputDescriptor_footprint rootBase rootSize value bases fits s1 s2 agreeRecord descriptors
   refine
     { layout := ⟨bases, ?_, descriptors2,
-        rawV4InputSlices_footprint inputBase input rootBase rootSize value bases fits agree
+        statelessInputInputSlices_footprint inputBase input rootBase rootSize value bases fits agree
           descriptors descriptors2 slices⟩
-      fixedFields := rawV4FixedFields_footprint rootBase rootSize value fits s1 s2 agreeRecord
+      fixedFields := statelessInputFixedFields_footprint rootBase rootSize value fits s1 s2 agreeRecord
         established.fixedFields }
   exact
     { root := rawStatelessInput_footprint rootBase rootSize hsize s1 s2 agreeRecord allocation.root
@@ -2417,27 +2417,27 @@ theorem rawV4_footprint (inputBase : Nat) (input : ByteArray) (rootBase rootSize
           agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
             (Or.inr ⟨by omega, by omega⟩))))))))))) allocation.publicKeyContents }
 
-theorem rawV4_footprint_abi (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
-    (value : BinaryFv.Specs.SSZ.RawV4) (s1 : State) {rootSize : Nat}
+theorem statelessInput_footprint_abi (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
+    (value : BinaryFv.Specs.SSZ.StatelessInput) (s1 : State) {rootSize : Nat}
     (hsize : BinaryFv.Zesu.Artifacts.rawStatelessInputSize = some rootSize)
-    (established : RawV4Rep s1 inputBase input rootBase value) :
-    ∃ bases : RawV4DescriptorBases,
+    (established : StatelessInputRep s1 inputBase input rootBase value) :
+    ∃ bases : StatelessInputDescriptorBases,
       ∀ s2 : State,
-        (∀ address, rawV4Region rootBase rootSize value bases address →
+        (∀ address, statelessInputRegion rootBase rootSize value bases address →
           s1.mem.get? address = s2.mem.get? address) →
-        RawV4Rep s2 inputBase input rootBase value := by
+        StatelessInputRep s2 inputBase input rootBase value := by
   have h832 : rootSize = 832 := by
     have hlayout := BinaryFv.Zesu.Artifacts.raw_stateless_input_layout.1
     rw [hsize] at hlayout
     exact Option.some.inj hlayout
-  exact rawV4_footprint inputBase input rootBase rootSize value s1 (by omega) hsize established
+  exact statelessInput_footprint inputBase input rootBase rootSize value s1 (by omega) hsize established
 
 /-- The container layer's manifest-derived footprints, gathered for the axiom-hygiene anchor. Same
 reason as `heapLayer_footprints_abi`: an anchor sees only what its declaration reaches, so a layer is
 anchored by one statement reaching the layer.
 
 It has one conjunct today and grows as `ExecutionWitness`, `ExecutionPayload`, `NewPayloadRequest`
-and `RawV4Rep` land. **A footprint added to the layer and not added here is invisible to the guard** —
+and `StatelessInputRep` land. **A footprint added to the layer and not added here is invisible to the guard** —
 that gap is real and is recorded beside the door set in `BinaryFv/Zesu/AxiomHygiene.lean`, together
 with why it closes when the composition's entry point is anchored.
 
@@ -2450,12 +2450,12 @@ theorem containerLayer_footprints_abi (inputBase : Nat) (input : ByteArray)
     (requestsBase witnessBase payloadBase newPayloadBase rootBase : Nat)
     (requests : BinaryFv.Specs.SSZ.RawExecutionRequests) (witness : BinaryFv.Specs.SSZ.RawExecutionWitness)
     (payload : BinaryFv.Specs.SSZ.RawExecutionPayload) (newPayload : BinaryFv.Specs.SSZ.RawNewPayloadRequest)
-    (root : BinaryFv.Specs.SSZ.RawV4) (s1 : State)
+    (root : BinaryFv.Specs.SSZ.StatelessInput) (s1 : State)
     (hRequests : ExecutionRequestsRep s1 requestsBase requests)
     (hWitness : ExecutionWitnessRep s1 inputBase input witnessBase witness)
     (hPayload : ExecutionPayloadRep s1 inputBase input payloadBase payload)
     (hNewPayload : NewPayloadRequestRep s1 inputBase input newPayloadBase newPayload)
-    (hRoot : RawV4Rep s1 inputBase input rootBase root)
+    (hRoot : StatelessInputRep s1 inputBase input rootBase root)
     {requestsSize witnessSize payloadSize newPayloadSize rootSize
       depositSize requestWithdrawalSize consolidationSize withdrawalSize : Nat}
     (hRequestsSize : BinaryFv.Zesu.Artifacts.executionRequestsSize = some requestsSize)
@@ -2498,11 +2498,11 @@ theorem containerLayer_footprints_abi (inputBase : Nat) (input : ByteArray)
               consolidationsBase newPayload address →
             s1.mem.get? address = s2.mem.get? address) →
           NewPayloadRequestRep s2 inputBase input newPayloadBase newPayload) ∧
-      (∃ bases : RawV4DescriptorBases,
+      (∃ bases : StatelessInputDescriptorBases,
         ∀ s2 : State,
-          (∀ address, rawV4Region rootBase rootSize root bases address →
+          (∀ address, statelessInputRegion rootBase rootSize root bases address →
             s1.mem.get? address = s2.mem.get? address) →
-          RawV4Rep s2 inputBase input rootBase root) :=
+          StatelessInputRep s2 inputBase input rootBase root) :=
   ⟨executionRequests_footprint_abi requestsBase requests s1 hRequests hRequestsSize hDeposit
       hRequestWithdrawal hConsolidation,
     executionWitness_footprint_abi inputBase input witnessBase witness s1 hWitness hWitnessSize,
@@ -2510,6 +2510,6 @@ theorem containerLayer_footprints_abi (inputBase : Nat) (input : ByteArray)
       hWithdrawal,
     newPayloadRequest_footprint_abi inputBase input newPayloadBase newPayload s1 hNewPayload
       hNewPayloadSize,
-    rawV4_footprint_abi inputBase input rootBase root s1 hRootSize hRoot⟩
+    statelessInput_footprint_abi inputBase input rootBase root s1 hRootSize hRoot⟩
 
 end BinaryFv.Zesu.Contracts.Footprint

@@ -14,7 +14,7 @@ ways a run can fail stay apart: running out of fuel, stalling, returning a code 
 None of them is allowed to quietly become `rejected` — a rejection is only ever reported when the
 decoder actually said "rejected" by returning `0` with a nonzero status word.
 
-The observation of the accepted `RawV4` value is a *parameter* (`observeValue`) rather than a fixed
+The observation of the accepted `StatelessInput` value is a *parameter* (`observeValue`) rather than a fixed
 function. That keeps this classification independent of the value observer: everything here — the
 outcome mapping, the return-code dispatch, and the rejected path — is settled now, and the accepted
 path is proved conditionally on whatever observer is supplied.
@@ -49,7 +49,7 @@ def observeReturnCode? (state : State) : Option Nat :=
 The two consistency checks are deliberate: a `1` (accepted) must come with a zero status word, and a
 `0` (rejected) must come with a *nonzero* one. A code and a status word that disagree indicate the
 result object is not what the ABI documents, so that is `badReturn`, not a rejection. -/
-def classifyRun (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4) (resultBase : Nat)
+def classifyRun (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput) (resultBase : Nat)
     (outcome : SentinelOutcome) (final : State) : Except RiscvSpec.ExecutionError DecodeOutcome :=
   match outcome with
   | .exhausted => .error .fuelExhausted
@@ -75,17 +75,17 @@ def classifyRun (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4) (resu
 /-! ## The failure modes stay distinct -/
 
 /-- Fuel exhaustion is reported as itself, never as a rejection. -/
-@[simp] theorem classifyRun_exhausted (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+@[simp] theorem classifyRun_exhausted (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (resultBase : Nat) (final : State) :
     classifyRun observeValue resultBase .exhausted final = .error .fuelExhausted := rfl
 
 /-- A stalled machine is reported as a trap, never as a rejection. -/
-@[simp] theorem classifyRun_trapped (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+@[simp] theorem classifyRun_trapped (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (resultBase : Nat) (final : State) :
     classifyRun observeValue resultBase .trapped final = .error .trapped := rfl
 
 /-- A return code outside `{0, 1}` is a `badReturn`, not a rejection. -/
-theorem classifyRun_badReturn_of_other_code (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+theorem classifyRun_badReturn_of_other_code (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (resultBase steps code : Nat) (final : State)
     (hcode : observeReturnCode? final = some code) (hne0 : code ≠ 0) (hne1 : code ≠ 1) :
     classifyRun observeValue resultBase (.reached steps) final = .error .badReturn := by
@@ -99,7 +99,7 @@ theorem classifyRun_badReturn_of_other_code (observeValue : State → Option Bin
 /-- No failure mode is ever reported as `rejected`: a `rejected` outcome forces the run to have
 reached the sentinel with return code `0` and a nonzero status word. This is the "do not collapse
 into rejection" property, stated as a converse. -/
-theorem reached_zero_of_classifyRun_rejected {observeValue : State → Option BinaryFv.Specs.SSZ.RawV4}
+theorem reached_zero_of_classifyRun_rejected {observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput}
     {resultBase : Nat} {outcome : SentinelOutcome} {final : State}
     (h : classifyRun observeValue resultBase outcome final = .ok .rejected) :
     (∃ steps, outcome = .reached steps) ∧ observeReturnCode? final = some 0 ∧
@@ -135,7 +135,7 @@ theorem reached_zero_of_classifyRun_rejected {observeValue : State → Option Bi
 /-! ## The two success paths -/
 
 /-- A run that returned `0` with a nonzero status is the rejection. -/
-theorem classifyRun_rejected (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+theorem classifyRun_rejected (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (resultBase steps status : Nat) (final : State)
     (hcode : observeReturnCode? final = some 0)
     (hstatus : observeResultStatus? final resultBase = some status) (hne : status ≠ 0) :
@@ -146,17 +146,17 @@ theorem classifyRun_rejected (observeValue : State → Option BinaryFv.Specs.SSZ
   | (n + 1), _ => rfl
 
 /-- A run that returned `1` over a well-formed success result yields exactly the observed value. The
-zero status word comes from the representation itself (`observe_raw_v4_success_status`), so only the
+zero status word comes from the representation itself (`observe_stateless_input_success_status`), so only the
 value observer has to agree with the representation. -/
-theorem classifyRun_accepted (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+theorem classifyRun_accepted (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (resultBase steps inputBase : Nat) (input : ByteArray) (final : State)
-    (value : BinaryFv.Specs.SSZ.RawV4)
+    (value : BinaryFv.Specs.SSZ.StatelessInput)
     (hcode : observeReturnCode? final = some 1)
-    (hresult : RawV4SuccessResultRep final inputBase input resultBase value)
+    (hresult : StatelessInputSuccessResultRep final inputBase input resultBase value)
     (hobserve : observeValue final = some value) :
     classifyRun observeValue resultBase (.reached steps) final = .ok (.accepted value) := by
   unfold classifyRun
-  rw [hcode, observe_raw_v4_success_status final inputBase input resultBase value hresult, hobserve]
+  rw [hcode, observe_stateless_input_success_status final inputBase input resultBase value hresult, hobserve]
 
 /-! ## The wrapper classifier
 
@@ -237,7 +237,7 @@ the executed accessors to agree with the wrapper's return code.
 Anything else keeps a specific error: fuel exhaustion and stalls (of the main run *or* an accessor
 run) stay themselves, an undocumented status or an unreadable/other return code is `badReturn`, and
 a wrong result pointer, wrong discriminant, or failed value observation is `malformedResult`. -/
-def classifyWrapperRun (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+def classifyWrapperRun (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (discriminantAddr resultBase : Nat) (rawResult rawError : AccessorOutcome)
     (outcome : SentinelOutcome) (final : State) : Except RiscvSpec.ExecutionError DecodeOutcome :=
   match outcome with
@@ -285,19 +285,19 @@ def classifyWrapperRun (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4
 /-! ### The wrapper failure modes stay distinct -/
 
 /-- Fuel exhaustion is reported as itself, never as a rejection. -/
-@[simp] theorem classifyWrapperRun_exhausted (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+@[simp] theorem classifyWrapperRun_exhausted (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (discriminantAddr resultBase : Nat) (rawResult rawError : AccessorOutcome) (final : State) :
     classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError
       .exhausted final = .error .fuelExhausted := rfl
 
 /-- A stalled machine is reported as a trap, never as a rejection. -/
-@[simp] theorem classifyWrapperRun_trapped (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+@[simp] theorem classifyWrapperRun_trapped (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (discriminantAddr resultBase : Nat) (rawResult rawError : AccessorOutcome) (final : State) :
     classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError
       .trapped final = .error .trapped := rfl
 
 /-- A return code outside `{0, 1}` is a `badReturn`, not a rejection, whatever the accessors did. -/
-theorem classifyWrapperRun_badReturn_of_other_code (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+theorem classifyWrapperRun_badReturn_of_other_code (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (discriminantAddr resultBase steps code : Nat) (rawResult rawError : AccessorOutcome)
     (final : State) (hcode : observeReturnCode? final = some code) (hne0 : code ≠ 0)
     (hne1 : code ≠ 1) :
@@ -315,7 +315,7 @@ reached the sentinel with return code `0`, the *executed* `zesu_raw_result` to h
 the stored-result discriminant to read `absent`, and the *executed* `zesu_raw_error` to have
 returned one of the two statuses the specification itself can produce — so an exhausted arena, a
 trap, an unreadable return, or a stale stored result cannot arrive here. -/
-theorem wrapper_rejection_forces_checks {observeValue : State → Option BinaryFv.Specs.SSZ.RawV4}
+theorem wrapper_rejection_forces_checks {observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput}
     {discriminantAddr resultBase : Nat} {rawResult rawError : AccessorOutcome}
     {outcome : SentinelOutcome} {final : State}
     (h : classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError
@@ -404,9 +404,9 @@ reads `absent` fails, concluding `rawResult = .returned 0` fails, and replacing 
 `observeValue final = none` fails. A fourth probe was written and **discarded as void** — its `sed`
 anchor matched nothing, so it "passed" without changing the file. A probe that cannot fail proves
 nothing, and the only way to know is to diff it. -/
-theorem wrapper_acceptance_forces_checks {observeValue : State → Option BinaryFv.Specs.SSZ.RawV4}
+theorem wrapper_acceptance_forces_checks {observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput}
     {discriminantAddr resultBase : Nat} {rawResult rawError : AccessorOutcome}
-    {outcome : SentinelOutcome} {final : State} {value : BinaryFv.Specs.SSZ.RawV4}
+    {outcome : SentinelOutcome} {final : State} {value : BinaryFv.Specs.SSZ.StatelessInput}
     (h : classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError
       outcome final = .ok (.accepted value)) :
     (∃ steps, outcome = .reached steps) ∧ observeReturnCode? final = some 1 ∧
@@ -482,9 +482,9 @@ theorem wrapper_acceptance_forces_checks {observeValue : State → Option Binary
 /-- A run that returned `1`, whose executed accessors returned the `ok` code and the canonical
 non-null buffer, whose discriminant reads `present`, and whose value observes, is the acceptance of
 exactly the observed value. -/
-theorem classifyWrapperRun_accepted (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+theorem classifyWrapperRun_accepted (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (discriminantAddr resultBase steps : Nat) (rawResult rawError : AccessorOutcome)
-    (final : State) (value : BinaryFv.Specs.SSZ.RawV4)
+    (final : State) (value : BinaryFv.Specs.SSZ.StatelessInput)
     (hcode : observeReturnCode? final = some 1)
     (herror : rawError = AccessorOutcome.returned DecodeStatus.ok.code)
     (hresult : rawResult = AccessorOutcome.returned resultBase) (hnonnull : resultBase ≠ 0)
@@ -499,7 +499,7 @@ theorem classifyWrapperRun_accepted (observeValue : State → Option BinaryFv.Sp
 /-- A run that returned `0`, whose executed `zesu_raw_error` returned a spec-producible rejection
 status, whose executed `zesu_raw_result` returned null, and whose discriminant reads `absent`, is
 the normalized rejection. -/
-theorem classifyWrapperRun_rejected (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+theorem classifyWrapperRun_rejected (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (discriminantAddr resultBase steps status : Nat) (rawResult rawError : AccessorOutcome)
     (final : State)
     (hcode : observeReturnCode? final = some 0)
@@ -516,7 +516,7 @@ theorem classifyWrapperRun_rejected (observeValue : State → Option BinaryFv.Sp
 /-- **An exhausted arena is reported as `outOfMemory`, not as a rejection.** The status alone
 settles it: whatever the result slot looks like, an implementation-level exhaustion stays
 distinguishable from the spec rejection it superficially resembles. -/
-theorem classifyWrapperRun_outOfMemory (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+theorem classifyWrapperRun_outOfMemory (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (discriminantAddr resultBase steps : Nat) (rawResult rawError : AccessorOutcome)
     (final : State)
     (hcode : observeReturnCode? final = some 0)
@@ -531,7 +531,7 @@ theorem classifyWrapperRun_outOfMemory (observeValue : State → Option BinaryFv
 returns `0` and records `alreadyDecoded` while its stored result stays present — the same `0` a real
 rejection returns. The status is what tells them apart, which is why it is dispatched before the
 result slot is inspected. -/
-theorem classifyWrapperRun_alreadyDecoded (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+theorem classifyWrapperRun_alreadyDecoded (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (discriminantAddr resultBase steps : Nat) (rawResult rawError : AccessorOutcome)
     (final : State)
     (hcode : observeReturnCode? final = some 0)
@@ -568,7 +568,7 @@ Read together with `classifyWrapperRun_accepted` this is a dichotomy on the succ
 observation succeeding or failing is the *only* thing left to decide, and it decides between exactly
 those two answers. -/
 theorem classifyWrapperRun_malformedResult_of_unobservable
-    (observeValue : State → Option BinaryFv.Specs.SSZ.RawV4)
+    (observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput)
     (discriminantAddr resultBase steps : Nat) (rawResult rawError : AccessorOutcome)
     (final : State)
     (hcode : observeReturnCode? final = some 1)
@@ -587,9 +587,9 @@ unconditional half of the claim above: this one needs no premise about the retur
 accessors, because the acceptance converse already forces the observation to have succeeded. So the
 classifier cannot report a value that memory does not represent, however the run ended. -/
 theorem classifyWrapperRun_ne_accepted_of_unobservable
-    {observeValue : State → Option BinaryFv.Specs.SSZ.RawV4} {discriminantAddr resultBase : Nat}
+    {observeValue : State → Option BinaryFv.Specs.SSZ.StatelessInput} {discriminantAddr resultBase : Nat}
     {rawResult rawError : AccessorOutcome} {outcome : SentinelOutcome} {final : State}
-    {value : BinaryFv.Specs.SSZ.RawV4} (hobserve : observeValue final = none) :
+    {value : BinaryFv.Specs.SSZ.StatelessInput} (hobserve : observeValue final = none) :
     classifyWrapperRun observeValue discriminantAddr resultBase rawResult rawError outcome final
       ≠ .ok (.accepted value) := by
   intro h

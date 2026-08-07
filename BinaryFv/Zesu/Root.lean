@@ -99,7 +99,7 @@ forces `observeDecodedValue final = some value`, the same `value`.
 
 Stated over an arbitrary `ValidatedElf`, like its twin. -/
 theorem execute_accepted_forces_checks {b : RiscvSpec.ValidatedElf} {input : ByteArray}
-    {value : BinaryFv.Specs.SSZ.RawV4} (h : RiscvSpec.execute b input = .ok (.accepted value)) :
+    {value : BinaryFv.Specs.SSZ.StatelessInput} (h : RiscvSpec.execute b input = .ok (.accepted value)) :
     Zesu.Entrypoints.ZesuDecodeRaw.preflight b input = .ok () ∧
       ∃ (final : BinaryFv.RiscV.State)
         (rawResult rawError : Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome),
@@ -135,7 +135,7 @@ inversion of the usual expectation the runner's provenance note records, from th
 *forward* direction is the expensive one. The strengthened converse above and its independence
 witness are `propext`/`Classical.choice`/`Quot.sound` only. -/
 theorem accepted_checks_determine_classification {final : BinaryFv.RiscV.State}
-    {value : BinaryFv.Specs.SSZ.RawV4} (steps : Nat)
+    {value : BinaryFv.Specs.SSZ.StatelessInput} (steps : Nat)
     (hcode : Zesu.Entrypoints.ZesuDecodeRaw.observeReturnCode? final = some 1)
     (htag : Zesu.MemoryRepresentation.observeOptionTag? final
       Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr = some true)

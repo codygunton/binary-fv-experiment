@@ -109,7 +109,7 @@ local-to-global composition (from which the per-instance dispatch is *derived* �
 `sszContractComposition_perInstance` — rather than assumed). `IsCanonicalEnvironment` pins the
 environment so none of these can be trivialized.
 
-Note the container/`RawV4` result representations in `p` are still free parameters here; they are
+Note the container/`StatelessInput` result representations in `p` are still free parameters here; they are
 pinned to concrete ABI memory layouts in the containers row. The per-instance obligations are
 non-vacuous regardless, because `ImplementsInstance` demands an actual entered trace that reaches a
 generated exit with frame preservation — a trivial representation weakens the success arm but cannot

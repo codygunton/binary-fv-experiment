@@ -13,7 +13,7 @@ import BinaryFv.Zesu.MemoryRepresentation.ChainOffsets
 observeReturnCode? finalState = some 1        -- or `some 0`
 observeOptionTag? finalState storedResultDiscriminantAddr = some true   -- or `some false`
 MemoryBytes finalState canonicalRunnerLayout.inputBase input
-RawV4Rep finalState canonicalRunnerLayout.inputBase input Elflings.canonicalResultBuffer value
+StatelessInputRep finalState canonicalRunnerLayout.inputBase input Elflings.canonicalResultBuffer value
 statusCategory status = .specRejection
 ```
 
@@ -25,7 +25,7 @@ followed by a model-level computation, and that is the point of the split.
 ## Where the hypothesis comes from, and why it is stated in exactly this shape
 
 `CanonicalDecodeExit` is not a convenient repackaging: it is spelled at
-`canonicalContractParams.env`/`.globals`/`.resultBuffer`/`.repRawV4` because that is what
+`canonicalContractParams.env`/`.globals`/`.resultBuffer`/`.repStatelessInput` because that is what
 `Catalog.routineContract`'s `.zesuDecodeRaw` arm builds, and `canonicalDecodeExit_is_contract_exit`
 proves — by `Iff.rfl`, so it cannot drift — that the named predicate *is*
 `(functionInstanceZesuDecodeRaw …).binding.exit args (spec.meaning args)`. That is the proposition a
@@ -89,7 +89,7 @@ that has to know *what* the wrapper stored, *which* status it recorded, or *what
 therefore return goes through these rather than re-reducing `callOutcome`. -/
 
 /-- A fresh accepting call records the attempt, the `ok` status, and the value. -/
-theorem freshGlobals_ok (value : BinaryFv.Specs.SSZ.RawV4) :
+theorem freshGlobals_ok (value : BinaryFv.Specs.SSZ.StatelessInput) :
     resultingGlobals DecoderGlobalsModel.fresh (.ok value) =
       { attempted := true, status := .ok, stored := some value } := by
   simp [resultingGlobals, callOutcome, DecoderGlobalsModel.fresh, DecodeCallOutcome.status,
@@ -104,12 +104,12 @@ theorem freshGlobals_error (error : Contracts.DecodeError) :
 
 /-- `zesu_raw_error`'s meaning at the accepted model is the `ok` code — the literal
 `SuccessfulRun.accessors` names. -/
-@[simp] theorem freshGlobals_ok_statusCode (value : BinaryFv.Specs.SSZ.RawV4) :
+@[simp] theorem freshGlobals_ok_statusCode (value : BinaryFv.Specs.SSZ.StatelessInput) :
     (resultingGlobals DecoderGlobalsModel.fresh (.ok value)).status.code = DecodeStatus.ok.code := by
   rw [freshGlobals_ok]
 
 /-- `zesu_raw_result`'s meaning at the accepted model is the result buffer, not null. -/
-@[simp] theorem freshGlobals_ok_pointer (value : BinaryFv.Specs.SSZ.RawV4) (resultBuffer : Nat) :
+@[simp] theorem freshGlobals_ok_pointer (value : BinaryFv.Specs.SSZ.StatelessInput) (resultBuffer : Nat) :
     (if (resultingGlobals DecoderGlobalsModel.fresh (.ok value)).stored.isSome then resultBuffer
       else 0) = resultBuffer := by
   rw [freshGlobals_ok]; simp
@@ -134,8 +134,8 @@ reads it back through `observeReturnCode?`. Generic in every parameter, because 
 no address. -/
 theorem observeReturnCode_of_postZesuDecodeRaw {env : DecoderEnvironment}
     {globals : DecoderGlobalsLayout} {resultBuffer : Nat}
-    {rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4} {incoming : DecoderGlobalsModel}
-    {args : ZesuDecodeRawArgs} {result : Except Contracts.DecodeError BinaryFv.Specs.SSZ.RawV4}
+    {rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput} {incoming : DecoderGlobalsModel}
+    {args : ZesuDecodeRawArgs} {result : Except Contracts.DecodeError BinaryFv.Specs.SSZ.StatelessInput}
     {before after : State}
     (h : postZesuDecodeRaw env globals resultBuffer rep incoming args result before after) :
     observeReturnCode? after = some (callOutcome incoming result).returnCode :=
@@ -146,8 +146,8 @@ theorem observeReturnCode_of_postZesuDecodeRaw {env : DecoderEnvironment}
 /-- The value arm of `StoredResultRep`, opened at a model known to hold a value. Separated from its
 use so the `match` on `model.stored` is discharged in one place rather than at each projection. -/
 theorem storedResultRep_value {globals : DecoderGlobalsLayout}
-    {rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4} {inputBase resultBase : Nat} {input : ByteArray}
-    {model : DecoderGlobalsModel} {value : BinaryFv.Specs.SSZ.RawV4} {state : State}
+    {rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput} {inputBase resultBase : Nat} {input : ByteArray}
+    {model : DecoderGlobalsModel} {value : BinaryFv.Specs.SSZ.StatelessInput} {state : State}
     (hstored : model.stored = some value)
     (h : StoredResultRep globals rep inputBase input resultBase model state) :
     rep inputBase input value state resultBase := by
@@ -159,8 +159,8 @@ theorem storedResultRep_value {globals : DecoderGlobalsLayout}
 the address `Elflings.canonicalDecoderGlobalsLayout` puts the discriminant at, so the layout is fixed
 here and no address is re-derived; every other parameter stays open. -/
 theorem observeOptionTag_of_postZesuDecodeRaw {env : DecoderEnvironment} {resultBuffer : Nat}
-    {rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4} {incoming : DecoderGlobalsModel}
-    {args : ZesuDecodeRawArgs} {result : Except Contracts.DecodeError BinaryFv.Specs.SSZ.RawV4}
+    {rep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput} {incoming : DecoderGlobalsModel}
+    {args : ZesuDecodeRawArgs} {result : Except Contracts.DecodeError BinaryFv.Specs.SSZ.StatelessInput}
     {before after : State}
     (h : postZesuDecodeRaw env Elflings.canonicalDecoderGlobalsLayout resultBuffer rep incoming args
       result before after) :
@@ -182,7 +182,7 @@ unfolds to, because the supplier — the entry function instance's closed obliga
 exactly that spelling. `canonicalDecodeExit_is_contract_exit` is the proof that the two agree. -/
 def CanonicalDecodeExit (input : ByteArray) (before after : State) : Prop :=
   postZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
-    canonicalContractParams.resultBuffer canonicalContractParams.repRawV4
+    canonicalContractParams.resultBuffer canonicalContractParams.repStatelessInput
     DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ (meaningDecode input)
     before after
 
@@ -195,15 +195,15 @@ parameter projections — would be inapplicable at its only call site. Pinning i
 that mismatch fails the build here rather than surfacing as an unusable lemma in the assembly.
 
 `Catalog.routineContract`'s `.zesuDecodeRaw` arm is literally
-`functionInstanceZesuDecodeRaw p.env p.globals p.resultBuffer p.repRawV4 DecoderGlobalsModel.fresh`,
+`functionInstanceZesuDecodeRaw p.env p.globals p.resultBuffer p.repStatelessInput DecoderGlobalsModel.fresh`,
 so this covers the catalog route as well. -/
 theorem canonicalDecodeExit_is_contract_exit (input : ByteArray) (before after : State) :
     CanonicalDecodeExit input before after ↔
       (functionInstanceZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
-          canonicalContractParams.resultBuffer canonicalContractParams.repRawV4
+          canonicalContractParams.resultBuffer canonicalContractParams.repStatelessInput
           DecoderGlobalsModel.fresh).binding.exit ⟨canonicalRunnerLayout.inputBase, input⟩
         ((functionInstanceZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
-          canonicalContractParams.resultBuffer canonicalContractParams.repRawV4
+          canonicalContractParams.resultBuffer canonicalContractParams.repStatelessInput
           DecoderGlobalsModel.fresh).spec.meaning ⟨canonicalRunnerLayout.inputBase, input⟩)
         before after :=
   Iff.rfl
@@ -228,11 +228,11 @@ state would be inapplicable everywhere it is wanted. -/
 theorem canonicalDecodeExit_of_implements {region exit : BitVec 64 → Prop} {entryWord : BitVec 64}
     (implements : BinaryFv.RiscV.Elfling.FunctionInstanceContract.Implements region exit entryWord
       (functionInstanceZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
-        canonicalContractParams.resultBuffer canonicalContractParams.repRawV4
+        canonicalContractParams.resultBuffer canonicalContractParams.repStatelessInput
         DecoderGlobalsModel.fresh))
     (input : ByteArray) (fromStep : Nat) {entryState : State}
     (entryBinding : preZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
-      canonicalContractParams.resultBuffer canonicalContractParams.repRawV4
+      canonicalContractParams.resultBuffer canonicalContractParams.repStatelessInput
       DecoderGlobalsModel.fresh ⟨canonicalRunnerLayout.inputBase, input⟩ entryState) :
     ∃ count finalState,
       count ≤ entryStepBound input.size ∧
@@ -250,7 +250,7 @@ one the goal names, which is the defect its own docstring in `Contracts/Entry.le
 
 /-- **A spec acceptance names the value the contract stores.** -/
 theorem meaningDecode_ok_of_spec_accepts (grounds : catalogGroundsInSpec) {input : ByteArray}
-    (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.RawV4}
+    (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.StatelessInput}
     (accepts : BinaryFv.Specs.SSZ.decode input = .accepted value) :
     meaningDecode input = .ok value :=
   (grounds input inputBound value).mpr accepts
@@ -280,7 +280,7 @@ theorem inputPreserved_of_canonicalDecodeExit {input : ByteArray} {before after 
 
 /-- **`SuccessfulRun.returnCode`.** -/
 theorem returnCode_of_spec_accepts (grounds : catalogGroundsInSpec) {input : ByteArray}
-    (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.RawV4}
+    (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.StatelessInput}
     (accepts : BinaryFv.Specs.SSZ.decode input = .accepted value) {before after : State}
     (h : CanonicalDecodeExit input before after) :
     observeReturnCode? after = some 1 := by
@@ -303,7 +303,7 @@ theorem returnCode_of_spec_rejects (grounds : catalogGroundsInSpec) {input : Byt
 
 /-- **`SuccessfulRun.storedPresent`.** -/
 theorem storedPresent_of_spec_accepts (grounds : catalogGroundsInSpec) {input : ByteArray}
-    (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.RawV4}
+    (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.StatelessInput}
     (accepts : BinaryFv.Specs.SSZ.decode input = .accepted value) {before after : State}
     (h : CanonicalDecodeExit input before after) :
     observeOptionTag? after storedResultDiscriminantAddr = some true := by
@@ -324,18 +324,18 @@ theorem storedAbsent_of_spec_rejects (grounds : catalogGroundsInSpec) {input : B
   rw [observeOptionTag_of_postZesuDecodeRaw h, freshGlobals_error]
   rfl
 
-/-- **`SuccessfulRun.storedValue`.** The whole `RawV4` — root allocation, heap arrays, descriptor
+/-- **`SuccessfulRun.storedValue`.** The whole `StatelessInput` — root allocation, heap arrays, descriptor
 table, borrowed input slices — laid out at the canonical result buffer, at the value the *spec*
 names rather than at some value the machine happened to store. That last part is `catalogGroundsInSpec`
 carrying the value; with the acceptance-level obligation it once had, this lemma could not be stated.
 
-`canonicalContractParams.repRawV4` is `canonicalRepRawV4`, whose value arm is by definition
-`RawV4Rep state inputBase input base value`, so no representation is chosen here. -/
+`canonicalContractParams.repStatelessInput` is `canonicalStatelessInputRep`, whose value arm is by definition
+`StatelessInputRep state inputBase input base value`, so no representation is chosen here. -/
 theorem storedValue_of_spec_accepts (grounds : catalogGroundsInSpec) {input : ByteArray}
-    (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.RawV4}
+    (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.StatelessInput}
     (accepts : BinaryFv.Specs.SSZ.decode input = .accepted value) {before after : State}
     (h : CanonicalDecodeExit input before after) :
-    RawV4Rep after canonicalRunnerLayout.inputBase input Elflings.canonicalResultBuffer value := by
+    StatelessInputRep after canonicalRunnerLayout.inputBase input Elflings.canonicalResultBuffer value := by
   unfold CanonicalDecodeExit at h
   rw [meaningDecode_ok_of_spec_accepts grounds inputBound accepts] at h
   exact storedResultRep_value (by rw [freshGlobals_ok]) h.2.2.2.2.2.2
@@ -394,13 +394,13 @@ beside the individual lemmas is deliberate — the fields are what a reader chec
 /-- **Every decode-side field of `SuccessfulRun`.** What remains for the accepted branch is the
 builder's run, the decode trace with its bound, and `AcceptedAccessorTraces`. -/
 theorem successfulRun_fields_of_canonicalDecodeExit (grounds : catalogGroundsInSpec)
-    {input : ByteArray} (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.RawV4}
+    {input : ByteArray} (inputBound : input.size < 2 * 1024 * 1024) {value : BinaryFv.Specs.SSZ.StatelessInput}
     (accepts : BinaryFv.Specs.SSZ.decode input = .accepted value) {before after : State}
     (h : CanonicalDecodeExit input before after) :
     observeReturnCode? after = some 1 ∧
       observeOptionTag? after storedResultDiscriminantAddr = some true ∧
       MemoryBytes after canonicalRunnerLayout.inputBase input ∧
-      RawV4Rep after canonicalRunnerLayout.inputBase input Elflings.canonicalResultBuffer value :=
+      StatelessInputRep after canonicalRunnerLayout.inputBase input Elflings.canonicalResultBuffer value :=
   ⟨returnCode_of_spec_accepts grounds inputBound accepts h,
     storedPresent_of_spec_accepts grounds inputBound accepts h,
     inputPreserved_of_canonicalDecodeExit h,

@@ -18,7 +18,7 @@ import BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
 import BinaryFv.Zesu.MachineExecution.BlobScheduleAndResultStores
 import BinaryFv.Zesu.MachineExecution.ParserBlocks
-import BinaryFv.Zesu.MemoryRepresentation.RawV4
+import BinaryFv.Zesu.MemoryRepresentation.StatelessInput
 import BinaryFv.Zesu.MemoryRepresentation.Observers
 import BinaryFv.Zesu.MemoryRepresentation.Result
 import BinaryFv.Zesu.Runtime.AllocatorVtable
@@ -47,7 +47,7 @@ import BinaryFv.Zesu.Root
 /-!
 # `BinaryFv.Zesu`
 
-Umbrella for verification of the Zesu Amsterdam V4 decoder. The target-specific artifact, machine
+Umbrella for verification of the Zesu stateless-input decoder. The target-specific artifact, machine
 execution, and proof layers bind the implementation-independent `BinaryFv.Specs.SSZ` behavior to the
 pinned Zesu binary without introducing a reverse dependency into generic RISC-V code.
 -/

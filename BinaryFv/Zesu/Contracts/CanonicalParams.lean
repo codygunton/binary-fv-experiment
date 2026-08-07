@@ -22,8 +22,8 @@ Its fields come from checked artifacts:
 
 The Zig optional layouts come from the ABI manifest produced by the pinned compiler.
 
-The container representations are **concrete and complete**: `repRawV4` is the full input-aware
-`RawV4Rep` (allocation, slice descriptors, and borrowed input slices, not just the fixed fields), and
+The container representations are **concrete and complete**: `repStatelessInput` is the full input-aware
+`StatelessInputRep` (allocation, slice descriptors, and borrowed input slices, not just the fixed fields), and
 all seven nested-container representations use the concrete layouts in
 `MemoryRepresentation.Containers`. Later execution proofs must establish these predicates; they may
 not replace them with placeholders. Lean checks every literal field offset against the manifest.
@@ -255,16 +255,16 @@ def canonicalHeap : BinaryFv.Zesu.Runtime.BumpHeap :=
 /-! ## Container representations
 
 Every container's representation is the exact native RV64 layout from `MemoryRepresentation.Containers`
-(offsets pinned against the ABI manifest by `container_field_offsets_valid` and the `RawV4` audits).
-`repRawV4` is the complete `RawV4Rep` — root allocation, all ten heap arrays, the descriptor table,
+(offsets pinned against the ABI manifest by `container_field_offsets_valid` and the `StatelessInput` audits).
+`repStatelessInput` is the complete `StatelessInputRep` — root allocation, all ten heap arrays, the descriptor table,
 every borrowed input slice, and all inline fixed fields — not merely the fixed-field fragment. The
-input base and bytes carried by `ContainerRepresentation` let the allocating containers and `RawV4`
+input base and bytes carried by `ContainerRepresentation` let the allocating containers and `StatelessInput`
 describe their input-relative borrowed slices. -/
 
-/-- The complete native representation of a decoded `RawV4` rooted at `base`, decoded from the caller's
+/-- The complete native representation of a decoded `StatelessInput` rooted at `base`, decoded from the caller's
 input at `inputBase`/`input`. -/
-def canonicalRepRawV4 : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4 :=
-  fun inputBase input value state base => RawV4Rep state inputBase input base value
+def canonicalStatelessInputRep : ContainerRepresentation BinaryFv.Specs.SSZ.StatelessInput :=
+  fun inputBase input value state base => StatelessInputRep state inputBase input base value
 
 def canonicalRepForkActivation : ContainerRepresentation BinaryFv.Specs.SSZ.RawForkActivation :=
   fun _ _ value state base => ForkActivationRep state base value
@@ -304,7 +304,7 @@ def canonicalContractParams : ContractParams :=
     repExecutionRequests := canonicalRepExecutionRequests
     repExecutionPayload := canonicalRepExecutionPayload
     repNewPayloadRequest := canonicalRepNewPayloadRequest
-    repRawV4 := canonicalRepRawV4 }
+    repStatelessInput := canonicalStatelessInputRep }
 
 /-! ## Facts about the canonical environment
 
@@ -330,7 +330,7 @@ state, so this rules the refusal out at the source rather than relying on the ru
 downstream. `DecoderGlobalsModel.fresh` has `attempted = false`, and `callOutcome` only produces
 `alreadyDecoded` when `attempted` is set. -/
 theorem fresh_call_is_never_alreadyDecoded
-    (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4) :
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) :
     callOutcome DecoderGlobalsModel.fresh result ≠ .alreadyDecoded := by
   cases result <;> simp [callOutcome, DecoderGlobalsModel.fresh]
 
@@ -338,7 +338,7 @@ theorem fresh_call_is_never_alreadyDecoded
 `alreadyDecoded` status, so a run that *did* record it is a misbehaving wrapper rather than a
 second call the root failed to account for. -/
 theorem fresh_call_status_is_never_alreadyDecoded
-    (result : Except DecodeError BinaryFv.Specs.SSZ.RawV4) :
+    (result : Except DecodeError BinaryFv.Specs.SSZ.StatelessInput) :
     (callOutcome DecoderGlobalsModel.fresh result).status ≠ .alreadyDecoded := by
   cases result with
   | ok _ => simp [callOutcome, DecodeCallOutcome.status, DecoderGlobalsModel.fresh]

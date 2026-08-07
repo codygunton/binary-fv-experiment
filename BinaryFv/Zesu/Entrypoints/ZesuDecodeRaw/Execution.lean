@@ -48,7 +48,7 @@ this one live trace. -/
 
 /-- A complete successful run of the exported wrapper, ending with the accepted value represented in
 the canonical result buffer and both accessors agreeing. -/
-structure SuccessfulRun (input : ByteArray) (value : BinaryFv.Specs.SSZ.RawV4) where
+structure SuccessfulRun (input : ByteArray) (value : BinaryFv.Specs.SSZ.StatelessInput) where
   /-- The state the builder produces from `initialState`. -/
   entryState : State
   /-- The state the decode call returns in. -/
@@ -82,7 +82,7 @@ structure SuccessfulRun (input : ByteArray) (value : BinaryFv.Specs.SSZ.RawV4) w
   returnCode : observeReturnCode? finalState = some 1
   storedPresent : observeOptionTag? finalState storedResultDiscriminantAddr = some true
   inputPreserved : MemoryBytes finalState canonicalRunnerLayout.inputBase input
-  storedValue : RawV4Rep finalState canonicalRunnerLayout.inputBase input
+  storedValue : StatelessInputRep finalState canonicalRunnerLayout.inputBase input
     Elflings.canonicalResultBuffer value
   /-- `zesu_raw_result` returns the canonical buffer and `zesu_raw_error` the `ok` status. -/
   accessors : Runs (runAccessorsIfReached resolvedSymbols (.reached stepCount))

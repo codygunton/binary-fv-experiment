@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.MemoryRepresentation.RawV4
+import BinaryFv.Zesu.MemoryRepresentation.StatelessInput
 
 namespace BinaryFv.Zesu.MemoryRepresentation
 
@@ -30,14 +30,14 @@ theorem observe_result_status_of_rep (state : State) (resultBase status : Nat)
   omega
 
 /-- A successful Zesu result carries a represented root payload followed by status zero. -/
-structure RawV4SuccessResultRep (state : State) (inputBase : Nat) (input : ByteArray)
-    (resultBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4) : Prop where
-  root : RawV4Rep state inputBase input resultBase value
+structure StatelessInputSuccessResultRep (state : State) (inputBase : Nat) (input : ByteArray)
+    (resultBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) : Prop where
+  root : StatelessInputRep state inputBase input resultBase value
   status : ResultStatusLERep state (resultBase + 832) 0
 
-theorem observe_raw_v4_success_status (state : State) (inputBase : Nat) (input : ByteArray)
-    (resultBase : Nat) (value : BinaryFv.Specs.SSZ.RawV4)
-    (representation : RawV4SuccessResultRep state inputBase input resultBase value) :
+theorem observe_stateless_input_success_status (state : State) (inputBase : Nat) (input : ByteArray)
+    (resultBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (representation : StatelessInputSuccessResultRep state inputBase input resultBase value) :
     observeResultStatus? state resultBase = some 0 :=
   observe_result_status_of_rep state resultBase 0 representation.status
 

@@ -11,8 +11,9 @@ the address of that buffer.
 
 ## Memory layouts
 
-1. [`RawV4.lean`](RawV4.lean) defines the common layouts for bytes, little-endian integers, slices,
-   arrays, and optional values, then uses them to describe the complete top-level `RawV4` value.
+1. [`StatelessInput.lean`](StatelessInput.lean) defines the common layouts for bytes, little-endian
+   integers, slices, arrays, and optional values, then uses them to describe the complete top-level
+   `StatelessInput` value.
 2. [`Containers.lean`](Containers.lean) describes the seven nested Zesu container types, including
    their inline fields and heap-backed collections.
 3. [`Result.lean`](Result.lean) describes the value and status stored by `decodeRaw` when it returns.
@@ -28,15 +29,16 @@ fields from Sail memory. Each function returns `none` if a required byte or poin
 [`PrimitiveReads.lean`](PrimitiveReads.lean) applies the pinned SSZ integer readers to bytes obtained
 from memory.
 
-[`ValueObserver.lean`](ValueObserver.lean) combines those readers into `observeRawV4?`, which
-reconstructs a complete `BinaryFv.Specs.SSZ.RawV4`. Its main theorem says that if memory represents a
-value, and the borrowed input buffer is present, the observer returns exactly that value.
+[`ValueObserver.lean`](ValueObserver.lean) combines those readers into `observeStatelessInput?`, which
+reconstructs a complete `BinaryFv.Specs.SSZ.StatelessInput`. Its main theorem says that if memory
+represents a value, and the borrowed input buffer is present, the observer returns exactly that
+value.
 
 This reverse direction matters for soundness. A layout that leaves part of a value unspecified
 could claim that the same machine state represents two different Lean values. A previous
-`RawV4FixedFieldsRep` did exactly that by omitting fields of the chain configuration.
-`RawV4.lean` now includes the full `ChainConfigRep`, and its regression theorem checks that the fork
-activation and blob schedule are fixed by memory.
+`StatelessInputFixedFieldsRep` did exactly that by omitting fields of the chain configuration.
+`StatelessInput.lean` now includes the full `ChainConfigRep`, and its regression theorem checks that
+the fork activation and blob schedule are fixed by memory.
 
 ## Agreement with the SSZ specification
 
