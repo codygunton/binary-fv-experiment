@@ -15,12 +15,6 @@ the Lean refinement from `BinaryFv/Specs/SSZ` through Zesu's contracts to machin
 specialization, and full inline call path, and that generation fails if two instances would receive
 the same name.
 
-`level_refinement_vectors.py` is the focused semantic evidence lane for the four deepest contracts
-exposed by the current `decodeRaw` refinement. Every accepted or rejected vector must agree across
-the pinned execution-specs reference, executable Lean specification, and host Zesu formatter; the
-unchanged RV64 executable must make the same decision, and its QEMU trace must enter the named child.
-This prevents an exported-decoder agreement from being credited to a child that did not execute.
-
 `lean/ZesuVerification/` contains Lean checks tied to the production binary. The occurrence checks
 compare extracted instructions, call boundaries, and source bindings with committed execution
 observations. The scaled checks attempt those tests for all 141 compiled function instances under
