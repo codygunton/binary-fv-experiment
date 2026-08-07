@@ -5,6 +5,10 @@
 /result-*
 /.lake/
 /STATUS.md
+/GOTCHAS.md
+/DECISIONS.md
+/HOW_TO_IDENTIFY_LOCAL_CONTRACT_TARGETS.md
+/HANDOFF.md
 /docs/ai/
 /.ai-coord/
 /.claude/
@@ -15,3 +19,6 @@ __pycache__/
 *.dylib
 *.exe
 *.out
+
+# Lean profiler captures (tools/lean_profile.py); regenerable, tens of MB
+/.lake/profiles/

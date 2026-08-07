@@ -18,6 +18,15 @@ to explicitly excluded functions and records return exits separately from other 
 a function instance. Run it through `nix build .#elfling-program`; the build runs it twice and
 requires byte-identical output.
 
+`lean_profile.py` captures, merges and serves Lean's own profiler output when the build gets slow.
+`capture` writes one Firefox Profiler JSON per module (Lean emits one per process, and Lake runs one
+per module, so a build-wide profile does not exist natively); `merge` combines them into a single
+profile; `serve` browses them and hands them to profiler.firefox.com. Read them with the **inverted
+call stack** — nested totals are inclusive, and summing them is how you conclude that a 39 s module
+contains twenty declarations of 30 s each. `AGENTS.md` has the rules this instrument produced.
+
+Target-specific vector and differential checks live beside their targets under `targets/*/*/tests/`.
+
 Generated output is evidence, not an axiom. Lean checks it against the pinned ELF and Sail-decoded
 instructions. If DWARF omits a parameter and no narrow recovery rule applies, generation fails
 instead of guessing. The root README's “Regenerating deterministic artifacts” section lists the full
