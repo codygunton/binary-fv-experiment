@@ -324,11 +324,14 @@ COMPAT
     # (`ParserBlocks`, `GeneratedReachabilityExact`, ...). Running those four-wide exhausts the
     # 16 GB CI runner — main's pre-existing required job already fails this way — so the residual
     # builds run one module at a time; the compliance prebuild keeps its full parallelism.
-    lake build --jobs 1 repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest 2>&1 \
-      | tee "$out/full-build.log"
+    # This Lake has no job-count flag; its build pool is the Lean task pool, so
+    # `LEAN_NUM_THREADS=1` is the serialization knob (verified: six 3 s modules build in 3.6 s
+    # on the default pool and 19.6 s under this variable).
+    LEAN_NUM_THREADS=1 lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest \
+      2>&1 | tee "$out/full-build.log"
 
     # Zesu production-binary validation remains diagnostic-only.
-    lake build --jobs 1 ZesuVerificationTests
+    LEAN_NUM_THREADS=1 lake build ZesuVerificationTests
   '';
 
   devShell = pkgs.mkShell {
