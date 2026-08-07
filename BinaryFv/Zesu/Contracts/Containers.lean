@@ -38,7 +38,7 @@ structure ContainerArgs where
   resultBase : Nat
 
 /-- The representation obligation for a container result, to be discharged against the pinned ABI
-manifest in the extraction row. Keeping it a parameter of the contract rather than a literal is what
+manifest during artifact extraction. Keeping it a parameter of the contract rather than a literal is what
 lets these contracts stay address-free today.
 
 It is applied as `rep inputBase input value state resultBase`: carrying the caller's input base and

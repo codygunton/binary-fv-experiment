@@ -406,7 +406,7 @@ discharged against `range base 32` while someone believes it was tight. The prec
 So the container result is named `localTo_canonicalRepForkActivation_range32`, **not** `…_tight`. It
 is sound and unwitnessed, and its name now says only what it proves: the representation transports
 across agreement on a 32-byte range. A `_tight` suffix would have promised the missing half, which is
-the name-versus-content defect this row keeps finding — cheaper to avoid in the name than to annotate
+the name-versus-content defect avoided here — cheaper to avoid in the name than to annotate
 afterwards. The suffix becomes available when the witness does. -/
 
 /-! ## `optionU64`: the same split one level down, plus a complication the container did not have
@@ -1126,7 +1126,7 @@ theorem heapArray_footprint_tight (base count elementSize offset : Nat)
     exact absurd hsome (by simp)
 
 /-- The tightness hypotheses are satisfiable, so the result above is not an existential under
-premises that cannot all hold. One line, and the recurring defect in this row is exactly a statement
+premises that cannot all hold. One line, because a statement
 nobody checked could apply. -/
 theorem heapArray_footprint_tight_hypotheses_satisfiable :
     ∃ base count elementSize offset : Nat,
@@ -1733,7 +1733,7 @@ obligations and substitute an assertion for a proof already in hand.
 **The boundary that creates, stated rather than omitted.** If the binary's descriptor layout changed
 and `SliceDescriptorRep` were not updated, every footprint here would remain correct — about a
 representation that had become wrong. This module's job is fidelity to the representation; fidelity
-of the representation to the binary is audited in the Row A/B/C validation layer, and nothing here
+of the representation to the binary is audited by the artifact-validation modules, and nothing here
 can substitute for it. -/
 def executionWitnessRegion (base recordSize stateBase codesBase headersBase
     stateCount codesCount headersCount descriptorSize : Nat) : Region :=
@@ -2445,7 +2445,7 @@ with why it closes when the composition's entry point is anchored.
 result proved elsewhere; the point is that one declaration's proof term names all five, so the
 guard's cone is the layer's. Each container gets its own base so the premises are jointly
 satisfiable — an anchor whose hypotheses could not all hold would still work for the guard, and would
-still be the shape this row keeps rejecting. -/
+still be an invalid proof anchor. -/
 theorem containerLayer_footprints_abi (inputBase : Nat) (input : ByteArray)
     (requestsBase witnessBase payloadBase newPayloadBase rootBase : Nat)
     (requests : BinaryFv.Specs.SSZ.RawExecutionRequests) (witness : BinaryFv.Specs.SSZ.RawExecutionWitness)

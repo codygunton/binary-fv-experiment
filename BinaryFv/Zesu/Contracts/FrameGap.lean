@@ -45,7 +45,7 @@ any other address.
 ## The gap is CLOSED, and this module is now the record of it rather than the report of it
 
 `sibling_clobber_permitted` was the settling fact for D4's composition item, and it settled it in the
-negative, so `DECISIONS.md` (Row D) ruled the ownership clause into the `post*` predicates.
+negative, so the ownership clause was added to the `post*` predicates.
 `postFixedContainer` now carries `env.WritesOnlyWithinOwnRecord args.resultBase recordSize`, and
 against that predicate **the exhibit below no longer proves** — which is the regression signal the
 plan named, fired as designed.
@@ -226,7 +226,7 @@ theorem representation_may_read_beyond_memory :
 
 `sibling_clobber_permitted_historical` is an existential under hypotheses. If those hypotheses were
 contradictory it would be vacuously true and would establish nothing — which is precisely the
-"check that cannot fail" this row keeps finding in other guises. So they are discharged against a
+"check that cannot fail" problem. So they are discharged against a
 concrete environment here.
 
 **Read the scope of this witness carefully, because it is narrower than the theorem.** It shows the

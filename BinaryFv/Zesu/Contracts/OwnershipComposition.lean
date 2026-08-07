@@ -33,7 +33,7 @@ each rather than five separate arguments.
 ## The premises are exhibited satisfiable, with a sibling that really writes
 
 A composition theorem whose ownership premises could not all hold would prove cleanly and mean
-nothing — the failure this row has caught twice, once in this very stream. `sibling_chain_is_real`
+nothing. `sibling_chain_is_real`
 discharges it against a concrete run, and it is *discriminating*: the sibling genuinely modifies
 memory (a byte changes across the chain), so the conclusion is not surviving a no-op.
 -/
@@ -181,7 +181,7 @@ theorem siblingChain_of_writesOnlyWithinOwnAllocation {env : DecoderEnvironment}
 /-! ## The five containers
 
 Each is `witnessed_survives_chain` at the corresponding `Footprint` result. Written out rather than
-claimed to follow, because "the rest are identical" is the kind of statement this row has learned not
+claimed to follow, because "the rest are identical" is not a proof
 to accept from itself. -/
 
 theorem executionRequests_survives_chain (base : Nat) (value : BinaryFv.Specs.SSZ.RawExecutionRequests)

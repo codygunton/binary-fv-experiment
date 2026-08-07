@@ -375,7 +375,7 @@ from its pieces — and cancellation when one side is syntactically shared (`app
 `append_right_inj`). It does **not** supply the split: recovering the left half of a concatenation as
 an `extract`, or cancelling when the two left parts merely have equal size.
 
-That is a correction to an earlier reading of this row. Checking that `append_assoc`, `size_append`
+That corrects an earlier assessment. Checking that `append_assoc`, `size_append`
 and `append_empty` exist established that the *arithmetic* needed nothing new; it did not establish
 that the *split* did, and those are different questions. The two lemmas below fill the gap and are
 the only ByteArray theory this item adds. -/
@@ -1211,7 +1211,7 @@ arity by iteration — `extract_four` and `extract_sixteen` are just their arity
 Kept alongside the arity-4 lemmas rather than replacing them: those are already consumed by the entry
 proofs, and rewriting working proofs to route through the atoms would be churn with no proof content.
 
-**Two routes to one proposition is not the duplication this row rejects elsewhere.** We refused a
+**Two routes to one proposition do not create two sources of truth.** We refused a
 second source for the manifest step bound because a proof-relevant *constant* with two sources can
 drift silently. `extract_four` and its atom-composed equivalent are two *proofs* of one proposition,
 each kernel-checked, and neither is a source of truth for a value — the proposition is. Nothing can
@@ -2387,7 +2387,7 @@ Arm 3 turned out to be transcription rather than content, which was the predicti
 checking it: the source tests `size >= 4 && declared == size - 4` and the oracle tests only
 `declared == size - 4`, and the extra conjunct is already implied by `readU32LE?` returning `some`.
 Recorded as a confirmed prediction rather than silently, because a predicted-easy step is where this
-row has been wrong before.
+proof was previously expected to be easy and was not.
 
 Arm 2 needs the opposite kind of fact, and the lemmas below are what make `unknownFork` *locate its own
 cause*: every step of `meaningDecodeRaw` before the four field decodes fails only with `invalidSsz`,

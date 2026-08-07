@@ -141,7 +141,8 @@ survive a later function instance, so no frame condition is needed to connect tw
 **That question is now CLOSED, and this note is kept because it is the record of how.** The last
 paragraph of the previous wording said a relative frame clause "would be a change to a reviewed
 contract meaning and is the human's call", and asked that none be added on the strength of the note.
-The call was made (`DECISIONS.md`, Row D): the settling fact is
+The ownership requirement was adopted after `FrameGap.sibling_clobber_permitted_historical` made
+the overwrite possible as a theorem rather than a concern. The settling fact is
 `FrameGap.sibling_clobber_permitted_historical`, which made the clobber a theorem rather than a worry. So the clause is here —
 `env.WritesOnlyWithinOwnAllocation`, the allocating form, since the entry allocates through its
 children. The reasoning above is otherwise unchanged and still describes why this layer survived

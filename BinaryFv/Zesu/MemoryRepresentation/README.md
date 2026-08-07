@@ -1,53 +1,54 @@
-# Zesu values in RISC-V memory
+# Reading Zesu values from machine memory
 
-The SSZ specification works with Lean values. The compiled decoder works with Zig records, slices,
-optional values, and heap allocations in RISC-V memory. This directory defines predicates that say
-when a region of Sail machine memory represents a particular Lean value.
+The Ethereum SSZ specification describes structured Lean values. The compiled Zesu decoder stores
+the same information as Zig records, optional values, slices, pointers, and heap allocations in
+RISC-V memory. This directory defines and proves the connection between those two views.
 
-Read the files in this order:
+A representation states what bytes and pointers must be present for memory to hold a particular
+Lean value. It does not run the decoder or allocate memory. Some slices point into the caller's
+input buffer rather than owning a copy, so their representations include both the input bytes and
+the address of that buffer.
 
-1. [`RawV4.lean`](RawV4.lean) defines the reusable byte, word, vector, slice, and heap-array
-   predicates, then builds the complete top-level `RawV4Rep`.
-2. [`Containers.lean`](Containers.lean) defines the seven nested decoder-container representations.
-3. [`Result.lean`](Result.lean) describes the internal `decodeRaw` hidden-result union.
-4. [`Observers.lean`](Observers.lean) contains guarded functions that reconstruct represented values
-   from Sail memory.
-5. [`ValueObserver.lean`](ValueObserver.lean) assembles the guarded readers into a complete
-   specification-typed `RawV4` observer and proves it agrees with `RawV4Rep`.
+## Memory layouts
 
-The remaining D′ modules connect the source-shaped decoder meanings to the pinned SSZ oracle:
+1. [`RawV4.lean`](RawV4.lean) defines the common layouts for bytes, little-endian integers, slices,
+   arrays, and optional values, then uses them to describe the complete top-level `RawV4` value.
+2. [`Containers.lean`](Containers.lean) describes the seven nested Zesu container types, including
+   their inline fields and heap-backed collections.
+3. [`Result.lean`](Result.lean) describes the value and status stored by `decodeRaw` when it returns.
 
-- `EntryOffsets.lean` proves that `meaningDecodeRaw` and the oracle read the same four top-level
-  offset words.
-- `ChainOffsets.lean` handles the nested activation, fork configuration, and chain configuration
-  schemas, including their leading fixed fields.
-- `EncodeDecode.lean` supplies the needed re-encoding direction for decoded 64-bit values and records
-  the trust class of its `bv_decide` proof.
-- `ZeroOffsetAlias.lean` proves why an all-zero first offset is rejected for variable-element lists;
-  it also documents the fixed-element counterexample that requires the theorem's restriction.
+The field addresses, sizes, and alignments in these definitions are checked against the ABI manifest
+from the pinned Zig build. When an optional value is absent, only its discriminant has meaning; the
+unused payload bytes are deliberately left unconstrained.
 
-A representation predicate does not allocate or decode anything. It only relates:
+## Reading values back
 
-- a Lean value,
-- the caller's input bytes when a slice borrows from that input,
-- a base address, and
-- a machine state containing the corresponding bytes and pointers.
+[`Observers.lean`](Observers.lean) contains functions that read bytes, words, slices, and container
+fields from Sail memory. Each function returns `none` if a required byte or pointer is missing.
+[`PrimitiveReads.lean`](PrimitiveReads.lean) applies the pinned SSZ integer readers to bytes obtained
+from memory.
 
-Field offsets, sizes, and alignments are checked against the ABI manifest produced by the same pinned
-Zig compiler that builds the decoder. Optional payload bytes are intentionally unconstrained when
-the option is absent; only the discriminant is meaningful in that case.
+[`ValueObserver.lean`](ValueObserver.lean) combines those readers into `observeRawV4?`, which
+reconstructs a complete `BinaryFv.Specs.SSZ.RawV4`. Its main theorem says that if memory represents a
+value, and the borrowed input buffer is present, the observer returns exactly that value.
 
-Representations say when memory *holds* a value; observers go the other way and *read* one back.
-[Observers.lean](Observers.lean) has the guarded readers for words, byte regions, and the chain
-config, and [ValueObserver.lean](ValueObserver.lean) assembles them into `observeRawV4?`, which reconstructs a complete
-`BinaryFv.Specs.SSZ.RawV4` from machine memory. `observe_raw_v4_of_rep` is the correspondence that ties the
-two directions together: anything the representation says is there, the observer reads back exactly.
-It needs one hypothesis the representation deliberately omits — the caller's input in memory —
-because the borrowed slices alias that buffer.
+This reverse direction matters for soundness. A layout that leaves part of a value unspecified
+could claim that the same machine state represents two different Lean values. A previous
+`RawV4FixedFieldsRep` did exactly that by omitting fields of the chain configuration.
+`RawV4.lean` now includes the full `ChainConfigRep`, and its regression theorem checks that the fork
+activation and blob schedule are fixed by memory.
 
-A representation that under-determines its value makes a *total* observer impossible, which is not a
-stylistic concern but a soundness one: `RawV4FixedFieldsRep` once pinned only two words of the chain
-config, so one state represented values differing in the fork activation and blob schedule, and the
-observer correspondence was false as stated. [RawV4.lean](RawV4.lean) now pins the whole
-`ChainConfigRep`, with
-`rawV4FixedFields_pins_fork_activation_and_blob_schedule` as the regression.
+## Agreement with the SSZ specification
+
+The remaining files prove that Zesu's source-level decoding rules inspect the same bytes as the
+pinned Ethereum SSZ specification:
+
+- [`EntryOffsets.lean`](EntryOffsets.lean) proves that both decoders read the same four top-level
+  offsets and therefore split the input into the same four field bodies.
+- [`ChainOffsets.lean`](ChainOffsets.lean) proves the corresponding facts for the nested fork
+  activation, fork configuration, and chain configuration values, including their fixed fields.
+- [`EncodeDecode.lean`](EncodeDecode.lean) proves the needed fact that re-encoding a successfully
+  decoded 64-bit value reproduces its bytes. Its bit-vector proof uses `bv_decide`, and the file
+  records the resulting trust dependency.
+- [`ZeroOffsetAlias.lean`](ZeroOffsetAlias.lean) proves that a zero first offset is rejected for lists
+  of variable-size elements, while documenting why the statement is false for fixed-size elements.

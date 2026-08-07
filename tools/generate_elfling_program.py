@@ -576,8 +576,8 @@ def signature_params(d, dies_by_off, children_of, name_of_off):
 
     An optimized concrete function instance may omit a `DW_TAG_formal_parameter` child entirely — not merely
     leave it without a location. Enumerating only the concrete function instance's children therefore produced a
-    binding table that was silently SHORT: four `bytesAt` function_instances had no `offset` row and the
-    `readU64`/`readArray` function_instances enclosing them had no rows at all, so Row A recorded them as
+    binding table that was silently SHORT: four `bytesAt` function instances had no `offset` entry and the
+    `readU64`/`readArray` function instances enclosing them had no parameter entries at all, so the catalog recorded them as
     "paramless" when their source functions plainly take parameters. The abstract origin always carries the
     full signature, so it is the authority for WHICH parameters exist; the concrete function instance is the
     authority for WHERE each one lives."""
@@ -1049,7 +1049,7 @@ def emit_bindings_json(function_instances_sorted, effective, recoveries, derived
 
     `program.json`'s per-function-instance `bindings` are the RAW DWARF rows, which still carry the 61
     `callerProvided` gaps. Any consumer that wants the *effective* entry placement of a function instance's
-    parameters — Row C's production-ELF binding validator, for one — must read the recovered table, not
+    parameters — including the production-ELF binding validator — must read the recovered table, not
     the raw one, or it silently validates against a location DWARF never gave. Emitting it here keeps
     one generator as the single source of truth for both the Lean inventory and the binary evidence."""
     return json.dumps({
@@ -1287,7 +1287,7 @@ def main():
 
     # Independently generated pinned-source manifest: each cataloged source file mapped to the SHA-256
     # of its pinned content, computed here from the exact source the extractor read. The handwritten
-    # row-1 `pinnedSourceManifest` is CHECKED against this (review blocker #5) rather than trusted.
+    # `pinnedSourceManifest` is checked against this output rather than trusted.
     source_manifest = sorted(({"path": pth, "sha256": file_hash[pth]} for pth in set(file_hash)),
                              key=lambda e: e["path"])
 
@@ -1496,12 +1496,12 @@ def emit_lean(p):
     L.append("    excludedFunctionInstances := generatedExcludedFunctionInstances }")
     L.append("")
     # Independently generated pinned-source manifest (path -> content SHA-256), for cross-checking the
-    # handwritten row-1 `pinnedSourceManifest` rather than trusting it.
+    # handwritten `pinnedSourceManifest` rather than trusting it.
     L.append("/-! ### Independently generated pinned-source manifest. -/")
     L.append("")
     L.append("/-- Each cataloged source file's path mapped to the SHA-256 of its pinned content, computed")
     L.append("by the generator from the exact source it read. `GeneratedProvenanceCheck` proves the")
-    L.append("handwritten `pinnedSourceManifest` equals this, so the row-1 hashes are validated. -/")
+    L.append("handwritten `pinnedSourceManifest` equals this, so its hashes are validated. -/")
     L.append("def generatedSourceManifest : List (String × String) :=")
     sm = ", ".join(f'({lean_str(e["path"])}, {lean_str(e["sha256"])})' for e in p["sourceManifest"])
     L.append("  [" + sm + "]")

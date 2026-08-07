@@ -10,7 +10,7 @@ open LeanRV64DExecutable.Functions Register
 /-!
 # Exported-decoder vertical tests
 
-Row A's binding-level checks on the exported wrapper and its accessors, stated as theorems so a
+Binding checks for the exported wrapper and its accessors, stated as theorems so a
 regression cannot silently revert them. These are definitional facts about the bindings — they do
 not depend on Sail execution, the runner, or the concrete contract parameters.
 
@@ -142,7 +142,7 @@ theorem stored_object_unchanged_after_second_call (globals : DecoderGlobalsLayou
 
 `postZesuDecodeRaw`, `postRawResult` and `postRawError` each carry `Agree platformPreserved before
 after` and `RetiredCounterPresent after`. Elaboration alone does not show those clauses are
-satisfiable. This row has already had one proposed clause turn out to be false of every allocating
+satisfiable. One proposed clause already turned out to be false of every allocating
 function instance; a false exported-contract premise makes the root vacuous rather than merely under-specified.
 
 So each strengthened predicate gets a run here that satisfies it, and then **four** clobbering runs

@@ -6,7 +6,7 @@ import BinaryFv.Zesu.MemoryRepresentation.EncodeDecode
 
 `catalogSemanticObligations` is the conjunction of every claim the catalog makes about the decoder's
 *meaning* — as opposed to its machine behaviour. None of them is about a run, so none of them belongs
-in a local function instance proof; they are Row D's to settle.
+in a local function instance proof; they are proved at the specification layer.
 
 The obligations split into three kinds, and the split is worth naming because it says where the
 difficulty actually lives:

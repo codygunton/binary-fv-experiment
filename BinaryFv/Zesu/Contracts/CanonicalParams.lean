@@ -306,7 +306,7 @@ def canonicalContractParams : ContractParams :=
     repNewPayloadRequest := canonicalRepNewPayloadRequest
     repRawV4 := canonicalRepRawV4 }
 
-/-! ## Non-local premises about the environment (Row D, D4)
+/-! ## Facts about the canonical environment
 
 Two of the premises the root obligation rests on are facts about the canonical parameters
 themselves, independent of any execution. Both are settled here rather than assumed. -/

@@ -24,7 +24,7 @@ the conclusion that the decoder cannot report `outOfMemory`:
 Everything here is about the pure `BumpHeap` model and plain arithmetic. Connecting it to a machine
 state (reading the cursor out of `ZKVM_HEAP_POS`) and to per-function-instance sums belongs above, where the
 canonical addresses live; the per-function-instance delta facts themselves are local obligations of the
-row proofs, not assumptions made here.
+function-instance proofs, not assumptions made here.
 -/
 
 namespace BinaryFv.Zesu.Runtime
@@ -151,7 +151,7 @@ cursor low enough that the *next* request still has room, so `allocate` succeeds
 never takes the branch that records status `4`. Stated about a `BumpHeap` whose position is the real
 cursor and whose limit is the arena ceiling, which is what the machine holds.
 
-What remains for the row proofs is the chain itself — that a decode of an `inputSize`-byte input
+What remains for the function-instance proofs is the chain itself — that a decode of an `inputSize`-byte input
 performs allocations whose costs sum within the bound. That is a local obligation per function instance, not
 an assumption here. -/
 theorem allocation_succeeds_of_chain_within_budget {inputSize arenaBase start finish bytes alignment : Nat}

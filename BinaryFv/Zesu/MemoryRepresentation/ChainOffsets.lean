@@ -1553,7 +1553,7 @@ case:
 | `fork ≤ 20`, child malformed | child's error | decode fails → `false` |
 | `fork ≤ 20`, children fine | accepts | decodes, bound holds → `true` |
 
-Every row agrees on acceptance, and the two middle rows are exactly where the *error* differs. So no
+Every case agrees on acceptance, and the two middle cases are exactly where the *error* differs. So no
 commuting is required — the ordering is unobservable at acceptance granularity, which is precisely what
 the obligation being acceptance-only buys, and precisely why stating it with error constructors would make
 it and `forkErrorOrderingDiffers` jointly false.
@@ -1778,7 +1778,7 @@ theorem forkConfig_forkGuard_false (b : ByteArray) (o0 o1 : Nat)
 and the oracle's canonical decode with the fork bound applied after it.
 
 The `fork > 20` test stays exactly where the source puts it -- between the offset-table check and the child
-decodes -- and is never commuted past them. The four-row acceptance table at the head of this section is why
+decodes -- and is never commuted past them. The four-case acceptance table at the head of this section is why
 that costs nothing.
 
 **Every leaf that faces the oracle's match destructures the scrutinee rather than rewriting through it.**
@@ -2381,7 +2381,7 @@ exactly that). But `root_compliance`'s accepted branch needs the entry's *value*
 third field is a `chainConfig`. So the acceptance-only obligation is not enough here and a genuinely
 new statement is owed: **on the accepting branch the two produce the same `RawChainConfig`.**
 
-That is the one place in this row's strengthening where new field-level content was required rather
+That is the one place in this proof where new field-level content was required rather
 than a restatement. The entry needed none: its other three fields are `decodeCanonical` plus a
 projection, and its composition was already value-level backwards. Recorded plainly because the
 prediction going in was that nothing new would be needed anywhere.

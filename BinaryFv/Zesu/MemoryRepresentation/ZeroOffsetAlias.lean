@@ -19,8 +19,8 @@ bytes decodes to `#[0,0,0,0]`, re-serializes to the same four bytes, and is **ac
 
 So the proof below is expected to *depend* on `hvar`, and that dependence is checked rather than
 assumed (see the power note at the end). A proof that went through without it would be proving the
-corrected statement by an argument that also "proves" the false one, which is the failure this row
-has hit before.
+corrected statement by an argument that also "proves" the false one, which would make the argument
+unsound.
 
 ## The mechanism
 

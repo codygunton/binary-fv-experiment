@@ -20,25 +20,26 @@ it silently. `tools/generate_elfling_program.py` defines an exit as a pc whose c
 function instance's regions: a return/terminal, or a *continuation* outside the regions. So the exit
 inventory also contains tail calls, branches whose taken edge leaves the regions, and the last
 instruction of a fragment that simply falls through into the next one — arithmetic, loads and stores
-among them. Of the 469 exit rows across the 141 function instances, **16** are returns. 128 of the
+among them. Of the 469 declared exits across the 141 function instances, **16** are returns. 128 of the
 141 function instances have no return exit at all, so for them the sentinel bridge is not applicable
 in the first place.
 
 ### What changed since this module was written, and why
 
 This module was first written against an exit rule that counted a resolved call's **callee** edge as
-a way of leaving the caller, so *every* call site was an exit: 642 rows, 180 of them calls. That rule
+a way of leaving the caller, so *every* call site was an exit: 642 declared exits, 180 of them calls. That rule
 contradicted `FunctionInstance.exitPcs`' own docstring — "returns and **tail-calls** that leave this
 function instance" — and it made the conditional root theorem **vacuous**. `FunctionTrace.step`
 carries `hnotExit : ¬ exit pc`, so a trace must halt at the first exit it reaches; `zesu_decode_raw`'s
 trace therefore halted at its call to `decodeRaw` (`0x1031c`), where `status` and `storedResult` are
 still unwritten and `postZesuDecodeRaw` is false. Any contract using that extent was consequently
-unsatisfiable. `CallTransfer.callNotExit` also failed at all 180 call rows, leaving
+unsatisfiable. `CallTransfer.callNotExit` also failed at all 180 call sites, leaving
 `ScopedTrace.callStep` dead code against this artifact.
 
 The generator now tests a resolved call's **fall-through** instead: control comes back from a call, so
-a call site leaves its caller only in tail position. 642 exit rows became **469** — the 173 non-tail
-call rows dropped, the 7 tail-position ones kept. The 16 returns are untouched: the rule never
+a call site leaves its caller only in tail position. The number of declared exits fell from 642 to
+**469**: the 173 non-tail call sites were removed and the 7 tail-position calls remained. The 16
+returns are untouched: the rule never
 concerned returns, which is why every count in this module about *returns* is unchanged and only the
 totals moved. `zesu_decode_raw` went from six exits to **one, its `ret` at `0x10378`**, recorded below
 as `entry_function_instance_exit_is_its_return` — so "the entry run ends at its return" is now a
@@ -62,7 +63,7 @@ pinned image — so this is a constraint on the artifact, not a definition dress
   the CFG calls a return carries the word `ret`. Its falsifiable content is the *register*: a
   `.return_` through anything but `ra` fails it. That is not hypothetical — the pinned image contains
   six `jr t1` return sites in the runtime, and `adding_non_ra_return_exit_breaks_check` puts one into
-  an exit list and watches the check reject it. It is `.all` over the exit rows, so it is monotone
+  an exit list and watches the check reject it. It is `.all` over the declared exits, so it is monotone
   under removal and cannot notice a *missing* exit.
 * `returnSitesListedAsExitsB` — the reverse inclusion, which is where removal is caught: every
   decoded return site lying inside a function instance's regions is listed among its exits. Deleting
@@ -209,17 +210,17 @@ def generatedReturnExitPcs : Array Nat :=
         Program.inRanges functionInstance.regions pc).getD #[]
 
 /-- **Sixteen.** A set-level count over a `filter`, so it moves if the artifact's return inventory
-does — unlike the per-row checks above, which are blind to removal. -/
+does — unlike checks that inspect only the exits still present, which are blind to removal. -/
 theorem generatedReturnExitPcs_size : generatedReturnExitPcs.size = 16 := by native_decide
 
-/-- Total declared exit rows across the 141 function instances. Recorded so that the docstring's
-claim — most exits are not returns — is a checked number rather than an assertion: 469 rows, 16 of
+/-- Total declared exits across the 141 function instances. Recorded so that the docstring's
+claim — most exits are not returns — is a checked number rather than an assertion: 469 exits, 16 of
 them returns. It was 642 before the generator's exit rule stopped counting a resolved call's callee
 edge as a way of leaving the caller. -/
-def totalExitRows (program : Program) : Nat :=
+def totalDeclaredExits (program : Program) : Nat :=
   program.functionInstances.foldl (fun n functionInstance => n + functionInstance.exitPcs.size) 0
 
-theorem totalExitRows_generated : totalExitRows generatedProgram = 469 := by native_decide
+theorem totalDeclaredExits_generated : totalDeclaredExits generatedProgram = 469 := by native_decide
 
 /-- Only 13 of the 141 function instances declare a return exit at all; for the other 128 the
 sentinel bridge has nothing to attach to, because the machine never leaves them by a `ret`. -/
@@ -322,16 +323,16 @@ def programWithoutExit (a : Nat) : Program :=
     functionInstances := generatedProgram.functionInstances.map fun functionInstance =>
       { functionInstance with exitPcs := functionInstance.exitPcs.filter fun pc => pc != a } }
 
-/-- **The deletions are real.** Every one of the 16 removes at least one row — stated so that a
+/-- **The deletions are real.** Every one of the 16 removes at least one exit — stated so that a
 future change producing the original program would fail here rather than turn the theorem below into
 a check of nothing. -/
 theorem programWithoutExit_shrinks :
     generatedReturnExitPcs.all
-      (fun a => decide (totalExitRows (programWithoutExit a) < totalExitRows generatedProgram))
+      (fun a => decide (totalDeclaredExits (programWithoutExit a) < totalDeclaredExits generatedProgram))
       = true := by native_decide
 
 /-- **Dropping any return exit breaks the reverse inclusion.** All 16 deletions, decided. This is the
-mutation the per-row checks structurally cannot catch, and the reason
+mutation that inspecting only retained exits structurally cannot catch, and the reason
 `returnSitesListedAsExitsB` exists. -/
 theorem dropping_any_return_exit_breaks_reverse_inclusion :
     generatedReturnExitPcs.all
@@ -375,7 +376,7 @@ theorem adding_non_ra_return_exit_breaks_check :
 A check that rejects everything is as uninformative as one that rejects nothing, so the complement is
 recorded too: adding a decoded **non**-return pc to every exit inventory leaves `returnExitsAreRetB`
 satisfied. It constrains returns; it does not claim the exit inventory contains only returns — which
-it must not, since 453 of the 469 exit rows are tail calls, branches and fall-throughs. -/
+it must not, since 453 of the 469 declared exits are tail calls, branches and fall-throughs. -/
 
 /-- A decoded pc that is not a return site, taken from the CFG rather than written down. -/
 def someNonReturnPc : Nat :=
