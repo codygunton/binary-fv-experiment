@@ -21,6 +21,15 @@ namespace BinaryFv.Zesu.MachineExecution
 open BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
 
+/-- The architectural zero register reads as zero without consulting the register map. -/
+theorem rX_x0_run (state : State) :
+    Runs (rX_bits (.Regidx 0#5)) state state (0#64) := by
+  have index : (Sail.BitVec.toNatInt (0#5)).toNat = 0 := by decide
+  unfold Runs rX_bits rX
+  simp [index, zero_reg, EStateM.run, EStateM.bind, EStateM.pure, EStateM.instMonad,
+    regval_from_reg]
+  rfl
+
 macro "gen_rx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(theorem $name (state : State) (value : BitVec 64)
       (stored : state.regs.get? $reg = some value) :
@@ -42,9 +51,13 @@ macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
       encdec_reg_forwards, encdec_reg_forwards_matches, reg_arch_name_raw_forwards,
       LeanRV64DExecutable.Functions.not, zero_extend, regval_into_reg])
 
+gen_rx_run 1 ↦ x1, rX_x1_run
+gen_rx_run 2 ↦ x2, rX_x2_run
 gen_rx_run 5 ↦ x5, rX_x5_run
 gen_rx_run 6 ↦ x6, rX_x6_run
 gen_rx_run 7 ↦ x7, rX_x7_run
+gen_rx_run 8 ↦ x8, rX_x8_run
+gen_rx_run 9 ↦ x9, rX_x9_run
 gen_rx_run 10 ↦ x10, rX_x10_run
 gen_rx_run 11 ↦ x11, rX_x11_run
 gen_rx_run 12 ↦ x12, rX_x12_run
@@ -57,9 +70,13 @@ gen_rx_run 28 ↦ x28, rX_x28_run
 gen_rx_run 29 ↦ x29, rX_x29_run
 gen_rx_run 30 ↦ x30, rX_x30_run
 
+gen_wx_run 1 ↦ x1, wX_x1_run
+gen_wx_run 2 ↦ x2, wX_x2_run
 gen_wx_run 5 ↦ x5, wX_x5_run
 gen_wx_run 6 ↦ x6, wX_x6_run
 gen_wx_run 7 ↦ x7, wX_x7_run
+gen_wx_run 8 ↦ x8, wX_x8_run
+gen_wx_run 9 ↦ x9, wX_x9_run
 gen_wx_run 10 ↦ x10, wX_x10_run
 gen_wx_run 11 ↦ x11, wX_x11_run
 gen_wx_run 12 ↦ x12, wX_x12_run

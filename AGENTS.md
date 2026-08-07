@@ -19,6 +19,18 @@ These instructions apply repository-wide.
   composition implicit in a bundle of hypotheses.
 - Name refinement edges for the direction they establish, such as `exportedContracts_of_level1`.
   Keep logical premises distinct from bytecode-coverage obligations retained for later runtime proofs.
+- The sole conditional argument of `root_compliance` is the proof-progress gauge. Name it `hLevelN`,
+  where Level N is the deepest reviewed UI depth whose function contracts have not all been
+  discharged. Each stacked refinement PR replaces `hLevelN` with `hLevel(N+1)`; do not retain both.
+  After the final level is discharged, `root_compliance` has no proof argument.
+- The type of `hLevelN` must contain only outstanding contracts for function instances selected at
+  UI Level N. Make this syntactically visible in a named `LevelNContractAssumptions` definition or
+  structure. It must not contain a deeper descendant's contract, a parent-route theorem, a semantic
+  oracle premise, an instruction-coverage fact, or an ad hoc machine-state hypothesis.
+- Expose a named theorem converting `LevelNContractAssumptions` into the preceding level's
+  assumptions, and make `root_compliance` call the chain explicitly. Prove parent-owned instructions,
+  route coverage, and already-closed leaf contracts inside that conversion. If any such fact remains
+  an assumption, Level N is not complete and the root parameter must remain `hLevel(N-1)`.
 
 ## Refinement strategy
 
@@ -35,6 +47,10 @@ These instructions apply repository-wide.
 - The theorem for each level must visibly consume every selected contract and derive the same
   meaningful parent contract. Keep that conditional parent result valid while deeper functions remain
   unproved; a list of unused contracts is not a refinement.
+- A level assumption may omit a selected leaf only when a named unconditional theorem discharges that
+  leaf in the level conversion. Construct a visible selected-contract bundle there—for example,
+  filling proved allocator and `memcpy` fields while taking only the unresolved inlined-`decode`
+  contract from `hLevel2`—so readers can still audit every immediate UI child.
 - Treat each resolution depth as a reviewable stacked change. Do not introduce a flat catalog of all
   discovered functions as though it were the proof architecture.
 - Contracts describe actual optimized machine-code boundaries. Inlined source functions do not obey
@@ -651,9 +667,12 @@ section 0.
   checkpoints, before committing proof changes, and before claiming a completed chunk.
 - Regenerate compiler-derived artifacts from the current branch. Shared worktree build artifacts may
   accelerate compilation, but stale generated inputs or `.olean` files are not evidence.
-- Keep the generated flamegraph proof status current. Selected but unproved functions are red,
-  selected functions under active proof are yellow, proved functions are green, and unselected
-  functions are blue.
+- Update `tools/contract-target-curation/proof-progress.json` at every completed refinement
+  checkpoint, before reporting or committing the checkpoint, so the production call-hierarchy
+  flamegraph reflects the theorem just proved. Unconditionally proved functions are green.
+  Green/yellow stripes require all parent-owned machine instructions to be proved with only immediate
+  child function contracts assumed. Active proof work is yellow, contract-only functions are
+  yellow/red striped, and functions with none of those are red.
 
 ## Pull request descriptions
 

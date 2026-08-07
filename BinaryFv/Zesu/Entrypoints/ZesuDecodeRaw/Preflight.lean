@@ -85,8 +85,7 @@ theorem canonical_image_is_programImage {binary : RiscvSpec.ValidatedElf}
   have hbin : BinaryFv.RiscV.Elf64.parse binary.bytes = .ok binary.elf := binary.parsed_ok
   have : Artifacts.elf = binary.elf := by
     have := hparse.symm.trans hbin; exact (Except.ok.injEq _ _).mp this
-  have himg : Artifacts.programImage = Artifacts.elf.programImage := by
-    unfold Artifacts.programImage; rw [Artifacts.parsed_ok]
+  have himg : Artifacts.programImage = Artifacts.elf.programImage := Artifacts.programImage_eq
   rw [himg, this]
 
 /-- An admissible input passes the bound gate. -/

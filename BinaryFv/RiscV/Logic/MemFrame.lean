@@ -27,14 +27,17 @@ namespace BinaryFv.RiscV
 
 
 /-- No-wraparound address arithmetic for an in-range destination offset: `(base + j)` as a machine
-word has `toNat` exactly `base.toNat + j` when that sum does not overflow.  (Self-contained twin of
-`MemcpyContract.dstAddr_toNat`, kept below the helper contracts so they can import this module.) -/
+word has `toNat` exactly `base.toNat + j` when that sum does not overflow.
+
+This is the one statement of this fact. `MemcpyProof` carried a local twin, `dstAddr_toNat`, until
+the twins this file was positioned to absorb were finally deleted in favour of it. -/
 theorem windowAddr_toNat (base : BitVec 64) (j : Nat) (hfit : base.toNat + j < 2 ^ 64) :
     (base + BitVec.ofNat 64 j).toNat = base.toNat + j := by
   rw [BitVec.toNat_add, BitVec.toNat_ofNat]; omega
 
-/-- Reading an address distinct from the just-inserted key is unaffected by the insert.  (Local
-twin of the helpers' `getInsertNe`, phrased for reuse across the framing lemmas.) -/
+/-- Reading an address distinct from the just-inserted key is unaffected by the insert.
+
+This is the one statement of this fact; `MemcpyProof`'s local `getInsertNe` twin now calls here. -/
 theorem getElem?_insert_ne (mem : Std.ExtHashMap Nat (BitVec 8)) (k a : Nat) (v : BitVec 8)
     (h : k ≠ a) : (mem.insert k v).get? a = mem.get? a := by
   simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert]; simp [h]

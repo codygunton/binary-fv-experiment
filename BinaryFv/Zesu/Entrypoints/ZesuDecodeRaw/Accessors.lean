@@ -116,8 +116,20 @@ memory, not merely agreeing memory. -/
 theorem accessorSetup_regs_frame (entryPc : Nat) (state : State) (observed : Register)
     (hra : observed ≠ x1) (hsp : observed ≠ x2) (hpc : observed ≠ PC) (hnext : observed ≠ nextPC) :
     (accessorSetup entryPc state).regs.get? observed = state.regs.get? observed := by
-  simp [accessorSetup, Std.ExtDHashMap.get?_insert, Ne.symm hra, Ne.symm hsp, Ne.symm hpc,
+    simp [accessorSetup, Std.ExtDHashMap.get?_insert, Ne.symm hra, Ne.symm hsp, Ne.symm hpc,
     Ne.symm hnext]
+
+/-! The prologue overwrites only caller-owned control registers. -/
+theorem normalExecutionState_accessorSetup {entryPc : Nat} {state : State}
+    (h : NormalExecutionState state) :
+    NormalExecutionState (accessorSetup entryPc state) := by
+  apply normalExecutionState_of_agree (before := state) (after := accessorSetup entryPc state) ?_ h
+  intro observed hobserved
+  exact (accessorSetup_regs_frame entryPc state observed
+    (by intro hx; subst hx; simp [normalRegisters] at hobserved))
+    (by intro hx; subst hx; simp [normalRegisters] at hobserved)
+    (by intro hx; subst hx; simp [normalRegisters] at hobserved)
+    (by intro hx; subst hx; simp [normalRegisters] at hobserved)
 
 /-- **The prologue cannot manufacture a return code.** `a0` is not one of the four registers it
 writes, so the value `runAccessor` eventually reports is the accessor's own, never a leftover the
@@ -192,17 +204,20 @@ theorem functionInstance_entry_eq_pre {Error Args Result : Type}
 transported from the decode's final state; neither is re-derived. -/
 theorem contractRawError_entry_accessorSetup {env : DecoderEnvironment}
     {layout : DecoderGlobalsLayout} {model : DecoderGlobalsModel} {state : State} (entryPc : Nat)
-    (hcode : env.CodeIntact state) (hglobals : DecoderGlobalsScalarRep layout model state) :
+    (hnormal : NormalExecutionState state) (hcode : env.CodeIntact state)
+    (hglobals : DecoderGlobalsScalarRep layout model state) :
     (contractRawError env layout).pre model (accessorSetup entryPc state) :=
-  ⟨codeIntact_accessorSetup entryPc hcode, decoderGlobalsScalarRep_accessorSetup entryPc hglobals⟩
+  ⟨normalExecutionState_accessorSetup hnormal, codeIntact_accessorSetup entryPc hcode,
+    decoderGlobalsScalarRep_accessorSetup entryPc hglobals⟩
 
 /-- **`zesu_raw_result`'s entry binding, at the state it is actually called from.** -/
 theorem contractRawResult_entry_accessorSetup {env : DecoderEnvironment}
     {layout : DecoderGlobalsLayout} {resultBuffer : Nat} {model : DecoderGlobalsModel}
-    {state : State} (entryPc : Nat) (hcode : env.CodeIntact state)
+    {state : State} (entryPc : Nat) (hnormal : NormalExecutionState state)
+    (hcode : env.CodeIntact state)
     (hstored : StoredResultDiscriminantRep layout model state) :
     (contractRawResult env layout resultBuffer).pre model (accessorSetup entryPc state) :=
-  ⟨codeIntact_accessorSetup entryPc hcode,
+  ⟨normalExecutionState_accessorSetup hnormal, codeIntact_accessorSetup entryPc hcode,
     storedResultDiscriminantRep_accessorSetup entryPc hstored⟩
 
 /-- **Neither entry binding is vacuous at the state the runner actually calls from.** Both are
@@ -218,10 +233,11 @@ theorem accessor_entry_bindings_satisfiable :
       (contractRawResult canonicalEnvironment Elflings.canonicalDecoderGlobalsLayout
         Elflings.canonicalResultBuffer).pre model
         (accessorSetup resolvedSymbols.rawResult state) := by
-  obtain ⟨state, _, binding⟩ := buildZesuEntryState_entry_binding ByteArray.empty
+  obtain ⟨state, _, binding, _, _, hnormal, _⟩ :=
+    buildZesuEntryState_entry_binding_abi ByteArray.empty
   exact ⟨state, DecoderGlobalsModel.fresh,
-    contractRawError_entry_accessorSetup _ binding.2.1 binding.2.2.2.2.1,
-    contractRawResult_entry_accessorSetup _ binding.2.1 binding.2.2.2.2.2.1⟩
+    contractRawError_entry_accessorSetup _ hnormal binding.2.1 binding.2.2.2.2.1,
+    contractRawResult_entry_accessorSetup _ hnormal binding.2.1 binding.2.2.2.2.2.1⟩
 
 /-! ### Getting `StoredResultDiscriminantRep` from what the runner already observes
 

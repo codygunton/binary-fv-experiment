@@ -226,15 +226,128 @@ theorem vmem_write_dword_run (s s' : State) (rs1 : regidx) (offset dstBits mstat
       (vmem_write_addr_dword_run s s' dstBits mstatusBits data mstatusRead privRead mprvZero
         aligned physAccess noMMIO hwrite)
 
+/-! ## Aligned word store -/
+
+/-- The aligned width-four address-write path used by `sw`. -/
+theorem vmem_write_addr_word_run (s s' : State) (dstBits mstatusBits : BitVec 64)
+    (data : BitVec (8 * 4))
+    (mstatusRead : s.regs.get? mstatus = some mstatusBits)
+    (privRead : s.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr dstBits) 4 = true)
+    (physAccess :
+      Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 4 false)
+        s s none)
+    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 4) s s false)
+    (hwrite : Runs (PreSail.writeBytes (n := 4) dstBits.toNat data) s s' true) :
+    Runs (vmem_write_addr (virtaddr.Virtaddr dstBits) 4 data (Store Data) false false false)
+      s s' (.Ok true) := by
+  unfold vmem_write_addr
+  have hguard : LeanRV64DExecutable.Functions.not (is_aligned_vaddr (virtaddr.Virtaddr dstBits) 4)
+      = false := by rw [aligned]; rfl
+  simp only [is_store_conditional, Bool.false_eq_true, Bool.false_and, ↓reduceIte, hguard]
+  apply RunsME.run
+  refine RunsME.bind (RunsME.pure () s) ?_
+  refine RunsME.bind
+    (RunsME.lift _ s s (1, 4)
+      (split_misaligned_aligned_run s (virtaddr.Virtaddr dstBits) 4 aligned)) ?_
+  refine RunsME.bind (middle := s') (value := (true, 0, true)) ?loop ?tail
+  case tail => exact RunsME.pure (Sail.Ok true) s'
+  case loop =>
+    refine RunsME.bind (middle := s') (value := (true, 0, true)) ?loopFuel
+      (RunsME.pure (true, 0, true) s')
+    refine RunsME.untilFuelM_one _ _ _ s s' s' (true, 0, true) ?hBody ?hCond
+    case hCond => exact RunsME.pure true s'
+    case hBody =>
+      simp only [misaligned_order, sys_misaligned_order_decreasing, bits_of_virtaddr, addInt_zero,
+        Bool.false_eq_true, ↓reduceIte, Int.reduceSub, Int.reduceMul, Int.reduceToNat,
+        Int.toNat_zero, Int.ofNat_zero, Nat.reduceMul, beq_self_eq_true]
+      refine RunsME.bind (RunsME.lift _ s s () (assert_true_run s _)) ?_
+      refine RunsME.bind (middle := s') (value := true) ?inner ?final
+      case final => exact RunsME.pure (true, 0, true) s'
+      case inner =>
+        refine RunsME.bind
+          (RunsME.lift _ s s (Sail.Ok (physaddr.Physaddr dstBits, PBMT_PMA, init_ext_ptw))
+            (translateAddr_machine_store_run s dstBits mstatusBits mstatusRead privRead mprvZero)) ?_
+        refine RunsME.bind (RunsME.lift _ s s () (assert_true_run s _)) ?_
+        refine RunsME.bind
+          (RunsME.lift _ s s (Sail.Ok ()) (mem_write_ea_store_run s dstBits _)) ?_
+        refine RunsME.bind
+          (RunsME.lift _ s s' (Sail.Ok true)
+            (mem_write_value_store_run s s' (physaddr.Physaddr dstBits) _ mstatusBits mstatusRead
+              privRead mprvZero physAccess noMMIO ?hw)) ?_
+        case hw =>
+          change Runs (PreSail.writeBytes (n := 4) dstBits.toNat
+            (BitVec.setWidth 32 (Sail.BitVec.extractLsb data 31 0))) s s' true
+          simpa [Sail.BitVec.extractLsb, BitVec.extractLsb, BitVec.setWidth_eq] using hwrite
+        exact RunsME.pure true s'
+
+/-- The generated `vmem_write` for an aligned width-four store. -/
+theorem vmem_write_word_run (s s' : State) (rs1 : regidx) (offset dstBits mstatusBits : BitVec 64)
+    (data : BitVec (8 * 4))
+    (mstatusRead : s.regs.get? mstatus = some mstatusBits)
+    (privRead : s.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (addrReg : Runs (get_transformed_data_addr rs1 offset (Store Data) 4) s s
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr dstBits)))
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr dstBits) 4 = true)
+    (physAccess :
+      Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 4 false)
+        s s none)
+    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 4) s s false)
+    (hwrite : Runs (PreSail.writeBytes (n := 4) dstBits.toNat data) s s' true) :
+    Runs (vmem_write rs1 offset 4 data (Store Data) false false false) s s' (.Ok true) := by
+  unfold vmem_write
+  apply RunsME.run
+  refine RunsME.bind (middle := s) (value := virtaddr.Virtaddr dstBits) ?vaddr ?writeAddr
+  case vaddr =>
+    refine RunsME.bind (RunsME.lift _ s s (.Ext_DataAddr_OK (virtaddr.Virtaddr dstBits)) addrReg) ?_
+    exact RunsME.pure (virtaddr.Virtaddr dstBits) s
+  case writeAddr =>
+    exact RunsME.lift _ s s' (Sail.Ok true)
+      (vmem_write_addr_word_run s s' dstBits mstatusBits data mstatusRead privRead mprvZero
+        aligned physAccess noMMIO hwrite)
+
+/-- An aligned `sw` lifts the explicit address-translation and `writeBytes` facts through the
+generated store instruction. -/
+theorem execute_STORE_word_aligned_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 12)
+    (dstBits mstatusBits dataBits : BitVec 64)
+    (mstatusRead : s.regs.get? mstatus = some mstatusBits)
+    (privRead : s.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (dataReg : Runs (rX_bits rs2) s s dataBits)
+    (addrReg : Runs (get_transformed_data_addr rs1 (sign_extend (m := 64) imm) (Store Data) 4) s s
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr dstBits)))
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr dstBits) 4 = true)
+    (physAccess :
+      Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 4 false)
+        s s none)
+    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 4) s s false)
+    (hwrite : Runs (PreSail.writeBytes (n := 4) dstBits.toNat
+      (Sail.BitVec.extractLsb dataBits 31 0)) s s' true) :
+    Runs (execute_STORE imm rs2 rs1 4) s s' (.Retire_Success ()) := by
+  unfold execute_STORE
+  refine Runs.bind (assert_true_run s _) ?_
+  refine Runs.bind dataReg ?_
+  refine Runs.bind (run_pure s _) ?_
+  refine Runs.bind
+    (vmem_write_word_run s s' rs1 (sign_extend (m := 64) imm) dstBits mstatusBits _
+      mstatusRead privRead mprvZero addrReg aligned physAccess noMMIO ?hw) ?_
+  case hw =>
+    change Runs (PreSail.writeBytes (n := 4) dstBits.toNat
+      (BitVec.setWidth 32 (Sail.BitVec.extractLsb dataBits 31 0))) s s' true
+    simpa [BitVec.setWidth_eq] using hwrite
+  exact run_pure s' _
+
 /-! ## Aligned double-word store instruction -/
 
-theorem execute_STORE_dword_run (s s' : State) (rs2 rs1 : regidx)
+theorem execute_STORE_dword_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 12)
     (dstBits mstatusBits : BitVec 64) (dataBits : BitVec (8 * 8))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
     (privRead : s.regs.get? cur_privilege = some .Machine)
     (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
     (dataReg : Runs (rX_bits rs2) s s dataBits)
-    (addrReg : Runs (get_transformed_data_addr rs1 (sign_extend (m := 64) 0#12) (Store Data) 8) s s
+    (addrReg : Runs (get_transformed_data_addr rs1 (sign_extend (m := 64) imm) (Store Data) 8) s s
       (.Ext_DataAddr_OK (virtaddr.Virtaddr dstBits)))
     (aligned : is_aligned_vaddr (virtaddr.Virtaddr dstBits) 8 = true)
     (physAccess :
@@ -242,13 +355,13 @@ theorem execute_STORE_dword_run (s s' : State) (rs2 rs1 : regidx)
         s s none)
     (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 8) s s false)
     (hwrite : Runs (PreSail.writeBytes dstBits.toNat dataBits) s s' true) :
-    Runs (execute_STORE 0#12 rs2 rs1 8) s s' (.Retire_Success ()) := by
+    Runs (execute_STORE imm rs2 rs1 8) s s' (.Retire_Success ()) := by
   unfold execute_STORE
   refine Runs.bind (assert_true_run s _) ?_
   refine Runs.bind dataReg ?_
   refine Runs.bind (run_pure s _) ?_
   refine Runs.bind
-    (vmem_write_dword_run s s' rs1 (sign_extend (m := 64) 0#12) dstBits mstatusBits _
+    (vmem_write_dword_run s s' rs1 (sign_extend (m := 64) imm) dstBits mstatusBits _
       mstatusRead privRead mprvZero addrReg aligned physAccess noMMIO ?hw) ?_
   case hw =>
     change Runs (PreSail.writeBytes dstBits.toNat
