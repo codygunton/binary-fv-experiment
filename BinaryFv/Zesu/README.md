@@ -1,12 +1,11 @@
 # Zesu verification modules
 
 This directory verifies the pinned Zesu stateless-input decoder against the pinned Ethereum SSZ
-decoding specification. D′ proves the public result conditionally on machine proofs of the exported
-decoder and its two accessors; later refinement PRs discharge those contracts. SizzLean supplies the
-executable Lean specification; the generated Sail model supplies the RISC-V machine semantics; and
-the Elfling model connects source-level function identities to instruction regions in the compiled
-binary. The implementation-independent specification lives in `BinaryFv/Specs/SSZ`, outside this
-Zesu target.
+decoding specification. The public result is conditional on machine proofs of the exported decoder
+and its two accessors. SizzLean supplies the executable Lean specification; the generated Sail model
+supplies the RISC-V machine semantics; and the Elfling model connects source-level function
+identities to instruction regions in the compiled binary. The implementation-independent
+specification lives in `BinaryFv/Specs/SSZ`, outside this Zesu target.
 
 The directory names describe the role of each definition or theorem; there is no catch-all `Proof`
 namespace.
@@ -33,13 +32,6 @@ defines the pinned binary, proves that successful public results come from the c
 and states `root_compliance_of_exported_contracts`. That theorem assumes exactly the three exported
 machine contracts used by the runner and concludes agreement with `BinaryFv.Specs.SSZ` for every
 input in scope.
-
-For a first review of D′, read:
-
-1. `Interface.lean` for the caller-visible execution function and error distinctions.
-2. `Entrypoints/ZesuDecodeRaw/README.md` for the concrete runner and proof assembly.
-3. `Contracts/README.md` for the semantic, representation, ownership, and composition obligations.
-4. `Root.lean` for the conditional public theorem and its exact assumptions.
 
 `MachineExecution/BlobScheduleAndResultStores.lean` is an early standalone proof of selected
 blob-schedule decoding and result-store instructions. It predates the current whole-program

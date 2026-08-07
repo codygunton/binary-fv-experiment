@@ -1,15 +1,22 @@
-# Zesu runtime support
+# Proving that Zesu's allocations succeed
 
-This directory models implementation details supplied by Zesu's runtime rather than by the SSZ decoder
-logic itself. It currently covers the bump allocator, its compiler-visible call interface, and the
-allocation bound used by decoder proofs.
+Zesu allocates the decoded value from a fixed memory arena. The verification must show that these
+allocations behave like the compiled allocator and that every admitted decode fits in the arena.
+Otherwise a proof of the parsing logic could still end in an unexpected out-of-memory result.
 
-- `BumpAllocator.lean` defines the allocator state and operations.
-- `AllocatorVtable.lean` connects those operations to the function pointers found in the pinned binary.
-- `AllocationBound.lean` states the resource bound needed by higher-level execution proofs.
-- `AllocationCursor.lean` proves the padding-aware cursor arithmetic needed to turn a total allocation
-  bound into success of each bump allocation and non-exhaustion of the arena. Connecting that pure
-  model to the machine cursor remains a concrete execution-proof obligation.
+This directory provides that runtime argument:
 
-Semantic obligations for source functions that use the runtime belong in `Contracts/Runtime.lean`; immutable
-allocator call-site facts belong in `Artifacts/AllocatorCalls.lean`.
+- [`BumpAllocator.lean`](BumpAllocator.lean) models the allocator's actual rule: align the current
+  cursor, return that address, and advance the cursor when the request fits.
+- [`AllocationBound.lean`](AllocationBound.lean) bounds the total memory an admitted decode may
+  request and proves that the bound fits in Zesu's arena.
+- [`AllocationCursor.lean`](AllocationCursor.lean) includes alignment padding, adds the costs of
+  successive allocations, and proves that an allocation succeeds whenever the remaining bound fits.
+- [`AllocatorVtable.lean`](AllocatorVtable.lean) proves that the allocator function pointer loaded
+  from the pinned binary has the expected value.
+
+These files prove the reusable allocator model and arithmetic. A concrete machine proof must still
+show that the binary's cursor follows this model and that its actual allocation requests stay within
+the bound. The source-function contracts for those calls live in
+[`Contracts/Runtime.lean`](../Contracts/Runtime.lean); fixed call sites and vtable addresses from the
+ELF live in [`Artifacts/AllocatorCalls.lean`](../Artifacts/AllocatorCalls.lean).
