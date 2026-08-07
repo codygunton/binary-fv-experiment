@@ -117,18 +117,15 @@ caller has at the pre-step state holds at the state the fetch happens in.
 (`agree_stepPremiseState`); `tryStepRetRetires` states its fetch premises one step earlier than
 that, so it needs this one too. -/
 theorem agree_afterIncrement (state : State) :
-    Agree platformPreserved state (tryStepControlFlowAfterIncrement state) := by
-  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl) <;>
-    simp [tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
+    Agree platformPreserved state (tryStepControlFlowAfterIncrement state) :=
+  (tryStepControlFlowAfterIncrement_writes state).agree
+    (platformPreserved_disjoint.subset (fun _ h => Or.inr (Or.inr (Or.inr h))))
 
 /-- The pc is not preserved — a step changes it — so it is framed separately. -/
 theorem pc_afterIncrement (state : State) (pc : BitVec 64)
     (read : state.regs.get? PC = some pc) :
-    (tryStepControlFlowAfterIncrement state).regs.get? PC = some pc := by
-  change (state.regs.insert minstret_increment true).get? PC = some pc
-  rw [Std.ExtDHashMap.get?_insert]
-  simpa using read
+    (tryStepControlFlowAfterIncrement state).regs.get? PC = some pc :=
+  ((tryStepControlFlowAfterIncrement_writes state).get PC (by decide)).trans read
 
 /-! ## The exit instruction, fetched with its base-encoding bits
 
@@ -206,6 +203,112 @@ structure ExitPlatform (state : State) (pc : Nat) : Prop where
   /-- The pinned image's file bytes are still in memory, so the exit instruction is fetchable. -/
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
 
+/-! ## Runner-specific bindings for the exported accessor instances
+
+The source contracts describe the globals each accessor observes and the value it returns.  A Sail
+execution proof additionally needs facts tied to this compiled call site: the concrete entry PC,
+fetch permissions there, readable machine registers, and the runner's return sentinel.  Those facts
+belong in the compiled-instance binding, not in the address-free source contract. -/
+
+/-- One completed source-contract run of a selected compiled accessor instance.  Naming this result
+keeps callers from repeatedly elaborating its nested existential and conjunction tree. -/
+structure AccessorInstanceRun {Error Args Result : Type}
+    (region exit : BitVec 64 → Prop) (entry : BitVec 64)
+    (contract : FunctionContract Error Args Result) (args : Args) (fromStep : Nat)
+    (state : State) where
+  count : Nat
+  final : State
+  bound : count ≤ contract.stepBound args
+  trace : Elfling.EnteredFunctionTrace region exit entry fromStep count state final
+  post : contract.post args (contract.meaning args) state final
+
+/-- Instruction addresses owned by the compiled `zesu_raw_error` instance. -/
+def rawErrorInstructionPcs : List Nat := [0x13780, 0x13784, 0x13788]
+
+/-- Instruction addresses owned by the compiled `zesu_raw_result` instance. -/
+def rawResultInstructionPcs : List Nat :=
+  [0x1378C, 0x13790, 0x13794, 0x13798, 0x1379C, 0x137A0, 0x137A4, 0x137A8]
+
+structure RawErrorMachinePre (state : State) : Prop where
+  entry : state.regs.get? Register.PC =
+    some (BitVec.ofNat 64 resolvedSymbols.rawError)
+  instructions : ∀ pc ∈ rawErrorInstructionPcs, ExitPlatform state pc
+  statusLoad : LoadPmaAllows state
+    (BitVec.ofNat 64 Elflings.canonicalDecoderGlobalsLayout.status) 4
+  mstatus : ∃ bits, state.regs.get? mstatus = some bits ∧ _get_Mstatus_MPRV bits = 0#1
+  mseccfg : ∃ bits, state.regs.get? mseccfg = some bits ∧
+    pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled
+
+structure RawResultMachinePre (state : State) : Prop where
+  entry : state.regs.get? Register.PC =
+    some (BitVec.ofNat 64 resolvedSymbols.rawResult)
+  instructions : ∀ pc ∈ rawResultInstructionPcs, ExitPlatform state pc
+  discriminantLoad : LoadPmaAllows state
+    (BitVec.ofNat 64 (Elflings.canonicalDecoderGlobalsLayout.storedResult +
+      Elflings.canonicalDecoderGlobalsLayout.storedResultObject.discriminantOffset)) 1
+  mstatus : ∃ bits, state.regs.get? mstatus = some bits ∧ _get_Mstatus_MPRV bits = 0#1
+  mseccfg : ∃ bits, state.regs.get? mseccfg = some bits ∧
+    pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled
+
+def ImplementsAccessorInstance {Error Args Result : Type}
+    (region exit : BitVec 64 → Prop) (entry : BitVec 64) (machinePre : State → Prop)
+    (contract : FunctionContract Error Args Result) : Prop :=
+  ∀ (args : Args) (fromStep : Nat) (state : State),
+    contract.pre args state → machinePre state →
+      Nonempty (AccessorInstanceRun region exit entry contract args fromStep state)
+
+theorem ImplementsAccessorInstance.run {Error Args Result : Type}
+    {region exit : BitVec 64 → Prop} {entry : BitVec 64} {machinePre : State → Prop}
+    {contract : FunctionContract Error Args Result}
+    (implements : ImplementsAccessorInstance region exit entry machinePre contract)
+    (args : Args) (fromStep : Nat) (state : State) (sourcePre : contract.pre args state)
+    (compiledPre : machinePre state) :
+    Nonempty (AccessorInstanceRun region exit entry contract args fromStep state) :=
+  implements args fromStep state sourcePre compiledPre
+
+def RawResultInstanceObligation (functionInstance : FunctionInstance) : Prop :=
+  ImplementsAccessorInstance
+    (functionInstanceExecutionPcs generatedProgram functionInstance)
+    (functionInstanceExitPred functionInstance)
+    (functionInstanceEntryWord functionInstance)
+    RawResultMachinePre
+    (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+      canonicalContractParams.resultBuffer)
+
+def RawErrorInstanceObligation (functionInstance : FunctionInstance) : Prop :=
+  ImplementsAccessorInstance
+    (functionInstanceExecutionPcs generatedProgram functionInstance)
+    (functionInstanceExitPred functionInstance)
+    (functionInstanceEntryWord functionInstance)
+    RawErrorMachinePre
+    (contractRawError canonicalContractParams.env canonicalContractParams.globals)
+
+theorem RawResultInstanceObligation.run {functionInstance : FunctionInstance}
+    (implements : RawResultInstanceObligation functionInstance)
+    (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
+    (sourcePre : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+      canonicalContractParams.resultBuffer).pre model state)
+    (machinePre : RawResultMachinePre state) :
+    Nonempty (AccessorInstanceRun
+      (functionInstanceExecutionPcs generatedProgram functionInstance)
+      (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
+      (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+        canonicalContractParams.resultBuffer) model fromStep state) :=
+  ImplementsAccessorInstance.run implements model fromStep state sourcePre machinePre
+
+theorem RawErrorInstanceObligation.run {functionInstance : FunctionInstance}
+    (implements : RawErrorInstanceObligation functionInstance)
+    (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
+    (sourcePre : (contractRawError canonicalContractParams.env
+      canonicalContractParams.globals).pre model state)
+    (machinePre : RawErrorMachinePre state) :
+    Nonempty (AccessorInstanceRun
+      (functionInstanceExecutionPcs generatedProgram functionInstance)
+      (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
+      (contractRawError canonicalContractParams.env canonicalContractParams.globals)
+      model fromStep state) :=
+  ImplementsAccessorInstance.run implements model fromStep state sourcePre machinePre
+
 /-- **From the contracts' own exit clauses to the retirement's premises.**
 
 `Agree platformPreserved before after` is the register-frame clause every contract in this target
@@ -266,10 +369,10 @@ theorem retiredJump_regs_frame (state : State) (pc target retired : BitVec 64) {
     (hinc : r ≠ minstret_increment) :
     (tryStepControlFlowAfterRetired
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target)
-        target retired).regs.get? r = state.regs.get? r := by
-  simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
-    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-    Ne.symm hpc, Ne.symm hnext, Ne.symm hcounter, Ne.symm hinc]
+        target retired).regs.get? r = state.regs.get? r :=
+  (jumpRetirement_writes state pc target retired).get r
+    (fun written => written.elim hpc fun written => written.elim hnext fun written =>
+      written.elim hcounter hinc)
 
 /-- **The frame holds at the concrete post-state of a control-flow retirement.** `platformPreserved`
 names eighteen registers and none of them is one of the four the retirement writes, which is what the
@@ -517,6 +620,104 @@ theorem rawError_function_instance_exits {fi : FunctionInstance}
   have hrow := forall_mem_of_all h fi hmem
   simpa [hentry] using hrow
 
+theorem rawError_function_instance_execution_pcs {fi : FunctionInstance}
+    (hmem : fi ∈ generatedProgram.functionInstances)
+    (hentry : fi.entryPc = resolvedSymbols.rawError) :
+    Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13780 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13784 = true ∧
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13788 = true := by
+  have h : generatedProgram.functionInstances.all (fun i =>
+      !(i.entryPc == resolvedSymbols.rawError) ||
+        (Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13780 &&
+          Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13784 &&
+            Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13788)) = true := by
+    native_decide
+  have hrow := forall_mem_of_all h fi hmem
+  simp [hentry] at hrow
+  exact ⟨hrow.1.1, hrow.1.2, hrow.2⟩
+
+theorem rawError_function_instance_execution_pc_membership {fi : FunctionInstance}
+    (hmem : fi ∈ generatedProgram.functionInstances)
+    (hentry : fi.entryPc = resolvedSymbols.rawError) :
+    functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13780) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13784) ∧
+        functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13788) := by
+  obtain ⟨h80, h84, h88⟩ := rawError_function_instance_execution_pcs hmem hentry
+  refine ⟨functionInstanceExecutionPcs_iff_ranges.mpr ?_,
+    functionInstanceExecutionPcs_iff_ranges.mpr ?_,
+    functionInstanceExecutionPcs_iff_ranges.mpr ?_⟩
+  · exact RegionPcs.iff_inRanges.mpr h80
+  · exact RegionPcs.iff_inRanges.mpr h84
+  · exact RegionPcs.iff_inRanges.mpr h88
+
+theorem rawResult_function_instance_execution_pcs {fi : FunctionInstance}
+    (hmem : fi ∈ generatedProgram.functionInstances)
+    (hentry : fi.entryPc = resolvedSymbols.rawResult) :
+    Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x1378c = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13790 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13794 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x13798 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x1379c = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x137a0 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x137a4 = true ∧
+      Program.inRanges (functionInstanceExecutionRanges generatedProgram fi) 0x137a8 = true := by
+  have h : generatedProgram.functionInstances.all (fun i =>
+      !(i.entryPc == resolvedSymbols.rawResult) ||
+        (Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x1378c &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13790 &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13794 &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x13798 &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x1379c &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x137a0 &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x137a4 &&
+        Program.inRanges (functionInstanceExecutionRanges generatedProgram i) 0x137a8)) = true := by
+    native_decide
+  have hrow := forall_mem_of_all h fi hmem
+  simp [hentry] at hrow
+  rcases hrow with ⟨⟨⟨⟨⟨⟨⟨h8c, h90⟩, h94⟩, h98⟩, h9c⟩, ha0⟩, ha4⟩, ha8⟩
+  exact ⟨h8c, h90, h94, h98, h9c, ha0, ha4, ha8⟩
+
+theorem rawResult_function_instance_execution_pc_membership {fi : FunctionInstance}
+    (hmem : fi ∈ generatedProgram.functionInstances)
+    (hentry : fi.entryPc = resolvedSymbols.rawResult) :
+    functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x1378c) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13790) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13794) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x13798) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x1379c) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x137a0) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x137a4) ∧
+      functionInstanceExecutionPcs generatedProgram fi (BitVec.ofNat 64 0x137a8) := by
+  obtain ⟨h8c, h90, h94, h98, h9c, ha0, ha4, ha8⟩ :=
+    rawResult_function_instance_execution_pcs hmem hentry
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr h8c)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr h90)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr h94)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr h98)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr h9c)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr ha0)
+  constructor
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr ha4)
+  · exact functionInstanceExecutionPcs_iff_ranges.mpr (RegionPcs.iff_inRanges.mpr ha8)
+
+theorem rawResult_entry_address : resolvedSymbols.rawResult = 0x1378c := by
+  native_decide
+
+theorem rawResult_exit_address : resolvedSymbols.rawResult + 28 = 0x137a8 := by
+  native_decide
+
+theorem rawError_entry_address : resolvedSymbols.rawError = 0x13780 := by
+  native_decide
+
+theorem rawError_exit_address : resolvedSymbols.rawError + 8 = 0x13788 := by
+  native_decide
+
 /-! ## Which contract each of the three instances owes
 
 The compliance obligation dispatches on `catalogEntryFor functionInstance.id.function`, so
@@ -578,6 +779,48 @@ theorem rawError_function_instance_found :
       (fun i => i.entryPc == resolvedSymbols.rawError)).isSome = true := by native_decide
   obtain ⟨fi, hfi⟩ := Option.isSome_iff_exists.mp h
   exact ⟨fi, Array.mem_of_find?_eq_some hfi, by simpa using Array.find?_some hfi⟩
+
+theorem runSelectedRawResult
+    (implements : ∀ {functionInstance : FunctionInstance},
+      functionInstance ∈ generatedProgram.functionInstances →
+      functionInstance.entryPc = resolvedSymbols.rawResult →
+        RawResultInstanceObligation functionInstance)
+    (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
+    (sourcePre : (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+      canonicalContractParams.resultBuffer).pre model state)
+    (machinePre : RawResultMachinePre state) :
+    ∃ functionInstance,
+      functionInstance ∈ generatedProgram.functionInstances ∧
+      functionInstance.entryPc = resolvedSymbols.rawResult ∧
+      Nonempty (AccessorInstanceRun
+        (functionInstanceExecutionPcs generatedProgram functionInstance)
+        (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
+        (contractRawResult canonicalContractParams.env canonicalContractParams.globals
+          canonicalContractParams.resultBuffer) model fromStep state) := by
+  obtain ⟨functionInstance, hmem, hentry⟩ := rawResult_function_instance_found
+  exact ⟨functionInstance, hmem, hentry, RawResultInstanceObligation.run
+    (implements hmem hentry) model fromStep state sourcePre machinePre⟩
+
+theorem runSelectedRawError
+    (implements : ∀ {functionInstance : FunctionInstance},
+      functionInstance ∈ generatedProgram.functionInstances →
+      functionInstance.entryPc = resolvedSymbols.rawError →
+        RawErrorInstanceObligation functionInstance)
+    (model : DecoderGlobalsModel) (fromStep : Nat) (state : State)
+    (sourcePre : (contractRawError canonicalContractParams.env
+      canonicalContractParams.globals).pre model state)
+    (machinePre : RawErrorMachinePre state) :
+    ∃ functionInstance,
+      functionInstance ∈ generatedProgram.functionInstances ∧
+      functionInstance.entryPc = resolvedSymbols.rawError ∧
+      Nonempty (AccessorInstanceRun
+        (functionInstanceExecutionPcs generatedProgram functionInstance)
+        (functionInstanceExitPred functionInstance) (functionInstanceEntryWord functionInstance)
+        (contractRawError canonicalContractParams.env canonicalContractParams.globals)
+        model fromStep state) := by
+  obtain ⟨functionInstance, hmem, hentry⟩ := rawError_function_instance_found
+  exact ⟨functionInstance, hmem, hentry, RawErrorInstanceObligation.run
+    (implements hmem hentry) model fromStep state sourcePre machinePre⟩
 
 /-! ## One attachment, in general
 

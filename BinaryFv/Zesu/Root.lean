@@ -1,6 +1,6 @@
 import BinaryFv.Zesu.Artifacts.Layout
 import BinaryFv.Zesu.Interface
-import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.ExportedContractExecution
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level1Contracts
 
 namespace BinaryFv.Zesu
 
@@ -16,11 +16,12 @@ noncomputable def binary : RiscvSpec.ValidatedElf := {
 }
 
 /-!
-## Conditional compliance theorem
+## Navigation from the conditional root theorem
 
-`root_compliance_of_exported_contracts` assumes the three exported machine contracts used by the
-runner, then derives the public Ethereum SSZ agreement claim through the concrete runner and
-observers. Instruction-level proofs can discharge those contract assumptions independently.
+`compliance_of_level1_contracts` assumes the unresolved compiled function-instance obligations used
+by the runner, then derives the public Ethereum SSZ agreement claim through their concrete call
+sites and observers. Both accessors are already discharged by executing their owned instructions in
+the Sail model. Later refinement levels replace the decoder obligation with its immediate children.
 
 The active spine is the concrete wrapper/accessor run assembly and the public execution classifier.
 Canonical ELF and source-provenance checks remain available separately as decomposition-independent
@@ -98,7 +99,7 @@ forces `observeDecodedValue final = some value`, the same `value`.
 
 Stated over an arbitrary `ValidatedElf`, like its twin. -/
 theorem execute_accepted_forces_checks {b : RiscvSpec.ValidatedElf} {input : ByteArray}
-    {value : BinaryFv.Specs.SSZ.StatelessInput} (h : RiscvSpec.execute b input = .ok (.accepted value)) :
+    {value : BinaryFv.Specs.SSZ.RawV4} (h : RiscvSpec.execute b input = .ok (.accepted value)) :
     Zesu.Entrypoints.ZesuDecodeRaw.preflight b input = .ok () ∧
       ∃ (final : BinaryFv.RiscV.State)
         (rawResult rawError : Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome),
@@ -134,7 +135,7 @@ inversion of the usual expectation the runner's provenance note records, from th
 *forward* direction is the expensive one. The strengthened converse above and its independence
 witness are `propext`/`Classical.choice`/`Quot.sound` only. -/
 theorem accepted_checks_determine_classification {final : BinaryFv.RiscV.State}
-    {value : BinaryFv.Specs.SSZ.StatelessInput} (steps : Nat)
+    {value : BinaryFv.Specs.SSZ.RawV4} (steps : Nat)
     (hcode : Zesu.Entrypoints.ZesuDecodeRaw.observeReturnCode? final = some 1)
     (htag : Zesu.DecodedValue.observeOptionTag? final
       Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr = some true)
@@ -149,11 +150,10 @@ theorem accepted_checks_determine_classification {final : BinaryFv.RiscV.State}
   Zesu.Entrypoints.ZesuDecodeRaw.classifyWrapperRun_accepted _ _ _ steps _ _ final value hcode rfl
     rfl Zesu.Entrypoints.ZesuDecodeRaw.canonicalResultBuffer_ne_zero htag hvalue
 
-/-- The conditional root theorem. Its premise is exactly the three exported contracts consumed by
-the concrete runner. Instruction-level proofs can discharge or strengthen that premise without
-changing the public statement. -/
-theorem root_compliance_of_exported_contracts
-    (contracts : Zesu.Entrypoints.ZesuDecodeRaw.ExportedContractAssumptions) :
+/-- The Level 1 conditional theorem. Its premise contains only the compiled runner children not yet
+proved directly. -/
+theorem compliance_of_level1_contracts
+    (contracts : Zesu.Entrypoints.ZesuDecodeRaw.CompiledLevel1Assumptions) :
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
         RiscvSpec.execute binary input = .ok (BinaryFv.Specs.SSZ.decode input) := by
@@ -161,7 +161,8 @@ theorem root_compliance_of_exported_contracts
   cases specResult : BinaryFv.Specs.SSZ.decode input with
   | accepted value =>
       obtain ⟨execution⟩ :=
-        Zesu.Entrypoints.ZesuDecodeRaw.successfulRun_of_exported contracts inputBound specResult
+        Zesu.Entrypoints.ZesuDecodeRaw.successfulRun_of_compiledLevel1
+          contracts inputBound specResult
       rw [RiscvSpec.execute_eq_executeChecked,
         Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_eq_executeDecode binary_is_canonical inputBound]
       exact Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_accepted_of_run input value
@@ -169,11 +170,23 @@ theorem root_compliance_of_exported_contracts
         execution.returnCode execution.storedPresent execution.inputPreserved execution.storedValue
   | rejected =>
       obtain ⟨execution⟩ :=
-        Zesu.Entrypoints.ZesuDecodeRaw.rejectedRun_of_exported contracts inputBound specResult
+        Zesu.Entrypoints.ZesuDecodeRaw.rejectedRun_of_compiledLevel1
+          contracts inputBound specResult
       rw [RiscvSpec.execute_eq_executeChecked,
         Zesu.Entrypoints.ZesuDecodeRaw.executeChecked_eq_executeDecode binary_is_canonical inputBound]
       exact Zesu.Entrypoints.ZesuDecodeRaw.executeDecode_rejected_of_run input
         execution.builds execution.trace execution.withinStepBound execution.accessors
         execution.returnCode execution.specRejection execution.storedAbsent
+
+/-- The sole public root of the compliance proof. Its `hLevel2` premise is exactly the reviewed
+allocator, inlined `ssz_raw.decode`, and emitted `memcpy` contracts; both accessors are discharged
+by concrete Sail execution. -/
+theorem root_compliance
+    (hLevel2 : Entrypoints.ZesuDecodeRaw.Level2ContractAssumptions) :
+    ∀ input : ByteArray,
+      input.size < 2 * 1024 * 1024 →
+        RiscvSpec.execute binary input = .ok (BinaryFv.Specs.SSZ.decode input) :=
+  compliance_of_level1_contracts
+    (Entrypoints.ZesuDecodeRaw.contracts_of_level1 hLevel2)
 
 end BinaryFv.Zesu
