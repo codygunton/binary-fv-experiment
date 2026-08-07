@@ -239,7 +239,7 @@ COMPAT
   '';
 
   binaryFvLean = pkgs.runCommand "binary-fv-lean" {
-    nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.git pkgs.jq ];
+    nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.git pkgs.jq pkgs.python3 ];
   } ''
     cp -R ${repo} source
     chmod -R u+w source
@@ -298,21 +298,25 @@ COMPAT
       exit 1
     fi
 
-    # The checked proof tree has no proof placeholders. Fail on any declaration whose proof is a
-    # standalone `sorry`; prose that discusses historical scaffolds does not match this audit.
-    sorrySites=$(grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/ || true)
-    if [ -n "$sorrySites" ]; then
-      echo "Lean proof declarations may not contain standalone sorry placeholders." >&2
-      echo "$sorrySites" >&2
-      exit 1
+    python3 tools/check_lean_trust.py
+
+    mkdir -p "$out/profiles"
+    # Profile the compliance theorem's import closure, not the separate generated-data evidence.
+    lake build BinaryFv.Zesu.Root 2>&1 | tee "$out/root-build.log"
+    lake env lean BinaryFv/Zesu/TrustAudit.lean
+    python3 tools/lean_profile.py --build-log "$out/root-build.log" \
+      --out "$out/profiles" report > "$out/profile.md"
+    python3 tools/lean_profile.py --build-log "$out/root-build.log" \
+      --out "$out/profiles" capture --threshold 15 --jobs 4
+    if find "$out/profiles" -name '*.json' -print -quit | grep -q .; then
+      python3 tools/lean_profile.py --out "$out/profiles" merge
     fi
 
-
-    lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
+    lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest 2>&1 \
+      | tee "$out/full-build.log"
 
     # Zesu production-binary validation remains diagnostic-only.
     lake build ZesuVerificationTests
-    touch "$out"
   '';
 
   devShell = pkgs.mkShell {

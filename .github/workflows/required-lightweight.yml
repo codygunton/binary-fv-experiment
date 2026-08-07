@@ -35,6 +35,9 @@ jobs:
     name: Root Lean library
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v6
       - uses: DeterminateSystems/determinate-nix-action@v3
@@ -42,7 +45,40 @@ jobs:
         # Builds the proof plus the production-binary diagnostic modules: BinaryOccurrenceCheck (blob-schedule slice) and
         # ScaleOccurrenceCheck (all 141 function instances) — the native_decide checker/oracle-agreement and the
         # negative (mutation) theorems. The validation-import guard keeps them out of the theorem graph.
-        run: nix build --max-jobs 1 --print-build-logs --no-link .#binary-fv-lean
+        run: |
+          nix build --max-jobs 1 --print-build-logs \
+            --out-link "$RUNNER_TEMP/binary-fv-lean" .#binary-fv-lean
+          cat "$RUNNER_TEMP/binary-fv-lean/profile.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Lean profiles
+        uses: actions/upload-artifact@v6
+        with:
+          name: lean-profiles-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/binary-fv-lean/profile.md
+            ${{ runner.temp }}/binary-fv-lean/root-build.log
+            ${{ runner.temp }}/binary-fv-lean/full-build.log
+            ${{ runner.temp }}/binary-fv-lean/profiles/merged.json
+          retention-days: 30
+      - name: Update PR build profile
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PROFILE_FILE: ${{ runner.temp }}/binary-fv-lean/profile.md
+        shell: bash
+        run: |
+          marker='<!-- binary-fv-lean-profile -->'
+          comment_id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --paginate --jq ".[] | select(.body | contains(\"$marker\")) | .id" | head -n1)"
+          if test -n "$comment_id"; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
+              --raw-field "body=$(<"$PROFILE_FILE")"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              --raw-field "body=$(<"$PROFILE_FILE")"
+          fi
 
   production-evidence:
     name: Production-ELF execution checks and coverage

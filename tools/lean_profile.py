@@ -92,6 +92,21 @@ def cmd_capture(a: argparse.Namespace) -> None:
         print(f"    FAILED (often a stack overflow under tracing): {m}")
 
 
+def cmd_report(a: argparse.Namespace) -> None:
+    """Write stable Markdown from Lake's per-module timing lines."""
+    times = module_times(a.build_log)
+    ranked = sorted(times.items(), key=lambda item: (-item[1], item[0]))
+    total = sum(times.values())
+    print("<!-- binary-fv-lean-profile -->")
+    print("Lean build profile: "
+          f"**{len(times)} modules, {total:.1f}s aggregate module time**.")
+    print("")
+    print("| Slowest module | Time |")
+    print("|---|---:|")
+    for module, seconds in ranked[:a.limit]:
+        print(f"| `{module}` | {seconds:.1f}s |")
+
+
 def cmd_merge(a: argparse.Namespace) -> None:
     files = sorted(f for f in glob.glob(os.path.join(a.out, "*.json"))
                    if os.path.basename(f) not in ("merged.json", "index.json"))
@@ -308,6 +323,9 @@ def main() -> None:
     c.add_argument("--threshold", type=float, default=1.5, help="skip modules faster than this")
     c.add_argument("--jobs", type=int, default=8)
     c.set_defaults(func=cmd_capture)
+    r = sub.add_parser("report", help="Markdown summary of Lake module timings")
+    r.add_argument("--limit", type=int, default=10)
+    r.set_defaults(func=cmd_report)
     sub.add_parser("merge", help="combine into one profile").set_defaults(func=cmd_merge)
     s = sub.add_parser("serve", help="browse and open in profiler.firefox.com")
     s.add_argument("--port", type=int, default=7613)
