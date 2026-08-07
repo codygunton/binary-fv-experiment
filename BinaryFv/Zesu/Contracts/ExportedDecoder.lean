@@ -184,7 +184,7 @@ def DecoderGlobalsRep (layout : DecoderGlobalsLayout) (rep : ContainerRepresenta
 ## Model-level facts
 
 These are `Prop`-level checks on the model, independent of any Sail execution — the definitional
-half of Row A's vertical tests.
+half of the function-instance contract tests.
 -/
 
 /-- **Second decoder call produces `alreadyDecoded`.** Once `attempted` is set, any call outcome is
@@ -256,7 +256,7 @@ def preZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
 /-- The wrapper exit binding, after retiring the return: the exact `a0` return code, the complete
 updated decoder globals (`attempted`, 32-bit status, and the inline `stored_result` object), and the
 preserved input and code. Allocation effects and preserved frames are added when the runner is proved
-(Row D); this fixes the observable interface. -/
+by the execution proof; this fixes the observable interface. -/
 def postZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)
     (resultBuffer : Nat) (rep : ContainerRepresentation BinaryFv.Specs.SSZ.RawV4)
     (incoming : DecoderGlobalsModel) (args : ZesuDecodeRawArgs)

@@ -86,7 +86,7 @@ def referencesValid : Bool :=
 /-! ## Allocator/heap runtime globals
 
 `runtimeGlobals` are the allocator's mutable cursor `ZKVM_HEAP_POS`, its limit `ZKVM_HEAP_TOP`, and the
-64 MiB `heap` region, read from the pinned ELF symbol table. The heap runner (Row D) initializes the
+64 MiB `heap` region, read from the pinned ELF symbol table. The heap execution model initializes the
 cursor and runs allocations inside this region. -/
 
 /-- The canonical linked address of a runtime global by symbol name. -/

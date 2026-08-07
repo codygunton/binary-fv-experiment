@@ -22,7 +22,7 @@ The Zig `?T` option layouts are the ABI's payload-then-discriminant layout at th
 The container representations are **concrete but partial**: `repRawV4` is the materialized fixed-field
 representation `RawV4FixedFieldsRep`; the seven nested-container representations are deliberately
 trivial placeholders, to be strengthened to full field/collection layouts in the containers row (H).
-Per `ProgramCorrectness`, a weak representation only weakens a contract's success arm — it cannot make
+Per `ContractComposition`, a weak representation only weakens a contract's success arm — it cannot make
 the per-occurrence obligation vacuous, because `ImplementsInstance` still demands an actual entered
 trace reaching a generated exit with frame preservation.
 -/

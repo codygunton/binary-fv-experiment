@@ -21,7 +21,7 @@ Nothing here carries an address, an instruction word, or a symbol — an entry i
 contract selector, and the generated Elfling program is what binds each identity to canonical-ELF
 ranges.
 
-The qualified-name convention is the Zig module-qualified form, which the extraction row reconciles
+The qualified-name convention is the Zig module-qualified form, which generated-program validation reconciles
 against DWARF. The declaration line and the source content hash are **not** part of the identity;
 they are provenance carried by generated occurrences and checked — the hash for equality against
 `pinnedSourceManifest`, the line for `> 0` — by `sourceProvenanceRecorded`.
@@ -31,7 +31,7 @@ they are provenance carried by generated occurrences and checked — the hash fo
 
 Each source function's declaring source file, by path only. Content hashes and declaration lines are
 validated *provenance* (`DeclarationProvenance`), carried by generated occurrences and checked
-against the pinned source in the extraction row — they are not part of these identities. -/
+against the pinned source — they are not part of these identities. -/
 
 /-- The SSZ decoder body: `src/stateless/stateless/ssz_raw.zig`. -/
 def decoderSourceFile : SourceFile :=
@@ -93,7 +93,7 @@ deriving DecidableEq, Repr, Inhabited
 
 /-- Why a source function is excluded from the cataloged semantic proof — either it has no live
 occurrence in the canonical binary, or it is reachable emitted glue whose net effect is captured
-elsewhere. The last two are the row-2 reachable-but-excluded categories, shared with the generated
+elsewhere. The last two are the reachable-but-excluded categories shared with the generated
 Elfling reachable-partition taxonomy (stack-integration point). -/
 inductive ExclusionReason where
   /-- Not compiled into the `ReleaseSmall` object (a test-only helper). -/

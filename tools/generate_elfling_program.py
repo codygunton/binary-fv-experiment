@@ -576,8 +576,8 @@ def signature_params(d, dies_by_off, children_of, name_of_off):
 
     An optimized concrete function instance may omit a `DW_TAG_formal_parameter` child entirely — not merely
     leave it without a location. Enumerating only the concrete function instance's children therefore produced a
-    binding table that was silently SHORT: four `bytesAt` function_instances had no `offset` row and the
-    `readU64`/`readArray` function_instances enclosing them had no rows at all, so Row A recorded them as
+    binding table that was silently SHORT: four `bytesAt` function_instances had no `offset` entry and the
+    `readU64`/`readArray` function_instances enclosing them had no entries at all, so the contract catalog recorded them as
     "paramless" when their source functions plainly take parameters. The abstract origin always carries the
     full signature, so it is the authority for WHICH parameters exist; the concrete function instance is the
     authority for WHERE each one lives."""
@@ -1049,7 +1049,7 @@ def emit_bindings_json(function_instances_sorted, effective, recoveries, derived
 
     `program.json`'s per-function-instance `bindings` are the RAW DWARF rows, which still carry the 61
     `callerProvided` gaps. Any consumer that wants the *effective* entry placement of a function instance's
-    parameters — Row C's production-ELF binding validator, for one — must read the recovered table, not
+    parameters — including the production-ELF binding validator — must read the recovered table, not
     the raw one, or it silently validates against a location DWARF never gave. Emitting it here keeps
     one generator as the single source of truth for both the Lean inventory and the binary evidence."""
     return json.dumps({
@@ -1288,7 +1288,7 @@ def main():
 
     # Independently generated pinned-source manifest: each cataloged source file mapped to the SHA-256
     # of its pinned content, computed here from the exact source the extractor read. The handwritten
-    # row-1 `pinnedSourceManifest` is CHECKED against this (review blocker #5) rather than trusted.
+    # `pinnedSourceManifest` is CHECKED against this (review blocker #5) rather than trusted.
     source_manifest = sorted(({"path": pth, "sha256": file_hash[pth]} for pth in set(file_hash)),
                              key=lambda e: e["path"])
 
@@ -1503,12 +1503,12 @@ def emit_lean(p):
     L.append("    excludedFunctionInstances := generatedExcludedFunctionInstances }")
     L.append("")
     # Independently generated pinned-source manifest (path -> content SHA-256), for cross-checking the
-    # handwritten row-1 `pinnedSourceManifest` rather than trusting it.
+    # handwritten `pinnedSourceManifest` rather than trusting it.
     L.append("/-! ### Independently generated pinned-source manifest. -/")
     L.append("")
     L.append("/-- Each cataloged source file's path mapped to the SHA-256 of its pinned content, computed")
     L.append("by the generator from the exact source it read. `GeneratedProvenanceCheck` proves the")
-    L.append("handwritten `pinnedSourceManifest` equals this, so the row-1 hashes are validated. -/")
+    L.append("handwritten `pinnedSourceManifest` equals this, so the hashes are validated. -/")
     L.append("def generatedSourceManifest : List (String × String) :=")
     sm = ", ".join(f'({lean_str(e["path"])}, {lean_str(e["sha256"])})' for e in p["sourceManifest"])
     L.append("  [" + sm + "]")
@@ -1611,7 +1611,7 @@ def emit_md(p):
 
 
 # ---------------------------------------------------------------------------
-# Function instance manifest (row D1)
+# Function-instance manifest
 # ---------------------------------------------------------------------------
 #
 # The single source of both the Lean manifest and the Markdown work-assignment view, so the two can
@@ -1667,23 +1667,30 @@ CONTRACT_TAGS = {
     "raw_decoder_root.allocator": "allocatorCtor",
 }
 
-# ContractTag -> the plan row that owns its local proofs. Row E is the blob-schedule vertical slice,
-# F the leaves/options/runtime, G the collections, H the containers and decodeRaw/decode, I the
-# exported wrapper.
-OWNING_ROW = {
-    "optionalBlobSchedule": "E",
-    "optionalU64": "F", "requireCanonicalOffsets": "F", "requireU32Length": "F",
-    "readOffset": "F", "readU32": "F", "readU64": "F", "readU256": "F", "readArray": "F",
-    "bytesAt": "F", "hasExactErePrefix": "F", "rawAlloc": "F", "memcpy": "F", "memmove": "F",
-    "rawResult": "F", "rawError": "F", "allocatorAlloc": "F", "allocatorResize": "F",
-    "allocatorRemap": "F", "allocatorFree": "F", "allocatorCtor": "F",
-    "versionedHashes": "G", "withdrawals": "G", "depositRequests": "G",
-    "withdrawalRequests": "G", "consolidationRequests": "G", "publicKeys": "G",
-    "byteListList": "G",
-    "newPayloadRequest": "H", "executionPayload": "H", "executionRequests": "H",
-    "executionWitness": "H", "chainConfig": "H", "forkConfig": "H", "forkActivation": "H",
-    "decodeRaw": "H", "decode": "H",
-    "zesuDecodeRaw": "I",
+# ContractTag -> the domain group that owns its local proofs. This is presentation metadata for the
+# generated backlog, not a proof input.
+PROOF_GROUP = {
+    "optionalBlobSchedule": "blob-schedule",
+    "optionalU64": "leaves-options-runtime", "requireCanonicalOffsets": "leaves-options-runtime",
+    "requireU32Length": "leaves-options-runtime", "readOffset": "leaves-options-runtime",
+    "readU32": "leaves-options-runtime", "readU64": "leaves-options-runtime",
+    "readU256": "leaves-options-runtime", "readArray": "leaves-options-runtime",
+    "bytesAt": "leaves-options-runtime", "hasExactErePrefix": "leaves-options-runtime",
+    "rawAlloc": "leaves-options-runtime", "memcpy": "leaves-options-runtime",
+    "memmove": "leaves-options-runtime", "rawResult": "leaves-options-runtime",
+    "rawError": "leaves-options-runtime", "allocatorAlloc": "leaves-options-runtime",
+    "allocatorResize": "leaves-options-runtime", "allocatorRemap": "leaves-options-runtime",
+    "allocatorFree": "leaves-options-runtime", "allocatorCtor": "leaves-options-runtime",
+    "versionedHashes": "collections", "withdrawals": "collections",
+    "depositRequests": "collections", "withdrawalRequests": "collections",
+    "consolidationRequests": "collections", "publicKeys": "collections",
+    "byteListList": "collections",
+    "newPayloadRequest": "containers-and-decoders", "executionPayload": "containers-and-decoders",
+    "executionRequests": "containers-and-decoders", "executionWitness": "containers-and-decoders",
+    "chainConfig": "containers-and-decoders", "forkConfig": "containers-and-decoders",
+    "forkActivation": "containers-and-decoders", "decodeRaw": "containers-and-decoders",
+    "decode": "containers-and-decoders",
+    "zesuDecodeRaw": "exported-entrypoint",
 }
 
 # Human-readable rendering of each source function's step bound, for the MANIFEST.md view ONLY. This is
@@ -1770,9 +1777,9 @@ def manifest_rows(p, bindings):
                 f"MANIFEST: function instance {i} `{function_instance['qualified']}` "
                 "has no source function tag"
             )
-        row_owner = OWNING_ROW.get(tag)
-        if row_owner is None:
-            raise SystemExit(f"MANIFEST: tag {tag} has no owning row")
+        proof_group = PROOF_GROUP.get(tag)
+        if proof_group is None:
+            raise SystemExit(f"MANIFEST: tag {tag} has no proof group")
         calls = [
             callee[1]
             for callee in function_instance["externalCalls"]
@@ -1798,7 +1805,7 @@ def manifest_rows(p, bindings):
             "bindingRows": sorted(brows.get(i, [])),
             "dependencies": sorted(set(list(function_instance["children"]) + calls)),
             "theoremName": f"localContract_functionInstance{i}",
-            "owningRow": row_owner,
+            "proofGroup": proof_group,
             "proofStatus": "pending",
         })
     # Manifest integrity, enforced at generation time: one row per function instance, one function instance per
@@ -1829,7 +1836,7 @@ def emit_manifest_lean(p, rows):
     def strs(xs): return "#[" + ", ".join(lean_str(x) for x in xs) + "]"
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-manifest). DO NOT EDIT.",
          "import GeneratedProgram", "",
-         "/-!", "# The function-instance manifest (row D1)", "",
+         "/-!", "# The function-instance manifest", "",
          "One row per generated function instance, in function-instance-index order. Emitted from the same data as",
          "`MANIFEST.md`, so the work-assignment view and the Lean-visible backlog cannot drift.",
          "",
@@ -1860,7 +1867,7 @@ def emit_manifest_lean(p, rows):
          "  bindingRows : Array String",
          "  dependencies : Array Nat",
          "  theoremName : String",
-         "  owningRow : String",
+         "  proofGroup : String",
          "  proofStatus : String",
          "deriving Repr, Inhabited, DecidableEq", "",
          "/-- The complete manifest: exactly one row per generated function instance, in index order. -/",
@@ -1878,7 +1885,7 @@ def emit_manifest_lean(p, rows):
             f'      bindingRows := {strs(r["bindingRows"])}, '
             f'dependencies := {nats(r["dependencies"])},\n'
             f'      theoremName := {lean_str(r["theoremName"])}, '
-            f'owningRow := {lean_str(r["owningRow"])}, '
+            f'proofGroup := {lean_str(r["proofGroup"])}, '
             f'proofStatus := {lean_str(r["proofStatus"])} }}')
     L.append(",\n".join(items))
     L += ["  ]", "", "end BinaryFv.Zesu.Elflings.Generated", ""]
@@ -1887,14 +1894,14 @@ def emit_manifest_lean(p, rows):
 
 def emit_manifest_md(p, rows):
     function_instances = p["function_instances"]
-    by_row = {}
+    by_group = {}
     for r in rows:
-        by_row.setdefault(r["owningRow"], []).append(r)
+        by_group.setdefault(r["proofGroup"], []).append(r)
     by_source_function = {}
     for r in rows:
         key = r["qualified"] + ("[" + ",".join(r["specialization"]) + "]" if r["specialization"] else "")
         by_source_function.setdefault(key, []).append(r)
-    M = ["# Function instance manifest — the Row D local-proof backlog", "",
+    M = ["# Function-instance manifest — local-proof backlog", "",
          "GENERATED by `tools/generate_elfling_program.py`. Do not edit; regenerate.",
          "",
          "Emitted from the same rows as `GeneratedManifest.lean`, so this view and the Lean-visible",
@@ -1909,19 +1916,19 @@ def emit_manifest_md(p, rows):
          "",
          f"**{len(rows)} function instances** across **{len(by_source_function)} source functions**.",
          "",
-         "## By owning plan row", "",
-         "| row | function instances | source functions |", "|---|--:|--:|"]
-    for row_owner in sorted(by_row):
-        rs = by_row[row_owner]
+         "## By proof group", "",
+         "| group | function instances | source functions |", "|---|--:|--:|"]
+    for proof_group in sorted(by_group):
+        rs = by_group[proof_group]
         source_functions = {r["qualified"] for r in rs}
-        M.append(f"| {row_owner} | {len(rs)} | {len(source_functions)} |")
+        M.append(f"| {proof_group} | {len(rs)} | {len(source_functions)} |")
     M += ["", "## By source function", "",
           "Each group is one source function; every function instance of it must be proved locally, and no",
           "function instance inherits its sibling's proof.", ""]
     for key in sorted(by_source_function):
         rs = by_source_function[key]
         bound = step_bound_expr(rs[0]["tag"], rs[0]["specialization"])
-        M += [f"### `{key}` — {len(rs)} function instance(s), row {rs[0]['owningRow']}", "",
+        M += [f"### `{key}` — {len(rs)} function instance(s), proof group `{rs[0]['proofGroup']}`", "",
               f"Step bound (from `functionContract`, human mirror): `{bound}`", "",
               "| function instance | kind | entry | exits | deps | binding rows | theorem | status |",
               "|--:|---|---|--:|---|---|---|---|"]

@@ -12,9 +12,7 @@ import BinaryFv.Zesu.Elflings.GeneratedProgramValidation
 import BinaryFv.Zesu.Elflings.GeneratedProvenanceCheck
 import BinaryFv.Zesu.Elflings.GeneratedProgramCfg
 import BinaryFv.Zesu.Elflings.GeneratedReachabilityExact
-import BinaryFv.Zesu.Elflings.GeneratedProgramEdgeClass
 import BinaryFv.Zesu.Elflings.GeneratedProgramInstructions
-import BinaryFv.Zesu.Elflings.GeneratedProgramNesting
 import BinaryFv.Zesu.Elflings.GeneratedProgramReachablePartition
 import BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
@@ -42,6 +40,7 @@ import BinaryFv.Zesu.Contracts.Canonicality
 import BinaryFv.Zesu.Contracts.PrimitiveReadsAndSlices
 import BinaryFv.Zesu.MemoryRepresentation.PrimitiveReads
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Execution
+import BinaryFv.Zesu.ControlFlow.MachineRegions
 import BinaryFv.Zesu.Interface
 import BinaryFv.Zesu.Root
 

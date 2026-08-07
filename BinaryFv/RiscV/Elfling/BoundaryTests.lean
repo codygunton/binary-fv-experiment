@@ -8,7 +8,7 @@ Zesu program. The positive cases account for calls, returns, and inline exits. T
 mutate one edge, continuation, or step count at a time and prove that the corresponding validity
 predicate becomes false.
 Definitional checks on `CallSite` / `InlineBoundary` / `ExitBoundary` / `ScopedTrace` that the plan's
-Row A vertical tests call for. They hold at the boundary layer's own abstraction (no Sail runner), so a
+The function-instance contract tests require. They hold at the boundary layer's own abstraction (no Sail runner), so a
 regression in the boundary definitions fails them.
 
 The positive tests exercise the *composition* shape: a checked call/inline transfer plus a confined

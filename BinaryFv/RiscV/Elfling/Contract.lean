@@ -312,7 +312,7 @@ of the function instances below it, retiring its own steps only inside what it o
 
 `own` is generated data — the function instance's ranges plus the ranges of the uncataloged source functions it
 absorbs — so the local obligation cannot be relaxed by choosing a bigger address set. This is the
-proposition `LocalContractAssumptions` quantifies, and the one a later row discharges per function instance.
+proposition `LocalContractAssumptions` quantifies, and the one an execution proof discharges per function instance.
 -/
 def FunctionInstanceContract.LocallyImplementsFunctionInstance {Args Outcome : Type}
     (own : BitVec 64 → Prop) (entry : BitVec 64) (exit : BitVec 64 → Prop)

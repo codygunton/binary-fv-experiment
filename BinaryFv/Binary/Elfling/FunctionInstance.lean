@@ -110,7 +110,7 @@ structure FunctionInstance where
   The validation checks each is a real decoded direct successor. Defaults to `#[]`. -/
   edges : Array DirectEdge := #[]
   /-- Validated source provenance: the pinned source file's content hash and the declaration's
-  location. The generator fills this from debug information; the extraction row validates it against
+  location. The generator fills this from debug information; generated-program validation checks it against
   the pinned source. It is separate from `id` (stable identity) so a wrong hash fails validation
   rather than breaking identity matching. -/
   declProvenance : DeclarationProvenance
@@ -148,4 +148,3 @@ def entryInRegions (functionInstance : FunctionInstance) : Prop :=
 end FunctionInstance
 
 end BinaryFv.Binary.Elfling
-
