@@ -123,7 +123,7 @@ let
   # The SSZ proof imports the executable SizzLean decoder, but only its pure wire-format closure.
   # Keep the source-level pins here: `SizzLean`'s normal Lake package also pulls its SHA/OpenSSL
   # packages, which the decoder does not need and the BinaryFv proof must not link.
-  sszSpecLean = pkgs.runCommand "binary-fv-ssz-spec-lean" {
+  sizzLeanClosure = pkgs.runCommand "binary-fv-sizzlean-closure" {
     nativeBuildInputs = [ pkgs.coreutils ];
   } ''
     copy_checked() {
@@ -135,7 +135,7 @@ let
       cp "$source" "$destination"
     }
 
-    mkdir -p "$out/SizzLean/Spec" "$out/SszBridge"
+    mkdir -p "$out/SizzLean/Spec"
     spec_root=${etheorem}/packages/SizzLean/SizzLean/Spec
     copy_checked "$spec_root/Type.lean" \
       ef7fd929a536cf157808cb4ace0255e3992dda566f93b77737166c3fb9139711 \
@@ -155,10 +155,6 @@ let
     copy_checked "$spec_root/Deserialize.lean" \
       db05b7d663445dc79e563ef0095482544ff950a7b51fd89e14fcb301b4830ef5 \
       "$out/SizzLean/Spec/Deserialize.lean"
-    copy_checked ${repo}/targets/ssz/zesu/spec/SszBridge/Core.lean \
-      0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
-      "$out/SszBridge/Core.lean"
-
     ${pkgs.coreutils}/bin/printf '%s\n' \
       etheorem=032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0 \
       SizzLean/Spec/Type.lean=ef7fd929a536cf157808cb4ace0255e3992dda566f93b77737166c3fb9139711 \
@@ -167,7 +163,6 @@ let
       SizzLean/Spec/SSZError.lean=0e8ddfb73dc7ac7d6a56a2943e950051abd9310b25465e2f415c8a64327c4448 \
       SizzLean/Spec/Serialize.lean=d830cb74ded4cddbba87e4400ebaef71060f527317c5783d9a4fe9d02e7c0ae2 \
       SizzLean/Spec/Deserialize.lean=db05b7d663445dc79e563ef0095482544ff950a7b51fd89e14fcb301b4830ef5 \
-      SszBridge/Core.lean=0b408b5d7a463cf854b57cabfead2f7e521f7384d276f3438b1d49af81049a32 \
       > "$out/provenance.txt"
   '';
 
@@ -180,7 +175,7 @@ let
 
     mkdir -p build .lake/packages/repl "$TMPDIR/home"
     ln -s ${sailRiscvLean} build/sail-riscv-lean
-    ln -s ${sszSpecLean} build/ssz-spec-lean
+    ln -s ${sizzLeanClosure} build/sizzlean-lean
     ln -s ${zesuSszElfLean} build/zesu-ssz-elf-lean
     ln -s ${zesuAbiManifest} build/zesu-abi-lean
     ln -s ${elflingProgram} build/elfling-program-lean
@@ -233,23 +228,23 @@ let
     # Exactly four SSZ scaffolds are authorized. Keep the check declaration-scoped by pinning both
     # the file and the count; all helper proofs remain sorry-free.
     #
-    # The SSZ four are the two root runner/API bridges in `SSZ/Root.lean` and the two live-trace
+    # The four are the two root runner/API bridges in `Zesu/Root.lean` and the two live-trace
     # holes in `Entrypoints/ZesuDecodeRaw/Execution.lean`. The allowlist previously named only
-    # `SSZ/Root.lean` and asserted a count of 1 there, which predated the root scaffold being split
+    # `Zesu/Root.lean` and asserted a count of 1 there, which predated the root scaffold being split
     # into two theorems plus two trace obligations — so this audit rejected its own tree. Pinning
     # both files with exact counts is strictly tighter than the previous rule, not looser: the
     # Execution.lean holes were formerly unlisted and are now explicitly bounded.
     sorrySites=$(grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/ || true)
     unexpectedSorries=$(printf '%s\n' "$sorrySites" | grep -v -E \
-      '^BinaryFv/SSZ/Root\.lean:[0-9]+:.*sorry$|^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:[0-9]+:.*sorry$' \
+      '^BinaryFv/Zesu/Root\.lean:[0-9]+:.*sorry$|^BinaryFv/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:[0-9]+:.*sorry$' \
       || true)
     if [ -n "$unexpectedSorries" ]; then
       echo "Only the declaration-allowlisted SSZ root scaffolds may contain sorry." >&2
       echo "$unexpectedSorries" >&2
       exit 1
     fi
-    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Root\.lean:')" = 2
-    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/SSZ/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
+    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Zesu/Root\.lean:')" = 2
+    test "$(printf '%s\n' "$sorrySites" | grep -c '^BinaryFv/Zesu/Entrypoints/ZesuDecodeRaw/Execution\.lean:')" = 2
 
     lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
     touch "$out"
@@ -271,11 +266,11 @@ let
 in
 {
   public = {
-    inherit binaryFvLean sailRiscvLean sszSpecLean zesuSszElfLean;
+    inherit binaryFvLean sailRiscvLean sizzLeanClosure zesuSszElfLean;
 
     binary-fv-lean = binaryFvLean;
     sail-riscv-lean = sailRiscvLean;
-    ssz-spec-lean = sszSpecLean;
+    sizzlean-lean = sizzLeanClosure;
     zesu-ssz-elf-lean = zesuSszElfLean;
   };
 
