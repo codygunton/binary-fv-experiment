@@ -306,8 +306,15 @@ COMPAT
     lake env lean BinaryFv/Zesu/TrustAudit.lean
     python3 tools/lean_profile.py --build-log "$out/root-build.log" \
       --out "$out/profiles" report > "$out/profile.md"
-    python3 tools/lean_profile.py --build-log "$out/root-build.log" \
-      --out "$out/profiles" capture --threshold 15 --jobs 4
+    # Traced captures are best-effort evidence, never the bar: `--jobs 1` keeps peak memory to one
+    # traced elaboration (four in parallel exhausted the 16 GB CI runner and the job was
+    # memory-killed), the 45 s threshold limits tracing to the few genuinely hot modules, and a
+    # capture failure downgrades to a logged warning while the ranked timing table above — the
+    # per-PR metric — still comes from the untraced build log.
+    if ! python3 tools/lean_profile.py --build-log "$out/root-build.log" \
+        --out "$out/profiles" capture --threshold 45 --jobs 1; then
+      echo "warning: trace.profiler capture failed; continuing without traced profiles" >&2
+    fi
     if find "$out/profiles" -name '*.json' -print -quit | grep -q .; then
       python3 tools/lean_profile.py --out "$out/profiles" merge
     fi
