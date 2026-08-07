@@ -15,8 +15,10 @@ effective parameter-binding tables. The effective table is the one proof authors
 contains narrow, source-checked recovery for parameters DWARF omitted, while the raw table remains
 available to audit what the compiler actually reported. The output also distinguishes emitted calls
 to explicitly excluded functions and records return exits separately from other ways control leaves
-a function instance. Run it through `nix build .#elfling-program`; the build runs it twice and
-requires byte-identical output.
+a function instance. Each generated Lean definition is named from its source function,
+specialization, and inline call path, so proof code does not depend on an instance's position in the
+generated array. Run the generator through `nix build .#elfling-program`; the build tests those names,
+runs the generator twice, and requires byte-identical output.
 
 `lean_profile.py` captures, merges and serves Lean's own profiler output when the build gets slow.
 `capture` writes one Firefox Profiler JSON per module (Lean emits one per process, and Lake runs one
