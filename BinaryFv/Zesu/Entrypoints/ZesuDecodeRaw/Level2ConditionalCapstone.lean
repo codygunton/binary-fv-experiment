@@ -34,6 +34,7 @@ claim. -/
 inductive Level2NonFirstRoute (args : ZesuDecodeRawArgs) (fromStep : Nat) (entry after : State) : Prop where
   | firstInvalidShort
       {atDecode firstAfter branch retryBefore childAfter handoff afterTail afterStore : State}
+      {stackBase : Nat}
       {firstUsed retryUsed : Nat} {branchRetired retryRetired link s0 s1 s2 : BitVec 64}
       (route : FirstInvalidShortToExitResult args stackBase fromStep entry atDecode firstAfter branch
         retryBefore childAfter handoff afterTail afterStore after firstUsed retryUsed branchRetired
@@ -41,6 +42,7 @@ inductive Level2NonFirstRoute (args : ZesuDecodeRawArgs) (fromStep : Nat) (entry
       Level2NonFirstRoute args fromStep entry after
   | firstInvalidPrefixMismatch
       {atDecode firstAfter branch retryBefore childAfter handoff afterTail afterStore : State}
+      {stackBase : Nat}
       {firstUsed retryUsed : Nat} {branchRetired retryRetired link s0 s1 s2 : BitVec 64}
       (route : FirstInvalidPrefixMismatchToExitResult args stackBase fromStep entry atDecode firstAfter
         branch retryBefore childAfter handoff afterTail afterStore after firstUsed retryUsed
@@ -48,6 +50,7 @@ inductive Level2NonFirstRoute (args : ZesuDecodeRawArgs) (fromStep : Nat) (entry
       Level2NonFirstRoute args fromStep entry after
   | firstInvalidExactSuccess
       {atDecode firstAfter branch retryBefore childAfter dispatch copyStart callState afterCopy routeAfter afterStore : State}
+      {stackBase : Nat}
       {firstUsed retryUsed copyUsed : Nat} {branchRetired retryRetired link s0 s1 s2 : BitVec 64}
       {value : BinaryFv.Specs.SSZ.StatelessInput} {contents : ByteArray}
       (route : FirstInvalidExactSuccessToExitResult args stackBase fromStep entry atDecode firstAfter branch
@@ -56,12 +59,14 @@ inductive Level2NonFirstRoute (args : ZesuDecodeRawArgs) (fromStep : Nat) (entry
       Level2NonFirstRoute args fromStep entry after
   | firstInvalidExactError
       {atDecode firstAfter branch retryBefore childAfter dispatch routeAfter afterStore : State}
+      {stackBase : Nat}
       {firstUsed retryUsed : Nat} {error : Contracts.DecodeError} {link s0 s1 s2 : BitVec 64}
       (route : FirstInvalidExactErrorToExitResult args stackBase fromStep entry atDecode firstAfter branch
         retryBefore childAfter dispatch routeAfter afterStore after firstUsed retryUsed error link s0 s1 s2) :
       Level2NonFirstRoute args fromStep entry after
   | firstPropagatedError
       {atDecode firstAfter branch retryBefore childAfter dispatch routeAfter afterStore : State}
+      {stackBase : Nat}
       {firstUsed propagatedUsed : Nat} {error : Contracts.DecodeError}
       {branchRetired retryRetired link s0 s1 s2 : BitVec 64}
       (route : FirstPropagatedErrorToExitResult args stackBase fromStep entry atDecode firstAfter branch

@@ -747,7 +747,7 @@ theorem first_propagated_error_to_exit
     simpa [retryBefore, branch, afterRegisterWrite_mem, wrapperAfterDecodeFirstErrorBranch] using
       firstGlobals.2.trans (storedAtDecode.trans source.2.2.2.2.2.1)
   have semanticResult : meaningDecode args.bytes = .error error := by
-    simp [Contracts.meaningDecode, rawResult, notInvalid]
+    simp [Contracts.meaningDecode, rawResult]
   refine ⟨atDecode, firstAfter, branch, retryBefore, childAfter, dispatch, routeAfter,
     afterStore, after, firstUsed, propagatedUsed, branchRetired, retryRetired, link, s0, s1, s2, ?_⟩
   exact ⟨rawResult, semanticResult, by simpa [firstArgsEq] using firstBound,
