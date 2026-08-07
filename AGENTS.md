@@ -2,9 +2,6 @@
 
 These instructions apply repository-wide.
 
-For the active Zesu SSZ proof stream, read `HANDOFF.md` after the worktree `STATUS.md` and referenced
-base plan. It records the accepted proof toolkit, exact branch state, and next control-flow boundary.
-
 ## Objective
 
 - The final goal is to prove that the shipped Zesu `zesu_decode_raw` implementation conforms to the
@@ -131,6 +128,325 @@ If your goal is not in the table and you are about to reach for `simp [<a state 
 the anti-pattern this table exists to prevent. Ask for a frame lemma instead — the answer is almost
 always that one exists, or should, and is three lines.
 
+### Build shape: what parallelising can and cannot buy
+
+Measured on this project, and each number changed a decision:
+
+- **The whole build is 125s wall / 800s user = ~7 of 64 cores.** It is chain-bound, not CPU-bound.
+- **One module runs on ~1.25 cores.** Lean elaborates a module essentially serially; Lake
+  parallelises only *across* modules. So a wide module is a serial segment of the build however
+  independent its contents are.
+- **The critical path is ~123s of the 125s**, and there are *four near-equal chains*. Fixing the
+  single biggest module bought **3s**, because the second chain was only 3s shorter. Before
+  optimising anything, compute what the path becomes *after* the fix -- "it is the biggest module"
+  is not a reason.
+
+**Splitting modules was tried project-wide and reverted. Do not reach for it.** Splitting the four
+biggest modules by dependency layer -- 118 machine-named files -- bought **12.5s** (110s vs 122.7s)
+and cost 121 files, 23 declarations that silently lost `private`, and **63s more CPU** than it saved
+in wall. The names carried no meaning (`DecodeInlineProof/L2_8.lean`), the parent module became an
+empty shim, and files were grouped by dependency depth rather than topic. See `128fe43`.
+
+Two things make it unattractive even where it works:
+
+- **It only applies to flat piles.** `BlobScheduleAndResultStores` (128 declarations, nearly all
+  independent) split cleanly, 41s to 28s. `DecodeInlineProof`, `Level2Epilogue` and
+  `Level2OutcomeDispatch` have **zero contiguous cut points** -- step one feeds step two feeds the
+  composition. And where the cost sits in a *single* declaration, no partition subdivides it: one
+  theorem in `Level2Epilogue` was 27s on its own.
+- **`private` is module-scoped.** Moving a declaration away from its dependents forces you to make it
+  public. That is an API change made by a refactoring script, not by a person.
+
+If you still need it, cut only at points no later declaration crosses, and enumerate `private
+theorem` and `set_option ... in` when you do -- missing three `private`s cut a real dependency, and
+`set_option ... in` modifies the *next* declaration, so orphaning it leaves a dangling `in`.
+
+**The alternative that actually paid: make the expensive declaration cheap.** Same module,
+`Level2Epilogue`, **47s to 12s in one file** with no new modules -- see the agreement-frame rule
+below and the duplicate-block rule above it.
+
+**You cannot delete an unused import.** Lean imports are transitive re-exports, so `B` importing `A`
+without using any of `A`'s declarations is *not* dead: consumers of `B` may be relying on `B` to
+re-export `A`. A 62-edge rewrite justified by "B never names anything from A" broke four modules in
+unrelated parts of the tree and was reverted wholesale. The condition to check is over `B`'s whole
+dependent cone, not over `B`.
+
+**Not all of the build is the theorem.** `root_compliance` needs 153 modules and builds in 83s; the
+full library is 241 modules and 126s. Generated-artifact validation is real kernel-checked evidence
+but nothing in the conformance argument depends on it, which is why it lives in the separate
+`BinaryFv.Evidence` target. Check whether the work you are optimising is on the path to the theorem
+at all.
+
+### Elaboration cost: find it by bisect, and suspect defeq before tactics
+
+Build time here is dominated by a handful of pathological *declarations*, not by proof volume. The
+spread across modules is 250x per line. Three rules, each bought with a measurement:
+
+**1. Profile with the profiler. Always `-Dtrace.profiler=true`, never `-Dprofiler=true`.**
+
+```bash
+lake env lean --tstack=65536 -Dtrace.profiler=true -Dtrace.profiler.threshold=1000 <File>.lean
+```
+
+This is the *only* instrument here that names the declaration it is timing. It prints a nested tree:
+
+```
+[Elab.async] [313.34] Lean.addDecl
+  [Kernel] [313.34] typechecking declarations [Validation.witnessValid_some]   <-- the answer
+```
+
+Read all three layers before concluding — they mean different things and the fix differs:
+`Elab.definition.value` / `Elab.step` is **elaboration** (tactics, defeq, unification), `Kernel` is
+**final typechecking of the proof term** (Lean already accepted it; the kernel is re-checking it).
+Note the top offender may sit under a bare `Lean.addDecl` async block with NO
+`Elab.definition.value` above it — a pure kernel cost has no tactic to blame, so a search restricted
+to `Elab.definition.value` silently misses exactly the worst cases.
+
+**`-Dprofiler=true` emits `type checking took 313s` with no declaration name and no source
+position.** It cannot attribute anything. Reaching for it costs an hour and produces confident wrong
+answers: it drove three rounds of invalid elimination here (see trap 3) before `trace.profiler`
+named the culprit in one run. If you find yourself inferring which declaration is slow, stop — you
+are using the wrong flag.
+
+**Read the per-tactic tree, not just the per-declaration total.** This is what finally located the
+11.4s `stackAgree`, after two wrong guesses at the same theorem: lower the threshold and the tree
+nests tactic steps under the declaration, so the offending `have` is named directly.
+
+```bash
+lake env lean --tstack=65536 -Dtrace.profiler=true -Dtrace.profiler.threshold=400 <File>.lean
+```
+
+**For a shareable profile, `-Dtrace.profiler.output=<file>.json` writes Firefox Profiler format**,
+loadable at profiler.firefox.com. In the UI use the **inverted call stack** to rank by *self* time.
+Two cautions: the file has no declaration-level frames -- its frames are trace classes (`Kernel`,
+`Elab.step: …simpAll`) -- and its sample weights come from the trace tree, not from sampling, so they
+carry the same inclusive-overlap problem as the text output. Proportions are informative; absolute
+per-declaration numbers are not there to be read off.
+
+Three traps, all of which cost real time here:
+
+- **Do not sum the plain profiler's tactic times.** They are reported *inclusively*, so nested entries
+  double-count and can total more than the file's own wall-clock. Summing them produced three separate
+  wrong conclusions in one session, including a 167-site rewrite reverted for measuring slower.
+- **Do not trust `head -n` wall-clock bisection either.** Lean elaborates declarations in parallel, so
+  truncating the file misattributes cost to neighbours. A "160 s region" identified this way turned
+  out to be one theorem at 153 s, with the two neighbours it implicated costing 3.5 s and 4.6 s. It is
+  useful as a first cut to find the *file region*, but never as the attribution you act on. (And if you
+  do use it: `head -n <line-of-X>` truncates *before* X, so a delta belongs to the **previous**
+  declaration.)
+- **Never attribute by elimination — `sorry` one declaration, keep the rest.** Two ways this lies.
+  If the cost is *shared* (a forced value, a kernel cache), removing one payer just hands the bill to
+  the next, and every variant looks guilty. And it only tests what you actually varied: three rounds
+  of sorrying the three `native_decide`s here all reported ~293 s, "proving" each in turn, when the
+  real cost was an ordinary transport lemma that no variant ever touched. Elimination is only valid
+  when you have *positively* measured each candidate alone.
+
+**1b. Kernel cost is a separate disease from elaboration cost, and the fix is different.** When
+`[Kernel]` dominates, the tactics are *already done* — Lean accepted the proof and the kernel is
+re-checking the term it produced. Rewriting tactics will not help; the term itself is wrong-shaped.
+
+The single worst declaration in this repository was of this kind: `witnessValid_some`, a four-line
+transport lemma, cost **313 s of kernel time in a 321 s module** -- 91% of the entire project build,
+in a file whose elaboration totalled 23 ms. It read
+
+```lean
+have h := witnessValidC_true
+unfold witnessValidC at h      -- puts the concrete `controlFlow?` into the rewrite motive
+rw [hn] at h
+simpa only [...] using h
+```
+
+`unfold`+`rw` specialises a general fact *at the use site*, so the motive the kernel must check
+mentions `controlFlow?` and the generated 3369-element arrays -- and checking it re-runs the Sail
+decoder inside the kernel. Swapping `simpa` for `simp only`+`exact` changed nothing (308 s): the
+tactic was never the cost.
+
+**The fix is to move the transport into a lemma that is generic in the data**, so the kernel checks
+it once against variables:
+
+```lean
+private theorem getD_map_eq_true {α} {o : Option α} {f : α → Bool} {a : α}
+    (ho : o = some a) (h : (o.map f).getD false = true) : f a = true := by
+  subst ho; simpa using h
+
+theorem witnessValid_some (hn : controlFlow? = some nodes) : witnessValidAt nodes = true :=
+  getD_map_eq_true (f := witnessValidAt) hn witnessValidC_true
+```
+
+**313 s -> 3 s, statement byte-identical.** Two things are load-bearing, and skipping either
+reproduces the blow-up in the *elaborator* instead:
+
+- **Leave nothing to unification.** With `f` implicit, solving `?f` made the elaborator unfold
+  `controlFlow?` and die on `maximum recursion depth`. Name the map body as its own `def`
+  (`witnessValidAt`) and pass it explicitly, so both `o` and `f` are already determined.
+- **The named body must not mention the dispatching `Option`.** `witnessValidC` becomes
+  `(controlFlow?.map witnessValidAt).getD false` -- one delta step to match, no reduction.
+
+Generalising: **any `unfold`/`rw`/`subst` whose motive captures a heavy constant is a kernel bomb** --
+"heavy" meaning anything whose value is computed rather than written down: a parsed ELF, a resolved
+symbol table, a decoded program, a generated array. The constant does not have to appear in the
+*statement*; `unfold`ing a three-line definition that merely mentions it is enough.
+
+The second instance found was exactly this, and it was four bombs at once. `executeDecode` is
+
+```lean
+def executeDecode (input : ByteArray) : Except ExecutionError DecodeOutcome :=
+  match runnerSymbols with
+  | none => .error .invalidArtifact
+  | some symbols => runAnswer (runZesuDecodeRaw symbols input)
+```
+
+Three lines -- but `unfold executeDecode` leaves that `match` in the motive, and the kernel resolves
+the ELF symbol table to check it. Four separate proofs unfolded it and each paid: 22.6 s, 21.5 s,
+21.3 s, 21.4 s. One `executeDecode_some` lemma stating the dispatch against a *variable* `symbols`,
+with all four sites rewritten through it, took the module **89 s -> 24 s**.
+
+So the rule has a cheap form: **if a definition mentioning a heavy constant is unfolded at more than
+one site, state its characterising equation once and rewrite through it.** You are not optimising a
+proof, you are refusing to re-verify the same reduction N times.
+
+**The one-line check before you write the proof.** Is the scrutinee of any `match` you are about to
+unfold a *computed* constant? If yes, name the branch body and transport through a lemma generic in
+the scrutinee. Concretely, prefer
+
+```lean
+def check : Bool := (heavy.toOption.map checkAt).getD false   -- determined by a transport lemma
+```
+
+over
+
+```lean
+def check : Bool := match heavy with | .ok x => <body> | .error _ => false   -- stuck; kernel re-reduces
+```
+
+Four modules on this project's critical path -- `GeneratedReachabilityExact`, `Layout`, `Preflight`,
+`Runner` -- each cost ~23 s for exactly this, and all four dropped under 1 s. Nothing was shared
+between them because oleans store terms, not reduction results: every module that leaves a `match`
+stuck on the parsed ELF re-parses it in full.
+
+A corollary worth knowing before you optimise a slow `native_decide`: **check what else in the module
+forces the same value first.** `canonicalResultBuffer_ne_zero` profiled at 22.9 s and looked like an
+expensive `native_decide`; it was not, and it vanished when an unrelated declaration in the same
+module stopped forcing the artifact. Whichever declaration forces a heavy value first pays, and the
+others can look guilty by overlapping it.
+
+**Reverted here, so you do not repeat it:** replacing six of `wrapper_epilogue_to_exit`'s register
+bullets with the write-set frame (`wrapperAfterFinalStackRestore_writes` + `.get r`) is better
+hygiene and the codebase even records the frame lemma as missing -- but it measured *slower*, 26.7 s
+to 30.7 s with `by decide` and 28.2 s with `of_decide_eq_true rfl`. The frame is the right tool when
+it replaces a *composition* of steps; against a single `afterRegisterWrite` whose `simp` set is
+already direct, the membership obligation costs more than it saves.
+
+Counter-example worth keeping in mind: `forwardClosed_some` does the same `unfold`+`rw` over the same
+generated arrays and costs under 1 s. The shape is a *suspect*, not a verdict -- which is exactly why
+you profile instead of guessing.
+
+**2. Suspect definitional equality before you suspect tactics.** The most expensive single thing in
+this repository was `canonicalContractParams.env.image` versus `Artifacts.programImage` — definitionally
+equal, but deciding it re-parses the entire pinned ELF, about 29 s. The give-away: the site looked like
+an expensive `simpa [bigConfig, bigEnv] using code`, and replacing it with a bare `exact code` cost
+**exactly the same**. If stripping a simp set changes nothing, the tactic was never the cost.
+
+Two fixes, in order of preference:
+
+- **Make the huge definition `@[irreducible]`.** `Artifacts.programImage` is a `match` on a parsed ELF;
+  marking it irreducible stopped every defeq from re-parsing it and took `Level2Capstone` 86 s to 2 s,
+  `Level2WrapperProof` 235 s to 140 s, with `native_decide` unaffected because compilation ignores
+  reducibility.
+- **Write the transport in term mode, not through `simp`.** The worst single tactic found in this
+  repository was `simpa [<let-alias>, afterRegisterWrite_mem] using <previous>` at **187 s**: `simp`
+  zeta-expands the whole `let`-chain, then `isDefEq` re-unifies two nine-deep state records. The term
+  form `codeIntact_of_mem_eq (afterRegisterWrite_mem s pc r d v) prev` never builds that term, because
+  the frame equation is `rfl` by construction. Two modules went 428 s to 89 s on this alone.
+- **Pay the defeq once in a transport lemma** and route call sites through it. Note the statement
+  matters: through `CodeIntact` it exhausts the recursion depth, and even the projection equation fails
+  at `rfl` because `rfl` unfolds both sides. `by simp only [theEnvDef]` reduces the projection
+  syntactically and closes in seconds.
+
+**3. Watch for superlinear scopes.** A `structure` whose fields mix representation levels — bitvector
+equalities beside `.toNat` equalities about the same values — costs far more than its parts: 4 of one
+kind cost 3.6 s, 2 of the other 1.1 s, all six together **62 s**. The cost is `mk.injEq` generation
+over the telescope (`set_option genInjectivity false` takes the same structure 179 s to 1.1 s).
+Splitting the structure along the representation boundary, composed back with `extends`, measured
+178 s to 3.7 s and keeps every consumer's statement byte-identical. The same facts as *loose theorem
+binders* cost nothing, so this is `structure` elaboration specifically.
+
+**Try the change rather than modelling it.** Every isolated micro-benchmark in this project either
+misled or cost more than just applying the edit and timing the module. Apply, measure the module,
+revert if flat — reverting is cheap and a flat result is information.
+
+### `let`-bound successor states are the dominant elaboration cost
+
+A composition proof usually names its intermediate machine states with `let`:
+
+```lean
+let s7 := afterRegisterWrite s6 pc r7 x9 v
+let s8 := afterRegisterWrite s7 …
+…
+refine ⟨final, ?_, confined, pc11, finalStack, finalInput, …⟩   -- 13 components
+```
+
+Every component's type mentions `final`, which is `let`-bound to a chain six deep. Unifying each
+component against the goal's expected type **zeta-expands that whole chain**, once per component. That
+single `refine` measured **~95 s** — against 15 s for the other 23 declarations in its module
+combined.
+
+Measure it this way, because nothing else attributes correctly: replace a proof body with `sorry` and
+read the delta. In this file `sorry`ing seven candidate theorems took it 140 s to 15 s, and leaving
+one live at a time showed six cost ~1 s and one cost 110 s. The profiler could not split them — with
+async elaboration it reported ~150 s for each of the seven — and `head -n` truncation smears cost
+across neighbours for the same reason.
+
+**What does not fix it**, all measured: `clear_value` on the chain (the component types were already
+built against the transparent value, so they then mismatch), swapping `rfl` for an explicit
+`afterRegisterWrite_mem` chain (the `_`s cannot be synthesised), and `WritesOnlyRegs` + `grind` (two
+`grind failed`, no gain).
+
+**What does — use `Seg`.** It exists for exactly this and is measured: rewriting one prologue with it
+took the proof **110 s → 0.8 s** and its module **126 s → 19 s**, statement untouched, body 119 → 87
+lines.
+
+`Seg` makes the successor state *existentially opaque*: every combinator concludes
+`∃ next, Seg … next …`, so you write `obtain ⟨next, seg⟩ := seg.step …` and never name a post-state.
+The deep term is never constructed, so nothing can zeta-expand it. It accumulates `trace`, `confined`,
+`writes` (register frame), `mem` (`WritesOnlyWithin` over a `Region`), and `regs` (`RegsHold`,
+last-write-wins — the write frame only says which registers were left *alone*, so written values must
+be carried positively).
+
+**Recognising the ritual it replaces**, ~206 occurrences across 9 files:
+
+```lean
+obtain ⟨rN, runN⟩ := someStep …
+let sN := afterRegisterWrite s(N-1) pc rN dest val
+have pcN … ; have agreeN … ; have retiredN … ; have codeN …     -- six haves per instruction
+…
+have prefixN := wrapperOwnStep … ; confined_steps [prefix6, …]   -- then rebuild the trace by hand
+```
+
+Each instruction's six `have`s become one `obtain ⟨_, seg⟩ := seg.step …`, and the whole trailing
+`prefixN`/`confined_steps`/`Trace.snoc` block becomes `seg.confined` and `seg.trace`. The incoming
+context is the *same four expressions at every step*: `agree.trans (seg.agree disjoint)`,
+`seg.retired`, `codeIntact_of_mem_eq (seg.memEq noMemory_empty) code`, `seg.atPc`. Pass `_` for each
+step lemma's `stepNo` and let unification pick `a + n`, which sidesteps all the `fromStep + 6 + 1`
+versus `+ 3` defeq work.
+
+**Three things that need judgement, not pattern-matching:**
+
+1. **Choose `W` once, up front** — enumerate every register the whole segment writes before starting.
+   The `destination` arguments are positional `Or.inr (Or.inl rfl)` terms, so inserting a register
+   later renumbers them all.
+2. **Register lifetimes.** A register written twice in one segment needs `Seg.forget` at the right
+   point: `Seg.step` unconditionally records `⟨dest, value⟩`, so a later overwrite makes the `keep`
+   obligation *correctly* false. `forget` weakens the recorded list along `sub : ∀ p ∈ kv', p ∈ kv`,
+   which is `by simp` at any concrete list.
+3. **Shapes that are not `step`/`stepJump`.** A step lemma bundling an extra conjunct into its `∃`
+   needs a short adapter. **Stores have no `Seg` combinator at all**, and would be the first users of
+   its memory interface with a non-empty `Region` — try one store site before committing to a sweep.
+
+Two frictions the docstrings do not mention: `by decide` stops closing `keep` once a recorded value is
+symbolic (use `of_decide_eq_true rfl`), and `Seg.memEq noMemory_empty` discharges every memory
+obligation in one line when the segment is register-only.
+
 ### Module scope: keep the dependency graph flat and wide
 
 Lean elaborates a module on one core; Lake parallelizes across modules only. A module's elaboration
@@ -138,7 +454,9 @@ time is therefore a serial segment of the build, and a chain of modules is a cri
 number of cores can shorten. This build was **996 s of critical path out of 1009 s** — nine modules in
 a queue, one core busy, sixty-three idle.
 
-**Target: no module over ~60 s.** Check with `lake build <module>`, which prints the time.
+**Target: no module over ~15 s** (the build is now ~123s end to end; the old 60s target dates from
+when it was 1009s). Check with `lake build <module>`, which prints the time. Reach that by making the
+expensive declarations cheap, not by splitting the file -- see the splitting verdict above.
 
 **Measure time, never line count.** Line count is a useless proxy here — the spread is 250x:
 
@@ -239,6 +557,45 @@ Probe the cheap file at the top, not the expensive one at the bottom.
 declaration names" produced a confident false positive worth an apparent 621 s; the module genuinely
 needed a name the scan had missed. Confirm by deleting the import and compiling — that is the only
 check that cannot lie to you.
+
+### Agreement across a step is a frame fact, never a case split
+
+The single most expensive tactic found in this project:
+
+```lean
+have stackAgree : Agree decoderPreserved afterS2 afterStack := by
+  intro register preserved
+  cases register <;> simp only [...] at preserved ⊢ <;> simp_all [decoderPreserved, platformPreserved]
+```
+
+**11.4s of one theorem's 13.3s**, 8.5s of it in the closing `simp_all`. It splits all forty-odd
+RISC-V registers against a six-deep state term to prove something disjointness settles without
+looking at the state at all. The step writes only the bookkeeping registers and `x2`; write it as
+
+```lean
+have stackAgree : Agree decoderPreserved afterS2 afterStack :=
+  (wrapperAfterFinalStackRestore_writes afterS2 retiredStack _).agree decoderPreserved_disjoint_sp
+```
+
+and it is free. `WritesOnlyRegs.agree` and `RegSet.Disjoint.{union, only}` already exist; a preserved
+predicate needs its disjointness proved once (`decoderPreserved_disjoint` just inherits
+`platformPreserved_disjoint`, since `decoderPreserved r = r ≠ x1 ∧ platformPreserved r`).
+
+**The counter-case, because the same tool has the opposite verdict two lines away.** Using the write
+set for the individual register *reads* -- `(…_writes …).get r (by decide)` in place of a direct
+`simp` that reads one field -- measured **slower**: 26.7s to 30.7s, and 28.2s with
+`of_decide_eq_true rfl`. The frame pays against a proof that would otherwise case-split every
+register; it does not pay against a `simp` already reading one field. Measure, do not generalise.
+
+### Before you optimise a proof, check whether it is proved twice
+
+`wrapper_epilogue_to_exit` and `wrapper_epilogue_complete` opened with a **character-identical
+34-line block** -- a stack restore, a register reload, and eight facts about the result -- so all of
+it, including the agreement case-split above, elaborated twice. Eight named lemmas replaced it.
+
+Finding these is mechanical: hash every window of N consecutive indented lines across the proof files
+and report windows occurring more than once. Filter out repeated *signatures* (hypothesis lists on
+class lemmas are legitimately similar); what you want is repeated tactic blocks.
 
 ### If you define a new state transformer, you owe it a frame equation
 
