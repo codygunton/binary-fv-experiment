@@ -41,7 +41,7 @@ memory (a byte changes across the chain), so the conclusion is not surviving a n
 namespace BinaryFv.Zesu.Contracts.OwnershipComposition
 
 open BinaryFv.RiscV
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open BinaryFv.Zesu.Contracts.Ownership
 open BinaryFv.Zesu.Contracts.Footprint
 

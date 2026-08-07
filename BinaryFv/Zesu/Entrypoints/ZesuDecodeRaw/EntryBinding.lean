@@ -30,7 +30,7 @@ open Register
 open BinaryFv.RiscV
 open BinaryFv.Zesu
 open BinaryFv.Zesu.Contracts
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open BinaryFv.Zesu.Elflings
 
 /-! ## The machine configuration succeeds -/

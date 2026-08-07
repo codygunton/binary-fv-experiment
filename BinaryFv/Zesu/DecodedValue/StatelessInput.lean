@@ -3,7 +3,7 @@ import BinaryFv.RiscV.Logic.LoadedImage
 import BinaryFv.Zesu.Artifacts.AbiManifest
 import BinaryFv.Specs.SSZ.AmsterdamV4
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 open BinaryFv.RiscV
 
@@ -460,4 +460,4 @@ theorem observe_stateless_input_descriptors_of_rep (state : State) (rootBase : N
       representation.publicKeys]
   rfl
 
-end BinaryFv.Zesu.MemoryRepresentation
+end BinaryFv.Zesu.DecodedValue

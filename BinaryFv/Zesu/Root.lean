@@ -74,7 +74,7 @@ theorem execute_rejected_forces_checks {b : RiscvSpec.ValidatedElf} {input : Byt
         (rawResult rawError : Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome),
         Zesu.Entrypoints.ZesuDecodeRaw.observeReturnCode? final = some 0 ∧
         rawResult = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned 0 ∧
-        Zesu.MemoryRepresentation.observeOptionTag? final
+        Zesu.DecodedValue.observeOptionTag? final
           Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr = some false ∧
         (∃ status, rawError = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned status ∧
           Zesu.Entrypoints.ZesuDecodeRaw.statusCategory status = .specRejection) ∧
@@ -108,7 +108,7 @@ theorem execute_accepted_forces_checks {b : RiscvSpec.ValidatedElf} {input : Byt
           Zesu.Contracts.DecodeStatus.ok.code ∧
         rawResult = Zesu.Entrypoints.ZesuDecodeRaw.AccessorOutcome.returned
           Zesu.Elflings.canonicalResultBuffer ∧
-        Zesu.MemoryRepresentation.observeOptionTag? final
+        Zesu.DecodedValue.observeOptionTag? final
           Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr = some true ∧
         Zesu.Entrypoints.ZesuDecodeRaw.observeDecodedValue final = some value := by
   rw [RiscvSpec.execute_eq_executeChecked] at h
@@ -137,7 +137,7 @@ witness are `propext`/`Classical.choice`/`Quot.sound` only. -/
 theorem accepted_checks_determine_classification {final : BinaryFv.RiscV.State}
     {value : BinaryFv.Specs.SSZ.StatelessInput} (steps : Nat)
     (hcode : Zesu.Entrypoints.ZesuDecodeRaw.observeReturnCode? final = some 1)
-    (htag : Zesu.MemoryRepresentation.observeOptionTag? final
+    (htag : Zesu.DecodedValue.observeOptionTag? final
       Zesu.Entrypoints.ZesuDecodeRaw.storedResultDiscriminantAddr = some true)
     (hvalue : Zesu.Entrypoints.ZesuDecodeRaw.observeDecodedValue final = some value) :
     Zesu.Entrypoints.ZesuDecodeRaw.classifyWrapperRun

@@ -3,7 +3,7 @@ import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Classify
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Fuel
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Preflight
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.StateBuilder
-import BinaryFv.Zesu.MemoryRepresentation.ValueObserver
+import BinaryFv.Zesu.DecodedValue.ValueObserver
 
 /-!
 # Running the decoder and its exported accessors
@@ -37,7 +37,7 @@ open Register
 open BinaryFv.RiscV
 open BinaryFv.Specs.SSZ
 open BinaryFv.Zesu
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 
 /-! ## Symbols and addresses the runner needs -/
 

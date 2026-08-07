@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.MemoryRepresentation.StatelessInput
+import BinaryFv.Zesu.DecodedValue.StatelessInput
 
 namespace BinaryFv.Zesu.Runtime
 

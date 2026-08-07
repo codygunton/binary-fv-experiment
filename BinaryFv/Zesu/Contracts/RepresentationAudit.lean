@@ -32,7 +32,7 @@ So a container appearing below is eligible for the discipline, not yet protected
 the root actually uses, and no representation reads outside memory.
 
 The earlier mechanical scan — no reference to `regs`, `pc`, `choiceState`, `tags`, `cycleCount` or
-`sailOutput` under `MemoryRepresentation/` — predicted this, but is now superseded by proof rather
+`sailOutput` under `DecodedValue/` — predicted this, but is now superseded by proof rather
 than relied on. Keeping the distinction visible is the point: the grep was evidence, not a result,
 and one field (`StatelessInputFixedFieldsRep.chainConfig`) was in fact missed by the field-extraction grep used
 to draft these proofs and surfaced only when the compiler demanded it.
@@ -41,7 +41,7 @@ to draft these proofs and surfaced only when the compiler demanded it.
 namespace BinaryFv.Zesu.Contracts.RepresentationAudit
 
 open BinaryFv.RiscV
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open BinaryFv.Zesu.Contracts.Ownership
 
 /-- A state predicate transports across states that agree on all of memory.

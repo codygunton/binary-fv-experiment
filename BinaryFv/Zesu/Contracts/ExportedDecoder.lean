@@ -5,7 +5,7 @@ namespace BinaryFv.Zesu.Contracts
 
 open BinaryFv.RiscV
 open BinaryFv.RiscV.Elfling
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open LeanRV64DExecutable.Functions Register
 
 /-!
@@ -24,7 +24,7 @@ state in three private globals: a one-byte `attempted` flag, `last_status`, and 
 starts at offset 0 and its discriminant is at offset 832. It is not a pointer slot.
 
 The internal Zig function `decodeRaw` uses a different hidden-result ABI. Its representation remains
-in `MemoryRepresentation.Result`; none of that internal calling convention is used here.
+in `DecodedValue.Result`; none of that internal calling convention is used here.
 -/
 
 /-- The addresses of the three private decoder globals, as pinned by the linker map.
@@ -160,7 +160,7 @@ whether to return the payload address or null, so the accessor needs neither the
 representation nor the input. -/
 def StoredResultDiscriminantRep (layout : DecoderGlobalsLayout) (model : DecoderGlobalsModel)
     (state : State) : Prop :=
-  MemoryRepresentation.OptionTagRep state
+  DecodedValue.OptionTagRep state
     (layout.storedResult + layout.storedResultObject.discriminantOffset) model.stored.isSome
 
 /-- The complete inline `stored_result` object: its discriminant, and — on success — the `StatelessInput`

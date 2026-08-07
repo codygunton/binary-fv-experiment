@@ -1,7 +1,7 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Accessors
 import BinaryFv.Zesu.Contracts.SemanticObligations
-import BinaryFv.Zesu.MemoryRepresentation.EntryOffsets
-import BinaryFv.Zesu.MemoryRepresentation.ChainOffsets
+import BinaryFv.Zesu.DecodedValue.EntryOffsets
+import BinaryFv.Zesu.DecodedValue.ChainOffsets
 
 /-!
 # From the wrapper's exit binding to the runner's observations
@@ -72,14 +72,14 @@ namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 /-- The value-carrying specification link needed by the exported decoder assembly. -/
 theorem catalogGroundsInSpec_holds : Contracts.catalogGroundsInSpec :=
   Contracts.catalogGroundsInSpec_of_agreement
-    (MemoryRepresentation.sourceShapedDecodeAgreesWithSpec_holds
-      MemoryRepresentation.sourceShapedContainersAgreeWithSpec_holds
+    (DecodedValue.sourceShapedDecodeAgreesWithSpec_holds
+      DecodedValue.sourceShapedContainersAgreeWithSpec_holds
       Contracts.retryTailNeverSchemaValid_holds)
 
 open BinaryFv.RiscV
 open BinaryFv.Zesu
 open BinaryFv.Zesu.Contracts
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open LeanRV64DExecutable.Functions Register
 
 /-! ## The fresh call's recorded globals

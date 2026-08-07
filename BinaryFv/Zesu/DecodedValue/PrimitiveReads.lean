@@ -1,7 +1,7 @@
-import BinaryFv.Zesu.MemoryRepresentation.Observers
+import BinaryFv.Zesu.DecodedValue.Observers
 import SizzLean.Spec.Deserialize
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 /-- Materialize one guarded Sail-memory range as the byte array consumed by the pinned spec. -/
 def observeByteArray? (state : BinaryFv.RiscV.State) (base length : Nat) : Option ByteArray :=
@@ -114,4 +114,4 @@ theorem observe_uint64_le_out_of_bounds (state : BinaryFv.RiscV.State) (base off
   unfold SizzLean.Spec.readUInt64LE
   simp [guard]
 
-end BinaryFv.Zesu.MemoryRepresentation
+end BinaryFv.Zesu.DecodedValue

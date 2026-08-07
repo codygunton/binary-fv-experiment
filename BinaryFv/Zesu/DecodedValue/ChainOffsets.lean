@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.MemoryRepresentation.EntryOffsets
+import BinaryFv.Zesu.DecodedValue.EntryOffsets
 import SizzLean.Proofs.SizeBound
 
 /-!
@@ -9,7 +9,7 @@ all-variable entry schema, and the mechanism here is different enough that mixin
 which lemmas depend on the leading-fixed skip.
 -/
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 open SizzLean.Spec
 open BinaryFv.Zesu.Contracts
@@ -2614,4 +2614,4 @@ theorem sourceShapedDecodeAgreesWithSpec_holds
     exact hw
   · exact meaningDecode_value_agrees containersAgree chainConfigValue_holds h
 
-end BinaryFv.Zesu.MemoryRepresentation
+end BinaryFv.Zesu.DecodedValue

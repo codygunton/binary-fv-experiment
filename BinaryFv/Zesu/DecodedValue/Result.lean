@@ -1,6 +1,6 @@
-import BinaryFv.Zesu.MemoryRepresentation.StatelessInput
+import BinaryFv.Zesu.DecodedValue.StatelessInput
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 open BinaryFv.RiscV
 
@@ -41,4 +41,4 @@ theorem observe_stateless_input_success_status (state : State) (inputBase : Nat)
     observeResultStatus? state resultBase = some 0 :=
   observe_result_status_of_rep state resultBase 0 representation.status
 
-end BinaryFv.Zesu.MemoryRepresentation
+end BinaryFv.Zesu.DecodedValue

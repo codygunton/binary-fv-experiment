@@ -1,10 +1,10 @@
 import BinaryFv.RiscV.Elfling.Contract
-import BinaryFv.Zesu.MemoryRepresentation.StatelessInput
+import BinaryFv.Zesu.DecodedValue.StatelessInput
 
 namespace BinaryFv.Zesu.Contracts
 
 open BinaryFv.RiscV
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 
 /-!
 # The environment a decoder contract is stated against
@@ -61,7 +61,7 @@ structure ResultRecordSizes where
   sliceDescriptor : Nat
   /-- The two-word Zig `std.mem.Allocator` value the `allocator()` constructor writes at its result
   base: a context pointer followed by a vtable pointer, exactly the span
-  `MemoryRepresentation.AllocatorObjectRep` pins. Unreflected for the same reason
+  `DecodedValue.AllocatorObjectRep` pins. Unreflected for the same reason
   `sliceDescriptor` is — the manifest has no key for a `std.mem` type — and 16 for the same reason
   too: two pointers on this target. -/
   allocatorObject : Nat

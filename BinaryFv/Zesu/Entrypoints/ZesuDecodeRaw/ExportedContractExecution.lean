@@ -49,7 +49,7 @@ open BinaryFv.RiscV
 open BinaryFv.RiscV.Elfling
 open BinaryFv.Zesu
 open BinaryFv.Zesu.Contracts
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open BinaryFv.Zesu.Elflings.Validation
 open BinaryFv.Zesu.Elflings.Generated (generatedProgram)
 open LeanRV64DExecutable.Functions Register

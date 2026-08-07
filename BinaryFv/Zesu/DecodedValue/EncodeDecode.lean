@@ -34,7 +34,7 @@ run on free variables, `simp` makes no progress — so removing it means hand-pr
 identities, which is not worth it for a class the root already carries.
 -/
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 open SizzLean.Spec
 
@@ -267,4 +267,4 @@ theorem extract_three (bytes : ByteArray) (size : bytes.size = 24) :
     show min 0 16 = 0 from rfl, show max 16 24 = 24 from rfl, ← size]
   simp
 
-end BinaryFv.Zesu.MemoryRepresentation
+end BinaryFv.Zesu.DecodedValue

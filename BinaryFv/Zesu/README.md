@@ -24,8 +24,8 @@ namespace.
   `ZesuDecodeRaw` covers `zesu_decode_raw`.
 - `MachineExecution`: proofs about concrete Zesu instructions using the executable Sail RISC-V
   semantics, including composed basic-block traces.
-- `MemoryRepresentation`: predicates, observers, and primitive-read lemmas connecting Sail memory
-  to native Zesu values and the SSZ specification.
+- `DecodedValue`: reads Zesu's decoded result from native RISC-V memory and proves that it is the
+  `StatelessInput` value returned by the SSZ specification.
 - `Runtime`: the Zesu allocator, allocation bounds, and other runtime implementation details.
 
 `Interface.lean` defines the public API for executing a validated Zesu ELF on an input. `Root.lean`

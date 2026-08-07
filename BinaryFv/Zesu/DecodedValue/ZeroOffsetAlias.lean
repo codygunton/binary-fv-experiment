@@ -1,5 +1,5 @@
 import BinaryFv.Zesu.Contracts.SemanticObligations
-import BinaryFv.Zesu.MemoryRepresentation.EncodeDecode
+import BinaryFv.Zesu.DecodedValue.EncodeDecode
 
 /-!
 # The all-zero first-offset alias
@@ -40,7 +40,7 @@ Both spec-side walkers are dual-scrutinee matches whose return type depends on t
 chain module hit twice, recorded here so the third encounter is recognised rather than rediscovered.
 -/
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 open SizzLean.Spec
 open BinaryFv.Zesu.Contracts
@@ -111,4 +111,4 @@ Three must-fail probes, run and reverted:
    proof.
 -/
 
-end BinaryFv.Zesu.MemoryRepresentation
+end BinaryFv.Zesu.DecodedValue

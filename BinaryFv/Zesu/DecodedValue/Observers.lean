@@ -1,6 +1,6 @@
-import BinaryFv.Zesu.MemoryRepresentation.StatelessInput
+import BinaryFv.Zesu.DecodedValue.StatelessInput
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 open BinaryFv.RiscV
 
@@ -719,4 +719,4 @@ theorem observe_chain_config_of_stateless_input_rep (state : State) (inputBase :
   observe_chain_config_of_rep state (rootBase + 736) value.chainConfig
     representation.fixedFields.chainConfig
 
-end BinaryFv.Zesu.MemoryRepresentation
+end BinaryFv.Zesu.DecodedValue

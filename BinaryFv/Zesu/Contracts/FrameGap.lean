@@ -74,7 +74,7 @@ namespace BinaryFv.Zesu.Contracts.FrameGap
 
 open BinaryFv.RiscV
 open BinaryFv.Binary
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 
 /-- A representation that pins one byte at the result base.
 

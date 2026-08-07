@@ -13,7 +13,7 @@ reports; it also generates the Lean occurrence evidence checked by the binary-sp
 `docs/field-correspondence.md` identifies which Zesu result field represents each field of the
 Amsterdam V4 value, including the encoding of optional values and variable-length collections. The
 Lean predicates and observers that formalize this relationship live under
-`BinaryFv/Zesu/MemoryRepresentation/`. The reusable specification itself lives in
+`BinaryFv/Zesu/DecodedValue/`. The reusable specification itself lives in
 `BinaryFv/Specs/SSZ`.
 
 The adapter exists for QEMU execution and static measurement. The compliance proof targets the

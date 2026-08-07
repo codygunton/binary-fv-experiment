@@ -1,5 +1,5 @@
 import BinaryFv.Zesu.Contracts.Catalog
-import BinaryFv.Zesu.MemoryRepresentation.EncodeDecode
+import BinaryFv.Zesu.DecodedValue.EncodeDecode
 
 /-!
 # Discharging the catalog's semantic obligations
@@ -27,7 +27,7 @@ Everything proved here is proved over *all* inputs; nothing is decided on a fixt
 `catalogSemanticObligations_of_specAgreement` now depends on `Lean.ofReduceBool` and
 `Lean.trustCompiler`. It did not when this module was written. **Exactly one** proof brings them in:
 
-* `meaningTwentyFourIsSome_holds` reaches `MemoryRepresentation.uint64LE_of_readUInt64LE`, whose eight
+* `meaningTwentyFourIsSome_holds` reaches `DecodedValue.uint64LE_of_readUInt64LE`, whose eight
   byte-extraction arms are closed by `bv_decide`. Checked rather than assumed that nothing cheaper
   works: `omega` finds no usable constraints (it does not see through `|||`/`<<<`), `decide` cannot
   run on free variables, and `simp` makes no progress. Avoiding it would mean hand-proving the
@@ -703,10 +703,10 @@ theorem readUInt32LE_zero_of_readU32LE (bytes : ByteArray) (size : bytes.size �
     have z1 : bytes.get! (0 + 1) = 0 := UInt8.toNat_inj.mp (by rw [zeroNat]; omega)
     have z2 : bytes.get! (0 + 2) = 0 := UInt8.toNat_inj.mp (by rw [zeroNat]; omega)
     have z3 : bytes.get! (0 + 3) = 0 := UInt8.toNat_inj.mp (by rw [zeroNat]; omega)
-    rw [MemoryRepresentation.get!_eq_getElem bytes 0 (by omega)] at z0
-    rw [MemoryRepresentation.get!_eq_getElem bytes (0 + 1) (by omega)] at z1
-    rw [MemoryRepresentation.get!_eq_getElem bytes (0 + 2) (by omega)] at z2
-    rw [MemoryRepresentation.get!_eq_getElem bytes (0 + 3) (by omega)] at z3
+    rw [DecodedValue.get!_eq_getElem bytes 0 (by omega)] at z0
+    rw [DecodedValue.get!_eq_getElem bytes (0 + 1) (by omega)] at z1
+    rw [DecodedValue.get!_eq_getElem bytes (0 + 2) (by omega)] at z2
+    rw [DecodedValue.get!_eq_getElem bytes (0 + 3) (by omega)] at z3
     rw [readUInt32LE]
     split
     · simp [z0, z1, z2, z3]
@@ -758,10 +758,10 @@ theorem readU32LE?_eq_map_readUInt32LE (bytes : ByteArray) (offset : Nat) :
   · rw [dif_neg (by omega)]
     rfl
   · rw [dif_pos (by omega)]
-    rw [← MemoryRepresentation.get!_eq_getElem bytes offset (by omega),
-      ← MemoryRepresentation.get!_eq_getElem bytes (offset + 1) (by omega),
-      ← MemoryRepresentation.get!_eq_getElem bytes (offset + 2) (by omega),
-      ← MemoryRepresentation.get!_eq_getElem bytes (offset + 3) (by omega)]
+    rw [← DecodedValue.get!_eq_getElem bytes offset (by omega),
+      ← DecodedValue.get!_eq_getElem bytes (offset + 1) (by omega),
+      ← DecodedValue.get!_eq_getElem bytes (offset + 2) (by omega),
+      ← DecodedValue.get!_eq_getElem bytes (offset + 3) (by omega)]
     exact congrArg some (or_shifts_toNat _ _ _ _).symm
 
 /-- The form a consumer of `retryTailNeverSchemaValid` actually holds: the meaning's offset read
@@ -817,20 +817,20 @@ theorem meaningTwentyFourIsSome_holds : meaningTwentyFourIsSome := by
   have sizeSecond : (bytes.extract 8 16).size = 8 := by simp [size]
   have sizeThird : (bytes.extract 16 24).size = 8 := by simp [size]
   obtain ⟨first, readFirst⟩ := Option.isSome_iff_exists.mp
-    (MemoryRepresentation.readUInt64LE_isSome (bytes.extract 0 8) 0 (by omega))
+    (DecodedValue.readUInt64LE_isSome (bytes.extract 0 8) 0 (by omega))
   obtain ⟨second, readSecond⟩ := Option.isSome_iff_exists.mp
-    (MemoryRepresentation.readUInt64LE_isSome (bytes.extract 8 16) 0 (by omega))
+    (DecodedValue.readUInt64LE_isSome (bytes.extract 8 16) 0 (by omega))
   obtain ⟨third, readThird⟩ := Option.isSome_iff_exists.mp
-    (MemoryRepresentation.readUInt64LE_isSome (bytes.extract 16 24) 0 (by omega))
+    (DecodedValue.readUInt64LE_isSome (bytes.extract 16 24) 0 (by omega))
   have whole : bytes.extract 0 24 = bytes := by rw [← size]; simp
   have decoded := blobScheduleType_deserialize bytes first second third readFirst readSecond readThird
   -- The encode-after-decode step: the three fields re-serialize to the slices they were read from.
   have encoded : BinaryFv.Specs.SSZ.blobScheduleType.serialize (first, second, third, ()) = bytes := by
     rw [blobScheduleType_serialize,
-      MemoryRepresentation.uint64LE_of_readUInt64LE _ first sizeFirst readFirst,
-      MemoryRepresentation.uint64LE_of_readUInt64LE _ second sizeSecond readSecond,
-      MemoryRepresentation.uint64LE_of_readUInt64LE _ third sizeThird readThird]
-    exact MemoryRepresentation.extract_three bytes size
+      DecodedValue.uint64LE_of_readUInt64LE _ first sizeFirst readFirst,
+      DecodedValue.uint64LE_of_readUInt64LE _ second sizeSecond readSecond,
+      DecodedValue.uint64LE_of_readUInt64LE _ third sizeThird readThird]
+    exact DecodedValue.extract_three bytes size
   have fixedSize : BinaryFv.Specs.SSZ.blobScheduleType.isFixedSize = true := by
     simp [BinaryFv.Specs.SSZ.blobScheduleType, BinaryFv.Specs.SSZ.u64, SSZType.isFixedSize, SSZType.allFixedSize]
   have byteSize : BinaryFv.Specs.SSZ.blobScheduleType.fixedByteSize = 24 := by
@@ -845,7 +845,7 @@ theorem meaningTwentyFourIsSome_holds : meaningTwentyFourIsSome := by
   simp only [optionalBlobScheduleType, SSZType.deserialize, fixedSize, byteSize, size,
     BinaryFv.Specs.SSZ.maxBlobSchedulesPerFork, SSZType.deserializeFixedElems, SSZType.serialize]
   simp [whole, decoded, encoded, size, fixedSize, oneElement]
-  rw [if_pos (MemoryRepresentation.byteArray_beq_self bytes)]
+  rw [if_pos (DecodedValue.byteArray_beq_self bytes)]
   rfl
 
 /-! ## What the semantic obligations still rest on

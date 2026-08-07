@@ -6,7 +6,7 @@ namespace BinaryFv.Zesu.Contracts
 open SizzLean.Spec
 open BinaryFv.RiscV
 open BinaryFv.RiscV.Elfling
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open LeanRV64DExecutable.Functions Register
 
 /-!
@@ -132,7 +132,7 @@ forbids the decoder scribbling on unrelated memory.
 
 **Why that is survivable here, corrected.** An earlier version of this note said `root_compliance` is
 unaffected because it "observes only the classification and never reads memory". *That is false.*
-`MemoryRepresentation.observeStatelessInput?` reads memory extensively — dozens of `observe*?` calls across the
+`DecodedValue.observeStatelessInput?` reads memory extensively — dozens of `observe*?` calls across the
 result buffer and the heap descriptors. The argument that actually holds is different: the
 representation is established **at the final state** (`rep … after …` here, `observeStatelessInput? state
 canonicalResultBuffer` at the runner) rather than *preserved* from an intermediate one. Nothing has to

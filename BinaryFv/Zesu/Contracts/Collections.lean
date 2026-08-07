@@ -5,7 +5,7 @@ namespace BinaryFv.Zesu.Contracts
 open SizzLean.Spec
 open BinaryFv.RiscV
 open BinaryFv.RiscV.Elfling
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open LeanRV64DExecutable.Functions Register
 
 /-!

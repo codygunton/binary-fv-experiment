@@ -1,6 +1,6 @@
 import BinaryFv.Zesu.Contracts.Catalog.Dispatch
 import BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals
-import BinaryFv.Zesu.MemoryRepresentation.Containers
+import BinaryFv.Zesu.DecodedValue.Containers
 import BinaryFv.Zesu.Runtime.BumpAllocator
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Layout
 
@@ -25,14 +25,14 @@ The Zig optional layouts come from the ABI manifest produced by the pinned compi
 The container representations are **concrete and complete**: `repStatelessInput` is the full input-aware
 `StatelessInputRep` (allocation, slice descriptors, and borrowed input slices, not just the fixed fields), and
 all seven nested-container representations use the concrete layouts in
-`MemoryRepresentation.Containers`. Later execution proofs must establish these predicates; they may
+`DecodedValue.Containers`. Later execution proofs must establish these predicates; they may
 not replace them with placeholders. Lean checks every literal field offset against the manifest.
 -/
 
 namespace BinaryFv.Zesu.Contracts
 
 open BinaryFv.RiscV
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open BinaryFv.Zesu.Elflings
   (canonicalDecoderGlobalsLayout canonicalResultBuffer canonicalHeapBase canonicalHeapLimit
    canonicalAllocatorState)
@@ -254,7 +254,7 @@ def canonicalHeap : BinaryFv.Zesu.Runtime.BumpHeap :=
 
 /-! ## Container representations
 
-Every container's representation is the exact native RV64 layout from `MemoryRepresentation.Containers`
+Every container's representation is the exact native RV64 layout from `DecodedValue.Containers`
 (offsets pinned against the ABI manifest by `container_field_offsets_valid` and the `StatelessInput` audits).
 `repStatelessInput` is the complete `StatelessInputRep` — root allocation, all ten heap arrays, the descriptor table,
 every borrowed input slice, and all inline fixed fields — not merely the fixed-field fragment. The

@@ -1,7 +1,7 @@
 import BinaryFv.RiscV.Execution.Runner
 import BinaryFv.Zesu.ExecutionTypes
-import BinaryFv.Zesu.MemoryRepresentation.Result
-import BinaryFv.Zesu.MemoryRepresentation.Observers
+import BinaryFv.Zesu.DecodedValue.Result
+import BinaryFv.Zesu.DecodedValue.Observers
 import BinaryFv.Zesu.Contracts.Entry
 
 /-!
@@ -37,7 +37,7 @@ namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 
 open BinaryFv.RiscV
 open BinaryFv.Specs.SSZ
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open LeanRV64DExecutable.Functions Register
 
 /-- The C-ABI return code the callee left in `a0`. -/

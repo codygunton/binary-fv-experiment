@@ -1,14 +1,14 @@
 import BinaryFv.RiscV.Proof.RunnerCorrespondence
 import BinaryFv.Specs.SSZ.Decode
 import BinaryFv.Zesu.Artifacts.Symbols
-import BinaryFv.Zesu.MemoryRepresentation.Result
+import BinaryFv.Zesu.DecodedValue.Result
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Runner
 
 namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 
 open BinaryFv.RiscV
 open BinaryFv.Zesu
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open BinaryFv.Binary.Elfling
 open LeanRV64DExecutable.Functions Register
 

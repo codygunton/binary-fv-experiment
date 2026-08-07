@@ -1,49 +1,43 @@
-# Reading Zesu values from machine memory
+# Recovering Zesu's decoded value from machine memory
 
-The Ethereum SSZ specification describes structured Lean values. The compiled Zesu decoder stores
-the same information as Zig records, optional values, slices, pointers, and heap allocations in
-RISC-V memory. This directory defines and proves the connection between those two views.
+This directory turns the bytes, pointers, and lengths left by the compiled Zesu decoder into the
+`StatelessInput` value used by the Ethereum SSZ specification. This is not another parser for the
+original SSZ input. It reads Zesu's already-decoded result from RISC-V memory and proves what value
+that memory contains.
 
-A representation states what bytes and pointers must be present for memory to hold a particular
-Lean value. It does not run the decoder or allocate memory. Some slices point into the caller's
-input buffer rather than owning a copy, so their representations include both the input bytes and
-the address of that buffer.
+That bridge is necessary because the machine proof and the specification speak different
+languages. The machine proof ends with registers and memory; the specification returns a structured
+Lean value. Without this layer, the root theorem could show that Zesu executed and wrote bytes, but
+not that those bytes represent the value returned by the specification.
 
-## Memory layouts
+## Describing the decoded result in memory
 
-1. [`StatelessInput.lean`](StatelessInput.lean) defines the common layouts for bytes, little-endian
-   integers, slices, arrays, and optional values, then uses them to describe the complete top-level
-   `StatelessInput` value.
-2. [`Containers.lean`](Containers.lean) describes the seven nested Zesu container types, including
-   their inline fields and heap-backed collections.
-3. [`Result.lean`](Result.lean) describes the value and status stored by `decodeRaw` when it returns.
+[`StatelessInput.lean`](StatelessInput.lean) describes the complete top-level result using the native
+layouts of integers, slices, arrays, optional values, pointers, and allocations.
+[`Containers.lean`](Containers.lean) describes the seven heap-owning Zig structs nested inside that
+result. [`Result.lean`](Result.lean) describes the result value and status stored by `decodeRaw`.
 
-The field addresses, sizes, and alignments in these definitions are checked against the ABI manifest
-from the pinned Zig build. When an optional value is absent, only its discriminant has meaning; the
-unused payload bytes are deliberately left unconstrained.
+These predicates do not run the decoder or allocate memory. They state what must already be present
+for memory to contain a particular value. Field offsets, sizes, and alignments are checked against
+the ABI manifest from the pinned Zig build. Borrowed slices also record the original input buffer
+because some decoded fields point into it instead of owning a copy.
 
-## Reading values back
+## Reconstructing the Lean value
 
-[`Observers.lean`](Observers.lean) contains functions that read bytes, words, slices, and container
-fields from Sail memory. Each function returns `none` if a required byte or pointer is missing.
-[`PrimitiveReads.lean`](PrimitiveReads.lean) applies the pinned SSZ integer readers to bytes obtained
-from memory.
+[`Observers.lean`](Observers.lean) safely reads primitive fields, slices, and nested structs from
+Sail memory. [`PrimitiveReads.lean`](PrimitiveReads.lean) connects the bytes it reads to the pinned
+SSZ integer readers. [`ValueObserver.lean`](ValueObserver.lean) combines them into
+`observeStatelessInput?` and proves that a memory state satisfying the representation reconstructs
+exactly the claimed `BinaryFv.Specs.SSZ.StatelessInput`.
 
-[`ValueObserver.lean`](ValueObserver.lean) combines those readers into `observeStatelessInput?`, which
-reconstructs a complete `BinaryFv.Specs.SSZ.StatelessInput`. Its main theorem says that if memory
-represents a value, and the borrowed input buffer is present, the observer returns exactly that
-value.
+That uniqueness result prevents an incomplete layout from assigning two different decoded values
+to the same machine state. The complete `ChainConfigRep`, for example, ensures that the fork
+activation and optional blob schedule are determined by memory rather than silently left free.
 
-This reverse direction matters for soundness. A layout that leaves part of a value unspecified
-could claim that the same machine state represents two different Lean values. A previous
-`StatelessInputFixedFieldsRep` did exactly that by omitting fields of the chain configuration.
-`StatelessInput.lean` now includes the full `ChainConfigRep`, and its regression theorem checks that
-the fork activation and blob schedule are fixed by memory.
+## Showing that the decoded value follows the specification
 
-## Agreement with the SSZ specification
-
-The remaining files prove that Zesu's source-level decoding rules inspect the same bytes as the
-pinned Ethereum SSZ specification:
+The remaining files connect Zesu's source-level decoding rules to the pinned Ethereum SSZ
+specification. They establish the specification side of the same final value comparison:
 
 - [`EntryOffsets.lean`](EntryOffsets.lean) proves that both decoders read the same four top-level
   offsets and therefore split the input into the same four field bodies.

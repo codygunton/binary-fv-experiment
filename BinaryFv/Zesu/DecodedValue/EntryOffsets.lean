@@ -74,7 +74,7 @@ well-founded, which together account for most of the list.
   false-negative rate.
 -/
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 open SizzLean.Spec
 open BinaryFv.Zesu.Contracts
@@ -2823,4 +2823,4 @@ theorem meaningDecode_value_agrees
               · rw [if_neg hmatch] at hdec
                 exact absurd hdec (by simp))
 
-end BinaryFv.Zesu.MemoryRepresentation
+end BinaryFv.Zesu.DecodedValue

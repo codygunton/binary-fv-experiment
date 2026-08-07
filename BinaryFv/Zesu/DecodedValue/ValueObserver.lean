@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.MemoryRepresentation.Observers
+import BinaryFv.Zesu.DecodedValue.Observers
 
 /-!
 # Observing a complete `BinaryFv.Specs.SSZ.StatelessInput` value
@@ -20,7 +20,7 @@ Nothing here is a partial observer: a single failed byte read, a bad option tag,
 makes the whole observation `none`.
 -/
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 open BinaryFv.RiscV
 
@@ -433,4 +433,4 @@ theorem stateless_input_rep_unique (state : State) (inputBase : Nat) (input : By
     ((observe_stateless_input_of_rep state inputBase input rootBase first inputMemory firstRep).symm.trans
       (observe_stateless_input_of_rep state inputBase input rootBase second inputMemory secondRep))
 
-end BinaryFv.Zesu.MemoryRepresentation
+end BinaryFv.Zesu.DecodedValue

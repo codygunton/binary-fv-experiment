@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.MemoryRepresentation.StatelessInput
+import BinaryFv.Zesu.DecodedValue.StatelessInput
 
 /-!
 # The seven Zesu container types in RISC-V memory
@@ -12,7 +12,7 @@ that borrow bytes from the caller's input, so those predicates also receive the 
 `ByteArray`. These definitions describe memory after decoding; they do not perform the decode.
 -/
 
-namespace BinaryFv.Zesu.MemoryRepresentation
+namespace BinaryFv.Zesu.DecodedValue
 
 open BinaryFv.RiscV
 
@@ -131,4 +131,4 @@ def containerFieldOffsetsValid : Bool :=
 
 theorem container_field_offsets_valid : containerFieldOffsetsValid = true := by native_decide
 
-end BinaryFv.Zesu.MemoryRepresentation
+end BinaryFv.Zesu.DecodedValue

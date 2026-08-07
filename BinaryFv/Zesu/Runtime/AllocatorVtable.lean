@@ -1,10 +1,10 @@
 import BinaryFv.Zesu.Artifacts.AllocatorCalls
-import BinaryFv.Zesu.MemoryRepresentation.StatelessInput
+import BinaryFv.Zesu.DecodedValue.StatelessInput
 
 namespace BinaryFv.Zesu.Runtime
 
 open BinaryFv.RiscV
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 
 /-- Loading the immutable ELF vtable makes every slot-24 cleanup dispatch target its pinned stub. -/
 theorem loaded_vtable_free_target (state : State)

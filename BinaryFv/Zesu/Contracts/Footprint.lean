@@ -30,7 +30,7 @@ region. Only the pair pins the answer.
 namespace BinaryFv.Zesu.Contracts.Footprint
 
 open BinaryFv.RiscV
-open BinaryFv.Zesu.MemoryRepresentation
+open BinaryFv.Zesu.DecodedValue
 open BinaryFv.Zesu.Contracts.Ownership
 open BinaryFv.Zesu.Contracts.RepresentationAudit
 
@@ -195,7 +195,7 @@ whatever the compiler-reflected manifest says `RawForkActivation` occupies, so a
 moves the manifest and this follows, rather than the footprint quietly describing the wrong region.
 
 The offsets need no equivalent treatment, and checking that was worth more than assuming it:
-`MemoryRepresentation/Containers.lean:132`, `container_field_offsets_valid`, already pins
+`DecodedValue/Containers.lean:132`, `container_field_offsets_valid`, already pins
 `RawForkActivation|block_number = 0` and `|timestamp = 16` against the same manifest by
 `native_decide`. `ForkActivationRep`'s literals are audited there, at the representation layer, and
 this footprint inherits the pinning by having to transport that exact representation. Re-deriving the

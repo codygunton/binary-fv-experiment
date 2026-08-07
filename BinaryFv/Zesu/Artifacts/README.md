@@ -6,7 +6,7 @@ inventories used by later proofs.
 
 These files answer questions about what was shipped, not what the decoder ought to do or how its bytes
 represent logical values. Semantic requirements belong in `Contracts/`; decoded control-flow facts
-belong in `ControlFlow/`; value layouts and memory observers belong in `MemoryRepresentation/`.
+belong in `ControlFlow/`; value layouts and memory observers belong in `DecodedValue/`.
 
 - `Image.lean` and `Layout.lean` define the canonical bytes and their loaded address ranges.
 - `Symbols.lean` names important addresses in that image.
