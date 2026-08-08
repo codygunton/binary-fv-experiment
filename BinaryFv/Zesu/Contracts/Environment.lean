@@ -132,6 +132,15 @@ abbrev Region := Nat → Prop
 
 def Region.union (r1 r2 : Region) : Region := fun address => r1 address ∨ r2 address
 
+/-- Union of a reviewed finite region inventory. Membership carries the selected region and its
+list membership, avoiding positional `Or.inr` proofs when inventories grow or reorder. -/
+def Region.iUnion (regions : List Region) : Region :=
+  fun address => ∃ region ∈ regions, region address
+
+theorem Region.mem_iUnion {regions : List Region} {region : Region} {address : Nat}
+    (member : region ∈ regions) (inside : region address) : Region.iUnion regions address :=
+  ⟨region, member, inside⟩
+
 /-- A half-open byte range, the shape every container record takes. -/
 def range (base size : Nat) : Region := fun address => base ≤ address ∧ address < base + size
 

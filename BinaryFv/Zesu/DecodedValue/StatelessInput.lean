@@ -7,6 +7,44 @@ namespace BinaryFv.Zesu.DecodedValue
 
 open BinaryFv.RiscV
 
+/-- Byte-for-byte relocation of a half-open memory window. Keeping the source and destination
+explicit lets representation theorems move values without unfolding their ABI layouts. -/
+def ByteWindowRelocation (before after : State) (source destination width : Nat) : Prop :=
+  ∀ index, index < width →
+    after.mem.get? (destination + index) = before.mem.get? (source + index)
+
+/-- A representation is determined by a fixed byte window when any relocation of that window
+transports the representation. -/
+def WindowDetermined (width : Nat) (representation : State → Nat → Prop) : Prop :=
+  ∀ {before after source destination},
+    ByteWindowRelocation before after source destination width →
+      representation before source → representation after destination
+
+namespace ByteWindowRelocation
+
+/-- Restrict a relocation to a sub-window. ABI offsets are supplied once at the use site instead of
+being re-derived inside every representation proof. -/
+theorem atOffset {before after : State} {source destination total : Nat}
+    (memory : ByteWindowRelocation before after source destination total)
+    (offset width : Nat) (fits : offset + width ≤ total) :
+    ByteWindowRelocation before after (source + offset) (destination + offset) width := by
+  intro index bound
+  simpa [Nat.add_assoc] using memory (offset + index) (by omega)
+
+/-- Transport any pointwise byte predicate through a relocated window. -/
+theorem transport {before after : State} {source destination width : Nat}
+    {expected : ∀ index, index < width → BitVec 8}
+    (memory : ByteWindowRelocation before after source destination width)
+    (representation : ∀ index (h : index < width),
+      before.mem.get? (source + index) = some (expected index h)) :
+    ∀ index (h : index < width),
+      after.mem.get? (destination + index) = some (expected index h) := by
+  intro index bound
+  rw [memory index bound]
+  exact representation index bound
+
+end ByteWindowRelocation
+
 /-- A half-open, bytewise region of generated Sail sparse memory. -/
 def MemoryBytes (state : State) (base : Nat) (bytes : ByteArray) : Prop :=
   ∀ index (h : index < bytes.size),
@@ -43,10 +81,8 @@ theorem FixedByteVectorRep.rebase {length : Nat} {before after : State} {source 
     (memory : ∀ index, index < length →
       after.mem.get? (destination + index) = before.mem.get? (source + index))
     (representation : FixedByteVectorRep before source value) :
-    FixedByteVectorRep after destination value := by
-  intro index bound
-  rw [memory index bound]
-  exact representation index bound
+    FixedByteVectorRep after destination value :=
+  ByteWindowRelocation.transport memory representation
 
 /-- Inline little-endian bytes for an SSZ integer represented as a Lean bit vector. -/
 def BitVectorLERep {width : Nat} (state : State) (base : Nat) (value : BitVec width) : Prop :=
@@ -59,10 +95,8 @@ theorem BitVectorLERep.rebase {width : Nat} {before after : State} {source desti
     (memory : ∀ index, index < width / 8 →
       after.mem.get? (destination + index) = before.mem.get? (source + index))
     (representation : BitVectorLERep before source value) :
-    BitVectorLERep after destination value := by
-  intro index bound
-  rw [memory index bound]
-  exact representation index bound
+    BitVectorLERep after destination value :=
+  ByteWindowRelocation.transport memory representation
 
 /-- A decoder slice that aliases caller-owned input rather than copying it into the heap. -/
 def InputSliceRep (state : State) (inputBase inputOffset length sliceBase : Nat) : Prop :=
@@ -150,10 +184,8 @@ def Word64LERep (state : State) (base value : Nat) : Prop :=
 theorem Word64LERep.rebase {before after : State} {source destination value : Nat}
     (memory : ∀ index, index < 8 →
       after.mem.get? (destination + index) = before.mem.get? (source + index))
-    (representation : Word64LERep before source value) : Word64LERep after destination value := by
-  intro index bound
-  rw [memory index bound]
-  exact representation index bound
+    (representation : Word64LERep before source value) : Word64LERep after destination value :=
+  ByteWindowRelocation.transport memory representation
 
 /-- Guarded, executable RV64 little-endian observer for a sparse-memory word. -/
 def observeWord64? (state : State) (base : Nat) : Option Nat := do
@@ -262,13 +294,8 @@ theorem SliceDescriptorRep.rebase {before after : State} {source destination dat
     (representation : SliceDescriptorRep before source data count) :
     SliceDescriptorRep after destination data count := by
   refine ⟨representation.1, representation.2.1, ?_, ?_⟩
-  · apply representation.2.2.1.rebase
-    intro index bound
-    simpa [Nat.add_assoc] using memory index (by omega)
-  · apply representation.2.2.2.rebase
-    intro index bound
-    have shifted := memory (8 + index) (by omega)
-    simpa [Nat.add_assoc] using shifted
+  · exact representation.2.2.1.rebase (ByteWindowRelocation.atOffset memory 0 8 (by omega))
+  · exact representation.2.2.2.rebase (ByteWindowRelocation.atOffset memory 8 8 (by omega))
 
 /-- A slice descriptor aliases an exact specification byte array in the caller's input memory. -/
 def InputSliceDescriptorRep (state : State) (inputBase : Nat) (input : ByteArray) (descriptorBase : Nat)
@@ -521,8 +548,7 @@ theorem OptionU64Rep.rebase {before after : State} {source destination : Nat} {v
         (by simpa [OptionU64Rep] using representation)
   | some value =>
       refine ⟨representation.1.rebase ?_, representation.2.rebase ?_⟩
-      · intro index bound
-        simpa [Nat.add_assoc] using memory index (by omega)
+      · exact ByteWindowRelocation.atOffset memory 0 8 (by omega)
       · simpa [Nat.add_assoc] using memory 8 (by omega)
 
 /-- Rebase a `RawBlobSchedule` along its 24-byte ABI record interval. -/
@@ -532,14 +558,9 @@ theorem BlobScheduleRep.rebase {before after : State} {source destination : Nat}
       after.mem.get? (destination + index) = before.mem.get? (source + index))
     (representation : BlobScheduleRep before source value) : BlobScheduleRep after destination value := by
   refine ⟨representation.1.rebase ?_, representation.2.1.rebase ?_, representation.2.2.rebase ?_⟩
-  · intro index bound
-    simpa [Nat.add_assoc] using memory index (by omega)
-  · intro index bound
-    have shifted := memory (8 + index) (by omega)
-    simpa [Nat.add_assoc] using shifted
-  · intro index bound
-    have shifted := memory (16 + index) (by omega)
-    simpa [Nat.add_assoc] using shifted
+  · exact ByteWindowRelocation.atOffset memory 0 8 (by omega)
+  · exact ByteWindowRelocation.atOffset memory 8 8 (by omega)
+  · exact ByteWindowRelocation.atOffset memory 16 8 (by omega)
 
 /-- Rebase an optional blob-schedule ABI object along its 32-byte record interval. -/
 theorem OptionBlobScheduleRep.rebase {before after : State} {source destination : Nat}
@@ -554,8 +575,7 @@ theorem OptionBlobScheduleRep.rebase {before after : State} {source destination 
         (by simpa [OptionBlobScheduleRep] using representation)
   | some value =>
       refine ⟨representation.1.rebase ?_, representation.2.rebase ?_⟩
-      · intro index bound
-        simpa [Nat.add_assoc] using memory index (by omega)
+      · exact ByteWindowRelocation.atOffset memory 0 24 (by omega)
       · simpa [Nat.add_assoc] using memory 24 (by omega)
 
 /-- Rebase a fork activation along its 32-byte ABI record interval. -/
@@ -565,11 +585,8 @@ theorem ForkActivationRep.rebase {before after : State} {source destination : Na
       after.mem.get? (destination + index) = before.mem.get? (source + index))
     (representation : ForkActivationRep before source value) : ForkActivationRep after destination value := by
   refine ⟨representation.1.rebase ?_, representation.2.rebase ?_⟩
-  · intro index bound
-    simpa [Nat.add_assoc] using memory index (by omega)
-  · intro index bound
-    have shifted := memory (16 + index) (by omega)
-    simpa [Nat.add_assoc] using shifted
+  · exact ByteWindowRelocation.atOffset memory 0 16 (by omega)
+  · exact ByteWindowRelocation.atOffset memory 16 16 (by omega)
 
 /-- Rebase a fork configuration along its 72-byte ABI record interval. -/
 theorem ForkConfigRep.rebase {before after : State} {source destination : Nat}
@@ -578,14 +595,9 @@ theorem ForkConfigRep.rebase {before after : State} {source destination : Nat}
       after.mem.get? (destination + index) = before.mem.get? (source + index))
     (representation : ForkConfigRep before source value) : ForkConfigRep after destination value := by
   refine ⟨representation.1.rebase ?_, representation.2.1.rebase ?_, representation.2.2.rebase ?_⟩
-  · intro index bound
-    simpa [Nat.add_assoc] using memory index (by omega)
-  · intro index bound
-    have shifted := memory (8 + index) (by omega)
-    simpa [Nat.add_assoc] using shifted
-  · intro index bound
-    have shifted := memory (40 + index) (by omega)
-    simpa [Nat.add_assoc] using shifted
+  · exact ByteWindowRelocation.atOffset memory 0 8 (by omega)
+  · exact ByteWindowRelocation.atOffset memory 8 32 (by omega)
+  · exact ByteWindowRelocation.atOffset memory 40 32 (by omega)
 
 /-- Rebase a chain configuration along its 80-byte ABI record interval. -/
 theorem ChainConfigRep.rebase {before after : State} {source destination : Nat}
@@ -594,11 +606,8 @@ theorem ChainConfigRep.rebase {before after : State} {source destination : Nat}
       after.mem.get? (destination + index) = before.mem.get? (source + index))
     (representation : ChainConfigRep before source value) : ChainConfigRep after destination value := by
   refine ⟨representation.1.rebase ?_, representation.2.rebase ?_⟩
-  · intro index bound
-    simpa [Nat.add_assoc] using memory index (by omega)
-  · intro index bound
-    have shifted := memory (8 + index) (by omega)
-    simpa [Nat.add_assoc] using shifted
+  · exact ByteWindowRelocation.atOffset memory 0 8 (by omega)
+  · exact ByteWindowRelocation.atOffset memory 8 72 (by omega)
 
 /-- Inline fixed vectors and scalar fields in the root's nested execution payload. -/
 structure StatelessInputFixedFieldsRep (state : State) (rootBase : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput) : Prop where
@@ -676,11 +685,7 @@ theorem StatelessInputDescriptorRep.rebase {state : State} {sourceRoot destinati
       state.mem.get? (destinationRoot + index) = state.mem.get? (sourceRoot + index))
     (representation : StatelessInputDescriptorRep state sourceRoot value bases) :
     StatelessInputDescriptorRep state destinationRoot value bases := by
-  have atOffset (offset width : Nat) (fits : offset + width ≤ 832) : ∀ index, index < width →
-      state.mem.get? (destinationRoot + offset + index) =
-        state.mem.get? (sourceRoot + offset + index) := by
-    intro index bound
-    simpa [Nat.add_assoc] using memory (offset + index) (by omega)
+  have atOffset := ByteWindowRelocation.atOffset memory
   exact
     { versionedHashes := representation.versionedHashes.rebase (atOffset 592 16 (by omega))
       transactions := representation.transactions.rebase (atOffset 80 16 (by omega))
@@ -700,11 +705,7 @@ theorem StatelessInputFixedFieldsRep.rebase {state : State} {sourceRoot destinat
       state.mem.get? (destinationRoot + index) = state.mem.get? (sourceRoot + index))
     (representation : StatelessInputFixedFieldsRep state sourceRoot value) :
     StatelessInputFixedFieldsRep state destinationRoot value := by
-  have atOffset (offset width : Nat) (fits : offset + width ≤ 832) : ∀ index, index < width →
-      state.mem.get? (destinationRoot + offset + index) =
-        state.mem.get? (sourceRoot + offset + index) := by
-    intro index bound
-    simpa [Nat.add_assoc] using memory (offset + index) (by omega)
+  have atOffset := ByteWindowRelocation.atOffset memory
   exact
     { baseFeePerGas := representation.baseFeePerGas.rebase (atOffset 0 32 (by omega))
       parentHash := representation.parentHash.rebase (atOffset 152 32 (by omega))
@@ -734,11 +735,8 @@ theorem StatelessInputInputSlicesRep.rebase {state : State} {inputBase sourceRoo
       state.mem.get? (destinationRoot + index) = state.mem.get? (sourceRoot + index))
     (representation : StatelessInputInputSlicesRep state inputBase input sourceRoot value bases sourceDescriptors) :
     StatelessInputInputSlicesRep state inputBase input destinationRoot value bases destinationDescriptors := by
-  have atOffset (offset : Nat) (fits : offset + 16 ≤ 832) : ∀ index, index < 16 →
-      state.mem.get? (destinationRoot + offset + index) =
-        state.mem.get? (sourceRoot + offset + index) := by
-    intro index bound
-    simpa [Nat.add_assoc] using memory (offset + index) (by omega)
+  have atOffset (offset : Nat) (fits : offset + 16 ≤ 832) :=
+    ByteWindowRelocation.atOffset memory offset 16 fits
   rcases representation.extraData with ⟨extraOffset, extraBase, extraData⟩
   rcases representation.blockAccessList with ⟨accessOffset, accessBase, accessList⟩
   exact

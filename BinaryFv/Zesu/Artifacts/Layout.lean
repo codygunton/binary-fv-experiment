@@ -1,3 +1,4 @@
+import BinaryFv.Option
 import BinaryFv.Zesu.Artifacts.Image
 
 namespace BinaryFv.Zesu.Artifacts
@@ -24,12 +25,6 @@ def layoutIsValidAt (parsedElf : Elf64) : Bool :=
 
 def layoutIsValid : Bool := (parsed.toOption.map layoutIsValidAt).getD false
 
-/-- Transport a `(e.toOption.map f).getD false = true` fact across `e = .ok a`, generically, so the
-kernel checks it once against variables rather than against the parsed artifact. -/
-private theorem getD_map_toOption_eq_true {ε α : Type _} {e : Except ε α} {f : α → Bool} {a : α}
-    (he : e = .ok a) (h : (e.toOption.map f).getD false = true) : f a = true := by
-  subst he; simpa using h
-
 theorem layout_is_valid : layoutIsValid = true := by
   native_decide
 
@@ -39,7 +34,7 @@ theorem elf_layout :
       (elf.loadSegments.toList.any fun segment =>
         segment.executable && segment.containsMemoryRange elf.header.entry 1) = true := by
   have h : layoutIsValidAt elf = true :=
-    getD_map_toOption_eq_true (f := layoutIsValidAt) parsed_ok layout_is_valid
+    Except.getD_map_toOption_eq_true_of_eq_ok (f := layoutIsValidAt) parsed_ok layout_is_valid
   unfold layoutIsValidAt at h
   simp only [Bool.and_eq_true, decide_eq_true_eq] at h
   rcases h with ⟨hLeft, hEntry⟩

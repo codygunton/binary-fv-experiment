@@ -1,3 +1,4 @@
+import BinaryFv.Option
 import BinaryFv.Zesu.Artifacts.Layout
 
 namespace BinaryFv.Zesu.Artifacts
@@ -5,18 +6,13 @@ namespace BinaryFv.Zesu.Artifacts
 open BinaryFv.Binary
 open BinaryFv.RiscV
 
-/-- Transport a `(e.toOption.map f).getD d` value across `e = .ok a`, generically, so the kernel
-checks it against variables instead of re-parsing the pinned ELF. -/
-private theorem getD_map_toOption {ε α β : Type _} {e : Except ε α} {f : α → β} {a : α} {d : β}
-    (he : e = .ok a) : (e.toOption.map f).getD d = f a := by
-  subst he; rfl
-
 def programImage : ProgramImage := (parsed.toOption.map Elf64.programImage).getD { segments := #[] }
 
 /-- The pinned image is the parsed ELF's image. Exported so consumers never `unfold programImage`
 themselves: doing so leaves a `match` stuck on `parsed`, and the kernel re-parses the ELF while
 checking it -- 23 s, once per module that tries. -/
-theorem programImage_eq : programImage = elf.programImage := getD_map_toOption parsed_ok
+theorem programImage_eq : programImage = elf.programImage :=
+  Except.getD_map_toOption_of_eq_ok parsed_ok
 
 attribute [irreducible] programImage
 
