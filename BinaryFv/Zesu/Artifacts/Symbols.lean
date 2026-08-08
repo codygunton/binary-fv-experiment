@@ -12,7 +12,7 @@ def programImage : ProgramImage := (parsed.toOption.map Elf64.programImage).getD
 themselves: doing so leaves a `match` stuck on `parsed`, and the kernel re-parses the ELF while
 checking it -- 23 s, once per module that tries. -/
 theorem programImage_eq : programImage = elf.programImage :=
-  Except.getD_map_toOption_of_eq_ok parsed_ok
+  BinaryFv.Except.getD_map_toOption_of_eq_ok parsed_ok
 
 attribute [irreducible] programImage
 
