@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.MachineExecution.HasExactErePrefixProof
 import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryPrefix
+import BinaryFv.Zesu.MachineExecution.GeneratedWordStep
 import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.MemcpyDecoderBridge
 import BinaryFv.RiscV.Elfling.ProgramGeometry
@@ -196,12 +197,13 @@ theorem decodeInline_first_result_pointer_step (stepNo : Nat) (args : DecodeInli
           (iTypeResult .ADDI 0x360#12 (BitVec.ofNat 64 args.stackBase))) false := by
   have atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10308) := by
     simpa [DecodeInlineArgs.entryPc, phase] using pre.atEntry
-  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ :=
-    decoderDecodeContext pre.machine (Agree.refl state)
-  exact decoderITypeStep pre.machine (Agree.refl state) pre.machine.retiredCounter
-    (hasExactErePrefix_programImage_of_codeIntact pre.code)
-    stepNo 0x10308 0x13 0x05 0x01 0x36 0x360#12 2#5 10#5 .ADDI atPc
-    (rX_bits_run_x2 _ _ (decoderExecuteState_get? pre.stackValue)) (wX_x10_run _ _)
+  exact GeneratedWordStep.generatedRegisterWriteStep pre.machine (Agree.refl state)
+    pre.machine.retiredCounter (hasExactErePrefix_programImage_of_codeIntact pre.code)
+    stepNo 0x10308 0x36010513 atPc
+    (decoded := .ITYPE (0x360#12, .Regidx 2#5, .Regidx 10#5, .ADDI))
+    (decoderDecode pre.machine (Agree.refl state) (by decoder_decode))
+    (execute_ITYPE_run _ _ 0x360#12 (.Regidx 2#5) (.Regidx 10#5) .ADDI _
+      (rX_bits_run_x2 _ _ (decoderExecuteState_get? pre.stackValue)) (wX_x10_run _ _))
 
 theorem decodeInline_first_allocator_pointer_step (stepNo : Nat) (args : DecodeInlineArgs)
     (baseState state : State) (pre : DecodeInlinePre args baseState)
