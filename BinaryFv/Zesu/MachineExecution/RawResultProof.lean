@@ -336,7 +336,7 @@ theorem raw_result_discriminant_step (fromStep : Nat) (initial state : State)
   have noMMIO : Runs (within_mmio_readable
       (physaddr.Physaddr (BitVec.ofNat 64 0x4215370)) 1) executeState executeState false := by
     exact loadMemoryNoMMIO_of_state_layout_excluded executeState (BitVec.ofNat 64 0x4215370)
-      1 (loadMMIOAddressExcluded_of_layout (by omega) (Or.inl (by native_decide))
+      1 (loadMMIOAddressExcluded_of_layout (by omega) (Or.inr (by native_decide))
         (Or.inl (by native_decide))) htifRead
   have memoryByte : ∀ (index : Nat)
       (bound : index < (BinaryFv.RiscV.Sep.leBytes 1 (rawResultTag model)).length),
