@@ -21,103 +21,48 @@ open PreSail
 open LeanRV64DExecutable.Functions
 open Register
 
-/-! ## Concrete link-register write run-lemmas
-
-`wX_bits (Regidx k) data` (for `k ≠ 0`) reduces to `writeReg xk data` plus the no-op
-`xreg_write_callback`, so it inserts `xk ↦ data`.  For `k = 0` it is a no-op (`x0` is hardwired). -/
+/-! ## Concrete compatibility names for register-parameterized run lemmas -/
 
 theorem wX_bits_run_x1 (s : State) (data : BitVec 64) :
-    Runs (wX_bits (.Regidx 1#5) data) s { s with regs := s.regs.insert x1 data } () := by
-  have hidx : (Sail.BitVec.toNatInt (1#5)).toNat = 1 := rfl
-  unfold Runs
-  simp only [wX_bits, wX, hidx, regval_into_reg, PreSail.writeReg, EStateM.run,
-    EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
-    MonadStateOf.modifyGet, modify]
-  rw [if_pos (by decide)]
-  exact xreg_write_callback_run _ _ _
+    Runs (wX_bits (.Regidx 1#5) data) s { s with regs := s.regs.insert x1 data } () :=
+  wX_bits_run_nonzero .r1 s data
 
 theorem rX_bits_run_x1 (s : State) (data : BitVec 64)
     (stored : s.regs.get? x1 = some data) :
-    Runs (rX_bits (.Regidx 1#5)) s s data := by
-  have index : (Sail.BitVec.toNatInt (1#5 : BitVec 5)).toNat = 1 := rfl
-  unfold Runs
-  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-    getThe, MonadState.get, MonadStateOf.get, stored]
+    Runs (rX_bits (.Regidx 1#5)) s s data :=
+  rX_bits_run_nonzero .r1 s data stored
 
 theorem wX_bits_run_x5 (s : State) (data : BitVec 64) :
-    Runs (wX_bits (.Regidx 5#5) data) s { s with regs := s.regs.insert x5 data } () := by
-  have hidx : (Sail.BitVec.toNatInt (5#5)).toNat = 5 := rfl
-  unfold Runs
-  simp only [wX_bits, wX, hidx, regval_into_reg, PreSail.writeReg, EStateM.run,
-    EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
-    MonadStateOf.modifyGet, modify]
-  rw [if_pos (by decide)]
-  exact xreg_write_callback_run _ _ _
+    Runs (wX_bits (.Regidx 5#5) data) s { s with regs := s.regs.insert x5 data } () :=
+  wX_bits_run_nonzero .r5 s data
 
 theorem wX_bits_run_x10 (s : State) (data : BitVec 64) :
-    Runs (wX_bits (.Regidx 10#5) data) s { s with regs := s.regs.insert x10 data } () := by
-  have hidx : (Sail.BitVec.toNatInt (10#5)).toNat = 10 := rfl
-  unfold Runs
-  simp only [wX_bits, wX, hidx, regval_into_reg, PreSail.writeReg, EStateM.run,
-    EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
-    MonadStateOf.modifyGet, modify]
-  rw [if_pos (by decide)]
-  exact xreg_write_callback_run _ _ _
+    Runs (wX_bits (.Regidx 10#5) data) s { s with regs := s.regs.insert x10 data } () :=
+  wX_bits_run_nonzero .r10 s data
 
 theorem rX_bits_run_x10 (s : State) (data : BitVec 64)
     (stored : s.regs.get? x10 = some data) :
-    Runs (rX_bits (.Regidx 10#5)) s s data := by
-  have index : (Sail.BitVec.toNatInt (10#5 : BitVec 5)).toNat = 10 := rfl
-  unfold Runs
-  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-    getThe, MonadState.get, MonadStateOf.get, stored]
+    Runs (rX_bits (.Regidx 10#5)) s s data :=
+  rX_bits_run_nonzero .r10 s data stored
 
 theorem rX_bits_run_x2 (s : State) (data : BitVec 64)
     (stored : s.regs.get? x2 = some data) :
-    Runs (rX_bits (.Regidx 2#5)) s s data := by
-  have index : (Sail.BitVec.toNatInt (2#5 : BitVec 5)).toNat = 2 := rfl
-  unfold Runs
-  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-    getThe, MonadState.get, MonadStateOf.get, stored]
+    Runs (rX_bits (.Regidx 2#5)) s s data :=
+  rX_bits_run_nonzero .r2 s data stored
 
 theorem wX_bits_run_x11 (s : State) (data : BitVec 64) :
-    Runs (wX_bits (.Regidx 11#5) data) s { s with regs := s.regs.insert x11 data } () := by
-  have hidx : (Sail.BitVec.toNatInt (11#5)).toNat = 11 := rfl
-  unfold Runs
-  simp only [wX_bits, wX, hidx, regval_into_reg, PreSail.writeReg, EStateM.run,
-    EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
-    MonadStateOf.modifyGet, modify]
-  rw [if_pos (by decide)]
-  exact xreg_write_callback_run _ _ _
+    Runs (wX_bits (.Regidx 11#5) data) s { s with regs := s.regs.insert x11 data } () :=
+  wX_bits_run_nonzero .r11 s data
 
 theorem rX_bits_run_x11 (s : State) (data : BitVec 64)
     (stored : s.regs.get? x11 = some data) :
-    Runs (rX_bits (.Regidx 11#5)) s s data := by
-  have index : (Sail.BitVec.toNatInt (11#5 : BitVec 5)).toNat = 11 := rfl
-  unfold Runs
-  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-    getThe, MonadState.get, MonadStateOf.get, stored]
+    Runs (rX_bits (.Regidx 11#5)) s s data :=
+  rX_bits_run_nonzero .r11 s data stored
 
 theorem rX_bits_run_x18 (s : State) (data : BitVec 64)
     (stored : s.regs.get? x18 = some data) :
-    Runs (rX_bits (.Regidx 18#5)) s s data := by
-  have index : (Sail.BitVec.toNatInt (18#5 : BitVec 5)).toNat = 18 := rfl
-  unfold Runs
-  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-    getThe, MonadState.get, MonadStateOf.get, stored]
-
-theorem wX_bits_run_zero (s : State) (data : BitVec 64) :
-    Runs (wX_bits (.Regidx 0#5) data) s s () := by
-  have hidx : (Sail.BitVec.toNatInt (0#5)).toNat = 0 := rfl
-  unfold Runs
-  simp only [wX_bits, wX, hidx, EStateM.run, EStateM.bind, EStateM.instMonad]
-  rw [if_neg (by decide)]
-  rfl
+    Runs (rX_bits (.Regidx 18#5)) s s data :=
+  rX_bits_run_nonzero .r18 s data stored
 
 /-- `get_next_pc ()` reads the current `nextPC`; used to pin the saved link to the return address. -/
 theorem get_next_pc_run (s : State) (v : BitVec 64) (stored : s.regs.get? nextPC = some v) :

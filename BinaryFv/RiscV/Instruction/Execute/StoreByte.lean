@@ -1,4 +1,5 @@
 import BinaryFv.RiscV.Instruction.Execute.Store
+import BinaryFv.RiscV.Platform.ExecutionContext
 
 /-!
 # Aligned byte store execution contract
@@ -55,16 +56,14 @@ theorem writeBytes_byte_run (state : State) (address : Nat) (value : BitVec 8) :
 
 /-- Under the configured Machine-mode, Bare-translation, pointer-masking-disabled setup, a store
 effective address is exactly its base register plus its signed offset. -/
-theorem get_transformed_data_addr_machine_store_run (state : State) (rs : regidx) (width : Nat)
+theorem get_transformed_data_addr_machine_store_of_context_run (state : State) (rs : regidx)
+    (width : Nat)
     (base offset mstatusBits mseccfgBits : BitVec 64)
     (baseRead : Runs (rX_bits rs) state state base)
-    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
-    (privilegeRead : state.regs.get? cur_privilege = some .Machine)
-    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
-    (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits)
-    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled) :
+    (context : MachineDataAddressContext state mstatusBits mseccfgBits) :
     Runs (get_transformed_data_addr rs offset (Store Data) width) state state
       (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) := by
+  rcases context with ⟨⟨mstatusRead, privilegeRead, mprvZero⟩, mseccfgRead, pmmDisabled⟩
   have address : Runs (ext_data_get_addr rs offset (Store Data) width) state state
       (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) := by
     unfold ext_data_get_addr
@@ -90,6 +89,20 @@ theorem get_transformed_data_addr_machine_store_run (state : State) (rs : regidx
     unfold zero_extend Sail.BitVec.zeroExtend
     rw [BitVec.zeroExtend_eq_setWidth, BitVec.setWidth_eq, extractLsb_full]
   exact Runs.bind transformed rfl
+
+/-- Compatibility wrapper for callers that carry the five machine-address facts separately. -/
+theorem get_transformed_data_addr_machine_store_run (state : State) (rs : regidx) (width : Nat)
+    (base offset mstatusBits mseccfgBits : BitVec 64)
+    (baseRead : Runs (rX_bits rs) state state base)
+    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
+    (privilegeRead : state.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled) :
+    Runs (get_transformed_data_addr rs offset (Store Data) width) state state
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) :=
+  get_transformed_data_addr_machine_store_of_context_run state rs width base offset mstatusBits
+    mseccfgBits baseRead ⟨⟨mstatusRead, privilegeRead, mprvZero⟩, mseccfgRead, pmmDisabled⟩
 
 theorem vmem_write_addr_byte_run (s s' : State) (dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 1))

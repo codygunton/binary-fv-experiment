@@ -1,5 +1,6 @@
 import BinaryFv.RiscV.Step.ControlFlow
 import BinaryFv.RiscV.Platform.FetchMemory
+import BinaryFv.RiscV.Platform.ExecutionContext
 
 /-!
 # Shared step-context bundles
@@ -29,13 +30,6 @@ def StepPlatform (state : State) (pc : BitVec 64) (b0 b1 b2 b3 : BitVec 8)
   (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits
 /-- The retirement-counter reads about the pre-step state (`minstret` present, `mcountinhibit` /
 `minstretcfg` configured so `should_inc_minstret` fires, hart active). -/
-def StepCounters (state : State) (retired : BitVec 64) (inhibit : BitVec 32)
-    (config : BitVec 64) : Prop :=
-  state.regs.get? hart_state = some (.HART_ACTIVE ()) ∧
-  state.regs.get? mcountinhibit = some inhibit ∧
-  state.regs.get? minstretcfg = some config ∧
-  _get_Counterin_IR inhibit = 0#1 ∧
-  _get_CountSmcntrpmf_MINH config = 0#1 ∧
-  state.regs.get? minstret = some retired
+abbrev StepCounters := RetirementContext
 
 end BinaryFv.RiscV

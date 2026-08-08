@@ -150,7 +150,7 @@ theorem loadMMIOAddressExcluded_of_layout {address : BitVec 64} {width : Nat}
     LoadMMIOAddressExcluded address width := by
   rw [clintBase_pinned, clintSize_pinned] at clint
   rw [signatureBase_pinned, signatureSize_pinned] at signature
-  unfold LoadMMIOAddressExcluded
+  unfold LoadMMIOAddressExcluded DataMMIOAddressExcluded
   simp [Sail.BitVec.toNatInt, clintBase_pinned, clintSize_pinned,
     signatureBase_pinned, signatureSize_pinned]
   constructor
@@ -168,7 +168,7 @@ theorem storeMMIOAddressExcluded_of_layout {address : BitVec 64} {width : Nat}
     StoreMMIOAddressExcluded address width := by
   rw [clintBase_pinned, clintSize_pinned] at clint
   rw [signatureBase_pinned, signatureSize_pinned] at signature
-  unfold StoreMMIOAddressExcluded
+  unfold StoreMMIOAddressExcluded DataMMIOAddressExcluded
   simp [Sail.BitVec.toNatInt, clintBase_pinned, clintSize_pinned,
     signatureBase_pinned, signatureSize_pinned]
   constructor

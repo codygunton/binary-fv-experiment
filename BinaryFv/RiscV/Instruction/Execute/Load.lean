@@ -1,5 +1,6 @@
 import BinaryFv.RiscV.Instruction.Execute.Store
 import BinaryFv.RiscV.Logic.SepLogic
+import BinaryFv.RiscV.Platform.ExecutionContext
 
 /-!
 # Aligned load execution contracts
@@ -181,16 +182,13 @@ theorem translateAddr_machine_load_run (state : State) (vaddr mstatusBits : BitV
 effective address is exactly its base register plus its signed offset.  This discharges the
 generated address-calculation action itself, rather than merely assuming its result at each
 artifact load site. -/
-theorem get_transformed_data_addr_machine_load_run (state : State) (rs : regidx)
+theorem get_transformed_data_addr_machine_load_of_context_run (state : State) (rs : regidx)
     (base offset mstatusBits mseccfgBits : BitVec 64)
     (baseRead : Runs (rX_bits rs) state state base)
-    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
-    (privilegeRead : state.regs.get? cur_privilege = some .Machine)
-    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
-    (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits)
-    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled) :
+    (context : MachineDataAddressContext state mstatusBits mseccfgBits) :
     Runs (get_transformed_data_addr rs offset (Load Data) 1) state state
       (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) := by
+  rcases context with ⟨⟨mstatusRead, privilegeRead, mprvZero⟩, mseccfgRead, pmmDisabled⟩
   have address : Runs (ext_data_get_addr rs offset (Load Data) 1) state state
       (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) := by
     unfold ext_data_get_addr
@@ -216,6 +214,20 @@ theorem get_transformed_data_addr_machine_load_run (state : State) (rs : regidx)
     unfold zero_extend Sail.BitVec.zeroExtend
     rw [BitVec.zeroExtend_eq_setWidth, BitVec.setWidth_eq, extractLsb_full]
   exact Runs.bind transformed rfl
+
+/-- Compatibility wrapper for callers that carry the five machine-address facts separately. -/
+theorem get_transformed_data_addr_machine_load_run (state : State) (rs : regidx)
+    (base offset mstatusBits mseccfgBits : BitVec 64)
+    (baseRead : Runs (rX_bits rs) state state base)
+    (mstatusRead : state.regs.get? mstatus = some mstatusBits)
+    (privilegeRead : state.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits)
+    (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled) :
+    Runs (get_transformed_data_addr rs offset (Load Data) 1) state state
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) :=
+  get_transformed_data_addr_machine_load_of_context_run state rs base offset mstatusBits
+    mseccfgBits baseRead ⟨⟨mstatusRead, privilegeRead, mprvZero⟩, mseccfgRead, pmmDisabled⟩
 
 /-! ## Aligned single-chunk read loop -/
 
@@ -251,6 +263,36 @@ private theorem updateSubrange_zeros_setWidth16 (v : BitVec 16) :
 /-- `bits_of_virtaddr` of `Virtaddr b` is `b`. -/
 private theorem bits_of_virtaddr_mk (b : BitVec 64) :
     bits_of_virtaddr (virtaddr.Virtaddr b) = b := rfl
+
+/-- The scalar widths supported by the generated load loop. This finite index avoids asking Lean to
+transport `BitVec (8 * width)` through the generated loop's `Int.toNat` casts symbolically. -/
+inductive ScalarLoadWidth where
+  | byte | half | word | dword
+
+def ScalarLoadWidth.bytes : ScalarLoadWidth → Nat
+  | .byte => 1
+  | .half => 2
+  | .word => 4
+  | .dword => 8
+
+/-- `vmem_read` only adds effective-address resolution around `vmem_read_addr`; this composition is
+independent of the scalar load width. -/
+theorem vmem_read_of_addr_run (width : Nat) (s : State) (rs : regidx)
+    (offset srcBits : BitVec 64) (v : BitVec (8 * width))
+    (addrReg : Runs (get_transformed_data_addr rs offset (Load Data) width) s s
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)))
+    (readAddr : Runs
+      (vmem_read_addr (virtaddr.Virtaddr srcBits) width (Load Data) false false false)
+      s s (.Ok v)) :
+    Runs (vmem_read rs offset width (Load Data) false false false) s s (.Ok v) := by
+  unfold vmem_read
+  apply RunsME.run
+  refine RunsME.bind (middle := s) (value := virtaddr.Virtaddr srcBits) ?vaddr ?readAddr
+  case vaddr =>
+    refine RunsME.bind
+      (RunsME.lift _ s s (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)) addrReg) ?_
+    exact RunsME.pure (virtaddr.Virtaddr srcBits) s
+  case readAddr => exact RunsME.lift _ s s (Sail.Ok v) readAddr
 
 theorem vmem_read_addr_dword_run (s : State) (srcBits mstatusBits : BitVec 64)
     (v : BitVec (8 * 8))
@@ -324,16 +366,8 @@ theorem vmem_read_dword_run (s : State) (rs : regidx) (offset srcBits mstatusBit
     (hread : Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) 8 false false false)
       s s (Sail.Ok v)) :
     Runs (vmem_read rs offset 8 (Load Data) false false false) s s (.Ok v) := by
-  unfold vmem_read
-  apply RunsME.run
-  refine RunsME.bind (middle := s) (value := virtaddr.Virtaddr srcBits) ?vaddr ?readAddr
-  case vaddr =>
-    refine RunsME.bind
-      (RunsME.lift _ s s (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)) addrReg) ?_
-    exact RunsME.pure (virtaddr.Virtaddr srcBits) s
-  case readAddr =>
-    exact RunsME.lift _ s s (Sail.Ok v)
-      (vmem_read_addr_dword_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
+  exact vmem_read_of_addr_run 8 s rs offset srcBits v addrReg
+    (vmem_read_addr_dword_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
 
 /-! ## Aligned word read loop -/
 
@@ -411,16 +445,8 @@ theorem vmem_read_word_run (s : State) (rs : regidx) (offset srcBits mstatusBits
     (hread : Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) 4 false false false)
       s s (Sail.Ok v)) :
     Runs (vmem_read rs offset 4 (Load Data) false false false) s s (.Ok v) := by
-  unfold vmem_read
-  apply RunsME.run
-  refine RunsME.bind (middle := s) (value := virtaddr.Virtaddr srcBits) ?vaddr ?readAddr
-  case vaddr =>
-    refine RunsME.bind
-      (RunsME.lift _ s s (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)) addrReg) ?_
-    exact RunsME.pure (virtaddr.Virtaddr srcBits) s
-  case readAddr =>
-    exact RunsME.lift _ s s (Sail.Ok v)
-      (vmem_read_addr_word_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
+  exact vmem_read_of_addr_run 4 s rs offset srcBits v addrReg
+    (vmem_read_addr_word_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
 
 /-- An aligned four-byte load from explicitly represented little-endian memory. -/
 theorem vmem_read_word_from_bytes_run (s : State) (rs : regidx)
@@ -521,16 +547,8 @@ theorem vmem_read_half_run (s : State) (rs : regidx) (offset srcBits mstatusBits
     (hread : Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) 2 false false false)
       s s (Sail.Ok v)) :
     Runs (vmem_read rs offset 2 (Load Data) false false false) s s (.Ok v) := by
-  unfold vmem_read
-  apply RunsME.run
-  refine RunsME.bind (middle := s) (value := virtaddr.Virtaddr srcBits) ?vaddr ?readAddr
-  case vaddr =>
-    refine RunsME.bind
-      (RunsME.lift _ s s (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)) addrReg) ?_
-    exact RunsME.pure (virtaddr.Virtaddr srcBits) s
-  case readAddr =>
-    exact RunsME.lift _ s s (Sail.Ok v)
-      (vmem_read_addr_half_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
+  exact vmem_read_of_addr_run 2 s rs offset srcBits v addrReg
+    (vmem_read_addr_half_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
 
 /-- An aligned two-byte load from explicitly represented little-endian memory. -/
 theorem vmem_read_half_from_bytes_run (s : State) (rs : regidx)
@@ -676,6 +694,28 @@ theorem vmem_read_addr_byte_run (s : State) (srcBits mstatusBits : BitVec 64)
           refine RunsME.bind (RunsME.pure () s) ?_
           exact RunsME.pure _ s
 
+/-- One entry point for all scalar `vmem_read_addr` widths. Each branch reuses the corresponding
+generated-loop proof; callers no longer select among four unrelated theorem names. -/
+theorem vmem_read_addr_scalar_run (width : ScalarLoadWidth) (s : State)
+    (srcBits mstatusBits : BitVec 64) (v : BitVec (8 * width.bytes))
+    (mstatusRead : s.regs.get? mstatus = some mstatusBits)
+    (privRead : s.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr srcBits) width.bytes = true)
+    (hread : Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) width.bytes
+      false false false) s s (Sail.Ok v)) :
+    Runs (vmem_read_addr (virtaddr.Virtaddr srcBits) width.bytes (Load Data) false false false)
+      s s (.Ok v) := by
+  cases width with
+  | byte =>
+    exact vmem_read_addr_byte_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread
+  | half =>
+    exact vmem_read_addr_half_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread
+  | word =>
+    exact vmem_read_addr_word_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread
+  | dword =>
+    exact vmem_read_addr_dword_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread
+
 /-- `vmem_read` for an aligned byte: once the effective address resolves to `srcBits`, the read
 runs to `Ok v` with the state unchanged. -/
 theorem vmem_read_byte_run (s : State) (rs : regidx) (offset srcBits mstatusBits : BitVec 64)
@@ -689,16 +729,8 @@ theorem vmem_read_byte_run (s : State) (rs : regidx) (offset srcBits mstatusBits
     (hread : Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) 1 false false false)
       s s (Sail.Ok v)) :
     Runs (vmem_read rs offset 1 (Load Data) false false false) s s (.Ok v) := by
-  unfold vmem_read
-  apply RunsME.run
-  refine RunsME.bind (middle := s) (value := virtaddr.Virtaddr srcBits) ?vaddr ?readAddr
-  case vaddr =>
-    refine RunsME.bind
-      (RunsME.lift _ s s (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)) addrReg) ?_
-    exact RunsME.pure (virtaddr.Virtaddr srcBits) s
-  case readAddr =>
-    exact RunsME.lift _ s s (Sail.Ok v)
-      (vmem_read_addr_byte_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
+  exact vmem_read_of_addr_run 1 s rs offset srcBits v addrReg
+    (vmem_read_addr_byte_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
 
 /-! ## Aligned unsigned-byte load instruction (`lbu`) -/
 
