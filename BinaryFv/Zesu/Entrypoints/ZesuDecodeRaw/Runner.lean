@@ -164,9 +164,8 @@ def runAnswer (action : SailM (Except RiscvSpec.ExecutionError DecodeOutcome)) :
 
 /-- Execute the decoder on `input` from the pinned artifact. -/
 def executeDecode (input : ByteArray) : Except RiscvSpec.ExecutionError DecodeOutcome :=
-  match runnerSymbols with
-  | none => .error .invalidArtifact
-  | some symbols => runAnswer (runZesuDecodeRaw symbols input)
+  (runnerSymbols.map fun symbols => runAnswer (runZesuDecodeRaw symbols input)).getD
+    (.error .invalidArtifact)
 
 /-- The public entry: reject a non-canonical artifact or an out-of-bound input first, then run.
 
@@ -213,6 +212,20 @@ records below: a claim made in prose at a layer where nothing checks it. It is o
 the *forward* half of the trap story — the classifier's `classifyWrapperRun_trapped` covers a run
 that stalled and came back, this covers a run that never came back at all. -/
 
+/-! ### `executeDecode` at a resolved symbol table -/
+
+/-- `executeDecode` at a resolved symbol table. Factored out because `unfold executeDecode` leaves
+`runnerSymbols` in the caller's rewrite motive, and the kernel then resolves the ELF symbol table
+while checking it -- 21 s per site, four sites. Proved once here against a variable `symbols`. -/
+private theorem getD_map_some {α β : Type _} {o : Option α} {f : α → β} {a : α} {d : β}
+    (ho : o = some a) : (o.map f).getD d = f a := by
+  subst ho; rfl
+
+theorem executeDecode_some {symbols : RunnerSymbols} (hsymbols : runnerSymbols = some symbols)
+    (input : ByteArray) :
+    executeDecode input = runAnswer (runZesuDecodeRaw symbols input) :=
+  getD_map_some (f := fun s => runAnswer (runZesuDecodeRaw s input)) hsymbols
+
 /-- **A run the Sail model could not complete answers `.error .trapped`.** An access outside
 materialized memory, a failed model assertion or an unreachable model branch escapes as an
 `EStateM` error, and `runAnswer` maps every one of them to the same trap — in particular to *an
@@ -225,8 +238,9 @@ theorem executeDecode_trapped_of_sail_fault {input : ByteArray} {symbols : Runne
     (hsymbols : runnerSymbols = some symbols)
     (h : (runZesuDecodeRaw symbols input).run initialState = .error fault faulted) :
     executeDecode input = .error .trapped := by
-  unfold executeDecode runAnswer
-  simp only [hsymbols, h]
+  rw [executeDecode_some hsymbols]
+  unfold runAnswer
+  simp only [h]
 
 /-! ## Following a real trace
 
@@ -288,8 +302,9 @@ theorem executeDecode_of_trace {symbols : RunnerSymbols} (input : ByteArray) {co
       .ok (classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
         Elflings.canonicalResultBuffer accessors.1 accessors.2 (.reached count) final) after :=
     runZesuDecodeRaw_of_trace symbols input hbuild htrace hbound haccessors
-  unfold executeDecode runAnswer
-  simp only [hsymbols, hrun]
+  rw [executeDecode_some hsymbols]
+  unfold runAnswer
+  simp only [hrun]
 
 /-! ## The two public outcomes, from a run
 
@@ -392,25 +407,23 @@ theorem executeDecode_rejected_forces_checks {input : ByteArray}
         statusCategory status = .specRejection) ∧
       classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
         Elflings.canonicalResultBuffer rawResult rawError (.reached steps) final = .ok .rejected := by
-  unfold executeDecode at h
-  match hsym : runnerSymbols with
-  | none => simp only [hsym] at h; exact absurd h (by simp)
-  | some symbols =>
-    simp only [hsym, runAnswer] at h
-    match hrun : (runZesuDecodeRaw symbols input).run initialState with
-    | .error e s => simp only [hrun] at h; exact absurd h (by simp)
-    | .ok result s =>
-      simp only [hrun] at h
-      obtain ⟨outcome, final, rawResult, rawError, hresult⟩ :=
-        runZesuDecodeRaw_classifies symbols input hrun
-      have hclass : classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
-          Elflings.canonicalResultBuffer rawResult rawError outcome final = .ok .rejected := by
-        rw [← hresult]; exact h
-      obtain ⟨⟨steps, hsteps⟩, hcode, ⟨status, herror, hstatus⟩, hnull, htag⟩ :=
-        wrapper_rejection_forces_checks hclass
-      subst hsteps
-      exact ⟨final, steps, rawResult, rawError, hcode, hnull, htag, ⟨status, herror, hstatus⟩,
-        hclass⟩
+  obtain ⟨symbols, hsym⟩ : ∃ s, runnerSymbols = some s := ⟨_, runnerSymbols_eq_resolved⟩
+  rw [executeDecode_some hsym] at h
+  unfold runAnswer at h
+  match hrun : (runZesuDecodeRaw symbols input).run initialState with
+  | .error e s => simp only [hrun] at h; exact absurd h (by simp)
+  | .ok result s =>
+    simp only [hrun] at h
+    obtain ⟨outcome, final, rawResult, rawError, hresult⟩ :=
+      runZesuDecodeRaw_classifies symbols input hrun
+    have hclass : classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+        Elflings.canonicalResultBuffer rawResult rawError outcome final = .ok .rejected := by
+      rw [← hresult]; exact h
+    obtain ⟨⟨steps, hsteps⟩, hcode, ⟨status, herror, hstatus⟩, hnull, htag⟩ :=
+      wrapper_rejection_forces_checks hclass
+    subst hsteps
+    exact ⟨final, steps, rawResult, rawError, hcode, hnull, htag, ⟨status, herror, hstatus⟩,
+      hclass⟩
 
 /-- **What the discriminant conjunct and the classification equation add** — an independence witness,
 recorded because `Root.execute_rejected_forces_checks` used to drop both of them and the loss was
@@ -520,24 +533,22 @@ theorem executeDecode_accepted_forces_checks {input : ByteArray} {value : Binary
       classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
         Elflings.canonicalResultBuffer rawResult rawError (.reached steps) final
         = .ok (.accepted value) := by
-  unfold executeDecode at h
-  match hsym : runnerSymbols with
-  | none => simp only [hsym] at h; exact absurd h (by simp)
-  | some symbols =>
-    simp only [hsym, runAnswer] at h
-    match hrun : (runZesuDecodeRaw symbols input).run initialState with
-    | .error e s => simp only [hrun] at h; exact absurd h (by simp)
-    | .ok result s =>
-      simp only [hrun] at h
-      obtain ⟨outcome, final, rawResult, rawError, hresult⟩ :=
-        runZesuDecodeRaw_classifies symbols input hrun
-      have hclass : classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
-          Elflings.canonicalResultBuffer rawResult rawError outcome final
-          = .ok (.accepted value) := by
-        rw [← hresult]; exact h
-      obtain ⟨⟨steps, hsteps⟩, hcode, herror, hnull, -, htag, hvalue⟩ := wrapper_acceptance_forces_checks hclass
-      subst hsteps
-      exact ⟨final, steps, rawResult, rawError, hcode, herror, hnull, htag, hvalue, hclass⟩
+  obtain ⟨symbols, hsym⟩ : ∃ s, runnerSymbols = some s := ⟨_, runnerSymbols_eq_resolved⟩
+  rw [executeDecode_some hsym] at h
+  unfold runAnswer at h
+  match hrun : (runZesuDecodeRaw symbols input).run initialState with
+  | .error e s => simp only [hrun] at h; exact absurd h (by simp)
+  | .ok result s =>
+    simp only [hrun] at h
+    obtain ⟨outcome, final, rawResult, rawError, hresult⟩ :=
+      runZesuDecodeRaw_classifies symbols input hrun
+    have hclass : classifyWrapperRun observeDecodedValue storedResultDiscriminantAddr
+        Elflings.canonicalResultBuffer rawResult rawError outcome final
+        = .ok (.accepted value) := by
+      rw [← hresult]; exact h
+    obtain ⟨⟨steps, hsteps⟩, hcode, herror, hnull, -, htag, hvalue⟩ := wrapper_acceptance_forces_checks hclass
+    subst hsteps
+    exact ⟨final, steps, rawResult, rawError, hcode, herror, hnull, htag, hvalue, hclass⟩
 
 /-- **The preflight gate cannot manufacture an acceptance either.** Same two-way match as the
 rejection version; the gate contributes only `.invalidArtifact`. -/

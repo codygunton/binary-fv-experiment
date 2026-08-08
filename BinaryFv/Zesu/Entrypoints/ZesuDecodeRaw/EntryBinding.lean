@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.StateBuilder
 import BinaryFv.RiscV.Logic.Framing
+import BinaryFv.RiscV.Platform.PhysicalAccess
 import BinaryFv.RiscV.Proof.ImageLoadCorrectness
 import BinaryFv.Zesu.Contracts.CanonicalParams
 import BinaryFv.Zesu.Contracts.ExportedDecoder
@@ -43,6 +44,99 @@ def configureSucceedsB : Bool :=
   | .error _ _ => false
 
 theorem configure_succeeds : configureSucceedsB = true := by native_decide
+
+/-- Whether a PMA region has exactly the runner's main-memory fields. Each field is checked directly
+rather than comparing `PMA_Region`s, which do not have a `DecidableEq` instance. -/
+private def zesuMainMemoryRegionB (region : PMA_Region) : Bool :=
+  (region.base == BitVec.ofNat 64 zesuPmaRange.start) &&
+  (region.size == BitVec.ofNat 64 zesuPmaRange.size) &&
+  (match region.attributes.mem_type with | .MainMemory => true | _ => false) &&
+  region.attributes.cacheable && region.attributes.coherent && region.attributes.executable &&
+  region.attributes.readable && region.attributes.writable && region.attributes.read_idempotent &&
+  region.attributes.write_idempotent &&
+  (match region.attributes.misaligned_exceptions.load_store with
+    | none => true
+    | some _ => false) &&
+  (match region.attributes.misaligned_exceptions.vector with | none => true | some _ => false) &&
+  (match region.attributes.misaligned_exceptions.amo with | .AccessFault => true | _ => false) &&
+  (match region.attributes.atomic_support with | .AMOCASQ => true | _ => false) &&
+  (match region.attributes.reservability with | .RsrvEventual => true | _ => false) &&
+  region.attributes.supports_cbo_zero && region.attributes.supports_pte_read &&
+  region.attributes.supports_pte_write && !region.include_in_device_tree
+
+private theorem zesuMainMemoryRegion_of_check {region : PMA_Region}
+    (h : zesuMainMemoryRegionB region = true) : region = zesuMainMemoryRegion := by
+  rcases region with ⟨base, size, attributes, deviceTree⟩
+  rcases attributes with ⟨memType, cacheable, coherent, executable, readable, writable,
+    readIdempotent, writeIdempotent, misaligned, atomicSupport, reservability, cboZero, pteRead,
+    pteWrite⟩
+  rcases misaligned with ⟨loadStore, vector, amo⟩
+  cases memType <;> cases loadStore <;> cases vector <;> cases amo <;> cases atomicSupport <;>
+    cases reservability <;>
+    simp_all [zesuMainMemoryRegionB, zesuMainMemoryRegion, zesuMainMemoryAttributes, zesuPmaRange]
+
+private def zesuMainMemoryRegionsB (regions : List PMA_Region) : Bool :=
+  match regions with
+  | [region] => zesuMainMemoryRegionB region
+  | _ => false
+
+private theorem zesuMainMemoryRegions_of_check {regions : List PMA_Region}
+    (h : zesuMainMemoryRegionsB regions = true) : regions = [zesuMainMemoryRegion] := by
+  cases regions with
+  | nil => simp [zesuMainMemoryRegionsB] at h
+  | cons region regions =>
+    cases regions with
+    | nil => exact congrArg (fun region => [region]) (zesuMainMemoryRegion_of_check h)
+    | cons next rest => simp [zesuMainMemoryRegionsB] at h
+
+/-- Whether the closed configuration computation installs the intended PMA table. -/
+private def configurePmaRegionsB : Bool :=
+  match configureZesuMachine.run initialState with
+  | .ok _ s =>
+    match s.regs.get? pma_regions with
+    | some regions => zesuMainMemoryRegionsB regions
+    | none => false
+  | .error _ _ => false
+
+private theorem configure_pma_regions_check : configurePmaRegionsB = true := by native_decide
+
+/-- The configuration action installs exactly the runner's main-memory PMA table. -/
+theorem configure_pma_regions {s : State}
+    (h : configureZesuMachine.run initialState = .ok () s) :
+    s.regs.get? pma_regions = some [zesuMainMemoryRegion] := by
+  have hcheck := configure_pma_regions_check
+  unfold configurePmaRegionsB at hcheck
+  rw [h] at hcheck
+  cases hpma : s.regs.get? pma_regions with
+  | none => simp [hpma] at hcheck
+  | some regions =>
+    have hregions : zesuMainMemoryRegionsB regions = true := by
+      simpa [hpma] using hcheck
+    exact congrArg some (zesuMainMemoryRegions_of_check hregions)
+
+/-- Whether the closed configuration leaves the three wrapper-saved registers readable. The wrapper
+stores `s0`, `s1`, and `s2` before writing any of them, so the canonical entry must expose their
+actual initialized values rather than postulate an ABI value. -/
+private def configureSavedRegistersPresentB : Bool :=
+  match configureZesuMachine.run initialState with
+  | .ok _ state => (state.regs.get? x8).isSome && (state.regs.get? x9).isSome &&
+      (state.regs.get? x18).isSome
+  | .error _ _ => false
+
+private theorem configure_saved_registers_present_check : configureSavedRegistersPresentB = true := by
+  native_decide
+
+/-- The configured machine provides the three live registers the wrapper saves in its frame. -/
+theorem configure_saved_registers_present {s : State}
+    (h : configureZesuMachine.run initialState = .ok () s) :
+    (∃ value, s.regs.get? x8 = some value) ∧
+      (∃ value, s.regs.get? x9 = some value) ∧
+        ∃ value, s.regs.get? x18 = some value := by
+  have hcheck := configure_saved_registers_present_check
+  unfold configureSavedRegistersPresentB at hcheck
+  rw [h] at hcheck
+  simp only [Bool.and_eq_true, Option.isSome_iff_exists] at hcheck
+  exact ⟨hcheck.1.1, hcheck.1.2, hcheck.2⟩
 
 /-! ### The configured machine is a *normal* execution state
 
@@ -255,11 +349,78 @@ theorem fetchPlatformPinned_frame {s s' : State} {addresses : List Nat}
       (by decide)]
     exact hhtif
 
+def pmaReadableAtB (regions : List PMA_Region) (address width : Nat) : Bool :=
+  match matching_pma_region regions (physaddr.Physaddr (BitVec.ofNat 64 address)) width with
+  | some region => region.attributes.readable
+  | none => false
+
+def loadPmaAllowsB (state : State) (access : Nat × Nat) : Bool :=
+  match state.regs.get? pma_regions with
+  | some regions => pmaReadableAtB regions access.1 access.2
+  | none => false
+
+structure LoadPlatformPinned (state : State) (accesses : List (Nat × Nat)) : Prop where
+  mstatus : ∃ bits, state.regs.get? mstatus = some bits ∧ _get_Mstatus_MPRV bits = 0#1
+  mseccfg : ∃ bits, state.regs.get? mseccfg = some bits ∧
+    pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled
+  allows : ∀ access ∈ accesses,
+    LoadPmaAllows state (BitVec.ofNat 64 access.1) access.2
+
+def loadPlatformPinnedB (state : State) (accesses : List (Nat × Nat)) : Bool :=
+  (match state.regs.get? mstatus with
+    | some bits => _get_Mstatus_MPRV bits == 0#1
+    | none => false) &&
+  (match state.regs.get? mseccfg with
+    | some bits => match pmm_mode_backwards (_get_Seccfg_PMM bits) with
+      | .PMM_Disabled => true
+      | _ => false
+    | none => false) && accesses.all (loadPmaAllowsB state)
+
+theorem loadPlatformPinned_of_check {state : State} {accesses : List (Nat × Nat)}
+    (h : loadPlatformPinnedB state accesses = true) : LoadPlatformPinned state accesses := by
+  simp only [loadPlatformPinnedB, Bool.and_eq_true] at h
+  rcases hmstatus : state.regs.get? mstatus with _ | mstatusBits
+  · simp [hmstatus] at h
+  rcases hmseccfg : state.regs.get? mseccfg with _ | mseccfgBits
+  · simp [hmstatus, hmseccfg] at h
+  simp only [hmstatus, hmseccfg, beq_iff_eq] at h
+  have hpmm : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled := by
+    cases hp : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) <;> simp_all
+  refine ⟨⟨mstatusBits, hmstatus, h.1.1⟩, ⟨mseccfgBits, hmseccfg, hpmm⟩, ?_⟩
+  intro access haccess
+  have hrow := List.all_eq_true.mp h.2 access haccess
+  unfold loadPmaAllowsB at hrow
+  split at hrow
+  · next regions hregions =>
+      unfold pmaReadableAtB at hrow
+      split at hrow
+      · next region hmatch => exact ⟨regions, region, hregions, hmatch, hrow⟩
+      · next => exact absurd hrow (by simp)
+  · next => exact absurd hrow (by simp)
+
+theorem loadPlatformPinned_frame {s s' : State} {accesses : List (Nat × Nat)}
+    (mstatusFrame : s'.regs.get? mstatus = s.regs.get? mstatus)
+    (mseccfgFrame : s'.regs.get? mseccfg = s.regs.get? mseccfg)
+    (pmaFrame : s'.regs.get? pma_regions = s.regs.get? pma_regions)
+    (h : LoadPlatformPinned s accesses) : LoadPlatformPinned s' accesses := by
+  rcases h.mstatus with ⟨mstatusBits, mstatusRead, mprvZero⟩
+  rcases h.mseccfg with ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩
+  refine ⟨⟨mstatusBits, mstatusFrame.trans mstatusRead, mprvZero⟩,
+    ⟨mseccfgBits, mseccfgFrame.trans mseccfgRead, pmmDisabled⟩, ?_⟩
+  intro access haccess
+  obtain ⟨regions, region, regionsRead, matching, readable⟩ := h.allows access haccess
+  exact ⟨regions, region, pmaFrame.trans regionsRead, matching, readable⟩
+
 /-- Whether the configured machine's PMA table grants an executable four-byte instruction fetch at
 every listed address and leaves the HTIF window disabled. Closed and finite once `addresses` is. -/
 def configureFetchPinnedB (addresses : List Nat) : Bool :=
   match configureZesuMachine.run initialState with
   | .ok _ s => fetchPlatformPinnedB s addresses
+  | .error _ _ => false
+
+def configureLoadPinnedB (accesses : List (Nat × Nat)) : Bool :=
+  match configureZesuMachine.run initialState with
+  | .ok _ state => loadPlatformPinnedB state accesses
   | .error _ _ => false
 
 /-- Whether the configuration program both succeeds and leaves a normal execution state with the five
@@ -283,8 +444,10 @@ module proves the configured machine's PMA table and HTIF base are whatever `con
 left them, and hands back the consequence for any address list a caller can `native_decide`. -/
 theorem configure_runs : ∃ mid, Runs configureZesuMachine initialState mid () ∧
     NormalExecutionState mid ∧ FetchPlatformPresent mid ∧
-    ∀ addresses : List Nat, configureFetchPinnedB addresses = true →
-      FetchPlatformPinned mid addresses := by
+    (∀ addresses : List Nat, configureFetchPinnedB addresses = true →
+      FetchPlatformPinned mid addresses) ∧
+    (∀ accesses : List (Nat × Nat), configureLoadPinnedB accesses = true →
+      LoadPlatformPinned mid accesses) := by
   have h := configure_normal
   unfold configureNormalB at h
   cases hr : configureZesuMachine.run initialState with
@@ -292,13 +455,17 @@ theorem configure_runs : ∃ mid, Runs configureZesuMachine initialState mid () 
   | ok u s =>
     rw [hr] at h
     simp only [Bool.and_eq_true] at h
-    refine ⟨s, ?_, normalExecutionState_of_check h.1, fetchPlatformPresent_of_check h.2, ?_⟩
+    refine ⟨s, ?_, normalExecutionState_of_check h.1, fetchPlatformPresent_of_check h.2, ?_, ?_⟩
     · show configureZesuMachine.run initialState = .ok () s
       rw [hr]
     · intro addresses hchecked
       unfold configureFetchPinnedB at hchecked
       rw [hr] at hchecked
       exact fetchPlatformPinned_of_check hchecked
+    · intro accesses hchecked
+      unfold configureLoadPinnedB at hchecked
+      rw [hr] at hchecked
+      exact loadPlatformPinned_of_check hchecked
 
 /-- **`NormalExecutionState` reads none of the six registers the builder's ABI block writes**, so it
 transports across that block verbatim. The six disequalities are the whole content: `x1`, `x2`,
@@ -415,12 +582,22 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       NormalExecutionState s ∧ FetchPlatformPresent s ∧
       (∀ addresses : List Nat, configureFetchPinnedB addresses = true →
         FetchPlatformPinned s addresses) ∧
+      (∀ accesses : List (Nat × Nat), configureLoadPinnedB accesses = true →
+        LoadPlatformPinned s accesses) ∧
       ∃ entrySym, Artifacts.zesuDecodeRaw.toOption = some entrySym ∧
         s.regs.get? PC = some (BitVec.ofNat 64 entrySym.value) ∧
-        s.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) := by
+        s.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) ∧
+          s.regs.get? pma_regions = some [zesuMainMemoryRegion] ∧
+            (∃ value, s.regs.get? x8 = some value) ∧
+              (∃ value, s.regs.get? x9 = some value) ∧
+                ∃ value, s.regs.get? x18 = some value := by
   -- Stage the loaders.
   obtain ⟨seg, hsingle⟩ := programImage_single
-  obtain ⟨s1, hrun1, hnormal1, hfetch1, hpinned1⟩ := configure_runs
+  obtain ⟨s1, hrun1, hnormal1, hfetch1, hpinned1, hloadPinned1⟩ := configure_runs
+  have hrun1' : configureZesuMachine.run initialState = .ok () s1 := hrun1
+  have hpma1 : s1.regs.get? pma_regions = some [zesuMainMemoryRegion] :=
+    configure_pma_regions hrun1'
+  have hsaved1 := configure_saved_registers_present hrun1'
   obtain ⟨s2, hrun2, hregs2, _hlow2, _hhigh2, hfile2⟩ :=
     loadFileBackedImage_single_establishes hsingle s1
   obtain ⟨sstack, hrunstack, hregsstack, hframestack, _hwinstack⟩ :=
@@ -459,6 +636,8 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
         (hframestack a (Or.inl (by omega))))))
   have hmem_glob : ∀ a, 86048 ≤ a → s6.mem.get? a = s4.mem.get? a := fun a ha =>
     (hframe6 a (Or.inr (by omega))).trans (hframe5 a (Or.inr (by omega)))
+  have hregs6_1 : s6.regs = s1.regs := by
+    rw [hregs6, hregs5, hregs4, hregs3, hregsstack, hregs2]
   -- Build the entry state, threading `Runs`, and read off the memory and the ABI registers.
   have hbuilt : ∃ sf, Runs (buildZesuEntryState input) initialState sf () ∧
       sf.mem = s6.mem ∧
@@ -470,7 +649,13 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       sf.regs.get? nextPC = some (BitVec.ofNat 64 entrySym.value) ∧
       NormalExecutionState sf ∧ FetchPlatformPresent sf ∧
       (∀ addresses : List Nat, configureFetchPinnedB addresses = true →
-        FetchPlatformPinned sf addresses) := by
+        FetchPlatformPinned sf addresses) ∧
+      (∀ accesses : List (Nat × Nat), configureLoadPinnedB accesses = true →
+        LoadPlatformPinned sf accesses) ∧
+      sf.regs.get? pma_regions = some [zesuMainMemoryRegion] ∧
+      (∃ value, sf.regs.get? x8 = some value) ∧
+        (∃ value, sf.regs.get? x9 = some value) ∧
+          ∃ value, sf.regs.get? x18 = some value := by
     have hrunR : Runs
         (writeReg x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase) >>= fun _ =>
          writeReg x11 (BitVec.ofNat 64 input.size) >>= fun _ =>
@@ -482,7 +667,7 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
         (Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
           (Runs.bind (by rw [Runs, writeReg_run]) (by rw [Runs, writeReg_run])))))
-    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · unfold buildZesuEntryState initStack
       simp only [hentry]
       exact Runs.bind hrun1 (Runs.bind hrun2 (Runs.bind hrunstack (Runs.bind hrun3 (Runs.bind hrun4
@@ -514,9 +699,23 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       refine fetchPlatformPinned_frame (fun r h1 h2 h10 h11 hpc hnext => ?_) (hpinned1 addresses hchecked)
       simp [Std.ExtDHashMap.get?_insert, Ne.symm h1, Ne.symm h2, Ne.symm h10, Ne.symm h11,
         Ne.symm hpc, Ne.symm hnext, hchain]
-  obtain ⟨sf, hrunsf, hmemsf, hx10, hx11, hx1, hx2, hpc, hnextpc, hnormal, hfetchsf, hpinnedsf⟩ :=
+    · have hchain : s6.regs = s1.regs := by
+        rw [hregs6, hregs5, hregs4, hregs3, hregsstack, hregs2]
+      intro accesses hchecked
+      refine loadPlatformPinned_frame ?_ ?_ ?_ (hloadPinned1 accesses hchecked) <;>
+        simp [Std.ExtDHashMap.get?_insert, hchain]
+    · simp [Std.ExtDHashMap.get?_insert, hregs6_1, hpma1]
+    · obtain ⟨value, hvalue⟩ := hsaved1.1
+      exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+    · obtain ⟨value, hvalue⟩ := hsaved1.2.1
+      exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+    · obtain ⟨value, hvalue⟩ := hsaved1.2.2
+      exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+  obtain ⟨sf, hrunsf, hmemsf, hx10, hx11, hx1, hx2, hpc, hnextpc, hnormal, hfetchsf,
+    hpinnedsf, hloadPinnedsf, hpmasf, hx8sf, hx9sf, hx18sf⟩ :=
     hbuilt
-  refine ⟨sf, hrunsf, ?_, hx1, hx2, hnormal, hfetchsf, hpinnedsf, entrySym, hentry, hpc, hnextpc⟩
+  refine ⟨sf, hrunsf, ?_, hx1, hx2, hnormal, hfetchsf, hpinnedsf, hloadPinnedsf,
+    entrySym, hentry, hpc, hnextpc, hpmasf, hx8sf, hx9sf, hx18sf⟩
   -- Reduce the argument projections once, then discharge each entry-binding conjunct.
   show MemoryBytes sf canonicalRunnerLayout.inputBase input ∧
       canonicalEnvironment.CodeIntact sf ∧
