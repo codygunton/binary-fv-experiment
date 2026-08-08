@@ -631,6 +631,106 @@ def function_instance_bindings(d, dies, name_of_off, locs, function_instance_ran
     ordered += [r for r in out if r[0] not in sig]     # never drop a row DWARF did emit
     return ordered
 
+
+def function_instance_entry_locals(d, dies, name_of_off, locs, function_instance_ranges):
+    """The entry-time locations of named local variables physically recorded on `d`.
+
+    These are deliberately separate from `function_instance_bindings`: DWARF's abstract origin is
+    authoritative for the source signature, while an optimized inlined DIE can still record a local
+    (such as its result aggregate) even when that source signature has no formal-parameter DIEs.
+    The location is resolved at the instance entry by the same range-aware rule as a formal binding.
+    """
+    frame_reg = frame_base_reg_of(d)
+    rows = []
+    for i, c in enumerate(dies):
+        if c.parent is not d or c.tag != "DW_TAG_variable":
+            continue
+        nm = c.attrs.get("DW_AT_name")
+        name = attr_name(nm) if nm is not None else (
+            name_of_off.get(attr_ref(c.attrs["DW_AT_abstract_origin"]), f"local{i}")
+            if "DW_AT_abstract_origin" in c.attrs else f"local{i}")
+        loc = c.attrs.get("DW_AT_location")
+        if loc is None:
+            continue                            # no entry location is not a witness
+        kind, reg, offset = resolve_binding(loc, locs, function_instance_ranges, frame_reg)
+        if kind not in ("callerProvided", "unresolved"):
+            rows.append((name, kind, reg, offset))
+    return rows
+
+
+# This interface begins with the one local that makes the DWARF-paramless inlined
+# `decodeNewPayloadRequest` boundary concrete.  The selector is source identity, not the mutable
+# catalog position: generation must fail if that exact inlined instance or local disappears.
+PARAMLESS_ENTRY_LOCAL_WITNESSES = [
+    ("ssz_raw.decodeNewPayloadRequest",
+     (("ssz_raw.decodeRaw", 207, 61),),
+     "result"),
+]
+
+# The emitted `decodeRaw` parent is the next allocation-proof boundary.  Its `alloc` formal is a
+# direct DWARF location (x11 + 0), not a source-ABI reconstruction or one of the recovered rows.
+ENTRY_FORMAL_BINDING_WITNESSES = [
+    ("ssz_raw.decodeRaw", (), "alloc"),
+]
+
+
+def select_paramless_entry_local_witnesses(function_instances):
+    """Select required local-location witnesses by complete generated source identity.
+
+    Each target must be exactly one DWARF-paramless instance with exactly one location for the named
+    local.  It is intentionally a hard generation failure rather than an ABI reconstruction.
+    """
+    witnesses = []
+    for qualified, stack, local in PARAMLESS_ENTRY_LOCAL_WITNESSES:
+        candidates = [r for r in function_instances
+                      if r["qualified"] == qualified
+                      and tuple((f["callerQualified"], f["line"], f["column"])
+                                for f in r["inlineStack"]) == stack]
+        if len(candidates) != 1:
+            raise SystemExit("GENERATION FAILURE: expected exactly one DWARF-paramless entry-local "
+                             f"instance for {qualified} at {stack}, found {len(candidates)}")
+        instance = candidates[0]
+        if instance["bindings"]:
+            raise SystemExit("GENERATION FAILURE: expected DWARF-paramless instance for "
+                             f"{qualified} at {stack}, found formal bindings")
+        locations = [row for row in instance["entryLocals"] if row[0] == local]
+        if len(locations) != 1:
+            raise SystemExit("GENERATION FAILURE: expected exactly one entry location for local "
+                             f"{local} in {qualified} at {stack}, found {len(locations)}")
+        name, kind, reg, offset = locations[0]
+        witnesses.append({"instance": instance, "name": name, "kind": kind,
+                          "reg": reg, "offset": offset})
+    return witnesses
+
+
+def select_entry_formal_binding_witnesses(function_instances):
+    """Select required formal-binding witnesses by source identity, never catalog position.
+
+    The selected row must be physically present in the raw DWARF binding table.  A recovered value
+    would be useful evidence for a different theorem, but cannot replace this machine-boundary fact.
+    """
+    witnesses = []
+    for qualified, stack, parameter in ENTRY_FORMAL_BINDING_WITNESSES:
+        candidates = [r for r in function_instances
+                      if r["qualified"] == qualified
+                      and tuple((f["callerQualified"], f["line"], f["column"])
+                                for f in r["inlineStack"]) == stack]
+        if len(candidates) != 1:
+            raise SystemExit("GENERATION FAILURE: expected exactly one formal-binding instance for "
+                             f"{qualified} at {stack}, found {len(candidates)}")
+        instance = candidates[0]
+        locations = [row for row in instance["bindings"] if row[0] == parameter]
+        if len(locations) != 1:
+            raise SystemExit("GENERATION FAILURE: expected exactly one raw DWARF binding for "
+                             f"{parameter} in {qualified} at {stack}, found {len(locations)}")
+        name, kind, reg, offset = locations[0]
+        if kind in ("callerProvided", "unresolved"):
+            raise SystemExit("GENERATION FAILURE: raw DWARF binding for "
+                             f"{parameter} in {qualified} at {stack} has no machine location")
+        witnesses.append({"instance": instance, "name": name, "kind": kind,
+                          "reg": reg, "offset": offset})
+    return witnesses
+
 # The pinned Zig call sites recover values that optimized DWARF omits.  These are deliberately
 # narrow: only the reader chain used by this decoder and the emitted C memmove ABI are accepted.
 # A new missing-location shape fails generation instead of acquiring a guessed source ABI.
@@ -1005,12 +1105,16 @@ def emit_globals_lean(bss_base, bss_size, globals_, accessor_refs, runtime_globa
     L.append("end BinaryFv.Zesu.Elflings.GeneratedDecoderGlobals")
     return "\n".join(L) + "\n"
 
-def emit_bindings_lean(function_instances_sorted, effective, recoveries, derived):
+def emit_bindings_lean(function_instances_sorted, effective, recoveries, derived, entry_local_witnesses,
+                       entry_formal_binding_witnesses):
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py (--out-bindings). DO NOT EDIT.",
          "-- Untrusted extracted data: the entry-time ABI/binding of every function instance's formal",
          "-- parameters, resolved from DWARF .debug_loc at each function instance's entry PC. Validated in",
          "-- Lean by BinaryFv/Zesu/Elflings/GeneratedBindings.lean.",
+         "import GeneratedProgram",
          "namespace BinaryFv.Zesu.Elflings.GeneratedBindings",
+         "open BinaryFv.Binary.Elfling",
+         "open BinaryFv.Zesu.Elflings.Generated",
          "-- Rows are (function_instance index, parameter name, location kind, register-or-address,",
          "-- offset-or-value). The final field is the concrete value for const and the base offset",
          "-- otherwise.",
@@ -1041,10 +1145,30 @@ def emit_bindings_lean(function_instances_sorted, effective, recoveries, derived
     rows = [f'({i}, {lean_str(p)}, {lean_str(reason)}, {lean_str(kind)}, {reg}, {off})'
             for (i, p, reason, kind, reg, off) in recoveries]
     L.append("  [" + ",\n   ".join(rows) + "]")
+    L.append("/-- DWARF local locations at the entry of selected DWARF-paramless inlined instances. Fields:")
+    L.append("(source-derived function-instance identity, local name, location kind, base register, offset,")
+    L.append("canonical entry pc). The sidecar supplying the location is the instance provenance validated")
+    L.append("with the generated program; this table does not infer a source ABI. -/")
+    L.append("def paramlessEntryLocalWitnesses : List (FunctionInstanceId × String × String × Int × Int × Nat) :=")
+    names = function_instance_lean_names(function_instances_sorted)
+    positions = {id(instance): i for i, instance in enumerate(function_instances_sorted)}
+    rows = [f'({names[positions[id(w["instance"])]]}Id, {lean_str(w["name"])}, '
+            f'{lean_str(w["kind"])}, {w["reg"]}, {w["offset"]}, {w["instance"]["entryPc"]})'
+            for w in entry_local_witnesses]
+    L.append("  [" + ",\n   ".join(rows) + "]")
+    L.append("/-- Raw DWARF formal locations at selected production entry boundaries. Fields are the")
+    L.append("same as `paramlessEntryLocalWitnesses`; unlike that table, the named value is a formal")
+    L.append("parameter physically located by DWARF rather than a local variable. -/")
+    L.append("def entryFormalBindingWitnesses : List (FunctionInstanceId × String × String × Int × Int × Nat) :=")
+    rows = [f'({names[positions[id(w["instance"])]]}Id, {lean_str(w["name"])}, '
+            f'{lean_str(w["kind"])}, {w["reg"]}, {w["offset"]}, {w["instance"]["entryPc"]})'
+            for w in entry_formal_binding_witnesses]
+    L.append("  [" + ",\n   ".join(rows) + "]")
     L.append("end BinaryFv.Zesu.Elflings.GeneratedBindings")
     return "\n".join(L) + "\n"
 
-def emit_bindings_json(function_instances_sorted, effective, recoveries, derived):
+def emit_bindings_json(function_instances_sorted, effective, recoveries, derived, entry_local_witnesses,
+                       entry_formal_binding_witnesses):
     """The SAME binding tables as `--out-bindings`, as JSON.
 
     `program.json`'s per-function-instance `bindings` are the RAW DWARF rows, which still carry the 61
@@ -1063,6 +1187,16 @@ def emit_bindings_json(function_instances_sorted, effective, recoveries, derived
                      "constant": const, "sourceExpr": expr, "strideConstant": sname,
                      "loopHeader": header, "loopLatch": latch}
                     for (i, p, reg, stride, const, expr, sname, header, latch) in derived],
+        "paramless_entry_locals": [{"qualified": w["instance"]["qualified"],
+                                    "inlineStack": w["instance"]["inlineStack"],
+                                    "entryPc": w["instance"]["entryPc"], "name": w["name"],
+                                    "kind": w["kind"], "reg": w["reg"], "offset": w["offset"]}
+                                   for w in entry_local_witnesses],
+        "entry_formal_bindings": [{"qualified": w["instance"]["qualified"],
+                                    "inlineStack": w["instance"]["inlineStack"],
+                                    "entryPc": w["instance"]["entryPc"], "name": w["name"],
+                                    "kind": w["kind"], "reg": w["reg"], "offset": w["offset"]}
+                                   for w in entry_formal_binding_witnesses],
     }, indent=1, sort_keys=True) + "\n"
 
 def main():
@@ -1141,6 +1275,7 @@ def main():
                    "exitPc":max(r["start"]+r["size"] for r in cr), "dieOffset":d.off,
                    "callLine":intof(d.attrs.get("DW_AT_call_line")), "callColumn":intof(d.attrs.get("DW_AT_call_column")),
                    "bindings":function_instance_bindings(d, dies, name_of_off, locs, rs, dies_by_off, children_of),
+                   "entryLocals":function_instance_entry_locals(d, dies, name_of_off, locs, rs),
                    "_die":d}
             die_to_idx[id(d)] = len(function_instances); function_instances.append(rec)
 
@@ -1251,6 +1386,8 @@ def main():
     # this disassembly. Raw rows remain in the output beside these effective rows for auditability.
     effective_bindings, recovered_bindings, derived_bindings = recover_missing_bindings(
         function_instances_sorted, srclines, consts, insns)
+    entry_local_witnesses = select_paramless_entry_local_witnesses(function_instances_sorted)
+    entry_formal_binding_witnesses = select_entry_formal_binding_witnesses(function_instances_sorted)
 
     region_pc_sets = compute_function_instance_cfg(function_instances_sorted, insns)   # fills function_instance["exits"], function_instance["edges"]
     for function_instance in function_instances_sorted:
@@ -1311,12 +1448,14 @@ def main():
     if a.out_bindings:
         open(a.out_bindings, "w").write(
             emit_bindings_lean(
-                function_instances_sorted, effective_bindings, recovered_bindings, derived_bindings
+                function_instances_sorted, effective_bindings, recovered_bindings, derived_bindings,
+                entry_local_witnesses, entry_formal_binding_witnesses
             ))
     if a.out_bindings_json:
         open(a.out_bindings_json, "w").write(
             emit_bindings_json(
-                function_instances_sorted, effective_bindings, recovered_bindings, derived_bindings
+                function_instances_sorted, effective_bindings, recovered_bindings, derived_bindings,
+                entry_local_witnesses, entry_formal_binding_witnesses
             ))
     source_functions = {
         (function_instance["qualified"], tuple(function_instance["specialization"]))

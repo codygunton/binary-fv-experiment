@@ -2187,32 +2187,32 @@ theorem rawStatelessInput_footprint (base recordSize : Nat)
     heapArray_footprint base 1 recordSize s1 s2
       (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) harray⟩
 
-/-- The root's read set: the record and the ten heap arrays its descriptors point at. -/
+/-- The ten allocator-chosen heap-array regions a `StatelessInput` root points at. -/
+def statelessInputHeapRegion (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (bases : StatelessInputDescriptorBases) : Region :=
+  Region.union (range bases.versionedHashesBase (value.newPayloadRequest.versionedHashes.size * 32))
+    (Region.union
+      (range bases.transactionsBase (value.newPayloadRequest.executionPayload.transactions.size * 16))
+      (Region.union
+        (range bases.withdrawalsBase (value.newPayloadRequest.executionPayload.withdrawals.size * 48))
+        (Region.union
+          (range bases.depositsBase (value.newPayloadRequest.executionRequests.deposits.size * 192))
+          (Region.union
+            (range bases.withdrawalRequestsBase
+              (value.newPayloadRequest.executionRequests.withdrawals.size * 80))
+            (Region.union
+              (range bases.consolidationRequestsBase
+                (value.newPayloadRequest.executionRequests.consolidations.size * 116))
+              (Region.union (range bases.witnessStateBase (value.witness.state.size * 16))
+                (Region.union (range bases.witnessCodesBase (value.witness.codes.size * 16))
+                  (Region.union
+                    (range bases.witnessHeadersBase (value.witness.headers.size * 16))
+                    (range bases.publicKeysBase (value.publicKeys.size * 65))))))))))
+
+/-- The root record together with the ten heap arrays its descriptors point at. -/
 def statelessInputRegion (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
     (bases : StatelessInputDescriptorBases) : Region :=
-  Region.union (range rootBase rootSize)
-    (Region.union
-      (range bases.versionedHashesBase (value.newPayloadRequest.versionedHashes.size * 32))
-      (Region.union
-        (range bases.transactionsBase
-          (value.newPayloadRequest.executionPayload.transactions.size * 16))
-        (Region.union
-          (range bases.withdrawalsBase
-            (value.newPayloadRequest.executionPayload.withdrawals.size * 48))
-          (Region.union
-            (range bases.depositsBase
-              (value.newPayloadRequest.executionRequests.deposits.size * 192))
-            (Region.union
-              (range bases.withdrawalRequestsBase
-                (value.newPayloadRequest.executionRequests.withdrawals.size * 80))
-              (Region.union
-                (range bases.consolidationRequestsBase
-                  (value.newPayloadRequest.executionRequests.consolidations.size * 116))
-                (Region.union (range bases.witnessStateBase (value.witness.state.size * 16))
-                  (Region.union (range bases.witnessCodesBase (value.witness.codes.size * 16))
-                    (Region.union
-                      (range bases.witnessHeadersBase (value.witness.headers.size * 16))
-                      (range bases.publicKeysBase (value.publicKeys.size * 65)))))))))))
+  Region.union (range rootBase rootSize) (statelessInputHeapRegion value bases)
 
 theorem statelessInputDescriptor_footprint (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
     (bases : StatelessInputDescriptorBases) (fits : 832 ≤ rootSize) :

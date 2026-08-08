@@ -58,6 +58,8 @@ structure ResultRecordSizes where
   /-- The internal `decodeRaw`/`decode` result/error union written at `EntryArgs.resultBase`: the
   `?RawStatelessInput` object, 832-byte payload plus discriminant. -/
   entryResult : Nat
+  /-- Byte offset of the two-byte discriminant within `entryResult`. -/
+  entryResultTagOffset : Nat
   sliceDescriptor : Nat
   /-- The two-word Zig `std.mem.Allocator` value the `allocator()` constructor writes at its result
   base: a context pointer followed by a vtable pointer, exactly the span
@@ -289,6 +291,12 @@ def CodeIntact (env : DecoderEnvironment) (state : State) : Prop :=
   env.image.fileBytesLoadedFaithfully state.mem
 
 end DecoderEnvironment
+
+/-- `DecoderEnvironment.CodeIntact` depends only on memory, so it survives a memory-preserving
+machine step. -/
+theorem codeIntact_of_mem_eq {env : DecoderEnvironment} {s t : State} (hmem : t.mem = s.mem)
+    (h : env.CodeIntact s) : env.CodeIntact t :=
+  show env.image.fileBytesLoadedFaithfully t.mem from hmem ▸ h
 
 /--
 The internal consistency an environment needs for its contracts' preconditions to be satisfiable.

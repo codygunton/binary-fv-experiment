@@ -38,6 +38,11 @@ structure CopyArgs where
   length : Nat
   contents : ByteArray
 
+/-- The exact memory frame of `memcpy`: only the destination interval may change. -/
+def CopyDestinationFrame (args : CopyArgs) (before after : State) : Prop :=
+  ∀ address, address < args.destination ∨ args.destination + args.length ≤ address →
+    after.mem.get? address = before.mem.get? address
+
 /-!
 ## Meanings
 -/
@@ -149,6 +154,8 @@ def postCopy (env : DecoderEnvironment) (args : CopyArgs)
   -- is the one place the ownership clause needed no new ABI fact at all. The stack frame the compiled
   -- `memcpy` uses is permitted by `WritesOnlyWithinOwnRecord`, not by the destination range.
   env.WritesOnlyWithinOwnRecord args.destination args.length before after ∧
+  CopyDestinationFrame args before after ∧
+  MemoryBytes after args.source args.contents ∧
   match result with
   | .ok contents => MemoryBytes after args.destination contents
   | .error _ => False
@@ -235,7 +242,8 @@ def postRawError (env : DecoderEnvironment) (model : DecoderGlobalsModel)
 def contractRawError (env : DecoderEnvironment) (globals : DecoderGlobalsLayout) :
     FunctionContract DecodeError DecoderGlobalsModel Nat where
   meaning := fun model => .ok model.status.code
-  pre := fun model state => env.CodeIntact state ∧ DecoderGlobalsScalarRep globals model state
+  pre := fun model state =>
+    NormalExecutionState state ∧ env.CodeIntact state ∧ DecoderGlobalsScalarRep globals model state
   post := postRawError env
   stepBound := fun _ => 16
 
@@ -263,7 +271,7 @@ def contractRawResult (env : DecoderEnvironment) (globals : DecoderGlobalsLayout
     FunctionContract DecodeError DecoderGlobalsModel Nat where
   meaning := fun model => .ok (if model.stored.isSome then resultBuffer else 0)
   pre := fun model state =>
-    env.CodeIntact state ∧ StoredResultDiscriminantRep globals model state
+    NormalExecutionState state ∧ env.CodeIntact state ∧ StoredResultDiscriminantRep globals model state
   post := postRawResult env resultBuffer
   stepBound := fun _ => 32
 

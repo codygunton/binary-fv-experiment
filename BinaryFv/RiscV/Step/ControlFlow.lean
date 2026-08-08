@@ -7,6 +7,8 @@ import BinaryFv.RiscV.Platform.FetchMemory
 import BinaryFv.RiscV.Logic.Framing
 import BinaryFv.RiscV.Instruction.Execute.ControlFlow
 import BinaryFv.RiscV.Model.SailEnumAux
+import BinaryFv.RiscV.Platform.StoreMemoryWrite
+import BinaryFv.RiscV.Step.TryStepStackAddi
 
 /-!
 # Normal-execution `try_step` rules for control-flow instructions
@@ -141,6 +143,175 @@ def tryStepControlFlowAfterRetired (afterExec : State) (targetPC retired : BitVe
   { tryStepControlFlowAfterTick afterExec targetPC with
     regs := (tryStepControlFlowAfterTick afterExec targetPC).regs.insert minstret
       (Sail.BitVec.addInt retired 1) }
+
+/-! ### Memory frames of the `try_step` bookkeeping
+
+Each bookkeeping post-state above is a register update, so its memory is the memory it was handed.
+Registering these as `@[grind =]` is what lets a caller transport a memory-shaped fact across a
+step with a bare `grind`, instead of naming the step definitions in a `simp` set and paying the
+step-unfolding penalty to rediscover an equation that is `rfl`. -/
+
+/-- The counter-increment write leaves memory alone. -/
+@[grind =] theorem tryStepControlFlowAfterIncrement_mem (state : State) :
+    (tryStepControlFlowAfterIncrement state).mem = state.mem := rfl
+
+/-- The PC tick leaves memory alone. -/
+@[grind =] theorem tryStepControlFlowAfterTick_mem (afterExec : State) (targetPC : BitVec 64) :
+    (tryStepControlFlowAfterTick afterExec targetPC).mem = afterExec.mem := rfl
+
+/-- The retired-counter write leaves memory alone; whatever the execute step did to memory is
+carried in `afterExec`. -/
+@[grind =] theorem tryStepControlFlowAfterRetired_mem (afterExec : State)
+    (targetPC retired : BitVec 64) :
+    (tryStepControlFlowAfterRetired afterExec targetPC retired).mem = afterExec.mem := rfl
+
+/-- The generated next-PC write leaves memory alone. -/
+@[grind =] theorem coreControlFlowNextState_mem (state : State) (pc : BitVec 64) :
+    (coreControlFlowNextState state pc).mem = state.mem := rfl
+
+/-- A taken jump's `nextPC` overwrite leaves memory alone. -/
+@[grind =] theorem controlFlowJumpState_mem (state : State) (pc target : BitVec 64) :
+    (controlFlowJumpState state pc target).mem = state.mem := rfl
+
+/-! ## Write sets of the generated post-states
+
+Each definition above writes a fixed, small set of registers. Naming that set once lets any later
+proof read any register outside it by membership check, instead of unfolding the definition and
+projecting `Std.ExtDHashMap.get?_insert` by hand. See `BinaryFv.RiscV.WritesOnlyRegs`.
+-/
+
+/-- The four registers the generated `try_step` bookkeeping writes across a full retirement:
+the counter enable, the base-path next PC, the ticked PC, and the retired counter. Every post-state
+below writes a subset of this, plus at most one instruction-specific register. -/
+@[reducible] def stepBookkeeping : RegSet := fun r =>
+  r = PC ∨ r = nextPC ∨ r = minstret ∨ r = minstret_increment
+
+/-- What the retirement postlude writes relative to the post-execute state. -/
+@[reducible] def retirementWrites : RegSet := fun r => r = PC ∨ r = minstret
+
+theorem coreControlFlowNextState_writes (state : State) (pc : BitVec 64) :
+    WritesOnlyRegs (RegSet.only nextPC) state (coreControlFlowNextState state pc) :=
+  fun r hr => by
+    simpa [coreControlFlowNextState] using
+      writeReg_read_unchanged state nextPC r (Sail.BitVec.addInt pc 4) hr
+
+/-- `controlFlowJumpState` writes `nextPC` twice — once on the base path, once with the jump target
+— so its write set is still the singleton. This is why `WritesOnlyRegs.trans` must not require its
+two sets to be disjoint. -/
+theorem controlFlowJumpState_writes (state : State) (pc target : BitVec 64) :
+    WritesOnlyRegs (RegSet.only nextPC) state (controlFlowJumpState state pc target) :=
+  fun r hr => by
+    calc (controlFlowJumpState state pc target).regs.get? r
+        = (coreControlFlowNextState state pc).regs.get? r := by
+          simpa [controlFlowJumpState] using
+            writeReg_read_unchanged (coreControlFlowNextState state pc) nextPC r target hr
+      _ = state.regs.get? r := coreControlFlowNextState_writes state pc r hr
+
+theorem tryStepControlFlowAfterIncrement_writes (state : State) :
+    WritesOnlyRegs (RegSet.only minstret_increment) state
+      (tryStepControlFlowAfterIncrement state) :=
+  fun r hr => by
+    simpa [tryStepControlFlowAfterIncrement] using
+      writeReg_read_unchanged state minstret_increment r true hr
+
+theorem tryStepControlFlowAfterTick_writes (afterExec : State) (targetPC : BitVec 64) :
+    WritesOnlyRegs (RegSet.only PC) afterExec (tryStepControlFlowAfterTick afterExec targetPC) :=
+  fun r hr => by
+    simpa [tryStepControlFlowAfterTick] using
+      writeReg_read_unchanged afterExec PC r targetPC hr
+
+theorem tryStepControlFlowAfterRetired_writes (afterExec : State) (targetPC retired : BitVec 64) :
+    WritesOnlyRegs retirementWrites afterExec
+      (tryStepControlFlowAfterRetired afterExec targetPC retired) :=
+  fun r hr => by
+    calc (tryStepControlFlowAfterRetired afterExec targetPC retired).regs.get? r
+        = (tryStepControlFlowAfterTick afterExec targetPC).regs.get? r := by
+          simpa [tryStepControlFlowAfterRetired] using
+            writeReg_read_unchanged (tryStepControlFlowAfterTick afterExec targetPC) minstret r
+              (Sail.BitVec.addInt retired 1) (fun h => hr (Or.inr h))
+      _ = afterExec.regs.get? r :=
+          tryStepControlFlowAfterTick_writes afterExec targetPC r (fun h => hr (Or.inl h))
+
+/-- The state every execute contract states its premises at, and its write set.
+
+This composition — increment then base-path next PC — is the one re-derived inline 465 times across
+24 files, more than any other. Through this lemma each observation of a register it does not write
+is `(stepPremiseState_writes state pc).get x2 (by decide)`. -/
+theorem stepPremiseState_writes (state : State) (pc : BitVec 64) :
+    WritesOnlyRegs stepBookkeeping state
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) :=
+  ((tryStepControlFlowAfterIncrement_writes state).mono
+      (fun _ h => Or.inr (Or.inr (Or.inr h)))).trans_same
+    ((coreControlFlowNextState_writes _ pc).mono (fun _ h => Or.inr (Or.inl h)))
+
+/-- The write set of a complete fall-through retirement that writes no destination register:
+increment, base-path next PC, tick, retired counter.
+
+Like `jumpRetirement_writes`, the set is exactly `stepBookkeeping`. A comparison or branch-not-taken
+step has this shape, and `afterRegisterWrite` is this shape plus one destination. -/
+theorem fallThroughRetirement_writes (state : State) (pc target retired : BitVec 64) :
+    WritesOnlyRegs stepBookkeeping state
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) target retired) :=
+  (stepPremiseState_writes state pc).trans_same
+    ((tryStepControlFlowAfterRetired_writes _ target retired).mono
+      (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h)))))
+
+/-- The write set of a complete jump retirement: increment, jump, tick, retired counter.
+
+Its write set is exactly `stepBookkeeping` — a jump writes no architectural register beyond the
+bookkeeping, because the target goes to `nextPC`, which the bookkeeping already contains. So every
+jump composite in the tree (`wrapperDispatchTag1BranchAfter`, `wrapperDispatchTag3BranchAfter`, the
+retry branch post-states) is an instance of this one lemma rather than needing its own row. -/
+theorem jumpRetirement_writes (state : State) (pc target retired : BitVec 64) :
+    WritesOnlyRegs stepBookkeeping state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) :=
+  ((tryStepControlFlowAfterIncrement_writes state).mono
+      (fun _ h => Or.inr (Or.inr (Or.inr h)))).trans_same
+    (((controlFlowJumpState_writes _ pc target).mono
+        (fun _ h => Or.inr (Or.inl h))).trans_same
+      ((tryStepControlFlowAfterRetired_writes _ target retired).mono
+        (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h))))))
+
+/-- The write set of a complete `addi sp, sp, imm` retirement: the `try_step` bookkeeping plus the
+stack pointer itself.
+
+This is the fourth retirement shape, alongside fall-through, jump and store. It was the gap that
+left `Level2Epilogue`'s prologue and epilogue stack restores — `wrapperAfterFirstStackRestore` and
+`wrapperAfterFinalStackRestore` — with no frame lemma to reduce to, so their register reads and
+`Agree` blocks stayed hand-written while every other shape collapsed.
+
+`x2` is kept as a separate `RegSet.only` rather than folded into a closed set for the same reason
+`afterRegisterWrite`'s destination is: `RegSet.Disjoint.union` then splits a later obligation into
+the bookkeeping fact, proved once per preserved predicate, and the single disequality about `x2`. -/
+theorem stackAddiRetirement_writes (state : State) (pc : BitVec 64) (immediate : BitVec 12)
+    (stackValue retired : BitVec 64) :
+    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x2)) state
+      (tryStepStackAddiAfterRetired state pc immediate stackValue retired) :=
+  fun r hr => by
+    have hx2 : x2 ≠ r := fun h => hr (Or.inr h.symm)
+    have hpc : PC ≠ r := fun h => hr (Or.inl (Or.inl h.symm))
+    have hnpc : nextPC ≠ r := fun h => hr (Or.inl (Or.inr (Or.inl h.symm)))
+    have hmr : minstret ≠ r := fun h => hr (Or.inl (Or.inr (Or.inr (Or.inl h.symm))))
+    have hmi : minstret_increment ≠ r := fun h => hr (Or.inl (Or.inr (Or.inr (Or.inr h.symm))))
+    simp [tryStepStackAddiAfterRetired, tryStepStackAddiAfterTick, tryStepStackAddiAfterActive,
+      tryStepStackAddiAfterIncrement, stackAddiRetiredState, stackAddiNextState,
+      Std.ExtDHashMap.get?_insert, hx2, hpc, hnpc, hmr, hmi]
+
+/-- No register the platform preserves is one the `try_step` bookkeeping writes.
+
+Proved once for the whole repository. The case split is on `platformPreserved`'s eighteen disjuncts,
+never on `Register`'s 176 constructors; each branch closes by `decide` against the `@[reducible]`
+write set. `platformPreserved` is itself a plain `def`, so `¬ platformPreserved r` is not
+`Decidable` and this cannot be done the other way round. -/
+theorem platformPreserved_disjoint : RegSet.Disjoint platformPreserved stepBookkeeping := by
+  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl) <;> decide
+
+theorem platformPreserved_disjoint_retirement :
+    RegSet.Disjoint platformPreserved retirementWrites :=
+  platformPreserved_disjoint.subset (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h))))
 
 /--
 Shared `try_step` postlude for a control-flow instruction.
@@ -476,5 +647,112 @@ theorem tryStepRetRetires (stepNo : Nat) (state : State)
       (Sail.BitVec.update rs1Val 0 0#1)) (Sail.BitVec.update rs1Val 0 0#1) retired inhibit config
     (zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3)) privilegeAfterInc active
     nextPcAfterExec agree hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+
+/-! ## Observations every retirement shares
+
+Whatever an instruction did, `tryStepControlFlowAfterRetired` is the last thing that runs, so the
+facts every successor-state family states about its own post-state -- where `PC` landed, and that
+`minstret` is still readable -- are properties of this one transformer, not of the instruction.
+Stating them once is what lets a successor state's `_pc` and `_retired_present` be a citation
+rather than a `simp` over four unfolded definitions.
+
+The `PC` half already exists as `Elfling.tryStepControlFlowAfterRetired_pc` in
+`RiscV/Elfling/SentinelBridge.lean`; restating it here would make the name ambiguous in every file
+that opens both namespaces, so cite that one. Only the counter half is new.
+-/
+
+/-- A retirement writes `minstret`, so the retired counter is present after it. -/
+theorem tryStepControlFlowAfterRetired_retired_present (afterExec : State)
+    (targetPC retired : BitVec 64) :
+    RetiredCounterPresent (tryStepControlFlowAfterRetired afterExec targetPC retired) := by
+  refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
+  change ((tryStepControlFlowAfterTick afterExec targetPC).regs.insert minstret
+    (Sail.BitVec.addInt retired 1)).get? minstret = some (Sail.BitVec.addInt retired 1)
+  rw [Std.ExtDHashMap.get?_insert]
+  simp
+
+/-! ## The two remaining retirement shapes
+
+`stepPremiseState_writes`, `fallThroughRetirement_writes` and `jumpRetirement_writes` above cover
+the instructions that write no register beyond the bookkeeping, and `afterRegisterWrite_writes`
+covers the one that writes a destination. Two shapes are left, and between them they account for
+every remaining hand-rolled successor-state family: a *store*, which writes memory instead of a
+register, and a *call*, which writes a link register on top of a jump.
+-/
+
+/-- One register write, named as a write set. The building block of the call shape below and of
+`afterRegisterWrite_writes`; `RegSet.only` keeps the *parameter* `written` separate so
+`RegSet.Disjoint.union` can split a later obligation along it. -/
+theorem afterOneRegisterWrite_writes (state : State) (written : Register)
+    (value : RegisterType written) :
+    WritesOnlyRegs (RegSet.only written) state
+      { state with regs := state.regs.insert written value } :=
+  fun r hr => writeReg_read_unchanged state written r value hr
+
+/-- **The store shape, register side.** A store's execute stage writes memory and nothing else, so
+its whole retirement writes exactly the bookkeeping -- the same set as a fall-through.
+
+`congr_regs` is what makes this a two-line composition: `afterWriteBytes_regs` says the memory write
+leaves `regs` alone, so the register-side reasoning never has to look inside the byte list. Every
+`*AfterDwordStore` / `*AfterStatusStore` / `*AfterContextStore` successor state is an instance. -/
+theorem storeRetirement_writes (state : State) (pc targetPC retired : BitVec 64) (address : Nat)
+    {width : Nat} (value : BitVec (8 * width)) :
+    WritesOnlyRegs stepBookkeeping state
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+          address value) targetPC retired) :=
+  ((stepPremiseState_writes state pc).congr_regs
+      (afterWriteBytes_regs _ address value)).trans_same
+    ((tryStepControlFlowAfterRetired_writes _ targetPC retired).mono
+      (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h)))))
+
+/-- **The store shape, memory side.** Everything outside the `width` bytes at `address` reads
+through the whole retirement, because the three register writes around the store do not touch
+memory at all.
+
+The conclusion is stated in the exact shape of `Zesu.Contracts.WritesOnlyWithin` at the region
+`Contracts.range address width`, so a caller above the contract layer can use it at that type
+directly; it is spelled out rather than named because `Contracts` sits far above this module in the
+import order. -/
+theorem storeRetirement_mem_writes (state : State) (pc targetPC retired : BitVec 64) (address : Nat)
+    {width : Nat} (value : BitVec (8 * width)) :
+    ∀ other : Nat, ¬ (address ≤ other ∧ other < address + width) →
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+          address value) targetPC retired).mem.get? other = state.mem.get? other := by
+  intro other outside
+  have missed : ∀ index : Fin width, address + index.val ≠ other := by
+    intro index equal
+    have bound := index.isLt
+    exact outside (by omega)
+  change (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+    address value).mem.get? other = state.mem.get? other
+  rw [afterWriteBytes_mem_get?_of_outside _ address value other missed]
+  rfl
+
+/-- **The call shape.** A link-writing call is a jump plus one register write, so its write set is
+the bookkeeping plus the link register -- the same shape as `afterRegisterWrite_writes`, with the
+destination replaced by the link.
+
+`Step/Call.lean`'s `callLinkState` is *definitionally* the post-execute state written out here; it
+cannot be named because that module imports this one. `callRetirement_writes_callLinkState` in
+`Zesu/MachineExecution/Level2OutcomeDispatch.lean` pins that, from a file that sees both. -/
+theorem callRetirement_writes (state : State) (pc target retired : BitVec 64) (linkReg : Register)
+    (linkVal : RegisterType linkReg) :
+    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only linkReg)) state
+      (tryStepControlFlowAfterRetired
+        { controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target with
+          regs :=
+            (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target).regs.insert
+              linkReg linkVal }
+        target retired) :=
+  ((tryStepControlFlowAfterIncrement_writes state).mono
+      (fun _ h => Or.inl (Or.inr (Or.inr (Or.inr h))))).trans_same
+    (((controlFlowJumpState_writes _ pc target).mono
+        (fun _ h => Or.inl (Or.inr (Or.inl h)))).trans_same
+      (((afterOneRegisterWrite_writes _ linkReg linkVal).mono
+          (fun _ h => Or.inr h)).trans_same
+        ((tryStepControlFlowAfterRetired_writes _ target retired).mono
+          (fun _ h => Or.inl (h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h))))))))
 
 end BinaryFv.RiscV

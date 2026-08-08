@@ -1,4 +1,5 @@
 import BinaryFv.RiscV.Elfling.Boundary
+import BinaryFv.RiscV.Elfling.ProgramGeometry
 
 /-!
 # The sequential splice: composing two adjacent disjoint regions
@@ -23,11 +24,10 @@ This module builds that out.
   `ScopedTrace.spliceTail` spends the last one and stops on the parent's exit (§2).
 * `ConfinedPrefix` / `SegmentChain` fold a chain of `k` segments into one trace of exactly
   `Σ usedᵢ + k` steps (§3).
-* §4 is the negative half. A tail segment that *owns* the parent's exit pc cannot be spliced, and no
-  derived combinator can repair that: `tailSummarySplice_not_derivable` refutes the uniform lemma,
-  and `inlineTransfer_needs_outgoing_edge` names the structural reason. The price of avoiding the
-  case is stated exactly: leave the parent's exit pcs out of every child.
-* §5 records that the *flat* trace has no such gap — `FunctionTrace.spliceAdjacent` composes
+* §4 handles a tail child body directly. `ScopedTrace.childBody` consumes only the selected summary,
+  so its continuation can stop on the parent's exit without inventing an outgoing edge. The separate
+  `inlineTransfer_needs_outgoing_edge` theorem still records why `InlineTransfer` itself cannot do so.
+* §5 records the corresponding flat composition — `FunctionTrace.spliceAdjacent` composes
   adjacent regions even when the second owns the exit — so the deficiency is specific to
   `ScopedTrace`.
 
@@ -52,6 +52,8 @@ readable list rather than a claim. -/
 
 /-- Two adjacent units of one parent, and the crossing edge between them. -/
 structure SequentialCut where
+  /-- The complete generated program whose edge inventory validates the cut. -/
+  program : Program
   /-- The unit whose region contains both segments. -/
   parent : FunctionInstance
   /-- The segment control leaves. -/
@@ -83,7 +85,7 @@ structure Valid (c : SequentialCut) : Prop where
   /-- The first segment is a declared child of the parent. -/
   childListed : c.first.id ∈ c.parent.children
   /-- The crossing edge is one of the parent's recorded edges. -/
-  crossIsRealEdge : c.cross ∈ c.parent.edges
+  crossIsRealEdge : programContainsEdge c.program c.cross = true
   /-- The edge leaves from inside the first segment. -/
   crossLeavesFirst : c.first.containsAddress c.cross.source = true
   /-- …and lands outside it. -/
@@ -100,7 +102,7 @@ structure Valid (c : SequentialCut) : Prop where
 /-- A checked cut presents a valid inline boundary. This is the only place the cut's fields are
 converted into the constructor's premise. -/
 theorem firstBoundary_validFor {c : SequentialCut} (h : c.Valid) :
-    c.firstBoundary.validFor c.parent c.first := by
+    c.firstBoundary.validFor c.program c.parent c.first := by
   refine ⟨rfl, h.childListed, ?_, ?_⟩
   · intro e he
     simp [firstBoundary] at he
@@ -144,11 +146,12 @@ theorem ScopedTrace.spliceSegment {own exit : BitVec 64 → Prop}
     (hResumeInRegion : own resumePc)
     (hrest : ScopedTrace own exit childSummary (fromStep + used + 1) count sResume s'') :
     ScopedTrace own exit childSummary fromStep (used + 1 + count) s s'' :=
-  ScopedTrace.inlineStep fromStep used count c.firstBoundary c.parent c.first s sResume s''
+  ScopedTrace.inlineStep fromStep used count c.firstBoundary c.program c.parent c.first
+    s sResume s''
     { valid := SequentialCut.firstBoundary_validFor hcut
       entryPc := entryPc
       atEntry := hAtEntry
-      entryIsChildEntry := hEntryIsSegmentEntry
+      entryAccepted := Or.inl hEntryIsSegmentEntry
       entryInRegion := hEntryInRegion
       entryNotExit := hEntryNotExit
       sExit := sExit
@@ -222,6 +225,27 @@ variable {own exit : BitVec 64 → Prop}
 
 theorem nil {a : Nat} {s : State} : ConfinedPrefix own exit childSummary a 0 s s := by
   intro m t h; simpa using h
+
+/-- One parent-owned, in-region, non-exit instruction is a one-step confined prefix. -/
+theorem ownStep {a : Nat} {s s' : State} {pc : BitVec 64}
+    (atPc : s.regs.get? PC = some pc) (inRegion : own pc) (notExit : ¬ exit pc)
+    (step : Runs (try_step a false) s s' false) :
+    ConfinedPrefix own exit childSummary a 1 s s' := by
+  intro count final rest
+  simpa [Nat.add_comm] using
+    ScopedTrace.ownStep a count pc s s' final atPc inRegion notExit step rest
+
+/-- A checked emitted call, child body, and return form one confined prefix. -/
+theorem ofCall {a used : Nat} {s s' : State} {call : CallSite} {program : Program}
+    {functionInstance callee : FunctionInstance}
+    (transfer : CallTransfer own exit childSummary call program functionInstance callee
+      a used s s') :
+    ConfinedPrefix own exit childSummary a (1 + used + 1) s s' := by
+  intro count final rest
+  have shift : a + (1 + used + 1) = a + 1 + used + 1 := by omega
+  rw [shift] at rest
+  exact ScopedTrace.callStep a used count call program functionInstance callee s s' final
+    transfer rest
 
 /-- One spliced segment is a prefix of length `used + 1`: the summary's own steps plus the crossing
 edge. -/
@@ -304,52 +328,19 @@ theorem toScopedTrace {a : Nat} {s s' : State} {lens : List Nat} {pc : BitVec 64
 
 end SegmentChain
 
-/-! ## 4. What is genuinely missing, and its price
+/-! ## 4. A final child body may stop on the parent's selected exit -/
 
-The chain above needs the parent to own the address it finally stops on. If instead the *last
-segment* owns the parent's exit pc, nothing composes — and no derived combinator can fix it. -/
-
-/--
-**With nothing owned, only the empty trace exists.** Each of `ownStep`, `inlineStep` and `callStep`
-carries an in-region obligation at the pc it starts from, so an empty ownership predicate leaves only
-`exitAt`. This is the lever the non-derivability result pulls.
--/
-theorem scopedTrace_of_empty_own {exit : BitVec 64 → Prop}
+/-- Consume a selected child body and stop at the parent's exit without retiring an additional
+instruction. This is deliberately distinct from `InlineTransfer`: the child summary already ends at
+the instruction the parent may either execute or recognize as its outcome-selected exit. -/
+theorem ScopedTrace.spliceChildTail {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
-    {a n : Nat} {s s' : State}
-    (h : ScopedTrace (fun _ => False) exit childSummary a n s s') : n = 0 ∧ s' = s := by
-  cases h with
-  | exitAt _ _ _ _ _ => exact ⟨rfl, rfl⟩
-  | ownStep _ _ _ _ _ _ _ hregion _ _ _ => exact hregion.elim
-  | inlineStep _ _ _ _ _ _ _ _ _ htransfer _ => exact htransfer.entryInRegion.elim
-  | callStep _ _ _ _ _ _ _ _ _ htransfer _ => exact htransfer.callInRegion.elim
-
-/--
-**No derived combinator ends a `ScopedTrace` on a child summary.**
-
-The tail case needs exactly this shape: a summary carrying the parent from a state to one sitting on
-a parent exit, turned into a parent trace of the summary's own length. The statement is refuted, so
-the case is not a matter of finding the right proof — there is no such lemma. (The counterexample
-takes an empty ownership predicate, which is legitimate precisely because a *uniform* combinator
-would have to hold there too.)
--/
-theorem tailSummarySplice_not_derivable :
-    ¬ ∀ (own exit : BitVec 64 → Prop)
-        (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
-        (child : FunctionInstanceId) (a used : Nat) (s s' : State) (x : BitVec 64),
-        0 < used → childSummary child a used s s' → s'.regs.get? PC = some x → exit x →
-          ScopedTrace own exit childSummary a used s s' := by
-  intro H
-  classical
-  let s0 : State := { initialState with regs := initialState.regs.insert PC (0 : BitVec 64) }
-  let s1 : State := { initialState with regs := initialState.regs.insert PC (4 : BitVec 64) }
-  let cs : FunctionInstanceId → Nat → Nat → State → State → Prop :=
-    fun _ _ used before after => used = 1 ∧ before = s0 ∧ after = s1
-  have hPc : s1.regs.get? PC = some (4 : BitVec 64) := by
-    simp [s1]
-  have h := H (fun _ => False) (fun _ => True) cs default 0 1 s0 s1 (4 : BitVec 64)
-    Nat.one_pos ⟨rfl, rfl, rfl⟩ hPc trivial
-  exact absurd (scopedTrace_of_empty_own h).1 (by decide)
+    {child : FunctionInstanceId} {a used : Nat} {s s' : State} {pc : BitVec 64}
+    (body : childSummary child a used s s')
+    (atExit : s'.regs.get? PC = some pc) (isExit : exit pc) :
+    ScopedTrace own exit childSummary a used s s' := by
+  simpa using ScopedTrace.childBody a used 0 child s s' s' body
+    (ScopedTrace.exitAt (a + used) s' pc atExit isExit)
 
 /--
 **The structural reason, in the boundary data.** `InlineTransfer` pins its stopping pc to the source
@@ -362,18 +353,18 @@ mode a "the shape looks right" argument misses.
 -/
 theorem inlineTransfer_needs_outgoing_edge {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
-    {ib : InlineBoundary} {parent child : FunctionInstance} {a used : Nat} {s s' : State}
+    {ib : InlineBoundary} {program : Program} {parent child : FunctionInstance}
+    {a used : Nat} {s s' : State}
     (hEmpty : ib.exits = #[])
-    (h : InlineTransfer own exit childSummary ib parent child a used s s') : False := by
+    (h : InlineTransfer own exit childSummary ib program parent child a used s s') : False := by
   have hmem := h.exitEdgeMem
   rw [hEmpty] at hmem
   simp at hmem
 
-/-! ## 5. The flat trace has no such gap
+/-! ## 5. Flat adjacent-region composition
 
 `FunctionTrace` composes adjacent regions even when the second owns the exit, using only
-`append_within`, `step` and `mono_region`. So the missing piece is specific to `ScopedTrace`: it is
-the *local, summary-spending* obligation that cannot end on a child, not the closed run. -/
+`append_within`, `step` and `mono_region`. -/
 
 /--
 **Adjacent regions compose at the flat level.** `first` runs confined to its own addresses and stops
@@ -399,5 +390,97 @@ theorem FunctionTrace.spliceAdjacent {firstPcs secondPcs outer firstExit exit : 
   FunctionTrace.append_within hFirstSub hOuterExitsStopFirst hFirst
     (FunctionTrace.step (a + n) m crossPc sCross sResume s' hAtCross (hFirstSub _ hCrossInFirst)
       hCrossNotExit hRetireCross (hSecond.mono_region hSecondSub))
+
+end BinaryFv.RiscV.Elfling
+
+/-! ## 6. Composition combinators for `ConfinedPrefix`
+
+`Trace` and `ConfinedPrefix` are proved side by side from the same `Runs` facts, but `Trace` has
+`trace_step`/`trace_steps` (`BinaryFv.RiscV.Logic.BlockStep`) and `ConfinedPrefix` had nothing, so
+every confined site paid by hand for the same three things:
+
+* the two pc-literal side conditions of `ownStep` — "this address is owned" and "this address is not
+  a generated exit" -- each spelled out as a four-line `apply …` / `simp […]` decision block;
+* a re-association of the step index and the step count, because `trans` demands the second prefix
+  start at the *syntactic* index `a + n` and produces the *syntactic* count `n + m`;
+* nothing at all for chaining: a `k`-link chain was `k - 1` nested `trans`es, each with its own
+  `simpa [Nat.add_assoc]`.
+
+This section supplies the pieces that stay generic: `reindex`
+and `trans'` state the index and the count instead of computing them, and `confined_steps` folds a
+list of links. None of them touches the step *counts* the child-summary interface consumes: a link
+still carries the literal number of machine steps it retires, and `trans'`/`confined_steps` only
+choose how that number is spelled.
+-/
+
+namespace BinaryFv.RiscV.Elfling
+
+open PreSail
+open LeanRV64DExecutable.Functions
+open Register
+open BinaryFv.Binary
+open BinaryFv.Binary.Elfling
+open BinaryFv.RiscV
+
+
+namespace ConfinedPrefix
+
+variable {own exit : BitVec 64 → Prop}
+  {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
+
+/-- Restate a confined prefix at an equal start index and length, proved by `omega` rather than by
+`simpa [Nat.add_assoc]` at the use site. The prefix itself is unchanged: only the spelling of two
+`Nat`s is. -/
+theorem reindex {a n : Nat} (a' n' : Nat) {s s' : State}
+    (h : ConfinedPrefix own exit childSummary a n s s')
+    (ha : a' = a := by omega) (hn : n' = n := by omega) :
+    ConfinedPrefix own exit childSummary a' n' s s' := by
+  subst ha; subst hn; exact h
+
+/-- `trans` at a *stated* total length `k`, with both index obligations discharged by `omega`.
+
+`trans` forces the second prefix to be written at the syntactic index `a + n` and yields the
+syntactic count `n + m`; every real site then had to re-associate. Here the caller writes the total
+it wants and the arithmetic is checked, not reshaped. -/
+theorem trans' {a n m b : Nat} (k : Nat) {s s1 s2 : State}
+    (h1 : ConfinedPrefix own exit childSummary a n s s1)
+    (h2 : ConfinedPrefix own exit childSummary b m s1 s2)
+    (hb : b = a + n := by omega) (hk : k = n + m := by omega) :
+    ConfinedPrefix own exit childSummary a k s s2 := by
+  subst hb; subst hk; exact h1.trans h2
+
+/-- Peel the first `n` steps off a goal of length `k`, leaving the remaining `k - n`. This is the
+link `confined_steps` folds with: `h1` fixes `n` and the intermediate state, so the residual goal is
+fully determined and the fold needs no annotation. -/
+theorem consume {a n k : Nat} {s s1 s2 : State}
+    (h1 : ConfinedPrefix own exit childSummary a n s s1)
+    (h2 : ConfinedPrefix own exit childSummary (a + n) (k - n) s1 s2)
+    (hn : n ≤ k := by omega) :
+    ConfinedPrefix own exit childSummary a k s s2 := by
+  have joined := h1.trans h2
+  have hk : n + (k - n) = k := by omega
+  rwa [hk] at joined
+
+
+end ConfinedPrefix
+
+/--
+Fold a list of confined prefixes into one, mirroring `trace_steps` for `Trace`.
+
+Each `hᵢ` supplies its own retired length and intermediate state; the goal supplies the total. The
+lengths must add up — `consume`'s `n ≤ k` and the final `reindex`'s `n' = n` are checked by `omega`,
+so a chain that does not account for exactly the goal's steps fails rather than being absorbed.
+
+`SegmentChain` (§3) is the same fold as an inductive family, and `SegmentChain.toPrefix` is this
+tactic's term-level counterpart. The difference is only where the total lives: the chain carries the
+list of lengths and yields `lens.sum`, which a use site must then normalize, whereas here the goal
+states the total and the tactic checks it.
+-/
+syntax "confined_steps " "[" term,* "]" : tactic
+macro_rules
+  | `(tactic| confined_steps []) => `(tactic| exact ConfinedPrefix.nil)
+  | `(tactic| confined_steps [$h:term]) => `(tactic| exact ConfinedPrefix.reindex _ _ $h)
+  | `(tactic| confined_steps [$h:term, $hs:term,*]) =>
+      `(tactic| refine ConfinedPrefix.consume $h ?_; confined_steps [$hs,*])
 
 end BinaryFv.RiscV.Elfling

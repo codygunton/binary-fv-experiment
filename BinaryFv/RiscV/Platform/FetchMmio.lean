@@ -24,6 +24,24 @@ exclusions remain explicit. PMA permission is deliberately not part of this pred
 def FetchMMIOStateLayoutExcluded (state : State) (pc : BitVec 64) : Prop :=
   FetchMMIOAddressExcluded pc ∧ state.regs.get? htif_tohost_base = some none
 
+/-- The generated fixed CLINT and signature layouts exclude this physical data-store range. -/
+def StoreMMIOAddressExcluded (address : BitVec 64) (width : Nat) : Prop :=
+  ((Sail.BitVec.toNatInt plat_clint_base ≤b Sail.BitVec.toNatInt address) &&
+      ((Sail.BitVec.toNatInt address +i width) ≤b
+        (Sail.BitVec.toNatInt plat_clint_base +i Sail.BitVec.toNatInt plat_clint_size))) = false ∧
+    ((Sail.BitVec.toNatInt plat_sig_base ≤b Sail.BitVec.toNatInt address) &&
+      ((Sail.BitVec.toNatInt address +i width) ≤b
+        (Sail.BitVec.toNatInt plat_sig_base +i Sail.BitVec.toNatInt plat_sig_size))) = false
+
+/-- The generated fixed CLINT and signature layouts exclude this physical data-load range. -/
+def LoadMMIOAddressExcluded (address : BitVec 64) (width : Nat) : Prop :=
+  ((Sail.BitVec.toNatInt plat_clint_base ≤b Sail.BitVec.toNatInt address) &&
+      ((Sail.BitVec.toNatInt address +i width) ≤b
+        (Sail.BitVec.toNatInt plat_clint_base +i Sail.BitVec.toNatInt plat_clint_size))) = false ∧
+    ((Sail.BitVec.toNatInt plat_sig_base ≤b Sail.BitVec.toNatInt address) &&
+      ((Sail.BitVec.toNatInt address +i width) ≤b
+        (Sail.BitVec.toNatInt plat_sig_base +i Sail.BitVec.toNatInt plat_sig_size))) = false
+
 private theorem within_clint_of_address_excluded (state : State) (pc : BitVec 64)
     (excluded : FetchMMIOAddressExcluded pc) :
     Runs (within_clint (physaddr.Physaddr pc) 4) state state false := by
@@ -47,6 +65,70 @@ private theorem within_htif_readable_of_disabled (state : State) (pc : BitVec 64
     readReg_run state htif_tohost_base none disabled
   unfold within_htif_readable within_htif_writable
   apply Runs.bind hRead
+  rfl
+
+private theorem within_clint_store_of_address_excluded (state : State) (address : BitVec 64)
+    (width : Nat) (excluded : StoreMMIOAddressExcluded address width) :
+    Runs (within_clint (physaddr.Physaddr address) width) state state false := by
+  rcases excluded with ⟨clint, _⟩
+  unfold Runs within_clint
+  simp [plat_have_clint, clint]
+  rfl
+
+private theorem within_sig_store_of_address_excluded (state : State) (address : BitVec 64)
+    (width : Nat) (excluded : StoreMMIOAddressExcluded address width) :
+    Runs (within_sig (physaddr.Physaddr address) width) state state false := by
+  rcases excluded with ⟨_, sig⟩
+  unfold Runs within_sig
+  simp [plat_have_sig, sig]
+  rfl
+
+private theorem within_clint_load_of_address_excluded (state : State) (address : BitVec 64)
+    (width : Nat) (excluded : LoadMMIOAddressExcluded address width) :
+    Runs (within_clint (physaddr.Physaddr address) width) state state false := by
+  rcases excluded with ⟨clint, _⟩
+  unfold Runs within_clint
+  simp [plat_have_clint, clint]
+  rfl
+
+private theorem within_sig_load_of_address_excluded (state : State) (address : BitVec 64)
+    (width : Nat) (excluded : LoadMMIOAddressExcluded address width) :
+    Runs (within_sig (physaddr.Physaddr address) width) state state false := by
+  rcases excluded with ⟨_, sig⟩
+  unfold Runs within_sig
+  simp [plat_have_sig, sig]
+  rfl
+
+private theorem within_htif_writable_of_disabled (state : State) (address : BitVec 64)
+    (width : Nat) (disabled : state.regs.get? htif_tohost_base = some none) :
+    Runs (within_htif_writable (physaddr.Physaddr address) width) state state false := by
+  have read : Runs (Sail.readReg htif_tohost_base) state state none :=
+    readReg_run state htif_tohost_base none disabled
+  unfold within_htif_writable
+  exact Runs.bind read rfl
+
+/-- Derive the generated writable-MMIO dispatch result from explicit layout and HTIF facts. -/
+theorem storeMemoryNoMMIO_of_state_layout_excluded (state : State) (address : BitVec 64)
+    (width : Nat) (addressExcluded : StoreMMIOAddressExcluded address width)
+    (htifDisabled : state.regs.get? htif_tohost_base = some none) :
+    Runs (within_mmio_writable (physaddr.Physaddr address) width) state state false := by
+  unfold within_mmio_writable
+  simp only [get_config_rvfi]
+  apply Runs.bind (within_clint_store_of_address_excluded state address width addressExcluded)
+  apply Runs.bind (within_sig_store_of_address_excluded state address width addressExcluded)
+  apply Runs.bind (within_htif_writable_of_disabled state address width htifDisabled)
+  rfl
+
+/-- Derive the generated readable-MMIO dispatch result for an arbitrary data-load width. -/
+theorem loadMemoryNoMMIO_of_state_layout_excluded (state : State) (address : BitVec 64)
+    (width : Nat) (addressExcluded : LoadMMIOAddressExcluded address width)
+    (htifDisabled : state.regs.get? htif_tohost_base = some none) :
+    Runs (within_mmio_readable (physaddr.Physaddr address) width) state state false := by
+  unfold within_mmio_readable
+  simp only [get_config_rvfi]
+  apply Runs.bind (within_clint_load_of_address_excluded state address width addressExcluded)
+  apply Runs.bind (within_sig_load_of_address_excluded state address width addressExcluded)
+  apply Runs.bind (within_htif_writable_of_disabled state address width htifDisabled)
   rfl
 
 /-- Derive the exact generated sparse-RAM selector from explicit state and layout facts. -/
@@ -78,6 +160,23 @@ theorem fetch_mmio_address_excluded_of_before_layout (pc : BitVec 64)
     simp [noClintStart]
   · unfold Sail.BitVec.toNatInt
     have noSigStart : ¬ BitVec.toNat plat_sig_base ≤ pc.toNat := by
+      omega
+    simp [noSigStart]
+
+/-- A data-store range ending before both fixed MMIO bases avoids both regions. -/
+theorem store_mmio_address_excluded_of_before_layout (address : BitVec 64) (width : Nat)
+    (widthPositive : 0 < width)
+    (beforeClint : address.toNat + width ≤ BitVec.toNat plat_clint_base)
+    (beforeSig : address.toNat + width ≤ BitVec.toNat plat_sig_base) :
+    StoreMMIOAddressExcluded address width := by
+  unfold StoreMMIOAddressExcluded
+  constructor
+  · unfold Sail.BitVec.toNatInt
+    have noClintStart : ¬ BitVec.toNat plat_clint_base ≤ address.toNat := by
+      omega
+    simp [noClintStart]
+  · unfold Sail.BitVec.toNatInt
+    have noSigStart : ¬ BitVec.toNat plat_sig_base ≤ address.toNat := by
       omega
     simp [noSigStart]
 

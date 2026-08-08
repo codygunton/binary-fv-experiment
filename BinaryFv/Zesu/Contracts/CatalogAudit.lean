@@ -80,7 +80,7 @@ theorem program_correctness_references_per_instance
 `sszComplianceObligations program`: it entails program correctness for the concrete
 `canonicalContractParams` (which in particular witnesses the `∃ p` the old statement used). Ordinary
 kernel proof. -/
-theorem root_dependency_is_real :
+theorem compliance_dependency_is_real :
     ∀ program : Program, sszComplianceObligations program → (∃ p, sszContractComposition program p) :=
   fun _ obligations => ⟨canonicalContractParams, obligations.1⟩
 
