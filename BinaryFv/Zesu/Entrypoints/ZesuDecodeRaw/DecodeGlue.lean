@@ -214,8 +214,8 @@ A lemma family whose one hypothesis nothing produces is worse than none — it r
 is not — so the supply route is a theorem here rather than a remark. Given the wrapper's `Implements`
 obligation over *any* confinement region (`ImplementsFunctionInstance` is that, at the generated
 function instance's execution pcs) and any state satisfying its entry binding, out comes a bounded
-entered trace **and** `CanonicalDecodeExit` at its two ends. The obligation is supplied directly by
-`ExportedContractAssumptions`; the entry binding at the builder's state is `EntryBinding.lean`'s.
+entered trace **and** `CanonicalDecodeExit` at its two ends. The Level 1 wrapper obligation supplies
+it; the entry binding at the builder's state is `EntryBinding.lean`'s.
 
 The step bound is spelled `entryStepBound input.size`, which is definitionally the contract's own
 `stepBound` and is also what `SuccessfulRun.withinStepBound` counts against — so the number does not
