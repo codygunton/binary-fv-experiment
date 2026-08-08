@@ -211,83 +211,11 @@ theorem wrapper_dispatch_tag3_confined {machineArgs : DecoderMachineArgs} {base 
       Agree platformPreserved base after ∧ canonicalContractParams.env.CodeIntact after ∧
       RetiredCounterPresent after ∧ after.mem = state.mem ∧
       after.regs.get? x18 = state.regs.get? x18 ∧ after.regs.get? x2 = state.regs.get? x2 := by
-  obtain ⟨r1, run1⟩ := wrapper_dispatch_tag3_constant_step machine agree retiredPresent code stepNo atPc
-  let s1 := afterRegisterWrite state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
-  have agree1 : Agree platformPreserved base s1 := agree.trans
-    (afterRegisterWrite_agree (by simp [platformPreserved]))
-  have retired1 := afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x103fc) r1 x11
-    (BitVec.ofNat 64 3)
-  have code1 : canonicalContractParams.env.CodeIntact s1 := by simpa [s1, afterRegisterWrite_mem] using code
-  have pc1 : s1.regs.get? PC = some (BitVec.ofNat 64 0x10400) := by
-    simpa [s1] using afterRegisterWrite_pc state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
-  have tag1 : s1.regs.get? x10 = some (BitVec.ofNat 64 3) :=
-    ((afterRegisterWrite_writes state (BitVec.ofNat 64 0x103fc) r1 x11
-      (BitVec.ofNat 64 3)).get x10 (by decide)).trans tag
-  have comparison1 : s1.regs.get? x11 = some (BitVec.ofNat 64 3) :=
-    afterRegisterWrite_destination state (BitVec.ofNat 64 0x103fc) r1 x11 (BitVec.ofNat 64 3)
-      (by decide) (by decide)
-  obtain ⟨r2, run2, -⟩ := wrapper_dispatch_tag3_branch_step machine agree1 retired1 code1
-    (stepNo + 1) pc1 tag1 comparison1
-  let s2 := wrapperDispatchTag3BranchAfter s1 r2
-  have agree2 : Agree platformPreserved base s2 := agree1.trans (tag3_branch_agree s1 r2)
-  have retired2 : RetiredCounterPresent s2 :=
-    jumpRetirement_retired_present s1 (BitVec.ofNat 64 0x10400) (BitVec.ofNat 64 0x10434) r2
-  have code2 : canonicalContractParams.env.CodeIntact s2 := by simpa [s2, wrapperDispatchTag3BranchAfter] using code1
-  have pc2 : s2.regs.get? PC = some (BitVec.ofNat 64 0x10434) :=
-    jumpRetirement_pc s1 (BitVec.ofNat 64 0x10400) (BitVec.ofNat 64 0x10434) r2
-  obtain ⟨r3, run3⟩ := wrapper_dispatch_tag3_clear_result_step machine agree2 retired2 code2 (stepNo + 2) pc2
-  let s3 := afterRegisterWrite s2 (BitVec.ofNat 64 0x10434) r3 x10 (BitVec.ofNat 64 0)
-  have agree3 : Agree platformPreserved base s3 := agree2.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
-  have retired3 := afterRegisterWrite_retired_present s2 (BitVec.ofNat 64 0x10434) r3 x10 (BitVec.ofNat 64 0)
-  have code3 : canonicalContractParams.env.CodeIntact s3 := by simpa [s3, afterRegisterWrite_mem] using code2
-  have pc3 : s3.regs.get? PC = some (BitVec.ofNat 64 0x10438) := by
-    simpa [s3] using afterRegisterWrite_pc s2 (BitVec.ofNat 64 0x10434) r3 x10 (BitVec.ofNat 64 0)
-  obtain ⟨r4, run4⟩ := wrapper_dispatch_tag3_status_step machine agree3 retired3 code3 (stepNo + 3) pc3
-  let s4 := afterRegisterWrite s3 (BitVec.ofNat 64 0x10438) r4 x11 (BitVec.ofNat 64 3)
-  have agree4 : Agree platformPreserved base s4 := agree3.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
-  have retired4 := afterRegisterWrite_retired_present s3 (BitVec.ofNat 64 0x10438) r4 x11 (BitVec.ofNat 64 3)
-  have code4 : canonicalContractParams.env.CodeIntact s4 := by simpa [s4, afterRegisterWrite_mem] using code3
-  have pc4 : s4.regs.get? PC = some (BitVec.ofNat 64 0x1043c) := by
-    simpa [s4] using afterRegisterWrite_pc s3 (BitVec.ofNat 64 0x10438) r4 x11 (BitVec.ofNat 64 3)
-  obtain ⟨r5, run5⟩ := wrapper_dispatch_tag3_to_rejection_step machine agree4 retired4 code4 (stepNo + 4) pc4
-  let s5 := tryStepControlFlowAfterRetired
-    (controlFlowJumpState (tryStepControlFlowAfterIncrement s4) (BitVec.ofNat 64 0x1043c)
-      (BitVec.ofNat 64 0x1035c)) (BitVec.ofNat 64 0x1035c) r5
-  have p1 : WrapperPrefix stepNo 1 state s1 :=
-    ConfinedPrefix.ownStep' atPc (by simpa [s1] using run1)
-  have p2 : WrapperPrefix (stepNo + 1) 1 s1 s2 :=
-    ConfinedPrefix.ownStep' pc1 (by simpa [s1, s2] using run2)
-  have p3 : WrapperPrefix (stepNo + 2) 1 s2 s3 :=
-    ConfinedPrefix.ownStep' pc2 (by simpa [s2, s3] using run3)
-  have p4 : WrapperPrefix (stepNo + 3) 1 s3 s4 :=
-    ConfinedPrefix.ownStep' pc3 (by simpa [s3, s4] using run4)
-  have p5 : WrapperPrefix (stepNo + 4) 1 s4 s5 :=
-    ConfinedPrefix.ownStep' pc4 (by simpa [s4, s5] using run5)
-  have routeFrame :=
-    ((((afterRegisterWrite_writes state (BitVec.ofNat 64 0x103fc) r1 x11
-            (BitVec.ofNat 64 3)).trans
-          (jumpRetirement_writes s1 (BitVec.ofNat 64 0x10400) (BitVec.ofNat 64 0x10434) r2)).trans
-        (afterRegisterWrite_writes s2 (BitVec.ofNat 64 0x10434) r3 x10 (BitVec.ofNat 64 0))).trans
-      (afterRegisterWrite_writes s3 (BitVec.ofNat 64 0x10438) r4 x11 (BitVec.ofNat 64 3))).trans
-      (jumpRetirement_writes s4 (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c) r5)
-  refine ⟨s5, by confined_steps [p1, p2, p3, p4, p5], ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · exact jumpRetirement_pc s4 (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c) r5
-  · exact (((jumpRetirement_writes s4 (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c) r5).get x10
-        (by decide)).trans ((afterRegisterWrite_writes s3 (BitVec.ofNat 64 0x10438) r4 x11
-        (BitVec.ofNat 64 3)).get x10 (by decide))).trans
-      (afterRegisterWrite_destination s2 (BitVec.ofNat 64 0x10434) r3 x10 (BitVec.ofNat 64 0)
-        (by decide) (by decide))
-  · exact ((jumpRetirement_writes s4 (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c) r5).get x11
-      (by decide)).trans (afterRegisterWrite_destination s3 (BitVec.ofNat 64 0x10438) r4 x11
-        (BitVec.ofNat 64 3) (by decide) (by decide))
-  · exact agree4.trans (tag3_jump_agree s4 (BitVec.ofNat 64 0x1043c)
-      (BitVec.ofNat 64 0x1035c) r5)
-  · simpa [s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, controlFlowJumpState,
-      coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code4
-  · exact jumpRetirement_retired_present s4 (BitVec.ofNat 64 0x1043c) (BitVec.ofNat 64 0x1035c) r5
-  · rfl
-  · exact routeFrame.get x18 (by decide)
-  · exact routeFrame.get x2 (by decide)
+  obtain ⟨after, route⟩ :=
+    wrapper_dispatch_tag3_owned_terminal_route machine agree retiredPresent code stepNo atPc tag
+  exact ⟨after, route.confined, route.route.atTerminal, route.route.resultValue,
+    route.route.statusValue, route.route.platform, route.route.code, route.route.retired,
+    route.route.memory, route.route.savedS2, route.route.savedStack⟩
 
 /-- Lossless Level 2 handoff from a propagated non-`invalidSsz` decoder error to result dispatch. -/
 structure PropagatedErrorEdgeResult (args : DecodeInlineArgs) (error : Contracts.DecodeError)
