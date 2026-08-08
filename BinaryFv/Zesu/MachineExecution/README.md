@@ -5,8 +5,12 @@ under the generated Sail RISC-V semantics. It is the target-specific bridge betw
 code and the higher-level source-function contracts.
 
 - `DecodeTactic.lean` provides local support for discharging instruction-decoding goals.
-- `RegisterRuns.lean` supplies compatibility wrappers for the generic `NonzeroXRegister` read/write
-  runs in `RiscV/Instruction/Frame/Register.lean`.
+- `RegisterRuns.lean` keeps generated Sail register-run proofs leaf-local and exposes only the
+  concrete `rX_bits_run_xN`/`wX_bits_run_xN` wrappers that target-specific proofs consume.
+- `RiscV/Instruction/Execute/DataAddress.lean` provides
+  `get_transformed_data_addr_machine_data_run`, shared by the load/store compatibility wrappers.
+  Concrete Zesu MMIO exclusions come from CanonicalEntry layout proofs, not native evaluation of
+  `DataMMIOAddressExcluded`.
 - `InstructionClassSteps.lean` and `GeneratedWordStep.lean` are the preferred instruction and
   generated-image evidence entry points. `decodeInline_first_result_pointer_step` uses
   `GeneratedWordStep.generatedRegisterWriteStep` with explicit `.ITYPE` and `execute_ITYPE_run`
