@@ -147,20 +147,25 @@ always that one exists, or should, and is three lines.
 ### Reuse the concrete proof APIs before restating their mechanism
 
 - For a computed `Option.map` or `Except.toOption.map` whose scrutinee is pinned artifact data, use
-  `Option.getD_map_of_eq_some`, `Option.getD_map_eq_true_of_eq_some`,
-  `Except.getD_map_toOption_of_eq_ok`, or `Except.getD_map_toOption_eq_true_of_eq_ok` from
-  `BinaryFv/Option.lean`. Keep the mapped body named and pass it explicitly; do not unfold the
-  pinned dispatch at each consumer.
-- For a representation known over a memory byte window, transport it with
-  `ByteWindowRelocation.atOffset` from `Zesu/DecodedValue/StatelessInput.lean`. For a list-indexed
-  region membership proof, use `Region.mem_iUnion` from `Zesu/Contracts/Environment.lean`, not a
-  positional `Or.inl`/`Or.inr` chain.
-- Use `NonzeroXRegister` plus `rX_bits_run_nonzero`/`wX_bits_run_nonzero` for a nonzero generated
-  integer register. Use `ScalarLoadWidth` and `vmem_read_addr_scalar_run` at the four concrete load
-  widths; do not force the generated loop through symbolic `BitVec (8 * width)` casts. Use
-  `MachineDataAddressContext`, `DataMMIOAddressExcluded`, and `DataPmaAccess` when an instruction
-  repeats Machine-mode address, MMIO, or PMA premises. Keep old wrappers for compatibility rather
-  than duplicating their proofs.
+  `BinaryFv.Option.getD_map_of_eq_some`, `BinaryFv.Option.getD_map_eq_true_of_eq_some`,
+  `BinaryFv.Except.getD_map_toOption_of_eq_ok`, or
+  `BinaryFv.Except.getD_map_toOption_eq_true_of_eq_ok` from `BinaryFv/Option.lean`. Keep the mapped
+  body named and pass it explicitly; do not unfold the pinned dispatch at each consumer.
+- A representation `.rebase` theorem and `MemoryBytes.rebase` must state
+  `ByteWindowRelocation before after source destination width` explicitly. Use
+  `ByteWindowRelocation.atOffset` for a sub-window. Keep `statelessInputHeapRegion` as the public
+  nested-union contract; use `mem_statelessInputHeapRegion` with a member of
+  `statelessInputHeapRegions` only to supply membership evidence inside a proof.
+- Generated Sail register-run proofs remain in leaf-local modules. Use only an already consumed
+  concrete `rX_bits_run_xN` or `wX_bits_run_xN` wrapper; add a generated wrapper only for a real
+  consumer. For a shared Machine-mode data address, use the access- and width-indexed
+  `get_transformed_data_addr_machine_data_run` from `Instruction/Execute/DataAddress.lean`, while
+  retaining its load/store compatibility wrappers at existing callers. `RetirementContext` remains
+  the counter-premise definition used by `StepCounters`.
+- `DataMMIOAddressExcluded` must not get a global `Decidable` instance and concrete Zesu proofs must
+  not native-evaluate it. Prove concrete ranges through CanonicalEntry's
+  `dataMMIOAddressExcluded_of_layout` (or its load/store compatibility wrappers), then pass that
+  proof to the MMIO run theorem. Use `DataPmaAccess` for shared PMA facts.
 - Use `GeneratedWordStep.generatedRegisterWriteStep` only when the site has
   `fileBytesLoadedFaithfully`, `readFileByte?`, and `DecoderMachinePre`; for example,
   `decodeInline_first_result_pointer_step` supplies explicit `.ITYPE` decode and
