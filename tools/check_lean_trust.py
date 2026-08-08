@@ -104,7 +104,7 @@ def main() -> int:
                 violations.append(f"{rel}:{line}: {label}: {match.group(0)!r}")
         roots.extend(ROOT_DECL.findall(clean))
 
-    expected_roots = ["root_compliance_of_exported_contracts"]
+    expected_roots = ["root_compliance"]
     if roots != expected_roots:
         violations.append(
             "public root theorem mismatch: expected "
