@@ -144,6 +144,40 @@ If your goal is not in the table and you are about to reach for `simp [<a state 
 the anti-pattern this table exists to prevent. Ask for a frame lemma instead — the answer is almost
 always that one exists, or should, and is three lines.
 
+### Reuse the concrete proof APIs before restating their mechanism
+
+- For a computed `Option.map` or `Except.toOption.map` whose scrutinee is pinned artifact data, use
+  `BinaryFv.Option.getD_map_of_eq_some`, `BinaryFv.Option.getD_map_eq_true_of_eq_some`,
+  `BinaryFv.Except.getD_map_toOption_of_eq_ok`, or
+  `BinaryFv.Except.getD_map_toOption_eq_true_of_eq_ok` from `BinaryFv/Option.lean`. Keep the mapped
+  body named and pass it explicitly; do not unfold the pinned dispatch at each consumer.
+- A representation `.rebase` theorem and `MemoryBytes.rebase` must state
+  `ByteWindowRelocation before after source destination width` explicitly. Use
+  `ByteWindowRelocation.atOffset` for a sub-window. Keep `statelessInputHeapRegion` as the public
+  nested-union contract; use `mem_statelessInputHeapRegion` with a member of
+  `statelessInputHeapRegions` only to supply membership evidence inside a proof.
+- Generated Sail register-run proofs remain in leaf-local modules. Use only an already consumed
+  concrete `rX_bits_run_xN` or `wX_bits_run_xN` wrapper; add a generated wrapper only for a real
+  consumer. For a shared Machine-mode data address, use the access- and width-indexed
+  `get_transformed_data_addr_machine_data_run` from `Instruction/Execute/DataAddress.lean`, while
+  retaining its load/store compatibility wrappers at existing callers. `RetirementContext` remains
+  the counter-premise definition used by `StepCounters`.
+- `DataMMIOAddressExcluded` must not get a global `Decidable` instance and concrete Zesu proofs must
+  not native-evaluate it. Prove concrete ranges through CanonicalEntry's
+  `dataMMIOAddressExcluded_of_layout` (or its load/store compatibility wrappers), then pass that
+  proof to the MMIO run theorem. Use `DataPmaAccess` for shared PMA facts.
+- Use `GeneratedWordStep.generatedRegisterWriteStep` only when the site has
+  `fileBytesLoadedFaithfully`, `readFileByte?`, and `DecoderMachinePre`; for example,
+  `decodeInline_first_result_pointer_step` supplies explicit `.ITYPE` decode and
+  `execute_ITYPE_run` premises. Do not force this interface onto a `matchesMemory`/`readByte?`
+  proof: `BlobScheduleAndResultStores` has that different evidence shape, and no valid bridge has
+  been established.
+- Before composing local successor states, search for the existing owned route. For the tag-three
+  dispatch this is `wrapper_dispatch_tag3_owned_terminal_route` in
+  `Level2OutcomeDispatch.lean`, backed by `Seg`; projecting its route is preferable to rebuilding
+  five `let`-bound post-states. Introduce `Seg` only after profiling identifies a successor-state
+  composition as the cost.
+
 ### Build shape: what parallelising can and cannot buy
 
 Measured on this project, and each number changed a decision:

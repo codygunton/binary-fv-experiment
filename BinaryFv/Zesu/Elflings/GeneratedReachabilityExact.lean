@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Elflings.GeneratedValidationBridges
 import BinaryFv.RiscV.Analysis.ReachabilityComplete
+import BinaryFv.Option
 import BinaryFv.Zesu.ControlFlow.Decode
 import GeneratedProgram
 
@@ -75,15 +76,6 @@ theorem witnessValidC_true : witnessValidC = true := by native_decide
 
 /-! ## Specialise the dispatched checks to explicit decoded nodes -/
 
-/-- Transport a `(o.map f).getD false = true` fact across `o = some a`. Stated generically so the
-kernel checks it once against variables: specialising it by `unfold`+`rw` at the use site instead
-puts the concrete `controlFlow?` and the generated arrays into the rewrite motive, and typechecking
-that costs 300 s. -/
-private theorem getD_map_eq_true {α : Type _} {o : Option α} {f : α → Bool} {a : α}
-    (ho : o = some a) (h : (o.map f).getD false = true) : f a = true := by
-  subst ho
-  simpa using h
-
 theorem forwardClosed_some {nodes : Array ControlFlowNode} (hn : controlFlow? = some nodes) :
     hasControlFlowAddress nodes reachableEntry = true ∧
     reachableAddresses.contains reachableEntry = true ∧
@@ -102,7 +94,7 @@ theorem witnessValid_some {nodes : Array ControlFlowNode} (hn : controlFlow? = s
       (reachableWitness.any (fun pr => decide (pr.addr = r.predecessor ∧ pr.distance + 1 = r.distance)) &&
         (directSuccessorsAt nodes r.predecessor).contains r.addr &&
         hasControlFlowAddress nodes r.addr)) = true :=
-  getD_map_eq_true (f := witnessValidAt) hn witnessValidC_true
+  BinaryFv.Option.getD_map_eq_true_of_eq_some (f := witnessValidAt) hn witnessValidC_true
 
 /-! ## Reverse: build a reachability path for every witnessed address -/
 

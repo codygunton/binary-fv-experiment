@@ -24,8 +24,8 @@ exclusions remain explicit. PMA permission is deliberately not part of this pred
 def FetchMMIOStateLayoutExcluded (state : State) (pc : BitVec 64) : Prop :=
   FetchMMIOAddressExcluded pc ∧ state.regs.get? htif_tohost_base = some none
 
-/-- The generated fixed CLINT and signature layouts exclude this physical data-store range. -/
-def StoreMMIOAddressExcluded (address : BitVec 64) (width : Nat) : Prop :=
+/-- The generated fixed CLINT and signature layouts exclude this physical data-access range. -/
+def DataMMIOAddressExcluded (address : BitVec 64) (width : Nat) : Prop :=
   ((Sail.BitVec.toNatInt plat_clint_base ≤b Sail.BitVec.toNatInt address) &&
       ((Sail.BitVec.toNatInt address +i width) ≤b
         (Sail.BitVec.toNatInt plat_clint_base +i Sail.BitVec.toNatInt plat_clint_size))) = false ∧
@@ -33,14 +33,11 @@ def StoreMMIOAddressExcluded (address : BitVec 64) (width : Nat) : Prop :=
       ((Sail.BitVec.toNatInt address +i width) ≤b
         (Sail.BitVec.toNatInt plat_sig_base +i Sail.BitVec.toNatInt plat_sig_size))) = false
 
-/-- The generated fixed CLINT and signature layouts exclude this physical data-load range. -/
-def LoadMMIOAddressExcluded (address : BitVec 64) (width : Nat) : Prop :=
-  ((Sail.BitVec.toNatInt plat_clint_base ≤b Sail.BitVec.toNatInt address) &&
-      ((Sail.BitVec.toNatInt address +i width) ≤b
-        (Sail.BitVec.toNatInt plat_clint_base +i Sail.BitVec.toNatInt plat_clint_size))) = false ∧
-    ((Sail.BitVec.toNatInt plat_sig_base ≤b Sail.BitVec.toNatInt address) &&
-      ((Sail.BitVec.toNatInt address +i width) ≤b
-        (Sail.BitVec.toNatInt plat_sig_base +i Sail.BitVec.toNatInt plat_sig_size))) = false
+/-- Compatibility name for the shared data-range exclusion used by stores. -/
+def StoreMMIOAddressExcluded := DataMMIOAddressExcluded
+
+/-- Compatibility name for the shared data-range exclusion used by loads. -/
+def LoadMMIOAddressExcluded := DataMMIOAddressExcluded
 
 private theorem within_clint_of_address_excluded (state : State) (pc : BitVec 64)
     (excluded : FetchMMIOAddressExcluded pc) :
@@ -67,32 +64,16 @@ private theorem within_htif_readable_of_disabled (state : State) (pc : BitVec 64
   apply Runs.bind hRead
   rfl
 
-private theorem within_clint_store_of_address_excluded (state : State) (address : BitVec 64)
-    (width : Nat) (excluded : StoreMMIOAddressExcluded address width) :
+private theorem within_clint_data_of_address_excluded (state : State) (address : BitVec 64)
+    (width : Nat) (excluded : DataMMIOAddressExcluded address width) :
     Runs (within_clint (physaddr.Physaddr address) width) state state false := by
   rcases excluded with ⟨clint, _⟩
   unfold Runs within_clint
   simp [plat_have_clint, clint]
   rfl
 
-private theorem within_sig_store_of_address_excluded (state : State) (address : BitVec 64)
-    (width : Nat) (excluded : StoreMMIOAddressExcluded address width) :
-    Runs (within_sig (physaddr.Physaddr address) width) state state false := by
-  rcases excluded with ⟨_, sig⟩
-  unfold Runs within_sig
-  simp [plat_have_sig, sig]
-  rfl
-
-private theorem within_clint_load_of_address_excluded (state : State) (address : BitVec 64)
-    (width : Nat) (excluded : LoadMMIOAddressExcluded address width) :
-    Runs (within_clint (physaddr.Physaddr address) width) state state false := by
-  rcases excluded with ⟨clint, _⟩
-  unfold Runs within_clint
-  simp [plat_have_clint, clint]
-  rfl
-
-private theorem within_sig_load_of_address_excluded (state : State) (address : BitVec 64)
-    (width : Nat) (excluded : LoadMMIOAddressExcluded address width) :
+private theorem within_sig_data_of_address_excluded (state : State) (address : BitVec 64)
+    (width : Nat) (excluded : DataMMIOAddressExcluded address width) :
     Runs (within_sig (physaddr.Physaddr address) width) state state false := by
   rcases excluded with ⟨_, sig⟩
   unfold Runs within_sig
@@ -114,8 +95,8 @@ theorem storeMemoryNoMMIO_of_state_layout_excluded (state : State) (address : Bi
     Runs (within_mmio_writable (physaddr.Physaddr address) width) state state false := by
   unfold within_mmio_writable
   simp only [get_config_rvfi]
-  apply Runs.bind (within_clint_store_of_address_excluded state address width addressExcluded)
-  apply Runs.bind (within_sig_store_of_address_excluded state address width addressExcluded)
+  apply Runs.bind (within_clint_data_of_address_excluded state address width addressExcluded)
+  apply Runs.bind (within_sig_data_of_address_excluded state address width addressExcluded)
   apply Runs.bind (within_htif_writable_of_disabled state address width htifDisabled)
   rfl
 
@@ -126,8 +107,8 @@ theorem loadMemoryNoMMIO_of_state_layout_excluded (state : State) (address : Bit
     Runs (within_mmio_readable (physaddr.Physaddr address) width) state state false := by
   unfold within_mmio_readable
   simp only [get_config_rvfi]
-  apply Runs.bind (within_clint_load_of_address_excluded state address width addressExcluded)
-  apply Runs.bind (within_sig_load_of_address_excluded state address width addressExcluded)
+  apply Runs.bind (within_clint_data_of_address_excluded state address width addressExcluded)
+  apply Runs.bind (within_sig_data_of_address_excluded state address width addressExcluded)
   apply Runs.bind (within_htif_writable_of_disabled state address width htifDisabled)
   rfl
 
@@ -163,13 +144,13 @@ theorem fetch_mmio_address_excluded_of_before_layout (pc : BitVec 64)
       omega
     simp [noSigStart]
 
-/-- A data-store range ending before both fixed MMIO bases avoids both regions. -/
-theorem store_mmio_address_excluded_of_before_layout (address : BitVec 64) (width : Nat)
+/-- A data-access range ending before both fixed MMIO bases avoids both regions. -/
+theorem data_mmio_address_excluded_of_before_layout (address : BitVec 64) (width : Nat)
     (widthPositive : 0 < width)
     (beforeClint : address.toNat + width ≤ BitVec.toNat plat_clint_base)
     (beforeSig : address.toNat + width ≤ BitVec.toNat plat_sig_base) :
-    StoreMMIOAddressExcluded address width := by
-  unfold StoreMMIOAddressExcluded
+    DataMMIOAddressExcluded address width := by
+  unfold DataMMIOAddressExcluded
   constructor
   · unfold Sail.BitVec.toNatInt
     have noClintStart : ¬ BitVec.toNat plat_clint_base ≤ address.toNat := by
@@ -179,6 +160,14 @@ theorem store_mmio_address_excluded_of_before_layout (address : BitVec 64) (widt
     have noSigStart : ¬ BitVec.toNat plat_sig_base ≤ address.toNat := by
       omega
     simp [noSigStart]
+
+/-- Compatibility wrapper for store proofs. -/
+theorem store_mmio_address_excluded_of_before_layout (address : BitVec 64) (width : Nat)
+    (widthPositive : 0 < width)
+    (beforeClint : address.toNat + width ≤ BitVec.toNat plat_clint_base)
+    (beforeSig : address.toNat + width ≤ BitVec.toNat plat_sig_base) :
+    StoreMMIOAddressExcluded address width :=
+  data_mmio_address_excluded_of_before_layout address width widthPositive beforeClint beforeSig
 
 /-! ## The MMIO dispatch needs no clause of its own
 

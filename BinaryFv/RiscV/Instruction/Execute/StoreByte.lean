@@ -1,4 +1,4 @@
-import BinaryFv.RiscV.Instruction.Execute.Store
+import BinaryFv.RiscV.Instruction.Execute.DataAddress
 
 /-!
 # Aligned byte store execution contract
@@ -53,8 +53,7 @@ theorem writeBytes_byte_run (state : State) (address : Nat) (value : BitVec 8) :
 
 /-! ## Aligned byte store -/
 
-/-- Under the configured Machine-mode, Bare-translation, pointer-masking-disabled setup, a store
-effective address is exactly its base register plus its signed offset. -/
+/-- Compatibility wrapper for callers that carry the five machine-address facts separately. -/
 theorem get_transformed_data_addr_machine_store_run (state : State) (rs : regidx) (width : Nat)
     (base offset mstatusBits mseccfgBits : BitVec 64)
     (baseRead : Runs (rX_bits rs) state state base)
@@ -64,32 +63,9 @@ theorem get_transformed_data_addr_machine_store_run (state : State) (rs : regidx
     (mseccfgRead : state.regs.get? mseccfg = some mseccfgBits)
     (pmmDisabled : pmm_mode_backwards (_get_Seccfg_PMM mseccfgBits) = .PMM_Disabled) :
     Runs (get_transformed_data_addr rs offset (Store Data) width) state state
-      (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) := by
-  have address : Runs (ext_data_get_addr rs offset (Store Data) width) state state
-      (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) := by
-    unfold ext_data_get_addr
-    exact Runs.bind baseRead rfl
-  unfold get_transformed_data_addr
-  refine Runs.bind address ?_
-  have transformed : Runs (transform_effective_address (virtaddr.Virtaddr (base + offset))
-      (Store Data)) state state (virtaddr.Virtaddr (base + offset)) := by
-    have machineEq : (Privilege.Machine == Privilege.Machine) = true := rfl
-    have bareEq : (SATPMode.Bare == SATPMode.Bare) = true := rfl
-    have pointerMaskingBase :
-        (Store Data != InstructionFetch ()) = true ∧
-          (Store Data != Load PageTableEntry) = true ∧
-            (Store Data != Store PageTableEntry) = true ∧
-              LeanRV64DExecutable.Functions.xlen = 64 :=
-      ⟨by decide, by decide, by decide, rfl⟩
-    unfold Runs transform_effective_address get_pmlen is_pmm_applicable get_pmm translationMode
-    simp [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get, EStateM.pure,
-      EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable, MonadState.get,
-      MonadStateOf.get, getThe, mstatusRead, privilegeRead, mseccfgRead, mprvZero, pmmDisabled,
-      pointerMaskingBase, machineEq, bareEq, effectivePrivilege, pm_transform_PA]
-    change zero_extend (Sail.BitVec.extractLsb (base + offset) 63 0) = base + offset
-    unfold zero_extend Sail.BitVec.zeroExtend
-    rw [BitVec.zeroExtend_eq_setWidth, BitVec.setWidth_eq, extractLsb_full]
-  exact Runs.bind transformed rfl
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr (base + offset))) :=
+  get_transformed_data_addr_machine_data_run .store state rs width base offset mstatusBits mseccfgBits
+    baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled
 
 theorem vmem_write_addr_byte_run (s s' : State) (dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 1))

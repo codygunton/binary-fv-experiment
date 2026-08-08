@@ -110,59 +110,54 @@ private theorem statelessInputRep_transport_at_bases {before after : State}
     { root := rawStatelessInput_footprint rootBase 832
         BinaryFv.Zesu.Artifacts.raw_stateless_input_layout.1 before after agreeRecord allocation.root
       versionedHashes := heapArray_footprint bases.versionedHashesBase _ 32 before after
-        (fun address ha => agree address (Or.inr (Or.inl ha))) allocation.versionedHashes
+        (fun address inside => heapRegionAgreement agree inside)
+        allocation.versionedHashes
       versionedHashContents := heapFixedVectorArray_footprint bases.versionedHashesBase _ before after
-        (fun _ ⟨hl, hr⟩ => agree _ (Or.inr (Or.inl ⟨by omega, by omega⟩)))
+        (fun address inside => heapRegionAgreement agree inside Footprint.versionedHashContentsHeapRegion_member)
         allocation.versionedHashContents
       transactions := heapArray_footprint bases.transactionsBase _ 16 before after
-        (fun address ha => agree address (Or.inr (Or.inr (Or.inl ha)))) allocation.transactions
+        (fun address inside => heapRegionAgreement agree inside)
+        allocation.transactions
       withdrawals := heapArray_footprint bases.withdrawalsBase _ 48 before after
-        (fun address ha => agree address (Or.inr (Or.inr (Or.inr (Or.inl ha)))))
+        (fun address inside => heapRegionAgreement agree inside)
         allocation.withdrawals
       withdrawalContents := heapWithdrawalArray_footprint bases.withdrawalsBase _ before after
-        (fun _ ⟨hl, hr⟩ => agree _ (Or.inr (Or.inr (Or.inr (Or.inl ⟨by omega, by omega⟩)))))
+        (fun address inside => heapRegionAgreement agree inside Footprint.withdrawalContentsHeapRegion_member)
         allocation.withdrawalContents
       deposits := heapArray_footprint bases.depositsBase _ 192 before after
-        (fun address ha => agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ha))))))
+        (fun address inside => heapRegionAgreement agree inside)
         allocation.deposits
       depositContents := heapDepositRequestArray_footprint bases.depositsBase _ before after
-        (fun _ ⟨hl, hr⟩ =>
-          agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨by omega, by omega⟩))))))
+        (fun address inside => heapRegionAgreement agree inside Footprint.depositContentsHeapRegion_member)
         allocation.depositContents
       withdrawalRequests := heapArray_footprint bases.withdrawalRequestsBase _ 80 before after
-        (fun address ha =>
-          agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ha)))))))
+        (fun address inside => heapRegionAgreement agree inside)
         allocation.withdrawalRequests
       withdrawalRequestContents :=
         heapWithdrawalRequestArray_footprint bases.withdrawalRequestsBase _ before after
-          (fun _ ⟨hl, hr⟩ =>
-            agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨by omega, by omega⟩)))))))
+          (fun address inside => heapRegionAgreement agree inside Footprint.withdrawalRequestContentsHeapRegion_member)
           allocation.withdrawalRequestContents
       consolidationRequests := heapArray_footprint bases.consolidationRequestsBase _ 116 before after
-        (fun address ha =>
-          agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ha))))))))
+        (fun address inside => heapRegionAgreement agree inside)
         allocation.consolidationRequests
       consolidationRequestContents :=
         heapConsolidationRequestArray_footprint bases.consolidationRequestsBase _ before after
-          (fun _ ⟨hl, hr⟩ =>
-            agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
-              (Or.inl ⟨by omega, by omega⟩))))))))
+          (fun address inside => heapRegionAgreement agree inside Footprint.consolidationRequestContentsHeapRegion_member)
           allocation.consolidationRequestContents
       witnessState := heapArray_footprint bases.witnessStateBase _ 16 before after
-        (fun address ha => agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
-          (Or.inl ha))))))))) allocation.witnessState
+        (fun address inside => heapRegionAgreement agree inside)
+        allocation.witnessState
       witnessCodes := heapArray_footprint bases.witnessCodesBase _ 16 before after
-        (fun address ha => agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
-          (Or.inr (Or.inl ha)))))))))) allocation.witnessCodes
+        (fun address inside => heapRegionAgreement agree inside)
+        allocation.witnessCodes
       witnessHeaders := heapArray_footprint bases.witnessHeadersBase _ 16 before after
-        (fun address ha => agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
-          (Or.inr (Or.inr (Or.inl ha))))))))))) allocation.witnessHeaders
+        (fun address inside => heapRegionAgreement agree inside)
+        allocation.witnessHeaders
       publicKeys := heapArray_footprint bases.publicKeysBase _ 65 before after
-        (fun address ha => agree address (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
-          (Or.inr (Or.inr (Or.inr ha))))))))))) allocation.publicKeys
+        (fun address inside => heapRegionAgreement agree inside)
+        allocation.publicKeys
       publicKeyContents := publicKeyContents before after
-        (fun _ ⟨hl, hr⟩ => agree _ (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
-          (Or.inr (Or.inr (Or.inr ⟨by omega, by omega⟩))))))))))) allocation.publicKeyContents }
+        (fun address inside => heapRegionAgreement agree inside Footprint.publicKeyContentsHeapRegion_member) allocation.publicKeyContents }
 
 /-- Expose the exact represented footprint as the sufficient memory agreement condition while
 retaining its allocator interval. -/
@@ -207,8 +202,7 @@ theorem StatelessInputRepInHeapInterval.rebase_root {state : State}
     {inputBase sourceRoot destinationRoot : Nat} {input : ByteArray}
     {value : BinaryFv.Specs.SSZ.StatelessInput} {cursorBefore cursorAfter : Nat}
     (destinationFits : destinationRoot + 832 ≤ 2 ^ 64)
-    (memory : ∀ index, index < 832 →
-      state.mem.get? (destinationRoot + index) = state.mem.get? (sourceRoot + index))
+    (memory : ByteWindowRelocation state state sourceRoot destinationRoot 832)
     (allocated : StatelessInputRepInHeapInterval state inputBase input sourceRoot value
       cursorBefore cursorAfter) :
     StatelessInputRepInHeapInterval state inputBase input destinationRoot value

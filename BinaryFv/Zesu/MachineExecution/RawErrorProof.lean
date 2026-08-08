@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.ReturnToSentinel
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.CanonicalEntry
 import BinaryFv.Zesu.MachineExecution.AccessorBlocks
 import BinaryFv.Zesu.MachineExecution.RegisterWriteStep
 import BinaryFv.Zesu.MachineExecution.Seg
@@ -228,7 +229,8 @@ theorem raw_error_load_step (fromStep : Nat) (state : State) (status : DecodeSta
       executeState executeState false :=
     loadMemoryNoMMIO_of_state_layout_excluded executeState
       (BitVec.ofNat 64 Elflings.canonicalDecoderGlobalsLayout.status) 4
-      (by simp [LoadMMIOAddressExcluded] <;> native_decide)
+      (loadMMIOAddressExcluded_of_layout (by omega) (Or.inr (by native_decide))
+        (Or.inl (by native_decide)))
       ((platformPreserved_htifBase executeAgree).trans
         (machine.instructions 0x13784 (by decide)).htifRead)
   have memoryBytes : ∀ (index : Nat) (bound : index <

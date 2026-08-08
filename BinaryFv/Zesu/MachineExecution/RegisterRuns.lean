@@ -30,7 +30,7 @@ theorem rX_x0_run (state : State) :
     regval_from_reg]
   rfl
 
-macro "gen_rx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
+local macro "gen_rx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(theorem $name (state : State) (value : BitVec 64)
       (stored : state.regs.get? $reg = some value) :
       Runs (rX_bits (.Regidx (BitVec.ofNat 5 $idx))) state state value := by
@@ -39,7 +39,7 @@ macro "gen_rx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
     simp [rX_bits, rX, index, stored, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
       EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe, regval_from_reg])
 
-macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
+local macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(theorem $name (state : State) (value : BitVec 64) :
       Runs (wX_bits (.Regidx (BitVec.ofNat 5 $idx)) value) state
         { state with regs := state.regs.insert $reg value } () := by

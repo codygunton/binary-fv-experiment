@@ -31,6 +31,11 @@ attribute [grind →] Agree.trans
 grind_pattern WritesOnlyRegs.get => WritesOnlyRegs W s t, t.regs.get? r
 ```
 
+The shared `BinaryFv.Option`/`BinaryFv.Except` transports, `ByteWindowRelocation.atOffset`,
+`mem_statelessInputHeapRegion`, concrete register wrappers, `get_transformed_data_addr_machine_data_run`,
+and owned routes are ordinary explicit lemmas, not candidates for new `simp` or `grind` registrations.
+Reuse them directly; keep this document about automation sets and patterns.
+
 ### Rule 1 — you need a multi-pattern when the conclusion and the antecedent each omit what the other has
 
 This is the single most useful thing learned, and it is stated too weakly in section 5. Both

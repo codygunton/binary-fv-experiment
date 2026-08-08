@@ -1,6 +1,7 @@
 import BinaryFv.RiscV.Proof.RunnerCorrespondence
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Classify
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Fuel
+import BinaryFv.Option
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Preflight
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.StateBuilder
 import BinaryFv.Zesu.DecodedValue.ValueObserver
@@ -217,14 +218,10 @@ that stalled and came back, this covers a run that never came back at all. -/
 /-- `executeDecode` at a resolved symbol table. Factored out because `unfold executeDecode` leaves
 `runnerSymbols` in the caller's rewrite motive, and the kernel then resolves the ELF symbol table
 while checking it -- 21 s per site, four sites. Proved once here against a variable `symbols`. -/
-private theorem getD_map_some {α β : Type _} {o : Option α} {f : α → β} {a : α} {d : β}
-    (ho : o = some a) : (o.map f).getD d = f a := by
-  subst ho; rfl
-
 theorem executeDecode_some {symbols : RunnerSymbols} (hsymbols : runnerSymbols = some symbols)
     (input : ByteArray) :
     executeDecode input = runAnswer (runZesuDecodeRaw symbols input) :=
-  getD_map_some (f := fun s => runAnswer (runZesuDecodeRaw s input)) hsymbols
+  BinaryFv.Option.getD_map_of_eq_some (f := fun s => runAnswer (runZesuDecodeRaw s input)) hsymbols
 
 /-- **A run the Sail model could not complete answers `.error .trapped`.** An access outside
 materialized memory, a failed model assertion or an unreachable model branch escapes as an
