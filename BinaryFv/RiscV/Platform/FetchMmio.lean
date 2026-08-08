@@ -33,14 +33,11 @@ def DataMMIOAddressExcluded (address : BitVec 64) (width : Nat) : Prop :=
       ((Sail.BitVec.toNatInt address +i width) ≤b
         (Sail.BitVec.toNatInt plat_sig_base +i Sail.BitVec.toNatInt plat_sig_size))) = false
 
-instance (address : BitVec 64) (width : Nat) : Decidable (DataMMIOAddressExcluded address width) :=
-  inferInstanceAs (Decidable (_ ∧ _))
-
 /-- Compatibility name for the shared data-range exclusion used by stores. -/
-abbrev StoreMMIOAddressExcluded := DataMMIOAddressExcluded
+def StoreMMIOAddressExcluded := DataMMIOAddressExcluded
 
 /-- Compatibility name for the shared data-range exclusion used by loads. -/
-abbrev LoadMMIOAddressExcluded := DataMMIOAddressExcluded
+def LoadMMIOAddressExcluded := DataMMIOAddressExcluded
 
 private theorem within_clint_of_address_excluded (state : State) (pc : BitVec 64)
     (excluded : FetchMMIOAddressExcluded pc) :
@@ -170,14 +167,6 @@ theorem store_mmio_address_excluded_of_before_layout (address : BitVec 64) (widt
     (beforeClint : address.toNat + width ≤ BitVec.toNat plat_clint_base)
     (beforeSig : address.toNat + width ≤ BitVec.toNat plat_sig_base) :
     StoreMMIOAddressExcluded address width :=
-  data_mmio_address_excluded_of_before_layout address width widthPositive beforeClint beforeSig
-
-/-- Compatibility wrapper for load proofs. -/
-theorem load_mmio_address_excluded_of_before_layout (address : BitVec 64) (width : Nat)
-    (widthPositive : 0 < width)
-    (beforeClint : address.toNat + width ≤ BitVec.toNat plat_clint_base)
-    (beforeSig : address.toNat + width ≤ BitVec.toNat plat_sig_base) :
-    LoadMMIOAddressExcluded address width :=
   data_mmio_address_excluded_of_before_layout address width widthPositive beforeClint beforeSig
 
 /-! ## The MMIO dispatch needs no clause of its own
