@@ -144,6 +144,35 @@ If your goal is not in the table and you are about to reach for `simp [<a state 
 the anti-pattern this table exists to prevent. Ask for a frame lemma instead — the answer is almost
 always that one exists, or should, and is three lines.
 
+### Reuse the concrete proof APIs before restating their mechanism
+
+- For a computed `Option.map` or `Except.toOption.map` whose scrutinee is pinned artifact data, use
+  `Option.getD_map_of_eq_some`, `Option.getD_map_eq_true_of_eq_some`,
+  `Except.getD_map_toOption_of_eq_ok`, or `Except.getD_map_toOption_eq_true_of_eq_ok` from
+  `BinaryFv/Option.lean`. Keep the mapped body named and pass it explicitly; do not unfold the
+  pinned dispatch at each consumer.
+- For a representation known over a memory byte window, transport it with
+  `ByteWindowRelocation.atOffset` from `Zesu/DecodedValue/StatelessInput.lean`. For a list-indexed
+  region membership proof, use `Region.mem_iUnion` from `Zesu/Contracts/Environment.lean`, not a
+  positional `Or.inl`/`Or.inr` chain.
+- Use `NonzeroXRegister` plus `rX_bits_run_nonzero`/`wX_bits_run_nonzero` for a nonzero generated
+  integer register. Use `ScalarLoadWidth` and `vmem_read_addr_scalar_run` at the four concrete load
+  widths; do not force the generated loop through symbolic `BitVec (8 * width)` casts. Use
+  `MachineDataAddressContext`, `DataMMIOAddressExcluded`, and `DataPmaAccess` when an instruction
+  repeats Machine-mode address, MMIO, or PMA premises. Keep old wrappers for compatibility rather
+  than duplicating their proofs.
+- Use `GeneratedWordStep.generatedRegisterWriteStep` only when the site has
+  `fileBytesLoadedFaithfully`, `readFileByte?`, and `DecoderMachinePre`; for example,
+  `decodeInline_first_result_pointer_step` supplies explicit `.ITYPE` decode and
+  `execute_ITYPE_run` premises. Do not force this interface onto a `matchesMemory`/`readByte?`
+  proof: `BlobScheduleAndResultStores` has that different evidence shape, and no valid bridge has
+  been established.
+- Before composing local successor states, search for the existing owned route. For the tag-three
+  dispatch this is `wrapper_dispatch_tag3_owned_terminal_route` in
+  `Level2OutcomeDispatch.lean`, backed by `Seg`; projecting its route is preferable to rebuilding
+  five `let`-bound post-states. Introduce `Seg` only after profiling identifies a successor-state
+  composition as the cost.
+
 ### Build shape: what parallelising can and cannot buy
 
 Measured on this project, and each number changed a decision:
