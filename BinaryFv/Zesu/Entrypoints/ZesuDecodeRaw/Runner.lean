@@ -221,7 +221,7 @@ while checking it -- 21 s per site, four sites. Proved once here against a varia
 theorem executeDecode_some {symbols : RunnerSymbols} (hsymbols : runnerSymbols = some symbols)
     (input : ByteArray) :
     executeDecode input = runAnswer (runZesuDecodeRaw symbols input) :=
-  Option.getD_map_of_eq_some (f := fun s => runAnswer (runZesuDecodeRaw s input)) hsymbols
+  BinaryFv.Option.getD_map_of_eq_some (f := fun s => runAnswer (runZesuDecodeRaw s input)) hsymbols
 
 /-- **A run the Sail model could not complete answers `.error .trapped`.** An access outside
 materialized memory, a failed model assertion or an unreachable model branch escapes as an

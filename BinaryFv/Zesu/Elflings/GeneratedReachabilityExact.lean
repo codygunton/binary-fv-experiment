@@ -94,7 +94,7 @@ theorem witnessValid_some {nodes : Array ControlFlowNode} (hn : controlFlow? = s
       (reachableWitness.any (fun pr => decide (pr.addr = r.predecessor ∧ pr.distance + 1 = r.distance)) &&
         (directSuccessorsAt nodes r.predecessor).contains r.addr &&
         hasControlFlowAddress nodes r.addr)) = true :=
-  Option.getD_map_eq_true_of_eq_some (f := witnessValidAt) hn witnessValidC_true
+  BinaryFv.Option.getD_map_eq_true_of_eq_some (f := witnessValidAt) hn witnessValidC_true
 
 /-! ## Reverse: build a reachability path for every witnessed address -/
 

@@ -2187,7 +2187,29 @@ theorem rawStatelessInput_footprint (base recordSize : Nat)
     heapArray_footprint base 1 recordSize s1 s2
       (fun _ ⟨hl, hr⟩ => agree _ ⟨by omega, by omega⟩) harray⟩
 
-/-- The reviewed list of ten allocator-chosen heap-array regions a `StatelessInput` root points at. -/
+def statelessInputHeapRegion (value : BinaryFv.Specs.SSZ.StatelessInput)
+    (bases : StatelessInputDescriptorBases) : Region :=
+  Region.union (range bases.versionedHashesBase (value.newPayloadRequest.versionedHashes.size * 32))
+    (Region.union
+      (range bases.transactionsBase (value.newPayloadRequest.executionPayload.transactions.size * 16))
+      (Region.union
+        (range bases.withdrawalsBase (value.newPayloadRequest.executionPayload.withdrawals.size * 48))
+        (Region.union
+          (range bases.depositsBase (value.newPayloadRequest.executionRequests.deposits.size * 192))
+          (Region.union
+            (range bases.withdrawalRequestsBase
+              (value.newPayloadRequest.executionRequests.withdrawals.size * 80))
+            (Region.union
+              (range bases.consolidationRequestsBase
+                (value.newPayloadRequest.executionRequests.consolidations.size * 116))
+              (Region.union (range bases.witnessStateBase (value.witness.state.size * 16))
+                (Region.union (range bases.witnessCodesBase (value.witness.codes.size * 16))
+                  (Region.union
+                    (range bases.witnessHeadersBase (value.witness.headers.size * 16))
+                    (range bases.publicKeysBase (value.publicKeys.size * 65))))))))))
+
+/-- The ten heap regions in the order used by `mem_statelessInputHeapRegion`; this list is proof
+evidence only and does not define the public heap-footprint contract. -/
 def statelessInputHeapRegions (value : BinaryFv.Specs.SSZ.StatelessInput)
     (bases : StatelessInputDescriptorBases) : List Region :=
   [range bases.versionedHashesBase (32 * value.newPayloadRequest.versionedHashes.size),
@@ -2203,21 +2225,48 @@ def statelessInputHeapRegions (value : BinaryFv.Specs.SSZ.StatelessInput)
     range bases.witnessHeadersBase (16 * value.witness.headers.size),
     range bases.publicKeysBase (65 * value.publicKeys.size)]
 
-/-- Membership in any heap-array region, with the selected region witnessed by list membership. -/
-def statelessInputHeapRegion (value : BinaryFv.Specs.SSZ.StatelessInput)
-    (bases : StatelessInputDescriptorBases) : Region :=
-  Region.iUnion (statelessInputHeapRegions value bases)
+/-- The proof-only inventory retains producer order; this bridge relates it to the public
+`count * stride` footprint statement without changing that contract. -/
+theorem heapRange_mul_comm (base count stride : Nat) :
+    range base (count * stride) = range base (stride * count) := by
+  rw [Nat.mul_comm]
 
 theorem mem_statelessInputHeapRegion {value : BinaryFv.Specs.SSZ.StatelessInput}
     {bases : StatelessInputDescriptorBases} {region : Region} {address : Nat}
     (member : region ∈ statelessInputHeapRegions value bases) (inside : region address) :
-    statelessInputHeapRegion value bases address :=
-  Region.mem_iUnion member inside
+    statelessInputHeapRegion value bases address := by
+  simp [statelessInputHeapRegions] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact Or.inl (by simpa only [heapRange_mul_comm] using inside)
+  · exact Or.inr (Or.inl (by simpa only [heapRange_mul_comm] using inside))
+  · exact Or.inr (Or.inr (Or.inl (by simpa only [heapRange_mul_comm] using inside)))
+  · exact Or.inr (Or.inr (Or.inr (Or.inl (by simpa only [heapRange_mul_comm] using inside))))
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl (by simpa only [heapRange_mul_comm] using inside)))))
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl
+      (by simpa only [heapRange_mul_comm] using inside))))))
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl
+      (by simpa only [heapRange_mul_comm] using inside)))))))
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl
+      (by simpa only [heapRange_mul_comm] using inside))))))))
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl
+      (by simpa only [heapRange_mul_comm] using inside)))))))))
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
+      (by simpa only [heapRange_mul_comm] using inside)))))))))
 
 /-- The root record together with the ten heap arrays its descriptors point at. -/
 def statelessInputRegion (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
     (bases : StatelessInputDescriptorBases) : Region :=
   Region.union (range rootBase rootSize) (statelessInputHeapRegion value bases)
+
+/-- Agreement on the complete root-and-heap footprint gives agreement on any selected heap array. -/
+theorem heapRegionAgreement {before after : State} {rootBase rootSize : Nat}
+    {value : BinaryFv.Specs.SSZ.StatelessInput} {bases : StatelessInputDescriptorBases}
+    (agree : ∀ address, statelessInputRegion rootBase rootSize value bases address →
+      before.mem.get? address = after.mem.get? address)
+    {region : Region} {address : Nat}
+    (inside : region address) (member : region ∈ statelessInputHeapRegions value bases) :
+    before.mem.get? address = after.mem.get? address :=
+  agree address (Or.inr (mem_statelessInputHeapRegion member inside))
 
 theorem statelessInputDescriptor_footprint (rootBase rootSize : Nat) (value : BinaryFv.Specs.SSZ.StatelessInput)
     (bases : StatelessInputDescriptorBases) (fits : 832 ≤ rootSize) :
@@ -2301,10 +2350,6 @@ theorem statelessInputInputSlices_footprint (inputBase : Nat) (input : ByteArray
     (d2 : StatelessInputDescriptorRep s2 rootBase value bases)
     (h : StatelessInputInputSlicesRep s1 inputBase input rootBase value bases d1) :
     StatelessInputInputSlicesRep s2 inputBase input rootBase value bases d2 := by
-  have heapAgreement {region : Region} (address : Nat) (inside : region address)
-      (member : region ∈ statelessInputHeapRegions value bases) :
-      s1.mem.get? address = s2.mem.get? address :=
-    agree address (Or.inr (mem_statelessInputHeapRegion member inside))
   exact
     { extraData := h.extraData.imp fun _ h' => h'.imp fun _ h'' =>
       inputSliceDescriptor_footprint inputBase input (rootBase + 64) _ _ _ s1 s2
@@ -2313,17 +2358,13 @@ theorem statelessInputInputSlices_footprint (inputBase : Nat) (input : ByteArray
         inputSliceDescriptor_footprint inputBase input (rootBase + 128) _ _ _ s1 s2
           (fun _ ⟨hl, hr⟩ => agree _ (Or.inl ⟨by omega, by omega⟩)) h''
       transactions := inputSliceDescriptorArray_footprint inputBase input bases.transactionsBase _
-        s1 s2 (fun address inside => heapAgreement address inside
-          (by simp [statelessInputHeapRegions, Nat.mul_comm])) h.transactions
+        s1 s2 (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm])) h.transactions
       witnessState := inputSliceDescriptorArray_footprint inputBase input bases.witnessStateBase _
-        s1 s2 (fun address inside => heapAgreement address inside
-          (by simp [statelessInputHeapRegions, Nat.mul_comm])) h.witnessState
+        s1 s2 (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm])) h.witnessState
       witnessCodes := inputSliceDescriptorArray_footprint inputBase input bases.witnessCodesBase _
-        s1 s2 (fun address inside => heapAgreement address inside
-          (by simp [statelessInputHeapRegions, Nat.mul_comm])) h.witnessCodes
+        s1 s2 (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm])) h.witnessCodes
       witnessHeaders := inputSliceDescriptorArray_footprint inputBase input bases.witnessHeadersBase _
-        s1 s2 (fun address inside => heapAgreement address inside
-          (by simp [statelessInputHeapRegions, Nat.mul_comm])) h.witnessHeaders }
+        s1 s2 (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm])) h.witnessHeaders }
 
 /-- **The root's witnessed footprint.** Ten allocator-chosen bases come out in one
 `StatelessInputDescriptorBases`, which is the shape the representation already binds them in — so the caller
@@ -2345,10 +2386,6 @@ theorem statelessInput_footprint (inputBase : Nat) (input : ByteArray) (rootBase
   have agreeRecord : ∀ address, range rootBase rootSize address →
       s1.mem.get? address = s2.mem.get? address :=
     fun address ha => agree address (Or.inl ha)
-  have heapAgreement {region : Region} (address : Nat) (inside : region address)
-      (member : region ∈ statelessInputHeapRegions value bases) :
-      s1.mem.get? address = s2.mem.get? address :=
-    agree address (Or.inr (mem_statelessInputHeapRegion member inside))
   have publicKeyContents :
       MemDeterminedOn (range bases.publicKeysBase (65 * value.publicKeys.size))
         (fun s => HeapFixedVectorArrayRep s bases.publicKeysBase value.publicKeys) :=
@@ -2364,60 +2401,54 @@ theorem statelessInput_footprint (inputBase : Nat) (input : ByteArray) (rootBase
   exact
     { root := rawStatelessInput_footprint rootBase rootSize hsize s1 s2 agreeRecord allocation.root
       versionedHashes := heapArray_footprint bases.versionedHashesBase _ 32 s1 s2
-        (fun address inside => heapAgreement address inside (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.versionedHashes
       versionedHashContents := heapFixedVectorArray_footprint bases.versionedHashesBase _ s1 s2
-        (fun address inside => heapAgreement address inside
-          (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.versionedHashContents
       transactions := heapArray_footprint bases.transactionsBase _ 16 s1 s2
-        (fun address inside => heapAgreement address inside (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.transactions
       withdrawals := heapArray_footprint bases.withdrawalsBase _ 48 s1 s2
-        (fun address inside => heapAgreement address inside (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.withdrawals
       withdrawalContents := heapWithdrawalArray_footprint bases.withdrawalsBase _ s1 s2
-        (fun address inside => heapAgreement address inside
-          (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.withdrawalContents
       deposits := heapArray_footprint bases.depositsBase _ 192 s1 s2
-        (fun address inside => heapAgreement address inside (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.deposits
       depositContents := heapDepositRequestArray_footprint bases.depositsBase _ s1 s2
-        (fun address inside => heapAgreement address inside
-          (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.depositContents
       withdrawalRequests := heapArray_footprint bases.withdrawalRequestsBase _ 80 s1 s2
-        (fun address inside => heapAgreement address inside (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.withdrawalRequests
       withdrawalRequestContents :=
         heapWithdrawalRequestArray_footprint bases.withdrawalRequestsBase _ s1 s2
-          (fun address inside => heapAgreement address inside
-            (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+          (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
           allocation.withdrawalRequestContents
       consolidationRequests := heapArray_footprint bases.consolidationRequestsBase _ 116 s1 s2
-        (fun address inside => heapAgreement address inside (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.consolidationRequests
       consolidationRequestContents :=
         heapConsolidationRequestArray_footprint bases.consolidationRequestsBase _ s1 s2
-          (fun address inside => heapAgreement address inside
-            (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+          (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
           allocation.consolidationRequestContents
       witnessState := heapArray_footprint bases.witnessStateBase _ 16 s1 s2
-        (fun address inside => heapAgreement address inside (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.witnessState
       witnessCodes := heapArray_footprint bases.witnessCodesBase _ 16 s1 s2
-        (fun address inside => heapAgreement address inside (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.witnessCodes
       witnessHeaders := heapArray_footprint bases.witnessHeadersBase _ 16 s1 s2
-        (fun address inside => heapAgreement address inside (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.witnessHeaders
       publicKeys := heapArray_footprint bases.publicKeysBase _ 65 s1 s2
-        (fun address inside => heapAgreement address inside (by simp [statelessInputHeapRegions, Nat.mul_comm]))
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm]))
         allocation.publicKeys
       publicKeyContents := publicKeyContents s1 s2
-        (fun address inside => heapAgreement address inside
-          (by simp [statelessInputHeapRegions, Nat.mul_comm])) allocation.publicKeyContents }
+        (fun address inside => heapRegionAgreement agree inside (by simp [statelessInputHeapRegions, heapRange_mul_comm])) allocation.publicKeyContents }
 
 theorem statelessInput_footprint_abi (inputBase : Nat) (input : ByteArray) (rootBase : Nat)
     (value : BinaryFv.Specs.SSZ.StatelessInput) (s1 : State) {rootSize : Nat}

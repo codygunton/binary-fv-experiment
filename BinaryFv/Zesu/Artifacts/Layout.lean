@@ -34,7 +34,7 @@ theorem elf_layout :
       (elf.loadSegments.toList.any fun segment =>
         segment.executable && segment.containsMemoryRange elf.header.entry 1) = true := by
   have h : layoutIsValidAt elf = true :=
-    Except.getD_map_toOption_eq_true_of_eq_ok (f := layoutIsValidAt) parsed_ok layout_is_valid
+    BinaryFv.Except.getD_map_toOption_eq_true_of_eq_ok (f := layoutIsValidAt) parsed_ok layout_is_valid
   unfold layoutIsValidAt at h
   simp only [Bool.and_eq_true, decide_eq_true_eq] at h
   rcases h with ⟨hLeft, hEntry⟩

@@ -6,7 +6,7 @@ scrutinee parses an ELF, resolves symbols, or decodes a generated program: unfol
 the concrete computation can make the kernel repeat it at every use site.
 -/
 
-namespace Option
+namespace BinaryFv.Option
 
 theorem getD_map_of_eq_some {α β : Type _} {o : Option α} {f : α → β} {a : α} {d : β}
     (ho : o = some a) : (o.map f).getD d = f a := by
@@ -18,9 +18,9 @@ theorem getD_map_eq_true_of_eq_some {α : Type _} {o : Option α} {f : α → Bo
   rw [getD_map_of_eq_some ho] at h
   exact h
 
-end Option
+end BinaryFv.Option
 
-namespace Except
+namespace BinaryFv.Except
 
 theorem getD_map_toOption_of_eq_ok {ε α β : Type _} {e : Except ε α} {f : α → β} {a : α}
     {d : β} (he : e = .ok a) : (e.toOption.map f).getD d = f a := by
@@ -33,4 +33,4 @@ theorem getD_map_toOption_eq_true_of_eq_ok {ε α : Type _} {e : Except ε α}
   rw [getD_map_toOption_of_eq_ok he] at h
   exact h
 
-end Except
+end BinaryFv.Except
