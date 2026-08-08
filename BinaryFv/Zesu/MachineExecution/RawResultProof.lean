@@ -3,6 +3,7 @@ import BinaryFv.RiscV.Instruction.Execute.Load
 import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.ReturnToSentinel
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.CanonicalEntry
 import BinaryFv.Zesu.MachineExecution.DecodeTactic
 import BinaryFv.Zesu.MachineExecution.RegisterWriteStep
 import BinaryFv.Zesu.MachineExecution.Seg
@@ -335,7 +336,8 @@ theorem raw_result_discriminant_step (fromStep : Nat) (initial state : State)
   have noMMIO : Runs (within_mmio_readable
       (physaddr.Physaddr (BitVec.ofNat 64 0x4215370)) 1) executeState executeState false := by
     exact loadMemoryNoMMIO_of_state_layout_excluded executeState (BitVec.ofNat 64 0x4215370)
-      1 (by simp [LoadMMIOAddressExcluded] <;> native_decide) htifRead
+      1 (loadMMIOAddressExcluded_of_layout (by omega) (Or.inl (by native_decide))
+        (Or.inl (by native_decide))) htifRead
   have memoryByte : ∀ (index : Nat)
       (bound : index < (BinaryFv.RiscV.Sep.leBytes 1 (rawResultTag model)).length),
       executeState.mem.get? ((BitVec.ofNat 64 0x4215370).toNat + index) =
