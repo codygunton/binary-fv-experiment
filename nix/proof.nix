@@ -239,7 +239,7 @@ COMPAT
   '';
 
   binaryFvLean = pkgs.runCommand "binary-fv-lean" {
-    nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.git pkgs.jq ];
+    nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.git pkgs.jq pkgs.python3 ];
   } ''
     cp -R ${repo} source
     chmod -R u+w source
@@ -298,21 +298,40 @@ COMPAT
       exit 1
     fi
 
-    # The checked proof tree has no proof placeholders. Fail on any declaration whose proof is a
-    # standalone `sorry`; prose that discusses historical scaffolds does not match this audit.
-    sorrySites=$(grep -Rnw --include='*.lean' -e '^[[:space:]]*sorry[[:space:]]*$' BinaryFv/ || true)
-    if [ -n "$sorrySites" ]; then
-      echo "Lean proof declarations may not contain standalone sorry placeholders." >&2
-      echo "$sorrySites" >&2
-      exit 1
+    python3 tools/check_lean_trust.py
+
+    mkdir -p "$out/profiles"
+    # Profile the compliance theorem's import closure, not the separate generated-data evidence.
+    lake build BinaryFv.Zesu.Root 2>&1 | tee "$out/root-build.log"
+    lake env lean BinaryFv/Zesu/TrustAudit.lean
+    python3 tools/lean_profile.py --build-log "$out/root-build.log" \
+      --out "$out/profiles" report > "$out/profile.md"
+    # Traced captures are best-effort evidence, never the bar: `--jobs 1` keeps peak memory to one
+    # traced elaboration (four in parallel exhausted the 16 GB CI runner and the job was
+    # memory-killed), the 45 s threshold limits tracing to the few genuinely hot modules, and a
+    # capture failure downgrades to a logged warning while the ranked timing table above — the
+    # per-PR metric — still comes from the untraced build log.
+    if ! python3 tools/lean_profile.py --build-log "$out/root-build.log" \
+        --out "$out/profiles" capture --threshold 45 --jobs 1; then
+      echo "warning: trace.profiler capture failed; continuing without traced profiles" >&2
+    fi
+    if find "$out/profiles" -name '*.json' -print -quit | grep -q .; then
+      python3 tools/lean_profile.py --out "$out/profiles" merge
     fi
 
-
-    lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest
+    # Serial residual build: after the compliance-closure prebuild above, the modules left here are
+    # dominated by the heavyweight generated-evidence `native_decide` elaborations
+    # (`ParserBlocks`, `GeneratedReachabilityExact`, ...). Running those four-wide exhausts the
+    # 16 GB CI runner — main's pre-existing required job already fails this way — so the residual
+    # builds run one module at a time; the compliance prebuild keeps its full parallelism.
+    # This Lake has no job-count flag; its build pool is the Lean task pool, so
+    # `LEAN_NUM_THREADS=1` is the serialization knob (verified: six 3 s modules build in 3.6 s
+    # on the default pool and 19.6 s under this variable).
+    LEAN_NUM_THREADS=1 lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest \
+      2>&1 | tee "$out/full-build.log"
 
     # Zesu production-binary validation remains diagnostic-only.
-    lake build ZesuVerificationTests
-    touch "$out"
+    LEAN_NUM_THREADS=1 lake build ZesuVerificationTests
   '';
 
   devShell = pkgs.mkShell {
