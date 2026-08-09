@@ -1705,15 +1705,26 @@ private theorem decoderPreserved_readOffset201_third_writes_disjoint :
   rcases written with rfl | rfl <;> simp [platformPreserved] at platform
 
 /-- fi8's final nonterminal fragment reaches the fi9 entry at `0x105a0`. -/
+structure Level4ReadOffset201ThirdHandoff {margs : DecoderMachineArgs} {origin before : State}
+    (after : State) (fromStep used : Nat) (frame : Level4DecodeRawParentFrame margs origin before) : Prop where
+  bound : used ≤ 65
+  trace : EnteredFunctionTrace
+    (fun pc => 0x10598 ≤ pc.toNat ∧ pc.toNat ≤ 0x1059c ∧ pc.toNat % 4 = 0)
+    (fun pc => pc = BitVec.ofNat 64 0x105a0) (BitVec.ofNat 64 0x10598) fromStep used before after
+  partials : readOffsetFragmentOutput 0x10598
+    { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 } after
+  inputPointer : after.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)
+  memory : after.mem = before.mem
+  writes : WritesOnlyRegs (readOffsetFragmentWrites 0x10598) before after
+  preserved : frame.PreservedTo after
+
 theorem level4_read_offset201_third_fragment {margs : DecoderMachineArgs} {origin state : State}
     (frame : Level4DecodeRawParentFrame margs origin state) (reader : ReadOffset201Contract)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10598))
     (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase))
     (fragmentInput : readOffsetFragmentInput 0x10598
       { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 } state) (fromStep : Nat) :
-    ∃ _used : Nat, ∃ after, readOffsetFragmentOutput 0x10598
-      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 } after ∧
-      after.regs.get? PC = some (BitVec.ofNat 64 0x105a0) ∧ frame.PreservedTo after := by
+    ∃ used after, Level4ReadOffset201ThirdHandoff after fromStep used frame := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
     stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
     decoderMachine, retired⟩
@@ -1726,15 +1737,23 @@ theorem level4_read_offset201_third_fragment {margs : DecoderMachineArgs} {origi
     childMachineAfter, afterRetired⟩ := reader.covers (0x10598, 0x1059c, 0x105a0) (by native_decide)
       args fromStep state ⟨atPc, fileCode, inputMemory, inputPointer, by dsimp [args]; native_decide,
         by simpa [args] using fragmentInput, childMachine⟩
-  obtain ⟨pc, atAfter, reached⟩ := trace.trace.final_at_exit
-  refine ⟨used, after, by simpa [args] using partials, by simpa [reached] using atAfter, ?_⟩
-  refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
-    rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, afterRetired⟩
-  · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢; simp only [SavedWordBytes] at saved ⊢; rw [memory]; exact saved
-  · exact (writes.get x2 (by simp [readOffsetFragmentWrites])).trans sp
-  · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory; intro index indexBound; rw [memory]
-  · rw [memory]; exact fileCode
-  · exact decoderMachine.mono (writes.agree decoderPreserved_readOffset201_third_writes_disjoint) afterRetired
+  refine ⟨used, after, ⟨bound, trace, ?_, ?_, memory, writes, ?_⟩⟩
+  · simpa [args] using partials
+  · exact (writes.get x20 (by simp [readOffsetFragmentWrites])).trans inputPointer
+  · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
+      rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, afterRetired⟩
+    · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
+      simp only [SavedWordBytes] at saved ⊢
+      rw [memory]
+      exact saved
+    · exact (writes.get x2 (by simp [readOffsetFragmentWrites])).trans sp
+    · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory
+      intro index indexBound
+      rw [memory]
+    · rw [memory]
+      exact fileCode
+    · exact decoderMachine.mono
+        (writes.agree decoderPreserved_readOffset201_third_writes_disjoint) afterRetired
 
 private theorem level4_read_offset202_execution_subset_decode_raw (pc : BitVec 64)
     (inside : functionInstanceExecutionPcs generatedProgram
@@ -1753,13 +1772,24 @@ private theorem decoderPreserved_readOffset202_writes_disjoint :
   rcases written with rfl | rfl | rfl | rfl <;> simp [platformPreserved] at platform
 
 /-- Consume fi9's sole interleaved fragment and reach the first final reader edge. -/
+structure Level4ReadOffset202Handoff {margs : DecoderMachineArgs} {origin before : State}
+    (after : State) (fromStep used : Nat) (frame : Level4DecodeRawParentFrame margs origin before) : Prop where
+  bound : used ≤ 65
+  trace : EnteredFunctionTrace
+    (fun pc => 0x105a0 ≤ pc.toNat ∧ pc.toNat ≤ 0x105c0 ∧ pc.toNat % 4 = 0)
+    (fun pc => pc = BitVec.ofNat 64 0x105c4) (BitVec.ofNat 64 0x105a0) fromStep used before after
+  lanes : readOffsetFragmentOutput 0x105a0
+    { inputBase := margs.inputBase, bytes := margs.bytes, offset := 14 } after
+  inputPointer : after.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)
+  memory : after.mem = before.mem
+  writes : WritesOnlyRegs (readOffsetFragmentWrites 0x105a0) before after
+  preserved : frame.PreservedTo after
+
 theorem level4_read_offset202_fragment {margs : DecoderMachineArgs} {origin state : State}
     (frame : Level4DecodeRawParentFrame margs origin state) (reader : ReadOffset202Contract)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x105a0))
     (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
-    ∃ _used : Nat, ∃ after, readOffsetFragmentOutput 0x105a0
-      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 14 } after ∧
-      after.regs.get? PC = some (BitVec.ofNat 64 0x105c4) ∧ frame.PreservedTo after := by
+    ∃ used after, Level4ReadOffset202Handoff after fromStep used frame := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
     stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
     decoderMachine, retired⟩
@@ -1771,14 +1801,118 @@ theorem level4_read_offset202_fragment {margs : DecoderMachineArgs} {origin stat
     childMachineAfter, afterRetired⟩ := reader.covers (0x105a0, 0x105c0, 0x105c4) (by native_decide)
       args fromStep state ⟨atPc, fileCode, inputMemory, inputPointer, by dsimp [args]; native_decide,
         by simp [readOffsetFragmentInput], childMachine⟩
-  obtain ⟨pc, atAfter, reached⟩ := trace.trace.final_at_exit
-  refine ⟨used, after, by simpa [args] using lanes, by simpa [reached] using atAfter, ?_⟩
-  refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
-    rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, afterRetired⟩
-  · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢; simp only [SavedWordBytes] at saved ⊢; rw [memory]; exact saved
-  · exact (writes.get x2 (by simp [readOffsetFragmentWrites])).trans sp
-  · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory; intro index indexBound; rw [memory]
-  · rw [memory]; exact fileCode
-  · exact decoderMachine.mono (writes.agree decoderPreserved_readOffset202_writes_disjoint) afterRetired
+  refine ⟨used, after, ⟨bound, trace, ?_, ?_, memory, writes, ?_⟩⟩
+  · simpa [args] using lanes
+  · exact (writes.get x20 (by simp [readOffsetFragmentWrites])).trans inputPointer
+  · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
+      rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, afterRetired⟩
+    · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
+      simp only [SavedWordBytes] at saved ⊢
+      rw [memory]
+      exact saved
+    · exact (writes.get x2 (by simp [readOffsetFragmentWrites])).trans sp
+    · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory
+      intro index indexBound
+      rw [memory]
+    · rw [memory]
+      exact fileCode
+    · exact decoderMachine.mono
+        (writes.agree decoderPreserved_readOffset202_writes_disjoint) afterRetired
+
+/-- The interleaved reader prefix reaches the four final reader edges with every live accumulator.
+The child traces retain their individual generated confinement; `trace` is their ordered parent
+composition from fi7's last nonterminal fragment through fi9. -/
+structure Level4ReadOffsetPrefixTo105c4Handoff {margs : DecoderMachineArgs} {origin before : State}
+    (after : State) (fromStep used : Nat) (frame : Level4DecodeRawParentFrame margs origin before) : Prop where
+  trace : Trace fromStep used before after
+  atPc : after.regs.get? PC = some (BitVec.ofNat 64 0x105c4)
+  offset2 : readOffsetFragmentOutput 0x10554
+    { inputBase := margs.inputBase, bytes := margs.bytes, offset := 2 } after
+  offset6 : readOffsetFragmentOutput 0x10590
+    { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 } after
+  offset10 : readOffsetFragmentOutput 0x10598
+    { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 } after
+  offset14 : readOffsetFragmentOutput 0x105a0
+    { inputBase := margs.inputBase, bytes := margs.bytes, offset := 14 } after
+  inputPointer : after.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)
+  preserved : frame.PreservedTo after
+
+/-- Compose fi7's final nonterminal fragment, fi8's final nonterminal fragment, and fi9's sole
+fragment. The four source-reader lane groups remain separately available at `0x105c4`. -/
+theorem level4_read_offset_prefix_to105c4 {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state) (reader199 : ReadOffset199Contract)
+    (reader200 : ReadOffset200Contract) (reader201 : ReadOffset201Contract)
+    (reader202 : ReadOffset202Contract)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10534))
+    (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
+    ∃ used after, Level4ReadOffsetPrefixTo105c4Handoff after fromStep used frame := by
+  obtain ⟨prefixUsed, afterPrefix, prefixTrace, at200, fi199Partials, fi200Lanes, fi201Lanes,
+    prefixInput, prefixPreserved⟩ :=
+    level4_read_offset199200199201200_then201_second_fragment frame reader199 reader200 reader201
+      atPc inputPointer fromStep
+  obtain ⟨fi7Used, afterFi7, fi7⟩ := level4_read_offset200_third_fragment
+    (frame.toState prefixPreserved) reader200 at200 prefixInput (by
+      simpa [readOffsetFragmentInput] using fi200Lanes) (fromStep + prefixUsed)
+  obtain ⟨fi7Pc, atFi7, reachedFi8⟩ := fi7.trace.trace.final_at_exit
+  have fi199AfterFi7 : readOffsetFragmentOutput 0x10554
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 2 } afterFi7 := by
+    rcases fi199Partials with ⟨left, right⟩
+    refine ⟨?_, ?_⟩
+    all_goals exact (fi7.writes.get _ (by simp [readOffsetFragmentWrites])).trans (by assumption)
+  have fi201AtFi8 : readOffsetFragmentInput 0x10598
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 } afterFi7 := by
+    simpa [readOffsetFragmentInput] using
+      (show readOffsetFragmentOutput 0x10584
+        { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 } afterFi7 from by
+        rcases fi201Lanes with ⟨lane0, lane1, lane2, lane3⟩
+        refine ⟨?_, ?_, ?_, ?_⟩
+        all_goals exact (fi7.writes.get _ (by simp [readOffsetFragmentWrites])).trans (by assumption))
+  obtain ⟨fi8Used, afterFi8, fi8⟩ := level4_read_offset201_third_fragment
+    (frame.toState fi7.preserved) reader201 (by simpa [reachedFi8] using atFi7) fi7.inputPointer
+      fi201AtFi8 (fromStep + prefixUsed + fi7Used)
+  obtain ⟨fi8Pc, atFi8, reachedFi9⟩ := fi8.trace.trace.final_at_exit
+  have fi199AfterFi8 : readOffsetFragmentOutput 0x10554
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 2 } afterFi8 := by
+    rcases fi199AfterFi7 with ⟨left, right⟩
+    refine ⟨?_, ?_⟩
+    all_goals exact (fi8.writes.get _ (by simp [readOffsetFragmentWrites])).trans (by assumption)
+  have fi200AfterFi8 : readOffsetFragmentOutput 0x10590
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 } afterFi8 := by
+    rcases fi7.partials with ⟨left, right⟩
+    refine ⟨?_, ?_⟩
+    all_goals exact (fi8.writes.get _ (by simp [readOffsetFragmentWrites])).trans (by assumption)
+  obtain ⟨fi9Used, after, fi9⟩ := level4_read_offset202_fragment
+    (frame.toState fi8.preserved) reader202 (by simpa [reachedFi9] using atFi8) fi8.inputPointer
+      (fromStep + prefixUsed + fi7Used + fi8Used)
+  obtain ⟨fi9Pc, atAfter, reachedFinal⟩ := fi9.trace.trace.final_at_exit
+  have fi199Final : readOffsetFragmentOutput 0x10554
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 2 } after := by
+    rcases fi199AfterFi8 with ⟨left, right⟩
+    refine ⟨?_, ?_⟩
+    all_goals exact (fi9.writes.get _ (by simp [readOffsetFragmentWrites])).trans (by assumption)
+  have fi200Final : readOffsetFragmentOutput 0x10590
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 } after := by
+    rcases fi200AfterFi8 with ⟨left, right⟩
+    refine ⟨?_, ?_⟩
+    all_goals exact (fi9.writes.get _ (by simp [readOffsetFragmentWrites])).trans (by assumption)
+  have fi201Final : readOffsetFragmentOutput 0x10598
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 } after := by
+    rcases fi8.partials with ⟨left, right⟩
+    refine ⟨?_, ?_⟩
+    all_goals exact (fi9.writes.get _ (by simp [readOffsetFragmentWrites])).trans (by assumption)
+  refine ⟨prefixUsed + fi7Used + fi8Used + fi9Used, after, ?_,
+    by simpa [reachedFinal] using atAfter, fi199Final, fi200Final, fi201Final, fi9.lanes,
+    fi9.inputPointer, fi9.preserved⟩
+  have fi7Trace : Trace (fromStep + prefixUsed) fi7Used afterPrefix afterFi7 :=
+    FunctionTrace.toTrace fi7.trace.trace
+  have prefixToFi7 : Trace fromStep (prefixUsed + fi7Used) state afterFi7 := by
+    simpa only [Nat.add_assoc] using Trace.append prefixTrace fi7Trace
+  have fi8Trace : Trace (fromStep + (prefixUsed + fi7Used)) fi8Used afterFi7 afterFi8 := by
+    simpa only [Nat.add_assoc] using FunctionTrace.toTrace fi8.trace.trace
+  have prefixToFi8 : Trace fromStep (prefixUsed + fi7Used + fi8Used) state afterFi8 := by
+    simpa only [Nat.add_assoc] using Trace.append prefixToFi7 fi8Trace
+  have fi9Trace : Trace (fromStep + (prefixUsed + fi7Used + fi8Used)) fi9Used afterFi8 after := by
+    simpa only [Nat.add_assoc] using FunctionTrace.toTrace fi9.trace.trace
+  simpa only [Nat.add_assoc] using Trace.append prefixToFi8 fi9Trace
 
 end BinaryFv.Zesu.MachineExecution
