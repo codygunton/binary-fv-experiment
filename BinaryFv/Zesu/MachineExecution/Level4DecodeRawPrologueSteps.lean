@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
+import BinaryFv.Zesu.MachineExecution.Level2WrapperSteps
 import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.OwnedPc
 import BinaryFv.Zesu.MachineExecution.Seg
@@ -167,6 +168,26 @@ private theorem level4_decode_raw_first_stack_step (pre : Level4DecodeRawEntryPr
   rw [level4_prologue_first_frame_value] at run
   exact ⟨retired, run⟩
 
+local macro "level4_gen_rx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
+  `(private theorem $name (state : State) (value : BitVec 64)
+      (stored : state.regs.get? $reg = some value) :
+      Runs (rX_bits (.Regidx (BitVec.ofNat 5 $idx))) state state value := by
+    have index : (Sail.BitVec.toNatInt (BitVec.ofNat 5 $idx)).toNat = $idx := by decide
+    unfold Runs
+    simp [rX_bits, rX, index, stored, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
+      EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe, regval_from_reg])
+
+level4_gen_rx_run 18 ↦ x18, level4_rX_x18_run
+level4_gen_rx_run 19 ↦ x19, level4_rX_x19_run
+level4_gen_rx_run 20 ↦ x20, level4_rX_x20_run
+level4_gen_rx_run 21 ↦ x21, level4_rX_x21_run
+level4_gen_rx_run 22 ↦ x22, level4_rX_x22_run
+level4_gen_rx_run 23 ↦ x23, level4_rX_x23_run
+level4_gen_rx_run 24 ↦ x24, level4_rX_x24_run
+level4_gen_rx_run 25 ↦ x25, level4_rX_x25_run
+level4_gen_rx_run 26 ↦ x26, level4_rX_x26_run
+level4_gen_rx_run 27 ↦ x27, level4_rX_x27_run
+
 private theorem level4_prologue_slot_writable (pre : Level4DecodeRawEntryProloguePre margs state)
     {offset : Nat} (lower : 0x788 ≤ offset) (upper : offset + 8 ≤ 0x7f0) :
     DecoderAccessRange DecoderWritableByte (BitVec.ofNat 64 (pre.stack + offset)) 8 := by
@@ -178,6 +199,34 @@ private theorem level4_prologue_slot_writable (pre : Level4DecodeRawEntryPrologu
     rw [level4_prologue_stack_address_toNat pre (by omega)]
     rw [show pre.stack + offset + index = pre.stack + 0x788 + (offset - 0x788 + index) by omega]
     exact Or.inl (pre.saveAreaWritable (offset - 0x788 + index) (by omega))
+
+private theorem level4_decode_raw_store_ra {base state : State}
+    (pre : Level4DecodeRawEntryProloguePre margs base)
+    (machine : DecoderMachinePre Level4DecodeRawEntryProloguePcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10448))
+    (stackValue : state.regs.get? x2 = some (BitVec.ofNat 64 pre.stack))
+    (raValue : state.regs.get? x1 = some pre.ra) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterMemoryWrite state (BitVec.ofNat 64 0x10448) stepRetired (pre.stack + 0x7e8)
+        (width := 8) pre.ra) false := by
+  obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContextOfDecoderAgree machine agree
+  have decode := wrapper_save_link_decode (tryStepControlFlowAfterIncrement state) privilege
+    mseccfgBits mseccfgRead
+  obtain ⟨stepRetired, run⟩ := wrapper_dword_store_step machine agree retired stepNo
+    (BitVec.ofNat 64 0x10448) ⟨by owned_pc, by native_decide⟩ atPc
+    0x23#8 0x34#8 0x11#8 0x7e#8 0x7e8#12 (.Regidx 1#5)
+    (BitVec.ofNat 64 pre.stack) pre.ra (BitVec.ofNat 64 (pre.stack + 0x7e8)) stackValue
+    (rX_x1_run _ _ (decoderExecuteState_get? raValue))
+    (level4_prologue_stack_address_eq pre.stack 0x7e8 (by decide))
+    (pre.slotAligned 0x7e8 (by omega) (by omega) (by decide))
+    (level4_prologue_slot_writable pre (by omega) (by omega))
+    (fetchFileInstruction state 0x10448 0x23 0x34 0x11 0x7e code
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide))
+    (by unfold BaseInstructionEncoding; decide) decode
+  have targetToNat := level4_prologue_stack_address_toNat pre (offset := 0x7e8) (by omega)
+  exact ⟨stepRetired, by simpa [wrapperAfterDwordStore, afterMemoryWrite, targetToNat] using run⟩
 
 private theorem level4_after_store_savedWord (state : State) (pc retired target data : BitVec 64)
     (base : Nat) (targetValue : target.toNat = base) :
