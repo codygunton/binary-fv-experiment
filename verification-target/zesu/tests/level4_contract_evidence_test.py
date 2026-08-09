@@ -79,6 +79,19 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(evidence.validate_observation(boundary, record), [])
         self.assertTrue(all(evidence.mutation_checks(boundary, record).values()))
 
+    def test_aggregate_edges_never_join_two_vectors(self) -> None:
+        boundary = evidence.Boundary(
+            "x", "inlined", "ssz_raw.x", 4, (4, 8), (8,), "decodeRaw", None,
+            ((4, 99),), (),
+        )
+        # The first trace ends at the call source; the second begins at its target. Concatenating
+        # them would invent (4, 99), but the union of trace-local edge sets must not.
+        first, second = [4], [99, 8]
+        record = evidence.observation(
+            boundary, first + second, [], edges=set(zip(first, first[1:])) | set(zip(second, second[1:])),
+        )
+        self.assertIn("a declared call edge was not observed", evidence.validate_observation(boundary, record))
+
     def test_refinement_vectors_keep_accepted_and_rejected_cases(self) -> None:
         vectors = evidence.default_vectors()
         self.assertEqual(len(vectors), 14)

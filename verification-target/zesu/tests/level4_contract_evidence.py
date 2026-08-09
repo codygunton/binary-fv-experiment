@@ -144,9 +144,15 @@ def parse_trace(path: Path) -> tuple[list[int], list[dict[str, int]]]:
     return pcs, stores
 
 
-def observation(boundary: Boundary, pcs: list[int], stores: list[dict[str, int]]) -> dict[str, Any]:
+def observation(
+    boundary: Boundary,
+    pcs: list[int],
+    stores: list[dict[str, int]],
+    *,
+    edges: set[tuple[int, int]] | None = None,
+) -> dict[str, Any]:
     owned = set(boundary.instruction_pcs)
-    edges = set(zip(pcs, pcs[1:]))
+    edges = set(zip(pcs, pcs[1:])) if edges is None else edges
     declared_stores = [
         store for store in boundary.stores
         if any(all(observed[field] == store[field] for field in store) for observed in stores)
@@ -279,6 +285,7 @@ def main() -> int:
     vector_observations: list[dict[str, Any]] = []
     all_pcs: list[int] = []
     all_stores: list[dict[str, int]] = []
+    all_edges: set[tuple[int, int]] = set()
     with tempfile.TemporaryDirectory(prefix="level4-evidence-") as temporary:
         for name, data, accepted in vectors:
             trace = Path(temporary) / f"{name}.trace"
@@ -293,6 +300,7 @@ def main() -> int:
             pcs, stores = parse_trace(trace)
             all_pcs.extend(pcs)
             all_stores.extend(stores)
+            all_edges.update(zip(pcs, pcs[1:]))
             vector_observations.append({
                 "name": name,
                 "accepted": accepted,
@@ -305,7 +313,9 @@ def main() -> int:
             })
     records = []
     for boundary in boundaries:
-        record = observation(boundary, all_pcs, all_stores)
+        # Do not concatenate traces to derive edges: the last PC of one vector and the first PC
+        # of another are not one production transfer.
+        record = observation(boundary, all_pcs, all_stores, edges=all_edges)
         clause_failures = validate_observation(boundary, record)
         mutations = mutation_checks(boundary, record)
         if not all(mutations.values()):
