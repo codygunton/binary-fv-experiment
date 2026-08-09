@@ -20,6 +20,12 @@ open RegisterWriteStep
 /-- The first two direct `fi:6` words leading to the first specialized decoder re-entry. -/
 def level4SpecializedDispatchInitialPcs : List Nat := [0x10614, 0x10618]
 
+abbrev Level4SpecializedDispatchInitialPcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4SpecializedDispatchInitialPcs
+
+theorem level4SpecializedDispatchInitialPcs_count :
+    level4SpecializedDispatchInitialPcs.length = 2 := rfl
+
 theorem level4SpecializedDispatchInitialPcs_subset_phase :
     level4SpecializedDispatchInitialPcs.all
       decodeRawSpecializedDispatchReturnsSuccessPcs.contains = true := by
@@ -28,6 +34,14 @@ theorem level4SpecializedDispatchInitialPcs_subset_phase :
 theorem level4SpecializedDispatchInitialPcs_subset_direct :
     level4SpecializedDispatchInitialPcs.all decodeRawDirectPcs.contains = true := by
   native_decide
+
+private theorem level4_specialized_dispatch_sub_parent :
+    Level4SpecializedDispatchInitialPcs (BitVec.ofNat 64 0x10614) := by
+  simp [Level4SpecializedDispatchInitialPcs, level4SpecializedDispatchInitialPcs]
+
+private theorem level4_specialized_dispatch_length_parent :
+    Level4SpecializedDispatchInitialPcs (BitVec.ofNat 64 0x10618) := by
+  simp [Level4SpecializedDispatchInitialPcs, level4SpecializedDispatchInitialPcs]
 
 private theorem level4_specialized_dispatch_sub_owned :
     RegisterWriteStep.decodeRawExecutionPcs (BitVec.ofNat 64 0x10614) := by
@@ -114,7 +128,7 @@ structure Level4SpecializedDispatchInitialPre (margs : DecoderMachineArgs) (stat
 structure Level4SpecializedDispatchInitialHandoff (fromStep : Nat) (before after : State)
     (pre : Level4SpecializedDispatchInitialPre margs before) : Prop where
   trace : Trace fromStep 2 before after
-  confined : ConfinedPrefix RegisterWriteStep.decodeRawExecutionPcs (fun _ => False)
+  confined : ConfinedPrefix Level4SpecializedDispatchInitialPcs (fun _ => False)
     (fun _ _ _ _ _ => False) fromStep 2 before after
   writes : WritesOnlyRegs level4SpecializedDispatchInitialWrites before after
   memory : after.mem = before.mem
@@ -129,11 +143,11 @@ structure Level4SpecializedDispatchInitialHandoff (fromStep : Nat) (before after
 theorem level4_specialized_dispatch_initial
     (pre : Level4SpecializedDispatchInitialPre margs state) (fromStep : Nat) :
     ∃ after, Level4SpecializedDispatchInitialHandoff fromStep state after pre := by
-  let seg0 := Seg.nil RegisterWriteStep.decodeRawExecutionPcs (fun _ => False)
+  let seg0 := Seg.nil Level4SpecializedDispatchInitialPcs (fun _ => False)
     (fun _ _ _ _ _ => False) level4SpecializedDispatchInitialWrites noMemory fromStep pre.retired
     pre.atPc
   let seg0' := (seg0.know x25 pre.s9 pre.s9Value).know x23 pre.s7 pre.s7Value
-  obtain ⟨afterSub, seg1⟩ := seg0'.step level4_specialized_dispatch_sub_owned (by simp) x10
+  obtain ⟨afterSub, seg1⟩ := seg0'.step level4_specialized_dispatch_sub_parent (by simp) x10
     (rTypeResult .SUB pre.s9 pre.s7) (BitVec.ofNat 64 0x10618)
     (level4_specialized_dispatch_sub_step pre.machine (Agree.refl state) seg0'.retired pre.code
       fromStep seg0'.atPc pre.s9Value pre.s7Value)
@@ -146,7 +160,7 @@ theorem level4_specialized_dispatch_initial
   have machine1 : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs afterSub :=
     pre.machine.mono (seg1.agree decoderPreserved_level4SpecializedDispatchInitialWrites_disjoint)
       seg1.retired
-  obtain ⟨after, seg2⟩ := seg1.step level4_specialized_dispatch_length_owned (by simp) x12
+  obtain ⟨after, seg2⟩ := seg1.step level4_specialized_dispatch_length_parent (by simp) x12
     (BitVec.ofNat 64 44) (BitVec.ofNat 64 0x1061c)
     (level4_specialized_dispatch_length_step machine1 (Agree.refl afterSub) seg1.retired code1
       (fromStep + 1) seg1.atPc)
