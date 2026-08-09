@@ -972,6 +972,7 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "inlineStack": parent_owner.get("inlineStack", []),
     }
     parent_name = function_instance_lean_name(parent_identity)
+    instructions_by_pc = {instruction["address"]: instruction for instruction in database["instructions"]}
     L = [
         "-- GENERATED FILE: produced by tools/generate_machine_regions.py. DO NOT EDIT.",
         "import BinaryFv.RiscV.Elfling.Boundary",
@@ -1081,9 +1082,6 @@ def emit_level4_attribution_lean(database: dict) -> str:
             f"    {boundary_name}.ownedExecutionPcs = #[{pcs(row['ownedExecutionPcs'])}] := rfl",
             f"theorem {boundary_name}_subtreeOwnedExecutionPcs_exact :",
             f"    {boundary_name}.subtreeOwnedExecutionPcs = #[{pcs(row['subtreeOwnedExecutionPcs'])}] := rfl",
-            f"theorem {boundary_name}_subtreeOwnedExecutionPcs_ancestry :",
-            f"    ∀ pc ∈ #[{pcs(row['subtreeOwnedExecutionPcs'])}],",
-            f"      ownedBySelectedSubtree generatedProgram {child}Id pc = true := by native_decide",
             f"theorem {boundary_name}_fullExecutionPcs_exact :",
             f"    {boundary_name}.fullExecutionPcs = #[{pcs(row['fullExecutionPcs'])}] := rfl",
             f"theorem {boundary_name}_callFrames_exact :",
@@ -1106,6 +1104,20 @@ def emit_level4_attribution_lean(database: dict) -> str:
             f"      ownedBySelectedSubtree generatedProgram {child}Id edge.target = true) := by native_decide",
             "",
         ])
+        subtree_by_owner: dict[str, list[int]] = defaultdict(list)
+        for pc in row["subtreeOwnedExecutionPcs"]:
+            subtree_by_owner[instructions_by_pc[pc]["owner"]].append(pc)
+        for owner_id, owner_pcs in sorted(subtree_by_owner.items()):
+            owner_name = lean_name_component(owner_id.replace(":", "_"))
+            for chunk_index, start in enumerate(range(0, len(owner_pcs), 32)):
+                chunk = owner_pcs[start:start + 32]
+                chunk_array = f"(#[{pcs(chunk)}] : Array Nat)"
+                L.extend([
+                    f"theorem {boundary_name}_subtreeOwner_{owner_name}_chunk_{chunk_index}_ancestry :",
+                    f"    ∀ pc ∈ {chunk_array},",
+                    f"      ownedBySelectedSubtree generatedProgram {child}Id pc = true := by native_decide",
+                    "",
+                ])
         for index, call in enumerate(row.get("calls", [])):
             identity = call["targetIdentity"]
             callee = target_lean_name(identity)
