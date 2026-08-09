@@ -309,6 +309,33 @@ def DecodeRawEntryFrame (state : State) : Prop :=
     state.regs.get? x26 = some savedS10 ∧
     state.regs.get? x27 = some savedS11
 
+/-- The emitted `ret` at `0x10530` reads the caller-provided link.  The compiled raw-decoder
+entry therefore requires the two alignment facts which Sail checks for that return; both concrete
+inline `jalr` callers derive them from their literal return PCs. -/
+def DecodeRawReturnLinkPre (state : State) : Prop :=
+  ∃ link, state.regs.get? x1 = some link ∧
+    Sail.BitVec.update link 0 0#1 = link ∧ Sail.BitVec.access link 1 = 0#1
+
+/-- The low-bit condition consumed by the generated Sail `ret`, recovered for the caller's
+concrete link register rather than supplied as a route-local instruction premise. -/
+theorem DecodeRawReturnLinkPre.update_low_bit
+    (pre : DecodeRawReturnLinkPre state) (linkAt : state.regs.get? x1 = some link) :
+    Sail.BitVec.update link 0 0#1 = link := by
+  rcases pre with ⟨entryLink, entryLinkAt, updateLowBit, -⟩
+  have entryLinkEq : entryLink = link := by
+    simpa only [Option.some.injEq] using entryLinkAt.symm.trans linkAt
+  simpa only [entryLinkEq] using updateLowBit
+
+/-- The access-bit condition consumed by the generated Sail `ret`, recovered from the compiled
+raw-decoder entry rather than supplied by a parent return route. -/
+theorem DecodeRawReturnLinkPre.access_bit_one_zero
+    (pre : DecodeRawReturnLinkPre state) (linkAt : state.regs.get? x1 = some link) :
+    Sail.BitVec.access link 1 = 0#1 := by
+  rcases pre with ⟨entryLink, entryLinkAt, -, accessBitOne⟩
+  have entryLinkEq : entryLink = link := by
+    simpa only [Option.some.injEq] using entryLinkAt.symm.trans linkAt
+  simpa only [entryLinkEq] using accessBitOne
+
 /-- The concrete raw-call frame is needed only on inline phases that execute an emitted
 `decodeRaw` call.  The propagated-error phase exits before either call site. -/
 def DecodeInlineRawCallFrame (args : DecodeInlineArgs) (state : State) : Prop :=

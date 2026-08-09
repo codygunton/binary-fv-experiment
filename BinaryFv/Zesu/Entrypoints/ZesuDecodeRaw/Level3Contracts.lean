@@ -80,6 +80,7 @@ def compiledDecodeRawContract : FunctionInstanceContract
       { entry := fun args state => source.binding.entry args state ∧
           state.regs.get? PC = some (BitVec.ofNat 64 0x10444) ∧
           DecodeRawEntryFrame state ∧
+          DecodeRawReturnLinkPre state ∧
           DecoderMachinePre
             (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
             (entryMachineArgs args) state

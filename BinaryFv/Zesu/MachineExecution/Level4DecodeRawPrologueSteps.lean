@@ -109,6 +109,20 @@ structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : 
   slotAligned : ∀ offset, 0x788 ≤ offset → offset ≤ 0x7e8 → offset % 8 = 0 →
     is_aligned_vaddr (virtaddr.Virtaddr (BitVec.ofNat 64 (stack + offset))) 8 = true
 
+/-- The raw prologue carries the generic compiled-entry return-link condition forward to the
+terminal epilogue's restored `ra`; this is derived from the actual entry, not a parent-route
+premise. -/
+theorem Level4DecodeRawEntryProloguePre.return_target
+    (pre : Level4DecodeRawEntryProloguePre margs state) :
+    Sail.BitVec.update pre.ra 0 0#1 = pre.ra :=
+  pre.entry.2.2.2.update_low_bit pre.raValue
+
+/-- The raw prologue likewise retains Sail's second return-link access-bit condition. -/
+theorem Level4DecodeRawEntryProloguePre.return_bit_one_zero
+    (pre : Level4DecodeRawEntryProloguePre margs state) :
+    Sail.BitVec.access pre.ra 1 = 0#1 :=
+  pre.entry.2.2.2.access_bit_one_zero pre.raValue
+
 /-- The prologue writes only its two modified architectural registers plus normal retirement
 bookkeeping; stores themselves modify memory but no additional register. -/
 def level4DecodeRawEntryPrologueWrites : RegSet := fun r =>

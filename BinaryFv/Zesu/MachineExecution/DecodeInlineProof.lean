@@ -680,7 +680,10 @@ theorem decodeInline_first_enters_decodeRaw (fromStep : Nat) (args : DecodeInlin
       (by simpa [childEntry] using childStack)
       (by simpa [childEntry] using childInputBase) (by simpa [childEntry] using childInputLength)
       (by simpa [childEntry] using childGlobals)
-  exact ⟨childEntry, childTrace, ⟨sourceEntry, childPc, childFrame, childMachine⟩, childLink⟩
+  have childReturnLink : DecodeRawReturnLinkPre childEntry :=
+    ⟨BitVec.ofNat 64 0x10320, by simpa [childEntry] using childLink, by decide, by decide⟩
+  exact ⟨childEntry, childTrace, ⟨sourceEntry, childPc, childFrame, childReturnLink, childMachine⟩,
+    childLink⟩
 
 /-- The first Level 3 condition is consumed only after the six parent-owned instructions have
 executed and established its complete machine entry predicate. -/
@@ -750,8 +753,6 @@ theorem decodeRawReturnAfter_retired (returnPc : BitVec 64) (state : State)
 link and machine frame required by that instruction. -/
 theorem decodeRaw_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArgs)
     (returnPc : BitVec 64) (childEntry childExit : State) {childFrom childUsed : Nat}
-    (returnTarget : Sail.BitVec.update returnPc 0 0#1 = returnPc)
-    (returnBit1 : Sail.BitVec.access returnPc 1 = 0#1)
     (childPre : compiledDecodeRawContract.binding.entry rawArgs childEntry)
     (childTrace : EnteredFunctionTrace
       (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
@@ -768,10 +769,14 @@ theorem decodeRaw_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArgs)
   rcases childPost with ⟨sourcePost, childFrame, childRetired, childPayload, _childSaveArea,
     _childProvenance, _childAllocation⟩
   rcases sourcePost with ⟨-, code, -, -⟩
+  have returnTarget : Sail.BitVec.update returnPc 0 0#1 = returnPc :=
+    childPre.2.2.2.update_low_bit entryLink
+  have returnBit1 : Sail.BitVec.access returnPc 1 = 0#1 :=
+    childPre.2.2.2.access_bit_one_zero entryLink
   have machineAtExit : DecoderMachinePre
       (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
       (entryMachineArgs rawArgs) childExit :=
-    childPre.2.2.2.mono
+    childPre.2.2.2.2.mono
       (Agree.weaken (fun _ preserved => Or.inl preserved.2) childFrame) childRetired
   have atExit := decodeRaw_trace_exit_pc childTrace
   obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ :=
@@ -782,7 +787,7 @@ theorem decodeRaw_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArgs)
       (decodeRawReturnAfter returnPc childExit retired) false :=
     decoderRetStep machineAtExit (Agree.refl childExit) childRetired code
       stepNo 0x10530 0x67 0x80 0x00 0x00 1#5 returnPc returnPc atExit
-      (rX_bits_run_x1 _ _ (decoderExecuteState_get? exitLink))
+      (rX_bits_run_x1 _ _ (decoderExecuteState_get? exitLink)) returnTarget returnBit1
   refine ⟨retired, run, ?_⟩
   simp [decodeRawReturnAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
     Std.ExtDHashMap.get?_insert]
@@ -919,8 +924,10 @@ theorem decodeInline_first_call_transfer
   have childFrame : DecodeRawEntryFrame childEntry :=
     DecodeRawEntryFrame.of_calleeSaved_agree entryFrame childCalleeSaved childStack
       childInputBase childInputLength childGlobals
+  have childReturnLink : DecodeRawReturnLinkPre childEntry :=
+    ⟨BitVec.ofNat 64 0x10320, by simpa [childEntry] using childLink, by decide, by decide⟩
   have childPre : compiledDecodeRawContract.binding.entry args.firstRawArgs childEntry :=
-    ⟨childSourceEntry, childPc, childFrame, childMachine⟩
+    ⟨childSourceEntry, childPc, childFrame, childReturnLink, childMachine⟩
   obtain ⟨childUsed, childExit, bound, childTrace, childPost⟩ :=
     contract args.firstRawArgs (fromStep + 6) childEntry childPre
   have firstInvalidBound : childUsed ≤ 16384 + 512 * args.bytes.size := by
@@ -928,8 +935,7 @@ theorem decodeInline_first_call_transfer
       DecodeInlineArgs.firstRawArgs] using bound
   obtain ⟨returnRetired, returnRun, atResume⟩ :=
     decodeRaw_return_step (fromStep + 6 + childUsed) args.firstRawArgs
-      (BitVec.ofNat 64 0x10320) childEntry childExit (by decide) (by decide)
-      childPre childTrace childLink childPost
+      (BitVec.ofNat 64 0x10320) childEntry childExit childPre childTrace childLink childPost
   let resumed := decodeRawReturnAfter (BitVec.ofNat 64 0x10320) childExit returnRetired
   rcases childPost with ⟨sourcePost, childFrame, childCounter, childPayload, childSaveArea,
     childProvenance, childAllocation⟩
@@ -3204,6 +3210,8 @@ theorem decodeInline_retry_call_transfer
   have childFrame : DecodeRawEntryFrame childEntry :=
     DecodeRawEntryFrame.of_calleeSaved_agree entryFrame childCalleeSaved childStack
       childInputBase childInputLength childGlobals
+  have childReturnLink : DecodeRawReturnLinkPre childEntry :=
+    ⟨BitVec.ofNat 64 0x103dc, by simpa [childEntry] using childLink, by decide, by decide⟩
   have fourBytes : 4 ≤ args.bytes.size := by
     rw [Contracts.meaningHasExactErePrefix] at exactPrefix
     split at exactPrefix <;> simp_all
@@ -3253,13 +3261,12 @@ theorem decodeInline_retry_call_transfer
     · simpa [DecodeInlineArgs.retryRawArgs] using childInput
     · simpa [DecodeInlineArgs.retryRawArgs, tailSize] using childLength
   have childPre : compiledDecodeRawContract.binding.entry args.retryRawArgs childEntry :=
-    ⟨childSourceEntry, childPc, childFrame, childMachine⟩
+    ⟨childSourceEntry, childPc, childFrame, childReturnLink, childMachine⟩
   obtain ⟨childUsed, childExit, childBound, childTrace, childPost⟩ :=
     contract args.retryRawArgs (fromStep + (12 + lengthUsed + prefixUsed)) childEntry childPre
   obtain ⟨returnRetired, returnRun, atResume⟩ :=
     decodeRaw_return_step (fromStep + (12 + lengthUsed + prefixUsed + childUsed))
-      args.retryRawArgs (BitVec.ofNat 64 0x103dc) childEntry childExit (by decide) (by decide)
-      childPre childTrace childLink childPost
+      args.retryRawArgs (BitVec.ofNat 64 0x103dc) childEntry childExit childPre childTrace childLink childPost
   let resumed := decodeRawReturnAfter (BitVec.ofNat 64 0x103dc) childExit returnRetired
   rcases childPost with ⟨sourcePost, childFrame, childExitCounter, childPayload, childSaveArea,
     childProvenance, childAllocation⟩
