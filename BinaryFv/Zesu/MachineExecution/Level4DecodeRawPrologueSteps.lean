@@ -17,6 +17,15 @@ open BinaryFv.Zesu.Elflings.Generated
 open PreSail LeanRV64DExecutable.Functions Register
 open RegisterWriteStep
 
+/-- The generated 45-PC excluded `RawNewPayloadRequest.deinit` extent inside `decodeRaw`. -/
+abbrev rawNewPayloadRequestDeinitPcs : BitVec 64 → Prop :=
+  RegionPcs excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.regions
+
+theorem rawNewPayloadRequestDeinitPcs_subset_decodeRaw (pc : BitVec 64)
+    (inside : rawNewPayloadRequestDeinitPcs pc) : RegisterWriteStep.decodeRawExecutionPcs pc := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  exact RegionPcs.of_rangesSubsume (by native_decide) inside
+
 /-- The sixteen parent-owned instructions before `requireU32Length` begins at `0x10484`. -/
 def level4DecodeRawEntryProloguePcs : List Nat :=
   [ 0x10444, 0x10448, 0x1044c, 0x10450, 0x10454, 0x10458, 0x1045c, 0x10460
