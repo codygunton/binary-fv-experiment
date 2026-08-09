@@ -128,6 +128,7 @@ private theorem level4_decode_raw_entry_prologue_pre_of_inline_child
       entryArgsMachine := entryArgsMachine
       entry := entry
       rootInputBound := rootInputBound
+      inputFits := pre.inputFits
       inputMemory := inputMemory
       code := sourceCode
       atPc := atPc

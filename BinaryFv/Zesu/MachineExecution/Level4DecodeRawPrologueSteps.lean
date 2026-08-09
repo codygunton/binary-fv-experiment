@@ -102,6 +102,8 @@ structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : 
   /-- This is the parent `DecodeInlinePre.rootInputBound`, transported to the concrete raw entry.
   It gives the native-word fit used by the `requireU32Length` semantic check. -/
   rootInputBound : margs.bytes.size < 2 * 1024 * 1024
+  /-- The actual caller's borrowed input window does not wrap the 64-bit address space. -/
+  inputFits : margs.inputBase + margs.bytes.size ≤ 2 ^ 64
   /-- The borrowed SSZ bytes at the concrete raw entry.  The sixteen prologue instructions must
   carry this through their thirteen stack stores before any selected reader can rely on it. -/
   inputMemory : DecodedValue.MemoryBytes state margs.inputBase margs.bytes

@@ -79,6 +79,7 @@ structure Level4EntryLengthHighWordAcceptedHandoff (fromStep : Nat) (origin leaf
   preparedInvalidSszTag : after.regs.get? x10 = some (BitVec.ofNat 64 2)
   inputBase : after.regs.get? x12 = some (BitVec.ofNat 64 margs.inputBase)
   inputLength : after.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
+  inputFits : margs.inputBase + margs.bytes.size ≤ 2 ^ 64
   /-- The parent branch is read-only and composes with the selected leaf's read-only frame, so
   this reaches the prologue state rather than merely the branch's immediate predecessor. -/
   memory : after.mem = origin.mem
@@ -125,7 +126,7 @@ theorem level4_entry_length_high_word_accepts (fromStep : Nat) {before state : S
     simpa only [level4EntryLengthHighWordBranchAfter] using
       jumpRetirement_writes state (BitVec.ofNat 64 0x10490) (BitVec.ofNat 64 0x10498) retired
   refine ⟨level4EntryLengthHighWordBranchAfter state retired,
-    ⟨Trace.one (fromStep + 3) _ _ run, ?_, ?_, ?_, ?_, ?_, ?_, branchWrites, ?_, ?_, ?_⟩⟩
+    ⟨Trace.one (fromStep + 3) _ _ run, ?_, ?_, ?_, ?_, pre.inputFits, ?_, branchWrites, ?_, ?_, ?_⟩⟩
   · simp [level4EntryLengthHighWordBranchAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]

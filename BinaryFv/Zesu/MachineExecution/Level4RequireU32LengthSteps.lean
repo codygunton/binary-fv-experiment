@@ -141,6 +141,7 @@ structure Level4RequireU32LengthPre (margs : DecoderMachineArgs) (state : State)
   inputBaseValue : state.regs.get? x12 = some (BitVec.ofNat 64 margs.inputBase)
   lengthValue : state.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
   lengthFits : margs.bytes.size < 2 ^ 64
+  inputFits : margs.inputBase + margs.bytes.size ≤ 2 ^ 64
 
 /-- Convert the concrete emitted-entry handoff into the selected `requireU32Length` leaf prestate.
 The result slot and borrowed input values come from the caller's compiled `decodeRaw` entry and
@@ -159,6 +160,7 @@ def level4RequireU32LengthPre_of_prologue {margs : DecoderMachineArgs} {fromStep
   inputBaseValue := handoff.inputBase
   lengthValue := handoff.inputLength
   lengthFits := handoff.lengthFits
+  inputFits := pre.inputFits
 
 private def level4RequireU32LengthMachine (pre : Level4RequireU32LengthPre margs state) :
     DecoderMachinePre Level4RequireU32LengthPcs margs state :=
