@@ -3,6 +3,7 @@ import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.OwnedPc
 import BinaryFv.Zesu.MachineExecution.Seg
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.DecodeInlineContract
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level4CfgPartition
 
 /-! # Saved frame for the emitted `decodeRaw` epilogue -/
 
@@ -32,16 +33,44 @@ def Level4DecodeRawSavedFrame (state : State) (stack : Nat)
                         SavedWordBytes state (stack + 0x790) s10 ∧
                           SavedWordBytes state (stack + 0x788) s11
 
+/-- The 16 direct `decodeRaw` instructions which restore the saved frame and return. -/
+def level4DecodeRawEpiloguePcs : List Nat :=
+  [ 0x104f4, 0x104f8, 0x104fc, 0x10500, 0x10504, 0x10508, 0x1050c, 0x10510
+  , 0x10514, 0x10518, 0x1051c, 0x10520, 0x10524, 0x10528, 0x1052c, 0x10530 ]
+
 /-- The exact parent-owned instruction scope for the raw decoder's restore and return sequence.
 Unlike a generated function exit predicate, this scope intentionally permits the final `ret` to
 retire: the phase result, not a child contract, records its return target. -/
-abbrev Level4DecodeRawEpiloguePcs : BitVec 64 → Prop :=
-  functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw
+abbrev Level4DecodeRawEpiloguePcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4DecodeRawEpiloguePcs
+
+/-- This literal list has no unreviewed PCs. -/
+theorem level4DecodeRawEpiloguePcs_exact :
+    level4DecodeRawEpiloguePcs =
+      [ 0x104f4, 0x104f8, 0x104fc, 0x10500, 0x10504, 0x10508, 0x1050c, 0x10510
+      , 0x10514, 0x10518, 0x1051c, 0x10520, 0x10524, 0x10528, 0x1052c, 0x10530 ] := rfl
+
+theorem level4DecodeRawEpiloguePcs_count : level4DecodeRawEpiloguePcs.length = 16 := rfl
+
+/-- The exact 16-PC epilogue is a subset of the generated 172-PC direct-parent partition. -/
+theorem level4DecodeRawEpiloguePcs_subset_direct :
+    level4DecodeRawEpiloguePcs.all decodeRawDirectPcs.contains = true := by native_decide
+
+/-- The epilogue is owned by the generated rejection/cleanup/status/copy phase. -/
+theorem level4DecodeRawEpiloguePcs_subset_rejectionCleanupStatusCopyEpilogue :
+    level4DecodeRawEpiloguePcs.all
+      decodeRawRejectionCleanupStatusCopyEpiloguePcs.contains = true := by native_decide
 
 abbrev Level4DecodeRawEpilogueExit : BitVec 64 → Prop := fun _ => False
 
 abbrev Level4DecodeRawEpilogueChildSummary : FunctionInstanceId → Nat → Nat → State → State → Prop :=
   fun _ _ _ _ _ => False
+
+local macro "level4_epilogue_pc" : tactic =>
+  `(tactic| native_decide)
+
+local macro "owned_pc" : tactic =>
+  `(tactic| level4_epilogue_pc)
 
 set_option genInjectivity false in
 /-- Concrete input to the raw epilogue. Parent routes, rather than `hLevel4`, establish its
@@ -77,6 +106,57 @@ structure Level4DecodeRawEpiloguePre (margs : DecoderMachineArgs) (base state : 
   saved : Level4DecodeRawSavedFrame state stackBase ra s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11
   returnTarget : Sail.BitVec.update ra 0 0#1 = ra
   returnBit1 : Sail.BitVec.access ra 1 = 0#1
+
+set_option genInjectivity false in
+/-- The concrete state handed from the rejection/cleanup/status/copy route to the final 16 direct
+`decodeRaw` instructions.  The preceding phase theorem must construct this object; it is not a
+Level 4 contract assumption. -/
+structure Level4RejectionCleanupStatusEpilogueHandoff
+    (margs : DecoderMachineArgs) (base state : State) where
+  phase : DecodeRawCfgPhaseInterface
+  phaseIsRejectionCleanupStatusCopyEpilogue :
+    phase = decodeRawCfgPhaseInterface .rejectionCleanupStatusCopyEpilogue
+  machine : DecoderMachinePre Level4DecodeRawEpiloguePcs margs base
+  agree : Agree decoderPreserved base state
+  retired : RetiredCounterPresent state
+  code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
+  atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104f4)
+  stackBase : Nat
+  stackBefore : BitVec 64
+  stackValue : state.regs.get? x2 = some stackBefore
+  stackRestore : stackBefore + sign_extend (m := 64) 0x690#12 = BitVec.ofNat 64 stackBase
+  stackFits : stackBase + 0x7f0 < 2 ^ 64
+  saveAreaReadable : DecoderAccessRange (DecoderReadableByte margs)
+    (BitVec.ofNat 64 (stackBase + 0x788)) 104
+  slotAligned : ∀ offset, 0x788 ≤ offset → offset ≤ 0x7e8 → offset % 8 = 0 →
+    is_aligned_vaddr (virtaddr.Virtaddr (BitVec.ofNat 64 (stackBase + offset))) 8 = true
+  ra : BitVec 64
+  s0 : BitVec 64
+  s1 : BitVec 64
+  s2 : BitVec 64
+  s3 : BitVec 64
+  s4 : BitVec 64
+  s5 : BitVec 64
+  s6 : BitVec 64
+  s7 : BitVec 64
+  s8 : BitVec 64
+  s9 : BitVec 64
+  s10 : BitVec 64
+  s11 : BitVec 64
+  saved : Level4DecodeRawSavedFrame state stackBase ra s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11
+  returnTarget : Sail.BitVec.update ra 0 0#1 = ra
+  returnBit1 : Sail.BitVec.access ra 1 = 0#1
+
+/-- The typed handoff supplies exactly the parent-owned precondition of the 16-step epilogue. -/
+def level4DecodeRawEpiloguePre_of_rejectionCleanupStatusHandoff
+    (handoff : Level4RejectionCleanupStatusEpilogueHandoff margs base state) :
+    Level4DecodeRawEpiloguePre margs base state :=
+  ⟨handoff.machine, handoff.agree, handoff.retired, handoff.code, handoff.atPc,
+    handoff.stackBase, handoff.stackBefore, handoff.stackValue, handoff.stackRestore,
+    handoff.stackFits, handoff.saveAreaReadable, handoff.slotAligned, handoff.ra, handoff.s0,
+    handoff.s1, handoff.s2, handoff.s3, handoff.s4, handoff.s5, handoff.s6, handoff.s7,
+    handoff.s8, handoff.s9, handoff.s10, handoff.s11, handoff.saved, handoff.returnTarget,
+    handoff.returnBit1⟩
 
 private theorem level4_extend_value_dword (v : BitVec (8 * 8)) : extend_value false v = v := by
   unfold extend_value
@@ -148,6 +228,7 @@ private theorem level4_decode_raw_epilogue_stack_step
     fromStep 0x104f4 0x13 0x01 0x01 0x69 0x690#12 2#5 2#5 .ADDI pre.atPc
     (rX_x2_run _ pre.stackBefore (decoderExecuteState_get? pre.stackValue))
     (wX_x2_run _ (pre.stackBefore + sign_extend (m := 64) 0x690#12))
+    (pcIn := ⟨by native_decide, by native_decide⟩)
   rw [pre.stackRestore] at run
   exact ⟨retired, run⟩
 
@@ -227,6 +308,7 @@ private theorem level4_epilogue_load_ra {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x104f8) retired x1 pre.ra) false :=
   decoderLoadStepOfDecoderAgree (dest := x1) (value := pre.ra) machine agree retired code stepNo
     0x104f8 0x83 0x30 0x81 0x7e 0x7e8#12 2#5 1#5 false 8 pre.ra atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x104f8) 0x7e8#12 pre.ra
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7e8))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -248,6 +330,7 @@ private theorem level4_epilogue_load_s0 {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x104fc) retired x8 pre.s0) false :=
   decoderLoadStepOfDecoderAgree (dest := x8) (value := pre.s0) machine agree retired code stepNo
     0x104fc 0x03 0x34 0x01 0x7e 0x7e0#12 2#5 8#5 false 8 pre.s0 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x104fc) 0x7e0#12 pre.s0
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7e0))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -269,6 +352,7 @@ private theorem level4_epilogue_load_s1 {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x10500) retired x9 pre.s1) false :=
   decoderLoadStepOfDecoderAgree (dest := x9) (value := pre.s1) machine agree retired code stepNo
     0x10500 0x83 0x34 0x81 0x7d 0x7d8#12 2#5 9#5 false 8 pre.s1 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10500) 0x7d8#12 pre.s1
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7d8))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -290,6 +374,7 @@ private theorem level4_epilogue_load_s2 {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x10504) retired x18 pre.s2) false :=
   decoderLoadStepOfDecoderAgree (dest := x18) (value := pre.s2) machine agree retired code stepNo
     0x10504 0x03 0x39 0x01 0x7d 0x7d0#12 2#5 18#5 false 8 pre.s2 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10504) 0x7d0#12 pre.s2
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7d0))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -311,6 +396,7 @@ private theorem level4_epilogue_load_s3 {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x10508) retired x19 pre.s3) false :=
   decoderLoadStepOfDecoderAgree (dest := x19) (value := pre.s3) machine agree retired code stepNo
     0x10508 0x83 0x39 0x81 0x7c 0x7c8#12 2#5 19#5 false 8 pre.s3 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10508) 0x7c8#12 pre.s3
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7c8))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -332,6 +418,7 @@ private theorem level4_epilogue_load_s4 {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x1050c) retired x20 pre.s4) false :=
   decoderLoadStepOfDecoderAgree (dest := x20) (value := pre.s4) machine agree retired code stepNo
     0x1050c 0x03 0x3a 0x01 0x7c 0x7c0#12 2#5 20#5 false 8 pre.s4 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x1050c) 0x7c0#12 pre.s4
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7c0))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -353,6 +440,7 @@ private theorem level4_epilogue_load_s5 {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x10510) retired x21 pre.s5) false :=
   decoderLoadStepOfDecoderAgree (dest := x21) (value := pre.s5) machine agree retired code stepNo
     0x10510 0x83 0x3a 0x81 0x7b 0x7b8#12 2#5 21#5 false 8 pre.s5 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10510) 0x7b8#12 pre.s5
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7b8))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -374,6 +462,7 @@ private theorem level4_epilogue_load_s6 {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x10514) retired x22 pre.s6) false :=
   decoderLoadStepOfDecoderAgree (dest := x22) (value := pre.s6) machine agree retired code stepNo
     0x10514 0x03 0x3b 0x01 0x7b 0x7b0#12 2#5 22#5 false 8 pre.s6 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10514) 0x7b0#12 pre.s6
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7b0))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -395,6 +484,7 @@ private theorem level4_epilogue_load_s7 {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x10518) retired x23 pre.s7) false :=
   decoderLoadStepOfDecoderAgree (dest := x23) (value := pre.s7) machine agree retired code stepNo
     0x10518 0x83 0x3b 0x81 0x7a 0x7a8#12 2#5 23#5 false 8 pre.s7 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10518) 0x7a8#12 pre.s7
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7a8))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -416,6 +506,7 @@ private theorem level4_epilogue_load_s8 {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x1051c) retired x24 pre.s8) false :=
   decoderLoadStepOfDecoderAgree (dest := x24) (value := pre.s8) machine agree retired code stepNo
     0x1051c 0x03 0x3c 0x01 0x7a 0x7a0#12 2#5 24#5 false 8 pre.s8 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x1051c) 0x7a0#12 pre.s8
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7a0))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -437,6 +528,7 @@ private theorem level4_epilogue_load_s9 {margs : DecoderMachineArgs} {base befor
       (afterRegisterWrite state (BitVec.ofNat 64 0x10520) retired x25 pre.s9) false :=
   decoderLoadStepOfDecoderAgree (dest := x25) (value := pre.s9) machine agree retired code stepNo
     0x10520 0x83 0x3c 0x81 0x79 0x798#12 2#5 25#5 false 8 pre.s9 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10520) 0x798#12 pre.s9
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x798))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -458,6 +550,7 @@ private theorem level4_epilogue_load_s10 {margs : DecoderMachineArgs} {base befo
       (afterRegisterWrite state (BitVec.ofNat 64 0x10524) retired x26 pre.s10) false :=
   decoderLoadStepOfDecoderAgree (dest := x26) (value := pre.s10) machine agree retired code stepNo
     0x10524 0x03 0x3d 0x01 0x79 0x790#12 2#5 26#5 false 8 pre.s10 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10524) 0x790#12 pre.s10
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x790))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -479,6 +572,7 @@ private theorem level4_epilogue_load_s11 {margs : DecoderMachineArgs} {base befo
       (afterRegisterWrite state (BitVec.ofNat 64 0x10528) retired x27 pre.s11) false :=
   decoderLoadStepOfDecoderAgree (dest := x27) (value := pre.s11) machine agree retired code stepNo
     0x10528 0x83 0x3d 0x81 0x78 0x788#12 2#5 27#5 false 8 pre.s11 atPc
+    (pcIn := ⟨by native_decide, by native_decide⟩)
     (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10528) 0x788#12 pre.s11
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x788))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
@@ -542,6 +636,7 @@ private theorem level4_epilogue_stack_final_step {margs : DecoderMachineArgs} {b
     0x1052c 0x13 0x01 0x01 0x7f 0x7f0#12 2#5 2#5 .ADDI atPc
     (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
     (wX_x2_run _ (BitVec.ofNat 64 pre.stackBase + sign_extend (m := 64) 0x7f0#12))
+    (pcIn := ⟨by native_decide, by native_decide⟩)
   rw [level4_slot_address_eq pre.stackBase 0x7f0 (by decide)] at run
   exact ⟨retired, run⟩
 
@@ -788,6 +883,7 @@ theorem level4_decode_raw_epilogue
     (fromStep + 15) 0x10530 0x67 0x80 0x00 0x00 1#5 pre.ra pre.ra seg15.atPc
     (rX_x1_run _ _ (decoderExecuteState_get? ra15)) (target := pre.returnTarget)
     (sourceBit1 := pre.returnBit1)
+    (pcIn := ⟨by native_decide, by native_decide⟩)
   obtain ⟨after, seg16⟩ := seg15.stepJump pre.ra (by owned_pc) (by simp) ⟨retiredReturn, returnRun⟩
     level4_epilogue_bookkeeping (by exact of_decide_eq_true rfl)
   refine ⟨after, ⟨seg16.trace, seg16.confined, seg16.writes, seg16.memEq noMemory_empty, seg16.atPc,
@@ -799,6 +895,15 @@ theorem level4_decode_raw_epilogue
     seg16.reg x27 pre.s11 (by simp), ?_, level4_epilogue_code pre seg16,
     pre.machine.mono (level4_epilogue_agree pre seg16) seg16.retired, seg16.retired⟩⟩
   exact pre.saved.of_mem_eq (seg16.memEq noMemory_empty)
+
+/-- Execute the epilogue from the typed output of the preceding rejection/cleanup/status route.
+The theorem deliberately does not claim that route has been composed yet. -/
+theorem level4_decode_raw_epilogue_of_rejectionCleanupStatusHandoff
+    (handoff : Level4RejectionCleanupStatusEpilogueHandoff margs base state) (fromStep : Nat) :
+    ∃ after, Level4DecodeRawEpilogueResult fromStep state after
+      (level4DecodeRawEpiloguePre_of_rejectionCleanupStatusHandoff handoff) :=
+  level4_decode_raw_epilogue
+    (level4DecodeRawEpiloguePre_of_rejectionCleanupStatusHandoff handoff) fromStep
 
 /-!
 The subsequent 16-step theorem consumes `Level4DecodeRawEpiloguePre`; its readable interval is
