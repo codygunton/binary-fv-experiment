@@ -322,6 +322,7 @@ stored-result-copy suffix.  The dispatch frame supplies the machine-preservation
 the copy precondition; no second dispatch route is reconstructed here. -/
 theorem retry_exact_success_handoff_to_exit
     {args : DecodeInlineArgs} {fromStep used : Nat} {entry before childAfter dispatch : State}
+    (memcpy : CompiledMemcpyInstanceContract)
     (machineEntry : ZesuDecodeRawMachinePre ⟨args.inputBase, args.bytes⟩ args.stackBase entry)
     (machine : DecoderMachinePre
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
@@ -441,7 +442,7 @@ theorem retry_exact_success_handoff_to_exit
         exact afterEq ▸ cursorBound⟩
       inputMemory := copyInputMemory }
   obtain ⟨copyUsed, callState, afterCopy, copyPhase⟩ :=
-    tag0_stored_result_copy_phase contents link s0 s1 s2 copyPre (fromStep + used + 7)
+    tag0_stored_result_copy_phase memcpy contents link s0 s1 s2 copyPre (fromStep + used + 7)
   obtain ⟨routeAfter, afterStore, after, copy⟩ :=
     tag0_copy_to_exit contents link s0 s1 s2 copyPhase
   have dispatchTail : WrapperScopedTrace (fromStep + used + 1) (6 + (16 + copyUsed)) dispatch after :=
@@ -461,6 +462,7 @@ tag-zero dispatch, stored-result copy, and wrapper-exit proof to the supplied-ha
 theorem retry_exact_success_to_exit
     {args : DecodeInlineArgs} {fromStep : Nat} {entry before : State}
     (decode : Level3DecodeInlineContract)
+    (memcpy : CompiledMemcpyInstanceContract)
     (machineEntry : ZesuDecodeRawMachinePre ⟨args.inputBase, args.bytes⟩ args.stackBase entry)
     (machine : DecoderMachinePre
       (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
@@ -475,8 +477,8 @@ theorem retry_exact_success_to_exit
   obtain ⟨used, childAfter, dispatch, handoff⟩ :=
     retry_exact_tag_handoff decode fromStep args machineEntry before pre phase exactPrefix link s0 s1 s2 saved
   obtain ⟨copyStart, contents, copyUsed, callState, afterCopy, routeAfter, afterStore, after, result⟩ :=
-    retry_exact_success_handoff_to_exit machineEntry machine link s0 s1 s2 handoff phase exactPrefix
-      value semanticSuccess
+    retry_exact_success_handoff_to_exit memcpy machineEntry machine link s0 s1 s2 handoff phase
+      exactPrefix value semanticSuccess
   exact ⟨used, childAfter, dispatch, copyStart, contents, copyUsed, callState, afterCopy, routeAfter,
     afterStore, after, result⟩
 

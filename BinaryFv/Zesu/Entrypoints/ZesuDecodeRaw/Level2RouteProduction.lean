@@ -19,7 +19,8 @@ open LeanRV64DExecutable.Functions Register
 the ERE-prefix result selects a retry rejection or success route. The other first errors use the
 wrapper's propagation route directly. -/
 theorem nonFirstRoutesFromEntry_of_level2
-    (allocator : AllocatorInlineContract) (decode : Level3DecodeInlineContract) :
+    (allocator : AllocatorInlineContract) (decode : Level3DecodeInlineContract)
+    (memcpy : CompiledMemcpyInstanceContract) :
     NonFirstRoutesFromEntry := by
   intro args stackBase fromStep entry rawError source machine rawResult
   cases raw : meaningDecodeRaw args.bytes with
@@ -32,8 +33,8 @@ theorem nonFirstRoutesFromEntry_of_level2
           by_cases exactPrefix : meaningHasExactErePrefix args.bytes = true
           · cases decoded : meaningDecode args.bytes with
             | ok value =>
-                exact first_invalid_exact_success_route_from_entry allocator decode source machine
-                  rawResult' exactPrefix value decoded
+                exact first_invalid_exact_success_route_from_entry allocator decode memcpy source
+                  machine rawResult' exactPrefix value decoded
             | error error =>
                 exact first_invalid_exact_error_route_from_entry allocator decode source machine
                   rawResult' exactPrefix error decoded

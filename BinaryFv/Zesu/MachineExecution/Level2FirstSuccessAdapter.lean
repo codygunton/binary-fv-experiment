@@ -77,6 +77,7 @@ theorem tag0_stored_result_copy_phase_of_first_success
     {entry atDecode atCall resumed : State}
     {firstFromStep childUsed : Nat}
     (decodeArgs : DecodeInlineArgs) (contents : ByteArray)
+    (memcpy : CompiledMemcpyInstanceContract)
     (link savedS0 savedS1 savedS2 : BitVec 64)
     (machine : ZesuDecodeRawMachinePre args stackBase entry)
     (decodeArgsFirst : decodeArgs =
@@ -90,7 +91,7 @@ theorem tag0_stored_result_copy_phase_of_first_success
     ∃ used callState afterCopy,
       Tag0StoredResultCopyPhase args value stackBase entry resumed contents link savedS0 savedS1 savedS2
         fromStep used callState afterCopy :=
-  tag0_stored_result_copy_phase contents link savedS0 savedS1 savedS2
+  tag0_stored_result_copy_phase memcpy contents link savedS0 savedS1 savedS2
     (tag0_stored_result_copy_pre_of_first_success decodeArgs contents link savedS0 savedS1 savedS2
       machine decodeArgsFirst success entryAgree firstFrame savedFrame)
     fromStep

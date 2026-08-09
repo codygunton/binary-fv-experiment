@@ -56,6 +56,7 @@ structure FirstSuccessToExitResult (args : ZesuDecodeRawArgs) (stackBase fromSte
 tag-zero suffix. No address, ABI, link, PC, or frame fact is an extra premise. -/
 theorem first_success_to_exit
     (allocator : AllocatorInlineContract) (decode : Level3DecodeInlineContract)
+    (memcpy : CompiledMemcpyInstanceContract)
     (fromStep : Nat) (args : ZesuDecodeRawArgs) (stackBase : Nat) (entry : State)
     (source : preZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer canonicalContractParams.repStatelessInput
@@ -79,14 +80,15 @@ theorem first_success_to_exit
   have success' : meaningDecodeRaw decodeArgs.bytes = .ok value := by
     simpa [decodeArgsEq] using success
   obtain ⟨contents, calleeUsed, resumed, firstMemcpy⟩ :=
-    first_memcpy_transfer_frame_of_first_post (fromStep + 19 + childUsed) decodeArgs atDecode atCall
-      pre value success' firstPost machinePost phase outgoing saveArea firstSuccessAllocation
+    first_memcpy_transfer_frame_of_first_post memcpy (fromStep + 19 + childUsed) decodeArgs
+      atDecode atCall pre value success' firstPost machinePost phase outgoing saveArea
+      firstSuccessAllocation
   have inlineTransfer := decode_first_success_inlineCallTransfer decodeArgs contents pre phase
     decodeBody firstMemcpy
   obtain ⟨link, savedS0, savedS1, savedS2, entryLink, -, -, -, frame⟩ := savedFrame
   obtain ⟨copyUsed, callState, afterCopy, tag0Phase⟩ :=
-    tag0_stored_result_copy_phase_of_first_success decodeArgs contents link savedS0 savedS1 savedS2
-      machine decodeArgsEq success entryAgree firstMemcpy frame
+    tag0_stored_result_copy_phase_of_first_success decodeArgs contents memcpy link savedS0 savedS1
+      savedS2 machine decodeArgsEq success entryAgree firstMemcpy frame
       (fromStep + 19 + childUsed + 1 + calleeUsed + 1)
   obtain ⟨routeAfter, afterStore, after, tag0⟩ :=
     tag0_copy_to_exit contents link savedS0 savedS1 savedS2 tag0Phase

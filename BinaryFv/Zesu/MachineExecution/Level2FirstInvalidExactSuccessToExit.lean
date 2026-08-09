@@ -43,7 +43,8 @@ structure FirstInvalidExactSuccessToExitResult (args : ZesuDecodeRawArgs) (stack
   exportFrame : FirstSuccessExportFrame args value entry after
 
 theorem first_invalid_exact_success_to_exit
-    (allocator : AllocatorInlineContract) (decode : Level3DecodeInlineContract) (fromStep : Nat)
+    (allocator : AllocatorInlineContract) (decode : Level3DecodeInlineContract)
+    (memcpy : CompiledMemcpyInstanceContract) (fromStep : Nat)
     (args : ZesuDecodeRawArgs) (stackBase : Nat) (entry : State)
     (source : preZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer canonicalContractParams.repStatelessInput DecoderGlobalsModel.fresh args entry)
@@ -68,8 +69,8 @@ theorem first_invalid_exact_success_to_exit
     retry_exact_tag_handoff decode (fromStep + 19 + firstUsed + 2) secondArgs entryMachine retryBefore
       retryEntry.retryPre phase exact link s0 s1 s2 saved'
   obtain ⟨copyStart, contents, copyUsed, callState, afterCopy, routeAfter, afterStore, after, retryExit⟩ :=
-    retry_exact_success_handoff_to_exit entryMachine retryEntry.retryWrapperMachine link s0 s1 s2
-      handoff phase exact value success
+    retry_exact_success_handoff_to_exit memcpy entryMachine retryEntry.retryWrapperMachine link s0 s1
+      s2 handoff phase exact value success
   have scopedTrace : WrapperScopedTrace fromStep (19 + firstUsed + 2 + (retryUsed + 23 + copyUsed)) entry after :=
     retryEntry.routePrefix _ after (by simpa [Nat.add_assoc] using retryExit.scopedTrace)
   have routeDecoder : Agree decoderPreserved dispatch copyStart := by
