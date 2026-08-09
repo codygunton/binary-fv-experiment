@@ -452,6 +452,15 @@ theorem DecodeInlinePre.rawFrameInputSeparated_of_postStack
   rw [show address = postStack + (address - postStack) by omega]
   exact pre.rawFrameWritable_of_postStack postStack entryStack _ (by omega)
 
+/-- The raw post-prologue stack pointer preserves the wrapper's 16-byte alignment. -/
+theorem DecodeInlinePre.postStackAligned
+    (pre : DecodeInlinePre args state) (postStack : Nat)
+    (entryStack : args.stackBase = postStack + 0xe80) :
+    postStack % 16 = 0 := by
+  have aligned := pre.stackAligned
+  rw [entryStack] at aligned
+  omega
+
 /-- Regression for the parent store at `0x1063c`: this slot is below the raw-entry stack pointer,
 so the ordinary caller-frame permission alone must not be used in its Sail store proof. -/
 theorem DecodeInlinePre.rawFrameWritable_store_0x1063c

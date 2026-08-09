@@ -35,6 +35,7 @@ def Level4DecodeRawParentInvariant (margs : DecoderMachineArgs) (origin state : 
         canonicalContractParams.env.stack (entry.postStack + index)) ∧
       (∀ address, entry.postStack ≤ address → address < entry.postStack + 0x7f0 →
         margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase) ∧
+      entry.postStack % 16 = 0 ∧
       Artifacts.programImage.fileBytesLoadedFaithfully state.mem ∧
       DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs state ∧ RetiredCounterPresent state
 
@@ -108,7 +109,7 @@ def Level4DecodeRawParentFrame.of_entryEnvelopeHandoff
     savedS11 := savedS11
     invariant := ⟨pre, rfl, rfl, handoff.saved, handoff.sp, handoff.inputMemory,
       handoff.inputStackSeparated, handoff.stackFrameWritable, handoff.rawFrameWritable,
-      handoff.rawFrameInputSeparated,
+      handoff.rawFrameInputSeparated, handoff.postStackAligned,
       handoff.code, handoff.machine,
       handoff.retired⟩ }
 

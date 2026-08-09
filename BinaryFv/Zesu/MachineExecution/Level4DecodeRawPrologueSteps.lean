@@ -122,6 +122,7 @@ structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : 
   frame.  Parent stores use it to preserve borrowed input memory. -/
   rawFrameInputSeparated : ∀ address, postStack ≤ address → address < postStack + 0x7f0 →
     margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase
+  postStackAligned : postStack % 16 = 0
   stackFits : stack + 0x7f0 < 2 ^ 64
   saveAreaWritable : ∀ index, index < 104 → canonicalContractParams.env.stack (stack + 0x788 + index)
   slotAligned : ∀ offset, 0x788 ≤ offset → offset ≤ 0x7e8 → offset % 8 = 0 →
@@ -174,6 +175,7 @@ structure Level4DecodeRawEntryEnvelopeOffsetsHandoff (fromStep : Nat) (before af
     canonicalContractParams.env.stack (pre.postStack + index)
   rawFrameInputSeparated : ∀ address, pre.postStack ≤ address → address < pre.postStack + 0x7f0 →
     margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase
+  postStackAligned : pre.postStack % 16 = 0
   lengthFits : margs.bytes.size < 2 ^ 64
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   machine : DecoderMachinePre
@@ -907,7 +909,7 @@ theorem level4_decode_raw_entry_prologue
         rw [← entryArgsMachine]
         exact inputLength16,
       input16, pre.inputStackSeparated,
-      pre.stackFrameWritable, pre.rawFrameWritable, pre.rawFrameInputSeparated,
+      pre.stackFrameWritable, pre.rawFrameWritable, pre.rawFrameInputSeparated, pre.postStackAligned,
       lengthFits, code16,
       pre.decodeRawMachine.mono (seg16.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint)
         seg16.retired, seg16.retired⟩⟩
