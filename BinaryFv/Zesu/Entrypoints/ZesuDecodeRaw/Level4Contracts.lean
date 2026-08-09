@@ -5,6 +5,7 @@ import BinaryFv.Zesu.Contracts.Collections
 import BinaryFv.Zesu.Contracts.Containers
 import BinaryFv.Zesu.Contracts.PrimitiveReadsAndSlices
 import BinaryFv.Zesu.Contracts.Runtime
+import BinaryFv.Zesu.Contracts.SemanticObligations
 import BinaryFv.Zesu.MachineExecution.Level4DecodeRawParentInvariant
 
 /-!
@@ -469,6 +470,50 @@ def readOffsetLane (args : ReadOffsetInlineArgs) (lane : Nat) : BitVec 64 :=
 
 def readOffsetShift (args : ReadOffsetInlineArgs) (lane shift : Nat) : BitVec 64 :=
   readOffsetLane args lane <<< BitVec.ofNat 64 shift
+
+private theorem readOffsetLaneOr_eq_assembled (b0 b1 b2 b3 : UInt8) :
+    ((BitVec.ofNat 64 b1.toNat <<< BitVec.ofNat 64 8) ||| BitVec.ofNat 64 b0.toNat) |||
+        ((BitVec.ofNat 64 b3.toNat <<< BitVec.ofNat 64 24) |||
+          (BitVec.ofNat 64 b2.toNat <<< BitVec.ofNat 64 16)) =
+      BitVec.ofNat 64
+        (b0.toUInt32 ||| b1.toUInt32 <<< 8 ||| b2.toUInt32 <<< 16 ||| b3.toUInt32 <<< 24).toNat := by
+  have widen8 (b : UInt8) : BitVec.ofNat 64 b.toNat = b.toBitVec.setWidth 64 := by
+    apply BitVec.eq_of_toNat_eq
+    rw [BitVec.toNat_ofNat, BitVec.toNat_setWidth]
+    rfl
+  have widen32 (b : UInt32) : BitVec.ofNat 64 b.toNat = b.toBitVec.setWidth 64 := by
+    apply BitVec.eq_of_toNat_eq
+    rw [BitVec.toNat_ofNat, BitVec.toNat_setWidth]
+    rfl
+  rw [widen8 b0, widen8 b1, widen8 b2, widen8 b3, widen32]
+  bv_decide
+
+/-- The four optimized 64-bit lane values assemble to the source `readOffset` result whenever the
+source's four-byte window fits.  This is the common semantic bridge used by all four interleaved
+reader occurrences before their final parent-owned `or` instruction. -/
+theorem readOffsetSourceMeaning_eq_lane_or (args : ReadOffsetInlineArgs)
+    (fits : args.offset + 4 ≤ args.bytes.size) :
+    ∃ value, readOffsetSourceMeaning args = .ok value ∧
+      (readOffsetShift args 1 8 ||| readOffsetLane args 0) |||
+          (readOffsetShift args 3 24 ||| readOffsetShift args 2 16) =
+        BitVec.ofNat 64 value := by
+  let b0 := args.bytes.get! args.offset
+  let b1 := args.bytes.get! (args.offset + 1)
+  let b2 := args.bytes.get! (args.offset + 2)
+  let b3 := args.bytes.get! (args.offset + 3)
+  let assembled : UInt32 :=
+    b0.toUInt32 ||| b1.toUInt32 <<< 8 ||| b2.toUInt32 <<< 16 ||| b3.toUInt32 <<< 24
+  have read : SizzLean.Spec.readUInt32LE args.bytes args.offset = some assembled := by
+    rw [SizzLean.Spec.readUInt32LE, dif_pos fits]
+    rw [← DecodedValue.get!_eq_getElem args.bytes args.offset (by omega),
+      ← DecodedValue.get!_eq_getElem args.bytes (args.offset + 1) (by omega),
+      ← DecodedValue.get!_eq_getElem args.bytes (args.offset + 2) (by omega),
+      ← DecodedValue.get!_eq_getElem args.bytes (args.offset + 3) (by omega)]
+  refine ⟨assembled.toNat, ?_, ?_⟩
+  · simp [readOffsetSourceMeaning, meaningReadOffset, meaningReadU32, read,
+      Option.toDecodeResult, Except.map]
+  · simpa [readOffsetShift, readOffsetLane, assembled, b0, b1, b2, b3] using
+      readOffsetLaneOr_eq_assembled b0 b1 b2 b3
 
 /-- The configured decoder context consumed by a direct reader occurrence. -/
 def readOffsetMachineArgs (args : ReadOffsetInlineArgs) : DecoderMachineArgs where
