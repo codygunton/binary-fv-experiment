@@ -58,6 +58,10 @@ class Boundary:
     identity: dict[str, Any] | None
     calls: tuple[tuple[int, int], ...]
     stores: tuple[dict[str, int], ...]
+    # A source-less dynamic call frame has a checked target identity/extent but no traceable
+    # machine edge.  Keeping it separate prevents empirical evidence from inventing one.
+    untraceable_calls: tuple[dict[str, Any], ...] = ()
+    carrier_routes: tuple[dict[str, Any], ...] = ()
 
 
 def int_field(value: object, name: str) -> int:
@@ -114,11 +118,36 @@ def load_inventory(path: Path) -> tuple[Boundary, ...]:
                 raise ValueError(f"boundary {identifier} identity does not bind its qualified source function")
             if not isinstance(identity.get("specialization"), list) or not isinstance(identity.get("inlineStack"), list):
                 raise ValueError(f"boundary {identifier} identity lacks specialization or inlineStack")
-        calls = tuple(
-            (int_field(call["sourcePc"], f"boundary {identifier} call sourcePc"),
-             int_field(call["targetPc"], f"boundary {identifier} call targetPc"))
-            for call in (row.get("calls") or [])
-        )
+        calls_list: list[tuple[int, int]] = []
+        untraceable_calls: list[dict[str, Any]] = []
+        for call in row.get("calls") or []:
+            if not isinstance(call, dict):
+                raise ValueError(f"boundary {identifier} call is not an object")
+            target = int_field(call.get("targetPc"), f"boundary {identifier} call targetPc")
+            source = call.get("sourcePc")
+            if source is None:
+                identity_ = call.get("targetIdentity")
+                extent = call.get("activeCalleeExecutionPcs")
+                # Older non-dynamic rows can expose a declared target PC without a generated
+                # target identity.  Preserve that limitation.  Dynamic rows which do provide
+                # either identity or extent must provide both, so their metadata cannot be half
+                # erased and reinterpreted as a traceable edge.
+                if ((identity_ is None) != (extent is None)
+                        or (identity_ is not None and
+                            (not isinstance(identity_, dict) or not isinstance(identity_.get("qualified"), str)
+                             or not isinstance(extent, list) or not extent
+                             or any(not isinstance(pc, int) for pc in extent)))):
+                    raise ValueError(f"boundary {identifier} source-less call lacks target identity and extent")
+                untraceable_calls.append({
+                    "kind": call.get("kind"), "targetPc": target,
+                    **({"targetIdentity": identity_, "activeCalleeExecutionPcs": extent}
+                       if identity_ is not None else {}),
+                })
+            else:
+                calls_list.append((
+                    int_field(source, f"boundary {identifier} call sourcePc"), target,
+                ))
+        calls = tuple(calls_list)
         if any(source not in pcs for source, _target in calls):
             raise ValueError(f"boundary {identifier} declares a call outside instructionPcs")
         stores = tuple(row.get("stores") or [])
@@ -129,8 +158,39 @@ def load_inventory(path: Path) -> tuple[Boundary, ...]:
                 raise ValueError(f"boundary {identifier} declares a store outside instructionPcs")
             for field in ("address", "width", "value"):
                 int_field(store[field], f"boundary {identifier} store {field}")
+        carrier_routes: list[dict[str, Any]] = []
+        for route in row.get("carrierRoutes") or []:
+            if not isinstance(route, dict) or not isinstance(route.get("handoff"), dict):
+                raise ValueError(f"boundary {identifier} carrier route is malformed")
+            handoff = route["handoff"]
+            source = int_field(handoff.get("sourcePc"), f"boundary {identifier} carrier handoff sourcePc")
+            target = int_field(handoff.get("targetPc"), f"boundary {identifier} carrier handoff targetPc")
+            route_identity = route.get("sourceIdentity")
+            classification = route.get("classification")
+            carrier_pcs = route.get("carrierPcs")
+            if (source not in pcs or not isinstance(route_identity, dict)
+                    or route_identity.get("qualified") != qualified
+                    or classification not in {"intermediate", "sourceReviewedOutcomePath"}
+                    or not isinstance(carrier_pcs, list)
+                    or any(not isinstance(pc, int) for pc in carrier_pcs)):
+                raise ValueError(f"boundary {identifier} carrier route has invalid identity or PCs")
+            if classification == "intermediate" and carrier_pcs:
+                raise ValueError(f"boundary {identifier} intermediate carrier route claims a carrier")
+            if classification == "sourceReviewedOutcomePath" and not carrier_pcs:
+                raise ValueError(f"boundary {identifier} outcome carrier route lacks parent continuation PCs")
+            carrier_routes.append({
+                "sourceIdentity": route_identity,
+                "handoff": {"sourcePc": source, "targetPc": target},
+                "classification": classification,
+                "carrierPcs": carrier_pcs,
+                "registers": route.get("registers", []),
+                "stackDescriptors": route.get("stackDescriptors", []),
+                "statusTag": route.get("statusTag", {"state": "unmeasured"}),
+                "allocation": route.get("allocation", {"state": "unmeasured"}),
+                "heapArrayRep": route.get("heapArrayRep", {"state": "unmeasured"}),
+            })
         boundaries.append(Boundary(identifier, kind, qualified, entry, pcs, exits, parent, identity,
-                                   calls, stores))
+                                   calls, stores, tuple(untraceable_calls), tuple(carrier_routes)))
 
     if len(boundaries) != EXPECTED_BOUNDARIES:
         raise ValueError(f"Level 4 inventory has {len(boundaries)} boundaries, expected {EXPECTED_BOUNDARIES}")
@@ -182,6 +242,22 @@ def observation(
         ],
         "declaredStoresReached": declared_stores,
         "observedStores": [store for store in stores if store["pc"] in owned],
+        "observedCarrierRoutes": [
+            {
+                "sourceIdentity": route["sourceIdentity"],
+                "handoff": route["handoff"],
+                "classification": route["classification"],
+                "carrierPcs": route["carrierPcs"],
+                "observedCarrierPcs": sorted(set(route["carrierPcs"]).intersection(pcs)),
+                # Static instruction/DWARF/source review admits the route; this finite trace only
+                # says which carrier PCs were reached, never their registers or heap meaning.
+                "staticEvidence": "production-ELF instruction plus validated raw-DWARF source identity",
+                "statusTag": route["statusTag"],
+                "allocation": route["allocation"],
+                "heapArrayRep": route["heapArrayRep"],
+            }
+            for route in boundary.carrier_routes
+        ],
     }
 
 
@@ -230,6 +306,20 @@ def validate_observed_claims(record: dict[str, Any], calls: list[dict[str, int]]
     return failures
 
 
+def validate_observed_carrier_claims(record: dict[str, Any], claims: list[dict[str, Any]]) -> list[str]:
+    """A claimed finite carrier-PC observation must remain in the trace-derived record."""
+    observed = {
+        (route["sourceIdentity"]["qualified"], route["handoff"]["sourcePc"], route["handoff"]["targetPc"]):
+        set(route["observedCarrierPcs"])
+        for route in record["observedCarrierRoutes"]
+    }
+    for claim in claims:
+        key = (claim["sourceIdentity"]["qualified"], claim["handoff"]["sourcePc"], claim["handoff"]["targetPc"])
+        if not set(claim["observedCarrierPcs"]) <= observed.get(key, set()):
+            return ["an observed outcome carrier PC disappeared"]
+    return []
+
+
 def mutation_checks(boundary: Boundary, record: dict[str, Any]) -> dict[str, bool]:
     """Show the checker rejects corruption of every currently measurable clause."""
     mutations = {
@@ -242,13 +332,24 @@ def mutation_checks(boundary: Boundary, record: dict[str, Any]) -> dict[str, boo
         mutations["call-edge"] = {**record, "declaredCallsReached": []}
     if record["declaredStoresReached"]:
         mutations["store-address-width-value"] = {**record, "declaredStoresReached": []}
+    observed_carriers = [route for route in record["observedCarrierRoutes"] if route["observedCarrierPcs"]]
+    if observed_carriers:
+        mutations["outcome-carrier-pc"] = {
+            **record,
+            "observedCarrierRoutes": [
+                {**route, "observedCarrierPcs": []} if route["observedCarrierPcs"] else route
+                for route in record["observedCarrierRoutes"]
+            ],
+        }
     call_claims = [
         {"sourcePc": source, "targetPc": target}
         for source, target in required_calls(boundary)
     ]
     store_claims = record["declaredStoresReached"]
     return {
-        name: bool(validate_observation(boundary, mutated) or validate_observed_claims(mutated, call_claims, store_claims))
+        name: bool(validate_observation(boundary, mutated)
+                   or validate_observed_claims(mutated, call_claims, store_claims)
+                   or validate_observed_carrier_claims(mutated, observed_carriers))
         for name, mutated in mutations.items()
     }
 
@@ -372,7 +473,9 @@ def main() -> int:
         record = observation(boundary, all_pcs, all_stores, edges=all_edges)
         clause_failures = validate_observation(boundary, record) + validate_observed_claims(
             record, record["declaredCallsReached"], record["declaredStoresReached"]
-        )
+        ) + validate_observed_carrier_claims(record, [
+            route for route in record["observedCarrierRoutes"] if route["observedCarrierPcs"]
+        ])
         mutations = mutation_checks(boundary, record)
         if not all(mutations.values()):
             clause_failures.append("a measurable-clause mutation was accepted")
@@ -385,6 +488,9 @@ def main() -> int:
                 *( ["exit"] if boundary.exits else [] ),
                 *( ["observed declared call targets"] if record["declaredCallsReached"] else [] ),
                 *( ["observed declared store address, width, and value"] if record["declaredStoresReached"] else [] ),
+                *( ["observed outcome carrier PCs"]
+                   if any(route["observedCarrierPcs"] for route in record["observedCarrierRoutes"])
+                   else [] ),
             ],
             "unmeasuredClauses": [
                 *UNMEASURED_CLAUSES,
@@ -393,7 +499,12 @@ def main() -> int:
                     ["unobserved declared store address, width, and value"]
                     if len(record["declaredStoresReached"]) != len(boundary.stores) else []
                 ),
+                *( ["source-less dynamic call-frame edge"] if boundary.untraceable_calls else [] ),
+                *( ["outcome carrier register values, stack contents, status meaning, allocation, and HeapArrayRep"]
+                   if boundary.carrier_routes else [] ),
             ],
+            "untraceableDynamicCallFrames": list(boundary.untraceable_calls),
+            "outcomeCarrierRoutes": record["observedCarrierRoutes"],
             "staticallyUnreachableClauses": [
                 {"sourcePc": source, "targetPc": target, "reason": reason}
                 for source, target in boundary.calls

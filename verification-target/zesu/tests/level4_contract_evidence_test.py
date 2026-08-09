@@ -60,6 +60,21 @@ class InventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "include its entry"):
             self.load(document)
 
+    def test_source_less_dynamic_frame_is_retained_but_not_made_traceable(self) -> None:
+        document = inventory()
+        row = document["boundaries"][0]
+        row["calls"] = [{
+            "kind": "direct", "sourcePc": None, "targetPc": 0x3000,
+            "targetIdentity": {"qualified": "mem.Allocator.free"},
+            "activeCalleeExecutionPcs": [0x3000, 0x3004],
+        }]
+        [boundary] = self.load({**document, "boundaries": [row, *document["boundaries"][1:]]})[:1]
+        self.assertEqual(boundary.calls, ())
+        self.assertEqual(boundary.untraceable_calls[0]["targetPc"], 0x3000)
+        del row["calls"][0]["activeCalleeExecutionPcs"]
+        with self.assertRaisesRegex(ValueError, "source-less call lacks"):
+            self.load(document)
+
 
 class ObservationTests(unittest.TestCase):
     boundary = evidence.Boundary("x", "inlined", "ssz_raw.x", 4, (4, 8), (8,), "decodeRaw", None, (), ())
@@ -92,6 +107,23 @@ class ObservationTests(unittest.TestCase):
             evidence.validate_observed_claims(record, record["declaredCallsReached"], record["declaredStoresReached"]), []
         )
         self.assertTrue(all(evidence.mutation_checks(boundary, record).values()))
+
+    def test_observed_outcome_carrier_mutation_is_rejected(self) -> None:
+        route = {
+            "sourceIdentity": self.public_keys_identity,
+            "handoff": {"sourcePc": 8, "targetPc": 12},
+            "classification": "sourceReviewedOutcomePath",
+            "carrierPcs": [16], "registers": [], "stackDescriptors": [],
+            "statusTag": {"state": "static-ELF"}, "allocation": {"state": "source-reviewed"},
+            "heapArrayRep": {"state": "obligation"},
+        }
+        boundary = evidence.Boundary(
+            "fi:120", "inlined", "ssz_raw.decodePublicKeys", 4, (4, 8), (8,), "decodeRaw",
+            self.public_keys_identity, (), (), (), (route,),
+        )
+        record = evidence.observation(boundary, [4, 8, 16], [])
+        self.assertEqual(record["observedCarrierRoutes"][0]["observedCarrierPcs"], [16])
+        self.assertTrue(evidence.mutation_checks(boundary, record)["outcome-carrier-pc"])
 
     def test_aggregate_edges_never_join_two_vectors(self) -> None:
         boundary = evidence.Boundary(

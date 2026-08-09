@@ -255,6 +255,28 @@ class MachineRegionTests(unittest.TestCase):
             {**parent, "regions": [{"start": 80000, "size": 4}]}, owners,
             {77408: {"address": 77408, "owner": "fi:102", "successors": [77412]}}), [])
 
+    def test_outcome_carrier_instruction_validator_rejects_deletion_and_forgery(self) -> None:
+        route = {
+            "classification": "sourceReviewedOutcomePath",
+            "carrierPcs": [0x12e64],
+            "registers": [{"pc": 0x12e64, "register": "a4", "role": "word-0"}],
+            "stackDescriptors": [{"pc": 0x12e64, "instructionKind": "store", "register": "a4",
+                                  "baseRegister": "sp", "offset": 0x5c0, "role": "word-0-store"}],
+            "statusTag": {"state": "unmeasured"},
+            "heapArrayRep": {"state": "not-applicable"},
+        }
+        instructions = {
+            0x12e64: {"address": 0x12e64, "mnemonic": "sd", "operands": "a4, 0x5c0(sp)",
+                      "reads": ["a4", "sp"], "writes": [], "liveIn": ["a4", "sp"], "liveOut": []},
+        }
+        machine_regions.validate_outcome_carrier_instructions([route], instructions)
+        with self.assertRaisesRegex(ValueError, "carrier PC is absent"):
+            machine_regions.validate_outcome_carrier_instructions([route], {})
+        forged = copy.deepcopy(route)
+        forged["stackDescriptors"][0]["offset"] = 0x5c8
+        with self.assertRaisesRegex(ValueError, "stack descriptor"):
+            machine_regions.validate_outcome_carrier_instructions([forged], instructions)
+
     def test_dynamic_attribution_validator_rejects_deletion_and_forgery(self) -> None:
         parent = {"id": "fi:6", "regions": [{"start": 77412, "size": 8}], "parent": None}
         decoder = {"id": "fi:102", "qualified": "ssz_raw.decodeChainConfig", "entryPc": 76108,

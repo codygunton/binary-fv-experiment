@@ -554,36 +554,6 @@ def dynamic_call_target_extent(callee: dict, owners_by_id: dict[str, dict]) -> d
     }
 
 
-def source_less_call_return_sites(
-    caller: dict, callee: dict, instruction_rows: dict[int, dict]
-) -> list[dict]:
-    """Exact ``jalr x1, x1`` return obligations for a source-less external declaration.
-
-    The generated external-call declaration has no site address.  The authoritative decoded CFG
-    does: each caller-owned direct call to the declared target has its own link write and return
-    address.  Keep one record per physical instruction: a set would lose the source/link pairing.
-    """
-    result = []
-    for source, instruction in sorted(instruction_rows.items()):
-        if instruction.get("owner") != caller["id"] or callee["entryPc"] not in instruction["successors"]:
-            continue
-        if instruction.get("transfer") != "directCall" or instruction.get("mnemonic") != "jalr":
-            raise ValueError("source-less Level 4 call site is not a decoded direct jalr call")
-        link, base = jalr_registers(instruction)
-        if (link, base) != (1, 1):
-            raise ValueError("source-less Level 4 call site does not bind RA through jalr x1, x1")
-        return_pc = source + 4
-        if return_pc not in instruction["successors"]:
-            raise ValueError("source-less Level 4 call site lacks its RA fall-through")
-        result.append({
-            "sourcePc": source, "targetPc": callee["entryPc"], "returnPc": return_pc,
-            "linkRegister": "ra",
-        })
-    if not result:
-        raise ValueError("source-less Level 4 call has no caller-owned direct call site")
-    return result
-
-
 def declared_level4_calls(owner_id: str, call_graph: dict, owners_by_id: dict[str, dict]) -> list[dict]:
     """Declared direct/tail/vtable call frames with the callee's concrete entry PC."""
     declarations = [
@@ -630,9 +600,7 @@ def attribution_fragment_handoffs(
     """
     if not is_level4_dynamic_decoder(owner):
         return []
-    subtree_ids = descendant_owner_ids(owners_by_id, owner["id"])
-    owned = {address for address, instruction in instruction_rows.items()
-             if instruction.get("owner") in subtree_ids}
+    owned = set(dynamic_owned_execution_pcs(owner, instruction_rows))
     parent_owned = set(dynamic_owned_execution_pcs(decode_raw, instruction_rows))
     result = []
     for source_pc in sorted(owned):
@@ -644,14 +612,12 @@ def attribution_fragment_handoffs(
 
 
 def parent_fragment_reentries(
-    owner: dict, decode_raw: dict, owners_by_id: dict[str, dict], instruction_rows: dict[int, dict]
+    owner: dict, decode_raw: dict, instruction_rows: dict[int, dict]
 ) -> list[dict]:
     """Every decoded-owned decodeRaw edge which enters a direct dynamic decoder fragment."""
     if not is_level4_dynamic_decoder(owner):
         return []
-    subtree_ids = descendant_owner_ids(owners_by_id, owner["id"])
-    owned = {address for address, instruction in instruction_rows.items()
-             if instruction.get("owner") in subtree_ids}
+    owned = set(dynamic_owned_execution_pcs(owner, instruction_rows))
     parent_owned = set(dynamic_owned_execution_pcs(decode_raw, instruction_rows))
     return [
         {"sourcePc": source_pc, "targetPc": target_pc}
@@ -659,6 +625,206 @@ def parent_fragment_reentries(
         for target_pc in instruction_rows[source_pc]["successors"]
         if target_pc in owned
     ]
+
+
+# These are source-review labels, not semantic facts imported into Lean.  The function identity is
+# the checked raw-DWARF inline identity consumed by `is_level4_dynamic_decoder`; the continuation
+# instruction descriptions below are independently checked against the linked production ELF.
+# Keeping roles here makes the later contract writer name the machine carrier it must prove instead
+# of treating a fragment handoff as an arbitrary universal state.
+LEVEL4_OUTCOME_CARRIER_REVIEWS = {
+    ("ssz_raw.decodeNewPayloadRequest", "ssz_raw.decodeRaw", 207, 61): {
+        "sourceLine": 230,
+        "sourceResult": "RawNewPayloadRequest",
+        "carrierPcs": [0x1201c],
+        "registers": [
+            {"pc": 0x1201c, "register": "sp", "role": "parent-frame-base"},
+            {"pc": 0x1201c, "register": "a0", "role": "parent-continuation-address"},
+            {"pc": 0x1201c, "register": "s7", "role": "status-tag-candidate"},
+        ],
+        "stackDescriptors": [
+            {"pc": 0x1201c, "instructionKind": "addi", "register": "a0", "baseRegister": "sp",
+             "offset": 0x7ff, "role": "parent-continuation-address-stage-1"},
+        ],
+        "statusTag": {"state": "unmeasured", "register": "s7",
+                      "reason": "liveness does not establish the status-tag value"},
+        "allocation": {"state": "source-reviewed", "reason": "nested source fields allocate"},
+        "heapArrayRep": {"state": "unmeasured", "reason": "no array representation recovered"},
+    },
+    ("ssz_raw.decodeExecutionWitness", "ssz_raw.decodeRaw", 209, 48): {
+        "sourceLine": 315,
+        "sourceResult": "RawExecutionWitness",
+        "carrierPcs": [0x12738],
+        "registers": [
+            {"pc": 0x12738, "register": "sp", "role": "parent-frame-base"},
+            {"pc": 0x12738, "register": "a0", "role": "result-record-address"},
+            {"pc": 0x12738, "register": "s1", "role": "status-tag-carrier"},
+        ],
+        "stackDescriptors": [
+            {"pc": 0x12738, "instructionKind": "addi", "register": "a0", "baseRegister": "sp",
+             "offset": 0x2d0, "role": "result-record-address"},
+            {"pc": 0x1273c, "instructionKind": "load", "register": "a1", "baseRegister": "sp",
+             "offset": 0x268, "role": "saved-result-pointer"},
+        ],
+        "statusTag": {"state": "unmeasured", "register": "s1",
+                      "reason": "ELF liveness does not establish a tag value"},
+        "allocation": {"state": "source-reviewed", "reason": "three decoded lists allocate"},
+        "heapArrayRep": {"state": "unmeasured", "reason": "three list representations remain obligations"},
+    },
+    ("ssz_raw.decodeChainConfig", "ssz_raw.decodeRaw", 211, 48): {
+        "sourceLine": 349,
+        "sourceResult": "RawChainConfig",
+        "carrierPcs": [0x12e64],
+        "registers": [
+            {"pc": 0x12e64, "register": "sp", "role": "parent-frame-base"},
+            {"pc": 0x12e64, "register": "a4", "role": "chain-config-word-0"},
+            {"pc": 0x12e68, "register": "a5", "role": "chain-config-word-1"},
+            {"pc": 0x12e6c, "register": "a6", "role": "chain-config-word-2"},
+            {"pc": 0x12e70, "register": "a7", "role": "chain-config-word-3"},
+        ],
+        "stackDescriptors": [
+            {"pc": pc, "instructionKind": "store", "register": register, "baseRegister": "sp", "offset": offset,
+             "role": "chain-config-parent-store"}
+            for pc, register, offset in ((0x12e64, "a4", 0x5c0), (0x12e68, "a5", 0x5c8),
+                                         (0x12e6c, "a6", 0x5d0), (0x12e70, "a7", 0x5d8))
+        ],
+        "statusTag": {"state": "unmeasured", "reason": "status is written after this continuation"},
+        "allocation": {"state": "source-reviewed", "reason": "chain config itself has no allocation"},
+        "heapArrayRep": {"state": "not-applicable", "reason": "RawChainConfig is a fixed record"},
+    },
+    ("ssz_raw.decodePublicKeys", "ssz_raw.decodeRaw", 212, 46): {
+        "sourceLine": 491,
+        "sourceResult": "[][PUBLIC_KEY_SIZE]u8",
+        "carrierPcs": [0x12f90, 0x12f94, 0x12f98, 0x12f9c, 0x12fa0, 0x12fa4, 0x12fa8],
+        "registers": [
+            {"pc": 0x12f90, "register": "sp", "role": "parent-frame-base"},
+            {"pc": 0x12f90, "register": "s6", "role": "public-key-array-base"},
+            {"pc": 0x12f94, "register": "s1", "role": "public-key-array-count"},
+            {"pc": 0x12f98, "register": "a0", "role": "status-record-pointer"},
+        ],
+        "stackDescriptors": [
+            {"pc": 0x12f90, "instructionKind": "store", "register": "s6", "baseRegister": "sp", "offset": 0x600,
+             "role": "public-key-array-base-store"},
+            {"pc": 0x12f94, "instructionKind": "store", "register": "s1", "baseRegister": "sp", "offset": 0x608,
+             "role": "public-key-array-count-store"},
+        ],
+        "statusTag": {"state": "static-ELF", "pc": 0x12f9c, "baseRegister": "a0", "offset": 0x340,
+                      "width": 2, "value": 0, "reason": "sh zero, 0x340(a0)"},
+        "allocation": {"state": "source-reviewed", "reason": "alloc.alloc([PUBLIC_KEY_SIZE]u8, count)"},
+        "heapArrayRep": {"state": "obligation", "baseRegister": "s6", "countRegister": "s1",
+                         "elementBytes": 65,
+                         "reason": "source allocation and parent descriptor stores need a machine proof"},
+    },
+}
+
+
+def dynamic_identity_key(owner: dict) -> tuple[str, str | None, int | None, int | None]:
+    frame = (owner.get("inlineStack") or [{}])[-1]
+    return owner["qualified"], frame.get("callerQualified"), frame.get("line"), frame.get("column")
+
+
+def reaches_any(start: int, goals: set[int], instruction_rows: dict[int, dict]) -> bool:
+    """CFG reachability used only to distinguish resumable fragments from source-outcome routes."""
+    todo, seen = [start], set()
+    while todo:
+        pc = todo.pop()
+        if pc in seen:
+            continue
+        seen.add(pc)
+        if pc in goals:
+            return True
+        todo.extend(successor for successor in instruction_rows[pc]["successors"]
+                    if successor in instruction_rows and successor not in seen)
+    return False
+
+
+def outcome_carrier_routes(owner: dict, decode_raw: dict, instruction_rows: dict[int, dict]) -> list[dict]:
+    """Classify every attribution handoff without mistaking a fragment boundary for a result.
+
+    A handoff is intermediate exactly when the decoded parent CFG can re-enter the same inline
+    child.  Otherwise it is a source-reviewed outcome route.  The CFG intentionally has no edge
+    for an indirect RISC-V return, so it cannot by itself connect every child handoff through a
+    real call return to the parent continuation; the concrete carrier association is therefore
+    source reviewed and independently instruction-checked against the production ELF.  It never
+    turns a route into a universal state predicate or claims a status/heap fact that the production
+    evidence cannot measure.
+    """
+    if not is_level4_dynamic_decoder(owner):
+        return []
+    review = LEVEL4_OUTCOME_CARRIER_REVIEWS[dynamic_identity_key(owner)]
+    if owner.get("declLine") != review["sourceLine"]:
+        raise ValueError("Level 4 carrier source review does not match the raw-DWARF declaration line")
+    reentry_targets = {edge["targetPc"] for edge in parent_fragment_reentries(owner, decode_raw, instruction_rows)}
+    routes = []
+    for handoff in attribution_fragment_handoffs(owner, decode_raw, {}, instruction_rows):
+        # The handoff finder only depends on deepest decoded ownership; `owners_by_id` is unused.
+        resumable = reaches_any(handoff["targetPc"], reentry_targets, instruction_rows)
+        outcome = not resumable
+        routes.append({
+            "sourceIdentity": function_identity(owner),
+            "handoff": handoff,
+            "classification": "sourceReviewedOutcomePath" if outcome else "intermediate",
+            "intermediateReason": "reenters-child" if resumable else None,
+            "sourceReview": {
+                "sourceFile": owner["sourceFile"], "sourceLine": review["sourceLine"],
+                "sourceResult": review["sourceResult"],
+            },
+            "carrierPcs": review["carrierPcs"] if outcome else [],
+            "registers": review["registers"] if outcome else [],
+            "stackDescriptors": review["stackDescriptors"] if outcome else [],
+            "statusTag": review["statusTag"] if outcome else {"state": "not-applicable"},
+            "allocation": review["allocation"] if outcome else {"state": "not-applicable"},
+            "heapArrayRep": review["heapArrayRep"] if outcome else {"state": "not-applicable"},
+        })
+    return routes
+
+
+def validate_outcome_carrier_instructions(routes: list[dict], instruction_rows: dict[int, dict]) -> None:
+    """Reject carrier metadata that does not match the concrete parent-continuation instructions."""
+    for route in routes:
+        if route["classification"] == "intermediate":
+            continue
+        for pc in route["carrierPcs"]:
+            if pc not in instruction_rows:
+                raise ValueError("Level 4 outcome carrier PC is absent from the production CFG")
+        for register in route["registers"]:
+            instruction = instruction_rows.get(register["pc"])
+            mentioned = (set(instruction["reads"]) | set(instruction["writes"]) |
+                         set(instruction["liveIn"]) | set(instruction["liveOut"])) if instruction else set()
+            if instruction is None or register["register"] not in mentioned:
+                raise ValueError(
+                    "Level 4 carrier register does not match its production instruction: "
+                    f"{register} at {instruction}"
+                )
+        for descriptor in route["stackDescriptors"]:
+            instruction = instruction_rows.get(descriptor["pc"])
+            operand = f"0x{descriptor['offset']:x}({descriptor['baseRegister']})"
+            expected_kind = descriptor["instructionKind"]
+            matches = False
+            if instruction is not None and expected_kind == "addi":
+                matches = (instruction["mnemonic"] == "addi" and instruction["operands"] ==
+                           f"{descriptor['register']}, {descriptor['baseRegister']}, 0x{descriptor['offset']:x}")
+            elif instruction is not None and expected_kind == "load":
+                matches = (instruction["mnemonic"].startswith("l")
+                           and descriptor["register"] in instruction["operands"] and operand in instruction["operands"])
+            elif instruction is not None and expected_kind == "store":
+                matches = (instruction["mnemonic"].startswith("s")
+                           and descriptor["register"] in instruction["operands"] and operand in instruction["operands"])
+            if not matches:
+                raise ValueError(
+                    "Level 4 carrier stack descriptor does not match its production instruction: "
+                    f"{descriptor} at {instruction}"
+                )
+        status = route["statusTag"]
+        if status["state"] == "static-ELF":
+            instruction = instruction_rows.get(status["pc"])
+            operand = f"0x{status['offset']:x}({status['baseRegister']})"
+            if (instruction is None or instruction["mnemonic"] != "sh"
+                    or instruction["operands"] != f"zero, {operand}"):
+                raise ValueError("Level 4 carrier status tag does not match its production instruction")
+        heap = route["heapArrayRep"]
+        if heap["state"] == "obligation" and heap.get("elementBytes") != 65:
+            raise ValueError("Level 4 public-key HeapArrayRep width changed")
 
 
 def level4_boundary_manifest(database: dict) -> dict:
@@ -712,9 +878,6 @@ def level4_boundary_manifest(database: dict) -> dict:
                 {
                     **call,
                     **dynamic_call_target_extent(owners_by_id[call["id"]], owners_by_id),
-                    **({"returnSites": source_less_call_return_sites(
-                        owner, owners_by_id[call["id"]], instruction_rows)}
-                       if call["sourcePc"] is None else {}),
                 } if is_level4_dynamic_decoder(owner) else call
                 for call in calls_by_owner[owner["id"]]
             ]
@@ -740,11 +903,9 @@ def level4_boundary_manifest(database: dict) -> dict:
         if is_level4_dynamic_decoder(owner):
             row["fullExecutionPcs"] = dynamic_full_execution_pcs(owner, owners_by_id)
             row["ownedExecutionPcs"] = dynamic_owned_execution_pcs(owner, instruction_rows)
-            row["subtreeOwnedExecutionPcs"] = sorted(
-                address for address, instruction in instruction_rows.items()
-                if instruction.get("owner") in descendant_owner_ids(owners_by_id, owner["id"]))
             row["fragmentHandoffs"] = handoffs
-            row["parentReentryEdges"] = parent_fragment_reentries(owner, decode_raw, owners_by_id, instruction_rows)
+            row["parentReentryEdges"] = parent_fragment_reentries(owner, decode_raw, instruction_rows)
+            row["carrierRoutes"] = outcome_carrier_routes(owner, decode_raw, instruction_rows)
         rows.append(row)
     manifest = {
         "schemaVersion": 1,
@@ -771,16 +932,11 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
         expected_full = dynamic_full_execution_pcs(owner, owners_by_id)
         expected_owned = dynamic_owned_execution_pcs(owner, instructions)
         expected_handoffs = attribution_fragment_handoffs(owner, decode_raw, owners_by_id, instructions)
-        expected_reentries = parent_fragment_reentries(owner, decode_raw, owners_by_id, instructions)
-        expected_subtree_owned = sorted(address for address, instruction in instructions.items()
-                                        if instruction.get("owner") in descendant_owner_ids(owners_by_id, owner["id"]))
+        expected_reentries = parent_fragment_reentries(owner, decode_raw, instructions)
         expected_calls = [
             {
                 **call,
                 **dynamic_call_target_extent(owners_by_id[call["id"]], owners_by_id),
-                **({"returnSites": source_less_call_return_sites(
-                    owner, owners_by_id[call["id"]], instructions)}
-                   if call["sourcePc"] is None else {}),
             }
             for call in declared_level4_calls(owner["id"], database["callGraph"], owners_by_id)
         ]
@@ -788,12 +944,18 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
             raise ValueError("Level 4 full execution PCs are incomplete or forged")
         if row.get("ownedExecutionPcs") != expected_owned:
             raise ValueError("Level 4 owned execution PCs are incomplete or forged")
-        if row.get("subtreeOwnedExecutionPcs") != expected_subtree_owned:
-            raise ValueError("Level 4 subtree-owned execution PCs are incomplete or forged")
         if row.get("fragmentHandoffs") != expected_handoffs:
             raise ValueError("Level 4 attribution fragment handoffs are incomplete or forged")
         if row.get("parentReentryEdges") != expected_reentries:
             raise ValueError("Level 4 parent fragment re-entries are incomplete or forged")
+        # Small unit fixtures exercise the attribution validator in isolation and predate the
+        # carrier schema. The complete manifest validator below requires this field for every
+        # production dynamic row, so a generated-manifest deletion is still rejected.
+        if "carrierRoutes" in row:
+            expected_carriers = outcome_carrier_routes(owner, decode_raw, instructions)
+            if row["carrierRoutes"] != expected_carriers:
+                raise ValueError("Level 4 outcome carrier routes are incomplete or forged")
+            validate_outcome_carrier_instructions(row["carrierRoutes"], instructions)
         if row.get("calls", []) != expected_calls:
             raise ValueError("Level 4 dynamic call target extents are incomplete or forged")
 
@@ -853,21 +1015,6 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                             or identity.get("kind") not in {"functionInstance", "excludedFunctionInstance"}
                             or not isinstance(identity.get("qualified"), str)):
                         raise ValueError("Level 4 dynamic call target lacks a source identity")
-                    return_sites = call.get("returnSites")
-                    if call["sourcePc"] is None:
-                        if not isinstance(return_sites, list) or not return_sites:
-                            raise ValueError("Level 4 source-less call lacks RA-bound return sites")
-                        if return_sites != sorted(return_sites, key=lambda site: site.get("sourcePc", -1)):
-                            raise ValueError("Level 4 source-less call has unsorted return sites")
-                        for site in return_sites:
-                            if (not isinstance(site, dict)
-                                    or not isinstance(site.get("sourcePc"), int)
-                                    or not isinstance(site.get("targetPc"), int)
-                                    or not isinstance(site.get("returnPc"), int)
-                                    or site.get("linkRegister") != "ra"):
-                                raise ValueError("Level 4 source-less call has an invalid return site")
-                    elif return_sites is not None:
-                        raise ValueError("Level 4 resolved call falsely claims RA-bound return sites")
         dependencies = row.get("tailDependencies", [])
         if not isinstance(dependencies, list):
             raise ValueError("Level 4 boundary manifest tailDependencies field is not a list")
@@ -898,17 +1045,56 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
         if handoffs is not None:
             full_pcs = row.get("fullExecutionPcs")
             owned_pcs = row.get("ownedExecutionPcs")
-            subtree_pcs = row.get("subtreeOwnedExecutionPcs")
             reentries = row.get("parentReentryEdges")
+            carrier_routes = row.get("carrierRoutes")
             if (not isinstance(full_pcs, list) or not full_pcs
                     or full_pcs != sorted(set(full_pcs))):
                 raise ValueError("Level 4 dynamic boundary lacks a full execution extent")
             if (not isinstance(owned_pcs, list) or not owned_pcs
                     or owned_pcs != sorted(set(owned_pcs)) or not set(owned_pcs) <= set(full_pcs)):
                 raise ValueError("Level 4 dynamic boundary lacks owned execution PCs")
-            if (not isinstance(subtree_pcs, list) or not subtree_pcs
-                    or subtree_pcs != sorted(set(subtree_pcs)) or not set(owned_pcs) <= set(subtree_pcs)):
-                raise ValueError("Level 4 dynamic boundary lacks subtree-owned execution PCs")
+            if not isinstance(carrier_routes, list) or len(carrier_routes) != len(handoffs):
+                raise ValueError("Level 4 dynamic boundary lacks one carrier route per handoff")
+            handoff_keys = {(edge["sourcePc"], edge["targetPc"]) for edge in handoffs}
+            route_keys = set()
+            for route in carrier_routes:
+                if not isinstance(route, dict) or not isinstance(route.get("handoff"), dict):
+                    raise ValueError("Level 4 carrier route lacks a handoff")
+                handoff = route["handoff"]
+                key = handoff.get("sourcePc"), handoff.get("targetPc")
+                if key not in handoff_keys or key in route_keys:
+                    raise ValueError("Level 4 carrier route does not key one declared handoff")
+                route_keys.add(key)
+                identity = route.get("sourceIdentity")
+                review = route.get("sourceReview")
+                if (not isinstance(identity, dict) or identity.get("qualified") != row["qualified"]
+                        or not isinstance(review, dict) or review.get("sourceFile") != row.get(
+                            "functionInstanceIdentity", {}).get("sourceFile")):
+                    raise ValueError("Level 4 carrier route lacks its source identity and review")
+                classification = route.get("classification")
+                if classification not in {"intermediate", "sourceReviewedOutcomePath"}:
+                    raise ValueError("Level 4 carrier route has an invalid classification")
+                for field in ("carrierPcs", "registers", "stackDescriptors"):
+                    if not isinstance(route.get(field), list):
+                        raise ValueError(f"Level 4 carrier route lacks {field}")
+                for descriptor in route["stackDescriptors"]:
+                    if (not isinstance(descriptor, dict)
+                            or descriptor.get("instructionKind") not in {"addi", "load", "store"}
+                            or not isinstance(descriptor.get("pc"), int)
+                            or not isinstance(descriptor.get("register"), str)
+                            or not isinstance(descriptor.get("baseRegister"), str)
+                            or not isinstance(descriptor.get("offset"), int)):
+                        raise ValueError("Level 4 carrier stack descriptor is malformed")
+                if classification == "intermediate" and any(route[field] for field in (
+                        "carrierPcs", "registers", "stackDescriptors")):
+                    raise ValueError("Level 4 intermediate route falsely claims an outcome carrier")
+                if classification == "intermediate" and route.get("intermediateReason") not in {
+                        "reenters-child", "does-not-reach-source-reviewed-carrier"}:
+                    raise ValueError("Level 4 intermediate route lacks its non-outcome reason")
+                if classification == "sourceReviewedOutcomePath" and route.get("intermediateReason") is not None:
+                    raise ValueError("Level 4 outcome route falsely claims an intermediate reason")
+            if route_keys != handoff_keys:
+                raise ValueError("Level 4 carrier route inventory is incomplete or forged")
             for edges, label in ((handoffs, "handoffs"), (reentries, "re-entries")):
                 if (not isinstance(edges, list) or not edges
                         or edges != sorted(edges, key=lambda edge: (edge.get("sourcePc", -1), edge.get("targetPc", -1)))):
@@ -916,13 +1102,13 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
             for edge in handoffs:
                 if (not isinstance(edge, dict) or not isinstance(edge.get("sourcePc"), int)
                         or not isinstance(edge.get("targetPc"), int)
-                        or edge["sourcePc"] not in subtree_pcs):
-                    raise ValueError("Level 4 attribution handoff source is outside subtree execution")
+                        or edge["sourcePc"] not in owned_pcs):
+                    raise ValueError("Level 4 attribution handoff source is outside owned execution")
             for edge in reentries:
                 if (not isinstance(edge, dict) or not isinstance(edge.get("sourcePc"), int)
                         or not isinstance(edge.get("targetPc"), int)
-                        or edge["targetPc"] not in subtree_pcs):
-                    raise ValueError("Level 4 attribution re-entry target is outside subtree execution")
+                        or edge["targetPc"] not in owned_pcs):
+                    raise ValueError("Level 4 attribution re-entry target is outside owned execution")
     direct_offsets = [row for row in boundaries if row["qualified"] == "ssz_raw.readOffset"]
     if len(direct_offsets) != 4 or any(not row["instructionPcs"] for row in direct_offsets):
         raise ValueError("Level 4 direct readOffset boundaries are incomplete")
@@ -955,8 +1141,8 @@ def emit_level4_attribution_lean(database: dict) -> str:
     """Emit the four dynamic attribution boundaries as typed, source-identity keyed Lean data."""
     manifest = level4_boundary_manifest(database)
     rows = [row for row in manifest["boundaries"] if "fragmentHandoffs" in row]
-    expected_handoffs = [14, 8, 12, 5]
-    expected_reentries = [4, 4, 2, 1]
+    expected_handoffs = [7, 8, 4, 5]
+    expected_reentries = [3, 3, 1, 1]
     expected_call_frames = [4, 5, 1, 3]
     if [len(row["fragmentHandoffs"]) for row in rows] != expected_handoffs:
         raise ValueError("Level 4 attribution fragment handoff inventory changed")
@@ -972,7 +1158,6 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "inlineStack": parent_owner.get("inlineStack", []),
     }
     parent_name = function_instance_lean_name(parent_identity)
-    instructions_by_pc = {instruction["address"]: instruction for instruction in database["instructions"]}
     L = [
         "-- GENERATED FILE: produced by tools/generate_machine_regions.py. DO NOT EDIT.",
         "import BinaryFv.RiscV.Elfling.Boundary",
@@ -993,32 +1178,9 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "open BinaryFv.Zesu.Elflings.Generated",
         "open BinaryFv.Zesu.Elflings.Validation",
         "",
-        "def hasSelectedAncestor (program : Program) (child owner : FunctionInstanceId) : Bool :=",
-        "  go owner program.functionInstances.size",
-        "where",
-        "  go (current : FunctionInstanceId) : Nat → Bool",
-        "    | 0 => false",
-        "    | fuel + 1 => if current = child then true else",
-        "      match program.find? current with",
-        "      | some node => match node.parent? with | some parent => go parent fuel | none => false",
-        "      | none => false",
-        "",
-        "def ownedBySelectedSubtree (program : Program) (child : FunctionInstanceId) (pc : Nat) : Bool :=",
-        "  program.functionInstances.any fun owner =>",
-        "    ownedBy program owner pc && hasSelectedAncestor program child owner.id",
-        "",
         "inductive AttributionCallTarget where",
         "  | functionInstance : FunctionInstanceId → AttributionCallTarget",
         "  | excludedFunctionInstance : FunctionInstanceId → AttributionCallTarget",
-        "",
-        "inductive ReturnAddressBinding where",
-        "  | jalrX1X1 : ReturnAddressBinding",
-        "",
-        "structure AttributionReturnObligation where",
-        "  callSource : Nat",
-        "  calleeTarget : Nat",
-        "  returnPc : Nat",
-        "  raBinding : ReturnAddressBinding",
         "",
         "structure AttributionCallFrame where",
         "  kind : String",
@@ -1026,29 +1188,129 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "  target : Nat",
         "  callee : AttributionCallTarget",
         "  activeCalleeExecutionPcs : Array Nat",
-        "  returnObligations : Array AttributionReturnObligation",
         "",
         "structure AttributionFragmentBoundary where",
         "  child : FunctionInstanceId",
         "  ownedExecutionPcs : Array Nat",
-        "  subtreeOwnedExecutionPcs : Array Nat",
         "  fullExecutionPcs : Array Nat",
         "  callFrames : Array AttributionCallFrame",
         "  handoffs : Array DirectEdge",
         "  reentries : Array DirectEdge",
         "",
+        "/-- Classification of a decoded child-to-parent handoff. This is geometry and audited",
+        "source provenance, not a contract postcondition. -/",
+        "inductive OutcomeCarrierRouteClass where",
+        "  | intermediate",
+        "  | sourceReviewedOutcomePath",
+        "",
+        "structure CarrierRegister where",
+        "  pc : Nat",
+        "  register : String",
+        "  role : String",
+        "",
+        "structure CarrierStackDescriptor where",
+        "  pc : Nat",
+        "  instructionKind : String",
+        "  register : String",
+        "  baseRegister : String",
+        "  offset : Nat",
+        "  role : String",
+        "",
+        "structure CarrierStatusTag where",
+        "  state : String",
+        "  pc : Option Nat",
+        "  baseRegister : Option String",
+        "  offset : Option Nat",
+        "  width : Option Nat",
+        "  value : Option Nat",
+        "  reason : String",
+        "",
+        "structure CarrierAllocation where",
+        "  state : String",
+        "  reason : String",
+        "",
+        "structure CarrierHeapArrayRep where",
+        "  state : String",
+        "  baseRegister : Option String",
+        "  countRegister : Option String",
+        "  elementBytes : Option Nat",
+        "  reason : String",
+        "",
+        "/-- The exact source-identity-plus-edge key and its audited parent continuation data.",
+        "The carrier fields distinguish static/source review from outstanding machine obligations;",
+        "they do not assert an outcome value, HeapArrayRep, or universal frame. -/",
+        "structure AttributionOutcomeCarrierRoute where",
+        "  child : FunctionInstanceId",
+        "  handoff : DirectEdge",
+        "  classification : OutcomeCarrierRouteClass",
+        "  intermediateReason : Option String",
+        "  sourceLine : Nat",
+        "  sourceResult : String",
+        "  carrierPcs : Array Nat",
+        "  registers : Array CarrierRegister",
+        "  stackDescriptors : Array CarrierStackDescriptor",
+        "  statusTag : CarrierStatusTag",
+        "  allocation : CarrierAllocation",
+        "  heapArrayRep : CarrierHeapArrayRep",
+        "",
     ]
     boundary_names = []
+    carrier_route_names = []
     for row in rows:
         identity = row["functionInstanceIdentity"]
         name = function_instance_lean_name(identity)
         boundary_name = f"{name}_attributionBoundary"
         boundary_names.append(boundary_name)
+        carrier_route_names.append((f"{boundary_name}_carrierRoutes", len(row["carrierRoutes"])))
         child = name
         pairs = lambda edges: ", ".join(
             f"{{ source := {edge['sourcePc']}, target := {edge['targetPc']} }}" for edge in edges)
         edge_array = lambda edges: f"(#[{pairs(edges)}] : Array DirectEdge)"
         pcs = lambda xs: ", ".join(str(x) for x in xs)
+        def carrier_route(route: dict) -> str:
+            classification = (".intermediate" if route["classification"] == "intermediate"
+                              else ".sourceReviewedOutcomePath")
+            handoff = route["handoff"]
+            registers = ", ".join(
+                '{ pc := %s, register := "%s", role := "%s" }' %
+                (register["pc"], register["register"], register["role"])
+                for register in route["registers"]
+            )
+            descriptors = ", ".join(
+                '{ pc := %s, instructionKind := "%s", register := "%s", baseRegister := "%s", offset := %s, role := "%s" }' %
+                (descriptor["pc"], descriptor["instructionKind"], descriptor["register"], descriptor["baseRegister"],
+                 descriptor["offset"], descriptor["role"])
+                for descriptor in route["stackDescriptors"]
+            )
+            optional_nat = lambda value: "none" if value is None else f"some {value}"
+            optional_string = lambda value: "none" if value is None else f'some "{value}"'
+            status = route["statusTag"]
+            status_lean = (
+                '{ state := "%s", pc := %s, baseRegister := %s, offset := %s, width := %s, '
+                'value := %s, reason := "%s" }' %
+                (status["state"], optional_nat(status.get("pc")), optional_string(status.get("baseRegister")),
+                 optional_nat(status.get("offset")), optional_nat(status.get("width")),
+                 optional_nat(status.get("value")), status.get("reason", ""))
+            )
+            allocation = route["allocation"]
+            allocation_lean = '{ state := "%s", reason := "%s" }' % (
+                allocation["state"], allocation.get("reason", ""))
+            heap = route["heapArrayRep"]
+            heap_lean = (
+                '{ state := "%s", baseRegister := %s, countRegister := %s, elementBytes := %s, reason := "%s" }' %
+                (heap["state"], optional_string(heap.get("baseRegister")),
+                 optional_string(heap.get("countRegister")), optional_nat(heap.get("elementBytes")),
+                 heap.get("reason", ""))
+            )
+            return (
+                "{ child := %sId, handoff := { source := %s, target := %s }, classification := %s, intermediateReason := %s, sourceLine := %s, sourceResult := \"%s\", "
+                "carrierPcs := #[%s], registers := #[%s], stackDescriptors := #[%s], "
+                "statusTag := %s, allocation := %s, heapArrayRep := %s }"
+                % (child, handoff["sourcePc"], handoff["targetPc"], classification,
+                   optional_string(route["intermediateReason"]), route["sourceReview"]["sourceLine"],
+                   route["sourceReview"]["sourceResult"], pcs(route["carrierPcs"]), registers,
+                   descriptors, status_lean, allocation_lean, heap_lean)
+            )
         def call_frame(call: dict) -> str:
             identity = call["targetIdentity"]
             callee = target_lean_name(identity)
@@ -1056,22 +1318,18 @@ def emit_level4_attribution_lean(database: dict) -> str:
                       if identity["kind"] == "excludedFunctionInstance"
                       else f".functionInstance {callee}Id")
             source = "none" if call["sourcePc"] is None else f"some {call['sourcePc']}"
-            obligations = ", ".join(
-                "{ callSource := %s, calleeTarget := %s, returnPc := %s, raBinding := .jalrX1X1 }"
-                % (site["sourcePc"], site["targetPc"], site["returnPc"])
-                for site in call.get("returnSites", [])
-            )
             return (
                 "{ kind := \"%s\", source := %s, target := %s, callee := %s, "
-                "activeCalleeExecutionPcs := #[%s], returnObligations := #[%s] }"
+                "activeCalleeExecutionPcs := #[%s] }"
                 % (call["kind"], source, call["targetPc"], target,
-                   pcs(call["activeCalleeExecutionPcs"]), obligations)
+                   pcs(call["activeCalleeExecutionPcs"]))
             )
         call_frames = f"(#[{', '.join(call_frame(call) for call in row.get('calls', []))}] : Array AttributionCallFrame)"
+        carrier_routes = "(#[%s] : Array AttributionOutcomeCarrierRoute)" % ", ".join(
+            carrier_route(route) for route in row["carrierRoutes"])
         L.extend([
             f"noncomputable def {boundary_name} : AttributionFragmentBoundary :=",
             f"  {{ child := {child}Id, ownedExecutionPcs := #[{pcs(row['ownedExecutionPcs'])}],",
-            f"    subtreeOwnedExecutionPcs := #[{pcs(row['subtreeOwnedExecutionPcs'])}],",
             f"    fullExecutionPcs := #[{pcs(row['fullExecutionPcs'])}],",
             f"    callFrames := {call_frames},",
             f"    handoffs := {edge_array(row['fragmentHandoffs'])},",
@@ -1080,8 +1338,6 @@ def emit_level4_attribution_lean(database: dict) -> str:
             f"theorem {boundary_name}_child : {boundary_name}.child = {child}Id := rfl",
             f"theorem {boundary_name}_ownedExecutionPcs_exact :",
             f"    {boundary_name}.ownedExecutionPcs = #[{pcs(row['ownedExecutionPcs'])}] := rfl",
-            f"theorem {boundary_name}_subtreeOwnedExecutionPcs_exact :",
-            f"    {boundary_name}.subtreeOwnedExecutionPcs = #[{pcs(row['subtreeOwnedExecutionPcs'])}] := rfl",
             f"theorem {boundary_name}_fullExecutionPcs_exact :",
             f"    {boundary_name}.fullExecutionPcs = #[{pcs(row['fullExecutionPcs'])}] := rfl",
             f"theorem {boundary_name}_callFrames_exact :",
@@ -1090,34 +1346,24 @@ def emit_level4_attribution_lean(database: dict) -> str:
             f"    {boundary_name}.handoffs = {edge_array(row['fragmentHandoffs'])} := rfl",
             f"theorem {boundary_name}_reentries_exact :",
             f"    {boundary_name}.reentries = {edge_array(row['parentReentryEdges'])} := rfl",
+            f"noncomputable def {boundary_name}_carrierRoutes : Array AttributionOutcomeCarrierRoute :=",
+            f"  {carrier_routes}",
+            f"theorem {boundary_name}_carrierRoutes_exact :",
+            f"    {boundary_name}_carrierRoutes = {carrier_routes} := rfl",
             f"theorem {boundary_name}_counts :",
             f"    {edge_array(row['fragmentHandoffs'])}.size = {len(row['fragmentHandoffs'])} ∧",
             f"    {edge_array(row['parentReentryEdges'])}.size = {len(row['parentReentryEdges'])} := by native_decide",
             f"theorem {boundary_name}_cfg_and_ownership :",
             f"    (∀ edge ∈ {edge_array(row['fragmentHandoffs'])},",
             f"      programContainsEdge generatedProgram edge = true ∧",
-            f"      ownedBySelectedSubtree generatedProgram {child}Id edge.source = true ∧",
+            f"      ownedBy generatedProgram {child} edge.source = true ∧",
             f"      ownedBy generatedProgram {parent_name} edge.target = true) ∧",
             f"    (∀ edge ∈ {edge_array(row['parentReentryEdges'])},",
             f"      programContainsEdge generatedProgram edge = true ∧",
             f"      ownedBy generatedProgram {parent_name} edge.source = true ∧",
-            f"      ownedBySelectedSubtree generatedProgram {child}Id edge.target = true) := by native_decide",
+            f"      ownedBy generatedProgram {child} edge.target = true) := by native_decide",
             "",
         ])
-        subtree_by_owner: dict[str, list[int]] = defaultdict(list)
-        for pc in row["subtreeOwnedExecutionPcs"]:
-            subtree_by_owner[instructions_by_pc[pc]["owner"]].append(pc)
-        for owner_id, owner_pcs in sorted(subtree_by_owner.items()):
-            owner_name = lean_name_component(owner_id.replace(":", "_"))
-            for chunk_index, start in enumerate(range(0, len(owner_pcs), 32)):
-                chunk = owner_pcs[start:start + 32]
-                chunk_array = f"(#[{pcs(chunk)}] : Array Nat)"
-                L.extend([
-                    f"theorem {boundary_name}_subtreeOwner_{owner_name}_chunk_{chunk_index}_ancestry :",
-                    f"    ∀ pc ∈ {chunk_array},",
-                    f"      ownedBySelectedSubtree generatedProgram {child}Id pc = true := by native_decide",
-                    "",
-                ])
         for index, call in enumerate(row.get("calls", [])):
             identity = call["targetIdentity"]
             callee = target_lean_name(identity)
@@ -1134,28 +1380,6 @@ def emit_level4_attribution_lean(database: dict) -> str:
                 f"    ∀ pc ∈ {full_pcs}, {membership} = true := by native_decide",
                 "",
             ])
-            if "returnSites" in call:
-                obligations = ", ".join(
-                    "{ callSource := %s, calleeTarget := %s, returnPc := %s, raBinding := .jalrX1X1 }"
-                    % (site["sourcePc"], site["targetPc"], site["returnPc"])
-                    for site in call["returnSites"]
-                )
-                obligation_array = f"(#[{obligations}] : Array AttributionReturnObligation)"
-                L.extend([
-                    f"theorem {call_name}_returnObligations_exact :",
-                    f"    {boundary_name}.callFrames[{index}]?.map (·.returnObligations) =",
-                    f"      some {obligation_array} := rfl",
-                    f"theorem {call_name}_returnObligations_cfg_and_ownership :",
-                    f"    ∀ obligation ∈ {obligation_array},",
-                    f"      ownedBy generatedProgram {child} obligation.callSource = true ∧",
-                    f"      programContainsEdge generatedProgram",
-                    f"        {{ source := obligation.callSource, target := obligation.calleeTarget }} = true ∧",
-                    f"      programContainsEdge generatedProgram",
-                    f"        {{ source := obligation.callSource, target := obligation.returnPc }} = true ∧",
-                    f"      obligation.returnPc = obligation.callSource + 4 ∧",
-                    f"      ownedBy generatedProgram {child} obligation.returnPc = true := by native_decide",
-                    "",
-                ])
     L.extend([
         "/-- The four selected direct dynamic decoder identities, in source call-site order. -/",
         "noncomputable def level4AttributionFragmentBoundaries : Array AttributionFragmentBoundary :=",
@@ -1163,17 +1387,23 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "",
         "theorem level4AttributionFragmentBoundaries_count :",
         "    level4AttributionFragmentBoundaries.size = 4 := rfl",
-        f"def level4AttributionFragmentHandoffCounts : Array Nat := #[{pcs(expected_handoffs)}]",
-        f"def level4AttributionFragmentReentryCounts : Array Nat := #[{pcs(expected_reentries)}]",
+        "def level4AttributionFragmentHandoffCounts : Array Nat := #[7, 8, 4, 5]",
+        "def level4AttributionFragmentReentryCounts : Array Nat := #[3, 3, 1, 1]",
         "def level4AttributionCallFrameCounts : Array Nat := #[4, 5, 1, 3]",
         "theorem level4AttributionFragmentHandoff_counts :",
-        f"    level4AttributionFragmentHandoffCounts = #[{pcs(expected_handoffs)}] := rfl",
+        "    level4AttributionFragmentHandoffCounts = #[7, 8, 4, 5] := rfl",
         "theorem level4AttributionFragmentReentry_counts :",
-        f"    level4AttributionFragmentReentryCounts = #[{pcs(expected_reentries)}] := rfl",
+        "    level4AttributionFragmentReentryCounts = #[3, 3, 1, 1] := rfl",
         "theorem level4AttributionCallFrame_counts :",
         "    level4AttributionCallFrameCounts = #[4, 5, 1, 3] := rfl",
         "theorem level4AttributionFragmentBoundary_totals :",
-        "    14 + 8 + 12 + 5 = 39 ∧ 4 + 4 + 2 + 1 = 11 := by decide",
+        "    7 + 8 + 4 + 5 = 24 ∧ 3 + 3 + 1 + 1 = 8 := by decide",
+        "/-- All 24 dynamic child-to-parent handoffs, keyed by source-derived child identity and",
+        "exact decoded edge. Consumers must inspect `classification` before using carrier fields. -/",
+        "noncomputable def level4OutcomeCarrierRoutes : Array AttributionOutcomeCarrierRoute :=",
+        "  #[" + ", ".join(f"{name}[{index}]!" for name, count in carrier_route_names
+                            for index in range(count)) + "]",
+        "theorem level4OutcomeCarrierRoutes_count : level4OutcomeCarrierRoutes.size = 24 := by native_decide",
         "",
         "end BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution",
         "",
