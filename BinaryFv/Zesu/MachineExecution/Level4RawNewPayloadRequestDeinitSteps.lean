@@ -56,13 +56,13 @@ abbrev Level4RawNewPayloadRequestDeinitChildSummary : FunctionInstanceId → Nat
   fun _ _ _ _ _ => False
 
 def level4RawNewPayloadRequestDeinitWrites : RegSet := fun r =>
-  stepBookkeeping r ∨ r = x2 ∨ r = x8 ∨ r = x9
+  stepBookkeeping r ∨ r = x2 ∨ r = x8 ∨ r = x9 ∨ r = x10 ∨ r = x11
 
 private theorem decoderPreserved_level4RawNewPayloadRequestDeinitWrites_disjoint :
     RegSet.Disjoint decoderPreserved level4RawNewPayloadRequestDeinitWrites := by
   intro r preserved written
   rcases preserved with ⟨notLink, platform⟩
-  rcases written with bookkeeping | rfl | rfl | rfl
+  rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl
   · exact platformPreserved_disjoint r platform bookkeeping
   all_goals simp [platformPreserved] at platform
 
@@ -149,7 +149,8 @@ private theorem level4_rawNewPayloadRequestDeinit_stack_seg_witness
     ∃ after, Seg Level4RawNewPayloadRequestDeinitPcs Level4RawNewPayloadRequestDeinitExit
       Level4RawNewPayloadRequestDeinitChildSummary level4RawNewPayloadRequestDeinitWrites
       (level4RawNewPayloadRequestDeinitSaveMemory (frame.stack - 0x690))
-      [⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x9, BitVec.ofNat 64 2⟩,
+      [⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x11, Classical.choose pre.a1⟩,
+        ⟨x10, Classical.choose pre.a0⟩, ⟨x9, BitVec.ofNat 64 2⟩,
         ⟨x8, Classical.choose pre.s0⟩, ⟨x1, BitVec.ofNat 64 0x129ec⟩]
       fromStep 1 current after (BitVec.ofNat 64 0x131f0) ∧
       ∃ retired, after = afterRegisterWrite current (BitVec.ofNat 64 0x131ec) retired x2
@@ -164,6 +165,8 @@ private theorem level4_rawNewPayloadRequestDeinit_stack_seg_witness
   let seg0 := seg0.know x1 (BitVec.ofNat 64 0x129ec) pre.ra
   let seg0 := seg0.know x8 (Classical.choose pre.s0) s0Value
   let seg0 := seg0.know x9 (BitVec.ofNat 64 2) pre.s1
+  let seg0 := seg0.know x10 (Classical.choose pre.a0) (Classical.choose_spec pre.a0)
+  let seg0 := seg0.know x11 (Classical.choose pre.a1) (Classical.choose_spec pre.a1)
   have run : ∃ stepRetired, Runs (try_step fromStep false) current
       (afterRegisterWrite current (BitVec.ofNat 64 0x131ec) stepRetired x2
         (BitVec.ofNat 64 (frame.stack - 0x690 - 0x50))) false := by
@@ -185,7 +188,8 @@ theorem level4_rawNewPayloadRequestDeinit_stack_seg
     ∃ after, Seg Level4RawNewPayloadRequestDeinitPcs Level4RawNewPayloadRequestDeinitExit
       Level4RawNewPayloadRequestDeinitChildSummary level4RawNewPayloadRequestDeinitWrites
       (level4RawNewPayloadRequestDeinitSaveMemory (frame.stack - 0x690))
-      [⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x9, BitVec.ofNat 64 2⟩,
+      [⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x11, Classical.choose pre.a1⟩,
+        ⟨x10, Classical.choose pre.a0⟩, ⟨x9, BitVec.ofNat 64 2⟩,
         ⟨x8, Classical.choose pre.s0⟩, ⟨x1, BitVec.ofNat 64 0x129ec⟩]
       fromStep 1 current after (BitVec.ofNat 64 0x131f0) := by
   obtain ⟨after, seg, -⟩ := level4_rawNewPayloadRequestDeinit_stack_seg_witness frame pre fromStep
@@ -335,7 +339,8 @@ structure Level4RawNewPayloadRequestDeinitInitialSavesHandoff
   seg : Seg Level4RawNewPayloadRequestDeinitPcs Level4RawNewPayloadRequestDeinitExit
     Level4RawNewPayloadRequestDeinitChildSummary level4RawNewPayloadRequestDeinitWrites
     (level4RawNewPayloadRequestDeinitSaveMemory (frame.stack - 0x690))
-    [⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x9, BitVec.ofNat 64 2⟩,
+    [⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x11, Classical.choose pre.a1⟩,
+      ⟨x10, Classical.choose pre.a0⟩, ⟨x9, BitVec.ofNat 64 2⟩,
       ⟨x8, Classical.choose pre.s0⟩, ⟨x1, BitVec.ofNat 64 0x129ec⟩]
     fromStep 4 before after (BitVec.ofNat 64 0x131fc)
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x131fc)
@@ -522,10 +527,8 @@ theorem level4_rawNewPayloadRequestDeinit_initial_saves_handoff
     seg4.reg x1 (BitVec.ofNat 64 0x129ec) (by simp),
     seg4.reg x8 (Classical.choose pre.s0) (by simp),
     seg4.reg x9 (BitVec.ofNat 64 2) (by simp),
-    (seg4.get x10 (by simp [level4RawNewPayloadRequestDeinitWrites])).trans
-      (Classical.choose_spec pre.a0),
-    (seg4.get x11 (by simp [level4RawNewPayloadRequestDeinitWrites])).trans
-      (Classical.choose_spec pre.a1), code4, ?_, seg4.retired⟩⟩
+    seg4.reg x10 (Classical.choose pre.a0) (by simp),
+    seg4.reg x11 (Classical.choose pre.a1) (by simp), code4, ?_, seg4.retired⟩⟩
   exact machine0.mono (seg4.agree decoderPreserved_level4RawNewPayloadRequestDeinitWrites_disjoint)
     seg4.retired
 
@@ -607,7 +610,8 @@ theorem level4_rawNewPayloadRequestDeinit_argument_moves_handoff
     simp
   let seg0 := handoff.seg.forget
     (kv' := [⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x9, BitVec.ofNat 64 2⟩,
-      ⟨x1, BitVec.ofNat 64 0x129ec⟩]) (by simp)
+      ⟨x1, BitVec.ofNat 64 0x129ec⟩, ⟨x10, Classical.choose pre.a0⟩,
+      ⟨x11, Classical.choose pre.a1⟩]) (by simp)
   obtain ⟨retired5, afterS0, hS0, seg1⟩ := seg0.stepWitness
     (by
       change ∃ range : BinaryFv.Binary.AddressRange,
@@ -639,7 +643,8 @@ theorem level4_rawNewPayloadRequestDeinit_argument_moves_handoff
       (Classical.choose pre.a1)) x10 (by decide) |>.trans handoff.a0
   let seg1 := seg1.forget
     (kv' := [⟨x8, Classical.choose pre.a1⟩,
-      ⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x1, BitVec.ofNat 64 0x129ec⟩])
+      ⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x1, BitVec.ofNat 64 0x129ec⟩,
+      ⟨x10, Classical.choose pre.a0⟩, ⟨x11, Classical.choose pre.a1⟩])
     (by simp)
   obtain ⟨retired6, after, hS1, seg2⟩ := seg1.stepWitness
     (by
@@ -653,7 +658,7 @@ theorem level4_rawNewPayloadRequestDeinit_argument_moves_handoff
         (level4_rawNewPayloadRequestDeinit_move_s1_step machine1 (Agree.refl afterS0)
           seg1.retired code1 (fromStep + 5) seg1.atPc
           a0AfterS0))
-    (by decide) (fun r h => Or.inl h) (Or.inr (Or.inr (Or.inr rfl))) (by decide) (by decide)
+    (by decide) (fun r h => Or.inl h) (Or.inr (Or.inr (Or.inr (Or.inl rfl)))) (by decide) (by decide)
     (by exact of_decide_eq_true rfl)
   have code2 : Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
     rw [hS1, afterRegisterWrite_mem]
@@ -666,7 +671,7 @@ theorem level4_rawNewPayloadRequestDeinit_argument_moves_handoff
   have writes2 : WritesOnlyRegs level4RawNewPayloadRequestDeinitWrites afterS0 after := by
     rw [hS1]
     exact (afterRegisterWrite_writes afterS0 (BitVec.ofNat 64 0x13200) retired6 x9
-      (Classical.choose pre.a0)).mono (fun r h => h.elim Or.inl (fun h => h ▸ Or.inr (Or.inr (Or.inr rfl))))
+      (Classical.choose pre.a0)).mono (fun r h => h.elim Or.inl (fun h => h ▸ Or.inr (Or.inr (Or.inr (Or.inl rfl)))))
   rw [hS1] at writes2 ⊢
   exact machine1.mono
     (writes2.agree decoderPreserved_level4RawNewPayloadRequestDeinitWrites_disjoint)
