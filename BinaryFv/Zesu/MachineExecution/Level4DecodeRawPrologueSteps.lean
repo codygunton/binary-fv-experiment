@@ -118,6 +118,10 @@ structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : 
   postStackEq : stack = postStack + 0x690
   rawFrameWritable : ∀ index, index < 0x7f0 →
     canonicalContractParams.env.stack (postStack + index)
+  /-- The caller's canonical input/stack separation restricted to the raw decoder's temporary
+  frame.  Parent stores use it to preserve borrowed input memory. -/
+  rawFrameInputSeparated : ∀ address, postStack ≤ address → address < postStack + 0x7f0 →
+    margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase
   stackFits : stack + 0x7f0 < 2 ^ 64
   saveAreaWritable : ∀ index, index < 104 → canonicalContractParams.env.stack (stack + 0x788 + index)
   slotAligned : ∀ offset, 0x788 ≤ offset → offset ≤ 0x7e8 → offset % 8 = 0 →
@@ -168,6 +172,8 @@ structure Level4DecodeRawEntryEnvelopeOffsetsHandoff (fromStep : Nat) (before af
     canonicalContractParams.env.stack (pre.stack + 0x7f0 + index)
   rawFrameWritable : ∀ index, index < 0x7f0 →
     canonicalContractParams.env.stack (pre.postStack + index)
+  rawFrameInputSeparated : ∀ address, pre.postStack ≤ address → address < pre.postStack + 0x7f0 →
+    margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase
   lengthFits : margs.bytes.size < 2 ^ 64
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   machine : DecoderMachinePre
@@ -901,9 +907,27 @@ theorem level4_decode_raw_entry_prologue
         rw [← entryArgsMachine]
         exact inputLength16,
       input16, pre.inputStackSeparated,
-      pre.stackFrameWritable, pre.rawFrameWritable,
+      pre.stackFrameWritable, pre.rawFrameWritable, pre.rawFrameInputSeparated,
       lengthFits, code16,
       pre.decodeRawMachine.mono (seg16.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint)
         seg16.retired, seg16.retired⟩⟩
 
 end BinaryFv.Zesu.MachineExecution
+
+-- AUTO_AXIOM_CHECK_MARKER_DO_NOT_COMMIT
+#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryProloguePcs
+#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryProloguePcs
+#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryProloguePcs_exact
+#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryProloguePcs_count
+#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryProloguePcs_subset_direct
+#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryProloguePcs_subset_entryEnvelopeOffsets
+#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryPrologueExit
+#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryPrologueChildSummary
+#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawPrologueSavedFrame
+#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryProloguePre
+#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryProloguePre.return_target
+#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryProloguePre.return_bit_one_zero
+#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryPrologueWrites
+#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryEnvelopeOffsetsHandoff
+#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawSavedSlots
+#print axioms BinaryFv.Zesu.MachineExecution.level4_decode_raw_entry_prologue

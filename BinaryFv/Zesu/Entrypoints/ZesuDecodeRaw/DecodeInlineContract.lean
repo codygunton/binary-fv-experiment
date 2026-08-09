@@ -441,6 +441,17 @@ theorem DecodeInlinePre.rawFrameWritable_of_postStack
   rw [entryStack] at writable
   simpa using writable
 
+/-- The borrowed input is also outside every byte of the raw decoder's temporary frame.  This
+narrows the existing canonical-stack separation through the caller-derived raw-frame permission. -/
+theorem DecodeInlinePre.rawFrameInputSeparated_of_postStack
+    (pre : DecodeInlinePre args state) (postStack : Nat)
+    (entryStack : args.stackBase = postStack + 0xe80) (address : Nat)
+    (lower : postStack ≤ address) (upper : address < postStack + 0x7f0) :
+    args.inputBase + args.bytes.size ≤ address ∨ address < args.inputBase := by
+  apply pre.inputAvoidsCanonicalStack address
+  rw [show address = postStack + (address - postStack) by omega]
+  exact pre.rawFrameWritable_of_postStack postStack entryStack _ (by omega)
+
 /-- Regression for the parent store at `0x1063c`: this slot is below the raw-entry stack pointer,
 so the ordinary caller-frame permission alone must not be used in its Sail store proof. -/
 theorem DecodeInlinePre.rawFrameWritable_store_0x1063c
@@ -448,6 +459,15 @@ theorem DecodeInlinePre.rawFrameWritable_store_0x1063c
     (entryStack : args.stackBase = postStack + 0xe80) :
     canonicalContractParams.env.stack (postStack + 0x2a0) :=
   pre.rawFrameWritable_of_postStack postStack entryStack 0x2a0 (by omega)
+
+/-- The `0x1063c` store slot is outside borrowed input as well as writable.  A later store proof
+uses this to retain `MemoryBytes`; writable stack membership alone would be insufficient. -/
+theorem DecodeInlinePre.rawFrameInputSeparated_store_0x1063c
+    (pre : DecodeInlinePre args state) (postStack : Nat)
+    (entryStack : args.stackBase = postStack + 0xe80) :
+    args.inputBase + args.bytes.size ≤ postStack + 0x2a0 ∨ postStack + 0x2a0 < args.inputBase :=
+  pre.rawFrameInputSeparated_of_postStack postStack entryStack (postStack + 0x2a0) (by omega)
+    (by omega)
 
 /-- On success, the complete result representation records that every descriptor-selected heap
 range lies in the allocator interval consumed by this `decodeRaw` invocation. Error outcomes have

@@ -397,7 +397,6 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
       rw [stackBasePinned, stackStartPinned, stackSizePinned]
       omega
     exact ⟨lower, upper⟩
-  · native_decide
   · intro index indexBound
     simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]
     have stackBasePinned : canonicalZesuDecodeRawStackBase = 0x3000000ff5e0 := by native_decide
@@ -411,6 +410,7 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
       rw [stackBasePinned, stackStartPinned, stackSizePinned]
       omega
     exact ⟨lower, upper⟩
+  · native_decide
   · intro index indexBound
     simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]
     have stackBasePinned : canonicalZesuDecodeRawStackBase = 0x3000000ff5e0 := by native_decide
