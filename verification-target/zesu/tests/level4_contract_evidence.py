@@ -80,10 +80,11 @@ def _frame_tree(frames: tuple[dict[str, Any], ...]) -> tuple[dict[tuple[int, int
     return entries, canonical
 
 
-def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: set[int]) -> tuple[list[str], dict[str, list[list[int]]]]:
+def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: set[int],
+                               tails: dict[tuple[int, int], tuple[set[int], set[int]]] | None = None) -> tuple[list[str], dict[str, list[list[int]]]]:
     """Exact H/R selected-parent state machine with recursive generated callee frames."""
     selected, handoffs, reentries = set(boundary.subtree_pcs), set(boundary.handoffs), set(boundary.reentries)
-    entries, canonical = _frame_tree(boundary.active_frames)
+    entries, canonical = _frame_tree(boundary.active_frames); tails = tails or {}
     mode: str | None = None; stack: list[tuple[dict[str, Any], int]] = []; failures: list[str] = []
     seen = {"handoffs": [], "reentries": [], "returns": []}
     for i, pc in enumerate(pcs):
@@ -93,9 +94,14 @@ def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: s
             continue
         if stack:
             frame, ret = stack[-1]
+            if ret == -1 and pc in frame["completion"]:
+                stack.pop(); continue
             if pc == ret and pcs[i-1] in frame["activeCalleeExecutionPcs"]:
                 stack.pop(); seen["returns"].append([pair[0], pc]); continue
             child = entries.get(pair)
+            if pair in tails:
+                allowed, completion = tails[pair]
+                stack.append(({"activeCalleeExecutionPcs": allowed, "completion": completion}, -1)); continue
             if child is not None:
                 if child.get("cycleBackEdge") is not None: child = canonical[child["id"]]
                 site = next(site for site in child["returnSites"] if (site["sourcePc"], site["targetPc"]) == pair)
@@ -587,6 +593,8 @@ def main() -> int:
     machine = json.loads((args.inventory.parent / "machine-regions.json").read_text())
     fi6 = next(owner for owner in machine["callGraph"]["owners"] if owner["id"] == "fi:6")
     parent_pcs = set(fi6["instructions"])
+    tails = {(tail.source_pc, tail.target_pc): (set(tail.combined_instruction_pcs), set(tail.completion_source_pcs))
+             for boundary in boundaries for tail in boundary.tail_dependencies}
     vectors = default_vectors()
     oracle_records = [run_oracles(args, *vector) for vector in vectors]
     failures = [failure for record in oracle_records for failure in record["failures"]]
@@ -614,7 +622,7 @@ def main() -> int:
             for boundary in boundaries:
                 record = observation(boundary, pcs, stores)
                 if boundary.handoffs:
-                    state_failures, state = attribution_state_failures(boundary, pcs, parent_pcs)
+                    state_failures, state = attribution_state_failures(boundary, pcs, parent_pcs, tails)
                     record["attributionStateMachine"] = state
                     record["attributionStateFailures"] = state_failures
                     failures.extend(f"{boundary.identifier}: {name}: {failure}" for failure in state_failures)
