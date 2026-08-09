@@ -72,4 +72,9 @@ theorem level4_fi95_handoff_requires_carrier_continuation :
   exact ⟨rfl, rfl,
     functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572_path_75576_exact⟩
 
+/-- The carrier contract's expected PC list is not a target-only handoff: its exact-trace type
+requires a retiring transition before the terminal carrier state. -/
+theorem level4_fi95_carrier_path_has_two_pcs :
+    (#[75572, 75576] : Array Nat).toList = [75572, 75576] := rfl
+
 end ZesuVerification

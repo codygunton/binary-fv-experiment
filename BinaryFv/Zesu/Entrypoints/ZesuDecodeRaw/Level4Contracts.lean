@@ -144,6 +144,43 @@ structure RecursiveTransitionGeometry (boundary : AttributionFragmentBoundary) :
   handoff : ∀ edge ∈ boundary.handoffs, edge.source ∈ boundary.fullExecutionPcs
   reentry : ∀ edge ∈ boundary.reentries, edge.target ∈ boundary.fullExecutionPcs
 
+/-- One retired transition is admitted only by the generated subtree ownership, a nested call
+frame/RA return, its recorded cycle, or a generated handoff/re-entry edge. -/
+def RecursiveFrameTransition (boundary : AttributionFragmentBoundary) (source target : Nat) : Prop :=
+  source ∈ boundary.subtreeOwnedExecutionPcs ∧ target ∈ boundary.fullExecutionPcs ∨
+  ∃ frame ∈ boundary.callFrames, source = frame.source.getD source ∧ target = frame.target ∨
+  ∃ frame ∈ boundary.callFrames, ∃ ret ∈ frame.returnObligations,
+    source = ret.calleeTarget ∧ target = ret.returnPc ∧ ret.raBinding = .jalrX1X1 ∨
+  ∃ frame ∈ boundary.callFrames, ∃ cycle, frame.cycleBackEdge = some cycle ∧
+    ∃ edge ∈ cycle.transitions, source = edge.source ∧ target = edge.target ∨
+  ∃ edge ∈ boundary.handoffs, source = edge.source ∧ target = edge.target ∨
+  ∃ edge ∈ boundary.reentries, source = edge.source ∧ target = edge.target
+
+/-- A machine trace whose every retiring transition is classified by the same generated recursive
+frame geometry. -/
+inductive TraceRespectsRecursiveFrames (boundary : AttributionFragmentBoundary) :
+    Nat → Nat → State → State → Prop where
+  | exit (fromStep : Nat) (state : State) : TraceRespectsRecursiveFrames boundary fromStep 0 state state
+  | step (fromStep count : Nat) (source target : Nat) (before after final : State)
+      (atSource : before.regs.get? PC = some (BitVec.ofNat 64 source))
+      (atTarget : after.regs.get? PC = some (BitVec.ofNat 64 target))
+      (transition : RecursiveFrameTransition boundary source target)
+      (run : Runs (try_step fromStep false) before after false)
+      (rest : TraceRespectsRecursiveFrames boundary (fromStep + 1) count after final) :
+      TraceRespectsRecursiveFrames boundary fromStep (count + 1) before final
+
+/-- Exact PC-indexed parent execution.  The final singleton is the carrier PC; every preceding
+adjacent pair is an actual retiring `try_step`, so an arbitrary trace cannot inhabit this type. -/
+inductive ExactCarrierPathTrace : Nat → List Nat → State → State → Prop where
+  | terminal (fromStep : Nat) (pc : Nat) (state : State)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc)) :
+      ExactCarrierPathTrace fromStep [pc] state state
+  | snoc (fromStep : Nat) (pc : Nat) (pcs : List Nat) (before after final : State)
+      (atPc : before.regs.get? PC = some (BitVec.ofNat 64 pc))
+      (run : Runs (try_step fromStep false) before after false)
+      (rest : ExactCarrierPathTrace (fromStep + 1) pcs after final) :
+      ExactCarrierPathTrace fromStep (pc :: pcs) before final
+
 /-- A parent continuation is an actual trace from the handoff target through one exact generated
 carrier path.  The path record is retained so a semantic postcondition cannot be asserted at the
 handoff target. -/
@@ -153,16 +190,20 @@ structure Level4CarrierPathTrace (route : AttributionOutcomeCarrierRoute)
   listed : path ∈ route.carrierPaths
   startsAtTarget : handoffState.regs.get? PC = some (BitVec.ofNat 64 route.handoff.target)
   endsAtCarrier : carrierState.regs.get? PC = some (BitVec.ofNat 64 path.carrierPc)
+  exactPcs : path.pcs.toList.head? = some route.handoff.target
+  exactTrace : ExactCarrierPathTrace fromStep path.pcs.toList handoffState carrierState
   trace : ∃ used, Trace fromStep used handoffState carrierState
 
 /-- These propositions are the unresolved concrete optimized carriers at the recorded carrier PC;
 they deliberately remain obligations rather than interpreting source-review strings as evidence. -/
-structure Level4CarrierBindings (route : AttributionOutcomeCarrierRoute) (state : State) where
-  statusTag : Prop
-  output : Prop
-  allocation : Prop
-  heapArrayRep : Prop
-  atCarrier : ∃ pc ∈ route.carrierPcs, state.regs.get? PC = some (BitVec.ofNat 64 pc)
+def Level4CarrierBindings (route : AttributionOutcomeCarrierRoute) (state : State) : Prop :=
+  (route.statusTag.state = "not-applicable" ∨ ∃ tag, state.regs.get? x10 = some tag) ∧
+  (route.registers.isEmpty ∧ route.stackDescriptors.isEmpty ∨
+    ∃ descriptor, state.regs.get? x11 = some descriptor ∨ state.regs.get? x2 = some descriptor) ∧
+  (route.allocation.state = "not-applicable" ∨ ∃ base count, HeapArrayRep state base count 1) ∧
+  (route.heapArrayRep.state = "not-applicable" ∨ ∃ base count elementBytes,
+    HeapArrayRep state base count elementBytes) ∧
+  (∃ pc ∈ route.carrierPcs, state.regs.get? PC = some (BitVec.ofNat 64 pc))
 
 /-- The source-reviewed semantic implication belongs after the parent has followed the recorded
 carrier path.  It never identifies a handoff target with the interface exit. -/
@@ -191,6 +232,7 @@ structure Level4HandoffProgress {Args Outcome : Type}
     (fun pc => pc.toNat ∈ interface.boundary.fullExecutionPcs)
     (fun pc => pc = BitVec.ofNat 64 route.handoff.source)
     (functionInstanceEntryWord interface.functionInstance) fromStep prefixUsed before source
+  prefixFrames : TraceRespectsRecursiveFrames interface.boundary fromStep prefixUsed before source
   finalStep : Runs (try_step (fromStep + prefixUsed) false) source state false
   sourceToTarget : Trace fromStep (prefixUsed + 1) before state :=
     Trace.snoc (FunctionTrace.toTrace prefixTrace.trace) finalStep
