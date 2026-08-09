@@ -93,6 +93,9 @@ structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : 
   /-- This is the parent `DecodeInlinePre.rootInputBound`, transported to the concrete raw entry.
   It gives the native-word fit used by the `requireU32Length` semantic check. -/
   rootInputBound : margs.bytes.size < 2 * 1024 * 1024
+  /-- The borrowed SSZ bytes at the concrete raw entry.  The sixteen prologue instructions must
+  carry this through their thirteen stack stores before any selected reader can rely on it. -/
+  inputMemory : DecodedValue.MemoryBytes state margs.inputBase margs.bytes
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
   atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10444)
   frame : DecodeRawEntryFrame state
@@ -102,6 +105,15 @@ structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : 
   a1Value : state.regs.get? x11 = some a1
   stack : Nat
   entryStackValue : state.regs.get? x2 = some (BitVec.ofNat 64 (stack + 0x7f0))
+  /-- Every raw saved-register byte is outside the borrowed input interval.  Both real inline
+  callers derive this from their canonical input/stack layout; it is parent context, never a
+  Level 4 selected-contract assumption. -/
+  inputStackSeparated : ∀ address, stack + 0x788 ≤ address → address < stack + 0x7f0 →
+    margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase
+  /-- The caller's complete Level 2 frame permission begins at the raw entry stack pointer.  Later
+  parent phases use it for temporary slots after this prologue changes `sp`. -/
+  stackFrameWritable : ∀ index, index < 0xa20 →
+    canonicalContractParams.env.stack (stack + 0x7f0 + index)
   postStack : Nat
   postStackEq : stack = postStack + 0x690
   stackFits : stack + 0x7f0 < 2 ^ 64
@@ -114,14 +126,16 @@ terminal epilogue's restored `ra`; this is derived from the actual entry, not a 
 premise. -/
 theorem Level4DecodeRawEntryProloguePre.return_target
     (pre : Level4DecodeRawEntryProloguePre margs state) :
-    Sail.BitVec.update pre.ra 0 0#1 = pre.ra :=
-  pre.entry.2.2.2.update_low_bit pre.raValue
+    Sail.BitVec.update pre.ra 0 0#1 = pre.ra := by
+  obtain ⟨_, _, _, returnLink, _⟩ := pre.entry
+  exact returnLink.update_low_bit pre.raValue
 
 /-- The raw prologue likewise retains Sail's second return-link access-bit condition. -/
 theorem Level4DecodeRawEntryProloguePre.return_bit_one_zero
     (pre : Level4DecodeRawEntryProloguePre margs state) :
-    Sail.BitVec.access pre.ra 1 = 0#1 :=
-  pre.entry.2.2.2.access_bit_one_zero pre.raValue
+    Sail.BitVec.access pre.ra 1 = 0#1 := by
+  obtain ⟨_, _, _, returnLink, _⟩ := pre.entry
+  exact returnLink.access_bit_one_zero pre.raValue
 
 /-- The prologue writes only its two modified architectural registers plus normal retirement
 bookkeeping; stores themselves modify memory but no additional register. -/
@@ -145,6 +159,11 @@ structure Level4DecodeRawEntryEnvelopeOffsetsHandoff (fromStep : Nat) (before af
   resultBase : after.regs.get? x10 = some (BitVec.ofNat 64 pre.entryArgs.resultBase)
   inputBase : after.regs.get? x12 = some (BitVec.ofNat 64 margs.inputBase)
   inputLength : after.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
+  inputMemory : DecodedValue.MemoryBytes after margs.inputBase margs.bytes
+  inputStackSeparated : ∀ address, pre.stack + 0x788 ≤ address → address < pre.stack + 0x7f0 →
+    margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase
+  stackFrameWritable : ∀ index, index < 0xa20 →
+    canonicalContractParams.env.stack (pre.stack + 0x7f0 + index)
   lengthFits : margs.bytes.size < 2 ^ 64
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   machine : DecoderMachinePre
@@ -443,6 +462,26 @@ private theorem level4_prologue_store_stack_writable
   rw [show pre.stack + offset + index = pre.stack + 0x788 + (offset - 0x788 + index) by omega]
   exact pre.saveAreaWritable _ (by omega)
 
+/-- One concrete prologue dword store leaves every borrowed input byte unchanged.  The only
+nonlocal fact is the entry-layout separation carried by the actual raw caller. -/
+private theorem level4_prologue_store_inputMemory
+    (pre : Level4DecodeRawEntryProloguePre margs base) (state : State) (pc retired : BitVec 64)
+    (address : Nat) (data : BitVec 64) (inside : pre.stack + 0x788 ≤ address)
+    (endsInside : address + 8 ≤ pre.stack + 0x7f0)
+    (input : DecodedValue.MemoryBytes state margs.inputBase margs.bytes) :
+    DecodedValue.MemoryBytes
+      (afterMemoryWrite state pc retired address (width := 8) data) margs.inputBase margs.bytes := by
+  apply input.of_mem_eq
+  intro inputIndex inputBound
+  refine storeRetirement_mem_writes state pc (Sail.BitVec.addInt pc 4) retired address data
+    (margs.inputBase + inputIndex) ?_
+  rintro ⟨lower, upper⟩
+  have inputInside : address ≤ margs.inputBase + inputIndex ∧
+      margs.inputBase + inputIndex < address + 8 := by
+    omega
+  have separated := pre.inputStackSeparated (margs.inputBase + inputIndex) (by omega) (by omega)
+  rcases separated with inputBefore | stackBeforeInput <;> omega
+
 private theorem level4_decode_raw_prologue_first_save
     (pre : Level4DecodeRawEntryProloguePre margs state) (fromStep : Nat) :
     ∃ s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 after,
@@ -453,7 +492,8 @@ private theorem level4_decode_raw_prologue_first_save
         ⟨x9, s1⟩, ⟨x8, s0⟩, ⟨x1, pre.ra⟩] fromStep 2 state after
       (BitVec.ofNat 64 0x1044c) ∧
       Level4DecodeRawSavedSlots after pre.stack [(0x7e8, pre.ra)] ∧
-      Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
+      Artifacts.programImage.fileBytesLoadedFaithfully after.mem ∧
+      DecodedValue.MemoryBytes after margs.inputBase margs.bytes := by
   obtain ⟨_, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, _, s0At, s1At, s2At,
     s3At, s4At, s5At, s6At, s7At, s8At, s9At, s10At, s11At⟩ := pre.frame
   let seg0 := Seg.nil Level4DecodeRawEntryProloguePcs Level4DecodeRawEntryPrologueExit
@@ -480,6 +520,8 @@ private theorem level4_decode_raw_prologue_first_save
   have code1 : Artifacts.programImage.fileBytesLoadedFaithfully afterStack.mem := by
     rw [hStack, afterRegisterWrite_mem]
     exact pre.code
+  have input1 : DecodedValue.MemoryBytes afterStack margs.inputBase margs.bytes := by
+    simpa only [hStack, afterRegisterWrite_mem] using pre.inputMemory
   have agree1 : Agree decoderPreserved state afterStack :=
     seg1.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack1 := seg1.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
@@ -503,7 +545,11 @@ private theorem level4_decode_raw_prologue_first_save
     exact level4_prologue_store_code afterStack (BitVec.ofNat 64 0x10448) retired2
       (pre.stack + 0x7e8) pre.ra
       (level4_prologue_store_stack_writable pre 0x7e8 (by omega) (by omega)) code1
-  refine ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, afterRa, ?_, saved2, code2⟩
+  have input2 : DecodedValue.MemoryBytes afterRa margs.inputBase margs.bytes := by
+    rw [hRa]
+    exact level4_prologue_store_inputMemory pre afterStack (BitVec.ofNat 64 0x10448) retired2
+      (pre.stack + 0x7e8) pre.ra (by omega) (by omega) input1
+  refine ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, afterRa, ?_, saved2, code2, input2⟩
   change Seg Level4DecodeRawEntryProloguePcs Level4DecodeRawEntryPrologueExit
     Level4DecodeRawEntryPrologueChildSummary level4DecodeRawEntryPrologueWrites DecoderWritableByte
     [⟨x2, BitVec.ofNat 64 pre.stack⟩, ⟨x27, s11⟩, ⟨x26, s10⟩, ⟨x25, s9⟩, ⟨x24, s8⟩,
@@ -513,13 +559,15 @@ private theorem level4_decode_raw_prologue_first_save
   exact seg2
 
 private theorem level4_prologue_accumulate_store
+    (pre : Level4DecodeRawEntryProloguePre margs base)
     (seg : Seg Level4DecodeRawEntryProloguePcs Level4DecodeRawEntryPrologueExit
       Level4DecodeRawEntryPrologueChildSummary level4DecodeRawEntryPrologueWrites DecoderWritableByte
       regSlots fromStep used base state pc)
-    (saved : Level4DecodeRawSavedSlots state stack savedSlots)
+    (saved : Level4DecodeRawSavedSlots state pre.stack savedSlots)
     (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (input : DecodedValue.MemoryBytes state margs.inputBase margs.bytes)
     (address offset : Nat) (value : BitVec 64) (nextPc : BitVec 64)
-    (addressEq : address = stack + offset)
+    (addressEq : address = pre.stack + offset)
     (targetValue : (BitVec.ofNat 64 address).toNat = address)
     (run : ∃ retired, Runs (try_step (fromStep + used) false) state
       (afterMemoryWrite state pc retired address (width := 8) value) false)
@@ -529,24 +577,30 @@ private theorem level4_prologue_accumulate_store
     (inside : ∀ other, address ≤ other → other < address + 8 → DecoderWritableByte other)
     (writable : ∀ index, index < 8 → canonicalContractParams.env.stack (address + index))
     (separated : ∀ slot ∈ savedSlots, offset + 8 ≤ slot.1 ∨ slot.1 + 8 ≤ offset)
-    (keep : RegsOutside stepBookkeeping regSlots) :
+    (keep : RegsOutside stepBookkeeping regSlots)
+    (saveLower : 0x788 ≤ offset := by omega) (saveUpper : offset + 8 ≤ 0x7f0 := by omega) :
     ∃ after, Seg Level4DecodeRawEntryProloguePcs Level4DecodeRawEntryPrologueExit
       Level4DecodeRawEntryPrologueChildSummary level4DecodeRawEntryPrologueWrites DecoderWritableByte
       regSlots fromStep (used + 1) base after nextPc ∧
-      Level4DecodeRawSavedSlots after stack ((offset, value) :: savedSlots) ∧
-      Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
+      Level4DecodeRawSavedSlots after pre.stack ((offset, value) :: savedSlots) ∧
+      Artifacts.programImage.fileBytesLoadedFaithfully after.mem ∧
+      DecodedValue.MemoryBytes after margs.inputBase margs.bytes := by
   obtain ⟨retired, after, hAfter, seg'⟩ := seg.stepStoreWitness address value nextPc inRegion
     notExit run advance inside level4_prologue_bookkeeping keep
-  have saved' : Level4DecodeRawSavedSlots after stack ((offset, value) :: savedSlots) := by
+  have saved' : Level4DecodeRawSavedSlots after pre.stack ((offset, value) :: savedSlots) := by
     rw [hAfter]
     let target := BitVec.ofNat 64 address
-    have targetStack : target.toNat = stack + offset := targetValue.trans addressEq
-    simpa [target, targetValue] using level4_savedSlots_store state pc retired target value stack offset
+    have targetStack : target.toNat = pre.stack + offset := targetValue.trans addressEq
+    simpa [target, targetValue] using level4_savedSlots_store state pc retired target value pre.stack offset
       targetStack savedSlots separated saved
   have code' : Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
     rw [hAfter]
     exact level4_prologue_store_code state pc retired address value writable code
-  exact ⟨after, seg', saved', code'⟩
+  refine ⟨after, seg', saved', code', ?_⟩
+  rw [hAfter]
+  have lower : pre.stack + 0x788 ≤ address := by rw [addressEq]; omega
+  have upper : address + 8 ≤ pre.stack + 0x7f0 := by rw [addressEq]; omega
+  exact level4_prologue_store_inputMemory pre state pc retired address value lower upper input
 
 private theorem level4_decode_raw_prologue_saves
     (pre : Level4DecodeRawEntryProloguePre margs state) (fromStep : Nat) :
@@ -561,15 +615,16 @@ private theorem level4_decode_raw_prologue_saves
         [(0x788, s11), (0x790, s10), (0x798, s9), (0x7a0, s8), (0x7a8, s7), (0x7b0, s6),
           (0x7b8, s5), (0x7c0, s4), (0x7c8, s3), (0x7d0, s2), (0x7d8, s1), (0x7e0, s0),
           (0x7e8, pre.ra)] ∧
-      Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
-  obtain ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, afterRa, seg2, saved2, code2⟩ :=
+      Artifacts.programImage.fileBytesLoadedFaithfully after.mem ∧
+      DecodedValue.MemoryBytes after margs.inputBase margs.bytes := by
+  obtain ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, afterRa, seg2, saved2, code2, input2⟩ :=
     level4_decode_raw_prologue_first_save pre fromStep
   have agree2 := seg2.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack2 := seg2.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s0At := seg2.reg x8 s0 (by simp)
   have targetS0 : (BitVec.ofNat 64 (pre.stack + 0x7e0)).toNat = pre.stack + 0x7e0 :=
     level4_prologue_stack_address_toNat pre (offset := 0x7e0) (by omega)
-  obtain ⟨afterS0, seg3, saved3, code3⟩ := level4_prologue_accumulate_store seg2 saved2 code2
+  obtain ⟨afterS0, seg3, saved3, code3, input3⟩ := level4_prologue_accumulate_store pre seg2 saved2 code2 input2
     (pre.stack + 0x7e0) 0x7e0 s0 (BitVec.ofNat 64 0x10450)
     (by rfl)
     targetS0
@@ -587,7 +642,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree3 := seg3.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack3 := seg3.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s1At := seg3.reg x9 s1 (by simp)
-  obtain ⟨afterS1, seg4, saved4, code4⟩ := level4_prologue_accumulate_store seg3 saved3 code3
+  obtain ⟨afterS1, seg4, saved4, code4, input4⟩ := level4_prologue_accumulate_store pre seg3 saved3 code3 input3
     (pre.stack + 0x7d8) 0x7d8 s1 (BitVec.ofNat 64 0x10454)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x7d8) (by omega))
@@ -607,7 +662,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree4 := seg4.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack4 := seg4.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s2At := seg4.reg x18 s2 (by simp)
-  obtain ⟨afterS2, seg5, saved5, code5⟩ := level4_prologue_accumulate_store seg4 saved4 code4
+  obtain ⟨afterS2, seg5, saved5, code5, input5⟩ := level4_prologue_accumulate_store pre seg4 saved4 code4 input4
     (pre.stack + 0x7d0) 0x7d0 s2 (BitVec.ofNat 64 0x10458)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x7d0) (by omega))
@@ -624,7 +679,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree5 := seg5.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack5 := seg5.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s3At := seg5.reg x19 s3 (by simp)
-  obtain ⟨afterS3, seg6, saved6, code6⟩ := level4_prologue_accumulate_store seg5 saved5 code5
+  obtain ⟨afterS3, seg6, saved6, code6, input6⟩ := level4_prologue_accumulate_store pre seg5 saved5 code5 input5
     (pre.stack + 0x7c8) 0x7c8 s3 (BitVec.ofNat 64 0x1045c)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x7c8) (by omega))
@@ -639,7 +694,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree6 := seg6.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack6 := seg6.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s4At := seg6.reg x20 s4 (by simp)
-  obtain ⟨afterS4, seg7, saved7, code7⟩ := level4_prologue_accumulate_store seg6 saved6 code6
+  obtain ⟨afterS4, seg7, saved7, code7, input7⟩ := level4_prologue_accumulate_store pre seg6 saved6 code6 input6
     (pre.stack + 0x7c0) 0x7c0 s4 (BitVec.ofNat 64 0x10460)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x7c0) (by omega))
@@ -654,7 +709,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree7 := seg7.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack7 := seg7.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s5At := seg7.reg x21 s5 (by simp)
-  obtain ⟨afterS5, seg8, saved8, code8⟩ := level4_prologue_accumulate_store seg7 saved7 code7
+  obtain ⟨afterS5, seg8, saved8, code8, input8⟩ := level4_prologue_accumulate_store pre seg7 saved7 code7 input7
     (pre.stack + 0x7b8) 0x7b8 s5 (BitVec.ofNat 64 0x10464)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x7b8) (by omega))
@@ -669,7 +724,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree8 := seg8.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack8 := seg8.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s6At := seg8.reg x22 s6 (by simp)
-  obtain ⟨afterS6, seg9, saved9, code9⟩ := level4_prologue_accumulate_store seg8 saved8 code8
+  obtain ⟨afterS6, seg9, saved9, code9, input9⟩ := level4_prologue_accumulate_store pre seg8 saved8 code8 input8
     (pre.stack + 0x7b0) 0x7b0 s6 (BitVec.ofNat 64 0x10468)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x7b0) (by omega))
@@ -684,7 +739,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree9 := seg9.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack9 := seg9.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s7At := seg9.reg x23 s7 (by simp)
-  obtain ⟨afterS7, seg10, saved10, code10⟩ := level4_prologue_accumulate_store seg9 saved9 code9
+  obtain ⟨afterS7, seg10, saved10, code10, input10⟩ := level4_prologue_accumulate_store pre seg9 saved9 code9 input9
     (pre.stack + 0x7a8) 0x7a8 s7 (BitVec.ofNat 64 0x1046c)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x7a8) (by omega))
@@ -699,7 +754,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree10 := seg10.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack10 := seg10.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s8At := seg10.reg x24 s8 (by simp)
-  obtain ⟨afterS8, seg11, saved11, code11⟩ := level4_prologue_accumulate_store seg10 saved10 code10
+  obtain ⟨afterS8, seg11, saved11, code11, input11⟩ := level4_prologue_accumulate_store pre seg10 saved10 code10 input10
     (pre.stack + 0x7a0) 0x7a0 s8 (BitVec.ofNat 64 0x10470)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x7a0) (by omega))
@@ -714,7 +769,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree11 := seg11.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack11 := seg11.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s9At := seg11.reg x25 s9 (by simp)
-  obtain ⟨afterS9, seg12, saved12, code12⟩ := level4_prologue_accumulate_store seg11 saved11 code11
+  obtain ⟨afterS9, seg12, saved12, code12, input12⟩ := level4_prologue_accumulate_store pre seg11 saved11 code11 input11
     (pre.stack + 0x798) 0x798 s9 (BitVec.ofNat 64 0x10474)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x798) (by omega))
@@ -729,7 +784,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree12 := seg12.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack12 := seg12.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s10At := seg12.reg x26 s10 (by simp)
-  obtain ⟨afterS10, seg13, saved13, code13⟩ := level4_prologue_accumulate_store seg12 saved12 code12
+  obtain ⟨afterS10, seg13, saved13, code13, input13⟩ := level4_prologue_accumulate_store pre seg12 saved12 code12 input12
     (pre.stack + 0x790) 0x790 s10 (BitVec.ofNat 64 0x10478)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x790) (by omega))
@@ -744,7 +799,7 @@ private theorem level4_decode_raw_prologue_saves
   have agree13 := seg13.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack13 := seg13.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
   have s11At := seg13.reg x27 s11 (by simp)
-  obtain ⟨afterS11, seg14, saved14, code14⟩ := level4_prologue_accumulate_store seg13 saved13 code13
+  obtain ⟨afterS11, seg14, saved14, code14, input14⟩ := level4_prologue_accumulate_store pre seg13 saved13 code13 input13
     (pre.stack + 0x788) 0x788 s11 (BitVec.ofNat 64 0x1047c)
     (by rfl)
     (level4_prologue_stack_address_toNat pre (offset := 0x788) (by omega))
@@ -756,7 +811,8 @@ private theorem level4_decode_raw_prologue_saves
     (by intro slot h; rcases slot with ⟨slotOffset, slotValue⟩; simp_all only [List.mem_cons,
       List.not_mem_nil, or_false, Prod.mk.injEq] <;> omega)
     (by exact of_decide_eq_true rfl)
-  refine ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, afterS11, ?_, saved14, code14⟩
+  refine ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, afterS11, ?_, saved14, code14,
+    input14⟩
   change Seg Level4DecodeRawEntryProloguePcs Level4DecodeRawEntryPrologueExit
     Level4DecodeRawEntryPrologueChildSummary level4DecodeRawEntryPrologueWrites DecoderWritableByte _
     fromStep (2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1) state afterS11
@@ -777,7 +833,7 @@ theorem level4_decode_raw_entry_prologue
   have lengthFits : margs.bytes.size < 2 ^ 64 := by
     have h := pre.rootInputBound
     omega
-  obtain ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, afterS11, seg14, saved14, code14⟩ :=
+  obtain ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, afterS11, seg14, saved14, code14, input14⟩ :=
     level4_decode_raw_prologue_saves pre fromStep
   have agree14 := seg14.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
   have stack14 := seg14.reg x2 (BitVec.ofNat 64 pre.stack) (by simp)
@@ -814,6 +870,8 @@ theorem level4_decode_raw_entry_prologue
       (by decide)).trans sp15
   have memory16 : after.mem = afterS11.mem := by
     rw [hAfter, hStack, afterRegisterWrite_mem, afterRegisterWrite_mem]
+  have input16 : DecodedValue.MemoryBytes after margs.inputBase margs.bytes :=
+    input14.of_mem_eq (fun _ _ => by rw [memory16])
   have savedFrame14 :
       Level4DecodeRawPrologueSavedFrame afterS11 pre.stack pre.ra s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 := by
     exact ⟨saved14 (0x7e8, pre.ra) (by simp), saved14 (0x7e0, s0) (by simp),
@@ -838,6 +896,8 @@ theorem level4_decode_raw_entry_prologue
       by
         rw [← entryArgsMachine]
         exact inputLength16,
+      input16, pre.inputStackSeparated,
+      pre.stackFrameWritable,
       lengthFits, code16,
       pre.decodeRawMachine.mono (seg16.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint)
         seg16.retired, seg16.retired⟩⟩

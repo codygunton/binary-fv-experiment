@@ -389,6 +389,14 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   stackObjectsReadable : ∀ index,
     index < 0x6b0 + canonicalContractParams.env.record.entryResult →
       canonicalContractParams.env.stack (args.stackBase + index)
+  /-- The two inline callers inherit the exported input/stack separation.  The Level 4 raw-entry
+  adapter narrows this canonical-stack fact to its thirteen saved-register stores. -/
+  inputAvoidsCanonicalStack : ∀ address, canonicalContractParams.env.stack address →
+    args.inputBase + args.bytes.size ≤ address ∨ address < args.inputBase
+  /-- The real wrapper's complete writable frame, retained for parent-owned raw-decoder slots
+  that lie outside the thirteen saved-register words. -/
+  stackFrameWritable : ∀ index, index < 0xa20 →
+    canonicalContractParams.env.stack (args.stackBase + index)
   machine : DecodeInlineMachinePre args state
   retryReason : args.phase = .retryAfterInvalidSsz →
     meaningDecodeRaw args.bytes = .error .invalidSsz ∧
@@ -400,6 +408,28 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
       state.regs.get? x10 =
         some (BitVec.ofNat 64 (decodeInternalResultTag (.error error))) ∧
       state.regs.get? x11 = some (BitVec.ofNat 64 2)
+
+/-- Narrow the caller's canonical input/stack separation to the raw decoder's thirteen saved
+register words.  This is the adapter used when the actual inline call constructs its Level 4 raw
+entry context; it is not a selected Level 4 contract premise. -/
+theorem DecodeInlinePre.inputStackSeparated_of_saveArea
+    (pre : DecodeInlinePre args state) (stack : Nat)
+    (saveAreaWritable : ∀ index, index < 104 →
+      canonicalContractParams.env.stack (stack + 0x788 + index))
+    (address : Nat) (lower : stack + 0x788 ≤ address) (upper : address < stack + 0x7f0) :
+    args.inputBase + args.bytes.size ≤ address ∨ address < args.inputBase := by
+  apply pre.inputAvoidsCanonicalStack address
+  rw [show address = stack + 0x788 + (address - (stack + 0x788)) by omega]
+  exact saveAreaWritable _ (by omega)
+
+/-- Rebase the Level 2 caller-frame permission at the raw prologue's entry stack value.  The
+prologue later exposes this unchanged to parent phases that access post-`sp` temporary slots. -/
+theorem DecodeInlinePre.stackFrameWritable_of_entryStack
+    (pre : DecodeInlinePre args state) (stack : Nat)
+    (entryStack : args.stackBase = stack + 0x7f0) (index : Nat) (indexBound : index < 0xa20) :
+    canonicalContractParams.env.stack (stack + 0x7f0 + index) := by
+  rw [← entryStack]
+  exact pre.stackFrameWritable index indexBound
 
 /-- On success, the complete result representation records that every descriptor-selected heap
 range lies in the allocator interval consumed by this `decodeRaw` invocation. Error outcomes have

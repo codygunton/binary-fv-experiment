@@ -770,9 +770,13 @@ theorem decodeRaw_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArgs)
     _childProvenance, _childAllocation⟩
   rcases sourcePost with ⟨-, code, -, -⟩
   have returnTarget : Sail.BitVec.update returnPc 0 0#1 = returnPc :=
-    childPre.2.2.2.update_low_bit entryLink
+    by
+      obtain ⟨_, _, _, returnLink, _⟩ := childPre
+      exact returnLink.update_low_bit entryLink
   have returnBit1 : Sail.BitVec.access returnPc 1 = 0#1 :=
-    childPre.2.2.2.access_bit_one_zero entryLink
+    by
+      obtain ⟨_, _, _, returnLink, _⟩ := childPre
+      exact returnLink.access_bit_one_zero entryLink
   have machineAtExit : DecoderMachinePre
       (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
       (entryMachineArgs rawArgs) childExit :=
@@ -787,7 +791,8 @@ theorem decodeRaw_return_step (stepNo : Nat) (rawArgs : Contracts.EntryArgs)
       (decodeRawReturnAfter returnPc childExit retired) false :=
     decoderRetStep machineAtExit (Agree.refl childExit) childRetired code
       stepNo 0x10530 0x67 0x80 0x00 0x00 1#5 returnPc returnPc atExit
-      (rX_bits_run_x1 _ _ (decoderExecuteState_get? exitLink)) returnTarget returnBit1
+      (rX_bits_run_x1 _ _ (decoderExecuteState_get? exitLink))
+      (target := returnTarget) (sourceBit1 := returnBit1)
   refine ⟨retired, run, ?_⟩
   simp [decodeRawReturnAfter, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
     Std.ExtDHashMap.get?_insert]
