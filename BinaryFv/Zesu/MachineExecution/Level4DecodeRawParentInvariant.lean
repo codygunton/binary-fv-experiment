@@ -65,6 +65,23 @@ def Level4DecodeRawParentFrame.PreservedTo
     frame.savedS2 frame.savedS3 frame.savedS4 frame.savedS5 frame.savedS6 frame.savedS7 frame.savedS8
     frame.savedS9 frame.savedS10 frame.savedS11
 
+/-- A nonwrapping 8-byte word inside the caller-derived raw frame is decoder-readable.  A
+`ParentFrame` supplies `rawWritable` and `stackFits` through its concrete prologue entry. -/
+theorem rawFrameReadable_of_writable {margs : DecoderMachineArgs} {postStack : Nat}
+    (postFits : postStack + 0x7f0 < 2 ^ 64)
+    (rawWritable : ∀ index, index < 0x7f0 → canonicalContractParams.env.stack (postStack + index))
+    (offset : Nat) (within : offset + 8 ≤ 0x7f0) :
+    DecoderAccessRange (DecoderReadableByte margs) (BitVec.ofNat 64 (postStack + offset)) 8 := by
+  have addressFits : postStack + offset < 2 ^ 64 := by omega
+  refine ⟨by decide, ?_, ?_⟩
+  · have postBound : postStack + offset + 8 < 2 ^ 64 := by omega
+    simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt addressFits] using Nat.le_of_lt postBound
+  · intro index indexBound
+    right; right
+    left
+    simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt addressFits, Nat.add_assoc] using
+      rawWritable (offset + index) (by omega)
+
 def Level4DecodeRawParentFrame.toState (frame : Level4DecodeRawParentFrame margs origin current)
     (preserved : frame.PreservedTo after) : Level4DecodeRawParentFrame margs origin after :=
   { stack := frame.stack
