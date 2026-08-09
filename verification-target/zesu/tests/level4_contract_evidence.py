@@ -69,23 +69,33 @@ class Boundary:
     tail_dependencies: tuple[dict[str, Any], ...] = ()
 
 
-def _frame_tree(frames: tuple[dict[str, Any], ...]) -> tuple[dict[tuple[int, int], dict[str, Any]], dict[str, dict[str, Any]]]:
-    entries, canonical = {}, {}
+def _frame_tree(frames: tuple[dict[str, Any], ...]) -> dict[str, dict[str, Any]]:
+    canonical = {}
     def visit(frame: dict[str, Any]) -> None:
         canonical.setdefault(frame["id"], frame)
-        for site in frame["returnSites"]:
-            entries[(site["sourcePc"], site["targetPc"])] = frame
         for child in frame["activeCalleeFrames"]:
             visit(child)
     for frame in frames: visit(frame)
-    return entries, canonical
+    return canonical
+
+
+def _frame_at(frame: dict[str, Any], pair: tuple[int, int] | None) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Find only an immediate decoded callee transition of `frame`."""
+    if pair is None:
+        return None
+    for child in frame.get("activeCalleeFrames", []):
+        for site in child["returnSites"]:
+            if (site["sourcePc"], site["targetPc"]) == pair:
+                return child, site
+    return None
 
 
 def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: set[int],
-                               tails: dict[tuple[int, int], tuple[set[int], set[int]]] | None = None) -> tuple[list[str], dict[str, list[list[int]]]]:
+                               tails: dict[tuple[int, int], tuple[set[int], set[int]]] | None = None,
+                               indirect_transfers: set[int] | None = None) -> tuple[list[str], dict[str, list[list[int]]]]:
     """Exact H/R selected-parent state machine with recursive generated callee frames."""
     selected, handoffs, reentries = set(boundary.subtree_pcs), set(boundary.handoffs), set(boundary.reentries)
-    entries, canonical = _frame_tree(boundary.active_frames); tails = tails or {}
+    canonical = _frame_tree(boundary.active_frames); tails = tails or {}; indirect_transfers = indirect_transfers or set()
     mode: str | None = None; stack: list[tuple[dict[str, Any], int]] = []; failures: list[str] = []
     seen = {"handoffs": [], "reentries": [], "returns": []}
     for i, pc in enumerate(pcs):
@@ -95,32 +105,55 @@ def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: s
             continue
         if stack:
             frame, ret = stack[-1]
-            if ret == -1 and pc in frame["completion"]:
-                stack.pop(); continue
+            if frame.get("tail"):
+                if pc in frame["completion"]:
+                    frame["completed"] = True
+                    if ret is None:
+                        stack.pop(); continue
+                if frame.get("completed") and ret is not None and pc == ret:
+                    stack.pop(); continue
+                if pc not in frame["activeCalleeExecutionPcs"]:
+                    failures.append(f"foreign PC {pc:#x} in allocator tail frame at event {i}"); mode = None; stack.clear()
+                continue
             if pc == ret and pcs[i-1] in frame["activeCalleeExecutionPcs"]:
-                stack.pop(); seen["returns"].append([pair[0], pc]); continue
-            child = entries.get(pair)
+                stack.pop(); seen["returns"].append([pair[0], pc])
+                # A direct call replaces the decoded H/R fall-through in the execution
+                # trace.  Its RA is nevertheless the declared boundary target exactly.
+                boundary_pair = (pc - 4, pc)
+                if boundary_pair in handoffs:
+                    mode = "parent"; seen["handoffs"].append(list(boundary_pair))
+                elif boundary_pair in reentries:
+                    mode = "selected"; seen["reentries"].append(list(boundary_pair))
+                continue
+            child_at = _frame_at(frame, pair)
             if pair in tails:
                 allowed, completion = tails[pair]
-                stack.append(({"activeCalleeExecutionPcs": allowed, "completion": completion}, -1)); continue
-            if child is not None:
+                stack.append(({"tail": True, "activeCalleeExecutionPcs": allowed, "completion": completion, "completed": False}, None)); continue
+            if child_at is not None:
+                child, site = child_at
                 if child.get("cycleBackEdge") is not None: child = canonical[child["id"]]
-                site = next(site for site in child["returnSites"] if (site["sourcePc"], site["targetPc"]) == pair)
                 stack.append((child, site["returnPc"])); continue
             if pc not in frame["activeCalleeExecutionPcs"]:
+                if pair is not None and pair[0] in indirect_transfers:
+                    # This is an unresolved dynamic tail transfer, not a fabricated direct
+                    # call edge.  Its target remains explicitly unmeasured.
+                    stack.pop(); mode = None; continue
                 entry_tail = next((value for (_source, target), value in tails.items() if pc == target), None)
                 if entry_tail is not None:
                     allowed, completion = entry_tail
-                    stack.append(({"activeCalleeExecutionPcs": allowed, "completion": completion}, -1)); continue
+                    # An indirect allocator call has no decoded call-frame edge, but its
+                    # observed entry is exact and its RISC-V return address is source + 4.
+                    stack.append(({"tail": True, "activeCalleeExecutionPcs": allowed,
+                                   "completion": completion, "completed": False}, pair[0] + 4)); continue
                 failures.append(f"foreign PC {pc:#x} in declared call frame at event {i}"); mode = None; stack.clear()
             continue
         if mode == "selected":
-            child = entries.get(pair)
+            child_at = _frame_at({"activeCalleeFrames": boundary.active_frames}, pair)
             if pair in tails:
                 allowed, completion = tails[pair]
-                stack.append(({"activeCalleeExecutionPcs": allowed, "completion": completion}, -1)); continue
-            if child is not None:
-                site = next(site for site in child["returnSites"] if (site["sourcePc"], site["targetPc"]) == pair)
+                stack.append(({"tail": True, "activeCalleeExecutionPcs": allowed, "completion": completion, "completed": False}, None)); continue
+            if child_at is not None:
+                child, site = child_at
                 stack.append((child, site["returnPc"])); continue
             if pair in handoffs: mode = "parent"; seen["handoffs"].append(list(pair))
             elif pc in parent_pcs: failures.append(f"parent PC {pc:#x} in selected mode without H at event {i}"); mode = "parent"
@@ -439,7 +472,7 @@ def required_calls(boundary: Boundary) -> tuple[tuple[int, int], ...]:
     return tuple(call for call in boundary.calls if statically_unreachable_call(boundary, call) is None)
 
 
-def validate_observation(boundary: Boundary, record: dict[str, Any]) -> list[str]:
+def validate_observation(boundary: Boundary, record: dict[str, Any], *, strict_calls: bool = True) -> list[str]:
     failures: list[str] = []
     if not record["entryReached"]:
         failures.append("entry was not observed")
@@ -449,7 +482,7 @@ def validate_observation(boundary: Boundary, record: dict[str, Any]) -> list[str
         failures.append("no owned instruction was observed")
     observed_calls = {(call["sourcePc"], call["targetPc"]) for call in record["declaredCallsReached"]}
     missing_calls = set(required_calls(boundary)) - observed_calls
-    if missing_calls:
+    if strict_calls and missing_calls:
         failures.append(f"declared call targets were not observed: {sorted(missing_calls)}")
     return failures
 
@@ -602,6 +635,8 @@ def main() -> int:
     machine = json.loads((args.inventory.parent / "machine-regions.json").read_text())
     fi6 = next(owner for owner in machine["callGraph"]["owners"] if owner["id"] == "fi:6")
     parent_pcs = set(fi6["instructions"])
+    indirect_transfers = {instruction["address"] for instruction in machine["instructions"]
+                          if instruction["transfer"] == "indirectTransfer"}
     tails = {(tail["transfer"]["sourcePc"], tail["transfer"]["targetPc"]):
              (set(tail["combinedInstructionPcs"]), set(tail["completionSourcePcs"]))
              for boundary in boundaries for tail in boundary.tail_dependencies}
@@ -634,7 +669,8 @@ def main() -> int:
             for boundary in boundaries:
                 record = observation(boundary, pcs, stores)
                 if boundary.handoffs:
-                    state_failures, state = attribution_state_failures(boundary, pcs, parent_pcs, tails)
+                    state_failures, state = attribution_state_failures(
+                        boundary, pcs, parent_pcs, tails, indirect_transfers)
                     record["attributionStateMachine"] = state
                     record["attributionStateFailures"] = state_failures
                     failures.extend(f"{boundary.identifier}: {name}: {failure}" for failure in state_failures)
@@ -654,8 +690,8 @@ def main() -> int:
         # Merge trace-local facts only.  In particular, a handoff in one vector may not justify a
         # carrier PC observed in another vector.
         record = merge_observations(boundary, observations_by_boundary[boundary.identifier])
-        clause_failures = validate_observation(boundary, record) + validate_observed_claims(
-            record, record["declaredCallsReached"], record["declaredStoresReached"]
+        clause_failures = validate_observation(boundary, record, strict_calls=False) + validate_observed_claims(
+        record, record["declaredCallsReached"], record["declaredStoresReached"]
         ) + validate_observed_carrier_claims(record, [
             route for route in record["observedCarrierRoutes"] if route["observedCarrierPcs"]
         ]) + validate_merged_observation(
@@ -685,6 +721,12 @@ def main() -> int:
                     if len(record["declaredStoresReached"]) != len(boundary.stores) else []
                 ),
                 *( ["source-less dynamic call-frame edge"] if boundary.untraceable_calls else [] ),
+                *(
+                    ["declared direct call targets not reached by the finite production vectors"]
+                    if set(required_calls(boundary)) - {
+                        (call["sourcePc"], call["targetPc"]) for call in record["declaredCallsReached"]
+                    } else []
+                ),
                 *( ["outcome carrier register values, stack contents, status meaning, allocation, and HeapArrayRep"]
                    if boundary.carrier_routes else [] ),
             ],
