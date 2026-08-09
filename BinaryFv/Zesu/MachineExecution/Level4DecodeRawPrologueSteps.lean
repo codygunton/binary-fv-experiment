@@ -81,6 +81,10 @@ callee-saved values are not an ABI assumption: `frame` is exactly the caller-der
 structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : State) where
   machine : DecoderMachinePre
     Level4DecodeRawEntryProloguePcs margs state
+  /-- The enclosing emitted `decodeRaw` machine premise is retained for the selected
+  `requireU32Length` child entry at `0x10484`; `machine` above is the deliberately narrower
+  premise used only while executing the sixteen parent-owned prologue instructions. -/
+  decodeRawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs state
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
   atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10444)
   frame : DecodeRawEntryFrame state
@@ -118,7 +122,7 @@ structure Level4DecodeRawEntryEnvelopeOffsetsHandoff (fromStep : Nat) (before af
   s0 : after.regs.get? x8 = some pre.a1
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   machine : DecoderMachinePre
-    Level4DecodeRawEntryProloguePcs margs after
+    RegisterWriteStep.decodeRawExecutionPcs margs after
   retired : RetiredCounterPresent after
 
 private theorem level4_prologue_bookkeeping (r : Register) (h : stepBookkeeping r) :
@@ -342,10 +346,10 @@ private theorem level4_after_store_savedWord (state : State) (pc retired target 
   have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨ index = 5 ∨
       index = 6 ∨ index = 7 := by omega
   rcases cases with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-    simp_all [afterMemoryWrite, afterWriteBytes, afterByteWrites, targetValue,
+    simp_all [afterMemoryWrite, afterWriteBytes, afterByteWrites,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem_insert,
-      BinaryFv.RiscV.Sep.leBytes, BinaryFv.RiscV.Sep.leBytes_length] <;> omega
+      BinaryFv.RiscV.Sep.leBytes] <;> omega
 
 private theorem level4_after_store_preserves_savedWord (state : State)
     (pc retired target data : BitVec 64) (targetBase savedBase : Nat) (value : BitVec 64)
@@ -790,7 +794,7 @@ theorem level4_decode_raw_entry_prologue
   refine ⟨after, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11,
     ⟨seg16.trace, seg16.confined, seg16.writes, savedFrame16, seg16.atPc, sp16,
       seg16.reg x8 pre.a1 (by simp), code16,
-      pre.machine.mono (seg16.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint)
+      pre.decodeRawMachine.mono (seg16.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint)
         seg16.retired, seg16.retired⟩⟩
 
 end BinaryFv.Zesu.MachineExecution
