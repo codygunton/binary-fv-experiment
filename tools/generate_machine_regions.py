@@ -889,8 +889,11 @@ def outcome_carrier_routes(
                  "ownerIds": [instruction_rows[pc]["owner"] for pc in path]}
                 for carrier_pc, path in zip(review["carrierPcs"], paths) if path is not None
             ] if outcome else [],
-            "registers": review["registers"] if outcome else [],
-            "stackDescriptors": review["stackDescriptors"] if outcome else [],
+            # The generated Program currently exposes ownership and CFG, not decoded mnemonic /
+            # operand objects.  Do not export these Python-checked instruction annotations as
+            # kernel-checked route facts until that interface exists.
+            "registers": [],
+            "stackDescriptors": [],
             "statusTag": review["statusTag"] if outcome else {"state": "not-applicable"},
             "allocation": review["allocation"] if outcome else {"state": "not-applicable"},
             "heapArrayRep": review["heapArrayRep"] if outcome else {"state": "not-applicable"},
