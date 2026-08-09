@@ -377,6 +377,36 @@ theorem step (seg : Seg own exit childSummary W M kv a n base cur pc)
     (fun r hr => hr.elim (bookkeeping r) (fun h => h ▸ destination))
     keep
 
+/-- `step` retaining the concrete post-register-write shape for a caller that must transport a
+machine fact through this particular instruction.  The segment itself remains opaque to later
+composition. -/
+theorem stepWitness (seg : Seg own exit childSummary W M kv a n base cur pc)
+    (inRegion : own pc) (notExit : ¬ exit pc)
+    (dest : Register) (value : RegisterType dest) (nextPc : BitVec 64)
+    (run : ∃ retired, Runs (try_step (a + n) false) cur
+      (afterRegisterWrite cur pc retired dest value) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc)
+    (bookkeeping : ∀ r, stepBookkeeping r → W r) (destination : W dest)
+    (destNotPc : dest ≠ PC) (destNotRetired : dest ≠ minstret)
+    (keep : RegsOutside (RegSet.union stepBookkeeping (RegSet.only dest)) kv) :
+    ∃ retired next, next = afterRegisterWrite cur pc retired dest value ∧
+      Seg own exit childSummary W M (⟨dest, value⟩ :: kv) a (n + 1) base next nextPc := by
+  obtain ⟨retired, hrun⟩ := run
+  refine ⟨retired, _, rfl, ?_⟩
+  refine
+    { trace := seg.trace.snoc hrun
+      confined := seg.confined.trans (ConfinedPrefix.ownStep seg.atPc inRegion notExit hrun)
+      writes := seg.writes.trans_same ((afterRegisterWrite_writes cur pc retired dest value).mono
+        (fun r hr => hr.elim (bookkeeping r) (fun h => h ▸ destination)))
+      mem := writesOnlyWithin_trans seg.mem
+        (writesOnlyWithin_of_mem_eq (afterRegisterWrite_mem cur pc retired dest value))
+      retired := afterRegisterWrite_retired_present cur pc retired dest value
+      atPc := advance ▸ afterRegisterWrite_pc cur pc retired dest value
+      regs := (RegsHold.cons dest value
+        (afterRegisterWrite_destination cur pc retired dest value destNotPc destNotRetired)
+        (RegsHold.nil _)).append
+        (seg.regs.through (afterRegisterWrite_writes cur pc retired dest value) keep) }
+
 /-- **A jump.** `Seg.step` hardcodes `pc + 4`; a taken branch, a `jal` or a `ret` retires into
 `tryStepControlFlowAfterRetired (controlFlowJumpState …)` and lands at an arbitrary `target`, so it
 needs its own row. It writes no architectural register -- the target goes to `nextPC`, which
