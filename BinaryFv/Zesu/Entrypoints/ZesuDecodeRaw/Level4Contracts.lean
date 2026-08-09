@@ -333,6 +333,36 @@ def readOffsetLane (args : ReadOffsetInlineArgs) (lane : Nat) : BitVec 64 :=
 def readOffsetShift (args : ReadOffsetInlineArgs) (lane shift : Nat) : BitVec 64 :=
   readOffsetLane args lane <<< BitVec.ofNat 64 shift
 
+/-- The configured decoder context consumed by a direct reader occurrence. -/
+def readOffsetMachineArgs (args : ReadOffsetInlineArgs) : DecoderMachineArgs where
+  inputBase := args.inputBase
+  bytes := args.bytes
+
+/-- The exact architectural registers written by a non-final interleaved reader fragment.
+The `lbu`, `slli`, and `or` words write no memory; the only non-data registers they change are the
+normal retirement bookkeeping registers included by `stepBookkeeping`. -/
+def readOffsetFragmentWrites (start : Nat) : RegSet :=
+  fun r => stepBookkeeping r ∨
+    if start = 0x10534 ∨ start = 0x10554 then r = x10 ∨ r = x11 ∨ r = x12 ∨ r = x13
+    else if start = 0x10544 ∨ start = 0x10578 then r = x14 ∨ r = x15 ∨ r = x16 ∨ r = x17
+    else if start = 0x10590 then r = x14 ∨ r = x15
+    else if start = 0x10568 ∨ start = 0x10584 then r = x11 ∨ r = x13 ∨ r = x5 ∨ r = x6
+    else if start = 0x10598 then r = x11 ∨ r = x13
+    else r = x16 ∨ r = x17 ∨ r = x5 ∨ r = x6
+
+/-- The final `or` of each occurrence writes only its concrete saved-register accumulator. -/
+def readOffsetFinalWrites (functionInstance : FunctionInstance) : RegSet :=
+  fun r => stepBookkeeping r ∨
+    if functionInstance.id = functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_199_23Id then
+      r = x23
+    else if functionInstance.id =
+        functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_200_23Id then
+      r = x25
+    else if functionInstance.id =
+        functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_201_23Id then
+      r = x24
+    else r = x19
+
 /-- Exact register values after each owned non-final reader fragment, transcribed from the
 production `lbu`/`slli`/`or` words at `0x10534` through `0x105c0`. -/
 def readOffsetFragmentOutput (start : Nat) (args : ReadOffsetInlineArgs) (state : State) : Prop :=
@@ -435,7 +465,9 @@ def ReadOffsetFragmentContract (functionInstance : FunctionInstance) (start sour
       canonicalContractParams.env.CodeIntact before ∧ MemoryBytes before args.inputBase args.bytes ∧
       before.regs.get? x20 = some (BitVec.ofNat 64 args.inputBase) ∧
       args.offset = readOffsetOccurrenceOffset functionInstance.id ∧
-      readOffsetFragmentInput start args before →
+      readOffsetFragmentInput start args before ∧
+      DecoderMachinePre
+        (functionInstanceExecutionPcs generatedProgram functionInstance) (readOffsetMachineArgs args) before →
     ∃ used after, used ≤ 65 ∧
       EnteredFunctionTrace
         (fun pc => start ≤ pc.toNat ∧ pc.toNat ≤ source ∧ pc.toNat % 4 = 0)
@@ -443,7 +475,11 @@ def ReadOffsetFragmentContract (functionInstance : FunctionInstance) (start sour
       canonicalContractParams.env.CodeIntact after ∧ MemoryBytes after args.inputBase args.bytes ∧
       after.regs.get? x20 = some (BitVec.ofNat 64 args.inputBase) ∧
       args.offset = readOffsetOccurrenceOffset functionInstance.id ∧
-      readOffsetFragmentOutput start args after
+      readOffsetFragmentOutput start args after ∧ after.mem = before.mem ∧
+      WritesOnlyRegs (readOffsetFragmentWrites start) before after ∧
+      DecoderMachinePre
+        (functionInstanceExecutionPcs generatedProgram functionInstance) (readOffsetMachineArgs args) after ∧
+      RetiredCounterPresent after
 
 /-- The four selected reader fields each bundle exactly their own generated fragments.  The final
 fragment carries the observable accumulator register; no field owns its siblings' instructions. -/
@@ -455,13 +491,21 @@ structure ReadOffsetOccurrenceContract (interface :
   finalEdge : ∀ args fromStep before,
     before.regs.get? PC = some (readOffsetOccurrenceResultPc interface.functionInstance.id - 4) ∧
       canonicalContractParams.env.CodeIntact before ∧ MemoryBytes before args.inputBase args.bytes ∧
-      readOffsetFinalPieces interface.functionInstance args before →
+      readOffsetFinalPieces interface.functionInstance args before ∧
+      DecoderMachinePre
+        (functionInstanceExecutionPcs generatedProgram interface.functionInstance)
+          (readOffsetMachineArgs args) before →
     ∃ used after, used ≤ 65 ∧
       EnteredFunctionTrace
         (fun pc => pc = readOffsetOccurrenceResultPc interface.functionInstance.id - 4)
         (fun pc => pc = readOffsetOccurrenceResultPc interface.functionInstance.id)
         (readOffsetOccurrenceResultPc interface.functionInstance.id - 4) fromStep used before after ∧
-      interface.exit args (interface.spec.meaning args) before after
+      interface.exit args (interface.spec.meaning args) before after ∧ after.mem = before.mem ∧
+      WritesOnlyRegs (readOffsetFinalWrites interface.functionInstance) before after ∧
+      DecoderMachinePre
+        (functionInstanceExecutionPcs generatedProgram interface.functionInstance)
+          (readOffsetMachineArgs args) after ∧
+      RetiredCounterPresent after
 
 /-- `requireU32Length` starts at `0x10484`; its only data input is the already-live `a3` length.
 The parent establishes the source input snapshot and the `< 2^32` gate. -/

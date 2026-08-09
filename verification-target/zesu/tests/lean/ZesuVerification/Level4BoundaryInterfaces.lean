@@ -5,6 +5,7 @@ namespace ZesuVerification
 open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 open BinaryFv.Zesu.Elflings.Generated
 open BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution
+open LeanRV64DExecutable.Functions Register
 
 /-- The four adapters remain distinct optimized occurrences, rather than one source-level reader. -/
 theorem level4_readOffset_adapters_match_inventory :
@@ -19,6 +20,38 @@ theorem level4_readOffset_continuation_bounds :
       readOffset201Interface.stepBound args = 65 ∧ readOffset202Interface.stepBound args = 65 := by
   intro args
   exact ⟨rfl, rfl, rfl, rfl⟩
+
+/-- Regression checks for the generated `lbu`/`slli`/`or` transcription used by the four
+interleaved reader contracts.  In particular, a reader fragment cannot be widened to permit
+clobbering the saved-frame registers later restored by the raw-decoder epilogue. -/
+theorem level4_readOffset_fragment_write_sets_are_exact :
+    readOffsetFragmentWrites 0x10534 x10 ∧ readOffsetFragmentWrites 0x10534 x13 ∧
+      ¬ readOffsetFragmentWrites 0x10534 x8 ∧
+      readOffsetFragmentWrites 0x10544 x14 ∧ readOffsetFragmentWrites 0x10544 x17 ∧
+      ¬ readOffsetFragmentWrites 0x10544 x9 ∧
+      readOffsetFragmentWrites 0x10568 x5 ∧ readOffsetFragmentWrites 0x10568 x13 ∧
+      ¬ readOffsetFragmentWrites 0x10568 x18 ∧
+      readOffsetFragmentWrites 0x105a0 x16 ∧ readOffsetFragmentWrites 0x105a0 x6 ∧
+      ¬ readOffsetFragmentWrites 0x105a0 x21 := by
+  simp [readOffsetFragmentWrites, BinaryFv.RiscV.stepBookkeeping]
+
+/-- Each final `or` has exactly one saved-register accumulator destination; the three rejected
+alternatives make a widened or occurrence-swapped continuation fail this interface check. -/
+theorem level4_readOffset_final_write_sets_are_exact :
+    readOffsetFinalWrites readOffset199Interface.functionInstance x23 ∧
+      ¬ readOffsetFinalWrites readOffset199Interface.functionInstance x25 ∧
+      readOffsetFinalWrites readOffset200Interface.functionInstance x25 ∧
+      ¬ readOffsetFinalWrites readOffset200Interface.functionInstance x24 ∧
+      readOffsetFinalWrites readOffset201Interface.functionInstance x24 ∧
+      ¬ readOffsetFinalWrites readOffset201Interface.functionInstance x19 ∧
+      readOffsetFinalWrites readOffset202Interface.functionInstance x19 ∧
+      ¬ readOffsetFinalWrites readOffset202Interface.functionInstance x23 := by
+  simp [readOffsetFinalWrites, BinaryFv.RiscV.stepBookkeeping, readOffset199Interface,
+    readOffset200Interface, readOffset201Interface, readOffset202Interface, readOffsetInlineInterface,
+    functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_199_23,
+    functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_200_23,
+    functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_201_23,
+    functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_202_23] <;> native_decide
 
 theorem level4_require_u32_continuation_pc :
     requireU32LengthContinuationPc = BitVec.ofNat 64 0x10490 := rfl
