@@ -1736,4 +1736,49 @@ theorem level4_read_offset201_third_fragment {margs : DecoderMachineArgs} {origi
   · rw [memory]; exact fileCode
   · exact decoderMachine.mono (writes.agree decoderPreserved_readOffset201_third_writes_disjoint) afterRetired
 
+private theorem level4_read_offset202_execution_subset_decode_raw (pc : BitVec 64)
+    (inside : functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_202_23 pc) :
+    RegisterWriteStep.decodeRawExecutionPcs pc := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  exact RegionPcs.of_rangesSubsume (by native_decide) (functionInstanceExecutionPcs_iff_ranges.mp inside)
+
+private theorem decoderPreserved_readOffset202_writes_disjoint :
+    RegSet.Disjoint decoderPreserved (readOffsetFragmentWrites 0x105a0) := by
+  intro r preserved written
+  rcases preserved with ⟨notLink, platform⟩
+  rcases written with bookkeeping | written
+  · exact platformPreserved_disjoint r platform bookkeeping
+  simp at written
+  rcases written with rfl | rfl | rfl | rfl <;> simp [platformPreserved] at platform
+
+/-- Consume fi9's sole interleaved fragment and reach the first final reader edge. -/
+theorem level4_read_offset202_fragment {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state) (reader : ReadOffset202Contract)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x105a0))
+    (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
+    ∃ used : Nat, ∃ after, readOffsetFragmentOutput 0x105a0
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 14 } after ∧
+      after.regs.get? PC = some (BitVec.ofNat 64 0x105c4) ∧ frame.PreservedTo after := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
+  let args : ReadOffsetInlineArgs := { inputBase := margs.inputBase, bytes := margs.bytes, offset := 14 }
+  have childMachine : DecoderMachinePre (functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_202_23) (readOffsetMachineArgs args) state := by
+    dsimp [args, readOffsetMachineArgs]; exact decoderMachine.restrict level4_read_offset202_execution_subset_decode_raw
+  obtain ⟨used, after, bound, trace, code, memoryBytes, pointer, offset, lanes, memory, writes,
+    childMachineAfter, afterRetired⟩ := reader.covers (0x105a0, 0x105c0, 0x105c4) (by native_decide)
+      args fromStep state ⟨atPc, fileCode, inputMemory, inputPointer, by dsimp [args]; native_decide,
+        by simp [readOffsetFragmentInput], childMachine⟩
+  obtain ⟨pc, atAfter, reached⟩ := trace.trace.final_at_exit
+  refine ⟨used, after, by simpa [args] using lanes, by simpa [reached] using atAfter, ?_⟩
+  refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
+    rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, afterRetired⟩
+  · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢; simp only [SavedWordBytes] at saved ⊢; rw [memory]; exact saved
+  · exact (writes.get x2 (by simp [readOffsetFragmentWrites])).trans sp
+  · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory; intro index indexBound; rw [memory]
+  · rw [memory]; exact fileCode
+  · exact decoderMachine.mono (writes.agree decoderPreserved_readOffset202_writes_disjoint) afterRetired
+
 end BinaryFv.Zesu.MachineExecution
