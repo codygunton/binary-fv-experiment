@@ -1280,6 +1280,29 @@ def deinitExit (_args : DeinitInlineArgs) (before after : State) : Prop :=
     canonicalContractParams.env.NoAllocation before after ∧
     canonicalContractParams.env.WritesOnlyWithinOwnRecord 0 0 before after
 
+/-- The exact child frame used by the emitted `RawNewPayloadRequest.deinit` occurrence. -/
+def rawNewPayloadRequestDeinitFrame (args : DeinitInlineArgs) : Region :=
+  fun address => args.stackPointer - args.frameSize ≤ address ∧ address < args.stackPointer
+
+/-- Registers the selected deinit occurrence may write.  The saved registers `s2` through `s11`
+are deliberately absent, so its summary transports their caller values without another premise. -/
+def rawNewPayloadRequestDeinitWrites : RegSet := fun r =>
+  stepBookkeeping r ∨ r = x1 ∨ r = x2 ∨ r = x5 ∨ r = x6 ∨ r = x7 ∨ r = x8 ∨ r = x9 ∨
+    r = x10 ∨ r = x11 ∨ r = x12 ∨ r = x13 ∨ r = x14 ∨ r = x15 ∨ r = x16 ∨ r = x17
+
+/-- Exact caller-visible return facts for selected excluded region 3.  In particular, this is the
+return to the parent instruction at `0x129ec`, not a generic return to an unconstrained link. -/
+def rawNewPayloadRequestDeinitExit (args : DeinitInlineArgs) (before after : State) : Prop :=
+  after.regs.get? PC = some (BitVec.ofNat 64 0x129ec) ∧
+    after.regs.get? x1 = some (BitVec.ofNat 64 0x129ec) ∧
+    after.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
+    after.regs.get? x8 = before.regs.get? x8 ∧ after.regs.get? x9 = before.regs.get? x9 ∧
+    WritesOnlyRegs rawNewPayloadRequestDeinitWrites before after ∧
+    WritesOnlyWithin (rawNewPayloadRequestDeinitFrame args) before after ∧
+    Agree decoderPreserved before after ∧ RetiredCounterPresent after ∧
+    canonicalContractParams.env.CodeIntact after ∧
+    canonicalContractParams.env.NoAllocation before after
+
 def rawExecutionWitnessDeinitInterface : Level4InlineRegionInterface DeinitInlineArgs where
   region := excludedFunctionInstance_ssz_raw_RawExecutionWitness_deinit
   entry := fun args state => state.regs.get? PC = some (BitVec.ofNat 64 0x13038) ∧
@@ -1365,11 +1388,13 @@ def rawNewPayloadRequestDeinitInterface : Level4InlineRegionInterface DeinitInli
     state.regs.get? x10 = some (BitVec.ofNat 64 args.recordBase) ∧
     state.regs.get? x11 = some (BitVec.ofNat 64 args.allocatorBase) ∧
     state.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
+    state.regs.get? x1 = some (BitVec.ofNat 64 0x129ec) ∧
     DeinitAllocatorPair args state ∧
     DeinitAllocatorPairOutsideFrame args ∧
+    args.frameSize = 0x50 ∧ args.frameSize ≤ args.stackPointer ∧
     args.recordBase < 2 ^ 64 ∧ args.allocatorBase < 2 ^ 64 ∧ args.stackPointer < 2 ^ 64 ∧
     args.stackPointer + args.frameSize ≤ 2 ^ 64
-  exit := deinitExit
+  exit := rawNewPayloadRequestDeinitExit
   stepBound := fun _ => 1024
 
 /-! ## Eighteen selected contracts -/
@@ -1527,6 +1552,31 @@ abbrev AllocBytesWithAlignmentAnonContract : Prop :=
   allocBytesWithAlignmentAnonInterface.BoundedImplements
 abbrev RawNewPayloadRequestDeinitContract : Prop :=
   rawNewPayloadRequestDeinitInterface.BoundedImplements
+
+/-- Parent-side adapter for the selected excluded-region contract.  It exposes the exact return
+and frames directly, so the `decodeRaw` continuation need not unfold the generic inline summary. -/
+theorem rawNewPayloadRequestDeinit_call
+    (contract : RawNewPayloadRequestDeinitContract) (args : DeinitInlineArgs) (fromStep : Nat)
+    (before : State) (entry : rawNewPayloadRequestDeinitInterface.entry args before) :
+    ∃ used after,
+      used ≤ rawNewPayloadRequestDeinitInterface.stepBound args ∧
+      EnteredFunctionTrace (RegionPcs rawNewPayloadRequestDeinitInterface.region.regions)
+        (fun pc => pc = before.regs.getD x1 0) (BitVec.ofNat 64 0x131ec)
+        fromStep used before after ∧
+      after.regs.get? PC = some (BitVec.ofNat 64 0x129ec) ∧
+      after.regs.get? x1 = some (BitVec.ofNat 64 0x129ec) ∧
+      after.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
+      after.regs.get? x8 = before.regs.get? x8 ∧ after.regs.get? x9 = before.regs.get? x9 ∧
+      WritesOnlyRegs rawNewPayloadRequestDeinitWrites before after ∧
+      WritesOnlyWithin (rawNewPayloadRequestDeinitFrame args) before after ∧
+      Agree decoderPreserved before after ∧ RetiredCounterPresent after ∧
+      canonicalContractParams.env.CodeIntact after ∧
+      canonicalContractParams.env.NoAllocation before after := by
+  obtain ⟨used, after, bound, trace, -, exit⟩ := contract args fromStep before entry
+  refine ⟨used, after, bound, ?_, exit⟩
+  have distinct : excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.id ≠
+      excludedFunctionInstance_mem_Allocator_free_anon_1214Id := by native_decide
+  simpa [rawNewPayloadRequestDeinitInterface, distinct] using trace
 
 /-- The only outstanding propositions selected at reviewed UI Level 4.  It includes all fourteen
 generated function-instance contracts and all four excluded inline-region contracts; every field
