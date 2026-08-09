@@ -228,6 +228,53 @@ private theorem level4_decode_raw_store_ra {base state : State}
   have targetToNat := level4_prologue_stack_address_toNat pre (offset := 0x7e8) (by omega)
   exact ⟨stepRetired, by simpa [wrapperAfterDwordStore, afterMemoryWrite, targetToNat] using run⟩
 
+local macro "level4_store_theorem " name:ident pc:num byte0:num byte1:num byte2:num byte3:num immediate:num source:num offset:num : command =>
+  `(private theorem $name {margs : DecoderMachineArgs} {base state : State} (pre : Level4DecodeRawEntryProloguePre margs base)
+      (machine : DecoderMachinePre Level4DecodeRawEntryProloguePcs margs base)
+      (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+      (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+      (value : BitVec 64)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 $pc))
+      (stackValue : state.regs.get? x2 = some (BitVec.ofNat 64 pre.stack))
+      (sourceRun : Runs (rX_bits (.Regidx (BitVec.ofNat 5 $source)))
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 $pc))
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 $pc)) value) :
+      ∃ stepRetired, Runs (try_step stepNo false) state
+        (afterMemoryWrite state (BitVec.ofNat 64 $pc) stepRetired (pre.stack + $offset)
+          (width := 8) value) false := by
+    obtain ⟨privilege, mseccfgBits, mseccfgRead⟩ := decoderDecodeContextOfDecoderAgree machine agree
+    have decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 $byte0) (BitVec.ofNat 8 $byte1)
+        (BitVec.ofNat 8 $byte2) (BitVec.ofNat 8 $byte3)))
+        (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+        (.STORE (BitVec.ofNat 12 $immediate, .Regidx (BitVec.ofNat 5 $source), .Regidx 2#5, 8)) := by
+      decode_run
+    obtain ⟨stepRetired, run⟩ := wrapper_dword_store_step machine agree retired stepNo
+      (BitVec.ofNat 64 $pc) ⟨by owned_pc, by native_decide⟩ atPc
+      (BitVec.ofNat 8 $byte0) (BitVec.ofNat 8 $byte1) (BitVec.ofNat 8 $byte2) (BitVec.ofNat 8 $byte3)
+      (BitVec.ofNat 12 $immediate) (.Regidx (BitVec.ofNat 5 $source))
+      (BitVec.ofNat 64 pre.stack) value (BitVec.ofNat 64 (pre.stack + $offset)) stackValue sourceRun
+      (level4_prologue_stack_address_eq pre.stack $offset (by decide))
+      (pre.slotAligned $offset (by omega) (by omega) (by decide))
+      (level4_prologue_slot_writable pre (by omega) (by omega))
+      (fetchFileInstruction state $pc $byte0 $byte1 $byte2 $byte3 code
+        (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide))
+      (by unfold BaseInstructionEncoding; decide) decode
+    have targetToNat := level4_prologue_stack_address_toNat pre (offset := $offset) (by omega)
+    exact ⟨stepRetired, by simpa [wrapperAfterDwordStore, afterMemoryWrite, targetToNat] using run⟩)
+
+level4_store_theorem level4_decode_raw_store_s0 0x1044c 0x23 0x30 0x81 0x7e 0x7e0 8 0x7e0
+level4_store_theorem level4_decode_raw_store_s1 0x10450 0x23 0x3c 0x91 0x7c 0x7d8 9 0x7d8
+level4_store_theorem level4_decode_raw_store_s2 0x10454 0x23 0x38 0x21 0x7d 0x7d0 18 0x7d0
+level4_store_theorem level4_decode_raw_store_s3 0x10458 0x23 0x34 0x31 0x7d 0x7c8 19 0x7c8
+level4_store_theorem level4_decode_raw_store_s4 0x1045c 0x23 0x30 0x41 0x7d 0x7c0 20 0x7c0
+level4_store_theorem level4_decode_raw_store_s5 0x10460 0x23 0x3c 0x51 0x7b 0x7b8 21 0x7b8
+level4_store_theorem level4_decode_raw_store_s6 0x10464 0x23 0x38 0x61 0x7b 0x7b0 22 0x7b0
+level4_store_theorem level4_decode_raw_store_s7 0x10468 0x23 0x34 0x71 0x7b 0x7a8 23 0x7a8
+level4_store_theorem level4_decode_raw_store_s8 0x1046c 0x23 0x30 0x81 0x7b 0x7a0 24 0x7a0
+level4_store_theorem level4_decode_raw_store_s9 0x10470 0x23 0x3c 0x91 0x79 0x798 25 0x798
+level4_store_theorem level4_decode_raw_store_s10 0x10474 0x23 0x38 0xa1 0x79 0x790 26 0x790
+level4_store_theorem level4_decode_raw_store_s11 0x10478 0x23 0x34 0xb1 0x79 0x788 27 0x788
+
 private theorem level4_after_store_savedWord (state : State) (pc retired target data : BitVec 64)
     (base : Nat) (targetValue : target.toNat = base) :
     SavedWordBytes (afterMemoryWrite state pc retired target.toNat (width := 8) data) base data := by
@@ -254,5 +301,27 @@ private theorem level4_after_store_preserves_savedWord (state : State)
   rintro ⟨lower, upper⟩
   rw [targetValue] at lower upper
   rcases disjoint with left | right <;> omega
+
+/-- Saved frame words accumulated as a list while the prologue stores them.  This avoids a
+quadratic, state-specific preservation proof: each new store transports the one list invariant. -/
+def Level4DecodeRawSavedSlots (state : State) (stack : Nat) (slots : List (Nat × BitVec 64)) : Prop :=
+  ∀ slot ∈ slots, SavedWordBytes state (stack + slot.1) slot.2
+
+private theorem level4_savedSlots_store (state : State) (pc retired target data : BitVec 64)
+    (stack offset : Nat) (targetValue : target.toNat = stack + offset)
+    (slots : List (Nat × BitVec 64))
+    (separated : ∀ slot ∈ slots, offset + 8 ≤ slot.1 ∨ slot.1 + 8 ≤ offset)
+    (saved : Level4DecodeRawSavedSlots state stack slots) :
+    Level4DecodeRawSavedSlots (afterMemoryWrite state pc retired target.toNat (width := 8) data) stack
+      ((offset, data) :: slots) := by
+  intro slot member
+  rcases List.mem_cons.mp member with current | previous
+  · rcases current with ⟨rfl, rfl⟩
+    simpa [targetValue] using level4_after_store_savedWord state pc retired target data
+      (stack + offset) targetValue
+  · exact level4_after_store_preserves_savedWord state pc retired target data (stack + offset)
+      (stack + slot.1) slot.2 targetValue (by
+        rcases separated slot previous with left | right <;> omega)
+      (saved slot previous)
 
 end BinaryFv.Zesu.MachineExecution

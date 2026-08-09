@@ -449,6 +449,45 @@ theorem stepStore {width : Nat} (seg : Seg own exit childSummary W M kv a n base
         afterWriteBytes_regs, Std.ExtDHashMap.get?_insert])
     (fun _ => RegsHold.nil _) bookkeeping keep
 
+/-- `stepStore` with the concrete retirement witness retained for a caller that must state a
+byte-level consequence of this particular store.  The segment successor remains opaque to later
+composition, while the equality exposes exactly one post-store shape. -/
+theorem stepStoreWitness {width : Nat} (seg : Seg own exit childSummary W M kv a n base cur pc)
+    (address : Nat) (value : BitVec (8 * width)) (nextPc : BitVec 64)
+    (inRegion : own pc) (notExit : ¬ exit pc)
+    (run : ∃ retired, Runs (try_step (a + n) false) cur
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc)
+          address value)
+        (Sail.BitVec.addInt pc 4) retired) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc)
+    (inside : ∀ other, address ≤ other → other < address + width → M other)
+    (bookkeeping : ∀ r, stepBookkeeping r → W r)
+    (keep : RegsOutside stepBookkeeping kv) :
+    ∃ retired next,
+      next = tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc)
+          address value)
+        (Sail.BitVec.addInt pc 4) retired ∧
+      Seg own exit childSummary W M kv a (n + 1) base next nextPc := by
+  obtain ⟨retired, hrun⟩ := run
+  refine ⟨retired, _, rfl, ?_⟩
+  refine
+    { trace := seg.trace.snoc hrun
+      confined := seg.confined.trans (ConfinedPrefix.ownStep seg.atPc inRegion notExit hrun)
+      writes := seg.writes.trans_same ((storeRetirement_writes cur pc (Sail.BitVec.addInt pc 4)
+        retired address value).mono bookkeeping)
+      mem := writesOnlyWithin_trans seg.mem (fun other outside =>
+        storeRetirement_mem_writes cur pc (Sail.BitVec.addInt pc 4) retired address value other
+          (fun written => outside (inside other written.1 written.2)))
+      retired := ⟨Sail.BitVec.addInt retired 1, by
+        simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+      atPc := advance ▸ by
+        simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+          afterWriteBytes_regs, Std.ExtDHashMap.get?_insert]
+      regs := seg.regs.through
+        (storeRetirement_writes cur pc (Sail.BitVec.addInt pc 4) retired address value) keep }
+
 end Seg
 
 /-! ## Regressions
