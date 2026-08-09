@@ -1992,15 +1992,21 @@ def emit_level4_attribution_lean(database: dict) -> str:
                     {"sourcePc": source, "targetPc": target}
                     for source, target in zip(path["pcs"], path["pcs"][1:])
                 ]
+                endpoint_owner = target_lean_name(owners_by_id[path["ownerIds"][-1]])
+                path_owner_disjunction = " ∨ ".join(
+                    f"(pc = {pc} ∧ ownedBy generatedProgram "
+                    f"{target_lean_name(owners_by_id[owner_id])} pc = true)"
+                    for pc, owner_id in zip(path["pcs"], path["ownerIds"])
+                )
                 L.extend([
                     f"theorem {path_name}_exact :",
                     f"    {carrier_route_name}.carrierPaths[{path_index}]? =",
                     f"      some {{ carrierPc := {path['carrierPc']}, pcs := {path_pcs} }} := rfl",
                     f"theorem {path_name}_cfg_and_ownership :",
                     f"    inRegions {parent_name} {path['carrierPc']} = true ∧",
-                    f"    ownedBy generatedProgram {parent_name} {path['carrierPc']} = true ∧",
+                    f"    ownedBy generatedProgram {endpoint_owner} {path['carrierPc']} = true ∧",
                     f"    (∀ pc ∈ {path_pcs},",
-                    f"      ownedBy generatedProgram {parent_name} pc = true) ∧",
+                    f"      ({path_owner_disjunction})) ∧",
                     f"    (∀ edge ∈ {edge_array(path_edges)},",
                     f"      programContainsEdge generatedProgram edge = true) := by native_decide",
                     "",
