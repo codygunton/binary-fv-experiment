@@ -141,16 +141,16 @@ theorem decoderWritableByte_layout (args : DecoderMachineArgs) (address : Nat)
 
 /-- A byte-placement exclusion at the first byte is sufficient for Sail's whole-range MMIO test:
 both CLINT and signature selectors first require the access address itself to lie in their window. -/
-theorem loadMMIOAddressExcluded_of_layout {address : BitVec 64} {width : Nat}
+theorem dataMMIOAddressExcluded_of_layout {address : BitVec 64} {width : Nat}
     (positive : 0 < width)
     (clint : address.toNat < BitVec.toNat plat_clint_base ∨
       BitVec.toNat plat_clint_base + BitVec.toNat plat_clint_size ≤ address.toNat)
     (signature : address.toNat < BitVec.toNat plat_sig_base ∨
       BitVec.toNat plat_sig_base + BitVec.toNat plat_sig_size ≤ address.toNat) :
-    LoadMMIOAddressExcluded address width := by
+    DataMMIOAddressExcluded address width := by
   rw [clintBase_pinned, clintSize_pinned] at clint
   rw [signatureBase_pinned, signatureSize_pinned] at signature
-  unfold LoadMMIOAddressExcluded
+  unfold DataMMIOAddressExcluded
   simp [Sail.BitVec.toNatInt, clintBase_pinned, clintSize_pinned,
     signatureBase_pinned, signatureSize_pinned]
   constructor
@@ -159,23 +159,23 @@ theorem loadMMIOAddressExcluded_of_layout {address : BitVec 64} {width : Nat}
   · intro inSignature
     rcases signature with before | after <;> omega
 
+theorem loadMMIOAddressExcluded_of_layout {address : BitVec 64} {width : Nat}
+    (positive : 0 < width)
+    (clint : address.toNat < BitVec.toNat plat_clint_base ∨
+      BitVec.toNat plat_clint_base + BitVec.toNat plat_clint_size ≤ address.toNat)
+    (signature : address.toNat < BitVec.toNat plat_sig_base ∨
+      BitVec.toNat plat_sig_base + BitVec.toNat plat_sig_size ≤ address.toNat) :
+    LoadMMIOAddressExcluded address width :=
+  dataMMIOAddressExcluded_of_layout positive clint signature
+
 theorem storeMMIOAddressExcluded_of_layout {address : BitVec 64} {width : Nat}
     (positive : 0 < width)
     (clint : address.toNat < BitVec.toNat plat_clint_base ∨
       BitVec.toNat plat_clint_base + BitVec.toNat plat_clint_size ≤ address.toNat)
     (signature : address.toNat < BitVec.toNat plat_sig_base ∨
       BitVec.toNat plat_sig_base + BitVec.toNat plat_sig_size ≤ address.toNat) :
-    StoreMMIOAddressExcluded address width := by
-  rw [clintBase_pinned, clintSize_pinned] at clint
-  rw [signatureBase_pinned, signatureSize_pinned] at signature
-  unfold StoreMMIOAddressExcluded
-  simp [Sail.BitVec.toNatInt, clintBase_pinned, clintSize_pinned,
-    signatureBase_pinned, signatureSize_pinned]
-  constructor
-  · intro inClint
-    rcases clint with before | after <;> omega
-  · intro inSignature
-    rcases signature with before | after <;> omega
+    StoreMMIOAddressExcluded address width :=
+  dataMMIOAddressExcluded_of_layout positive clint signature
 
 theorem readableAccessRange_below_pma (args : DecoderMachineArgs) (address : BitVec 64)
     (width : Nat) (inputBase : args.inputBase = canonicalRunnerLayout.inputBase)

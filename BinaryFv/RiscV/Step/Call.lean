@@ -21,95 +21,39 @@ open PreSail
 open LeanRV64DExecutable.Functions
 open Register
 
-/-! ## Concrete link-register write run-lemmas
+/-! ## Concrete link-register run lemmas -/
 
-`wX_bits (Regidx k) data` (for `k ≠ 0`) reduces to `writeReg xk data` plus the no-op
-`xreg_write_callback`, so it inserts `xk ↦ data`.  For `k = 0` it is a no-op (`x0` is hardwired). -/
+local macro "call_xread_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
+  `(theorem $name (state : State) (value : BitVec 64)
+      (stored : state.regs.get? $reg = some value) :
+      Runs (rX_bits (.Regidx (BitVec.ofNat 5 $idx))) state state value := by
+    have index : (Sail.BitVec.toNatInt (BitVec.ofNat 5 $idx)).toNat = $idx := rfl
+    unfold Runs
+    simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
+      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
+      getThe, MonadState.get, MonadStateOf.get, stored])
 
-theorem wX_bits_run_x1 (s : State) (data : BitVec 64) :
-    Runs (wX_bits (.Regidx 1#5) data) s { s with regs := s.regs.insert x1 data } () := by
-  have hidx : (Sail.BitVec.toNatInt (1#5)).toNat = 1 := rfl
-  unfold Runs
-  simp only [wX_bits, wX, hidx, regval_into_reg, PreSail.writeReg, EStateM.run,
-    EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
-    MonadStateOf.modifyGet, modify]
-  rw [if_pos (by decide)]
-  exact xreg_write_callback_run _ _ _
+local macro "call_xwrite_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
+  `(theorem $name (state : State) (value : BitVec 64) :
+      Runs (wX_bits (.Regidx (BitVec.ofNat 5 $idx)) value) state
+        { state with regs := state.regs.insert $reg value } () := by
+    have index : (Sail.BitVec.toNatInt (BitVec.ofNat 5 $idx)).toNat = $idx := rfl
+    unfold Runs
+    simp only [wX_bits, wX, index, regval_into_reg, PreSail.writeReg, EStateM.run,
+      EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
+      MonadStateOf.modifyGet, modify]
+    rw [if_pos (by decide)]
+    exact xreg_write_callback_run _ _ _)
 
-theorem rX_bits_run_x1 (s : State) (data : BitVec 64)
-    (stored : s.regs.get? x1 = some data) :
-    Runs (rX_bits (.Regidx 1#5)) s s data := by
-  have index : (Sail.BitVec.toNatInt (1#5 : BitVec 5)).toNat = 1 := rfl
-  unfold Runs
-  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-    getThe, MonadState.get, MonadStateOf.get, stored]
-
-theorem wX_bits_run_x5 (s : State) (data : BitVec 64) :
-    Runs (wX_bits (.Regidx 5#5) data) s { s with regs := s.regs.insert x5 data } () := by
-  have hidx : (Sail.BitVec.toNatInt (5#5)).toNat = 5 := rfl
-  unfold Runs
-  simp only [wX_bits, wX, hidx, regval_into_reg, PreSail.writeReg, EStateM.run,
-    EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
-    MonadStateOf.modifyGet, modify]
-  rw [if_pos (by decide)]
-  exact xreg_write_callback_run _ _ _
-
-theorem wX_bits_run_x10 (s : State) (data : BitVec 64) :
-    Runs (wX_bits (.Regidx 10#5) data) s { s with regs := s.regs.insert x10 data } () := by
-  have hidx : (Sail.BitVec.toNatInt (10#5)).toNat = 10 := rfl
-  unfold Runs
-  simp only [wX_bits, wX, hidx, regval_into_reg, PreSail.writeReg, EStateM.run,
-    EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
-    MonadStateOf.modifyGet, modify]
-  rw [if_pos (by decide)]
-  exact xreg_write_callback_run _ _ _
-
-theorem rX_bits_run_x10 (s : State) (data : BitVec 64)
-    (stored : s.regs.get? x10 = some data) :
-    Runs (rX_bits (.Regidx 10#5)) s s data := by
-  have index : (Sail.BitVec.toNatInt (10#5 : BitVec 5)).toNat = 10 := rfl
-  unfold Runs
-  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-    getThe, MonadState.get, MonadStateOf.get, stored]
-
-theorem rX_bits_run_x2 (s : State) (data : BitVec 64)
-    (stored : s.regs.get? x2 = some data) :
-    Runs (rX_bits (.Regidx 2#5)) s s data := by
-  have index : (Sail.BitVec.toNatInt (2#5 : BitVec 5)).toNat = 2 := rfl
-  unfold Runs
-  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-    getThe, MonadState.get, MonadStateOf.get, stored]
-
-theorem wX_bits_run_x11 (s : State) (data : BitVec 64) :
-    Runs (wX_bits (.Regidx 11#5) data) s { s with regs := s.regs.insert x11 data } () := by
-  have hidx : (Sail.BitVec.toNatInt (11#5)).toNat = 11 := rfl
-  unfold Runs
-  simp only [wX_bits, wX, hidx, regval_into_reg, PreSail.writeReg, EStateM.run,
-    EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
-    MonadStateOf.modifyGet, modify]
-  rw [if_pos (by decide)]
-  exact xreg_write_callback_run _ _ _
-
-theorem rX_bits_run_x11 (s : State) (data : BitVec 64)
-    (stored : s.regs.get? x11 = some data) :
-    Runs (rX_bits (.Regidx 11#5)) s s data := by
-  have index : (Sail.BitVec.toNatInt (11#5 : BitVec 5)).toNat = 11 := rfl
-  unfold Runs
-  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-    getThe, MonadState.get, MonadStateOf.get, stored]
-
-theorem rX_bits_run_x18 (s : State) (data : BitVec 64)
-    (stored : s.regs.get? x18 = some data) :
-    Runs (rX_bits (.Regidx 18#5)) s s data := by
-  have index : (Sail.BitVec.toNatInt (18#5 : BitVec 5)).toNat = 18 := rfl
-  unfold Runs
-  simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-    getThe, MonadState.get, MonadStateOf.get, stored]
+call_xwrite_run 1 ↦ x1, wX_bits_run_x1
+call_xread_run 1 ↦ x1, rX_bits_run_x1
+call_xwrite_run 5 ↦ x5, wX_bits_run_x5
+call_xwrite_run 10 ↦ x10, wX_bits_run_x10
+call_xread_run 10 ↦ x10, rX_bits_run_x10
+call_xread_run 2 ↦ x2, rX_bits_run_x2
+call_xwrite_run 11 ↦ x11, wX_bits_run_x11
+call_xread_run 11 ↦ x11, rX_bits_run_x11
+call_xread_run 18 ↦ x18, rX_bits_run_x18
 
 theorem wX_bits_run_zero (s : State) (data : BitVec 64) :
     Runs (wX_bits (.Regidx 0#5) data) s s () := by
