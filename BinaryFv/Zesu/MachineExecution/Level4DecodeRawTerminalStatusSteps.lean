@@ -54,6 +54,10 @@ private theorem level4_terminal_status_fetch_129c4 :
     DecoderFetchPc level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs
       (BitVec.ofNat 64 0x129c4) := ⟨by native_decide, by native_decide⟩
 
+private theorem level4_terminal_status_fetch_10494 :
+    DecoderFetchPc level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs
+      (BitVec.ofNat 64 0x10494) := ⟨by native_decide, by native_decide⟩
+
 /-- Sail execution of `li s7, 2` at `0x10734`. -/
 theorem level4_status_s7_register_step {base state : State} {margs : DecoderMachineArgs}
     (machine : DecoderMachinePre level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs margs base)
@@ -79,6 +83,23 @@ theorem level4_status_s1_register_step {base state : State} {margs : DecoderMach
   exact decoderITypeStepOfDecoderAgree machine agree retired code stepNo
     0x129c4 0x93 0x04 0x20 0x00 0x002#12 0#5 9#5 .ADDI atPc (rX_x0_run _) (wX_x9_run _ _)
     level4_terminal_status_fetch_129c4
+
+/-- Sail execution of the direct high-word-rejection jump to the `a0` status store. -/
+theorem level4_terminal_jump_10494 {base state : State} {margs : DecoderMachineArgs}
+    (machine : DecoderMachinePre level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10494)) :
+    ∃ nextRetired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10494)
+          (BitVec.ofNat 64 0x11ba4))
+        (BitVec.ofNat 64 0x11ba4) nextRetired) false := by
+  exact decoderJalStep machine agree retired code stepNo
+    0x10494 0x6f 0x10 0x00 0x71 0x1710#21 (BitVec.ofNat 64 0x11ba4) atPc
+    level4_terminal_status_fetch_10494 (by native_decide) (by native_decide)
+    (by native_decide) (by native_decide) (by decide) (by decoder_decode)
+    (by unfold BaseInstructionEncoding; decide) (by decide) (by decide) (by decide)
 
 /-- Sail execution of `sh s7, 0x340(s5)` at `0x10738`. -/
 theorem level4_status_store_s7_step {base state : State} {margs : DecoderMachineArgs}
