@@ -514,4 +514,25 @@ theorem level4_rawNewPayloadRequestDeinit_initial_saves_handoff
   exact machine0.mono (seg4.agree decoderPreserved_level4RawNewPayloadRequestDeinitWrites_disjoint)
     seg4.retired
 
+/-- Sail executes the literal `mv s0, a1` at `0x131fc`. -/
+theorem level4_rawNewPayloadRequestDeinit_move_s0_step {margs : DecoderMachineArgs}
+    {base state : State} {a1 : BitVec 64}
+    (machine : DecoderMachinePre Level4RawNewPayloadRequestDeinitPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x131fc))
+    (a1Value : state.regs.get? x11 = some a1) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x131fc) stepRetired x8
+        (iTypeResult .ADDI 0x000#12 a1)) false := by
+  exact decoderITypeStepOfDecoderAgree machine agree retired code stepNo
+    0x131fc 0x13 0x84 0x05 0x00 0x000#12 11#5 8#5 .ADDI atPc
+    (rX_x11_run _ _ (decoderExecuteState_get? a1Value)) (wX_x8_run _ _)
+    (pcIn := ⟨by
+      change ∃ range : BinaryFv.Binary.AddressRange,
+        range ∈ excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.regions ∧
+          range.start ≤ 78332 ∧ 78332 < range.stop
+      exact ⟨{ start := 78316, size := 180 }, by native_decide, by decide, by decide⟩,
+      by native_decide⟩)
+
 end BinaryFv.Zesu.MachineExecution
