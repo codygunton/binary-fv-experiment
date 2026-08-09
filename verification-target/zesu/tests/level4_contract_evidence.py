@@ -245,11 +245,11 @@ def observation(
         ],
         "declaredStoresReached": declared_stores,
         "observedStores": [store for store in stores if store["pc"] in owned],
-        "observedCarrierRoutes": [carrier_route_observation(route, pcs) for route in boundary.carrier_routes],
+        "observedCarrierRoutes": [carrier_route_observation(route, pcs, boundary.entry_pc) for route in boundary.carrier_routes],
     }
 
 
-def carrier_route_observation(route: dict[str, Any], pcs: list[int]) -> dict[str, Any]:
+def carrier_route_observation(route: dict[str, Any], pcs: list[int], entry_pc: int = -1) -> dict[str, Any]:
     """Record a carrier only after its exact handoff in this one trace invocation.
 
     A carrier PC alone is deliberately not evidence: the same instruction can occur in another
@@ -261,7 +261,9 @@ def carrier_route_observation(route: dict[str, Any], pcs: list[int]) -> dict[str
         index for index, edge in enumerate(zip(pcs, pcs[1:])) if edge == handoff
     ]
     observed_carriers = sorted({
-        pc for index in handoff_events for pc in pcs[index + 1:]
+        pc for index in handoff_events
+        for pc in pcs[index + 1: next((later for later in range(index + 1, len(pcs))
+                                      if pcs[later] == entry_pc), len(pcs))]
         if pc in set(route["carrierPcs"])
     })
     return {
@@ -298,7 +300,7 @@ def merge_observations(boundary: Boundary, observations: list[dict[str, Any]]) -
         local = route_observations.get(key, [])
         # Each local record already required its own handoff event.  Unioning these checked
         # observations cannot pair a handoff from one vector with a carrier from another.
-        template = carrier_route_observation(route, [])
+        template = carrier_route_observation(route, [], boundary.entry_pc)
         merged_routes.append({
             **template,
             "handoffEvents": sum(record["handoffEvents"] for record in local),

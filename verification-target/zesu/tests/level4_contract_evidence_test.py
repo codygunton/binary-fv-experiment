@@ -152,6 +152,17 @@ class ObservationTests(unittest.TestCase):
             ["merged production observations were changed or cross-vector forged"],
         )
 
+    def test_carrier_observation_never_crosses_a_second_invocation_in_one_vector(self) -> None:
+        route = {"sourceIdentity": self.public_keys_identity, "handoff": {"sourcePc": 8, "targetPc": 12},
+                 "classification": "sourceReviewedOutcomePath", "carrierPcs": [16],
+                 "carrierPaths": [{"carrierPc": 16, "pcs": [12, 16]}], "registers": [], "stackDescriptors": [],
+                 "statusTag": {"state": "static-ELF"}, "allocation": {"state": "source-reviewed"},
+                 "heapArrayRep": {"state": "obligation"}}
+        boundary = evidence.Boundary("fi:120", "inlined", "ssz_raw.decodePublicKeys", 4, (4, 8), (8,), "decodeRaw",
+                                     self.public_keys_identity, (), (), (), (route,))
+        [claim] = evidence.observation(boundary, [4, 8, 12, 4, 16], [])["observedCarrierRoutes"]
+        self.assertEqual(claim["observedCarrierPcs"], [])
+
     def test_aggregate_edges_never_join_two_vectors(self) -> None:
         boundary = evidence.Boundary(
             "x", "inlined", "ssz_raw.x", 4, (4, 8), (8,), "decodeRaw", None,
