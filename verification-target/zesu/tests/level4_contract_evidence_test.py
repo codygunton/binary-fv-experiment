@@ -63,6 +63,12 @@ class InventoryTests(unittest.TestCase):
 
 class ObservationTests(unittest.TestCase):
     boundary = evidence.Boundary("x", "inlined", "ssz_raw.x", 4, (4, 8), (8,), "decodeRaw", None, (), ())
+    public_keys_identity = {
+        "qualified": "ssz_raw.decodePublicKeys",
+        "sourceFile": "src/stateless/stateless/ssz_raw.zig",
+        "specialization": [],
+        "inlineStack": [],
+    }
 
     def test_observation_records_entry_exit_and_writes(self) -> None:
         record = evidence.observation(self.boundary, [0, 4, 8], [{"pc": 8, "width": 8, "sp": 7}])
@@ -102,6 +108,37 @@ class ObservationTests(unittest.TestCase):
             "an observed declared call target disappeared",
             evidence.validate_observed_claims(record, [{"sourcePc": 4, "targetPc": 99}], []),
         )
+
+    def test_every_unobserved_call_requires_the_exact_cleanup_certificate(self) -> None:
+        public_keys = evidence.Boundary(
+            "fi:120", "inlined", "ssz_raw.decodePublicKeys", 4, (4, 77764), (77764,), "decodeRaw", self.public_keys_identity,
+            ((77764, 66624),), (),
+        )
+        self.assertEqual(evidence.validate_observation(public_keys, evidence.observation(public_keys, [4, 77764], [])), [])
+        wrong_target = evidence.Boundary(
+            "fi:120", "inlined", "ssz_raw.decodePublicKeys", 4, (4, 77764), (77764,), "decodeRaw", self.public_keys_identity,
+            ((77764, 66628),), (),
+        )
+        self.assertIn(
+            "declared call targets were not observed: [(77764, 66628)]",
+            evidence.validate_observation(wrong_target, evidence.observation(wrong_target, [4, 77764], [])),
+        )
+        changed_source = evidence.Boundary(
+            "fi:120", "inlined", "ssz_raw.decodePublicKeys", 4, (4, 77764), (77764,), "decodeRaw",
+            {**self.public_keys_identity, "sourceFile": "different.zig"}, ((77764, 66624),), (),
+        )
+        self.assertIn(
+            "declared call targets were not observed: [(77764, 66624)]",
+            evidence.validate_observation(changed_source, evidence.observation(changed_source, [4, 77764], [])),
+        )
+
+    def test_cleanup_certificate_does_not_mask_an_observed_call_mutation(self) -> None:
+        boundary = evidence.Boundary(
+            "fi:120", "inlined", "ssz_raw.decodePublicKeys", 4, (4, 8, 77764), (8,), "decodeRaw", self.public_keys_identity,
+            ((8, 99), (77764, 66624)), (),
+        )
+        record = evidence.observation(boundary, [4, 8, 99], [])
+        self.assertTrue(all(evidence.mutation_checks(boundary, record).values()))
 
     def test_refinement_vectors_keep_accepted_and_rejected_cases(self) -> None:
         vectors = evidence.default_vectors()

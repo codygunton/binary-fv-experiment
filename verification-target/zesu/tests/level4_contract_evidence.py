@@ -37,6 +37,14 @@ UNMEASURED_CLAUSES = (
     "universal step bound",
 )
 
+# `decodePublicKeys` validates `data.len % 65 == 0` and `count <= MAX_PUBLIC_KEYS` before the
+# allocation. Its only post-allocation fallible expression is `readArray(65, data, index * 65)` in a
+# loop with `index < count`; the validated length gives that expression exactly 65 available bytes.
+# Allocation failure occurs before `result` exists. Thus Zig's `errdefer alloc.free(result)` edge is
+# compiled but infeasible for every root input. This is deliberately a singleton certificate: another
+# unobserved static edge is a gate failure, not an inference from this source argument.
+PUBLIC_KEYS_CLEANUP = ("ssz_raw.decodePublicKeys", 77764, 66624)
+
 
 @dataclass(frozen=True)
 class Boundary:
@@ -177,6 +185,21 @@ def observation(
     }
 
 
+def statically_unreachable_call(boundary: Boundary, call: tuple[int, int]) -> str | None:
+    if (
+        (boundary.qualified, *call) == PUBLIC_KEYS_CLEANUP
+        and boundary.identity is not None
+        and boundary.identity.get("qualified") == "ssz_raw.decodePublicKeys"
+        and boundary.identity.get("sourceFile") == "src/stateless/stateless/ssz_raw.zig"
+    ):
+        return "decodePublicKeys errdefer cleanup: validated 65-byte lanes make its post-allocation readArray total"
+    return None
+
+
+def required_calls(boundary: Boundary) -> tuple[tuple[int, int], ...]:
+    return tuple(call for call in boundary.calls if statically_unreachable_call(boundary, call) is None)
+
+
 def validate_observation(boundary: Boundary, record: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     if not record["entryReached"]:
@@ -185,6 +208,10 @@ def validate_observation(boundary: Boundary, record: dict[str, Any]) -> list[str
         failures.append("no declared exit was observed")
     if record["instructionEvents"] <= 0:
         failures.append("no owned instruction was observed")
+    observed_calls = {(call["sourcePc"], call["targetPc"]) for call in record["declaredCallsReached"]}
+    missing_calls = set(required_calls(boundary)) - observed_calls
+    if missing_calls:
+        failures.append(f"declared call targets were not observed: {sorted(missing_calls)}")
     return failures
 
 
@@ -215,7 +242,10 @@ def mutation_checks(boundary: Boundary, record: dict[str, Any]) -> dict[str, boo
         mutations["call-edge"] = {**record, "declaredCallsReached": []}
     if record["declaredStoresReached"]:
         mutations["store-address-width-value"] = {**record, "declaredStoresReached": []}
-    call_claims = record["declaredCallsReached"]
+    call_claims = [
+        {"sourcePc": source, "targetPc": target}
+        for source, target in required_calls(boundary)
+    ]
     store_claims = record["declaredStoresReached"]
     return {
         name: bool(validate_observation(boundary, mutated) or validate_observed_claims(mutated, call_claims, store_claims))
@@ -360,13 +390,14 @@ def main() -> int:
                 *UNMEASURED_CLAUSES,
                 *( ["declared exits"] if not boundary.exits else [] ),
                 *(
-                    [f"unobserved declared call targets: {list(set(boundary.calls) - {(c['sourcePc'], c['targetPc']) for c in record['declaredCallsReached']})}"]
-                    if len(record["declaredCallsReached"]) != len(boundary.calls) else []
-                ),
-                *(
                     ["unobserved declared store address, width, and value"]
                     if len(record["declaredStoresReached"]) != len(boundary.stores) else []
                 ),
+            ],
+            "staticallyUnreachableClauses": [
+                {"sourcePc": source, "targetPc": target, "reason": reason}
+                for source, target in boundary.calls
+                if (reason := statically_unreachable_call(boundary, (source, target))) is not None
             ],
             "mutationRejected": mutations,
             "failures": clause_failures,

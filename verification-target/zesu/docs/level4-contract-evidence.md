@@ -23,6 +23,15 @@ and instruction-count observations. A declared edge/store not exercised by any v
 unmeasured rather than inferred from a trace; this keeps a static possibility from becoming a false
 empirical claim.
 
+There is one reviewed exception to call coverage. The `decodePublicKeys` call at `0x12fb4` to
+`allocatorFree` is Zig's `errdefer` cleanup after allocating the public-key array. Every root input
+that reaches the allocation has already passed `len % 65 == 0` and the maximum-count check; its loop
+then reads exactly one 65-byte lane for each index below that count. Consequently the only
+post-allocation `try readArray` cannot fail, while allocation failure happens before the cleanup value
+exists. The report records this source-precondition argument as statically unreachable, not as an
+unmeasured or observed edge. It is a source-review certificate, not empirical evidence or a Lean
+proof. Any other declared call must occur in the vector union.
+
 The report explicitly leaves optimized argument locations, result carriers, complete write/frame
 conditions, caller-frame preservation, and universal step bounds unmeasured: the observer records
 PCs and memory accesses, not the boundary's full register state or all executions. Those gaps must
