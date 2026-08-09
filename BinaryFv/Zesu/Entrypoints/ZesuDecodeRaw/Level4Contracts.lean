@@ -1152,6 +1152,11 @@ def DeinitAllocatorPair (args : DeinitInlineArgs) (state : State) : Prop :=
   ∃ first second, Word64LERep state args.allocatorBase first ∧
     Word64LERep state (args.allocatorBase + 8) second ∧ args.allocatorBase + 16 ≤ 2 ^ 64
 
+/-- The child stack frame does not alias either word consumed by the emitted deinit loads. -/
+def DeinitAllocatorPairOutsideFrame (args : DeinitInlineArgs) : Prop :=
+  ∀ address, args.allocatorBase ≤ address → address < args.allocatorBase + 16 →
+    ¬ (args.stackPointer - args.frameSize ≤ address ∧ address < args.stackPointer)
+
 /-- A missing allocator pair is incompatible with either deinit entry relation. -/
 def MissingDeinitAllocatorPair (args : DeinitInlineArgs) (state : State) : Prop :=
   ¬ DeinitAllocatorPair args state
@@ -1160,6 +1165,14 @@ theorem deinitAllocatorPair_rejects_missing (args : DeinitInlineArgs) (state : S
     ¬ (DeinitAllocatorPair args state ∧ MissingDeinitAllocatorPair args state) := by
   rintro ⟨pair, missing⟩
   exact missing pair
+
+theorem deinitAllocatorPairOutsideFrame_rejects_alias (args : DeinitInlineArgs)
+    (alias : ∃ address, args.allocatorBase ≤ address ∧ address < args.allocatorBase + 16 ∧
+      args.stackPointer - args.frameSize ≤ address ∧ address < args.stackPointer) :
+    ¬ DeinitAllocatorPairOutsideFrame args := by
+  rintro outside
+  obtain ⟨address, lower, upper, frameLower, frameUpper⟩ := alias
+  exact outside address lower upper ⟨frameLower, frameUpper⟩
 
 structure AllocatorFreeInlineArgs where
   allocatorBase : Nat
@@ -1189,6 +1202,7 @@ def rawExecutionWitnessDeinitInterface : Level4InlineRegionInterface DeinitInlin
     state.regs.get? x11 = some (BitVec.ofNat 64 args.allocatorBase) ∧
     state.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     DeinitAllocatorPair args state ∧
+    DeinitAllocatorPairOutsideFrame args ∧
     args.recordBase < 2 ^ 64 ∧ args.allocatorBase < 2 ^ 64 ∧ args.stackPointer < 2 ^ 64 ∧
     args.stackPointer + args.frameSize ≤ 2 ^ 64
   exit := deinitExit
@@ -1266,6 +1280,7 @@ def rawNewPayloadRequestDeinitInterface : Level4InlineRegionInterface DeinitInli
     state.regs.get? x11 = some (BitVec.ofNat 64 args.allocatorBase) ∧
     state.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     DeinitAllocatorPair args state ∧
+    DeinitAllocatorPairOutsideFrame args ∧
     args.recordBase < 2 ^ 64 ∧ args.allocatorBase < 2 ^ 64 ∧ args.stackPointer < 2 ^ 64 ∧
     args.stackPointer + args.frameSize ≤ 2 ^ 64
   exit := deinitExit

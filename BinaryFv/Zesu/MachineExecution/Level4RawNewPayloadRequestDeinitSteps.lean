@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.Level4DecodeRawParentInvariant
+import BinaryFv.Zesu.MachineExecution.DecoderBitVectorLoad
 
 /-! # Exact parent continuation for excluded `RawNewPayloadRequest.deinit` -/
 
@@ -20,6 +21,12 @@ private theorem level4_rawNewPayloadRequestDeinit_entry_owned :
       range.start ≤ 78316 ∧ 78316 < range.stop
   refine ⟨{ start := 78316, size := 180 }, ?_, by decide, by decide⟩
   native_decide
+
+/-- Exact union of the three eight-byte child-save slots. -/
+def level4RawNewPayloadRequestDeinitSaveMemory (postStack : Nat) : Region := fun address =>
+  (postStack - 0x50 + 0x48 ≤ address ∧ address < postStack - 0x50 + 0x50) ∨
+  (postStack - 0x50 + 0x40 ≤ address ∧ address < postStack - 0x50 + 0x48) ∨
+  (postStack - 0x50 + 0x38 ≤ address ∧ address < postStack - 0x50 + 0x40)
 
 /-- Current parent facts at the selected excluded-region entry. -/
 structure Level4RawNewPayloadRequestDeinitPre {margs : DecoderMachineArgs} {origin current : State}
@@ -43,13 +50,15 @@ structure Level4RawNewPayloadRequestDeinitPre {margs : DecoderMachineArgs} {orig
         (Classical.choose a1).toNat + 16 ≤ 2 ^ 64
   allocatorReadable : DecoderAccessRange (DecoderReadableByte margs)
     (BitVec.ofNat 64 (Classical.choose a1).toNat) 16
+  allocatorAligned : is_aligned_vaddr
+    (virtaddr.Virtaddr (BitVec.ofNat 64 (Classical.choose a1).toNat)) 8 = true
+  allocatorSecondAligned : is_aligned_vaddr
+    (virtaddr.Virtaddr (BitVec.ofNat 64 (Classical.choose a1).toNat + 8)) 8 = true
+  /-- The preceding child saves cannot overwrite either allocator word before the two loads. -/
+  allocatorOutsideSave : ∀ address,
+    (Classical.choose a1).toNat ≤ address → address < (Classical.choose a1).toNat + 16 →
+      ¬ level4RawNewPayloadRequestDeinitSaveMemory (frame.stack - 0x690) address
   preservation : frame.PreservedTo current
-
-/-- Exact union of the three eight-byte child-save slots. -/
-def level4RawNewPayloadRequestDeinitSaveMemory (postStack : Nat) : Region := fun address =>
-  (postStack - 0x50 + 0x48 ≤ address ∧ address < postStack - 0x50 + 0x50) ∨
-  (postStack - 0x50 + 0x40 ≤ address ∧ address < postStack - 0x50 + 0x48) ∨
-  (postStack - 0x50 + 0x38 ≤ address ∧ address < postStack - 0x50 + 0x40)
 
 abbrev Level4RawNewPayloadRequestDeinitExit : BitVec 64 → Prop := fun _ => False
 abbrev Level4RawNewPayloadRequestDeinitChildSummary : FunctionInstanceId → Nat → Nat → State → State → Prop :=
@@ -574,6 +583,122 @@ theorem level4_rawNewPayloadRequestDeinit_move_s1_step {margs : DecoderMachineAr
       exact ⟨{ start := 78316, size := 180 }, by native_decide, by decide, by decide⟩,
       by native_decide⟩)
 
+private theorem level4_rawNewPayloadRequestDeinit_extend_value_dword (value : BitVec (8 * 8)) :
+    extend_value false value = value := by
+  unfold extend_value
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  unfold sign_extend Sail.BitVec.signExtend
+  bv_decide
+
+/-- Sail executes `ld a0, 0(a1)` from the typed allocator pair at `0x13204`. -/
+private theorem level4_rawNewPayloadRequestDeinit_load_a0_step {margs : DecoderMachineArgs}
+    {base state : State} {pointer first : BitVec 64}
+    (machine : DecoderMachinePre Level4RawNewPayloadRequestDeinitPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x13204))
+    (pointerValue : state.regs.get? x11 = some pointer)
+    (word : DecodedValue.Word64LERep state pointer.toNat first.toNat)
+    (readable : DecoderAccessRange (DecoderReadableByte margs) pointer 8)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr pointer) 8 = true) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x13204) stepRetired x10 first) false := by
+  have targetEq : pointer + sign_extend (m := 64) 0x000#12 = pointer := by
+    rw [show sign_extend (m := 64) 0x000#12 = BitVec.ofNat 64 0 by decide]
+    simp
+  change DecodedValue.BitVectorLERep state pointer.toNat first at word
+  exact decoderLoadStepOfDecoderAgree (dest := x10) (value := first) machine agree retired code stepNo
+    0x13204 0x03 0xb5 0x05 0x00 0x000#12 11#5 10#5 false 8 first atPc
+    (pcIn := ⟨by
+      change ∃ range : BinaryFv.Binary.AddressRange,
+        range ∈ excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.regions ∧
+          range.start ≤ 78340 ∧ 78340 < range.stop
+      exact ⟨{ start := 78316, size := 180 }, by native_decide, by decide, by decide⟩,
+      by native_decide⟩)
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x13204) 0x000#12
+      (.Regidx 11#5) first pointer pointer
+      (rX_x11_run _ _ (decoderExecuteState_get? pointerValue)) targetEq pointer.toNat rfl word aligned
+      readable)
+    (by rw [level4_rawNewPayloadRequestDeinit_extend_value_dword]; exact wX_x10_run _ _)
+
+/-- Sail executes `ld a1, 8(a1)` from the typed allocator pair at `0x13208`. -/
+private theorem level4_rawNewPayloadRequestDeinit_load_a1_step {margs : DecoderMachineArgs}
+    {base state : State} {pointer second : BitVec 64}
+    (machine : DecoderMachinePre Level4RawNewPayloadRequestDeinitPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x13208))
+    (pointerValue : state.regs.get? x11 = some pointer)
+    (word : DecodedValue.Word64LERep state (pointer.toNat + 8) second.toNat)
+    (fits : pointer.toNat + 8 < 2 ^ 64)
+    (readable : DecoderAccessRange (DecoderReadableByte margs) (pointer + 8) 8)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr (pointer + 8)) 8 = true) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x13208) stepRetired x11 second) false := by
+  have targetEq : pointer + sign_extend (m := 64) 0x008#12 = pointer + 8 := by
+    rw [show sign_extend (m := 64) 0x008#12 = BitVec.ofNat 64 8 by decide]
+    simp
+  have targetToNat : (pointer + 8).toNat = pointer.toNat + 8 := by
+    simp only [BitVec.toNat_add]
+    change (pointer.toNat + 8) % 2 ^ 64 = pointer.toNat + 8
+    omega
+  change DecodedValue.BitVectorLERep state (pointer.toNat + 8) second at word
+  exact decoderLoadStepOfDecoderAgree (dest := x11) (value := second) machine agree retired code stepNo
+    0x13208 0x83 0xb5 0x85 0x00 0x008#12 11#5 11#5 false 8 second atPc
+    (pcIn := ⟨by
+      change ∃ range : BinaryFv.Binary.AddressRange,
+        range ∈ excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.regions ∧
+          range.start ≤ 78344 ∧ 78344 < range.stop
+      exact ⟨{ start := 78316, size := 180 }, by native_decide, by decide, by decide⟩,
+      by native_decide⟩)
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x13208) 0x008#12
+      (.Regidx 11#5) second pointer (pointer + 8)
+      (rX_x11_run _ _ (decoderExecuteState_get? pointerValue)) targetEq (pointer.toNat + 8)
+      targetToNat.symm word aligned readable)
+    (by rw [level4_rawNewPayloadRequestDeinit_extend_value_dword]; exact wX_x11_run _ _)
+
+private theorem level4_rawNewPayloadRequestDeinit_allocator_pair_through_saves
+    {before after : State} {postStack pointer first second : Nat}
+    (memory : WritesOnlyWithin (level4RawNewPayloadRequestDeinitSaveMemory postStack) before after)
+    (outside : ∀ address, pointer ≤ address → address < pointer + 16 →
+      ¬ level4RawNewPayloadRequestDeinitSaveMemory postStack address)
+    (pair : DecodedValue.Word64LERep before pointer first ∧
+      DecodedValue.Word64LERep before (pointer + 8) second) :
+    DecodedValue.Word64LERep after pointer first ∧
+      DecodedValue.Word64LERep after (pointer + 8) second := by
+  have relocation : DecodedValue.ByteWindowRelocation before after pointer pointer 16 := by
+    intro index bound
+    exact memory (pointer + index) (outside _ (by omega) (by omega))
+  refine ⟨pair.1.rebase (DecodedValue.ByteWindowRelocation.atOffset relocation 0 8 (by omega)), ?_⟩
+  exact pair.2.rebase (DecodedValue.ByteWindowRelocation.atOffset relocation 8 8 (by omega))
+
+private theorem level4_rawNewPayloadRequestDeinit_allocator_first_readable
+    {margs : DecoderMachineArgs} {pointer : BitVec 64}
+    (readable : DecoderAccessRange (DecoderReadableByte margs) pointer 16) :
+    DecoderAccessRange (DecoderReadableByte margs) pointer 8 := by
+  refine ⟨by decide, ?_, ?_⟩
+  · exact Nat.le_trans (by omega) readable.2.1
+  · intro index bound
+    exact readable.2.2 index (by omega)
+
+private theorem level4_rawNewPayloadRequestDeinit_allocator_second_readable
+    {margs : DecoderMachineArgs} {pointer : BitVec 64}
+    (readable : DecoderAccessRange (DecoderReadableByte margs) pointer 16)
+    (fits : pointer.toNat + 16 ≤ 2 ^ 64) :
+    DecoderAccessRange (DecoderReadableByte margs) (pointer + 8) 8 := by
+  refine ⟨by decide, ?_, ?_⟩
+  · rw [BitVec.toNat_add]
+    change (pointer.toNat + 8) % 2 ^ 64 + 8 ≤ 2 ^ 64
+    have : pointer.toNat + 8 < 2 ^ 64 := by omega
+    rw [Nat.mod_eq_of_lt this]
+    omega
+  · intro index bound
+    rw [BitVec.toNat_add]
+    change DecoderReadableByte margs ((pointer.toNat + 8) % 2 ^ 64 + index)
+    have : pointer.toNat + 8 < 2 ^ 64 := by omega
+    rw [Nat.mod_eq_of_lt this]
+    simpa [Nat.add_assoc] using readable.2.2 (8 + index) (by omega)
+
 /-- Handoff after the two argument moves, with the saved child frame and both live arguments still
 available to the remaining deinit corridor. -/
 structure Level4RawNewPayloadRequestDeinitArgumentMovesHandoff
@@ -587,6 +712,13 @@ structure Level4RawNewPayloadRequestDeinitArgumentMovesHandoff
   writes : WritesOnlyRegs level4RawNewPayloadRequestDeinitWrites before after
   memory : WritesOnlyWithin (level4RawNewPayloadRequestDeinitSaveMemory (frame.stack - 0x690))
     before after
+  seg : Seg Level4RawNewPayloadRequestDeinitPcs Level4RawNewPayloadRequestDeinitExit
+    Level4RawNewPayloadRequestDeinitChildSummary level4RawNewPayloadRequestDeinitWrites
+    (level4RawNewPayloadRequestDeinitSaveMemory (frame.stack - 0x690))
+    [⟨x9, Classical.choose pre.a0⟩, ⟨x8, Classical.choose pre.a1⟩,
+      ⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x1, BitVec.ofNat 64 0x129ec⟩,
+      ⟨x10, Classical.choose pre.a0⟩, ⟨x11, Classical.choose pre.a1⟩]
+    fromStep 6 before after (BitVec.ofNat 64 0x13204)
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x13204)
   childSp : after.regs.get? x2 = some (BitVec.ofNat 64 (frame.stack - 0x690 - 0x50))
   ra : after.regs.get? x1 = some (BitVec.ofNat 64 0x129ec)
@@ -663,7 +795,7 @@ theorem level4_rawNewPayloadRequestDeinit_argument_moves_handoff
   have code2 : Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
     rw [hS1, afterRegisterWrite_mem]
     exact code1
-  refine ⟨after, ⟨seg2.trace, seg2.confined, seg2.writes, seg2.mem, seg2.atPc,
+  refine ⟨after, ⟨seg2.trace, seg2.confined, seg2.writes, seg2.mem, seg2, seg2.atPc,
     seg2.reg x2 (BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)) (by simp),
     seg2.reg x1 (BitVec.ofNat 64 0x129ec) (by simp),
     seg2.reg x8 (Classical.choose pre.a1) (by simp),
