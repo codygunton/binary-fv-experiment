@@ -1285,6 +1285,8 @@ theorem level4_read_offset199200_then199_second_fragment {margs : DecoderMachine
     (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
     ∃ used after, Trace fromStep used state after ∧
       after.regs.get? PC = some (BitVec.ofNat 64 0x10568) ∧
+        readOffsetFragmentOutput 0x10544
+          { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 } after ∧
         after.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase) ∧ frame.PreservedTo after := by
   obtain ⟨prefixUsed, afterPrefix, firstPrefix⟩ :=
     level4_read_offset199_then200_first_fragments frame reader199 reader200 atPc inputPointer fromStep
@@ -1293,8 +1295,14 @@ theorem level4_read_offset199200_then199_second_fragment {margs : DecoderMachine
     (frame.toState firstPrefix.preserved) reader199 atSecond firstPrefix.inputPointer (by
       simpa [readOffsetFragmentInput] using firstPrefix.firstLanes) (fromStep + prefixUsed)
   obtain ⟨pc, atAfter, reached201⟩ := second.trace.trace.final_at_exit
-  refine ⟨prefixUsed + secondUsed, after, ?_, by simpa [reached201] using atAfter, second.inputPointer,
-    second.preserved⟩
+  have fi200Lanes : readOffsetFragmentOutput 0x10544
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 } after := by
+    rcases firstPrefix.secondLanes with ⟨lane0, lane1, lane2, lane3⟩
+    refine ⟨?_, ?_, ?_, ?_⟩
+    all_goals
+      exact (second.writes.get _ (by simp [readOffsetFragmentWrites])).trans (by assumption)
+  refine ⟨prefixUsed + secondUsed, after, ?_, by simpa [reached201] using atAfter, fi200Lanes,
+    second.inputPointer, second.preserved⟩
   simpa only [Nat.add_assoc] using Trace.append firstPrefix.trace
     (FunctionTrace.toTrace second.trace.trace)
 
@@ -1376,14 +1384,22 @@ theorem level4_read_offset199200199_then201_first_fragments {margs : DecoderMach
     (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
     ∃ used after, Trace fromStep used state after ∧
       after.regs.get? PC = some (BitVec.ofNat 64 0x10578) ∧
+        readOffsetFragmentOutput 0x10544
+          { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 } after ∧
         after.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase) ∧ frame.PreservedTo after := by
-  obtain ⟨prefixUsed, afterPrefix, prefixTrace, at201, prefixInput, prefixPreserved⟩ :=
+  obtain ⟨prefixUsed, afterPrefix, prefixTrace, at201, fi200Lanes, prefixInput, prefixPreserved⟩ :=
     level4_read_offset199200_then199_second_fragment frame reader199 reader200 atPc inputPointer fromStep
   obtain ⟨readerUsed, after, reader⟩ := level4_read_offset201_first_fragment
     (frame.toState prefixPreserved) reader201 at201 prefixInput (fromStep + prefixUsed)
   obtain ⟨pc, atAfter, reached200⟩ := reader.trace.trace.final_at_exit
-  refine ⟨prefixUsed + readerUsed, after, ?_, by simpa [reached200] using atAfter, reader.inputPointer,
-    reader.preserved⟩
+  have carried200Lanes : readOffsetFragmentOutput 0x10544
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 } after := by
+    rcases fi200Lanes with ⟨lane0, lane1, lane2, lane3⟩
+    refine ⟨?_, ?_, ?_, ?_⟩
+    all_goals
+      exact (reader.writes.get _ (by simp [readOffsetFragmentWrites])).trans (by assumption)
+  refine ⟨prefixUsed + readerUsed, after, ?_, by simpa [reached200] using atAfter, carried200Lanes,
+    reader.inputPointer, reader.preserved⟩
   simpa only [Nat.add_assoc] using Trace.append prefixTrace (FunctionTrace.toTrace reader.trace.trace)
 
 end BinaryFv.Zesu.MachineExecution
