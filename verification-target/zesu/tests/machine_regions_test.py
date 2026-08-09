@@ -317,10 +317,12 @@ class MachineRegionTests(unittest.TestCase):
                          **machine_regions.dynamic_call_target_extent(excluded, {"fi:6": parent,
                                                                                    "fi:102": decoder,
                                                                                    "fi:134": callee,
-                                                                                   "excluded:9": excluded})}
+                                                                                   "excluded:9": excluded}),
+                         "returnTo": {"callerOwnedCallPcs": [77408],
+                                      "raBoundContinuationPcs": [77412]}}
         database = {"instructions": [
             {"address": 77404, "owner": "fi:102", "successors": [77408, 78000]},
-            {"address": 77408, "owner": "fi:102", "successors": [77412]},
+            {"address": 77408, "owner": "fi:102", "successors": [77412, 79000]},
             {"address": 77412, "owner": "fi:6", "successors": []},
             {"address": 77400, "owner": "fi:6", "successors": [77404]},
             {"address": 78000, "owner": "fi:134", "successors": [78004]},

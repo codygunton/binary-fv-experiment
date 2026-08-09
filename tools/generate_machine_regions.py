@@ -554,6 +554,32 @@ def dynamic_call_target_extent(callee: dict, owners_by_id: dict[str, dict]) -> d
     }
 
 
+def source_less_call_return_to(
+    caller: dict, callee: dict, instruction_rows: dict[int, dict]
+) -> dict:
+    """The RA-bound caller continuations for a source-less declared external call.
+
+    The generated external-call declaration has no site address.  The authoritative decoded CFG
+    does: each caller-owned direct-call edge to the declared target has a second successor, its
+    RISC-V return-address continuation.  Keeping the set rather than selecting one source records
+    the dynamic return relation honestly when one declaration has several call sites.
+    """
+    sources = sorted(
+        address for address, instruction in instruction_rows.items()
+        if instruction.get("owner") == caller["id"] and callee["entryPc"] in instruction["successors"]
+    )
+    continuations = sorted({
+        successor for source in sources for successor in instruction_rows[source]["successors"]
+        if successor != callee["entryPc"]
+    })
+    if not sources or not continuations or any(pc + 4 not in continuations for pc in sources):
+        raise ValueError("source-less Level 4 call lacks an RA-bound caller continuation")
+    return {
+        "callerOwnedCallPcs": sources,
+        "raBoundContinuationPcs": continuations,
+    }
+
+
 def declared_level4_calls(owner_id: str, call_graph: dict, owners_by_id: dict[str, dict]) -> list[dict]:
     """Declared direct/tail/vtable call frames with the callee's concrete entry PC."""
     declarations = [
@@ -678,6 +704,9 @@ def level4_boundary_manifest(database: dict) -> dict:
                 {
                     **call,
                     **dynamic_call_target_extent(owners_by_id[call["id"]], owners_by_id),
+                    **({"returnTo": source_less_call_return_to(
+                        owner, owners_by_id[call["id"]], instruction_rows)}
+                       if call["sourcePc"] is None else {}),
                 } if is_level4_dynamic_decoder(owner) else call
                 for call in calls_by_owner[owner["id"]]
             ]
@@ -736,6 +765,9 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
             {
                 **call,
                 **dynamic_call_target_extent(owners_by_id[call["id"]], owners_by_id),
+                **({"returnTo": source_less_call_return_to(
+                    owner, owners_by_id[call["id"]], instructions)}
+                   if call["sourcePc"] is None else {}),
             }
             for call in declared_level4_calls(owner["id"], database["callGraph"], owners_by_id)
         ]
@@ -806,6 +838,16 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                             or identity.get("kind") not in {"functionInstance", "excludedFunctionInstance"}
                             or not isinstance(identity.get("qualified"), str)):
                         raise ValueError("Level 4 dynamic call target lacks a source identity")
+                    return_to = call.get("returnTo")
+                    if call["sourcePc"] is None:
+                        if not isinstance(return_to, dict):
+                            raise ValueError("Level 4 source-less call lacks an RA-bound return relation")
+                        for field in ("callerOwnedCallPcs", "raBoundContinuationPcs"):
+                            pcs = return_to.get(field)
+                            if not isinstance(pcs, list) or not pcs or pcs != sorted(set(pcs)):
+                                raise ValueError(f"Level 4 source-less call has invalid {field}")
+                    elif return_to is not None:
+                        raise ValueError("Level 4 resolved call falsely claims an RA-bound return relation")
         dependencies = row.get("tailDependencies", [])
         if not isinstance(dependencies, list):
             raise ValueError("Level 4 boundary manifest tailDependencies field is not a list")
@@ -930,12 +972,17 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "  | functionInstance : FunctionInstanceId → AttributionCallTarget",
         "  | excludedFunctionInstance : FunctionInstanceId → AttributionCallTarget",
         "",
+        "structure AttributionReturnTo where",
+        "  callerOwnedCallPcs : Array Nat",
+        "  raBoundContinuationPcs : Array Nat",
+        "",
         "structure AttributionCallFrame where",
         "  kind : String",
         "  source : Option Nat",
         "  target : Nat",
         "  callee : AttributionCallTarget",
         "  activeCalleeExecutionPcs : Array Nat",
+        "  returnTo : Option AttributionReturnTo",
         "",
         "structure AttributionFragmentBoundary where",
         "  child : FunctionInstanceId",
@@ -964,11 +1011,17 @@ def emit_level4_attribution_lean(database: dict) -> str:
                       if identity["kind"] == "excludedFunctionInstance"
                       else f".functionInstance {callee}Id")
             source = "none" if call["sourcePc"] is None else f"some {call['sourcePc']}"
+            return_to = "none"
+            if "returnTo" in call:
+                relation = call["returnTo"]
+                return_to = ("some { callerOwnedCallPcs := #[%s], raBoundContinuationPcs := #[%s] }"
+                             % (pcs(relation["callerOwnedCallPcs"]),
+                                pcs(relation["raBoundContinuationPcs"])))
             return (
                 "{ kind := \"%s\", source := %s, target := %s, callee := %s, "
-                "activeCalleeExecutionPcs := #[%s] }"
+                "activeCalleeExecutionPcs := #[%s], returnTo := %s }"
                 % (call["kind"], source, call["targetPc"], target,
-                   pcs(call["activeCalleeExecutionPcs"]))
+                   pcs(call["activeCalleeExecutionPcs"]), return_to)
             )
         call_frames = f"(#[{', '.join(call_frame(call) for call in row.get('calls', []))}] : Array AttributionCallFrame)"
         L.extend([
@@ -1020,6 +1073,18 @@ def emit_level4_attribution_lean(database: dict) -> str:
                 f"    ∀ pc ∈ {full_pcs}, {membership} = true := by native_decide",
                 "",
             ])
+            if "returnTo" in call:
+                relation = call["returnTo"]
+                sources = f"#[{pcs(relation['callerOwnedCallPcs'])}]"
+                continuations = f"#[{pcs(relation['raBoundContinuationPcs'])}]"
+                L.extend([
+                    f"theorem {call_name}_returnTo_cfg_and_ownership :",
+                    f"    (∀ pc ∈ {sources}, ownedBy generatedProgram {child} pc = true ∧",
+                    f"      programContainsEdge generatedProgram {{ source := pc, target := {call['targetPc']} }} = true) ∧",
+                    f"    (∀ pc ∈ {continuations}, ownedBy generatedProgram {child} pc = true) ∧",
+                    f"    (∀ source ∈ {sources}, source + 4 ∈ {continuations}) := by native_decide",
+                    "",
+                ])
     L.extend([
         "/-- The four selected direct dynamic decoder identities, in source call-site order. -/",
         "noncomputable def level4AttributionFragmentBoundaries : Array AttributionFragmentBoundary :=",
