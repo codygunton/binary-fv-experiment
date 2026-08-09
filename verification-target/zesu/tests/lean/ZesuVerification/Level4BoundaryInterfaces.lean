@@ -77,4 +77,15 @@ requires a retiring transition before the terminal carrier state. -/
 theorem level4_fi95_carrier_path_has_two_pcs :
     (#[75572, 75576] : Array Nat).toList = [75572, 75576] := rfl
 
+/-- fi95 cannot use the handoff target as a semantic exit; 75576 is its generated success exit. -/
+theorem level4_fi95_carrier_pc_is_the_interface_exit :
+    decodeExecutionWitnessInterface.terminal (BitVec.ofNat 64 75576) := by
+  exact Or.inl rfl
+
+theorem level4_fi95_handoff_target_is_not_the_interface_exit :
+    ¬ decodeExecutionWitnessInterface.terminal (BitVec.ofNat 64 75572) := by
+  change ¬ (BitVec.ofNat 64 75572 = BitVec.ofNat 64 0x12738 ∨
+    BitVec.ofNat 64 75572 = BitVec.ofNat 64 0x11ba4)
+  decide
+
 end ZesuVerification

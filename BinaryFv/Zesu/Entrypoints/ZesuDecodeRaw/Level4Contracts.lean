@@ -194,27 +194,17 @@ structure Level4CarrierPathTrace (route : AttributionOutcomeCarrierRoute)
   exactTrace : ExactCarrierPathTrace fromStep path.pcs.toList handoffState carrierState
   trace : ∃ used, Trace fromStep used handoffState carrierState
 
-/-- These propositions are the unresolved concrete optimized carriers at the recorded carrier PC;
-they deliberately remain obligations rather than interpreting source-review strings as evidence. -/
-def Level4CarrierBindings (route : AttributionOutcomeCarrierRoute) (state : State) : Prop :=
-  (route.statusTag.state = "not-applicable" ∨ ∃ tag, state.regs.get? x10 = some tag) ∧
-  (route.registers.isEmpty ∧ route.stackDescriptors.isEmpty ∨
-    ∃ descriptor, state.regs.get? x11 = some descriptor ∨ state.regs.get? x2 = some descriptor) ∧
-  (route.allocation.state = "not-applicable" ∨ ∃ base count, HeapArrayRep state base count 1) ∧
-  (route.heapArrayRep.state = "not-applicable" ∨ ∃ base count elementBytes,
-    HeapArrayRep state base count elementBytes) ∧
-  (∃ pc ∈ route.carrierPcs, state.regs.get? PC = some (BitVec.ofNat 64 pc))
-
 /-- The source-reviewed semantic implication belongs after the parent has followed the recorded
-carrier path.  It never identifies a handoff target with the interface exit. -/
+carrier path.  `interface.exit` is the concrete optimized contract's status/output/allocation/
+representation postcondition, not an interpretation of finite carrier metadata. -/
 def CarrierObligation {Args Outcome : Type}
     (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args)
     (route : AttributionOutcomeCarrierRoute) (fromStep : Nat) (before handoffState : State) : Prop :=
   route.classification = .sourceReviewedOutcomePath →
     ∀ carrierState,
-      Level4CarrierPathTrace route fromStep handoffState carrierState →
-      Level4CarrierBindings route carrierState →
-      interface.exit args (interface.spec.meaning args) before carrierState
+      (pathTrace : Level4CarrierPathTrace route fromStep handoffState carrierState) →
+      interface.terminal (BitVec.ofNat 64 pathTrace.path.carrierPc) ∧
+        interface.exit args (interface.spec.meaning args) before carrierState
 
 /-- A child fragment returns a generated route key only after taking its final source-to-target
 machine step.  Source-reviewed routes additionally return a higher-order obligation for the fi6
