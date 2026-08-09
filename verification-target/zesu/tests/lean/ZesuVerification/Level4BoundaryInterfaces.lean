@@ -4,6 +4,7 @@ namespace ZesuVerification
 
 open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 open BinaryFv.Zesu.Elflings.Generated
+open BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution
 
 /-- The four adapters remain distinct optimized occurrences, rather than one source-level reader. -/
 theorem level4_readOffset_adapters_match_inventory :
@@ -60,5 +61,15 @@ theorem level4_excluded_region_bounds :
       (∀ args, allocBytesWithAlignmentAnonInterface.stepBound args = 1024) ∧
       (∀ args, rawNewPayloadRequestDeinitInterface.stepBound args = 1024) := by
   exact ⟨fun _ => rfl, fun _ => rfl, fun _ => rfl, fun _ => rfl⟩
+
+/-- The fi95 handoff reaches 75572, but its source-reviewed semantic carrier is only reached by
+the generated parent continuation at 75576. -/
+theorem level4_fi95_handoff_requires_carrier_continuation :
+    functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572.handoff.target = 75572 ∧
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572.carrierPcs = #[75576] ∧
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572.carrierPaths[0]? =
+        some { carrierPc := 75576, pcs := #[75572, 75576] } := by
+  exact ⟨rfl, rfl,
+    functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572_path_75576_exact⟩
 
 end ZesuVerification
