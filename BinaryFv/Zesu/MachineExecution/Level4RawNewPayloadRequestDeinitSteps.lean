@@ -32,6 +32,9 @@ structure Level4RawNewPayloadRequestDeinitPre {margs : DecoderMachineArgs} {orig
   s0 : ∃ value, current.regs.get? x8 = some value
   /-- The accepted rejection route establishes its literal tag value before this child. -/
   s1 : current.regs.get? x9 = some (BitVec.ofNat 64 2)
+  /-- Parent call setup supplies the two argument registers consumed after the initial saves. -/
+  a0 : ∃ value, current.regs.get? x10 = some value
+  a1 : ∃ value, current.regs.get? x11 = some value
   preservation : frame.PreservedTo current
 
 /-- Exact union of the three eight-byte child-save slots. -/
@@ -325,6 +328,8 @@ structure Level4RawNewPayloadRequestDeinitInitialSavesHandoff
   ra : after.regs.get? x1 = some (BitVec.ofNat 64 0x129ec)
   s0 : after.regs.get? x8 = some (Classical.choose pre.s0)
   s1 : after.regs.get? x9 = some (BitVec.ofNat 64 2)
+  a0 : after.regs.get? x10 = some (Classical.choose pre.a0)
+  a1 : after.regs.get? x11 = some (Classical.choose pre.a1)
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   machine : DecoderMachinePre Level4RawNewPayloadRequestDeinitPcs margs after
   retired : RetiredCounterPresent after
@@ -501,7 +506,11 @@ theorem level4_rawNewPayloadRequestDeinit_initial_saves_handoff
     seg4.reg x2 (BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)) (by simp),
     seg4.reg x1 (BitVec.ofNat 64 0x129ec) (by simp),
     seg4.reg x8 (Classical.choose pre.s0) (by simp),
-    seg4.reg x9 (BitVec.ofNat 64 2) (by simp), code4, ?_, seg4.retired⟩⟩
+    seg4.reg x9 (BitVec.ofNat 64 2) (by simp),
+    (seg4.get x10 (by simp [level4RawNewPayloadRequestDeinitWrites])).trans
+      (Classical.choose_spec pre.a0),
+    (seg4.get x11 (by simp [level4RawNewPayloadRequestDeinitWrites])).trans
+      (Classical.choose_spec pre.a1), code4, ?_, seg4.retired⟩⟩
   exact machine0.mono (seg4.agree decoderPreserved_level4RawNewPayloadRequestDeinitWrites_disjoint)
     seg4.retired
 
