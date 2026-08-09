@@ -63,7 +63,7 @@ theorem level4_status_s7_register_step {base state : State} {margs : DecoderMach
     ∃ nextRetired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x10734) nextRetired x23
         (iTypeResult .ADDI 0x002#12 (BitVec.ofNat 64 0))) false := by
-  exact decoderITypeStep machine (Agree.weaken (fun _ preserved => preserved.2) agree) retired code stepNo
+  exact decoderITypeStepOfDecoderAgree machine agree retired code stepNo
     0x10734 0x93 0x0b 0x20 0x00 0x002#12 0#5 23#5 .ADDI atPc (rX_x0_run _) (wX_x23_run _ _)
     level4_terminal_status_fetch_10734
 
@@ -76,7 +76,7 @@ theorem level4_status_s1_register_step {base state : State} {margs : DecoderMach
     ∃ nextRetired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x129c4) nextRetired x9
         (iTypeResult .ADDI 0x002#12 (BitVec.ofNat 64 0))) false := by
-  exact decoderITypeStep machine (Agree.weaken (fun _ preserved => preserved.2) agree) retired code stepNo
+  exact decoderITypeStepOfDecoderAgree machine agree retired code stepNo
     0x129c4 0x93 0x04 0x20 0x00 0x002#12 0#5 9#5 .ADDI atPc (rX_x0_run _) (wX_x9_run _ _)
     level4_terminal_status_fetch_129c4
 
