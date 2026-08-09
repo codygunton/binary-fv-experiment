@@ -53,6 +53,10 @@ structure Level4DynamicFunctionInterface (Args Outcome : Type) where
   carrierRoutes : Array AttributionOutcomeCarrierRoute
   spec : SourceFunctionSpec Args Outcome
   entry : Args → State → Prop
+  /-- Exact machine facts available at a generated H target before the parent-owned continuation. -/
+  handoffToken : AttributionOutcomeCarrierRoute → State → Prop
+  /-- Exact machine facts at the generated R target where this dynamic boundary resumes. -/
+  reentryToken : AttributionOutcomeCarrierRoute → Args → State → Prop
   reached : BitVec 64 → Prop
   terminal : BitVec 64 → Prop
   exit : Args → Outcome → State → State → Prop
@@ -222,7 +226,7 @@ structure Level4HandoffProgress {Args Outcome : Type}
   prefixTrace : EnteredFunctionTrace
     (fun pc => pc.toNat ∈ interface.boundary.fullExecutionPcs)
     (fun pc => pc = BitVec.ofNat 64 route.handoff.source)
-    (functionInstanceEntryWord interface.functionInstance) fromStep prefixUsed current source
+    (current.regs.getD PC 0) fromStep prefixUsed current source
   prefixFrames : TraceRespectsRecursiveFrames interface.boundary fromStep prefixUsed current source
   finalStep : Runs (try_step (fromStep + prefixUsed) false) source state false
   sourceToTarget : Trace fromStep (prefixUsed + 1) current state :=
@@ -235,13 +239,25 @@ structure Level4HandoffProgress {Args Outcome : Type}
   parentInvariant : ∀ {margs : DecoderMachineArgs}
     (frame : MachineExecution.Level4DecodeRawParentFrame margs origin current), frame.PreservedTo state
   carrierObligation : CarrierObligation interface args route (fromStep + prefixUsed + 1) origin state
+  /-- The child supplies the route-indexed live facts needed by the immediate parent continuation.
+  This is stronger than the PC fact above: a later parent Sail proof may consume register or stack
+  bindings from this token. -/
+  handoffToken : interface.handoffToken route state
+
+/-- A dynamic fragment starts either at its original emitted entry or at a parent-produced generated
+R target.  Re-entry tokens remain indexed by the preceding H route, so an arbitrary same-PC state
+cannot be supplied to a resumable contract. -/
+def Level4DynamicFunctionInterface.InitialOrReentry {Args Outcome : Type}
+    (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args) (state : State) : Prop :=
+  interface.entry args state ∨
+    ∃ route, route ∈ interface.carrierRoutes ∧ interface.reentryToken route args state
 
 /-- One application of a dynamic decoder contract, retaining its initial raw-decoder entry while
 continuing from a generated parent-to-child re-entry.  The subsequent fragment's semantic exit is
 still related to `origin`, never to a synthetic second source call at `current`. -/
 def Level4DynamicFunctionInterface.ResumableSubtreeFrom {Args Outcome : Type}
     (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args) (origin current : State) : Prop :=
-  interface.entry args origin → interface.entry args current → ∀ fromStep,
+  interface.entry args origin → interface.InitialOrReentry args current → ∀ fromStep,
     ∃ (route : AttributionOutcomeCarrierRoute) (used : Nat) (after : State),
       route ∈ interface.carrierRoutes ∧ route.child = interface.functionInstance.id ∧
       route.handoff ∈ interface.boundary.handoffs ∧ used ≤ interface.stepBound args ∧
@@ -263,7 +279,7 @@ inductive ParentRouteDecision {Args Outcome : Type}
     (progress : Level4HandoffProgress interface args origin fromStep current handoff) : Prop where
   | reenter (next : State) (used : Nat)
       (trace : Trace (fromStep + progress.prefixUsed + 1) used handoff next)
-      (entry : interface.entry args next) (preserved : frameHeld next)
+      (token : interface.reentryToken progress.route args next) (preserved : frameHeld next)
       (decreases : rank next < rank current) :
       ParentRouteDecision interface args origin frameHeld phase rank fromStep current handoff progress
   | carrier (reviewed : progress.route.classification = .sourceReviewedOutcomePath)
@@ -284,7 +300,7 @@ structure ParentRouteProvider {Args Outcome : Type}
     (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args) (origin : State)
     (frameHeld phase : State → Prop) where
   rank : State → Nat
-  decide : ∀ {fromStep current handoff} (_entry : interface.entry args current)
+  decide : ∀ {fromStep current handoff} (_token : interface.InitialOrReentry args current)
     (_currentProtected : frameHeld current)
     (progress : Level4HandoffProgress interface args origin fromStep current handoff)
     (_listed : progress.route ∈ interface.carrierRoutes)
@@ -316,21 +332,22 @@ def ParentRouteProvider.resolve {Args Outcome : Type}
     (frame : MachineExecution.Level4DecodeRawParentFrame margs origin initial)
     (provider : ParentRouteProvider interface args origin frame.PreservedTo phase)
     (contract : interface.ResumableSubtree) (originEntry : interface.entry args origin)
-    (fromStep : Nat) (current : State) (currentEntry : interface.entry args current)
+    (fromStep : Nat) (current : State) (currentToken : interface.InitialOrReentry args current)
     (currentFrame : frame.PreservedTo current) :
     ParentRouteResolved interface args origin frame phase fromStep current := by
   obtain ⟨route, used, handoff, routeListed, -, -, -, progress, routeEq, usedEq⟩ :=
-    contract args origin current originEntry currentEntry fromStep
+    contract args origin current originEntry currentToken fromStep
   subst route
   subst used
   have handoffFrame : frame.PreservedTo handoff :=
     progress.parentInvariant (frame.toState currentFrame)
-  cases decision : provider.decide currentEntry currentFrame progress routeListed handoffFrame with
-  | reenter next parentUsed parentTrace nextEntry nextFrame decreases =>
+  cases decision : provider.decide currentToken currentFrame progress routeListed handoffFrame with
+  | reenter next parentUsed parentTrace nextToken nextFrame decreases =>
       have firstTrace : Trace fromStep (progress.prefixUsed + 1 + parentUsed) current next := by
         simpa only [Nat.add_assoc] using Trace.append progress.sourceToTarget parentTrace
       have resolved := provider.resolve frame contract originEntry
-        (fromStep + progress.prefixUsed + 1 + parentUsed) next nextEntry nextFrame
+        (fromStep + progress.prefixUsed + 1 + parentUsed) next
+        (.inr ⟨progress.route, routeListed, nextToken⟩) nextFrame
       cases resolved with
       | carrier tailUsed after tailTrace afterFrame exit =>
           have tailTrace' : Trace (fromStep + (progress.prefixUsed + 1 + parentUsed)) tailUsed next after := by
@@ -760,6 +777,9 @@ noncomputable def decodeNewPayloadRequestInterface :
   spec := (contractNewPayloadRequest canonicalContractParams.env
     canonicalContractParams.repNewPayloadRequest).toSourceFunctionSpec
   entry := decodeNewPayloadRequestEntry
+  handoffToken := fun route state =>
+    state.regs.get? PC = some (BitVec.ofNat 64 route.handoff.target)
+  reentryToken := fun _ args state => decodeNewPayloadRequestEntry args state
   reached := functionInstanceExecutionPcs generatedProgram
     functionInstance_ssz_raw_decodeNewPayloadRequest_in_ssz_raw_decodeRaw_at_207_61
   terminal := specializedDecoderTerminal 0x1201c
@@ -787,6 +807,49 @@ def decodeExecutionWitnessEntry (args : ContainerArgs) (state : State) : Prop :=
     args.base < 2 ^ 64 ∧ descriptorBase + 16 ≤ 2 ^ 64 ∧ args.base + args.bytes.size ≤ 2 ^ 64 ∧
     resultCarrier + 0x1dc + canonicalContractParams.env.record.executionWitness ≤ 2 ^ 64
 
+/-- H-target facts needed by the three audited `decodeExecutionWitness` parent continuations.
+The final `0x12920 → 0x12924` route retains only its generated PC until its store sequence has
+separate source and execution evidence. -/
+def decodeExecutionWitnessHandoffToken (route : AttributionOutcomeCarrierRoute) (state : State) : Prop :=
+  state.regs.get? PC = some (BitVec.ofNat 64 route.handoff.target) ∧
+    (route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552 →
+      ∃ a2 a3, state.regs.get? x12 = some a2 ∧ state.regs.get? x13 = some a3) ∧
+    (route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668 →
+      ∃ postStack left right,
+        state.regs.get? x2 = some (BitVec.ofNat 64 postStack) ∧
+        stackWord state postStack 0x238 left ∧ stackWord state postStack 0x248 right)
+
+/-- A PC-only state cannot satisfy the first audited H token: the parent `sub` instruction needs
+both live operands. -/
+theorem not_decodeExecutionWitnessHandoffToken_75548_75552_of_missing_operands
+    {state : State}
+    (missing : ¬ ∃ a2 a3, state.regs.get? x12 = some a2 ∧ state.regs.get? x13 = some a3) :
+    ¬ decodeExecutionWitnessHandoffToken
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552
+      state := by
+  rintro ⟨-, operands, -⟩
+  exact missing (operands rfl)
+
+/-- R-target facts produced by exact parent execution for the three audited continuation routes.
+The route key prevents one route's register arrangement from being reused at another re-entry. -/
+def decodeExecutionWitnessReentryToken (route : AttributionOutcomeCarrierRoute)
+    (_args : ContainerArgs) (state : State) : Prop :=
+  (route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552 ∧
+    ∃ a2 a3, state.regs.get? PC = some (BitVec.ofNat 64 0x12728) ∧
+      state.regs.get? x20 = some (rTypeResult .SUB a2 a3) ∧
+      state.regs.get? x12 = some (BitVec.ofNat 64 12)) ∨
+  (route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668 ∧
+    ∃ left right, state.regs.get? PC = some (BitVec.ofNat 64 0x127a0) ∧
+      state.regs.get? x19 = some (rTypeResult .ADD left right)) ∨
+  (route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76036_76040 ∧
+    ∃ postStack, state.regs.get? PC = some (BitVec.ofNat 64 0x1290c) ∧
+      state.regs.get? x20 = some (iTypeResult .ADDI 0x580#12 (BitVec.ofNat 64 postStack)))
+
 noncomputable def decodeExecutionWitnessInterface :
     Level4DynamicFunctionInterface ContainerArgs
       (Except Contracts.DecodeError BinaryFv.Specs.SSZ.RawExecutionWitness) where
@@ -796,6 +859,8 @@ noncomputable def decodeExecutionWitnessInterface :
   spec := (contractExecutionWitness canonicalContractParams.env
     canonicalContractParams.repExecutionWitness).toSourceFunctionSpec
   entry := decodeExecutionWitnessEntry
+  handoffToken := decodeExecutionWitnessHandoffToken
+  reentryToken := decodeExecutionWitnessReentryToken
   reached := functionInstanceExecutionPcs generatedProgram
     functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48
   terminal := specializedDecoderTerminal 0x12738
@@ -821,6 +886,13 @@ noncomputable def decodeChainConfigInterface :
       functionInstance_ssz_raw_decodeChainConfig_in_ssz_raw_decodeRaw_at_211_48
       0x238 0x250 0x5b0 canonicalContractParams.env.record.chainConfig args state ∧
       state.regs.get? x21 = some (BitVec.ofNat 64 args.container.bytes.size)
+  handoffToken := fun route state =>
+    state.regs.get? PC = some (BitVec.ofNat 64 route.handoff.target)
+  reentryToken := fun _ args state =>
+    stackSliceContainerEntry
+      functionInstance_ssz_raw_decodeChainConfig_in_ssz_raw_decodeRaw_at_211_48
+      0x238 0x250 0x5b0 canonicalContractParams.env.record.chainConfig args state ∧
+      state.regs.get? x21 = some (BitVec.ofNat 64 args.container.bytes.size)
   reached := functionInstanceExecutionPcs generatedProgram
     functionInstance_ssz_raw_decodeChainConfig_in_ssz_raw_decodeRaw_at_211_48
   terminal := specializedDecoderTerminal 0x12e64
@@ -842,6 +914,13 @@ noncomputable def decodePublicKeysInterface :
   spec := { meaning := fun args =>
     (contractPublicKeys canonicalContractParams.env).meaning args.container }
   entry := fun args state =>
+    stackSliceCollectionEntry
+      functionInstance_ssz_raw_decodePublicKeys_in_ssz_raw_decodeRaw_at_212_46
+      0x238 0x240 0x600 canonicalContractParams.env.record.sliceDescriptor args state ∧
+      state.regs.get? x18 = some (BitVec.ofNat 64 args.container.bytes.size)
+  handoffToken := fun route state =>
+    state.regs.get? PC = some (BitVec.ofNat 64 route.handoff.target)
+  reentryToken := fun _ args state =>
     stackSliceCollectionEntry
       functionInstance_ssz_raw_decodePublicKeys_in_ssz_raw_decodeRaw_at_212_46
       0x238 0x240 0x600 canonicalContractParams.env.record.sliceDescriptor args state ∧
