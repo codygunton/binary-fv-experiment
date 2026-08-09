@@ -144,4 +144,14 @@ theorem level4_specialized_store_preparation_add_step {base state : State}
     (level4_rX_x23_run _ _ (decoderExecuteState_get? s7Value)) (wX_x6_run _ _)
     (pcIn := ⟨level4_specialized_store_preparation_owned _ (Or.inr (Or.inr rfl)), by native_decide⟩)
 
+/-- A store frame transports one saved word when its eight bytes lie outside the precise write
+region.  The corridor proof applies this once per concrete raw prologue slot. -/
+private theorem level4_saved_word_preserved {before after : State} {M : Region}
+    {base : Nat} {value : BitVec 64} (saved : SavedWordBytes before base value)
+    (writes : WritesOnlyWithin M before after)
+    (outside : ∀ index, index < (BinaryFv.RiscV.Sep.leBytes 8 value).length → ¬ M (base + index)) :
+    SavedWordBytes after base value := by
+  intro index bound
+  exact (writes _ (outside index bound)).trans (saved index bound)
+
 end BinaryFv.Zesu.MachineExecution
