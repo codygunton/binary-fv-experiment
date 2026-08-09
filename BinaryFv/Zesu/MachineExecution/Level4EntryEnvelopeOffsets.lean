@@ -307,6 +307,7 @@ private theorem level4_entry_header_setup_static_pointer_step {base state : Stat
       by native_decide⟩)
 
 structure Level4EntryEnvelopeHeaderSetupPre (margs : DecoderMachineArgs) (state : State) where
+  decodeRawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs state
   machine : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs state
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
   atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10498)
@@ -333,7 +334,7 @@ structure Level4EntryEnvelopeHeaderSetupHandoff (fromStep : Nat) (before after :
   inputBase : after.regs.get? x12 = some (BitVec.ofNat 64 margs.inputBase)
   inputLength : after.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
-  machine : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs after
+  decodeRawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs after
   retired : RetiredCounterPresent after
 
 /-- Sail executes the ordinary-input parent corridor from the post-`requireU32Length` length
@@ -437,7 +438,7 @@ theorem level4_entry_envelope_header_setup
     seg6.retired⟩⟩
   · rw [seg6.memEq noMemory_empty]
     exact pre.code
-  · exact pre.machine.mono
+  · exact pre.decodeRawMachine.mono
       (seg6.agree decoderPreserved_level4EntryEnvelopeHeaderSetupWrites_disjoint) seg6.retired
 
 end BinaryFv.Zesu.MachineExecution
