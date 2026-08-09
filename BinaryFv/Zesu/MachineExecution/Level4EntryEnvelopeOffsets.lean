@@ -46,6 +46,20 @@ theorem level4EntryEnvelopeOffsetsRemainingDirectPcs_subset_phase :
     level4EntryEnvelopeOffsetsRemainingDirectPcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
   native_decide
 
+/-- Direct consumer regression for the exact read-only `requireU32Length` leaf frame.  This is the
+saved state later read by the raw-decoder epilogue, not an additional child premise. -/
+theorem level4RequireU32LengthHandoff_preserves_saved_frame {margs : DecoderMachineArgs}
+    {before after : State} {fromStep : Nat}
+    {pre : Level4RequireU32LengthPre margs before}
+    {stack : Nat} {ra s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 : BitVec 64}
+    (handoff : Level4RequireU32LengthHandoff fromStep before after pre)
+    (saved : Level4DecodeRawPrologueSavedFrame before stack ra s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11) :
+    Level4DecodeRawPrologueSavedFrame after stack ra s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 := by
+  rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
+  simp only [SavedWordBytes] at saved ⊢
+  rw [handoff.memory]
+  exact saved
+
 /-- Exact post-state of the parent-owned high-word acceptance branch at `0x10490`. -/
 def level4EntryLengthHighWordBranchAfter (state : State) (retired : BitVec 64) : State :=
   tryStepControlFlowAfterRetired

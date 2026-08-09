@@ -172,6 +172,9 @@ structure Level4RequireU32LengthHandoff (fromStep : Nat) (before after : State)
   confined : ConfinedPrefix Level4RequireU32LengthPcs Level4RequireU32LengthExit
     Level4RequireU32LengthChildSummary fromStep 3 before after
   writes : WritesOnlyRegs level4RequireU32LengthWrites before after
+  /-- All three selected words are register-only, so the caller's raw-decoder save area remains
+  readable at the parent continuation. -/
+  memory : after.mem = before.mem
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x10490)
   highLength : after.regs.get? x11 = some
     (shiftIopResult .SRLI 32#6 (BitVec.ofNat 64 margs.bytes.size))
@@ -289,8 +292,8 @@ theorem level4_require_u32_length
     seg3.reg x12 (BitVec.ofNat 64 margs.inputBase) (by simp)
   have inputLength : after.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size) :=
     seg3.reg x13 (BitVec.ofNat 64 margs.bytes.size) (by simp)
-  refine ⟨after, ⟨seg3.trace, seg3.confined, seg3.writes, seg3.atPc, high, result, tag, inputBase,
-    inputLength, ?_, code3,
+  refine ⟨after, ⟨seg3.trace, seg3.confined, seg3.writes, seg3.memEq noMemory_empty, seg3.atPc,
+    high, result, tag, inputBase, inputLength, ?_, code3,
     pre.decodeRawMachine.mono
       (seg3.agree decoderPreserved_level4RequireU32LengthWrites_disjoint) seg3.retired,
     seg3.retired⟩⟩
