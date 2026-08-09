@@ -5,6 +5,7 @@ import BinaryFv.Zesu.Contracts.Collections
 import BinaryFv.Zesu.Contracts.Containers
 import BinaryFv.Zesu.Contracts.PrimitiveReadsAndSlices
 import BinaryFv.Zesu.Contracts.Runtime
+import BinaryFv.Zesu.MachineExecution.Level4DecodeRawParentInvariant
 
 /-!
 # Level 4 `decodeRaw` boundary contracts
@@ -210,8 +211,8 @@ def CarrierObligation {Args Outcome : Type}
 machine step.  Source-reviewed routes additionally return a higher-order obligation for the fi6
 parent's later, exact carrier continuation; other routes carry progress only. -/
 structure Level4HandoffProgress {Args Outcome : Type}
-    (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args)
-    (fromStep : Nat) (before state : State) where
+    (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args) (origin : State)
+    (fromStep : Nat) (current state : State) where
   route : AttributionOutcomeCarrierRoute
   child : route.child = interface.functionInstance.id
   handoff : route.handoff ∈ interface.boundary.handoffs
@@ -221,26 +222,138 @@ structure Level4HandoffProgress {Args Outcome : Type}
   prefixTrace : EnteredFunctionTrace
     (fun pc => pc.toNat ∈ interface.boundary.fullExecutionPcs)
     (fun pc => pc = BitVec.ofNat 64 route.handoff.source)
-    (functionInstanceEntryWord interface.functionInstance) fromStep prefixUsed before source
-  prefixFrames : TraceRespectsRecursiveFrames interface.boundary fromStep prefixUsed before source
+    (functionInstanceEntryWord interface.functionInstance) fromStep prefixUsed current source
+  prefixFrames : TraceRespectsRecursiveFrames interface.boundary fromStep prefixUsed current source
   finalStep : Runs (try_step (fromStep + prefixUsed) false) source state false
-  sourceToTarget : Trace fromStep (prefixUsed + 1) before state :=
+  sourceToTarget : Trace fromStep (prefixUsed + 1) current state :=
     Trace.snoc (FunctionTrace.toTrace prefixTrace.trace) finalStep
   atTarget : state.regs.get? PC = some (BitVec.ofNat 64 route.handoff.target)
   transitionGeometry : RecursiveTransitionGeometry interface.boundary
-  carrierObligation : CarrierObligation interface args route (fromStep + prefixUsed + 1) before state
+  /-- Dynamic bodies may write outputs and allocations, but they cannot lose the concrete raw
+  decoder frame needed by the later rejection/cleanup epilogue.  The origin is retained across
+  every generated re-entry rather than reset to the fragment's current entry state. -/
+  parentInvariant : ∀ {margs : DecoderMachineArgs}
+    (frame : MachineExecution.Level4DecodeRawParentFrame margs origin current), frame.PreservedTo state
+  carrierObligation : CarrierObligation interface args route (fromStep + prefixUsed + 1) origin state
 
-/-- The dynamic assumption chooses the emitted outgoing handoff that actual execution reaches.
-Its subtree extent includes the generator's recursive active-call frames; the later fi6 proof must
-consume re-entry and carrier-path metadata using the returned route key. -/
+/-- One application of a dynamic decoder contract, retaining its initial raw-decoder entry while
+continuing from a generated parent-to-child re-entry.  The subsequent fragment's semantic exit is
+still related to `origin`, never to a synthetic second source call at `current`. -/
+def Level4DynamicFunctionInterface.ResumableSubtreeFrom {Args Outcome : Type}
+    (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args) (origin current : State) : Prop :=
+  interface.entry args origin → interface.entry args current → ∀ fromStep,
+    ∃ (route : AttributionOutcomeCarrierRoute) (used : Nat) (after : State),
+      route ∈ interface.carrierRoutes ∧ route.child = interface.functionInstance.id ∧
+      route.handoff ∈ interface.boundary.handoffs ∧ used ≤ interface.stepBound args ∧
+      ∃ progress : Level4HandoffProgress interface args origin fromStep current after,
+        progress.route = route ∧ used = progress.prefixUsed + 1
+
+/-- The outstanding dynamic contract supplies origin-preserving progress for both the first entry
+and every generated re-entry.  It is still one Level 4 selected-boundary assumption per decoder. -/
 def Level4DynamicFunctionInterface.ResumableSubtree {Args Outcome : Type}
     (interface : Level4DynamicFunctionInterface Args Outcome) : Prop :=
-  ∀ (args : Args) (fromStep : Nat) (before : State), interface.entry args before →
-      ∃ (route : AttributionOutcomeCarrierRoute) (used : Nat) (after : State),
-        route ∈ interface.carrierRoutes ∧ route.child = interface.functionInstance.id ∧
-        route.handoff ∈ interface.boundary.handoffs ∧ used ≤ interface.stepBound args ∧
-        ∃ progress : Level4HandoffProgress interface args fromStep before after,
-          progress.route = route ∧ used = progress.prefixUsed + 1
+  ∀ (args : Args) (origin current : State), interface.ResumableSubtreeFrom args origin current
+
+/-- What fi6 proves after one dynamic fragment handoff.  A re-entry strictly lowers the supplied
+rank.  A carrier is proved for the particular generated path selected by the child contract; a
+phase handoff is retained for the rejection/cleanup proof rather than discarded as an error. -/
+inductive ParentRouteDecision {Args Outcome : Type}
+    (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args) (origin : State)
+    (frameHeld phase : State → Prop) (rank : State → Nat) (fromStep : Nat) (current handoff : State)
+    (progress : Level4HandoffProgress interface args origin fromStep current handoff) : Prop where
+  | reenter (next : State) (used : Nat)
+      (trace : Trace (fromStep + progress.prefixUsed + 1) used handoff next)
+      (entry : interface.entry args next) (preserved : frameHeld next)
+      (decreases : rank next < rank current) :
+      ParentRouteDecision interface args origin frameHeld phase rank fromStep current handoff progress
+  | carrier (reviewed : progress.route.classification = .sourceReviewedOutcomePath)
+      (complete : ∀ path, path ∈ progress.route.carrierPaths →
+        interface.terminal (BitVec.ofNat 64 path.carrierPc) →
+        ∃ carrier, ∃ pathTrace : Level4CarrierPathTrace progress.route
+          (fromStep + progress.prefixUsed + 1) handoff carrier, pathTrace.path = path ∧ frameHeld carrier) :
+      ParentRouteDecision interface args origin frameHeld phase rank fromStep current handoff progress
+  | phaseHandoff (after : State) (used : Nat)
+      (trace : Trace (fromStep + progress.prefixUsed + 1) used handoff after)
+      (preserved : frameHeld after) (phaseProof : phase after) :
+      ParentRouteDecision interface args origin frameHeld phase rank fromStep current handoff progress
+
+/-- A parent-side route proof is higher-order: it receives the child-selected H transition and
+must either execute the parent to a ranked R re-entry, follow the selected carrier path, or hand
+the still-protected state to the next fi6 phase. -/
+structure ParentRouteProvider {Args Outcome : Type}
+    (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args) (origin : State)
+    (frameHeld phase : State → Prop) where
+  rank : State → Nat
+  decide : ∀ {fromStep current handoff} (_entry : interface.entry args current)
+    (_currentProtected : frameHeld current)
+    (progress : Level4HandoffProgress interface args origin fromStep current handoff)
+    (_handoffProtected : frameHeld handoff),
+    ParentRouteDecision interface args origin frameHeld phase rank fromStep current handoff progress
+
+/-- The well-founded resolver either reaches the semantic carrier selected by the child contract or
+hands the preserved fi6 state to the following parent phase.  The trace includes every child H step
+and every parent interleave used to resolve it. -/
+inductive ParentRouteResolved {Args Outcome : Type}
+    (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args) (origin : State)
+    {margs : DecoderMachineArgs} {initial : State}
+    (frame : MachineExecution.Level4DecodeRawParentFrame margs origin initial) (phase : State → Prop)
+    (fromStep : Nat) (current : State) : Prop where
+  | carrier (used : Nat) (after : State) (trace : Trace fromStep used current after)
+      (preserved : frame.PreservedTo after)
+      (exit : interface.exit args (interface.spec.meaning args) origin after) :
+      ParentRouteResolved interface args origin frame phase fromStep current
+  | phaseHandoff (used : Nat) (after : State) (trace : Trace fromStep used current after)
+      (preserved : frame.PreservedTo after) (phaseProof : phase after) :
+      ParentRouteResolved interface args origin frame phase fromStep current
+
+/-- Resolve generated H/R routes without treating a re-entry as a new source call.  The recursive
+call retains both `originEntry` and `frame`; the provider's strict rank decrease is the termination
+argument. -/
+def ParentRouteProvider.resolve {Args Outcome : Type}
+    {interface : Level4DynamicFunctionInterface Args Outcome} {args : Args} {origin : State}
+    {margs : DecoderMachineArgs} {initial : State}
+    (frame : MachineExecution.Level4DecodeRawParentFrame margs origin initial)
+    (provider : ParentRouteProvider interface args origin frame.PreservedTo phase)
+    (contract : interface.ResumableSubtree) (originEntry : interface.entry args origin)
+    (fromStep : Nat) (current : State) (currentEntry : interface.entry args current)
+    (currentFrame : frame.PreservedTo current) :
+    ParentRouteResolved interface args origin frame phase fromStep current := by
+  obtain ⟨route, used, handoff, -, -, -, -, progress, routeEq, usedEq⟩ :=
+    contract args origin current originEntry currentEntry fromStep
+  subst route
+  subst used
+  have handoffFrame : frame.PreservedTo handoff :=
+    progress.parentInvariant (frame.toState currentFrame)
+  cases decision : provider.decide currentEntry currentFrame progress handoffFrame with
+  | reenter next parentUsed parentTrace nextEntry nextFrame decreases =>
+      have firstTrace : Trace fromStep (progress.prefixUsed + 1 + parentUsed) current next := by
+        simpa only [Nat.add_assoc] using Trace.append progress.sourceToTarget parentTrace
+      have resolved := provider.resolve frame contract originEntry
+        (fromStep + progress.prefixUsed + 1 + parentUsed) next nextEntry nextFrame
+      cases resolved with
+      | carrier tailUsed after tailTrace afterFrame exit =>
+          have tailTrace' : Trace (fromStep + (progress.prefixUsed + 1 + parentUsed)) tailUsed next after := by
+            simpa only [Nat.add_assoc] using tailTrace
+          exact .carrier (progress.prefixUsed + 1 + parentUsed + tailUsed) after
+            (by simpa only [Nat.add_assoc] using Trace.append firstTrace tailTrace') afterFrame exit
+      | phaseHandoff tailUsed after tailTrace afterFrame phaseProof =>
+          have tailTrace' : Trace (fromStep + (progress.prefixUsed + 1 + parentUsed)) tailUsed next after := by
+            simpa only [Nat.add_assoc] using tailTrace
+          exact .phaseHandoff (progress.prefixUsed + 1 + parentUsed + tailUsed) after
+            (by simpa only [Nat.add_assoc] using Trace.append firstTrace tailTrace') afterFrame phaseProof
+  | carrier reviewed complete =>
+      obtain ⟨path, pathListed, pathTerminal, exit⟩ := progress.carrierObligation reviewed
+      obtain ⟨after, pathTrace, pathEq, afterFrame⟩ := complete path pathListed pathTerminal
+      obtain ⟨pathUsed, pathRun⟩ := pathTrace.trace
+      exact .carrier (progress.prefixUsed + 1 + pathUsed) after
+        (by simpa only [Nat.add_assoc] using Trace.append progress.sourceToTarget pathRun)
+        afterFrame (exit after pathTrace pathEq)
+  | phaseHandoff after parentUsed parentTrace afterFrame phaseProof =>
+      exact .phaseHandoff (progress.prefixUsed + 1 + parentUsed) after
+        (by simpa only [Nat.add_assoc] using Trace.append progress.sourceToTarget parentTrace)
+        afterFrame phaseProof
+termination_by provider.rank current
+decreasing_by exact decreases
 
 /-- Excluded regions have no generated `FunctionInstance` exit predicate.  They return to the
 caller-held link register, except for the allocator-free tail-call path which enters the selected
