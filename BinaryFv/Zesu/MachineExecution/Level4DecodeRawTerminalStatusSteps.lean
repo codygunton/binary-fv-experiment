@@ -46,6 +46,40 @@ private theorem level4_terminal_status_fetch_12ff8 :
     DecoderFetchPc level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs
       (BitVec.ofNat 64 0x12ff8) := ⟨by native_decide, by native_decide⟩
 
+private theorem level4_terminal_status_fetch_10734 :
+    DecoderFetchPc level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs
+      (BitVec.ofNat 64 0x10734) := ⟨by native_decide, by native_decide⟩
+
+private theorem level4_terminal_status_fetch_129c4 :
+    DecoderFetchPc level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs
+      (BitVec.ofNat 64 0x129c4) := ⟨by native_decide, by native_decide⟩
+
+/-- Sail execution of `li s7, 2` at `0x10734`. -/
+theorem level4_status_s7_register_step {base state : State} {margs : DecoderMachineArgs}
+    (machine : DecoderMachinePre level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10734)) :
+    ∃ nextRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x10734) nextRetired x23
+        (iTypeResult .ADDI 0x002#12 (BitVec.ofNat 64 0))) false := by
+  exact decoderITypeStep machine (Agree.weaken (fun _ preserved => preserved.2) agree) retired code stepNo
+    0x10734 0x93 0x0b 0x20 0x00 0x002#12 0#5 23#5 .ADDI atPc (rX_x0_run _) (wX_x23_run _ _)
+    level4_terminal_status_fetch_10734
+
+/-- Sail execution of `li s1, 2` at `0x129c4`. -/
+theorem level4_status_s1_register_step {base state : State} {margs : DecoderMachineArgs}
+    (machine : DecoderMachinePre level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x129c4)) :
+    ∃ nextRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x129c4) nextRetired x9
+        (iTypeResult .ADDI 0x002#12 (BitVec.ofNat 64 0))) false := by
+  exact decoderITypeStep machine (Agree.weaken (fun _ preserved => preserved.2) agree) retired code stepNo
+    0x129c4 0x93 0x04 0x20 0x00 0x002#12 0#5 9#5 .ADDI atPc (rX_x0_run _) (wX_x9_run _ _)
+    level4_terminal_status_fetch_129c4
+
 /-- Sail execution of `sh s7, 0x340(s5)` at `0x10738`. -/
 theorem level4_status_store_s7_step {base state : State} {margs : DecoderMachineArgs}
     (machine : DecoderMachinePre level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs margs base)
