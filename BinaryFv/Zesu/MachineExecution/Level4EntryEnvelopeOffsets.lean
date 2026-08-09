@@ -478,7 +478,8 @@ theorem level4_entry_header_first_lbu {margs : DecoderMachineArgs} {origin state
       (afterRegisterWrite state (BitVec.ofNat 64 0x104bc) retired x10
         (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat)) false := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x104bc)
   let address := BitVec.ofNat 64 margs.inputBase
@@ -593,7 +594,8 @@ theorem level4_entry_header_first_zero_branch {margs : DecoderMachineArgs} {orig
           (BitVec.ofNat 64 0x104c0))
         (BitVec.ofNat 64 0x104c4) retired) false := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   exact decoderBranchNotTakenStep decoderMachine (Agree.refl state) retired fileCode stepNo
     0x104c0 0xe3 0x1e 0x05 0xfc 0x1fdc#13 0#5 10#5 .BNE atPc
     (by
@@ -657,7 +659,8 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
     (firstByteZero : margs.bytes[0]'(by omega) = 0) (fromStep : Nat) :
     ∃ after, Level4EntryHeaderFirstTwoHandoff after fromStep frame := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   let seg0 := Seg.nil Level4EntryHeaderFirstTwoPcs (fun _ => False) (fun _ _ _ _ _ => False)
     level4EntryHeaderFirstTwoWrites noMemory fromStep retired atPc
   obtain ⟨readRetired, afterRead, readEq, seg1⟩ := seg0.stepWitness
@@ -675,7 +678,7 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
       (afterRegisterWrite state (BitVec.ofNat 64 0x104bc) readRetired x10
         (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat)) := by
     refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
-      rawFrameWritable, rawFrameInputSeparated, ?_, ?_, seg1.retired⟩
+      rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, seg1.retired⟩
     · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
       simp only [SavedWordBytes] at saved ⊢
       rw [readMemory]
@@ -704,7 +707,7 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
     intro index indexBound
     rw [memory]
   · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
-      rawFrameWritable, rawFrameInputSeparated, ?_, ?_, seg2.retired⟩
+      rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, seg2.retired⟩
     · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
       simp only [SavedWordBytes] at saved ⊢
       rw [memory]
@@ -750,7 +753,8 @@ theorem level4_entry_header_second_lbu {margs : DecoderMachineArgs} {origin stat
       (afterRegisterWrite state (BitVec.ofNat 64 0x104c4) retired x10
         (BitVec.ofNat 64 (margs.bytes[1]'(by omega)).toNat)) false := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x104c4)
   let address := BitVec.ofNat 64 (margs.inputBase + 1)
@@ -859,7 +863,8 @@ theorem level4_entry_header_length_one {margs : DecoderMachineArgs} {origin stat
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x104c8) retired x11 (1#64)) false := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   exact decoderITypeStepOfDecoderAgree decoderMachine (Agree.refl state) retired fileCode stepNo
     0x104c8 0x93 0x05 0x10 0x00 1#12 0#5 11#5 .ADDI atPc (rX_x0_run _) (by
       simpa [iTypeResult] using wX_x11_run
@@ -900,7 +905,8 @@ theorem level4_entry_header_second_one_branch {margs : DecoderMachineArgs} {orig
           (BitVec.ofNat 64 0x104cc))
         (BitVec.ofNat 64 0x104d0) retired) false := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   exact decoderBranchNotTakenStep decoderMachine (Agree.refl state) retired fileCode stepNo
     0x104cc 0xe3 0x18 0xb5 0xfc 0x1fd0#13 11#5 10#5 .BNE atPc
     (by
@@ -940,7 +946,8 @@ theorem level4_entry_envelope_bound_setup {margs : DecoderMachineArgs} {origin s
       (afterRegisterWrite state (BitVec.ofNat 64 0x104d0) retired x18
         (iTypeResult .ADDI 0xffe#12 length)) false := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   exact decoderITypeStepOfDecoderAgree decoderMachine (Agree.refl state) retired fileCode stepNo
     0x104d0 0x13 0x89 0xe6 0xff 0xffe#12 13#5 18#5 .ADDI atPc
     (rX_x13_run _ _ (decoderExecuteState_get? inputLength)) (wX_x18_run _ _)
@@ -972,7 +979,8 @@ theorem level4_entry_envelope_minimum {margs : DecoderMachineArgs} {origin state
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x104d4) retired x10 (15#64)) false := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   exact decoderITypeStepOfDecoderAgree decoderMachine (Agree.refl state) retired fileCode stepNo
     0x104d4 0x13 0x05 0xf0 0x00 0x00f#12 0#5 10#5 .ADDI atPc (rX_x0_run _) (by
       simpa [iTypeResult] using wX_x10_run
@@ -1015,7 +1023,8 @@ theorem level4_entry_first_read_offset_branch {margs : DecoderMachineArgs} {orig
           (BitVec.ofNat 64 0x10534))
         (BitVec.ofNat 64 0x10534) retired) false := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x104d8)
   have minimumAtExecute : executeState.regs.get? x10 = some minimum :=
@@ -1075,7 +1084,8 @@ theorem level4_read_offset199_first_fragment {margs : DecoderMachineArgs} {origi
     (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
     ∃ used after, Level4ReadOffset199FirstHandoff after fromStep used frame := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   let args : ReadOffsetInlineArgs :=
     { inputBase := margs.inputBase, bytes := margs.bytes, offset := 2 }
   have childMachine : DecoderMachinePre
@@ -1094,7 +1104,7 @@ theorem level4_read_offset199_first_fragment {margs : DecoderMachineArgs} {origi
   · simpa [args] using lanes
   · exact (writes.get x20 (by simp [readOffsetFragmentWrites])).trans inputPointer
   · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
-      rawFrameWritable, rawFrameInputSeparated, ?_, ?_, afterRetired⟩
+      rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, afterRetired⟩
     · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
       simp only [SavedWordBytes] at saved ⊢
       rw [memory]
@@ -1146,7 +1156,8 @@ theorem level4_read_offset200_first_fragment {margs : DecoderMachineArgs} {origi
     (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
     ∃ used after, Level4ReadOffset200FirstHandoff after fromStep used frame := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   let args : ReadOffsetInlineArgs :=
     { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 }
   have childMachine : DecoderMachinePre
@@ -1164,7 +1175,7 @@ theorem level4_read_offset200_first_fragment {margs : DecoderMachineArgs} {origi
   · simpa [args] using lanes
   · exact (writes.get x20 (by simp [readOffsetFragmentWrites])).trans inputPointer
   · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
-      rawFrameWritable, rawFrameInputSeparated, ?_, ?_, afterRetired⟩
+      rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, afterRetired⟩
     · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
       simp only [SavedWordBytes] at saved ⊢
       rw [memory]
@@ -1245,7 +1256,8 @@ theorem level4_read_offset199_second_fragment {margs : DecoderMachineArgs} {orig
       { inputBase := margs.inputBase, bytes := margs.bytes, offset := 2 } state) (fromStep : Nat) :
     ∃ used after, Level4ReadOffset199SecondHandoff after fromStep used frame := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   let args : ReadOffsetInlineArgs :=
     { inputBase := margs.inputBase, bytes := margs.bytes, offset := 2 }
   have childMachine : DecoderMachinePre
@@ -1263,7 +1275,7 @@ theorem level4_read_offset199_second_fragment {margs : DecoderMachineArgs} {orig
   · simpa [args] using partials
   · exact (writes.get x20 (by simp [readOffsetFragmentWrites])).trans inputPointer
   · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
-      rawFrameWritable, rawFrameInputSeparated, ?_, ?_, afterRetired⟩
+      rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, afterRetired⟩
     · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
       simp only [SavedWordBytes] at saved ⊢
       rw [memory]
@@ -1344,7 +1356,8 @@ theorem level4_read_offset201_first_fragment {margs : DecoderMachineArgs} {origi
     (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
     ∃ used after, Level4ReadOffset201FirstHandoff after fromStep used frame := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
   let args : ReadOffsetInlineArgs :=
     { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 }
   have childMachine : DecoderMachinePre
@@ -1362,7 +1375,7 @@ theorem level4_read_offset201_first_fragment {margs : DecoderMachineArgs} {origi
   · simpa [args] using lanes
   · exact (writes.get x20 (by simp [readOffsetFragmentWrites])).trans inputPointer
   · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
-      rawFrameWritable, rawFrameInputSeparated, ?_, ?_, afterRetired⟩
+      rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, afterRetired⟩
     · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
       simp only [SavedWordBytes] at saved ⊢
       rw [memory]
