@@ -229,6 +229,11 @@ function details(d){
   const tails=(m.tailDependencies||[]).map(t=>`${esc(t.qualified)}: 0x${t.transfer.source.toString(16)} → 0x${t.transfer.target.toString(16)}, completes at ${t.completionSourcePcs.map(x=>'0x'+x.toString(16)).join(', ')}`);
   const handoffs=(m.fragmentHandoffs||[]).map(e=>`0x${e.sourcePc.toString(16)} → 0x${e.targetPc.toString(16)}`);
   const reentries=(m.parentReentryEdges||[]).map(e=>`0x${e.sourcePc.toString(16)} → 0x${e.targetPc.toString(16)}`);
+  const carrierRoutes=(m.carrierRoutes||[]).map(route=>{
+    const h=route.handoff||{}, pcs=(route.carrierPcs||[]).map(x=>'0x'+x.toString(16)).join(', ')||'none';
+    const paths=(route.carrierPaths||[]).map(p=>p.pcs.map(x=>'0x'+x.toString(16)).join(' → ')).join('<br>')||'none';
+    return `${esc(route.classification||'unclassified')}: 0x${Number(h.sourcePc).toString(16)} → 0x${Number(h.targetPc).toString(16)}; carriers ${pcs}; paths ${paths}; registers/stack/status/allocation/HeapArrayRep ${route.classification==='sourceReviewedOutcomePath'?'unmeasured':'not claimed'}`;
+  });
   const callers=(m.callers||[]).map(call=>`${esc(call.kind)} ← ${esc(call.caller==='program'?'program':OWNER_META.get(call.caller)?.qualified||call.caller)}`);
   $('#rbody').innerHTML=
    `<div class="kv">
@@ -242,6 +247,7 @@ function details(d){
       <span>resolved tail route</span><span>${tails.join('<br>')||'none'}</span>
       <span>attribution subtree handoffs</span><span>${handoffs.join(', ')||'none'}</span>
       <span>parent subtree reentries</span><span>${reentries.join(', ')||'none'}</span>
+      <span>carrier routes</span><span>${carrierRoutes.join('<br>')||'none'}</span>
       <span>source</span><span>${esc(m.file||'?')}:${m.line??'?'}</span>
       <span>instructions</span><span>${d.data.value}</span>
       <span>fragments</span><span>${m.frags>1?`<b style="color:var(--cur)">${m.frags}</b> (non-contiguous)`:'1 (contiguous)'}</span>

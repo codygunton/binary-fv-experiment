@@ -2254,6 +2254,7 @@ def build_flame(database: dict) -> dict:
     checked_by_id = {owner["id"]: owner for owner in database["owners"]}
     attribution_handoffs = {}
     attribution_reentries = {}
+    carrier_routes = {}
     if any(owner["qualified"] == "ssz_raw.decodeRaw" for owner in call_graph["owners"]):
         attribution_handoffs = {
             row["id"]: row["fragmentHandoffs"]
@@ -2264,6 +2265,11 @@ def build_flame(database: dict) -> dict:
             row["id"]: row["parentReentryEdges"]
             for row in level4_boundary_manifest(database)["boundaries"]
             if "parentReentryEdges" in row
+        }
+        carrier_routes = {
+            row["id"]: row["carrierRoutes"]
+            for row in level4_boundary_manifest(database)["boundaries"]
+            if "carrierRoutes" in row
         }
     callers: dict[str, list[dict]] = defaultdict(list)
     callees: dict[str, list[dict]] = defaultdict(list)
@@ -2352,6 +2358,7 @@ def build_flame(database: dict) -> dict:
             "tailDependencies": tail_dependencies,
             "fragmentHandoffs": [] if synthetic else attribution_handoffs.get(owner_id, []),
             "parentReentryEdges": [] if synthetic else attribution_reentries.get(owner_id, []),
+            "carrierRoutes": [] if synthetic else carrier_routes.get(owner_id, []),
             "src": None,
         }
         return node, subtree
