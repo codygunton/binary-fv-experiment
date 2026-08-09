@@ -216,11 +216,34 @@ class ObservationTests(unittest.TestCase):
         self.assertTrue(any(accepted for _name, _data, accepted in vectors))
         self.assertTrue(any(not accepted for _name, _data, accepted in vectors))
 
-    def test_trace_parser_ignores_loads_and_keeps_stores(self) -> None:
+    def test_trace_parser_keeps_fi16_register_snapshot_with_stores(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             trace = Path(directory) / "trace"
-            trace.write_text("E 4\nL 4 99 8 1\nS 8 100 8 2 3\n")
-            self.assertEqual(evidence.parse_trace(trace), ([4], [{"pc": 8, "address": 100, "width": 8, "value": 2, "sp": 3}]))
+            trace.write_text("E 4\nL 4 99 8 1\nS 8 100 8 2 3\nR 67392 7 8 9\n")
+            self.assertEqual(
+                evidence.parse_trace(trace),
+                ([4], [{"pc": 8, "address": 100, "width": 8, "value": 2, "sp": 3}],
+                 [{"pc": 67392, "x2": 7, "x19": 8, "x24": 9}]),
+            )
+
+    def test_fi16_snapshot_requires_same_vector_branch_target_and_values(self) -> None:
+        snapshots = [{"pc": 0x10740, "x2": 10, "x19": 20, "x24": 30}]
+        record = evidence.observation(self.boundary, [0x10730, 0x10740], [], snapshots)
+        claims = record["fi16ProducerSnapshots"]
+        self.assertEqual(claims, [{"sourcePc": 0x10730, "targetPc": 0x10740,
+                                   "pc": 0x10740, "x2": 10, "x19": 20, "x24": 30}])
+        self.assertEqual(evidence.validate_fi16_producer_snapshot_claims(record, claims), [])
+        self.assertTrue(evidence.mutation_checks(self.boundary, record)["fi16-producer-deletion"])
+        self.assertTrue(evidence.mutation_checks(self.boundary, record)["fi16-producer-target"])
+        self.assertTrue(evidence.mutation_checks(self.boundary, record)["fi16-producer-register"])
+        self.assertEqual(
+            evidence.validate_fi16_producer_snapshot_claims(
+                {**record, "fi16ProducerSnapshots": [{**claims[0], "x24": 31}]}, claims),
+            ["an observed fi16 producer register snapshot changed or lost its branch target"],
+        )
+        self.assertEqual(
+            evidence.fi16_producer_snapshots([0x10740], snapshots, set()), [],
+        )
 
     def test_recursive_h_r_ra_state_machine_rejects_forged_transitions(self) -> None:
         frame = {"id": "child", "sourcePc": 8, "targetPc": 100, "activeCalleeExecutionPcs": [100, 104],

@@ -44,6 +44,7 @@ UNMEASURED_CLAUSES = (
 # compiled but infeasible for every root input. This is deliberately a singleton certificate: another
 # unobserved static edge is a gate failure, not an inference from this source argument.
 PUBLIC_KEYS_CLEANUP = ("ssz_raw.decodePublicKeys", 77764, 66624)
+FI16_PRODUCER_EDGE = (0x10730, 0x10740)
 
 
 @dataclass(frozen=True)
@@ -285,12 +286,13 @@ def load_inventory(path: Path) -> tuple[Boundary, ...]:
             carrier_paths = route.get("carrierPaths")
             if (source not in pcs or not isinstance(route_identity, dict)
                     or route_identity.get("qualified") != qualified
-                    or classification not in {"intermediate", "unclassified", "sourceReviewedOutcomePath"}
+                    or classification not in {"intermediate", "unclassified", "rejectionPhaseHandoff",
+                                              "sourceReviewedOutcomePath"}
                     or not isinstance(carrier_pcs, list)
                     or not isinstance(carrier_paths, list)
                     or any(not isinstance(pc, int) for pc in carrier_pcs)):
                 raise ValueError(f"boundary {identifier} carrier route has invalid identity or PCs")
-            if classification in {"intermediate", "unclassified"} and (carrier_pcs or carrier_paths):
+            if classification in {"intermediate", "unclassified", "rejectionPhaseHandoff"} and (carrier_pcs or carrier_paths):
                 raise ValueError(f"boundary {identifier} non-outcome carrier route claims a carrier")
             if classification == "sourceReviewedOutcomePath" and (not carrier_pcs or not carrier_paths):
                 raise ValueError(f"boundary {identifier} outcome carrier route lacks parent continuation PCs")
@@ -332,9 +334,10 @@ def load_inventory(path: Path) -> tuple[Boundary, ...]:
     return tuple(boundaries)
 
 
-def parse_trace(path: Path) -> tuple[list[int], list[dict[str, int]]]:
+def parse_trace(path: Path) -> tuple[list[int], list[dict[str, int]], list[dict[str, int]]]:
     pcs: list[int] = []
     stores: list[dict[str, int]] = []
+    snapshots: list[dict[str, int]] = []
     for line in path.read_text().splitlines():
         fields = line.split()
         if not fields:
@@ -344,13 +347,28 @@ def parse_trace(path: Path) -> tuple[list[int], list[dict[str, int]]]:
         elif fields[0] == "S" and len(fields) == 6:
             pc, address, width, value, sp = (int(field, 0) for field in fields[1:])
             stores.append({"pc": pc, "address": address, "width": width, "value": value, "sp": sp})
-    return pcs, stores
+        elif fields[0] == "R" and len(fields) == 5:
+            pc, x2, x19, x24 = (int(field, 0) for field in fields[1:])
+            snapshots.append({"pc": pc, "x2": x2, "x19": x19, "x24": x24})
+    return pcs, stores, snapshots
+
+
+def fi16_producer_snapshots(pcs: list[int], snapshots: list[dict[str, int]],
+                            edges: set[tuple[int, int]]) -> list[dict[str, int]]:
+    """Keep x2/s3/s8 only when this vector took fi:16's reviewed branch target."""
+    if FI16_PRODUCER_EDGE not in edges:
+        return []
+    return [
+        {"sourcePc": FI16_PRODUCER_EDGE[0], "targetPc": FI16_PRODUCER_EDGE[1], **snapshot}
+        for snapshot in snapshots if snapshot["pc"] == FI16_PRODUCER_EDGE[1]
+    ]
 
 
 def observation(
     boundary: Boundary,
     pcs: list[int],
     stores: list[dict[str, int]],
+    snapshots: list[dict[str, int]] | None = None,
     *,
     edges: set[tuple[int, int]] | None = None,
 ) -> dict[str, Any]:
@@ -360,6 +378,7 @@ def observation(
         store for store in boundary.stores
         if any(all(observed[field] == store[field] for field in store) for observed in stores)
     ]
+    snapshots = [] if snapshots is None else snapshots
     return {
         "entryReached": boundary.entry_pc in pcs,
         "exitReached": sorted(set(boundary.exits).intersection(pcs)),
@@ -370,6 +389,7 @@ def observation(
         ],
         "declaredStoresReached": declared_stores,
         "observedStores": [store for store in stores if store["pc"] in owned],
+        "fi16ProducerSnapshots": fi16_producer_snapshots(pcs, snapshots, edges),
         "observedCarrierRoutes": [carrier_route_observation(route, pcs, boundary.entry_pc) for route in boundary.carrier_routes],
     }
 
@@ -450,6 +470,7 @@ def merge_observations(boundary: Boundary, observations: list[dict[str, Any]]) -
                    for record in observations)
         ],
         "observedStores": [store for record in observations for store in record["observedStores"]],
+        "fi16ProducerSnapshots": [snapshot for record in observations for snapshot in record["fi16ProducerSnapshots"]],
         "observedCarrierRoutes": merged_routes,
     }
 
@@ -524,6 +545,19 @@ def validate_observed_carrier_claims(record: dict[str, Any], claims: list[dict[s
     return []
 
 
+def validate_fi16_producer_snapshot_claims(record: dict[str, Any], claims: list[dict[str, int]]) -> list[str]:
+    """A register value is evidence only with its exact same-vector fi:16 branch target."""
+    observed = {
+        (snapshot["sourcePc"], snapshot["targetPc"], snapshot["pc"],
+         snapshot["x2"], snapshot["x19"], snapshot["x24"])
+        for snapshot in record["fi16ProducerSnapshots"]
+    }
+    if any((claim["sourcePc"], claim["targetPc"], claim["pc"],
+            claim["x2"], claim["x19"], claim["x24"]) not in observed for claim in claims):
+        return ["an observed fi16 producer register snapshot changed or lost its branch target"]
+    return []
+
+
 def mutation_checks(boundary: Boundary, record: dict[str, Any]) -> dict[str, bool]:
     """Show the checker rejects corruption of every currently measurable clause."""
     mutations = {
@@ -545,6 +579,20 @@ def mutation_checks(boundary: Boundary, record: dict[str, Any]) -> dict[str, boo
                 for route in record["observedCarrierRoutes"]
             ],
         }
+    if record["fi16ProducerSnapshots"]:
+        mutations["fi16-producer-deletion"] = {
+            **record, "fi16ProducerSnapshots": [],
+        }
+        mutations["fi16-producer-target"] = {
+            **record,
+            "fi16ProducerSnapshots": [{**snapshot, "targetPc": snapshot["targetPc"] + 4}
+                                     for snapshot in record["fi16ProducerSnapshots"]],
+        }
+        mutations["fi16-producer-register"] = {
+            **record,
+            "fi16ProducerSnapshots": [{**snapshot, "x24": snapshot["x24"] ^ 1}
+                                     for snapshot in record["fi16ProducerSnapshots"]],
+        }
     call_claims = [
         {"sourcePc": source, "targetPc": target}
         for source, target in required_calls(boundary)
@@ -553,7 +601,9 @@ def mutation_checks(boundary: Boundary, record: dict[str, Any]) -> dict[str, boo
     return {
         name: bool(validate_observation(boundary, mutated)
                    or validate_observed_claims(mutated, call_claims, store_claims)
-                   or validate_observed_carrier_claims(mutated, observed_carriers))
+                   or validate_observed_carrier_claims(mutated, observed_carriers)
+                   or validate_fi16_producer_snapshot_claims(
+                       mutated, record["fi16ProducerSnapshots"]))
         for name, mutated in mutations.items()
     }
 
@@ -654,6 +704,7 @@ def main() -> int:
     vector_observations: list[dict[str, Any]] = []
     all_pcs: list[int] = []
     all_stores: list[dict[str, int]] = []
+    all_snapshots: list[dict[str, int]] = []
     observations_by_boundary: dict[str, list[dict[str, Any]]] = {
         boundary.identifier: [] for boundary in boundaries
     }
@@ -668,12 +719,13 @@ def main() -> int:
                 failures.append(f"production ELF accepted {name} without an ok checksum")
             if not accepted and production.stdout != b"invalid\n":
                 failures.append(f"production ELF rejected {name} with unexpected output")
-            pcs, stores = parse_trace(trace)
+            pcs, stores, snapshots = parse_trace(trace)
             all_pcs.extend(pcs)
             all_stores.extend(stores)
+            all_snapshots.extend(snapshots)
             local_observations = {}
             for boundary in boundaries:
-                record = observation(boundary, pcs, stores)
+                record = observation(boundary, pcs, stores, snapshots)
                 if boundary.handoffs:
                     state_failures, state = attribution_state_failures(
                         boundary, pcs, parent_pcs, tails, indirect_transfers)
@@ -689,6 +741,7 @@ def main() -> int:
                 "returncode": production.returncode,
                 "traceEvents": len(pcs),
                 "stores": len(stores),
+                "fi16ProducerSnapshots": fi16_producer_snapshots(pcs, snapshots, set(zip(pcs, pcs[1:]))),
                 "boundaries": local_observations,
             })
     records = []
@@ -700,7 +753,7 @@ def main() -> int:
         record, record["declaredCallsReached"], record["declaredStoresReached"]
         ) + validate_observed_carrier_claims(record, [
             route for route in record["observedCarrierRoutes"] if route["observedCarrierPcs"]
-        ]) + validate_merged_observation(
+        ]) + validate_fi16_producer_snapshot_claims(record, record["fi16ProducerSnapshots"]) + validate_merged_observation(
             boundary, record, observations_by_boundary[boundary.identifier]
         )
         mutations = mutation_checks(boundary, record)
@@ -718,6 +771,8 @@ def main() -> int:
                 *( ["observed outcome carrier PCs"]
                    if any(route["observedCarrierPcs"] for route in record["observedCarrierRoutes"])
                    else [] ),
+                *( ["fi16 x2/x19/x24 producer register snapshots"]
+                   if record["fi16ProducerSnapshots"] else [] ),
             ],
             "unmeasuredClauses": [
                 *UNMEASURED_CLAUSES,
@@ -754,7 +809,8 @@ def main() -> int:
         "inventory": {"boundaries": len(boundaries), "functionFamilies": len({b.qualified for b in boundaries})},
         "vectors": oracle_records,
         "productionVectors": vector_observations,
-        "production": {"traceEvents": len(all_pcs), "stores": len(all_stores)},
+        "production": {"traceEvents": len(all_pcs), "stores": len(all_stores),
+                       "fi16ProducerSnapshots": len(all_snapshots)},
         "boundaries": records,
         "unmeasuredClauses": list(UNMEASURED_CLAUSES),
         "passed": not failures,
