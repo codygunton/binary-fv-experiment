@@ -600,4 +600,119 @@ theorem level4_entry_header_first_zero_branch {margs : DecoderMachineArgs} {orig
       rfl)
     (pcIn := ⟨level4_entry_header_first_zero_branch_machine_owned, by native_decide⟩)
 
+/-! ## First two header instructions -/
+
+/-- The first byte read and its zero-byte gate are one exact parent-owned corridor. -/
+def level4EntryHeaderFirstTwoPcs : List Nat := [0x104bc, 0x104c0]
+
+abbrev Level4EntryHeaderFirstTwoPcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4EntryHeaderFirstTwoPcs
+
+theorem level4EntryHeaderFirstTwoPcs_subset_direct :
+    level4EntryHeaderFirstTwoPcs.all decodeRawDirectPcs.contains = true := by native_decide
+
+theorem level4EntryHeaderFirstTwoPcs_subset_phase :
+    level4EntryHeaderFirstTwoPcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
+  native_decide
+
+private theorem level4_entry_header_first_two_owned {pc : Nat}
+    (member : pc ∈ level4EntryHeaderFirstTwoPcs) :
+    Level4EntryHeaderFirstTwoPcs (BitVec.ofNat 64 pc) := by
+  simp only [level4EntryHeaderFirstTwoPcs, List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl <;> native_decide
+
+private def level4EntryHeaderFirstTwoWrites : RegSet := fun r =>
+  stepBookkeeping r ∨ r = x10
+
+private theorem decoderPreserved_level4EntryHeaderFirstTwoWrites_disjoint :
+    RegSet.Disjoint decoderPreserved level4EntryHeaderFirstTwoWrites := by
+  intro r preserved written
+  rcases preserved with ⟨notLink, platform⟩
+  rcases written with bookkeeping | rfl
+  · exact platformPreserved_disjoint r platform bookkeeping
+  · simp [platformPreserved] at platform
+
+/-- The exact two-instruction zero-header handoff.  Its parent frame has the same origin and saved
+frame, retains `MemoryBytes`, and reaches the second byte load at `0x104c4`. -/
+structure Level4EntryHeaderFirstTwoHandoff {margs : DecoderMachineArgs} {origin before : State}
+    (after : State) (fromStep : Nat) (frame : Level4DecodeRawParentFrame margs origin before) : Prop where
+  trace : Trace fromStep 2 before after
+  confined : ConfinedPrefix Level4EntryHeaderFirstTwoPcs (fun _ => False)
+    (fun _ _ _ _ _ => False) fromStep 2 before after
+  writes : WritesOnlyRegs level4EntryHeaderFirstTwoWrites before after
+  memory : after.mem = before.mem
+  pc : after.regs.get? PC = some (BitVec.ofNat 64 0x104c4)
+  inputMemory : DecodedValue.MemoryBytes after margs.inputBase margs.bytes
+  preserved : frame.PreservedTo after
+
+/-- Compose the actual first header read with its actual zero-byte fall-through. -/
+theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104bc))
+    (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase))
+    (inputAtLeastTwo : 2 ≤ margs.bytes.size) (inputFits : margs.inputBase + margs.bytes.size ≤ 2 ^ 64)
+    (firstByteZero : margs.bytes[0]'(by omega) = 0) (fromStep : Nat) :
+    ∃ after, Level4EntryHeaderFirstTwoHandoff after fromStep frame := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, code, machine, retired⟩
+  let seg0 := Seg.nil Level4EntryHeaderFirstTwoPcs (fun _ => False) (fun _ _ _ _ _ => False)
+    level4EntryHeaderFirstTwoWrites noMemory fromStep retired atPc
+  obtain ⟨readRetired, afterRead, readEq, seg1⟩ := seg0.stepWitness
+    (level4_entry_header_first_two_owned (by simp [level4EntryHeaderFirstTwoPcs])) (by simp) x10
+    (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat) (BitVec.ofNat 64 0x104c0)
+    (level4_entry_header_first_lbu frame atPc inputPointer inputAtLeastTwo inputFits fromStep)
+    (by decide) (by intro r h; exact Or.inl h) (by simp [level4EntryHeaderFirstTwoWrites])
+    (by decide) (by decide) (by exact of_decide_eq_true rfl)
+  subst afterRead
+  have readMemory :
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104bc) readRetired x10
+        (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat)).mem = state.mem :=
+    seg1.memEq noMemory_empty
+  have preservedRead : frame.PreservedTo
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104bc) readRetired x10
+        (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat)) := by
+    refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable, ?_, ?_,
+      seg1.retired⟩
+    · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
+      simp only [SavedWordBytes] at saved ⊢
+      rw [readMemory]
+      exact saved
+    · exact (seg1.get x2 (by simp [level4EntryHeaderFirstTwoWrites])).trans sp
+    · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory
+      intro index indexBound
+      rw [readMemory]
+    · rw [readMemory]
+      exact code
+    · exact machine.mono (seg1.agree decoderPreserved_level4EntryHeaderFirstTwoWrites_disjoint)
+        seg1.retired
+  let readFrame := frame.toState preservedRead
+  have readZero :
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104bc) readRetired x10
+        (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat)).regs.get? x10 = some (0#64) := by
+    rw [seg1.reg x10 (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat) (by simp)]
+    simp [firstByteZero]
+  obtain ⟨after, seg2⟩ := seg1.stepFallThrough (BitVec.ofNat 64 0x104c4)
+    (level4_entry_header_first_two_owned (by simp [level4EntryHeaderFirstTwoPcs])) (by simp)
+    (level4_entry_header_first_zero_branch readFrame seg1.atPc readZero (fromStep + 1))
+    (by intro r h; exact Or.inl h) (by exact of_decide_eq_true rfl)
+  have memory : after.mem = state.mem := seg2.memEq noMemory_empty
+  refine ⟨after, ⟨seg2.trace, seg2.confined, seg2.writes, memory, seg2.atPc, ?_, ?_⟩⟩
+  · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory
+    intro index indexBound
+    rw [memory]
+  · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable, ?_, ?_,
+      seg2.retired⟩
+    · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
+      simp only [SavedWordBytes] at saved ⊢
+      rw [memory]
+      exact saved
+    · exact (seg2.get x2 (by simp [level4EntryHeaderFirstTwoWrites])).trans sp
+    · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory
+      intro index indexBound
+      rw [memory]
+    · rw [memory]
+      exact code
+    · exact machine.mono (seg2.agree decoderPreserved_level4EntryHeaderFirstTwoWrites_disjoint)
+        seg2.retired
+
 end BinaryFv.Zesu.MachineExecution
