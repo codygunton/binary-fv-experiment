@@ -826,7 +826,8 @@ def decodeExecutionWitnessHandoffToken (route : AttributionOutcomeCarrierRoute) 
         functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668 →
       ∃ postStack left right,
         state.regs.get? x2 = some (BitVec.ofNat 64 postStack) ∧
-        stackWord state postStack 0x238 left ∧ stackWord state postStack 0x248 right)
+        stackWord state postStack 0x238 left ∧ stackWord state postStack 0x248 right ∧
+        postStack + 0x250 < 2 ^ 64)
 
 /-- A PC-only state cannot satisfy the first audited H token: the parent `sub` instruction needs
 both live operands. -/
@@ -838,6 +839,23 @@ theorem not_decodeExecutionWitnessHandoffToken_75548_75552_of_missing_operands
       state := by
   rintro ⟨-, operands, -⟩
   exact missing (operands rfl)
+
+/-- The r3 stack-word token rejects a modulo-`2^64` stack-base alias: its witness covers both
+loaded dwords as concrete, nonwrapping memory addresses. -/
+theorem decodeExecutionWitnessHandoffToken_75568_75668_rejects_wrap_alias
+    {state : State}
+    (token : decodeExecutionWitnessHandoffToken
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668
+      state) :
+    ¬ ∀ postStack left right,
+      state.regs.get? x2 = some (BitVec.ofNat 64 postStack) →
+      stackWord state postStack 0x238 left → stackWord state postStack 0x248 right →
+      2 ^ 64 ≤ postStack + 0x250 := by
+  intro wraps
+  rcases token with ⟨-, _, words⟩
+  rcases words rfl with ⟨postStack, left, right, sp, leftWord, rightWord, fits⟩
+  have wrapsHere := wraps postStack left right sp leftWord rightWord
+  omega
 
 /-- R-target facts produced by exact parent execution for the three audited continuation routes.
 The route key prevents one route's register arrangement from being reused at another re-entry. -/

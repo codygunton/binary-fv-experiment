@@ -2,6 +2,7 @@ import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.Seg
 import BinaryFv.Zesu.MachineExecution.Level4SpecializedAllocationPreparationSteps
 import BinaryFv.Zesu.MachineExecution.Level4SpecializedReturnSteps
+import BinaryFv.Zesu.MachineExecution.Level4ExecutionWitnessStackSumSteps
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level4Contracts
 
 /-! # `decodeExecutionWitness` error handoff into the rejection phase
@@ -458,5 +459,57 @@ theorem level4_executionWitness_route_75548_75552_reenter
   have rankNext : decodeExecutionWitnessContinuationRank next = 2 := by
     simp [decodeExecutionWitnessContinuationRank, corridor.pc]
   exact .reenter next 2 corridor.trace token preserved (by omega)
+
+/-- The r3 intermediate execution-witness edge executes the exact stack-word `ld; ld; add`
+corridor at `0x12794..0x1279c`, then resumes only with its typed generated R token. -/
+theorem level4_executionWitness_route_75568_75668_reenter
+    {margs : DecoderMachineArgs} {origin initial current handoff : State}
+    (frame : Level4DecodeRawParentFrame margs origin initial) (args : ContainerArgs) (fromStep : Nat)
+    (progress : Level4HandoffProgress decodeExecutionWitnessInterface args origin fromStep current handoff)
+    (_currentProtected : frame.PreservedTo current) (handoffProtected : frame.PreservedTo handoff)
+    (routeEq : progress.route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668) :
+    ParentRouteDecision decodeExecutionWitnessInterface args origin frame.PreservedTo
+      (Level4ExecutionWitnessRejectionPhase frame) decodeExecutionWitnessContinuationRank
+      fromStep current handoff progress := by
+  have start := progress.admissibleStart
+  change decodeExecutionWitnessAdmissibleStart args current progress.route at start
+  rw [routeEq] at start
+  have previous := decodeExecutionWitness_admissibleStart_75568_75668 start
+  have atCurrentExact : current.regs.get? PC = some (BitVec.ofNat 64 0x12728) := by
+    rcases previous with firstToken | laterToken | finalToken
+    · rcases firstToken with ⟨-, a2, a3, atR, byteLength, fixedLength⟩
+      exact atR
+    · exfalso
+      rcases laterToken.2 with ⟨left, right, atR, sum⟩
+      have targetEq := congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target)
+        laterToken.1
+      change 0x12720 = 0x12794 at targetEq
+      omega
+    · exfalso
+      rcases finalToken.2 with ⟨postStack, atR, prepared⟩
+      have targetEq := congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target)
+        finalToken.1
+      change 0x12720 = 0x12908 at targetEq
+      omega
+  have handoffToken := progress.handoffToken
+  change decodeExecutionWitnessHandoffToken progress.route handoff at handoffToken
+  rcases handoffToken with ⟨atHandoff, _, operands⟩
+  rw [routeEq] at atHandoff
+  rcases operands routeEq with ⟨postStack, left, right, sp, leftWord, rightWord, postFits⟩
+  let handoffFrame := frame.toState handoffProtected
+  let pre : Level4ExecutionWitnessStackSumPre margs origin handoff :=
+    { frame := handoffFrame, atPc := atHandoff, postStack := postStack, sp := sp,
+      postFits := postFits, left := left, leftWord := leftWord, right := right, rightWord := rightWord }
+  obtain ⟨next, corridor⟩ := level4_executionWitness_stack_sum pre
+    (fromStep + progress.prefixUsed + 1)
+  have token : decodeExecutionWitnessReentryToken progress.route args next := by
+    right; left
+    exact ⟨routeEq, left, right, corridor.pc, corridor.sum⟩
+  have rankCurrent : decodeExecutionWitnessContinuationRank current = 2 := by
+    simp [decodeExecutionWitnessContinuationRank, atCurrentExact]
+  have rankNext : decodeExecutionWitnessContinuationRank next = 1 := by
+    simp [decodeExecutionWitnessContinuationRank, corridor.pc]
+  exact .reenter next 3 corridor.trace token corridor.preserved (by omega)
 
 end BinaryFv.Zesu.MachineExecution
