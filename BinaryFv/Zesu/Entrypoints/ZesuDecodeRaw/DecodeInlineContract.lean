@@ -399,6 +399,14 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
     canonicalContractParams.env.stack (args.stackBase + index)
   rawFrameWritable : ∀ index, index < 0x7f0 →
     canonicalContractParams.env.stack (args.stackBase - 0xe80 + index)
+  rawPrologueFrameWritable : ∀ index, index < 0xe80 →
+    canonicalContractParams.env.stack (args.stackBase - 0xe80 + index)
+  /-- The enclosing emitted raw-decoder machine premise is retained at each inline entry.  The
+  actual `jalr` call narrows it to the raw-entry prologue scope; it is caller context rather than
+  a Level 4 contract premise. -/
+  decodeRawMachine : DecoderMachinePre
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    args.machineArgs state
   machine : DecodeInlineMachinePre args state
   retryReason : args.phase = .retryAfterInvalidSsz →
     meaningDecodeRaw args.bytes = .error .invalidSsz ∧
@@ -477,6 +485,10 @@ theorem DecodeInlinePre.rawFrameInputSeparated_store_0x1063c
     args.inputBase + args.bytes.size ≤ postStack + 0x2a0 ∨ postStack + 0x2a0 < args.inputBase :=
   pre.rawFrameInputSeparated_of_postStack postStack entryStack (postStack + 0x2a0) (by omega)
     (by omega)
+
+theorem rawPrologueSaveArea_outside_rawFrame : ¬ 0x690 + 0x788 < 0x7f0 := by decide
+
+theorem rawPrologueFrame_last_saved_byte : 0x690 + 0x7e8 + 7 = 0xe7f := by decide
 
 /-- On success, the complete result representation records that every descriptor-selected heap
 range lies in the allocator interval consumed by this `decodeRaw` invocation. Error outcomes have

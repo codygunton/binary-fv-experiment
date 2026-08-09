@@ -322,6 +322,7 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
     stackAvoidsStatusGlobals := ?_
     stackFrameWritable := ?_
     rawFrameWritable := ?_
+    rawPrologueFrameWritable := ?_
     stackObjectsFit := ?_
     stackObjectsReadable := ?_
     machine := ?_ }
@@ -393,6 +394,19 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
       rw [stackBasePinned, stackStartPinned]
       omega
     have upper : canonicalZesuDecodeRawStackBase + index <
+        canonicalRunnerLayout.stackBase + canonicalRunnerLayout.stackSize := by
+      rw [stackBasePinned, stackStartPinned, stackSizePinned]
+      omega
+    exact ⟨lower, upper⟩
+  · intro index indexBound
+    simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]
+    have stackBasePinned : canonicalZesuDecodeRawStackBase = 0x3000000ff5e0 := by native_decide
+    have stackStartPinned : canonicalRunnerLayout.stackBase = 0x300000000000 := by native_decide
+    have stackSizePinned : canonicalRunnerLayout.stackSize = 1024 * 1024 := by native_decide
+    have lower : canonicalRunnerLayout.stackBase ≤ canonicalZesuDecodeRawStackBase - 0xe80 + index := by
+      rw [stackBasePinned, stackStartPinned]
+      omega
+    have upper : canonicalZesuDecodeRawStackBase - 0xe80 + index <
         canonicalRunnerLayout.stackBase + canonicalRunnerLayout.stackSize := by
       rw [stackBasePinned, stackStartPinned, stackSizePinned]
       omega

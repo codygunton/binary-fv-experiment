@@ -40,11 +40,11 @@ theorem decodeInline_retry_success_reaches_post
       DecodeInlineCallerSaveArea args state after ∧
       DecodeInlineRetrySuccessAllocationFrame args state after ∧
       used ≤ 16384 + 512 * args.retryRawArgs.bytes.size + 6765 := by
-  obtain ⟨lengthUsed, prefixUsed, rawUsed, rawCall, decoded,
+  obtain ⟨lengthUsed, prefixUsed, rawUsed, rawCall, _rawEntry, decoded,
     lengthBound, prefixBound, rawBound, prefixToRawCall, ⟨rawTransfer⟩, decodedPost,
     decodedAgree, decodedCallerFrame, decodedCounter, decodedStack, _decodedInputBase, _decodedInputLength,
     decodedGlobals, decodedPayload, decodedCode,
-    decodedSaveArea, decodedAllocation, decodedProvenance⟩ :=
+    decodedSaveArea, decodedAllocation, decodedProvenance, _rawPrologue⟩ :=
     decodeInline_retry_call_transfer contract prefixContract fromStep args state pre phase exactPrefix
   let copyStart := fromStep + (13 + lengthUsed + prefixUsed + rawUsed)
   have decodedPc : decoded.regs.get? PC = some (BitVec.ofNat 64 0x103dc) := by

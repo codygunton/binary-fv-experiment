@@ -98,6 +98,10 @@ structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
   `0xe80` decrement.  This exact interval covers the later `sp + 0x2a0` parent slot. -/
   rawFrameWritable : ∀ index, index < 0x7f0 →
     canonicalContractParams.env.stack (stackBase - 0xe80 + index)
+  /-- The raw decoder's complete prologue frame includes the thirteen saved words through
+  `postStack + 0xe78`; this interval is distinct from the later 0x7f0-byte temporary frame. -/
+  rawPrologueFrameWritable : ∀ index, index < 0xe80 →
+    canonicalContractParams.env.stack (stackBase - 0xe80 + index)
   stackObjectsFit : stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤
     2 ^ 64
   stackObjectsReadable : ∀ index,

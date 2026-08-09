@@ -3,6 +3,7 @@ import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryPrefix
 import BinaryFv.Zesu.MachineExecution.GeneratedWordStep
 import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.MemcpyDecoderBridge
+import BinaryFv.Zesu.MachineExecution.Level4DecodeRawPrologueSteps
 import BinaryFv.RiscV.Elfling.ProgramGeometry
 import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Elfling.SequentialSplice
@@ -32,6 +33,128 @@ private theorem decodeInlineCallerSaveArea_of_mem_eq {args : DecodeInlineArgs} {
   intro index bound
   rw [hmem]
   exact h index bound
+
+/-- Narrow the emitted raw decoder's machine scope to its sixteen entry-prologue words. -/
+private theorem level4_decode_raw_entry_prologue_owned (pc : BitVec 64)
+    (inPrologue : Level4DecodeRawEntryProloguePcs pc) :
+    RegisterWriteStep.decodeRawExecutionPcs pc := by
+  simp only [Level4DecodeRawEntryProloguePcs, level4DecodeRawEntryProloguePcs, List.mem_cons,
+    List.not_mem_nil, or_false] at inPrologue
+  rcases inPrologue with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h
+  all_goals
+    apply functionInstanceExecutionPcs_iff_ranges.mpr
+    apply RegionPcs.iff_inRanges.mpr
+    rw [h]
+    native_decide
+
+/-- Construct the concrete raw-entry prologue context from an actual inline-call child entry.
+The post-stack layout is derived from the caller's writable raw-frame fact, so it cannot silently
+underflow; its alignment is inherited from the same caller's stack alignment. -/
+private theorem level4_decode_raw_entry_prologue_pre_of_inline_child
+    (args : DecodeInlineArgs) (base child : State) (pre : DecodeInlinePre args base)
+    (entryArgs : Contracts.EntryArgs) (margs : DecoderMachineArgs)
+    (entryArgsMachine : entryMachineArgs entryArgs = margs)
+    (childPre : compiledDecodeRawContract.binding.entry entryArgs child)
+    (rawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs child)
+    (childStack : child.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase))
+    (inputMemory : DecodedValue.MemoryBytes child margs.inputBase margs.bytes)
+    (rootInputBound : margs.bytes.size < 2 * 1024 * 1024)
+    (inputSeparated : ∀ address, args.stackBase - 0xe80 ≤ address →
+      address < args.stackBase - 0xe80 + 0xe80 →
+      margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase) :
+    Nonempty (Σ postStack : Nat, Level4DecodeRawEntryProloguePre margs child) := by
+  have entry := childPre
+  obtain ⟨sourceEntry, atPc, frame, returnLink, decodeRawMachine⟩ := childPre
+  obtain ⟨sourceInput, sourceCode, sourceResult, sourceAllocator, sourceBase, sourceLength⟩ :=
+    sourceEntry
+  obtain ⟨ra, raValue, lowBit, bitOne⟩ := returnLink
+  have rawLower : 0xe80 ≤ args.stackBase := by
+    have writable := pre.rawFrameWritable 0 (by omega)
+    simp only [Contracts.canonicalContractParams, Contracts.canonicalEnvironment, Contracts.canonicalStack,
+      Contracts.range] at writable
+    have stackBasePositive : 0 < canonicalRunnerLayout.stackBase := by native_decide
+    omega
+  let postStack := args.stackBase - 0xe80
+  have entryStack : args.stackBase = postStack + 0xe80 := by
+    simp only [postStack]
+    omega
+  have stack : postStack + 0x690 + 0x7f0 = args.stackBase := by omega
+  have stackFits : postStack + 0x690 + 0x7f0 < 2 ^ 64 := by
+    have fit := pre.stackObjectsFit
+    have entryFits : args.stackBase < 2 ^ 64 := by omega
+    rw [stack]
+    exact entryFits
+  have rawFrameWritable : ∀ index, index < 0x7f0 →
+      Contracts.canonicalContractParams.env.stack (postStack + index) := by
+    intro index bound
+    change Contracts.canonicalContractParams.env.stack (args.stackBase - 0xe80 + index)
+    exact pre.rawFrameWritable index bound
+  have saveAreaWritable : ∀ index, index < 104 →
+      Contracts.canonicalContractParams.env.stack (postStack + 0x690 + 0x788 + index) := by
+    intro index bound
+    rw [show postStack + 0x690 + 0x788 + index =
+      postStack + (0x690 + 0x788 + index) by omega]
+    change Contracts.canonicalContractParams.env.stack
+      (args.stackBase - 0xe80 + (0x690 + 0x788 + index))
+    exact pre.rawPrologueFrameWritable (0x690 + 0x788 + index) (by omega)
+  have slotAligned : ∀ offset, 0x788 ≤ offset → offset ≤ 0x7e8 → offset % 8 = 0 →
+      is_aligned_vaddr (virtaddr.Virtaddr
+        (BitVec.ofNat 64 (postStack + 0x690 + offset))) 8 = true := by
+    intro offset lower upper offsetAligned
+    have addressFits : postStack + 0x690 + offset < 2 ^ 64 := by omega
+    have addressAligned : (postStack + 0x690 + offset) % 8 = 0 := by
+      apply Nat.mod_eq_zero_of_dvd
+      apply Nat.dvd_add
+      · apply Nat.dvd_add
+        · exact Nat.dvd_trans (by decide) (Nat.dvd_of_mod_eq_zero
+            (pre.postStackAligned postStack entryStack))
+        · decide
+      · exact Nat.dvd_of_mod_eq_zero offsetAligned
+    simp only [is_aligned_vaddr, Sail.BitVec.toNatInt, BitVec.toNat_ofNat]
+    rw [Nat.mod_eq_of_lt addressFits]
+    simp [Int.tmod, addressAligned]
+  refine ⟨⟨postStack,
+    { machine := rawMachine.restrict level4_decode_raw_entry_prologue_owned
+      decodeRawMachine := rawMachine
+      entryArgs := entryArgs
+      entryArgsMachine := entryArgsMachine
+      entry := entry
+      rootInputBound := rootInputBound
+      inputMemory := inputMemory
+      code := sourceCode
+      atPc := atPc
+      frame := frame
+      ra := ra
+      raValue := raValue
+      a1 := BitVec.ofNat 64 entryArgs.allocatorBase
+      a1Value := sourceAllocator
+      stack := postStack + 0x690
+      entryStackValue := by simpa [stack] using childStack
+      inputStackSeparated := by
+        intro address lower upper
+        apply inputSeparated address
+        · change args.stackBase - 0xe80 ≤ address
+          omega
+        · change address < args.stackBase - 0xe80 + 0xe80
+          omega
+      stackFrameWritable := by
+        intro index bound
+        exact pre.stackFrameWritable_of_entryStack (postStack + 0x690) (by omega) index bound
+      postStack := postStack
+      postStackEq := rfl
+      rawFrameWritable := rawFrameWritable
+      rawFrameInputSeparated := by
+        intro address lower upper
+        change args.stackBase - 0xe80 ≤ address at lower
+        change address < args.stackBase - 0xe80 + 0x7f0 at upper
+        apply inputSeparated address lower
+        omega
+      postStackAligned := pre.postStackAligned postStack entryStack
+      stackFits := by
+        change postStack + 0x690 + 0x7f0 < 2 ^ 64
+        exact stackFits
+      saveAreaWritable := saveAreaWritable
+      slotAligned := by simpa only [Nat.add_assoc] using slotAligned }⟩⟩
 
 set_option maxRecDepth 100000
 set_option maxHeartbeats 2000000
@@ -633,7 +756,9 @@ theorem decodeInline_first_enters_decodeRaw (fromStep : Nat) (args : DecodeInlin
     (state : State) (pre : DecodeInlinePre args state) (phase : args.phase = .first) :
     ∃ childEntry, Trace fromStep 6 state childEntry ∧
       compiledDecodeRawContract.binding.entry args.firstRawArgs childEntry ∧
-      childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x10320) := by
+      childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x10320) ∧
+      Nonempty (Σ postStack : Nat,
+        Level4DecodeRawEntryProloguePre (entryMachineArgs args.firstRawArgs) childEntry) := by
   obtain ⟨beforeCall, beforeTrace, -, callPc, callBase, resultPointer, allocatorPointer,
     inputPointer, inputLength, beforeStack, beforeInputBase, beforeInputLength, beforeGlobals, beforeAgree,
     beforeCalleeSaved, beforeMemory, beforeRetired⟩ :=
@@ -682,8 +807,29 @@ theorem decodeInline_first_enters_decodeRaw (fromStep : Nat) (args : DecodeInlin
       (by simpa [childEntry] using childGlobals)
   have childReturnLink : DecodeRawReturnLinkPre childEntry :=
     ⟨BitVec.ofNat 64 0x10320, by simpa [childEntry] using childLink, by decide, by decide⟩
-  exact ⟨childEntry, childTrace, ⟨sourceEntry, childPc, childFrame, childReturnLink, childMachine⟩,
-    childLink⟩
+  let childPre : compiledDecodeRawContract.binding.entry args.firstRawArgs childEntry :=
+    ⟨sourceEntry, childPc, childFrame, childReturnLink, childMachine⟩
+  have rawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs
+      (entryMachineArgs args.firstRawArgs) childEntry := by
+    simpa [entryMachineArgs, DecodeInlineArgs.machineArgs, DecodeInlineArgs.firstRawArgs,
+      RegisterWriteStep.decodeRawExecutionPcs] using pre.decodeRawMachine.mono childAgree childRetired
+  have childInputMemory : DecodedValue.MemoryBytes childEntry
+      (entryMachineArgs args.firstRawArgs).inputBase (entryMachineArgs args.firstRawArgs).bytes := by
+    simpa [entryMachineArgs, DecodeInlineArgs.firstRawArgs] using sourceEntry.1
+  have childInputSeparated : ∀ address, args.stackBase - 0xe80 ≤ address →
+      address < args.stackBase - 0xe80 + 0xe80 →
+      (entryMachineArgs args.firstRawArgs).inputBase +
+          (entryMachineArgs args.firstRawArgs).bytes.size ≤ address ∨
+        address < (entryMachineArgs args.firstRawArgs).inputBase := by
+    intro address lower upper
+    apply pre.inputAvoidsCanonicalStack address
+    have rawWritable := pre.rawPrologueFrameWritable (address - (args.stackBase - 0xe80)) (by omega)
+    rw [show address = args.stackBase - 0xe80 + (address - (args.stackBase - 0xe80)) by omega]
+    exact rawWritable
+  have childPrologue := level4_decode_raw_entry_prologue_pre_of_inline_child args state childEntry pre
+    args.firstRawArgs (entryMachineArgs args.firstRawArgs) rfl childPre rawMachine childStack
+    childInputMemory pre.rootInputBound childInputSeparated
+  exact ⟨childEntry, childTrace, childPre, childLink, childPrologue⟩
 
 /-- The first Level 3 condition is consumed only after the six parent-owned instructions have
 executed and established its complete machine entry predicate. -/
@@ -695,7 +841,7 @@ theorem decodeInline_first_uses_decodeRaw_contract
       childUsed ≤ compiledDecodeRawContract.binding.stepBound args.firstRawArgs ∧
       Level3ChildSummary functionInstance_ssz_raw_decodeRawId
         (fromStep + 6) childUsed childEntry childExit := by
-  obtain ⟨childEntry, parentTrace, childPre, -⟩ :=
+  obtain ⟨childEntry, parentTrace, childPre, -, -⟩ :=
     decodeInline_first_enters_decodeRaw fromStep args state pre phase
   obtain ⟨childUsed, childExit, bound, childSummary⟩ :=
     compiledDecodeRawSummary_of_contract contract args.firstRawArgs (fromStep + 6)
@@ -717,7 +863,7 @@ theorem decodeInline_first_decodeRaw_run
       childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x10320) ∧
       compiledDecodeRawContract.binding.exit args.firstRawArgs
         (compiledDecodeRawContract.spec.meaning args.firstRawArgs) childEntry childExit := by
-  obtain ⟨childEntry, parentTrace, childPre, childLink⟩ :=
+  obtain ⟨childEntry, parentTrace, childPre, childLink, -⟩ :=
     decodeInline_first_enters_decodeRaw fromStep args state pre phase
   obtain ⟨childUsed, childExit, bound, childTrace, childPost⟩ :=
     contract args.firstRawArgs (fromStep + 6) childEntry childPre
@@ -3156,7 +3302,7 @@ theorem decodeInline_retry_call_transfer
     (state : State) (pre : DecodeInlinePre args state)
     (phase : args.phase = .retryAfterInvalidSsz)
     (exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true) :
-    ∃ lengthUsed prefixUsed childUsed beforeCall resumed,
+    ∃ lengthUsed prefixUsed childUsed beforeCall childEntry resumed,
       lengthUsed ≤ hasExactErePrefixInlineStepBound
         { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes } ∧
       prefixUsed ≤ hasExactErePrefixInlineStepBound
@@ -3184,7 +3330,9 @@ theorem decodeInline_retry_call_transfer
       DecodeInlineCallerSaveArea args state resumed ∧
       DecodeRawAllocationWithinCanonicalArena state resumed ∧
       DecodeRawSuccessAllocationProvenance args.retryRawArgs
-        (Contracts.meaningDecode args.bytes) state resumed := by
+        (Contracts.meaningDecode args.bytes) state resumed ∧
+      Nonempty (Σ postStack : Nat,
+        Level4DecodeRawEntryProloguePre (entryMachineArgs args.retryRawArgs) childEntry) := by
   obtain ⟨lengthUsed, prefixUsed, beforeCall, lengthBound, prefixBound, parentPrefix, callPc,
     callBase, resultPointer, allocatorPointer, inputPointer, inputLength, beforeStack,
     beforeInputBase, beforeInputLength, beforeGlobals, beforeAgree, beforeCallerFrame,
@@ -3267,6 +3415,39 @@ theorem decodeInline_retry_call_transfer
     · simpa [DecodeInlineArgs.retryRawArgs, tailSize] using childLength
   have childPre : compiledDecodeRawContract.binding.entry args.retryRawArgs childEntry :=
     ⟨childSourceEntry, childPc, childFrame, childReturnLink, childMachine⟩
+  have rawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs
+      (entryMachineArgs args.retryRawArgs) childEntry := by
+    simpa [RegisterWriteStep.decodeRawExecutionPcs] using
+      (pre.decodeRawMachine.mono childAgree childCounter).narrowInput readableSubset
+  have childInputMemory : DecodedValue.MemoryBytes childEntry
+      (entryMachineArgs args.retryRawArgs).inputBase (entryMachineArgs args.retryRawArgs).bytes := by
+    simpa [entryMachineArgs, DecodeInlineArgs.retryRawArgs] using childSourceEntry.1
+  have childInputSeparated : ∀ address, args.stackBase - 0xe80 ≤ address →
+      address < args.stackBase - 0xe80 + 0xe80 →
+      (entryMachineArgs args.retryRawArgs).inputBase +
+          (entryMachineArgs args.retryRawArgs).bytes.size ≤ address ∨
+        address < (entryMachineArgs args.retryRawArgs).inputBase := by
+    intro address lower upper
+    have inCanonicalStack : Contracts.canonicalContractParams.env.stack address := by
+      have rawWritable := pre.rawPrologueFrameWritable (address - (args.stackBase - 0xe80)) (by omega)
+      rw [show address = args.stackBase - 0xe80 + (address - (args.stackBase - 0xe80)) by omega]
+      exact rawWritable
+    rcases pre.inputAvoidsCanonicalStack address inCanonicalStack with separated | separated
+    · left
+      simp only [entryMachineArgs, DecodeInlineArgs.retryRawArgs, ByteArray.size_extract]
+      omega
+    · right
+      simp only [entryMachineArgs, DecodeInlineArgs.retryRawArgs]
+      omega
+  have childPrologue := level4_decode_raw_entry_prologue_pre_of_inline_child args state childEntry pre
+    args.retryRawArgs (entryMachineArgs args.retryRawArgs) rfl childPre rawMachine childStack
+    childInputMemory (by
+      have tailBound : args.retryRawArgs.bytes.size ≤ args.bytes.size := by
+        simp only [DecodeInlineArgs.retryRawArgs, ByteArray.size_extract]
+        omega
+      change args.retryRawArgs.bytes.size < 2 * 1024 * 1024
+      exact Nat.lt_of_le_of_lt tailBound pre.rootInputBound)
+    childInputSeparated
   obtain ⟨childUsed, childExit, childBound, childTrace, childPost⟩ :=
     contract args.retryRawArgs (fromStep + (12 + lengthUsed + prefixUsed)) childEntry childPre
   obtain ⟨returnRetired, returnRun, atResume⟩ :=
@@ -3353,11 +3534,11 @@ theorem decodeInline_retry_call_transfer
       DecodeInlineArgs.retryRawArgs] using
       decodeRawSuccessAllocationProvenance_of_mem_eq childMemory.symm
         (decodeRawReturnAfter_mem (BitVec.ofNat 64 0x103dc) childExit returnRetired) childProvenance
-  exact ⟨lengthUsed, prefixUsed, childUsed, beforeCall, resumed, lengthBound, prefixBound,
+  exact ⟨lengthUsed, prefixUsed, childUsed, beforeCall, childEntry, resumed, lengthBound, prefixBound,
     childBound, parentPrefix, ⟨transfer⟩, resumedPost, resumedAgree, resumedCallerFrame,
     decodeRawReturnAfter_retired (BitVec.ofNat 64 0x103dc) childExit returnRetired,
     resumedStack, resumedInputBase, resumedInputLength, resumedGlobals, resumedPayload, resumedCode, resumedSaveArea, resumedAllocation,
-    resumedProvenance⟩
+    resumedProvenance, childPrologue⟩
 
 /-! ## Retry payload copy -/
 
