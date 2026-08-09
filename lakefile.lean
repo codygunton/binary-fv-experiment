@@ -68,6 +68,7 @@ lean_lib ZesuVerificationTests where
     `ZesuVerification.ScaleOccurrenceTypes,
     `ZesuVerification.GeneratedScaleEvidence,
     `ZesuVerification.ScaleOccurrenceCheck,
+    `ZesuVerification.Level4CfgPartition,
   ]
   moreLeanArgs := #["--tstack=4000000"]
 
