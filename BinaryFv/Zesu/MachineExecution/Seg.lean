@@ -418,6 +418,37 @@ theorem stepFallThrough (seg : Seg own exit childSummary W M kv a n base cur pc)
     (fun retired => fallThroughRetirement_pc cur pc target retired)
     (fun _ => RegsHold.nil _) bookkeeping keep
 
+/-- A fall-through store.  The class-specific proof supplies `run`; this adapter records the
+store's established register and memory frames without exposing its successor state. -/
+theorem stepStore {width : Nat} (seg : Seg own exit childSummary W M kv a n base cur pc)
+    (address : Nat) (value : BitVec (8 * width)) (nextPc : BitVec 64)
+    (inRegion : own pc) (notExit : ¬ exit pc)
+    (run : ∃ retired, Runs (try_step (a + n) false) cur
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc)
+          address value)
+        (Sail.BitVec.addInt pc 4) retired) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc)
+    (inside : ∀ other, address ≤ other → other < address + width → M other)
+    (bookkeeping : ∀ r, stepBookkeeping r → W r)
+    (keep : RegsOutside stepBookkeeping kv) :
+    ∃ next, Seg own exit childSummary W M kv a (n + 1) base next nextPc :=
+  seg.stepOf (kv' := []) inRegion notExit
+    (fun retired => tryStepControlFlowAfterRetired
+      (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc)
+        address value)
+      (Sail.BitVec.addInt pc 4) retired) run
+    (fun retired => storeRetirement_writes cur pc (Sail.BitVec.addInt pc 4) retired address value)
+    (fun retired other outside =>
+      storeRetirement_mem_writes cur pc (Sail.BitVec.addInt pc 4) retired address value other
+        (fun written => outside (inside other written.1 written.2)))
+    (fun retired => ⟨Sail.BitVec.addInt retired 1, by
+      simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩)
+    (fun retired => advance ▸ by
+      simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+        afterWriteBytes_regs, Std.ExtDHashMap.get?_insert])
+    (fun _ => RegsHold.nil _) bookkeeping keep
+
 end Seg
 
 /-! ## Regressions
