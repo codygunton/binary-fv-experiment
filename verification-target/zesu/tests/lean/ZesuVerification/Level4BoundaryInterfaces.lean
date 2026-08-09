@@ -88,4 +88,22 @@ theorem level4_fi95_handoff_target_is_not_the_interface_exit :
     BitVec.ofNat 64 75572 = BitVec.ofNat 64 0x11ba4)
   decide
 
+/-- Both public-key handoff routes include the immediate 77712 terminal carrier.  Later generated
+paths remain progress paths and are deliberately not required to satisfy the child exit predicate. -/
+theorem level4_public_keys_routes_have_terminal_carrier :
+    functionInstance_ssz_raw_decodePublicKeys_in_ssz_raw_decodeRaw_at_212_46_attributionBoundary_carrierRoute_77668_77712.carrierPaths[0]? =
+      some { carrierPc := 77712, pcs := #[77712] } ∧
+    functionInstance_ssz_raw_decodePublicKeys_in_ssz_raw_decodeRaw_at_212_46_attributionBoundary_carrierRoute_77708_77712.carrierPaths[0]? =
+      some { carrierPc := 77712, pcs := #[77712] } ∧
+    decodePublicKeysInterface.terminal (BitVec.ofNat 64 77712) := by
+  exact ⟨functionInstance_ssz_raw_decodePublicKeys_in_ssz_raw_decodeRaw_at_212_46_attributionBoundary_carrierRoute_77668_77712_path_77712_exact,
+    functionInstance_ssz_raw_decodePublicKeys_in_ssz_raw_decodeRaw_at_212_46_attributionBoundary_carrierRoute_77708_77712_path_77712_exact,
+    Or.inl rfl⟩
+
+theorem level4_public_keys_later_carrier_is_nonterminal :
+    ¬ decodePublicKeysInterface.terminal (BitVec.ofNat 64 77716) := by
+  change ¬ (BitVec.ofNat 64 77716 = BitVec.ofNat 64 0x12f90 ∨
+    BitVec.ofNat 64 77716 = BitVec.ofNat 64 0x11ba4)
+  decide
+
 end ZesuVerification

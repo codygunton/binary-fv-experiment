@@ -201,10 +201,10 @@ def CarrierObligation {Args Outcome : Type}
     (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args)
     (route : AttributionOutcomeCarrierRoute) (fromStep : Nat) (before handoffState : State) : Prop :=
   route.classification = .sourceReviewedOutcomePath →
-    ∀ carrierState,
-      (pathTrace : Level4CarrierPathTrace route fromStep handoffState carrierState) →
-      interface.terminal (BitVec.ofNat 64 pathTrace.path.carrierPc) ∧
-        interface.exit args (interface.spec.meaning args) before carrierState
+    ∃ path ∈ route.carrierPaths,
+      interface.terminal (BitVec.ofNat 64 path.carrierPc) ∧
+        ∀ carrierState, (pathTrace : Level4CarrierPathTrace route fromStep handoffState carrierState) →
+          pathTrace.path = path → interface.exit args (interface.spec.meaning args) before carrierState
 
 /-- A child fragment returns a generated route key only after taking its final source-to-target
 machine step.  Source-reviewed routes additionally return a higher-order obligation for the fi6
