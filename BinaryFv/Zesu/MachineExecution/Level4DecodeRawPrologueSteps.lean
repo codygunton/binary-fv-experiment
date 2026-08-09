@@ -159,6 +159,14 @@ theorem Level4DecodeRawEntryProloguePre.nestedCallFrame_before_postStack
   have fits := pre.nestedCallFrameFits
   omega
 
+/-- Regression: the ordinary raw-frame lower bound alone does not validate the child frame's
+additional 0x50-byte subtraction. -/
+theorem rawFrameLower_insufficient_for_nestedCallFrame :
+    ¬ (∀ stack : Nat, 0xe80 ≤ stack → 0x50 ≤ stack - 0xe80) := by
+  intro h
+  have impossible := h 0xe80 (by omega)
+  omega
+
 /-- The prologue writes only its two modified architectural registers plus normal retirement
 bookkeeping; stores themselves modify memory but no additional register. -/
 def level4DecodeRawEntryPrologueWrites : RegSet := fun r =>

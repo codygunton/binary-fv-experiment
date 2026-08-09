@@ -106,6 +106,8 @@ structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
   frame immediately below the raw decoder's post-prologue `sp`. -/
   nestedCallFrameWritable : ∀ index, index < 0x50 →
     canonicalContractParams.env.stack (stackBase - 0xed0 + index)
+  /-- The child-call frame subtraction is valid for the concrete canonical caller stack. -/
+  nestedCallFrameFits : 0xed0 ≤ stackBase
   stackObjectsFit : stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤
     2 ^ 64
   stackObjectsReadable : ∀ index,

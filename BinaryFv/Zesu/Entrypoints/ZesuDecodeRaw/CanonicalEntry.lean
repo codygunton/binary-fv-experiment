@@ -324,6 +324,7 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
     rawFrameWritable := ?_
     rawPrologueFrameWritable := ?_
     nestedCallFrameWritable := ?_
+    nestedCallFrameFits := ?_
     stackObjectsFit := ?_
     stackObjectsReadable := ?_
     machine := ?_ }
@@ -438,6 +439,8 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
       rw [stackBasePinned, stackStartPinned, stackSizePinned]
       omega
     exact ⟨lower, upper⟩
+  · change 0xed0 ≤ canonicalZesuDecodeRawStackBase
+    native_decide
   · native_decide
   · intro index indexBound
     simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]

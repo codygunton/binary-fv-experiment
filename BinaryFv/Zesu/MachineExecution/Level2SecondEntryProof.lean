@@ -183,6 +183,7 @@ theorem first_invalid_to_retry_decode_entry
       rawFrameWritable := pre.rawFrameWritable
       rawPrologueFrameWritable := pre.rawPrologueFrameWritable
       nestedCallFrameWritable := pre.nestedCallFrameWritable
+      nestedCallFrameFits := pre.nestedCallFrameFits
       decodeRawMachine := by
         simpa [secondArgs, DecodeInlineArgs.machineArgs] using
           pre.decodeRawMachine.mono secondAgree
@@ -229,6 +230,9 @@ theorem wrapper_second_propagate_decode_entry
       canonicalContractParams.env.stack (args.stackBase - 0xe80 + index))
     (rawPrologueFrameWritable : ∀ index, index < 0xe80 →
       canonicalContractParams.env.stack (args.stackBase - 0xe80 + index))
+    (nestedCallFrameWritable : ∀ index, index < 0x50 →
+      canonicalContractParams.env.stack (args.stackBase - 0xed0 + index))
+    (nestedCallFrameFits : 0xed0 ≤ args.stackBase)
     (error : Contracts.DecodeError) (notInvalid : error ≠ .invalidSsz)
     (rawResult : Contracts.meaningDecodeRaw args.bytes = .error error)
     (tagRead : branchState.regs.get? x10 =
@@ -310,6 +314,7 @@ theorem wrapper_second_propagate_decode_entry
       rawFrameWritable := rawFrameWritable
       rawPrologueFrameWritable := rawPrologueFrameWritable
       nestedCallFrameWritable := nestedCallFrameWritable
+      nestedCallFrameFits := nestedCallFrameFits
       decodeRawMachine := by
         simpa [secondArgs, DecodeInlineArgs.machineArgs] using
           wrapperMachine.mono

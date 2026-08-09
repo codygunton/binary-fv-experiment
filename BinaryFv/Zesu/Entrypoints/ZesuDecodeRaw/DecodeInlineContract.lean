@@ -405,6 +405,7 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   the original canonical caller layout. -/
   nestedCallFrameWritable : ∀ index, index < 0x50 →
     canonicalContractParams.env.stack (args.stackBase - 0xed0 + index)
+  nestedCallFrameFits : 0xed0 ≤ args.stackBase
   /-- The enclosing emitted raw-decoder machine premise is retained at each inline entry.  The
   actual `jalr` call narrows it to the raw-entry prologue scope; it is caller context rather than
   a Level 4 contract premise. -/
