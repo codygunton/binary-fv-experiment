@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.Level2SavedFrame
+import BinaryFv.Zesu.MachineExecution.DecoderBitVectorLoad
 import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.OwnedPc
 import BinaryFv.Zesu.MachineExecution.Seg
@@ -232,60 +233,6 @@ private theorem level4_decode_raw_epilogue_stack_step
   rw [pre.stackRestore] at run
   exact ⟨retired, run⟩
 
-/-- The data part of one epilogue `ld`: an exact saved word, read through the configured decoder
-machine access predicate. The instruction class lemma owns fetch, decode, execute, and retirement. -/
-private theorem level4_epilogue_saved_load_read {instructionPcs : BitVec 64 → Prop}
-    {margs : DecoderMachineArgs} {base state : State}
-    (machine : DecoderMachinePre instructionPcs margs base)
-    (agree : Agree decoderPreserved base state)
-    (pc : BitVec 64) (imm : BitVec 12) (value stack address : BitVec 64)
-    (stackRead : Runs (rX_bits (.Regidx 2#5))
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) stack)
-    (targetEq : stack + sign_extend (m := 64) imm = address)
-    (savedBase : Nat) (savedBaseEq : savedBase = address.toNat)
-    (saved : SavedWordBytes state savedBase value)
-    (aligned : is_aligned_vaddr (virtaddr.Virtaddr address) 8 = true)
-    (allowed : DecoderAccessRange (DecoderReadableByte margs) address 8) :
-    Runs (vmem_read (.Regidx 2#5) (sign_extend (m := 64) imm) 8
-        (MemoryAccessType.Load mem_payload.Data) false false false)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) (.Ok value) := by
-  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
-  have executeAgree : Agree decoderPreserved base executeState :=
-    agree.trans (Agree.weaken (fun _ preserved => preserved.2) (agree_stepPremiseState state pc))
-  obtain ⟨mstatusBits, mstatusRead, mprvDisabled⟩ := machine.mstatus
-  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := machine.mseccfg
-  have mstatusAtExecute :=
-    (executeAgree mstatus (by simp [decoderPreserved, platformPreserved])).trans mstatusRead
-  have privilege :=
-    (executeAgree cur_privilege (by simp [decoderPreserved, platformPreserved])).trans
-      machine.normal.2.1
-  have addressRun := get_transformed_data_addr_machine_load_run executeState (.Regidx 2#5) stack
-    (sign_extend (m := 64) imm) mstatusBits mseccfgBits (by simpa [executeState] using stackRead)
-    mstatusAtExecute privilege mprvDisabled
-    ((executeAgree mseccfg (by simp [decoderPreserved, platformPreserved])).trans mseccfgRead)
-    pmmDisabled
-  obtain ⟨physical, loadNoMMIO⟩ := machine.dataAccess.load executeState address 8 executeAgree allowed
-    (by simpa [is_aligned_paddr, is_aligned_vaddr] using aligned)
-  have memoryBytes : ∀ index (bound : index < (BinaryFv.RiscV.Sep.leBytes 8 value).length),
-      executeState.mem.get? (address.toNat + index) =
-        some (getElem (BinaryFv.RiscV.Sep.leBytes 8 value) index bound) := by
-    intro index bound
-    rw [← savedBaseEq]
-    simpa [SavedWordBytes, executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert] using saved index bound
-  have hread : Runs (mem_read (MemoryAccessType.Load mem_payload.Data)
-      page_based_mem_type.PBMT_PMA (physaddr.Physaddr address) 8 false false false)
-      executeState executeState (Sail.Ok value) := by
-    have read := mem_read_load_run executeState address mstatusBits
-      (BinaryFv.RiscV.Sep.leBytes 8 value) mstatusAtExecute privilege mprvDisabled memoryBytes
-      physical loadNoMMIO
-    rwa [show BinaryFv.RiscV.Sep.leWord (BinaryFv.RiscV.Sep.leBytes 8 value) = value from by
-      simpa using BinaryFv.RiscV.Sep.leWord_leBytes 8 value] at read
-  exact vmem_read_dword_run executeState (.Regidx 2#5) (sign_extend (m := 64) imm) address mstatusBits
-    value mstatusAtExecute privilege mprvDisabled (by simpa [targetEq] using addressRun) aligned hread
-
 theorem Level4DecodeRawSavedFrame.of_mem_eq {before after : State} {stack : Nat}
     {ra s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 : BitVec 64}
     (saved : Level4DecodeRawSavedFrame before stack ra s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11)
@@ -309,11 +256,12 @@ private theorem level4_epilogue_load_ra {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x1) (value := pre.ra) machine agree retired code stepNo
     0x104f8 0x83 0x30 0x81 0x7e 0x7e8#12 2#5 1#5 false 8 pre.ra atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x104f8) 0x7e8#12 pre.ra
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x104f8) 0x7e8#12
+      (.Regidx 2#5) pre.ra
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7e8))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x7e8 (by decide)) (pre.stackBase + 0x7e8)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x7e8 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact wX_x1_run _ pre.ra)
@@ -331,11 +279,12 @@ private theorem level4_epilogue_load_s0 {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x8) (value := pre.s0) machine agree retired code stepNo
     0x104fc 0x03 0x34 0x01 0x7e 0x7e0#12 2#5 8#5 false 8 pre.s0 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x104fc) 0x7e0#12 pre.s0
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x104fc) 0x7e0#12
+      (.Regidx 2#5) pre.s0
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7e0))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x7e0 (by decide)) (pre.stackBase + 0x7e0)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x7e0 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact wX_x8_run _ pre.s0)
@@ -353,11 +302,12 @@ private theorem level4_epilogue_load_s1 {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x9) (value := pre.s1) machine agree retired code stepNo
     0x10500 0x83 0x34 0x81 0x7d 0x7d8#12 2#5 9#5 false 8 pre.s1 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10500) 0x7d8#12 pre.s1
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x10500) 0x7d8#12
+      (.Regidx 2#5) pre.s1
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7d8))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x7d8 (by decide)) (pre.stackBase + 0x7d8)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x7d8 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact wX_x9_run _ pre.s1)
@@ -375,11 +325,12 @@ private theorem level4_epilogue_load_s2 {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x18) (value := pre.s2) machine agree retired code stepNo
     0x10504 0x03 0x39 0x01 0x7d 0x7d0#12 2#5 18#5 false 8 pre.s2 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10504) 0x7d0#12 pre.s2
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x10504) 0x7d0#12
+      (.Regidx 2#5) pre.s2
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7d0))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x7d0 (by decide)) (pre.stackBase + 0x7d0)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x7d0 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact wX_x18_run _ pre.s2)
@@ -397,11 +348,12 @@ private theorem level4_epilogue_load_s3 {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x19) (value := pre.s3) machine agree retired code stepNo
     0x10508 0x83 0x39 0x81 0x7c 0x7c8#12 2#5 19#5 false 8 pre.s3 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10508) 0x7c8#12 pre.s3
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x10508) 0x7c8#12
+      (.Regidx 2#5) pre.s3
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7c8))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x7c8 (by decide)) (pre.stackBase + 0x7c8)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x7c8 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact wX_x19_run _ pre.s3)
@@ -419,11 +371,12 @@ private theorem level4_epilogue_load_s4 {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x20) (value := pre.s4) machine agree retired code stepNo
     0x1050c 0x03 0x3a 0x01 0x7c 0x7c0#12 2#5 20#5 false 8 pre.s4 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x1050c) 0x7c0#12 pre.s4
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x1050c) 0x7c0#12
+      (.Regidx 2#5) pre.s4
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7c0))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x7c0 (by decide)) (pre.stackBase + 0x7c0)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x7c0 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact level4_wX_x20_run _ pre.s4)
@@ -441,11 +394,12 @@ private theorem level4_epilogue_load_s5 {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x21) (value := pre.s5) machine agree retired code stepNo
     0x10510 0x83 0x3a 0x81 0x7b 0x7b8#12 2#5 21#5 false 8 pre.s5 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10510) 0x7b8#12 pre.s5
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x10510) 0x7b8#12
+      (.Regidx 2#5) pre.s5
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7b8))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x7b8 (by decide)) (pre.stackBase + 0x7b8)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x7b8 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact wX_x21_run _ pre.s5)
@@ -463,11 +417,12 @@ private theorem level4_epilogue_load_s6 {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x22) (value := pre.s6) machine agree retired code stepNo
     0x10514 0x03 0x3b 0x01 0x7b 0x7b0#12 2#5 22#5 false 8 pre.s6 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10514) 0x7b0#12 pre.s6
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x10514) 0x7b0#12
+      (.Regidx 2#5) pre.s6
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7b0))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x7b0 (by decide)) (pre.stackBase + 0x7b0)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x7b0 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact wX_x22_run _ pre.s6)
@@ -485,11 +440,12 @@ private theorem level4_epilogue_load_s7 {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x23) (value := pre.s7) machine agree retired code stepNo
     0x10518 0x83 0x3b 0x81 0x7a 0x7a8#12 2#5 23#5 false 8 pre.s7 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10518) 0x7a8#12 pre.s7
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x10518) 0x7a8#12
+      (.Regidx 2#5) pre.s7
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7a8))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x7a8 (by decide)) (pre.stackBase + 0x7a8)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x7a8 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact level4_wX_x23_run _ pre.s7)
@@ -507,11 +463,12 @@ private theorem level4_epilogue_load_s8 {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x24) (value := pre.s8) machine agree retired code stepNo
     0x1051c 0x03 0x3c 0x01 0x7a 0x7a0#12 2#5 24#5 false 8 pre.s8 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x1051c) 0x7a0#12 pre.s8
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x1051c) 0x7a0#12
+      (.Regidx 2#5) pre.s8
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x7a0))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x7a0 (by decide)) (pre.stackBase + 0x7a0)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x7a0 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact level4_wX_x24_run _ pre.s8)
@@ -529,11 +486,12 @@ private theorem level4_epilogue_load_s9 {margs : DecoderMachineArgs} {base befor
   decoderLoadStepOfDecoderAgree (dest := x25) (value := pre.s9) machine agree retired code stepNo
     0x10520 0x83 0x3c 0x81 0x79 0x798#12 2#5 25#5 false 8 pre.s9 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10520) 0x798#12 pre.s9
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x10520) 0x798#12
+      (.Regidx 2#5) pre.s9
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x798))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x798 (by decide)) (pre.stackBase + 0x798)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x798 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact level4_wX_x25_run _ pre.s9)
@@ -551,11 +509,12 @@ private theorem level4_epilogue_load_s10 {margs : DecoderMachineArgs} {base befo
   decoderLoadStepOfDecoderAgree (dest := x26) (value := pre.s10) machine agree retired code stepNo
     0x10524 0x03 0x3d 0x01 0x79 0x790#12 2#5 26#5 false 8 pre.s10 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10524) 0x790#12 pre.s10
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x10524) 0x790#12
+      (.Regidx 2#5) pre.s10
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x790))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x790 (by decide)) (pre.stackBase + 0x790)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x790 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact level4_wX_x26_run _ pre.s10)
@@ -573,11 +532,12 @@ private theorem level4_epilogue_load_s11 {margs : DecoderMachineArgs} {base befo
   decoderLoadStepOfDecoderAgree (dest := x27) (value := pre.s11) machine agree retired code stepNo
     0x10528 0x83 0x3d 0x81 0x78 0x788#12 2#5 27#5 false 8 pre.s11 atPc
     (pcIn := ⟨by native_decide, by native_decide⟩)
-    (level4_epilogue_saved_load_read machine agree (BitVec.ofNat 64 0x10528) 0x788#12 pre.s11
+    (decoderDwordReadOfBitVectorLERep machine agree (BitVec.ofNat 64 0x10528) 0x788#12
+      (.Regidx 2#5) pre.s11
       (BitVec.ofNat 64 pre.stackBase) (BitVec.ofNat 64 (pre.stackBase + 0x788))
       (rX_x2_run _ _ (decoderExecuteState_get? stackValue))
       (level4_slot_address_eq pre.stackBase 0x788 (by decide)) (pre.stackBase + 0x788)
-      (level4_slot_address_toNat pre (by omega)).symm saved
+      (level4_slot_address_toNat pre (by omega)).symm saved.bitVectorLERep
       (pre.slotAligned 0x788 (by omega) (by omega) (by decide))
       (level4_slot_access pre (by omega) (by omega)))
     (by rw [level4_extend_value_dword]; exact level4_wX_x27_run _ pre.s11)

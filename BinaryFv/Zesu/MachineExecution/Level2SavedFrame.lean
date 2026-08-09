@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
+import BinaryFv.Zesu.DecodedValue.StatelessInput
 
 /-!
 # Saved wrapper frame
@@ -16,6 +17,19 @@ open PreSail LeanRV64DExecutable.Functions
 def SavedWordBytes (state : State) (base : Nat) (value : BitVec 64) : Prop :=
   ∀ index (bound : index < (BinaryFv.RiscV.Sep.leBytes 8 value).length),
     state.mem.get? (base + index) = some (getElem (BinaryFv.RiscV.Sep.leBytes 8 value) index bound)
+
+/-- A saved machine word is also the ordinary little-endian bit-vector representation consumed by
+the generic decoder-load helper. -/
+theorem SavedWordBytes.bitVectorLERep {state : State} {base : Nat} {value : BitVec 64}
+    (saved : SavedWordBytes state base value) : DecodedValue.BitVectorLERep state base value := by
+  intro index bound
+  rw [saved index (by simpa only [BinaryFv.RiscV.Sep.leBytes_length] using bound)]
+  congr 1
+  apply BitVec.eq_of_toNat_eq
+  simp only [BinaryFv.RiscV.Sep.leBytes, List.getElem_ofFn, BitVec.extractLsb'_toNat,
+    Nat.shiftRight_eq_div_pow, BitVec.toNat_ofNat]
+  rw [show 256 = 2 ^ 8 by decide, ← Nat.pow_mul]
+  exact (Nat.mod_eq_of_lt (Nat.mod_lt _ (by omega))).symm
 
 /-- The four words written by the wrapper prologue and read by its epilogue. The offsets are the
 actual save slots in the emitted `0xa20`-byte frame, measured from the caller's stack base. -/
