@@ -367,18 +367,9 @@ class MachineRegionTests(unittest.TestCase):
         foreign = {"id": "fi:0", "kind": "emitted", "qualified": "raw_allocator.zesu_raw_alloc",
                    "entryPc": 66124, "regions": [{"start": 66124, "size": 4}], "parent": None,
                    "sourceFile": "raw_allocator.zig", "specialization": [], "inlineStack": []}
-        call = {"id": "fi:134", "kind": "direct", "sourcePc": 77404, "targetPc": 78000,
-                **machine_regions.dynamic_call_target_extent(callee, {"fi:6": parent, "fi:102": decoder,
-                                                                        "fi:134": callee})}
-        excluded_call = {"id": "excluded:9", "kind": "direct", "sourcePc": None, "targetPc": 79000,
-                         **machine_regions.dynamic_call_target_extent(excluded, {"fi:6": parent,
-                                                                                   "fi:102": decoder,
-                                                                                   "fi:134": callee,
-                                                                                   "excluded:9": excluded}),
-                         "returnSites": [{"sourcePc": 77408, "targetPc": 79000,
-                                          "returnPc": 77412, "linkRegister": "ra"}]}
         database = {"instructions": [
-            {"address": 77404, "owner": "fi:102", "successors": [77408, 78000]},
+            {"address": 77404, "owner": "fi:102", "successors": [77408, 78000],
+             "transfer": "directCall", "mnemonic": "jalr", "word": 0x000080e7},
             {"address": 77408, "owner": "fi:102", "successors": [77412, 79000],
              "transfer": "directCall", "mnemonic": "jalr", "word": 0x000080e7},
             {"address": 77412, "owner": "fi:6", "successors": []},
@@ -388,11 +379,18 @@ class MachineRegionTests(unittest.TestCase):
             {"address": 79000, "owner": "excluded:9", "successors": [79004]},
             {"address": 79004, "owner": "excluded:9", "successors": []},
             {"address": 66124, "owner": "fi:0", "successors": []},
-        ], "callGraph": {"owners": [parent, decoder, callee, excluded, foreign], "calls": [
-            {"caller": "fi:102", "callee": "fi:134", "kind": "direct", "source": 77404},
-            {"caller": "fi:102", "callee": "fi:134", "kind": "direct", "source": None},
-            {"caller": "fi:102", "callee": "excluded:9", "kind": "direct", "source": None},
-        ]}}
+        ], "callGraph": {"owners": [parent, decoder, callee, excluded, foreign], "calls": []}}
+        owners = {owner["id"]: owner for owner in database["callGraph"]["owners"]}
+        instructions = {row["address"]: row for row in database["instructions"]}
+        active_calls = machine_regions.active_extent_calls(decoder, database["callGraph"], owners, instructions)
+        call = machine_regions.active_callee_frame(
+            decoder, next(item for item in active_calls if item["id"] == "fi:134"),
+            database["callGraph"], owners, instructions, frozenset({"fi:102"}),
+        )
+        excluded_call = machine_regions.active_callee_frame(
+            decoder, next(item for item in active_calls if item["id"] == "excluded:9"),
+            database["callGraph"], owners, instructions, frozenset({"fi:102"}),
+        )
         manifest = {"parent": {"id": "fi:6"}, "boundaries": [{
             "id": "fi:102", "instructionPcs": [77404, 77408], "ownedExecutionPcs": [77404, 77408],
             "subtreeOwnedExecutionPcs": [77404, 77408], "fullExecutionPcs": [77404, 77408], "calls": [call, excluded_call],
@@ -401,10 +399,8 @@ class MachineRegionTests(unittest.TestCase):
         }]}
         machine_regions.validate_level4_attribution_boundaries(database, manifest)
         self.assertEqual(
-            [call["sourcePc"] for call in machine_regions.declared_level4_calls(
-                "fi:102", database["callGraph"], {owner["id"]: owner for owner in database["callGraph"]["owners"]}
-            )],
-            [77404, None],
+            [(call["sourcePc"], call["targetPc"], call["id"]) for call in active_calls],
+            [(77404, 78000, "fi:134"), (77408, 79000, "excluded:9")],
         )
         duplicate = copy.deepcopy(manifest["boundaries"][0]["calls"][0])
         duplicate["sourcePc"] = None
@@ -413,18 +409,18 @@ class MachineRegionTests(unittest.TestCase):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["calls"].pop()
         manifest["boundaries"][0]["calls"][1].pop("returnSites")
-        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+        with self.assertRaisesRegex(ValueError, "lacks per-site RA obligations"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["calls"][1]["returnSites"] = [{
             "sourcePc": 77408, "targetPc": 79000, "returnPc": 99999, "linkRegister": "ra",
         }]
-        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+        with self.assertRaisesRegex(ValueError, "invalid RA obligation"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["calls"][1]["returnSites"] = [{
             "sourcePc": 77408, "targetPc": 79000, "returnPc": 77412, "linkRegister": "ra",
         }]
         database["instructions"][1]["transfer"] = "ordinary"
-        with self.assertRaisesRegex(ValueError, "direct jalr call"):
+        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         database["instructions"][1]["transfer"] = "directCall"
         database["instructions"][1]["mnemonic"] = "jal"
@@ -443,25 +439,211 @@ class MachineRegionTests(unittest.TestCase):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         database["instructions"][1]["successors"] = [77412, 79000]
         manifest["boundaries"][0]["calls"][0].pop("activeCalleeExecutionPcs")
-        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+        with self.assertRaisesRegex(ValueError, "invalid exact execution extent"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["calls"][0]["activeCalleeExecutionPcs"] = [78000, 99999]
         with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["calls"][0]["activeCalleeExecutionPcs"] = [78000, 78004]
         manifest["boundaries"][0]["calls"][1].pop("activeCalleeExecutionPcs")
-        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+        with self.assertRaisesRegex(ValueError, "invalid exact execution extent"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["calls"][1]["activeCalleeExecutionPcs"] = [79000, 99999]
         with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["calls"][1]["activeCalleeExecutionPcs"] = [79000, 79004]
         manifest["boundaries"][0]["calls"][0]["activeCalleeExecutionPcs"] = [78000, 78004, 66124]
-        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+        with self.assertRaisesRegex(ValueError, "invalid exact execution extent"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["calls"][0]["activeCalleeExecutionPcs"] = [78000, 78004]
         manifest["boundaries"][0]["parentReentryEdges"] = [{"sourcePc": 77400, "targetPc": 77408}]
         with self.assertRaisesRegex(ValueError, "re-entries are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
+
+    def test_recursive_active_callee_frames_reject_nested_ra_cycle_and_sibling_forgery(self) -> None:
+        def owner(identifier: str, kind: str, qualified: str, entry: int, parent: str | None = None) -> dict:
+            return {
+                "id": identifier, "kind": kind, "qualified": qualified, "entryPc": entry,
+                "regions": [{"start": entry, "size": 8}], "parent": parent,
+                "sourceFile": "test.zig", "specialization": [], "inlineStack": [],
+            }
+
+        parent = owner("fi:6", "emitted", "ssz_raw.decodeRaw", 96)
+        decoder = owner("fi:102", "inlined", "ssz_raw.decodeChainConfig", 100, "fi:6")
+        decoder["inlineStack"] = [{"callerQualified": "ssz_raw.decodeRaw", "line": 211, "column": 48}]
+        callee = owner("fi:134", "emitted", "ssz_raw.requireCanonicalOffsets", 200)
+        nested = owner("fi:135", "emitted", "nested", 300)
+        foreign = owner("fi:136", "emitted", "foreign", 400)
+        owners = [parent, decoder, callee, nested, foreign]
+        instructions = [
+            {"address": 96, "owner": "fi:6", "successors": [100]},
+            {"address": 100, "owner": "fi:102", "successors": [104, 200],
+             "transfer": "directCall", "mnemonic": "jalr", "word": 0x000080e7},
+            {"address": 104, "owner": "fi:6", "successors": []},
+            {"address": 200, "owner": "fi:134", "successors": [204, 300],
+             "transfer": "directCall", "mnemonic": "jalr", "word": 0x000080e7},
+            {"address": 204, "owner": "fi:134", "successors": []},
+            {"address": 300, "owner": "fi:135", "successors": [304, 200],
+             "transfer": "directCall", "mnemonic": "jalr", "word": 0x000080e7},
+            {"address": 304, "owner": "fi:135", "successors": []},
+            {"address": 400, "owner": "fi:136", "successors": [404]},
+            {"address": 404, "owner": "fi:136", "successors": []},
+        ]
+        call_graph = {"owners": owners, "calls": [
+            {"caller": "fi:102", "callee": "fi:134", "kind": "direct", "source": 100},
+            {"caller": "fi:134", "callee": "fi:135", "kind": "direct", "source": 200},
+            {"caller": "fi:135", "callee": "fi:134", "kind": "direct", "source": 300},
+        ]}
+        database = {"instructions": instructions, "callGraph": call_graph}
+        by_id = {item["id"]: item for item in owners}
+        by_pc = {item["address"]: item for item in instructions}
+        root_call = machine_regions.active_extent_calls(decoder, call_graph, by_id, by_pc)[0]
+        frame = machine_regions.active_callee_frame(
+            decoder, root_call, call_graph, by_id, by_pc, frozenset({"fi:102"})
+        )
+        self.assertEqual(machine_regions.active_callee_frame_count([frame]), 3)
+        self.assertIsNone(frame["cycleBackEdge"])
+        cycle = frame["activeCalleeFrames"][0]["activeCalleeFrames"][0]["cycleBackEdge"]
+        self.assertEqual(cycle["ancestorId"], "fi:134")
+        self.assertEqual(cycle["transitions"], [{"sourcePc": 300, "targetPc": 200}])
+        manifest = {"parent": {"id": "fi:6"}, "boundaries": [{
+            "id": "fi:102", "instructionPcs": [100, 104], "ownedExecutionPcs": [100],
+            "subtreeOwnedExecutionPcs": [100], "fullExecutionPcs": [100, 104],
+            "calls": [frame], "parentReentryEdges": [{"sourcePc": 96, "targetPc": 100}],
+            "fragmentHandoffs": [{"sourcePc": 100, "targetPc": 104}],
+        }]}
+        machine_regions.validate_level4_attribution_boundaries(database, manifest)
+
+        deletion = copy.deepcopy(manifest)
+        deletion["boundaries"][0]["calls"][0]["activeCalleeFrames"] = []
+        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, deletion)
+
+        bad_ra = copy.deepcopy(manifest)
+        bad_ra["boundaries"][0]["calls"][0]["returnSites"][0]["returnPc"] = 108
+        with self.assertRaisesRegex(ValueError, "invalid RA obligation"):
+            machine_regions.validate_level4_attribution_boundaries(database, bad_ra)
+
+        forged_cycle = copy.deepcopy(manifest)
+        forged_cycle["boundaries"][0]["calls"][0]["cycleBackEdge"] = copy.deepcopy(cycle)
+        forged_cycle["boundaries"][0]["calls"][0]["activeCalleeFrames"] = []
+        with self.assertRaisesRegex(ValueError, "forged ancestor cycle back-edge"):
+            machine_regions.validate_level4_attribution_boundaries(database, forged_cycle)
+
+        missing_cycle_transition = copy.deepcopy(manifest)
+        missing_cycle_transition["boundaries"][0]["calls"][0]["activeCalleeFrames"][0]["activeCalleeFrames"][0]["cycleBackEdge"]["transitions"] = []
+        with self.assertRaisesRegex(ValueError, "incomplete cycle back-edge transitions"):
+            machine_regions.validate_level4_attribution_boundaries(database, missing_cycle_transition)
+
+        foreign_sibling = copy.deepcopy(manifest)
+        forged_foreign = copy.deepcopy(foreign_sibling["boundaries"][0]["calls"][0]["activeCalleeFrames"][0])
+        forged_foreign.update({
+            "id": "fi:136", "targetPc": 400,
+            "targetIdentity": machine_regions.generated_target_identity(foreign),
+            "activeCalleeExecutionPcs": [400, 404],
+            "returnSites": [{"sourcePc": 200, "targetPc": 400, "returnPc": 204,
+                             "linkRegister": "ra"}],
+            "activeCalleeFrames": [], "cycleBackEdge": None,
+        })
+        foreign_sibling["boundaries"][0]["calls"][0]["activeCalleeFrames"].append(forged_foreign)
+        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, foreign_sibling)
+
+    def test_active_extent_calls_include_fi45_allocator_and_memmove_calls(self) -> None:
+        def owner(identifier: str, kind: str, qualified: str, entry: int, parent: str | None,
+                  size: int = 4) -> dict:
+            return {
+                "id": identifier, "kind": kind, "qualified": qualified, "entryPc": entry,
+                "regions": [{"start": entry, "size": size}], "parent": parent,
+                "sourceFile": "test.zig", "specialization": [], "inlineStack": [],
+            }
+
+        parent = owner("fi:6", "emitted", "ssz_raw.decodeRaw", 0x11004, None)
+        decoder = owner("fi:16", "inlined", "ssz_raw.decodeNewPayloadRequest", 0x11000, "fi:6")
+        decoder["inlineStack"] = [{"callerQualified": "ssz_raw.decodeRaw", "line": 207, "column": 61}]
+        inline_parent = owner("fi:23", "inlined", "ssz_raw.decodeExecutionPayload", 0x11200, "fi:16")
+        fi45 = owner("fi:45", "inlined", "ssz_raw.decodeWithdrawals", 0x115e8, "fi:23", 16)
+        excluded7 = owner("excluded:7", "reachableStdlib", "allocator.alloc", 0x13600, None, 4)
+        fi140 = owner("fi:140", "emitted", "memmove", 0x13edc, None, 4)
+        owners = [parent, decoder, inline_parent, fi45, excluded7, fi140]
+        instructions = [
+            {"address": 0x10ffc, "owner": "fi:6", "successors": [0x11000]},
+            {"address": 0x11000, "owner": "fi:16", "successors": [0x11004]},
+            {"address": 0x11004, "owner": "fi:6", "successors": []},
+            {"address": 0x11200, "owner": "fi:23", "successors": []},
+            {"address": 0x115e8, "owner": "fi:45", "successors": [0x115ec, 0x13600],
+             "transfer": "directCall", "mnemonic": "jalr", "word": 0x000080e7},
+            {"address": 0x115ec, "owner": "fi:45", "successors": []},
+            {"address": 0x115f0, "owner": "fi:45", "successors": [0x115f4, 0x13edc],
+             "transfer": "directCall", "mnemonic": "jalr", "word": 0x000080e7},
+            {"address": 0x115f4, "owner": "fi:45", "successors": []},
+            {"address": 0x13600, "owner": "excluded:7", "successors": []},
+            {"address": 0x13edc, "owner": "fi:140", "successors": []},
+        ]
+        call_graph = {"owners": owners, "calls": []}
+        database = {"instructions": instructions, "callGraph": call_graph}
+        by_id = {item["id"]: item for item in owners}
+        by_pc = {item["address"]: item for item in instructions}
+        calls = machine_regions.active_extent_calls(decoder, call_graph, by_id, by_pc)
+        self.assertEqual(
+            [(call["callerId"], call["sourcePc"], call["targetPc"]) for call in calls],
+            [("fi:45", 0x115e8, 0x13600), ("fi:45", 0x115f0, 0x13edc)],
+        )
+        frames = [machine_regions.active_callee_frame(
+            decoder, call, call_graph, by_id, by_pc, frozenset({"fi:16"})
+        ) for call in calls]
+        self.assertTrue(all(frame["callerIdentity"]["qualified"] == "ssz_raw.decodeWithdrawals"
+                            for frame in frames))
+        manifest = {"parent": {"id": "fi:6"}, "boundaries": [{
+            "id": "fi:16", "instructionPcs": [0x11000], "ownedExecutionPcs": [0x11000],
+            "subtreeOwnedExecutionPcs": [0x11000, 0x11200, 0x115e8, 0x115ec, 0x115f0, 0x115f4],
+            "fullExecutionPcs": [0x11000, 0x11200, 0x115e8, 0x115ec, 0x115f0, 0x115f4],
+            "calls": frames, "parentReentryEdges": [{"sourcePc": 0x10ffc, "targetPc": 0x11000}],
+            "fragmentHandoffs": [{"sourcePc": 0x11000, "targetPc": 0x11004}],
+        }]}
+        machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        omitted_memmove = copy.deepcopy(manifest)
+        omitted_memmove["boundaries"][0]["calls"] = omitted_memmove["boundaries"][0]["calls"][:1]
+        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, omitted_memmove)
+
+    def test_decoded_excluded_body_calls_ignore_missing_call_graph_declarations(self) -> None:
+        def owner(identifier: str, qualified: str, entry: int, size: int) -> dict:
+            return {
+                "id": identifier, "kind": "reachableStdlib", "qualified": qualified,
+                "entryPc": entry, "regions": [{"start": entry, "size": size}], "parent": None,
+                "sourceFile": "test.zig", "specialization": [], "inlineStack": [],
+            }
+
+        excluded5 = owner("excluded:5", "mem.Allocator.alloc__anon_1475", 0x13518, 0x58)
+        cleanup = owner("excluded:10", "ssz_raw.RawExecutionPayload.deinit", 0x13698, 0x50)
+        excluded1 = owner("excluded:1", "mem.Allocator.free__anon_1214", 0x130ac, 4)
+        excluded7 = owner("excluded:7", "mem.Allocator.allocBytesWithAlignment__anon_1511", 0x13600, 4)
+        excluded11 = owner("excluded:11", "mem.Allocator.free__anon_1555", 0x136f8, 4)
+        owners = [excluded1, excluded5, excluded7, cleanup, excluded11]
+        instructions = {
+            0x1356c: {"address": 0x1356c, "owner": "excluded:5",
+                      "successors": [0x13570, 0x13600], "transfer": "directCall",
+                      "mnemonic": "jalr", "word": 0x000080e7},
+            0x136d0: {"address": 0x136d0, "owner": "excluded:10",
+                      "successors": [0x136d4, 0x130ac], "transfer": "directCall",
+                      "mnemonic": "jalr", "word": 0x000080e7},
+            0x136e4: {"address": 0x136e4, "owner": "excluded:10",
+                      "successors": [0x136e8, 0x136f8], "transfer": "directCall",
+                      "mnemonic": "jalr", "word": 0x000080e7},
+        }
+        graph = {"owners": owners, "calls": []}
+        by_id = {item["id"]: item for item in owners}
+        self.assertEqual(
+            [(call["sourcePc"], call["targetPc"], call["id"])
+             for call in machine_regions.active_extent_calls(excluded5, graph, by_id, instructions)],
+            [(0x1356c, 0x13600, "excluded:7")],
+        )
+        self.assertEqual(
+            [(call["sourcePc"], call["targetPc"], call["id"])
+             for call in machine_regions.active_extent_calls(cleanup, graph, by_id, instructions)],
+            [(0x136d0, 0x130ac, "excluded:1"), (0x136e4, 0x136f8, "excluded:11")],
+        )
 
     def test_llvm_disassembly_parser(self) -> None:
         parsed = machine_regions.parse_disassembly(

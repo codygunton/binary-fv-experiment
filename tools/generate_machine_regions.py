@@ -579,6 +579,38 @@ def source_less_call_return_sites(
     return result
 
 
+def direct_call_return_sites(
+    caller: dict, call: dict, callee: dict, instruction_rows: dict[int, dict]
+) -> list[dict]:
+    """Every decoded `jalr x1, x1` return site for one static direct-call boundary.
+
+    A source-level declaration can have no single machine call PC after inlining.  In that case
+    recover every physical site from the CFG.  A resolved declaration still gets its one physical
+    site: retaining it makes every direct active-callee frame state the RA value on which its
+    continuation relies.
+    """
+    if call["kind"] != "direct":
+        return []
+    if call["sourcePc"] is None:
+        return source_less_call_return_sites(caller, callee, instruction_rows)
+    source = call["sourcePc"]
+    instruction = instruction_rows.get(source)
+    if (instruction is None or instruction.get("owner") != caller["id"]
+            or callee["entryPc"] not in instruction.get("successors", [])
+            or instruction.get("transfer") != "directCall" or instruction.get("mnemonic") != "jalr"):
+        raise ValueError("resolved Level 4 call site is not a decoded direct jalr call")
+    link, base = jalr_registers(instruction)
+    if (link, base) != (1, 1):
+        raise ValueError("resolved Level 4 call site does not bind RA through jalr x1, x1")
+    return_pc = source + 4
+    if return_pc not in instruction["successors"]:
+        raise ValueError("resolved Level 4 call site lacks its RA fall-through")
+    return [{
+        "sourcePc": source, "targetPc": callee["entryPc"], "returnPc": return_pc,
+        "linkRegister": "ra",
+    }]
+
+
 def declared_level4_calls(owner_id: str, call_graph: dict, owners_by_id: dict[str, dict]) -> list[dict]:
     """Declared direct/tail/vtable call frames with the callee's concrete entry PC."""
     declarations = [
@@ -586,17 +618,128 @@ def declared_level4_calls(owner_id: str, call_graph: dict, owners_by_id: dict[st
         if call["caller"] == owner_id and call["kind"] in {"direct", "tail", "allocatorVtable"}
     ]
     return [
-        {
-            "id": call["callee"], "kind": call["kind"], "sourcePc": call["source"],
-            "targetPc": owners_by_id[call["callee"]]["entryPc"],
-        }
+        {"id": call["callee"], "kind": call["kind"], "sourcePc": call["source"],
+         "targetPc": owners_by_id[call["callee"]]["entryPc"]}
         for call in declarations
         if call["source"] is not None or not any(
             concrete["callee"] == call["callee"] and concrete["kind"] == call["kind"]
-            and concrete["source"] is not None
-            for concrete in declarations
-        )
+            and concrete["source"] is not None for concrete in declarations)
     ]
+
+
+def deepest_call_target_owner(target_pc: int, owners_by_id: dict[str, dict]) -> dict:
+    """Resolve a decoded direct-call target to its deepest generated or excluded identity."""
+    candidates = [owner for owner in owners_by_id.values() if owner["entryPc"] == target_pc]
+    if not candidates:
+        raise ValueError("decoded Level 4 direct call target has no generated owner identity")
+
+    def depth(owner: dict) -> int:
+        result, current = 0, owner
+        while current.get("parent") is not None:
+            result += 1
+            current = owners_by_id[current["parent"]]
+        return result
+
+    deepest = max(candidates, key=depth)
+    if sum(depth(owner) == depth(deepest) for owner in candidates) != 1:
+        raise ValueError("decoded Level 4 direct call target has ambiguous deepest identity")
+    return deepest
+
+
+def decoded_direct_call_target(source_pc: int, instruction: dict) -> int:
+    """The non-fall-through CFG target of one concrete `jalr x1, x1` call instruction."""
+    if instruction.get("transfer") != "directCall" or instruction.get("mnemonic") != "jalr":
+        raise ValueError("selected Level 4 call site is not a decoded direct jalr call")
+    link, base = jalr_registers(instruction)
+    if (link, base) != (1, 1):
+        raise ValueError("selected Level 4 call site does not bind RA through jalr x1, x1")
+    successors = instruction.get("successors", [])
+    return_pc = source_pc + 4
+    if return_pc not in successors:
+        raise ValueError("selected Level 4 call site lacks its RA fall-through")
+    targets = [pc for pc in successors if pc != return_pc]
+    if len(targets) != 1:
+        raise ValueError("selected Level 4 call site lacks one resolved CFG call target")
+    return targets[0]
+
+
+def active_extent_calls(
+    active_owner: dict, call_graph: dict, owners_by_id: dict[str, dict], instruction_rows: dict[int, dict]
+) -> list[dict]:
+    """Every decoded physical direct call in an active frame's exact structural extent.
+
+    `callGraph.calls` is not complete for optimized excluded bodies, so it is never used to
+    select these frames.  Decoded instruction transfer/CFG data selects each physical call; the
+    call graph's source-derived owner identities only enrich the resulting frame.  The source must
+    be both in the active full extent and owned by its structural inline subtree.
+    """
+    del call_graph
+    subtree_ids = descendant_owner_ids(owners_by_id, active_owner["id"])
+    extent = set(dynamic_full_execution_pcs(active_owner, owners_by_id))
+    expanded = []
+    for source_pc in sorted(extent):
+        instruction = instruction_rows.get(source_pc)
+        if instruction is None or instruction.get("transfer") != "directCall":
+            continue
+        caller_id = instruction.get("owner")
+        if caller_id not in subtree_ids:
+            raise ValueError("decoded active Level 4 call has a non-descendant deepest owner")
+        target_pc = decoded_direct_call_target(source_pc, instruction)
+        callee = deepest_call_target_owner(target_pc, owners_by_id)
+        expanded.append({
+            "id": callee["id"], "callerId": caller_id, "kind": "direct",
+            "sourcePc": source_pc, "targetPc": target_pc,
+        })
+    deduplicated = {}
+    for call in expanded:
+        key = (call["sourcePc"], call["targetPc"], call["kind"])
+        previous = deduplicated.setdefault(key, call)
+        if previous["callerId"] != call["callerId"] or previous["id"] != call["id"]:
+            raise ValueError("active Level 4 call source has conflicting deepest-owner targets")
+    return sorted(deduplicated.values(), key=lambda call: (
+        call["sourcePc"], call["targetPc"], call["kind"], call["callerId"]
+    ))
+
+
+def cycle_back_edge(callee: dict, call: dict, return_sites: list[dict], owners_by_id: dict[str, dict]) -> dict:
+    """The concrete transition closing a recursive active-callee path back to an ancestor."""
+    sources = sorted({site["sourcePc"] for site in return_sites} | {call["sourcePc"]})
+    return {
+        "ancestorId": callee["id"],
+        "ancestorIdentity": generated_target_identity(callee),
+        "ancestorExecutionPcs": dynamic_full_execution_pcs(callee, owners_by_id),
+        "transitions": [{"sourcePc": source, "targetPc": callee["entryPc"]} for source in sources],
+    }
+
+
+def active_callee_frame(caller: dict, call: dict, call_graph: dict, owners_by_id: dict[str, dict],
+                        instruction_rows: dict[int, dict], seen: frozenset[str] = frozenset()) -> dict:
+    """One explicit active callee boundary, recursively retaining its declared child calls."""
+    caller = owners_by_id[call.get("callerId", caller["id"])]
+    callee = owners_by_id[call["id"]]
+    return_sites = direct_call_return_sites(caller, call, callee, instruction_rows)
+    frame = {
+        **call,
+        "callerIdentity": generated_target_identity(caller),
+        **dynamic_call_target_extent(callee, owners_by_id),
+        "returnSites": return_sites,
+        "cycleBackEdge": (cycle_back_edge(callee, call, return_sites, owners_by_id)
+                          if callee["id"] in seen else None),
+        "activeCalleeFrames": [],
+    }
+    if frame["cycleBackEdge"] is not None:
+        return frame
+    frame["activeCalleeFrames"] = [
+        active_callee_frame(callee, child, call_graph, owners_by_id, instruction_rows,
+                            seen | {callee["id"]})
+        for child in active_extent_calls(callee, call_graph, owners_by_id, instruction_rows)
+    ]
+    return frame
+
+
+def active_callee_frame_count(frames: list[dict]) -> int:
+    """Count every retained frame, including nested cycle-back-edge leaves."""
+    return sum(1 + active_callee_frame_count(frame["activeCalleeFrames"]) for frame in frames)
 
 
 LEVEL4_DYNAMIC_INLINE_IDENTITIES = {
@@ -1010,16 +1153,13 @@ def level4_boundary_manifest(database: dict) -> dict:
         }
         if owner["kind"] in {"emitted", "inlined"}:
             row["functionInstanceIdentity"] = function_identity(owner)
-        if calls_by_owner[owner["id"]]:
+        owner_calls = (active_extent_calls(owner, call_graph, owners_by_id, instruction_rows)
+                       if is_level4_dynamic_decoder(owner) else calls_by_owner[owner["id"]])
+        if owner_calls:
             row["calls"] = [
-                {
-                    **call,
-                    **dynamic_call_target_extent(owners_by_id[call["id"]], owners_by_id),
-                    **({"returnSites": source_less_call_return_sites(
-                        owner, owners_by_id[call["id"]], instruction_rows)}
-                       if call["sourcePc"] is None else {}),
-                } if is_level4_dynamic_decoder(owner) else call
-                for call in calls_by_owner[owner["id"]]
+                active_callee_frame(owner, call, call_graph, owners_by_id, instruction_rows,
+                                    frozenset({owner["id"]})) if is_level4_dynamic_decoder(owner) else call
+                for call in owner_calls
             ]
         tail_dependencies = []
         for call in calls_by_owner[owner["id"]]:
@@ -1084,16 +1224,12 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
                                         if instruction.get("owner") in descendant_owner_ids(owners_by_id, owner["id"]))
         expected_handoffs = attribution_fragment_handoffs(owner, decode_raw, owners_by_id, instructions)
         expected_reentries = parent_fragment_reentries(owner, decode_raw, owners_by_id, instructions)
-        expected_calls = [
-            {
-                **call,
-                **dynamic_call_target_extent(owners_by_id[call["id"]], owners_by_id),
-                **({"returnSites": source_less_call_return_sites(
-                    owner, owners_by_id[call["id"]], instructions)}
-                   if call["sourcePc"] is None else {}),
-            }
-            for call in declared_level4_calls(owner["id"], database["callGraph"], owners_by_id)
-        ]
+        for call in row.get("calls", []):
+            validate_active_callee_frame_shape(call)
+        expected_calls = [active_callee_frame(owner, call, database["callGraph"], owners_by_id,
+                                               instructions, frozenset({owner["id"]}))
+                          for call in active_extent_calls(owner, database["callGraph"], owners_by_id,
+                                                          instructions)]
         if row.get("fullExecutionPcs") != expected_full:
             raise ValueError("Level 4 full execution PCs are incomplete or forged")
         if row.get("ownedExecutionPcs") != expected_owned:
@@ -1119,6 +1255,74 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
             )
         if row.get("calls", []) != expected_calls:
             raise ValueError("Level 4 dynamic call target extents are incomplete or forged")
+
+
+def validate_attribution_target_identity(identity: object) -> None:
+    if (not isinstance(identity, dict)
+            or identity.get("kind") not in {"functionInstance", "excludedFunctionInstance"}
+            or not isinstance(identity.get("qualified"), str)
+            or not isinstance(identity.get("sourceFile"), str)):
+        raise ValueError("Level 4 active callee lacks a tagged source identity")
+
+
+def validate_active_callee_frame_shape(call: object, ancestors: frozenset[str] = frozenset()) -> None:
+    """Check the recursive manifest shape before recomputing it from the production CFG.
+
+    The recursive recomputation below is the authoritative check.  This structural pass gives a
+    precise rejection for malformed children and prevents a forged cycle back-edge from hiding a
+    foreign sibling before the recomputation gets a chance to compare the full tree.
+    """
+    if (not isinstance(call, dict) or not isinstance(call.get("id"), str)
+            or not isinstance(call.get("kind"), str)
+            or not isinstance(call.get("sourcePc"), (int, type(None)))
+            or not isinstance(call.get("targetPc"), int)):
+        raise ValueError("Level 4 active callee lacks concrete call identity and PCs")
+    validate_attribution_target_identity(call.get("callerIdentity"))
+    validate_attribution_target_identity(call.get("targetIdentity"))
+    extent = call.get("activeCalleeExecutionPcs")
+    if not isinstance(extent, list) or not extent or extent != sorted(set(extent)):
+        raise ValueError("Level 4 active callee has an invalid exact execution extent")
+    return_sites = call.get("returnSites")
+    if not isinstance(return_sites, list):
+        raise ValueError("Level 4 active callee lacks per-site RA obligations")
+    if call["kind"] == "direct" and not return_sites:
+        raise ValueError("Level 4 direct active callee lacks per-site RA obligations")
+    for site in return_sites:
+        if (not isinstance(site, dict)
+                or not isinstance(site.get("sourcePc"), int)
+                or not isinstance(site.get("targetPc"), int)
+                or not isinstance(site.get("returnPc"), int)
+                or site.get("linkRegister") != "ra"
+                or site["targetPc"] != call["targetPc"]
+                or site["returnPc"] != site["sourcePc"] + 4
+                or (call["sourcePc"] is not None and site["sourcePc"] != call["sourcePc"])):
+            raise ValueError("Level 4 active callee has an invalid RA obligation")
+    cycle_back_edge = call.get("cycleBackEdge")
+    children = call.get("activeCalleeFrames")
+    if not isinstance(children, list):
+        raise ValueError("Level 4 active callee lacks recursive cycle metadata")
+    is_cycle = call["id"] in ancestors
+    if is_cycle:
+        if not isinstance(cycle_back_edge, dict):
+            raise ValueError("Level 4 active callee lacks its ancestor cycle back-edge")
+        if (cycle_back_edge.get("ancestorId") != call["id"]
+                or cycle_back_edge.get("ancestorIdentity") != call["targetIdentity"]
+                or cycle_back_edge.get("ancestorExecutionPcs") != call["activeCalleeExecutionPcs"]):
+            raise ValueError("Level 4 active callee has a forged ancestor cycle back-edge")
+        transitions = cycle_back_edge.get("transitions")
+        if (not isinstance(transitions, list) or not transitions
+                or transitions != sorted(transitions, key=lambda edge: edge.get("sourcePc", -1))):
+            raise ValueError("Level 4 active callee has incomplete cycle back-edge transitions")
+        if any(not isinstance(edge, dict) or not isinstance(edge.get("sourcePc"), int)
+               or edge.get("targetPc") != call["targetPc"] for edge in transitions):
+            raise ValueError("Level 4 active callee has invalid cycle back-edge transitions")
+        if children:
+            raise ValueError("Level 4 active callee expands beyond its ancestor cycle back-edge")
+        return
+    if cycle_back_edge is not None:
+        raise ValueError("Level 4 active callee has a forged ancestor cycle back-edge")
+    for child in children:
+        validate_active_callee_frame_shape(child, ancestors | {call["id"]})
 
 
 def validate_level4_boundary_manifest(manifest: dict) -> None:
@@ -1167,20 +1371,7 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                         or not isinstance(call.get("targetPc"), int)):
                     raise ValueError("Level 4 boundary manifest call lacks concrete PCs")
                 if "targetIdentity" in call:
-                    for field in ("activeCalleeExecutionPcs",):
-                        pcs = call.get(field)
-                        if not isinstance(pcs, list) or not pcs or pcs != sorted(set(pcs)):
-                            raise ValueError(f"Level 4 dynamic call target has invalid {field}")
-                    identity = call["targetIdentity"]
-                    if (not isinstance(identity, dict)
-                            or identity.get("kind") not in {"functionInstance", "excludedFunctionInstance"}
-                            or not isinstance(identity.get("qualified"), str)):
-                        raise ValueError("Level 4 dynamic call target lacks a source identity")
-                    if call["sourcePc"] is None:
-                        return_sites = call.get("returnSites")
-                        if (not isinstance(return_sites, list) or not return_sites
-                                or return_sites != sorted(return_sites, key=lambda site: site.get("sourcePc", -1))):
-                            raise ValueError("Level 4 source-less call lacks RA-bound return sites")
+                    validate_active_callee_frame_shape(call)
         dependencies = row.get("tailDependencies", [])
         if not isinstance(dependencies, list):
             raise ValueError("Level 4 boundary manifest tailDependencies field is not a list")
@@ -1328,13 +1519,35 @@ def emit_level4_attribution_lean(database: dict) -> str:
     rows = [row for row in manifest["boundaries"] if "fragmentHandoffs" in row]
     expected_handoffs = [14, 8, 12, 5]
     expected_reentries = [4, 4, 2, 1]
-    expected_call_frames = [4, 5, 1, 3]
+    expected_call_frames = [38, 6, 5, 2]
     if [len(row["fragmentHandoffs"]) for row in rows] != expected_handoffs:
         raise ValueError("Level 4 attribution fragment handoff inventory changed")
     if [len(row["parentReentryEdges"]) for row in rows] != expected_reentries:
         raise ValueError("Level 4 attribution fragment re-entry inventory changed")
     if [len(row.get("calls", [])) for row in rows] != expected_call_frames:
         raise ValueError("Level 4 dynamic call-frame inventory changed")
+    recursive_call_frame_count = active_callee_frame_count(
+        [frame for row in rows for frame in row.get("calls", [])]
+    )
+    if recursive_call_frame_count != 79:
+        raise ValueError("Level 4 recursive decoded call-frame inventory changed")
+    def recursive_frames(frames: list[dict]) -> list[dict]:
+        return [frame for root in frames for frame in
+                [root, *recursive_frames(root["activeCalleeFrames"])]]
+    decoded_frames = recursive_frames([frame for row in rows for frame in row.get("calls", [])])
+    required_decoded_calls = {
+        # fi:45's direct allocator boundary, and the previously omitted excluded-body calls.
+        ("fi:45", 0x115e8, 0x135e0),
+        ("excluded:5", 0x1356c, 0x135e0),
+        ("excluded:10", 0x136d0, 0x130ac),
+        ("excluded:10", 0x136e4, 0x136f8),
+    }
+    actual_decoded_calls = {
+        (frame["callerId"], frame["sourcePc"], frame["targetPc"])
+        for frame in decoded_frames
+    }
+    if not required_decoded_calls <= actual_decoded_calls:
+        raise ValueError("Level 4 required decoded excluded-body call inventory changed")
     parent_owner = next(owner for owner in database["callGraph"]["owners"]
                         if owner["id"] == manifest["parent"]["id"])
     parent_identity = {
@@ -1353,8 +1566,8 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "",
         "/-! Exact Level 4 dynamic inline attribution boundaries.  The source-derived identities,",
         "decoded deepest ownership, and CFG determine every list below.  The Lean facts establish",
-        "exact emitted lists and per-edge generated-Program membership/ownership; the Python validator",
-        "independently recomputes complete lists from the production Program and decoded CFG. -/",
+        "exact emitted decoded-call/target/identity/RA data; the Python validator independently",
+        "recomputes complete lists from the production Program and decoded CFG. -/",
         "",
         "namespace BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution",
         "",
@@ -1367,12 +1580,32 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "  | functionInstance : FunctionInstanceId → AttributionCallTarget",
         "  | excludedFunctionInstance : FunctionInstanceId → AttributionCallTarget",
         "",
+        "inductive ReturnAddressBinding where",
+        "  | jalrX1X1 : ReturnAddressBinding",
+        "  deriving DecidableEq",
+        "",
+        "structure AttributionReturnObligation where",
+        "  callSource : Nat",
+        "  calleeTarget : Nat",
+        "  returnPc : Nat",
+        "  raBinding : ReturnAddressBinding",
+        "  deriving DecidableEq",
+        "",
+        "structure AttributionCycleBackEdge where",
+        "  ancestor : AttributionCallTarget",
+        "  ancestorExecutionPcs : Array Nat",
+        "  transitions : Array DirectEdge",
+        "",
         "structure AttributionCallFrame where",
         "  kind : String",
         "  source : Option Nat",
         "  target : Nat",
+        "  caller : AttributionCallTarget",
         "  callee : AttributionCallTarget",
         "  activeCalleeExecutionPcs : Array Nat",
+        "  returnObligations : Array AttributionReturnObligation",
+        "  activeCalleeFrames : Array AttributionCallFrame",
+        "  cycleBackEdge : Option AttributionCycleBackEdge",
         "",
         "structure AttributionFragmentBoundary where",
         "  child : FunctionInstanceId",
@@ -1512,18 +1745,47 @@ def emit_level4_attribution_lean(database: dict) -> str:
                    pcs(route["carrierPcs"]), paths, registers, descriptors, status_lean, allocation_lean,
                    heap_lean)
             )
+        def cycle_back_edge_expr(cycle: dict | None) -> str:
+            if cycle is None:
+                return "none"
+            ancestor_identity = cycle["ancestorIdentity"]
+            ancestor = target_lean_name(ancestor_identity)
+            ancestor_target = (f".excludedFunctionInstance {ancestor}Id"
+                               if ancestor_identity["kind"] == "excludedFunctionInstance"
+                               else f".functionInstance {ancestor}Id")
+            transitions = ", ".join(
+                f"{{ source := {edge['sourcePc']}, target := {edge['targetPc']} }}"
+                for edge in cycle["transitions"]
+            )
+            return (f"some {{ ancestor := {ancestor_target}, ancestorExecutionPcs := "
+                    f"#[{pcs(cycle['ancestorExecutionPcs'])}], transitions := #[{transitions}] }}")
+
+        def call_target_expr(identity: dict) -> str:
+            name = target_lean_name(identity)
+            return (f".excludedFunctionInstance {name}Id"
+                    if identity["kind"] == "excludedFunctionInstance"
+                    else f".functionInstance {name}Id")
+
         def call_frame(call: dict) -> str:
+            caller_identity = call["callerIdentity"]
             identity = call["targetIdentity"]
-            callee = target_lean_name(identity)
-            target = (f".excludedFunctionInstance {callee}Id"
-                      if identity["kind"] == "excludedFunctionInstance"
-                      else f".functionInstance {callee}Id")
+            caller_target = call_target_expr(caller_identity)
+            target = call_target_expr(identity)
             source = "none" if call["sourcePc"] is None else f"some {call['sourcePc']}"
+            obligations = ", ".join(
+                "{ callSource := %s, calleeTarget := %s, returnPc := %s, raBinding := .jalrX1X1 }"
+                % (site["sourcePc"], site["targetPc"], site["returnPc"])
+                for site in call.get("returnSites", [])
+            )
+            cycle_back_edge = cycle_back_edge_expr(call["cycleBackEdge"])
+            children = ", ".join(call_frame(child) for child in call.get("activeCalleeFrames", []))
             return (
-                "{ kind := \"%s\", source := %s, target := %s, callee := %s, "
-                "activeCalleeExecutionPcs := #[%s] }"
-                % (call["kind"], source, call["targetPc"], target,
-                   pcs(call["activeCalleeExecutionPcs"]))
+                "{ kind := \"%s\", source := %s, target := %s, caller := %s, callee := %s, "
+                "activeCalleeExecutionPcs := #[%s], returnObligations := #[%s], "
+                "activeCalleeFrames := #[%s], cycleBackEdge := %s }"
+                % (call["kind"], source, call["targetPc"], caller_target, target,
+                   pcs(call["activeCalleeExecutionPcs"]), obligations, children,
+                   cycle_back_edge)
             )
         call_frames = f"(#[{', '.join(call_frame(call) for call in row.get('calls', []))}] : Array AttributionCallFrame)"
         carrier_routes = "(#[%s] : Array AttributionOutcomeCarrierRoute)" % ", ".join(
@@ -1595,22 +1857,71 @@ def emit_level4_attribution_lean(database: dict) -> str:
                     f"      programContainsEdge generatedProgram edge = true) := by native_decide",
                     "",
                 ])
-        for index, call in enumerate(row.get("calls", [])):
-            identity = call["targetIdentity"]
-            callee = target_lean_name(identity)
-            source_name = "external" if call["sourcePc"] is None else str(call["sourcePc"])
-            call_name = f"{boundary_name}_call_{source_name}_{call['targetPc']}"
+        def target_membership(identity: dict, pc: str) -> str:
+            name = target_lean_name(identity)
+            return (f"inRegions {name} {pc}"
+                    if identity["kind"] == "functionInstance"
+                    else f"Program.inRanges {name}.regions {pc}")
+
+        def emit_call_frame_facts(call: dict, path: tuple[int, ...], frame_option: str) -> None:
+            """Emit exact projections and concrete Program facts at every recursive frame path."""
+            path_name = "_".join(str(index) for index in path)
+            call_name = f"{boundary_name}_call_{path_name}"
             full_pcs = f"#[{pcs(call['activeCalleeExecutionPcs'])}]"
             frame = call_frame(call)
-            membership = (f"inRegions {callee} pc"
-                          if identity["kind"] == "functionInstance"
-                          else f"Program.inRanges {callee}.regions pc")
+            membership = target_membership(call["targetIdentity"], "pc")
+            source = f"some {call['sourcePc']}"
+            caller_target = call_target_expr(call["callerIdentity"])
+            callee_target = call_target_expr(call["targetIdentity"])
             L.extend([
-                f"theorem {call_name}_exact : {boundary_name}.callFrames[{index}]? = some {frame} := rfl",
+                f"theorem {call_name}_exact : {frame_option} = some {frame} := rfl",
+                f"theorem {call_name}_decodedCall_target_and_identities_exact :",
+                f"    ({frame_option}).map (fun frame =>",
+                f"      (frame.source, frame.target, frame.caller, frame.callee)) =",
+                f"    some ({source}, {call['targetPc']}, {caller_target}, {callee_target}) := rfl",
                 f"theorem {call_name}_extent_membership :",
                 f"    ∀ pc ∈ {full_pcs}, {membership} = true := by native_decide",
+                f"theorem {call_name}_cycleBackEdge_exact :",
+                f"    ({frame_option}).map (·.cycleBackEdge) = some "
+                f"{cycle_back_edge_expr(call['cycleBackEdge'])} := rfl",
                 "",
             ])
+            if call["cycleBackEdge"] is not None:
+                transitions = ", ".join(
+                    f"{{ source := {edge['sourcePc']}, target := {edge['targetPc']} }}"
+                    for edge in call["cycleBackEdge"]["transitions"]
+                )
+                transition_array = f"(#[{transitions}] : Array DirectEdge)"
+                L.extend([
+                    f"theorem {call_name}_cycleBackEdge_transitions_cfg :",
+                    f"    ∀ edge ∈ {transition_array},",
+                    f"      programContainsEdge generatedProgram edge = true ∧ edge.target = {call['targetPc']} := by native_decide",
+                    "",
+                ])
+            obligations = ", ".join(
+                "{ callSource := %s, calleeTarget := %s, returnPc := %s, raBinding := .jalrX1X1 }"
+                % (site["sourcePc"], site["targetPc"], site["returnPc"])
+                for site in call["returnSites"]
+            )
+            obligation_array = f"(#[{obligations}] : Array AttributionReturnObligation)"
+            L.extend([
+                f"theorem {call_name}_returnObligations_exact :",
+                f"    ({frame_option}).map (·.returnObligations) = some {obligation_array} := rfl",
+                f"theorem {call_name}_decodedCall_target_and_ra_exact :",
+                f"    ∀ obligation ∈ {obligation_array},",
+                f"      obligation.calleeTarget = {call['targetPc']} ∧",
+                f"      obligation.returnPc = obligation.callSource + 4 ∧",
+                f"      obligation.raBinding = .jalrX1X1 := by native_decide",
+                "",
+            ])
+            for index, nested in enumerate(call["activeCalleeFrames"]):
+                emit_call_frame_facts(
+                    nested, path + (index,),
+                    f"({frame_option}).bind (fun frame => frame.activeCalleeFrames[{index}]?)",
+                )
+
+        for index, call in enumerate(row.get("calls", [])):
+            emit_call_frame_facts(call, (index,), f"({boundary_name}.callFrames[{index}]?)")
     L.extend([
         "/-- The four selected direct dynamic decoder identities, in source call-site order. -/",
         "noncomputable def level4AttributionFragmentBoundaries : Array AttributionFragmentBoundary :=",
@@ -1618,15 +1929,18 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "",
         "theorem level4AttributionFragmentBoundaries_count :",
         "    level4AttributionFragmentBoundaries.size = 4 := rfl",
-        "def level4AttributionFragmentHandoffCounts : Array Nat := #[7, 8, 4, 5]",
-        "def level4AttributionFragmentReentryCounts : Array Nat := #[3, 3, 1, 1]",
-        "def level4AttributionCallFrameCounts : Array Nat := #[4, 5, 1, 3]",
+        f"def level4AttributionFragmentHandoffCounts : Array Nat := #[{pcs(expected_handoffs)}]",
+        f"def level4AttributionFragmentReentryCounts : Array Nat := #[{pcs(expected_reentries)}]",
+        f"def level4AttributionCallFrameCounts : Array Nat := #[{pcs(expected_call_frames)}]",
+        f"def level4AttributionRecursiveCallFrameCount : Nat := {recursive_call_frame_count}",
         "theorem level4AttributionFragmentHandoff_counts :",
         "    level4AttributionFragmentHandoffCounts = #[7, 8, 4, 5] := rfl",
         "theorem level4AttributionFragmentReentry_counts :",
         "    level4AttributionFragmentReentryCounts = #[3, 3, 1, 1] := rfl",
         "theorem level4AttributionCallFrame_counts :",
-        "    level4AttributionCallFrameCounts = #[4, 5, 1, 3] := rfl",
+        f"    level4AttributionCallFrameCounts = #[{pcs(expected_call_frames)}] := rfl",
+        "theorem level4AttributionRecursiveCallFrameCount_exact :",
+        f"    level4AttributionRecursiveCallFrameCount = {recursive_call_frame_count} := rfl",
         "theorem level4AttributionFragmentBoundary_totals :",
         "    14 + 8 + 12 + 5 = 39 ∧ 4 + 4 + 2 + 1 = 11 := by decide",
         "/-- All 39 dynamic child-to-parent handoffs, keyed by source-derived child identity and",
@@ -2255,22 +2569,17 @@ def build_flame(database: dict) -> dict:
     attribution_handoffs = {}
     attribution_reentries = {}
     carrier_routes = {}
+    attribution_active_callee_frames = {}
     if any(owner["qualified"] == "ssz_raw.decodeRaw" for owner in call_graph["owners"]):
-        attribution_handoffs = {
-            row["id"]: row["fragmentHandoffs"]
-            for row in level4_boundary_manifest(database)["boundaries"]
-            if "fragmentHandoffs" in row
-        }
-        attribution_reentries = {
-            row["id"]: row["parentReentryEdges"]
-            for row in level4_boundary_manifest(database)["boundaries"]
-            if "parentReentryEdges" in row
-        }
-        carrier_routes = {
-            row["id"]: row["carrierRoutes"]
-            for row in level4_boundary_manifest(database)["boundaries"]
-            if "carrierRoutes" in row
-        }
+        boundaries = level4_boundary_manifest(database)["boundaries"]
+        attribution_handoffs = {row["id"]: row["fragmentHandoffs"] for row in boundaries
+                                if "fragmentHandoffs" in row}
+        attribution_reentries = {row["id"]: row["parentReentryEdges"] for row in boundaries
+                                 if "parentReentryEdges" in row}
+        carrier_routes = {row["id"]: row["carrierRoutes"] for row in boundaries
+                          if "carrierRoutes" in row}
+        attribution_active_callee_frames = {row["id"]: row.get("calls", []) for row in boundaries
+                                            if "fragmentHandoffs" in row}
     callers: dict[str, list[dict]] = defaultdict(list)
     callees: dict[str, list[dict]] = defaultdict(list)
     for call in call_graph["calls"]:
@@ -2359,6 +2668,7 @@ def build_flame(database: dict) -> dict:
             "fragmentHandoffs": [] if synthetic else attribution_handoffs.get(owner_id, []),
             "parentReentryEdges": [] if synthetic else attribution_reentries.get(owner_id, []),
             "carrierRoutes": [] if synthetic else carrier_routes.get(owner_id, []),
+            "activeCalleeFrames": [] if synthetic else attribution_active_callee_frames.get(owner_id, []),
             "src": None,
         }
         return node, subtree
