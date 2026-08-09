@@ -112,7 +112,6 @@ private theorem decodeRawEntryFrame_of_wrapper {args : ZesuDecodeRawArgs} {stack
     (input : state.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase))
     (length : state.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size))
     (globals : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020))
-    (platform : Agree platformPreserved entry state)
     (calleeSaved : Agree decodeRawCalleeSaved entry state) :
     DecodeRawEntryFrame state := by
   obtain ⟨savedS3, savedS3AtEntry⟩ := machine.savedS3AtEntry
@@ -199,7 +198,7 @@ theorem wrapper_reaches_decode_first_contract
               entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
               WrapperSavedRegisterFrame stackBase link s0 s1 s2 atDecode := by
   obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, globals, attempted, stored, inputMemory,
-    platform, agree, calleeSaved, retired, code, savedFrame⟩ :=
+    _, agree, calleeSaved, retired, code, savedFrame⟩ :=
     wrapper_through_allocator_setup allocator fromStep args stackBase entry source machine
   let decodeArgs : DecodeInlineArgs :=
     { phase := .first
@@ -218,7 +217,7 @@ theorem wrapper_reaches_decode_first_contract
       globalsValue := globals
       rawCallFrame := by
         simpa [DecodeInlineRawCallFrame, DecodeInlineArgs.phase] using
-          decodeRawEntryFrame_of_wrapper machine stack savedInput length globals platform calleeSaved
+          decodeRawEntryFrame_of_wrapper machine stack savedInput length globals calleeSaved
       inputMemory := by simpa [decodeArgs] using inputMemory
       code := code
       inputFits := machine.inputFits
@@ -332,7 +331,7 @@ theorem wrapper_reaches_decode_first_invalid_contract
               entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
               WrapperSavedRegisterFrame stackBase link s0 s1 s2 atDecode := by
   obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, globals, attempted, storedAtDecode,
-    inputMemory, platform, agree, calleeSaved, retired, code, savedFrame⟩ :=
+    inputMemory, _, agree, calleeSaved, retired, code, savedFrame⟩ :=
     wrapper_through_allocator_setup allocator fromStep args stackBase entry source machine
   let decodeArgs : DecodeInlineArgs :=
     { phase := .first, stackBase := stackBase, inputBase := args.inputBase, bytes := args.bytes }
@@ -348,7 +347,7 @@ theorem wrapper_reaches_decode_first_invalid_contract
       globalsValue := globals
       rawCallFrame := by
         simpa [DecodeInlineRawCallFrame, DecodeInlineArgs.phase] using
-          decodeRawEntryFrame_of_wrapper machine stack savedInput length globals platform calleeSaved
+          decodeRawEntryFrame_of_wrapper machine stack savedInput length globals calleeSaved
       inputMemory := by simpa [decodeArgs] using inputMemory
       code := code
       inputFits := machine.inputFits
