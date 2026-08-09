@@ -66,6 +66,7 @@ class Boundary:
     handoffs: tuple[tuple[int, int], ...] = ()
     reentries: tuple[tuple[int, int], ...] = ()
     active_frames: tuple[dict[str, Any], ...] = ()
+    tail_dependencies: tuple[dict[str, Any], ...] = ()
 
 
 def _frame_tree(frames: tuple[dict[str, Any], ...]) -> tuple[dict[tuple[int, int], dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -107,6 +108,10 @@ def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: s
                 site = next(site for site in child["returnSites"] if (site["sourcePc"], site["targetPc"]) == pair)
                 stack.append((child, site["returnPc"])); continue
             if pc not in frame["activeCalleeExecutionPcs"]:
+                entry_tail = next((value for (_source, target), value in tails.items() if pc == target), None)
+                if entry_tail is not None:
+                    allowed, completion = entry_tail
+                    stack.append(({"activeCalleeExecutionPcs": allowed, "completion": completion}, -1)); continue
                 failures.append(f"foreign PC {pc:#x} in declared call frame at event {i}"); mode = None; stack.clear()
             continue
         if mode == "selected":
@@ -271,9 +276,10 @@ def load_inventory(path: Path) -> tuple[Boundary, ...]:
         if handoffs or reentries:
             if not subtree or not handoffs or not reentries or not frames:
                 raise ValueError(f"boundary {identifier} lacks exact H/R/frame state-machine data")
+        tails = tuple(dependency for dependency in row.get("tailDependencies", []) if isinstance(dependency, dict))
         boundaries.append(Boundary(identifier, kind, qualified, entry, pcs, exits, parent, identity,
                                    calls, stores, tuple(untraceable_calls), tuple(carrier_routes),
-                                   subtree, handoffs, reentries, frames))
+                                   subtree, handoffs, reentries, frames, tails))
 
     if len(boundaries) != EXPECTED_BOUNDARIES:
         raise ValueError(f"Level 4 inventory has {len(boundaries)} boundaries, expected {EXPECTED_BOUNDARIES}")
@@ -596,8 +602,11 @@ def main() -> int:
     machine = json.loads((args.inventory.parent / "machine-regions.json").read_text())
     fi6 = next(owner for owner in machine["callGraph"]["owners"] if owner["id"] == "fi:6")
     parent_pcs = set(fi6["instructions"])
-    tails = {(tail.source_pc, tail.target_pc): (set(tail.combined_instruction_pcs), set(tail.completion_source_pcs))
+    tails = {(tail["transfer"]["sourcePc"], tail["transfer"]["targetPc"]):
+             (set(tail["combinedInstructionPcs"]), set(tail["completionSourcePcs"]))
              for boundary in boundaries for tail in boundary.tail_dependencies}
+    tails.update({(None, boundary.entry_pc): (set(tail["combinedInstructionPcs"]), set(tail["completionSourcePcs"]))
+                  for boundary in boundaries for tail in boundary.tail_dependencies})
     vectors = default_vectors()
     oracle_records = [run_oracles(args, *vector) for vector in vectors]
     failures = [failure for record in oracle_records for failure in record["failures"]]
