@@ -47,6 +47,19 @@ private theorem level4_executionWitness_75568_75572_target :
     (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572).handoff.target =
       0x12734 := by rfl
 
+/-- Exact intermediate/unclassified targets retained even in rejection-case elimination: an
+incorrect literal here would conceal a generator/CFG drift. -/
+private theorem level4_executionWitness_76036_76040_target :
+    (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76036_76040).handoff.target =
+      0x12908 := by rfl
+
+private theorem level4_executionWitness_76064_76068_target :
+    (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76064_76068).handoff.target =
+      0x12924 := by rfl
+
+private theorem level4_executionWitness_carrier_route_count :
+    decodeExecutionWitnessInterface.carrierRoutes.size = 8 := by rfl
+
 /-- The generated carrier-route array is the finite domain of a `decodeExecutionWitness`
 parent-route provider. -/
 private theorem level4_executionWitness_carrier_route_cases {route : AttributionOutcomeCarrierRoute}
@@ -218,13 +231,15 @@ theorem level4_executionWitness_provider_case_75572
       simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75908_75576] using atHandoff.symm.trans atTarget
     exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12738))) pcConflict).elim
   · rw [routeEq] at atTarget
-    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x128f8) := by
-      simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76036_76040] using atHandoff.symm.trans atTarget
-    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x128f8))) pcConflict).elim
+    rw [level4_executionWitness_76036_76040_target] at atTarget
+    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12908) :=
+      atHandoff.symm.trans atTarget
+    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12908))) pcConflict).elim
   · rw [routeEq] at atTarget
-    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12914) := by
-      simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76064_76068] using atHandoff.symm.trans atTarget
-    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12914))) pcConflict).elim
+    rw [level4_executionWitness_76064_76068_target] at atTarget
+    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12924) :=
+      atHandoff.symm.trans atTarget
+    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12924))) pcConflict).elim
   · rw [routeEq] at atTarget
     have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12738) := by
       simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_77868_75576] using atHandoff.symm.trans atTarget
