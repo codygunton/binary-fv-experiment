@@ -40,6 +40,12 @@ def level4RawNewPayloadRequestDeinitSaveMemory (postStack : Nat) : Region := fun
   (postStack - 0x50 + 0x40 ≤ address ∧ address < postStack - 0x50 + 0x48) ∨
   (postStack - 0x50 + 0x38 ≤ address ∧ address < postStack - 0x50 + 0x40)
 
+abbrev Level4RawNewPayloadRequestDeinitExit : BitVec 64 → Prop := fun _ => False
+abbrev Level4RawNewPayloadRequestDeinitChildSummary : FunctionInstanceId → Nat → Nat → State → State → Prop :=
+  fun _ _ _ _ _ => False
+
+def level4RawNewPayloadRequestDeinitWrites : RegSet := fun r => stepBookkeeping r ∨ r = x2
+
 private theorem level4_rawNewPayloadRequestDeinit_slot_writable
     (entry : Level4DecodeRawEntryProloguePre margs origin) {offset index : Nat}
     (slot : offset + 8 ≤ 0x50) (indexBound : index < 8) :
@@ -113,6 +119,38 @@ theorem level4_rawNewPayloadRequestDeinit_stack_step
     0x131ec 0x13 0x01 0x01 0xfb 0xfb0#12 2#5 2#5 .ADDI pre.pc
     (rX_x2_run _ _ (decoderExecuteState_get? pre.sp)) (wX_x2_run _ _)
     (pcIn := ⟨level4_rawNewPayloadRequestDeinit_entry_owned, by native_decide⟩)
+
+/-- The child-frame allocation is one exact straight-line step. -/
+theorem level4_rawNewPayloadRequestDeinit_stack_seg
+    {margs : DecoderMachineArgs} {origin current : State}
+    (frame : Level4DecodeRawParentFrame margs origin current)
+    (pre : Level4RawNewPayloadRequestDeinitPre frame) (fromStep : Nat) :
+    ∃ after, Seg Level4RawNewPayloadRequestDeinitPcs Level4RawNewPayloadRequestDeinitExit
+      Level4RawNewPayloadRequestDeinitChildSummary level4RawNewPayloadRequestDeinitWrites (fun _ => False)
+      [⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x9, BitVec.ofNat 64 2⟩,
+        ⟨x8, Classical.choose pre.s0⟩, ⟨x1, BitVec.ofNat 64 0x129ec⟩]
+      fromStep 1 current after (BitVec.ofNat 64 0x131f0) := by
+  rcases pre.preservation with ⟨entry, stackEq, -, -, -, -, -, -, -, -, -, -, -, retired⟩
+  have postStack : frame.stack - 0x690 = entry.postStack := by rw [← stackEq, entry.postStackEq]; omega
+  have s0Value : current.regs.get? x8 = some (Classical.choose pre.s0) := Classical.choose_spec pre.s0
+  let seg0 := Seg.nil Level4RawNewPayloadRequestDeinitPcs Level4RawNewPayloadRequestDeinitExit
+    Level4RawNewPayloadRequestDeinitChildSummary level4RawNewPayloadRequestDeinitWrites (fun _ => False)
+    fromStep retired pre.pc
+  let seg0 := seg0.know x1 (BitVec.ofNat 64 0x129ec) pre.ra
+  let seg0 := seg0.know x8 (Classical.choose pre.s0) s0Value
+  let seg0 := seg0.know x9 (BitVec.ofNat 64 2) pre.s1
+  have run : ∃ stepRetired, Runs (try_step fromStep false) current
+      (afterRegisterWrite current (BitVec.ofNat 64 0x131ec) stepRetired x2
+        (BitVec.ofNat 64 (frame.stack - 0x690 - 0x50))) false := by
+    obtain ⟨stepRetired, hrun⟩ := level4_rawNewPayloadRequestDeinit_stack_step frame pre fromStep
+    rw [level4_rawNewPayloadRequestDeinit_stack_value (frame.stack - 0x690) (by rw [postStack]; exact entry.nestedCallFrameFits)] at hrun
+    exact ⟨stepRetired, hrun⟩
+  obtain ⟨_, after, _, seg1⟩ := seg0.stepWitness level4_rawNewPayloadRequestDeinit_entry_owned
+    (by simp [Level4RawNewPayloadRequestDeinitExit]) x2
+    (BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)) (BitVec.ofNat 64 0x131f0) run
+    (by decide) (fun _ h => Or.inl h) (Or.inr rfl) (by decide) (by decide)
+    (by exact of_decide_eq_true rfl)
+  exact ⟨after, by simpa [seg0] using seg1⟩
 
 /-- The first child save is the literal `sd ra, 0x48(sp)`.  Its permission is explicit so the
 continuation theorem can discharge it from `ParentFrame.entry.nestedCallFrameWritable`. -/
