@@ -760,6 +760,48 @@ theorem level4_rawNewPayloadRequestDeinit_store_a1_step {margs : DecoderMachineA
     (by decoder_decode) (by unfold BaseInstructionEncoding; decide) aligned
   exact ⟨stepRetired, by simpa [afterMemoryWrite, targetToNat] using run⟩
 
+/-- Sail executes the literal `mv a0, s1` at `0x13214`. -/
+theorem level4_rawNewPayloadRequestDeinit_restore_a0_step {margs : DecoderMachineArgs}
+    {base state : State} {s1 : BitVec 64}
+    (machine : DecoderMachinePre Level4RawNewPayloadRequestDeinitPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x13214))
+    (s1Value : state.regs.get? x9 = some s1) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x13214) stepRetired x10
+        (iTypeResult .ADDI 0x000#12 s1)) false := by
+  exact decoderITypeStepOfDecoderAgree machine agree retired code stepNo
+    0x13214 0x13 0x85 0x04 0x00 0x000#12 9#5 10#5 .ADDI atPc
+    (rX_x9_run _ _ (decoderExecuteState_get? s1Value)) (wX_x10_run _ _)
+    (pcIn := ⟨by
+      change ∃ range : BinaryFv.Binary.AddressRange,
+        range ∈ excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.regions ∧
+          range.start ≤ 78356 ∧ 78356 < range.stop
+      exact ⟨{ start := 78316, size := 180 }, by native_decide, by decide, by decide⟩,
+      by native_decide⟩)
+
+/-- Sail executes the literal `mv a1, s0` at `0x13218`. -/
+theorem level4_rawNewPayloadRequestDeinit_restore_a1_step {margs : DecoderMachineArgs}
+    {base state : State} {s0 : BitVec 64}
+    (machine : DecoderMachinePre Level4RawNewPayloadRequestDeinitPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x13218))
+    (s0Value : state.regs.get? x8 = some s0) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x13218) stepRetired x11
+        (iTypeResult .ADDI 0x000#12 s0)) false := by
+  exact decoderITypeStepOfDecoderAgree machine agree retired code stepNo
+    0x13218 0x93 0x05 0x04 0x00 0x000#12 8#5 11#5 .ADDI atPc
+    (rX_x8_run _ _ (decoderExecuteState_get? s0Value)) (wX_x11_run _ _)
+    (pcIn := ⟨by
+      change ∃ range : BinaryFv.Binary.AddressRange,
+        range ∈ excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.regions ∧
+          range.start ≤ 78360 ∧ 78360 < range.stop
+      exact ⟨{ start := 78316, size := 180 }, by native_decide, by decide, by decide⟩,
+      by native_decide⟩)
+
 private theorem level4_rawNewPayloadRequestDeinit_allocator_pair_through_saves
     {before after : State} {postStack pointer first second : Nat}
     (memory : WritesOnlyWithin (level4RawNewPayloadRequestDeinitSaveMemory postStack) before after)
