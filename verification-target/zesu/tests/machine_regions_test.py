@@ -239,6 +239,10 @@ class MachineRegionTests(unittest.TestCase):
         self.assertEqual(machine_regions.dynamic_full_execution_pcs(decoder, owners), [77400, 77404, 77408, 77416])
         self.assertEqual(machine_regions.dynamic_owned_execution_pcs(decoder, instructions),
                          [77408])
+        # A corruption that replaces the selected subtree by its direct-owner PCs would lose this
+        # real nested handoff.  Keep it distinct from direct ownership: the emitted Lean evidence
+        # must name `fi:103` for 77416 rather than assert that `fi:102` owns it directly.
+        self.assertNotIn(77416, machine_regions.dynamic_owned_execution_pcs(decoder, instructions))
         self.assertEqual(machine_regions.attribution_fragment_handoffs(decoder, parent, owners, instructions),
                          [{"sourcePc": 77408, "targetPc": 77412}, {"sourcePc": 77416, "targetPc": 77412}])
         self.assertEqual(machine_regions.parent_fragment_reentries(decoder, parent, owners, instructions),
@@ -347,6 +351,10 @@ class MachineRegionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "owned execution PCs are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["ownedExecutionPcs"] = [77404, 77408]
+        manifest["boundaries"][0]["subtreeOwnedExecutionPcs"] = [77404]
+        with self.assertRaisesRegex(ValueError, "subtree-owned execution PCs are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["subtreeOwnedExecutionPcs"] = [77404, 77408]
         manifest["boundaries"][0]["parentReentryEdges"] = []
         with self.assertRaisesRegex(ValueError, "re-entries are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)

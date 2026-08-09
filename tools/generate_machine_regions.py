@@ -1556,6 +1556,8 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "inlineStack": parent_owner.get("inlineStack", []),
     }
     parent_name = function_instance_lean_name(parent_identity)
+    owners_by_id = {owner["id"]: owner for owner in database["callGraph"]["owners"]}
+    instruction_rows = {instruction["address"]: instruction for instruction in database["instructions"]}
     L = [
         "-- GENERATED FILE: produced by tools/generate_machine_regions.py. DO NOT EDIT.",
         "import BinaryFv.RiscV.Elfling.Boundary",
@@ -1687,12 +1689,30 @@ def emit_level4_attribution_lean(database: dict) -> str:
         name = function_instance_lean_name(identity)
         boundary_name = f"{name}_attributionBoundary"
         boundary_names.append(boundary_name)
-        carrier_route_names.append((f"{boundary_name}_carrierRoutes", len(row["carrierRoutes"])))
         child = name
         pairs = lambda edges: ", ".join(
             f"{{ source := {edge['sourcePc']}, target := {edge['targetPc']} }}" for edge in edges)
         edge_array = lambda edges: f"(#[{pairs(edges)}] : Array DirectEdge)"
         pcs = lambda xs: ", ".join(str(x) for x in xs)
+        def source_owner_disjunction(edges: list[dict], endpoint: str) -> str:
+            """Exact deepest generated owner for each dynamic subtree edge endpoint.
+
+            ``ownedBy`` only describes one direct FunctionInstance. Dynamic boundary edges may
+            instead originate in a nested inline child, so the generated fact names the decoded
+            deepest owner for every finite handoff/re-entry endpoint rather than pretending the
+            selected root directly owns all of them.
+            """
+            clauses = []
+            for edge in edges:
+                pc = edge[endpoint]
+                owner = owners_by_id[instruction_rows[pc]["owner"]]
+                if owner["id"].startswith("excluded:"):
+                    raise ValueError("Level 4 dynamic attribution edge endpoint is excluded")
+                clauses.append(
+                    f"(edge.{endpoint[:-2]} = {pc} ∧ ownedBy generatedProgram "
+                    f"{function_instance_lean_name(owner)} edge.{endpoint[:-2]} = true)"
+                )
+            return " ∨ ".join(clauses)
         def carrier_route(route: dict) -> str:
             classification = {
                 "intermediate": ".intermediate",
@@ -1788,8 +1808,19 @@ def emit_level4_attribution_lean(database: dict) -> str:
                    cycle_back_edge)
             )
         call_frames = f"(#[{', '.join(call_frame(call) for call in row.get('calls', []))}] : Array AttributionCallFrame)"
+        carrier_route_names_for_boundary = [
+            f"{boundary_name}_carrierRoute_{route['handoff']['sourcePc']}_{route['handoff']['targetPc']}"
+            for route in row["carrierRoutes"]
+        ]
+        carrier_route_names.extend(carrier_route_names_for_boundary)
         carrier_routes = "(#[%s] : Array AttributionOutcomeCarrierRoute)" % ", ".join(
-            carrier_route(route) for route in row["carrierRoutes"])
+            carrier_route_names_for_boundary)
+        for carrier_route_name, route in zip(carrier_route_names_for_boundary, row["carrierRoutes"]):
+            L.extend([
+                f"noncomputable def {carrier_route_name} : AttributionOutcomeCarrierRoute :=",
+                f"  {carrier_route(route)}",
+                "",
+            ])
         L.extend([
             f"noncomputable def {boundary_name} : AttributionFragmentBoundary :=",
             f"  {{ child := {child}Id, ownedExecutionPcs := #[{pcs(row['ownedExecutionPcs'])}],",
@@ -1822,15 +1853,16 @@ def emit_level4_attribution_lean(database: dict) -> str:
             f"theorem {boundary_name}_cfg_and_ownership :",
             f"    (∀ edge ∈ {edge_array(row['fragmentHandoffs'])},",
             f"      programContainsEdge generatedProgram edge = true ∧",
-            f"      ownedBy generatedProgram {child} edge.source = true ∧",
+            f"      ({source_owner_disjunction(row['fragmentHandoffs'], 'sourcePc')}) ∧",
             f"      ownedBy generatedProgram {parent_name} edge.target = true) ∧",
             f"    (∀ edge ∈ {edge_array(row['parentReentryEdges'])},",
             f"      programContainsEdge generatedProgram edge = true ∧",
             f"      ownedBy generatedProgram {parent_name} edge.source = true ∧",
-            f"      ownedBy generatedProgram {child} edge.target = true) := by native_decide",
+            f"      ({source_owner_disjunction(row['parentReentryEdges'], 'targetPc')})) := by native_decide",
             "",
         ])
-        for route_index, route in enumerate(row["carrierRoutes"]):
+        for route_index, (carrier_route_name, route) in enumerate(
+                zip(carrier_route_names_for_boundary, row["carrierRoutes"])):
             if route["classification"] != "sourceReviewedOutcomePath":
                 continue
             for path_index, path in enumerate(route["carrierPaths"]):
@@ -1845,13 +1877,12 @@ def emit_level4_attribution_lean(database: dict) -> str:
                 ]
                 L.extend([
                     f"theorem {path_name}_exact :",
-                    f"    {boundary_name}_carrierRoutes[{route_index}]!.carrierPaths[{path_index}]? =",
+                    f"    {carrier_route_name}.carrierPaths[{path_index}]? =",
                     f"      some {{ carrierPc := {path['carrierPc']}, pcs := {path_pcs} }} := rfl",
                     f"theorem {path_name}_cfg_and_ownership :",
                     f"    inRegions {parent_name} {path['carrierPc']} = true ∧",
                     f"    ownedBy generatedProgram {parent_name} {path['carrierPc']} = true ∧",
                     f"    (∀ pc ∈ {path_pcs},",
-                    f"      ownedBySelectedSubtree generatedProgram {child}Id pc = true ∨",
                     f"      ownedBy generatedProgram {parent_name} pc = true) ∧",
                     f"    (∀ edge ∈ {edge_array(path_edges)},",
                     f"      programContainsEdge generatedProgram edge = true) := by native_decide",
@@ -1934,9 +1965,9 @@ def emit_level4_attribution_lean(database: dict) -> str:
         f"def level4AttributionCallFrameCounts : Array Nat := #[{pcs(expected_call_frames)}]",
         f"def level4AttributionRecursiveCallFrameCount : Nat := {recursive_call_frame_count}",
         "theorem level4AttributionFragmentHandoff_counts :",
-        "    level4AttributionFragmentHandoffCounts = #[7, 8, 4, 5] := rfl",
+        f"    level4AttributionFragmentHandoffCounts = #[{pcs(expected_handoffs)}] := rfl",
         "theorem level4AttributionFragmentReentry_counts :",
-        "    level4AttributionFragmentReentryCounts = #[3, 3, 1, 1] := rfl",
+        f"    level4AttributionFragmentReentryCounts = #[{pcs(expected_reentries)}] := rfl",
         "theorem level4AttributionCallFrame_counts :",
         f"    level4AttributionCallFrameCounts = #[{pcs(expected_call_frames)}] := rfl",
         "theorem level4AttributionRecursiveCallFrameCount_exact :",
@@ -1946,9 +1977,8 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "/-- All 39 dynamic child-to-parent handoffs, keyed by source-derived child identity and",
         "exact decoded edge. Consumers must inspect `classification` before using carrier fields. -/",
         "noncomputable def level4OutcomeCarrierRoutes : Array AttributionOutcomeCarrierRoute :=",
-        "  #[" + ", ".join(f"{name}[{index}]!" for name, count in carrier_route_names
-                            for index in range(count)) + "]",
-        "theorem level4OutcomeCarrierRoutes_count : level4OutcomeCarrierRoutes.size = 39 := by native_decide",
+        "  #[" + ", ".join(carrier_route_names) + "]",
+        "theorem level4OutcomeCarrierRoutes_count : level4OutcomeCarrierRoutes.size = 39 := rfl",
         "",
         "end BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution",
         "",
