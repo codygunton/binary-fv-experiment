@@ -66,6 +66,7 @@ The vendored D3 files are MIT-licensed and keep the review UI offline. Generated
 eighteen Level 4 rows. Every row has `id`, `kind`, `qualified`, `entryPc`, nonempty
 `instructionPcs`, `exits`, and `parent`; `FunctionInstance` rows also carry their source identity,
 while cleanup/stdlib rows intentionally have no such identity and require inline-region contracts.
-Known direct call sites and stores appear only when the production instruction inventory establishes
-them. `instructionPcs` uses the full generated execution regions, so the four zero-self `readOffset`
-rows retain the PCs their nested readers own.
+Known statically resolved calls use concrete `sourcePc` and `targetPc`. Dynamic stores are omitted:
+the machine inventory establishes instruction width, not the runtime address and value an evidence
+clause requires. `instructionPcs` uses the full generated execution regions, so the four zero-self
+`readOffset` rows retain the PCs their nested readers own.

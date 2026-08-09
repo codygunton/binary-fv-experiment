@@ -500,12 +500,14 @@ def level4_boundary_manifest(database: dict) -> dict:
     boundaries = level4_displayed_boundaries(call_graph, decode_raw["id"])
     instruction_rows = {row["address"]: row for row in database["instructions"]}
     instruction_addresses = set(call_graph["instructionAddresses"])
+    owners_by_id = {owner["id"]: owner for owner in call_graph["owners"]}
     calls_by_owner: dict[str, list[dict]] = defaultdict(list)
     for call in call_graph["calls"]:
-        if call["source"] is not None:
+        if call["kind"] in {"direct", "tail", "allocatorVtable"} and isinstance(call["source"], int):
+            callee = owners_by_id[call["callee"]]
             calls_by_owner[call["caller"]].append({
-                "id": call["callee"], "kind": call["kind"], "source": call["source"],
-                "evidence": call["evidence"],
+                "id": call["callee"], "kind": call["kind"], "sourcePc": call["source"],
+                "targetPc": callee["entryPc"],
             })
 
     rows = []
@@ -519,12 +521,6 @@ def level4_boundary_manifest(database: dict) -> dict:
             for address in instruction_pcs
             for successor in instruction_rows.get(address, {"successors": []})["successors"]
             if successor not in instruction_set
-        ]
-        stores = [
-            {"pc": address, "bytes": memory["bytes"]}
-            for address in instruction_pcs
-            for memory in instruction_rows.get(address, {"memory": []})["memory"]
-            if memory["kind"] == "write"
         ]
         row = {
             "id": owner["id"],
@@ -544,8 +540,6 @@ def level4_boundary_manifest(database: dict) -> dict:
             }
         if calls_by_owner[owner["id"]]:
             row["calls"] = calls_by_owner[owner["id"]]
-        if stores:
-            row["stores"] = stores
         rows.append(row)
     manifest = {
         "schemaVersion": 1,
@@ -595,9 +589,15 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                 raise ValueError("Level 4 FunctionInstance boundary lacks its generated identity")
         elif identity is not None:
             raise ValueError("Level 4 excluded boundary falsely claims a FunctionInstance identity")
-        for optional_field in ("calls", "stores"):
-            if optional_field in row and not isinstance(row[optional_field], list):
-                raise ValueError(f"Level 4 boundary manifest {optional_field} field is not a list")
+        if "stores" in row:
+            raise ValueError("Level 4 boundary manifest cannot claim dynamic stores statically")
+        if "calls" in row:
+            if not isinstance(row["calls"], list):
+                raise ValueError("Level 4 boundary manifest calls field is not a list")
+            for call in row["calls"]:
+                if (not isinstance(call, dict) or not isinstance(call.get("sourcePc"), int)
+                        or not isinstance(call.get("targetPc"), int)):
+                    raise ValueError("Level 4 boundary manifest call lacks concrete PCs")
     direct_offsets = [row for row in boundaries if row["qualified"] == "ssz_raw.readOffset"]
     if len(direct_offsets) != 4 or any(not row["instructionPcs"] for row in direct_offsets):
         raise ValueError("Level 4 direct readOffset boundaries are incomplete")

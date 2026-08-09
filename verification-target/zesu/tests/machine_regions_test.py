@@ -77,7 +77,10 @@ class MachineRegionTests(unittest.TestCase):
             "instructions": instructions,
             "callGraph": {
                 **call_graph,
-                "calls": [],
+                "calls": [{
+                    "caller": "boundary:0", "callee": "boundary:1", "kind": "direct",
+                    "source": 1000, "evidence": 1004,
+                }],
                 "instructionAddresses": [row["address"] for row in instructions],
             },
         }
@@ -107,6 +110,28 @@ class MachineRegionTests(unittest.TestCase):
         self.assertTrue(all("functionInstanceIdentity" not in row
                             for row in manifest["boundaries"]
                             if row["kind"].startswith("reachable")))
+        direct_call = manifest["boundaries"][0]["calls"]
+        self.assertEqual(direct_call, [{
+            "id": "boundary:1", "kind": "direct", "sourcePc": 1000, "targetPc": 1004,
+        }])
+        self.assertTrue(all("stores" not in row for row in manifest["boundaries"]))
+
+    def test_level4_boundary_manifest_has_consumer_compatible_shape(self) -> None:
+        manifest = machine_regions.level4_boundary_manifest(self.level4_database())
+        for row in manifest["boundaries"]:
+            identity = row.get("functionInstanceIdentity")
+            if identity is not None:
+                # The evidence loader currently stores an identity string; its adapter can use this
+                # stable structured source identity without treating excluded rows as functions.
+                self.assertIsInstance(identity, dict)
+                self.assertIsInstance(identity["sourceFile"], str)
+                self.assertIsInstance(identity["qualified"], str)
+            for call in row.get("calls", []):
+                self.assertIsInstance(call["sourcePc"], int)
+                self.assertIsInstance(call["targetPc"], int)
+                self.assertNotIn("source", call)
+                self.assertNotIn("target", call)
+            self.assertNotIn("stores", row)
 
     def test_level4_boundary_manifest_corruption_is_rejected(self) -> None:
         manifest = machine_regions.level4_boundary_manifest(self.level4_database())
@@ -116,6 +141,14 @@ class MachineRegionTests(unittest.TestCase):
         manifest = machine_regions.level4_boundary_manifest(self.level4_database())
         manifest["boundaries"][0]["exits"] = None
         with self.assertRaisesRegex(ValueError, "invalid required field"):
+            machine_regions.validate_level4_boundary_manifest(manifest)
+        manifest = machine_regions.level4_boundary_manifest(self.level4_database())
+        manifest["boundaries"][0]["calls"][0]["sourcePc"] = None
+        with self.assertRaisesRegex(ValueError, "call lacks concrete PCs"):
+            machine_regions.validate_level4_boundary_manifest(manifest)
+        manifest = machine_regions.level4_boundary_manifest(self.level4_database())
+        manifest["boundaries"][0]["stores"] = [{"pc": 1000, "bytes": 8}]
+        with self.assertRaisesRegex(ValueError, "cannot claim dynamic stores"):
             machine_regions.validate_level4_boundary_manifest(manifest)
 
     def test_llvm_disassembly_parser(self) -> None:
