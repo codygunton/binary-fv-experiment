@@ -1089,4 +1089,84 @@ theorem level4_rawNewPayloadRequestDeinit_allocator_loads_handoff
     (afterRegisterWrite_retired_present afterA0 (BitVec.ofNat 64 0x13208) retired8 x11
       (BitVec.ofNat 64 second))
 
+/-- The first loaded allocator word is stored in the child call frame at `sp+8`. -/
+structure Level4RawNewPayloadRequestDeinitFirstArgumentStoreHandoff
+    {margs : DecoderMachineArgs} {origin before : State}
+    (frame : Level4DecodeRawParentFrame margs origin before)
+    (pre : Level4RawNewPayloadRequestDeinitPre frame) (fromStep : Nat) (after : State) : Prop where
+  seg : ∃ first second,
+    Seg Level4RawNewPayloadRequestDeinitPcs Level4RawNewPayloadRequestDeinitExit
+      Level4RawNewPayloadRequestDeinitChildSummary level4RawNewPayloadRequestDeinitWrites
+      (level4RawNewPayloadRequestDeinitCallMemory (frame.stack - 0x690))
+      [⟨x11, BitVec.ofNat 64 second⟩, ⟨x10, BitVec.ofNat 64 first⟩,
+        ⟨x9, Classical.choose pre.a0⟩, ⟨x8, Classical.choose pre.a1⟩,
+        ⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩,
+        ⟨x1, BitVec.ofNat 64 0x129ec⟩]
+      fromStep 9 before after (BitVec.ofNat 64 0x13210)
+  code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
+  machine : DecoderMachinePre Level4RawNewPayloadRequestDeinitPcs margs after
+
+/-- Append the exact `sd a0,8(sp)` to the allocator-load handoff. -/
+theorem level4_rawNewPayloadRequestDeinit_first_argument_store_handoff
+    {margs : DecoderMachineArgs} {origin current : State}
+    (frame : Level4DecodeRawParentFrame margs origin current)
+    (pre : Level4RawNewPayloadRequestDeinitPre frame) (fromStep : Nat) :
+    ∃ after, Level4RawNewPayloadRequestDeinitFirstArgumentStoreHandoff frame pre fromStep after := by
+  obtain ⟨beforeStore, handoff⟩ :=
+    level4_rawNewPayloadRequestDeinit_allocator_loads_handoff frame pre fromStep
+  obtain ⟨first, second, narrow⟩ := handoff.seg
+  let seg0 := level4_rawNewPayloadRequestDeinit_widen_seg_memory
+    (wider := level4RawNewPayloadRequestDeinitCallMemory (frame.stack - 0x690))
+    (fun address member => Or.inl member) narrow
+  rcases pre.preservation with ⟨entry, stackEq, -, -, -, -, -, -, -, -, -, -, -, -⟩
+  have childBase : frame.stack - 0x690 - 0x50 = entry.postStack - 0x50 := by
+    rw [← stackEq, entry.postStackEq]
+    omega
+  have fits : frame.stack - 0x690 - 0x50 + 0x10 ≤ 2 ^ 64 := by
+    rw [childBase]
+    exact level4_rawNewPayloadRequestDeinit_slot_fits entry (offset := 8) (by omega)
+  have writable : ∀ index, index < 8 → canonicalContractParams.env.stack
+      (frame.stack - 0x690 - 0x50 + 8 + index) := by
+    intro index bound
+    rw [childBase]
+    exact level4_rawNewPayloadRequestDeinit_slot_writable entry (offset := 8) (by omega) bound
+  have aligned : is_aligned_vaddr (virtaddr.Virtaddr
+      (BitVec.ofNat 64 (frame.stack - 0x690 - 0x50 + 8))) 8 = true := by
+    rw [childBase]
+    exact level4_rawNewPayloadRequestDeinit_slot_aligned entry (offset := 8) (by omega) (by decide)
+  obtain ⟨retired9, after, hStore, seg1⟩ := seg0.stepStoreWitness
+    (frame.stack - 0x690 - 0x50 + 8) (BitVec.ofNat 64 first) (BitVec.ofNat 64 0x13210)
+    (by
+      change ∃ range : BinaryFv.Binary.AddressRange,
+        range ∈ excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.regions ∧
+          range.start ≤ 78348 ∧ 78348 < range.stop
+      exact ⟨{ start := 78316, size := 180 }, by native_decide, by decide, by decide⟩)
+    (by simp)
+    (level4_rawNewPayloadRequestDeinit_store_a0_step handoff.machine (Agree.refl beforeStore)
+      seg0.retired handoff.code (fromStep + 8) (frame.stack - 0x690 - 0x50) seg0.atPc
+      (seg0.reg x2 _ (by simp)) (seg0.reg x10 _ (by simp)) fits writable aligned)
+    (by decide)
+    (by
+      intro address lower upper
+      exact Or.inr ⟨by omega, by omega⟩)
+    (fun r h => Or.inl h) (by exact of_decide_eq_true rfl)
+  have codeAfter : Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
+    rw [hStore]
+    have written := fileBytesLoadedFaithfully_afterWriteBytes Artifacts.programImage
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement beforeStore)
+        (BitVec.ofNat 64 0x1320c))
+      (frame.stack - 0x690 - 0x50 + 8) (BitVec.ofNat 64 first)
+      (fun index => canonicalStack_not_fileByte (writable index index.isLt))
+      (by simpa [coreControlFlowNextState, tryStepControlFlowAfterIncrement] using handoff.code)
+    simpa [afterMemoryWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using written
+  refine ⟨after, ⟨first, second, seg1⟩, codeAfter, ?_⟩
+  have stepWrites : WritesOnlyRegs level4RawNewPayloadRequestDeinitWrites beforeStore after := by
+    rw [hStore]
+    exact (storeRetirement_writes beforeStore (BitVec.ofNat 64 0x1320c)
+      (BitVec.ofNat 64 0x13210) retired9 (frame.stack - 0x690 - 0x50 + 8)
+      (BitVec.ofNat 64 first)).mono (fun r h => Or.inl h)
+  exact handoff.machine.mono
+    (stepWrites.agree decoderPreserved_level4RawNewPayloadRequestDeinitWrites_disjoint)
+    seg1.retired
+
 end BinaryFv.Zesu.MachineExecution
