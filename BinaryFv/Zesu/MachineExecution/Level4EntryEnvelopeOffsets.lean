@@ -1631,4 +1631,68 @@ theorem level4_read_offset199200199201200_then201_second_fragment {margs : Decod
     carry200, reader.partials, reader.inputPointer, reader.preserved⟩
   simpa only [Nat.add_assoc] using Trace.append prefixTrace (FunctionTrace.toTrace reader.trace.trace)
 
+private theorem decoderPreserved_readOffset200_third_writes_disjoint :
+    RegSet.Disjoint decoderPreserved (readOffsetFragmentWrites 0x10590) := by
+  intro r preserved written
+  rcases preserved with ⟨notLink, platform⟩
+  rcases written with bookkeeping | written
+  · exact platformPreserved_disjoint r platform bookkeeping
+  simp at written
+  rcases written with rfl | rfl <;> simp [platformPreserved] at platform
+
+/-- fi7's final nonterminal fragment combines its two shifted lane pairs at `0x10590`. -/
+structure Level4ReadOffset200ThirdHandoff {margs : DecoderMachineArgs} {origin before : State}
+    (after : State) (fromStep used : Nat) (frame : Level4DecodeRawParentFrame margs origin before) : Prop where
+  bound : used ≤ 65
+  trace : EnteredFunctionTrace
+    (fun pc => 0x10590 ≤ pc.toNat ∧ pc.toNat ≤ 0x10594 ∧ pc.toNat % 4 = 0)
+    (fun pc => pc = BitVec.ofNat 64 0x10598) (BitVec.ofNat 64 0x10590) fromStep used before after
+  partials : readOffsetFragmentOutput 0x10590
+    { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 } after
+  inputPointer : after.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)
+  memory : after.mem = before.mem
+  writes : WritesOnlyRegs (readOffsetFragmentWrites 0x10590) before after
+  preserved : frame.PreservedTo after
+
+theorem level4_read_offset200_third_fragment {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state) (reader : ReadOffset200Contract)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10590))
+    (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase))
+    (fragmentInput : readOffsetFragmentInput 0x10590
+      { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 } state) (fromStep : Nat) :
+    ∃ used after, Level4ReadOffset200ThirdHandoff after fromStep used frame := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
+    decoderMachine, retired⟩
+  let args : ReadOffsetInlineArgs :=
+    { inputBase := margs.inputBase, bytes := margs.bytes, offset := 6 }
+  have childMachine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram
+        functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_200_23)
+      (readOffsetMachineArgs args) state := by
+    dsimp [args, readOffsetMachineArgs]
+    exact decoderMachine.restrict level4_read_offset200_execution_subset_decode_raw
+  obtain ⟨used, after, bound, trace, code, memoryBytes, inputPointerAfter, offset, partials, memory,
+    writes, childMachineAfter, afterRetired⟩ :=
+    reader.covers (0x10590, 0x10594, 0x10598) (by native_decide) args fromStep state
+      ⟨atPc, fileCode, inputMemory, inputPointer, by dsimp [args]; native_decide,
+        by simpa [args] using fragmentInput, childMachine⟩
+  refine ⟨used, after, ⟨bound, trace, ?_, ?_, memory, writes, ?_⟩⟩
+  · simpa [args] using partials
+  · exact (writes.get x20 (by simp [readOffsetFragmentWrites])).trans inputPointer
+  · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
+      rawFrameWritable, rawFrameInputSeparated, postStackAligned, ?_, ?_, afterRetired⟩
+    · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
+      simp only [SavedWordBytes] at saved ⊢
+      rw [memory]
+      exact saved
+    · exact (writes.get x2 (by simp [readOffsetFragmentWrites])).trans sp
+    · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory
+      intro index indexBound
+      rw [memory]
+    · rw [memory]
+      exact fileCode
+    · exact decoderMachine.mono
+        (writes.agree decoderPreserved_readOffset200_third_writes_disjoint) afterRetired
+
 end BinaryFv.Zesu.MachineExecution
