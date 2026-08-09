@@ -329,6 +329,31 @@ class MachineRegionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stack descriptor"):
             machine_regions.validate_outcome_carrier_instructions([forged], "fi:6", instructions)
 
+    def test_outcome_carrier_successor_entry_rejects_nonentry_mutation(self) -> None:
+        route = {
+            "classification": "sourceReviewedOutcomePath",
+            "handoff": {"sourcePc": 12, "targetPc": 16},
+            "carrierPcs": [20],
+            "carrierPaths": [{"carrierPc": 20, "pcs": [16, 20], "ownerIds": ["fi:6", "fi:102"]}],
+            "registers": [], "stackDescriptors": [], "statusTag": {"state": "not-applicable"},
+            "heapArrayRep": {"state": "not-applicable"},
+        }
+        instructions = {
+            16: {"address": 16, "mnemonic": "addi", "operands": "a0, a0, 0",
+                 "owner": "fi:6", "reads": ["a0"], "writes": ["a0"], "liveIn": [], "liveOut": [],
+                 "successors": [20]},
+            20: {"address": 20, "mnemonic": "addi", "operands": "a0, a0, 0",
+                 "owner": "fi:102", "reads": ["a0"], "writes": ["a0"], "liveIn": [], "liveOut": [],
+                 "successors": []},
+        }
+        owners = {"fi:102": {"id": "fi:102", "parent": "fi:6", "entryPc": 20}}
+        machine_regions.validate_outcome_carrier_instructions(
+            [route], "fi:6", instructions, {"fi:6"}, owners)
+        owners["fi:102"]["entryPc"] = 24
+        with self.assertRaisesRegex(ValueError, "carrier PC is absent"):
+            machine_regions.validate_outcome_carrier_instructions(
+                [route], "fi:6", instructions, {"fi:6"}, owners)
+
     def test_dynamic_attribution_validator_rejects_deletion_and_forgery(self) -> None:
         parent = {"id": "fi:6", "regions": [{"start": 77412, "size": 20}], "parent": None}
         decoder = {"id": "fi:102", "qualified": "ssz_raw.decodeChainConfig", "entryPc": 76108,

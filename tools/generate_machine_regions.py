@@ -895,22 +895,29 @@ LEVEL4_OUTCOME_CARRIER_REVIEWS = {
     ("ssz_raw.decodeExecutionWitness", "ssz_raw.decodeRaw", 209, 48): {
         "sourceLine": 315,
         "sourceResult": "RawExecutionWitness",
-        "carrierPcs": [0x12738],
+        "carrierPcs": [0x1294c],
         "registers": [
-            {"pc": 0x12738, "register": "sp", "role": "parent-frame-base"},
-            {"pc": 0x12738, "register": "a0", "role": "result-record-address"},
-            {"pc": 0x12738, "register": "s1", "role": "status-tag-carrier"},
+            {"pc": pc, "register": register, "role": role}
+            for pc, register, role in ((0x12924, "s6", "state-base"), (0x12928, "s5", "state-length"),
+                                       (0x1292c, "s8", "codes-base"), (0x12930, "s7", "codes-length"),
+                                       (0x12944, "a0", "headers-base"), (0x12948, "a1", "headers-length"))
         ],
         "stackDescriptors": [
-            {"pc": 0x12738, "instructionKind": "addi", "register": "a0", "baseRegister": "sp",
-             "offset": 0x2d0, "role": "result-record-address"},
-            {"pc": 0x1273c, "instructionKind": "load", "register": "a1", "baseRegister": "sp",
-             "offset": 0x268, "role": "saved-result-pointer"},
+            {"pc": pc, "instructionKind": "store", "register": register, "baseRegister": "sp",
+             "offset": offset, "role": role}
+            for pc, register, offset, role in ((0x12924, "s6", 0x580, "state-base"),
+                                               (0x12928, "s5", 0x588, "state-length"),
+                                               (0x1292c, "s8", 0x590, "codes-base"),
+                                               (0x12930, "s7", 0x598, "codes-length"),
+                                               (0x12944, "a0", 0x5a0, "headers-base"),
+                                               (0x12948, "a1", 0x5a8, "headers-length"))
         ],
-        "statusTag": {"state": "unmeasured", "register": "s1",
-                      "reason": "ELF liveness does not establish a tag value"},
+        "statusTag": {"state": "not-applicable", "reason": "successful RawExecutionWitness carrier"},
         "allocation": {"state": "source-reviewed", "reason": "three decoded lists allocate"},
-        "heapArrayRep": {"state": "unmeasured", "reason": "three list representations remain obligations"},
+        "heapArrayRep": {"state": "obligation", "reason": "three slice representations require machine proof"},
+        # `try decodeExecutionWitness` failures join decodeRaw's status cleanup at 0x12738.
+        # This is not a successful child carrier (and therefore carries no result metadata).
+        "rejectionHandoffs": [(0x12850, 0x12738), (0x12884, 0x12738), (0x1302c, 0x12738)],
     },
     ("ssz_raw.decodeChainConfig", "ssz_raw.decodeRaw", 211, 48): {
         "sourceLine": 349,
@@ -1022,7 +1029,8 @@ def reaches_any(start: int, goals: set[int], instruction_rows: dict[int, dict]) 
 
 
 def continuation_path(
-    start: int, goal: int, owner_ids: set[str], instruction_rows: dict[int, dict]
+    start: int, goal: int, owner_ids: set[str], instruction_rows: dict[int, dict],
+    allow_goal_outside: bool = False,
 ) -> list[int] | None:
     """One concrete production-CFG path confined to the decoded `decodeRaw` ownership subtree."""
     if start not in instruction_rows or instruction_rows[start]["owner"] not in owner_ids:
@@ -1039,7 +1047,8 @@ def continuation_path(
             return list(reversed(result))
         for successor in instruction_rows[pc]["successors"]:
             if (successor in instruction_rows and successor not in previous
-                    and instruction_rows[successor]["owner"] in owner_ids):
+                    and (instruction_rows[successor]["owner"] in owner_ids
+                         or allow_goal_outside and successor == goal)):
                 previous[successor] = pc
                 todo.append(successor)
     return None
@@ -1077,22 +1086,25 @@ def outcome_carrier_routes(
     reentries = parent_fragment_reentries(owner, decode_raw, owners_by_id, instruction_rows)
     routes = []
     for handoff in handoffs:
+        rejection = tuple((handoff["sourcePc"], handoff["targetPc"])) in set(review.get("rejectionHandoffs", []))
         resumable = reaches_any(handoff["targetPc"], reentry_targets, instruction_rows)
         paths = [
-            continuation_path(handoff["targetPc"], carrier_pc, continuation_owners, instruction_rows)
+            continuation_path(handoff["targetPc"], carrier_pc, continuation_owners, instruction_rows,
+                              allow_goal_outside=True)
             for carrier_pc in review["carrierPcs"]
         ]
-        outcome = not resumable and all(path is not None for path in paths)
+        outcome = not rejection and not resumable and all(path is not None for path in paths)
         routes.append({
             "sourceIdentity": function_identity(owner),
             "handoff": handoff,
             "classification": (
-                "sourceReviewedOutcomePath" if outcome else "intermediate" if resumable else "unclassified"
+                "rejectionPhaseHandoff" if rejection else "sourceReviewedOutcomePath" if outcome
+                else "intermediate" if resumable else "unclassified"
             ),
             "intermediateReason": "reenters-child" if resumable else None,
             "unclassifiedReason": (
                 "handoff-target-does-not-reach-reviewed-carrier-in-parent-cfg"
-                if not outcome and not resumable else None
+                if not outcome and not resumable and not rejection else None
             ),
             "sourceReview": {
                 "sourceFile": owner["sourceFile"], "sourceLine": review["sourceLine"],
@@ -1109,11 +1121,8 @@ def outcome_carrier_routes(
                  "ownerIds": [instruction_rows[pc]["owner"] for pc in path]}
                 for carrier_pc, path in zip(review["carrierPcs"], paths) if path is not None
             ] if outcome else [],
-            # The generated Program currently exposes ownership and CFG, not decoded mnemonic /
-            # operand objects.  Do not export these Python-checked instruction annotations as
-            # kernel-checked route facts until that interface exists.
-            "registers": [],
-            "stackDescriptors": [],
+            "registers": review["registers"] if outcome else [],
+            "stackDescriptors": review["stackDescriptors"] if outcome else [],
             "statusTag": review["statusTag"] if outcome else {"state": "not-applicable"},
             "allocation": review["allocation"] if outcome else {"state": "not-applicable"},
             "heapArrayRep": review["heapArrayRep"] if outcome else {"state": "not-applicable"},
@@ -1124,16 +1133,25 @@ def outcome_carrier_routes(
 def validate_outcome_carrier_instructions(
     routes: list[dict], parent_id: str, instruction_rows: dict[int, dict],
     continuation_owners: set[str] | None = None,
+    owners_by_id: dict[str, dict] | None = None,
 ) -> None:
     """Reject carrier metadata that does not match the concrete parent-continuation instructions."""
     for route in routes:
         if route["classification"] != "sourceReviewedOutcomePath":
             continue
         for pc in route["carrierPcs"]:
-            if pc not in instruction_rows or instruction_rows[pc]["owner"] != parent_id:
+            carrier_owner = instruction_rows.get(pc, {}).get("owner")
+            owner = (owners_by_id or {}).get(carrier_owner)
+            # A reviewed successful child may hand the parent directly into its next selected
+            # decoder.  The endpoint is then that child's exact entry PC; all preceding path PCs
+            # remain confined to the parent continuation region.
+            successor_entry = (owner is not None and owner.get("parent") == parent_id
+                               and owner.get("entryPc") == pc)
+            if carrier_owner != parent_id and not successor_entry:
                 raise ValueError("Level 4 outcome carrier PC is absent from its parent production CFG")
         expected_paths = {
-            pc: continuation_path(route["handoff"]["targetPc"], pc, continuation_owners or {parent_id}, instruction_rows)
+            pc: continuation_path(route["handoff"]["targetPc"], pc, continuation_owners or {parent_id}, instruction_rows,
+                                  allow_goal_outside=True)
             for pc in route["carrierPcs"]
         }
         if (set(expected_paths) != {path.get("carrierPc") for path in route["carrierPaths"]}
@@ -1179,7 +1197,8 @@ def validate_outcome_carrier_instructions(
                     or instruction["operands"] != f"zero, {operand}"):
                 raise ValueError("Level 4 carrier status tag does not match its production instruction")
         heap = route["heapArrayRep"]
-        if heap["state"] == "obligation" and heap.get("elementBytes") != 65:
+        if (heap["state"] == "obligation" and heap.get("elementBytes") is not None
+                and heap["elementBytes"] != 65):
             raise ValueError("Level 4 public-key HeapArrayRep width changed")
 
 
@@ -1328,7 +1347,7 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
             if row["carrierRoutes"] != expected_carriers:
                 raise ValueError("Level 4 outcome carrier routes are incomplete or forged")
             validate_outcome_carrier_instructions(
-                row["carrierRoutes"], decode_raw["id"], instructions, decode_raw_continuation_owners
+                row["carrierRoutes"], decode_raw["id"], instructions, decode_raw_continuation_owners, owners_by_id
             )
         if row.get("calls", []) != expected_calls:
             raise ValueError("Level 4 dynamic call target extents are incomplete or forged")
@@ -1513,7 +1532,8 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                         or not isinstance(review.get("sourceCall"), str)):
                     raise ValueError("Level 4 carrier route lacks its source identity and review")
                 classification = route.get("classification")
-                if classification not in {"intermediate", "unclassified", "sourceReviewedOutcomePath"}:
+                if classification not in {"intermediate", "unclassified", "rejectionPhaseHandoff",
+                                          "sourceReviewedOutcomePath"}:
                     raise ValueError("Level 4 carrier route has an invalid classification")
                 predecessors = route.get("admissiblePredecessors")
                 if (not isinstance(predecessors, list)
@@ -1538,7 +1558,7 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                             or not isinstance(descriptor.get("baseRegister"), str)
                             or not isinstance(descriptor.get("offset"), int)):
                         raise ValueError("Level 4 carrier stack descriptor is malformed")
-                if classification in {"intermediate", "unclassified"} and any(route[field] for field in (
+                if classification in {"intermediate", "unclassified", "rejectionPhaseHandoff"} and any(route[field] for field in (
                         "carrierPcs", "carrierPaths", "registers", "stackDescriptors")):
                     raise ValueError("Level 4 non-outcome route falsely claims an outcome carrier")
                 if classification == "intermediate" and route.get("intermediateReason") != "reenters-child":
@@ -1546,6 +1566,9 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                 if classification == "unclassified" and route.get("unclassifiedReason") != (
                         "handoff-target-does-not-reach-reviewed-carrier-in-parent-cfg"):
                     raise ValueError("Level 4 unclassified route lacks its CFG reason")
+                if classification == "rejectionPhaseHandoff" and (
+                        route.get("intermediateReason") is not None or route.get("unclassifiedReason") is not None):
+                    raise ValueError("Level 4 rejection handoff falsely claims another route class")
                 if classification == "sourceReviewedOutcomePath":
                     if route.get("intermediateReason") is not None or route.get("unclassifiedReason") is not None:
                         raise ValueError("Level 4 outcome route falsely claims a non-outcome reason")
@@ -1705,6 +1728,7 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "inductive OutcomeCarrierRouteClass where",
         "  | intermediate",
         "  | unclassified",
+        "  | rejectionPhaseHandoff",
         "  | sourceReviewedOutcomePath",
         "",
         "structure CarrierRegister where",
@@ -1800,6 +1824,7 @@ def emit_level4_attribution_lean(database: dict) -> str:
             classification = {
                 "intermediate": ".intermediate",
                 "unclassified": ".unclassified",
+                "rejectionPhaseHandoff": ".rejectionPhaseHandoff",
                 "sourceReviewedOutcomePath": ".sourceReviewedOutcomePath",
             }[route["classification"]]
             handoff = route["handoff"]
