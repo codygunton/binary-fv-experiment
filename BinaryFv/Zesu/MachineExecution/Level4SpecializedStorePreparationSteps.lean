@@ -174,4 +174,183 @@ private theorem level4_specialized_store_alignment {margs : DecoderMachineArgs} 
   rw [Nat.mod_eq_of_lt targetFits]
   simp [Int.tmod, targetAligned]
 
+/-- The corridor's two register writes and ordinary retirement bookkeeping. -/
+def level4SpecializedStorePreparationWrites : RegSet := fun r =>
+  stepBookkeeping r ∨ r = x22 ∨ r = x6
+
+/-- The only bytes this three-word corridor may modify. -/
+def level4SpecializedStorePreparationMemory (postStack : Nat) : Region := fun address =>
+  postStack + 0x2a0 ≤ address ∧ address < postStack + 0x2a8
+
+private theorem decoderPreserved_level4SpecializedStorePreparationWrites_disjoint :
+    RegSet.Disjoint decoderPreserved level4SpecializedStorePreparationWrites := by
+  intro r preserved written
+  rcases preserved with ⟨notLink, platform⟩
+  rcases written with bookkeeping | rfl | rfl
+  · exact platformPreserved_disjoint r platform bookkeeping
+  all_goals simp [platformPreserved] at platform
+
+/-- Parent facts at the first word of the raw-frame store corridor.  The protected frame comes
+from the concrete raw prologue; the two live operands are machine bindings at this PC. -/
+structure Level4SpecializedStorePreparationPre (margs : DecoderMachineArgs) (origin state : State)
+    where
+  frame : Level4DecodeRawParentFrame margs origin state
+  atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10638)
+  s4 : BitVec 64
+  s4Value : state.regs.get? x20 = some s4
+  s7 : BitVec 64
+  s7Value : state.regs.get? x23 = some s7
+
+/-- Exact parent handoff after `addi; sd; add`.  Its `preserved` field is the concrete raw
+prologue frame needed by every later decoder/rejection/epilogue route. -/
+structure Level4SpecializedStorePreparationHandoff (postStack fromStep : Nat) (before after : State)
+    (pre : Level4SpecializedStorePreparationPre margs origin before) : Prop where
+  trace : Trace fromStep 3 before after
+  confined : ConfinedPrefix Level4SpecializedStorePreparationPcs (fun _ => False)
+    (fun _ _ _ _ _ => False) fromStep 3 before after
+  writes : WritesOnlyRegs level4SpecializedStorePreparationWrites before after
+  memory : WritesOnlyWithin (level4SpecializedStorePreparationMemory postStack) before after
+  pc : after.regs.get? PC = some (BitVec.ofNat 64 0x10644)
+  s6 : after.regs.get? x22 = some (iTypeResult .ADDI 0x002#12 pre.s4)
+  sum : after.regs.get? x6 = some (rTypeResult .ADD (iTypeResult .ADDI 0x002#12 pre.s4) pre.s7)
+  preserved : pre.frame.PreservedTo after
+
+private theorem level4_specialized_store_preparation_saved_frame
+    {margs : DecoderMachineArgs} {origin before after : State}
+    (frame : Level4DecodeRawParentFrame margs origin before)
+    (entry : Level4DecodeRawEntryProloguePre margs origin)
+    (stackEq : entry.stack = frame.stack)
+    (saved : Level4DecodeRawPrologueSavedFrame before frame.stack frame.savedRa frame.savedS0
+      frame.savedS1 frame.savedS2 frame.savedS3 frame.savedS4 frame.savedS5 frame.savedS6
+      frame.savedS7 frame.savedS8 frame.savedS9 frame.savedS10 frame.savedS11)
+    (writes : WritesOnlyWithin (level4SpecializedStorePreparationMemory entry.postStack) before after) :
+    Level4DecodeRawPrologueSavedFrame after frame.stack frame.savedRa frame.savedS0 frame.savedS1
+      frame.savedS2 frame.savedS3 frame.savedS4 frame.savedS5 frame.savedS6 frame.savedS7
+      frame.savedS8 frame.savedS9 frame.savedS10 frame.savedS11 := by
+  have outside (offset : Nat) (lower : 0x788 ≤ offset) (upper : offset + 8 ≤ 0x7f0) : ∀ index,
+      index < (BinaryFv.RiscV.Sep.leBytes 8 frame.savedRa).length →
+      ¬ level4SpecializedStorePreparationMemory entry.postStack (frame.stack + offset + index) := by
+    intro index bound inStore
+    rw [BinaryFv.RiscV.Sep.leBytes_length] at bound
+    simp only [level4SpecializedStorePreparationMemory] at inStore
+    rw [← stackEq, entry.postStackEq] at inStore
+    omega
+  rcases saved with ⟨ra, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · exact level4_saved_word_preserved ra writes (outside 0x7e8 (by omega) (by omega))
+  · exact level4_saved_word_preserved s0 writes (outside 0x7e0 (by omega) (by omega))
+  · exact level4_saved_word_preserved s1 writes (outside 0x7d8 (by omega) (by omega))
+  · exact level4_saved_word_preserved s2 writes (outside 0x7d0 (by omega) (by omega))
+  · exact level4_saved_word_preserved s3 writes (outside 0x7c8 (by omega) (by omega))
+  · exact level4_saved_word_preserved s4 writes (outside 0x7c0 (by omega) (by omega))
+  · exact level4_saved_word_preserved s5 writes (outside 0x7b8 (by omega) (by omega))
+  · exact level4_saved_word_preserved s6 writes (outside 0x7b0 (by omega) (by omega))
+  · exact level4_saved_word_preserved s7 writes (outside 0x7a8 (by omega) (by omega))
+  · exact level4_saved_word_preserved s8 writes (outside 0x7a0 (by omega) (by omega))
+  · exact level4_saved_word_preserved s9 writes (outside 0x798 (by omega) (by omega))
+  · exact level4_saved_word_preserved s10 writes (outside 0x790 (by omega) (by omega))
+  · exact level4_saved_word_preserved s11 writes (outside 0x788 (by omega) (by omega))
+
+/-- Sail executes the complete direct raw-frame corridor and retains the concrete parent frame. -/
+theorem level4_specialized_store_preparation
+    (pre : Level4SpecializedStorePreparationPre margs origin state) (fromStep : Nat) :
+    ∃ after postStack, Level4SpecializedStorePreparationHandoff postStack fromStep state after pre := by
+  rcases pre.frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputSeparated,
+    stackWritable, rawWritable, rawSeparated, postStackAligned, code, machine, retired⟩
+  have stackFits : entry.postStack + 0x2a8 ≤ 2 ^ 64 := by
+    have fits := entry.stackFits
+    rw [entry.postStackEq] at fits
+    omega
+  have writable : ∀ index, index < 8 →
+      canonicalContractParams.env.stack (entry.postStack + 0x2a0 + index) := by
+    intro index bound
+    have targetIndex : 0x2a0 + index < 0x7f0 := by omega
+    simpa [Nat.add_assoc] using rawWritable (0x2a0 + index) targetIndex
+  have aligned : is_aligned_vaddr
+      (virtaddr.Virtaddr (BitVec.ofNat 64 (entry.postStack + 0x2a0))) 8 = true := by
+    have targetFits : entry.postStack + 0x2a0 < 2 ^ 64 := by omega
+    have targetAligned : (entry.postStack + 0x2a0) % 8 = 0 := by
+      apply Nat.mod_eq_zero_of_dvd
+      apply Nat.dvd_add
+      · exact Nat.dvd_trans (by decide) (Nat.dvd_of_mod_eq_zero postStackAligned)
+      · decide
+    simp only [is_aligned_vaddr, Sail.BitVec.toNatInt, BitVec.toNat_ofNat]
+    rw [Nat.mod_eq_of_lt targetFits]
+    simp [Int.tmod, targetAligned]
+  let seg0 := Seg.nil Level4SpecializedStorePreparationPcs (fun _ => False)
+    (fun _ _ _ _ _ => False) level4SpecializedStorePreparationWrites
+    (level4SpecializedStorePreparationMemory entry.postStack) fromStep retired pre.atPc
+  let seg0 := (seg0.know x20 pre.s4 pre.s4Value).know x23 pre.s7 pre.s7Value
+  let seg0 := seg0.know x2 (BitVec.ofNat 64 entry.postStack) sp
+  obtain ⟨retired1, afterAddi, hAddi, seg1⟩ := seg0.stepWitness
+    level4_specialized_store_preparation_10638_parent (by simp) x22
+    (iTypeResult .ADDI 0x002#12 pre.s4) (BitVec.ofNat 64 0x1063c)
+    (level4_specialized_store_preparation_addi_step machine (Agree.refl state) seg0.retired code
+      fromStep seg0.atPc pre.s4Value)
+    (by decide) (by intro r h; exact Or.inl h)
+    (by simp [level4SpecializedStorePreparationWrites]) (by decide) (by decide)
+    (by exact of_decide_eq_true rfl)
+  have code1 : Artifacts.programImage.fileBytesLoadedFaithfully afterAddi.mem := by
+    rw [hAddi, afterRegisterWrite_mem]
+    exact code
+  have machine1 : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs afterAddi :=
+    machine.mono (seg1.agree decoderPreserved_level4SpecializedStorePreparationWrites_disjoint)
+      seg1.retired
+  have sp1 := seg1.reg x2 (BitVec.ofNat 64 entry.postStack) (by simp)
+  have s7At1 := seg1.reg x23 pre.s7 (by simp)
+  obtain ⟨retired2, afterStore, hStore, seg2⟩ := seg1.stepStoreWitness
+    (entry.postStack + 0x2a0) pre.s7 (BitVec.ofNat 64 0x10640)
+    level4_specialized_store_preparation_1063c_parent (by simp)
+    (level4_specialized_store_preparation_store_step machine1 (Agree.refl afterAddi) seg1.retired
+      code1 (fromStep + 1) entry.postStack seg1.atPc sp1 s7At1 stackFits writable aligned)
+    (by decide) (by intro other low high; exact ⟨low, high⟩)
+    (by intro r h; exact Or.inl h) (by exact of_decide_eq_true rfl)
+  have code2 : Artifacts.programImage.fileBytesLoadedFaithfully afterStore.mem := by
+    rw [hStore]
+    have notFile : ∀ index : Fin 8,
+        Artifacts.programImage.readFileByte? (entry.postStack + 0x2a0 + index.val) = none :=
+      fun index => canonicalStack_not_fileByte (writable index.val index.isLt)
+    have written := fileBytesLoadedFaithfully_afterWriteBytes Artifacts.programImage
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement afterAddi)
+        (BitVec.ofNat 64 0x1063c)) (entry.postStack + 0x2a0) pre.s7 notFile
+      (by simpa [coreControlFlowNextState, tryStepControlFlowAfterIncrement] using code1)
+    simpa [afterMemoryWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using written
+  have machine2 : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs afterStore :=
+    machine.mono (seg2.agree decoderPreserved_level4SpecializedStorePreparationWrites_disjoint)
+      seg2.retired
+  have s6At2 := seg2.reg x22 (iTypeResult .ADDI 0x002#12 pre.s4) (by simp)
+  have s7At2 := seg2.reg x23 pre.s7 (by simp)
+  obtain ⟨retired3, after, hAdd, seg3⟩ := seg2.stepWitness
+    level4_specialized_store_preparation_10640_parent (by simp) x6
+    (rTypeResult .ADD (iTypeResult .ADDI 0x002#12 pre.s4) pre.s7) (BitVec.ofNat 64 0x10644)
+    (level4_specialized_store_preparation_add_step machine2 (Agree.refl afterStore) seg2.retired code2
+      (fromStep + 2) seg2.atPc s6At2 s7At2)
+    (by decide) (by intro r h; exact Or.inl h)
+    (by simp [level4SpecializedStorePreparationWrites]) (by decide) (by decide)
+    (by exact of_decide_eq_true rfl)
+  have code3 : Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
+    rw [hAdd, afterRegisterWrite_mem]
+    exact code2
+  have inputAfter : DecodedValue.MemoryBytes after margs.inputBase margs.bytes := by
+    apply inputMemory.of_mem_eq
+    intro index bound
+    exact seg3.mem _ (by
+      intro inStore
+      simp only [level4SpecializedStorePreparationMemory] at inStore
+      rcases rawSeparated (margs.inputBase + index) (by omega) (by omega) with separated | separated
+      · omega
+      · omega)
+  have savedAfter := level4_specialized_store_preparation_saved_frame pre.frame entry stackEq saved
+    seg3.mem
+  have preserved : pre.frame.PreservedTo after := by
+    refine ⟨entry, stackEq, raEq, savedAfter,
+      seg3.reg x2 (BitVec.ofNat 64 entry.postStack) (by simp), inputAfter, inputSeparated,
+      stackWritable, rawWritable, rawSeparated, postStackAligned, code3, ?_, seg3.retired⟩
+    exact machine.mono (seg3.agree decoderPreserved_level4SpecializedStorePreparationWrites_disjoint)
+      seg3.retired
+  exact ⟨after, entry.postStack, ⟨seg3.trace, seg3.confined, seg3.writes, seg3.mem, seg3.atPc,
+    seg3.reg x22 (iTypeResult .ADDI 0x002#12 pre.s4) (by simp),
+    seg3.reg x6 (rTypeResult .ADD (iTypeResult .ADDI 0x002#12 pre.s4) pre.s7) (by simp),
+    preserved⟩⟩
+
 end BinaryFv.Zesu.MachineExecution
