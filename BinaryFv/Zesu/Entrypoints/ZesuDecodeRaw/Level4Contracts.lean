@@ -629,6 +629,33 @@ def readOffsetFinalPieces (functionInstance : FunctionInstance) (args : ReadOffs
       state.regs.get? x11 = some left ∧ state.regs.get? x13 = some right
     else state.regs.get? x16 = some left ∧ state.regs.get? x17 = some right
 
+/-- Turn the two optimized partial accumulators into the source-level final-edge precondition.
+Occurrence-specific callers need only supply the register pair selected by the generated identity. -/
+theorem readOffsetFinalPieces_of_lane_or (functionInstance : FunctionInstance)
+    (args : ReadOffsetInlineArgs) (state : State) (fits : args.offset + 4 ≤ args.bytes.size)
+    (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 args.inputBase))
+    (offset : args.offset = readOffsetOccurrenceOffset functionInstance.id)
+    (registers :
+      if functionInstance.id = functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_199_23Id then
+        state.regs.get? x10 = some (readOffsetShift args 1 8 ||| readOffsetLane args 0) ∧
+          state.regs.get? x12 = some (readOffsetShift args 3 24 ||| readOffsetShift args 2 16)
+      else if functionInstance.id =
+          functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_200_23Id then
+        state.regs.get? x14 = some (readOffsetShift args 1 8 ||| readOffsetLane args 0) ∧
+          state.regs.get? x15 = some (readOffsetShift args 3 24 ||| readOffsetShift args 2 16)
+      else if functionInstance.id =
+          functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_201_23Id then
+        state.regs.get? x11 = some (readOffsetShift args 1 8 ||| readOffsetLane args 0) ∧
+          state.regs.get? x13 = some (readOffsetShift args 3 24 ||| readOffsetShift args 2 16)
+      else
+        state.regs.get? x16 = some (readOffsetShift args 1 8 ||| readOffsetLane args 0) ∧
+          state.regs.get? x17 = some (readOffsetShift args 3 24 ||| readOffsetShift args 2 16)) :
+    readOffsetFinalPieces functionInstance args state := by
+  obtain ⟨value, meaning, assembled⟩ := readOffsetSourceMeaning_eq_lane_or args fits
+  exact ⟨value, readOffsetShift args 1 8 ||| readOffsetLane args 0,
+    readOffsetShift args 3 24 ||| readOffsetShift args 2 16, meaning, inputPointer, offset,
+    assembled, registers⟩
+
 def readOffsetInlineInterface (functionInstance : FunctionInstance) :
     Level4FunctionInstanceInterface ReadOffsetInlineArgs (Except Contracts.DecodeError Nat) where
   functionInstance := functionInstance
