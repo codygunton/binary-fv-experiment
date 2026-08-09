@@ -26,6 +26,12 @@ structure Level4RawNewPayloadRequestDeinitPre {margs : DecoderMachineArgs} {orig
     (frame : Level4DecodeRawParentFrame margs origin current) : Prop where
   pc : current.regs.get? PC = some (BitVec.ofNat 64 0x131ec)
   sp : current.regs.get? x2 = some (BitVec.ofNat 64 (frame.stack - 0x690))
+  /-- The parent `jalr` return address consumed by the selected deinit call. -/
+  ra : current.regs.get? x1 = some (BitVec.ofNat 64 0x129ec)
+  /-- `s0` is live through this inline continuation and is saved/restored by the child. -/
+  s0 : ∃ value, current.regs.get? x8 = some value
+  /-- The accepted rejection route establishes its literal tag value before this child. -/
+  s1 : current.regs.get? x9 = some (BitVec.ofNat 64 2)
   preservation : frame.PreservedTo current
 
 /-- Exact union of the three eight-byte child-save slots. -/
