@@ -242,6 +242,19 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(evidence.attribution_state_failures(boundary, [4, 8, 100, 104], {20, 24}, tails)[0], [])
         self.assertTrue(evidence.attribution_state_failures(boundary, [4, 8, 100, 999], {20, 24}, tails)[0])
 
+    def test_tail_requires_its_exact_generated_transfer(self) -> None:
+        frame = {"id": "child", "activeCalleeExecutionPcs": [100, 50, 304],
+                 "returnSites": [{"sourcePc": 8, "targetPc": 100, "returnPc": 12}],
+                 "activeCalleeFrames": [], "cycleBackEdge": None}
+        boundary = evidence.Boundary("x", "inlined", "x", 4, (4, 8, 12), (12,), "fi:6", None, (), (),
+                                     subtree_pcs=(4, 8, 12), handoffs=((12, 20),), reentries=((24, 4),),
+                                     active_frames=(frame,))
+        tails = {(50, 300): ({300, 304}, {304})}
+        self.assertTrue(evidence.attribution_state_failures(
+            boundary, [4, 8, 100, 300], {20, 24}, tails)[0])
+        self.assertEqual(evidence.attribution_state_failures(
+            boundary, [4, 8, 100, 50, 300, 304, 12], {20, 24}, tails)[0], [])
+
 
 if __name__ == "__main__":
     unittest.main()

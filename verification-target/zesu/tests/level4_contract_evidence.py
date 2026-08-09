@@ -100,11 +100,24 @@ def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: s
     seen = {"handoffs": [], "reentries": [], "returns": []}
     for i, pc in enumerate(pcs):
         pair = (pcs[i-1], pc) if i else None
+        # Tail geometry is entered only at the generated decoded-CFG transfer.
+        # A matching target PC by itself is not a transition.
+        if pair in tails and not (stack and stack[-1][0].get("pendingTail")):
+            allowed, completion = tails[pair]
+            stack.append(({"tail": True, "activeCalleeExecutionPcs": allowed,
+                           "completion": completion, "completed": False}, None))
         if mode is None:
             if pc == boundary.entry_pc: mode = "selected"
-            continue
+            if not stack:
+                continue
         if stack:
             frame, ret = stack[-1]
+            if frame.get("pendingTail"):
+                if pair == frame["transfer"]:
+                    frame.pop("pendingTail"); frame["tail"] = True; frame["completed"] = False
+                elif pc not in frame["activeCalleeExecutionPcs"]:
+                    failures.append(f"forged allocator tail prelude at event {i}"); mode = None; stack.clear()
+                continue
             if frame.get("tail"):
                 if pc in frame["completion"]:
                     frame["completed"] = True
@@ -126,9 +139,6 @@ def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: s
                     mode = "selected"; seen["reentries"].append(list(boundary_pair))
                 continue
             child_at = _frame_at(frame, pair)
-            if pair in tails:
-                allowed, completion = tails[pair]
-                stack.append(({"tail": True, "activeCalleeExecutionPcs": allowed, "completion": completion, "completed": False}, None)); continue
             if child_at is not None:
                 child, site = child_at
                 if child.get("cycleBackEdge") is not None: child = canonical[child["id"]]
@@ -138,20 +148,16 @@ def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: s
                     # This is an unresolved dynamic tail transfer, not a fabricated direct
                     # call edge.  Its target remains explicitly unmeasured.
                     stack.pop(); mode = None; continue
-                entry_tail = next((value for (_source, target), value in tails.items() if pc == target), None)
-                if entry_tail is not None:
-                    allowed, completion = entry_tail
-                    # An indirect allocator call has no decoded call-frame edge, but its
-                    # observed entry is exact and its RISC-V return address is source + 4.
-                    stack.append(({"tail": True, "activeCalleeExecutionPcs": allowed,
-                                   "completion": completion, "completed": False}, pair[0] + 4)); continue
+                pending = next(((transfer, value) for transfer, value in tails.items()
+                                if pc in value[0] and pc != transfer[1]), None)
+                if pending is not None:
+                    transfer, (allowed, completion) = pending
+                    stack.append(({"pendingTail": True, "transfer": transfer,
+                                   "activeCalleeExecutionPcs": allowed, "completion": completion}, None)); continue
                 failures.append(f"foreign PC {pc:#x} in declared call frame at event {i}"); mode = None; stack.clear()
             continue
         if mode == "selected":
             child_at = _frame_at({"activeCalleeFrames": boundary.active_frames}, pair)
-            if pair in tails:
-                allowed, completion = tails[pair]
-                stack.append(({"tail": True, "activeCalleeExecutionPcs": allowed, "completion": completion, "completed": False}, None)); continue
             if child_at is not None:
                 child, site = child_at
                 stack.append((child, site["returnPc"])); continue
@@ -636,7 +642,7 @@ def main() -> int:
     fi6 = next(owner for owner in machine["callGraph"]["owners"] if owner["id"] == "fi:6")
     parent_pcs = set(fi6["instructions"])
     indirect_transfers = {instruction["address"] for instruction in machine["instructions"]
-                          if instruction["transfer"] == "indirectTransfer"}
+                          if instruction["transfer"] in {"indirectTransfer", "indirectCall"}}
     tails = {(tail["transfer"]["sourcePc"], tail["transfer"]["targetPc"]):
              (set(tail["combinedInstructionPcs"]), set(tail["completionSourcePcs"]))
              for boundary in boundaries for tail in boundary.tail_dependencies}
