@@ -477,7 +477,8 @@ theorem level4_entry_header_first_lbu {margs : DecoderMachineArgs} {origin state
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x104bc) retired x10
         (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat)) false := by
-  rcases frame.invariant with ⟨entry, -, -, -, -, inputMemory, -, -, code, machine, retired⟩
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x104bc)
   let address := BitVec.ofNat 64 margs.inputBase
@@ -486,14 +487,14 @@ theorem level4_entry_header_first_lbu {margs : DecoderMachineArgs} {origin state
   have inputAtExecute : executeState.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase) := by
     simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, inputPointer]
-  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := machine.mstatus
-  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := machine.mseccfg
+  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := decoderMachine.mstatus
+  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := decoderMachine.mseccfg
   have mstatusAtExecute : executeState.regs.get? mstatus = some mstatusBits := by
     simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, mstatusRead]
   have privilegeAtExecute : executeState.regs.get? cur_privilege = some Privilege.Machine := by
     simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, machine.normal.2.1]
+      Std.ExtDHashMap.get?_insert, decoderMachine.normal.2.1]
   have mseccfgAtExecute : executeState.regs.get? Register.mseccfg = some mseccfgBits := by
     simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, mseccfgRead]
@@ -524,7 +525,7 @@ theorem level4_entry_header_first_lbu {margs : DecoderMachineArgs} {origin state
         simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits]
       rw [addressNat]
       exact ⟨Nat.le_refl _, by omega⟩
-  obtain ⟨physAccess, loadNoMMIO⟩ := machine.dataAccess.load executeState address 1
+  obtain ⟨physAccess, loadNoMMIO⟩ := decoderMachine.dataAccess.load executeState address 1
     (Agree.weaken (fun _ preserved => preserved.2) executeAgree) allowed (by simp [is_aligned_paddr])
   let inputByte := margs.bytes[0]'inputBound
   have memoryByte : ∀ index (indexLt : index < (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)).length),
@@ -548,7 +549,7 @@ theorem level4_entry_header_first_lbu {margs : DecoderMachineArgs} {origin state
     exact vmem_read_byte_run executeState (.Regidx 20#5) (sign_extend (m := 64) 0#12) address
       mstatusBits (BitVec.ofNat 8 inputByte.toNat) mstatusAtExecute privilegeAtExecute mprvZero
       addressRun (is_aligned_vaddr_one _) hread
-  exact decoderLoadStepOfDecoderAgree machine (Agree.refl state) retired code stepNo
+  exact decoderLoadStepOfDecoderAgree decoderMachine (Agree.refl state) retired fileCode stepNo
     0x104bc 0x03 0x45 0x0a 0x00 0#12 20#5 10#5 true 1 (BitVec.ofNat 8 inputByte.toNat)
     atPc readMemory (by
       have zeroExtend : extend_value true (BitVec.ofNat 8 inputByte.toNat) =
@@ -591,8 +592,9 @@ theorem level4_entry_header_first_zero_branch {margs : DecoderMachineArgs} {orig
         (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
           (BitVec.ofNat 64 0x104c0))
         (BitVec.ofNat 64 0x104c4) retired) false := by
-  rcases frame.invariant with ⟨entry, -, -, -, -, inputMemory, -, -, code, machine, retired⟩
-  exact decoderBranchNotTakenStep machine (Agree.refl state) retired code stepNo
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+  exact decoderBranchNotTakenStep decoderMachine (Agree.refl state) retired fileCode stepNo
     0x104c0 0xe3 0x1e 0x05 0xfc 0x1fdc#13 0#5 10#5 .BNE atPc
     (by
       unfold bTypeTaken
@@ -655,7 +657,7 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
     (firstByteZero : margs.bytes[0]'(by omega) = 0) (fromStep : Nat) :
     ∃ after, Level4EntryHeaderFirstTwoHandoff after fromStep frame := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
-    stackFrameWritable, code, machine, retired⟩
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
   let seg0 := Seg.nil Level4EntryHeaderFirstTwoPcs (fun _ => False) (fun _ _ _ _ _ => False)
     level4EntryHeaderFirstTwoWrites noMemory fromStep retired atPc
   obtain ⟨readRetired, afterRead, readEq, seg1⟩ := seg0.stepWitness
@@ -672,8 +674,8 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
   have preservedRead : frame.PreservedTo
       (afterRegisterWrite state (BitVec.ofNat 64 0x104bc) readRetired x10
         (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat)) := by
-    refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable, ?_, ?_,
-      seg1.retired⟩
+    refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
+      rawFrameWritable, rawFrameInputSeparated, ?_, ?_, seg1.retired⟩
     · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
       simp only [SavedWordBytes] at saved ⊢
       rw [readMemory]
@@ -683,8 +685,8 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
       intro index indexBound
       rw [readMemory]
     · rw [readMemory]
-      exact code
-    · exact machine.mono (seg1.agree decoderPreserved_level4EntryHeaderFirstTwoWrites_disjoint)
+      exact fileCode
+    · exact decoderMachine.mono (seg1.agree decoderPreserved_level4EntryHeaderFirstTwoWrites_disjoint)
         seg1.retired
   let readFrame := frame.toState preservedRead
   have readZero :
@@ -701,8 +703,8 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
   · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory
     intro index indexBound
     rw [memory]
-  · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable, ?_, ?_,
-      seg2.retired⟩
+  · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
+      rawFrameWritable, rawFrameInputSeparated, ?_, ?_, seg2.retired⟩
     · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
       simp only [SavedWordBytes] at saved ⊢
       rw [memory]
@@ -712,8 +714,8 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
       intro index indexBound
       rw [memory]
     · rw [memory]
-      exact code
-    · exact machine.mono (seg2.agree decoderPreserved_level4EntryHeaderFirstTwoWrites_disjoint)
+      exact fileCode
+    · exact decoderMachine.mono (seg2.agree decoderPreserved_level4EntryHeaderFirstTwoWrites_disjoint)
         seg2.retired
 
 /-! ## Second ordinary-input header byte -/
@@ -747,7 +749,8 @@ theorem level4_entry_header_second_lbu {margs : DecoderMachineArgs} {origin stat
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x104c4) retired x10
         (BitVec.ofNat 64 (margs.bytes[1]'(by omega)).toNat)) false := by
-  rcases frame.invariant with ⟨entry, -, -, -, -, inputMemory, -, -, code, machine, retired⟩
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
   let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
     (BitVec.ofNat 64 0x104c4)
   let address := BitVec.ofNat 64 (margs.inputBase + 1)
@@ -755,14 +758,14 @@ theorem level4_entry_header_second_lbu {margs : DecoderMachineArgs} {origin stat
   have inputAtExecute : executeState.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase) := by
     simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, inputPointer]
-  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := machine.mstatus
-  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := machine.mseccfg
+  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := decoderMachine.mstatus
+  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := decoderMachine.mseccfg
   have mstatusAtExecute : executeState.regs.get? mstatus = some mstatusBits := by
     simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, mstatusRead]
   have privilegeAtExecute : executeState.regs.get? cur_privilege = some Privilege.Machine := by
     simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert, machine.normal.2.1]
+      Std.ExtDHashMap.get?_insert, decoderMachine.normal.2.1]
   have mseccfgAtExecute : executeState.regs.get? Register.mseccfg = some mseccfgBits := by
     simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert, mseccfgRead]
@@ -793,7 +796,7 @@ theorem level4_entry_header_second_lbu {margs : DecoderMachineArgs} {origin stat
         simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits]
       rw [addressNat]
       exact ⟨by omega, by omega⟩
-  obtain ⟨physAccess, loadNoMMIO⟩ := machine.dataAccess.load executeState address 1
+  obtain ⟨physAccess, loadNoMMIO⟩ := decoderMachine.dataAccess.load executeState address 1
     (Agree.weaken (fun _ preserved => preserved.2) executeAgree) allowed (by simp [is_aligned_paddr])
   let inputByte := margs.bytes[1]'(by omega)
   have memoryByte : ∀ index (indexLt : index < (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)).length),
@@ -817,7 +820,7 @@ theorem level4_entry_header_second_lbu {margs : DecoderMachineArgs} {origin stat
     exact vmem_read_byte_run executeState (.Regidx 20#5) (sign_extend (m := 64) 1#12) address
       mstatusBits (BitVec.ofNat 8 inputByte.toNat) mstatusAtExecute privilegeAtExecute mprvZero
       addressRun (is_aligned_vaddr_one _) hread
-  exact decoderLoadStepOfDecoderAgree machine (Agree.refl state) retired code stepNo
+  exact decoderLoadStepOfDecoderAgree decoderMachine (Agree.refl state) retired fileCode stepNo
     0x104c4 0x03 0x45 0x1a 0x00 1#12 20#5 10#5 true 1 (BitVec.ofNat 8 inputByte.toNat)
     atPc readMemory (by
       have zeroExtend : extend_value true (BitVec.ofNat 8 inputByte.toNat) =
@@ -855,8 +858,9 @@ theorem level4_entry_header_length_one {margs : DecoderMachineArgs} {origin stat
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104c8)) (stepNo : Nat) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x104c8) retired x11 (1#64)) false := by
-  rcases frame.invariant with ⟨entry, -, -, -, -, inputMemory, -, -, code, machine, retired⟩
-  exact decoderITypeStepOfDecoderAgree machine (Agree.refl state) retired code stepNo
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+  exact decoderITypeStepOfDecoderAgree decoderMachine (Agree.refl state) retired fileCode stepNo
     0x104c8 0x93 0x05 0x10 0x00 1#12 0#5 11#5 .ADDI atPc (rX_x0_run _) (by
       simpa [iTypeResult] using wX_x11_run
         (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104c8))
