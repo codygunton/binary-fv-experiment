@@ -1044,6 +1044,19 @@ theorem level4_entry_first_read_offset_branch {margs : DecoderMachineArgs} {orig
     0x104d8 0x63 0x6e 0x25 0x05 0x05c#13 18#5 10#5 .BLTU (BitVec.ofNat 64 0x10534) atPc condition
     (pcIn := ⟨level4_entry_first_read_offset_branch_machine_owned, by native_decide⟩)
 
+/-- The taken `15 < inputLength - 2` envelope branch supplies all four direct readers' byte bounds.
+This is the arithmetic fact transported by the future `0x104d0`–`0x104d8` composed handoff; it is
+not an additional reader-contract premise. -/
+theorem level4_entry_first_read_offset_input_contains_offsets (inputLength : Nat)
+    (inputLengthFits : inputLength < 2 ^ 64) (inputAtLeastTwo : 2 ≤ inputLength)
+    (taken : (15#64).toNat < (BitVec.ofNat 64 (inputLength - 2)).toNat) :
+    18 ≤ inputLength := by
+  have boundNat : (BitVec.ofNat 64 (inputLength - 2)).toNat = inputLength - 2 := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+  rw [boundNat] at taken
+  change 15 < inputLength - 2 at taken
+  omega
+
 private theorem level4_read_offset199_execution_subset_decode_raw (pc : BitVec 64)
     (inside : functionInstanceExecutionPcs generatedProgram
       functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_199_23 pc) :
