@@ -556,13 +556,21 @@ def dynamic_call_target_extent(callee: dict, owners_by_id: dict[str, dict]) -> d
 
 def declared_level4_calls(owner_id: str, call_graph: dict, owners_by_id: dict[str, dict]) -> list[dict]:
     """Declared direct/tail/vtable call frames with the callee's concrete entry PC."""
+    declarations = [
+        call for call in call_graph.get("calls", [])
+        if call["caller"] == owner_id and call["kind"] in {"direct", "tail", "allocatorVtable"}
+    ]
     return [
         {
             "id": call["callee"], "kind": call["kind"], "sourcePc": call["source"],
             "targetPc": owners_by_id[call["callee"]]["entryPc"],
         }
-        for call in call_graph.get("calls", [])
-        if call["caller"] == owner_id and call["kind"] in {"direct", "tail", "allocatorVtable"}
+        for call in declarations
+        if call["source"] is not None or not any(
+            concrete["callee"] == call["callee"] and concrete["kind"] == call["kind"]
+            and concrete["source"] is not None
+            for concrete in declarations
+        )
     ]
 
 
@@ -883,10 +891,13 @@ def emit_level4_attribution_lean(database: dict) -> str:
     rows = [row for row in manifest["boundaries"] if "fragmentHandoffs" in row]
     expected_handoffs = [7, 8, 4, 5]
     expected_reentries = [3, 3, 1, 1]
+    expected_call_frames = [4, 5, 1, 3]
     if [len(row["fragmentHandoffs"]) for row in rows] != expected_handoffs:
         raise ValueError("Level 4 attribution fragment handoff inventory changed")
     if [len(row["parentReentryEdges"]) for row in rows] != expected_reentries:
         raise ValueError("Level 4 attribution fragment re-entry inventory changed")
+    if [len(row.get("calls", [])) for row in rows] != expected_call_frames:
+        raise ValueError("Level 4 dynamic call-frame inventory changed")
     parent_owner = next(owner for owner in database["callGraph"]["owners"]
                         if owner["id"] == manifest["parent"]["id"])
     parent_identity = {
@@ -1018,10 +1029,13 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "    level4AttributionFragmentBoundaries.size = 4 := rfl",
         "def level4AttributionFragmentHandoffCounts : Array Nat := #[7, 8, 4, 5]",
         "def level4AttributionFragmentReentryCounts : Array Nat := #[3, 3, 1, 1]",
+        "def level4AttributionCallFrameCounts : Array Nat := #[4, 5, 1, 3]",
         "theorem level4AttributionFragmentHandoff_counts :",
         "    level4AttributionFragmentHandoffCounts = #[7, 8, 4, 5] := rfl",
         "theorem level4AttributionFragmentReentry_counts :",
         "    level4AttributionFragmentReentryCounts = #[3, 3, 1, 1] := rfl",
+        "theorem level4AttributionCallFrame_counts :",
+        "    level4AttributionCallFrameCounts = #[4, 5, 1, 3] := rfl",
         "theorem level4AttributionFragmentBoundary_totals :",
         "    7 + 8 + 4 + 5 = 24 ∧ 3 + 3 + 1 + 1 = 8 := by decide",
         "",

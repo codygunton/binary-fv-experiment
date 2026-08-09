@@ -330,6 +330,7 @@ class MachineRegionTests(unittest.TestCase):
             {"address": 66124, "owner": "fi:0", "successors": []},
         ], "callGraph": {"owners": [parent, decoder, callee, excluded, foreign], "calls": [
             {"caller": "fi:102", "callee": "fi:134", "kind": "direct", "source": 77404},
+            {"caller": "fi:102", "callee": "fi:134", "kind": "direct", "source": None},
             {"caller": "fi:102", "callee": "excluded:9", "kind": "direct", "source": None},
         ]}}
         manifest = {"parent": {"id": "fi:6"}, "boundaries": [{
@@ -339,6 +340,18 @@ class MachineRegionTests(unittest.TestCase):
             "fragmentHandoffs": [{"sourcePc": 77408, "targetPc": 77412}],
         }]}
         machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        self.assertEqual(
+            [call["sourcePc"] for call in machine_regions.declared_level4_calls(
+                "fi:102", database["callGraph"], {owner["id"]: owner for owner in database["callGraph"]["owners"]}
+            )],
+            [77404, None],
+        )
+        duplicate = copy.deepcopy(manifest["boundaries"][0]["calls"][0])
+        duplicate["sourcePc"] = None
+        manifest["boundaries"][0]["calls"].append(duplicate)
+        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["calls"].pop()
         manifest["boundaries"][0]["calls"][0].pop("activeCalleeExecutionPcs")
         with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
