@@ -66,6 +66,7 @@ gen_rx_run 14 ↦ x14, rX_x14_run
 gen_rx_run 15 ↦ x15, rX_x15_run
 gen_rx_run 16 ↦ x16, rX_x16_run
 gen_rx_run 17 ↦ x17, rX_x17_run
+gen_rx_run 20 ↦ x20, rX_x20_run
 gen_rx_run 21 ↦ x21, rX_x21_run
 gen_rx_run 22 ↦ x22, rX_x22_run
 gen_rx_run 23 ↦ x23, rX_x23_run
