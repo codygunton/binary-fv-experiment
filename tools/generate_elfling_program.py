@@ -345,6 +345,8 @@ def compute_function_instance_cfg(function_instances_sorted, insns):
 
     return region_pc_sets
 
+
+
 def function_instance_blocks(function_instance, insns):
     """Exact basic-block partition of the function instance's regions (Q2): every region PC in exactly one
     block, blocks contiguous within a single fragment, no gaps/overlaps."""

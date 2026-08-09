@@ -43,7 +43,7 @@ class MachineRegionTests(unittest.TestCase):
         ]
         owners = [{
             "id": "decodeRaw", "kind": "emitted", "qualified": "ssz_raw.decodeRaw",
-            "instructions": list(range(172)), "entryPc": 0,
+            "instructions": list(range(172)), "entryPc": 0, "regions": [{"start": 0, "size": 172}],
         }]
         read_offset_entries = (66868, 66884, 66920, 66976)
         for index, (kind, qualified) in enumerate(rows):
@@ -206,6 +206,96 @@ class MachineRegionTests(unittest.TestCase):
         dependency["combinedInstructionPcs"].pop()
         with self.assertRaisesRegex(ValueError, "combined region is not exact"):
             machine_regions.validate_level4_boundary_manifest(manifest)
+        manifest = machine_regions.level4_boundary_manifest(self.level4_database())
+        manifest["boundaries"][0]["fullExecutionPcs"] = [1000]
+        manifest["boundaries"][0]["fragmentHandoffs"] = [{"sourcePc": 1000, "targetPc": 1000}]
+        with self.assertRaisesRegex(ValueError, "lacks owned execution PCs"):
+            machine_regions.validate_level4_boundary_manifest(manifest)
+
+    def test_dynamic_attribution_handoffs_use_decoded_deepest_ownership(self) -> None:
+        parent = {
+            "id": "fi:6", "kind": "emitted", "qualified": "ssz_raw.decodeRaw",
+            "entryPc": 74000, "regions": [{"start": 74000, "size": 4000}], "parent": None,
+        }
+        decoder = {
+            "id": "fi:102", "kind": "inlined", "qualified": "ssz_raw.decodeChainConfig",
+            "entryPc": 76108, "regions": [{"start": 77400, "size": 12}], "parent": "fi:6",
+            "inlineStack": [{"callerQualified": "ssz_raw.decodeRaw", "line": 211, "column": 48}],
+        }
+        nested = {
+            "id": "fi:103", "kind": "inlined", "qualified": "nested", "entryPc": 77416,
+            "regions": [{"start": 77416, "size": 4}], "parent": "fi:102",
+        }
+        owners = {row["id"]: row for row in (parent, decoder, nested)}
+        instructions = {
+            77408: {"address": 77408, "owner": "fi:102", "successors": [77412]},
+            77412: {"address": 77412, "owner": "fi:6", "successors": []},
+            77396: {"address": 77396, "owner": "fi:6", "successors": [77408]},
+            77416: {"address": 77416, "owner": "fi:103", "successors": [77420]},
+        }
+        self.assertEqual(machine_regions.dynamic_full_execution_pcs(decoder, owners), [77400, 77404, 77408, 77416])
+        self.assertEqual(machine_regions.dynamic_owned_execution_pcs(decoder, instructions),
+                         [77408])
+        self.assertEqual(machine_regions.attribution_fragment_handoffs(decoder, parent, owners, instructions),
+                         [{"sourcePc": 77408, "targetPc": 77412}])
+        self.assertEqual(machine_regions.parent_fragment_reentries(decoder, parent, instructions),
+                         [{"sourcePc": 77396, "targetPc": 77408}])
+
+    def test_dynamic_attribution_ignores_non_parent_and_nested_edges(self) -> None:
+        parent = {"id": "fi:6", "regions": [{"start": 77412, "size": 4}], "parent": None}
+        decoder = {"id": "fi:102", "qualified": "ssz_raw.decodeChainConfig", "entryPc": 76108,
+                   "regions": [{"start": 77408, "size": 4}], "parent": "fi:6", "inlineStack": [{"callerQualified": "ssz_raw.decodeRaw", "line": 211, "column": 48}]}
+        owners = {"fi:6": parent, "fi:102": decoder}
+        self.assertEqual(machine_regions.attribution_fragment_handoffs(decoder, parent, owners,
+            {77408: {"address": 77408, "owner": "fi:102", "successors": [77416]}}), [])
+        self.assertEqual(machine_regions.attribution_fragment_handoffs(decoder,
+            {**parent, "regions": [{"start": 80000, "size": 4}]}, owners,
+            {77408: {"address": 77408, "owner": "fi:102", "successors": [77412]}}), [])
+
+    def test_dynamic_attribution_validator_rejects_deletion_and_forgery(self) -> None:
+        parent = {"id": "fi:6", "regions": [{"start": 77412, "size": 8}], "parent": None}
+        decoder = {"id": "fi:102", "qualified": "ssz_raw.decodeChainConfig", "entryPc": 76108,
+                   "regions": [{"start": 77404, "size": 8}], "parent": "fi:6", "inlineStack": [{"callerQualified": "ssz_raw.decodeRaw", "line": 211, "column": 48}]}
+        database = {"instructions": [
+            {"address": 77404, "owner": "fi:102", "successors": [77408]},
+            {"address": 77408, "owner": "fi:102", "successors": [77412]},
+            {"address": 77412, "owner": "fi:6", "successors": []},
+            {"address": 77400, "owner": "fi:6", "successors": [77404]},
+        ], "callGraph": {"owners": [parent, decoder]}}
+        manifest = {"parent": {"id": "fi:6"}, "boundaries": [{
+            "id": "fi:102", "instructionPcs": [77404, 77408], "ownedExecutionPcs": [77404, 77408],
+            "fullExecutionPcs": [77404, 77408],
+            "parentReentryEdges": [{"sourcePc": 77400, "targetPc": 77404}],
+            "fragmentHandoffs": [{"sourcePc": 77408, "targetPc": 77412}],
+        }]}
+        machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["fragmentHandoffs"] = []
+        with self.assertRaisesRegex(ValueError, "handoffs are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["fragmentHandoffs"] = [{"sourcePc": 77404, "targetPc": 77412}]
+        with self.assertRaisesRegex(ValueError, "handoffs are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["fragmentHandoffs"] = [{"sourcePc": 77408, "targetPc": 77412}]
+        manifest["boundaries"][0]["fullExecutionPcs"] = [77408]
+        with self.assertRaisesRegex(ValueError, "full execution PCs are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["fullExecutionPcs"] = [77404, 99999]
+        with self.assertRaisesRegex(ValueError, "full execution PCs are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["fullExecutionPcs"] = [77404, 77408]
+        manifest["boundaries"][0]["ownedExecutionPcs"] = [77408]
+        with self.assertRaisesRegex(ValueError, "owned execution PCs are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["ownedExecutionPcs"] = [77404, 99999]
+        with self.assertRaisesRegex(ValueError, "owned execution PCs are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["ownedExecutionPcs"] = [77404, 77408]
+        manifest["boundaries"][0]["parentReentryEdges"] = []
+        with self.assertRaisesRegex(ValueError, "re-entries are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["parentReentryEdges"] = [{"sourcePc": 77400, "targetPc": 77408}]
+        with self.assertRaisesRegex(ValueError, "re-entries are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
 
     def test_llvm_disassembly_parser(self) -> None:
         parsed = machine_regions.parse_disassembly(

@@ -56,7 +56,7 @@ lean_lib ElflingGeneratedProgram where
 
 lean_lib MachineRegionsGenerated where
   srcDir := "build/machine-regions-lean"
-  roots := #[`GeneratedMachineRegions]
+  roots := #[`GeneratedMachineRegions, `GeneratedLevel4Attribution]
 
 @[default_target]
 lean_lib ZesuVerificationTests where

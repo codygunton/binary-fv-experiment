@@ -1,4 +1,5 @@
 import GeneratedProgram
+import GeneratedLevel4Attribution
 
 /-!
 # Level 4 displayed boundary inventory
@@ -14,6 +15,7 @@ namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 
 open BinaryFv.Binary.Elfling
 open BinaryFv.Zesu.Elflings.Generated
+open BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution
 
 /-- The fourteen displayed rows that are generated `FunctionInstance` values. -/
 def level4DisplayedFunctionInstances : List FunctionInstance :=

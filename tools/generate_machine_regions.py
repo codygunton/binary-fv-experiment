@@ -485,6 +485,94 @@ def level4_displayed_boundaries(call_graph: dict, decode_raw: str) -> list[dict]
     return [owner for owner in call_graph["owners"] if parents.get(owner["id"]) == decode_raw]
 
 
+def descendant_owner_ids(owners_by_id: dict[str, dict], root: str) -> set[str]:
+    """The full generated extent of an instance includes every nested FunctionInstance."""
+    children: dict[str, list[str]] = defaultdict(list)
+    for owner in owners_by_id.values():
+        if owner.get("parent") is not None:
+            children[owner["parent"]].append(owner["id"])
+    result, todo = set(), [root]
+    while todo:
+        owner_id = todo.pop()
+        if owner_id in result:
+            continue
+        result.add(owner_id)
+        todo.extend(children[owner_id])
+    return result
+
+
+def dynamic_full_execution_pcs(owner: dict, owners_by_id: dict[str, dict]) -> list[int]:
+    """All instruction PCs in an instance and its nested generated instances."""
+    descendant_ids = descendant_owner_ids(owners_by_id, owner["id"])
+    return sorted({
+        address
+        for candidate in owners_by_id.values() if candidate["id"] in descendant_ids
+        for region in candidate["regions"]
+        for address in range(region["start"], region["start"] + region["size"], 4)
+    })
+
+
+def dynamic_owned_execution_pcs(owner: dict, instruction_rows: dict[int, dict]) -> list[int]:
+    """The decoder's direct, deepest ownership, read from decoded instruction attribution."""
+    return sorted(
+        address for address, instruction in instruction_rows.items()
+        if instruction.get("owner") == owner["id"]
+    )
+
+
+LEVEL4_DYNAMIC_INLINE_IDENTITIES = {
+    ("ssz_raw.decodeNewPayloadRequest", "ssz_raw.decodeRaw", 207, 61),
+    ("ssz_raw.decodeExecutionWitness", "ssz_raw.decodeRaw", 209, 48),
+    ("ssz_raw.decodeChainConfig", "ssz_raw.decodeRaw", 211, 48),
+    ("ssz_raw.decodePublicKeys", "ssz_raw.decodeRaw", 212, 46),
+}
+
+
+def is_level4_dynamic_decoder(owner: dict) -> bool:
+    frame = (owner.get("inlineStack") or [{}])[-1]
+    return (owner["qualified"], frame.get("callerQualified"), frame.get("line"), frame.get("column")) \
+        in LEVEL4_DYNAMIC_INLINE_IDENTITIES
+
+
+def attribution_fragment_handoffs(
+    owner: dict, decode_raw: dict, owners_by_id: dict[str, dict], instruction_rows: dict[int, dict]
+) -> list[dict]:
+    """Every decoded-owned dynamic-decoder edge which hands control back to decodeRaw.
+
+    A source-derived inline identity, rather than a catalog position, selects the four rows.  This
+    is deliberately broader than the six historical completion edges: every transition from the
+    selected decoder's deepest-owned code into decodeRaw's deepest-owned code is an attribution
+    fragment handoff.  Nested descendants and ordinary in-fragment edges are therefore excluded.
+    """
+    if not is_level4_dynamic_decoder(owner):
+        return []
+    owned = set(dynamic_owned_execution_pcs(owner, instruction_rows))
+    parent_owned = set(dynamic_owned_execution_pcs(decode_raw, instruction_rows))
+    result = []
+    for source_pc in sorted(owned):
+        instruction = instruction_rows.get(source_pc)
+        for target_pc in instruction["successors"]:
+            if target_pc in parent_owned:
+                result.append({"sourcePc": source_pc, "targetPc": target_pc})
+    return result
+
+
+def parent_fragment_reentries(
+    owner: dict, decode_raw: dict, instruction_rows: dict[int, dict]
+) -> list[dict]:
+    """Every decoded-owned decodeRaw edge which enters a direct dynamic decoder fragment."""
+    if not is_level4_dynamic_decoder(owner):
+        return []
+    owned = set(dynamic_owned_execution_pcs(owner, instruction_rows))
+    parent_owned = set(dynamic_owned_execution_pcs(decode_raw, instruction_rows))
+    return [
+        {"sourcePc": source_pc, "targetPc": target_pc}
+        for source_pc in sorted(parent_owned)
+        for target_pc in instruction_rows[source_pc]["successors"]
+        if target_pc in owned
+    ]
+
+
 def level4_boundary_manifest(database: dict) -> dict:
     """A contract-admission inventory for every Level 4 row displayed below ``decodeRaw``.
 
@@ -502,6 +590,7 @@ def level4_boundary_manifest(database: dict) -> dict:
     instruction_rows = {row["address"]: row for row in database["instructions"]}
     instruction_addresses = set(call_graph["instructionAddresses"])
     owners_by_id = {owner["id"]: owner for owner in call_graph["owners"]}
+    parent_regions = decode_raw["regions"]
     calls_by_owner: dict[str, list[dict]] = defaultdict(list)
     for call in call_graph["calls"]:
         if call["kind"] in {"direct", "tail", "allocatorVtable"} and isinstance(call["source"], int):
@@ -562,6 +651,12 @@ def level4_boundary_manifest(database: dict) -> dict:
             })
         if tail_dependencies:
             row["tailDependencies"] = tail_dependencies
+        handoffs = attribution_fragment_handoffs(owner, decode_raw, owners_by_id, instruction_rows)
+        if is_level4_dynamic_decoder(owner):
+            row["fullExecutionPcs"] = dynamic_full_execution_pcs(owner, owners_by_id)
+            row["ownedExecutionPcs"] = dynamic_owned_execution_pcs(owner, instruction_rows)
+            row["fragmentHandoffs"] = handoffs
+            row["parentReentryEdges"] = parent_fragment_reentries(owner, decode_raw, instruction_rows)
         rows.append(row)
     manifest = {
         "schemaVersion": 1,
@@ -572,7 +667,31 @@ def level4_boundary_manifest(database: dict) -> dict:
         "boundaries": rows,
     }
     validate_level4_boundary_manifest(manifest)
+    validate_level4_attribution_boundaries(database, manifest)
     return manifest
+
+
+def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> None:
+    """Recompute every dynamic boundary from Program identities and decoded ownership/CFG."""
+    owners_by_id = {owner["id"]: owner for owner in database["callGraph"]["owners"]}
+    instructions = {row["address"]: row for row in database["instructions"]}
+    decode_raw = owners_by_id[manifest["parent"]["id"]]
+    for row in manifest["boundaries"]:
+        owner = owners_by_id[row["id"]]
+        if not is_level4_dynamic_decoder(owner):
+            continue
+        expected_full = dynamic_full_execution_pcs(owner, owners_by_id)
+        expected_owned = dynamic_owned_execution_pcs(owner, instructions)
+        expected_handoffs = attribution_fragment_handoffs(owner, decode_raw, owners_by_id, instructions)
+        expected_reentries = parent_fragment_reentries(owner, decode_raw, instructions)
+        if row.get("fullExecutionPcs") != expected_full:
+            raise ValueError("Level 4 full execution PCs are incomplete or forged")
+        if row.get("ownedExecutionPcs") != expected_owned:
+            raise ValueError("Level 4 owned execution PCs are incomplete or forged")
+        if row.get("fragmentHandoffs") != expected_handoffs:
+            raise ValueError("Level 4 attribution fragment handoffs are incomplete or forged")
+        if row.get("parentReentryEdges") != expected_reentries:
+            raise ValueError("Level 4 parent fragment re-entries are incomplete or forged")
 
 
 def validate_level4_boundary_manifest(manifest: dict) -> None:
@@ -646,9 +765,160 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                 raise ValueError("Level 4 tail dependency completion is outside its callee")
             if combined_pcs != set(row["instructionPcs"]) | callee_pcs:
                 raise ValueError("Level 4 tail dependency combined region is not exact")
+        handoffs = row.get("fragmentHandoffs")
+        if handoffs is not None:
+            full_pcs = row.get("fullExecutionPcs")
+            owned_pcs = row.get("ownedExecutionPcs")
+            reentries = row.get("parentReentryEdges")
+            if (not isinstance(full_pcs, list) or not full_pcs
+                    or full_pcs != sorted(set(full_pcs))):
+                raise ValueError("Level 4 dynamic boundary lacks a full execution extent")
+            if (not isinstance(owned_pcs, list) or not owned_pcs
+                    or owned_pcs != sorted(set(owned_pcs)) or not set(owned_pcs) <= set(full_pcs)):
+                raise ValueError("Level 4 dynamic boundary lacks owned execution PCs")
+            for edges, label in ((handoffs, "handoffs"), (reentries, "re-entries")):
+                if (not isinstance(edges, list) or not edges
+                        or edges != sorted(edges, key=lambda edge: (edge.get("sourcePc", -1), edge.get("targetPc", -1)))):
+                    raise ValueError(f"Level 4 attribution fragment {label} are absent or unsorted")
+            for edge in handoffs:
+                if (not isinstance(edge, dict) or not isinstance(edge.get("sourcePc"), int)
+                        or not isinstance(edge.get("targetPc"), int)
+                        or edge["sourcePc"] not in owned_pcs):
+                    raise ValueError("Level 4 attribution handoff source is outside owned execution")
+            for edge in reentries:
+                if (not isinstance(edge, dict) or not isinstance(edge.get("sourcePc"), int)
+                        or not isinstance(edge.get("targetPc"), int)
+                        or edge["targetPc"] not in owned_pcs):
+                    raise ValueError("Level 4 attribution re-entry target is outside owned execution")
     direct_offsets = [row for row in boundaries if row["qualified"] == "ssz_raw.readOffset"]
     if len(direct_offsets) != 4 or any(not row["instructionPcs"] for row in direct_offsets):
         raise ValueError("Level 4 direct readOffset boundaries are incomplete")
+
+
+def lean_name_component(text: str) -> str:
+    component = re.sub(r"[^A-Za-z0-9_']", "_", text)
+    component = re.sub(r"_+", "_", component).strip("_")
+    return component or "anonymous"
+
+
+def function_instance_lean_name(identity: dict) -> str:
+    """The same source-derived generated name as generate_elfling_program.py."""
+    parts = ["functionInstance", lean_name_component(identity["qualified"])]
+    if identity.get("specialization"):
+        parts += ["specialized"] + [lean_name_component(value) for value in identity["specialization"]]
+    for frame in identity.get("inlineStack", []):
+        parts += ["in", lean_name_component(frame["callerQualified"]), "at",
+                  str(frame["line"]), str(frame["column"])]
+    return "_".join(parts)
+
+
+def emit_level4_attribution_lean(database: dict) -> str:
+    """Emit the four dynamic attribution boundaries as typed, source-identity keyed Lean data."""
+    manifest = level4_boundary_manifest(database)
+    rows = [row for row in manifest["boundaries"] if "fragmentHandoffs" in row]
+    expected_handoffs = [7, 8, 4, 5]
+    expected_reentries = [3, 3, 1, 1]
+    if [len(row["fragmentHandoffs"]) for row in rows] != expected_handoffs:
+        raise ValueError("Level 4 attribution fragment handoff inventory changed")
+    if [len(row["parentReentryEdges"]) for row in rows] != expected_reentries:
+        raise ValueError("Level 4 attribution fragment re-entry inventory changed")
+    parent_owner = next(owner for owner in database["callGraph"]["owners"]
+                        if owner["id"] == manifest["parent"]["id"])
+    parent_identity = {
+        "qualified": parent_owner["qualified"],
+        "specialization": parent_owner.get("specialization", []),
+        "inlineStack": parent_owner.get("inlineStack", []),
+    }
+    parent_name = function_instance_lean_name(parent_identity)
+    L = [
+        "-- GENERATED FILE: produced by tools/generate_machine_regions.py. DO NOT EDIT.",
+        "import BinaryFv.RiscV.Elfling.Boundary",
+        "import BinaryFv.Zesu.Elflings.GeneratedProgramCfg",
+        "import GeneratedProgram",
+        "",
+        "set_option maxRecDepth 8000",
+        "",
+        "/-! Exact Level 4 dynamic inline attribution boundaries.  The source-derived identities,",
+        "decoded deepest ownership, and CFG determine every list below.  The Lean facts establish",
+        "exact emitted lists and per-edge generated-Program membership/ownership; the Python validator",
+        "independently recomputes complete lists from the production Program and decoded CFG. -/",
+        "",
+        "namespace BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution",
+        "",
+        "open BinaryFv.Binary.Elfling",
+        "open BinaryFv.RiscV.Elfling",
+        "open BinaryFv.Zesu.Elflings.Generated",
+        "open BinaryFv.Zesu.Elflings.Validation",
+        "",
+        "structure AttributionFragmentBoundary where",
+        "  child : FunctionInstanceId",
+        "  ownedExecutionPcs : Array Nat",
+        "  fullExecutionPcs : Array Nat",
+        "  handoffs : Array DirectEdge",
+        "  reentries : Array DirectEdge",
+        "",
+    ]
+    boundary_names = []
+    for row in rows:
+        identity = row["functionInstanceIdentity"]
+        name = function_instance_lean_name(identity)
+        boundary_name = f"{name}_attributionBoundary"
+        boundary_names.append(boundary_name)
+        child = name
+        pairs = lambda edges: ", ".join(
+            f"{{ source := {edge['sourcePc']}, target := {edge['targetPc']} }}" for edge in edges)
+        edge_array = lambda edges: f"(#[{pairs(edges)}] : Array DirectEdge)"
+        pcs = lambda xs: ", ".join(str(x) for x in xs)
+        L.extend([
+            f"noncomputable def {boundary_name} : AttributionFragmentBoundary :=",
+            f"  {{ child := {child}Id, ownedExecutionPcs := #[{pcs(row['ownedExecutionPcs'])}],",
+            f"    fullExecutionPcs := #[{pcs(row['fullExecutionPcs'])}],",
+            f"    handoffs := {edge_array(row['fragmentHandoffs'])},",
+            f"    reentries := {edge_array(row['parentReentryEdges'])} }}",
+            f"",
+            f"theorem {boundary_name}_child : {boundary_name}.child = {child}Id := rfl",
+            f"theorem {boundary_name}_ownedExecutionPcs_exact :",
+            f"    {boundary_name}.ownedExecutionPcs = #[{pcs(row['ownedExecutionPcs'])}] := rfl",
+            f"theorem {boundary_name}_fullExecutionPcs_exact :",
+            f"    {boundary_name}.fullExecutionPcs = #[{pcs(row['fullExecutionPcs'])}] := rfl",
+            f"theorem {boundary_name}_handoffs_exact :",
+            f"    {boundary_name}.handoffs = {edge_array(row['fragmentHandoffs'])} := rfl",
+            f"theorem {boundary_name}_reentries_exact :",
+            f"    {boundary_name}.reentries = {edge_array(row['parentReentryEdges'])} := rfl",
+            f"theorem {boundary_name}_counts :",
+            f"    {edge_array(row['fragmentHandoffs'])}.size = {len(row['fragmentHandoffs'])} ∧",
+            f"    {edge_array(row['parentReentryEdges'])}.size = {len(row['parentReentryEdges'])} := by native_decide",
+            f"theorem {boundary_name}_cfg_and_ownership :",
+            f"    (∀ edge ∈ {edge_array(row['fragmentHandoffs'])},",
+            f"      programContainsEdge generatedProgram edge = true ∧",
+            f"      ownedBy generatedProgram {child} edge.source = true ∧",
+            f"      ownedBy generatedProgram {parent_name} edge.target = true) ∧",
+            f"    (∀ edge ∈ {edge_array(row['parentReentryEdges'])},",
+            f"      programContainsEdge generatedProgram edge = true ∧",
+            f"      ownedBy generatedProgram {parent_name} edge.source = true ∧",
+            f"      ownedBy generatedProgram {child} edge.target = true) := by native_decide",
+            "",
+        ])
+    L.extend([
+        "/-- The four selected direct dynamic decoder identities, in source call-site order. -/",
+        "noncomputable def level4AttributionFragmentBoundaries : Array AttributionFragmentBoundary :=",
+        "  #[" + ", ".join(boundary_names) + "]",
+        "",
+        "theorem level4AttributionFragmentBoundaries_count :",
+        "    level4AttributionFragmentBoundaries.size = 4 := rfl",
+        "def level4AttributionFragmentHandoffCounts : Array Nat := #[7, 8, 4, 5]",
+        "def level4AttributionFragmentReentryCounts : Array Nat := #[3, 3, 1, 1]",
+        "theorem level4AttributionFragmentHandoff_counts :",
+        "    level4AttributionFragmentHandoffCounts = #[7, 8, 4, 5] := rfl",
+        "theorem level4AttributionFragmentReentry_counts :",
+        "    level4AttributionFragmentReentryCounts = #[3, 3, 1, 1] := rfl",
+        "theorem level4AttributionFragmentBoundary_totals :",
+        "    7 + 8 + 4 + 5 = 24 ∧ 3 + 3 + 1 + 1 = 8 := by decide",
+        "",
+        "end BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution",
+        "",
+    ])
+    return "\n".join(L)
 
 
 def operands(instruction: dict) -> list[str]:
@@ -1261,6 +1531,19 @@ def build_flame(database: dict) -> dict:
     address_index = {address: index for index, address in enumerate(all_addresses)}
     by_id = {owner["id"]: owner for owner in call_graph["owners"]}
     checked_by_id = {owner["id"]: owner for owner in database["owners"]}
+    attribution_handoffs = {}
+    attribution_reentries = {}
+    if any(owner["qualified"] == "ssz_raw.decodeRaw" for owner in call_graph["owners"]):
+        attribution_handoffs = {
+            row["id"]: row["fragmentHandoffs"]
+            for row in level4_boundary_manifest(database)["boundaries"]
+            if "fragmentHandoffs" in row
+        }
+        attribution_reentries = {
+            row["id"]: row["parentReentryEdges"]
+            for row in level4_boundary_manifest(database)["boundaries"]
+            if "parentReentryEdges" in row
+        }
     callers: dict[str, list[dict]] = defaultdict(list)
     callees: dict[str, list[dict]] = defaultdict(list)
     for call in call_graph["calls"]:
@@ -1346,6 +1629,8 @@ def build_flame(database: dict) -> dict:
             "callers": callers[owner_id],
             "callees": callees[owner_id],
             "tailDependencies": tail_dependencies,
+            "fragmentHandoffs": [] if synthetic else attribution_handoffs.get(owner_id, []),
+            "parentReentryEdges": [] if synthetic else attribution_reentries.get(owner_id, []),
             "src": None,
         }
         return node, subtree
@@ -1404,6 +1689,7 @@ def main() -> None:
     parser.add_argument("--out-lean", type=pathlib.Path)
     parser.add_argument("--out-flame", type=pathlib.Path)
     parser.add_argument("--out-level4-boundaries", type=pathlib.Path)
+    parser.add_argument("--out-level4-attribution-lean", type=pathlib.Path)
     arguments = parser.parse_args()
     database = build_database(arguments.elf, arguments.program_json, arguments.llvm_objdump)
     validate(database)
@@ -1420,6 +1706,9 @@ def main() -> None:
         arguments.out_level4_boundaries.write_text(
             json.dumps(level4_boundary_manifest(database), indent=2, sort_keys=True) + "\n"
         )
+    if arguments.out_level4_attribution_lean:
+        arguments.out_level4_attribution_lean.parent.mkdir(parents=True, exist_ok=True)
+        arguments.out_level4_attribution_lean.write_text(emit_level4_attribution_lean(database))
 
 
 if __name__ == "__main__":
