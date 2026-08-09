@@ -1035,4 +1035,75 @@ theorem level4_entry_first_read_offset_branch {margs : DecoderMachineArgs} {orig
     0x104d8 0x63 0x6e 0x25 0x05 0x05c#13 18#5 10#5 .BLTU (BitVec.ofNat 64 0x10534) atPc condition
     (pcIn := ⟨level4_entry_first_read_offset_branch_machine_owned, by native_decide⟩)
 
+private theorem level4_read_offset199_execution_subset_decode_raw (pc : BitVec 64)
+    (inside : functionInstanceExecutionPcs generatedProgram
+      functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_199_23 pc) :
+    RegisterWriteStep.decodeRawExecutionPcs pc := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  exact RegionPcs.of_rangesSubsume (by native_decide)
+    (functionInstanceExecutionPcs_iff_ranges.mp inside)
+
+private theorem decoderPreserved_readOffset199_first_writes_disjoint :
+    RegSet.Disjoint decoderPreserved (readOffsetFragmentWrites 0x10534) := by
+  intro r preserved written
+  rcases preserved with ⟨notLink, platform⟩
+  rcases written with bookkeeping | written
+  · exact platformPreserved_disjoint r platform bookkeeping
+  simp at written
+  rcases written with rfl | rfl | rfl | rfl <;> simp [platformPreserved] at platform
+
+/-- The first selected `readOffset` fragment returns to the second reader occurrence while
+retaining the raw decoder's original protected frame. -/
+structure Level4ReadOffset199FirstHandoff {margs : DecoderMachineArgs} {origin before : State}
+    (after : State) (fromStep used : Nat) (frame : Level4DecodeRawParentFrame margs origin before) : Prop where
+  bound : used ≤ 65
+  trace : EnteredFunctionTrace
+    (fun pc => 0x10534 ≤ pc.toNat ∧ pc.toNat ≤ 0x10540 ∧ pc.toNat % 4 = 0)
+    (fun pc => pc = BitVec.ofNat 64 0x10544) (BitVec.ofNat 64 0x10534) fromStep used before after
+  lanes : readOffsetFragmentOutput 0x10534
+    { inputBase := margs.inputBase, bytes := margs.bytes, offset := 2 } after
+  memory : after.mem = before.mem
+  writes : WritesOnlyRegs (readOffsetFragmentWrites 0x10534) before after
+  preserved : frame.PreservedTo after
+
+/-- Consume the reviewed first fi6 reader fragment at its literal entry and transport the
+origin-preserving frame to its exact sibling handoff. -/
+theorem level4_read_offset199_first_fragment {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state) (reader : ReadOffset199Contract)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10534))
+    (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
+    ∃ used after, Level4ReadOffset199FirstHandoff after fromStep used frame := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+  let args : ReadOffsetInlineArgs :=
+    { inputBase := margs.inputBase, bytes := margs.bytes, offset := 2 }
+  have childMachine : DecoderMachinePre
+      (functionInstanceExecutionPcs generatedProgram
+        functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_199_23)
+      (readOffsetMachineArgs args) state := by
+    dsimp [args, readOffsetMachineArgs]
+    exact decoderMachine.restrict level4_read_offset199_execution_subset_decode_raw
+  obtain ⟨used, after, bound, trace, code, memoryBytes, inputPointerAfter, offset, lanes, memory,
+    writes, childMachineAfter, afterRetired⟩ :=
+    reader.covers (0x10534, 0x10540, 0x10544) (by native_decide) args fromStep state
+      ⟨atPc, fileCode, inputMemory, inputPointer, by dsimp [args]; native_decide,
+        by simp [readOffsetFragmentInput],
+        childMachine⟩
+  refine ⟨used, after, ⟨bound, trace, ?_, memory, writes, ?_⟩⟩
+  · simpa [args] using lanes
+  · refine ⟨entry, stackEq, raEq, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
+      rawFrameWritable, rawFrameInputSeparated, ?_, ?_, afterRetired⟩
+    · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
+      simp only [SavedWordBytes] at saved ⊢
+      rw [memory]
+      exact saved
+    · exact (writes.get x2 (by simp [readOffsetFragmentWrites])).trans sp
+    · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory
+      intro index indexBound
+      rw [memory]
+    · rw [memory]
+      exact fileCode
+    · exact decoderMachine.mono
+        (writes.agree decoderPreserved_readOffset199_first_writes_disjoint) afterRetired
+
 end BinaryFv.Zesu.MachineExecution
