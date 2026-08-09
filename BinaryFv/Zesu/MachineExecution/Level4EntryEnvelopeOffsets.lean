@@ -87,6 +87,8 @@ structure Level4EntryLengthHighWordAcceptedHandoff (fromStep : Nat) (origin leaf
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   decodeRawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs after
   retired : RetiredCounterPresent after
+  frame : pre.frame.PreservedTo after
+  linkValue : after.regs.get? x1 = some pre.link
 
 /-- Sail proof of the accepted high-word parent branch.  This is the first parent-owned
 instruction after the selected `requireU32Length` leaf, so it consumes that leaf's exact semantic
@@ -125,8 +127,22 @@ theorem level4_entry_length_high_word_accepts (fromStep : Nat) {before state : S
       (level4EntryLengthHighWordBranchAfter state retired) := by
     simpa only [level4EntryLengthHighWordBranchAfter] using
       jumpRetirement_writes state (BitVec.ofNat 64 0x10490) (BitVec.ofNat 64 0x10498) retired
+  let leafFrame := pre.frame.toState handoff.frame
+  have frame : pre.frame.PreservedTo (level4EntryLengthHighWordBranchAfter state retired) :=
+    leafFrame.preserved_of_register_only branchMemory
+      (branchWrites.get x2 (by simp [stepBookkeeping])) (by rw [branchMemory]; exact handoff.code)
+      (handoff.decodeRawMachine.mono preserved
+        ⟨Sail.BitVec.addInt retired 1, by
+          simp [level4EntryLengthHighWordBranchAfter, tryStepControlFlowAfterRetired,
+            tryStepControlFlowAfterTick]⟩)
+      ⟨Sail.BitVec.addInt retired 1, by
+        simp [level4EntryLengthHighWordBranchAfter, tryStepControlFlowAfterRetired,
+          tryStepControlFlowAfterTick]⟩
+  have linkValue : (level4EntryLengthHighWordBranchAfter state retired).regs.get? x1 =
+      some pre.link := (branchWrites.get x1 (by simp [stepBookkeeping])).trans handoff.linkValue
   refine ⟨level4EntryLengthHighWordBranchAfter state retired,
-    ⟨Trace.one (fromStep + 3) _ _ run, ?_, ?_, ?_, ?_, pre.inputFits, ?_, branchWrites, ?_, ?_, ?_⟩⟩
+    ⟨Trace.one (fromStep + 3) _ _ run, ?_, ?_, ?_, ?_, ?_, pre.inputFits, ?_, branchWrites, ?_, ?_,
+      ?_, frame, linkValue⟩⟩
   · simp [level4EntryLengthHighWordBranchAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -168,6 +184,45 @@ theorem level4EntryEnvelopeHeaderSetupPcs_subset_direct :
 theorem level4EntryEnvelopeHeaderSetupPcs_subset_phase :
     level4EntryEnvelopeHeaderSetupPcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
   native_decide
+
+theorem level4EntryEnvelopeHeaderSetupPcs_subset_decodeRaw (pc : BitVec 64)
+    (member : Level4EntryEnvelopeHeaderSetupPcs pc) :
+    RegisterWriteStep.decodeRawExecutionPcs pc := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  apply RegionPcs.iff_inRanges.mpr
+  simp only [Level4EntryEnvelopeHeaderSetupPcs, level4EntryEnvelopeHeaderSetupPcs,
+    List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with h | h | h | h | h | h
+  · have hp : pc = BitVec.ofNat 64 0x10498 := by
+      apply BitVec.eq_of_toNat_eq
+      simpa using h
+    subst pc
+    native_decide
+  · have hp : pc = BitVec.ofNat 64 0x104a8 := by
+      apply BitVec.eq_of_toNat_eq
+      simpa using h
+    subst pc
+    native_decide
+  · have hp : pc = BitVec.ofNat 64 0x104ac := by
+      apply BitVec.eq_of_toNat_eq
+      simpa using h
+    subst pc
+    native_decide
+  · have hp : pc = BitVec.ofNat 64 0x104b0 := by
+      apply BitVec.eq_of_toNat_eq
+      simpa using h
+    subst pc
+    native_decide
+  · have hp : pc = BitVec.ofNat 64 0x104b4 := by
+      apply BitVec.eq_of_toNat_eq
+      simpa using h
+    subst pc
+    native_decide
+  · have hp : pc = BitVec.ofNat 64 0x104b8 := by
+      apply BitVec.eq_of_toNat_eq
+      simpa using h
+    subst pc
+    native_decide
 
 private theorem level4_entry_header_setup_owned {pc : Nat}
     (member : pc ∈ level4EntryEnvelopeHeaderSetupPcs) :
@@ -309,6 +364,36 @@ private theorem level4_entry_header_setup_static_pointer_step {base state : Stat
     (pcIn := ⟨level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs]),
       by native_decide⟩)
 
+/-- Semantic cases owned by the parent at the two branches guarding the ordinary header reader.
+The ordinary case packages all facts consumed by the six-instruction setup; callers case-split on
+this value instead of passing branch outcomes as unrelated theorem premises. -/
+structure Level4EntryOrdinaryHeaderDecision (margs : DecoderMachineArgs) : Prop where
+  lengthAccepted : meaningRequireU32Length margs.bytes = .ok ()
+  inputAtLeastTwo : 2 ≤ margs.bytes.size
+  ordinaryInput : BitVec.ofNat 64 margs.inputBase ≠ BitVec.ofNat 64 0x142e0
+
+inductive Level4EntryParentRouteDecision (margs : DecoderMachineArgs) : Type where
+  | lengthRejected (rejected : meaningRequireU32Length margs.bytes ≠ .ok ())
+  | headerTooShort (accepted : meaningRequireU32Length margs.bytes = .ok ())
+      (short : margs.bytes.size < 2)
+  | staticInput (accepted : meaningRequireU32Length margs.bytes = .ok ())
+      (inputAtLeastTwo : 2 ≤ margs.bytes.size)
+      (static : BitVec.ofNat 64 margs.inputBase = BitVec.ofNat 64 0x142e0)
+  | ordinaryHeader (decision : Level4EntryOrdinaryHeaderDecision margs)
+
+/-- Total semantic decision corresponding to the emitted high-word, length, and static-input
+branches.  Each route receives exactly the facts established by its branch case. -/
+noncomputable def level4EntryParentRouteDecision (margs : DecoderMachineArgs) :
+    Level4EntryParentRouteDecision margs := by
+  classical
+  by_cases accepted : meaningRequireU32Length margs.bytes = .ok ()
+  · by_cases twoBytes : 2 ≤ margs.bytes.size
+    · by_cases static : BitVec.ofNat 64 margs.inputBase = BitVec.ofNat 64 0x142e0
+      · exact .staticInput accepted twoBytes static
+      · exact .ordinaryHeader ⟨accepted, twoBytes, static⟩
+    · exact .headerTooShort accepted (by omega)
+  · exact .lengthRejected accepted
+
 structure Level4EntryEnvelopeHeaderSetupPre (margs : DecoderMachineArgs) (state : State) where
   decodeRawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs state
   machine : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs state
@@ -324,6 +409,29 @@ structure Level4EntryEnvelopeHeaderSetupPre (margs : DecoderMachineArgs) (state 
   linkValue : state.regs.get? x1 = some link
   ordinaryInput : BitVec.ofNat 64 margs.inputBase ≠ BitVec.ofNat 64 0x142e0
   retired : RetiredCounterPresent state
+
+/-- The accepted high-word handoff and the parent's ordinary-route decision construct the exact
+precondition for the six parent-owned setup instructions. -/
+def level4EntryEnvelopeHeaderSetupPre_of_ordinary
+    {margs : DecoderMachineArgs} {fromStep : Nat} {origin leafState state : State}
+    {pre : Level4RequireU32LengthPre margs origin}
+    (high : Level4EntryLengthHighWordAcceptedHandoff fromStep origin leafState state pre)
+    (decision : Level4EntryOrdinaryHeaderDecision margs) :
+    Level4EntryEnvelopeHeaderSetupPre margs state where
+  decodeRawMachine := high.decodeRawMachine
+  machine := high.decodeRawMachine.restrict level4EntryEnvelopeHeaderSetupPcs_subset_decodeRaw
+  code := high.code
+  atPc := high.pc
+  resultTag := high.preparedInvalidSszTag
+  inputBase := high.inputBase
+  inputLength := high.inputLength
+  inputLengthFits := pre.lengthFits
+  inputFits := high.inputFits
+  inputAtLeastTwo := decision.inputAtLeastTwo
+  link := pre.link
+  linkValue := high.linkValue
+  ordinaryInput := decision.ordinaryInput
+  retired := high.retired
 
 structure Level4EntryEnvelopeHeaderSetupHandoff (fromStep : Nat) (before after : State)
     (pre : Level4EntryEnvelopeHeaderSetupPre margs before) : Prop where
@@ -444,6 +552,37 @@ theorem level4_entry_envelope_header_setup
     exact pre.code
   · exact pre.decodeRawMachine.mono
       (seg6.agree decoderPreserved_level4EntryEnvelopeHeaderSetupWrites_disjoint) seg6.retired
+
+/-- Composed parent handoff from the selected `requireU32Length` exit through the accepted
+high-word branch and all six ordinary-header setup instructions. -/
+structure Level4EntryOrdinaryHeaderHandoff (fromStep : Nat)
+    (origin leafState highState after : State)
+    (pre : Level4RequireU32LengthPre margs origin)
+    (decision : Level4EntryOrdinaryHeaderDecision margs) : Prop where
+  high : Level4EntryLengthHighWordAcceptedHandoff (fromStep + 3) origin leafState highState pre
+  setup : Level4EntryEnvelopeHeaderSetupHandoff (fromStep + 4) highState after
+    (level4EntryEnvelopeHeaderSetupPre_of_ordinary high decision)
+  trace : Trace (fromStep + 3) 7 leafState after
+  frame : pre.frame.PreservedTo after
+
+/-- Execute the complete typed ordinary-header parent route.  The only semantic input is the
+named result of `level4EntryParentRouteDecision`; no branch fact is supplied separately. -/
+theorem level4_entry_ordinary_header_route (fromStep : Nat) {before leafState : State}
+    (pre : Level4RequireU32LengthPre margs before)
+    (leaf : Level4RequireU32LengthHandoff fromStep before leafState pre)
+    (decision : Level4EntryOrdinaryHeaderDecision margs) :
+    ∃ highState after,
+      Level4EntryOrdinaryHeaderHandoff fromStep before leafState highState after pre decision := by
+  obtain ⟨highState, high⟩ :=
+    level4_entry_length_high_word_accepts fromStep pre leaf decision.lengthAccepted
+  let setupPre := level4EntryEnvelopeHeaderSetupPre_of_ordinary high decision
+  obtain ⟨after, setup⟩ := level4_entry_envelope_header_setup setupPre (fromStep + 4)
+  let highFrame := pre.frame.toState high.frame
+  have frame : pre.frame.PreservedTo after :=
+    highFrame.preserved_of_register_only setup.memory
+      (setup.writes.get x2 (by simp [level4EntryEnvelopeHeaderSetupWrites])) setup.code
+      setup.decodeRawMachine setup.retired
+  exact ⟨highState, after, ⟨high, setup, Trace.append high.trace setup.trace, frame⟩⟩
 
 /-! ## First ordinary-input header byte -/
 

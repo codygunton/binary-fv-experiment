@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.MachineExecution.Level4DecodeRawPrologueSteps
+import BinaryFv.Zesu.MachineExecution.Level4DecodeRawParentInvariant
 import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.OwnedPc
 import BinaryFv.Zesu.MachineExecution.Seg
@@ -142,6 +142,10 @@ structure Level4RequireU32LengthPre (margs : DecoderMachineArgs) (state : State)
   lengthValue : state.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
   lengthFits : margs.bytes.size < 2 ^ 64
   inputFits : margs.inputBase + margs.bytes.size ≤ 2 ^ 64
+  origin : State
+  frame : Level4DecodeRawParentFrame margs origin state
+  link : BitVec 64
+  linkValue : state.regs.get? x1 = some link
 
 /-- Convert the concrete emitted-entry handoff into the selected `requireU32Length` leaf prestate.
 The result slot and borrowed input values come from the caller's compiled `decodeRaw` entry and
@@ -161,6 +165,11 @@ def level4RequireU32LengthPre_of_prologue {margs : DecoderMachineArgs} {fromStep
   lengthValue := handoff.inputLength
   lengthFits := handoff.lengthFits
   inputFits := pre.inputFits
+  origin := before
+  frame := Level4DecodeRawParentFrame.of_entryEnvelopeHandoff handoff
+  link := pre.ra
+  linkValue := (handoff.writes.get x1 (by simp [level4DecodeRawEntryPrologueWrites])).trans
+    pre.raValue
 
 private def level4RequireU32LengthMachine (pre : Level4RequireU32LengthPre margs state) :
     DecoderMachinePre Level4RequireU32LengthPcs margs state :=
@@ -189,6 +198,8 @@ structure Level4RequireU32LengthHandoff (fromStep : Nat) (before after : State)
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   decodeRawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs after
   retired : RetiredCounterPresent after
+  frame : pre.frame.PreservedTo after
+  linkValue : after.regs.get? x1 = some pre.link
 
 private theorem level4_require_u32_length_srli_step {base state : State}
     (machine : DecoderMachinePre Level4RequireU32LengthPcs margs base)
@@ -294,11 +305,19 @@ theorem level4_require_u32_length
     seg3.reg x12 (BitVec.ofNat 64 margs.inputBase) (by simp)
   have inputLength : after.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size) :=
     seg3.reg x13 (BitVec.ofNat 64 margs.bytes.size) (by simp)
+  have frame : pre.frame.PreservedTo after :=
+    pre.frame.preserved_of_register_only (seg3.memEq noMemory_empty)
+      (seg3.writes.get x2 (by simp [level4RequireU32LengthWrites])) code3
+      (pre.decodeRawMachine.mono
+        (seg3.agree decoderPreserved_level4RequireU32LengthWrites_disjoint) seg3.retired)
+      seg3.retired
+  have linkValue : after.regs.get? x1 = some pre.link :=
+    (seg3.writes.get x1 (by simp [level4RequireU32LengthWrites])).trans pre.linkValue
   refine ⟨after, ⟨seg3.trace, seg3.confined, seg3.writes, seg3.memEq noMemory_empty, seg3.atPc,
     high, result, tag, inputBase, inputLength, ?_, code3,
     pre.decodeRawMachine.mono
       (seg3.agree decoderPreserved_level4RequireU32LengthWrites_disjoint) seg3.retired,
-    seg3.retired⟩⟩
+    seg3.retired, frame, linkValue⟩⟩
   rw [level4RequireU32Length_semantics margs.bytes pre.lengthFits]
   constructor
   · intro h

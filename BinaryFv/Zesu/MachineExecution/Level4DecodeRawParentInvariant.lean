@@ -100,6 +100,29 @@ def Level4DecodeRawParentFrame.toState (frame : Level4DecodeRawParentFrame margs
     savedS11 := frame.savedS11
     invariant := preserved }
 
+/-- A register-only parent segment preserves the raw decoder's protected frame when it also
+retains `sp` and supplies the transported machine/code/counter facts. -/
+theorem Level4DecodeRawParentFrame.preserved_of_register_only
+    (frame : Level4DecodeRawParentFrame margs origin before)
+    (memory : after.mem = before.mem)
+    (sp : after.regs.get? x2 = before.regs.get? x2)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem)
+    (machine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs after)
+    (retired : RetiredCounterPresent after) : frame.PreservedTo after := by
+  obtain ⟨entry, stack, ra, saved, stackPointer, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, _, _, _⟩ :=
+    frame.invariant
+  refine ⟨entry, stack, ra, ?_, ?_, ?_, inputStackSeparated, stackFrameWritable,
+    rawFrameWritable, rawFrameInputSeparated, postStackAligned, code, machine, retired⟩
+  · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
+    simp only [SavedWordBytes] at saved ⊢
+    rw [memory]
+    exact saved
+  · exact sp.trans stackPointer
+  · rw [DecodedValue.MemoryBytes] at inputMemory ⊢
+    rw [memory]
+    exact inputMemory
+
 /-- The exact 16-step raw-decoder prologue constructs the protected frame once.  Every later
 fragment/re-entry receives this object with `before` fixed as its semantic origin. -/
 def Level4DecodeRawParentFrame.of_entryEnvelopeHandoff
