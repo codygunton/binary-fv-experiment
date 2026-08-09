@@ -28,6 +28,11 @@ def level4RawNewPayloadRequestDeinitSaveMemory (postStack : Nat) : Region := fun
   (postStack - 0x50 + 0x40 ≤ address ∧ address < postStack - 0x50 + 0x48) ∨
   (postStack - 0x50 + 0x38 ≤ address ∧ address < postStack - 0x50 + 0x40)
 
+/-- The child-save slots together with the two argument slots written before the first nested call. -/
+def level4RawNewPayloadRequestDeinitCallMemory (postStack : Nat) : Region := fun address =>
+  level4RawNewPayloadRequestDeinitSaveMemory postStack address ∨
+    (postStack - 0x50 + 8 ≤ address ∧ address < postStack - 0x50 + 0x18)
+
 /-- Current parent facts at the selected excluded-region entry. -/
 structure Level4RawNewPayloadRequestDeinitPre {margs : DecoderMachineArgs} {origin current : State}
     (frame : Level4DecodeRawParentFrame margs origin current) : Prop where
@@ -74,6 +79,18 @@ private theorem decoderPreserved_level4RawNewPayloadRequestDeinitWrites_disjoint
   rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl
   · exact platformPreserved_disjoint r platform bookkeeping
   all_goals simp [platformPreserved] at platform
+
+private theorem level4_rawNewPayloadRequestDeinit_widen_seg_memory
+    {M wider : Region} {kv : List RegVal} {fromStep length : Nat} {before after : State}
+    {pc : BitVec 64}
+    (sub : ∀ address, M address → wider address)
+    (seg : Seg Level4RawNewPayloadRequestDeinitPcs Level4RawNewPayloadRequestDeinitExit
+      Level4RawNewPayloadRequestDeinitChildSummary level4RawNewPayloadRequestDeinitWrites M kv
+      fromStep length before after pc) :
+    Seg Level4RawNewPayloadRequestDeinitPcs Level4RawNewPayloadRequestDeinitExit
+      Level4RawNewPayloadRequestDeinitChildSummary level4RawNewPayloadRequestDeinitWrites wider kv
+      fromStep length before after pc :=
+  { seg with mem := fun address outside => seg.mem address (fun owned => outside (sub address owned)) }
 
 private theorem level4_rawNewPayloadRequestDeinit_slot_writable
     (entry : Level4DecodeRawEntryProloguePre margs origin) {offset index : Nat}
