@@ -1834,7 +1834,6 @@ structure Level4ReadOffsetPrefixTo105c4Handoff {margs : DecoderMachineArgs} {ori
     { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 } after
   offset14 : readOffsetFragmentOutput 0x105a0
     { inputBase := margs.inputBase, bytes := margs.bytes, offset := 14 } after
-  inputContainsOffsets : 18 ≤ margs.bytes.size
   inputPointer : after.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)
   preserved : frame.PreservedTo after
 
@@ -1845,8 +1844,7 @@ theorem level4_read_offset_prefix_to105c4 {margs : DecoderMachineArgs} {origin s
     (reader200 : ReadOffset200Contract) (reader201 : ReadOffset201Contract)
     (reader202 : ReadOffset202Contract)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10534))
-    (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase))
-    (inputContainsOffsets : 18 ≤ margs.bytes.size) (fromStep : Nat) :
+    (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
     ∃ used after, Level4ReadOffsetPrefixTo105c4Handoff after fromStep used frame := by
   obtain ⟨prefixUsed, afterPrefix, prefixTrace, at200, fi199Partials, fi200Lanes, fi201Lanes,
     prefixInput, prefixPreserved⟩ :=
@@ -1904,7 +1902,7 @@ theorem level4_read_offset_prefix_to105c4 {margs : DecoderMachineArgs} {origin s
     all_goals exact (fi9.writes.get _ (by simp [readOffsetFragmentWrites])).trans (by assumption)
   refine ⟨prefixUsed + fi7Used + fi8Used + fi9Used, after, ?_,
     by simpa [reachedFinal] using atAfter, fi199Final, fi200Final, fi201Final, fi9.lanes,
-    inputContainsOffsets, fi9.inputPointer, fi9.preserved⟩
+    fi9.inputPointer, fi9.preserved⟩
   have fi7Trace : Trace (fromStep + prefixUsed) fi7Used afterPrefix afterFi7 :=
     FunctionTrace.toTrace fi7.trace.trace
   have prefixToFi7 : Trace fromStep (prefixUsed + fi7Used) state afterFi7 := by
