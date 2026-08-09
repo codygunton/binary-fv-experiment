@@ -137,24 +137,18 @@ def Level4ExecutionWitnessRejectionPhase
     state.regs.get? x9 = some (BitVec.ofNat 64 2) ∧ frame.PreservedTo state
 
 /-- The generated `decodeExecutionWitness` H route `0x12730 → 0x12734` is resolved by one actual
-parent Sail step into the typed rejection phase.  `listed` is the finite route evidence threaded
-through `ParentRouteProvider`; the eventual provider's route enumeration supplies `routeEq`. -/
+parent Sail step into the typed rejection phase.  The enclosing exhaustive provider consumes finite
+route membership to establish `routeEq` before invoking this route-specific theorem. -/
 theorem level4_executionWitness_route_75568_75572_phase_decision
     {margs : DecoderMachineArgs} {origin initial current handoff : State}
     (frame : Level4DecodeRawParentFrame margs origin initial) (args : ContainerArgs)
     (rank : State → Nat) (fromStep : Nat)
     (progress : Level4HandoffProgress decodeExecutionWitnessInterface args origin fromStep current handoff)
-    (listed : progress.route ∈ decodeExecutionWitnessInterface.carrierRoutes)
     (_currentProtected : frame.PreservedTo current) (handoffProtected : frame.PreservedTo handoff)
     (routeEq : progress.route =
       functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572) :
     ParentRouteDecision decodeExecutionWitnessInterface args origin frame.PreservedTo
       (Level4ExecutionWitnessRejectionPhase frame) rank fromStep current handoff progress := by
-  have routeListed :
-      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572 ∈
-        decodeExecutionWitnessInterface.carrierRoutes := by
-    rw [← routeEq]
-    exact listed
   have atHandoff : handoff.regs.get? PC = some (BitVec.ofNat 64 0x12734) := by
     have target := progress.atTarget
     rw [routeEq] at target
