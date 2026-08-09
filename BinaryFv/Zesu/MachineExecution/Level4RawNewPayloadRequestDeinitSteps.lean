@@ -657,6 +657,49 @@ private theorem level4_rawNewPayloadRequestDeinit_load_a1_step {margs : DecoderM
       targetToNat.symm word aligned readable)
     (by rw [level4_rawNewPayloadRequestDeinit_extend_value_dword]; exact wX_x11_run _ _)
 
+/-- Sail executes the literal `sd a0, 8(sp)` at `0x1320c`. -/
+theorem level4_rawNewPayloadRequestDeinit_store_a0_step {margs : DecoderMachineArgs}
+    {base state : State} {value : BitVec 64}
+    (machine : DecoderMachinePre Level4RawNewPayloadRequestDeinitPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo childBase : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1320c))
+    (spValue : state.regs.get? x2 = some (BitVec.ofNat 64 childBase))
+    (a0Value : state.regs.get? x10 = some value) (fits : childBase + 0x10 ≤ 2 ^ 64)
+    (writable : ∀ index, index < 8 → canonicalContractParams.env.stack (childBase + 8 + index))
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr (BitVec.ofNat 64 (childBase + 8))) 8 = true) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterMemoryWrite state (BitVec.ofNat 64 0x1320c) stepRetired (childBase + 8)
+        (width := 8) value) false := by
+  have targetToNat : (BitVec.ofNat 64 (childBase + 8)).toNat = childBase + 8 := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
+    omega
+  have targetEq : BitVec.ofNat 64 childBase + sign_extend (m := 64) 0x008#12 =
+      BitVec.ofNat 64 (childBase + 8) := by
+    rw [show sign_extend (m := 64) 0x008#12 = BitVec.ofNat 64 8 by decide,
+      ← BitVec.ofNat_add]
+  have allowed : DecoderAccessRange DecoderWritableByte (BitVec.ofNat 64 (childBase + 8)) 8 := by
+    refine ⟨by decide, ?_, ?_⟩
+    · rw [targetToNat]
+      omega
+    · intro index indexBound
+      rw [targetToNat]
+      exact Or.inl (writable index indexBound)
+  obtain ⟨stepRetired, run⟩ := decoderStoreDwordStep machine agree retired code stepNo
+    0x1320c 0x23 0x34 0xa1 0x00 0x008#12 10#5 2#5 (BitVec.ofNat 64 childBase) value
+    (BitVec.ofNat 64 (childBase + 8)) atPc
+    (rX_x2_run _ _ (decoderExecuteState_get? spValue))
+    (rX_x10_run _ _ (decoderExecuteState_get? a0Value)) targetEq allowed
+    ⟨by
+      change ∃ range : BinaryFv.Binary.AddressRange,
+        range ∈ excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.regions ∧
+          range.start ≤ 78348 ∧ 78348 < range.stop
+      exact ⟨{ start := 78316, size := 180 }, by native_decide, by decide, by decide⟩,
+      by native_decide⟩
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    (by decoder_decode) (by unfold BaseInstructionEncoding; decide) aligned
+  exact ⟨stepRetired, by simpa [afterMemoryWrite, targetToNat] using run⟩
+
 private theorem level4_rawNewPayloadRequestDeinit_allocator_pair_through_saves
     {before after : State} {postStack pointer first second : Nat}
     (memory : WritesOnlyWithin (level4RawNewPayloadRequestDeinitSaveMemory postStack) before after)
