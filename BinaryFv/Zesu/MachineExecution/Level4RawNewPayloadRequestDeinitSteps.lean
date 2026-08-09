@@ -28,6 +28,54 @@ structure Level4RawNewPayloadRequestDeinitPre {margs : DecoderMachineArgs} {orig
   sp : current.regs.get? x2 = some (BitVec.ofNat 64 (frame.stack - 0x690))
   preservation : frame.PreservedTo current
 
+/-- Exact union of the three eight-byte child-save slots. -/
+def level4RawNewPayloadRequestDeinitSaveMemory (postStack : Nat) : Region := fun address =>
+  (postStack - 0x50 + 0x48 ≤ address ∧ address < postStack - 0x50 + 0x50) ∨
+  (postStack - 0x50 + 0x40 ≤ address ∧ address < postStack - 0x50 + 0x48) ∨
+  (postStack - 0x50 + 0x38 ≤ address ∧ address < postStack - 0x50 + 0x40)
+
+private theorem level4_rawNewPayloadRequestDeinit_slot_writable
+    (entry : Level4DecodeRawEntryProloguePre margs origin) {offset index : Nat}
+    (slot : offset + 8 ≤ 0x50) (indexBound : index < 8) :
+    canonicalContractParams.env.stack (entry.postStack - 0x50 + offset + index) := by
+  rw [show entry.postStack - 0x50 + offset + index =
+    entry.postStack - 0x50 + (offset + index) by omega]
+  apply entry.nestedCallFrameWritable
+  omega
+
+private theorem level4_rawNewPayloadRequestDeinit_slot_fits
+    (entry : Level4DecodeRawEntryProloguePre margs origin) {offset : Nat}
+    (slot : offset + 8 ≤ 0x50) : entry.postStack - 0x50 + offset + 8 ≤ 2 ^ 64 := by
+  have stackFits := entry.stackFits
+  have postStackFits := entry.nestedCallFrameFits
+  rw [entry.postStackEq] at stackFits
+  have childFits : entry.postStack - 0x50 + 0x50 = entry.postStack := by
+    omega
+  omega
+
+private theorem level4_rawNewPayloadRequestDeinit_slot_aligned
+    (entry : Level4DecodeRawEntryProloguePre margs origin) {offset : Nat}
+    (slot : offset + 8 ≤ 0x50) (offsetAligned : offset % 8 = 0) :
+    is_aligned_vaddr (virtaddr.Virtaddr
+      (BitVec.ofNat 64 (entry.postStack - 0x50 + offset))) 8 = true := by
+  have addressFits : entry.postStack - 0x50 + offset < 2 ^ 64 := by
+    have stackFits := entry.stackFits
+    have postStackFits := entry.nestedCallFrameFits
+    rw [entry.postStackEq] at stackFits
+    omega
+  have baseAligned : (entry.postStack - 0x50) % 8 = 0 := by
+    apply Nat.mod_eq_zero_of_dvd
+    exact Nat.dvd_sub
+      (Nat.dvd_trans (by decide) (Nat.dvd_of_mod_eq_zero entry.postStackAligned)) (by decide)
+  have addressAligned : (entry.postStack - 0x50 + offset) % 8 = 0 := by
+    apply Nat.mod_eq_zero_of_dvd
+    apply Nat.dvd_add
+    · exact Nat.dvd_of_mod_eq_zero baseAligned
+    · exact Nat.dvd_of_mod_eq_zero offsetAligned
+  simp only [is_aligned_vaddr, Sail.BitVec.toNatInt, BitVec.toNat_ofNat]
+  rw [Nat.mod_eq_of_lt addressFits]
+  simp [Int.tmod, addressAligned]
+
 /-- Sail executes the literal `addi sp, sp, -0x50` at excluded:3's entry.  The result is left in
 instruction-class form here; the following save steps consume it as their concrete stack base. -/
 theorem level4_rawNewPayloadRequestDeinit_stack_step
