@@ -903,6 +903,14 @@ private theorem decodeExecutionWitness_75568_75668_intermediate :
     (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668).classification =
       .intermediate := by rfl
 
+private theorem decodeExecutionWitness_75548_75552_intermediate :
+    (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552).classification =
+      .intermediate := by rfl
+
+private theorem decodeExecutionWitness_76036_76040_intermediate :
+    (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76036_76040).classification =
+      .intermediate := by rfl
+
 /-- A finite ranking of the generated initial/R entry states.  Only the three intermediate routes
 consume it; carrier and unclassified routes resolve without recursive use of the rank. -/
 def decodeExecutionWitnessContinuationRank (state : State) : Nat :=
@@ -947,6 +955,83 @@ theorem not_decodeExecutionWitnessAdmissibleStart_75568_75668_at_entry
         ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) fourth.1).trans
           decodeExecutionWitness_76064_76068_target))
   · cases decodeExecutionWitness_75568_75668_intermediate.symm.trans reviewed
+
+/-- The first intermediate parent corridor is selected only at the emitted decoder entry. -/
+theorem decodeExecutionWitness_admissibleStart_75548_75552
+    {args : ContainerArgs} {state : State}
+    (admissible : decodeExecutionWitnessAdmissibleStart args state
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552) :
+    decodeExecutionWitnessEntry args state := by
+  rcases admissible with first | second | third | fourth | reviewed
+  · exact first.2
+  · exfalso
+    exact (by decide : ¬ (0x12720 : Nat) = 0x12794)
+      (decodeExecutionWitness_75548_75552_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) second.1).trans
+          decodeExecutionWitness_75568_75668_target))
+  · exfalso
+    exact (by decide : ¬ (0x12720 : Nat) = 0x12908)
+      (decodeExecutionWitness_75548_75552_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) third.1).trans
+          decodeExecutionWitness_76036_76040_target))
+  · exfalso
+    exact (by decide : ¬ (0x12720 : Nat) = 0x12924)
+      (decodeExecutionWitness_75548_75552_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) fourth.1).trans
+          decodeExecutionWitness_76064_76068_target))
+  · cases decodeExecutionWitness_75548_75552_intermediate.symm.trans reviewed
+
+/-- The second intermediate parent corridor is selected only after r1's typed R token. -/
+theorem decodeExecutionWitness_admissibleStart_75568_75668
+    {args : ContainerArgs} {state : State}
+    (admissible : decodeExecutionWitnessAdmissibleStart args state
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668) :
+    decodeExecutionWitnessReentryToken
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552 args state := by
+  rcases admissible with first | second | third | fourth | reviewed
+  · exfalso
+    exact (by decide : ¬ (0x12794 : Nat) = 0x12720)
+      (decodeExecutionWitness_75568_75668_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) first.1).trans
+          decodeExecutionWitness_75548_75552_target))
+  · exact second.2
+  · exfalso
+    exact (by decide : ¬ (0x12794 : Nat) = 0x12908)
+      (decodeExecutionWitness_75568_75668_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) third.1).trans
+          decodeExecutionWitness_76036_76040_target))
+  · exfalso
+    exact (by decide : ¬ (0x12794 : Nat) = 0x12924)
+      (decodeExecutionWitness_75568_75668_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) fourth.1).trans
+          decodeExecutionWitness_76064_76068_target))
+  · cases decodeExecutionWitness_75568_75668_intermediate.symm.trans reviewed
+
+/-- The third intermediate parent corridor is selected only after r3's typed R token. -/
+theorem decodeExecutionWitness_admissibleStart_76036_76040
+    {args : ContainerArgs} {state : State}
+    (admissible : decodeExecutionWitnessAdmissibleStart args state
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76036_76040) :
+    decodeExecutionWitnessReentryToken
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668 args state := by
+  rcases admissible with first | second | third | fourth | reviewed
+  · exfalso
+    exact (by decide : ¬ (0x12908 : Nat) = 0x12720)
+      (decodeExecutionWitness_76036_76040_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) first.1).trans
+          decodeExecutionWitness_75548_75552_target))
+  · exfalso
+    exact (by decide : ¬ (0x12908 : Nat) = 0x12794)
+      (decodeExecutionWitness_76036_76040_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) second.1).trans
+          decodeExecutionWitness_75568_75668_target))
+  · exact third.2
+  · exfalso
+    exact (by decide : ¬ (0x12908 : Nat) = 0x12924)
+      (decodeExecutionWitness_76036_76040_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) fourth.1).trans
+          decodeExecutionWitness_76064_76068_target))
+  · cases decodeExecutionWitness_76036_76040_intermediate.symm.trans reviewed
 
 noncomputable def decodeExecutionWitnessInterface :
     Level4DynamicFunctionInterface ContainerArgs
