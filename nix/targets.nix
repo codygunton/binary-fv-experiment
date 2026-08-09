@@ -875,6 +875,23 @@ let
     '';
   };
 
+  # Unit/corruption gate for the Level 4 production-evidence runner.  The runner's actual ELF
+  # invocation takes the hierarchy stream's reviewed 18-boundary inventory as an explicit input;
+  # this target keeps its schema and mutation checks independently executable until that generated
+  # inventory is integrated.
+  level4EvidenceTests = pkgs.runCommand "zesu-level4-contract-evidence-tests" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    cp -R ${builtins.path {
+      path = repo + "/verification-target/zesu/tests";
+      name = "zesu-level4-contract-evidence-tests";
+    }} tests
+    chmod -R u+w tests
+    python3 tests/level4_contract_evidence_test.py
+    mkdir -p "$out"
+    printf '%s\n' passed > "$out/passed"
+  '';
+
   zesuSszRun = pkgs.writeShellApplication {
     name = "zesu-ssz";
     runtimeInputs = [ pkgs.qemu-user ];
@@ -899,6 +916,7 @@ in
       elflingGeneratorDefectsCheck
       sszBinaryEvidence
       sszScaleEvidence
+      level4EvidenceTests
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -917,6 +935,7 @@ in
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;
     ssz-binary-evidence = sszBinaryEvidence;
     ssz-scale-evidence = sszScaleEvidence;
+    ssz-level4-contract-evidence-tests = level4EvidenceTests;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;

@@ -15,6 +15,7 @@ let
       elflingGeneratorDefectsCheck
       sszBinaryEvidence
       sszScaleEvidence
+      level4EvidenceTests
       zesuSinkObservability
       zesuSsz
       zesuValue;
@@ -43,4 +44,3 @@ in
 {
   inherit apps checks;
 }
-

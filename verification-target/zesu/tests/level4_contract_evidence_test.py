@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Focused unit and corruption tests for Level 4 empirical evidence."""
+
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+import level4_contract_evidence as evidence
+
+
+def inventory(*, count: int = 18, families: int = 15) -> dict:
+    rows = []
+    for index in range(count):
+        rows.append({
+            "id": f"boundary-{index}",
+            "kind": "inlined",
+            "qualified": f"ssz_raw.family{index % families}",
+            "entryPc": 0x1000 + index * 0x10,
+            "instructionPcs": [0x1000 + index * 0x10, 0x1004 + index * 0x10],
+            "exits": [0x1004 + index * 0x10],
+            "parent": "ssz_raw.decodeRaw",
+            "functionInstanceIdentity": f"functionInstance_{index}",
+        })
+    return {"schemaVersion": 1, "boundaries": rows}
+
+
+class InventoryTests(unittest.TestCase):
+    def load(self, document: dict) -> tuple[evidence.Boundary, ...]:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "inventory.json"
+            path.write_text(json.dumps(document))
+            return evidence.load_inventory(path)
+
+    def test_accepts_reviewed_18_by_15_shape(self) -> None:
+        boundaries = self.load(inventory())
+        self.assertEqual(len(boundaries), 18)
+        self.assertEqual(len({boundary.qualified for boundary in boundaries}), 15)
+
+    def test_rejects_stale_eight_boundary_shape(self) -> None:
+        with self.assertRaisesRegex(ValueError, "expected 18"):
+            self.load(inventory(count=8, families=5))
+
+    def test_rejects_wrong_family_count(self) -> None:
+        with self.assertRaisesRegex(ValueError, "expected 15"):
+            self.load(inventory(families=14))
+
+    def test_rejects_entry_not_owned(self) -> None:
+        document = inventory()
+        document["boundaries"][0]["instructionPcs"] = [0x1004]
+        with self.assertRaisesRegex(ValueError, "include its entry"):
+            self.load(document)
+
+
+class ObservationTests(unittest.TestCase):
+    boundary = evidence.Boundary("x", "inlined", "ssz_raw.x", 4, (4, 8), (8,), "decodeRaw", None)
+
+    def test_observation_records_entry_exit_and_writes(self) -> None:
+        record = evidence.observation(self.boundary, [0, 4, 8], [{"pc": 8, "width": 8, "sp": 7}])
+        self.assertEqual(evidence.validate_observation(self.boundary, record), [])
+        self.assertEqual(record["observedWrites"], [{"pc": 8, "width": 8, "sp": 7}])
+
+    def test_each_measurable_clause_mutation_is_rejected(self) -> None:
+        record = evidence.observation(self.boundary, [4, 8], [])
+        self.assertEqual(evidence.mutation_checks(self.boundary, record), {
+            "entry": True, "exit": True, "instruction-count": True,
+        })
+
+    def test_trace_parser_ignores_loads_and_keeps_stores(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "trace"
+            trace.write_text("E 4\nL 4 99 8 1\nS 8 100 8 2 3\n")
+            self.assertEqual(evidence.parse_trace(trace), ([4], [{"pc": 8, "address": 100, "width": 8, "value": 2, "sp": 3}]))
+
+
+if __name__ == "__main__":
+    unittest.main()
