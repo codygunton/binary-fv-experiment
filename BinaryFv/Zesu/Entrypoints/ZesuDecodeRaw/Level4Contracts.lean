@@ -129,22 +129,51 @@ def Level4FunctionInstanceInterface.BoundedImplements {Args Outcome : Type}
         (functionInstanceEntryWord interface.functionInstance) fromStep used before after ∧
         interface.exit args (interface.spec.meaning args) before after
 
-/-- The dynamic assumptions range over the accepted recursive subtree geometry.  Carrier routes
-classified as source-reviewed outcomes are obligations for the later fi6 proof; intermediate and
-unclassified routes remain progress transitions, never semantic terminals. -/
+/-- A child fragment returns a generated route key at its parent-owned handoff target.  The parent
+uses that key to execute a re-entry or the audited carrier path; it is not a semantic terminal. -/
+structure Level4HandoffProgress {Args Outcome : Type}
+    (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args) (state : State) where
+  route : AttributionOutcomeCarrierRoute
+  child : route.child = interface.functionInstance.id
+  handoff : route.handoff ∈ interface.boundary.handoffs
+  atTarget : state.regs.get? PC = some (BitVec.ofNat 64 route.handoff.target)
+  recursiveFrames : interface.boundary.callFrames.size > 0
+  reentryGeometry : interface.boundary.reentries.size > 0
+
+def Level4DynamicFunctionInterface.RecursiveTransitionGeometry {Args Outcome : Type}
+    (interface : Level4DynamicFunctionInterface Args Outcome) : Prop :=
+  (∀ frame ∈ interface.boundary.callFrames,
+    frame.activeCalleeExecutionPcs.size > 0 ∧
+      (∀ obligation ∈ frame.returnObligations,
+        obligation.callSource = frame.source.getD obligation.callSource ∧
+          obligation.calleeTarget = frame.target)) ∧
+  (∀ edge ∈ interface.boundary.reentries, edge.target ∈ interface.boundary.ownedExecutionPcs)
+
+/-- A fi6 continuation consumes a source-reviewed route only after executing its generated carrier
+path to the recorded carrier PC; allocation and representation fields remain explicit obligations. -/
+def Level4DynamicFunctionInterface.CarrierObligation {Args Outcome : Type}
+    (interface : Level4DynamicFunctionInterface Args Outcome) (args : Args)
+    (route : AttributionOutcomeCarrierRoute) (state : State) : Prop :=
+  route.child = interface.functionInstance.id ∧
+  route.classification = .sourceReviewedOutcomePath →
+    ∃ carrierPc ∈ route.carrierPcs, state.regs.get? PC = some (BitVec.ofNat 64 carrierPc) ∧
+      interface.exit args (interface.spec.meaning args) state state
+
+/-- The dynamic assumption chooses the emitted outgoing handoff that actual execution reaches.
+Its subtree extent includes the generator's recursive active-call frames; the later fi6 proof must
+consume re-entry and carrier-path metadata using the returned route key. -/
 def Level4DynamicFunctionInterface.ResumableSubtree {Args Outcome : Type}
     (interface : Level4DynamicFunctionInterface Args Outcome) : Prop :=
   ∀ (args : Args) (fromStep : Nat) (before : State), interface.entry args before →
-    ∀ route ∈ interface.carrierRoutes,
-      route.child = interface.functionInstance.id →
-      route.handoff ∈ interface.boundary.handoffs →
-      ∃ used after, used ≤ interface.stepBound args ∧
+      ∃ (route : AttributionOutcomeCarrierRoute) (used : Nat) (after : State),
+        route ∈ interface.carrierRoutes ∧ route.child = interface.functionInstance.id ∧
+        route.handoff ∈ interface.boundary.handoffs ∧ used ≤ interface.stepBound args ∧
         EnteredFunctionTrace
           (fun pc => pc.toNat ∈ interface.boundary.fullExecutionPcs)
           (fun pc => pc = BitVec.ofNat 64 route.handoff.target)
           (functionInstanceEntryWord interface.functionInstance) fromStep used before after ∧
-        (route.classification = .sourceReviewedOutcomePath →
-          interface.exit args (interface.spec.meaning args) before after)
+        ∃ progress : Level4HandoffProgress interface args after,
+          progress.route = route
 
 /-- Excluded regions have no generated `FunctionInstance` exit predicate.  They return to the
 caller-held link register, except for the allocator-free tail-call path which enters the selected
