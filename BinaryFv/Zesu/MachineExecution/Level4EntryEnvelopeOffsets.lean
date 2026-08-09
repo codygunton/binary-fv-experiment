@@ -867,4 +867,47 @@ theorem level4_entry_header_length_one {margs : DecoderMachineArgs} {origin stat
         (1#64))
     (pcIn := ⟨level4_entry_header_length_one_machine_owned, by native_decide⟩)
 
+/-! ## Second-header-byte one gate -/
+
+/-- The direct parent branch which rejects a second header byte other than one. -/
+def level4EntryHeaderSecondOneBranchPcs : List Nat := [0x104cc]
+
+abbrev Level4EntryHeaderSecondOneBranchPcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4EntryHeaderSecondOneBranchPcs
+
+theorem level4EntryHeaderSecondOneBranchPcs_subset_direct :
+    level4EntryHeaderSecondOneBranchPcs.all decodeRawDirectPcs.contains = true := by native_decide
+
+theorem level4EntryHeaderSecondOneBranchPcs_subset_phase :
+    level4EntryHeaderSecondOneBranchPcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
+  native_decide
+
+private theorem level4_entry_header_second_one_branch_machine_owned :
+    RegisterWriteStep.decodeRawExecutionPcs (BitVec.ofNat 64 0x104cc) := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  apply RegionPcs.iff_inRanges.mpr
+  native_decide
+
+/-- Sail executes the fall-through of `bne a0,a1,0x1049c` when the second header byte is one. -/
+theorem level4_entry_header_second_one_branch {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104cc))
+    (secondByteOne : state.regs.get? x10 = some (1#64))
+    (lengthOne : state.regs.get? x11 = some (1#64)) (stepNo : Nat) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+          (BitVec.ofNat 64 0x104cc))
+        (BitVec.ofNat 64 0x104d0) retired) false := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+  exact decoderBranchNotTakenStep decoderMachine (Agree.refl state) retired fileCode stepNo
+    0x104cc 0xe3 0x18 0xb5 0xfc 0x1fd0#13 11#5 10#5 .BNE atPc
+    (by
+      unfold bTypeTaken
+      refine Runs.bind (rX_x10_run _ _ (decoderExecuteState_get? secondByteOne)) ?_
+      refine Runs.bind (rX_x11_run _ _ (decoderExecuteState_get? lengthOne)) ?_
+      rfl)
+    (pcIn := ⟨level4_entry_header_second_one_branch_machine_owned, by native_decide⟩)
+
 end BinaryFv.Zesu.MachineExecution
