@@ -14,6 +14,14 @@ open BinaryFv.Zesu.Contracts BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 open BinaryFv.Zesu.Elflings.Generated
 open PreSail LeanRV64DExecutable.Functions Register RegisterWriteStep
 
+private theorem level4_rX_x24_run (state : State) (value : BitVec 64)
+    (read : state.regs.get? x24 = some value) :
+    Runs (rX_bits (.Regidx 24#5)) state state value := by
+  have index : (Sail.BitVec.toNatInt 24#5).toNat = 24 := by decide
+  unfold Runs
+  simp [rX_bits, rX, index, read, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
+    EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe, regval_from_reg]
+
 structure Level4ExecutionWitnessResultStore where
   pc : Nat
   word : UInt32
@@ -89,6 +97,37 @@ theorem level4_executionWitness_store_state_length {base state : State}
     (BitVec.ofNat 64 (postStack + 0x588)) atPc
     (rX_x2_run _ _ (decoderExecuteState_get? sp))
     (rX_x21_run _ _ (decoderExecuteState_get? value)) targetEq allowed
+    ⟨by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide, by native_decide⟩
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    (by decoder_decode) (by unfold BaseInstructionEncoding; decide) aligned
+  exact ⟨stepRetired, by simpa [afterMemoryWrite, targetToNat] using run⟩
+
+theorem level4_executionWitness_store_codes_base {base state : State}
+    (machine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo postStack : Nat)
+    {codesBase : BitVec 64}
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1292c))
+    (sp : state.regs.get? x2 = some (BitVec.ofNat 64 postStack))
+    (value : state.regs.get? x24 = some codesBase)
+    (targetEq : BitVec.ofNat 64 postStack + sign_extend (m := 64) 0x590#12 = BitVec.ofNat 64 (postStack + 0x590))
+    (fits : postStack + 0x590 < 2 ^ 64)
+    (allowed : DecoderAccessRange DecoderWritableByte (BitVec.ofNat 64 (postStack + 0x590)) 8)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr (BitVec.ofNat 64 (postStack + 0x590))) 8 = true) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterMemoryWrite state (BitVec.ofNat 64 0x1292c) stepRetired (postStack + 0x590)
+        (width := 8) codesBase) false := by
+  have targetToNat : (BitVec.ofNat 64 (postStack + 0x590)).toNat = postStack + 0x590 := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
+    exact fits
+  obtain ⟨stepRetired, run⟩ := decoderStoreDwordStep machine agree retired code stepNo
+    0x1292c 0x23 0x38 0x81 0x59 0x590#12 24#5 2#5 (BitVec.ofNat 64 postStack) codesBase
+    (BitVec.ofNat 64 (postStack + 0x590)) atPc
+    (rX_x2_run _ _ (decoderExecuteState_get? sp))
+    (level4_rX_x24_run _ _ (decoderExecuteState_get? value)) targetEq allowed
     ⟨by
       apply functionInstanceExecutionPcs_iff_ranges.mpr
       apply RegionPcs.iff_inRanges.mpr
