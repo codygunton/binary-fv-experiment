@@ -441,6 +441,14 @@ theorem DecodeInlinePre.rawFrameWritable_of_postStack
   rw [entryStack] at writable
   simpa using writable
 
+/-- Regression for the parent store at `0x1063c`: this slot is below the raw-entry stack pointer,
+so the ordinary caller-frame permission alone must not be used in its Sail store proof. -/
+theorem DecodeInlinePre.rawFrameWritable_store_0x1063c
+    (pre : DecodeInlinePre args state) (postStack : Nat)
+    (entryStack : args.stackBase = postStack + 0xe80) :
+    canonicalContractParams.env.stack (postStack + 0x2a0) :=
+  pre.rawFrameWritable_of_postStack postStack entryStack 0x2a0 (by omega)
+
 /-- On success, the complete result representation records that every descriptor-selected heap
 range lies in the allocator interval consumed by this `decodeRaw` invocation. Error outcomes have
 no result heap to place. This is separate from `postEntry`: that source-shaped postcondition is
