@@ -98,7 +98,8 @@ theorem decodeInline_retry_short_reaches_post_save_area (fromStep : Nat) (args :
       DecoderGlobalsBoundaryFrame state after ∧
       DecodedValue.MemoryBytes after args.inputBase args.bytes ∧
       used ≤ 16 := by
-  have childRun := decodeInline_retry_uses_length_gate fromStep args state pre phase
+  have childRun := decodeInline_retry_uses_length_gate hasExactErePrefixInlineContract_proved
+    fromStep args state pre phase
   let childUsed := Classical.choose childRun
   have childUsedPayload := Classical.choose_spec childRun
   let after := Classical.choose childUsedPayload
@@ -174,7 +175,8 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post_save_area (fromStep : Na
   obtain ⟨lengthUsed, prefixUsed, beforeOr, lengthBound, prefixBound, parentPrefix, prefixPost,
     beforeAgree, beforeCounter, _beforeStack, inputPointer, inputLength, beforeGlobals,
     beforeStatus, beforeCode, beforeMemory⟩ :=
-    decodeInline_retry_uses_prefix_bytes fromStep args state pre phase fourBytes
+    decodeInline_retry_uses_prefix_bytes hasExactErePrefixInlineContract_proved fromStep args state
+      pre phase fourBytes
   obtain ⟨orRetired, orRun, orPc, orPreserves, orCounter, orMemory⟩ :=
     decodeInline_retry_prefix_or_step (fromStep + (5 + lengthUsed + prefixUsed)) args state
       beforeOr pre beforeAgree beforeCounter beforeCode prefixPost.1

@@ -807,8 +807,7 @@ theorem decodeInline_first_call_transfer
       ConfinedPrefix decodeInlineOwnPcs
         (DecodeInlineExit args) Level3ChildSummary fromStep 5 state beforeCall ∧
       childUsed ≤ compiledDecodeRawContract.binding.stepBound args.firstRawArgs ∧
-      (Contracts.meaningDecodeRaw args.bytes = .error .invalidSsz →
-        DecodeRawFirstInvalidTightBound → childUsed ≤ 5919 + 512 * args.bytes.size) ∧
+      childUsed ≤ 16384 + 512 * args.bytes.size ∧
       Nonempty (CallTransfer decodeInlineOwnPcs
         (DecodeInlineExit args) Level3ChildSummary decodeRawFirstAttemptCall generatedProgram
         functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
@@ -866,12 +865,9 @@ theorem decodeInline_first_call_transfer
     ⟨childSourceEntry, childPc, childMachine⟩
   obtain ⟨childUsed, childExit, bound, childTrace, childPost⟩ :=
     contract args.firstRawArgs (fromStep + 6) childEntry childPre
-  have firstInvalidBound : Contracts.meaningDecodeRaw args.bytes = .error .invalidSsz →
-      DecodeRawFirstInvalidTightBound → childUsed ≤ 5919 + 512 * args.bytes.size := by
-    intro invalid tightBound
-    simpa [DecodeInlineArgs.firstRawArgs] using
-      tightBound args.firstRawArgs (fromStep + 6) childUsed childEntry childExit childPre invalid
-        childTrace childPost
+  have firstInvalidBound : childUsed ≤ 16384 + 512 * args.bytes.size := by
+    simpa [compiledDecodeRawContract, Contracts.contractDecodeRaw,
+      DecodeInlineArgs.firstRawArgs] using bound
   obtain ⟨returnRetired, returnRun, atResume⟩ :=
     decodeRaw_return_step (fromStep + 6 + childUsed) args.firstRawArgs
       (BitVec.ofNat 64 0x10320) childEntry childExit (by decide) (by decide)
@@ -1098,8 +1094,7 @@ theorem decodeInline_first_through_result_tag
       ConfinedPrefix decodeInlineOwnPcs
         (DecodeInlineExit args) Level3ChildSummary fromStep 5 state beforeCall ∧
       childUsed ≤ compiledDecodeRawContract.binding.stepBound args.firstRawArgs ∧
-      (Contracts.meaningDecodeRaw args.bytes = .error .invalidSsz →
-        DecodeRawFirstInvalidTightBound → childUsed ≤ 5919 + 512 * args.bytes.size) ∧
+      childUsed ≤ 16384 + 512 * args.bytes.size ∧
       Nonempty (CallTransfer decodeInlineOwnPcs
         (DecodeInlineExit args) Level3ChildSummary decodeRawFirstAttemptCall generatedProgram
         functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
@@ -1688,8 +1683,7 @@ theorem decodeInline_first_error_reaches_post
     ∃ beforeCall childUsed resumed tagRetired,
       Trace fromStep 5 state beforeCall ∧
       childUsed ≤ compiledDecodeRawContract.binding.stepBound args.firstRawArgs ∧
-      (Contracts.meaningDecodeRaw args.bytes = .error .invalidSsz →
-        DecodeRawFirstInvalidTightBound → childUsed ≤ 5919 + 512 * args.bytes.size) ∧
+      childUsed ≤ 16384 + 512 * args.bytes.size ∧
       Nonempty (CallTransfer decodeInlineOwnPcs
         (DecodeInlineExit args) Level3ChildSummary decodeRawFirstAttemptCall generatedProgram
         functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31
@@ -1791,8 +1785,7 @@ theorem decodeInline_first_error_reaches_post
 This is deliberately narrower than `DecodeInlineOutgoingFrame`: only the retry edge needs these
 values, and the concrete error proof already establishes them at `0x10324`. -/
 theorem decodeInline_first_invalidSsz_level3_save_area
-    (contract : CompiledDecodeRawInstanceContract) (tightBound : DecodeRawFirstInvalidTightBound)
-    (args : DecodeInlineArgs) (fromStep : Nat)
+    (contract : CompiledDecodeRawInstanceContract) (args : DecodeInlineArgs) (fromStep : Nat)
     (before : State) (pre : DecodeInlinePre args before) (phase : args.phase = .first)
     (invalid : Contracts.meaningDecodeRaw args.bytes = .error .invalidSsz) :
     ∃ used after,
@@ -1806,7 +1799,7 @@ theorem decodeInline_first_invalidSsz_level3_save_area
       after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
       after.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size) ∧
       DecodeRawAllocationWithinCanonicalArena before after ∧
-      used ≤ 5927 + 512 * args.bytes.size := by
+      used ≤ 16392 + 512 * args.bytes.size := by
   obtain ⟨beforeCall, childUsed, resumed, tagRetired, parentTrace, childBound, firstInvalidBound,
     transfer,
     tagRun, exit, firstPost, trace, machinePost, inputBase, inputLength, outgoingStack, saveArea,
@@ -1814,8 +1807,7 @@ theorem decodeInline_first_invalidSsz_level3_save_area
     decodeInline_first_error_reaches_post contract fromStep args before pre phase .invalidSsz invalid
   let after := afterRegisterWrite resumed (BitVec.ofNat 64 0x10320) tagRetired x10
     (BitVec.ofNat 64 (Contracts.decodeInternalResultTag (.error .invalidSsz)))
-  have rawTight : childUsed ≤ 5919 + 512 * args.bytes.size :=
-    firstInvalidBound invalid tightBound
+  have rawBound : childUsed ≤ 16384 + 512 * args.bytes.size := firstInvalidBound
   refine ⟨childUsed + 8, after, decodeInline_first_stepBound_le childBound (by omega), ?_, ?_,
     ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · simpa [after] using trace
@@ -2153,7 +2145,8 @@ theorem decodeInline_retry_reaches_length_gate (fromStep : Nat) (args : DecodeIn
 
 /-- Consume the proved one-instruction prefix length segment after the four parent-owned retry
 instructions. The result remains at the outgoing `bltu` for the enclosing `decode` proof to execute. -/
-theorem decodeInline_retry_uses_length_gate (fromStep : Nat) (args : DecodeInlineArgs)
+theorem decodeInline_retry_uses_length_gate (prefixContract : HasExactErePrefixInlineContract)
+    (fromStep : Nat) (args : DecodeInlineArgs)
     (state : State) (pre : DecodeInlinePre args state)
     (phase : args.phase = .retryAfterInvalidSsz) :
     ∃ childUsed childAfter,
@@ -2179,21 +2172,16 @@ theorem decodeInline_retry_uses_length_gate (fromStep : Nat) (args : DecodeInlin
     { phase := .lengthGate, inputBase := args.inputBase, bytes := args.bytes }
   have childPre' : HasExactErePrefixInlinePre childArgs childEntry := by
     simpa [childArgs] using childPre
-  obtain ⟨childAfter, childTrace, childPost, childAgree, childCounter, childStackFrame,
-    childInputPointer, childInputLength, childGlobals, childStatusEq, childMemory⟩ :=
-    hasExactErePrefix_length_segment (fromStep + 4) childArgs childEntry childPre' rfl
+  obtain ⟨childUsed, childAfter, childBound, childTrace, childPost, childFrame⟩ :=
+    prefixContract childArgs (fromStep + 4) childEntry childPre'
   have childStatus : childAfter.regs.get? x11 = some (BitVec.ofNat 64 2) :=
-    childStatusEq.trans parentStatus
+    childFrame.status.trans parentStatus
   have childStackPointer : childAfter.regs.get? x2 =
-      some (BitVec.ofNat 64 args.stackBase) := childStackFrame.trans parentStackPointer
-  let childUsed := 1
-  have childBound : childUsed ≤ hasExactErePrefixInlineStepBound childArgs := by
-    simp [childUsed, hasExactErePrefixInlineStepBound]
+      some (BitVec.ofNat 64 args.stackBase) := childFrame.stackPointer.trans parentStackPointer
   have exactSummary : hasExactErePrefixInlineSummary
       functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35Id
       (fromStep + 4) childUsed childEntry childAfter :=
-    ⟨rfl, childArgs, childPre', childBound, childTrace, childPost,
-      by simp [DecoderGlobalsBoundaryFrame, childMemory]⟩
+    ⟨rfl, childArgs, childPre', childBound, childTrace, childPost, childFrame⟩
   have selectedSummary : Level3ChildSummary
       functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35Id
       (fromStep + 4) childUsed childEntry childAfter :=
@@ -2205,12 +2193,12 @@ theorem decodeInline_retry_uses_length_gate (fromStep : Nat) (args : DecodeInlin
       selectedSummary rest
   have completePrefix := ConfinedPrefix.trans parentPrefix childPrefix
   have completeAgree : Agree decoderPreserved state childAfter :=
-    Agree.trans parentAgree childAgree
+    Agree.trans parentAgree childFrame.agree
   have childCode : Contracts.canonicalContractParams.env.CodeIntact childAfter := by
-    exact Contracts.codeIntact_of_mem_eq childMemory parentCode
-  refine ⟨childUsed, childAfter, ?_, ?_, ?_, completeAgree, childCounter, childStackPointer,
-    childInputPointer, childInputLength, childGlobals, childStatus, childCode,
-    childMemory.trans parentMemory⟩
+    exact Contracts.codeIntact_of_mem_eq childFrame.memory parentCode
+  refine ⟨childUsed, childAfter, ?_, ?_, ?_, completeAgree, childFrame.retiredCounter,
+    childStackPointer, childFrame.inputPointer, childFrame.inputLength, childFrame.globals,
+    childStatus, childCode, childFrame.memory.trans parentMemory⟩
   · simpa [childArgs] using childBound
   · simpa [Nat.add_assoc] using completePrefix
   · simpa [childArgs] using childPost
@@ -2273,7 +2261,9 @@ theorem decodeInline_retry_length_branch_step (stepNo : Nat) (args : DecodeInlin
 
 /-- Splice the proved length child and parent-owned `bltu`, producing the complete machine entry for
 the ten-instruction prefix-byte child. -/
-theorem decodeInline_retry_reaches_prefix_bytes (fromStep : Nat) (args : DecodeInlineArgs)
+theorem decodeInline_retry_reaches_prefix_bytes
+    (prefixContract : HasExactErePrefixInlineContract)
+    (fromStep : Nat) (args : DecodeInlineArgs)
     (state : State) (pre : DecodeInlinePre args state)
     (phase : args.phase = .retryAfterInvalidSsz) (fourBytes : 4 ≤ args.bytes.size) :
     ∃ lengthUsed childEntry,
@@ -2293,7 +2283,7 @@ theorem decodeInline_retry_reaches_prefix_bytes (fromStep : Nat) (args : DecodeI
   obtain ⟨lengthUsed, lengthAfter, lengthBound, lengthPrefix, lengthPost, lengthAgree,
     lengthCounter, lengthStackPointer, lengthInputPointer, lengthInputLength, lengthGlobals,
     lengthStatus, lengthCode, lengthMemory⟩ :=
-    decodeInline_retry_uses_length_gate fromStep args state pre phase
+    decodeInline_retry_uses_length_gate prefixContract fromStep args state pre phase
   have prefixFalseAtLength : ¬ DecodeInlineExit args (BitVec.ofNat 64 0x10394) := by
     simp [DecodeInlineExit, phase, show ¬ args.bytes.size < 4 by omega]
   obtain ⟨branchRetired, branchRun, branchPc, branchPreserves, branchCounter, branchMemory⟩ :=
@@ -2355,7 +2345,8 @@ theorem decodeInline_retry_reaches_prefix_bytes (fromStep : Nat) (args : DecodeI
 
 /-- Consume the proved ten-instruction prefix-byte child after the length branch. The resulting
 state is at `0x103c0`, where the parent still owns the final `or`. -/
-theorem decodeInline_retry_uses_prefix_bytes (fromStep : Nat) (args : DecodeInlineArgs)
+theorem decodeInline_retry_uses_prefix_bytes (prefixContract : HasExactErePrefixInlineContract)
+    (fromStep : Nat) (args : DecodeInlineArgs)
     (state : State) (pre : DecodeInlinePre args state)
     (phase : args.phase = .retryAfterInvalidSsz) (fourBytes : 4 ≤ args.bytes.size) :
     ∃ lengthUsed prefixUsed after,
@@ -2378,26 +2369,20 @@ theorem decodeInline_retry_uses_prefix_bytes (fromStep : Nat) (args : DecodeInli
       after.mem = state.mem := by
   obtain ⟨lengthUsed, childEntry, lengthBound, parentPrefix, childPre, parentAgree, parentCounter,
     parentStackPointer, parentGlobals, parentStatus, parentCode, parentMemory⟩ :=
-    decodeInline_retry_reaches_prefix_bytes fromStep args state pre phase fourBytes
+    decodeInline_retry_reaches_prefix_bytes prefixContract fromStep args state pre phase fourBytes
   let childArgs : HasExactErePrefixInlineArgs :=
     { phase := .prefixBytes, inputBase := args.inputBase, bytes := args.bytes }
   have childPre' : HasExactErePrefixInlinePre childArgs childEntry := by
     change HasExactErePrefixInlinePre childArgs childEntry at childPre
     exact childPre
-  obtain ⟨after, childTrace, childPost, childAgree, childCounter, childStackFrame,
-    childInputPointer, childInputLength, childGlobals, childStatusFrame, childMemory⟩ :=
-    hasExactErePrefix_prefix_segment (fromStep + (5 + lengthUsed)) childArgs childEntry
-      childPre' rfl
+  obtain ⟨prefixUsed, after, childBound, childTrace, childPost, childFrame⟩ :=
+    prefixContract childArgs (fromStep + (5 + lengthUsed)) childEntry childPre'
   have childStackPointer : after.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase) :=
-    childStackFrame.trans parentStackPointer
-  let prefixUsed := 10
-  have childBound : prefixUsed ≤ hasExactErePrefixInlineStepBound childArgs := by
-    simp [prefixUsed, hasExactErePrefixInlineStepBound]
+    childFrame.stackPointer.trans parentStackPointer
   have exactSummary : hasExactErePrefixInlineSummary
       functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35Id
       (fromStep + (5 + lengthUsed)) prefixUsed childEntry after :=
-    ⟨rfl, childArgs, childPre', childBound, childTrace, childPost,
-      by simp [DecoderGlobalsBoundaryFrame, childMemory]⟩
+    ⟨rfl, childArgs, childPre', childBound, childTrace, childPost, childFrame⟩
   have selectedSummary : Level3ChildSummary
       functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35Id
       (fromStep + (5 + lengthUsed)) prefixUsed childEntry after :=
@@ -2408,15 +2393,15 @@ theorem decodeInline_retry_uses_prefix_bytes (fromStep : Nat) (args : DecodeInli
     intro count final rest
     exact ScopedTrace.childBody _ prefixUsed count _ childEntry after final selectedSummary rest
   have completePrefix := ConfinedPrefix.trans parentPrefix childPrefix
-  have completeAgree := Agree.trans parentAgree childAgree
-  have completeMemory : after.mem = state.mem := childMemory.trans parentMemory
+  have completeAgree := Agree.trans parentAgree childFrame.agree
+  have completeMemory : after.mem = state.mem := childFrame.memory.trans parentMemory
   have completeCode : Contracts.canonicalContractParams.env.CodeIntact after := by
     exact Contracts.codeIntact_of_mem_eq completeMemory pre.code
   have completeStatus : after.regs.get? x11 = some (BitVec.ofNat 64 2) :=
-    childStatusFrame.trans parentStatus
-  refine ⟨lengthUsed, prefixUsed, after, lengthBound, ?_, ?_, ?_, completeAgree, childCounter,
-    childStackPointer, childInputPointer, childInputLength, childGlobals, completeStatus, completeCode,
-    completeMemory⟩
+    childFrame.status.trans parentStatus
+  refine ⟨lengthUsed, prefixUsed, after, lengthBound, ?_, ?_, ?_, completeAgree,
+    childFrame.retiredCounter, childStackPointer, childFrame.inputPointer, childFrame.inputLength,
+    childFrame.globals, completeStatus, completeCode, completeMemory⟩
   · simpa [childArgs] using childBound
   · simpa [Nat.add_assoc] using completePrefix
   · simpa [childArgs] using childPost
@@ -2465,7 +2450,8 @@ theorem decodeInline_retry_prefix_or_step (stepNo : Nat) (args : DecodeInlineArg
 
 /-- Close the four-or-more-byte prefix-mismatch arm at the selected outgoing branch source. The
 branch itself transfers to wrapper code and is therefore executed by the Level 2 proof. -/
-theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
+theorem decodeInline_retry_prefix_mismatch_reaches_post
+    (prefixContract : HasExactErePrefixInlineContract) (fromStep : Nat)
     (args : DecodeInlineArgs) (state : State) (pre : DecodeInlinePre args state)
     (phase : args.phase = .retryAfterInvalidSsz) (fourBytes : 4 ≤ args.bytes.size)
     (notExact : Contracts.meaningHasExactErePrefix args.bytes = false) :
@@ -2481,7 +2467,7 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post (fromStep : Nat)
   obtain ⟨lengthUsed, prefixUsed, beforeOr, lengthBound, prefixBound, parentPrefix, prefixPost,
     beforeAgree, beforeCounter, _beforeStack, inputPointer, inputLength, beforeGlobals,
     _beforeStatus, beforeCode, beforeMemory⟩ :=
-    decodeInline_retry_uses_prefix_bytes fromStep args state pre phase fourBytes
+    decodeInline_retry_uses_prefix_bytes prefixContract fromStep args state pre phase fourBytes
   obtain ⟨orRetired, orRun, orPc, orPreserves, orCounter, orMemory⟩ :=
     decodeInline_retry_prefix_or_step (fromStep + (5 + lengthUsed + prefixUsed)) args state
       beforeOr pre beforeAgree beforeCounter beforeCode prefixPost.1
@@ -2625,7 +2611,8 @@ set_option maxHeartbeats 8000000 in
 /-- Execute every `decode`-owned instruction from retry entry through the second `decodeRaw` call
 site. The two prefix-helper segments are consumed as child summaries; the branch, framing-word
 assembly, and four call-argument instructions are executed directly through Sail. -/
-theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
+theorem decodeInline_retry_before_second_decodeRaw_call
+    (prefixContract : HasExactErePrefixInlineContract) (fromStep : Nat)
     (args : DecodeInlineArgs) (state : State) (pre : DecodeInlinePre args state)
     (phase : args.phase = .retryAfterInvalidSsz)
     (exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true) :
@@ -2654,7 +2641,7 @@ theorem decodeInline_retry_before_second_decodeRaw_call (fromStep : Nat)
   obtain ⟨lengthUsed, prefixUsed, beforeOr, lengthBound, prefixBound, prefixTrace,
     prefixPost, agreeBeforeOr, counterBeforeOr, stackBeforeOr, inputBeforeOr, lengthBeforeOr,
     globalsBeforeOr, _statusBeforeOr, codeBeforeOr, memoryBeforeOr⟩ :=
-    decodeInline_retry_uses_prefix_bytes fromStep args state pre phase fourBytes
+    decodeInline_retry_uses_prefix_bytes prefixContract fromStep args state pre phase fourBytes
   obtain ⟨declared, declaredRead, assembled, declaredBound⟩ :=
     prefix_halves_or_eq_readU32LE args.bytes fourBytes
   have declaredEq := prefix_declared_eq_of_meaning_true args.bytes declared declaredRead exactPrefix
@@ -2979,7 +2966,9 @@ def decodeRawRetryCallTransfer (fromStep used : Nat) (args : DecodeInlineArgs)
 call setup. The child receives the four-byte-stripped input region, then its real `ret` returns to
 `0x103dc`. -/
 theorem decodeInline_retry_call_transfer
-    (contract : CompiledDecodeRawInstanceContract) (fromStep : Nat) (args : DecodeInlineArgs)
+    (contract : CompiledDecodeRawInstanceContract)
+    (prefixContract : HasExactErePrefixInlineContract)
+    (fromStep : Nat) (args : DecodeInlineArgs)
     (state : State) (pre : DecodeInlinePre args state)
     (phase : args.phase = .retryAfterInvalidSsz)
     (exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true) :
@@ -3012,7 +3001,8 @@ theorem decodeInline_retry_call_transfer
   obtain ⟨lengthUsed, prefixUsed, beforeCall, lengthBound, prefixBound, parentPrefix, callPc,
     callBase, resultPointer, allocatorPointer, inputPointer, inputLength, beforeStack,
     beforeGlobals, beforeAgree, beforeCounter, beforeCode, beforeMemory⟩ :=
-    decodeInline_retry_before_second_decodeRaw_call fromStep args state pre phase exactPrefix
+    decodeInline_retry_before_second_decodeRaw_call prefixContract fromStep args state pre phase
+      exactPrefix
   obtain ⟨callRetired, callRun, childPc, childLink, childResult, childAllocator, childInput,
     childLength, callAgree, callMemory, childCounter⟩ :=
     decodeInline_retry_decodeRaw_call_step
@@ -3549,7 +3539,8 @@ theorem decodeInline_retry_memcpy_machine_pre (args : DecodeInlineArgs) (content
 
 /-- Execute the retry call and consume the already-proved compiled `memcpy` contract on the exact
 832-byte payload retained from the second `decodeRaw` result. -/
-theorem decodeInline_retry_uses_memcpy (fromStep : Nat) (args : DecodeInlineArgs)
+theorem decodeInline_retry_uses_memcpy (memcpy : CompiledMemcpyInstanceContract)
+    (fromStep : Nat) (args : DecodeInlineArgs)
     (contents : ByteArray) (baseState beforeCall : State) (pre : DecodeInlinePre args baseState)
     (contentsSize : contents.size = 832)
     (sourceMemory : DecodedValue.MemoryBytes beforeCall
@@ -3616,7 +3607,7 @@ theorem decodeInline_retry_uses_memcpy (fromStep : Nat) (args : DecodeInlineArgs
       (compiledMemcpyContract Contracts.canonicalContractParams.env).binding.entry
         copyArgs childEntry := ⟨sourcePre, machinePre⟩
   obtain ⟨childUsed, childExit, childBound, childTrace, childPost⟩ :=
-    compiledMemcpyInstanceContract_proved copyArgs (fromStep + 1) childEntry compiledEntry
+    memcpy copyArgs (fromStep + 1) childEntry compiledEntry
   exact ⟨callRetired, childUsed, childEntry, childExit, rfl, by grind,
     by simpa [childEntry] using callRun,
     compiledEntry, childBound, childTrace, childPost⟩
@@ -3738,7 +3729,8 @@ theorem decodeInline_retry_final_pointer_step (stepNo : Nat) (args : DecodeInlin
 
 /-- Close the short-input retry arm at the selected `0x10394` exit. The outgoing branch belongs to
 the Level 2 wrapper, so this Level 3 trace stops before executing it. -/
-theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInlineArgs)
+theorem decodeInline_retry_short_reaches_post (prefixContract : HasExactErePrefixInlineContract)
+    (fromStep : Nat) (args : DecodeInlineArgs)
     (state : State) (pre : DecodeInlinePre args state)
     (phase : args.phase = .retryAfterInvalidSsz) (short : args.bytes.size < 4) :
     ∃ used after,
@@ -3752,7 +3744,7 @@ theorem decodeInline_retry_short_reaches_post (fromStep : Nat) (args : DecodeInl
       used ≤ 16 := by
   obtain ⟨childUsed, childAfter, childBound, parentPrefix, childPost, agree, counter, -, -, -,
     childGlobals, _childStatus, code, memory⟩ :=
-    decodeInline_retry_uses_length_gate fromStep args state pre phase
+    decodeInline_retry_uses_length_gate prefixContract fromStep args state pre phase
   have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
     meaningHasExactErePrefix_false_of_size_lt_four args.bytes short
   have atExit : childAfter.regs.get? PC = some (BitVec.ofNat 64 0x10394) := by

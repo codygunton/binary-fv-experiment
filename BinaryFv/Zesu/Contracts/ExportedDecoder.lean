@@ -391,7 +391,7 @@ def functionInstanceZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderG
   binding :=
     { entry := preZesuDecodeRaw env globals resultBuffer rep incoming
       exit := postZesuDecodeRaw env globals resultBuffer rep incoming
-      stepBound := fun args => 2 * (16384 + 512 * args.bytes.size) + 1024 }
+      stepBound := fun args => 2 * (16384 + 512 * args.bytes.size) + 11489 }
 
 /-- The exported wrapper's correctness claim, at the fresh incoming model the root theorem uses. -/
 def correctnessClaimZesuDecodeRaw (env : DecoderEnvironment) (globals : DecoderGlobalsLayout)

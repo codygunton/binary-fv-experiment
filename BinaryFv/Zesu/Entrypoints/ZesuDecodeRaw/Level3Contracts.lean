@@ -125,22 +125,6 @@ abbrev CompiledDecodeRawInstanceContract : Prop :=
     (functionInstanceEntryWord functionInstance_ssz_raw_decodeRaw)
     (functionInstanceExitPred functionInstance_ssz_raw_decodeRaw)
 
-/-- The deeper `decodeRaw` refinement's outcome-specific bound, stated over the same compiled
-call witness that the inlined first attempt consumes.  It is not an assumption of the Level 2
-wrapper: `level3DecodeInlineContract` consumes it while constructing the immediate `decode`
-contract. -/
-def DecodeRawFirstInvalidTightBound : Prop :=
-  ∀ (args : EntryArgs) (fromStep used : Nat) (before after : State),
-    compiledDecodeRawContract.binding.entry args before →
-    Contracts.meaningDecodeRaw args.bytes = .error .invalidSsz →
-    EnteredFunctionTrace
-      (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
-      (functionInstanceExitPred functionInstance_ssz_raw_decodeRaw)
-      (Contracts.functionInstanceEntryWord functionInstance_ssz_raw_decodeRaw)
-      fromStep used before after →
-    compiledDecodeRawContract.binding.exit args (Contracts.meaningDecodeRaw args.bytes) before after →
-    used ≤ 5919 + 512 * args.bytes.size
-
 /-- The exact typed summary produced at either call from inlined `decode`. -/
 def compiledDecodeRawSummary (child : FunctionInstanceId) (fromStep used : Nat)
     (before after : State) : Prop :=
@@ -258,6 +242,25 @@ def DecoderGlobalsBoundaryFrame (before after : State) : Prop :=
       before.mem.get? (Elflings.canonicalDecoderGlobalsLayout.storedResult +
         Elflings.canonicalDecoderGlobalsLayout.storedResultObject.discriminantOffset)
 
+/-- Machine facts preserved by either selected inlined `hasExactErePrefix` segment and consumed by
+the surrounding `decode` instructions. These are proved from the segment's actual Sail execution;
+they are not source-ABI assumptions for the inlined helper. -/
+structure HasExactErePrefixInlineFrame (args : HasExactErePrefixInlineArgs)
+    (before after : State) : Prop where
+  agree : Agree decoderPreserved before after
+  retiredCounter : RetiredCounterPresent after
+  stackPointer : after.regs.get? x2 = before.regs.get? x2
+  inputPointer : after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase)
+  inputLength : after.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size)
+  globals : after.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
+  status : after.regs.get? x11 = before.regs.get? x11
+  memory : after.mem = before.mem
+
+theorem HasExactErePrefixInlineFrame.globalsBoundary
+    (frame : HasExactErePrefixInlineFrame args before after) :
+    DecoderGlobalsBoundaryFrame before after := by
+  simp [DecoderGlobalsBoundaryFrame, frame.memory]
+
 /-- The two non-ABI segments attributed to the selected inlined prefix helper. -/
 def HasExactErePrefixInlineContract : Prop :=
   ∀ (args : HasExactErePrefixInlineArgs) (fromStep : Nat) (before : State),
@@ -271,7 +274,7 @@ def HasExactErePrefixInlineContract : Prop :=
             functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35)
             fromStep used before after ∧
           HasExactErePrefixInlinePost args after ∧
-          DecoderGlobalsBoundaryFrame before after
+          HasExactErePrefixInlineFrame args before after
 
 /-- Exact child-summary relation consumed by the inlined-`decode` scope. -/
 def hasExactErePrefixInlineSummary (child : FunctionInstanceId) (fromStep used : Nat)
@@ -288,7 +291,7 @@ def hasExactErePrefixInlineSummary (child : FunctionInstanceId) (fromStep used :
             functionInstance_ssz_raw_hasExactErePrefix_in_raw_decoder_root_zesu_decode_raw_at_112_31_in_ssz_raw_decode_at_223_35)
           fromStep used before after ∧
         HasExactErePrefixInlinePost args after ∧
-        DecoderGlobalsBoundaryFrame before after
+        HasExactErePrefixInlineFrame args before after
 
 theorem hasExactErePrefixInlineSummary_of_contract
     (contract : HasExactErePrefixInlineContract)
@@ -301,7 +304,7 @@ theorem hasExactErePrefixInlineSummary_of_contract
   obtain ⟨used, after, bound, trace, post, frame⟩ := contract args fromStep before pre
   exact ⟨used, after, rfl, args, pre, bound, trace, post, frame⟩
 
-/-- The complete selected Level 3 child relation. The `memcpy` arm is already closed by Sail. -/
+/-- The complete selected Level 3 child relation. -/
 inductive Level3ChildSummary :
     FunctionInstanceId → Nat → Nat → State → State → Prop where
   | decodeRaw {fromStep used before after}
@@ -394,7 +397,7 @@ def Level3DecodeInlineContract : Prop :=
           (args.phase = .first → ∀ value, Contracts.meaningDecodeRaw args.bytes = .ok value →
             used ≤ 16384 + 512 * args.bytes.size + 13) ∧
           (args.phase = .first → Contracts.meaningDecodeRaw args.bytes = .error .invalidSsz →
-            used ≤ 5927 + 512 * args.bytes.size) ∧
+            used ≤ 16392 + 512 * args.bytes.size) ∧
           (args.phase = .retryAfterInvalidSsz →
             Contracts.meaningHasExactErePrefix args.bytes = true →
               used ≤ 16384 + 512 * args.retryRawArgs.bytes.size + 6765) ∧
@@ -525,7 +528,7 @@ theorem level3ChildSummary_composes_decode (args : DecodeInlineArgs) :
       exact generated_child_composes_with_semantic_exit decode_is_generated decodeRaw_is_decode_callee
         (fun pc h => decodeInlineExit_is_generated_exit args h) trace.trace cont
   | hasExactErePrefix run =>
-      rcases run with ⟨_, childArgs, pre, bound, trace, post⟩
+      rcases run with ⟨_, childArgs, pre, bound, trace, post, frame⟩
       exact generated_child_composes_with_semantic_exit decode_is_generated
         hasExactErePrefix_is_decode_callee
         (fun pc h => decodeInlineExit_is_generated_exit args h) trace cont

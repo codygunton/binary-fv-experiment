@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
   "states": [
-    { "qualified": "program", "status": "conditionally_proven", "theorem": "BinaryFv.Zesu.root_compliance" },
-    { "qualified": "raw_decoder_root.zesu_decode_raw", "status": "conditionally_proven", "theorem": "BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.exportedContracts_of_level2" },
+    { "qualified": "program", "status": "conditionally_proven", "theorem": "BinaryFv.Zesu.root_compliance", "condition": "BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3ContractAssumptions.decodeRaw" },
+    { "qualified": "raw_decoder_root.zesu_decode_raw", "status": "conditionally_proven", "theorem": "BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.exportedContracts_of_level2", "condition": "BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3ContractAssumptions.decodeRaw" },
     { "qualified": "raw_decoder_root.zesu_raw_error", "status": "unconditionally_proven", "theorem": "BinaryFv.Zesu.MachineExecution.rawErrorInstanceObligation_proved" },
     { "qualified": "raw_decoder_root.zesu_raw_result", "status": "unconditionally_proven", "theorem": "BinaryFv.Zesu.MachineExecution.rawResultInstanceObligation_proved" },
     { "qualified": "raw_decoder_root.allocator", "status": "unconditionally_proven", "theorem": "BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.allocatorInlineContract_proved" },
-    { "qualified": "ssz_raw.decode", "status": "conditionally_proven", "theorem": "BinaryFv.Zesu.MachineExecution.level3DecodeInlineContract" },
+    { "qualified": "ssz_raw.decode", "status": "conditionally_proven", "theorem": "BinaryFv.Zesu.MachineExecution.level3DecodeInlineContract", "condition": "BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.CompiledDecodeRawInstanceContract" },
     { "qualified": "ssz_raw.hasExactErePrefix", "status": "unconditionally_proven", "theorem": "BinaryFv.Zesu.MachineExecution.hasExactErePrefixInlineContract_proved" },
     { "qualified": "memcpy", "status": "unconditionally_proven", "theorem": "BinaryFv.Zesu.MachineExecution.compiledMemcpyInstanceContract_proved" },
     { "qualified": "ssz_raw.decodeRaw", "status": "in_progress", "contract": "BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.compiledDecodeRawContract" }
