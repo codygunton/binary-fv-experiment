@@ -946,4 +946,38 @@ theorem level4_entry_envelope_bound_setup {margs : DecoderMachineArgs} {origin s
     (rX_x13_run _ _ (decoderExecuteState_get? inputLength)) (wX_x18_run _ _)
     (pcIn := ⟨level4_entry_envelope_bound_machine_owned, by native_decide⟩)
 
+/-- The constant lower envelope bound is materialized immediately before its range branch. -/
+def level4EntryEnvelopeMinimumPcs : List Nat := [0x104d4]
+
+abbrev Level4EntryEnvelopeMinimumPcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4EntryEnvelopeMinimumPcs
+
+theorem level4EntryEnvelopeMinimumPcs_subset_direct :
+    level4EntryEnvelopeMinimumPcs.all decodeRawDirectPcs.contains = true := by native_decide
+
+theorem level4EntryEnvelopeMinimumPcs_subset_phase :
+    level4EntryEnvelopeMinimumPcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
+  native_decide
+
+private theorem level4_entry_envelope_minimum_machine_owned :
+    RegisterWriteStep.decodeRawExecutionPcs (BitVec.ofNat 64 0x104d4) := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  apply RegionPcs.iff_inRanges.mpr
+  native_decide
+
+/-- Sail executes `addi a0,x0,15` at `0x104d4`. -/
+theorem level4_entry_envelope_minimum {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104d4)) (stepNo : Nat) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104d4) retired x10 (15#64)) false := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+  exact decoderITypeStepOfDecoderAgree decoderMachine (Agree.refl state) retired fileCode stepNo
+    0x104d4 0x13 0x05 0xf0 0x00 0x00f#12 0#5 10#5 .ADDI atPc (rX_x0_run _) (by
+      simpa [iTypeResult] using wX_x10_run
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104d4))
+        (15#64))
+    (pcIn := ⟨level4_entry_envelope_minimum_machine_owned, by native_decide⟩)
+
 end BinaryFv.Zesu.MachineExecution
