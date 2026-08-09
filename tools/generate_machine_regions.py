@@ -1102,6 +1102,8 @@ def emit_level4_attribution_lean(database: dict) -> str:
                     f"      ownedBy generatedProgram {child} obligation.callSource = true ∧",
                     f"      programContainsEdge generatedProgram",
                     f"        {{ source := obligation.callSource, target := obligation.calleeTarget }} = true ∧",
+                    f"      programContainsEdge generatedProgram",
+                    f"        {{ source := obligation.callSource, target := obligation.returnPc }} = true ∧",
                     f"      obligation.returnPc = obligation.callSource + 4 ∧",
                     f"      ownedBy generatedProgram {child} obligation.returnPc = true := by native_decide",
                     "",

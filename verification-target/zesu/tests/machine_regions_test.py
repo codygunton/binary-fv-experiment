@@ -355,6 +355,36 @@ class MachineRegionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["calls"].pop()
+        manifest["boundaries"][0]["calls"][1].pop("returnSites")
+        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["calls"][1]["returnSites"] = [{
+            "sourcePc": 77408, "targetPc": 79000, "returnPc": 99999, "linkRegister": "ra",
+        }]
+        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["calls"][1]["returnSites"] = [{
+            "sourcePc": 77408, "targetPc": 79000, "returnPc": 77412, "linkRegister": "ra",
+        }]
+        database["instructions"][1]["transfer"] = "ordinary"
+        with self.assertRaisesRegex(ValueError, "direct jalr call"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        database["instructions"][1]["transfer"] = "directCall"
+        database["instructions"][1]["mnemonic"] = "jal"
+        with self.assertRaisesRegex(ValueError, "direct jalr call"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        database["instructions"][1]["mnemonic"] = "jalr"
+        database["instructions"][1]["word"] = 0x00008067  # rd = x0, rs1 = x1
+        with self.assertRaisesRegex(ValueError, "jalr x1, x1"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        database["instructions"][1]["word"] = 0x000000e7  # rd = x1, rs1 = x0
+        with self.assertRaisesRegex(ValueError, "jalr x1, x1"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        database["instructions"][1]["word"] = 0x000080e7
+        database["instructions"][1]["successors"] = [79000]
+        with self.assertRaisesRegex(ValueError, "RA fall-through"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        database["instructions"][1]["successors"] = [77412, 79000]
         manifest["boundaries"][0]["calls"][0].pop("activeCalleeExecutionPcs")
         with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
