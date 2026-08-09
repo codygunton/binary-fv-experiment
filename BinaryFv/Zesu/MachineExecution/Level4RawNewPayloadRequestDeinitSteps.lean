@@ -76,6 +76,21 @@ private theorem level4_rawNewPayloadRequestDeinit_slot_aligned
   rw [Nat.mod_eq_of_lt addressFits]
   simp [Int.tmod, addressAligned]
 
+private theorem level4_rawNewPayloadRequestDeinit_stack_value (postStack : Nat)
+    (fits : 0x50 ≤ postStack) :
+    iTypeResult .ADDI 0xfb0#12 (BitVec.ofNat 64 postStack) =
+      BitVec.ofNat 64 (postStack - 0x50) := by
+  unfold iTypeResult
+  simp only
+  rw [show sign_extend (m := 64) 0xfb0#12 = BitVec.ofNat 64 (2 ^ 64 - 0x50) by decide]
+  rw [← BitVec.ofNat_add]
+  apply BitVec.eq_of_toNat_eq
+  simp only [BitVec.toNat_ofNat]
+  rw [show postStack = (postStack - 0x50) + 0x50 by omega]
+  rw [show (postStack - 0x50 + 0x50 + (2 ^ 64 - 0x50)) =
+    (postStack - 0x50) + 2 ^ 64 by omega]
+  exact Nat.add_mod_right _ _
+
 /-- Sail executes the literal `addi sp, sp, -0x50` at excluded:3's entry.  The result is left in
 instruction-class form here; the following save steps consume it as their concrete stack base. -/
 theorem level4_rawNewPayloadRequestDeinit_stack_step
