@@ -914,8 +914,7 @@ private theorem decodeExecutionWitness_76036_76040_intermediate :
 /-- A finite ranking of the generated initial/R entry states.  Only the three intermediate routes
 consume it; carrier and unclassified routes resolve without recursive use of the rank. -/
 def decodeExecutionWitnessContinuationRank (state : State) : Nat :=
-  if state.regs.get? PC = some (functionInstanceEntryWord
-      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48) then 3 else
+  if state.regs.get? PC = some (BitVec.ofNat 64 0x12710) then 3 else
   if state.regs.get? PC = some (BitVec.ofNat 64 0x12728) then 2 else
   if state.regs.get? PC = some (BitVec.ofNat 64 0x127a0) then 1 else 0
 

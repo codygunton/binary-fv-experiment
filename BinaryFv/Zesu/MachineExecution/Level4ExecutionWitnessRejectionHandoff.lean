@@ -1,5 +1,7 @@
 import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.Seg
+import BinaryFv.Zesu.MachineExecution.Level4SpecializedAllocationPreparationSteps
+import BinaryFv.Zesu.MachineExecution.Level4SpecializedReturnSteps
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level4Contracts
 
 /-! # `decodeExecutionWitness` error handoff into the rejection phase
@@ -165,6 +167,33 @@ theorem level4_executionWitness_rejection_handoff {margs : DecoderMachineArgs} {
         (seg1.agree decoderPreserved_level4ExecutionWitnessRejectionWrites_disjoint) seg1.retired
   exact ⟨after, ⟨seg1.trace, seg1.confined, seg1.writes, memory, seg1.atPc,
     seg1.reg x9 (BitVec.ofNat 64 2) (by simp), preserved⟩⟩
+
+/-- Register-only parent interleaves retain the concrete raw-entry frame when their Sail frame
+preserves decoder registers and `x2`, and they leave memory untouched. -/
+private theorem level4_parentFrame_preserved_of_register_only
+    {margs : DecoderMachineArgs} {origin before after : State}
+    (frame : Level4DecodeRawParentFrame margs origin before)
+    (memory : after.mem = before.mem)
+    (stackPointer : after.regs.get? x2 = before.regs.get? x2)
+    (decoderAgree : Agree decoderPreserved before after)
+    (retired : RetiredCounterPresent after) :
+    frame.PreservedTo after := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputSeparated,
+    stackWritable, rawWritable, rawSeparated, postStackAligned, code, machine, -⟩
+  have inputAfter : DecodedValue.MemoryBytes after margs.inputBase margs.bytes := by
+    apply inputMemory.of_mem_eq
+    intro index indexBound
+    rw [memory]
+  have codeAfter : Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
+    rw [memory]
+    exact code
+  refine ⟨entry, stackEq, raEq, ?_, stackPointer.trans sp,
+    inputAfter, inputSeparated, stackWritable, rawWritable, rawSeparated, postStackAligned,
+    codeAfter, machine.mono decoderAgree retired, retired⟩
+  rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
+  simp only [SavedWordBytes] at saved ⊢
+  rw [memory]
+  exact saved
 
 /-- The concrete rejection-phase predicate exported by the `0x12730 → 0x12734` generated route.
 The later rejection proof receives the literal continuation PC and status value, not an arbitrary
@@ -375,5 +404,59 @@ theorem level4_executionWitness_route_77868_75576_carrier_decision
   exact level4_executionWitness_singleton_carrier_decision
     functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_77868_75576
     rfl rfl rfl frame args rank fromStep progress currentProtected handoffProtected routeEq
+
+private theorem decoderPreserved_level4ExecutionWitnessReturnWrites_disjoint :
+    RegSet.Disjoint decoderPreserved level4SpecializedReturnPreparationWrites := by
+  intro r preserved written
+  rcases preserved with ⟨notLink, platform⟩
+  rcases written with bookkeeping | rfl | rfl
+  · exact platformPreserved_disjoint r platform bookkeeping
+  all_goals simp [platformPreserved] at platform
+
+/-- The first intermediate execution-witness H edge executes the exact two direct parent words
+at `0x12720..0x12724`, then resumes only with r1's generated R token. -/
+theorem level4_executionWitness_route_75548_75552_reenter
+    {margs : DecoderMachineArgs} {origin initial current handoff : State}
+    (frame : Level4DecodeRawParentFrame margs origin initial) (args : ContainerArgs) (fromStep : Nat)
+    (progress : Level4HandoffProgress decodeExecutionWitnessInterface args origin fromStep current handoff)
+    (_currentProtected : frame.PreservedTo current) (handoffProtected : frame.PreservedTo handoff)
+    (routeEq : progress.route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552) :
+    ParentRouteDecision decodeExecutionWitnessInterface args origin frame.PreservedTo
+      (Level4ExecutionWitnessRejectionPhase frame) decodeExecutionWitnessContinuationRank
+      fromStep current handoff progress := by
+  have start := progress.admissibleStart
+  change decodeExecutionWitnessAdmissibleStart args current progress.route at start
+  rw [routeEq] at start
+  rcases decodeExecutionWitness_admissibleStart_75548_75552 start with
+    ⟨stackPointer, descriptorBase, resultCarrier, atCurrent, currentRest⟩
+  have handoffToken := progress.handoffToken
+  change decodeExecutionWitnessHandoffToken progress.route handoff at handoffToken
+  rcases handoffToken with ⟨atHandoff, operands, -⟩
+  rw [routeEq] at atHandoff
+  rcases operands routeEq with ⟨a2, a3, a2Value, a3Value⟩
+  let handoffFrame := frame.toState handoffProtected
+  rcases handoffFrame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputSeparated,
+    stackWritable, rawWritable, rawSeparated, postStackAligned, code, machine, retired⟩
+  let pre : Level4SpecializedReturnPreparationPre margs handoff :=
+    { machine := machine, code := code, atPc := atHandoff, a2 := a2, a2Value := a2Value,
+      a3 := a3, a3Value := a3Value, retired := retired }
+  obtain ⟨next, corridor⟩ := level4_specialized_return_preparation pre
+    (fromStep + progress.prefixUsed + 1)
+  have preserved : frame.PreservedTo next :=
+    level4_parentFrame_preserved_of_register_only handoffFrame corridor.memory
+      (corridor.writes x2 (by simp [level4SpecializedReturnPreparationWrites]))
+      (corridor.writes.agree decoderPreserved_level4ExecutionWitnessReturnWrites_disjoint) corridor.retired
+  have token : decodeExecutionWitnessReentryToken progress.route args next := by
+    left
+    refine ⟨routeEq, a2, a3, corridor.pc, corridor.byteLength, corridor.fixedLength⟩
+  have atCurrentExact : current.regs.get? PC = some (BitVec.ofNat 64 0x12710) := by
+    simpa [functionInstanceEntryWord,
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48] using atCurrent
+  have rankCurrent : decodeExecutionWitnessContinuationRank current = 3 := by
+    simp [decodeExecutionWitnessContinuationRank, atCurrentExact]
+  have rankNext : decodeExecutionWitnessContinuationRank next = 2 := by
+    simp [decodeExecutionWitnessContinuationRank, corridor.pc]
+  exact .reenter next 2 corridor.trace token preserved (by omega)
 
 end BinaryFv.Zesu.MachineExecution
