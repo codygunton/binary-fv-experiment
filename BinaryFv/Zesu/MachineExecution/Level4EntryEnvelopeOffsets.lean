@@ -558,4 +558,46 @@ theorem level4_entry_header_first_lbu {margs : DecoderMachineArgs} {origin state
       exact wX_x10_run executeState (BitVec.ofNat 64 inputByte.toNat))
     (pcIn := ⟨level4_entry_header_first_read_machine_owned, by native_decide⟩)
 
+/-! ## First-header-byte zero gate -/
+
+/-- The parent-owned branch which rejects a nonzero first header byte. -/
+def level4EntryHeaderFirstZeroBranchPcs : List Nat := [0x104c0]
+
+abbrev Level4EntryHeaderFirstZeroBranchPcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4EntryHeaderFirstZeroBranchPcs
+
+theorem level4EntryHeaderFirstZeroBranchPcs_subset_direct :
+    level4EntryHeaderFirstZeroBranchPcs.all decodeRawDirectPcs.contains = true := by native_decide
+
+theorem level4EntryHeaderFirstZeroBranchPcs_subset_phase :
+    level4EntryHeaderFirstZeroBranchPcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
+  native_decide
+
+private theorem level4_entry_header_first_zero_branch_machine_owned :
+    RegisterWriteStep.decodeRawExecutionPcs (BitVec.ofNat 64 0x104c0) := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  apply RegionPcs.iff_inRanges.mpr
+  native_decide
+
+/-- Sail executes the fall-through of `bnez a0, 0x1049c`: a zero first header byte reaches the
+second byte read at `0x104c4`. -/
+theorem level4_entry_header_first_zero_branch {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104c0))
+    (firstByteZero : state.regs.get? x10 = some (0#64)) (stepNo : Nat) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+          (BitVec.ofNat 64 0x104c0))
+        (BitVec.ofNat 64 0x104c4) retired) false := by
+  rcases frame.invariant with ⟨entry, -, -, -, -, inputMemory, -, -, code, machine, retired⟩
+  exact decoderBranchNotTakenStep machine (Agree.refl state) retired code stepNo
+    0x104c0 0xe3 0x1e 0x05 0xfc 0x1fdc#13 0#5 10#5 .BNE atPc
+    (by
+      unfold bTypeTaken
+      refine Runs.bind (rX_x10_run _ _ (decoderExecuteState_get? firstByteZero)) ?_
+      refine Runs.bind (rX_x0_run _) ?_
+      rfl)
+    (pcIn := ⟨level4_entry_header_first_zero_branch_machine_owned, by native_decide⟩)
+
 end BinaryFv.Zesu.MachineExecution
