@@ -259,6 +259,51 @@ class MachineRegionTests(unittest.TestCase):
             {**parent, "regions": [{"start": 80000, "size": 4}]}, owners,
             {77408: {"address": 77408, "owner": "fi:102", "successors": [77412]}}), [])
 
+    def test_admissible_route_predecessors_stop_at_other_handoffs_and_framed_calls(self) -> None:
+        parent = {"id": "fi:6", "regions": [{"start": 96, "size": 32}], "parent": None}
+        decoder = {
+            "id": "fi:102", "qualified": "ssz_raw.decodeChainConfig", "entryPc": 100,
+            "regions": [{"start": 100, "size": 20}], "parent": "fi:6",
+            "inlineStack": [{"callerQualified": "ssz_raw.decodeRaw", "line": 211, "column": 48}],
+        }
+        owners = {"fi:6": parent, "fi:102": decoder}
+        instructions = {
+            96: {"address": 96, "owner": "fi:6", "successors": [112]},
+            100: {"address": 100, "owner": "fi:102", "successors": [104]},
+            104: {"address": 104, "owner": "fi:102", "transfer": "directCall",
+                  "successors": [108, 1000]},
+            108: {"address": 108, "owner": "fi:102", "successors": [112, 200]},
+            112: {"address": 112, "owner": "fi:102", "successors": [116]},
+            116: {"address": 116, "owner": "fi:102", "successors": [120]},
+            120: {"address": 120, "owner": "fi:6", "successors": []},
+            200: {"address": 200, "owner": "fi:6", "successors": []},
+        }
+        handoffs = machine_regions.attribution_fragment_handoffs(decoder, parent, owners, instructions)
+        reentries = machine_regions.parent_fragment_reentries(decoder, parent, owners, instructions)
+        self.assertEqual(handoffs, [{"sourcePc": 108, "targetPc": 200},
+                                    {"sourcePc": 116, "targetPc": 120}])
+        self.assertEqual(reentries, [{"sourcePc": 96, "targetPc": 112}])
+        frame = {"targetPc": 1000, "activeCalleeExecutionPcs": [1000],
+                 "returnSites": [{"sourcePc": 104, "returnPc": 108}],
+                 "activeCalleeFrames": []}
+        self.assertEqual(
+            machine_regions.admissible_route_predecessors(
+                decoder, handoffs[0], reentries, instructions, owners, [], handoffs),
+            [],
+        )
+        self.assertEqual(
+            machine_regions.admissible_route_predecessors(
+                decoder, handoffs[0], reentries, instructions, owners, [frame], handoffs),
+            [100],
+        )
+        # The initial stage reaches the first H source, but route two must stop there.  Only the
+        # generated re-entry stage at 112 can precede its H source.
+        self.assertEqual(
+            machine_regions.admissible_route_predecessors(
+                decoder, handoffs[1], reentries, instructions, owners, [frame], handoffs),
+            [112],
+        )
+
     def test_outcome_carrier_instruction_validator_rejects_deletion_and_forgery(self) -> None:
         route = {
             "classification": "sourceReviewedOutcomePath",
@@ -325,6 +370,18 @@ class MachineRegionTests(unittest.TestCase):
             decoder, parent, {row["address"]: row for row in database["instructions"]}
         )
         manifest["boundaries"][0]["carrierRoutes"][0]["classification"] = "unclassified"
+        with self.assertRaisesRegex(ValueError, "carrier routes are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["carrierRoutes"] = machine_regions.outcome_carrier_routes(
+            decoder, parent, {row["address"]: row for row in database["instructions"]}
+        )
+        manifest["boundaries"][0]["carrierRoutes"][0]["admissiblePredecessors"] = []
+        with self.assertRaisesRegex(ValueError, "carrier routes are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["carrierRoutes"] = machine_regions.outcome_carrier_routes(
+            decoder, parent, {row["address"]: row for row in database["instructions"]}
+        )
+        manifest["boundaries"][0]["carrierRoutes"][0]["admissiblePredecessors"] = [77408]
         with self.assertRaisesRegex(ValueError, "carrier routes are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["carrierRoutes"] = machine_regions.outcome_carrier_routes(

@@ -768,7 +768,8 @@ def attribution_fragment_handoffs(
     """
     if not is_level4_dynamic_decoder(owner):
         return []
-    subtree_ids = descendant_owner_ids(owners_by_id, owner["id"])
+    subtree_ids = (descendant_owner_ids(owners_by_id, owner["id"])
+                   if owners_by_id else {owner["id"]})
     owned = {address for address, instruction in instruction_rows.items()
              if instruction.get("owner") in subtree_ids}
     parent_owned = set(dynamic_owned_execution_pcs(decode_raw, instruction_rows))
@@ -787,7 +788,8 @@ def parent_fragment_reentries(
     """Every decoded-owned decodeRaw edge which enters a direct dynamic decoder fragment."""
     if not is_level4_dynamic_decoder(owner):
         return []
-    subtree_ids = descendant_owner_ids(owners_by_id, owner["id"])
+    subtree_ids = (descendant_owner_ids(owners_by_id, owner["id"])
+                   if owners_by_id else {owner["id"]})
     owned = {address for address, instruction in instruction_rows.items()
              if instruction.get("owner") in subtree_ids}
     parent_owned = set(dynamic_owned_execution_pcs(decode_raw, instruction_rows))
@@ -797,6 +799,73 @@ def parent_fragment_reentries(
         for target_pc in instruction_rows[source_pc]["successors"]
         if target_pc in owned
     ]
+
+
+def recursive_active_return_sites(frames: list[dict]) -> set[tuple[int, int]]:
+    """The retained caller-to-continuation edges for every active callee frame.
+
+    A decoded direct call has both the callee target and its syntactic fall-through in the CFG.
+    The latter is a valid route predecessor transition only when the generated recursive frame
+    records its exact RA return site.  This avoids treating an arbitrary direct-call fall-through
+    as though it were a completed call while keeping nested and recursive callee extents explicit.
+    """
+    result = set()
+    for frame in frames:
+        extent = set(frame.get("activeCalleeExecutionPcs", []))
+        if frame.get("targetPc") in extent:
+            result.update((site["sourcePc"], site["returnPc"])
+                          for site in frame.get("returnSites", []))
+        result.update(recursive_active_return_sites(frame.get("activeCalleeFrames", [])))
+    return result
+
+
+def admissible_route_predecessors(
+    owner: dict, handoff: dict, reentries: list[dict], instruction_rows: dict[int, dict],
+    owners_by_id: dict[str, dict], active_callee_frames: list[dict], handoffs: list[dict],
+) -> list[int]:
+    """Exact initial/re-entry stages that can reach one H source in the selected subtree.
+
+    The finite stage domain is the selected decoder entry plus every generated parent-to-child
+    re-entry target.  Traversal stays in the selected inline subtree, halts at every *other* H
+    source, and permits a direct-call fall-through only if its recursively retained callee frame
+    records that RA continuation.  Thus an H route cannot borrow a predecessor from another H
+    boundary or from an unframed call extent.
+    """
+    subtree_ids = (descendant_owner_ids(owners_by_id, owner["id"])
+                   if owners_by_id else {owner["id"]})
+    selected_pcs = {
+        pc for pc, instruction in instruction_rows.items()
+        if instruction.get("owner") in subtree_ids
+    }
+    return_sites = recursive_active_return_sites(active_callee_frames)
+    other_handoff_sources = {
+        edge["sourcePc"] for edge in handoffs if edge != handoff
+    }
+    stages = [owner["entryPc"]] + sorted({edge["targetPc"] for edge in reentries}
+                                        - {owner["entryPc"]})
+
+    def reaches_handoff_source(stage: int) -> bool:
+        todo, seen = [stage], set()
+        while todo:
+            pc = todo.pop()
+            if pc in seen or pc not in selected_pcs:
+                continue
+            seen.add(pc)
+            if pc == handoff["sourcePc"]:
+                return True
+            if pc in other_handoff_sources:
+                continue
+            instruction = instruction_rows[pc]
+            for successor in instruction["successors"]:
+                if successor not in selected_pcs:
+                    continue
+                if instruction.get("transfer") == "directCall" and (pc, successor) not in return_sites:
+                    continue
+                if successor not in seen:
+                    todo.append(successor)
+        return False
+
+    return [stage for stage in stages if reaches_handoff_source(stage)]
 
 
 # These are source-review labels, not semantic facts imported into Lean.  The function identity is
@@ -981,6 +1050,7 @@ def outcome_carrier_routes(
     source_review_evidence: dict[str, dict] | None = None,
     continuation_owners: set[str] | None = None,
     owners_by_id: dict[str, dict] | None = None,
+    active_callee_frames: list[dict] | None = None,
 ) -> list[dict]:
     """Classify every attribution handoff without mistaking a fragment boundary for a result.
 
@@ -1002,8 +1072,11 @@ def outcome_carrier_routes(
     evidence = (source_review_evidence or {}).get(dynamic_identity_text(dynamic_identity_key(owner)))
     if source_review_evidence is not None and evidence is None:
         raise ValueError("Level 4 carrier source review lacks pinned source content evidence")
+    owners_by_id = owners_by_id or {}
+    handoffs = attribution_fragment_handoffs(owner, decode_raw, owners_by_id, instruction_rows)
+    reentries = parent_fragment_reentries(owner, decode_raw, owners_by_id, instruction_rows)
     routes = []
-    for handoff in attribution_fragment_handoffs(owner, decode_raw, owners_by_id or {}, instruction_rows):
+    for handoff in handoffs:
         resumable = reaches_any(handoff["targetPc"], reentry_targets, instruction_rows)
         paths = [
             continuation_path(handoff["targetPc"], carrier_pc, continuation_owners, instruction_rows)
@@ -1026,6 +1099,10 @@ def outcome_carrier_routes(
                 "sourceResult": review["sourceResult"],
                 **(evidence or {}),
             },
+            "admissiblePredecessors": admissible_route_predecessors(
+                owner, handoff, reentries, instruction_rows, owners_by_id,
+                active_callee_frames or [], handoffs,
+            ),
             "carrierPcs": review["carrierPcs"] if outcome else [],
             "carrierPaths": [
                 {"carrierPc": carrier_pc, "pcs": path,
@@ -1192,7 +1269,7 @@ def level4_boundary_manifest(database: dict) -> dict:
             )
             row["carrierRoutes"] = outcome_carrier_routes(
                 owner, decode_raw, instruction_rows, database.get("level4SourceReviewEvidence"),
-                decode_raw_continuation_owners, owners_by_id,
+                decode_raw_continuation_owners, owners_by_id, row.get("calls", []),
             )
         rows.append(row)
     manifest = {
@@ -1246,7 +1323,7 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
         if "carrierRoutes" in row:
             expected_carriers = outcome_carrier_routes(
                 owner, decode_raw, instructions, database.get("level4SourceReviewEvidence"),
-                decode_raw_continuation_owners, owners_by_id,
+                decode_raw_continuation_owners, owners_by_id, expected_calls,
             )
             if row["carrierRoutes"] != expected_carriers:
                 raise ValueError("Level 4 outcome carrier routes are incomplete or forged")
@@ -1438,6 +1515,11 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                 classification = route.get("classification")
                 if classification not in {"intermediate", "unclassified", "sourceReviewedOutcomePath"}:
                     raise ValueError("Level 4 carrier route has an invalid classification")
+                predecessors = route.get("admissiblePredecessors")
+                if (not isinstance(predecessors, list)
+                        or any(not isinstance(pc, int) for pc in predecessors)
+                        or len(predecessors) != len(set(predecessors))):
+                    raise ValueError("Level 4 carrier route lacks exact admissible predecessors")
                 for field in ("carrierPcs", "carrierPaths", "registers", "stackDescriptors"):
                     if not isinstance(route.get(field), list):
                         raise ValueError(f"Level 4 carrier route lacks {field}")
@@ -1673,6 +1755,7 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "  unclassifiedReason : Option String",
         "  sourceLine : Nat",
         "  sourceResult : String",
+        "  admissiblePredecessors : Array Nat",
         "  carrierPcs : Array Nat",
         "  carrierPaths : Array CarrierPath",
         "  registers : Array CarrierRegister",
@@ -1757,12 +1840,12 @@ def emit_level4_attribution_lean(database: dict) -> str:
             )
             return (
                 "{ child := %sId, handoff := { source := %s, target := %s }, classification := %s, intermediateReason := %s, unclassifiedReason := %s, sourceLine := %s, sourceResult := \"%s\", "
-                "carrierPcs := #[%s], carrierPaths := #[%s], registers := #[%s], stackDescriptors := #[%s], "
+                "admissiblePredecessors := #[%s], carrierPcs := #[%s], carrierPaths := #[%s], registers := #[%s], stackDescriptors := #[%s], "
                 "statusTag := %s, allocation := %s, heapArrayRep := %s }"
                 % (child, handoff["sourcePc"], handoff["targetPc"], classification,
                    optional_string(route["intermediateReason"]), optional_string(route["unclassifiedReason"]),
                    route["sourceReview"]["sourceLine"], route["sourceReview"]["sourceResult"],
-                   pcs(route["carrierPcs"]), paths, registers, descriptors, status_lean, allocation_lean,
+                   pcs(route["admissiblePredecessors"]), pcs(route["carrierPcs"]), paths, registers, descriptors, status_lean, allocation_lean,
                    heap_lean)
             )
         def cycle_back_edge_expr(cycle: dict | None) -> str:
@@ -1816,9 +1899,18 @@ def emit_level4_attribution_lean(database: dict) -> str:
         carrier_routes = "(#[%s] : Array AttributionOutcomeCarrierRoute)" % ", ".join(
             carrier_route_names_for_boundary)
         for carrier_route_name, route in zip(carrier_route_names_for_boundary, row["carrierRoutes"]):
+            predecessor_array = f"(#[{pcs(route['admissiblePredecessors'])}] : Array Nat)"
+            stages = [row["entryPc"]] + sorted(
+                {edge["targetPc"] for edge in row["parentReentryEdges"]} - {row["entryPc"]}
+            )
+            stage_disjunction = " ∨ ".join(f"pc = {stage}" for stage in stages)
             L.extend([
                 f"noncomputable def {carrier_route_name} : AttributionOutcomeCarrierRoute :=",
                 f"  {carrier_route(route)}",
+                f"theorem {carrier_route_name}_admissiblePredecessors_exact :",
+                f"    {carrier_route_name}.admissiblePredecessors = {predecessor_array} := rfl",
+                f"theorem {carrier_route_name}_admissiblePredecessors_are_stages :",
+                f"    ∀ pc ∈ {predecessor_array}, {stage_disjunction} := by native_decide",
                 "",
             ])
         L.extend([
