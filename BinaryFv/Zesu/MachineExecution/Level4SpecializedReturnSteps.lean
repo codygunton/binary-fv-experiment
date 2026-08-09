@@ -55,7 +55,8 @@ private theorem level4_specialized_return_length_owned :
   native_decide
 
 private theorem level4_wX_x20_run (state : State) (value : BitVec 64) :
-    Runs (wX_bits (.Regidx 20#5) value) state { state with regs := state.regs.insert x20 value } () := by
+    Runs (wX_bits (.Regidx 20#5) value) state
+      { state with regs := state.regs.insert x20 value } () := by
   have index : (Sail.BitVec.toNatInt 20#5).toNat = 20 := by decide
   unfold Runs
   simp [wX_bits, wX, PreSail.writeReg, index, EStateM.run, EStateM.bind, EStateM.modifyGet,
