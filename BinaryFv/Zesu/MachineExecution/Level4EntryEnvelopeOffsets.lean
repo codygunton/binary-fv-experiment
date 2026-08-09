@@ -143,4 +143,301 @@ theorem level4_entry_length_high_word_accepts (fromStep : Nat) {before state : S
       simp [level4EntryLengthHighWordBranchAfter, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick]⟩
 
+/-! ## Ordinary-input header setup
+
+The six words at `0x10498` through `0x104b8` are the direct parent corridor for an ordinary
+input pointer.  The second, byte-reading corridor starts at `0x104bc`; it deliberately remains
+outside this register-only segment until the caller-derived input/save-area adapter provides its
+input snapshot.
+-/
+
+/-- Exact direct-parent PCs before the first raw-header byte load. -/
+def level4EntryEnvelopeHeaderSetupPcs : List Nat :=
+  [0x10498, 0x104a8, 0x104ac, 0x104b0, 0x104b4, 0x104b8]
+
+abbrev Level4EntryEnvelopeHeaderSetupPcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4EntryEnvelopeHeaderSetupPcs
+
+theorem level4EntryEnvelopeHeaderSetupPcs_subset_direct :
+    level4EntryEnvelopeHeaderSetupPcs.all decodeRawDirectPcs.contains = true := by
+  native_decide
+
+theorem level4EntryEnvelopeHeaderSetupPcs_subset_phase :
+    level4EntryEnvelopeHeaderSetupPcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
+  native_decide
+
+private theorem level4_entry_header_setup_owned {pc : Nat}
+    (member : pc ∈ level4EntryEnvelopeHeaderSetupPcs) :
+    Level4EntryEnvelopeHeaderSetupPcs (BitVec.ofNat 64 pc) := by
+  simp only [level4EntryEnvelopeHeaderSetupPcs, List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl <;> native_decide
+
+/-- Registers written by the ordinary-input setup corridor. -/
+def level4EntryEnvelopeHeaderSetupWrites : RegSet := fun r =>
+  stepBookkeeping r ∨ r = x9 ∨ r = x20 ∨ r = x10
+
+private theorem decoderPreserved_level4EntryEnvelopeHeaderSetupWrites_disjoint :
+    RegSet.Disjoint decoderPreserved level4EntryEnvelopeHeaderSetupWrites := by
+  intro r hr hw
+  rcases hr with ⟨notLink, platform⟩
+  rcases hw with bookkeeping | rfl | rfl | rfl
+  · exact platformPreserved_disjoint r platform bookkeeping
+  all_goals simp [platformPreserved] at platform
+
+private theorem level4_entry_header_setup_length_condition (state : State) (length : Nat)
+    (lengthValue : state.regs.get? x13 = some (BitVec.ofNat 64 length))
+    (tagValue : state.regs.get? x10 = some (BitVec.ofNat 64 2))
+    (lengthFits : length < 2 ^ 64) (twoBytes : 2 ≤ length) :
+    Runs (bTypeTaken (.Regidx 10#5) (.Regidx 13#5) .BGEU)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10498))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x10498))
+      true := by
+  unfold bTypeTaken
+  refine Runs.bind (rX_x13_run _ _ (decoderExecuteState_get? lengthValue)) ?_
+  refine Runs.bind (rX_x10_run _ _ (decoderExecuteState_get? tagValue)) ?_
+  simp only [zopz0zKzJ_u, Sail.BitVec.toNatInt, BitVec.toNat_ofNat,
+    Nat.mod_eq_of_lt lengthFits, Nat.mod_eq_of_lt (by omega : 2 < 2 ^ 64)]
+  have comparison : (Int.ofNat length ≥b Int.ofNat 2) = true := by
+    simpa only [decide_eq_true_eq] using Int.ofNat_le.mpr twoBytes
+  rw [comparison]
+  rfl
+
+private theorem level4_entry_header_setup_nonstatic_condition (state : State) (inputBase : Nat)
+    (inputValue : state.regs.get? x12 = some (BitVec.ofNat 64 inputBase))
+    (staticValue : state.regs.get? x10 = some (BitVec.ofNat 64 0x142e0))
+    (ordinaryInput : BitVec.ofNat 64 inputBase ≠ BitVec.ofNat 64 0x142e0) :
+    Runs (bTypeTaken (.Regidx 10#5) (.Regidx 12#5) .BEQ)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104b8))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104b8))
+      false := by
+  unfold bTypeTaken
+  refine Runs.bind (rX_x12_run _ _ (decoderExecuteState_get? inputValue)) ?_
+  refine Runs.bind (rX_x10_run _ _ (decoderExecuteState_get? staticValue)) ?_
+  have unequal : (BitVec.ofNat 64 inputBase == BitVec.ofNat 64 0x142e0) = false := by
+    simpa using ordinaryInput
+  rw [unequal]
+  rfl
+
+private theorem level4_entry_addi_zero (value : BitVec 64) :
+    iTypeResult .ADDI 0#12 value = value := by
+  unfold iTypeResult
+  rw [show sign_extend (0#12) = (0#64) by decide]
+  simp
+
+private theorem level4_wX_x20_run (state : State) (value : BitVec 64) :
+    Runs (wX_bits (.Regidx 20#5) value) state { state with regs := state.regs.insert x20 value } () := by
+  have index : (Sail.BitVec.toNatInt 20#5).toNat = 20 := by decide
+  unfold Runs
+  simp [wX_bits, wX, PreSail.writeReg, index, EStateM.run, EStateM.bind, EStateM.modifyGet,
+    EStateM.pure, EStateM.instMonad, MonadState.modifyGet, MonadStateOf.modifyGet, modify,
+    xreg_write_callback, xreg_full_write_callback, reg_name_forwards, get_config_use_abi_names,
+    encdec_reg_forwards, encdec_reg_forwards_matches, reg_arch_name_raw_forwards,
+    LeanRV64DExecutable.Functions.not, zero_extend, regval_into_reg]
+
+private theorem level4_entry_header_setup_move_link_step {base state : State}
+    (machine : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104a8))
+    (linkValue : state.regs.get? x1 = some link) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104a8) stepRetired x9 link) false := by
+  exact decoderITypeStepOfDecoderAgree machine agree retired code stepNo
+    0x104a8 0x93 0x84 0x00 0x00 0#12 1#5 9#5 .ADDI atPc
+    (rX_x1_run _ _ (decoderExecuteState_get? linkValue)) (by
+      rw [level4_entry_addi_zero]
+      exact wX_x9_run
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104a8)) link)
+    (pcIn := ⟨level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs]),
+      by native_decide⟩)
+
+private theorem level4_entry_header_setup_move_input_step {base state : State}
+    (machine : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104ac))
+    (inputValue : state.regs.get? x12 = some (BitVec.ofNat 64 margs.inputBase)) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104ac) stepRetired x20
+        (BitVec.ofNat 64 margs.inputBase)) false := by
+  exact decoderITypeStepOfDecoderAgree machine agree retired code stepNo
+    0x104ac 0x13 0x0a 0x06 0x00 0#12 12#5 20#5 .ADDI atPc
+    (rX_x12_run _ _ (decoderExecuteState_get? inputValue)) (by
+      rw [level4_entry_addi_zero]
+      exact level4_wX_x20_run
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104ac))
+        (BitVec.ofNat 64 margs.inputBase))
+    (pcIn := ⟨level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs]),
+      by native_decide⟩)
+
+private theorem level4_entry_header_setup_page_step {base state : State}
+    (machine : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104b0)) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104b0) stepRetired x10
+        (BitVec.ofNat 64 0x144b0)) false := by
+  exact decoderAuipcStepOfDecoderAgree machine agree retired code stepNo
+    0x104b0 0x17 0x45 0x00 0x00 0x00004#20 10#5 atPc (by
+      simpa [show BitVec.ofNat 64 0x104b0 +
+          sign_extend (m := 64) (0x00004#20 ++ 0x000#12) = BitVec.ofNat 64 0x144b0 by decide]
+        using wX_x10_run
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104b0))
+          (BitVec.ofNat 64 0x144b0))
+    (pcIn := ⟨level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs]),
+      by native_decide⟩)
+
+private theorem level4_entry_header_setup_static_pointer_step {base state : State}
+    (machine : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104b4))
+    (pageValue : state.regs.get? x10 = some (BitVec.ofNat 64 0x144b0)) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104b4) stepRetired x10
+        (BitVec.ofNat 64 0x142e0)) false := by
+  exact decoderITypeStepOfDecoderAgree machine agree retired code stepNo
+    0x104b4 0x13 0x05 0x05 0xe3 0xe30#12 10#5 10#5 .ADDI atPc
+    (rX_x10_run _ _ (decoderExecuteState_get? pageValue)) (by
+      simpa [iTypeResult] using wX_x10_run
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104b4))
+        (BitVec.ofNat 64 0x142e0))
+    (pcIn := ⟨level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs]),
+      by native_decide⟩)
+
+structure Level4EntryEnvelopeHeaderSetupPre (margs : DecoderMachineArgs) (state : State) where
+  machine : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs state
+  code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
+  atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10498)
+  resultTag : state.regs.get? x10 = some (BitVec.ofNat 64 2)
+  inputBase : state.regs.get? x12 = some (BitVec.ofNat 64 margs.inputBase)
+  inputLength : state.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
+  inputLengthFits : margs.bytes.size < 2 ^ 64
+  inputAtLeastTwo : 2 ≤ margs.bytes.size
+  link : BitVec 64
+  linkValue : state.regs.get? x1 = some link
+  ordinaryInput : BitVec.ofNat 64 margs.inputBase ≠ BitVec.ofNat 64 0x142e0
+  retired : RetiredCounterPresent state
+
+structure Level4EntryEnvelopeHeaderSetupHandoff (fromStep : Nat) (before after : State)
+    (pre : Level4EntryEnvelopeHeaderSetupPre margs before) : Prop where
+  trace : Trace fromStep 6 before after
+  confined : ConfinedPrefix Level4EntryEnvelopeHeaderSetupPcs (fun _ => False)
+    (fun _ _ _ _ _ => False) fromStep 6 before after
+  writes : WritesOnlyRegs level4EntryEnvelopeHeaderSetupWrites before after
+  memory : after.mem = before.mem
+  pc : after.regs.get? PC = some (BitVec.ofNat 64 0x104bc)
+  savedLink : after.regs.get? x9 = some pre.link
+  inputPointer : after.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)
+  inputBase : after.regs.get? x12 = some (BitVec.ofNat 64 margs.inputBase)
+  inputLength : after.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
+  code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
+  machine : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs after
+  retired : RetiredCounterPresent after
+
+/-- Sail executes the ordinary-input parent corridor from the post-`requireU32Length` length
+gate to the first raw-header byte read.  Its endpoint intentionally carries no input-memory claim:
+the pending caller-derived adapter is responsible for connecting that snapshot across the prologue. -/
+theorem level4_entry_envelope_header_setup
+    (pre : Level4EntryEnvelopeHeaderSetupPre margs state) (fromStep : Nat) :
+    ∃ after, Level4EntryEnvelopeHeaderSetupHandoff fromStep state after pre := by
+  let seg0 := Seg.nil Level4EntryEnvelopeHeaderSetupPcs (fun _ => False) (fun _ _ _ _ _ => False)
+    level4EntryEnvelopeHeaderSetupWrites noMemory fromStep pre.retired pre.atPc
+  obtain ⟨afterLength, seg1⟩ := seg0.stepJump (BitVec.ofNat 64 0x104a8)
+    (level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs])) (by simp)
+    (decoderBranchTakenStep pre.machine (Agree.refl state) seg0.retired pre.code fromStep
+      0x10498 0x63 0xf8 0xa6 0x00 0x10#13 10#5 13#5 .BGEU (BitVec.ofNat 64 0x104a8)
+      seg0.atPc (level4_entry_header_setup_length_condition state margs.bytes.size pre.inputLength
+        pre.resultTag pre.inputLengthFits pre.inputAtLeastTwo)
+      (pcIn := ⟨level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs]),
+        by native_decide⟩))
+    (by intro r h; exact Or.inl h) (by intro p hp; cases hp)
+  have code1 : Artifacts.programImage.fileBytesLoadedFaithfully afterLength.mem := by
+    rw [seg1.memEq noMemory_empty]
+    exact pre.code
+  have machine1 : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs afterLength :=
+    pre.machine.mono (seg1.agree decoderPreserved_level4EntryEnvelopeHeaderSetupWrites_disjoint)
+      seg1.retired
+  obtain ⟨afterLink, seg2⟩ := seg1.step
+    (level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs])) (by simp) x9
+    pre.link (BitVec.ofNat 64 0x104ac)
+    (level4_entry_header_setup_move_link_step machine1 (Agree.refl afterLength) seg1.retired code1
+      (fromStep + 1) seg1.atPc
+      ((seg1.get x1 (by simp [level4EntryEnvelopeHeaderSetupWrites])).trans pre.linkValue))
+    (by decide) (by intro r h; exact Or.inl h)
+    (by simp [level4EntryEnvelopeHeaderSetupWrites]) (by decide) (by decide)
+    (by exact of_decide_eq_true rfl)
+  have code2 : Artifacts.programImage.fileBytesLoadedFaithfully afterLink.mem := by
+    rw [seg2.memEq noMemory_empty]
+    exact pre.code
+  have machine2 : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs afterLink :=
+    pre.machine.mono (seg2.agree decoderPreserved_level4EntryEnvelopeHeaderSetupWrites_disjoint)
+      seg2.retired
+  obtain ⟨afterInput, seg3⟩ := seg2.step
+    (level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs])) (by simp) x20
+    (BitVec.ofNat 64 margs.inputBase) (BitVec.ofNat 64 0x104b0)
+    (level4_entry_header_setup_move_input_step machine2 (Agree.refl afterLink) seg2.retired code2
+      (fromStep + 2) seg2.atPc
+      ((seg2.get x12 (by simp [level4EntryEnvelopeHeaderSetupWrites])).trans pre.inputBase))
+    (by decide) (by intro r h; exact Or.inl h)
+    (by simp [level4EntryEnvelopeHeaderSetupWrites]) (by decide) (by decide)
+    (by exact of_decide_eq_true rfl)
+  have code3 : Artifacts.programImage.fileBytesLoadedFaithfully afterInput.mem := by
+    rw [seg3.memEq noMemory_empty]
+    exact pre.code
+  have machine3 : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs afterInput :=
+    pre.machine.mono (seg3.agree decoderPreserved_level4EntryEnvelopeHeaderSetupWrites_disjoint)
+      seg3.retired
+  obtain ⟨afterPage, seg4⟩ :=
+    (seg3.forget (kv' := [⟨x20, BitVec.ofNat 64 margs.inputBase⟩, ⟨x9, pre.link⟩]) (by simp)).step
+      (level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs])) (by simp) x10
+      (BitVec.ofNat 64 0x144b0) (BitVec.ofNat 64 0x104b4)
+      (level4_entry_header_setup_page_step machine3 (Agree.refl afterInput) seg3.retired code3
+        (fromStep + 3) seg3.atPc)
+      (by decide) (by intro r h; exact Or.inl h)
+      (by simp [level4EntryEnvelopeHeaderSetupWrites]) (by decide) (by decide)
+      (by exact of_decide_eq_true rfl)
+  have code4 : Artifacts.programImage.fileBytesLoadedFaithfully afterPage.mem := by
+    rw [seg4.memEq noMemory_empty]
+    exact pre.code
+  have machine4 : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs afterPage :=
+    pre.machine.mono (seg4.agree decoderPreserved_level4EntryEnvelopeHeaderSetupWrites_disjoint)
+      seg4.retired
+  obtain ⟨afterStatic, seg5⟩ :=
+    (seg4.forget (kv' := [⟨x20, BitVec.ofNat 64 margs.inputBase⟩, ⟨x9, pre.link⟩]) (by simp)).step
+      (level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs])) (by simp) x10
+      (BitVec.ofNat 64 0x142e0) (BitVec.ofNat 64 0x104b8)
+      (level4_entry_header_setup_static_pointer_step machine4 (Agree.refl afterPage) seg4.retired code4
+        (fromStep + 4) seg4.atPc (seg4.reg x10 (BitVec.ofNat 64 0x144b0) (by simp)))
+      (by decide) (by intro r h; exact Or.inl h)
+      (by simp [level4EntryEnvelopeHeaderSetupWrites]) (by decide) (by decide)
+      (by exact of_decide_eq_true rfl)
+  have code5 : Artifacts.programImage.fileBytesLoadedFaithfully afterStatic.mem := by
+    rw [seg5.memEq noMemory_empty]
+    exact pre.code
+  have machine5 : DecoderMachinePre Level4EntryEnvelopeHeaderSetupPcs margs afterStatic :=
+    pre.machine.mono (seg5.agree decoderPreserved_level4EntryEnvelopeHeaderSetupWrites_disjoint)
+      seg5.retired
+  obtain ⟨after, seg6⟩ := seg5.stepFallThrough (BitVec.ofNat 64 0x104bc)
+    (level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs])) (by simp)
+    (decoderBranchNotTakenStep machine5
+      (Agree.refl afterStatic) seg5.retired code5
+      (fromStep + 5) 0x104b8 0x63 0x0c 0xa6 0x00 0x18#13 10#5 12#5 .BEQ seg5.atPc
+      (level4_entry_header_setup_nonstatic_condition afterStatic margs.inputBase
+        ((seg5.get x12 (by simp [level4EntryEnvelopeHeaderSetupWrites])).trans pre.inputBase)
+        (seg5.reg x10 (BitVec.ofNat 64 0x142e0) (by simp)) pre.ordinaryInput)
+      (pcIn := ⟨level4_entry_header_setup_owned (by simp [level4EntryEnvelopeHeaderSetupPcs]),
+        by native_decide⟩))
+    (by intro r h; exact Or.inl h) (by exact of_decide_eq_true rfl)
+  refine ⟨after, ⟨seg6.trace, seg6.confined, seg6.writes, seg6.memEq noMemory_empty, seg6.atPc,
+    seg6.reg x9 pre.link (by simp), seg6.reg x20 (BitVec.ofNat 64 margs.inputBase) (by simp),
+    (seg6.get x12 (by simp [level4EntryEnvelopeHeaderSetupWrites])).trans pre.inputBase,
+    (seg6.get x13 (by simp [level4EntryEnvelopeHeaderSetupWrites])).trans pre.inputLength, ?_, ?_,
+    seg6.retired⟩⟩
+  · rw [seg6.memEq noMemory_empty]
+    exact pre.code
+  · exact pre.machine.mono
+      (seg6.agree decoderPreserved_level4EntryEnvelopeHeaderSetupWrites_disjoint) seg6.retired
+
 end BinaryFv.Zesu.MachineExecution
