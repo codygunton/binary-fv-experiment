@@ -61,6 +61,9 @@ private theorem level4_decode_raw_entry_prologue_pre_of_inline_child
     (rootInputBound : margs.bytes.size < 2 * 1024 * 1024)
     (inputSeparated : ∀ address, args.stackBase - 0xe80 ≤ address →
       address < args.stackBase - 0xe80 + 0xe80 →
+      margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase)
+    (nestedInputSeparated : ∀ address, args.stackBase - 0xed0 ≤ address →
+      address < args.stackBase - 0xe80 →
       margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase) :
     Nonempty (Σ postStack : Nat, Level4DecodeRawEntryProloguePre margs child) := by
   have entry := childPre
@@ -161,13 +164,11 @@ private theorem level4_decode_raw_entry_prologue_pre_of_inline_child
         omega
       nestedCallFrameInputSeparated := by
         intro address lower upper
-        apply inputSeparated address
-        · change args.stackBase - 0xe80 ≤ address
-          have nestedLower := pre.nestedCallFrameFits
-          omega
-        · change address < args.stackBase - 0xe80 + 0xe80
-          have nestedLower := pre.nestedCallFrameFits
-          omega
+        apply nestedInputSeparated address
+        · dsimp only [postStack] at lower
+          exact lower
+        · dsimp only [postStack] at upper
+          exact upper
       postStackAligned := pre.postStackAligned postStack entryStack
       stackFits := by
         change postStack + 0x690 + 0x7f0 < 2 ^ 64
@@ -847,7 +848,14 @@ theorem decodeInline_first_enters_decodeRaw (fromStep : Nat) (args : DecodeInlin
     exact rawWritable
   have childPrologue := level4_decode_raw_entry_prologue_pre_of_inline_child args state childEntry pre
     args.firstRawArgs (entryMachineArgs args.firstRawArgs) rfl childPre rawMachine childStack
-    childInputMemory pre.rootInputBound childInputSeparated
+    childInputMemory pre.rootInputBound childInputSeparated (by
+      intro address lower upper
+      have inCanonicalStack : Contracts.canonicalContractParams.env.stack address := by
+        have offsetBound : address - (args.stackBase - 0xed0) < 0x50 := by omega
+        rw [show address = args.stackBase - 0xed0 + (address - (args.stackBase - 0xed0)) by omega]
+        exact pre.nestedCallFrameWritable _ offsetBound
+      have separated := pre.inputAvoidsCanonicalStack address inCanonicalStack
+      simpa [entryMachineArgs, DecodeInlineArgs.firstRawArgs] using separated)
   exact ⟨childEntry, childTrace, childPre, childLink, childPrologue⟩
 
 /-- The first Level 3 condition is consumed only after the six parent-owned instructions have
@@ -3466,7 +3474,19 @@ theorem decodeInline_retry_call_transfer
         omega
       change args.retryRawArgs.bytes.size < 2 * 1024 * 1024
       exact Nat.lt_of_le_of_lt tailBound pre.rootInputBound)
-    childInputSeparated
+    childInputSeparated (by
+      intro address lower upper
+      have inCanonicalStack : Contracts.canonicalContractParams.env.stack address := by
+        have offsetBound : address - (args.stackBase - 0xed0) < 0x50 := by omega
+        rw [show address = args.stackBase - 0xed0 + (address - (args.stackBase - 0xed0)) by omega]
+        exact pre.nestedCallFrameWritable _ offsetBound
+      rcases pre.inputAvoidsCanonicalStack address inCanonicalStack with separated | separated
+      · left
+        simp only [entryMachineArgs, DecodeInlineArgs.retryRawArgs, ByteArray.size_extract]
+        omega
+      · right
+        simp only [entryMachineArgs, DecodeInlineArgs.retryRawArgs]
+        omega)
   obtain ⟨childUsed, childExit, childBound, childTrace, childPost⟩ :=
     contract args.retryRawArgs (fromStep + (12 + lengthUsed + prefixUsed)) childEntry childPre
   obtain ⟨returnRetired, returnRun, atResume⟩ :=
