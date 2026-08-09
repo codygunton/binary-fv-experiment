@@ -116,6 +116,37 @@ class MachineRegionTests(unittest.TestCase):
         }])
         self.assertTrue(all("stores" not in row for row in manifest["boundaries"]))
 
+    def test_level4_tail_dependency_has_identity_and_completion_geometry(self) -> None:
+        database = self.level4_database()
+        allocator = next(owner for owner in database["callGraph"]["owners"]
+                         if owner["qualified"] == "raw_decoder_root.allocatorAlloc")
+        raw_alloc = {
+            "id": "fi:raw-alloc", "kind": "emitted", "qualified": "raw_allocator.zesu_raw_alloc",
+            "instructions": [], "entryPc": 2000, "regions": [{"start": 2000, "size": 8}],
+            "sourceFile": "raw_allocator.zig", "specialization": [], "inlineStack": [],
+            "exitPcs": [2004],
+        }
+        allocator["exitPcs"] = [1064]
+        database["callGraph"]["owners"].append(raw_alloc)
+        database["callGraph"]["instructionAddresses"].extend([2000, 2004])
+        database["instructions"].extend([
+            {"address": 2000, "successors": [2004], "memory": []},
+            {"address": 2004, "successors": [], "memory": []},
+        ])
+        database["callGraph"]["calls"].append({
+            "caller": allocator["id"], "callee": raw_alloc["id"], "kind": "tail",
+            "source": allocator["entryPc"], "evidence": raw_alloc["entryPc"],
+        })
+        manifest = machine_regions.level4_boundary_manifest(database)
+        row = next(boundary for boundary in manifest["boundaries"]
+                   if boundary["id"] == allocator["id"])
+        [dependency] = row["tailDependencies"]
+        self.assertEqual(dependency["functionInstanceIdentity"]["qualified"], raw_alloc["qualified"])
+        self.assertEqual(dependency["transfer"], {"sourcePc": allocator["entryPc"], "targetPc": 2000})
+        self.assertEqual(dependency["completionSourcePcs"], [2004])
+        self.assertEqual(dependency["calleeInstructionPcs"], [2000, 2004])
+        self.assertEqual(dependency["combinedInstructionPcs"], sorted(row["instructionPcs"] + [2000, 2004]))
+
     def test_level4_boundary_manifest_has_consumer_compatible_shape(self) -> None:
         manifest = machine_regions.level4_boundary_manifest(self.level4_database())
         for row in manifest["boundaries"]:
@@ -149,6 +180,31 @@ class MachineRegionTests(unittest.TestCase):
         manifest = machine_regions.level4_boundary_manifest(self.level4_database())
         manifest["boundaries"][0]["stores"] = [{"pc": 1000, "bytes": 8}]
         with self.assertRaisesRegex(ValueError, "cannot claim dynamic stores"):
+            machine_regions.validate_level4_boundary_manifest(manifest)
+        manifest = machine_regions.level4_boundary_manifest(self.level4_database())
+        manifest["boundaries"][0]["tailDependencies"] = [{"functionInstanceId": "fi:0"}]
+        with self.assertRaisesRegex(ValueError, "tail dependency lacks"):
+            machine_regions.validate_level4_boundary_manifest(manifest)
+        database = self.level4_database()
+        allocator = next(owner for owner in database["callGraph"]["owners"]
+                         if owner["qualified"] == "raw_decoder_root.allocatorAlloc")
+        raw_alloc = {
+            "id": "fi:raw-alloc", "kind": "emitted", "qualified": "raw_allocator.zesu_raw_alloc",
+            "instructions": [], "entryPc": 2000, "regions": [{"start": 2000, "size": 8}],
+            "sourceFile": "raw_allocator.zig", "specialization": [], "inlineStack": [], "exitPcs": [2004],
+        }
+        database["callGraph"]["owners"].append(raw_alloc)
+        database["callGraph"]["instructionAddresses"].extend([2000, 2004])
+        database["instructions"].extend([
+            {"address": 2000, "successors": [2004], "memory": []},
+            {"address": 2004, "successors": [], "memory": []},
+        ])
+        database["callGraph"]["calls"].append({"caller": allocator["id"], "callee": raw_alloc["id"],
+            "kind": "tail", "source": allocator["entryPc"], "evidence": 2000})
+        manifest = machine_regions.level4_boundary_manifest(database)
+        dependency = next(row for row in manifest["boundaries"] if row["id"] == allocator["id"])["tailDependencies"][0]
+        dependency["combinedInstructionPcs"].pop()
+        with self.assertRaisesRegex(ValueError, "combined region is not exact"):
             machine_regions.validate_level4_boundary_manifest(manifest)
 
     def test_llvm_disassembly_parser(self) -> None:

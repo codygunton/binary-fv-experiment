@@ -32,6 +32,12 @@ class FunctionInstanceLeanNameTests(unittest.TestCase):
             "functionInstance_raw_decoder_root_zesu_decode_raw",
         )
 
+    def test_raw_allocator_tail_callee_keeps_its_generated_source_identity(self):
+        self.assertEqual(
+            function_instance_lean_name(instance("raw_allocator.zesu_raw_alloc")),
+            "functionInstance_raw_allocator_zesu_raw_alloc",
+        )
+
     def test_inline_name_records_complete_call_path(self):
         value = instance(
             "ssz_raw.readU32",

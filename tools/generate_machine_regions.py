@@ -122,6 +122,7 @@ def assign_owners(program: dict, reachable: set[int]) -> tuple[dict[int, str], d
             "inlineStack": instance.get("inlineStack", []),
             "regions": instance["regions"],
             "entryPc": instance["entryPc"],
+            "exitPcs": instance.get("exits", []),
         }
         depth = instance_depth(index, instances)
         for address in reachable:
@@ -510,6 +511,14 @@ def level4_boundary_manifest(database: dict) -> dict:
                 "targetPc": callee["entryPc"],
             })
 
+    def function_identity(owner: dict) -> dict:
+        return {
+            "sourceFile": owner["sourceFile"],
+            "qualified": owner["qualified"],
+            "specialization": owner.get("specialization", []),
+            "inlineStack": owner.get("inlineStack", []),
+        }
+
     rows = []
     for owner in sorted(boundaries, key=lambda row: (row["entryPc"], row["id"])):
         instruction_pcs = sorted(
@@ -532,14 +541,27 @@ def level4_boundary_manifest(database: dict) -> dict:
             "parent": decode_raw["id"],
         }
         if owner["kind"] in {"emitted", "inlined"}:
-            row["functionInstanceIdentity"] = {
-                "sourceFile": owner["sourceFile"],
-                "qualified": owner["qualified"],
-                "specialization": owner["specialization"],
-                "inlineStack": owner["inlineStack"],
-            }
+            row["functionInstanceIdentity"] = function_identity(owner)
         if calls_by_owner[owner["id"]]:
             row["calls"] = calls_by_owner[owner["id"]]
+        tail_dependencies = []
+        for call in calls_by_owner[owner["id"]]:
+            if call["kind"] != "tail":
+                continue
+            callee = owners_by_id[call["id"]]
+            callee_pcs = sorted(
+                address for address in instruction_addresses if in_regions(address, callee["regions"])
+            )
+            tail_dependencies.append({
+                "functionInstanceId": callee["id"],
+                "functionInstanceIdentity": function_identity(callee),
+                "transfer": {"sourcePc": call["sourcePc"], "targetPc": call["targetPc"]},
+                "calleeInstructionPcs": callee_pcs,
+                "completionSourcePcs": callee.get("exitPcs", []),
+                "combinedInstructionPcs": sorted(set(instruction_pcs) | set(callee_pcs)),
+            })
+        if tail_dependencies:
+            row["tailDependencies"] = tail_dependencies
         rows.append(row)
     manifest = {
         "schemaVersion": 1,
@@ -598,6 +620,32 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                 if (not isinstance(call, dict) or not isinstance(call.get("sourcePc"), int)
                         or not isinstance(call.get("targetPc"), int)):
                     raise ValueError("Level 4 boundary manifest call lacks concrete PCs")
+        dependencies = row.get("tailDependencies", [])
+        if not isinstance(dependencies, list):
+            raise ValueError("Level 4 boundary manifest tailDependencies field is not a list")
+        for dependency in dependencies:
+            if (not isinstance(dependency, dict)
+                    or not isinstance(dependency.get("functionInstanceId"), str)
+                    or not isinstance(dependency.get("functionInstanceIdentity"), dict)
+                    or not isinstance(dependency.get("functionInstanceIdentity", {}).get("qualified"), str)
+                    or not isinstance(dependency.get("transfer"), dict)
+                    or not isinstance(dependency.get("transfer", {}).get("sourcePc"), int)
+                    or not isinstance(dependency.get("transfer", {}).get("targetPc"), int)):
+                raise ValueError("Level 4 tail dependency lacks a generated identity or transfer PCs")
+            for field in ("calleeInstructionPcs", "completionSourcePcs", "combinedInstructionPcs"):
+                pcs = dependency.get(field)
+                if not isinstance(pcs, list) or not pcs or pcs != sorted(set(pcs)):
+                    raise ValueError(f"Level 4 tail dependency has invalid {field}")
+            callee_pcs = set(dependency["calleeInstructionPcs"])
+            combined_pcs = set(dependency["combinedInstructionPcs"])
+            if dependency["transfer"]["sourcePc"] not in row["instructionPcs"]:
+                raise ValueError("Level 4 tail dependency transfer source is outside its wrapper")
+            if dependency["transfer"]["targetPc"] not in callee_pcs:
+                raise ValueError("Level 4 tail dependency transfer target is outside its callee")
+            if not set(dependency["completionSourcePcs"]) <= callee_pcs:
+                raise ValueError("Level 4 tail dependency completion is outside its callee")
+            if combined_pcs != set(row["instructionPcs"]) | callee_pcs:
+                raise ValueError("Level 4 tail dependency combined region is not exact")
     direct_offsets = [row for row in boundaries if row["qualified"] == "ssz_raw.readOffset"]
     if len(direct_offsets) != 4 or any(not row["instructionPcs"] for row in direct_offsets):
         raise ValueError("Level 4 direct readOffset boundaries are incomplete")
@@ -1272,6 +1320,15 @@ def build_flame(database: dict) -> dict:
             "key": key,
         }
         checked = checked_by_id.get(owner_id, {})
+        tail_dependencies = [] if synthetic else [
+            {
+                "id": call["callee"],
+                "qualified": by_id[call["callee"]]["qualified"],
+                "transfer": {"source": call["source"], "target": call["evidence"]},
+                "completionSourcePcs": by_id[call["callee"]].get("exitPcs", []),
+            }
+            for call in callees[owner_id] if call["kind"] == "tail"
+        ]
         meta[key] = {
             "owner": None if synthetic else owner_id,
             "qualified": qualified,
@@ -1288,6 +1345,7 @@ def build_flame(database: dict) -> dict:
             "loopSccs": [] if synthetic else checked.get("loopSccs", []),
             "callers": callers[owner_id],
             "callees": callees[owner_id],
+            "tailDependencies": tail_dependencies,
             "src": None,
         }
         return node, subtree

@@ -49,6 +49,28 @@ def decodeRawDirectReadOffsetInstances : List FunctionInstance :=
   , functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_202_23
   ]
 
+/-- The allocator-vtable row remains one of the 18 displayed Level 4 boundaries, but its final
+tail transfer enters this separately generated source identity.  It is dependency geometry for the
+future fi136 contract, not a nineteenth displayed boundary or an extra Level 4 assumption. -/
+def allocatorAllocTailCallee : FunctionInstance :=
+  functionInstance_raw_allocator_zesu_raw_alloc
+
+/-- The exact generated identity reached by fi136's `jr` at `0x1377c`. -/
+theorem allocatorAllocTailCallee_identity : allocatorAllocTailCallee.id =
+    functionInstance_raw_allocator_zesu_raw_allocId := rfl
+
+/-- The wrapper and tail callee regions form the complete allocation route; neither region is
+silently reassigned to `decodeRaw`'s 172 parent-owned PCs. -/
+def allocatorAllocTailExecutionRegions :=
+  functionInstance_raw_decoder_root_allocatorAlloc.regions ++ allocatorAllocTailCallee.regions
+
+theorem allocatorAllocTailExecutionRegions_count : allocatorAllocTailExecutionRegions.size = 2 := rfl
+
+/-- The tail callee's generated return instruction is the only completion source for this route. -/
+def allocatorAllocTailCompletionPcs := allocatorAllocTailCallee.exitPcs
+
+theorem allocatorAllocTailCompletionPcs_exact : allocatorAllocTailCompletionPcs = #[66208] := rfl
+
 /-- One source declaration per displayed family; the direct `readOffset` occurrences share one. -/
 def level4DisplayedSourceFamilies : List SourceDeclaration :=
   [ functionInstance_raw_decoder_root_allocatorFree.id.function.declaration
