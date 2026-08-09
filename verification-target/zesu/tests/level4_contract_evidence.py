@@ -144,16 +144,16 @@ def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: s
                 if child.get("cycleBackEdge") is not None: child = canonical[child["id"]]
                 stack.append((child, site["returnPc"])); continue
             if pc not in frame["activeCalleeExecutionPcs"]:
-                if pair is not None and pair[0] in indirect_transfers:
-                    # This is an unresolved dynamic tail transfer, not a fabricated direct
-                    # call edge.  Its target remains explicitly unmeasured.
-                    stack.pop(); mode = None; continue
                 pending = next(((transfer, value) for transfer, value in tails.items()
                                 if pc in value[0] and pc != transfer[1]), None)
                 if pending is not None:
                     transfer, (allowed, completion) = pending
                     stack.append(({"pendingTail": True, "transfer": transfer,
                                    "activeCalleeExecutionPcs": allowed, "completion": completion}, None)); continue
+                if pair is not None and pair[0] in indirect_transfers:
+                    # This is an unresolved dynamic tail transfer, not a fabricated direct
+                    # call edge.  Its target remains explicitly unmeasured.
+                    stack.pop(); mode = None; continue
                 failures.append(f"foreign PC {pc:#x} in declared call frame at event {i}"); mode = None; stack.clear()
             continue
         if mode == "selected":

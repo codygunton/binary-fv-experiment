@@ -254,6 +254,8 @@ class ObservationTests(unittest.TestCase):
             boundary, [4, 8, 100, 300], {20, 24}, tails)[0])
         self.assertEqual(evidence.attribution_state_failures(
             boundary, [4, 8, 100, 50, 300, 304, 12], {20, 24}, tails)[0], [])
+        self.assertTrue(evidence.attribution_state_failures(
+            boundary, [4, 8, 100, 50, 300, 12], {20, 24}, tails)[0])
 
 
 if __name__ == "__main__":
