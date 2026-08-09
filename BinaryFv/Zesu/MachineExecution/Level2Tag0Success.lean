@@ -484,6 +484,7 @@ the exact facts consumed by the following three wrapper instructions. -/
 theorem tag0_stored_result_copy_phase
     {args : ZesuDecodeRawArgs} {value : BinaryFv.Specs.SSZ.StatelessInput} {stackBase : Nat}
     {entry state : State}
+    (memcpy : CompiledMemcpyInstanceContract)
     (contents : ByteArray) (link savedS0 savedS1 savedS2 : BitVec 64)
     (pre : Tag0StoredResultCopyPre args value stackBase entry state contents link savedS0 savedS1 savedS2)
     (fromStep : Nat) :
@@ -536,7 +537,7 @@ theorem tag0_stored_result_copy_phase
   have compiledEntry : (compiledMemcpyContract canonicalContractParams.env).binding.entry
       copyArgs childEntry := ⟨sourcePre, machinePre⟩
   obtain ⟨used, childExit, bound, childTrace, childPost⟩ :=
-    compiledMemcpyInstanceContract_proved copyArgs (fromStep + 5) childEntry compiledEntry
+    memcpy copyArgs (fromStep + 5) childEntry compiledEntry
   dsimp [copyArgs] at bound childTrace childPost compiledEntry
   obtain ⟨returnRetired, returnRun, resumePc⟩ :=
     memcpy_return_step (fromStep + 5 + used) (tag0StoredResultCopyArgs stackBase contents)

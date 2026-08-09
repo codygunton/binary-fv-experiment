@@ -198,9 +198,10 @@ theorem first_memcpy_machine_pre (args : DecodeInlineArgs) (contents : ByteArray
   · exact sourceReadable
   · exact destinationWritable
 
-/-- Execute the first call and spend the closed emitted-`memcpy` proof on the exact 832 bytes
+/-- Execute the first call and consume the selected emitted-`memcpy` contract on the exact 832 bytes
 produced by the first `decodeRaw` result. -/
-theorem first_memcpy_uses_proved_body (fromStep : Nat) (args : DecodeInlineArgs)
+theorem first_memcpy_uses_contract (memcpy : CompiledMemcpyInstanceContract)
+    (fromStep : Nat) (args : DecodeInlineArgs)
     (contents : ByteArray) (baseState beforeCall : State) (pre : DecodeInlinePre args baseState)
     (contentsSize : contents.size = 832)
     (sourceMemory : DecodedValue.MemoryBytes beforeCall args.firstTemporaryResultBase contents)
@@ -261,14 +262,15 @@ theorem first_memcpy_uses_proved_body (fromStep : Nat) (args : DecodeInlineArgs)
   have compiledEntry : (compiledMemcpyContract canonicalContractParams.env).binding.entry
       copyArgs childEntry := ⟨sourcePre, machinePre⟩
   obtain ⟨childUsed, childExit, childBound, childTrace, childPost⟩ :=
-    compiledMemcpyInstanceContract_proved copyArgs (fromStep + 1) childEntry compiledEntry
+    memcpy copyArgs (fromStep + 1) childEntry compiledEntry
   exact ⟨callRetired, childUsed, childEntry, childExit, rfl,
     by simpa [childEntry] using callRun, by simpa [childEntry] using callAgree, compiledEntry,
     childBound, childTrace, childPost⟩
 
 /-- The complete checked call phase: the Sail-proved call at `0x10338`, the closed emitted
 `memcpy` summary, and the Sail-proved `ret` to `0x1033c`. -/
-theorem first_memcpy_call_transfer (fromStep : Nat) (args : DecodeInlineArgs)
+theorem first_memcpy_call_transfer (memcpy : CompiledMemcpyInstanceContract)
+    (fromStep : Nat) (args : DecodeInlineArgs)
     (contents : ByteArray) (baseState beforeCall : State) (pre : DecodeInlinePre args baseState)
     (contentsSize : contents.size = 832)
     (sourceMemory : DecodedValue.MemoryBytes beforeCall args.firstTemporaryResultBase contents)
@@ -285,7 +287,7 @@ theorem first_memcpy_call_transfer (fromStep : Nat) (args : DecodeInlineArgs)
       resumed.regs.get? PC = some (BitVec.ofNat 64 0x1033c) := by
   obtain ⟨callRetired, bodyUsed, childEntry, childExit, childEntryEq, callRun, -, childPre,
     bodyBound, childTrace, childPost⟩ :=
-    first_memcpy_uses_proved_body fromStep args contents baseState beforeCall pre contentsSize
+    first_memcpy_uses_contract memcpy fromStep args contents baseState beforeCall pre contentsSize
       sourceMemory agree counter code atCall callBase destination source length
   have childLink : childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x1033c) := by
     rw [childEntryEq]
@@ -355,7 +357,8 @@ structure FirstMemcpyTransferFrame (fromStep : Nat) (args : DecodeInlineArgs) (c
 
 /-- Discharge every first-call input from the first `decodeRaw` success frame.  In particular,
 the link value comes from the proved `auipc` at `0x10334`; it is not a source ABI premise. -/
-theorem first_memcpy_transfer_of_first_post (fromStep : Nat) (args : DecodeInlineArgs)
+theorem first_memcpy_transfer_of_first_post (memcpy : CompiledMemcpyInstanceContract)
+    (fromStep : Nat) (args : DecodeInlineArgs)
     (before atCall : State) (pre : DecodeInlinePre args before)
     (value : BinaryFv.Specs.SSZ.StatelessInput)
     (success : meaningDecodeRaw args.bytes = .ok value)
@@ -366,12 +369,13 @@ theorem first_memcpy_transfer_of_first_post (fromStep : Nat) (args : DecodeInlin
       resumed.regs.get? PC = some (BitVec.ofNat 64 0x1033c) := by
   simp only [DecodeInlineFirstPost, success] at post
   obtain ⟨-, -, atPc, destination, source, length, callBase, contents, contentsSize, sourceMemory⟩ := post
-  exact first_memcpy_call_transfer fromStep args contents before atCall pre contentsSize sourceMemory
+  exact first_memcpy_call_transfer memcpy fromStep args contents before atCall pre contentsSize sourceMemory
     frame.agree frame.retiredCounter frame.code atPc callBase destination source length
 
 /-- At an arbitrary trace offset, retain the first-copy payload and machine frame for the tag-zero
 continuation. -/
-theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : DecodeInlineArgs)
+theorem first_memcpy_transfer_frame_of_first_post (memcpy : CompiledMemcpyInstanceContract)
+    (fromStep : Nat) (args : DecodeInlineArgs)
     (before atCall : State) (pre : DecodeInlinePre args before)
     (value : BinaryFv.Specs.SSZ.StatelessInput)
     (success : meaningDecodeRaw args.bytes = .ok value)
@@ -387,7 +391,7 @@ theorem first_memcpy_transfer_frame_of_first_post (fromStep : Nat) (args : Decod
     sourceMemory⟩ := post
   obtain ⟨callRetired, bodyUsed, childEntry, childExit, childEntryEq, callRun, callAgree, childPre,
     bodyBound, childTrace, childPost⟩ :=
-    first_memcpy_uses_proved_body fromStep args contents before atCall pre contentsSize sourceMemory
+    first_memcpy_uses_contract memcpy fromStep args contents before atCall pre contentsSize sourceMemory
       frame.agree frame.retiredCounter frame.code atPc callBase destination source length
   have childLink : childEntry.regs.get? x1 = some (BitVec.ofNat 64 0x1033c) := by
     rw [childEntryEq]

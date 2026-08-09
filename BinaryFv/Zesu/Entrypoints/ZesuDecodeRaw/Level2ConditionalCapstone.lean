@@ -196,6 +196,7 @@ theorem first_invalid_nonexact_routes_from_entry
 /-- Produce the first-`invalidSsz`, exact-prefix retry-success route from the exported entry. -/
 theorem first_invalid_exact_success_route_from_entry
     (allocator : AllocatorInlineContract) (decode : Level3DecodeInlineContract)
+    (memcpy : CompiledMemcpyInstanceContract)
     {args : ZesuDecodeRawArgs} {stackBase fromStep : Nat} {entry : State}
     (source : preZesuDecodeRaw canonicalContractParams.env canonicalContractParams.globals
       canonicalContractParams.resultBuffer canonicalContractParams.repStatelessInput
@@ -208,8 +209,8 @@ theorem first_invalid_exact_success_route_from_entry
   obtain ⟨atDecode, firstAfter, branch, retryBefore, childAfter, dispatch, copyStart, contents, copyUsed,
     callState, afterCopy, routeAfter, afterStore, after, firstUsed, retryUsed, branchRetired, retryRetired,
     link, s0, s1, s2, route⟩ :=
-    first_invalid_exact_success_to_exit allocator decode fromStep args stackBase entry source machine
-      firstInvalid exactPrefix value success
+    first_invalid_exact_success_to_exit allocator decode memcpy fromStep args stackBase entry source
+      machine firstInvalid exactPrefix value success
   exact ⟨after, .firstInvalidExactSuccess route⟩
 
 /-- Produce the first-`invalidSsz`, exact-prefix retry-error route from the exported entry. -/
@@ -435,6 +436,7 @@ first-success execution theorem; the non-first branch remains explicit because i
 composition and final globals proof are not yet one theorem. -/
 theorem compiledZesuDecodeRawContract_of_level2_routes
     (allocator : AllocatorInlineContract) (decode : Level3DecodeInlineContract)
+    (memcpy : CompiledMemcpyInstanceContract)
     (firstSuccess : FirstSuccessRouteToExportedPost)
     (nonFirstRoutes : NonFirstRoutesFromEntry)
     (nonFirst : NonFirstRouteToExportedPost) :
@@ -448,7 +450,7 @@ theorem compiledZesuDecodeRawContract_of_level2_routes
   | ok value =>
       obtain ⟨atDecode, atCall, contents, childUsed, calleeUsed, resumed, link, savedS0, savedS1,
         savedS2, copyUsed, callState, afterCopy, routeAfter, afterStore, after, route⟩ :=
-        first_success_to_exit allocator decode fromStep args stackBase entry
+        first_success_to_exit allocator decode memcpy fromStep args stackBase entry
           source machine value semantic
       obtain ⟨count, bound, trace, post⟩ := firstSuccess source machine semantic route
       refine ⟨count, after, bound, trace, ?_⟩

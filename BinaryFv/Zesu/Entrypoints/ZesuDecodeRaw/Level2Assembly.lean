@@ -7,44 +7,37 @@ import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2RouteProduction
 # Level 2 assumptions for `raw_decoder_root.zesu_decode_raw`
 
 The reviewed immediate children are the inlined allocator, inlined `ssz_raw.decode`, and emitted
-`memcpy`.  The Level 2 premise names exactly those three contracts.  The allocator and `memcpy`
-contracts also have unconditional machine proofs, but keeping all three fields visible makes the
-call relation explicit at the public refinement boundary.
+`memcpy`. The public premise contains only the unresolved `decode` contract. The refinement edge
+constructs the complete selected-child bundle with the unconditional allocator and `memcpy` proofs.
 -/
 
 namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 
 open BinaryFv.Zesu.MachineExecution
 
-/-- Exactly the three immediate machine contracts selected at Level 2. -/
+/-- The sole outstanding contract at reviewed UI Level 2. -/
 structure Level2ContractAssumptions : Prop where
-  allocator : AllocatorInlineContract
   decode : Level3DecodeInlineContract
-  memcpy : MemcpyInstanceContract
 
-/-- The complete set of contracts selected by the reviewed Level 2 call relation. The refinement
-edge destructures this bundle. Its route proofs use the unconditional emitted-`memcpy` machine
-theorem, which is stronger than requiring the bundle's `memcpy` field at each copy call site. -/
+/-- The complete set of contracts selected by the reviewed Level 2 call relation. -/
 structure Level2SelectedContracts : Prop where
   allocator : AllocatorInlineContract
   decode : Level3DecodeInlineContract
   memcpy : MemcpyInstanceContract
 
-/-- Expose the Level 2 premise as the selected immediate-child bundle. -/
-def selectedContracts_of_level2 (hLevel2 : Level2ContractAssumptions) : Level2SelectedContracts where
-  allocator := hLevel2.allocator
+/-- Fill the proved immediate children while retaining only unresolved `decode` from `hLevel2`. -/
+def selectedContracts_of_level2
+    (hLevel2 : Level2ContractAssumptions) : Level2SelectedContracts where
+  allocator := allocatorInlineContract_proved
   decode := hLevel2.decode
-  memcpy := hLevel2.memcpy
+  memcpy := MachineExecution.compiledMemcpyInstanceContract_proved
 
-/-- Convert the three reviewed Level 2 child contracts into the exported wrapper contract. The
-route proofs already discharge each emitted `memcpy` call from its unconditional machine theorem,
-so `selected.memcpy` remains visible in the selected-call bundle without becoming a weaker duplicate
-premise of those route proofs. -/
+/-- Convert every reviewed Level 2 child contract into the exported wrapper contract. -/
 theorem exportedContracts_of_level2 (selected : Level2SelectedContracts) :
     CompiledZesuDecodeRawInstanceContract :=
-  compiledZesuDecodeRawContract_of_level2_routes selected.allocator selected.decode
+  compiledZesuDecodeRawContract_of_level2_routes selected.allocator selected.decode selected.memcpy
     firstSuccessRouteToExportedPost
-    (nonFirstRoutesFromEntry_of_level2 selected.allocator selected.decode)
+    (nonFirstRoutesFromEntry_of_level2 selected.allocator selected.decode selected.memcpy)
     nonFirstRouteToExportedPost
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
