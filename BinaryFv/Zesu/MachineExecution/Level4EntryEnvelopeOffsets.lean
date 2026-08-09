@@ -1757,7 +1757,7 @@ theorem level4_read_offset202_fragment {margs : DecoderMachineArgs} {origin stat
     (frame : Level4DecodeRawParentFrame margs origin state) (reader : ReadOffset202Contract)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x105a0))
     (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)) (fromStep : Nat) :
-    ∃ used : Nat, ∃ after, readOffsetFragmentOutput 0x105a0
+    ∃ _used : Nat, ∃ after, readOffsetFragmentOutput 0x105a0
       { inputBase := margs.inputBase, bytes := margs.bytes, offset := 14 } after ∧
       after.regs.get? PC = some (BitVec.ofNat 64 0x105c4) ∧ frame.PreservedTo after := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
