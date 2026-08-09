@@ -1,0 +1,168 @@
+import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
+import BinaryFv.Zesu.MachineExecution.Seg
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level4Contracts
+
+/-! # `decodeExecutionWitness` error handoff into the rejection phase
+
+The generated `decodeExecutionWitness` route from `0x12730` hands control to direct parent PC
+`0x12734`.  That PC belongs to `decodeRaw`'s rejection/cleanup phase, not the 67-PC specialized
+phase: it materializes status `2` in `s1` before the shared error continuation at `0x12738`.
+-/
+
+namespace BinaryFv.Zesu.MachineExecution
+
+open BinaryFv BinaryFv.Binary.Elfling BinaryFv.RiscV BinaryFv.RiscV.Elfling
+open BinaryFv.Zesu.Contracts
+open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
+open BinaryFv.Zesu.Elflings.Generated
+open BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution
+open PreSail LeanRV64DExecutable.Functions Register RegisterWriteStep
+
+def level4ExecutionWitnessRejectionPcs : List Nat := [0x12734]
+
+abbrev Level4ExecutionWitnessRejectionPcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4ExecutionWitnessRejectionPcs
+
+theorem level4ExecutionWitnessRejectionPcs_subset_rejection :
+    level4ExecutionWitnessRejectionPcs.all
+      decodeRawRejectionCleanupStatusCopyEpiloguePcs.contains = true := by
+  native_decide
+
+theorem level4ExecutionWitnessRejectionPcs_not_specialized :
+    level4ExecutionWitnessRejectionPcs.all
+      (fun pc => !(decodeRawSpecializedDispatchReturnsSuccessPcs.contains pc)) = true := by
+  native_decide
+
+private theorem level4_executionWitness_rejection_parent :
+    Level4ExecutionWitnessRejectionPcs (BitVec.ofNat 64 0x12734) := by
+  simp [Level4ExecutionWitnessRejectionPcs, level4ExecutionWitnessRejectionPcs]
+
+private theorem level4_executionWitness_rejection_owned :
+    RegisterWriteStep.decodeRawExecutionPcs (BitVec.ofNat 64 0x12734) := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  apply RegionPcs.iff_inRanges.mpr
+  native_decide
+
+private theorem level4_executionWitness_75568_75572_target :
+    (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572).handoff.target =
+      0x12734 := by rfl
+
+private theorem level4_executionWitness_rejection_step {base state : State}
+    (machine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo : Nat)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x12734)) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x12734) stepRetired x9
+        (BitVec.ofNat 64 2)) false := by
+  exact decoderITypeStepOfDecoderAgree machine agree retired code stepNo
+    0x12734 0x93 0x04 0x20 0x00 0x002#12 0#5 9#5 .ADDI atPc (rX_x0_run _)
+    (by
+      rw [show iTypeResult .ADDI 0x002#12 0#64 = BitVec.ofNat 64 2 by decide]
+      exact wX_x9_run _ _)
+    (pcIn := ⟨level4_executionWitness_rejection_owned, by native_decide⟩)
+
+def level4ExecutionWitnessRejectionWrites : RegSet := fun r =>
+  stepBookkeeping r ∨ r = x9
+
+private theorem decoderPreserved_level4ExecutionWitnessRejectionWrites_disjoint :
+    RegSet.Disjoint decoderPreserved level4ExecutionWitnessRejectionWrites := by
+  intro r preserved written
+  rcases preserved with ⟨notLink, platform⟩
+  rcases written with bookkeeping | rfl
+  · exact platformPreserved_disjoint r platform bookkeeping
+  · simp [platformPreserved] at platform
+
+/-- Concrete rejection-phase input from the `decodeExecutionWitness` generated handoff.
+It is deliberately weaker than `Level4TerminalStatusReady`: the later rejection continuation owns
+the remaining PC and derives its particular terminal store rather than treating this status write
+as a completed semantic carrier. -/
+structure Level4ExecutionWitnessRejectionHandoff {margs : DecoderMachineArgs} {origin before : State}
+    (after : State) (fromStep : Nat) (frame : Level4DecodeRawParentFrame margs origin before) : Prop where
+  trace : Trace fromStep 1 before after
+  confined : ConfinedPrefix Level4ExecutionWitnessRejectionPcs (fun _ => False)
+    (fun _ _ _ _ _ => False) fromStep 1 before after
+  writes : WritesOnlyRegs level4ExecutionWitnessRejectionWrites before after
+  memory : after.mem = before.mem
+  pc : after.regs.get? PC = some (BitVec.ofNat 64 0x12738)
+  status : after.regs.get? x9 = some (BitVec.ofNat 64 2)
+  preserved : frame.PreservedTo after
+
+/-- Execute the direct `li s1,2` at the generated execution-witness error handoff and retain the
+single original raw-decoder frame for the rejection phase. -/
+theorem level4_executionWitness_rejection_handoff {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x12734)) (fromStep : Nat) :
+    ∃ after, Level4ExecutionWitnessRejectionHandoff after fromStep frame := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputSeparated,
+    stackWritable, rawWritable, rawSeparated, postStackAligned, code, machine, retired⟩
+  let seg0 := Seg.nil Level4ExecutionWitnessRejectionPcs (fun _ => False)
+    (fun _ _ _ _ _ => False) level4ExecutionWitnessRejectionWrites noMemory fromStep retired atPc
+  obtain ⟨after, seg1⟩ := seg0.step level4_executionWitness_rejection_parent (by simp) x9
+    (BitVec.ofNat 64 2) (BitVec.ofNat 64 0x12738)
+    (level4_executionWitness_rejection_step machine (Agree.refl state) seg0.retired code
+      fromStep seg0.atPc)
+    (by decide) (by intro r h; exact Or.inl h)
+    (by simp [level4ExecutionWitnessRejectionWrites]) (by decide) (by decide)
+    (by exact of_decide_eq_true rfl)
+  have memory : after.mem = state.mem := seg1.memEq noMemory_empty
+  have inputAfter : DecodedValue.MemoryBytes after margs.inputBase margs.bytes := by
+    apply inputMemory.of_mem_eq
+    intro index indexBound
+    rw [memory]
+  have codeAfter : Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
+    rw [memory]
+    exact code
+  have spAfter : after.regs.get? x2 = some (BitVec.ofNat 64 entry.postStack) :=
+    (seg1.writes x2 (by simp [level4ExecutionWitnessRejectionWrites])).trans sp
+  have preserved : frame.PreservedTo after := by
+    refine ⟨entry, stackEq, raEq, ?_, spAfter,
+      inputAfter, inputSeparated, stackWritable, rawWritable, rawSeparated, postStackAligned,
+      codeAfter, ?_, seg1.retired⟩
+    · rw [Level4DecodeRawPrologueSavedFrame] at saved ⊢
+      simp only [SavedWordBytes] at saved ⊢
+      rw [memory]
+      exact saved
+    · exact machine.mono
+        (seg1.agree decoderPreserved_level4ExecutionWitnessRejectionWrites_disjoint) seg1.retired
+  exact ⟨after, ⟨seg1.trace, seg1.confined, seg1.writes, memory, seg1.atPc,
+    seg1.reg x9 (BitVec.ofNat 64 2) (by simp), preserved⟩⟩
+
+/-- The concrete rejection-phase predicate exported by the `0x12730 → 0x12734` generated route.
+The later rejection proof receives the literal continuation PC and status value, not an arbitrary
+phase choice or a completed dynamic-decoder semantic result. -/
+def Level4ExecutionWitnessRejectionPhase
+    (frame : Level4DecodeRawParentFrame margs origin initial) (state : State) : Prop :=
+  state.regs.get? PC = some (BitVec.ofNat 64 0x12738) ∧
+    state.regs.get? x9 = some (BitVec.ofNat 64 2) ∧ frame.PreservedTo state
+
+/-- The generated `decodeExecutionWitness` H route `0x12730 → 0x12734` is resolved by one actual
+parent Sail step into the typed rejection phase.  `listed` is the finite route evidence threaded
+through `ParentRouteProvider`; the eventual provider's route enumeration supplies `routeEq`. -/
+theorem level4_executionWitness_route_75568_75572_phase_decision
+    {margs : DecoderMachineArgs} {origin initial current handoff : State}
+    (frame : Level4DecodeRawParentFrame margs origin initial) (args : ContainerArgs)
+    (rank : State → Nat) (fromStep : Nat)
+    (progress : Level4HandoffProgress decodeExecutionWitnessInterface args origin fromStep current handoff)
+    (listed : progress.route ∈ decodeExecutionWitnessInterface.carrierRoutes)
+    (_currentProtected : frame.PreservedTo current) (handoffProtected : frame.PreservedTo handoff)
+    (routeEq : progress.route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572) :
+    ParentRouteDecision decodeExecutionWitnessInterface args origin frame.PreservedTo
+      (Level4ExecutionWitnessRejectionPhase frame) rank fromStep current handoff progress := by
+  have routeListed :
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572 ∈
+        decodeExecutionWitnessInterface.carrierRoutes := by
+    rw [← routeEq]
+    exact listed
+  have atHandoff : handoff.regs.get? PC = some (BitVec.ofNat 64 0x12734) := by
+    have target := progress.atTarget
+    rw [routeEq] at target
+    rw [level4_executionWitness_75568_75572_target] at target
+    exact target
+  obtain ⟨after, handoff⟩ := level4_executionWitness_rejection_handoff
+    (frame.toState handoffProtected) atHandoff (fromStep + progress.prefixUsed + 1)
+  exact .phaseHandoff after 1 handoff.trace handoff.preserved
+    ⟨handoff.pc, handoff.status, handoff.preserved⟩
+
+end BinaryFv.Zesu.MachineExecution
