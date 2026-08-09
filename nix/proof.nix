@@ -1,4 +1,4 @@
-{ etheorem, pkgs, repo, rv64, sailRiscv, targets }:
+{ etheorem, executionSpecs, pkgs, repo, rv64, sailRiscv, targets }:
 let
   zesuSsz = targets.public.zesuSsz;
   zesuAbiManifest = targets.public.zesuAbiManifest;
@@ -334,6 +334,114 @@ COMPAT
     LEAN_NUM_THREADS=1 lake build ZesuVerificationTests
   '';
 
+  # Executable Lean rendering of the pinned SSZ specification. This is a test oracle, separate from
+  # the RV64 production ELF observed by the Level 4 evidence gate.
+  sszOracle = pkgs.runCommand "ssz-oracle" {
+    nativeBuildInputs = [ pinnedLean pkgs.autoPatchelfHook pkgs.coreutils ];
+    buildInputs = [ pkgs.stdenv.cc.cc ];
+  } ''
+    cp -R ${repo} source
+    chmod -R u+w source
+    cd source
+    cp tools/ssz-oracle/Main.lean SszOracle.lean
+    mkdir -p build "$out/bin"
+    ln -s ${sizzLeanClosure} build/sizzlean-lean
+    rm lake-manifest.json
+    cat > lakefile.lean <<'LAKE'
+    import Lake
+    open Lake DSL
+    package sszOracle
+    lean_lib SizzLeanPinned where
+      srcDir := "build/sizzlean-lean"
+      roots := #[`SizzLean.Spec.Type, `SizzLean.Spec.Interp, `SizzLean.Spec.Constants,
+        `SizzLean.Spec.SSZError, `SizzLean.Spec.Serialize, `SizzLean.Spec.Deserialize,
+        `SizzLean.Spec.BasicSupported, `SizzLean.Spec.Supported, `SizzLean.Spec.MaxByteLength]
+    lean_lib SszOracleSpec where
+      roots := #[`BinaryFv.Specs.SSZ.AmsterdamV4]
+    lean_exe ssz_oracle where
+      root := `SszOracle
+    LAKE
+    export HOME="$TMPDIR/home"
+    mkdir -p "$HOME"
+    lake update
+    lake build ssz_oracle
+    cp .lake/build/bin/ssz_oracle "$out/bin/ssz_oracle"
+    autoPatchelf "$out"
+  '';
+
+  ethereumTypes = pkgs.python3Packages.buildPythonPackage rec {
+    pname = "ethereum-types";
+    version = "0.4.1";
+    pyproject = true;
+    src = pkgs.fetchurl {
+      url = "https://files.pythonhosted.org/packages/e5/bf/6c15ea3372a19b4df9d47ba08d32ad0751c059c31c7f15842cf12e5736bd/ethereum_types-0.4.1.tar.gz";
+      hash = "sha256-wO7kRkxC7YIX38knQA25gVfMiwklLs76cDF2SW2+O00=";
+    };
+    build-system = [ pkgs.python3Packages.hatchling ];
+    dependencies = with pkgs.python3Packages; [ mypy-extensions typing-extensions ];
+    doCheck = false;
+  };
+
+  ethereumRlp = pkgs.python3Packages.buildPythonPackage rec {
+    pname = "ethereum-rlp";
+    version = "0.1.6";
+    pyproject = true;
+    src = pkgs.fetchurl {
+      url = "https://files.pythonhosted.org/packages/54/55/1fab3dea8f912459751cb39ad4500e165344963af2dbd5fa699befe3e8d4/ethereum_rlp-0.1.6.tar.gz";
+      hash = "sha256-7eNvU7U8jaIfGSWaZ27th5CVDUfwtCy5KKyKPFYigvM=";
+    };
+    build-system = [ pkgs.python3Packages.setuptools ];
+    dependencies = [ ethereumTypes pkgs.python3Packages.typing-extensions ];
+    doCheck = false;
+  };
+
+  ethRemerkleable = pkgs.python3Packages.buildPythonPackage rec {
+    pname = "eth-remerkleable";
+    version = "0.1.29";
+    pyproject = true;
+    src = pkgs.fetchurl {
+      url = "https://files.pythonhosted.org/packages/37/16/b91f3fc0c46f8ff597f26fbbbc1d8fbe7ab8d5103e00546417455298b449/eth_remerkleable-0.1.29.tar.gz";
+      hash = "sha256-JBiwCM10cdD1qzflqXhO9BhOUDGS5vOMIj/iW3y7ysM=";
+    };
+    build-system = [ pkgs.python3Packages.setuptools ];
+    doCheck = false;
+  };
+
+  executionSpecsPython = pkgs.python3.withPackages (pythonPackages: [
+    pythonPackages.coincurve pythonPackages.cryptography pythonPackages.pycryptodome
+    pythonPackages.py-ecc pythonPackages.pydantic ethereumTypes ethereumRlp ethRemerkleable
+  ]);
+
+  level4ContractEvidence =
+    let
+      tests = builtins.path {
+        path = repo + "/verification-target/zesu/tests";
+        name = "zesu-level4-contract-evidence-tests";
+      };
+      trace = builtins.path {
+        path = repo + "/verification-target/zesu/trace";
+        name = "zesu-level4-contract-evidence-trace";
+      };
+    in pkgs.runCommand "zesu-level4-contract-evidence" {
+      nativeBuildInputs = [ executionSpecsPython pkgs.gcc pkgs.glib pkgs.pkg-config pkgs.qemu-user pkgs.util-linux ];
+    } ''
+      set -euo pipefail
+      cp -R ${tests} tests
+      cp -R ${trace} trace
+      chmod -R u+w tests trace
+      gcc -shared -fPIC -O2 -o trace/qemu_trace_plugin.so trace/qemu_trace_plugin.c \
+        -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0)
+      export PYTHONPATH=${executionSpecs}/src
+      python3 tests/level4_contract_evidence.py \
+        --inventory ${machineRegions}/level4-boundaries.json \
+        --reference-python ${executionSpecsPython}/bin/python3 \
+        --reference-program tests/ssz_value_reference.py \
+        --lean-binary ${sszOracle}/bin/ssz_oracle \
+        --zesu-value-binary ${targets.public.zesuValue}/bin/zesu-ssz-value \
+        --qemu ${rv64.qemuRiscv64} --plugin trace/qemu_trace_plugin.so \
+        --rv64-binary ${zesuSsz}/bin/zesu-ssz --out-json "$out/report.json"
+    '';
+
   devShell = pkgs.mkShell {
     inputsFrom = [ rv64.devShell ];
     packages = [
@@ -350,11 +458,13 @@ COMPAT
 in
 {
   public = {
-    inherit binaryFvLean sailRiscvLean sizzLeanClosure zesuSszElfLean;
+    inherit binaryFvLean level4ContractEvidence sailRiscvLean sizzLeanClosure sszOracle zesuSszElfLean;
 
     binary-fv-lean = binaryFvLean;
     sail-riscv-lean = sailRiscvLean;
     sizzlean-lean = sizzLeanClosure;
+    ssz-oracle = sszOracle;
+    ssz-level4-contract-evidence = level4ContractEvidence;
     zesu-ssz-elf-lean = zesuSszElfLean;
   };
 

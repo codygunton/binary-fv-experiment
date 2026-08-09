@@ -24,7 +24,12 @@ def inventory(*, count: int = 18, families: int = 15) -> dict:
             "instructionPcs": [0x1000 + index * 0x10, 0x1004 + index * 0x10],
             "exits": [0x1004 + index * 0x10],
             "parent": "ssz_raw.decodeRaw",
-            "functionInstanceIdentity": f"functionInstance_{index}",
+            "functionInstanceIdentity": {
+                "qualified": f"ssz_raw.family{index % families}",
+                "sourceFile": "src/stateless/stateless/ssz_raw.zig",
+                "specialization": [],
+                "inlineStack": [],
+            },
         })
     return {"schemaVersion": 1, "boundaries": rows}
 
@@ -77,6 +82,9 @@ class ObservationTests(unittest.TestCase):
         )
         record = evidence.observation(boundary, [4, 8, 4, 99], [{"pc": 8, "address": 100, "width": 8, "value": 2, "sp": 3}])
         self.assertEqual(evidence.validate_observation(boundary, record), [])
+        self.assertEqual(
+            evidence.validate_observed_claims(record, record["declaredCallsReached"], record["declaredStoresReached"]), []
+        )
         self.assertTrue(all(evidence.mutation_checks(boundary, record).values()))
 
     def test_aggregate_edges_never_join_two_vectors(self) -> None:
@@ -90,7 +98,10 @@ class ObservationTests(unittest.TestCase):
         record = evidence.observation(
             boundary, first + second, [], edges=set(zip(first, first[1:])) | set(zip(second, second[1:])),
         )
-        self.assertIn("a declared call edge was not observed", evidence.validate_observation(boundary, record))
+        self.assertIn(
+            "an observed declared call target disappeared",
+            evidence.validate_observed_claims(record, [{"sourcePc": 4, "targetPc": 99}], []),
+        )
 
     def test_refinement_vectors_keep_accepted_and_rejected_cases(self) -> None:
         vectors = evidence.default_vectors()

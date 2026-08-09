@@ -16,6 +16,7 @@ let
       sszBinaryEvidence
       sszScaleEvidence
       level4EvidenceTests
+      level4ContractEvidence
       zesuSinkObservability
       zesuSsz
       zesuValue;

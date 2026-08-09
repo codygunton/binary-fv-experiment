@@ -47,7 +47,7 @@ class Boundary:
     instruction_pcs: tuple[int, ...]
     exits: tuple[int, ...]
     parent: str
-    identity: str | None
+    identity: dict[str, Any] | None
     calls: tuple[tuple[int, int], ...]
     stores: tuple[dict[str, int], ...]
 
@@ -87,26 +87,33 @@ def load_inventory(path: Path) -> tuple[Boundary, ...]:
             parent = row["parent"]
             entry = int_field(row["entryPc"], f"boundary {index} entryPc")
             pcs = tuple(int_field(pc, f"boundary {index} instructionPcs") for pc in row["instructionPcs"])
-            exits = tuple(exit_pc(pc, f"boundary {index} exits") for pc in row["exits"])
+            # Several static alternatives can leave from one source PC.  The trace-visible clause
+            # is that source instruction, so retain its stable set rather than rejecting alternatives.
+            exits = tuple(sorted({exit_pc(pc, f"boundary {index} exits") for pc in row["exits"]}))
         except KeyError as error:
             raise ValueError(f"boundary {index} lacks {error.args[0]}") from error
         if not all(isinstance(value, str) and value for value in (identifier, kind, qualified, parent)):
             raise ValueError(f"boundary {index} has an empty id, kind, qualified, or parent")
         if not pcs or entry not in pcs:
             raise ValueError(f"boundary {identifier} must include its entry in instructionPcs")
-        if len(set(pcs)) != len(pcs) or len(set(exits)) != len(exits):
-            raise ValueError(f"boundary {identifier} repeats an instruction or exit PC")
+        if len(set(pcs)) != len(pcs):
+            raise ValueError(f"boundary {identifier} repeats an instruction PC")
         identity = row.get("functionInstanceIdentity")
-        if identity is not None and (not isinstance(identity, str) or not identity):
+        if identity is not None and not isinstance(identity, dict):
             raise ValueError(f"boundary {identifier} has an invalid functionInstanceIdentity")
+        if identity is not None:
+            if identity.get("qualified") != qualified or not isinstance(identity.get("sourceFile"), str):
+                raise ValueError(f"boundary {identifier} identity does not bind its qualified source function")
+            if not isinstance(identity.get("specialization"), list) or not isinstance(identity.get("inlineStack"), list):
+                raise ValueError(f"boundary {identifier} identity lacks specialization or inlineStack")
         calls = tuple(
             (int_field(call["sourcePc"], f"boundary {identifier} call sourcePc"),
              int_field(call["targetPc"], f"boundary {identifier} call targetPc"))
-            for call in row.get("calls", [])
+            for call in (row.get("calls") or [])
         )
         if any(source not in pcs for source, _target in calls):
             raise ValueError(f"boundary {identifier} declares a call outside instructionPcs")
-        stores = tuple(row.get("stores", []))
+        stores = tuple(row.get("stores") or [])
         for store in stores:
             if not isinstance(store, dict) or not {"pc", "address", "width", "value"} <= store.keys():
                 raise ValueError(f"boundary {identifier} store needs pc, address, width, and value")
@@ -174,14 +181,25 @@ def validate_observation(boundary: Boundary, record: dict[str, Any]) -> list[str
     failures: list[str] = []
     if not record["entryReached"]:
         failures.append("entry was not observed")
-    if not record["exitReached"]:
+    if boundary.exits and not record["exitReached"]:
         failures.append("no declared exit was observed")
     if record["instructionEvents"] <= 0:
         failures.append("no owned instruction was observed")
-    if boundary.calls and len(record["declaredCallsReached"]) != len(boundary.calls):
-        failures.append("a declared call edge was not observed")
-    if boundary.stores and len(record["declaredStoresReached"]) != len(boundary.stores):
-        failures.append("a declared store address, width, or value was not observed")
+    return failures
+
+
+def validate_observed_claims(record: dict[str, Any], calls: list[dict[str, int]], stores: list[dict[str, int]]) -> list[str]:
+    """Check the trace-backed call/store claims selected from this finite observation."""
+    failures: list[str] = []
+    observed_calls = {(call["sourcePc"], call["targetPc"]) for call in record["declaredCallsReached"]}
+    if any((call["sourcePc"], call["targetPc"]) not in observed_calls for call in calls):
+        failures.append("an observed declared call target disappeared")
+    observed_stores = {
+        (store["pc"], store["address"], store["width"], store["value"])
+        for store in record["declaredStoresReached"]
+    }
+    if any((store["pc"], store["address"], store["width"], store["value"]) not in observed_stores for store in stores):
+        failures.append("an observed declared store changed")
     return failures
 
 
@@ -189,14 +207,20 @@ def mutation_checks(boundary: Boundary, record: dict[str, Any]) -> dict[str, boo
     """Show the checker rejects corruption of every currently measurable clause."""
     mutations = {
         "entry": {**record, "entryReached": False},
-        "exit": {**record, "exitReached": []},
         "instruction-count": {**record, "instructionEvents": 0},
     }
-    if boundary.calls:
+    if boundary.exits:
+        mutations["exit"] = {**record, "exitReached": []}
+    if record["declaredCallsReached"]:
         mutations["call-edge"] = {**record, "declaredCallsReached": []}
-    if boundary.stores:
+    if record["declaredStoresReached"]:
         mutations["store-address-width-value"] = {**record, "declaredStoresReached": []}
-    return {name: bool(validate_observation(boundary, mutated)) for name, mutated in mutations.items()}
+    call_claims = record["declaredCallsReached"]
+    store_claims = record["declaredStoresReached"]
+    return {
+        name: bool(validate_observation(boundary, mutated) or validate_observed_claims(mutated, call_claims, store_claims))
+        for name, mutated in mutations.items()
+    }
 
 
 def run(command: list[str], data: bytes) -> fixtures.Outcome:
@@ -316,7 +340,9 @@ def main() -> int:
         # Do not concatenate traces to derive edges: the last PC of one vector and the first PC
         # of another are not one production transfer.
         record = observation(boundary, all_pcs, all_stores, edges=all_edges)
-        clause_failures = validate_observation(boundary, record)
+        clause_failures = validate_observation(boundary, record) + validate_observed_claims(
+            record, record["declaredCallsReached"], record["declaredStoresReached"]
+        )
         mutations = mutation_checks(boundary, record)
         if not all(mutations.values()):
             clause_failures.append("a measurable-clause mutation was accepted")
@@ -325,14 +351,22 @@ def main() -> int:
             "boundary": asdict(boundary),
             "observation": record,
             "measuredClauses": [
-                "entry", "exit", "owned instruction execution",
-                *( ["declared call targets"] if boundary.calls else [] ),
-                *( ["declared store address, width, and value"] if boundary.stores else [] ),
+                "entry", "owned instruction execution",
+                *( ["exit"] if boundary.exits else [] ),
+                *( ["observed declared call targets"] if record["declaredCallsReached"] else [] ),
+                *( ["observed declared store address, width, and value"] if record["declaredStoresReached"] else [] ),
             ],
             "unmeasuredClauses": [
                 *UNMEASURED_CLAUSES,
-                *( ["declared call targets"] if not boundary.calls else [] ),
-                *( ["declared store address, width, and value"] if not boundary.stores else [] ),
+                *( ["declared exits"] if not boundary.exits else [] ),
+                *(
+                    [f"unobserved declared call targets: {list(set(boundary.calls) - {(c['sourcePc'], c['targetPc']) for c in record['declaredCallsReached']})}"]
+                    if len(record["declaredCallsReached"]) != len(boundary.calls) else []
+                ),
+                *(
+                    ["unobserved declared store address, width, and value"]
+                    if len(record["declaredStoresReached"]) != len(boundary.stores) else []
+                ),
             ],
             "mutationRejected": mutations,
             "failures": clause_failures,

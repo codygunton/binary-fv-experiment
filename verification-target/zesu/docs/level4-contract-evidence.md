@@ -2,8 +2,9 @@
 
 `tests/level4_contract_evidence.py` consumes the reviewed Level 4 inventory JSON rather than
 reconstructing hierarchy selection. Its required boundary fields are `id`, `kind`, `qualified`,
-`entryPc`, `instructionPcs`, `exits`, and `parent`; `functionInstanceIdentity` is retained whenever
-the hierarchy has one. It accepts exactly 18 boundary occurrences from 15 qualified function
+`entryPc`, `instructionPcs`, `exits`, and `parent`; `functionInstanceIdentity` is the hierarchy's
+structured source identity (`qualified`, source file, specialization, and inline stack), retained
+whenever present. It accepts exactly 18 boundary occurrences from 15 qualified function
 families, so the former four `readOffset` plus four specialized-decoder inventory is deliberately
 rejected as stale.
 
@@ -18,8 +19,9 @@ selects different local decoders on different vectors.
 The runner records each boundary's entry, declared exit, executed owned instructions, and concrete
 stores under the existing QEMU observer. When the reviewed inventory declares a call edge or an exact
 store `(pc, address, width, value)`, it checks that observation and mutates it, as it does entry, exit,
-and instruction-count observations. An omitted call/store clause is reported as unmeasured rather than
-inferred from a trace.
+and instruction-count observations. A declared edge/store not exercised by any vector is reported as
+unmeasured rather than inferred from a trace; this keeps a static possibility from becoming a false
+empirical claim.
 
 The report explicitly leaves optimized argument locations, result carriers, complete write/frame
 conditions, caller-frame preservation, and universal step bounds unmeasured: the observer records
