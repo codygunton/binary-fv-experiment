@@ -47,6 +47,31 @@ private theorem level4_executionWitness_75568_75572_target :
     (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572).handoff.target =
       0x12734 := by rfl
 
+/-- The generated carrier-route array is the finite domain of a `decodeExecutionWitness`
+parent-route provider. -/
+private theorem level4_executionWitness_carrier_route_cases {route : AttributionOutcomeCarrierRoute}
+    (listed : route ∈ decodeExecutionWitnessInterface.carrierRoutes) :
+    route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552 ∨
+      route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75572 ∨
+      route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668 ∨
+      route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75856_75576 ∨
+      route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75908_75576 ∨
+      route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76036_76040 ∨
+      route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76064_76068 ∨
+      route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_77868_75576 := by
+  rw [show decodeExecutionWitnessInterface.carrierRoutes =
+    functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoutes by rfl] at listed
+  rw [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoutes_exact] at listed
+  simpa using listed
+
 private theorem level4_executionWitness_rejection_step {base state : State}
     (machine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs base)
     (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
@@ -158,6 +183,52 @@ theorem level4_executionWitness_route_75568_75572_phase_decision
     (frame.toState handoffProtected) atHandoff (fromStep + progress.prefixUsed + 1)
   exact .phaseHandoff after 1 handoff.trace handoff.preserved
     ⟨handoff.pc, handoff.status, handoff.preserved⟩
+
+/-- The enclosing `decodeExecutionWitness` provider consumes its finite route membership to select
+the `0x12730 → 0x12734` error case, then dispatches to the exact Sail rejection handoff. -/
+theorem level4_executionWitness_provider_case_75572
+    {margs : DecoderMachineArgs} {origin initial current handoff : State}
+    (frame : Level4DecodeRawParentFrame margs origin initial) (args : ContainerArgs)
+    (rank : State → Nat) (fromStep : Nat)
+    (progress : Level4HandoffProgress decodeExecutionWitnessInterface args origin fromStep current handoff)
+    (listed : progress.route ∈ decodeExecutionWitnessInterface.carrierRoutes)
+    (currentProtected : frame.PreservedTo current) (handoffProtected : frame.PreservedTo handoff)
+    (atHandoff : handoff.regs.get? PC = some (BitVec.ofNat 64 0x12734)) :
+    ParentRouteDecision decodeExecutionWitnessInterface args origin frame.PreservedTo
+      (Level4ExecutionWitnessRejectionPhase frame) rank fromStep current handoff progress := by
+  have atTarget := progress.atTarget
+  rcases level4_executionWitness_carrier_route_cases listed with routeEq | routeEq | routeEq | routeEq |
+    routeEq | routeEq | routeEq | routeEq
+  · rw [routeEq] at atTarget
+    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12720) := by
+      simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552] using atHandoff.symm.trans atTarget
+    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12720))) pcConflict).elim
+  · exact level4_executionWitness_route_75568_75572_phase_decision frame args rank fromStep progress
+      currentProtected handoffProtected routeEq
+  · rw [routeEq] at atTarget
+    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12794) := by
+      simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668] using atHandoff.symm.trans atTarget
+    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12794))) pcConflict).elim
+  · rw [routeEq] at atTarget
+    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12738) := by
+      simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75856_75576] using atHandoff.symm.trans atTarget
+    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12738))) pcConflict).elim
+  · rw [routeEq] at atTarget
+    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12738) := by
+      simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75908_75576] using atHandoff.symm.trans atTarget
+    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12738))) pcConflict).elim
+  · rw [routeEq] at atTarget
+    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x128f8) := by
+      simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76036_76040] using atHandoff.symm.trans atTarget
+    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x128f8))) pcConflict).elim
+  · rw [routeEq] at atTarget
+    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12914) := by
+      simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76064_76068] using atHandoff.symm.trans atTarget
+    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12914))) pcConflict).elim
+  · rw [routeEq] at atTarget
+    have pcConflict : some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12738) := by
+      simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_77868_75576] using atHandoff.symm.trans atTarget
+    exact ((by decide : ¬ (some (BitVec.ofNat 64 0x12734) = some (BitVec.ofNat 64 0x12738))) pcConflict).elim
 
 /-- The generated `decodeExecutionWitness` route `0x12850 → 0x12738` reaches its selected carrier
 without an additional parent instruction: its exact carrier path is the terminal singleton
