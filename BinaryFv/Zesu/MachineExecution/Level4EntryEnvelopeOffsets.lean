@@ -715,4 +715,116 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
     · exact machine.mono (seg2.agree decoderPreserved_level4EntryHeaderFirstTwoWrites_disjoint)
         seg2.retired
 
+/-! ## Second ordinary-input header byte -/
+
+/-- The second parent-owned byte read follows the exact zero-header handoff. -/
+def level4EntryHeaderSecondReadPcs : List Nat := [0x104c4]
+
+abbrev Level4EntryHeaderSecondReadPcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4EntryHeaderSecondReadPcs
+
+theorem level4EntryHeaderSecondReadPcs_subset_direct :
+    level4EntryHeaderSecondReadPcs.all decodeRawDirectPcs.contains = true := by native_decide
+
+theorem level4EntryHeaderSecondReadPcs_subset_phase :
+    level4EntryHeaderSecondReadPcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
+  native_decide
+
+private theorem level4_entry_header_second_read_machine_owned :
+    RegisterWriteStep.decodeRawExecutionPcs (BitVec.ofNat 64 0x104c4) := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  apply RegionPcs.iff_inRanges.mpr
+  native_decide
+
+/-- Sail executes `lbu a0,1(s4)` and binds its result to the second input byte. -/
+theorem level4_entry_header_second_lbu {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104c4))
+    (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase))
+    (inputAtLeastTwo : 2 ≤ margs.bytes.size) (inputFits : margs.inputBase + margs.bytes.size ≤ 2 ^ 64)
+    (stepNo : Nat) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104c4) retired x10
+        (BitVec.ofNat 64 (margs.bytes[1]'(by omega)).toNat)) false := by
+  rcases frame.invariant with ⟨entry, -, -, -, -, inputMemory, -, -, code, machine, retired⟩
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x104c4)
+  let address := BitVec.ofNat 64 (margs.inputBase + 1)
+  have inputBaseFits : margs.inputBase + 1 < 2 ^ 64 := by omega
+  have inputAtExecute : executeState.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase) := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, inputPointer]
+  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := machine.mstatus
+  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := machine.mseccfg
+  have mstatusAtExecute : executeState.regs.get? mstatus = some mstatusBits := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, mstatusRead]
+  have privilegeAtExecute : executeState.regs.get? cur_privilege = some Privilege.Machine := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, machine.normal.2.1]
+  have mseccfgAtExecute : executeState.regs.get? Register.mseccfg = some mseccfgBits := by
+    simp [executeState, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, mseccfgRead]
+  have addressRun : Runs
+      (get_transformed_data_addr (.Regidx 20#5) (sign_extend (m := 64) 1#12)
+        (MemoryAccessType.Load mem_payload.Data) 1)
+      executeState executeState (.Ext_DataAddr_OK (virtaddr.Virtaddr address)) := by
+    have addressEq : BitVec.ofNat 64 margs.inputBase + sign_extend (m := 64) 1#12 = address := by
+      rw [show sign_extend (m := 64) 1#12 = (1#64) by decide]
+      rw [← BitVec.ofNat_add]
+    rw [← addressEq]
+    exact get_transformed_data_addr_machine_load_run executeState (.Regidx 20#5)
+      (BitVec.ofNat 64 margs.inputBase) (sign_extend (m := 64) 1#12) mstatusBits mseccfgBits
+      (rX_x20_run executeState _ inputAtExecute) mstatusAtExecute privilegeAtExecute mprvZero
+      mseccfgAtExecute pmmDisabled
+  have executeAgree : Agree platformPreserved state executeState :=
+    agree_decoderExecuteState state (BitVec.ofNat 64 0x104c4)
+  have allowed : DecoderAccessRange (DecoderReadableByte margs) address 1 := by
+    refine ⟨by decide, ?_, ?_⟩
+    · simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits]
+      omega
+    · intro index indexLt
+      have indexZero : index = 0 := by omega
+      subst index
+      right
+      left
+      have addressNat : address.toNat = margs.inputBase + 1 := by
+        simp [address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits]
+      rw [addressNat]
+      exact ⟨by omega, by omega⟩
+  obtain ⟨physAccess, loadNoMMIO⟩ := machine.dataAccess.load executeState address 1
+    (Agree.weaken (fun _ preserved => preserved.2) executeAgree) allowed (by simp [is_aligned_paddr])
+  let inputByte := margs.bytes[1]'(by omega)
+  have memoryByte : ∀ index (indexLt : index < (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)).length),
+      executeState.mem.get? (address.toNat + index) =
+        some ((leBytes 1 (BitVec.ofNat 8 inputByte.toNat))[index]'(by
+          simpa only [leBytes_length] using indexLt)) := by
+    intro index indexLt
+    rw [leBytes_length] at indexLt
+    have indexZero : index = 0 := by omega
+    subst index
+    simpa [executeState, address, BitVec.toNat_ofNat, Nat.mod_eq_of_lt inputBaseFits,
+      leBytes, inputByte] using inputMemory 1 (by omega)
+  have readMemory : Runs (vmem_read (.Regidx 20#5) (sign_extend (m := 64) 1#12) 1
+      (MemoryAccessType.Load mem_payload.Data) false false false) executeState executeState
+      (.Ok (BitVec.ofNat 8 inputByte.toNat)) := by
+    have hread := mem_read_load_run executeState address mstatusBits
+      (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)) mstatusAtExecute privilegeAtExecute mprvZero
+      memoryByte physAccess loadNoMMIO
+    rw [show leWord (leBytes 1 (BitVec.ofNat 8 inputByte.toNat)) = BitVec.ofNat 8 inputByte.toNat
+      from by simpa using leWord_leBytes 1 (BitVec.ofNat 8 inputByte.toNat)] at hread
+    exact vmem_read_byte_run executeState (.Regidx 20#5) (sign_extend (m := 64) 1#12) address
+      mstatusBits (BitVec.ofNat 8 inputByte.toNat) mstatusAtExecute privilegeAtExecute mprvZero
+      addressRun (is_aligned_vaddr_one _) hread
+  exact decoderLoadStepOfDecoderAgree machine (Agree.refl state) retired code stepNo
+    0x104c4 0x03 0x45 0x1a 0x00 1#12 20#5 10#5 true 1 (BitVec.ofNat 8 inputByte.toNat)
+    atPc readMemory (by
+      have zeroExtend : extend_value true (BitVec.ofNat 8 inputByte.toNat) =
+          BitVec.ofNat 64 inputByte.toNat := by
+        apply BitVec.eq_of_toNat_eq
+        simp [extend_value, zero_extend, Sail.BitVec.zeroExtend]
+      rw [zeroExtend]
+      exact wX_x10_run executeState (BitVec.ofNat 64 inputByte.toNat))
+    (pcIn := ⟨level4_entry_header_second_read_machine_owned, by native_decide⟩)
+
 end BinaryFv.Zesu.MachineExecution
