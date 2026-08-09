@@ -168,21 +168,24 @@ def load_inventory(path: Path) -> tuple[Boundary, ...]:
             route_identity = route.get("sourceIdentity")
             classification = route.get("classification")
             carrier_pcs = route.get("carrierPcs")
+            carrier_paths = route.get("carrierPaths")
             if (source not in pcs or not isinstance(route_identity, dict)
                     or route_identity.get("qualified") != qualified
-                    or classification not in {"intermediate", "sourceReviewedOutcomePath"}
+                    or classification not in {"intermediate", "unclassified", "sourceReviewedOutcomePath"}
                     or not isinstance(carrier_pcs, list)
+                    or not isinstance(carrier_paths, list)
                     or any(not isinstance(pc, int) for pc in carrier_pcs)):
                 raise ValueError(f"boundary {identifier} carrier route has invalid identity or PCs")
-            if classification == "intermediate" and carrier_pcs:
-                raise ValueError(f"boundary {identifier} intermediate carrier route claims a carrier")
-            if classification == "sourceReviewedOutcomePath" and not carrier_pcs:
+            if classification in {"intermediate", "unclassified"} and (carrier_pcs or carrier_paths):
+                raise ValueError(f"boundary {identifier} non-outcome carrier route claims a carrier")
+            if classification == "sourceReviewedOutcomePath" and (not carrier_pcs or not carrier_paths):
                 raise ValueError(f"boundary {identifier} outcome carrier route lacks parent continuation PCs")
             carrier_routes.append({
                 "sourceIdentity": route_identity,
                 "handoff": {"sourcePc": source, "targetPc": target},
                 "classification": classification,
                 "carrierPcs": carrier_pcs,
+                "carrierPaths": carrier_paths,
                 "registers": route.get("registers", []),
                 "stackDescriptors": route.get("stackDescriptors", []),
                 "statusTag": route.get("statusTag", {"state": "unmeasured"}),
@@ -242,23 +245,95 @@ def observation(
         ],
         "declaredStoresReached": declared_stores,
         "observedStores": [store for store in stores if store["pc"] in owned],
-        "observedCarrierRoutes": [
-            {
-                "sourceIdentity": route["sourceIdentity"],
-                "handoff": route["handoff"],
-                "classification": route["classification"],
-                "carrierPcs": route["carrierPcs"],
-                "observedCarrierPcs": sorted(set(route["carrierPcs"]).intersection(pcs)),
-                # Static instruction/DWARF/source review admits the route; this finite trace only
-                # says which carrier PCs were reached, never their registers or heap meaning.
-                "staticEvidence": "production-ELF instruction plus validated raw-DWARF source identity",
-                "statusTag": route["statusTag"],
-                "allocation": route["allocation"],
-                "heapArrayRep": route["heapArrayRep"],
-            }
-            for route in boundary.carrier_routes
-        ],
+        "observedCarrierRoutes": [carrier_route_observation(route, pcs) for route in boundary.carrier_routes],
     }
+
+
+def carrier_route_observation(route: dict[str, Any], pcs: list[int]) -> dict[str, Any]:
+    """Record a carrier only after its exact handoff in this one trace invocation.
+
+    A carrier PC alone is deliberately not evidence: the same instruction can occur in another
+    vector or another decoder invocation.  This observation retains the handoff event indices and
+    searches only the suffix following each such event in the same trace.
+    """
+    handoff = (route["handoff"]["sourcePc"], route["handoff"]["targetPc"])
+    handoff_events = [
+        index for index, edge in enumerate(zip(pcs, pcs[1:])) if edge == handoff
+    ]
+    observed_carriers = sorted({
+        pc for index in handoff_events for pc in pcs[index + 1:]
+        if pc in set(route["carrierPcs"])
+    })
+    return {
+        "sourceIdentity": route["sourceIdentity"],
+        "handoff": route["handoff"],
+        "classification": route["classification"],
+        "carrierPcs": route["carrierPcs"],
+        "handoffEvents": len(handoff_events),
+        "observedCarrierPcs": observed_carriers,
+        "evidenceScope": "one-production-vector-one-process-invocation",
+        # Static instruction/DWARF/source review admits the route; this finite trace only says
+        # which continuation PCs followed an exact handoff, never their register or heap meaning.
+        "staticEvidence": "production-ELF instruction plus validated raw-DWARF source identity",
+        "statusTag": route["statusTag"],
+        "allocation": route["allocation"],
+        "heapArrayRep": route["heapArrayRep"],
+    }
+
+
+def merge_observations(boundary: Boundary, observations: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge trace-local observations without manufacturing a cross-vector route."""
+    if not observations:
+        raise ValueError("cannot merge no production observations")
+    route_observations: dict[tuple[str, int, int], list[dict[str, Any]]] = {}
+    for record in observations:
+        for route in record["observedCarrierRoutes"]:
+            key = (route["sourceIdentity"]["qualified"], route["handoff"]["sourcePc"],
+                   route["handoff"]["targetPc"])
+            route_observations.setdefault(key, []).append(route)
+    merged_routes = []
+    for route in boundary.carrier_routes:
+        key = (route["sourceIdentity"]["qualified"], route["handoff"]["sourcePc"],
+               route["handoff"]["targetPc"])
+        local = route_observations.get(key, [])
+        # Each local record already required its own handoff event.  Unioning these checked
+        # observations cannot pair a handoff from one vector with a carrier from another.
+        template = carrier_route_observation(route, [])
+        merged_routes.append({
+            **template,
+            "handoffEvents": sum(record["handoffEvents"] for record in local),
+            "observedCarrierPcs": sorted({
+                pc for record in local for pc in record["observedCarrierPcs"]
+            }),
+        })
+    return {
+        "entryReached": any(record["entryReached"] for record in observations),
+        "exitReached": sorted({pc for record in observations for pc in record["exitReached"]}),
+        "instructionEvents": sum(record["instructionEvents"] for record in observations),
+        "declaredCallsReached": [
+            {"sourcePc": source, "targetPc": target}
+            for source, target in boundary.calls
+            if any({(call["sourcePc"], call["targetPc"]) for call in record["declaredCallsReached"]}
+                   >= {(source, target)} for record in observations)
+        ],
+        "declaredStoresReached": [
+            store for store in boundary.stores
+            if any(any(all(observed[field] == store[field] for field in store)
+                       for observed in record["declaredStoresReached"])
+                   for record in observations)
+        ],
+        "observedStores": [store for record in observations for store in record["observedStores"]],
+        "observedCarrierRoutes": merged_routes,
+    }
+
+
+def validate_merged_observation(
+    boundary: Boundary, record: dict[str, Any], local_observations: list[dict[str, Any]]
+) -> list[str]:
+    """Reject an aggregate record that was not derived from its individual vector invocations."""
+    if record != merge_observations(boundary, local_observations):
+        return ["merged production observations were changed or cross-vector forged"]
+    return []
 
 
 def statically_unreachable_call(boundary: Boundary, call: tuple[int, int]) -> str | None:
@@ -307,15 +382,17 @@ def validate_observed_claims(record: dict[str, Any], calls: list[dict[str, int]]
 
 
 def validate_observed_carrier_claims(record: dict[str, Any], claims: list[dict[str, Any]]) -> list[str]:
-    """A claimed finite carrier-PC observation must remain in the trace-derived record."""
+    """A claimed carrier needs its exact same-invocation handoff evidence."""
     observed = {
-        (route["sourceIdentity"]["qualified"], route["handoff"]["sourcePc"], route["handoff"]["targetPc"]):
-        set(route["observedCarrierPcs"])
+        (route["sourceIdentity"]["qualified"], route["handoff"]["sourcePc"], route["handoff"]["targetPc"]): route
         for route in record["observedCarrierRoutes"]
     }
     for claim in claims:
         key = (claim["sourceIdentity"]["qualified"], claim["handoff"]["sourcePc"], claim["handoff"]["targetPc"])
-        if not set(claim["observedCarrierPcs"]) <= observed.get(key, set()):
+        route = observed.get(key)
+        if (route is None or route["classification"] != "sourceReviewedOutcomePath"
+                or route["handoffEvents"] <= 0
+                or not set(claim["observedCarrierPcs"]) <= set(route["observedCarrierPcs"])):
             return ["an observed outcome carrier PC disappeared"]
     return []
 
@@ -440,7 +517,9 @@ def main() -> int:
     vector_observations: list[dict[str, Any]] = []
     all_pcs: list[int] = []
     all_stores: list[dict[str, int]] = []
-    all_edges: set[tuple[int, int]] = set()
+    observations_by_boundary: dict[str, list[dict[str, Any]]] = {
+        boundary.identifier: [] for boundary in boundaries
+    }
     with tempfile.TemporaryDirectory(prefix="level4-evidence-") as temporary:
         for name, data, accepted in vectors:
             trace = Path(temporary) / f"{name}.trace"
@@ -455,27 +534,31 @@ def main() -> int:
             pcs, stores = parse_trace(trace)
             all_pcs.extend(pcs)
             all_stores.extend(stores)
-            all_edges.update(zip(pcs, pcs[1:]))
+            local_observations = {
+                boundary.identifier: observation(boundary, pcs, stores) for boundary in boundaries
+            }
+            for identifier, record in local_observations.items():
+                observations_by_boundary[identifier].append(record)
             vector_observations.append({
                 "name": name,
                 "accepted": accepted,
                 "returncode": production.returncode,
                 "traceEvents": len(pcs),
                 "stores": len(stores),
-                "boundaries": {
-                    boundary.identifier: observation(boundary, pcs, stores) for boundary in boundaries
-                },
+                "boundaries": local_observations,
             })
     records = []
     for boundary in boundaries:
-        # Do not concatenate traces to derive edges: the last PC of one vector and the first PC
-        # of another are not one production transfer.
-        record = observation(boundary, all_pcs, all_stores, edges=all_edges)
+        # Merge trace-local facts only.  In particular, a handoff in one vector may not justify a
+        # carrier PC observed in another vector.
+        record = merge_observations(boundary, observations_by_boundary[boundary.identifier])
         clause_failures = validate_observation(boundary, record) + validate_observed_claims(
             record, record["declaredCallsReached"], record["declaredStoresReached"]
         ) + validate_observed_carrier_claims(record, [
             route for route in record["observedCarrierRoutes"] if route["observedCarrierPcs"]
-        ])
+        ]) + validate_merged_observation(
+            boundary, record, observations_by_boundary[boundary.identifier]
+        )
         mutations = mutation_checks(boundary, record)
         if not all(mutations.values()):
             clause_failures.append("a measurable-clause mutation was accepted")

@@ -113,7 +113,8 @@ class ObservationTests(unittest.TestCase):
             "sourceIdentity": self.public_keys_identity,
             "handoff": {"sourcePc": 8, "targetPc": 12},
             "classification": "sourceReviewedOutcomePath",
-            "carrierPcs": [16], "registers": [], "stackDescriptors": [],
+            "carrierPcs": [16], "carrierPaths": [{"carrierPc": 16, "pcs": [12, 16]}],
+            "registers": [], "stackDescriptors": [],
             "statusTag": {"state": "static-ELF"}, "allocation": {"state": "source-reviewed"},
             "heapArrayRep": {"state": "obligation"},
         }
@@ -121,9 +122,35 @@ class ObservationTests(unittest.TestCase):
             "fi:120", "inlined", "ssz_raw.decodePublicKeys", 4, (4, 8), (8,), "decodeRaw",
             self.public_keys_identity, (), (), (), (route,),
         )
-        record = evidence.observation(boundary, [4, 8, 16], [])
+        record = evidence.observation(boundary, [4, 8, 12, 16], [])
         self.assertEqual(record["observedCarrierRoutes"][0]["observedCarrierPcs"], [16])
         self.assertTrue(evidence.mutation_checks(boundary, record)["outcome-carrier-pc"])
+
+    def test_carrier_observation_never_pairs_handoff_and_pc_from_different_vectors(self) -> None:
+        route = {
+            "sourceIdentity": self.public_keys_identity,
+            "handoff": {"sourcePc": 8, "targetPc": 12},
+            "classification": "sourceReviewedOutcomePath",
+            "carrierPcs": [16], "carrierPaths": [{"carrierPc": 16, "pcs": [12, 16]}],
+            "registers": [], "stackDescriptors": [],
+            "statusTag": {"state": "static-ELF"}, "allocation": {"state": "source-reviewed"},
+            "heapArrayRep": {"state": "obligation"},
+        }
+        boundary = evidence.Boundary(
+            "fi:120", "inlined", "ssz_raw.decodePublicKeys", 4, (4, 8), (8,), "decodeRaw",
+            self.public_keys_identity, (), (), (), (route,),
+        )
+        first = evidence.observation(boundary, [4, 8, 12], [])
+        second = evidence.observation(boundary, [4, 16], [])
+        merged = evidence.merge_observations(boundary, [first, second])
+        [claim] = merged["observedCarrierRoutes"]
+        self.assertEqual(claim["handoffEvents"], 1)
+        self.assertEqual(claim["observedCarrierPcs"], [])
+        forged = {**merged, "observedCarrierRoutes": [{**claim, "observedCarrierPcs": [16]}]}
+        self.assertEqual(
+            evidence.validate_merged_observation(boundary, forged, [first, second]),
+            ["merged production observations were changed or cross-vector forged"],
+        )
 
     def test_aggregate_edges_never_join_two_vectors(self) -> None:
         boundary = evidence.Boundary(

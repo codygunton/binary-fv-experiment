@@ -317,6 +317,7 @@ let
       python3 ${machineRegionsGenerator} \
         --elf ${zesuSsz}/bin/zesu-ssz \
         --program-json ${elflingProgram}/program.json \
+        --source-root ${zesuRepaired} \
         --llvm-objdump ${pkgs.llvm}/bin/llvm-objdump \
         --out "$1/machine-regions.json" \
         --out-lean "$1/GeneratedMachineRegions.lean" \

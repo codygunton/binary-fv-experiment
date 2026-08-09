@@ -258,7 +258,9 @@ class MachineRegionTests(unittest.TestCase):
     def test_outcome_carrier_instruction_validator_rejects_deletion_and_forgery(self) -> None:
         route = {
             "classification": "sourceReviewedOutcomePath",
+            "handoff": {"sourcePc": 0x12e60, "targetPc": 0x12e64},
             "carrierPcs": [0x12e64],
+            "carrierPaths": [{"carrierPc": 0x12e64, "pcs": [0x12e64], "ownerIds": ["fi:6"]}],
             "registers": [{"pc": 0x12e64, "register": "a4", "role": "word-0"}],
             "stackDescriptors": [{"pc": 0x12e64, "instructionKind": "store", "register": "a4",
                                   "baseRegister": "sp", "offset": 0x5c0, "role": "word-0-store"}],
@@ -267,24 +269,39 @@ class MachineRegionTests(unittest.TestCase):
         }
         instructions = {
             0x12e64: {"address": 0x12e64, "mnemonic": "sd", "operands": "a4, 0x5c0(sp)",
-                      "reads": ["a4", "sp"], "writes": [], "liveIn": ["a4", "sp"], "liveOut": []},
+                      "owner": "fi:6", "reads": ["a4", "sp"], "writes": [],
+                      "liveIn": ["a4", "sp"], "liveOut": []},
         }
-        machine_regions.validate_outcome_carrier_instructions([route], instructions)
+        machine_regions.validate_outcome_carrier_instructions([route], "fi:6", instructions)
         with self.assertRaisesRegex(ValueError, "carrier PC is absent"):
-            machine_regions.validate_outcome_carrier_instructions([route], {})
+            machine_regions.validate_outcome_carrier_instructions([route], "fi:6", {})
         forged = copy.deepcopy(route)
         forged["stackDescriptors"][0]["offset"] = 0x5c8
         with self.assertRaisesRegex(ValueError, "stack descriptor"):
-            machine_regions.validate_outcome_carrier_instructions([forged], instructions)
+            machine_regions.validate_outcome_carrier_instructions([forged], "fi:6", instructions)
 
     def test_dynamic_attribution_validator_rejects_deletion_and_forgery(self) -> None:
-        parent = {"id": "fi:6", "regions": [{"start": 77412, "size": 8}], "parent": None}
+        parent = {"id": "fi:6", "regions": [{"start": 77412, "size": 20}], "parent": None}
         decoder = {"id": "fi:102", "qualified": "ssz_raw.decodeChainConfig", "entryPc": 76108,
-                   "regions": [{"start": 77404, "size": 8}], "parent": "fi:6", "inlineStack": [{"callerQualified": "ssz_raw.decodeRaw", "line": 211, "column": 48}]}
+                   "regions": [{"start": 77404, "size": 8}], "parent": "fi:6",
+                   "sourceFile": "src/stateless/stateless/ssz_raw.zig", "declLine": 349,
+                   "specialization": [],
+                   "inlineStack": [{"callerQualified": "ssz_raw.decodeRaw", "line": 211, "column": 48}]}
         database = {"instructions": [
             {"address": 77404, "owner": "fi:102", "successors": [77408]},
             {"address": 77408, "owner": "fi:102", "successors": [77412]},
-            {"address": 77412, "owner": "fi:6", "successors": []},
+            {"address": 77412, "owner": "fi:6", "successors": [77416], "mnemonic": "sd",
+             "operands": "a4, 0x5c0(sp)", "reads": ["a4", "sp"], "writes": [],
+             "liveIn": ["a4", "sp"], "liveOut": []},
+            {"address": 77416, "owner": "fi:6", "successors": [77420], "mnemonic": "sd",
+             "operands": "a5, 0x5c8(sp)", "reads": ["a5", "sp"], "writes": [],
+             "liveIn": ["a5", "sp"], "liveOut": []},
+            {"address": 77420, "owner": "fi:6", "successors": [77424], "mnemonic": "sd",
+             "operands": "a6, 0x5d0(sp)", "reads": ["a6", "sp"], "writes": [],
+             "liveIn": ["a6", "sp"], "liveOut": []},
+            {"address": 77424, "owner": "fi:6", "successors": [], "mnemonic": "sd",
+             "operands": "a7, 0x5d8(sp)", "reads": ["a7", "sp"], "writes": [],
+             "liveIn": ["a7", "sp"], "liveOut": []},
             {"address": 77400, "owner": "fi:6", "successors": [77404]},
         ], "callGraph": {"owners": [parent, decoder]}}
         manifest = {"parent": {"id": "fi:6"}, "boundaries": [{
@@ -293,7 +310,22 @@ class MachineRegionTests(unittest.TestCase):
             "parentReentryEdges": [{"sourcePc": 77400, "targetPc": 77404}],
             "fragmentHandoffs": [{"sourcePc": 77408, "targetPc": 77412}],
         }]}
+        manifest["boundaries"][0]["carrierRoutes"] = machine_regions.outcome_carrier_routes(
+            decoder, parent, {row["address"]: row for row in database["instructions"]}
+        )
         machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["carrierRoutes"] = []
+        with self.assertRaisesRegex(ValueError, "carrier routes are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["carrierRoutes"] = machine_regions.outcome_carrier_routes(
+            decoder, parent, {row["address"]: row for row in database["instructions"]}
+        )
+        manifest["boundaries"][0]["carrierRoutes"][0]["classification"] = "unclassified"
+        with self.assertRaisesRegex(ValueError, "carrier routes are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["carrierRoutes"] = machine_regions.outcome_carrier_routes(
+            decoder, parent, {row["address"]: row for row in database["instructions"]}
+        )
         manifest["boundaries"][0]["fragmentHandoffs"] = []
         with self.assertRaisesRegex(ValueError, "handoffs are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
