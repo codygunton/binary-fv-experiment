@@ -530,6 +530,16 @@ def function_identity(owner: dict) -> dict:
     }
 
 
+def generated_target_identity(callee: dict) -> dict:
+    """A tagged generated target identity: FunctionInstance or ExcludedFunctionInstance."""
+    if callee["id"].startswith("excluded:"):
+        return {
+            "kind": "excludedFunctionInstance", "sourceFile": callee["sourceFile"],
+            "qualified": callee["qualified"],
+        }
+    return {"kind": "functionInstance", **function_identity(callee)}
+
+
 def dynamic_call_target_extent(callee: dict, owners_by_id: dict[str, dict]) -> dict:
     """The generated Program extent a dynamic call frame may execute before returning.
 
@@ -539,9 +549,8 @@ def dynamic_call_target_extent(callee: dict, owners_by_id: dict[str, dict]) -> d
     """
     full_execution_pcs = dynamic_full_execution_pcs(callee, owners_by_id)
     return {
-        "functionInstanceIdentity": function_identity(callee),
-        "fullExecutionPcs": full_execution_pcs,
-        "runtimeContinuationPcs": full_execution_pcs,
+        "targetIdentity": generated_target_identity(callee),
+        "activeCalleeExecutionPcs": full_execution_pcs,
     }
 
 
@@ -553,8 +562,7 @@ def declared_level4_calls(owner_id: str, call_graph: dict, owners_by_id: dict[st
             "targetPc": owners_by_id[call["callee"]]["entryPc"],
         }
         for call in call_graph.get("calls", [])
-        if (call["caller"] == owner_id and call["kind"] in {"direct", "tail", "allocatorVtable"}
-                and isinstance(call["source"], int))
+        if call["caller"] == owner_id and call["kind"] in {"direct", "tail", "allocatorVtable"}
     ]
 
 
@@ -777,16 +785,17 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
             if not isinstance(row["calls"], list):
                 raise ValueError("Level 4 boundary manifest calls field is not a list")
             for call in row["calls"]:
-                if (not isinstance(call, dict) or not isinstance(call.get("sourcePc"), int)
+                if (not isinstance(call, dict) or not isinstance(call.get("sourcePc"), (int, type(None)))
                         or not isinstance(call.get("targetPc"), int)):
                     raise ValueError("Level 4 boundary manifest call lacks concrete PCs")
-                if "functionInstanceIdentity" in call:
-                    for field in ("fullExecutionPcs", "runtimeContinuationPcs"):
+                if "targetIdentity" in call:
+                    for field in ("activeCalleeExecutionPcs",):
                         pcs = call.get(field)
                         if not isinstance(pcs, list) or not pcs or pcs != sorted(set(pcs)):
                             raise ValueError(f"Level 4 dynamic call target has invalid {field}")
-                    identity = call["functionInstanceIdentity"]
+                    identity = call["targetIdentity"]
                     if (not isinstance(identity, dict)
+                            or identity.get("kind") not in {"functionInstance", "excludedFunctionInstance"}
                             or not isinstance(identity.get("qualified"), str)):
                         raise ValueError("Level 4 dynamic call target lacks a source identity")
         dependencies = row.get("tailDependencies", [])
@@ -862,6 +871,12 @@ def function_instance_lean_name(identity: dict) -> str:
     return "_".join(parts)
 
 
+def target_lean_name(identity: dict) -> str:
+    if identity["kind"] == "excludedFunctionInstance":
+        return "excludedFunctionInstance_" + lean_name_component(identity["qualified"])
+    return function_instance_lean_name(identity)
+
+
 def emit_level4_attribution_lean(database: dict) -> str:
     """Emit the four dynamic attribution boundaries as typed, source-identity keyed Lean data."""
     manifest = level4_boundary_manifest(database)
@@ -900,13 +915,16 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "open BinaryFv.Zesu.Elflings.Generated",
         "open BinaryFv.Zesu.Elflings.Validation",
         "",
+        "inductive AttributionCallTarget where",
+        "  | functionInstance : FunctionInstanceId → AttributionCallTarget",
+        "  | excludedFunctionInstance : FunctionInstanceId → AttributionCallTarget",
+        "",
         "structure AttributionCallFrame where",
         "  kind : String",
-        "  source : Nat",
+        "  source : Option Nat",
         "  target : Nat",
-        "  callee : FunctionInstanceId",
-        "  fullExecutionPcs : Array Nat",
-        "  runtimeContinuationPcs : Array Nat",
+        "  callee : AttributionCallTarget",
+        "  activeCalleeExecutionPcs : Array Nat",
         "",
         "structure AttributionFragmentBoundary where",
         "  child : FunctionInstanceId",
@@ -929,12 +947,17 @@ def emit_level4_attribution_lean(database: dict) -> str:
         edge_array = lambda edges: f"(#[{pairs(edges)}] : Array DirectEdge)"
         pcs = lambda xs: ", ".join(str(x) for x in xs)
         def call_frame(call: dict) -> str:
-            callee = function_instance_lean_name(call["functionInstanceIdentity"])
+            identity = call["targetIdentity"]
+            callee = target_lean_name(identity)
+            target = (f".excludedFunctionInstance {callee}Id"
+                      if identity["kind"] == "excludedFunctionInstance"
+                      else f".functionInstance {callee}Id")
+            source = "none" if call["sourcePc"] is None else f"some {call['sourcePc']}"
             return (
-                "{ kind := \"%s\", source := %s, target := %s, callee := %sId, "
-                "fullExecutionPcs := #[%s], runtimeContinuationPcs := #[%s] }"
-                % (call["kind"], call["sourcePc"], call["targetPc"], callee,
-                   pcs(call["fullExecutionPcs"]), pcs(call["runtimeContinuationPcs"]))
+                "{ kind := \"%s\", source := %s, target := %s, callee := %s, "
+                "activeCalleeExecutionPcs := #[%s] }"
+                % (call["kind"], source, call["targetPc"], target,
+                   pcs(call["activeCalleeExecutionPcs"]))
             )
         call_frames = f"(#[{', '.join(call_frame(call) for call in row.get('calls', []))}] : Array AttributionCallFrame)"
         L.extend([
@@ -971,14 +994,19 @@ def emit_level4_attribution_lean(database: dict) -> str:
             "",
         ])
         for index, call in enumerate(row.get("calls", [])):
-            callee = function_instance_lean_name(call["functionInstanceIdentity"])
-            call_name = f"{boundary_name}_call_{call['sourcePc']}"
-            full_pcs = f"#[{pcs(call['fullExecutionPcs'])}]"
+            identity = call["targetIdentity"]
+            callee = target_lean_name(identity)
+            source_name = "external" if call["sourcePc"] is None else str(call["sourcePc"])
+            call_name = f"{boundary_name}_call_{source_name}_{call['targetPc']}"
+            full_pcs = f"#[{pcs(call['activeCalleeExecutionPcs'])}]"
             frame = call_frame(call)
+            membership = (f"inRegions {callee} pc"
+                          if identity["kind"] == "functionInstance"
+                          else f"Program.inRanges {callee}.regions pc")
             L.extend([
                 f"theorem {call_name}_exact : {boundary_name}.callFrames[{index}]? = some {frame} := rfl",
                 f"theorem {call_name}_extent_membership :",
-                f"    ∀ pc ∈ {full_pcs}, inRegions {callee} pc = true := by native_decide",
+                f"    ∀ pc ∈ {full_pcs}, {membership} = true := by native_decide",
                 "",
             ])
     L.extend([

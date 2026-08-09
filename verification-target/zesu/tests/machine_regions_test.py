@@ -174,7 +174,7 @@ class MachineRegionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid required field"):
             machine_regions.validate_level4_boundary_manifest(manifest)
         manifest = machine_regions.level4_boundary_manifest(self.level4_database())
-        manifest["boundaries"][0]["calls"][0]["sourcePc"] = None
+        manifest["boundaries"][0]["calls"][0]["targetPc"] = None
         with self.assertRaisesRegex(ValueError, "call lacks concrete PCs"):
             machine_regions.validate_level4_boundary_manifest(manifest)
         manifest = machine_regions.level4_boundary_manifest(self.level4_database())
@@ -304,9 +304,20 @@ class MachineRegionTests(unittest.TestCase):
         callee = {"id": "fi:134", "kind": "emitted", "qualified": "ssz_raw.requireCanonicalOffsets",
                   "entryPc": 78000, "regions": [{"start": 78000, "size": 8}], "parent": None,
                   "sourceFile": "ssz_raw.zig", "specialization": [], "inlineStack": []}
+        excluded = {"id": "excluded:9", "kind": "reachableStdlib", "qualified": "allocator.free",
+                    "entryPc": 79000, "regions": [{"start": 79000, "size": 8}], "parent": None,
+                    "sourceFile": "<zig-std>"}
+        foreign = {"id": "fi:0", "kind": "emitted", "qualified": "raw_allocator.zesu_raw_alloc",
+                   "entryPc": 66124, "regions": [{"start": 66124, "size": 4}], "parent": None,
+                   "sourceFile": "raw_allocator.zig", "specialization": [], "inlineStack": []}
         call = {"id": "fi:134", "kind": "direct", "sourcePc": 77404, "targetPc": 78000,
                 **machine_regions.dynamic_call_target_extent(callee, {"fi:6": parent, "fi:102": decoder,
                                                                         "fi:134": callee})}
+        excluded_call = {"id": "excluded:9", "kind": "direct", "sourcePc": None, "targetPc": 79000,
+                         **machine_regions.dynamic_call_target_extent(excluded, {"fi:6": parent,
+                                                                                   "fi:102": decoder,
+                                                                                   "fi:134": callee,
+                                                                                   "excluded:9": excluded})}
         database = {"instructions": [
             {"address": 77404, "owner": "fi:102", "successors": [77408, 78000]},
             {"address": 77408, "owner": "fi:102", "successors": [77412]},
@@ -314,27 +325,35 @@ class MachineRegionTests(unittest.TestCase):
             {"address": 77400, "owner": "fi:6", "successors": [77404]},
             {"address": 78000, "owner": "fi:134", "successors": [78004]},
             {"address": 78004, "owner": "fi:134", "successors": []},
-        ], "callGraph": {"owners": [parent, decoder, callee], "calls": [{
-            "caller": "fi:102", "callee": "fi:134", "kind": "direct", "source": 77404,
-        }]}}
+            {"address": 79000, "owner": "excluded:9", "successors": [79004]},
+            {"address": 79004, "owner": "excluded:9", "successors": []},
+            {"address": 66124, "owner": "fi:0", "successors": []},
+        ], "callGraph": {"owners": [parent, decoder, callee, excluded, foreign], "calls": [
+            {"caller": "fi:102", "callee": "fi:134", "kind": "direct", "source": 77404},
+            {"caller": "fi:102", "callee": "excluded:9", "kind": "direct", "source": None},
+        ]}}
         manifest = {"parent": {"id": "fi:6"}, "boundaries": [{
             "id": "fi:102", "instructionPcs": [77404, 77408], "ownedExecutionPcs": [77404, 77408],
-            "fullExecutionPcs": [77404, 77408], "calls": [call],
+            "fullExecutionPcs": [77404, 77408], "calls": [call, excluded_call],
             "parentReentryEdges": [{"sourcePc": 77400, "targetPc": 77404}],
             "fragmentHandoffs": [{"sourcePc": 77408, "targetPc": 77412}],
         }]}
         machine_regions.validate_level4_attribution_boundaries(database, manifest)
-        manifest["boundaries"][0]["calls"][0].pop("fullExecutionPcs")
+        manifest["boundaries"][0]["calls"][0].pop("activeCalleeExecutionPcs")
         with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
-        manifest["boundaries"][0]["calls"][0]["fullExecutionPcs"] = [78000, 99999]
+        manifest["boundaries"][0]["calls"][0]["activeCalleeExecutionPcs"] = [78000, 99999]
         with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
-        manifest["boundaries"][0]["calls"][0]["fullExecutionPcs"] = [78000, 78004]
-        manifest["boundaries"][0]["calls"][0].pop("runtimeContinuationPcs")
+        manifest["boundaries"][0]["calls"][0]["activeCalleeExecutionPcs"] = [78000, 78004]
+        manifest["boundaries"][0]["calls"][1].pop("activeCalleeExecutionPcs")
         with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
-        manifest["boundaries"][0]["calls"][0]["runtimeContinuationPcs"] = [78000, 99999]
+        manifest["boundaries"][0]["calls"][1]["activeCalleeExecutionPcs"] = [79000, 99999]
+        with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
+            machine_regions.validate_level4_attribution_boundaries(database, manifest)
+        manifest["boundaries"][0]["calls"][1]["activeCalleeExecutionPcs"] = [79000, 79004]
+        manifest["boundaries"][0]["calls"][0]["activeCalleeExecutionPcs"] = [78000, 78004, 66124]
         with self.assertRaisesRegex(ValueError, "call target extents are incomplete or forged"):
             machine_regions.validate_level4_attribution_boundaries(database, manifest)
         manifest["boundaries"][0]["parentReentryEdges"] = [{"sourcePc": 77400, "targetPc": 77408}]
