@@ -47,7 +47,7 @@ structure Level4RawNewPayloadRequestDeinitPre {margs : DecoderMachineArgs} {orig
   allocatorPair : ∃ first second,
     DecodedValue.Word64LERep current (Classical.choose a1).toNat first ∧
       DecodedValue.Word64LERep current ((Classical.choose a1).toNat + 8) second ∧
-        (Classical.choose a1).toNat + 16 ≤ 2 ^ 64
+        first < 2 ^ 64 ∧ second < 2 ^ 64 ∧ (Classical.choose a1).toNat + 16 ≤ 2 ^ 64
   allocatorReadable : DecoderAccessRange (DecoderReadableByte margs)
     (BitVec.ofNat 64 (Classical.choose a1).toNat) 16
   allocatorAligned : is_aligned_vaddr
@@ -808,5 +808,131 @@ theorem level4_rawNewPayloadRequestDeinit_argument_moves_handoff
   exact machine1.mono
     (writes2.agree decoderPreserved_level4RawNewPayloadRequestDeinitWrites_disjoint)
     (afterRegisterWrite_retired_present afterS0 (BitVec.ofNat 64 0x13200) retired6 x9 (Classical.choose pre.a0))
+
+/-- Handoff after loading both allocator words into the call argument registers. -/
+structure Level4RawNewPayloadRequestDeinitAllocatorLoadsHandoff
+    {margs : DecoderMachineArgs} {origin before : State}
+    (frame : Level4DecodeRawParentFrame margs origin before)
+    (pre : Level4RawNewPayloadRequestDeinitPre frame) (fromStep : Nat) (after : State) : Prop where
+  trace : Trace fromStep 8 before after
+  confined : ConfinedPrefix Level4RawNewPayloadRequestDeinitPcs
+    Level4RawNewPayloadRequestDeinitExit Level4RawNewPayloadRequestDeinitChildSummary fromStep 8
+    before after
+  writes : WritesOnlyRegs level4RawNewPayloadRequestDeinitWrites before after
+  memory : WritesOnlyWithin (level4RawNewPayloadRequestDeinitSaveMemory (frame.stack - 0x690))
+    before after
+  pc : after.regs.get? PC = some (BitVec.ofNat 64 0x1320c)
+  childSp : after.regs.get? x2 = some (BitVec.ofNat 64 (frame.stack - 0x690 - 0x50))
+  ra : after.regs.get? x1 = some (BitVec.ofNat 64 0x129ec)
+  s0 : after.regs.get? x8 = some (Classical.choose pre.a1)
+  s1 : after.regs.get? x9 = some (Classical.choose pre.a0)
+  a0 : ∃ first, after.regs.get? x10 = some (BitVec.ofNat 64 first)
+  a1 : ∃ second, after.regs.get? x11 = some (BitVec.ofNat 64 second)
+  code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
+  machine : DecoderMachinePre Level4RawNewPayloadRequestDeinitPcs margs after
+  retired : RetiredCounterPresent after
+
+/-- Append the two allocator-pair loads.  The typed nonalias clause transports both words through
+the preceding child saves; each load then forgets the overwritten argument binding. -/
+theorem level4_rawNewPayloadRequestDeinit_allocator_loads_handoff
+    {margs : DecoderMachineArgs} {origin current : State}
+    (frame : Level4DecodeRawParentFrame margs origin current)
+    (pre : Level4RawNewPayloadRequestDeinitPre frame) (fromStep : Nat) :
+    ∃ after, Level4RawNewPayloadRequestDeinitAllocatorLoadsHandoff frame pre fromStep after := by
+  obtain ⟨beforeLoads, handoff⟩ := level4_rawNewPayloadRequestDeinit_argument_moves_handoff frame pre fromStep
+  obtain ⟨first, second, firstWord, secondWord, firstFits, secondFits, pairFits⟩ := pre.allocatorPair
+  have pairAfter := level4_rawNewPayloadRequestDeinit_allocator_pair_through_saves handoff.memory
+    pre.allocatorOutsideSave ⟨firstWord, secondWord⟩
+  have firstReadable : DecoderAccessRange (DecoderReadableByte margs) (Classical.choose pre.a1) 8 := by
+    simpa only [BitVec.ofNat_toNat] using
+      level4_rawNewPayloadRequestDeinit_allocator_first_readable pre.allocatorReadable
+  let seg0 := handoff.seg.forget
+    (kv' := [⟨x9, Classical.choose pre.a0⟩, ⟨x8, Classical.choose pre.a1⟩,
+      ⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩, ⟨x1, BitVec.ofNat 64 0x129ec⟩,
+      ⟨x11, Classical.choose pre.a1⟩]) (by simp)
+  obtain ⟨retired7, afterA0, hA0, seg1⟩ := seg0.stepWitness
+    (by
+      change ∃ range : BinaryFv.Binary.AddressRange,
+        range ∈ excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.regions ∧
+          range.start ≤ 78340 ∧ 78340 < range.stop
+      exact ⟨{ start := 78316, size := 180 }, by native_decide, by decide, by decide⟩)
+    (by simp) x10 (BitVec.ofNat 64 first) (BitVec.ofNat 64 0x13208)
+    (by
+      apply level4_rawNewPayloadRequestDeinit_load_a0_step handoff.machine (Agree.refl beforeLoads)
+        seg0.retired handoff.code (fromStep + 6) seg0.atPc
+        (seg0.reg x11 (Classical.choose pre.a1) (by simp))
+      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt firstFits]
+      exact pairAfter.1
+      exact firstReadable
+      simpa only [BitVec.ofNat_toNat] using pre.allocatorAligned)
+    (by decide) (fun r h => Or.inl h) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))
+    (by decide) (by decide) (by exact of_decide_eq_true rfl)
+  have code1 : Artifacts.programImage.fileBytesLoadedFaithfully afterA0.mem := by
+    rw [hA0, afterRegisterWrite_mem]
+    exact handoff.code
+  have writes1 : WritesOnlyRegs level4RawNewPayloadRequestDeinitWrites beforeLoads afterA0 := by
+    rw [hA0]
+    exact (afterRegisterWrite_writes beforeLoads (BitVec.ofNat 64 0x13204) retired7 x10
+      (BitVec.ofNat 64 first)).mono (fun r h => h.elim Or.inl
+        (fun h => h ▸ Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
+  have machine1 : DecoderMachinePre Level4RawNewPayloadRequestDeinitPcs margs afterA0 := by
+    rw [hA0] at writes1 ⊢
+    exact handoff.machine.mono
+      (writes1.agree decoderPreserved_level4RawNewPayloadRequestDeinitWrites_disjoint)
+      (afterRegisterWrite_retired_present beforeLoads (BitVec.ofNat 64 0x13204) retired7 x10
+        (BitVec.ofNat 64 first))
+  have secondAfterA0 : DecodedValue.Word64LERep afterA0 ((Classical.choose pre.a1).toNat + 8) second :=
+    pairAfter.2.rebase (by
+      intro index bound
+      rw [hA0, afterRegisterWrite_mem])
+  have secondReadable : DecoderAccessRange (DecoderReadableByte margs)
+      (Classical.choose pre.a1 + 8) 8 := by
+    simpa only [BitVec.ofNat_toNat] using
+      level4_rawNewPayloadRequestDeinit_allocator_second_readable pre.allocatorReadable
+        (by
+          rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+          exact pairFits)
+  have a1AfterA0 : afterA0.regs.get? x11 = some (Classical.choose pre.a1) :=
+    seg1.reg x11 (Classical.choose pre.a1) (by simp)
+  let seg1 := seg1.forget
+    (kv' := [⟨x10, BitVec.ofNat 64 first⟩, ⟨x9, Classical.choose pre.a0⟩,
+      ⟨x8, Classical.choose pre.a1⟩, ⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩,
+      ⟨x1, BitVec.ofNat 64 0x129ec⟩]) (by simp)
+  obtain ⟨retired8, after, hA1, seg2⟩ := seg1.stepWitness
+    (by
+      change ∃ range : BinaryFv.Binary.AddressRange,
+        range ∈ excludedFunctionInstance_ssz_raw_RawNewPayloadRequest_deinit.regions ∧
+          range.start ≤ 78344 ∧ 78344 < range.stop
+      exact ⟨{ start := 78316, size := 180 }, by native_decide, by decide, by decide⟩)
+    (by simp) x11 (BitVec.ofNat 64 second) (BitVec.ofNat 64 0x1320c)
+    (by
+      apply level4_rawNewPayloadRequestDeinit_load_a1_step machine1 (Agree.refl afterA0)
+        seg1.retired code1 (fromStep + 7) seg1.atPc
+      exact a1AfterA0
+      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt secondFits]
+      exact secondAfterA0
+      have : (Classical.choose pre.a1).toNat + 8 < 2 ^ 64 := by omega
+      exact this
+      exact secondReadable
+      simpa only [BitVec.ofNat_toNat] using pre.allocatorSecondAligned)
+    (by decide) (fun r h => Or.inl h) (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl)))))
+    (by decide) (by decide) (by exact of_decide_eq_true rfl)
+  have code2 : Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
+    rw [hA1, afterRegisterWrite_mem]
+    exact code1
+  refine ⟨after, ⟨seg2.trace, seg2.confined, seg2.writes, seg2.mem, seg2.atPc,
+    seg2.reg x2 _ (by simp), seg2.reg x1 _ (by simp), seg2.reg x8 _ (by simp),
+    seg2.reg x9 _ (by simp), ⟨first, seg2.reg x10 _ (by simp)⟩,
+    ⟨second, seg2.reg x11 _ (by simp)⟩, code2, ?_, seg2.retired⟩⟩
+  have writes2 : WritesOnlyRegs level4RawNewPayloadRequestDeinitWrites afterA0 after := by
+    rw [hA1]
+    exact (afterRegisterWrite_writes afterA0 (BitVec.ofNat 64 0x13208) retired8 x11
+      (BitVec.ofNat 64 second)).mono (fun r h => h.elim Or.inl
+        (fun h => h ▸ Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl))))))
+  rw [hA1] at writes2 ⊢
+  exact machine1.mono
+    (writes2.agree decoderPreserved_level4RawNewPayloadRequestDeinitWrites_disjoint)
+    (afterRegisterWrite_retired_present afterA0 (BitVec.ofNat 64 0x13208) retired8 x11
+      (BitVec.ofNat 64 second))
 
 end BinaryFv.Zesu.MachineExecution

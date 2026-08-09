@@ -1150,7 +1150,8 @@ free call.  Keeping the words existential records the machine data without inven
 meaning for allocator internals. -/
 def DeinitAllocatorPair (args : DeinitInlineArgs) (state : State) : Prop :=
   ∃ first second, Word64LERep state args.allocatorBase first ∧
-    Word64LERep state (args.allocatorBase + 8) second ∧ args.allocatorBase + 16 ≤ 2 ^ 64
+    Word64LERep state (args.allocatorBase + 8) second ∧ first < 2 ^ 64 ∧ second < 2 ^ 64 ∧
+      args.allocatorBase + 16 ≤ 2 ^ 64
 
 /-- The child stack frame does not alias either word consumed by the emitted deinit loads. -/
 def DeinitAllocatorPairOutsideFrame (args : DeinitInlineArgs) : Prop :=
