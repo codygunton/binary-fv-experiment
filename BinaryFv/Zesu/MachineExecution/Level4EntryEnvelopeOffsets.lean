@@ -910,4 +910,40 @@ theorem level4_entry_header_second_one_branch {margs : DecoderMachineArgs} {orig
       rfl)
     (pcIn := ⟨level4_entry_header_second_one_branch_machine_owned, by native_decide⟩)
 
+/-! ## Envelope bound setup -/
+
+/-- The parent computes the two-byte-adjusted envelope bound at `0x104d0`. -/
+def level4EntryEnvelopeBoundPcs : List Nat := [0x104d0]
+
+abbrev Level4EntryEnvelopeBoundPcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4EntryEnvelopeBoundPcs
+
+theorem level4EntryEnvelopeBoundPcs_subset_direct :
+    level4EntryEnvelopeBoundPcs.all decodeRawDirectPcs.contains = true := by native_decide
+
+theorem level4EntryEnvelopeBoundPcs_subset_phase :
+    level4EntryEnvelopeBoundPcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
+  native_decide
+
+private theorem level4_entry_envelope_bound_machine_owned :
+    RegisterWriteStep.decodeRawExecutionPcs (BitVec.ofNat 64 0x104d0) := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  apply RegionPcs.iff_inRanges.mpr
+  native_decide
+
+/-- Sail executes `addi s2,a3,-2` at `0x104d0`. -/
+theorem level4_entry_envelope_bound_setup {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104d0))
+    (inputLength : state.regs.get? x13 = some length) (stepNo : Nat) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104d0) retired x18
+        (iTypeResult .ADDI 0xffe#12 length)) false := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+  exact decoderITypeStepOfDecoderAgree decoderMachine (Agree.refl state) retired fileCode stepNo
+    0x104d0 0x13 0x89 0xe6 0xff 0xffe#12 13#5 18#5 .ADDI atPc
+    (rX_x13_run _ _ (decoderExecuteState_get? inputLength)) (wX_x18_run _ _)
+    (pcIn := ⟨level4_entry_envelope_bound_machine_owned, by native_decide⟩)
+
 end BinaryFv.Zesu.MachineExecution
