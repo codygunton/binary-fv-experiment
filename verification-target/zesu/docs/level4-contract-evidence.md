@@ -7,11 +7,19 @@ the hierarchy has one. It accepts exactly 18 boundary occurrences from 15 qualif
 families, so the former four `readOffset` plus four specialized-decoder inventory is deliberately
 rejected as stale.
 
-For an accepted rich SSZ input and a rejected missing-schema mutation, the runner compares the pinned
-execution-specs reference, executable Lean SSZ specification, and independently built host Zesu
-formatter. It then traces the unchanged RV64 ELF under the existing QEMU observer and records each
-boundary's entry, declared exit, executed owned instructions, and concrete stores. It mutates each
-measured observation (entry, exit, instruction count) and requires the checker to reject it.
+The runner retains and adapts PR #77's fourteen focused vectors: accepted rich/empty/optional cases
+and rejected offset, width, fork, and public-key mutations. It compares every vector with the pinned
+execution-specs reference, executable Lean SSZ specification, and the host `zesu-value` formatter.
+That formatter is an independently built source probe: it is compiled separately for the host from
+the pinned repaired Zesu source and is not the RV64 ELF whose machine behavior is being observed.
+Every production trace is retained in the report; boundary coverage is the union, because the schema
+selects different local decoders on different vectors.
+
+The runner records each boundary's entry, declared exit, executed owned instructions, and concrete
+stores under the existing QEMU observer. When the reviewed inventory declares a call edge or an exact
+store `(pc, address, width, value)`, it checks that observation and mutates it, as it does entry, exit,
+and instruction-count observations. An omitted call/store clause is reported as unmeasured rather than
+inferred from a trace.
 
 The report explicitly leaves optimized argument locations, result carriers, complete write/frame
 conditions, caller-frame preservation, and universal step bounds unmeasured: the observer records

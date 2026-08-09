@@ -57,18 +57,33 @@ class InventoryTests(unittest.TestCase):
 
 
 class ObservationTests(unittest.TestCase):
-    boundary = evidence.Boundary("x", "inlined", "ssz_raw.x", 4, (4, 8), (8,), "decodeRaw", None)
+    boundary = evidence.Boundary("x", "inlined", "ssz_raw.x", 4, (4, 8), (8,), "decodeRaw", None, (), ())
 
     def test_observation_records_entry_exit_and_writes(self) -> None:
         record = evidence.observation(self.boundary, [0, 4, 8], [{"pc": 8, "width": 8, "sp": 7}])
         self.assertEqual(evidence.validate_observation(self.boundary, record), [])
-        self.assertEqual(record["observedWrites"], [{"pc": 8, "width": 8, "sp": 7}])
+        self.assertEqual(record["observedStores"], [{"pc": 8, "width": 8, "sp": 7}])
 
     def test_each_measurable_clause_mutation_is_rejected(self) -> None:
         record = evidence.observation(self.boundary, [4, 8], [])
         self.assertEqual(evidence.mutation_checks(self.boundary, record), {
             "entry": True, "exit": True, "instruction-count": True,
         })
+
+    def test_declared_call_and_store_mutations_are_rejected(self) -> None:
+        boundary = evidence.Boundary(
+            "x", "inlined", "ssz_raw.x", 4, (4, 8), (8,), "decodeRaw", None,
+            ((4, 99),), ({"pc": 8, "address": 100, "width": 8, "value": 2},),
+        )
+        record = evidence.observation(boundary, [4, 8, 4, 99], [{"pc": 8, "address": 100, "width": 8, "value": 2, "sp": 3}])
+        self.assertEqual(evidence.validate_observation(boundary, record), [])
+        self.assertTrue(all(evidence.mutation_checks(boundary, record).values()))
+
+    def test_refinement_vectors_keep_accepted_and_rejected_cases(self) -> None:
+        vectors = evidence.default_vectors()
+        self.assertEqual(len(vectors), 14)
+        self.assertTrue(any(accepted for _name, _data, accepted in vectors))
+        self.assertTrue(any(not accepted for _name, _data, accepted in vectors))
 
     def test_trace_parser_ignores_loads_and_keeps_stores(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

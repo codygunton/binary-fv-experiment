@@ -48,6 +48,8 @@ class Boundary:
     exits: tuple[int, ...]
     parent: str
     identity: str | None
+    calls: tuple[tuple[int, int], ...]
+    stores: tuple[dict[str, int], ...]
 
 
 def int_field(value: object, name: str) -> int:
@@ -97,7 +99,23 @@ def load_inventory(path: Path) -> tuple[Boundary, ...]:
         identity = row.get("functionInstanceIdentity")
         if identity is not None and (not isinstance(identity, str) or not identity):
             raise ValueError(f"boundary {identifier} has an invalid functionInstanceIdentity")
-        boundaries.append(Boundary(identifier, kind, qualified, entry, pcs, exits, parent, identity))
+        calls = tuple(
+            (int_field(call["sourcePc"], f"boundary {identifier} call sourcePc"),
+             int_field(call["targetPc"], f"boundary {identifier} call targetPc"))
+            for call in row.get("calls", [])
+        )
+        if any(source not in pcs for source, _target in calls):
+            raise ValueError(f"boundary {identifier} declares a call outside instructionPcs")
+        stores = tuple(row.get("stores", []))
+        for store in stores:
+            if not isinstance(store, dict) or not {"pc", "address", "width", "value"} <= store.keys():
+                raise ValueError(f"boundary {identifier} store needs pc, address, width, and value")
+            if int_field(store["pc"], f"boundary {identifier} store pc") not in pcs:
+                raise ValueError(f"boundary {identifier} declares a store outside instructionPcs")
+            for field in ("address", "width", "value"):
+                int_field(store[field], f"boundary {identifier} store {field}")
+        boundaries.append(Boundary(identifier, kind, qualified, entry, pcs, exits, parent, identity,
+                                   calls, stores))
 
     if len(boundaries) != EXPECTED_BOUNDARIES:
         raise ValueError(f"Level 4 inventory has {len(boundaries)} boundaries, expected {EXPECTED_BOUNDARIES}")
@@ -128,11 +146,21 @@ def parse_trace(path: Path) -> tuple[list[int], list[dict[str, int]]]:
 
 def observation(boundary: Boundary, pcs: list[int], stores: list[dict[str, int]]) -> dict[str, Any]:
     owned = set(boundary.instruction_pcs)
+    edges = set(zip(pcs, pcs[1:]))
+    declared_stores = [
+        store for store in boundary.stores
+        if any(all(observed[field] == store[field] for field in store) for observed in stores)
+    ]
     return {
         "entryReached": boundary.entry_pc in pcs,
         "exitReached": sorted(set(boundary.exits).intersection(pcs)),
         "instructionEvents": sum(pc in owned for pc in pcs),
-        "observedWrites": [store for store in stores if store["pc"] in owned],
+        "declaredCallsReached": [
+            {"sourcePc": source, "targetPc": target}
+            for source, target in boundary.calls if (source, target) in edges
+        ],
+        "declaredStoresReached": declared_stores,
+        "observedStores": [store for store in stores if store["pc"] in owned],
     }
 
 
@@ -144,6 +172,10 @@ def validate_observation(boundary: Boundary, record: dict[str, Any]) -> list[str
         failures.append("no declared exit was observed")
     if record["instructionEvents"] <= 0:
         failures.append("no owned instruction was observed")
+    if boundary.calls and len(record["declaredCallsReached"]) != len(boundary.calls):
+        failures.append("a declared call edge was not observed")
+    if boundary.stores and len(record["declaredStoresReached"]) != len(boundary.stores):
+        failures.append("a declared store address, width, or value was not observed")
     return failures
 
 
@@ -154,6 +186,10 @@ def mutation_checks(boundary: Boundary, record: dict[str, Any]) -> dict[str, boo
         "exit": {**record, "exitReached": []},
         "instruction-count": {**record, "instructionEvents": 0},
     }
+    if boundary.calls:
+        mutations["call-edge"] = {**record, "declaredCallsReached": []}
+    if boundary.stores:
+        mutations["store-address-width-value"] = {**record, "declaredStoresReached": []}
     return {name: bool(validate_observation(boundary, mutated)) for name, mutated in mutations.items()}
 
 
@@ -197,9 +233,27 @@ def run_production_trace(args: argparse.Namespace, data: bytes, trace: Path) -> 
 
 
 def default_vectors() -> tuple[tuple[str, bytes, bool], ...]:
+    """Focused PR #77 vectors, retained as data rather than its obsolete contract surface."""
     rich = fixtures.make_rich_v4()
-    # Removing the SSZ schema id gives every oracle and the production executable a small malformed input.
-    return (("accepted-rich", rich, True), ("rejected-missing-schema", rich[1:], False))
+    layout = fixtures.layout(rich)
+    return (
+        ("new-payload-rich", rich, True),
+        ("new-payload-noncanonical-offset", fixtures.make_v4(npr_padding=1), False),
+        ("new-payload-malformed-deposits", fixtures.make_v4(
+            requests=fixtures.execution_requests(deposits=b"X")), False),
+        ("execution-witness-rich", rich, True),
+        ("execution-witness-empty", fixtures.make_v4(witness_bytes=fixtures.witness((), (), ())), True),
+        ("execution-witness-noncanonical-offset", fixtures.set_u32(rich, layout["witness"], 0), False),
+        ("chain-config-rich", rich, True),
+        ("chain-config-absent-blob-schedule", fixtures.make_v4(
+            chain_bytes=fixtures.chain_config(blob_schedule=None)), True),
+        ("chain-config-unknown-fork", fixtures.make_v4(chain_bytes=fixtures.chain_config(fork=21)), False),
+        ("chain-config-noncanonical-offset", fixtures.set_u32(rich, layout["chain"] + 8, 0), False),
+        ("public-keys-rich", rich, True),
+        ("public-keys-empty", fixtures.make_v4(public_keys=b""), True),
+        ("public-keys-one", fixtures.make_v4(public_keys=b"\x04" + bytes(range(64))), True),
+        ("public-keys-nondivisible", fixtures.make_v4(public_keys=bytes(64)), False),
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -219,18 +273,39 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     boundaries = load_inventory(args.inventory)
-    oracle_records = [run_oracles(args, *vector) for vector in default_vectors()]
+    vectors = default_vectors()
+    oracle_records = [run_oracles(args, *vector) for vector in vectors]
     failures = [failure for record in oracle_records for failure in record["failures"]]
-    accepted = default_vectors()[0][1]
+    vector_observations: list[dict[str, Any]] = []
+    all_pcs: list[int] = []
+    all_stores: list[dict[str, int]] = []
     with tempfile.TemporaryDirectory(prefix="level4-evidence-") as temporary:
-        trace = Path(temporary) / "accepted.trace"
-        production = run_production_trace(args, accepted, trace)
-        if production.returncode != 0 or not production.stdout.startswith(b"ok "):
-            failures.append("production ELF rejected accepted vector")
-        pcs, stores = parse_trace(trace)
+        for name, data, accepted in vectors:
+            trace = Path(temporary) / f"{name}.trace"
+            production = run_production_trace(args, data, trace)
+            expected_return = 0 if accepted else 1
+            if production.returncode != expected_return:
+                failures.append(f"production ELF returned {production.returncode} for {name}, expected {expected_return}")
+            if accepted and not production.stdout.startswith(b"ok "):
+                failures.append(f"production ELF accepted {name} without an ok checksum")
+            if not accepted and production.stdout != b"invalid\n":
+                failures.append(f"production ELF rejected {name} with unexpected output")
+            pcs, stores = parse_trace(trace)
+            all_pcs.extend(pcs)
+            all_stores.extend(stores)
+            vector_observations.append({
+                "name": name,
+                "accepted": accepted,
+                "returncode": production.returncode,
+                "traceEvents": len(pcs),
+                "stores": len(stores),
+                "boundaries": {
+                    boundary.identifier: observation(boundary, pcs, stores) for boundary in boundaries
+                },
+            })
     records = []
     for boundary in boundaries:
-        record = observation(boundary, pcs, stores)
+        record = observation(boundary, all_pcs, all_stores)
         clause_failures = validate_observation(boundary, record)
         mutations = mutation_checks(boundary, record)
         if not all(mutations.values()):
@@ -239,8 +314,16 @@ def main() -> int:
         records.append({
             "boundary": asdict(boundary),
             "observation": record,
-            "measuredClauses": ["entry", "exit", "owned instruction execution"],
-            "unmeasuredClauses": list(UNMEASURED_CLAUSES),
+            "measuredClauses": [
+                "entry", "exit", "owned instruction execution",
+                *( ["declared call targets"] if boundary.calls else [] ),
+                *( ["declared store address, width, and value"] if boundary.stores else [] ),
+            ],
+            "unmeasuredClauses": [
+                *UNMEASURED_CLAUSES,
+                *( ["declared call targets"] if not boundary.calls else [] ),
+                *( ["declared store address, width, and value"] if not boundary.stores else [] ),
+            ],
             "mutationRejected": mutations,
             "failures": clause_failures,
         })
@@ -249,7 +332,8 @@ def main() -> int:
         "claim": "finite production-ELF evidence; not a proof premise",
         "inventory": {"boundaries": len(boundaries), "functionFamilies": len({b.qualified for b in boundaries})},
         "vectors": oracle_records,
-        "production": {"returncode": production.returncode, "traceEvents": len(pcs), "stores": len(stores)},
+        "productionVectors": vector_observations,
+        "production": {"traceEvents": len(all_pcs), "stores": len(all_stores)},
         "boundaries": records,
         "unmeasuredClauses": list(UNMEASURED_CLAUSES),
         "passed": not failures,
