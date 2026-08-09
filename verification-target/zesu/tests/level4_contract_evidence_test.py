@@ -235,6 +235,13 @@ class ObservationTests(unittest.TestCase):
         self.assertTrue(evidence.attribution_state_failures(boundary, [4, 12, 20, 4], {20, 24})[0])
         self.assertTrue(evidence.attribution_state_failures(boundary, [4, 8, 100, 999], {20, 24})[0])
 
+    def test_tail_frame_rejects_foreign_pc_before_generated_completion(self) -> None:
+        boundary = evidence.Boundary("x", "inlined", "x", 4, (4, 8), (8,), "fi:6", None, (), (),
+                                     subtree_pcs=(4, 8), handoffs=((8, 20),), reentries=((24, 4),), active_frames=())
+        tails = {(8, 100): ({8, 100, 104}, {104})}
+        self.assertEqual(evidence.attribution_state_failures(boundary, [4, 8, 100, 104], {20, 24}, tails)[0], [])
+        self.assertTrue(evidence.attribution_state_failures(boundary, [4, 8, 100, 999], {20, 24}, tails)[0])
+
 
 if __name__ == "__main__":
     unittest.main()

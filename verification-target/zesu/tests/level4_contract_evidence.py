@@ -111,6 +111,9 @@ def attribution_state_failures(boundary: Boundary, pcs: list[int], parent_pcs: s
             continue
         if mode == "selected":
             child = entries.get(pair)
+            if pair in tails:
+                allowed, completion = tails[pair]
+                stack.append(({"activeCalleeExecutionPcs": allowed, "completion": completion}, -1)); continue
             if child is not None:
                 site = next(site for site in child["returnSites"] if (site["sourcePc"], site["targetPc"]) == pair)
                 stack.append((child, site["returnPc"])); continue
