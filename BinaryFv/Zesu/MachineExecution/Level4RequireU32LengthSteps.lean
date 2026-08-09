@@ -142,6 +142,24 @@ structure Level4RequireU32LengthPre (margs : DecoderMachineArgs) (state : State)
   lengthValue : state.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
   lengthFits : margs.bytes.size < 2 ^ 64
 
+/-- Convert the concrete emitted-entry handoff into the selected `requireU32Length` leaf prestate.
+The result slot and borrowed input values come from the caller's compiled `decodeRaw` entry and
+the prologue's register frame proves that all three survive to `0x10484`. -/
+def level4RequireU32LengthPre_of_prologue {margs : DecoderMachineArgs} {fromStep : Nat}
+    {before state : State} {pre : Level4DecodeRawEntryProloguePre margs before}
+    {s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 : BitVec 64}
+    (handoff : Level4DecodeRawEntryEnvelopeOffsetsHandoff fromStep before state pre
+      s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11) :
+    Level4RequireU32LengthPre margs state where
+  decodeRawMachine := handoff.machine
+  code := handoff.code
+  atPc := handoff.pc
+  resultBase := pre.entryArgs.resultBase
+  resultBaseValue := handoff.resultBase
+  inputBaseValue := handoff.inputBase
+  lengthValue := handoff.inputLength
+  lengthFits := handoff.lengthFits
+
 private def level4RequireU32LengthMachine (pre : Level4RequireU32LengthPre margs state) :
     DecoderMachinePre Level4RequireU32LengthPcs margs state :=
   pre.decodeRawMachine.restrict level4RequireU32LengthPcs_subset_decodeRaw
@@ -282,5 +300,21 @@ theorem level4_require_u32_length
     exact high.trans (congrArg some h)
   · intro h
     exact Option.some.inj (high.symm.trans h)
+
+/-- Compose the parent-owned raw-entry prologue with the unconditional three-instruction leaf. -/
+theorem level4_decode_raw_entry_through_require_u32_length
+    (pre : Level4DecodeRawEntryProloguePre margs state) (fromStep : Nat) :
+    ∃ middle after s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11,
+      ∃ prologue : Level4DecodeRawEntryEnvelopeOffsetsHandoff fromStep state middle pre
+        s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11,
+      Level4RequireU32LengthHandoff (fromStep + 16) middle after
+        (level4RequireU32LengthPre_of_prologue prologue) ∧
+      Trace fromStep 19 state after := by
+  obtain ⟨middle, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, prologue⟩ :=
+    level4_decode_raw_entry_prologue pre fromStep
+  let leafPre := level4RequireU32LengthPre_of_prologue (margs := margs) prologue
+  obtain ⟨after, leaf⟩ := level4_require_u32_length leafPre (fromStep + 16)
+  refine ⟨middle, after, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, prologue, leaf, ?_⟩
+  exact Trace.append prologue.trace leaf.trace
 
 end BinaryFv.Zesu.MachineExecution

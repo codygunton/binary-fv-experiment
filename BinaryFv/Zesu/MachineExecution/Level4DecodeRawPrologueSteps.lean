@@ -85,6 +85,14 @@ structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : 
   `requireU32Length` child entry at `0x10484`; `machine` above is the deliberately narrower
   premise used only while executing the sixteen parent-owned prologue instructions. -/
   decodeRawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs state
+  /-- The actual compiled child entry, retaining the caller's `a0`, `a2`, and `a3` bindings rather
+  than postulating a source-level ABI for the inlined decoder phases. -/
+  entryArgs : EntryArgs
+  entryArgsMachine : entryMachineArgs entryArgs = margs
+  entry : compiledDecodeRawContract.binding.entry entryArgs state
+  /-- This is the parent `DecodeInlinePre.rootInputBound`, transported to the concrete raw entry.
+  It gives the native-word fit used by the `requireU32Length` semantic check. -/
+  rootInputBound : margs.bytes.size < 2 * 1024 * 1024
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
   atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10444)
   frame : DecodeRawEntryFrame state
@@ -120,6 +128,10 @@ structure Level4DecodeRawEntryEnvelopeOffsetsHandoff (fromStep : Nat) (before af
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x10484)
   sp : after.regs.get? x2 = some (BitVec.ofNat 64 pre.postStack)
   s0 : after.regs.get? x8 = some pre.a1
+  resultBase : after.regs.get? x10 = some (BitVec.ofNat 64 pre.entryArgs.resultBase)
+  inputBase : after.regs.get? x12 = some (BitVec.ofNat 64 margs.inputBase)
+  inputLength : after.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
+  lengthFits : margs.bytes.size < 2 ^ 64
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   machine : DecoderMachinePre
     RegisterWriteStep.decodeRawExecutionPcs margs after
@@ -744,6 +756,13 @@ theorem level4_decode_raw_entry_prologue
     ∃ after s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11,
       Level4DecodeRawEntryEnvelopeOffsetsHandoff fromStep state after pre s0 s1 s2 s3 s4 s5 s6 s7
         s8 s9 s10 s11 := by
+  have entryArgsMachine := pre.entryArgsMachine
+  have sourceEntry : Contracts.preEntry canonicalContractParams.env pre.entryArgs state := by
+    simpa [compiledDecodeRawContract, Contracts.contractDecodeRaw] using pre.entry.1
+  rcases sourceEntry with ⟨_, _, entryResultBase, _, entryInputBase, entryInputLength⟩
+  have lengthFits : margs.bytes.size < 2 ^ 64 := by
+    have h := pre.rootInputBound
+    omega
   obtain ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, afterS11, seg14, saved14, code14⟩ :=
     level4_decode_raw_prologue_saves pre fromStep
   have agree14 := seg14.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint
@@ -791,9 +810,21 @@ theorem level4_decode_raw_entry_prologue
       saved14 (0x798, s9) (by simp), saved14 (0x790, s10) (by simp),
       saved14 (0x788, s11) (by simp)⟩
   have savedFrame16 := level4_prologue_saved_frame_of_mem_eq savedFrame14 memory16
+  have resultBase16 : after.regs.get? x10 = some (BitVec.ofNat 64 pre.entryArgs.resultBase) :=
+    (seg16.get x10 (by simp [level4DecodeRawEntryPrologueWrites])).trans entryResultBase
+  have inputBase16 : after.regs.get? x12 = some (BitVec.ofNat 64 pre.entryArgs.base) :=
+    (seg16.get x12 (by simp [level4DecodeRawEntryPrologueWrites])).trans entryInputBase
+  have inputLength16 : after.regs.get? x13 = some (BitVec.ofNat 64 pre.entryArgs.bytes.size) :=
+    (seg16.get x13 (by simp [level4DecodeRawEntryPrologueWrites])).trans entryInputLength
   refine ⟨after, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11,
     ⟨seg16.trace, seg16.confined, seg16.writes, savedFrame16, seg16.atPc, sp16,
-      seg16.reg x8 pre.a1 (by simp), code16,
+      seg16.reg x8 pre.a1 (by simp), resultBase16, by
+        rw [← entryArgsMachine]
+        exact inputBase16,
+      by
+        rw [← entryArgsMachine]
+        exact inputLength16,
+      lengthFits, code16,
       pre.decodeRawMachine.mono (seg16.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint)
         seg16.retired, seg16.retired⟩⟩
 
