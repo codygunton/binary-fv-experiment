@@ -57,6 +57,10 @@ structure Level4DynamicFunctionInterface (Args Outcome : Type) where
   handoffToken : AttributionOutcomeCarrierRoute → State → Prop
   /-- Exact machine facts at the generated R target where this dynamic boundary resumes. -/
   reentryToken : AttributionOutcomeCarrierRoute → Args → State → Prop
+  /-- The generated H routes permitted from this particular initial or R-token state.  This
+  continuity relation makes the resolver's finite decreasing rank a fact of the exact H→R graph,
+  not an untracked premise of a parent proof. -/
+  admissibleStart : Args → State → AttributionOutcomeCarrierRoute → Prop
   reached : BitVec 64 → Prop
   terminal : BitVec 64 → Prop
   exit : Args → Outcome → State → State → Prop
@@ -243,6 +247,8 @@ structure Level4HandoffProgress {Args Outcome : Type}
   This is stronger than the PC fact above: a later parent Sail proof may consume register or stack
   bindings from this token. -/
   handoffToken : interface.handoffToken route state
+  /-- The selected H edge is compatible with the initial/R token at which this fragment began. -/
+  admissibleStart : interface.admissibleStart args current route
 
 /-- A dynamic fragment starts either at its original emitted entry or at a parent-produced generated
 R target.  Re-entry tokens remain indexed by the preceding H route, so an arbitrary same-PC state
@@ -780,6 +786,7 @@ noncomputable def decodeNewPayloadRequestInterface :
   handoffToken := fun route state =>
     state.regs.get? PC = some (BitVec.ofNat 64 route.handoff.target)
   reentryToken := fun _ args state => decodeNewPayloadRequestEntry args state
+  admissibleStart := fun _ _ _ => True
   reached := functionInstanceExecutionPcs generatedProgram
     functionInstance_ssz_raw_decodeNewPayloadRequest_in_ssz_raw_decodeRaw_at_207_61
   terminal := specializedDecoderTerminal 0x1201c
@@ -850,6 +857,97 @@ def decodeExecutionWitnessReentryToken (route : AttributionOutcomeCarrierRoute)
     ∃ postStack, state.regs.get? PC = some (BitVec.ofNat 64 0x1290c) ∧
       state.regs.get? x20 = some (iTypeResult .ADDI 0x580#12 (BitVec.ofNat 64 postStack)))
 
+/-- The finite generated `decodeExecutionWitness` H→R continuation graph.  The three intermediate
+H routes may be selected only from their exact predecessor token; source-reviewed carrier routes
+need no recursive rank, while the final unclassified H remains staged after the last audited R. -/
+def decodeExecutionWitnessAdmissibleStart (args : ContainerArgs) (state : State)
+    (route : AttributionOutcomeCarrierRoute) : Prop :=
+  (route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552 ∧
+    decodeExecutionWitnessEntry args state) ∨
+  (route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668 ∧
+    decodeExecutionWitnessReentryToken
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552 args state) ∨
+  (route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76036_76040 ∧
+    decodeExecutionWitnessReentryToken
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668 args state) ∨
+  (route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76064_76068 ∧
+    decodeExecutionWitnessReentryToken
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76036_76040 args state) ∨
+  route.classification = .sourceReviewedOutcomePath
+
+private theorem decodeExecutionWitness_entry_word :
+    functionInstanceEntryWord functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48 =
+      BitVec.ofNat 64 0x12710 := by rfl
+
+private theorem decodeExecutionWitness_75548_75552_target :
+    (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75548_75552).handoff.target =
+      0x12720 := by rfl
+
+private theorem decodeExecutionWitness_75568_75668_target :
+    (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668).handoff.target =
+      0x12794 := by rfl
+
+private theorem decodeExecutionWitness_76036_76040_target :
+    (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76036_76040).handoff.target =
+      0x12908 := by rfl
+
+private theorem decodeExecutionWitness_76064_76068_target :
+    (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76064_76068).handoff.target =
+      0x12924 := by rfl
+
+private theorem decodeExecutionWitness_75568_75668_intermediate :
+    (functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668).classification =
+      .intermediate := by rfl
+
+/-- A finite ranking of the generated initial/R entry states.  Only the three intermediate routes
+consume it; carrier and unclassified routes resolve without recursive use of the rank. -/
+def decodeExecutionWitnessContinuationRank (state : State) : Nat :=
+  if state.regs.get? PC = some (functionInstanceEntryWord
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48) then 3 else
+  if state.regs.get? PC = some (BitVec.ofNat 64 0x12728) then 2 else
+  if state.regs.get? PC = some (BitVec.ofNat 64 0x127a0) then 1 else 0
+
+/-- The next intermediate H cannot be selected straight from the emitted entry: it requires the
+R token produced by `0x12720..0x12724`. -/
+theorem not_decodeExecutionWitnessAdmissibleStart_75568_75668_at_entry
+    {args : ContainerArgs} {state : State}
+    (entry : decodeExecutionWitnessEntry args state) :
+    ¬ decodeExecutionWitnessAdmissibleStart args state
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75568_75668 := by
+  rcases entry with ⟨stackPointer, descriptorBase, resultCarrier, atEntry, rest⟩
+  have atInitial : state.regs.get? PC = some (BitVec.ofNat 64 0x12710) :=
+    atEntry.trans (congrArg some decodeExecutionWitness_entry_word)
+  rintro (first | second | third | fourth | reviewed)
+  · exact (by decide : ¬ (0x12794 : Nat) = 0x12720)
+      (decodeExecutionWitness_75568_75668_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) first.1).trans
+          decodeExecutionWitness_75548_75552_target))
+  · rcases second.2 with firstToken | laterToken | finalToken
+    · rcases firstToken with ⟨-, a2, a3, atR, -, -⟩
+      exact (by decide : ¬ (some (BitVec.ofNat 64 0x12710) = some (BitVec.ofNat 64 0x12728)))
+        (atInitial.symm.trans atR)
+    · exact (by decide : ¬ (0x12720 : Nat) = 0x12794)
+        (decodeExecutionWitness_75548_75552_target.symm.trans
+          ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) laterToken.1).trans
+            decodeExecutionWitness_75568_75668_target))
+    · exact (by decide : ¬ (0x12720 : Nat) = 0x12908)
+        (decodeExecutionWitness_75548_75552_target.symm.trans
+          ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) finalToken.1).trans
+            decodeExecutionWitness_76036_76040_target))
+  · exact (by decide : ¬ (0x12794 : Nat) = 0x12908)
+      (decodeExecutionWitness_75568_75668_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) third.1).trans
+          decodeExecutionWitness_76036_76040_target))
+  · exact (by decide : ¬ (0x12794 : Nat) = 0x12924)
+      (decodeExecutionWitness_75568_75668_target.symm.trans
+        ((congrArg (fun route : AttributionOutcomeCarrierRoute => route.handoff.target) fourth.1).trans
+          decodeExecutionWitness_76064_76068_target))
+  · cases decodeExecutionWitness_75568_75668_intermediate.symm.trans reviewed
+
 noncomputable def decodeExecutionWitnessInterface :
     Level4DynamicFunctionInterface ContainerArgs
       (Except Contracts.DecodeError BinaryFv.Specs.SSZ.RawExecutionWitness) where
@@ -861,6 +959,7 @@ noncomputable def decodeExecutionWitnessInterface :
   entry := decodeExecutionWitnessEntry
   handoffToken := decodeExecutionWitnessHandoffToken
   reentryToken := decodeExecutionWitnessReentryToken
+  admissibleStart := decodeExecutionWitnessAdmissibleStart
   reached := functionInstanceExecutionPcs generatedProgram
     functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48
   terminal := specializedDecoderTerminal 0x12738
@@ -893,6 +992,7 @@ noncomputable def decodeChainConfigInterface :
       functionInstance_ssz_raw_decodeChainConfig_in_ssz_raw_decodeRaw_at_211_48
       0x238 0x250 0x5b0 canonicalContractParams.env.record.chainConfig args state ∧
       state.regs.get? x21 = some (BitVec.ofNat 64 args.container.bytes.size)
+  admissibleStart := fun _ _ _ => True
   reached := functionInstanceExecutionPcs generatedProgram
     functionInstance_ssz_raw_decodeChainConfig_in_ssz_raw_decodeRaw_at_211_48
   terminal := specializedDecoderTerminal 0x12e64
@@ -925,6 +1025,7 @@ noncomputable def decodePublicKeysInterface :
       functionInstance_ssz_raw_decodePublicKeys_in_ssz_raw_decodeRaw_at_212_46
       0x238 0x240 0x600 canonicalContractParams.env.record.sliceDescriptor args state ∧
       state.regs.get? x18 = some (BitVec.ofNat 64 args.container.bytes.size)
+  admissibleStart := fun _ _ _ => True
   reached := functionInstanceExecutionPcs generatedProgram
     functionInstance_ssz_raw_decodePublicKeys_in_ssz_raw_decodeRaw_at_212_46
   /- The child owns the branch at `0x12f8c`; `0x12f90` and the following result stores belong
