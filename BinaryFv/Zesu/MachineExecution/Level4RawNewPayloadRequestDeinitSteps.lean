@@ -35,6 +35,14 @@ structure Level4RawNewPayloadRequestDeinitPre {margs : DecoderMachineArgs} {orig
   /-- Parent call setup supplies the two argument registers consumed after the initial saves. -/
   a0 : ∃ value, current.regs.get? x10 = some value
   a1 : ∃ value, current.regs.get? x11 = some value
+  /-- The live allocator pointer names the two machine words loaded at `0x13204` and `0x13208`.
+  The rejection parent must derive this from its canonical allocator representation. -/
+  allocatorPair : ∃ first second,
+    DecodedValue.Word64LERep current (Classical.choose a1).toNat first ∧
+      DecodedValue.Word64LERep current ((Classical.choose a1).toNat + 8) second ∧
+        (Classical.choose a1).toNat + 16 ≤ 2 ^ 64
+  allocatorReadable : DecoderAccessRange (DecoderReadableByte margs)
+    (BitVec.ofNat 64 (Classical.choose a1).toNat) 16
   preservation : frame.PreservedTo current
 
 /-- Exact union of the three eight-byte child-save slots. -/
