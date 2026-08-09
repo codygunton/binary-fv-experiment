@@ -238,7 +238,7 @@ class MachineRegionTests(unittest.TestCase):
                          [77408])
         self.assertEqual(machine_regions.attribution_fragment_handoffs(decoder, parent, owners, instructions),
                          [{"sourcePc": 77408, "targetPc": 77412}])
-        self.assertEqual(machine_regions.parent_fragment_reentries(decoder, parent, instructions),
+        self.assertEqual(machine_regions.parent_fragment_reentries(decoder, parent, owners, instructions),
                          [{"sourcePc": 77396, "targetPc": 77408}])
 
     def test_dynamic_attribution_ignores_non_parent_and_nested_edges(self) -> None:
@@ -264,7 +264,7 @@ class MachineRegionTests(unittest.TestCase):
         ], "callGraph": {"owners": [parent, decoder]}}
         manifest = {"parent": {"id": "fi:6"}, "boundaries": [{
             "id": "fi:102", "instructionPcs": [77404, 77408], "ownedExecutionPcs": [77404, 77408],
-            "fullExecutionPcs": [77404, 77408],
+            "subtreeOwnedExecutionPcs": [77404, 77408], "fullExecutionPcs": [77404, 77408],
             "parentReentryEdges": [{"sourcePc": 77400, "targetPc": 77404}],
             "fragmentHandoffs": [{"sourcePc": 77408, "targetPc": 77412}],
         }]}
@@ -338,7 +338,7 @@ class MachineRegionTests(unittest.TestCase):
         ]}}
         manifest = {"parent": {"id": "fi:6"}, "boundaries": [{
             "id": "fi:102", "instructionPcs": [77404, 77408], "ownedExecutionPcs": [77404, 77408],
-            "fullExecutionPcs": [77404, 77408], "calls": [call, excluded_call],
+            "subtreeOwnedExecutionPcs": [77404, 77408], "fullExecutionPcs": [77404, 77408], "calls": [call, excluded_call],
             "parentReentryEdges": [{"sourcePc": 77400, "targetPc": 77404}],
             "fragmentHandoffs": [{"sourcePc": 77408, "targetPc": 77412}],
         }]}

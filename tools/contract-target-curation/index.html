@@ -240,8 +240,8 @@ function details(d){
       <span>actual callers</span><span>${callers.join('<br>')||'none'}</span>
       <span>actual calls</span><span>${calls.join('<br>')||'none'}</span>
       <span>resolved tail route</span><span>${tails.join('<br>')||'none'}</span>
-      <span>attribution fragment handoffs</span><span>${handoffs.join(', ')||'none'}</span>
-      <span>parent fragment reentries</span><span>${reentries.join(', ')||'none'}</span>
+      <span>attribution subtree handoffs</span><span>${handoffs.join(', ')||'none'}</span>
+      <span>parent subtree reentries</span><span>${reentries.join(', ')||'none'}</span>
       <span>source</span><span>${esc(m.file||'?')}:${m.line??'?'}</span>
       <span>instructions</span><span>${d.data.value}</span>
       <span>fragments</span><span>${m.frags>1?`<b style="color:var(--cur)">${m.frags}</b> (non-contiguous)`:'1 (contiguous)'}</span>

@@ -630,7 +630,9 @@ def attribution_fragment_handoffs(
     """
     if not is_level4_dynamic_decoder(owner):
         return []
-    owned = set(dynamic_owned_execution_pcs(owner, instruction_rows))
+    subtree_ids = descendant_owner_ids(owners_by_id, owner["id"])
+    owned = {address for address, instruction in instruction_rows.items()
+             if instruction.get("owner") in subtree_ids}
     parent_owned = set(dynamic_owned_execution_pcs(decode_raw, instruction_rows))
     result = []
     for source_pc in sorted(owned):
@@ -642,12 +644,14 @@ def attribution_fragment_handoffs(
 
 
 def parent_fragment_reentries(
-    owner: dict, decode_raw: dict, instruction_rows: dict[int, dict]
+    owner: dict, decode_raw: dict, owners_by_id: dict[str, dict], instruction_rows: dict[int, dict]
 ) -> list[dict]:
     """Every decoded-owned decodeRaw edge which enters a direct dynamic decoder fragment."""
     if not is_level4_dynamic_decoder(owner):
         return []
-    owned = set(dynamic_owned_execution_pcs(owner, instruction_rows))
+    subtree_ids = descendant_owner_ids(owners_by_id, owner["id"])
+    owned = {address for address, instruction in instruction_rows.items()
+             if instruction.get("owner") in subtree_ids}
     parent_owned = set(dynamic_owned_execution_pcs(decode_raw, instruction_rows))
     return [
         {"sourcePc": source_pc, "targetPc": target_pc}
@@ -736,8 +740,11 @@ def level4_boundary_manifest(database: dict) -> dict:
         if is_level4_dynamic_decoder(owner):
             row["fullExecutionPcs"] = dynamic_full_execution_pcs(owner, owners_by_id)
             row["ownedExecutionPcs"] = dynamic_owned_execution_pcs(owner, instruction_rows)
+            row["subtreeOwnedExecutionPcs"] = sorted(
+                address for address, instruction in instruction_rows.items()
+                if instruction.get("owner") in descendant_owner_ids(owners_by_id, owner["id"]))
             row["fragmentHandoffs"] = handoffs
-            row["parentReentryEdges"] = parent_fragment_reentries(owner, decode_raw, instruction_rows)
+            row["parentReentryEdges"] = parent_fragment_reentries(owner, decode_raw, owners_by_id, instruction_rows)
         rows.append(row)
     manifest = {
         "schemaVersion": 1,
@@ -764,7 +771,9 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
         expected_full = dynamic_full_execution_pcs(owner, owners_by_id)
         expected_owned = dynamic_owned_execution_pcs(owner, instructions)
         expected_handoffs = attribution_fragment_handoffs(owner, decode_raw, owners_by_id, instructions)
-        expected_reentries = parent_fragment_reentries(owner, decode_raw, instructions)
+        expected_reentries = parent_fragment_reentries(owner, decode_raw, owners_by_id, instructions)
+        expected_subtree_owned = sorted(address for address, instruction in instructions.items()
+                                        if instruction.get("owner") in descendant_owner_ids(owners_by_id, owner["id"]))
         expected_calls = [
             {
                 **call,
@@ -779,6 +788,8 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
             raise ValueError("Level 4 full execution PCs are incomplete or forged")
         if row.get("ownedExecutionPcs") != expected_owned:
             raise ValueError("Level 4 owned execution PCs are incomplete or forged")
+        if row.get("subtreeOwnedExecutionPcs") != expected_subtree_owned:
+            raise ValueError("Level 4 subtree-owned execution PCs are incomplete or forged")
         if row.get("fragmentHandoffs") != expected_handoffs:
             raise ValueError("Level 4 attribution fragment handoffs are incomplete or forged")
         if row.get("parentReentryEdges") != expected_reentries:
@@ -887,6 +898,7 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
         if handoffs is not None:
             full_pcs = row.get("fullExecutionPcs")
             owned_pcs = row.get("ownedExecutionPcs")
+            subtree_pcs = row.get("subtreeOwnedExecutionPcs")
             reentries = row.get("parentReentryEdges")
             if (not isinstance(full_pcs, list) or not full_pcs
                     or full_pcs != sorted(set(full_pcs))):
@@ -894,6 +906,9 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
             if (not isinstance(owned_pcs, list) or not owned_pcs
                     or owned_pcs != sorted(set(owned_pcs)) or not set(owned_pcs) <= set(full_pcs)):
                 raise ValueError("Level 4 dynamic boundary lacks owned execution PCs")
+            if (not isinstance(subtree_pcs, list) or not subtree_pcs
+                    or subtree_pcs != sorted(set(subtree_pcs)) or not set(owned_pcs) <= set(subtree_pcs)):
+                raise ValueError("Level 4 dynamic boundary lacks subtree-owned execution PCs")
             for edges, label in ((handoffs, "handoffs"), (reentries, "re-entries")):
                 if (not isinstance(edges, list) or not edges
                         or edges != sorted(edges, key=lambda edge: (edge.get("sourcePc", -1), edge.get("targetPc", -1)))):
@@ -901,13 +916,13 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
             for edge in handoffs:
                 if (not isinstance(edge, dict) or not isinstance(edge.get("sourcePc"), int)
                         or not isinstance(edge.get("targetPc"), int)
-                        or edge["sourcePc"] not in owned_pcs):
-                    raise ValueError("Level 4 attribution handoff source is outside owned execution")
+                        or edge["sourcePc"] not in subtree_pcs):
+                    raise ValueError("Level 4 attribution handoff source is outside subtree execution")
             for edge in reentries:
                 if (not isinstance(edge, dict) or not isinstance(edge.get("sourcePc"), int)
                         or not isinstance(edge.get("targetPc"), int)
-                        or edge["targetPc"] not in owned_pcs):
-                    raise ValueError("Level 4 attribution re-entry target is outside owned execution")
+                        or edge["targetPc"] not in subtree_pcs):
+                    raise ValueError("Level 4 attribution re-entry target is outside subtree execution")
     direct_offsets = [row for row in boundaries if row["qualified"] == "ssz_raw.readOffset"]
     if len(direct_offsets) != 4 or any(not row["instructionPcs"] for row in direct_offsets):
         raise ValueError("Level 4 direct readOffset boundaries are incomplete")
@@ -940,8 +955,8 @@ def emit_level4_attribution_lean(database: dict) -> str:
     """Emit the four dynamic attribution boundaries as typed, source-identity keyed Lean data."""
     manifest = level4_boundary_manifest(database)
     rows = [row for row in manifest["boundaries"] if "fragmentHandoffs" in row]
-    expected_handoffs = [7, 8, 4, 5]
-    expected_reentries = [3, 3, 1, 1]
+    expected_handoffs = [14, 8, 12, 5]
+    expected_reentries = [4, 4, 2, 1]
     expected_call_frames = [4, 5, 1, 3]
     if [len(row["fragmentHandoffs"]) for row in rows] != expected_handoffs:
         raise ValueError("Level 4 attribution fragment handoff inventory changed")
@@ -1001,6 +1016,7 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "structure AttributionFragmentBoundary where",
         "  child : FunctionInstanceId",
         "  ownedExecutionPcs : Array Nat",
+        "  subtreeOwnedExecutionPcs : Array Nat",
         "  fullExecutionPcs : Array Nat",
         "  callFrames : Array AttributionCallFrame",
         "  handoffs : Array DirectEdge",
@@ -1040,6 +1056,7 @@ def emit_level4_attribution_lean(database: dict) -> str:
         L.extend([
             f"noncomputable def {boundary_name} : AttributionFragmentBoundary :=",
             f"  {{ child := {child}Id, ownedExecutionPcs := #[{pcs(row['ownedExecutionPcs'])}],",
+            f"    subtreeOwnedExecutionPcs := #[{pcs(row['subtreeOwnedExecutionPcs'])}],",
             f"    fullExecutionPcs := #[{pcs(row['fullExecutionPcs'])}],",
             f"    callFrames := {call_frames},",
             f"    handoffs := {edge_array(row['fragmentHandoffs'])},",
@@ -1048,6 +1065,8 @@ def emit_level4_attribution_lean(database: dict) -> str:
             f"theorem {boundary_name}_child : {boundary_name}.child = {child}Id := rfl",
             f"theorem {boundary_name}_ownedExecutionPcs_exact :",
             f"    {boundary_name}.ownedExecutionPcs = #[{pcs(row['ownedExecutionPcs'])}] := rfl",
+            f"theorem {boundary_name}_subtreeOwnedExecutionPcs_exact :",
+            f"    {boundary_name}.subtreeOwnedExecutionPcs = #[{pcs(row['subtreeOwnedExecutionPcs'])}] := rfl",
             f"theorem {boundary_name}_fullExecutionPcs_exact :",
             f"    {boundary_name}.fullExecutionPcs = #[{pcs(row['fullExecutionPcs'])}] := rfl",
             f"theorem {boundary_name}_callFrames_exact :",
@@ -1115,13 +1134,13 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "",
         "theorem level4AttributionFragmentBoundaries_count :",
         "    level4AttributionFragmentBoundaries.size = 4 := rfl",
-        "def level4AttributionFragmentHandoffCounts : Array Nat := #[7, 8, 4, 5]",
-        "def level4AttributionFragmentReentryCounts : Array Nat := #[3, 3, 1, 1]",
+        f"def level4AttributionFragmentHandoffCounts : Array Nat := #[{pcs(expected_handoffs)}]",
+        f"def level4AttributionFragmentReentryCounts : Array Nat := #[{pcs(expected_reentries)}]",
         "def level4AttributionCallFrameCounts : Array Nat := #[4, 5, 1, 3]",
         "theorem level4AttributionFragmentHandoff_counts :",
-        "    level4AttributionFragmentHandoffCounts = #[7, 8, 4, 5] := rfl",
+        f"    level4AttributionFragmentHandoffCounts = #[{pcs(expected_handoffs)}] := rfl",
         "theorem level4AttributionFragmentReentry_counts :",
-        "    level4AttributionFragmentReentryCounts = #[3, 3, 1, 1] := rfl",
+        f"    level4AttributionFragmentReentryCounts = #[{pcs(expected_reentries)}] := rfl",
         "theorem level4AttributionCallFrame_counts :",
         "    level4AttributionCallFrameCounts = #[4, 5, 1, 3] := rfl",
         "theorem level4AttributionFragmentBoundary_totals :",
