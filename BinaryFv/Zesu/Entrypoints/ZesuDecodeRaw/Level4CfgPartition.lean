@@ -7,13 +7,13 @@ import GeneratedProgram
 `ssz_raw.decodeRaw` has 172 instructions attributed directly to its generated function instance.
 They exclude all nine inlined child instances.  In particular, the two reached `*.deinit` regions
 are excluded-function regions absorbed by `decodeRaw`; their 74 instructions are not among these
-172 cataloged function-instance PCs and have no child contract to splice.
+172 cataloged function-instance PCs.
 
 The three phases below classify only direct parent instructions.  Their typed interfaces state the
-parent PCs and every semantic child splice available to a future Sail proof stream.  They
-deliberately
-do not assign argument bindings, result locations, write sets, register frames, exits, or bounds to
-an inlined child.
+parent PCs.  The Level 4 hierarchy artifact owns the separate 18-boundary contract inventory,
+including the distinction between function instances and excluded regions.  This module deliberately
+does not assign argument bindings, result locations, write sets, register frames, exits, or bounds
+to any child boundary.
 -/
 
 namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
@@ -132,129 +132,21 @@ def DecodeRawCfgPhase.pcs : DecodeRawCfgPhase → List Nat
   | .specializedDispatchReturnsSuccess => decodeRawSpecializedDispatchReturnsSuccessPcs
   | .rejectionCleanupStatusCopyEpilogue => decodeRawRejectionCleanupStatusCopyEpiloguePcs
 
-/-- The eight unresolved inlined contracts selected by the Level 4 flamegraph. -/
-inductive DecodeRawSemanticChildSplice where
-  | readOffsetAt199_23
-  | readOffsetAt200_23
-  | readOffsetAt201_23
-  | readOffsetAt202_23
-  | decodeNewPayloadRequestAt207_61
-  | decodeExecutionWitnessAt209_48
-  | decodeChainConfigAt211_48
-  | decodePublicKeysAt212_46
-deriving DecidableEq, Repr
-
-def DecodeRawSemanticChildSplice.instance : DecodeRawSemanticChildSplice → FunctionInstance
-  | .readOffsetAt199_23 => functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_199_23
-  | .readOffsetAt200_23 => functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_200_23
-  | .readOffsetAt201_23 => functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_201_23
-  | .readOffsetAt202_23 => functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_202_23
-  | .decodeNewPayloadRequestAt207_61 =>
-      functionInstance_ssz_raw_decodeNewPayloadRequest_in_ssz_raw_decodeRaw_at_207_61
-  | .decodeExecutionWitnessAt209_48 =>
-      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48
-  | .decodeChainConfigAt211_48 =>
-      functionInstance_ssz_raw_decodeChainConfig_in_ssz_raw_decodeRaw_at_211_48
-  | .decodePublicKeysAt212_46 =>
-      functionInstance_ssz_raw_decodePublicKeys_in_ssz_raw_decodeRaw_at_212_46
-
-/-- All eight unresolved semantic child splices in generated child order after the local leaf. -/
-def decodeRawSemanticChildSplices : List DecodeRawSemanticChildSplice :=
-  [ .readOffsetAt199_23, .readOffsetAt200_23, .readOffsetAt201_23, .readOffsetAt202_23
-  , .decodeNewPayloadRequestAt207_61, .decodeExecutionWitnessAt209_48, .decodeChainConfigAt211_48
-  , .decodePublicKeysAt212_46 ]
-
-theorem decodeRawSemanticChildSplices_match_generated :
-    decodeRawSemanticChildSplices.map (·.instance.id) =
-      functionInstance_ssz_raw_decodeRaw.children.toList.drop 1 := rfl
-
-/-- Every machine-code call where the parent splices an emitted child contract. -/
-inductive DecodeRawEmittedContractSplice where
-  | memcpyAt104f0
-  | requireCanonicalOffsetsAt105f8
-  | memcpyAt12708
-  | memcpyAt12e88
-deriving DecidableEq, Repr
-
-def DecodeRawEmittedContractSplice.callPc : DecodeRawEmittedContractSplice → Nat
-  | .memcpyAt104f0 => 0x104f0
-  | .requireCanonicalOffsetsAt105f8 => 0x105f8
-  | .memcpyAt12708 => 0x12708
-  | .memcpyAt12e88 => 0x12e88
-
-def DecodeRawEmittedContractSplice.callee : DecodeRawEmittedContractSplice → FunctionInstance
-  | .memcpyAt104f0 | .memcpyAt12708 | .memcpyAt12e88 => functionInstance_memcpy
-  | .requireCanonicalOffsetsAt105f8 => functionInstance_ssz_raw_requireCanonicalOffsets
-
-/-- All direct emitted contract splices, one entry per concrete call instruction. -/
-def decodeRawEmittedContractSplices : List DecodeRawEmittedContractSplice :=
-  [.memcpyAt104f0, .requireCanonicalOffsetsAt105f8, .memcpyAt12708, .memcpyAt12e88]
-
-theorem decodeRawEmittedContractSplices_are_direct_pcs :
-    decodeRawEmittedContractSplices.all fun splice =>
-      decodeRawDirectPcs.contains splice.callPc = true := by
-  native_decide
-
 /-- The typed, static hand-off for one independently proved parent phase.
-The `semanticChildren` and `emittedCalls` fields enumerate all contracts that phase may consume;
-`directLeafChildren` are actual inlined regions that this Level 4 parent must prove directly. -/
+The separate hierarchy artifact will attach selected contract boundaries to this static PC set. -/
 structure DecodeRawCfgPhaseInterface where
   phase : DecodeRawCfgPhase
   pcs : List Nat
-  semanticChildren : List DecodeRawSemanticChildSplice
-  emittedCalls : List DecodeRawEmittedContractSplice
-  directLeafChildren : List FunctionInstance
 
 def decodeRawCfgPhaseInterface : DecodeRawCfgPhase → DecodeRawCfgPhaseInterface
   | .entryEnvelopeOffsets =>
       { phase := .entryEnvelopeOffsets
-        pcs := decodeRawEntryEnvelopeOffsetsPcs
-        semanticChildren := [.readOffsetAt199_23, .readOffsetAt200_23, .readOffsetAt201_23,
-          .readOffsetAt202_23]
-        emittedCalls := [.requireCanonicalOffsetsAt105f8]
-        directLeafChildren :=
-          [functionInstance_ssz_raw_requireU32Length_in_ssz_raw_decodeRaw_at_191_25] }
+        pcs := decodeRawEntryEnvelopeOffsetsPcs }
   | .specializedDispatchReturnsSuccess =>
       { phase := .specializedDispatchReturnsSuccess
-        pcs := decodeRawSpecializedDispatchReturnsSuccessPcs
-        semanticChildren := [.decodeNewPayloadRequestAt207_61, .decodeExecutionWitnessAt209_48,
-          .decodeChainConfigAt211_48, .decodePublicKeysAt212_46]
-        emittedCalls := [.memcpyAt12708, .memcpyAt12e88]
-        directLeafChildren := [] }
+        pcs := decodeRawSpecializedDispatchReturnsSuccessPcs }
   | .rejectionCleanupStatusCopyEpilogue =>
       { phase := .rejectionCleanupStatusCopyEpilogue
-        pcs := decodeRawRejectionCleanupStatusCopyEpiloguePcs
-        semanticChildren := []
-        emittedCalls := [.memcpyAt104f0]
-        directLeafChildren := [] }
-
-/-- The four transfers into the two excluded cleanup regions.  They are not contract splices: an
-excluded instance has no `FunctionInstanceContract`, so its body remains a parent proof
-obligation. -/
-inductive DecodeRawExcludedCleanupTransfer where
-  | executionWitnessAt129d8
-  | newPayloadRequestAt129e8
-  | executionWitnessAt12fdc
-  | newPayloadRequestAt12fec
-deriving DecidableEq, Repr
-
-def DecodeRawExcludedCleanupTransfer.callPc : DecodeRawExcludedCleanupTransfer → Nat
-  | .executionWitnessAt129d8 => 0x129d8
-  | .newPayloadRequestAt129e8 => 0x129e8
-  | .executionWitnessAt12fdc => 0x12fdc
-  | .newPayloadRequestAt12fec => 0x12fec
-
-def DecodeRawExcludedCleanupTransfer.entryPc : DecodeRawExcludedCleanupTransfer → Nat
-  | .executionWitnessAt129d8 | .executionWitnessAt12fdc => 0x13038
-  | .newPayloadRequestAt129e8 | .newPayloadRequestAt12fec => 0x131ec
-
-def decodeRawExcludedCleanupTransfers : List DecodeRawExcludedCleanupTransfer :=
-  [.executionWitnessAt129d8, .newPayloadRequestAt129e8, .executionWitnessAt12fdc,
-    .newPayloadRequestAt12fec]
-
-theorem decodeRawExcludedCleanupTransferCalls_are_direct_pcs :
-    decodeRawExcludedCleanupTransfers.all fun transfer =>
-      decodeRawDirectPcs.contains transfer.callPc = true := by
-  native_decide
+        pcs := decodeRawRejectionCleanupStatusCopyEpiloguePcs }
 
 end BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw

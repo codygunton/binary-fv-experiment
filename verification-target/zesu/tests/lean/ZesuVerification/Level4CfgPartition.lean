@@ -21,10 +21,6 @@ example : decodeRawSpecializedDispatchReturnsSuccessPcs.length = 67 :=
 example : decodeRawRejectionCleanupStatusCopyEpiloguePcs.length = 60 :=
   decodeRawRejectionCleanupStatusCopyEpiloguePcs_count
 
-example : decodeRawSemanticChildSplices.length = 8 := rfl
-
-example : decodeRawEmittedContractSplices.length = 4 := rfl
-
 example : decodeRawAbsorbedExcludedPcs.all fun pc => !decodeRawDirectPcs.contains pc = true := by
   native_decide
 
