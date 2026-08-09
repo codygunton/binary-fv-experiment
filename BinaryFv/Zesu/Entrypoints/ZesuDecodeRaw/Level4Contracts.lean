@@ -287,6 +287,7 @@ structure ParentRouteProvider {Args Outcome : Type}
   decide : ∀ {fromStep current handoff} (_entry : interface.entry args current)
     (_currentProtected : frameHeld current)
     (progress : Level4HandoffProgress interface args origin fromStep current handoff)
+    (_listed : progress.route ∈ interface.carrierRoutes)
     (_handoffProtected : frameHeld handoff),
     ParentRouteDecision interface args origin frameHeld phase rank fromStep current handoff progress
 
@@ -318,13 +319,13 @@ def ParentRouteProvider.resolve {Args Outcome : Type}
     (fromStep : Nat) (current : State) (currentEntry : interface.entry args current)
     (currentFrame : frame.PreservedTo current) :
     ParentRouteResolved interface args origin frame phase fromStep current := by
-  obtain ⟨route, used, handoff, -, -, -, -, progress, routeEq, usedEq⟩ :=
+  obtain ⟨route, used, handoff, routeListed, -, -, -, progress, routeEq, usedEq⟩ :=
     contract args origin current originEntry currentEntry fromStep
   subst route
   subst used
   have handoffFrame : frame.PreservedTo handoff :=
     progress.parentInvariant (frame.toState currentFrame)
-  cases decision : provider.decide currentEntry currentFrame progress handoffFrame with
+  cases decision : provider.decide currentEntry currentFrame progress routeListed handoffFrame with
   | reenter next parentUsed parentTrace nextEntry nextFrame decreases =>
       have firstTrace : Trace fromStep (progress.prefixUsed + 1 + parentUsed) current next := by
         simpa only [Nat.add_assoc] using Trace.append progress.sourceToTarget parentTrace
