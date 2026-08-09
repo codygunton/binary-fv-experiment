@@ -980,4 +980,59 @@ theorem level4_entry_envelope_minimum {margs : DecoderMachineArgs} {origin state
         (15#64))
     (pcIn := ⟨level4_entry_envelope_minimum_machine_owned, by native_decide⟩)
 
+/-! ## First `readOffset` entry -/
+
+/-- The envelope range branch transfers to the first selected `readOffset` occurrence. -/
+def level4EntryFirstReadOffsetBranchPcs : List Nat := [0x104d8]
+
+abbrev Level4EntryFirstReadOffsetBranchPcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4EntryFirstReadOffsetBranchPcs
+
+theorem level4EntryFirstReadOffsetBranchPcs_subset_direct :
+    level4EntryFirstReadOffsetBranchPcs.all decodeRawDirectPcs.contains = true := by native_decide
+
+theorem level4EntryFirstReadOffsetBranchPcs_subset_phase :
+    level4EntryFirstReadOffsetBranchPcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
+  native_decide
+
+private theorem level4_entry_first_read_offset_branch_machine_owned :
+    RegisterWriteStep.decodeRawExecutionPcs (BitVec.ofNat 64 0x104d8) := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  apply RegionPcs.iff_inRanges.mpr
+  native_decide
+
+/-- Sail executes the taken envelope-range branch into the first selected `readOffset` fragment. -/
+theorem level4_entry_first_read_offset_branch {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104d8))
+    (minimum envelopeBound : BitVec 64)
+    (minimumValue : state.regs.get? x10 = some minimum)
+    (envelopeBoundValue : state.regs.get? x18 = some envelopeBound)
+    (inRange : minimum.toNat < envelopeBound.toNat) (stepNo : Nat) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104d8)
+          (BitVec.ofNat 64 0x10534))
+        (BitVec.ofNat 64 0x10534) retired) false := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
+    stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, fileCode, decoderMachine, retired⟩
+  let executeState := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+    (BitVec.ofNat 64 0x104d8)
+  have minimumAtExecute : executeState.regs.get? x10 = some minimum :=
+    decoderExecuteState_get? minimumValue
+  have envelopeBoundAtExecute : executeState.regs.get? x18 = some envelopeBound :=
+    decoderExecuteState_get? envelopeBoundValue
+  have condition : Runs (bTypeTaken (.Regidx 18#5) (.Regidx 10#5) .BLTU)
+      executeState executeState true := by
+    unfold bTypeTaken
+    refine Runs.bind (rX_x10_run _ _ minimumAtExecute) ?_
+    refine Runs.bind (rX_bits_run_x18 _ _ envelopeBoundAtExecute) ?_
+    simp only [zopz0zI_u, Sail.BitVec.toNatInt]
+    rw [show (Int.ofNat minimum.toNat <b Int.ofNat envelopeBound.toNat) = true by
+      simp only [decide_eq_true_eq]; exact Int.ofNat_lt.mpr inRange]
+    rfl
+  exact decoderBranchTakenStep decoderMachine (Agree.refl state) retired fileCode stepNo
+    0x104d8 0x63 0x6e 0x25 0x05 0x05c#13 18#5 10#5 .BLTU (BitVec.ofNat 64 0x10534) atPc condition
+    (pcIn := ⟨level4_entry_first_read_offset_branch_machine_owned, by native_decide⟩)
+
 end BinaryFv.Zesu.MachineExecution
