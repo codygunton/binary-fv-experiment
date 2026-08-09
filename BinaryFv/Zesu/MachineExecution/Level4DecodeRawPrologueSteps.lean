@@ -913,21 +913,3 @@ theorem level4_decode_raw_entry_prologue
         seg16.retired, seg16.retired⟩⟩
 
 end BinaryFv.Zesu.MachineExecution
-
--- AUTO_AXIOM_CHECK_MARKER_DO_NOT_COMMIT
-#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryProloguePcs
-#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryProloguePcs
-#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryProloguePcs_exact
-#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryProloguePcs_count
-#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryProloguePcs_subset_direct
-#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryProloguePcs_subset_entryEnvelopeOffsets
-#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryPrologueExit
-#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryPrologueChildSummary
-#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawPrologueSavedFrame
-#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryProloguePre
-#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryProloguePre.return_target
-#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryProloguePre.return_bit_one_zero
-#print axioms BinaryFv.Zesu.MachineExecution.level4DecodeRawEntryPrologueWrites
-#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawEntryEnvelopeOffsetsHandoff
-#print axioms BinaryFv.Zesu.MachineExecution.Level4DecodeRawSavedSlots
-#print axioms BinaryFv.Zesu.MachineExecution.level4_decode_raw_entry_prologue
