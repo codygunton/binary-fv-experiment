@@ -138,6 +138,41 @@ theorem configure_saved_registers_present {s : State}
   simp only [Bool.and_eq_true, Option.isSome_iff_exists] at hcheck
   exact ⟨hcheck.1.1, hcheck.1.2, hcheck.2⟩
 
+/-- The production setup also materializes the wrapper's remaining callee-saved registers. -/
+def CalleeSavedRegistersPresent (s : State) : Prop :=
+  (∃ value, s.regs.get? x19 = some value) ∧
+    (∃ value, s.regs.get? x20 = some value) ∧
+      (∃ value, s.regs.get? x21 = some value) ∧
+        (∃ value, s.regs.get? x22 = some value) ∧
+          (∃ value, s.regs.get? x23 = some value) ∧
+            (∃ value, s.regs.get? x24 = some value) ∧
+              (∃ value, s.regs.get? x25 = some value) ∧
+                (∃ value, s.regs.get? x26 = some value) ∧
+                  ∃ value, s.regs.get? x27 = some value
+
+private def configureCalleeSavedRegistersPresentB : Bool :=
+  match configureZesuMachine.run initialState with
+  | .ok _ state =>
+      (state.regs.get? x19).isSome && (state.regs.get? x20).isSome &&
+        (state.regs.get? x21).isSome && (state.regs.get? x22).isSome &&
+          (state.regs.get? x23).isSome && (state.regs.get? x24).isSome &&
+            (state.regs.get? x25).isSome && (state.regs.get? x26).isSome &&
+              (state.regs.get? x27).isSome
+  | _ => false
+
+private theorem configure_callee_saved_registers_present_check :
+    configureCalleeSavedRegistersPresentB = true := by native_decide
+
+theorem configure_callee_saved_registers_present {s : State}
+    (h : configureZesuMachine.run initialState = .ok () s) :
+    CalleeSavedRegistersPresent s := by
+  have hcheck := configure_callee_saved_registers_present_check
+  unfold configureCalleeSavedRegistersPresentB at hcheck
+  rw [h] at hcheck
+  simp only [Bool.and_eq_true, Option.isSome_iff_exists] at hcheck
+  rcases hcheck with ⟨⟨⟨⟨⟨⟨⟨⟨h19, h20⟩, h21⟩, h22⟩, h23⟩, h24⟩, h25⟩, h26⟩, h27⟩
+  exact ⟨h19, h20, h21, h22, h23, h24, h25, h26, h27⟩
+
 /-! ### The configured machine is a *normal* execution state
 
 `NormalExecutionState` (`RiscV/Platform/NormalState.lean`) bundles the twelve platform reads a
@@ -590,7 +625,8 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
           s.regs.get? pma_regions = some [zesuMainMemoryRegion] ∧
             (∃ value, s.regs.get? x8 = some value) ∧
               (∃ value, s.regs.get? x9 = some value) ∧
-                ∃ value, s.regs.get? x18 = some value := by
+                (∃ value, s.regs.get? x18 = some value) ∧
+                  CalleeSavedRegistersPresent s := by
   -- Stage the loaders.
   obtain ⟨seg, hsingle⟩ := programImage_single
   obtain ⟨s1, hrun1, hnormal1, hfetch1, hpinned1, hloadPinned1⟩ := configure_runs
@@ -598,6 +634,7 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
   have hpma1 : s1.regs.get? pma_regions = some [zesuMainMemoryRegion] :=
     configure_pma_regions hrun1'
   have hsaved1 := configure_saved_registers_present hrun1'
+  have hcallee1 := configure_callee_saved_registers_present hrun1'
   obtain ⟨s2, hrun2, hregs2, _hlow2, _hhigh2, hfile2⟩ :=
     loadFileBackedImage_single_establishes hsingle s1
   obtain ⟨sstack, hrunstack, hregsstack, hframestack, _hwinstack⟩ :=
@@ -655,7 +692,8 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       sf.regs.get? pma_regions = some [zesuMainMemoryRegion] ∧
       (∃ value, sf.regs.get? x8 = some value) ∧
         (∃ value, sf.regs.get? x9 = some value) ∧
-          ∃ value, sf.regs.get? x18 = some value := by
+          (∃ value, sf.regs.get? x18 = some value) ∧
+            CalleeSavedRegistersPresent sf := by
     have hrunR : Runs
         (writeReg x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase) >>= fun _ =>
          writeReg x11 (BitVec.ofNat 64 input.size) >>= fun _ =>
@@ -667,7 +705,7 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
         (Runs.bind (by rw [Runs, writeReg_run]) (Runs.bind (by rw [Runs, writeReg_run])
           (Runs.bind (by rw [Runs, writeReg_run]) (by rw [Runs, writeReg_run])))))
-    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨{ s6 with regs := ((((( s6.regs.insert x10 (BitVec.ofNat 64 canonicalRunnerLayout.inputBase)).insert x11 (BitVec.ofNat 64 input.size)).insert x1 (BitVec.ofNat 64 canonicalRunnerLayout.sentinel)).insert x2 (BitVec.ofNat 64 canonicalRunnerLayout.stackStop)).insert PC (BitVec.ofNat 64 entrySym.value)).insert nextPC (BitVec.ofNat 64 entrySym.value) }, ?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · unfold buildZesuEntryState initStack
       simp only [hentry]
       exact Runs.bind hrun1 (Runs.bind hrun2 (Runs.bind hrunstack (Runs.bind hrun3 (Runs.bind hrun4
@@ -711,11 +749,38 @@ theorem buildZesuEntryState_entry_binding_abi (input : ByteArray) :
       exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
     · obtain ⟨value, hvalue⟩ := hsaved1.2.2
       exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+    · rcases hcallee1 with ⟨h19, h20, h21, h22, h23, h24, h25, h26, h27⟩
+      constructor
+      · rcases h19 with ⟨value, hvalue⟩
+        exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+      constructor
+      · rcases h20 with ⟨value, hvalue⟩
+        exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+      constructor
+      · rcases h21 with ⟨value, hvalue⟩
+        exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+      constructor
+      · rcases h22 with ⟨value, hvalue⟩
+        exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+      constructor
+      · rcases h23 with ⟨value, hvalue⟩
+        exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+      constructor
+      · rcases h24 with ⟨value, hvalue⟩
+        exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+      constructor
+      · rcases h25 with ⟨value, hvalue⟩
+        exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+      constructor
+      · rcases h26 with ⟨value, hvalue⟩
+        exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
+      · rcases h27 with ⟨value, hvalue⟩
+        exact ⟨value, by simp [Std.ExtDHashMap.get?_insert, hregs6_1, hvalue]⟩
   obtain ⟨sf, hrunsf, hmemsf, hx10, hx11, hx1, hx2, hpc, hnextpc, hnormal, hfetchsf,
-    hpinnedsf, hloadPinnedsf, hpmasf, hx8sf, hx9sf, hx18sf⟩ :=
+    hpinnedsf, hloadPinnedsf, hpmasf, hx8sf, hx9sf, hx18sf, hcalleesf⟩ :=
     hbuilt
   refine ⟨sf, hrunsf, ?_, hx1, hx2, hnormal, hfetchsf, hpinnedsf, hloadPinnedsf,
-    entrySym, hentry, hpc, hnextpc, hpmasf, hx8sf, hx9sf, hx18sf⟩
+    entrySym, hentry, hpc, hnextpc, hpmasf, hx8sf, hx9sf, hx18sf, hcalleesf⟩
   -- Reduce the argument projections once, then discharge each entry-binding conjunct.
   show MemoryBytes sf canonicalRunnerLayout.inputBase input ∧
       canonicalEnvironment.CodeIntact sf ∧

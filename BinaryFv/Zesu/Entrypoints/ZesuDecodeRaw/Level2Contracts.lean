@@ -51,6 +51,15 @@ structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
   savedS0AtEntry : ∃ value, state.regs.get? Register.x8 = some value
   savedS1AtEntry : ∃ value, state.regs.get? Register.x9 = some value
   savedS2AtEntry : ∃ value, state.regs.get? Register.x18 = some value
+  savedS3AtEntry : ∃ value, state.regs.get? Register.x19 = some value
+  savedS4AtEntry : ∃ value, state.regs.get? Register.x20 = some value
+  savedS5AtEntry : ∃ value, state.regs.get? Register.x21 = some value
+  savedS6AtEntry : ∃ value, state.regs.get? Register.x22 = some value
+  savedS7AtEntry : ∃ value, state.regs.get? Register.x23 = some value
+  savedS8AtEntry : ∃ value, state.regs.get? Register.x24 = some value
+  savedS9AtEntry : ∃ value, state.regs.get? Register.x25 = some value
+  savedS10AtEntry : ∃ value, state.regs.get? Register.x26 = some value
+  savedS11AtEntry : ∃ value, state.regs.get? Register.x27 = some value
   stackAtEntry : state.regs.get? Register.x2 = some (BitVec.ofNat 64 (stackBase + 0xa20))
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64
   inputBound : args.bytes.size < 2 * 1024 * 1024
