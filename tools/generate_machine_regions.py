@@ -1081,12 +1081,12 @@ def emit_level4_attribution_lean(database: dict) -> str:
             f"theorem {boundary_name}_cfg_and_ownership :",
             f"    (∀ edge ∈ {edge_array(row['fragmentHandoffs'])},",
             f"      programContainsEdge generatedProgram edge = true ∧",
-            f"      ownedBy generatedProgram {child} edge.source = true ∧",
+            f"      inRegions {child} edge.source = true ∧",
             f"      ownedBy generatedProgram {parent_name} edge.target = true) ∧",
             f"    (∀ edge ∈ {edge_array(row['parentReentryEdges'])},",
             f"      programContainsEdge generatedProgram edge = true ∧",
             f"      ownedBy generatedProgram {parent_name} edge.source = true ∧",
-            f"      ownedBy generatedProgram {child} edge.target = true) := by native_decide",
+            f"      inRegions {child} edge.target = true) := by native_decide",
             "",
         ])
         for index, call in enumerate(row.get("calls", [])):
@@ -1144,7 +1144,7 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "theorem level4AttributionCallFrame_counts :",
         "    level4AttributionCallFrameCounts = #[4, 5, 1, 3] := rfl",
         "theorem level4AttributionFragmentBoundary_totals :",
-        "    7 + 8 + 4 + 5 = 24 ∧ 3 + 3 + 1 + 1 = 8 := by decide",
+        "    14 + 8 + 12 + 5 = 39 ∧ 4 + 4 + 2 + 1 = 11 := by decide",
         "",
         "end BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution",
         "",

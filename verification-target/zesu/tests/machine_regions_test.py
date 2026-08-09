@@ -226,20 +226,23 @@ class MachineRegionTests(unittest.TestCase):
             "id": "fi:103", "kind": "inlined", "qualified": "nested", "entryPc": 77416,
             "regions": [{"start": 77416, "size": 4}], "parent": "fi:102",
         }
-        owners = {row["id"]: row for row in (parent, decoder, nested)}
+        sibling = {"id": "fi:104", "kind": "inlined", "qualified": "sibling", "entryPc": 77424,
+                   "regions": [{"start": 77424, "size": 4}], "parent": "fi:6"}
+        owners = {row["id"]: row for row in (parent, decoder, nested, sibling)}
         instructions = {
             77408: {"address": 77408, "owner": "fi:102", "successors": [77412]},
             77412: {"address": 77412, "owner": "fi:6", "successors": []},
             77396: {"address": 77396, "owner": "fi:6", "successors": [77408]},
-            77416: {"address": 77416, "owner": "fi:103", "successors": [77420]},
+            77416: {"address": 77416, "owner": "fi:103", "successors": [77412]},
+            77392: {"address": 77392, "owner": "fi:6", "successors": [77416, 77424]},
         }
         self.assertEqual(machine_regions.dynamic_full_execution_pcs(decoder, owners), [77400, 77404, 77408, 77416])
         self.assertEqual(machine_regions.dynamic_owned_execution_pcs(decoder, instructions),
                          [77408])
         self.assertEqual(machine_regions.attribution_fragment_handoffs(decoder, parent, owners, instructions),
-                         [{"sourcePc": 77408, "targetPc": 77412}])
+                         [{"sourcePc": 77408, "targetPc": 77412}, {"sourcePc": 77416, "targetPc": 77412}])
         self.assertEqual(machine_regions.parent_fragment_reentries(decoder, parent, owners, instructions),
-                         [{"sourcePc": 77396, "targetPc": 77408}])
+                         [{"sourcePc": 77392, "targetPc": 77416}, {"sourcePc": 77396, "targetPc": 77408}])
 
     def test_dynamic_attribution_ignores_non_parent_and_nested_edges(self) -> None:
         parent = {"id": "fi:6", "regions": [{"start": 77412, "size": 4}], "parent": None}
