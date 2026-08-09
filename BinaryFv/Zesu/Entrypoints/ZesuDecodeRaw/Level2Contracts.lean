@@ -94,6 +94,10 @@ structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
   stackAvoidsStatusGlobals : stackBase + 0xa20 ≤ 0x4215020 ∨ 0x4215028 ≤ stackBase
   stackFrameWritable : ∀ index, index < 0xa20 →
     canonicalContractParams.env.stack (stackBase + index)
+  /-- The raw decoder's own frame lies below the inline caller's stack pointer after its
+  `0xe80` decrement.  This exact interval covers the later `sp + 0x2a0` parent slot. -/
+  rawFrameWritable : ∀ index, index < 0x7f0 →
+    canonicalContractParams.env.stack (stackBase - 0xe80 + index)
   stackObjectsFit : stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤
     2 ^ 64
   stackObjectsReadable : ∀ index,

@@ -227,6 +227,7 @@ theorem wrapper_reaches_decode_first_contract
       stackObjectsReadable := machine.stackObjectsReadable
       inputAvoidsCanonicalStack := machine.inputAvoidsCanonicalStack
       stackFrameWritable := machine.stackFrameWritable
+      rawFrameWritable := machine.rawFrameWritable
       machine := decodeMachine
       retryReason := by simp [decodeArgs]
       propagateReason := by
@@ -359,6 +360,7 @@ theorem wrapper_reaches_decode_first_invalid_contract
       stackObjectsReadable := machine.stackObjectsReadable
       inputAvoidsCanonicalStack := machine.inputAvoidsCanonicalStack
       stackFrameWritable := machine.stackFrameWritable
+      rawFrameWritable := machine.rawFrameWritable
       machine := decodeMachine
       retryReason := by simp [decodeArgs]
       propagateReason := by

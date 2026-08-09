@@ -573,7 +573,7 @@ theorem first_propagated_error_to_exit
       firstArgs branch branchMachine branchPc branchStack branchInput branchLength branchGlobals
       branchInputMemory branchCode firstPre.inputFits firstPre.rootInputBound firstPre.stackAligned
       firstPre.stackObjectsFit firstPre.stackObjectsReadable firstPre.inputAvoidsCanonicalStack
-      firstPre.stackFrameWritable error notInvalid rawResult' branchTag
+      firstPre.stackFrameWritable firstPre.rawFrameWritable error notInvalid rawResult' branchTag
   have secondPhase : secondArgs.phase = .propagateError error := by simp [secondArgsEq]
   let retryBefore := afterRegisterWrite branch (BitVec.ofNat 64 0x1037c) retryRetired x11
     (BitVec.ofNat 64 2)

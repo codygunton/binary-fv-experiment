@@ -180,6 +180,7 @@ theorem first_invalid_to_retry_decode_entry
       stackObjectsReadable := pre.stackObjectsReadable
       inputAvoidsCanonicalStack := pre.inputAvoidsCanonicalStack
       stackFrameWritable := pre.stackFrameWritable
+      rawFrameWritable := pre.rawFrameWritable
       machine := by simpa [secondArgs] using secondMachine
       retryReason := by
         intro _
@@ -217,6 +218,8 @@ theorem wrapper_second_propagate_decode_entry
       args.inputBase + args.bytes.size ≤ address ∨ address < args.inputBase)
     (stackFrameWritable : ∀ index, index < 0xa20 →
       canonicalContractParams.env.stack (args.stackBase + index))
+    (rawFrameWritable : ∀ index, index < 0x7f0 →
+      canonicalContractParams.env.stack (args.stackBase - 0xe80 + index))
     (error : Contracts.DecodeError) (notInvalid : error ≠ .invalidSsz)
     (rawResult : Contracts.meaningDecodeRaw args.bytes = .error error)
     (tagRead : branchState.regs.get? x10 =
@@ -295,6 +298,7 @@ theorem wrapper_second_propagate_decode_entry
       stackObjectsReadable := stackObjectsReadable
       inputAvoidsCanonicalStack := inputAvoidsCanonicalStack
       stackFrameWritable := stackFrameWritable
+      rawFrameWritable := rawFrameWritable
       machine := by simpa [secondArgs] using secondMachine
       retryReason := by intro impossible; simp [secondArgs] at impossible
       propagateReason := by

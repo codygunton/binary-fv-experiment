@@ -116,6 +116,8 @@ structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : 
     canonicalContractParams.env.stack (stack + 0x7f0 + index)
   postStack : Nat
   postStackEq : stack = postStack + 0x690
+  rawFrameWritable : ∀ index, index < 0x7f0 →
+    canonicalContractParams.env.stack (postStack + index)
   stackFits : stack + 0x7f0 < 2 ^ 64
   saveAreaWritable : ∀ index, index < 104 → canonicalContractParams.env.stack (stack + 0x788 + index)
   slotAligned : ∀ offset, 0x788 ≤ offset → offset ≤ 0x7e8 → offset % 8 = 0 →
@@ -164,6 +166,8 @@ structure Level4DecodeRawEntryEnvelopeOffsetsHandoff (fromStep : Nat) (before af
     margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase
   stackFrameWritable : ∀ index, index < 0xa20 →
     canonicalContractParams.env.stack (pre.stack + 0x7f0 + index)
+  rawFrameWritable : ∀ index, index < 0x7f0 →
+    canonicalContractParams.env.stack (pre.postStack + index)
   lengthFits : margs.bytes.size < 2 ^ 64
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   machine : DecoderMachinePre
@@ -897,7 +901,7 @@ theorem level4_decode_raw_entry_prologue
         rw [← entryArgsMachine]
         exact inputLength16,
       input16, pre.inputStackSeparated,
-      pre.stackFrameWritable,
+      pre.stackFrameWritable, pre.rawFrameWritable,
       lengthFits, code16,
       pre.decodeRawMachine.mono (seg16.agree decoderPreserved_level4DecodeRawEntryPrologueWrites_disjoint)
         seg16.retired, seg16.retired⟩⟩

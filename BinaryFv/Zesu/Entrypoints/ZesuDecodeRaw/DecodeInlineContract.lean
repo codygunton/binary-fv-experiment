@@ -397,6 +397,8 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   that lie outside the thirteen saved-register words. -/
   stackFrameWritable : ∀ index, index < 0xa20 →
     canonicalContractParams.env.stack (args.stackBase + index)
+  rawFrameWritable : ∀ index, index < 0x7f0 →
+    canonicalContractParams.env.stack (args.stackBase - 0xe80 + index)
   machine : DecodeInlineMachinePre args state
   retryReason : args.phase = .retryAfterInvalidSsz →
     meaningDecodeRaw args.bytes = .error .invalidSsz ∧
@@ -430,6 +432,14 @@ theorem DecodeInlinePre.stackFrameWritable_of_entryStack
     canonicalContractParams.env.stack (stack + 0x7f0 + index) := by
   rw [← entryStack]
   exact pre.stackFrameWritable index indexBound
+
+theorem DecodeInlinePre.rawFrameWritable_of_postStack
+    (pre : DecodeInlinePre args state) (postStack : Nat)
+    (entryStack : args.stackBase = postStack + 0xe80) (index : Nat) (indexBound : index < 0x7f0) :
+    canonicalContractParams.env.stack (postStack + index) := by
+  have writable := pre.rawFrameWritable index indexBound
+  rw [entryStack] at writable
+  simpa using writable
 
 /-- On success, the complete result representation records that every descriptor-selected heap
 range lies in the allocator interval consumed by this `decodeRaw` invocation. Error outcomes have
