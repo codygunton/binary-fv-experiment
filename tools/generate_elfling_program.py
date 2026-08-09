@@ -1516,6 +1516,26 @@ def function_instance_lean_names(function_instances):
     return names
 
 
+def excluded_function_instance_lean_name(excluded_function_instance):
+    """A source-derived Lean name for an emitted region deliberately excluded from contracts."""
+    return "excludedFunctionInstance_" + lean_name_component(excluded_function_instance["qualified"])
+
+
+def excluded_function_instance_lean_names(excluded_function_instances):
+    names = [excluded_function_instance_lean_name(instance)
+             for instance in excluded_function_instances]
+    owners = {}
+    for index, name in enumerate(names):
+        if name in owners:
+            first = owners[name]
+            raise SystemExit(
+                f"EXCLUDED LEAN NAME COLLISION: excluded function instances {first} and {index} "
+                f"both map to `{name}`"
+            )
+        owners[name] = index
+    return names
+
+
 def defect_lean(d, instance_names):
     """Render one generator defect as its `BinaryFv.Binary.Elfling.AttributionDefect` term. Overlap
     defects reference the emitted named identities, which are defined above the program."""
@@ -1546,9 +1566,10 @@ def excl_id_lean(x):
     decl = f'{{ file := {{ path := {lean_str(x["sourceFile"])} }}, qualifiedName := {lean_str(x["qualified"])} }}'
     return f'{{ function := {{ declaration := {decl}, specialization := #[] }}, inlineStack := [] }}'
 
-def callee_ref(c, instance_names):
+def callee_ref(c, instance_names, excluded_names):
     kind, idx = c
-    return f'{instance_names[idx]}Id' if kind == "function_instance" else f'excl{idx}Id'
+    return (f'{instance_names[idx]}Id' if kind == "function_instance"
+            else f'{excluded_names[idx]}Id')
 
 def blocks_lean(function_instance):
     return "#[" + ", ".join(f'{{ range := {{ start := {b["start"]}, size := {b["size"]} }} }}'
@@ -1560,6 +1581,7 @@ def edges_lean(function_instance):
 
 def emit_lean(p):
     instance_names = function_instance_lean_names(p["function_instances"])
+    excluded_names = excluded_function_instance_lean_names(p["excludedFunctionInstances"])
     L = ["-- GENERATED FILE: produced by tools/generate_elfling_program.py. DO NOT EDIT.",
          "import BinaryFv.Binary.Elfling.Program", "",
          "/-!", "# Generated Elfling program (milestone 4)", "",
@@ -1590,7 +1612,7 @@ def emit_lean(p):
     L.append("")
     L.append("/-! ### Excluded-source function identities (address-free call targets). -/")
     for j, x in enumerate(p["excludedFunctionInstances"]):
-        L.append(f'def excl{j}Id : FunctionInstanceId := {excl_id_lean(x)}')
+        L.append(f'def {excluded_names[j]}Id : FunctionInstanceId := {excl_id_lean(x)}')
     L.append("")
     L.append("/-! ### Function instances (address-bearing). -/")
     for i, function_instance in enumerate(p["function_instances"]):
@@ -1609,7 +1631,8 @@ def emit_lean(p):
         ) + "]"
         exits = "#[" + ", ".join(str(exit_pc) for exit_pc in function_instance["exits"]) + "]"
         extcalls = "#[" + ", ".join(
-            callee_ref(callee, instance_names) for callee in function_instance["externalCalls"]
+            callee_ref(callee, instance_names, excluded_names)
+            for callee in function_instance["externalCalls"]
         ) + "]"
         specialization = (
             "[" + ",".join(function_instance["specialization"]) + "]"
@@ -1647,16 +1670,15 @@ def emit_lean(p):
     L.append("")
     L.append("/-- Every reachable-but-excluded emitted source function: emitted identity, DWARF name, category,")
     L.append("canonical regions. The identity lets a resolved external call target an excluded source function. -/")
-    L.append("def generatedExcludedFunctionInstances : Array Program.ExcludedFunctionInstance :=")
     if p["excludedFunctionInstances"]:
-        items = []
         for j, x in enumerate(p["excludedFunctionInstances"]):
             regions = "#[" + ", ".join(f'{{ start := {r["start"]}, size := {r["size"]} }}' for r in x["regions"]) + "]"
-            items.append(f'  {{ id := excl{j}Id, qualifiedName := {lean_str(x["qualified"])}, '
-                         f'category := {lean_str(x["category"])}, regions := {regions} }}')
-        L.append("  #[" + ",\n   ".join(items) + "]")
-    else:
-        L.append("  #[]")
+            L.append(f'def {excluded_names[j]} : Program.ExcludedFunctionInstance :=')
+            L.append(f'  {{ id := {excluded_names[j]}Id, qualifiedName := {lean_str(x["qualified"])}, '
+                     f'category := {lean_str(x["category"])}, regions := {regions} }}')
+            L.append("")
+    L.append("def generatedExcludedFunctionInstances : Array Program.ExcludedFunctionInstance :=")
+    L.append("  #[" + ", ".join(excluded_names) + "]")
     L.append("")
     ei = p["entryIndex"]
     L.append(

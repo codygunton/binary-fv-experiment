@@ -422,21 +422,64 @@ def validate_reviewed_call_spots(call_graph: dict) -> None:
         raise ValueError("Level 2 decoder hierarchy changed")
     if parents[prefix] != decode_inline or parents[decode_raw] != decode_inline:
         raise ValueError("Level 3 decode hierarchy changed")
-    level4_names = {
-        "ssz_raw.decodeNewPayloadRequest",
-        "ssz_raw.decodeExecutionWitness",
-        "ssz_raw.decodeChainConfig",
-        "ssz_raw.decodePublicKeys",
+    validate_level4_displayed_boundaries(call_graph, decode_raw)
+
+
+def validate_level4_displayed_boundaries(call_graph: dict, decode_raw: str) -> None:
+    level4 = level4_displayed_boundaries(call_graph, decode_raw)
+    expected_level4 = {
+        ("emitted", "raw_decoder_root.allocatorFree"): 1,
+        ("inlined", "ssz_raw.requireU32Length"): 1,
+        ("inlined", "ssz_raw.readOffset"): 4,
+        ("inlined", "ssz_raw.decodeNewPayloadRequest"): 1,
+        ("inlined", "ssz_raw.decodeExecutionWitness"): 1,
+        ("inlined", "ssz_raw.decodeChainConfig"): 1,
+        ("inlined", "ssz_raw.decodePublicKeys"): 1,
+        ("reachableCleanupNoOp", "ssz_raw.RawExecutionWitness.deinit"): 1,
+        ("reachableStdlib", "mem.Allocator.free__anon_1214"): 1,
+        ("reachableStdlib", "mem.Allocator.allocBytesWithAlignment__anon_1331"): 1,
+        ("reachableCleanupNoOp", "ssz_raw.RawNewPayloadRequest.deinit"): 1,
+        ("emitted", "ssz_raw.decodeByteListList"): 1,
+        ("emitted", "ssz_raw.requireCanonicalOffsets"): 1,
+        ("emitted", "raw_decoder_root.allocatorAlloc"): 1,
+        ("emitted", "memmove"): 1,
     }
-    for name in level4_names:
-        if parents[unique(name)] != decode_raw:
-            raise ValueError(f"Level 4 parent of {name} changed")
-    level4_offsets = [
-        owner["id"] for owner in call_graph["owners"]
-        if owner["qualified"] == "ssz_raw.readOffset" and parents.get(owner["id"]) == decode_raw
+    observed_level4: dict[tuple[str, str], int] = defaultdict(int)
+    for owner in level4:
+        observed_level4[(owner["kind"], owner["qualified"])] += 1
+    if observed_level4 != expected_level4:
+        raise ValueError("Level 4 displayed boundary inventory changed")
+    if len(level4) != 18 or len(observed_level4) != 15:
+        raise ValueError("Level 4 no longer displays 18 boundaries from 15 source families")
+    offset_sites = sorted(
+        (owner["entryPc"], tuple(
+            (frame["callerQualified"], frame["line"], frame["column"])
+            for frame in owner.get("inlineStack", [])
+        ))
+        for owner in level4 if owner["qualified"] == "ssz_raw.readOffset"
+    )
+    expected_offset_sites = [
+        (66868, (("ssz_raw.decodeRaw", 199, 23),)),
+        (66884, (("ssz_raw.decodeRaw", 200, 23),)),
+        (66920, (("ssz_raw.decodeRaw", 201, 23),)),
+        (66976, (("ssz_raw.decodeRaw", 202, 23),)),
     ]
-    if len(level4_offsets) != 4:
-        raise ValueError("Level 4 no longer has exactly four immediate readOffset instances")
+    if offset_sites != expected_offset_sites:
+        raise ValueError("Level 4 direct readOffset occurrence inventory changed")
+    if sum(len(owner["instructions"]) for owner in call_graph["owners"]
+           if owner["id"] == decode_raw) != 172:
+        raise ValueError("Level 4 decodeRaw no longer owns exactly 172 instruction PCs")
+
+
+def level4_displayed_boundaries(call_graph: dict, decode_raw: str) -> list[dict]:
+    """The Level 4 rows directly displayed below emitted ``ssz_raw.decodeRaw`` in the UI.
+
+    The UI groups the production call DAG by immediate dominator.  These rows are a display and
+    review inventory, not a replacement for `FunctionInstance.children`: excluded cleanup regions
+    stay excluded identities, and their absence from function contracts remains visible.
+    """
+    parents = call_graph["dominatorParent"]
+    return [owner for owner in call_graph["owners"] if parents.get(owner["id"]) == decode_raw]
 
 
 def operands(instruction: dict) -> list[str]:

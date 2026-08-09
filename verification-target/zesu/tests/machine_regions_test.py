@@ -20,6 +20,63 @@ SPEC.loader.exec_module(machine_regions)
 
 
 class MachineRegionTests(unittest.TestCase):
+    def level4_call_graph(self) -> dict:
+        rows = [
+            ("emitted", "raw_decoder_root.allocatorFree"),
+            ("inlined", "ssz_raw.requireU32Length"),
+            ("inlined", "ssz_raw.readOffset"),
+            ("inlined", "ssz_raw.readOffset"),
+            ("inlined", "ssz_raw.readOffset"),
+            ("inlined", "ssz_raw.readOffset"),
+            ("inlined", "ssz_raw.decodeNewPayloadRequest"),
+            ("inlined", "ssz_raw.decodeExecutionWitness"),
+            ("inlined", "ssz_raw.decodeChainConfig"),
+            ("inlined", "ssz_raw.decodePublicKeys"),
+            ("reachableCleanupNoOp", "ssz_raw.RawExecutionWitness.deinit"),
+            ("reachableStdlib", "mem.Allocator.free__anon_1214"),
+            ("reachableStdlib", "mem.Allocator.allocBytesWithAlignment__anon_1331"),
+            ("reachableCleanupNoOp", "ssz_raw.RawNewPayloadRequest.deinit"),
+            ("emitted", "ssz_raw.decodeByteListList"),
+            ("emitted", "ssz_raw.requireCanonicalOffsets"),
+            ("emitted", "raw_decoder_root.allocatorAlloc"),
+            ("emitted", "memmove"),
+        ]
+        owners = [{
+            "id": "decodeRaw", "kind": "emitted", "qualified": "ssz_raw.decodeRaw",
+            "instructions": list(range(172)),
+        }]
+        read_offset_entries = (66868, 66884, 66920, 66976)
+        for index, (kind, qualified) in enumerate(rows):
+            owner = {
+                "id": f"boundary:{index}", "kind": kind, "qualified": qualified,
+                "instructions": [],
+            }
+            if qualified == "ssz_raw.readOffset":
+                offset_index = index - 2
+                owner["entryPc"] = read_offset_entries[offset_index]
+                owner["inlineStack"] = [{
+                    "callerQualified": "ssz_raw.decodeRaw", "line": 199 + offset_index,
+                    "column": 23,
+                }]
+            owners.append(owner)
+        return {
+            "owners": owners,
+            "dominatorParent": {f"boundary:{index}": "decodeRaw" for index in range(len(rows))},
+        }
+
+    def test_level4_displayed_boundaries_are_the_reviewed_inventory(self) -> None:
+        call_graph = self.level4_call_graph()
+        boundaries = machine_regions.level4_displayed_boundaries(call_graph, "decodeRaw")
+        self.assertEqual(len(boundaries), 18)
+        self.assertEqual(sum(row["qualified"] == "ssz_raw.readOffset" for row in boundaries), 4)
+        machine_regions.validate_level4_displayed_boundaries(call_graph, "decodeRaw")
+
+    def test_level4_displayed_boundary_corruption_is_rejected(self) -> None:
+        call_graph = self.level4_call_graph()
+        call_graph["dominatorParent"]["boundary:7"] = "somewhere-else"
+        with self.assertRaisesRegex(ValueError, "Level 4 displayed boundary inventory"):
+            machine_regions.validate_level4_displayed_boundaries(call_graph, "decodeRaw")
+
     def test_llvm_disassembly_parser(self) -> None:
         parsed = machine_regions.parse_disassembly(
             """

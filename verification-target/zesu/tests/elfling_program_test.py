@@ -4,6 +4,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parents[3] / "tools"))
 from generate_elfling_program import (
+    excluded_function_instance_lean_name,
+    excluded_function_instance_lean_names,
     function_instance_lean_name,
     function_instance_lean_names,
     select_entry_formal_binding_witnesses,
@@ -54,6 +56,19 @@ class FunctionInstanceLeanNameTests(unittest.TestCase):
         duplicate = instance("ssz_raw.readU64")
         with self.assertRaisesRegex(SystemExit, "LEAN NAME COLLISION"):
             function_instance_lean_names([duplicate, duplicate])
+
+
+class ExcludedFunctionInstanceLeanNameTests(unittest.TestCase):
+    def test_name_uses_excluded_source_identity(self):
+        self.assertEqual(
+            excluded_function_instance_lean_name({"qualified": "ssz_raw.RawExecutionWitness.deinit"}),
+            "excludedFunctionInstance_ssz_raw_RawExecutionWitness_deinit",
+        )
+
+    def test_collisions_fail_generation(self):
+        duplicate = {"qualified": "ssz_raw.RawExecutionWitness.deinit"}
+        with self.assertRaisesRegex(SystemExit, "EXCLUDED LEAN NAME COLLISION"):
+            excluded_function_instance_lean_names([duplicate, duplicate])
 
 
 class ParamlessEntryLocalWitnessTests(unittest.TestCase):

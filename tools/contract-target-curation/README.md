@@ -19,8 +19,11 @@ function name at that depth; its copy button produces a ` | `-separated list.
 The graph is an exclusive instruction-ownership hierarchy. A child owns its displayed machine
 instructions; space in a parent not covered by children is inline machine logic owned by that parent.
 The synthetic `binary` and `program` rows orient the graph but do not count as proof levels. Visible
-labels therefore start at Level 1 for the runner's immediate calls; Level N+1 contains exactly the
-immediate selected calls used to resolve a Level N function.
+labels therefore start at Level 1 for the runner's immediate calls. The display parent is the
+immediate dominator in the production call DAG, while the details pane lists actual calls and the
+generated `FunctionInstance.children` relation preserves source-inline parents. A displayed row is
+therefore not, by itself, permission to treat an excluded region or a dominated descendant as a
+function-contract child.
 
 `proof-progress.json` records reviewed formal progress by unique source-qualified function name.
 Green means an unconditional proof. Green/yellow stripes mean the function's owned machine
@@ -50,8 +53,10 @@ identity. `value` is the frame subtree's instruction count; `self` is the inline
 displayed children are removed.
 
 Depth is the proof-refinement level: Level 1 is the runner's immediate calls, Level 2 resolves
-`zesu_decode_raw`, Level 3 resolves its inlined `decode`, and Level 4 resolves emitted `decodeRaw`.
-Generation rejects drift at those four reviewed boundaries.
+`zesu_decode_raw`, Level 3 resolves its inlined `decode`, and Level 4 displays the local boundaries
+under emitted `decodeRaw`. The production Level 4 inventory has 172 parent-owned PCs, fourteen
+`FunctionInstance` rows, and four separately typed excluded rows; its four direct `readOffset`
+occurrences remain distinct. Generation rejects drift at those reviewed boundaries.
 
 The vendored D3 files are MIT-licensed and keep the review UI offline. Generated data is not committed;
 `.#machine-regions-ui` packages fresh `flame.json` and `machine-regions.json` files with the viewer.
