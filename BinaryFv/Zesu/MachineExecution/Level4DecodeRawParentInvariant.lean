@@ -131,4 +131,23 @@ theorem not_level4DecodeRawParentInvariant_of_clobbered_return_link
   rintro ⟨-, -, -, saved, -, -, -, -, -, -, -⟩
   exact clobbered saved.1
 
+/-- No arbitrary mutation of the thirteen-word raw save area can be passed off as dynamic-fragment
+progress: `PreservedTo` requires the complete concrete prologue frame, not just a register frame. -/
+def Level4DecodeRawClobbersSavedFrame (state : State) (stack : Nat)
+    (savedRa savedS0 savedS1 savedS2 savedS3 savedS4 savedS5 savedS6 savedS7 savedS8 savedS9 savedS10
+      savedS11 : BitVec 64) : Prop :=
+  ¬ Level4DecodeRawPrologueSavedFrame state stack savedRa savedS0 savedS1 savedS2 savedS3 savedS4
+    savedS5 savedS6 savedS7 savedS8 savedS9 savedS10 savedS11
+
+theorem not_level4DecodeRawParentInvariant_of_clobbered_saved_frame
+    {state origin : State} {margs : DecoderMachineArgs} {stack : Nat}
+    {savedRa savedS0 savedS1 savedS2 savedS3 savedS4 savedS5 savedS6 savedS7 savedS8 savedS9 savedS10
+      savedS11 : BitVec 64}
+    (clobbered : Level4DecodeRawClobbersSavedFrame state stack savedRa savedS0 savedS1 savedS2 savedS3
+      savedS4 savedS5 savedS6 savedS7 savedS8 savedS9 savedS10 savedS11) :
+    ¬ Level4DecodeRawParentInvariant margs origin state stack savedRa savedS0 savedS1 savedS2 savedS3
+      savedS4 savedS5 savedS6 savedS7 savedS8 savedS9 savedS10 savedS11 := by
+  rintro ⟨-, -, -, saved, -, -, -, -, -, -, -⟩
+  exact clobbered saved
+
 end BinaryFv.Zesu.MachineExecution
