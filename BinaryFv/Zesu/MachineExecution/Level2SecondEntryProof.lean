@@ -129,6 +129,16 @@ theorem first_invalid_to_retry_decode_entry
     (branchWrites.get x18 (by decide)).trans stateGlobals
   have secondGlobals : secondState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
     (secondWrites.get x18 (by decide)).trans branchGlobals
+  have initialRawFrame : DecodeRawEntryFrame before := by
+    simpa [DecodeInlineRawCallFrame, phase] using pre.rawCallFrame
+  have secondCalleeSaved : Agree decodeRawCalleeSaved before secondState :=
+    frame.callerFrame.trans
+      ((branchWrites.agree decodeRawCalleeSaved_disjoint).trans
+        (secondWrites.agree (decodeRawCalleeSaved_disjoint.union
+          (RegSet.Disjoint.only (by simp [decodeRawCalleeSaved])))))
+  have secondRawFrame : DecodeRawEntryFrame secondState :=
+    DecodeRawEntryFrame.of_calleeSaved_agree initialRawFrame secondCalleeSaved secondStack
+      secondInput secondLength secondGlobals
   have secondMemory : DecodedValue.MemoryBytes secondState args.inputBase args.bytes := by
     apply inputMemory.of_mem_eq
     simp [secondState, branchState, afterRegisterWrite_mem, wrapperAfterDecodeFirstErrorBranch,
@@ -160,6 +170,7 @@ theorem first_invalid_to_retry_decode_entry
       inputValue := by simpa [secondArgs] using secondInput
       lengthValue := by simpa [secondArgs] using secondLength
       globalsValue := by simpa [secondArgs] using secondGlobals
+      rawCallFrame := by simpa [DecodeInlineRawCallFrame, secondArgs] using secondRawFrame
       inputMemory := by simpa [secondArgs] using secondMemory
       code := secondCode
       inputFits := pre.inputFits
@@ -268,6 +279,7 @@ theorem wrapper_second_propagate_decode_entry
       inputValue := by simpa [secondArgs] using secondInput
       lengthValue := by simpa [secondArgs] using secondLength
       globalsValue := by simpa [secondArgs] using secondGlobals
+      rawCallFrame := by simp [DecodeInlineRawCallFrame, secondArgs]
       inputMemory := by simpa [secondArgs] using secondMemory
       code := secondCode
       inputFits := inputFits

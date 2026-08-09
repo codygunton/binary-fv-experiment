@@ -104,16 +104,8 @@ theorem decodeInline_retry_short_reaches_post_save_area (fromStep : Nat) (args :
   have childUsedPayload := Classical.choose_spec childRun
   let after := Classical.choose childUsedPayload
   have childPayload := Classical.choose_spec childUsedPayload
-  have childBound := childPayload.1
-  have parentPrefix := childPayload.2.1
-  have childPost := childPayload.2.2.1
-  have agree := childPayload.2.2.2.1
-  have counter := childPayload.2.2.2.2.1
-  have childStack := childPayload.2.2.2.2.2.1
-  have childGlobals := childPayload.2.2.2.2.2.2.2.2.1
-  have childStatus := childPayload.2.2.2.2.2.2.2.2.2.1
-  have code := childPayload.2.2.2.2.2.2.2.2.2.2.1
-  have memory := childPayload.2.2.2.2.2.2.2.2.2.2.2
+  rcases childPayload with ⟨childBound, parentPrefix, childPost, agree, callerFrame, counter,
+    childStack, _childInput, _childLength, childGlobals, childStatus, code, memory⟩
   have prefixFalse : Contracts.meaningHasExactErePrefix args.bytes = false :=
     meaningHasExactErePrefix_false_of_size_lt_four args.bytes short
   have atExit : after.regs.get? PC = some (BitVec.ofNat 64 0x10394) := by
@@ -130,7 +122,7 @@ theorem decodeInline_retry_short_reaches_post_save_area (fromStep : Nat) (args :
   have resultInvalid : Contracts.meaningDecode args.bytes = .error .invalidSsz := by
     simp [Contracts.meaningDecode, rawInvalid, prefixFalse]
   refine ⟨4 + childUsed, after, ?_, ?_, ?_,
-    ⟨agree, counter, code, childGlobals.trans pre.globalsValue.symm⟩, ?_, ?_, ?_, ?_, ?_⟩
+    ⟨agree, callerFrame, counter, code, childGlobals.trans pre.globalsValue.symm⟩, ?_, ?_, ?_, ?_, ?_⟩
   · unfold decodeInlineStepBound
     have childBound' : childUsed ≤ 12 := by
       simpa [childUsed, hasExactErePrefixInlineStepBound] using childBound
@@ -173,7 +165,7 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post_save_area (fromStep : Na
       DecodedValue.MemoryBytes after args.inputBase args.bytes ∧
       used ≤ 30 := by
   obtain ⟨lengthUsed, prefixUsed, beforeOr, lengthBound, prefixBound, parentPrefix, prefixPost,
-    beforeAgree, beforeCounter, _beforeStack, inputPointer, inputLength, beforeGlobals,
+    beforeAgree, beforeCallerFrame, beforeCounter, _beforeStack, inputPointer, inputLength, beforeGlobals,
     beforeStatus, beforeCode, beforeMemory⟩ :=
     decodeInline_retry_uses_prefix_bytes hasExactErePrefixInlineContract_proved fromStep args state
       pre phase fourBytes
@@ -206,6 +198,11 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post_save_area (fromStep : Na
   have resultInvalid : Contracts.meaningDecode args.bytes = .error .invalidSsz := by
     simp [Contracts.meaningDecode, rawInvalid, notExact]
   have afterAgree : Agree decoderPreserved state after := beforeAgree.trans orPreserves
+  have afterCallerFrame : Agree decodeRawCalleeSaved state after :=
+    beforeCallerFrame.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
   have afterCode : Contracts.canonicalContractParams.env.CodeIntact after := by
     simpa [after, afterRegisterWrite_mem] using beforeCode
   have orWrites : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x10)) beforeOr after :=
@@ -220,7 +217,7 @@ theorem decodeInline_retry_prefix_mismatch_reaches_post_save_area (fromStep : Na
   have afterStatus : after.regs.get? x11 = some (BitVec.ofNat 64 2) :=
     (orWrites.get x11 (by decide)).trans beforeStatus
   refine ⟨6 + lengthUsed + prefixUsed, after, ?_, ?_, ?_,
-    ⟨afterAgree, orCounter, afterCode, afterGlobals.trans pre.globalsValue.symm⟩, ?_, ?_,
+    ⟨afterAgree, afterCallerFrame, orCounter, afterCode, afterGlobals.trans pre.globalsValue.symm⟩, ?_, ?_,
     afterStack, afterStatus, ?_⟩
   · unfold decodeInlineStepBound
     have prefixBoundValue : prefixUsed ≤ 12 := by

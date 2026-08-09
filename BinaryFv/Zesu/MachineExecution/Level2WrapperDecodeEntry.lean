@@ -103,6 +103,42 @@ private theorem firstRawOwnedRegion_outside_decoderGlobals (args : DecodeInlineA
   · exact (canonicalStack_disjoint_from_globals address globalBelow)
       (by simpa [canonicalContractParams, canonicalEnvironment] using stack)
 
+/-- The wrapper's concrete setup reaches the inline `decode` boundary with every value required by
+the emitted `decodeRaw` call. The `s3`–`s11` equations come from their dedicated frame agreement;
+`sp`, `s0`, `s1`, and `s2` are the wrapper values materialized by the setup itself. -/
+private theorem decodeRawEntryFrame_of_wrapper {args : ZesuDecodeRawArgs} {stackBase : Nat}
+    {entry state : State} (machine : ZesuDecodeRawMachinePre args stackBase entry)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 stackBase))
+    (input : state.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase))
+    (length : state.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size))
+    (globals : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020))
+    (platform : Agree platformPreserved entry state)
+    (calleeSaved : Agree decodeRawCalleeSaved entry state) :
+    DecodeRawEntryFrame state := by
+  obtain ⟨savedS3, savedS3AtEntry⟩ := machine.savedS3AtEntry
+  obtain ⟨savedS4, savedS4AtEntry⟩ := machine.savedS4AtEntry
+  obtain ⟨savedS5, savedS5AtEntry⟩ := machine.savedS5AtEntry
+  obtain ⟨savedS6, savedS6AtEntry⟩ := machine.savedS6AtEntry
+  obtain ⟨savedS7, savedS7AtEntry⟩ := machine.savedS7AtEntry
+  obtain ⟨savedS8, savedS8AtEntry⟩ := machine.savedS8AtEntry
+  obtain ⟨savedS9, savedS9AtEntry⟩ := machine.savedS9AtEntry
+  obtain ⟨savedS10, savedS10AtEntry⟩ := machine.savedS10AtEntry
+  obtain ⟨savedS11, savedS11AtEntry⟩ := machine.savedS11AtEntry
+  refine ⟨BitVec.ofNat 64 stackBase, BitVec.ofNat 64 args.inputBase,
+    BitVec.ofNat 64 args.bytes.size, BitVec.ofNat 64 0x4215020, savedS3, savedS4, savedS5,
+    savedS6, savedS7, savedS8, savedS9, savedS10, savedS11, stack,
+    input, length, globals, ?_,
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · exact (calleeSaved x19 (by simp [decodeRawCalleeSaved])).trans savedS3AtEntry
+  · exact (calleeSaved x20 (by simp [decodeRawCalleeSaved])).trans savedS4AtEntry
+  · exact (calleeSaved x21 (by simp [decodeRawCalleeSaved])).trans savedS5AtEntry
+  · exact (calleeSaved x22 (by simp [decodeRawCalleeSaved])).trans savedS6AtEntry
+  · exact (calleeSaved x23 (by simp [decodeRawCalleeSaved])).trans savedS7AtEntry
+  · exact (calleeSaved x24 (by simp [decodeRawCalleeSaved])).trans savedS8AtEntry
+  · exact (calleeSaved x25 (by simp [decodeRawCalleeSaved])).trans savedS9AtEntry
+  · exact (calleeSaved x26 (by simp [decodeRawCalleeSaved])).trans savedS10AtEntry
+  · exact (calleeSaved x27 (by simp [decodeRawCalleeSaved])).trans savedS11AtEntry
+
 /-- The nineteen-step wrapper prefix establishes the complete first-phase `decode` entry and then
 visibly consumes the Level 3 conditional theorem. It retains that theorem's bound, scoped trace,
 and semantic postcondition alongside the Level 2 child summary, so the wrapper proof can dispatch
@@ -162,8 +198,8 @@ theorem wrapper_reaches_decode_first_contract
             ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
               entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
               WrapperSavedRegisterFrame stackBase link s0 s1 s2 atDecode := by
-  obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, globals, attempted, stored, inputMemory, agree, retired,
-    code, savedFrame⟩ :=
+  obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, globals, attempted, stored, inputMemory,
+    platform, agree, calleeSaved, retired, code, savedFrame⟩ :=
     wrapper_through_allocator_setup allocator fromStep args stackBase entry source machine
   let decodeArgs : DecodeInlineArgs :=
     { phase := .first
@@ -180,6 +216,9 @@ theorem wrapper_reaches_decode_first_contract
       inputValue := by simpa [decodeArgs] using savedInput
       lengthValue := by simpa [decodeArgs] using length
       globalsValue := globals
+      rawCallFrame := by
+        simpa [DecodeInlineRawCallFrame, DecodeInlineArgs.phase] using
+          decodeRawEntryFrame_of_wrapper machine stack savedInput length globals platform calleeSaved
       inputMemory := by simpa [decodeArgs] using inputMemory
       code := code
       inputFits := machine.inputFits
@@ -292,8 +331,8 @@ theorem wrapper_reaches_decode_first_invalid_contract
             ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
               entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
               WrapperSavedRegisterFrame stackBase link s0 s1 s2 atDecode := by
-  obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, globals, attempted, storedAtDecode, inputMemory, agree, retired,
-    code, savedFrame⟩ :=
+  obtain ⟨atDecode, trace, confined, pc, stack, savedInput, length, globals, attempted, storedAtDecode,
+    inputMemory, platform, agree, calleeSaved, retired, code, savedFrame⟩ :=
     wrapper_through_allocator_setup allocator fromStep args stackBase entry source machine
   let decodeArgs : DecodeInlineArgs :=
     { phase := .first, stackBase := stackBase, inputBase := args.inputBase, bytes := args.bytes }
@@ -307,6 +346,9 @@ theorem wrapper_reaches_decode_first_invalid_contract
       inputValue := by simpa [decodeArgs] using savedInput
       lengthValue := by simpa [decodeArgs] using length
       globalsValue := globals
+      rawCallFrame := by
+        simpa [DecodeInlineRawCallFrame, DecodeInlineArgs.phase] using
+          decodeRawEntryFrame_of_wrapper machine stack savedInput length globals platform calleeSaved
       inputMemory := by simpa [decodeArgs] using inputMemory
       code := code
       inputFits := machine.inputFits

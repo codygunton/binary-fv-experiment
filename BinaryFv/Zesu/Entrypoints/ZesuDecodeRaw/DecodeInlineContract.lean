@@ -280,6 +280,69 @@ abbrev DecodeInlineMachinePre (args : DecodeInlineArgs) (state : State) : Prop :
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
     args.machineArgs state
 
+/-- The wrapper values live across the emitted `decodeRaw` child which are not part of the
+platform register frame. -/
+def decodeRawCalleeSaved (register : Register) : Prop :=
+  register = x19 ∨ register = x20 ∨ register = x21 ∨ register = x22 ∨ register = x23 ∨
+    register = x24 ∨ register = x25 ∨ register = x26 ∨ register = x27
+
+/-- The retirement bookkeeping does not touch the wrapper values live across `decodeRaw`. -/
+theorem decodeRawCalleeSaved_disjoint : RegSet.Disjoint decodeRawCalleeSaved stepBookkeeping := by
+  rintro _ (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;> decide
+
+/-- The optimized entry shape at the emitted `decodeRaw` boundary. These are live wrapper values,
+not a source-level RISC-V ABI premise. -/
+def DecodeRawEntryFrame (state : State) : Prop :=
+  ∃ stackPointer savedS0 savedS1 savedS2 savedS3 savedS4 savedS5 savedS6 savedS7 savedS8
+      savedS9 savedS10 savedS11,
+    state.regs.get? x2 = some stackPointer ∧
+    state.regs.get? x8 = some savedS0 ∧
+    state.regs.get? x9 = some savedS1 ∧
+    state.regs.get? x18 = some savedS2 ∧
+    state.regs.get? x19 = some savedS3 ∧
+    state.regs.get? x20 = some savedS4 ∧
+    state.regs.get? x21 = some savedS5 ∧
+    state.regs.get? x22 = some savedS6 ∧
+    state.regs.get? x23 = some savedS7 ∧
+    state.regs.get? x24 = some savedS8 ∧
+    state.regs.get? x25 = some savedS9 ∧
+    state.regs.get? x26 = some savedS10 ∧
+    state.regs.get? x27 = some savedS11
+
+/-- The concrete raw-call frame is needed only on inline phases that execute an emitted
+`decodeRaw` call.  The propagated-error phase exits before either call site. -/
+def DecodeInlineRawCallFrame (args : DecodeInlineArgs) (state : State) : Prop :=
+  match args.phase with
+  | .first | .retryAfterInvalidSsz => DecodeRawEntryFrame state
+  | .propagateError _ => True
+
+/-- Transport the stable `s3`–`s11` part of an emitted `decodeRaw` entry frame while the wrapper
+sets its concrete call arguments and link. -/
+theorem DecodeRawEntryFrame.of_calleeSaved_agree {before after : State}
+    (frame : DecodeRawEntryFrame before)
+    (calleeSaved : Agree decodeRawCalleeSaved before after)
+    {stackPointer savedS0 savedS1 savedS2 : BitVec 64}
+    (stack : after.regs.get? x2 = some stackPointer)
+    (savedS0AtEntry : after.regs.get? x8 = some savedS0)
+    (savedS1AtEntry : after.regs.get? x9 = some savedS1)
+    (savedS2AtEntry : after.regs.get? x18 = some savedS2) :
+    DecodeRawEntryFrame after := by
+  rcases frame with ⟨_, _, _, _, savedS3, savedS4, savedS5, savedS6, savedS7, savedS8,
+    savedS9, savedS10, savedS11, _, _, _, _, savedS3Before, savedS4Before, savedS5Before,
+    savedS6Before, savedS7Before, savedS8Before, savedS9Before, savedS10Before, savedS11Before⟩
+  exact ⟨stackPointer, savedS0, savedS1, savedS2, savedS3, savedS4, savedS5, savedS6,
+    savedS7, savedS8, savedS9, savedS10, savedS11, stack, savedS0AtEntry,
+    savedS1AtEntry, savedS2AtEntry,
+    (calleeSaved x19 (by simp [decodeRawCalleeSaved])).trans savedS3Before,
+    (calleeSaved x20 (by simp [decodeRawCalleeSaved])).trans savedS4Before,
+    (calleeSaved x21 (by simp [decodeRawCalleeSaved])).trans savedS5Before,
+    (calleeSaved x22 (by simp [decodeRawCalleeSaved])).trans savedS6Before,
+    (calleeSaved x23 (by simp [decodeRawCalleeSaved])).trans savedS7Before,
+    (calleeSaved x24 (by simp [decodeRawCalleeSaved])).trans savedS8Before,
+    (calleeSaved x25 (by simp [decodeRawCalleeSaved])).trans savedS9Before,
+    (calleeSaved x26 (by simp [decodeRawCalleeSaved])).trans savedS10Before,
+    (calleeSaved x27 (by simp [decodeRawCalleeSaved])).trans savedS11Before⟩
+
 /-- Machine and source facts at either real inline entry. `s0`, `s1`, `s2`, and `sp` are live
 values of the surrounding wrapper, not an invented callee ABI. -/
 structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
@@ -288,6 +351,7 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   inputValue : state.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase)
   lengthValue : state.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size)
   globalsValue : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
+  rawCallFrame : DecodeInlineRawCallFrame args state
   inputMemory : MemoryBytes state args.inputBase args.bytes
   code : canonicalContractParams.env.CodeIntact state
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64
@@ -454,6 +518,7 @@ execution, not premises supplied by the wrapper. They are exactly the facts need
 outgoing instruction owned by Level 2. -/
 structure DecodeInlineMachinePost (before after : State) : Prop where
   agree : Agree decoderPreserved before after
+  callerFrame : Agree decodeRawCalleeSaved before after
   retiredCounter : RetiredCounterPresent after
   code : canonicalContractParams.env.CodeIntact after
   globalsValue : after.regs.get? x18 = before.regs.get? x18

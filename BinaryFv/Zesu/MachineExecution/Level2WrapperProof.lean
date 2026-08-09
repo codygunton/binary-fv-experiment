@@ -523,7 +523,8 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
         entry.mem.get? (canonicalContractParams.globals.storedResult +
           canonicalContractParams.globals.storedResultObject.discriminantOffset) ∧
       DecodedValue.MemoryBytes final args.inputBase args.bytes ∧
-      Agree platformPreserved entry final ∧ RetiredCounterPresent final ∧
+      Agree platformPreserved entry final ∧ Agree decodeRawCalleeSaved entry final ∧
+      RetiredCounterPresent final ∧
       canonicalContractParams.env.CodeIntact final ∧
       ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
         entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
@@ -560,10 +561,18 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
       (by simp [platformPreserved]) (by simp [platformPreserved])
       (by simp [platformPreserved]) (by simp [platformPreserved])
       (by simp [platformPreserved])
+  have frameCalleeSavedAgree : Agree decodeRawCalleeSaved entry frame := by
+    exact afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved])
   have linkAgree : Agree decoderPreserved entry afterLink :=
     frameAgree.trans (wrapperAfterDwordStore_agree frame _ _ _ _)
   have linkPlatformAgree : Agree platformPreserved entry afterLink :=
     framePlatformAgree.trans (wrapperAfterDwordStore_platformAgree frame _ _ _ _)
+  have linkCalleeSavedAgree : Agree decodeRawCalleeSaved entry afterLink :=
+    frameCalleeSavedAgree.trans
+      ((wrapperAfterDwordStore_writes frame _ _ _ _).agree decodeRawCalleeSaved_disjoint)
   have linkStack : afterLink.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) := by grind
   have linkPc : afterLink.regs.get? PC = some (BitVec.ofNat 64 0x102b8) := by
     simpa [afterLink] using wrapperAfterDwordStore_pc frame (BitVec.ofNat 64 0x102b4)
@@ -585,6 +594,9 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     linkAgree.trans (wrapperAfterDwordStore_agree afterLink _ _ _ _)
   have s0PlatformAgree : Agree platformPreserved entry afterS0 :=
     linkPlatformAgree.trans (wrapperAfterDwordStore_platformAgree afterLink _ _ _ _)
+  have s0CalleeSavedAgree : Agree decodeRawCalleeSaved entry afterS0 :=
+    linkCalleeSavedAgree.trans
+      ((wrapperAfterDwordStore_writes afterLink _ _ _ _).agree decodeRawCalleeSaved_disjoint)
   have s0Stack : afterS0.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) := by grind
   have s0Pc : afterS0.regs.get? PC = some (BitVec.ofNat 64 0x102bc) := by
     simpa [afterS0] using wrapperAfterDwordStore_pc afterLink (BitVec.ofNat 64 0x102b8)
@@ -605,6 +617,9 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     s0Agree.trans (wrapperAfterDwordStore_agree afterS0 _ _ _ _)
   have s1PlatformAgree : Agree platformPreserved entry afterS1 :=
     s0PlatformAgree.trans (wrapperAfterDwordStore_platformAgree afterS0 _ _ _ _)
+  have s1CalleeSavedAgree : Agree decodeRawCalleeSaved entry afterS1 :=
+    s0CalleeSavedAgree.trans
+      ((wrapperAfterDwordStore_writes afterS0 _ _ _ _).agree decodeRawCalleeSaved_disjoint)
   have s1Stack : afterS1.regs.get? x2 = some (BitVec.ofNat 64 (stackBase + 0x230)) := by grind
   have s1Pc : afterS1.regs.get? PC = some (BitVec.ofNat 64 0x102c0) := by
     simpa [afterS1] using wrapperAfterDwordStore_pc afterS0 (BitVec.ofNat 64 0x102bc)
@@ -625,6 +640,9 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
     s1Agree.trans (wrapperAfterDwordStore_agree afterS1 _ _ _ _)
   have finalPlatformAgree : Agree platformPreserved entry final :=
     s1PlatformAgree.trans (wrapperAfterDwordStore_platformAgree afterS1 _ _ _ _)
+  have finalCalleeSavedAgree : Agree decodeRawCalleeSaved entry final :=
+    s1CalleeSavedAgree.trans
+      ((wrapperAfterDwordStore_writes afterS1 _ _ _ _).agree decodeRawCalleeSaved_disjoint)
   -- Three registers, across up to five steps, in one `grind`: `x2` back to the frame decrement
   -- that set it, `x10` and `x11` all the way back to `entry`.
   obtain ⟨finalStack, finalInput, finalLength⟩ :
@@ -757,7 +775,7 @@ theorem wrapper_entry_save_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs)
   have confined : WrapperConfinedPrefix fromStep 5 entry final := by
     confined_steps [prefix0, prefix1, prefix2, prefix3, prefix4]
   refine ⟨final, ?_, confined, finalPc, finalStack, finalInput, finalLength, finalAttempted,
-    finalStored, finalInputMemory, finalPlatformAgree, finalRetired, finalCode,
+    finalStored, finalInputMemory, finalPlatformAgree, finalCalleeSavedAgree, finalRetired, finalCode,
     ⟨link, s0, s1, s2, linkAtEntry, savedS0, savedS1, savedS2, finalSavedFrame⟩⟩
   refine Trace.step fromStep 4 entry frame final (by simpa [frame] using frameRun) ?_
   refine Trace.step (fromStep + 1) 3 frame afterLink final
@@ -815,13 +833,15 @@ theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
         entry.mem.get? (canonicalContractParams.globals.storedResult +
           canonicalContractParams.globals.storedResultObject.discriminantOffset) ∧
       DecodedValue.MemoryBytes final args.inputBase args.bytes ∧
-      Agree platformPreserved entry final ∧ RetiredCounterPresent final ∧
+      Agree platformPreserved entry final ∧ Agree decodeRawCalleeSaved entry final ∧
+      RetiredCounterPresent final ∧
       canonicalContractParams.env.CodeIntact final ∧
       ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
         entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
         WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨saved, savedTrace, savedPrefix, savedPc, savedStack, savedInput, savedLength,
-    savedAttempted, savedStored, savedInputMemory, savedAgree, savedRetired, savedCode, savedFrame⟩ :=
+    savedAttempted, savedStored, savedInputMemory, savedAgree, savedCalleeSavedAgree, savedRetired,
+    savedCode, savedFrame⟩ :=
     wrapper_entry_save_prefix fromStep args stackBase entry source machine
   obtain ⟨retired, run, finalStack⟩ := wrapper_final_frame_decrement_step
     (fromStep + 5) args stackBase entry saved machine savedAgree savedRetired savedCode savedPc savedStack
@@ -847,6 +867,11 @@ theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     simpa [final, afterRegisterWrite_mem] using savedInputMemory
   have finalAgree : Agree platformPreserved entry final :=
     savedAgree.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
+  have finalCalleeSavedAgree : Agree decodeRawCalleeSaved entry final :=
+    savedCalleeSavedAgree.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
   have finalCode : canonicalContractParams.env.CodeIntact final := by
     simpa [final, afterRegisterWrite_mem] using savedCode
   have finalRetired := afterRegisterWrite_retired_present saved (BitVec.ofNat 64 0x102c4)
@@ -859,7 +884,8 @@ theorem wrapper_complete_frame_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
   have confined : WrapperConfinedPrefix fromStep 6 entry final := by
     confined_steps [savedPrefix, finalStep]
   refine ⟨final, ?_, confined, finalPc, by simpa [final] using finalStack, finalInput, finalLength,
-    finalAttempted, finalStored, finalInputMemory, finalAgree, finalRetired, finalCode,
+    finalAttempted, finalStored, finalInputMemory, finalAgree, finalCalleeSavedAgree, finalRetired,
+    finalCode,
     ⟨link, s0, s1, s2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
   exact Trace.snoc savedTrace (by simpa [final] using run)
 
@@ -1115,13 +1141,14 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
         entry.mem.get? (canonicalContractParams.globals.storedResult +
           canonicalContractParams.globals.storedResultObject.discriminantOffset) ∧
       DecodedValue.MemoryBytes final args.inputBase args.bytes ∧
-      Agree platformPreserved entry final ∧ RetiredCounterPresent final ∧
+      Agree platformPreserved entry final ∧ Agree decodeRawCalleeSaved entry final ∧
+      RetiredCounterPresent final ∧
       canonicalContractParams.env.CodeIntact final ∧
       ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
         entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
         WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨s6, trace6, prefix6, pc6, stack6, input6, length6, attempted6, stored6, inputMemory6,
-    agree6, retired6, code6, frame6⟩ :=
+    agree6, calleeSaved6, retired6, code6, frame6⟩ :=
     wrapper_complete_frame_prefix fromStep args stackBase entry source machine
   obtain ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry,
     frame6⟩ := frame6
@@ -1137,6 +1164,11 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
       ((RegSet.Disjoint.only (by simp [platformPreserved])).union
         ((RegSet.Disjoint.only (by simp [platformPreserved])).union
           (RegSet.Disjoint.only (by simp [platformPreserved]))))
+  have calleeSavedDisjoint : RegSet.Disjoint decodeRawCalleeSaved wrapperFreshPrologueWrites :=
+    decodeRawCalleeSaved_disjoint.union
+      ((RegSet.Disjoint.only (by simp [decodeRawCalleeSaved])).union
+        ((RegSet.Disjoint.only (by simp [decodeRawCalleeSaved])).union
+          (RegSet.Disjoint.only (by simp [decodeRawCalleeSaved]))))
   -- `mv s1, a1` at `0x102c8`.
   obtain ⟨_, seg⟩ :=
     (Seg.nil
@@ -1200,7 +1232,7 @@ theorem wrapper_fresh_prologue_prefix (fromStep : Nat) (args : ZesuDecodeRawArgs
     by rw [memory]; exact fresh6,
     by rw [memory]; exact stored6,
     inputMemory6.of_mem_eq (fun _ _ => by rw [memory]),
-    agree6.trans (seg.agree disjoint), seg.retired,
+    agree6.trans (seg.agree disjoint), calleeSaved6.trans (seg.agree calleeSavedDisjoint), seg.retired,
     codeIntact_of_mem_eq memory code6,
     ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry,
       WrapperSavedRegisterFrame.of_mem_eq frame6 memory⟩⟩
@@ -1268,13 +1300,14 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
         entry.mem.get? (canonicalContractParams.globals.storedResult +
           canonicalContractParams.globals.storedResultObject.discriminantOffset) ∧
       DecodedValue.MemoryBytes final args.inputBase args.bytes ∧
-      Agree platformPreserved entry final ∧ RetiredCounterPresent final ∧
+      Agree platformPreserved entry final ∧ Agree decodeRawCalleeSaved entry final ∧
+      RetiredCounterPresent final ∧
       canonicalContractParams.env.CodeIntact final ∧
       ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
         entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
         WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨s11, trace11, prefix11, pc11, stack11, input11, length11, globals11, fresh11, stored11,
-    inputMemory11, agree11, retired11, code11, frame11⟩ :=
+    inputMemory11, agree11, calleeSaved11, retired11, code11, frame11⟩ :=
     wrapper_fresh_prologue_prefix fromStep args stackBase entry source machine
   obtain ⟨r12, run12⟩ := wrapper_save_input_step (fromStep + 11) args stackBase entry s11
     machine agree11 retired11 code11 pc11 input11
@@ -1318,6 +1351,16 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
     simpa [final, s12, afterRegisterWrite_mem] using inputMemory11
   have finalAgree : Agree platformPreserved entry final :=
     agree12.trans (afterRegisterWrite_agree (by simp [platformPreserved]))
+  have agree12CalleeSaved : Agree decodeRawCalleeSaved entry s12 :=
+    calleeSaved11.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
+  have finalCalleeSavedAgree : Agree decodeRawCalleeSaved entry final :=
+    agree12CalleeSaved.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
   have finalRetired := afterRegisterWrite_retired_present s12 (BitVec.ofNat 64 0x102ec) r13 x10
     (1#64)
   have finalCode : canonicalContractParams.env.CodeIntact final := by
@@ -1335,7 +1378,7 @@ theorem wrapper_to_allocator_entry_prefix (fromStep : Nat) (args : ZesuDecodeRaw
     confined_steps [prefix11, prefix12, prefix13]
   refine ⟨final, ?_, confined, finalPc, finalStack, finalSavedInput, finalLength, finalValue,
     finalGlobals, finalFresh, finalStored,
-    finalInputMemory, finalAgree, finalRetired, finalCode,
+    finalInputMemory, finalAgree, finalCalleeSavedAgree, finalRetired, finalCode,
     ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
   have trace12 := Trace.snoc trace11 (by simpa [s12] using run12)
   simpa [final] using Trace.snoc trace12 run13
@@ -1353,7 +1396,7 @@ theorem wrapper_reaches_allocator_first_segment
       Trace fromStep 13 entry atAllocator ∧
       Nonempty (AllocatorInlineTransfer (fromStep + 13) 0 atAllocator
         (allocatorAfterDataPointer atAllocator retired (BitVec.ofNat 64 0x4215020))) := by
-  obtain ⟨atAllocator, trace, -, pc, -, -, -, -, globals, -, -, -, agree, retired, code, -⟩ :=
+  obtain ⟨atAllocator, trace, -, pc, -, -, -, -, globals, -, -, -, agree, -, retired, code, -⟩ :=
     wrapper_to_allocator_entry_prefix fromStep args stackBase entry source machine
   have platform := decoderInstructionStepPlatform machine.machine
     (Agree.weaken (fun _ preserved => preserved.2) agree) retired code 0x102f0 pc
@@ -1389,13 +1432,15 @@ theorem wrapper_through_allocator_tag
         entry.mem.get? (canonicalContractParams.globals.storedResult +
           canonicalContractParams.globals.storedResultObject.discriminantOffset) ∧
       DecodedValue.MemoryBytes final args.inputBase args.bytes ∧
-      Agree decoderPreserved entry final ∧ RetiredCounterPresent final ∧
+      Agree platformPreserved entry final ∧ Agree decoderPreserved entry final ∧
+      Agree decodeRawCalleeSaved entry final ∧
+      RetiredCounterPresent final ∧
       canonicalContractParams.env.CodeIntact final ∧
       ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
         entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
         WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨atAllocator, trace13, prefix13, pc13, stack13, savedInput13, length13, data13,
-    globals13, -, stored13, inputMemory13, agree13, retired13, code13, frame13⟩ :=
+    globals13, -, stored13, inputMemory13, agree13, calleeSaved13, retired13, code13, frame13⟩ :=
     wrapper_to_allocator_entry_prefix fromStep args stackBase entry source machine
   have platform13 := decoderInstructionStepPlatform machine.machine
     (Agree.weaken (fun _ preserved => preserved.2) agree13) retired13 code13 0x102f0 pc13
@@ -1427,6 +1472,10 @@ theorem wrapper_through_allocator_tag
       afterFirst :=
     afterRegisterWrite_writes atAllocator (BitVec.ofNat 64 0x102f0) r14 x11
       (Sail.BitVec.addInt (BitVec.ofNat 64 0x4215020) 1)
+  have firstCalleeSavedAgree : Agree decodeRawCalleeSaved entry afterFirst :=
+    calleeSaved13.trans (wFirst.agree
+      (decodeRawCalleeSaved_disjoint.union
+        (RegSet.Disjoint.only (by simp [decodeRawCalleeSaved]))))
   obtain ⟨firstTarget, firstData⟩ :
       afterFirst.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) ∧
       afterFirst.regs.get? x10 = some (1#64) := by grind
@@ -1476,8 +1525,12 @@ theorem wrapper_through_allocator_tag
       afterFirst.mem.get? (args.inputBase + inputIndex)
     simp only [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, beq_iff_eq]
     rw [if_neg different]
+  have finalPlatformAgree : Agree platformPreserved entry final :=
+    agree13.trans (firstAgreePlatform.trans (wTag.agree platformPreserved_disjoint))
   have finalAgree := firstAgree.trans
     (wrapperAfterAllocatorTag_agree afterFirst r15 (BitVec.ofNat 64 0x4215020) (1#64))
+  have finalCalleeSavedAgree : Agree decodeRawCalleeSaved entry final :=
+    firstCalleeSavedAgree.trans (wTag.agree decodeRawCalleeSaved_disjoint)
   have finalRetired := wrapperAfterAllocatorTag_retired afterFirst r15
     (BitVec.ofNat 64 0x4215020) (1#64)
   have targetNotFile : Artifacts.programImage.readFileByte? 0x4215020 = none := by native_decide
@@ -1536,7 +1589,8 @@ theorem wrapper_through_allocator_tag
   have confined : WrapperConfinedPrefix fromStep 15 entry final := by
     confined_steps [prefix13, firstPrefix, tagPrefix]
   refine ⟨final, ?_, confined, finalPc, finalStack, finalSavedInput, finalLength, finalContext,
-    finalGlobals, finalAttempted, finalStored, finalInputMemory, finalAgree, finalRetired, finalCode,
+    finalGlobals, finalAttempted, finalStored, finalInputMemory, finalPlatformAgree, finalAgree,
+    finalCalleeSavedAgree, finalRetired, finalCode,
     ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry, s2AtEntry, finalFrame⟩⟩
   have trace14 := Trace.snoc trace13 firstStep
   simpa [final, Nat.add_assoc] using Trace.snoc trace14 tagStep
@@ -1700,7 +1754,9 @@ private structure WrapperSecondAllocatorPost (fromStep : Nat) (args : ZesuDecode
     atSecond.mem.get? (canonicalContractParams.globals.storedResult +
       canonicalContractParams.globals.storedResultObject.discriminantOffset)
   inputMemory : DecodedValue.MemoryBytes final args.inputBase args.bytes
+  platform : Agree platformPreserved entry final
   agree : Agree decoderPreserved entry final
+  calleeSaved : Agree decodeRawCalleeSaved entry final
   retired : RetiredCounterPresent final
   code : canonicalContractParams.env.CodeIntact final
   savedFrame : ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
@@ -1719,7 +1775,9 @@ private theorem wrapper_second_allocator_semantics
     (globals15 : atSecond.regs.get? x18 = some (BitVec.ofNat 64 0x4215020))
     (context15 : atSecond.regs.get? x11 = some (BitVec.ofNat 64 0x4215021))
     (inputMemory15 : DecodedValue.MemoryBytes atSecond args.inputBase args.bytes)
+    (platform15 : Agree platformPreserved entry atSecond)
     (agree15 : Agree decoderPreserved entry atSecond)
+    (calleeSaved15 : Agree decodeRawCalleeSaved entry atSecond)
     (retired15 : RetiredCounterPresent atSecond)
     (code15 : canonicalContractParams.env.CodeIntact atSecond)
     (frame15 : ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
@@ -1795,6 +1853,28 @@ private theorem wrapper_second_allocator_semantics
     Agree.weaken (fun _ preserved => preserved.2)
       (((pageAgree.trans addressAgree).trans contextAgree).trans functionAgree)
   have finalAgree : Agree decoderPreserved entry final := agree15.trans segmentAgree
+  have finalPlatform : Agree platformPreserved entry final :=
+    platform15.trans (((pageAgree.trans addressAgree).trans contextAgree).trans functionAgree)
+  have pageCalleeSavedAgree : Agree decodeRawCalleeSaved atSecond afterPage :=
+    afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved])
+  have addressCalleeSavedAgree : Agree decodeRawCalleeSaved afterPage afterAddress :=
+    afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved])
+  have contextCalleeSavedAgree : Agree decodeRawCalleeSaved afterAddress afterContext :=
+    (allocatorAfterContextStore_writes afterAddress contextRetired (BitVec.ofNat 64 stackBase)
+      (BitVec.ofNat 64 0x4215021)).agree decodeRawCalleeSaved_disjoint
+  have functionCalleeSavedAgree : Agree decodeRawCalleeSaved afterContext final :=
+    (allocatorAfterFunctionStore_writes afterContext functionRetired (BitVec.ofNat 64 stackBase)
+      (BitVec.ofNat 64 0x13f70)).agree decodeRawCalleeSaved_disjoint
+  have finalCalleeSaved : Agree decodeRawCalleeSaved entry final :=
+    calleeSaved15.trans
+      (((pageCalleeSavedAgree.trans addressCalleeSavedAgree).trans contextCalleeSavedAgree).trans
+        functionCalleeSavedAgree)
   have finalRetired : RetiredCounterPresent final :=
     tryStepControlFlowAfterRetired_retired_present _ _ functionRetired
   have pageAttempted : afterPage.mem.get? 0x4215020 = atSecond.mem.get? 0x4215020 := by
@@ -1931,7 +2011,9 @@ private theorem wrapper_second_allocator_semantics
       attempted := finalAttempted
       stored := finalStored
       inputMemory := finalInputMemory
+      platform := finalPlatform
       agree := finalAgree
+      calleeSaved := finalCalleeSaved
       retired := finalRetired
       code := finalCode
       savedFrame := ⟨link, savedS0, savedS1, savedS2, linkAtEntry, s0AtEntry, s1AtEntry,
@@ -1965,17 +2047,21 @@ theorem wrapper_through_allocator_setup
         entry.mem.get? (canonicalContractParams.globals.storedResult +
           canonicalContractParams.globals.storedResultObject.discriminantOffset) ∧
       DecodedValue.MemoryBytes final args.inputBase args.bytes ∧
-      Agree decoderPreserved entry final ∧ RetiredCounterPresent final ∧
+      Agree platformPreserved entry final ∧ Agree decoderPreserved entry final ∧
+      Agree decodeRawCalleeSaved entry final ∧
+      RetiredCounterPresent final ∧
       canonicalContractParams.env.CodeIntact final ∧
       ∃ link s0 s1 s2, entry.regs.get? x1 = some link ∧ entry.regs.get? x8 = some s0 ∧
         entry.regs.get? x9 = some s1 ∧ entry.regs.get? x18 = some s2 ∧
         WrapperSavedRegisterFrame stackBase link s0 s1 s2 final := by
   obtain ⟨atSecond, trace15, prefix15, pc15, stack15, savedInput15, length15, context15, globals15,
-    attempted15, _stored15, inputMemory15, agree15, retired15, code15, frame15⟩ :=
+    attempted15, _stored15, inputMemory15, platform15, agree15, calleeSaved15, retired15, code15,
+    frame15⟩ :=
     wrapper_through_allocator_tag allocator fromStep args stackBase entry source machine
   obtain ⟨post⟩ :=
     wrapper_second_allocator_semantics allocator fromStep args stackBase entry atSecond pc15
-      stack15 savedInput15 length15 globals15 context15 inputMemory15 agree15 retired15 code15 frame15 machine
+      stack15 savedInput15 length15 globals15 context15 inputMemory15 platform15 agree15 calleeSaved15
+        retired15 code15 frame15 machine
   let final := post.final
   have transfer := post.transfer
   have trace4 := allocator_second_trace_of_inlineTransfer (fromStep + 15) atSecond final transfer
@@ -1992,7 +2078,8 @@ theorem wrapper_through_allocator_setup
     confined_steps [prefix15, secondPrefix]
   exact ⟨final, by simpa [Nat.add_assoc] using complete, confined, post.pc, post.stack,
     post.savedInput, post.length, post.globals, post.attempted.trans attempted15,
-    post.stored.trans _stored15, post.inputMemory, post.agree, post.retired, post.code,
+    post.stored.trans _stored15, post.inputMemory, post.platform, post.agree, post.calleeSaved,
+    post.retired, post.code,
     post.savedFrame⟩
 
 /-- Package a failed first `decode` segment with its real checked outgoing edge. -/
