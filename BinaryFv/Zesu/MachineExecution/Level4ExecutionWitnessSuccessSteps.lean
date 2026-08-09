@@ -65,4 +65,36 @@ theorem level4_executionWitness_store_state_base {base state : State}
     (by decoder_decode) (by unfold BaseInstructionEncoding; decide) aligned
   exact ⟨stepRetired, by simpa [afterMemoryWrite, targetToNat] using run⟩
 
+/-- The second r7 descriptor write is the literal production `sd s5,0x588(sp)`. -/
+theorem level4_executionWitness_store_state_length {base state : State}
+    (machine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs base)
+    (agree : Agree decoderPreserved base state) (retired : RetiredCounterPresent state)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) (stepNo postStack : Nat)
+    {stateLength : BitVec 64}
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x12928))
+    (sp : state.regs.get? x2 = some (BitVec.ofNat 64 postStack))
+    (value : state.regs.get? x21 = some stateLength)
+    (targetEq : BitVec.ofNat 64 postStack + sign_extend (m := 64) 0x588#12 = BitVec.ofNat 64 (postStack + 0x588))
+    (fits : postStack + 0x588 < 2 ^ 64)
+    (allowed : DecoderAccessRange DecoderWritableByte (BitVec.ofNat 64 (postStack + 0x588)) 8)
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr (BitVec.ofNat 64 (postStack + 0x588))) 8 = true) :
+    ∃ stepRetired, Runs (try_step stepNo false) state
+      (afterMemoryWrite state (BitVec.ofNat 64 0x12928) stepRetired (postStack + 0x588)
+        (width := 8) stateLength) false := by
+  have targetToNat : (BitVec.ofNat 64 (postStack + 0x588)).toNat = postStack + 0x588 := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
+    exact fits
+  obtain ⟨stepRetired, run⟩ := decoderStoreDwordStep machine agree retired code stepNo
+    0x12928 0x23 0x34 0x51 0x59 0x588#12 21#5 2#5 (BitVec.ofNat 64 postStack) stateLength
+    (BitVec.ofNat 64 (postStack + 0x588)) atPc
+    (rX_x2_run _ _ (decoderExecuteState_get? sp))
+    (rX_x21_run _ _ (decoderExecuteState_get? value)) targetEq allowed
+    ⟨by
+      apply functionInstanceExecutionPcs_iff_ranges.mpr
+      apply RegionPcs.iff_inRanges.mpr
+      native_decide, by native_decide⟩
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide) (by decide)
+    (by decoder_decode) (by unfold BaseInstructionEncoding; decide) aligned
+  exact ⟨stepRetired, by simpa [afterMemoryWrite, targetToNat] using run⟩
+
 end BinaryFv.Zesu.MachineExecution
