@@ -317,6 +317,7 @@ structure Level4EntryEnvelopeHeaderSetupPre (margs : DecoderMachineArgs) (state 
   inputBase : state.regs.get? x12 = some (BitVec.ofNat 64 margs.inputBase)
   inputLength : state.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
   inputLengthFits : margs.bytes.size < 2 ^ 64
+  inputFits : margs.inputBase + margs.bytes.size ≤ 2 ^ 64
   inputAtLeastTwo : 2 ≤ margs.bytes.size
   link : BitVec 64
   linkValue : state.regs.get? x1 = some link
@@ -657,8 +658,10 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
     {setupFrom : Nat} {setupPre : Level4EntryEnvelopeHeaderSetupPre margs setupBefore}
     (frame : Level4DecodeRawParentFrame margs origin state)
     (setup : Level4EntryEnvelopeHeaderSetupHandoff setupFrom setupBefore state setupPre)
-    (firstByteZero : margs.bytes[0]'(by omega) = 0) (fromStep : Nat) :
+    (firstByteZero : margs.bytes[0]'(by have := setupPre.inputAtLeastTwo; omega) = 0)
+    (fromStep : Nat) :
     ∃ after, Level4EntryHeaderFirstTwoHandoff after fromStep frame := by
+  have inputAtLeastTwo := setupPre.inputAtLeastTwo
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
     stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
     decoderMachine, retired⟩
@@ -668,7 +671,7 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
     (level4_entry_header_first_two_owned (by simp [level4EntryHeaderFirstTwoPcs])) (by simp) x10
     (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat) (BitVec.ofNat 64 0x104c0)
     (level4_entry_header_first_lbu frame setup.pc setup.inputPointer setupPre.inputAtLeastTwo
-      setupPre.inputLengthFits fromStep)
+      setupPre.inputFits fromStep)
     (by decide) (by intro r h; exact Or.inl h) (by simp [level4EntryHeaderFirstTwoWrites])
     (by decide) (by decide) (by exact of_decide_eq_true rfl)
   subst afterRead
