@@ -905,6 +905,23 @@ def decodeByteListListInterface : Level4FunctionInstanceInterface ByteListListAr
   terminal := fun _ => functionInstanceExitPred functionInstance_ssz_raw_decodeByteListList
   stepBound := (contractByteListList canonicalContractParams.env).stepBound
 
+/- The emitted `ssz_raw.requireCanonicalOffsets` instance is the 16-instruction read-only loop
+at `0x13720` through `0x1375c`.  It changes only `a0` through `a5` and retirement bookkeeping;
+in particular it has no stack stores.  The generic source `LeafFrame` permits a callee stack frame,
+which is realizable for other compiled leaf instances but is too broad for this concrete region:
+`decodeRaw`'s saved epilogue frame lives in that same ambient stack region. -/
+def requireCanonicalOffsetsWrites : RegSet := fun r =>
+  stepBookkeeping r ∨ r = x10 ∨ r = x11 ∨ r = x12 ∨ r = x13 ∨ r = x14 ∨ r = x15
+
+/-- The concrete fi134 boundary strengthens the source-level `LeafFrame` with its actual
+register-only execution frame.  The equality rules out a clobber of the caller's saved raw-decoder
+frame; the literal write set lets its configured decoder premise cross the selected child. -/
+def requireCanonicalOffsetsExit (args : CanonicalOffsetsArgs)
+    (result : Except Contracts.DecodeError Unit) (before after : State) : Prop :=
+  (contractRequireCanonicalOffsets canonicalContractParams.env).post args result before after ∧
+    after.mem = before.mem ∧ WritesOnlyRegs requireCanonicalOffsetsWrites before after ∧
+    RetiredCounterPresent after
+
 def requireCanonicalOffsetsInterface : Level4FunctionInstanceInterface CanonicalOffsetsArgs
     (Except Contracts.DecodeError Unit) where
   functionInstance := functionInstance_ssz_raw_requireCanonicalOffsets
@@ -912,7 +929,7 @@ def requireCanonicalOffsetsInterface : Level4FunctionInstanceInterface Canonical
   entry := fun args state => (contractRequireCanonicalOffsets canonicalContractParams.env).pre args state ∧
     state.regs.get? PC = some (functionInstanceEntryWord functionInstance_ssz_raw_requireCanonicalOffsets) ∧
     inputWindowFits64 args.base args.bytes.size
-  exit := (contractRequireCanonicalOffsets canonicalContractParams.env).post
+  exit := requireCanonicalOffsetsExit
   executionPcs := functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_requireCanonicalOffsets
   terminal := fun _ => functionInstanceExitPred functionInstance_ssz_raw_requireCanonicalOffsets
   stepBound := (contractRequireCanonicalOffsets canonicalContractParams.env).stepBound

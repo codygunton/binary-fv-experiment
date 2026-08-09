@@ -2,6 +2,7 @@ import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level4Contracts
 
 namespace ZesuVerification
 
+open BinaryFv BinaryFv.RiscV
 open BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
 open BinaryFv.Zesu.Elflings.Generated
 open BinaryFv.Zesu.Elflings.GeneratedLevel4Attribution
@@ -55,6 +56,23 @@ theorem level4_readOffset_final_write_sets_are_exact :
 
 theorem level4_require_u32_continuation_pc :
     requireU32LengthContinuationPc = BitVec.ofNat 64 0x10490 := rfl
+
+/-- fi134's 16 production instructions are register-only.  These rejected saved registers prevent
+the contract from being widened back to the generic `LeafFrame` stack permission. -/
+theorem level4_requireCanonicalOffsets_write_set_is_exact :
+    requireCanonicalOffsetsWrites x10 ∧ requireCanonicalOffsetsWrites x15 ∧
+      ¬ requireCanonicalOffsetsWrites x1 ∧ ¬ requireCanonicalOffsetsWrites x2 ∧
+      ¬ requireCanonicalOffsetsWrites x8 ∧ ¬ requireCanonicalOffsetsWrites x27 := by
+  simp [requireCanonicalOffsetsWrites, BinaryFv.RiscV.stepBookkeeping]
+
+/-- A mutation of any saved raw-decoder slot is rejected by fi134's concrete boundary frame.
+Instantiating `savedSlot` with `stack + 0x788` through `stack + 0x7e8` covers every epilogue load. -/
+theorem level4_requireCanonicalOffsets_rejects_saved_slot_clobber
+    (before after : State) (savedSlot : Nat)
+    (changed : after.mem.get? savedSlot ≠ before.mem.get? savedSlot) :
+    ¬ ∃ args result, requireCanonicalOffsetsExit args result before after := by
+  rintro ⟨args, result, post⟩
+  exact changed (congrArg (fun memory => memory.get? savedSlot) post.2.1)
 
 theorem level4_function_instance_contracts_match_inventory :
     level4FunctionInstanceContractIds = level4DisplayedFunctionInstances.map (·.id) :=
