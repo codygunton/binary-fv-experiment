@@ -520,6 +520,44 @@ def dynamic_owned_execution_pcs(owner: dict, instruction_rows: dict[int, dict]) 
     )
 
 
+def function_identity(owner: dict) -> dict:
+    """The stable source identity used to select generated FunctionInstances."""
+    return {
+        "sourceFile": owner["sourceFile"],
+        "qualified": owner["qualified"],
+        "specialization": owner.get("specialization", []),
+        "inlineStack": owner.get("inlineStack", []),
+    }
+
+
+def dynamic_call_target_extent(callee: dict, owners_by_id: dict[str, dict]) -> dict:
+    """The generated Program extent a dynamic call frame may execute before returning.
+
+    This is intentionally the full nested FunctionInstance extent, rather than the caller's
+    fragment ``instructionPcs``.  A callee may run nested generated instances before it reaches
+    its runtime continuation, and the source identity prevents catalog-position selection.
+    """
+    full_execution_pcs = dynamic_full_execution_pcs(callee, owners_by_id)
+    return {
+        "functionInstanceIdentity": function_identity(callee),
+        "fullExecutionPcs": full_execution_pcs,
+        "runtimeContinuationPcs": full_execution_pcs,
+    }
+
+
+def declared_level4_calls(owner_id: str, call_graph: dict, owners_by_id: dict[str, dict]) -> list[dict]:
+    """Declared direct/tail/vtable call frames with the callee's concrete entry PC."""
+    return [
+        {
+            "id": call["callee"], "kind": call["kind"], "sourcePc": call["source"],
+            "targetPc": owners_by_id[call["callee"]]["entryPc"],
+        }
+        for call in call_graph.get("calls", [])
+        if (call["caller"] == owner_id and call["kind"] in {"direct", "tail", "allocatorVtable"}
+                and isinstance(call["source"], int))
+    ]
+
+
 LEVEL4_DYNAMIC_INLINE_IDENTITIES = {
     ("ssz_raw.decodeNewPayloadRequest", "ssz_raw.decodeRaw", 207, 61),
     ("ssz_raw.decodeExecutionWitness", "ssz_raw.decodeRaw", 209, 48),
@@ -591,22 +629,10 @@ def level4_boundary_manifest(database: dict) -> dict:
     instruction_addresses = set(call_graph["instructionAddresses"])
     owners_by_id = {owner["id"]: owner for owner in call_graph["owners"]}
     parent_regions = decode_raw["regions"]
-    calls_by_owner: dict[str, list[dict]] = defaultdict(list)
-    for call in call_graph["calls"]:
-        if call["kind"] in {"direct", "tail", "allocatorVtable"} and isinstance(call["source"], int):
-            callee = owners_by_id[call["callee"]]
-            calls_by_owner[call["caller"]].append({
-                "id": call["callee"], "kind": call["kind"], "sourcePc": call["source"],
-                "targetPc": callee["entryPc"],
-            })
-
-    def function_identity(owner: dict) -> dict:
-        return {
-            "sourceFile": owner["sourceFile"],
-            "qualified": owner["qualified"],
-            "specialization": owner.get("specialization", []),
-            "inlineStack": owner.get("inlineStack", []),
-        }
+    calls_by_owner = {
+        owner_id: declared_level4_calls(owner_id, call_graph, owners_by_id)
+        for owner_id in owners_by_id
+    }
 
     rows = []
     for owner in sorted(boundaries, key=lambda row: (row["entryPc"], row["id"])):
@@ -632,7 +658,13 @@ def level4_boundary_manifest(database: dict) -> dict:
         if owner["kind"] in {"emitted", "inlined"}:
             row["functionInstanceIdentity"] = function_identity(owner)
         if calls_by_owner[owner["id"]]:
-            row["calls"] = calls_by_owner[owner["id"]]
+            row["calls"] = [
+                {
+                    **call,
+                    **dynamic_call_target_extent(owners_by_id[call["id"]], owners_by_id),
+                } if is_level4_dynamic_decoder(owner) else call
+                for call in calls_by_owner[owner["id"]]
+            ]
         tail_dependencies = []
         for call in calls_by_owner[owner["id"]]:
             if call["kind"] != "tail":
@@ -684,6 +716,13 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
         expected_owned = dynamic_owned_execution_pcs(owner, instructions)
         expected_handoffs = attribution_fragment_handoffs(owner, decode_raw, owners_by_id, instructions)
         expected_reentries = parent_fragment_reentries(owner, decode_raw, instructions)
+        expected_calls = [
+            {
+                **call,
+                **dynamic_call_target_extent(owners_by_id[call["id"]], owners_by_id),
+            }
+            for call in declared_level4_calls(owner["id"], database["callGraph"], owners_by_id)
+        ]
         if row.get("fullExecutionPcs") != expected_full:
             raise ValueError("Level 4 full execution PCs are incomplete or forged")
         if row.get("ownedExecutionPcs") != expected_owned:
@@ -692,6 +731,8 @@ def validate_level4_attribution_boundaries(database: dict, manifest: dict) -> No
             raise ValueError("Level 4 attribution fragment handoffs are incomplete or forged")
         if row.get("parentReentryEdges") != expected_reentries:
             raise ValueError("Level 4 parent fragment re-entries are incomplete or forged")
+        if row.get("calls", []) != expected_calls:
+            raise ValueError("Level 4 dynamic call target extents are incomplete or forged")
 
 
 def validate_level4_boundary_manifest(manifest: dict) -> None:
@@ -739,6 +780,15 @@ def validate_level4_boundary_manifest(manifest: dict) -> None:
                 if (not isinstance(call, dict) or not isinstance(call.get("sourcePc"), int)
                         or not isinstance(call.get("targetPc"), int)):
                     raise ValueError("Level 4 boundary manifest call lacks concrete PCs")
+                if "functionInstanceIdentity" in call:
+                    for field in ("fullExecutionPcs", "runtimeContinuationPcs"):
+                        pcs = call.get(field)
+                        if not isinstance(pcs, list) or not pcs or pcs != sorted(set(pcs)):
+                            raise ValueError(f"Level 4 dynamic call target has invalid {field}")
+                    identity = call["functionInstanceIdentity"]
+                    if (not isinstance(identity, dict)
+                            or not isinstance(identity.get("qualified"), str)):
+                        raise ValueError("Level 4 dynamic call target lacks a source identity")
         dependencies = row.get("tailDependencies", [])
         if not isinstance(dependencies, list):
             raise ValueError("Level 4 boundary manifest tailDependencies field is not a list")
@@ -850,10 +900,19 @@ def emit_level4_attribution_lean(database: dict) -> str:
         "open BinaryFv.Zesu.Elflings.Generated",
         "open BinaryFv.Zesu.Elflings.Validation",
         "",
+        "structure AttributionCallFrame where",
+        "  kind : String",
+        "  source : Nat",
+        "  target : Nat",
+        "  callee : FunctionInstanceId",
+        "  fullExecutionPcs : Array Nat",
+        "  runtimeContinuationPcs : Array Nat",
+        "",
         "structure AttributionFragmentBoundary where",
         "  child : FunctionInstanceId",
         "  ownedExecutionPcs : Array Nat",
         "  fullExecutionPcs : Array Nat",
+        "  callFrames : Array AttributionCallFrame",
         "  handoffs : Array DirectEdge",
         "  reentries : Array DirectEdge",
         "",
@@ -869,10 +928,20 @@ def emit_level4_attribution_lean(database: dict) -> str:
             f"{{ source := {edge['sourcePc']}, target := {edge['targetPc']} }}" for edge in edges)
         edge_array = lambda edges: f"(#[{pairs(edges)}] : Array DirectEdge)"
         pcs = lambda xs: ", ".join(str(x) for x in xs)
+        def call_frame(call: dict) -> str:
+            callee = function_instance_lean_name(call["functionInstanceIdentity"])
+            return (
+                "{ kind := \"%s\", source := %s, target := %s, callee := %sId, "
+                "fullExecutionPcs := #[%s], runtimeContinuationPcs := #[%s] }"
+                % (call["kind"], call["sourcePc"], call["targetPc"], callee,
+                   pcs(call["fullExecutionPcs"]), pcs(call["runtimeContinuationPcs"]))
+            )
+        call_frames = f"(#[{', '.join(call_frame(call) for call in row.get('calls', []))}] : Array AttributionCallFrame)"
         L.extend([
             f"noncomputable def {boundary_name} : AttributionFragmentBoundary :=",
             f"  {{ child := {child}Id, ownedExecutionPcs := #[{pcs(row['ownedExecutionPcs'])}],",
             f"    fullExecutionPcs := #[{pcs(row['fullExecutionPcs'])}],",
+            f"    callFrames := {call_frames},",
             f"    handoffs := {edge_array(row['fragmentHandoffs'])},",
             f"    reentries := {edge_array(row['parentReentryEdges'])} }}",
             f"",
@@ -881,6 +950,8 @@ def emit_level4_attribution_lean(database: dict) -> str:
             f"    {boundary_name}.ownedExecutionPcs = #[{pcs(row['ownedExecutionPcs'])}] := rfl",
             f"theorem {boundary_name}_fullExecutionPcs_exact :",
             f"    {boundary_name}.fullExecutionPcs = #[{pcs(row['fullExecutionPcs'])}] := rfl",
+            f"theorem {boundary_name}_callFrames_exact :",
+            f"    {boundary_name}.callFrames = {call_frames} := rfl",
             f"theorem {boundary_name}_handoffs_exact :",
             f"    {boundary_name}.handoffs = {edge_array(row['fragmentHandoffs'])} := rfl",
             f"theorem {boundary_name}_reentries_exact :",
@@ -899,6 +970,17 @@ def emit_level4_attribution_lean(database: dict) -> str:
             f"      ownedBy generatedProgram {child} edge.target = true) := by native_decide",
             "",
         ])
+        for index, call in enumerate(row.get("calls", [])):
+            callee = function_instance_lean_name(call["functionInstanceIdentity"])
+            call_name = f"{boundary_name}_call_{call['sourcePc']}"
+            full_pcs = f"#[{pcs(call['fullExecutionPcs'])}]"
+            frame = call_frame(call)
+            L.extend([
+                f"theorem {call_name}_exact : {boundary_name}.callFrames[{index}]? = some {frame} := rfl",
+                f"theorem {call_name}_extent_membership :",
+                f"    ∀ pc ∈ {full_pcs}, inRegions {callee} pc = true := by native_decide",
+                "",
+            ])
     L.extend([
         "/-- The four selected direct dynamic decoder identities, in source call-site order. -/",
         "noncomputable def level4AttributionFragmentBoundaries : Array AttributionFragmentBoundary :=",
