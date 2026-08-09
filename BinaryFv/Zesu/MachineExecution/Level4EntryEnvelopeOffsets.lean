@@ -69,15 +69,18 @@ def level4EntryLengthHighWordBranchAfter (state : State) (retired : BitVec 64) :
 
 /-- The accepted `requireU32Length` result retires the actual parent `beqz a1, 0x10498`.
 The branch owns the semantic split; the selected leaf only establishes the high-word fact. -/
-structure Level4EntryLengthHighWordAcceptedHandoff (fromStep : Nat) (origin before after : State)
+structure Level4EntryLengthHighWordAcceptedHandoff (fromStep : Nat) (origin leafState after : State)
     (pre : Level4RequireU32LengthPre margs origin) : Prop where
-  trace : Trace fromStep 1 before after
+  trace : Trace fromStep 1 leafState after
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x10498)
   resultBase : after.regs.get? x21 = some (BitVec.ofNat 64 pre.resultBase)
   preparedInvalidSszTag : after.regs.get? x10 = some (BitVec.ofNat 64 2)
   inputBase : after.regs.get? x12 = some (BitVec.ofNat 64 margs.inputBase)
   inputLength : after.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
-  memory : after.mem = before.mem
+  /-- The parent branch is read-only and composes with the selected leaf's read-only frame, so
+  this reaches the prologue state rather than merely the branch's immediate predecessor. -/
+  memory : after.mem = origin.mem
+  writes : WritesOnlyRegs stepBookkeeping leafState after
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   decodeRawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs after
   retired : RetiredCounterPresent after
@@ -112,8 +115,15 @@ theorem level4_entry_length_high_word_accepts (fromStep : Nat) {before state : S
       (level4EntryLengthHighWordBranchAfter state retired) :=
     Agree.weaken (fun _ h => h.2)
       ((jumpRetirement_writes _ _ _ _).agree platformPreserved_disjoint)
+  have branchMemory : (level4EntryLengthHighWordBranchAfter state retired).mem = state.mem := by
+    simpa only [level4EntryLengthHighWordBranchAfter] using
+      jumpRetirement_mem state (BitVec.ofNat 64 0x10490) (BitVec.ofNat 64 0x10498) retired
+  have branchWrites : WritesOnlyRegs stepBookkeeping state
+      (level4EntryLengthHighWordBranchAfter state retired) := by
+    simpa only [level4EntryLengthHighWordBranchAfter] using
+      jumpRetirement_writes state (BitVec.ofNat 64 0x10490) (BitVec.ofNat 64 0x10498) retired
   refine ⟨level4EntryLengthHighWordBranchAfter state retired,
-    ⟨Trace.one (fromStep + 3) _ _ run, ?_, ?_, ?_, ?_, ?_, rfl, ?_, ?_, ?_⟩⟩
+    ⟨Trace.one (fromStep + 3) _ _ run, ?_, ?_, ?_, ?_, ?_, ?_, branchWrites, ?_, ?_, ?_⟩⟩
   · simp [level4EntryLengthHighWordBranchAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
@@ -122,8 +132,9 @@ theorem level4_entry_length_high_word_accepts (fromStep : Nat) {before state : S
       handoff.preparedInvalidSszTag
   · exact ((jumpRetirement_writes state _ _ retired).get x12 (by decide)).trans handoff.inputBase
   · exact ((jumpRetirement_writes state _ _ retired).get x13 (by decide)).trans handoff.inputLength
-  · simpa [level4EntryLengthHighWordBranchAfter, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick] using handoff.code
+  · exact branchMemory.trans handoff.memory
+  · rw [branchMemory]
+    exact handoff.code
   · exact handoff.decodeRawMachine.mono preserved
       ⟨Sail.BitVec.addInt retired 1, by
         simp [level4EntryLengthHighWordBranchAfter, tryStepControlFlowAfterRetired,
