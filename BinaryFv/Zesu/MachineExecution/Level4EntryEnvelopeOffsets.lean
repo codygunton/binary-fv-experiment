@@ -653,23 +653,22 @@ structure Level4EntryHeaderFirstTwoHandoff {margs : DecoderMachineArgs} {origin 
   preserved : frame.PreservedTo after
 
 /-- Compose the actual first header read with its actual zero-byte fall-through. -/
-theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state : State}
+theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state setupBefore : State}
+    {setupFrom : Nat} {setupPre : Level4EntryEnvelopeHeaderSetupPre margs setupBefore}
     (frame : Level4DecodeRawParentFrame margs origin state)
-    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104bc))
-    (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase))
-    (inputLength : state.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size))
-    (inputAtLeastTwo : 2 ≤ margs.bytes.size) (inputFits : margs.inputBase + margs.bytes.size ≤ 2 ^ 64)
+    (setup : Level4EntryEnvelopeHeaderSetupHandoff setupFrom setupBefore state setupPre)
     (firstByteZero : margs.bytes[0]'(by omega) = 0) (fromStep : Nat) :
     ∃ after, Level4EntryHeaderFirstTwoHandoff after fromStep frame := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
     stackFrameWritable, rawFrameWritable, rawFrameInputSeparated, postStackAligned, fileCode,
     decoderMachine, retired⟩
   let seg0 := Seg.nil Level4EntryHeaderFirstTwoPcs (fun _ => False) (fun _ _ _ _ _ => False)
-    level4EntryHeaderFirstTwoWrites noMemory fromStep retired atPc
+    level4EntryHeaderFirstTwoWrites noMemory fromStep retired setup.pc
   obtain ⟨readRetired, afterRead, readEq, seg1⟩ := seg0.stepWitness
     (level4_entry_header_first_two_owned (by simp [level4EntryHeaderFirstTwoPcs])) (by simp) x10
     (BitVec.ofNat 64 (margs.bytes[0]'(by omega)).toNat) (BitVec.ofNat 64 0x104c0)
-    (level4_entry_header_first_lbu frame atPc inputPointer inputAtLeastTwo inputFits fromStep)
+    (level4_entry_header_first_lbu frame setup.pc setup.inputPointer setupPre.inputAtLeastTwo
+      setupPre.inputLengthFits fromStep)
     (by decide) (by intro r h; exact Or.inl h) (by simp [level4EntryHeaderFirstTwoWrites])
     (by decide) (by decide) (by exact of_decide_eq_true rfl)
   subst afterRead
@@ -706,8 +705,8 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
     (by intro r h; exact Or.inl h) (by exact of_decide_eq_true rfl)
   have memory : after.mem = state.mem := seg2.memEq noMemory_empty
   refine ⟨after, ⟨seg2.trace, seg2.confined, seg2.writes, memory, seg2.atPc,
-    (seg2.get x20 (by simp [level4EntryHeaderFirstTwoWrites])).trans inputPointer,
-    (seg2.get x13 (by simp [level4EntryHeaderFirstTwoWrites])).trans inputLength, ?_, ?_⟩⟩
+    (seg2.get x20 (by simp [level4EntryHeaderFirstTwoWrites])).trans setup.inputPointer,
+    (seg2.get x13 (by simp [level4EntryHeaderFirstTwoWrites])).trans setup.inputLength, ?_, ?_⟩⟩
   · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory
     intro index indexBound
     rw [memory]
