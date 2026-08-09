@@ -907,6 +907,15 @@ structure Level4RawNewPayloadRequestDeinitAllocatorLoadsHandoff
   writes : WritesOnlyRegs level4RawNewPayloadRequestDeinitWrites before after
   memory : WritesOnlyWithin (level4RawNewPayloadRequestDeinitSaveMemory (frame.stack - 0x690))
     before after
+  seg : ∃ first second,
+    Seg Level4RawNewPayloadRequestDeinitPcs Level4RawNewPayloadRequestDeinitExit
+      Level4RawNewPayloadRequestDeinitChildSummary level4RawNewPayloadRequestDeinitWrites
+      (level4RawNewPayloadRequestDeinitSaveMemory (frame.stack - 0x690))
+      [⟨x11, BitVec.ofNat 64 second⟩, ⟨x10, BitVec.ofNat 64 first⟩,
+        ⟨x9, Classical.choose pre.a0⟩, ⟨x8, Classical.choose pre.a1⟩,
+        ⟨x2, BitVec.ofNat 64 (frame.stack - 0x690 - 0x50)⟩,
+        ⟨x1, BitVec.ofNat 64 0x129ec⟩]
+      fromStep 8 before after (BitVec.ofNat 64 0x1320c)
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x1320c)
   childSp : after.regs.get? x2 = some (BitVec.ofNat 64 (frame.stack - 0x690 - 0x50))
   ra : after.regs.get? x1 = some (BitVec.ofNat 64 0x129ec)
@@ -1006,7 +1015,7 @@ theorem level4_rawNewPayloadRequestDeinit_allocator_loads_handoff
   have code2 : Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
     rw [hA1, afterRegisterWrite_mem]
     exact code1
-  refine ⟨after, ⟨seg2.trace, seg2.confined, seg2.writes, seg2.mem, seg2.atPc,
+  refine ⟨after, ⟨seg2.trace, seg2.confined, seg2.writes, seg2.mem, ⟨first, second, seg2⟩, seg2.atPc,
     seg2.reg x2 _ (by simp), seg2.reg x1 _ (by simp), seg2.reg x8 _ (by simp),
     seg2.reg x9 _ (by simp), ⟨first, seg2.reg x10 _ (by simp)⟩,
     ⟨second, seg2.reg x11 _ (by simp)⟩, code2, ?_, seg2.retired⟩⟩
