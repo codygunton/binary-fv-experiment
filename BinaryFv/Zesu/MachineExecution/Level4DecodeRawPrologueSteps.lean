@@ -69,7 +69,7 @@ callee-saved values are not an ABI assumption: `frame` is exactly the caller-der
 `DecodeRawEntryFrame` used by the two real call routes. -/
 structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : State) where
   machine : DecoderMachinePre
-    (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw) margs state
+    Level4DecodeRawEntryProloguePcs margs state
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
   atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10444)
   frame : DecodeRawEntryFrame state
@@ -104,7 +104,7 @@ structure Level4DecodeRawEntryEnvelopeOffsetsHandoff (fromStep : Nat) (before af
   s0 : after.regs.get? x8 = some pre.a1
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   machine : DecoderMachinePre
-    (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw) margs after
+    Level4DecodeRawEntryProloguePcs margs after
   retired : RetiredCounterPresent after
 
 /-- The prologue writes only its two modified architectural registers plus normal retirement
@@ -141,6 +141,31 @@ private theorem level4_prologue_stack_address_eq (stack offset : Nat)
     BitVec.ofNat 64 stack + sign_extend (m := 64) (BitVec.ofNat 12 offset) =
       BitVec.ofNat 64 (stack + offset) := by
   rw [extend, ← BitVec.ofNat_add]
+
+private theorem level4_prologue_first_frame_value (stack : Nat) :
+    iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (stack + 0x7f0)) = BitVec.ofNat 64 stack := by
+  rw [show BitVec.ofNat 64 (stack + 0x7f0) =
+    BitVec.ofNat 64 stack + BitVec.ofNat 64 0x7f0 by rw [← BitVec.ofNat_add]]
+  rw [show BitVec.ofNat 64 stack = BitVec.ofNat 64 stack + BitVec.ofNat 64 0 by
+    rw [← BitVec.ofNat_add]
+    simp]
+  unfold iTypeResult
+  rw [show sign_extend (0x810#12) = (0xfffffffffffff810#64) by decide]
+  bv_decide
+
+private theorem level4_decode_raw_first_stack_step (pre : Level4DecodeRawEntryProloguePre margs state)
+    (fromStep : Nat) :
+    ∃ retired, Runs (try_step fromStep false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x10444) retired x2
+        (BitVec.ofNat 64 pre.stack)) false := by
+  obtain ⟨retired, run⟩ := decoderITypeStepOfDecoderAgree pre.machine (Agree.refl state)
+    pre.machine.retiredCounter pre.code fromStep 0x10444 0x13 0x01 0x01 0x81 0x810#12 2#5 2#5
+    .ADDI pre.atPc
+    (rX_x2_run _ _ (decoderExecuteState_get? pre.entryStackValue))
+    (wX_x2_run _ (iTypeResult .ADDI 0x810#12 (BitVec.ofNat 64 (pre.stack + 0x7f0))))
+    (pcIn := ⟨by native_decide, by native_decide⟩)
+  rw [level4_prologue_first_frame_value] at run
+  exact ⟨retired, run⟩
 
 private theorem level4_prologue_slot_writable (pre : Level4DecodeRawEntryProloguePre margs state)
     {offset : Nat} (lower : 0x788 ≤ offset) (upper : offset + 8 ≤ 0x7f0) :
