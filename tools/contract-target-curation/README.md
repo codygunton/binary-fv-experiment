@@ -28,7 +28,8 @@ instructions are proved and only its immediate child function contracts remain a
 active proof work, yellow/red stripes mean only a concrete contract is specified, and red means none
 of those. These states are exclusive: a conditional proof never also displays contract-only or red.
 The details pane names the theorem or contract supporting any non-red state; colors never report
-empirical evidence.
+empirical evidence. For a conditional proof it also names the outstanding contract displayed by the
+current `root_compliance` progress gauge.
 
 To mark a function green/yellow, its theorem must directly consume every selected immediate-child
 contract, prove every parent-owned instruction from the RISC-V semantics, and derive the meaningful

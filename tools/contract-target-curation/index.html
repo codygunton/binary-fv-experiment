@@ -233,6 +233,7 @@ function details(d){
       <span>instance kind</span><span>${esc(m.kind||'?')}</span>
       <span>proof status</span><span>${esc(progress.status.replaceAll('_',' '))}</span>
       <span>contract/theorem</span><span>${esc(progress.theorem||progress.contract||'none')}</span>
+      <span>outstanding condition</span><span>${esc(progress.condition||'none')}</span>
       <span>actual callers</span><span>${callers.join('<br>')||'none'}</span>
       <span>actual calls</span><span>${calls.join('<br>')||'none'}</span>
       <span>source</span><span>${esc(m.file||'?')}:${m.line??'?'}</span>
