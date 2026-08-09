@@ -78,6 +78,11 @@ private theorem level4_decode_raw_entry_prologue_pre_of_inline_child
     have stackBasePositive : 0 < canonicalRunnerLayout.stackBase := by native_decide
     omega
   let postStack := args.stackBase - 0xe80
+  have postStackDef : postStack = args.stackBase - 0xe80 := rfl
+  have nestedFrameBase : postStack - 0x50 = args.stackBase - 0xed0 := by
+    rw [postStackDef]
+    have nestedLower := pre.nestedCallFrameFits
+    omega
   have entryStack : args.stackBase = postStack + 0xe80 := by
     simp only [postStack]
     omega
@@ -154,9 +159,7 @@ private theorem level4_decode_raw_entry_prologue_pre_of_inline_child
         omega
       nestedCallFrameWritable := by
         intro index bound
-        rw [show postStack - 0x50 + index = args.stackBase - 0xed0 + index by
-          dsimp only [postStack]
-          omega]
+        rw [nestedFrameBase]
         exact pre.nestedCallFrameWritable index bound
       nestedCallFrameFits := by
         change 0x50 ≤ args.stackBase - 0xe80
@@ -165,9 +168,9 @@ private theorem level4_decode_raw_entry_prologue_pre_of_inline_child
       nestedCallFrameInputSeparated := by
         intro address lower upper
         apply nestedInputSeparated address
-        · dsimp only [postStack] at lower
+        · rw [nestedFrameBase] at lower
           exact lower
-        · dsimp only [postStack] at upper
+        · rw [postStackDef] at upper
           exact upper
       postStackAligned := pre.postStackAligned postStack entryStack
       stackFits := by
