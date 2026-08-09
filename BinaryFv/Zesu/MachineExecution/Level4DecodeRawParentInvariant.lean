@@ -73,6 +73,44 @@ def Level4DecodeRawParentFrame.toState (frame : Level4DecodeRawParentFrame margs
     savedS11 := frame.savedS11
     invariant := preserved }
 
+/-- The exact 16-step raw-decoder prologue constructs the protected frame once.  Every later
+fragment/re-entry receives this object with `before` fixed as its semantic origin. -/
+def Level4DecodeRawParentFrame.of_entryEnvelopeHandoff
+    {margs : DecoderMachineArgs} {fromStep : Nat} {before state : State}
+    {pre : Level4DecodeRawEntryProloguePre margs before}
+    {savedS0 savedS1 savedS2 savedS3 savedS4 savedS5 savedS6 savedS7 savedS8 savedS9 savedS10
+      savedS11 : BitVec 64}
+    (handoff : Level4DecodeRawEntryEnvelopeOffsetsHandoff fromStep before state pre savedS0 savedS1
+      savedS2 savedS3 savedS4 savedS5 savedS6 savedS7 savedS8 savedS9 savedS10 savedS11) :
+    Level4DecodeRawParentFrame margs before state :=
+  { stack := pre.stack
+    savedRa := pre.ra
+    savedS0 := savedS0
+    savedS1 := savedS1
+    savedS2 := savedS2
+    savedS3 := savedS3
+    savedS4 := savedS4
+    savedS5 := savedS5
+    savedS6 := savedS6
+    savedS7 := savedS7
+    savedS8 := savedS8
+    savedS9 := savedS9
+    savedS10 := savedS10
+    savedS11 := savedS11
+    invariant := ⟨pre, rfl, rfl, handoff.saved, handoff.sp, handoff.code, handoff.machine,
+      handoff.retired⟩ }
+
+theorem Level4DecodeRawParentFrame.of_entryEnvelopeHandoff_saved
+    {margs : DecoderMachineArgs} {fromStep : Nat} {before state : State}
+    {pre : Level4DecodeRawEntryProloguePre margs before}
+    {savedS0 savedS1 savedS2 savedS3 savedS4 savedS5 savedS6 savedS7 savedS8 savedS9 savedS10
+      savedS11 : BitVec 64}
+    (handoff : Level4DecodeRawEntryEnvelopeOffsetsHandoff fromStep before state pre savedS0 savedS1
+      savedS2 savedS3 savedS4 savedS5 savedS6 savedS7 savedS8 savedS9 savedS10 savedS11) :
+    Level4DecodeRawPrologueSavedFrame state pre.stack pre.ra savedS0 savedS1 savedS2 savedS3 savedS4
+      savedS5 savedS6 savedS7 savedS8 savedS9 savedS10 savedS11 :=
+  handoff.saved
+
 /-- A mutation of the saved return-link bytes is incompatible with the protected parent frame. -/
 def Level4DecodeRawClobbersSavedReturnLink (state : State) (stack : Nat) (savedRa : BitVec 64) : Prop :=
   ¬ SavedWordBytes state (stack + 0x7e8) savedRa
