@@ -280,4 +280,85 @@ theorem level4_executionWitness_route_75856_75576_carrier_decision
       · exact ⟨0, Trace.refl (fromStep + progress.prefixUsed + 1) handoff⟩
     · rfl
 
+/-- The three generated terminal routes whose carrier path is exactly `[0x12738]` share the same
+zero-step parent continuation.  Route-specific callers provide the generated literal route record;
+this helper retains its classification, target, and path equations instead of inventing a carrier. -/
+private theorem level4_executionWitness_singleton_carrier_decision
+    {margs : DecoderMachineArgs} {origin initial current handoff : State}
+    (route : AttributionOutcomeCarrierRoute)
+    (reviewed : route.classification = .sourceReviewedOutcomePath)
+    (targetPc : route.handoff.target = 75576)
+    (paths : route.carrierPaths = #[{ carrierPc := 75576, pcs := #[75576] }])
+    (frame : Level4DecodeRawParentFrame margs origin initial) (args : ContainerArgs)
+    (rank : State → Nat) (fromStep : Nat)
+    (progress : Level4HandoffProgress decodeExecutionWitnessInterface args origin fromStep current handoff)
+    (_currentProtected : frame.PreservedTo current) (handoffProtected : frame.PreservedTo handoff)
+    (routeEq : progress.route = route) :
+    ParentRouteDecision decodeExecutionWitnessInterface args origin frame.PreservedTo
+      (Level4ExecutionWitnessRejectionPhase frame) rank fromStep current handoff progress := by
+  let carrierPath : CarrierPath := { carrierPc := 75576, pcs := #[75576] }
+  have target : handoff.regs.get? PC = some (BitVec.ofNat 64 75576) := by
+    have atTarget := progress.atTarget
+    rw [routeEq, targetPc] at atTarget
+    exact atTarget
+  refine .carrier ?_ ?_
+  · rw [routeEq, reviewed]
+  · intro path listed _terminal
+    rw [routeEq, paths] at listed
+    have pathEq : path = carrierPath := by
+      simpa [carrierPath] using listed
+    subst path
+    refine ⟨handoff, ?_, ?_, handoffProtected⟩
+    · refine {
+        path := carrierPath
+        listed := ?_
+        startsAtTarget := ?_
+        endsAtCarrier := ?_
+        exactPcs := ?_
+        exactTrace := ?_
+        trace := ?_ }
+      · rw [routeEq, paths]
+        simp [carrierPath]
+      · rw [routeEq, targetPc]
+        exact target
+      · simpa [carrierPath] using target
+      · rw [routeEq, targetPc]
+        rfl
+      · simpa [carrierPath] using
+          ExactCarrierPathTrace.terminal (fromStep + progress.prefixUsed + 1) 75576 handoff target
+      · exact ⟨0, Trace.refl (fromStep + progress.prefixUsed + 1) handoff⟩
+    · rfl
+
+/-- The generated `decodeExecutionWitness` route `0x12884 → 0x12738` reaches the same exact
+terminal singleton carrier. -/
+theorem level4_executionWitness_route_75908_75576_carrier_decision
+    {margs : DecoderMachineArgs} {origin initial current handoff : State}
+    (frame : Level4DecodeRawParentFrame margs origin initial) (args : ContainerArgs)
+    (rank : State → Nat) (fromStep : Nat)
+    (progress : Level4HandoffProgress decodeExecutionWitnessInterface args origin fromStep current handoff)
+    (currentProtected : frame.PreservedTo current) (handoffProtected : frame.PreservedTo handoff)
+    (routeEq : progress.route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75908_75576) :
+    ParentRouteDecision decodeExecutionWitnessInterface args origin frame.PreservedTo
+      (Level4ExecutionWitnessRejectionPhase frame) rank fromStep current handoff progress := by
+  exact level4_executionWitness_singleton_carrier_decision
+    functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75908_75576
+    rfl rfl rfl frame args rank fromStep progress currentProtected handoffProtected routeEq
+
+/-- The generated `decodeExecutionWitness` route `0x1302c → 0x12738` reaches the same exact
+terminal singleton carrier. -/
+theorem level4_executionWitness_route_77868_75576_carrier_decision
+    {margs : DecoderMachineArgs} {origin initial current handoff : State}
+    (frame : Level4DecodeRawParentFrame margs origin initial) (args : ContainerArgs)
+    (rank : State → Nat) (fromStep : Nat)
+    (progress : Level4HandoffProgress decodeExecutionWitnessInterface args origin fromStep current handoff)
+    (currentProtected : frame.PreservedTo current) (handoffProtected : frame.PreservedTo handoff)
+    (routeEq : progress.route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_77868_75576) :
+    ParentRouteDecision decodeExecutionWitnessInterface args origin frame.PreservedTo
+      (Level4ExecutionWitnessRejectionPhase frame) rank fromStep current handoff progress := by
+  exact level4_executionWitness_singleton_carrier_decision
+    functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_77868_75576
+    rfl rfl rfl frame args rank fromStep progress currentProtected handoffProtected routeEq
+
 end BinaryFv.Zesu.MachineExecution
