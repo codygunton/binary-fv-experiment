@@ -6,8 +6,8 @@ import GeneratedProgram
 The production call-hierarchy UI displays these rows immediately below emitted `ssz_raw.decodeRaw`.
 They are immediate-dominator display rows, not a substitute for `FunctionInstance.children`.
 Only the four `readOffset` instances have `decodeRaw` as their direct source-inline parent.
-The four cleanup and stdlib rows remain `Program.ExcludedFunctionInstance` values, so no contract
-can accidentally be assumed for them.
+The cleanup and stdlib rows remain `Program.ExcludedFunctionInstance` values: they cannot use
+`FunctionInstanceContract` and require honest inline-region contracts at their actual boundaries.
 -/
 
 namespace BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw
@@ -33,7 +33,7 @@ def level4DisplayedFunctionInstances : List FunctionInstance :=
   , functionInstance_ssz_raw_readOffset_in_ssz_raw_decodeRaw_at_202_23
   ]
 
-/-- The four displayed rows deliberately excluded from the function-contract inventory. -/
+/-- The four displayed non-`FunctionInstance` rows, each requiring an inline-region contract. -/
 def level4DisplayedExcludedInstances : List Program.ExcludedFunctionInstance :=
   [ excludedFunctionInstance_ssz_raw_RawExecutionWitness_deinit
   , excludedFunctionInstance_mem_Allocator_free_anon_1214

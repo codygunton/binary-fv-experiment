@@ -320,7 +320,8 @@ let
         --llvm-objdump ${pkgs.llvm}/bin/llvm-objdump \
         --out "$1/machine-regions.json" \
         --out-lean "$1/GeneratedMachineRegions.lean" \
-        --out-flame "$1/flame.json"
+        --out-flame "$1/flame.json" \
+        --out-level4-boundaries "$1/level4-boundaries.json"
     }
     gen run1
     gen run2
@@ -330,9 +331,12 @@ let
       || { echo "MACHINE-REGION LEAN EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
     cmp -s run1/flame.json run2/flame.json \
       || { echo "MACHINE-REGION UI EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
-    cp run1/machine-regions.json run1/GeneratedMachineRegions.lean run1/flame.json "$out/"
+    cmp -s run1/level4-boundaries.json run2/level4-boundaries.json \
+      || { echo "LEVEL 4 BOUNDARY INVENTORY NON-DETERMINISTIC" >&2; exit 1; }
+    cp run1/machine-regions.json run1/GeneratedMachineRegions.lean run1/flame.json \
+      run1/level4-boundaries.json "$out/"
     printf '%s\n' \
-      "unit tests and corruption probes passed; two independent runs produced byte-identical machine-regions.json" \
+      "unit tests and corruption probes passed; two independent runs produced byte-identical machine-regions.json and level4-boundaries.json" \
       > "$out/determinism.txt"
   '';
 

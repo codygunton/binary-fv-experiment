@@ -22,8 +22,9 @@ The synthetic `binary` and `program` rows orient the graph but do not count as p
 labels therefore start at Level 1 for the runner's immediate calls. The display parent is the
 immediate dominator in the production call DAG, while the details pane lists actual calls and the
 generated `FunctionInstance.children` relation preserves source-inline parents. A displayed row is
-therefore not, by itself, permission to treat an excluded region or a dominated descendant as a
-function-contract child.
+therefore not, by itself, permission to treat a dominated descendant as a function-contract child.
+An excluded row still needs a contract, but it must be an inline-region contract rather than a
+`FunctionInstanceContract`.
 
 `proof-progress.json` records reviewed formal progress by unique source-qualified function name.
 Green means an unconditional proof. Green/yellow stripes mean the function's owned machine
@@ -60,3 +61,11 @@ occurrences remain distinct. Generation rejects drift at those reviewed boundari
 
 The vendored D3 files are MIT-licensed and keep the review UI offline. Generated data is not committed;
 `.#machine-regions-ui` packages fresh `flame.json` and `machine-regions.json` files with the viewer.
+
+`.#machine-regions/level4-boundaries.json` is the deterministic evidence-loader manifest for the
+eighteen Level 4 rows. Every row has `id`, `kind`, `qualified`, `entryPc`, nonempty
+`instructionPcs`, `exits`, and `parent`; `FunctionInstance` rows also carry their source identity,
+while cleanup/stdlib rows intentionally have no such identity and require inline-region contracts.
+Known direct call sites and stores appear only when the production instruction inventory establishes
+them. `instructionPcs` uses the full generated execution regions, so the four zero-self `readOffset`
+rows retain the PCs their nested readers own.

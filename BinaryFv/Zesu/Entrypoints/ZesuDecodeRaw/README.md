@@ -43,10 +43,11 @@ groups.
 
 [Level4BoundaryInventory.lean](Level4BoundaryInventory.lean) names the 18 production rows displayed
 under emitted `ssz_raw.decodeRaw`: 14 generated `FunctionInstance` values and four separately typed
-excluded cleanup or stdlib regions. It records the four direct `readOffset` occurrences independently
-and does not turn excluded regions into assumed function contracts. The generated machine-region
-check also pins `decodeRaw`'s 172 parent-owned PCs; this inventory is the boundary map for the next
-machine-proof refinement, not a semantic proof of those boundaries.
+cleanup or stdlib regions. It records the four direct `readOffset` occurrences independently. The
+four non-`FunctionInstance` boundaries cannot use `FunctionInstanceContract`; Level 4 must give them
+honest inline-region contracts. The generated machine-region check also pins `decodeRaw`'s 172
+parent-owned PCs; this inventory is the boundary map for the next machine-proof refinement, not a
+semantic proof of those boundaries.
 
 Only file-backed ELF bytes are loaded eagerly. The roughly 69 MiB BSS and arena tail remain sparse;
 the builder writes the mutable globals it needs explicitly, and zero-fills the machine stack the way

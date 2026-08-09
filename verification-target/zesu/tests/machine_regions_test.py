@@ -43,17 +43,20 @@ class MachineRegionTests(unittest.TestCase):
         ]
         owners = [{
             "id": "decodeRaw", "kind": "emitted", "qualified": "ssz_raw.decodeRaw",
-            "instructions": list(range(172)),
+            "instructions": list(range(172)), "entryPc": 0,
         }]
         read_offset_entries = (66868, 66884, 66920, 66976)
         for index, (kind, qualified) in enumerate(rows):
             owner = {
                 "id": f"boundary:{index}", "kind": kind, "qualified": qualified,
-                "instructions": [],
+                "instructions": [], "entryPc": 1000 + index * 4,
+                "regions": [{"start": 1000 + index * 4, "size": 4}],
+                "sourceFile": "test.zig", "specialization": [], "inlineStack": [],
             }
             if qualified == "ssz_raw.readOffset":
                 offset_index = index - 2
                 owner["entryPc"] = read_offset_entries[offset_index]
+                owner["regions"] = [{"start": read_offset_entries[offset_index], "size": 4}]
                 owner["inlineStack"] = [{
                     "callerQualified": "ssz_raw.decodeRaw", "line": 199 + offset_index,
                     "column": 23,
@@ -62,6 +65,21 @@ class MachineRegionTests(unittest.TestCase):
         return {
             "owners": owners,
             "dominatorParent": {f"boundary:{index}": "decodeRaw" for index in range(len(rows))},
+        }
+
+    def level4_database(self) -> dict:
+        call_graph = self.level4_call_graph()
+        instructions = [
+            {"address": owner["entryPc"], "successors": [], "memory": []}
+            for owner in call_graph["owners"][1:]
+        ]
+        return {
+            "instructions": instructions,
+            "callGraph": {
+                **call_graph,
+                "calls": [],
+                "instructionAddresses": [row["address"] for row in instructions],
+            },
         }
 
     def test_level4_displayed_boundaries_are_the_reviewed_inventory(self) -> None:
@@ -76,6 +94,29 @@ class MachineRegionTests(unittest.TestCase):
         call_graph["dominatorParent"]["boundary:7"] = "somewhere-else"
         with self.assertRaisesRegex(ValueError, "Level 4 displayed boundary inventory"):
             machine_regions.validate_level4_displayed_boundaries(call_graph, "decodeRaw")
+
+    def test_level4_boundary_manifest_carries_full_zero_self_regions(self) -> None:
+        manifest = machine_regions.level4_boundary_manifest(self.level4_database())
+        self.assertEqual(manifest["schemaVersion"], 1)
+        self.assertEqual(len(manifest["boundaries"]), 18)
+        read_offsets = [
+            row for row in manifest["boundaries"] if row["qualified"] == "ssz_raw.readOffset"
+        ]
+        self.assertEqual(len(read_offsets), 4)
+        self.assertTrue(all(row["instructionPcs"] for row in read_offsets))
+        self.assertTrue(all("functionInstanceIdentity" not in row
+                            for row in manifest["boundaries"]
+                            if row["kind"].startswith("reachable")))
+
+    def test_level4_boundary_manifest_corruption_is_rejected(self) -> None:
+        manifest = machine_regions.level4_boundary_manifest(self.level4_database())
+        manifest["boundaries"][0]["instructionPcs"] = []
+        with self.assertRaisesRegex(ValueError, "empty or unsorted instruction PCs"):
+            machine_regions.validate_level4_boundary_manifest(manifest)
+        manifest = machine_regions.level4_boundary_manifest(self.level4_database())
+        manifest["boundaries"][0]["exits"] = None
+        with self.assertRaisesRegex(ValueError, "invalid required field"):
+            machine_regions.validate_level4_boundary_manifest(manifest)
 
     def test_llvm_disassembly_parser(self) -> None:
         parsed = machine_regions.parse_disassembly(

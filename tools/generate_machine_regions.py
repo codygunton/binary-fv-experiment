@@ -118,6 +118,7 @@ def assign_owners(program: dict, reachable: set[int]) -> tuple[dict[int, str], d
             ),
             "sourceFile": instance.get("sourceFile"),
             "declLine": instance.get("declLine", 0),
+            "specialization": instance.get("specialization", []),
             "inlineStack": instance.get("inlineStack", []),
             "regions": instance["regions"],
             "entryPc": instance["entryPc"],
@@ -475,11 +476,131 @@ def level4_displayed_boundaries(call_graph: dict, decode_raw: str) -> list[dict]
     """The Level 4 rows directly displayed below emitted ``ssz_raw.decodeRaw`` in the UI.
 
     The UI groups the production call DAG by immediate dominator.  These rows are a display and
-    review inventory, not a replacement for `FunctionInstance.children`: excluded cleanup regions
-    stay excluded identities, and their absence from function contracts remains visible.
+    review inventory, not a replacement for `FunctionInstance.children`. Excluded cleanup regions
+    stay excluded identities and must receive inline-region contracts rather than
+    `FunctionInstanceContract` values.
     """
     parents = call_graph["dominatorParent"]
     return [owner for owner in call_graph["owners"] if parents.get(owner["id"]) == decode_raw]
+
+
+def level4_boundary_manifest(database: dict) -> dict:
+    """A contract-admission inventory for every Level 4 row displayed below ``decodeRaw``.
+
+    `instructionPcs` deliberately comes from each row's full generated execution regions, rather
+    than from exclusive instruction ownership.  An inlined `readOffset` can have zero exclusive PCs
+    because its nested reader owns every instruction, but its contract still needs the nonempty
+    boundary execution region that the production binary executes.
+    """
+    call_graph = database["callGraph"]
+    decode_raw = next(
+        owner for owner in call_graph["owners"]
+        if owner["kind"] == "emitted" and owner["qualified"] == "ssz_raw.decodeRaw"
+    )
+    boundaries = level4_displayed_boundaries(call_graph, decode_raw["id"])
+    instruction_rows = {row["address"]: row for row in database["instructions"]}
+    instruction_addresses = set(call_graph["instructionAddresses"])
+    calls_by_owner: dict[str, list[dict]] = defaultdict(list)
+    for call in call_graph["calls"]:
+        if call["source"] is not None:
+            calls_by_owner[call["caller"]].append({
+                "id": call["callee"], "kind": call["kind"], "source": call["source"],
+                "evidence": call["evidence"],
+            })
+
+    rows = []
+    for owner in sorted(boundaries, key=lambda row: (row["entryPc"], row["id"])):
+        instruction_pcs = sorted(
+            address for address in instruction_addresses if in_regions(address, owner["regions"])
+        )
+        instruction_set = set(instruction_pcs)
+        exits = [
+            {"source": address, "target": successor}
+            for address in instruction_pcs
+            for successor in instruction_rows.get(address, {"successors": []})["successors"]
+            if successor not in instruction_set
+        ]
+        stores = [
+            {"pc": address, "bytes": memory["bytes"]}
+            for address in instruction_pcs
+            for memory in instruction_rows.get(address, {"memory": []})["memory"]
+            if memory["kind"] == "write"
+        ]
+        row = {
+            "id": owner["id"],
+            "kind": owner["kind"],
+            "qualified": owner["qualified"],
+            "entryPc": owner["entryPc"],
+            "instructionPcs": instruction_pcs,
+            "exits": exits,
+            "parent": decode_raw["id"],
+        }
+        if owner["kind"] in {"emitted", "inlined"}:
+            row["functionInstanceIdentity"] = {
+                "sourceFile": owner["sourceFile"],
+                "qualified": owner["qualified"],
+                "specialization": owner["specialization"],
+                "inlineStack": owner["inlineStack"],
+            }
+        if calls_by_owner[owner["id"]]:
+            row["calls"] = calls_by_owner[owner["id"]]
+        if stores:
+            row["stores"] = stores
+        rows.append(row)
+    manifest = {
+        "schemaVersion": 1,
+        "parent": {
+            "id": decode_raw["id"], "kind": decode_raw["kind"],
+            "qualified": decode_raw["qualified"], "entryPc": decode_raw["entryPc"],
+        },
+        "boundaries": rows,
+    }
+    validate_level4_boundary_manifest(manifest)
+    return manifest
+
+
+def validate_level4_boundary_manifest(manifest: dict) -> None:
+    """Reject a malformed or incomplete Level 4 contract-admission inventory."""
+    if manifest.get("schemaVersion") != 1:
+        raise ValueError("Level 4 boundary manifest schema version changed")
+    parent = manifest.get("parent")
+    boundaries = manifest.get("boundaries")
+    if not isinstance(parent, dict) or parent.get("qualified") != "ssz_raw.decodeRaw":
+        raise ValueError("Level 4 boundary manifest parent is not decodeRaw")
+    if not isinstance(parent.get("id"), str) or not isinstance(parent.get("entryPc"), int):
+        raise ValueError("Level 4 boundary manifest parent has an invalid identity")
+    if not isinstance(boundaries, list) or len(boundaries) != 18:
+        raise ValueError("Level 4 boundary manifest does not contain 18 boundaries")
+    ids = [row.get("id") for row in boundaries]
+    if len(set(ids)) != 18 or any(not isinstance(identifier, str) for identifier in ids):
+        raise ValueError("Level 4 boundary manifest identities are not unique")
+    families = {row.get("qualified") for row in boundaries}
+    if len(families) != 15:
+        raise ValueError("Level 4 boundary manifest does not contain 15 source families")
+    for row in boundaries:
+        required = ("id", "kind", "qualified", "entryPc", "instructionPcs", "exits", "parent")
+        if any(key not in row for key in required):
+            raise ValueError("Level 4 boundary manifest row omits a required field")
+        if (not isinstance(row["kind"], str) or not isinstance(row["qualified"], str)
+                or not isinstance(row["entryPc"], int) or not isinstance(row["exits"], list)):
+            raise ValueError("Level 4 boundary manifest row has an invalid required field")
+        pcs = row["instructionPcs"]
+        if not isinstance(pcs, list) or not pcs or pcs != sorted(set(pcs)):
+            raise ValueError("Level 4 boundary manifest row has empty or unsorted instruction PCs")
+        if row["parent"] != parent["id"]:
+            raise ValueError("Level 4 boundary manifest row has the wrong parent")
+        identity = row.get("functionInstanceIdentity")
+        if row["kind"] in {"emitted", "inlined"}:
+            if not isinstance(identity, dict) or identity.get("qualified") != row["qualified"]:
+                raise ValueError("Level 4 FunctionInstance boundary lacks its generated identity")
+        elif identity is not None:
+            raise ValueError("Level 4 excluded boundary falsely claims a FunctionInstance identity")
+        for optional_field in ("calls", "stores"):
+            if optional_field in row and not isinstance(row[optional_field], list):
+                raise ValueError(f"Level 4 boundary manifest {optional_field} field is not a list")
+    direct_offsets = [row for row in boundaries if row["qualified"] == "ssz_raw.readOffset"]
+    if len(direct_offsets) != 4 or any(not row["instructionPcs"] for row in direct_offsets):
+        raise ValueError("Level 4 direct readOffset boundaries are incomplete")
 
 
 def operands(instruction: dict) -> list[str]:
@@ -1224,6 +1345,7 @@ def main() -> None:
     parser.add_argument("--out", type=pathlib.Path, required=True)
     parser.add_argument("--out-lean", type=pathlib.Path)
     parser.add_argument("--out-flame", type=pathlib.Path)
+    parser.add_argument("--out-level4-boundaries", type=pathlib.Path)
     arguments = parser.parse_args()
     database = build_database(arguments.elf, arguments.program_json, arguments.llvm_objdump)
     validate(database)
@@ -1235,6 +1357,11 @@ def main() -> None:
     if arguments.out_flame:
         arguments.out_flame.parent.mkdir(parents=True, exist_ok=True)
         arguments.out_flame.write_text(json.dumps(build_flame(database), separators=(",", ":")) + "\n")
+    if arguments.out_level4_boundaries:
+        arguments.out_level4_boundaries.parent.mkdir(parents=True, exist_ok=True)
+        arguments.out_level4_boundaries.write_text(
+            json.dumps(level4_boundary_manifest(database), indent=2, sort_keys=True) + "\n"
+        )
 
 
 if __name__ == "__main__":
