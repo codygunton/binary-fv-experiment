@@ -159,4 +159,54 @@ theorem level4_executionWitness_route_75568_75572_phase_decision
   exact .phaseHandoff after 1 handoff.trace handoff.preserved
     ⟨handoff.pc, handoff.status, handoff.preserved⟩
 
+/-- The generated `decodeExecutionWitness` route `0x12850 → 0x12738` reaches its selected carrier
+without an additional parent instruction: its exact carrier path is the terminal singleton
+`[0x12738]`.  The semantic result remains supplied by the child's `CarrierObligation`. -/
+theorem level4_executionWitness_route_75856_75576_carrier_decision
+    {margs : DecoderMachineArgs} {origin initial current handoff : State}
+    (frame : Level4DecodeRawParentFrame margs origin initial) (args : ContainerArgs)
+    (rank : State → Nat) (fromStep : Nat)
+    (progress : Level4HandoffProgress decodeExecutionWitnessInterface args origin fromStep current handoff)
+    (_currentProtected : frame.PreservedTo current) (handoffProtected : frame.PreservedTo handoff)
+    (routeEq : progress.route =
+      functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75856_75576) :
+    ParentRouteDecision decodeExecutionWitnessInterface args origin frame.PreservedTo
+      (Level4ExecutionWitnessRejectionPhase frame) rank fromStep current handoff progress := by
+  let carrierPath : CarrierPath := { carrierPc := 75576, pcs := #[75576] }
+  have target : handoff.regs.get? PC = some (BitVec.ofNat 64 75576) := by
+    have atTarget := progress.atTarget
+    rw [routeEq] at atTarget
+    simpa [functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75856_75576] using atTarget
+  refine .carrier ?_ ?_
+  · rw [routeEq]
+    rfl
+  · intro path listed _terminal
+    rw [routeEq] at listed
+    have pathEq : path = carrierPath := by
+      simpa [carrierPath,
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75856_75576] using listed
+    subst path
+    refine ⟨handoff, ?_, ?_, handoffProtected⟩
+    · refine {
+        path := carrierPath
+        listed := ?_
+        startsAtTarget := ?_
+        endsAtCarrier := ?_
+        exactPcs := ?_
+        exactTrace := ?_
+        trace := ?_ }
+      · rw [routeEq]
+        simp [carrierPath,
+          functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75856_75576]
+      · rw [routeEq]
+        simpa [carrierPath,
+          functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_75856_75576] using target
+      · simpa [carrierPath] using target
+      · rw [routeEq]
+        rfl
+      · simpa [carrierPath] using
+          ExactCarrierPathTrace.terminal (fromStep + progress.prefixUsed + 1) 75576 handoff target
+      · exact ⟨0, Trace.refl (fromStep + progress.prefixUsed + 1) handoff⟩
+    · rfl
+
 end BinaryFv.Zesu.MachineExecution
