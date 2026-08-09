@@ -1711,7 +1711,7 @@ theorem level4_read_offset201_third_fragment {margs : DecoderMachineArgs} {origi
     (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase))
     (fragmentInput : readOffsetFragmentInput 0x10598
       { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 } state) (fromStep : Nat) :
-    ∃ used : Nat, ∃ after, readOffsetFragmentOutput 0x10598
+    ∃ _used : Nat, ∃ after, readOffsetFragmentOutput 0x10598
       { inputBase := margs.inputBase, bytes := margs.bytes, offset := 10 } after ∧
       after.regs.get? PC = some (BitVec.ofNat 64 0x105a0) ∧ frame.PreservedTo after := by
   rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputStackSeparated,
