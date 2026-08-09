@@ -154,4 +154,24 @@ private theorem level4_saved_word_preserved {before after : State} {M : Region}
   intro index bound
   exact (writes _ (outside index bound)).trans (saved index bound)
 
+private theorem level4_specialized_store_alignment {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state) :
+    ∃ entry : Level4DecodeRawEntryProloguePre margs origin,
+      is_aligned_vaddr (virtaddr.Virtaddr (BitVec.ofNat 64 (entry.postStack + 0x2a0))) 8 = true := by
+  rcases frame.invariant with ⟨entry, stackEq, raEq, saved, sp, inputMemory, inputSeparated,
+    stackWritable, rawWritable, rawSeparated, aligned, code, machine, retired⟩
+  refine ⟨entry, ?_⟩
+  have targetFits : entry.postStack + 0x2a0 < 2 ^ 64 := by
+    have fits := entry.stackFits
+    rw [entry.postStackEq] at fits
+    omega
+  have targetAligned : (entry.postStack + 0x2a0) % 8 = 0 := by
+    apply Nat.mod_eq_zero_of_dvd
+    apply Nat.dvd_add
+    · exact Nat.dvd_trans (by decide) (Nat.dvd_of_mod_eq_zero aligned)
+    · decide
+  simp only [is_aligned_vaddr, Sail.BitVec.toNatInt, BitVec.toNat_ofNat]
+  rw [Nat.mod_eq_of_lt targetFits]
+  simp [Int.tmod, targetAligned]
+
 end BinaryFv.Zesu.MachineExecution
