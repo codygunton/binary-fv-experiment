@@ -122,6 +122,13 @@ structure Level4DecodeRawEntryProloguePre (margs : DecoderMachineArgs) (state : 
   frame.  Parent stores use it to preserve borrowed input memory. -/
   rawFrameInputSeparated : ∀ address, postStack ≤ address → address < postStack + 0x7f0 →
     margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase
+  /-- The selected `RawNewPayloadRequest.deinit` call owns this 0x50-byte frame below `postStack`.
+  It is derived from the original inline caller's canonical stack layout, not `rawFrameWritable`. -/
+  nestedCallFrameWritable : ∀ index, index < 0x50 →
+    canonicalContractParams.env.stack (postStack - 0x50 + index)
+  nestedCallFrameFits : 0x50 ≤ postStack
+  nestedCallFrameInputSeparated : ∀ address, postStack - 0x50 ≤ address → address < postStack →
+    margs.inputBase + margs.bytes.size ≤ address ∨ address < margs.inputBase
   postStackAligned : postStack % 16 = 0
   stackFits : stack + 0x7f0 < 2 ^ 64
   saveAreaWritable : ∀ index, index < 104 → canonicalContractParams.env.stack (stack + 0x788 + index)
@@ -143,6 +150,14 @@ theorem Level4DecodeRawEntryProloguePre.return_bit_one_zero
     Sail.BitVec.access pre.ra 1 = 0#1 := by
   obtain ⟨_, _, _, returnLink, _⟩ := pre.entry
   exact returnLink.access_bit_one_zero pre.raValue
+
+/-- The `RawNewPayloadRequest.deinit` save frame is the half-open interval immediately below the
+raw decoder's post-prologue `sp`; it cannot overlap that decoder's `[postStack, …)` frame. -/
+theorem Level4DecodeRawEntryProloguePre.nestedCallFrame_before_postStack
+    (pre : Level4DecodeRawEntryProloguePre margs state) {index : Nat} (bound : index < 0x50) :
+    pre.postStack - 0x50 + index < pre.postStack := by
+  have fits := pre.nestedCallFrameFits
+  omega
 
 /-- The prologue writes only its two modified architectural registers plus normal retirement
 bookkeeping; stores themselves modify memory but no additional register. -/

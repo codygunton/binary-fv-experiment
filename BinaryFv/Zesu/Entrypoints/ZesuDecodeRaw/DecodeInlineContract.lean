@@ -401,6 +401,10 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
     canonicalContractParams.env.stack (args.stackBase - 0xe80 + index)
   rawPrologueFrameWritable : ∀ index, index < 0xe80 →
     canonicalContractParams.env.stack (args.stackBase - 0xe80 + index)
+  /-- The 0x50-byte child-call frame below the raw decoder's post-prologue `sp`, derived from
+  the original canonical caller layout. -/
+  nestedCallFrameWritable : ∀ index, index < 0x50 →
+    canonicalContractParams.env.stack (args.stackBase - 0xed0 + index)
   /-- The enclosing emitted raw-decoder machine premise is retained at each inline entry.  The
   actual `jalr` call narrows it to the raw-entry prologue scope; it is caller context rather than
   a Level 4 contract premise. -/

@@ -229,6 +229,7 @@ theorem wrapper_reaches_decode_first_contract
       stackFrameWritable := machine.stackFrameWritable
       rawFrameWritable := machine.rawFrameWritable
       rawPrologueFrameWritable := machine.rawPrologueFrameWritable
+      nestedCallFrameWritable := machine.nestedCallFrameWritable
       decodeRawMachine := by
         simpa [decodeArgs, DecodeInlineArgs.machineArgs, zesuDecodeRawMachineArgs] using parentMachine
       machine := decodeMachine
@@ -365,6 +366,7 @@ theorem wrapper_reaches_decode_first_invalid_contract
       stackFrameWritable := machine.stackFrameWritable
       rawFrameWritable := machine.rawFrameWritable
       rawPrologueFrameWritable := machine.rawPrologueFrameWritable
+      nestedCallFrameWritable := machine.nestedCallFrameWritable
       decodeRawMachine := by
         simpa [decodeArgs, DecodeInlineArgs.machineArgs, zesuDecodeRawMachineArgs] using parentMachine
       machine := decodeMachine

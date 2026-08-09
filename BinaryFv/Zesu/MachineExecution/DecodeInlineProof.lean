@@ -149,6 +149,21 @@ private theorem level4_decode_raw_entry_prologue_pre_of_inline_child
         change address < args.stackBase - 0xe80 + 0x7f0 at upper
         apply inputSeparated address lower
         omega
+      nestedCallFrameWritable := by
+        intro index bound
+        change Contracts.canonicalContractParams.env.stack (args.stackBase - 0xed0 + index)
+        exact pre.nestedCallFrameWritable index bound
+      nestedCallFrameFits := by omega
+      nestedCallFrameInputSeparated := by
+        intro address lower upper
+        apply pre.inputAvoidsCanonicalStack address
+        have writable : Contracts.canonicalContractParams.env.stack address := by
+          have offsetBound : address - (postStack - 0x50) < 0x50 := by omega
+          rw [show address = postStack - 0x50 + (address - (postStack - 0x50)) by omega]
+          change Contracts.canonicalContractParams.env.stack (args.stackBase - 0xed0 +
+            (address - (postStack - 0x50)))
+          exact pre.nestedCallFrameWritable _ offsetBound
+        exact writable
       postStackAligned := pre.postStackAligned postStack entryStack
       stackFits := by
         change postStack + 0x690 + 0x7f0 < 2 ^ 64

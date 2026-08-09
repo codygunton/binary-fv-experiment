@@ -182,6 +182,7 @@ theorem first_invalid_to_retry_decode_entry
       stackFrameWritable := pre.stackFrameWritable
       rawFrameWritable := pre.rawFrameWritable
       rawPrologueFrameWritable := pre.rawPrologueFrameWritable
+      nestedCallFrameWritable := pre.nestedCallFrameWritable
       decodeRawMachine := by
         simpa [secondArgs, DecodeInlineArgs.machineArgs] using
           pre.decodeRawMachine.mono secondAgree
@@ -308,6 +309,7 @@ theorem wrapper_second_propagate_decode_entry
       stackFrameWritable := stackFrameWritable
       rawFrameWritable := rawFrameWritable
       rawPrologueFrameWritable := rawPrologueFrameWritable
+      nestedCallFrameWritable := nestedCallFrameWritable
       decodeRawMachine := by
         simpa [secondArgs, DecodeInlineArgs.machineArgs] using
           wrapperMachine.mono

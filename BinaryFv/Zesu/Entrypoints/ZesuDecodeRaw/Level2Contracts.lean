@@ -102,6 +102,10 @@ structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
   `postStack + 0xe78`; this interval is distinct from the later 0x7f0-byte temporary frame. -/
   rawPrologueFrameWritable : ∀ index, index < 0xe80 →
     canonicalContractParams.env.stack (stackBase - 0xe80 + index)
+  /-- The selected `RawNewPayloadRequest.deinit` child saves three registers in this 0x50-byte
+  frame immediately below the raw decoder's post-prologue `sp`. -/
+  nestedCallFrameWritable : ∀ index, index < 0x50 →
+    canonicalContractParams.env.stack (stackBase - 0xed0 + index)
   stackObjectsFit : stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤
     2 ^ 64
   stackObjectsReadable : ∀ index,
