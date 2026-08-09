@@ -296,7 +296,7 @@ private theorem level4_terminal_status_store_parent_frame {margs : DecoderMachin
       (afterMemoryWrite state pc retired target.toNat
         (width := 2) (Sail.BitVec.extractLsb status 15 0)) := by
   rcases frame.invariant with ⟨entry, entryStack, entryRa, saved, stackValue, input, inputSeparated,
-    stackWritable, code, machine, -⟩
+    stackWritable, rawFrameWritable, rawFrameInputSeparated, code, machine, -⟩
   let after := afterMemoryWrite state pc retired target.toNat
     (width := 2) (Sail.BitVec.extractLsb status 15 0)
   have writes : WritesOnlyRegs stepBookkeeping state after :=
@@ -319,7 +319,8 @@ private theorem level4_terminal_status_store_parent_frame {margs : DecoderMachin
     level4_terminal_status_store_input state pc retired target status margs.inputBase margs.bytes avoidsInput
       input
   exact ⟨entry, entryStack, entryRa, savedAfter, (writes.get x2 (by decide)).trans stackValue,
-    inputAfter, inputSeparated, stackWritable, codeAfter, machine.mono agree retiredAfter, retiredAfter⟩
+    inputAfter, inputSeparated, stackWritable, rawFrameWritable, rawFrameInputSeparated, codeAfter,
+    machine.mono agree retiredAfter, retiredAfter⟩
 
 /-- The literal terminal `jal` is register-only and therefore retains the complete parent frame
 already preserved across its preceding status store. -/
@@ -330,7 +331,7 @@ private theorem level4_terminal_status_jump_parent_frame {margs : DecoderMachine
       (tryStepControlFlowAfterRetired
         (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) := by
   rcases frame.invariant with ⟨entry, entryStack, entryRa, saved, stackValue, input, inputSeparated,
-    stackWritable, code, machine, -⟩
+    stackWritable, rawFrameWritable, rawFrameInputSeparated, code, machine, -⟩
   let after := tryStepControlFlowAfterRetired
     (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired
   have writes : WritesOnlyRegs stepBookkeeping state after := jumpRetirement_writes state pc target retired
@@ -349,7 +350,8 @@ private theorem level4_terminal_status_jump_parent_frame {margs : DecoderMachine
       epilogueSaved.of_mem_eq memory
   exact ⟨entry, entryStack, entryRa, savedAfter,
     (writes.get x2 (by decide)).trans stackValue,
-    input.of_mem_eq (fun index bound => by rw [memory]), inputSeparated, stackWritable,
+    input.of_mem_eq (fun index bound => by rw [memory]), inputSeparated, stackWritable, rawFrameWritable,
+    rawFrameInputSeparated,
     (by rw [memory]; exact code), machine.mono agree retiredAfter, retiredAfter⟩
 
 private theorem level4_terminal_status_epilogue_subset (pc : BitVec 64)
@@ -397,7 +399,7 @@ theorem level4_terminal_status_route_to_epilogue {route : Level4TerminalStatusRo
     (ready : Level4TerminalStatusReady route margs origin state) (fromStep : Nat) :
     ∃ handoffState handoff after,
       Level4TerminalStatusRouteResult route ready fromStep handoffState handoff after := by
-  rcases ready.frame.invariant with ⟨entry0, -, -, -, -, -, -, -, code, outerMachine, retiredPresent⟩
+  rcases ready.frame.invariant with ⟨entry0, -, -, -, -, -, -, -, -, -, code, outerMachine, retiredPresent⟩
   let phaseMachine : DecoderMachinePre level4DecodeRawRejectionCleanupStatusCopyEpiloguePcs margs state :=
     DecoderMachinePre.restrict (fun pc hpc => level4_terminal_status_phase_subset pc hpc) outerMachine
   obtain ⟨storeRetired, storeRun⟩ :=
@@ -447,7 +449,7 @@ theorem level4_terminal_status_route_to_epilogue {route : Level4TerminalStatusRo
   have handoffParent : ready.frame.PreservedTo handoffState := by
     simpa [storeFrame] using handoffParentFromStore
   let handoffFrame := ready.frame.toState handoffParent
-  rcases handoffFrame.invariant with ⟨entry, entryStack, entryRa, saved, stackValue, -, -, -, handoffCode,
+  rcases handoffFrame.invariant with ⟨entry, entryStack, entryRa, saved, stackValue, -, -, -, -, -, handoffCode,
     handoffOuterMachine, handoffRetired⟩
   have handoffPc : handoffState.regs.get? PC = some (BitVec.ofNat 64 0x104f4) :=
     jumpRetirement_pc afterStore (BitVec.ofNat 64 route.jumpPc) (BitVec.ofNat 64 0x104f4) jumpRetired
