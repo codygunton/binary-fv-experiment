@@ -647,6 +647,8 @@ structure Level4EntryHeaderFirstTwoHandoff {margs : DecoderMachineArgs} {origin 
   writes : WritesOnlyRegs level4EntryHeaderFirstTwoWrites before after
   memory : after.mem = before.mem
   pc : after.regs.get? PC = some (BitVec.ofNat 64 0x104c4)
+  inputPointer : after.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase)
+  inputLength : after.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size)
   inputMemory : DecodedValue.MemoryBytes after margs.inputBase margs.bytes
   preserved : frame.PreservedTo after
 
@@ -655,6 +657,7 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
     (frame : Level4DecodeRawParentFrame margs origin state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104bc))
     (inputPointer : state.regs.get? x20 = some (BitVec.ofNat 64 margs.inputBase))
+    (inputLength : state.regs.get? x13 = some (BitVec.ofNat 64 margs.bytes.size))
     (inputAtLeastTwo : 2 ≤ margs.bytes.size) (inputFits : margs.inputBase + margs.bytes.size ≤ 2 ^ 64)
     (firstByteZero : margs.bytes[0]'(by omega) = 0) (fromStep : Nat) :
     ∃ after, Level4EntryHeaderFirstTwoHandoff after fromStep frame := by
@@ -702,7 +705,9 @@ theorem level4_entry_header_first_two {margs : DecoderMachineArgs} {origin state
     (level4_entry_header_first_zero_branch readFrame seg1.atPc readZero (fromStep + 1))
     (by intro r h; exact Or.inl h) (by exact of_decide_eq_true rfl)
   have memory : after.mem = state.mem := seg2.memEq noMemory_empty
-  refine ⟨after, ⟨seg2.trace, seg2.confined, seg2.writes, memory, seg2.atPc, ?_, ?_⟩⟩
+  refine ⟨after, ⟨seg2.trace, seg2.confined, seg2.writes, memory, seg2.atPc,
+    (seg2.get x20 (by simp [level4EntryHeaderFirstTwoWrites])).trans inputPointer,
+    (seg2.get x13 (by simp [level4EntryHeaderFirstTwoWrites])).trans inputLength, ?_, ?_⟩⟩
   · apply DecodedValue.MemoryBytes.of_mem_eq inputMemory
     intro index indexBound
     rw [memory]
