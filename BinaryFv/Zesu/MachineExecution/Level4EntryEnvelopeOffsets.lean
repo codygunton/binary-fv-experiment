@@ -2,6 +2,7 @@ import BinaryFv.Zesu.MachineExecution.Level4RequireU32LengthSteps
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level4Contracts
 import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.OwnedPc
+import BinaryFv.Zesu.MachineExecution.RegisterRuns
 import BinaryFv.Zesu.MachineExecution.Seg
 
 /-! # Remaining direct entry/envelope/offset instructions of `ssz_raw.decodeRaw`
@@ -826,5 +827,40 @@ theorem level4_entry_header_second_lbu {margs : DecoderMachineArgs} {origin stat
       rw [zeroExtend]
       exact wX_x10_run executeState (BitVec.ofNat 64 inputByte.toNat))
     (pcIn := ⟨level4_entry_header_second_read_machine_owned, by native_decide⟩)
+
+/-! ## Header-length constant -/
+
+/-- The direct parent `li a1,1` after the second header byte. -/
+def level4EntryHeaderLengthOnePcs : List Nat := [0x104c8]
+
+abbrev Level4EntryHeaderLengthOnePcs (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ level4EntryHeaderLengthOnePcs
+
+theorem level4EntryHeaderLengthOnePcs_subset_direct :
+    level4EntryHeaderLengthOnePcs.all decodeRawDirectPcs.contains = true := by native_decide
+
+theorem level4EntryHeaderLengthOnePcs_subset_phase :
+    level4EntryHeaderLengthOnePcs.all decodeRawEntryEnvelopeOffsetsPcs.contains = true := by
+  native_decide
+
+private theorem level4_entry_header_length_one_machine_owned :
+    RegisterWriteStep.decodeRawExecutionPcs (BitVec.ofNat 64 0x104c8) := by
+  apply functionInstanceExecutionPcs_iff_ranges.mpr
+  apply RegionPcs.iff_inRanges.mpr
+  native_decide
+
+/-- Sail executes the literal `addi a1,x0,1` at `0x104c8`. -/
+theorem level4_entry_header_length_one {margs : DecoderMachineArgs} {origin state : State}
+    (frame : Level4DecodeRawParentFrame margs origin state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x104c8)) (stepNo : Nat) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 0x104c8) retired x11 (1#64)) false := by
+  rcases frame.invariant with ⟨entry, -, -, -, -, inputMemory, -, -, code, machine, retired⟩
+  exact decoderITypeStepOfDecoderAgree machine (Agree.refl state) retired code stepNo
+    0x104c8 0x93 0x05 0x10 0x00 1#12 0#5 11#5 .ADDI atPc (rX_x0_run _) (by
+      simpa [iTypeResult] using wX_x11_run
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x104c8))
+        (1#64))
+    (pcIn := ⟨level4_entry_header_length_one_machine_owned, by native_decide⟩)
 
 end BinaryFv.Zesu.MachineExecution
