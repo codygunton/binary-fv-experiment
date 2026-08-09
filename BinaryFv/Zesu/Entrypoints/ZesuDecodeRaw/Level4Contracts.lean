@@ -815,8 +815,8 @@ def decodeExecutionWitnessEntry (args : ContainerArgs) (state : State) : Prop :=
     resultCarrier + 0x1dc + canonicalContractParams.env.record.executionWitness ≤ 2 ^ 64
 
 /-- H-target facts needed by the three audited `decodeExecutionWitness` parent continuations.
-The final `0x12920 → 0x12924` route retains only its generated PC until its store sequence has
-separate source and execution evidence. -/
+ The final `0x12920 → 0x12924` route carries the three raw witness slice pairs that the direct
+ parent stores at `sp+0x580..0x5a8`; the carrier path, not a source ABI, fixes their layout. -/
 def decodeExecutionWitnessHandoffToken (route : AttributionOutcomeCarrierRoute) (state : State) : Prop :=
   state.regs.get? PC = some (BitVec.ofNat 64 route.handoff.target) ∧
     (route =
@@ -827,7 +827,15 @@ def decodeExecutionWitnessHandoffToken (route : AttributionOutcomeCarrierRoute) 
       ∃ postStack left right,
         state.regs.get? x2 = some (BitVec.ofNat 64 postStack) ∧
         stackWord state postStack 0x238 left ∧ stackWord state postStack 0x248 right ∧
-        postStack + 0x250 < 2 ^ 64)
+        postStack + 0x250 < 2 ^ 64) ∧
+    (route =
+        functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48_attributionBoundary_carrierRoute_76064_76068 →
+      ∃ postStack stateBase stateLength codesBase codesLength headersBase headersLength,
+        state.regs.get? x2 = some (BitVec.ofNat 64 postStack) ∧
+        state.regs.get? x22 = some stateBase ∧ state.regs.get? x21 = some stateLength ∧
+        state.regs.get? x24 = some codesBase ∧ state.regs.get? x23 = some codesLength ∧
+        state.regs.get? x10 = some headersBase ∧ state.regs.get? x11 = some headersLength ∧
+        postStack + 0x5a8 < 2 ^ 64)
 
 /-- A PC-only state cannot satisfy the first audited H token: the parent `sub` instruction needs
 both live operands. -/
@@ -852,7 +860,7 @@ theorem decodeExecutionWitnessHandoffToken_75568_75668_rejects_wrap_alias
       stackWord state postStack 0x238 left → stackWord state postStack 0x248 right →
       2 ^ 64 ≤ postStack + 0x250 := by
   intro wraps
-  rcases token with ⟨-, _, words⟩
+  rcases token with ⟨-, _, words, _⟩
   rcases words rfl with ⟨postStack, left, right, sp, leftWord, rightWord, fits⟩
   have wrapsHere := wraps postStack left right sp leftWord rightWord
   omega
@@ -1064,11 +1072,16 @@ noncomputable def decodeExecutionWitnessInterface :
   admissibleStart := decodeExecutionWitnessAdmissibleStart
   reached := functionInstanceExecutionPcs generatedProgram
     functionInstance_ssz_raw_decodeExecutionWitness_in_ssz_raw_decodeRaw_at_209_48
-  terminal := specializedDecoderTerminal 0x12738
-  exit := specializedDecoderExit 0x12738 (fun args result before after =>
-    postAllocatingContainer canonicalContractParams.env args
-      canonicalContractParams.repExecutionWitness canonicalContractParams.env.record.executionWitness
-      result before after)
+  terminal := specializedDecoderTerminal 0x1294c
+  exit := specializedDecoderExit 0x1294c (fun args result _before after =>
+    canonicalContractParams.env.CodeIntact after ∧
+    MemoryBytes after args.base args.bytes ∧
+    match result with
+    | .ok witness => ∃ postStack,
+        after.regs.get? x2 = some (BitVec.ofNat 64 postStack) ∧
+        args.resultBase = postStack + 0x580 ∧
+        ExecutionWitnessRep after args.base args.bytes args.resultBase witness
+    | .error _ => True)
   stepBound := fun args => 1024 + 256 * args.bytes.size
 
 /-- The chain-config slice is still represented by the parent frame at `x2+0x238`/`x2+0x250`;
