@@ -199,9 +199,15 @@ def load_inventory(path: Path) -> tuple[Boundary, ...]:
                        if identity_ is not None else {}),
                 })
             else:
-                calls_list.append((
-                    int_field(source, f"boundary {identifier} call sourcePc"), target,
-                ))
+                source = int_field(source, f"boundary {identifier} call sourcePc")
+                # Recursive frame declarations may be sourced by a selected subtree descendant;
+                # only a physical source owned by this boundary's displayed instruction region is
+                # an independently observable boundary call clause.
+                if source in pcs:
+                    calls_list.append((source, target))
+                else:
+                    untraceable_calls.append({"kind": call.get("kind"), "sourcePc": source,
+                                              "targetPc": target, "state": "subtree-frame-only"})
         calls = tuple(calls_list)
         if any(source not in pcs for source, _target in calls):
             raise ValueError(f"boundary {identifier} declares a call outside instructionPcs")
