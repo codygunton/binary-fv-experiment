@@ -1210,12 +1210,14 @@ theorem hasExactErePrefixInlineContract_proved :
         _status, memory⟩ :=
         hasExactErePrefix_length_segment fromStep args before pre phaseEq
       exact ⟨1, after, by simp [Entrypoints.ZesuDecodeRaw.hasExactErePrefixInlineStepBound],
-        trace, post, by simp [Entrypoints.ZesuDecodeRaw.DecoderGlobalsBoundaryFrame, memory]⟩
+        trace, post, ⟨_agree, _counter, _stack, _inputPointer, _inputLength, _globals, _status,
+          memory⟩⟩
   | prefixBytes =>
       obtain ⟨after, trace, post, _agree, _counter, _stack, _inputPointer, _inputLength, _globals,
         _status, memory⟩ :=
         hasExactErePrefix_prefix_segment fromStep args before pre phaseEq
       exact ⟨10, after, by simp [Entrypoints.ZesuDecodeRaw.hasExactErePrefixInlineStepBound],
-        trace, post, by simp [Entrypoints.ZesuDecodeRaw.DecoderGlobalsBoundaryFrame, memory]⟩
+        trace, post, ⟨_agree, _counter, _stack, _inputPointer, _inputLength, _globals, _status,
+          memory⟩⟩
 
 end BinaryFv.Zesu.MachineExecution

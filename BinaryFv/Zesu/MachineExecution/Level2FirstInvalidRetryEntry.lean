@@ -18,7 +18,7 @@ structure FirstInvalidRetryEntryResult (args : ZesuDecodeRawArgs) (stackBase fro
     (entry atDecode firstAfter branch retryBefore : State) (firstUsed : Nat)
     (branchRetired retryRetired : BitVec 64) (secondArgs : DecodeInlineArgs) : Prop where
   firstInvalid : meaningDecodeRaw args.bytes = .error .invalidSsz
-  firstInvalidBound : firstUsed ≤ 5927 + 512 * args.bytes.size
+  firstInvalidBound : firstUsed ≤ 16392 + 512 * args.bytes.size
   secondArgsEq : secondArgs =
     { phase := .retryAfterInvalidSsz, stackBase := stackBase,
       inputBase := args.inputBase, bytes := args.bytes }

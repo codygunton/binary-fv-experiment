@@ -271,7 +271,7 @@ theorem wrapper_reaches_decode_first_invalid_contract
               functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31Id
               (fromStep + 19) used atDecode after ∧
             used ≤ decodeInlineStepBound decodeArgs ∧
-            used ≤ 5927 + 512 * decodeArgs.bytes.size ∧
+            used ≤ 16392 + 512 * decodeArgs.bytes.size ∧
             ScopedTrace decodeInlineOwnPcs (DecodeInlineExit decodeArgs) Level3ChildSummary
               (fromStep + 19) used atDecode after ∧
             FunctionTrace

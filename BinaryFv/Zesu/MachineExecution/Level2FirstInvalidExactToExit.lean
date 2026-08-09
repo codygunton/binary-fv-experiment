@@ -31,7 +31,7 @@ structure FirstInvalidExactErrorToExitResult (args : ZesuDecodeRawArgs) (stackBa
       bytes := args.bytes }
     (fromStep + 19 + firstUsed + 2) retryUsed entry retryBefore childAfter dispatch routeAfter
     afterStore after error link s0 s1 s2
-  firstInvalidBound : firstUsed ≤ 5927 + 512 * args.bytes.size
+  firstInvalidBound : firstUsed ≤ 16392 + 512 * args.bytes.size
   retryExactBound : retryUsed ≤ 16384 + 512 * (args.bytes.extract 4 args.bytes.size).size + 6765
   exactPrefix : meaningHasExactErePrefix args.bytes = true
   scopedTrace : WrapperScopedTrace fromStep

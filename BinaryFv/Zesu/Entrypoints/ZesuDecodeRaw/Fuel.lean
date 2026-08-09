@@ -24,7 +24,7 @@ open BinaryFv.Zesu
 /-- The exported wrapper's function instance step bound, as a function of the input size. Kept in one place
 so the fuel is derived from it rather than from a separate literal. Matches
 `functionInstanceZesuDecodeRaw`'s `stepBound`. -/
-def entryStepBound (inputSize : Nat) : Nat := 2 * (16384 + 512 * inputSize) + 1024
+def entryStepBound (inputSize : Nat) : Nat := 2 * (16384 + 512 * inputSize) + 11489
 
 /-- The runner's fuel: the entry step bound plus two — one slack step to retire the return that lands
 on the sentinel, and one to make the budget *strictly* exceed the composed trace length. -/
@@ -35,7 +35,7 @@ theorem zesuFuel_pos (inputSize : Nat) : 0 < zesuFuel inputSize := by
   unfold zesuFuel entryStepBound; omega
 
 /-- For an admissible input the fuel cannot wrap a 64-bit counter, so the step numbering stays exact.
-`maximumInputBytes` is `2 MiB`, and `2 * (16384 + 512 * 2^21) + 1024 + 2` is far below `2^64`. -/
+`maximumInputBytes` is `2 MiB`, and `2 * (16384 + 512 * 2^21) + 11489 + 2` is far below `2^64`. -/
 theorem zesuFuel_no_wrap {inputSize : Nat} (h : inputSize < Runtime.maximumInputBytes) :
     zesuFuel inputSize < 2 ^ 64 := by
   unfold zesuFuel entryStepBound

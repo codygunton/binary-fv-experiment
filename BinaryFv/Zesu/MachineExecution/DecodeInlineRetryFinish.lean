@@ -24,7 +24,9 @@ set_option maxHeartbeats 2000000
 /-- The exact-prefix retry path, with every parent instruction executed through Sail and both
 selected calls represented by checked call transfers. -/
 theorem decodeInline_retry_success_reaches_post
-    (contract : CompiledDecodeRawInstanceContract) (fromStep : Nat) (args : DecodeInlineArgs)
+    (contract : CompiledDecodeRawInstanceContract)
+    (prefixContract : HasExactErePrefixInlineContract)
+    (memcpy : CompiledMemcpyInstanceContract) (fromStep : Nat) (args : DecodeInlineArgs)
     (state : State) (pre : DecodeInlinePre args state)
     (phase : args.phase = .retryAfterInvalidSsz)
     (exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true) :
@@ -42,7 +44,7 @@ theorem decodeInline_retry_success_reaches_post
     lengthBound, prefixBound, rawBound, prefixToRawCall, ⟨rawTransfer⟩, decodedPost,
     decodedAgree, decodedCounter, decodedStack, decodedGlobals, decodedPayload, decodedCode,
     decodedSaveArea, decodedAllocation, decodedProvenance⟩ :=
-    decodeInline_retry_call_transfer contract fromStep args state pre phase exactPrefix
+    decodeInline_retry_call_transfer contract prefixContract fromStep args state pre phase exactPrefix
   let copyStart := fromStep + (13 + lengthUsed + prefixUsed + rawUsed)
   have decodedPc : decoded.regs.get? PC = some (BitVec.ofNat 64 0x103dc) := by
     have returnPcEq : rawTransfer.returnPc = BitVec.ofNat 64 0x103dc := by
@@ -57,7 +59,8 @@ theorem decodeInline_retry_success_reaches_post
       decodedPayload
   obtain ⟨callRetired, memcpyUsed, childEntry, childExit, childEntryEq, childEntryPreservesGlobals, callRun, childPre,
     memcpyBound, childTrace, childPost⟩ :=
-    decodeInline_retry_uses_memcpy (copyStart + 4) args contents state memcpyCall pre contentsSize
+    decodeInline_retry_uses_memcpy memcpy (copyStart + 4) args contents state memcpyCall pre
+      contentsSize
       sourceMemory memcpyCallAgree memcpyCallCounter memcpyCallCode memcpyAtCall memcpyCallBase
       memcpyDestination memcpySource
       memcpyLength
@@ -307,7 +310,9 @@ theorem decodeInline_retry_success_reaches_post
 /-- Companion result for the exact-prefix retry outcome.  Its save-frame conclusion follows the
 second `decodeRaw` return through the real emitted `memcpy` frame and the two final Sail steps. -/
 theorem decodeInline_retry_success_level3_save_area
-    (contract : CompiledDecodeRawInstanceContract) (fromStep : Nat) (args : DecodeInlineArgs)
+    (contract : CompiledDecodeRawInstanceContract)
+    (prefixContract : HasExactErePrefixInlineContract)
+    (memcpy : CompiledMemcpyInstanceContract) (fromStep : Nat) (args : DecodeInlineArgs)
     (state : State) (pre : DecodeInlinePre args state)
     (phase : args.phase = .retryAfterInvalidSsz)
     (exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true) :
@@ -321,7 +326,8 @@ theorem decodeInline_retry_success_level3_save_area
       DecodeInlineCallerSaveArea args state after ∧
       DecodeInlineRetrySuccessAllocationFrame args state after ∧
       used ≤ 16384 + 512 * args.retryRawArgs.bytes.size + 6765 :=
-  decodeInline_retry_success_reaches_post contract fromStep args state pre phase exactPrefix
+  decodeInline_retry_success_reaches_post contract prefixContract memcpy fromStep args state pre
+    phase exactPrefix
 
 /-- A non-`invalidSsz` first error selects the outgoing edge at the second inline entry. The child
 summary is therefore a zero-step selected exit; Level 2 retires the real branch to `0x103fc`. -/
@@ -352,12 +358,13 @@ theorem decodeInline_propagate_error_reaches_post (fromStep : Nat) (args : Decod
   · simp [DecodeInlinePost, phase, notInvalid, rawResult, result, atExit]
   · simp [DecodeInlineOutgoingFrame, phase, tagA0, tagA1]
 
-/-- The complete Level 3 theorem. It assumes only the selected compiled `decodeRaw` contract;
-the two prefix segments and emitted `memcpy` are discharged by their Sail proofs. Every phase and
-semantic outcome is closed by one of the three parent-execution arguments above. -/
+/-- The complete Level 3 theorem consumes the selected compiled `decodeRaw`, inlined prefix, and
+emitted `memcpy` contracts. Every phase and semantic outcome is closed by one of the three
+parent-execution arguments above. -/
 theorem level3DecodeInlineContract
     (decodeRaw : CompiledDecodeRawInstanceContract)
-    (firstInvalidTightBound : DecodeRawFirstInvalidTightBound) : Level3DecodeInlineContract := by
+    (prefixContract : HasExactErePrefixInlineContract)
+    (memcpy : CompiledMemcpyInstanceContract) : Level3DecodeInlineContract := by
   intro args fromStep before pre
   cases phaseEq : args.phase with
   | first =>
@@ -402,8 +409,7 @@ theorem level3DecodeInlineContract
           | invalidSsz =>
               obtain ⟨used, after, bound, scopedTrace, post, machine, outgoing, saveArea,
                 inputValue, lengthValue, allocation, tightBound⟩ :=
-                decodeInline_first_invalidSsz_level3_save_area decodeRaw
-                  firstInvalidTightBound args fromStep before pre
+                decodeInline_first_invalidSsz_level3_save_area decodeRaw args fromStep before pre
                   phaseEq (by simpa [resultEq])
               exact ⟨used, after, bound, scopedTrace,
                 scopedTrace.toFunctionTrace (level3ChildSummary_composes_decode args), post,
@@ -507,8 +513,8 @@ theorem level3DecodeInlineContract
       by_cases exactPrefix : Contracts.meaningHasExactErePrefix args.bytes = true
       · obtain ⟨used, after, bound, scopedTrace, post, machine, outgoing, saveArea, allocation,
           retryTightBound⟩ :=
-          decodeInline_retry_success_level3_save_area decodeRaw fromStep args before pre phaseEq
-            exactPrefix
+          decodeInline_retry_success_level3_save_area decodeRaw prefixContract memcpy fromStep args
+            before pre phaseEq exactPrefix
         exact ⟨used, after, bound, scopedTrace,
           scopedTrace.toFunctionTrace (level3ChildSummary_composes_decode args), post, machine,
           outgoing, saveArea, by simp [DecodeInlineFirstInvalidInputFrame, phaseEq],
@@ -525,7 +531,8 @@ theorem level3DecodeInlineContract
           by cases prefixEq : Contracts.meaningHasExactErePrefix args.bytes <;> simp_all
         by_cases short : args.bytes.size < 4
         · obtain ⟨used, after, bound, scopedTrace, post, machine, outgoing, saveArea, shortBound⟩ :=
-            decodeInline_retry_short_reaches_post fromStep args before pre phaseEq short
+            decodeInline_retry_short_reaches_post prefixContract fromStep args before pre phaseEq
+              short
           exact ⟨used, after, bound, scopedTrace,
             scopedTrace.toFunctionTrace (level3ChildSummary_composes_decode args), post, machine,
             outgoing, saveArea, by simp [DecodeInlineFirstInvalidInputFrame, phaseEq],
@@ -540,8 +547,8 @@ theorem level3DecodeInlineContract
             by intro _ _ fourBytes; omega,
             by intro _ propagation; simp [phaseEq] at propagation⟩
         · obtain ⟨used, after, bound, scopedTrace, post, machine, outgoing, saveArea, prefixBound⟩ :=
-            decodeInline_retry_prefix_mismatch_reaches_post fromStep args before pre phaseEq
-              (by omega) prefixFalse
+            decodeInline_retry_prefix_mismatch_reaches_post prefixContract fromStep args before pre
+              phaseEq (by omega) prefixFalse
           exact ⟨used, after, bound, scopedTrace,
             scopedTrace.toFunctionTrace (level3ChildSummary_composes_decode args), post, machine,
             outgoing, saveArea, by simp [DecodeInlineFirstInvalidInputFrame, phaseEq],

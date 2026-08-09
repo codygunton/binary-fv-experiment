@@ -130,7 +130,7 @@ theorem firstSuccessRouteToExportedPost : FirstSuccessRouteToExportedPost := by
   let count := 37 + childUsed + calleeUsed + copyUsed
   have bound : count ≤ compiledZesuDecodeRawContract.binding.stepBound args := by
     change 37 + childUsed + calleeUsed + copyUsed ≤
-      2 * (16384 + 512 * args.bytes.size) + 1024
+      2 * (16384 + 512 * args.bytes.size) + 11489
     have decodeBound := route.decodeBound
     have firstMemcpyBound := route.firstMemcpy.copyBound
     have tag0CopyBound := route.tag0.copy.copyBound
@@ -372,7 +372,7 @@ theorem nonFirstRouteToExportedPost : NonFirstRouteToExportedPost := by
   cases route with
   | firstInvalidShort route =>
       refine ⟨_, ?_, entered_wrapper_trace machine route.scopedTrace, ?_⟩
-      · change _ ≤ 2 * (16384 + 512 * args.bytes.size) + 1024
+      · change _ ≤ 2 * (16384 + 512 * args.bytes.size) + 11489
         have firstBound := route.firstInvalidBound
         have retryBound := route.retryShortBound
         omega
@@ -381,7 +381,7 @@ theorem nonFirstRouteToExportedPost : NonFirstRouteToExportedPost := by
         exact post
   | firstInvalidPrefixMismatch route =>
       refine ⟨_, ?_, entered_wrapper_trace machine route.scopedTrace, ?_⟩
-      · change _ ≤ 2 * (16384 + 512 * args.bytes.size) + 1024
+      · change _ ≤ 2 * (16384 + 512 * args.bytes.size) + 11489
         have firstBound := route.firstInvalidBound
         have retryBound := route.retryPrefixMismatchBound
         omega
@@ -390,7 +390,7 @@ theorem nonFirstRouteToExportedPost : NonFirstRouteToExportedPost := by
         exact post
   | firstInvalidExactSuccess route =>
       refine ⟨_, ?_, entered_wrapper_trace machine route.scopedTrace, ?_⟩
-      · change _ ≤ 2 * (16384 + 512 * args.bytes.size) + 1024
+      · change _ ≤ 2 * (16384 + 512 * args.bytes.size) + 11489
         have firstBound := route.firstInvalidBound
         have retryBound := route.retryExactBound
         have copyBound := route.copyBound
@@ -407,7 +407,7 @@ theorem nonFirstRouteToExportedPost : NonFirstRouteToExportedPost := by
       rename_i stackBase' atDecode firstAfter branch retryBefore childAfter dispatch routeAfter afterStore
         firstUsed retryUsed error link s0 s1 s2
       refine ⟨_, ?_, entered_wrapper_trace machine route.scopedTrace, ?_⟩
-      · change _ ≤ 2 * (16384 + 512 * args.bytes.size) + 1024
+      · change _ ≤ 2 * (16384 + 512 * args.bytes.size) + 11489
         have firstBound := route.firstInvalidBound
         have retryBound := route.retryExactBound
         have exactPrefix := route.exactPrefix
@@ -423,7 +423,7 @@ theorem nonFirstRouteToExportedPost : NonFirstRouteToExportedPost := by
       rename_i stackBase' atDecode firstAfter branch retryBefore childAfter dispatch routeAfter afterStore
         firstUsed propagatedUsed error branchRetired retryRetired link s0 s1 s2
       refine ⟨_, ?_, entered_wrapper_trace machine route.scopedTrace, ?_⟩
-      · change _ ≤ 2 * (16384 + 512 * args.bytes.size) + 1024
+      · change _ ≤ 2 * (16384 + 512 * args.bytes.size) + 11489
         have firstBound := route.firstBound
         have propagatedZero := route.propagatedZero
         cases error <;> simp_all <;> omega

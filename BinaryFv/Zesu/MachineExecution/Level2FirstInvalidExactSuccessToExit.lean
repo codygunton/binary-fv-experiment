@@ -20,7 +20,7 @@ structure FirstInvalidExactSuccessToExitResult (args : ZesuDecodeRawArgs) (stack
     ⟨.retryAfterInvalidSsz, stackBase, args.inputBase, args.bytes⟩
     (fromStep + 19 + firstUsed + 2) retryUsed entry retryBefore childAfter dispatch copyStart callState afterCopy
     routeAfter afterStore after value contents link s0 s1 s2 copyUsed
-  firstInvalidBound : firstUsed ≤ 5927 + 512 * args.bytes.size
+  firstInvalidBound : firstUsed ≤ 16392 + 512 * args.bytes.size
   retryExactBound : retryUsed ≤ 16384 + 512 * (args.bytes.extract 4 args.bytes.size).size + 6765
   exactPrefix : meaningHasExactErePrefix args.bytes = true
   copyBound : copyUsed ≤ 64 + 8 * 832

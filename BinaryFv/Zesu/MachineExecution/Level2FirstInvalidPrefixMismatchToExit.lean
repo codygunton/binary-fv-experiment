@@ -24,7 +24,7 @@ structure FirstInvalidPrefixMismatchToExitResult (args : ZesuDecodeRawArgs) (sta
       inputBase := args.inputBase, bytes := args.bytes }
     (fromStep + 19 + firstUsed + 2) retryUsed entry retryBefore childAfter handoff afterTail
     afterStore after link s0 s1 s2
-  firstInvalidBound : firstUsed ≤ 5927 + 512 * args.bytes.size
+  firstInvalidBound : firstUsed ≤ 16392 + 512 * args.bytes.size
   retryPrefixMismatchBound : retryUsed ≤ 30
   scopedTrace : WrapperScopedTrace fromStep (19 + firstUsed + 2 + (retryUsed + 10)) entry after
   entryPrefix : WrapperPrefix fromStep (19 + firstUsed + 2) entry retryBefore

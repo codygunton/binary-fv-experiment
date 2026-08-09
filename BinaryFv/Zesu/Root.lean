@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.Artifacts.Layout
 import BinaryFv.Zesu.Interface
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level1Contracts
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Assembly
 
 namespace BinaryFv.Zesu
 
@@ -178,15 +179,16 @@ theorem compliance_of_level1_contracts
         execution.builds execution.trace execution.withinStepBound execution.accessors
         execution.returnCode execution.specRejection execution.storedAbsent
 
-/-- The sole public root of the compliance proof. Its `hLevel2` premise is exactly the reviewed
-allocator, inlined `ssz_raw.decode`, and emitted `memcpy` contracts; both accessors are discharged
-by concrete Sail execution. -/
+/-- The sole public root of the compliance proof. Its `hLevel3` premise contains only the selected
+emitted `decodeRaw` contract. The Level 3 and Level 2 conversions fill the already-proved prefix,
+allocator, and `memcpy` contracts before deriving the exported decoder contract. -/
 theorem root_compliance
-    (hLevel2 : Entrypoints.ZesuDecodeRaw.Level2ContractAssumptions) :
+    (hLevel3 : Entrypoints.ZesuDecodeRaw.Level3ContractAssumptions) :
     ∀ input : ByteArray,
       input.size < 2 * 1024 * 1024 →
         RiscvSpec.execute binary input = .ok (BinaryFv.Specs.SSZ.decode input) :=
-  compliance_of_level1_contracts
-    (Entrypoints.ZesuDecodeRaw.contracts_of_level1 hLevel2)
+  let selected3 := Entrypoints.ZesuDecodeRaw.selectedContracts_of_level3 hLevel3
+  let hLevel2 := Entrypoints.ZesuDecodeRaw.level2Contracts_of_level3 selected3
+  compliance_of_level1_contracts (Entrypoints.ZesuDecodeRaw.contracts_of_level1 hLevel2)
 
 end BinaryFv.Zesu
