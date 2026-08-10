@@ -76,6 +76,12 @@ The four tracks stay separate: formal proof connection, production-artifact vali
 evidence, and authoring suggestions. A yellow authoring outline, runtime capture, or LLVM match can
 guide work but cannot make an instruction green or increase a proof-coverage total.
 
+The Level 4 control-flow view is a conventional hierarchical CFG. Rectangles are actual parent basic
+blocks or collapsed selected-child source regions; solid, purple-dashed, and blue-dashed arrows are
+parent control flow, calls, and returns. The three columns are the kernel-exported 45/67/60-PC parent
+phase partition. Node color is status, while clicking exposes instructions, source identity, contracts,
+and authoring blockers; proof suggestions never change the nodes or edges.
+
 `.#machine-regions/level4-boundaries.json` is the deterministic evidence-loader manifest for the
 eighteen Level 4 rows. Every row has `id`, `kind`, `qualified`, `entryPc`, nonempty
 `instructionPcs`, `exits`, and `parent`; `FunctionInstance` rows also carry their source identity,

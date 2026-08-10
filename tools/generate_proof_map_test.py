@@ -52,6 +52,7 @@ class ProofMapTests(unittest.TestCase):
         self.assertEqual(len(result["instructions"]), 172)
         self.assertEqual(result["formalCoverage"]["localPcCount"], 1)
         self.assertEqual(result["instructions"][0]["formalManifests"], ["m"])
+        self.assertEqual(len(result["cfgGraph"]["nodes"]), len(result["blocks"]) + 1)
 
     def test_rejects_forged_manifest_pc(self):
         self.manifests["manifests"][0]["pcs"] = [0xDEAD]

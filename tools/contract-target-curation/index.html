@@ -44,6 +44,11 @@
  .cfg-edge{margin-top:6px;padding-top:5px;border-top:1px solid #252c35;font-size:10px;color:var(--dim)}
  .cfg-edge b{display:inline;color:#9eabc0}.dependency{display:inline-block;margin:3px 3px 0 0;padding:1px 5px;
              border-radius:10px;background:#272230;color:#d2b6ff;border:1px solid #4b3a62}
+ .cfg-canvas{min-width:980px;border:1px solid var(--line);border-radius:7px;background:#11151b;overflow:hidden}
+ .cfg-canvas svg{display:block}.cfg-column{fill:#141920;stroke:#252c35}.cfg-column-title{fill:#aeb9ca;font-size:11px;font-weight:600}
+ .cfg-link{fill:none;stroke:#596579;stroke-width:1;opacity:.7}.cfg-link.call{stroke:#b08ad8;stroke-dasharray:4 3}
+ .cfg-link.return{stroke:#68a4d4;stroke-dasharray:2 3}.cfg-node-rect{stroke-width:1.2;rx:4;cursor:pointer}
+ .cfg-node-label{fill:#e0e6ef;font-size:9px;pointer-events:none}.cfg-node-sub{fill:#8f9bad;font-size:8px;pointer-events:none}
  .pc-cells{display:flex;gap:3px;flex-wrap:wrap;margin-top:6px}
  .pc-cell{width:13px;height:13px;border-radius:2px;background:#3b424e;border:1px solid #687385;
           position:relative}.pc-cell.local{background:#3ddc84}.pc-cell.level4{background:#41a9ff}
@@ -333,29 +338,6 @@ function renderProofMap(){
       data-region="${esc(region.id)}"><b>${esc(region.label)}</b>
       <small>${esc(region.authoringState)} · ${(region.pcs||[]).length||region.boundaryInstructionCount||0} instructions</small>
       <div>${esc(region.blocker)}</div></div>`).join('');
-  const instructionByPc=new Map(PROOF_MAP.instructions.map(row=>[row.pc,row]));
-  const blockByEntry=new Map(PROOF_MAP.blocks.map(block=>[block.entryPc,block]));
-  const blocksByPhase=new Map(PROOF_MAP.phases.map(phase=>[phase.id,[]]));
-  PROOF_MAP.blocks.forEach(block=>blocksByPhase.get(block.phase).push(block));
-  const blockHtml=block=>{
-    const cells=block.pcs.map(pc=>{const row=instructionByPc.get(pc),connection=proofConnection(row);
-      return `<i class="pc-cell ${connection} ${authoringPcs.has(pc)?'authoring':''}" title="0x${pc.toString(16)} ${esc(row.mnemonic)}"></i>`;}).join('');
-    const parentEdges=block.successors.filter(pc=>blockByEntry.has(pc)).map(pc=>
-      `<span class="dependency">parent 0x${pc.toString(16)}</span>`).join('');
-    const childEdges=(block.childCalls||[]).map(child=>
-      `<span class="dependency">call ${esc(child.qualified)} @ 0x${child.entryPc.toString(16)}</span>`).join('');
-    const returns=(block.childReturns||[]).map(child=>
-      `<span class="dependency">return from ${esc(child.qualified)}</span>`).join('');
-    const state=block.pcs.every(pc=>instructionByPc.get(pc).formalManifests.length)?'proved locally':
-      block.pcs.some(pc=>authoringPcs.has(pc))?'active authoring':'ELF validated';
-    return `<div class="cfg-node ${block.pcs.some(pc=>authoringPcs.has(pc))?'next':''}" data-pc="${block.entryPc}">
-      <div class="node-head"><b>0x${block.entryPc.toString(16)} · ${block.pcs.length} instruction${block.pcs.length===1?'':'s'}</b>
-      <span class="node-state">${state}</span></div><div class="pc-cells">${cells}</div>
-      <div class="cfg-edge"><b>execution:</b> ${parentEdges||'leaves parent phase'} ${childEdges}${returns}</div></div>`;
-  };
-  const flow=PROOF_MAP.phases.map((phase,index)=>`<section class="cfg-phase"><h3>${index+1}. ${esc(phase.label)}
-    <small>${phase.pcCount} parent instructions · execution edges and selected children</small></h3>
-    <div class="cfg-flow">${blocksByPhase.get(phase.id).map(blockHtml).join('')}</div></section>`).join('');
   $('#proof-map').innerHTML=`<div class="proof-summary">
       ${stat('kernel-linked local PCs',coverage.localPcCount,'#3ddc84')}
       ${stat('connected into Level 4',coverage.level4PcCount,'#41a9ff')}
@@ -366,14 +348,47 @@ function renderProofMap(){
       <span>LLVM IR: ${esc(PROOF_MAP.compilerProvenance.state)}</span></div>
     <div class="proof-tools"><b>authoring regions</b>
       ${['all','ready','blocked'].map(value=>`<button data-filter="${value}" ${PROOF_FILTER===value?'disabled':''}>${value}</button>`).join('')}</div>
-    <div class="proof-grid">${regions}</div><div class="proof-tools"><b>ordered parent CFG and child dependencies</b>
-      <span class="muted">phase order is the recommended authoring order; chips are actual CFG/call/return relationships</span></div>
-    ${flow}`;
+    <div class="proof-grid">${regions}</div><div class="proof-tools"><b>decodeRaw control-flow graph</b>
+      <span class="muted">parent basic blocks plus collapsed selected source regions; click a node for instructions and proof state</span></div>
+    <div class="cfg-canvas" id="proof-cfg"></div>`;
   $('#proof-map').querySelectorAll('[data-filter]').forEach(button=>button.onclick=()=>{
     PROOF_FILTER=button.dataset.filter; renderProofMap();
   });
   $('#proof-map').querySelectorAll('[data-region]').forEach(card=>card.onclick=()=>showAuthoringRegion(card.dataset.region));
-  $('#proof-map').querySelectorAll('[data-pc]').forEach(block=>block.onclick=()=>showProofBlock(Number(block.dataset.pc)));
+  renderProofCfg();
+}
+
+function renderProofCfg(){
+  const graph=PROOF_MAP.cfgGraph,phaseIndex=new Map(PROOF_MAP.phases.map((p,i)=>[p.id,i]));
+  const groups=new Map(PROOF_MAP.phases.map(p=>[p.id,[]]));
+  graph.nodes.forEach(node=>groups.get(node.phase).push(node));
+  groups.forEach(nodes=>nodes.sort((a,b)=>a.entryPc-b.entryPc||a.kind.localeCompare(b.kind)));
+  const laneW=330,nodeH=30,parentW=180,childW=120,top=48,gap=39;
+  const maxRows=Math.max(...[...groups.values()].map(nodes=>nodes.length));
+  const width=laneW*PROOF_MAP.phases.length,height=top+maxRows*gap+24,positions=new Map();
+  for(const phase of PROOF_MAP.phases){
+    const lane=phaseIndex.get(phase.id),nodes=groups.get(phase.id);
+    nodes.forEach((node,row)=>{const child=node.kind==='selectedChild';positions.set(node.id,
+      {x:lane*laneW+18+(child?190:0),y:top+row*gap,w:child?childW:parentW,h:nodeH,node});});
+  }
+  const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],ready:['#473b1e','#e5b84b'],
+    blocked:['#472327','#d95757'],contract:['#30263b','#9c78c2']};
+  const short=s=>s.length>25?s.slice(0,23)+'…':s;
+  const columns=PROOF_MAP.phases.map((phase,i)=>`<rect class="cfg-column" x="${i*laneW+4}" y="4" width="${laneW-8}" height="${height-8}" rx="6"/>
+    <text class="cfg-column-title" x="${i*laneW+16}" y="25">${i+1}. ${esc(short(phase.label))}</text>`).join('');
+  const edges=graph.edges.map(edge=>{const a=positions.get(edge.source),b=positions.get(edge.target);if(!a||!b)return'';
+    const x1=a.x+a.w,y1=a.y+a.h/2,x2=b.x,y2=b.y+b.h/2,mx=(x1+x2)/2;
+    return `<path class="cfg-link ${edge.kind}" marker-end="url(#cfg-arrow)" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"><title>${edge.kind}</title></path>`;}).join('');
+  const nodes=[...positions.values()].map(({x,y,w,h,node})=>{const [fill,stroke]=colors[node.status]||colors.artifact;
+    const label=node.kind==='selectedChild'?short(node.semanticRegion):`0x${node.entryPc.toString(16)}  ${short(node.mnemonics.join(' · '))}`;
+    const sub=node.kind==='selectedChild'?'selected source region':`${node.pcs.length} insn · ${node.status}`;
+    return `<g data-graph-id="${esc(node.id)}"><rect class="cfg-node-rect" x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="${stroke}"><title>${esc(node.semanticRegion)}\n${esc(node.source)}</title></rect>
+      <text class="cfg-node-label" x="${x+6}" y="${y+12}">${esc(label)}</text><text class="cfg-node-sub" x="${x+6}" y="${y+24}">${esc(sub)}</text></g>`;}).join('');
+  $('#proof-cfg').innerHTML=`<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}"><defs><marker id="cfg-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#657287"/></marker></defs>${columns}${edges}${nodes}</svg>`;
+  $('#proof-cfg').querySelectorAll('[data-graph-id]').forEach(element=>element.onclick=()=>{
+    const node=graph.nodes.find(row=>row.id===element.dataset.graphId);
+    if(node.kind==='parentBlock')showProofBlock(node.entryPc);else showProofBoundary(node.id.slice('boundary-'.length));
+  });
 }
 
 function showAuthoringRegion(id){
@@ -404,6 +419,19 @@ function showProofBlock(entryPc){
     <span>formal manifests</span><span>${esc([...new Set(rows.flatMap(row=>row.formalManifests))].join(', ')||'none')}</span>
     <span>artifact</span><span>validated against production ELF</span></div><pre>${rows.map(row=>
       `0x${row.pc.toString(16)}  ${row.mnemonic.padEnd(7)} ${row.operands}\n  read ${row.reads.join(',')||'-'} · write ${row.writes.join(',')||'-'} · memory ${row.memory.length?'yes':'no'}`).join('\n')}</pre>`;
+}
+
+function showProofBoundary(id){
+  const boundary=PROOF_MAP.boundaries.find(row=>row.id===id);if(!boundary)return;
+  const node=PROOF_MAP.cfgGraph.nodes.find(row=>row.id===`boundary-${id}`);
+  const annotation=PROOF_MAP.authoringRegions.find(row=>(row.boundaryIds||[]).includes(id));
+  $('#dname').textContent=boundary.qualified;$('#dsub').textContent=`selected child · ${node.status}`;setCopy(id);
+  $('#rbody').innerHTML=`<div class="kv"><span>source region</span><span>${esc(node.source)}</span>
+    <span>entry</span><span>0x${boundary.entryPc.toString(16)}</span>
+    <span>instructions</span><span>${boundary.instructionCount}</span>
+    <span>returns</span><span>${esc((boundary.exits||[]).map(edge=>`0x${edge.source.toString(16)} → 0x${edge.target.toString(16)}`).join(', ')||'none')}</span>
+    <span>proof status</span><span>${esc(node.status)}</span>
+    <span>authoring blocker</span><span>${esc(annotation?.blocker||'no focused authoring annotation')}</span></div>`;
 }
 
 function toggleProofMap(){

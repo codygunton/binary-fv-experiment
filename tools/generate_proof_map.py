@@ -191,6 +191,52 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
                                for pc in block["successors"] if pc in boundary_entries]
         block["childReturns"] = [{"id": row["id"], "qualified": row["qualified"]}
                                  for row in boundary_returns.get(block["entryPc"], [])]
+    block_by_entry = {block["entryPc"]: block for block in blocks}
+    authoring_by_pc = {pc: region for region in regions for pc in region.get("pcs", [])}
+    authoring_by_boundary = {boundary_id: region for region in regions
+                             for boundary_id in region.get("boundaryIds", [])}
+    phase_labels = {row["id"]: row["label"] for row in manifests.get("phases", [])}
+    graph_nodes = []
+    for block in blocks:
+        covered = all(pc_manifests.get(pc) for pc in block["pcs"])
+        authoring_region = next((authoring_by_pc[pc] for pc in block["pcs"]
+                                 if pc in authoring_by_pc), None)
+        graph_nodes.append({
+            "id": block["id"], "kind": "parentBlock", "entryPc": block["entryPc"],
+            "pcs": block["pcs"], "phase": block["phase"],
+            "semanticRegion": (authoring_region["label"] if authoring_region
+                               else phase_labels[block["phase"]]),
+            "source": f"{owner.get('sourceFile')}:{owner.get('declLine')}",
+            "status": "local" if covered else (authoring_region["authoringState"]
+                                                  if authoring_region else "artifact"),
+            "mnemonics": [instruction_rows[pc]["mnemonic"] for pc in block["pcs"]],
+        })
+    for boundary in boundaries["boundaries"]:
+        annotation = authoring_by_boundary.get(boundary["id"])
+        identity = boundary.get("functionInstanceIdentity", {})
+        exits = boundary.get("exits", [])
+        phase_target = exits[0]["target"] if exits else None
+        graph_nodes.append({
+            "id": f"boundary-{boundary['id']}", "kind": "selectedChild",
+            "entryPc": boundary["entryPc"], "pcs": boundary["instructionPcs"],
+            "phase": phase_by_pc.get(phase_target, manifests["phases"][0]["id"]),
+            "semanticRegion": boundary["qualified"],
+            "source": identity.get("sourceFile", "unknown source"),
+            "status": annotation["authoringState"] if annotation else "contract",
+            "mnemonics": [],
+        })
+    graph_edges = set()
+    for block in blocks:
+        for successor in block["successors"]:
+            if successor in block_by_entry:
+                graph_edges.add((block["id"], block_by_entry[successor]["id"], "control"))
+            elif successor in boundary_entries:
+                graph_edges.add((block["id"], f"boundary-{boundary_entries[successor]['id']}", "call"))
+    for boundary in boundaries["boundaries"]:
+        for edge in boundary.get("exits", []):
+            if edge["target"] in block_by_entry:
+                graph_edges.add((f"boundary-{boundary['id']}",
+                                 block_by_entry[edge["target"]]["id"], "return"))
     return {
         "schemaVersion": 1,
         "owner": {"id": owner["id"], "qualified": owner["qualified"], "entryPc": owner["entryPc"]},
@@ -201,6 +247,9 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
         "phases": [{"id": row["id"], "label": row["label"], "pcCount": len(row["pcs"])}
                    for row in manifests.get("phases", [])],
         "blocks": blocks,
+        "cfgGraph": {"nodes": graph_nodes,
+                     "edges": [{"source": source, "target": target, "kind": kind}
+                               for source, target, kind in sorted(graph_edges)]},
         "manifests": manifests["manifests"],
         "boundaries": [{"id": row["id"], "qualified": row["qualified"],
                         "entryPc": row["entryPc"], "instructionCount": len(row["instructionPcs"]),
