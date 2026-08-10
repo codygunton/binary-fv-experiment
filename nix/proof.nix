@@ -4,6 +4,8 @@ let
   zesuAbiManifest = targets.public.zesuAbiManifest;
   elflingProgram = targets.public.elflingProgram;
   machineRegions = targets.public.machineRegions;
+  machineRegionsUi = targets.public.machineRegionsUi;
+  elflingDecoderLlvmIr = targets.public.elflingDecoderLlvmIr;
 
   pinnedLean = pkgs.stdenvNoCC.mkDerivation {
     pname = "lean4";
@@ -455,8 +457,8 @@ COMPAT
   } ''
     set -euo pipefail
     mkdir -p source/tools/proof-map source/lean run1 run2 "$out"
-    cp -R ${targets.machineRegionsUi}/. "$out/"
-    cp ${targets.machineRegions}/level4-boundaries.json "$out/"
+    cp -R ${machineRegionsUi}/. "$out/"
+    cp ${machineRegions}/level4-boundaries.json "$out/"
     cp ${binaryFvLean}/level4-machine-proof-manifests.json "$out/"
     cp ${level4ContractEvidence}/report.json "$out/level4-contract-evidence.json"
     cp ${repo}/tools/generate_proof_map.py source/tools/
@@ -469,13 +471,13 @@ COMPAT
     python3 -m unittest tools/analyze_machine_proof_corridors_test.py tools/generate_proof_map_test.py
     generate() {
       python3 tools/generate_proof_map.py \
-        --machine-regions ${targets.machineRegions}/machine-regions.json \
-        --level4-boundaries ${targets.machineRegions}/level4-boundaries.json \
+        --machine-regions ${machineRegions}/machine-regions.json \
+        --level4-boundaries ${machineRegions}/level4-boundaries.json \
         --manifests ${binaryFvLean}/level4-machine-proof-manifests.json \
         --authoring tools/proof-map/level4-authoring.json \
         --lean-root lean \
         --analyzer tools/analyze_machine_proof_corridors.py \
-        --llvm-ir ${targets.elflingDecoderLlvmIr}/decoder.ll \
+        --llvm-ir ${elflingDecoderLlvmIr}/decoder.ll \
         --out "$1/proof-map.json"
     }
     generate ../run1
