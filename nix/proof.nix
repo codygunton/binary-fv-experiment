@@ -339,6 +339,7 @@ COMPAT
 
     # Export only records whose exact-PC and composition proofs elaborated above.  The marker keeps
     # ordinary Lean diagnostics out of the JSON artifact.
+    lake build BinaryFv.Zesu.ProofProgress.Level4MachineProofManifests
     lake env lean tools/export_level4_machine_proof_manifests.lean \
       | sed -n 's/^MACHINE_PROOF_MANIFEST_JSON=//p' \
       > "$out/level4-machine-proof-manifests.json"
