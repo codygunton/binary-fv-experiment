@@ -69,8 +69,7 @@ class Corridor:
         return tuple(instruction.mnemonic for instruction in self.instructions)
 
 
-def machine_instructions(path: Path) -> dict[int, Instruction]:
-    document = json.loads(path.read_text())
+def machine_instructions_from_document(document: dict) -> dict[int, Instruction]:
     return {
         row["address"]: Instruction(
             pc=row["address"], mnemonic=row["mnemonic"], operands=row["operands"],
@@ -80,6 +79,10 @@ def machine_instructions(path: Path) -> dict[int, Instruction]:
         )
         for row in document["instructions"]
     }
+
+
+def machine_instructions(path: Path) -> dict[int, Instruction]:
+    return machine_instructions_from_document(json.loads(path.read_text()))
 
 
 def lean_corridors(root: Path, machine: dict[int, Instruction]) -> list[Corridor]:

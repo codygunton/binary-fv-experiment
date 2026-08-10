@@ -14,6 +14,12 @@ interface, actual callers/callees, source location, and supporting theorem or co
 button beside its qualified name copies that name. Click a Level label to list every qualified
 function name at that depth; its copy button produces a ` | `-separated list.
 
+The **Level 4 proof map** button opens the instruction-level authoring view for
+`ssz_raw.decodeRaw`. Its summary distinguishes locally kernel-checked PCs, PCs composed into the
+Level 4 conversion, and PCs reachable from `root_compliance`. Blocks show the exact parent-owned CFG;
+click one for instructions, effects, successors, and manifests. Authoring cards show blockers and
+deterministic template candidates, but never contribute to formal totals.
+
 ## Rules for reading the graph
 
 The graph is an exclusive instruction-ownership hierarchy. A child owns its displayed machine
@@ -60,7 +66,15 @@ under emitted `decodeRaw`. The production Level 4 inventory has 172 parent-owned
 occurrences remain distinct. Generation rejects drift at those reviewed boundaries.
 
 The vendored D3 files are MIT-licensed and keep the review UI offline. Generated data is not committed;
-`.#machine-regions-ui` packages fresh `flame.json` and `machine-regions.json` files with the viewer.
+`.#machine-regions-ui` packages fresh `flame.json`, `machine-regions.json`,
+`level4-machine-proof-manifests.json`, and `proof-map.json` files with the viewer. A manifest is
+exported only after Lean accepts both its exact-PC predicate equivalence and concrete composition
+claim. The proof map then joins those records to production geometry, empirical evidence, hashed
+optimized LLVM-IR provenance, and explicitly untrusted authoring annotations.
+
+The four tracks stay separate: formal proof connection, production-artifact validation, empirical
+evidence, and authoring suggestions. A yellow authoring outline, runtime capture, or LLVM match can
+guide work but cannot make an instruction green or increase a proof-coverage total.
 
 `.#machine-regions/level4-boundaries.json` is the deterministic evidence-loader manifest for the
 eighteen Level 4 rows. Every row has `id`, `kind`, `qualified`, `entryPc`, nonempty

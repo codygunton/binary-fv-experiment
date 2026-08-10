@@ -332,6 +332,14 @@ COMPAT
 
     # Zesu production-binary validation remains diagnostic-only.
     LEAN_NUM_THREADS=1 lake build ZesuVerificationTests
+
+    # Export only records whose exact-PC and composition proofs elaborated above.  The marker keeps
+    # ordinary Lean diagnostics out of the JSON artifact.
+    lake env lean tools/export_level4_machine_proof_manifests.lean \
+      | sed -n 's/^MACHINE_PROOF_MANIFEST_JSON=//p' \
+      > "$out/level4-machine-proof-manifests.json"
+    jq -e '.schemaVersion == 1 and .ownerInstructionCount == 172' \
+      "$out/level4-machine-proof-manifests.json" >/dev/null
   '';
 
   # Executable Lean rendering of the pinned SSZ specification. This is a test oracle, separate from
@@ -442,6 +450,44 @@ COMPAT
         --rv64-binary ${zesuSsz}/bin/zesu-ssz --out-json "$out/report.json"
     '';
 
+  machineProofMapUi = pkgs.runCommand "zesu-machine-regions-proof-map-ui" {
+    nativeBuildInputs = [ pkgs.coreutils pkgs.diffutils pkgs.jq pkgs.python3 ];
+  } ''
+    set -euo pipefail
+    mkdir -p source/tools/proof-map source/lean run1 run2 "$out"
+    cp -R ${targets.machineRegionsUi}/. "$out/"
+    cp ${targets.machineRegions}/level4-boundaries.json "$out/"
+    cp ${binaryFvLean}/level4-machine-proof-manifests.json "$out/"
+    cp ${level4ContractEvidence}/report.json "$out/level4-contract-evidence.json"
+    cp ${repo}/tools/generate_proof_map.py source/tools/
+    cp ${repo}/tools/generate_proof_map_test.py source/tools/
+    cp ${repo}/tools/analyze_machine_proof_corridors.py source/tools/
+    cp ${repo}/tools/analyze_machine_proof_corridors_test.py source/tools/
+    cp ${repo}/tools/proof-map/level4-authoring.json source/tools/proof-map/
+    cp -R ${repo}/BinaryFv/Zesu/MachineExecution/. source/lean/
+    cd source
+    python3 -m unittest tools/analyze_machine_proof_corridors_test.py tools/generate_proof_map_test.py
+    generate() {
+      python3 tools/generate_proof_map.py \
+        --machine-regions ${targets.machineRegions}/machine-regions.json \
+        --level4-boundaries ${targets.machineRegions}/level4-boundaries.json \
+        --manifests ${binaryFvLean}/level4-machine-proof-manifests.json \
+        --authoring tools/proof-map/level4-authoring.json \
+        --lean-root lean \
+        --analyzer tools/analyze_machine_proof_corridors.py \
+        --llvm-ir ${targets.elflingDecoderLlvmIr}/decoder.ll \
+        --out "$1/proof-map.json"
+    }
+    generate ../run1
+    generate ../run2
+    cmp -s ../run1/proof-map.json ../run2/proof-map.json \
+      || { echo "PROOF MAP GENERATOR NON-DETERMINISTIC" >&2; exit 1; }
+    jq -e '.schemaVersion == 1 and (.instructions | length) == 172 and
+      .formalCoverage.localPcCount == 32 and .compilerProvenance.state == "explanatory-only"' \
+      ../run1/proof-map.json >/dev/null
+    cp ../run1/proof-map.json "$out/"
+  '';
+
   devShell = pkgs.mkShell {
     inputsFrom = [ rv64.devShell ];
     packages = [
@@ -458,9 +504,11 @@ COMPAT
 in
 {
   public = {
-    inherit binaryFvLean level4ContractEvidence sailRiscvLean sizzLeanClosure sszOracle zesuSszElfLean;
+    inherit binaryFvLean level4ContractEvidence machineProofMapUi sailRiscvLean sizzLeanClosure
+      sszOracle zesuSszElfLean;
 
     binary-fv-lean = binaryFvLean;
+    machine-regions-ui = machineProofMapUi;
     sail-riscv-lean = sailRiscvLean;
     sizzlean-lean = sizzLeanClosure;
     ssz-oracle = sszOracle;
