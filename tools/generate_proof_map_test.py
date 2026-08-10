@@ -65,6 +65,17 @@ class ProofMapTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "absent boundary"):
             self.run_generate()
 
+    def test_preparation_packet_and_starter_are_untrusted(self):
+        region = self.authoring["regions"][0]
+        region["pcs"] = self.pcs[:2]
+        region["prerequisites"] = ["typed frame"]
+        region["protectedMemory"] = ["input bytes"]
+        result = self.run_generate()["authoringRegions"][0]
+        self.assertEqual(result["preparation"]["liveRegisters"], ["a0"])
+        self.assertEqual(result["preparation"]["prerequisites"], ["typed frame"])
+        self.assertEqual(result["starterProof"]["trust"], "authoring-suggestion")
+        self.assertIn("TODO", result["starterProof"]["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

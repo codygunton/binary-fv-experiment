@@ -353,11 +353,18 @@ function showAuthoringRegion(id){
   $('#dname').textContent=region.label; $('#dsub').textContent=region.authoringState; setCopy(region.id);
   const matches=(region.templateMatches||[]).map(match=>
     `${esc(match.name)} · score ${esc(match.score.join('/'))}<br><span class="muted">${esc(match.module)}</span>`).join('<br>')||'none';
+  const prep=region.preparation||{};
   $('#rbody').innerHTML=`<div class="kv"><span>trust track</span><span>authoring suggestion — not proof</span>
     <span>state</span><span>${esc(region.authoringState)}</span><span>blocker</span><span>${esc(region.blocker)}</span>
     <span>boundary IDs</span><span>${esc((region.boundaryIds||[]).join(', ')||'parent-owned')}</span>
     <span>empirical evidence</span><span>${esc(region.evidence||'not attached')}</span>
+    <span>live registers</span><span>${esc((prep.liveRegisters||[]).join(', ')||'none')}</span>
+    <span>protected memory</span><span>${esc((prep.protectedMemory||[]).join('; ')||'none')}</span>
+    <span>prerequisites</span><span>${esc((prep.prerequisites||[]).join('; ')||'none')}</span>
+    <span>source identity</span><span>${esc(prep.sourceIdentity||'unknown')}</span>
     <span>template matches</span><span>${matches}</span></div>`;
+  if(region.starterProof) $('#rbody').insertAdjacentHTML('beforeend',
+    `<h3>Lean starter (${esc(region.starterProof.trust)})</h3><pre>${esc(region.starterProof.text)}</pre>`);
 }
 
 function showProofBlock(entryPc){

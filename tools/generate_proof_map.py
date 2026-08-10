@@ -62,6 +62,33 @@ def basic_blocks(instructions: list[dict], owned: set[int]) -> list[dict]:
     return sorted(blocks, key=lambda block: block["entryPc"])
 
 
+def starter_proof(region: dict, machine_map: dict[int, object]) -> dict | None:
+    """Emit an explicitly untrusted Lean outline; every machine obligation remains visible."""
+    pcs = region.get("pcs") or region.get("templateQueryPcs")
+    if not pcs:
+        return None
+    rows = [machine_map[pc] for pc in pcs]
+    wrapper_kind = {
+        "sd": "decoderStoreDwordStep",
+        "sh": "decoderStoreHalfStep",
+        "ld": "decoderLoadStepOfDecoderAgree",
+        "lbu": "decoderLoadStepOfDecoderAgree",
+        "jal": "decoderJumpStep",
+        "jalr": "decoderRetStep",
+    }
+    lines = ["-- UNTRUSTED STARTER: replace every obligation before declaring a theorem.",
+             "obtain ⟨_, seg⟩ := Seg.nil (atPc := by exact pre.atPc)"]
+    for row in rows:
+        wrapper = wrapper_kind.get(row.mnemonic, "decoderITypeStepOfDecoderAgree")
+        lines.extend([
+            f"-- 0x{row.pc:x}: {row.mnemonic} {row.operands}",
+            f"obtain ⟨run, _step⟩ := {wrapper} (pc := 0x{row.pc:x})",
+            "  (access := by TODO) (alignment := by TODO) (frame := by TODO)",
+            "-- Append with Seg.step / Seg.stepStoreWitness and retain live register bindings.",
+        ])
+    return {"trust": "authoring-suggestion", "language": "lean4", "text": "\n".join(lines)}
+
+
 def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
              lean_root: Path, analyzer_path: Path, llvm_ir: Path | None = None) -> dict:
     if manifests.get("schemaVersion") != 1 or authoring.get("schemaVersion") != 1:
@@ -108,6 +135,21 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
             row["boundaryInstructionCount"] = sum(len(match["instructionPcs"]) for match in matches)
         query = tuple(row.get("templateQueryPcs", []))
         row["templateMatches"] = analyzer.retrieve(corridors, machine_map, query, 3) if query else []
+        packet_pcs = row.get("pcs") or list(query)
+        packet_rows = [machine_map[pc] for pc in packet_pcs]
+        packet_artifact_rows = [instruction_rows[pc] for pc in packet_pcs]
+        row["preparation"] = {
+            "instructions": [{"pc": item.pc, "mnemonic": item.mnemonic,
+                              "operands": item.operands} for item in packet_rows],
+            "liveRegisters": sorted({register for item in packet_artifact_rows
+                                     for register in (*item["reads"], *item["writes"])}),
+            "successors": sorted({successor for item in packet_rows
+                                  for successor in item.successors}),
+            "protectedMemory": row.get("protectedMemory", []),
+            "prerequisites": row.get("prerequisites", []),
+            "sourceIdentity": row.get("sourceIdentity", "ssz_raw.decodeRaw / pinned DWARF"),
+        }
+        row["starterProof"] = starter_proof(row, machine_map)
         regions.append(row)
 
     instructions = []
