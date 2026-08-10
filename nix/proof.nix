@@ -321,15 +321,13 @@ COMPAT
       python3 tools/lean_profile.py --out "$out/profiles" merge
     fi
 
-    # Serial residual build: after the compliance-closure prebuild above, the modules left here are
-    # dominated by the heavyweight generated-evidence `native_decide` elaborations
-    # (`ParserBlocks`, `GeneratedReachabilityExact`, ...). Running those four-wide exhausts the
-    # 16 GB CI runner — main's pre-existing required job already fails this way — so the residual
-    # builds run one module at a time; the compliance prebuild keeps its full parallelism.
+    # Serial supporting-target build. Do not build the `BinaryFv` umbrella here: it contains modules
+    # outside `root_compliance` and currently has a known duplicate generated register wrapper.
+    # The proof gate above and manifest exporter below compile their exact import closures.
     # This Lake has no job-count flag; its build pool is the Lean task pool, so
     # `LEAN_NUM_THREADS=1` is the serialization knob (verified: six 3 s modules build in 3.6 s
     # on the default pool and 19.6 s under this variable).
-    LEAN_NUM_THREADS=1 lake build repl BinaryFv GeneratedProgram BinaryFv.Binary.ProgramImageTest \
+    LEAN_NUM_THREADS=1 lake build repl GeneratedProgram BinaryFv.Binary.ProgramImageTest \
       2>&1 | tee "$out/full-build.log"
 
     # Zesu production-binary validation remains diagnostic-only and is outside `root_compliance`.
