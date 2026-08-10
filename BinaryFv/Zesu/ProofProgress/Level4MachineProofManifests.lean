@@ -1,6 +1,9 @@
 import BinaryFv.Zesu.ProofProgress.MachineProofManifest
 import BinaryFv.Zesu.MachineExecution.Level4DecodeRawPrologueSteps
 import BinaryFv.Zesu.MachineExecution.Level4DecodeRawEpilogueSteps
+import BinaryFv.Zesu.MachineExecution.Level4SpecializedDispatchSteps
+import BinaryFv.Zesu.MachineExecution.Level4SpecializedReturnSteps
+import BinaryFv.Zesu.MachineExecution.Level4SpecializedAllocationPreparationSteps
 
 namespace BinaryFv.Zesu.ProofProgress
 
@@ -48,14 +51,72 @@ def level4DecodeRawEpilogueManifest : MachineProofManifest where
   composition := level4_decode_raw_epilogue
   connection := .local
 
+def level4SpecializedDispatchInitialManifest : MachineProofManifest where
+  id := "level4.decodeRaw.specialized-dispatch-initial"
+  owner := "ssz_raw.decodeRaw"
+  sourceIdentity := "ssz_raw.decodeExecutionWitness:initial dispatch"
+  theoremName := "BinaryFv.Zesu.MachineExecution.level4_specialized_dispatch_initial"
+  theoremFile := "BinaryFv/Zesu/MachineExecution/Level4SpecializedDispatchSteps.lean"
+  instructionSchema := "sub-then-literal"
+  frameSchema := "register-only+ParentFrame-compatible"
+  prerequisiteContracts := []
+  pcs := level4SpecializedDispatchInitialPcs
+  region := Level4SpecializedDispatchInitialPcs
+  exactRegion := fun _ => Iff.rfl
+  compositionClaim :=
+    ∀ {margs : DecoderMachineArgs} {state : State}
+      (pre : Level4SpecializedDispatchInitialPre margs state) (fromStep : Nat),
+      ∃ after, Level4SpecializedDispatchInitialHandoff fromStep state after pre
+  composition := level4_specialized_dispatch_initial
+  connection := .local
+
+def level4SpecializedReturnPreparationManifest : MachineProofManifest where
+  id := "level4.decodeRaw.specialized-return-preparation"
+  owner := "ssz_raw.decodeRaw"
+  sourceIdentity := "ssz_raw.decodeExecutionWitness:return preparation"
+  theoremName := "BinaryFv.Zesu.MachineExecution.level4_specialized_return_preparation"
+  theoremFile := "BinaryFv/Zesu/MachineExecution/Level4SpecializedReturnSteps.lean"
+  instructionSchema := "sub-then-literal"
+  frameSchema := "register-only+ParentFrame-compatible"
+  prerequisiteContracts := []
+  pcs := level4SpecializedReturnPreparationPcs
+  region := Level4SpecializedReturnPreparationPcs
+  exactRegion := fun _ => Iff.rfl
+  compositionClaim :=
+    ∀ {margs : DecoderMachineArgs} {state : State}
+      (pre : Level4SpecializedReturnPreparationPre margs state) (fromStep : Nat),
+      ∃ after, Level4SpecializedReturnPreparationHandoff fromStep state after pre
+  composition := level4_specialized_return_preparation
+  connection := .local
+
+def level4SpecializedAllocationPreparationManifest : MachineProofManifest where
+  id := "level4.decodeRaw.specialized-allocation-preparation"
+  owner := "ssz_raw.decodeRaw"
+  sourceIdentity := "ssz_raw.decodeExecutionWitness:allocation preparation"
+  theoremName := "BinaryFv.Zesu.MachineExecution.level4_specialized_allocation_preparation"
+  theoremFile := "BinaryFv/Zesu/MachineExecution/Level4SpecializedAllocationPreparationSteps.lean"
+  instructionSchema := "stack-relative-address"
+  frameSchema := "register-only+ParentFrame-compatible"
+  prerequisiteContracts := []
+  pcs := level4SpecializedAllocationPreparationPcs
+  region := Level4SpecializedAllocationPreparationPcs
+  exactRegion := fun _ => Iff.rfl
+  compositionClaim :=
+    ∀ {margs : DecoderMachineArgs} {state : State}
+      (pre : Level4SpecializedAllocationPreparationPre margs state) (fromStep : Nat),
+      ∃ after, Level4SpecializedAllocationPreparationHandoff fromStep state after pre
+  composition := level4_specialized_allocation_preparation
+  connection := .local
+
 def level4MachineProofManifests : List MachineProofManifest :=
-  [level4DecodeRawPrologueManifest, level4DecodeRawEpilogueManifest]
+  [level4DecodeRawPrologueManifest, level4DecodeRawEpilogueManifest,
+    level4SpecializedDispatchInitialManifest, level4SpecializedReturnPreparationManifest,
+    level4SpecializedAllocationPreparationManifest]
 
 theorem level4MachineProofManifestIds_unique :
     (level4MachineProofManifests.map (·.id)).Nodup := by decide
 
 theorem level4MachineProofManifestPcs_disjoint :
-    ∀ pc, pc ∈ level4DecodeRawPrologueManifest.pcs →
-      pc ∉ level4DecodeRawEpilogueManifest.pcs := by native_decide
+    (level4MachineProofManifests.flatMap (·.pcs)).Nodup := by native_decide
 
 end BinaryFv.Zesu.ProofProgress
