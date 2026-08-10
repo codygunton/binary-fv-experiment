@@ -6,11 +6,13 @@ deterministic retrieval prototype over the existing machine-proof corpus.
 
 ## Verdict
 
-The current proofs are sound but too bottom-up. Proof authors repeatedly discover optimized value
-carriers, child-return requirements, writable regions, and instruction schedules while constructing
-Lean steps. That discovery produced useful interface corrections, but it does not scale to all of
-Zesu. Machine geometry and routine frame transport should be generated before proof writing;
-source-specific meanings and boundary carriers should remain explicit reviewed obligations.
+The kernel-checked machine-proof terms are sound, but the current compliance theorem remains
+conditional on selected contracts, and the authoring process is too bottom-up. Proof authors
+repeatedly discover optimized value carriers, child-return requirements, writable regions, and
+instruction schedules while constructing Lean steps. That discovery produced useful interface
+corrections, but it does not scale to all of Zesu. Machine geometry and routine frame transport
+should be generated before proof writing; source-specific meanings and boundary carriers should
+remain explicit reviewed obligations.
 
 The immediate target is not an end-to-end learned prover. It is a deterministic *proof preparation
 packet* for each selected boundary and each parent-owned region:
@@ -40,9 +42,9 @@ The non-final reader phase contains 563 lines across nine repetitive leaf units.
 parameters are source offset, generated instance/schedule, temporary register bank, final register,
 and sibling-preservation set. A descriptor plus one generic leaf theorem projects this to about 207
 lines, a 356-line or 63% reduction. The measured build saving is probably below one second; the main
-gain is authoring speed and eliminating transcription/frame drift. The 204 lines composing the real
-interleaving and the ordered final edges should remain explicit until a generated schedule language
-can represent register lifetimes faithfully.
+gain is authoring speed and eliminating transcription/frame drift. The 204 non-final interleaving
+composition lines, plus the separately measured roughly 290-line ordered final-edge block, should
+remain explicit until a generated schedule language can represent register lifetimes faithfully.
 
 The validated prototype is `tools/studies/read_offset_occurrences.py`; the detailed study is
 `READ_OFFSET_META_STUDY.md`.
@@ -86,19 +88,22 @@ useful shapes. On the reviewed integration tip, the same queries demonstrate the
 sparsity rather than a reliable ranking. This prototype is useful evidence that normalization is
 feasible, but not yet evidence of corpus-wide precision.
 
-The next correction is an explicit kernel-checked or generated `MachineProofManifest` emitted by
-each completed region proof: PC inventory, composing theorem, instruction/frame schema, source
-identity, and prerequisite contract tokens. Retrieval should index that manifest instead of guessing
-proof completion from Lean source text.
+The next correction is an explicit `MachineProofManifest` for each completed region proof: PC
+inventory, composing theorem, instruction/frame schema, source identity, and prerequisite contract
+tokens. Its proof-completion claim must contain a kernel-checkable coverage link from that named
+theorem to the exact PC inventory. Generator-produced schema/PC fields remain unproved artifact
+metadata until separately validated against the pinned machine artifact and connected by that Lean
+theorem. Retrieval should index this manifest instead of guessing completion from Lean source text.
 
 ## How effectively source is used today
 
 Source use is real but incomplete:
 
-- source meanings define semantic contracts and independent probes validate outcomes;
+- source meanings define semantic contracts, and independent probes validate outcomes for the
+  contracts and clauses whose admission evidence has been implemented;
 - DWARF/source identities and inline stacks connect emitted regions to pinned Zig locations;
 - generated CFG/disassembly checks the shipped ELF exactly;
-- production traces falsify measurable carrier and route claims.
+- production traces falsify measurable carrier and route claims where the required capture exists.
 
 What is missing is the compiler middle layer. The retained artifacts do not include normalized LLVM
 IR, Machine IR, optimization remarks, or a stable value-location history. Consequently, facts such
@@ -136,8 +141,8 @@ before hundreds of proof lines were written.
 
 ### P2: build a trustworthy reuse index
 
-1. Add `MachineProofManifest` records to completed proofs; never infer “discharged” from filenames or
-   a `...Pcs` definition.
+1. Add `MachineProofManifest` records with a kernel-checkable theorem-to-PC-coverage link; never
+   infer “discharged” from generated metadata, filenames, or a `...Pcs` definition.
 2. Index deterministic features separately: source identity, CFG/call topology, normalized opcode
    sequence, cross-instruction register flow, memory-effect shape, frame signature, and contract-token
    requirements.
