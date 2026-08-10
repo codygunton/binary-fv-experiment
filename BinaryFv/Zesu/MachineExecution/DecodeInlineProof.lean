@@ -58,6 +58,7 @@ private theorem level4_decode_raw_entry_prologue_pre_of_inline_child
     (rawMachine : DecoderMachinePre RegisterWriteStep.decodeRawExecutionPcs margs child)
     (childStack : child.regs.get? x2 = some (BitVec.ofNat 64 args.stackBase))
     (inputMemory : DecodedValue.MemoryBytes child margs.inputBase margs.bytes)
+    (inputFits : margs.inputBase + margs.bytes.size ≤ 2 ^ 64)
     (rootInputBound : margs.bytes.size < 2 * 1024 * 1024)
     (inputSeparated : ∀ address, args.stackBase - 0xe80 ≤ address →
       address < args.stackBase - 0xe80 + 0xe80 →
@@ -128,7 +129,7 @@ private theorem level4_decode_raw_entry_prologue_pre_of_inline_child
       entryArgsMachine := entryArgsMachine
       entry := entry
       rootInputBound := rootInputBound
-      inputFits := pre.inputFits
+      inputFits := inputFits
       inputMemory := inputMemory
       code := sourceCode
       atPc := atPc
@@ -852,7 +853,9 @@ theorem decodeInline_first_enters_decodeRaw (fromStep : Nat) (args : DecodeInlin
     exact rawWritable
   have childPrologue := level4_decode_raw_entry_prologue_pre_of_inline_child args state childEntry pre
     args.firstRawArgs (entryMachineArgs args.firstRawArgs) rfl childPre rawMachine childStack
-    childInputMemory pre.rootInputBound childInputSeparated (by
+    childInputMemory (by
+      simpa [entryMachineArgs, DecodeInlineArgs.firstRawArgs] using pre.inputFits)
+    pre.rootInputBound childInputSeparated (by
       intro address lower upper
       have inCanonicalStack : Contracts.canonicalContractParams.env.stack address := by
         have offsetBound : address - (args.stackBase - 0xed0) < 0x50 := by omega
@@ -3473,6 +3476,11 @@ theorem decodeInline_retry_call_transfer
   have childPrologue := level4_decode_raw_entry_prologue_pre_of_inline_child args state childEntry pre
     args.retryRawArgs (entryMachineArgs args.retryRawArgs) rfl childPre rawMachine childStack
     childInputMemory (by
+      change args.inputBase + 4 + args.retryRawArgs.bytes.size ≤ 2 ^ 64
+      rw [tailSize]
+      have sourceFits := pre.inputFits
+      omega)
+    (by
       have tailBound : args.retryRawArgs.bytes.size ≤ args.bytes.size := by
         simp only [DecodeInlineArgs.retryRawArgs, ByteArray.size_extract]
         omega
