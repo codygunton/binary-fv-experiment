@@ -349,8 +349,8 @@ function renderProofMap(){
       <span>LLVM IR: ${esc(PROOF_MAP.compilerProvenance.state)}</span></div>
     <div class="proof-tools"><b>authoring regions</b>
       ${['all','ready','blocked'].map(value=>`<button data-filter="${value}" ${PROOF_FILTER===value?'disabled':''}>${value}</button>`).join('')}</div>
-    <div class="proof-grid">${regions}</div><div class="proof-tools"><b>decodeRaw control-flow graph</b>
-      <span class="muted">real emitted-function basic blocks; progress is proved parent instructions / parent instructions, and source mapping is best-effort</span></div>
+    <div class="proof-grid">${regions}</div><div class="proof-tools"><b>Level 4 refinement dependency graph</b>
+      <span class="muted">18 Level 4 contract occurrences + 172 parent-owned glue instructions → Level 3 contract</span></div>
     <div class="cfg-canvas" id="proof-cfg"></div>`;
   $('#proof-map').querySelectorAll('[data-filter]').forEach(button=>button.onclick=()=>{
     PROOF_FILTER=button.dataset.filter; renderProofMap();
@@ -360,38 +360,50 @@ function renderProofMap(){
 }
 
 function renderProofCfg(){
-  const graph=PROOF_MAP.cfgGraph,phaseIndex=new Map(PROOF_MAP.phases.map((p,i)=>[p.id,i]));
-  const groups=new Map(PROOF_MAP.phases.map(p=>[p.id,[]]));
-  graph.nodes.forEach(node=>groups.get(node.phase).push(node));
-  groups.forEach(nodes=>nodes.sort((a,b)=>a.entryPc-b.entryPc||a.kind.localeCompare(b.kind)));
-  const laneW=380,nodeH=36,parentW=250,childW=150,top=48,gap=45;
-  const maxRows=Math.max(...[...groups.values()].map(nodes=>nodes.length));
-  const width=laneW*PROOF_MAP.phases.length,height=top+maxRows*gap+24,positions=new Map();
-  for(const phase of PROOF_MAP.phases){
-    const lane=phaseIndex.get(phase.id),nodes=groups.get(phase.id);
-    nodes.forEach((node,row)=>{const child=node.kind==='selectedChild';positions.set(node.id,
-      {x:lane*laneW+18+(child?215:0),y:top+row*gap,w:child?childW:parentW,h:nodeH,node});});
+  const graph=PROOF_MAP.refinementGraph,groups=new Map([0,1,2,3].map(column=>[column,[]]));
+  graph.nodes.forEach(node=>groups.get(node.column).push(node));
+  groups.forEach(nodes=>nodes.sort((a,b)=>(a.phase||'').localeCompare(b.phase||'')||a.label.localeCompare(b.label)));
+  const laneW=300,nodeH=42,nodeW=250,top=52,gap=52,width=laneW*4,height=top+Math.max(...[...groups.values()].map(x=>x.length))*gap+24,positions=new Map();
+  for(const [column,nodes] of groups){
+    const offset=(height-top-nodes.length*gap)/2;
+    nodes.forEach((node,row)=>positions.set(node.id,{x:column*laneW+24,y:top+offset+row*gap,w:nodeW,h:nodeH,node}));
   }
   const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],ready:['#473b1e','#e5b84b'],
     blocked:['#472327','#d95757'],contract:['#30263b','#9c78c2']};
-  const short=s=>s.length>25?s.slice(0,23)+'…':s;
-  const columns=PROOF_MAP.phases.map((phase,i)=>`<rect class="cfg-column" x="${i*laneW+4}" y="4" width="${laneW-8}" height="${height-8}" rx="6"/>
-    <text class="cfg-column-title" x="${i*laneW+16}" y="25">${i+1}. ${esc(short(phase.label))}</text>`).join('');
+  const short=s=>s.length>34?s.slice(0,32)+'…':s;
+  const titles=['Level 4 contracts','parent-owned glue','conversion theorem','Level 3 target'];
+  const columns=titles.map((title,i)=>`<rect class="cfg-column" x="${i*laneW+4}" y="4" width="${laneW-8}" height="${height-8}" rx="6"/>
+    <text class="cfg-column-title" x="${i*laneW+16}" y="25">${i+1}. ${esc(title)}</text>`).join('');
   const edges=graph.edges.map(edge=>{const a=positions.get(edge.source),b=positions.get(edge.target);if(!a||!b)return'';
     const x1=a.x+a.w,y1=a.y+a.h/2,x2=b.x,y2=b.y+b.h/2,mx=(x1+x2)/2;
     return `<path class="cfg-link ${edge.kind}" marker-end="url(#cfg-arrow)" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"><title>${edge.kind}</title></path>`;}).join('');
   const nodes=[...positions.values()].map(({x,y,w,h,node})=>{const [fill,stroke]=colors[node.status]||colors.artifact;
-    const end=node.pcs[node.pcs.length-1],range=end===node.entryPc?`0x${node.entryPc.toString(16)}`:`0x${node.entryPc.toString(16)}–0x${end.toString(16)}`;
-    const label=node.kind==='selectedChild'?short(node.semanticRegion):`${range}  ${short(node.semanticRegion)}`;
-    const sub=node.kind==='selectedChild'?'external selected child':
-      `${node.provedParentInstructionCount}/${node.parentInstructionCount} parent proved · ${node.instructionCount} instructions`;
-    return `<g data-graph-id="${esc(node.id)}"><rect class="cfg-node-rect" x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="${stroke}"><title>${esc(node.semanticRegion)}\n${esc(node.source)}</title></rect>
-      <text class="cfg-node-label" x="${x+6}" y="${y+12}">${esc(label)}</text><text class="cfg-node-sub" x="${x+6}" y="${y+24}">${esc(sub)}</text></g>`;}).join('');
+    const sub=node.kind==='parentGlue'?`${node.provedInstructionCount}/${node.instructionCount} glue instructions proved`:
+      node.kind==='level4Contract'?`${node.instructionCount} child instructions · ${node.status}`:
+      node.kind==='conversion'?'must consume all contracts + glue':'Level 3 contract required by root proof';
+    return `<g data-graph-id="${esc(node.id)}"><rect class="cfg-node-rect" x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="${stroke}"><title>${esc(node.label)}</title></rect>
+      <text class="cfg-node-label" x="${x+7}" y="${y+16}">${esc(short(node.label))}</text><text class="cfg-node-sub" x="${x+7}" y="${y+31}">${esc(sub)}</text></g>`;}).join('');
   $('#proof-cfg').innerHTML=`<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}"><defs><marker id="cfg-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#657287"/></marker></defs>${columns}${edges}${nodes}</svg>`;
   $('#proof-cfg').querySelectorAll('[data-graph-id]').forEach(element=>element.onclick=()=>{
-    const node=graph.nodes.find(row=>row.id===element.dataset.graphId);
-    if(node.kind==='parentBlock')showProofBlock(node.entryPc);else showProofBoundary(node.id.slice('boundary-'.length));
+    showRefinementNode(graph.nodes.find(row=>row.id===element.dataset.graphId));
   });
+}
+
+function showRefinementNode(node){
+  if(node.kind==='level4Contract')return showProofBoundary(node.boundaryId);
+  $('#dname').textContent=node.label; $('#dsub').textContent=node.kind; setCopy(node.id);
+  if(node.kind==='parentGlue'){
+    const phase=PROOF_MAP.phases.find(row=>row.id===node.phase);
+    const phasePcs=new Set(phase.pcs),pcs=PROOF_MAP.instructions.filter(row=>phasePcs.has(row.pc));
+    $('#rbody').innerHTML=`<div class="kv"><span>obligation</span><span>prove parent-owned machine instructions while consuming selected child contracts</span>
+      <span>progress</span><span>${node.provedInstructionCount}/${node.instructionCount} instructions kernel-linked</span>
+      <span>phase</span><span>${esc(phase.label)}</span></div><pre>${pcs.map(row=>`0x${row.pc.toString(16)}  ${row.mnemonic.padEnd(7)} ${row.operands}`).join('\n')}</pre>`;
+    return;
+  }
+  const text=node.kind==='conversion'?
+    'This named theorem must consume every Level4ContractAssumptions field and the three parent-glue proofs to derive the Level 3 compiledDecodeRawContract assumption. It is not yet complete.':
+    'This is the compiledDecodeRawContract required by the existing Level 3 refinement edge and ultimately root_compliance.';
+  $('#rbody').innerHTML=`<div class="kv"><span>status</span><span>${esc(node.status)}</span><span>role</span><span>${esc(text)}</span></div>`;
 }
 
 function showAuthoringRegion(id){
@@ -434,7 +446,7 @@ function showProofBlock(entryPc){
 
 function showProofBoundary(id){
   const boundary=PROOF_MAP.boundaries.find(row=>row.id===id);if(!boundary)return;
-  const node=PROOF_MAP.cfgGraph.nodes.find(row=>row.id===`boundary-${id}`);
+  const node=PROOF_MAP.refinementGraph.nodes.find(row=>row.id===`contract-${id}`);
   const annotation=PROOF_MAP.authoringRegions.find(row=>(row.boundaryIds||[]).includes(id));
   $('#dname').textContent=boundary.qualified;$('#dsub').textContent=`selected child · ${node.status}`;setCopy(id);
   $('#rbody').innerHTML=`<div class="kv"><span>source region</span><span>${esc(node.source)}</span>

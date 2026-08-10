@@ -283,6 +283,50 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
             if edge["target"] in block_by_entry:
                 graph_edges.add((f"boundary-{boundary['id']}",
                                  block_by_entry[edge["target"]]["id"], "return"))
+
+    # The default proof view is the refinement dependency, not the implementation CFG.  Keep the
+    # latter above as drill-down data, while collapsing it here to the exact assumptions and the
+    # three parent-owned glue obligations that must establish the Level 3 contract.
+    refinement_nodes = []
+    refinement_edges = []
+    for boundary in boundaries["boundaries"]:
+        annotation = authoring_by_boundary.get(boundary["id"])
+        candidate_pcs = [edge["target"] for edge in boundary.get("exits", [])
+                         if edge["target"] in phase_by_pc]
+        if boundary["entryPc"] in phase_by_pc:
+            candidate_pcs.append(boundary["entryPc"])
+        anchor = candidate_pcs[0] if candidate_pcs else min(
+            parent_pc_order, key=lambda pc: (abs(pc - boundary["entryPc"]), pc))
+        phase = phase_by_pc[anchor]
+        identity = boundary.get("functionInstanceIdentity", {})
+        refinement_nodes.append({
+            "id": f"contract-{boundary['id']}", "kind": "level4Contract",
+            "boundaryId": boundary["id"], "column": 0, "phase": phase,
+            "label": boundary["qualified"],
+            "source": identity.get("sourceFile", "source identity unavailable"),
+            "instructionCount": len(boundary["instructionPcs"]),
+            "status": annotation["authoringState"] if annotation else "contract",
+        })
+        refinement_edges.append({"source": f"contract-{boundary['id']}",
+                                 "target": f"glue-{phase}", "kind": "consumed-by"})
+    for phase in manifests.get("phases", []):
+        proved = sum(pc in manifest_pcs for pc in phase["pcs"])
+        refinement_nodes.append({
+            "id": f"glue-{phase['id']}", "kind": "parentGlue", "column": 1,
+            "phase": phase["id"], "label": phase["label"],
+            "instructionCount": len(phase["pcs"]), "provedInstructionCount": proved,
+            "status": "local" if proved == len(phase["pcs"]) else "artifact",
+        })
+        refinement_edges.append({"source": f"glue-{phase['id']}",
+                                 "target": "level4-conversion", "kind": "establishes"})
+    refinement_nodes.extend([
+        {"id": "level4-conversion", "kind": "conversion", "column": 2,
+         "label": "Level 4 → Level 3 conversion", "status": "blocked"},
+        {"id": "level3-contract", "kind": "level3Target", "column": 3,
+         "label": "compiledDecodeRawContract", "status": "blocked"},
+    ])
+    refinement_edges.append({"source": "level4-conversion", "target": "level3-contract",
+                             "kind": "proves"})
     return {
         "schemaVersion": 1,
         "owner": {"id": owner["id"], "qualified": owner["qualified"], "entryPc": owner["entryPc"]},
@@ -290,12 +334,14 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
         "compilerProvenance": compiler_provenance,
         "formalCoverage": formal,
         "instructions": instructions,
-        "phases": [{"id": row["id"], "label": row["label"], "pcCount": len(row["pcs"])}
+        "phases": [{"id": row["id"], "label": row["label"], "pcCount": len(row["pcs"]),
+                    "pcs": row["pcs"]}
                    for row in manifests.get("phases", [])],
         "blocks": blocks,
         "cfgGraph": {"nodes": graph_nodes,
                      "edges": [{"source": source, "target": target, "kind": kind}
                                for source, target, kind in sorted(graph_edges)]},
+        "refinementGraph": {"nodes": refinement_nodes, "edges": refinement_edges},
         "manifests": manifests["manifests"],
         "boundaries": [{"id": row["id"], "qualified": row["qualified"],
                         "entryPc": row["entryPc"], "instructionCount": len(row["instructionPcs"]),

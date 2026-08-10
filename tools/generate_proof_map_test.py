@@ -58,6 +58,12 @@ class ProofMapTests(unittest.TestCase):
         self.assertEqual(result["blocks"][0]["provedParentInstructionCount"], 1)
         self.assertEqual(result["blocks"][0]["sourceMappings"][0]["qualified"],
                          "ssz_raw.decodeRaw")
+        refinement = result["refinementGraph"]
+        self.assertEqual(len(refinement["nodes"]), 6)  # one contract + three glue + edge + target
+        self.assertEqual(len(refinement["edges"]), 5)
+        glue = next(row for row in refinement["nodes"] if row["id"] == "glue-entry")
+        self.assertEqual(glue["provedInstructionCount"], 1)
+        self.assertEqual(glue["instructionCount"], 60)
 
     def test_rejects_forged_manifest_pc(self):
         self.manifests["manifests"][0]["pcs"] = [0xDEAD]
