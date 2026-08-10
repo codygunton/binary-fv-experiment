@@ -73,15 +73,16 @@ and semantic contracts describing the SSZ value computed by a region.
 ## Machine-proof corridor retrieval prototype
 
 [`analyze_machine_proof_corridors.py`](analyze_machine_proof_corridors.py) joins named Lean
-`...Pcs` corridors to the pinned `machine-regions.json`, normalizes operand-register roles,
-immediates, memory width/effect, CFG transfer kind, and nearby `Seg`/instruction-step combinators.
-It clusters mnemonic sequences and retrieves deterministic nearest discharged corridors for explicit
-PC queries.  Run its unit test with `python3 -m unittest tools/analyze_machine_proof_corridors_test.py`.
+`...Pcs` inventories to the pinned `machine-regions.json`, normalizes operand-register roles across
+the full corridor, immediates, memory width/effect, and CFG transfer kind. Queries come directly
+from the machine map. Retrieval returns only source-level *composition-backed* candidates: a theorem
+must name the PC list and invoke an execution composition combinator. This does not establish that
+the theorem compiled or discharged every listed instruction. Run its unit test with
+`python3 -m unittest tools/analyze_machine_proof_corridors_test.py`.
 
-On the current corpus it finds 24 named corridors in 19 mnemonic clusters. Manual evaluation of the
-two intended queries is 2/2 useful: the `sub; li` query retrieves
-`Level4SpecializedReturnPreparationPcs` as an exact normalized match, while the six-store fi:16
-query ranks the raw-prologue store run first and the store-preparation `Seg` proof third. This is
-useful for proof-template retrieval (instruction wrapper, frame, and `Seg` shape), not automation
-that synthesizes a proof: semantic tokens, access ranges, and preservation obligations remain
-explicitly reviewed.
+Manual usefulness means a composition-backed result whose source theorem supplies a concrete reusable
+instruction/proof shape; mnemonic overlap alone does not count. The recorded `sub; li` and fi:16
+six-store checks must be re-run against the current composition-backed index before quoting a ratio.
+This is useful for proof-template retrieval (instruction wrapper, frame, and `Seg` shape), not
+automation that synthesizes a proof: semantic tokens, access ranges, and preservation obligations
+remain explicitly reviewed.

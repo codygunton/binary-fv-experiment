@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
-"""Deterministically retrieve similar discharged Lean machine-proof corridors.
+"""Deterministically retrieve similar Lean machine-corridor candidates.
 
 This is a read-only prototype: it combines named ``...Pcs`` lists in Lean proof modules with the
-pinned ``machine-regions.json`` instruction records.  It deliberately does not infer proof
-correctness.  Its output is a retrieval index for finding already-dischargeable instruction shapes
-and their local proof combinators.
+pinned ``machine-regions.json`` instruction records. A list is *composition-backed* only when
+source text contains a theorem that names that list and an execution composition combinator. This
+is a source-level retrieval signal, not evidence that the theorem compiled or discharged every
+instruction in the list.
 """
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 PCS_DEF = re.compile(r"(?:def|abbrev)\s+(\w*Pcs)\s*:\s*(?:List\s+Nat|List\s+UInt64)\s*:=\s*(\[[^\]]*\])", re.S)
 HEX = re.compile(r"0x[0-9a-fA-F]+")
 COMBINATOR = re.compile(r"\b(decoder\w+Step\w*|Seg\.(?:step|stepJump)|Trace\.(?:append|snoc))\b")
+THEOREM = re.compile(r"^\s*(?:private\s+)?theorem\s+(\w+)", re.M)
+DECLARATION = re.compile(r"^\s*(?:private\s+)?(?:def|abbrev|theorem)\s+\w+", re.M)
 REGISTER = re.compile(r"\b(?:zero|ra|sp|gp|tp|t[0-6]|s(?:[0-9]|1[01])|a[0-7])\b")
 MEMORY = re.compile(r"(?P<source>\w+),\s*(?P<offset>-?0x[0-9a-fA-F]+|-?\d+)\((?P<base>\w+)\)")
 
@@ -32,30 +36,33 @@ class Instruction:
     successors: tuple[int, ...]
     transfer: str
 
-    def normalized(self) -> str:
-        roles: dict[str, str] = {}
-        def role(match: re.Match[str]) -> str:
-            reg = match.group(0)
-            roles.setdefault(reg, f"r{len(roles)}")
-            return roles[reg]
-        operands = REGISTER.sub(role, self.operands)
-        operands = HEX.sub("imm", operands)
-        operands = re.sub(r"\b-?\d+\b", "imm", operands)
-        effect = "/".join(f"{kind}{width}" for kind, width in self.memory) or "reg"
-        return f"{self.mnemonic}({operands})[{effect};{self.transfer}]"
-
-
 @dataclass(frozen=True)
 class Corridor:
     module: str
     name: str
     pcs: tuple[int, ...]
     instructions: tuple[Instruction, ...]
-    combinators: tuple[str, ...]
+    composing_theorems: tuple[str, ...]
+
+    @property
+    def composition_backed(self) -> bool:
+        return bool(self.composing_theorems)
 
     @property
     def signature(self) -> tuple[str, ...]:
-        return tuple(instruction.normalized() for instruction in self.instructions)
+        roles: dict[str, str] = {}
+        def role(match: re.Match[str]) -> str:
+            register = match.group(0)
+            roles.setdefault(register, f"r{len(roles)}")
+            return roles[register]
+        result = []
+        for instruction in self.instructions:
+            operands = REGISTER.sub(role, instruction.operands)
+            operands = HEX.sub("imm", operands)
+            operands = re.sub(r"\b-?\d+\b", "imm", operands)
+            effect = "/".join(f"{kind}{width}" for kind, width in instruction.memory) or "reg"
+            result.append(f"{instruction.mnemonic}({operands})[{effect};{instruction.transfer}]")
+        return tuple(result)
 
     @property
     def mnemonic_signature(self) -> tuple[str, ...]:
@@ -79,57 +86,74 @@ def lean_corridors(root: Path, machine: dict[int, Instruction]) -> list[Corridor
     corridors: list[Corridor] = []
     for path in sorted(root.rglob("*.lean")):
         source = path.read_text()
+        theorem_ranges: list[tuple[str, str]] = []
+        for theorem in THEOREM.finditer(source):
+            following = DECLARATION.search(source, theorem.end())
+            end = following.start() if following else len(source)
+            theorem_ranges.append((theorem.group(1), source[theorem.start():end]))
         for match in PCS_DEF.finditer(source):
             pcs = tuple(int(value, 16) for value in HEX.findall(match.group(2)))
             if not pcs or any(pc not in machine for pc in pcs):
                 continue
-            # Limit combinators to the declaration's local neighborhood, not the whole module.
-            neighborhood = source[match.start(): source.find("\ndef ", match.end()) if source.find("\ndef ", match.end()) >= 0 else len(source)]
+            # An inventory list alone is not a proof. Record source-level composition only where
+            # one theorem explicitly names this list and invokes an execution combinator.
+            composing = tuple(
+                theorem_name for theorem_name, body in theorem_ranges
+                if match.group(1) in body and COMBINATOR.search(body)
+            )
             corridors.append(Corridor(
                 module=str(path), name=match.group(1), pcs=pcs,
                 instructions=tuple(machine[pc] for pc in pcs),
-                combinators=tuple(sorted(set(COMBINATOR.findall(neighborhood)))),
+                composing_theorems=composing,
             ))
     return corridors
 
 
-def score(query: Corridor, candidate: Corridor) -> tuple[int, int, int]:
-    """Lexicographic: exact normalized sequence, mnemonic sequence, then shared effects."""
-    exact = int(query.signature == candidate.signature)
-    mnemonics = sum(a == b for a, b in zip(query.mnemonic_signature, candidate.mnemonic_signature))
-    effects = sum(bool(a.memory) == bool(b.memory) for a, b in zip(query.instructions, candidate.instructions))
-    return exact, mnemonics, effects
+def score(query: Corridor, candidate: Corridor) -> tuple[int, float, int]:
+    """Exact sequence, then length-aware normalized subsequence similarity, then mnemonic LCS."""
+    normalized = difflib.SequenceMatcher(a=query.signature, b=candidate.signature, autojunk=False)
+    mnemonics = difflib.SequenceMatcher(a=query.mnemonic_signature, b=candidate.mnemonic_signature, autojunk=False)
+    return int(query.signature == candidate.signature), normalized.ratio(), sum(block.size for block in mnemonics.get_matching_blocks())
 
 
-def retrieve(corridors: Iterable[Corridor], pcs: tuple[int, ...], limit: int) -> list[dict[str, object]]:
+def retrieve(corridors: Iterable[Corridor], machine: dict[int, Instruction], pcs: tuple[int, ...], limit: int) -> list[dict[str, object]]:
     all_corridors = list(corridors)
-    by_pc = {instruction.pc: instruction for corridor in all_corridors for instruction in corridor.instructions}
-    query = Corridor("<query>", "query", pcs, tuple(by_pc[pc] for pc in pcs), ())
-    ranked = [candidate for candidate in all_corridors if candidate.pcs != pcs]
+    missing = [pc for pc in pcs if pc not in machine]
+    if missing:
+        raise ValueError(f"query PCs absent from machine-regions: {missing}")
+    query = Corridor("<query>", "query", pcs, tuple(machine[pc] for pc in pcs), ())
+    ranked = [candidate for candidate in all_corridors if candidate.composition_backed and candidate.pcs != pcs]
     ranked.sort(key=lambda candidate: (score(query, candidate), candidate.module, candidate.name), reverse=True)
     return [
         {"score": score(query, candidate), "module": candidate.module, "name": candidate.name,
          "pcs": list(candidate.pcs), "mnemonics": list(candidate.mnemonic_signature),
-         "combinators": list(candidate.combinators)}
+         "compositionBacked": True, "composingTheorems": list(candidate.composing_theorems)}
         for candidate in ranked[:limit]
     ]
 
 
-def report(corridors: list[Corridor], queries: list[tuple[int, ...]]) -> dict[str, object]:
+def report(corridors: list[Corridor], machine: dict[int, Instruction], queries: list[tuple[int, ...]]) -> dict[str, object]:
     clusters: dict[tuple[str, ...], list[Corridor]] = {}
     for corridor in corridors:
         clusters.setdefault(corridor.mnemonic_signature, []).append(corridor)
     return {
         "schemaVersion": 1,
-        "corridorCount": len(corridors),
+        "inventoryCorridorCount": len(corridors),
+        "compositionBackedCorridorCount": sum(c.composition_backed for c in corridors),
         "clusterCount": len(clusters),
         "clusters": [
             {"mnemonics": list(signature), "members": [
                 {"module": corridor.module, "name": corridor.name, "pcs": list(corridor.pcs),
-                 "combinators": list(corridor.combinators)} for corridor in members]}
+                 "compositionBacked": corridor.composition_backed,
+                 "composingTheorems": list(corridor.composing_theorems)} for corridor in members]}
             for signature, members in sorted(clusters.items(), key=lambda item: (-len(item[1]), item[0]))
         ],
-        "queries": [{"pcs": list(query), "matches": retrieve(corridors, query, 5)} for query in queries],
+        "relevanceCriterion": (
+            "A result is manually useful only if it is composition-backed and a reviewer can name "
+            "a concrete reusable instruction/proof shape from the source theorem; matching mnemonic "
+            "text alone is not useful."
+        ),
+        "queries": [{"pcs": list(query), "matches": retrieve(corridors, machine, query, 5)} for query in queries],
     }
 
 
@@ -147,10 +171,10 @@ def main() -> int:
     machine = machine_instructions(args.machine_regions)
     corridors = lean_corridors(args.lean_root, machine)
     queries = [parse_pcs(query) for query in args.query_pcs]
-    result = report(corridors, queries)
+    result = report(corridors, machine, queries)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-    print(f"machine proof corridors: {len(corridors)}; mnemonic clusters: {result['clusterCount']}")
+    print(f"composition-backed corridors: {result['compositionBackedCorridorCount']}/{len(corridors)}; mnemonic clusters: {result['clusterCount']}")
     return 0
 
 
