@@ -491,7 +491,9 @@ COMPAT
     expectedLocal=$(jq -r '.formalCoverage.localPcCount' \
       ${binaryFvLean}/level4-machine-proof-manifests.json)
     jq -e --argjson expectedLocal "$expectedLocal" '.schemaVersion == 1 and
-      (.instructions | length) == 172 and .formalCoverage.localPcCount == $expectedLocal and
+      ([.instructions[] | select(.formalManifests | length > 0)] | length) == $expectedLocal and
+      ([.blocks[].instructionCount] | add) == (.instructions | length) and
+      .formalCoverage.localPcCount == $expectedLocal and
       .compilerProvenance.state == "explanatory-only"' ../run1/proof-map.json >/dev/null
     cp ../run1/proof-map.json "$out/"
   '';

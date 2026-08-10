@@ -22,7 +22,8 @@ class ProofMapTests(unittest.TestCase):
             "instructions": [
                 {"address": pc, "mnemonic": "addi", "operands": "a0, a0, 1",
                  "successors": [] if index == 171 else [self.pcs[index + 1]],
-                 "reads": ["a0"], "writes": ["a0"], "memory": [], "transfer": "ordinary"}
+                 "reads": ["a0"], "writes": ["a0"], "memory": [], "transfer": "ordinary",
+                 "symbol": "zesu_decode_raw", "owner": "fi:6"}
                 for index, pc in enumerate(self.pcs)
             ],
         }
@@ -53,6 +54,10 @@ class ProofMapTests(unittest.TestCase):
         self.assertEqual(result["formalCoverage"]["localPcCount"], 1)
         self.assertEqual(result["instructions"][0]["formalManifests"], ["m"])
         self.assertEqual(len(result["cfgGraph"]["nodes"]), len(result["blocks"]) + 1)
+        self.assertEqual(result["blocks"][0]["instructionCount"], 172)
+        self.assertEqual(result["blocks"][0]["provedParentInstructionCount"], 1)
+        self.assertEqual(result["blocks"][0]["sourceMappings"][0]["qualified"],
+                         "ssz_raw.decodeRaw")
 
     def test_rejects_forged_manifest_pc(self):
         self.manifests["manifests"][0]["pcs"] = [0xDEAD]

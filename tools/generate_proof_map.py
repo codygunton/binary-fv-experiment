@@ -160,14 +160,22 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
         row["starterProof"] = starter_proof(row, machine_map)
         regions.append(row)
 
+    function_pcs = {row["address"] for row in machine["instructions"]
+                    if row.get("symbol") == "zesu_decode_raw"}
+    if not owned <= function_pcs:
+        raise ValueError("decodeRaw parent PCs escape the emitted function extent")
     instructions = []
-    for pc in sorted(owned):
+    for pc in sorted(function_pcs):
         machine_row = instruction_rows[pc]
+        instruction_owner = next((row for row in machine["callGraph"]["owners"]
+                                  if row["id"] == machine_row["owner"]), None)
         instructions.append({
             "pc": pc, "mnemonic": machine_row["mnemonic"], "operands": machine_row["operands"],
             "successors": machine_row["successors"], "reads": machine_row["reads"],
             "writes": machine_row["writes"], "memory": machine_row["memory"],
-            "sourceFile": owner.get("sourceFile"), "sourceLine": owner.get("declLine"),
+            "owner": machine_row["owner"],
+            "sourceFile": instruction_owner.get("sourceFile") if instruction_owner else None,
+            "sourceLine": instruction_owner.get("declLine") if instruction_owner else None,
             "formalManifests": pc_manifests.get(pc, []),
             "artifactState": "production-elf-validated",
         })
@@ -178,14 +186,43 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
             "artifact": "optimized LLVM IR",
             "sha256": hashlib.sha256(llvm_ir.read_bytes()).hexdigest(),
         }
-    blocks = basic_blocks(machine["instructions"], owned)
+    # Display the emitted function's real CFG.  Parent-only PCs are intentionally not used here:
+    # removing inlined children fractures ordinary basic blocks into instruction-sized pieces.
+    blocks = basic_blocks(machine["instructions"], function_pcs)
+    owners_by_id = {row["id"]: row for row in machine["callGraph"]["owners"]}
     boundary_entries = {row["entryPc"]: row for row in boundaries["boundaries"]}
     boundary_returns: dict[int, list[dict]] = {}
     for boundary in boundaries["boundaries"]:
         for edge in boundary.get("exits", []):
             boundary_returns.setdefault(edge["target"], []).append(boundary)
+    parent_pc_order = sorted(owned)
     for block in blocks:
-        block["phase"] = phase_by_pc[block["entryPc"]]
+        parent_pcs = [pc for pc in block["pcs"] if pc in owned]
+        nearest_parent = min(parent_pc_order,
+                             key=lambda pc: (min(abs(pc - member) for member in block["pcs"]), pc))
+        block["phase"] = phase_by_pc[parent_pcs[0] if parent_pcs else nearest_parent]
+        block["instructionCount"] = len(block["pcs"])
+        block["parentInstructionCount"] = len(parent_pcs)
+        block["provedParentInstructionCount"] = sum(pc in manifest_pcs for pc in parent_pcs)
+        mappings = []
+        for pc in block["pcs"]:
+            row = instruction_rows[pc]
+            if mappings and mappings[-1]["ownerId"] == row["owner"]:
+                mappings[-1]["pcEnd"] = pc
+                mappings[-1]["instructionCount"] += 1
+                continue
+            source_owner = owners_by_id.get(row["owner"], {})
+            mappings.append({
+                "ownerId": row["owner"],
+                "qualified": source_owner.get("qualified", "unknown optimized source region"),
+                "sourceFile": source_owner.get("sourceFile"),
+                "declLine": source_owner.get("declLine"),
+                "inlineStack": source_owner.get("inlineStack", []),
+                "pcStart": pc, "pcEnd": pc, "instructionCount": 1,
+                "confidence": "best-effort",
+                "basis": "generated deepest-owner attribution plus DWARF source identity",
+            })
+        block["sourceMappings"] = mappings
         block["childCalls"] = [{"id": boundary_entries[pc]["id"],
                                 "qualified": boundary_entries[pc]["qualified"], "entryPc": pc}
                                for pc in block["successors"] if pc in boundary_entries]
@@ -198,20 +235,29 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
     phase_labels = {row["id"]: row["label"] for row in manifests.get("phases", [])}
     graph_nodes = []
     for block in blocks:
-        covered = all(pc_manifests.get(pc) for pc in block["pcs"])
+        parent_pcs = [pc for pc in block["pcs"] if pc in owned]
+        covered = bool(parent_pcs) and all(pc_manifests.get(pc) for pc in parent_pcs)
         authoring_region = next((authoring_by_pc[pc] for pc in block["pcs"]
                                  if pc in authoring_by_pc), None)
+        primary_mapping = max(block["sourceMappings"], key=lambda row: row["instructionCount"])
         graph_nodes.append({
             "id": block["id"], "kind": "parentBlock", "entryPc": block["entryPc"],
             "pcs": block["pcs"], "phase": block["phase"],
             "semanticRegion": (authoring_region["label"] if authoring_region
-                               else phase_labels[block["phase"]]),
-            "source": f"{owner.get('sourceFile')}:{owner.get('declLine')}",
+                               else primary_mapping["qualified"]),
+            "source": f"{primary_mapping.get('sourceFile')}:{primary_mapping.get('declLine')}",
             "status": "local" if covered else (authoring_region["authoringState"]
-                                                  if authoring_region else "artifact"),
+                                                  if authoring_region else
+                                                  ("contract" if not parent_pcs else "artifact")),
             "mnemonics": [instruction_rows[pc]["mnemonic"] for pc in block["pcs"]],
+            "instructionCount": block["instructionCount"],
+            "parentInstructionCount": block["parentInstructionCount"],
+            "provedParentInstructionCount": block["provedParentInstructionCount"],
+            "sourceMappings": block["sourceMappings"],
         })
-    for boundary in boundaries["boundaries"]:
+    external_boundaries = [boundary for boundary in boundaries["boundaries"]
+                           if boundary["entryPc"] not in function_pcs]
+    for boundary in external_boundaries:
         annotation = authoring_by_boundary.get(boundary["id"])
         identity = boundary.get("functionInstanceIdentity", {})
         exits = boundary.get("exits", [])
@@ -232,7 +278,7 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
                 graph_edges.add((block["id"], block_by_entry[successor]["id"], "control"))
             elif successor in boundary_entries:
                 graph_edges.add((block["id"], f"boundary-{boundary_entries[successor]['id']}", "call"))
-    for boundary in boundaries["boundaries"]:
+    for boundary in external_boundaries:
         for edge in boundary.get("exits", []):
             if edge["target"] in block_by_entry:
                 graph_edges.add((f"boundary-{boundary['id']}",
