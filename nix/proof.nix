@@ -459,7 +459,7 @@ COMPAT
     nativeBuildInputs = [ pkgs.coreutils pkgs.diffutils pkgs.jq pkgs.python3 ];
   } ''
     set -euo pipefail
-    mkdir -p source/tools/proof-map source/lean run1 run2 "$out"
+    mkdir -p source/tools/proof-map source/lean source/build/machine-regions-lean run1 run2 "$out"
     cp -R ${machineRegionsUi}/. "$out/"
     cp ${machineRegions}/level4-boundaries.json "$out/"
     cp ${binaryFvLean}/level4-machine-proof-manifests.json "$out/"
@@ -470,6 +470,7 @@ COMPAT
     cp ${repo}/tools/analyze_machine_proof_corridors_test.py source/tools/
     cp ${repo}/tools/proof-map/level4-authoring.json source/tools/proof-map/
     cp -R ${repo}/BinaryFv/Zesu/MachineExecution/. source/lean/
+    ln -s ${machineRegions}/machine-regions.json source/build/machine-regions-lean/machine-regions.json
     cd source
     python3 -m unittest tools/analyze_machine_proof_corridors_test.py tools/generate_proof_map_test.py
     generate() {
