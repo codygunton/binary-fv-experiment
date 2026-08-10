@@ -129,10 +129,19 @@ def self_test(result: dict) -> None:
     right = result["owners"]["right"]
     assert left["count"] == 29
     assert right["count"] == 45
+    assert (left["start"], left["stop"]) == (0x13038, 0x130AC)
+    assert (right["start"], right["stop"]) == (0x131EC, 0x132A0)
     assert len(left["cfg"]["terminals"]) == len(right["cfg"]["terminals"]) == 1
     assert len(left["cfg"]["externalEdges"]) == 3
     assert len(right["cfg"]["externalEdges"]) == 5
-    assert result["comparison"]["shared3grams"]
+    assert len(left["cfg"]["internalEdges"]) == left["cfg"]["linearInternalEdges"] == 28
+    assert len(right["cfg"]["internalEdges"]) == right["cfg"]["linearInternalEdges"] == 44
+    comparison = result["comparison"]
+    assert abs(comparison["sequenceRatio"] - 0.6216216216216216) < 1e-15
+    assert comparison["matchedInstructions"] == 21
+    assert len(comparison["shared3grams"]) == 15
+    assert len(comparison["shared5grams"]) == 11
+    assert max(block["length"] for block in comparison["lcsBlocks"]) == 13
 
 
 def main() -> None:

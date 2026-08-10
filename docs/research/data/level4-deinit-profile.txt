@@ -1,0 +1,36 @@
+Level 4 deinit study profile
+============================
+
+Source commit: 824676a3092c2828b61f6a3e945994da60f18aa9
+Lean: v4.19.0
+Host: Linux x86_64
+
+Reproduction command (from a configured repository worktree):
+
+  python3 tools/profile_level4_deinit.py
+
+Captured 2026-08-10 result:
+
+  wall_seconds=13.71 exit=0
+
+Largest top-level asynchronous proof reports (seconds; overlapping, not additive):
+
+  5.69  level4_rawNewPayloadRequestDeinit_restore_a1_step
+  5.17  level4_rawNewPayloadRequestDeinit_restore_a0_step
+  4.64  level4_rawNewPayloadRequestDeinit_store_a1_step
+  4.15  level4_rawNewPayloadRequestDeinit_save_s1_step
+  4.09  level4_rawNewPayloadRequestDeinit_store_a0_step
+  3.60  level4_rawNewPayloadRequestDeinit_save_s0_step
+  3.55  level4_rawNewPayloadRequestDeinit_load_a1_step
+  3.04  level4_rawNewPayloadRequestDeinit_save_ra_step
+  2.95  level4_rawNewPayloadRequestDeinit_load_a0_step
+  2.49  level4_rawNewPayloadRequestDeinit_stack_step
+
+History reproduction command:
+
+  git log --format='%h %ad %s' --date=iso 824676a3 -- \
+    BinaryFv/Zesu/MachineExecution/Level4RawNewPayloadRequestDeinitSteps.lean \
+    BinaryFv/Zesu/MachineExecution/Level4RawNewPayloadRequestDeinitCall.lean
+
+The output contains 22 commits, from `43264354` at 2026-08-09 13:06:12 -0400 through
+`824676a3` at 2026-08-09 15:20:13 -0400.

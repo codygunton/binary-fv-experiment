@@ -24,11 +24,13 @@ The step module locally Sail-proves and composes the first 12 of 45 instructions
 return at `0x129ec`. Thus the useful comparison is between one prospective proof and one expensive,
 partial proof, not between two proof terms already available for refactoring.
 
-The NewPayloadRequest work accumulated in 22 commits from 13:06 through 15:20 on 2026-08-09. A
-fresh direct profile of the 1,323-line step module took 13.36 seconds wall. Its reported async
+The NewPayloadRequest work accumulated in 22 commits from 13:06 through 15:20 on 2026-08-09; the
+exact history query is recorded with the profile result in
+[`level4-deinit-profile.txt`](data/level4-deinit-profile.txt). A direct profile of the 1,323-line
+step module took 13.71 seconds wall on the recorded run. Its reported async
 declaration times overlap and must not be summed. The largest visible individual costs included the
-two restored-argument steps (5.57 and 5.06 seconds), the second store step (4.53 seconds), the `s1`
-save (4.02 seconds), the first store (3.97 seconds), and the stack-arithmetic lemma (1.89 seconds).
+two restored-argument steps (5.69 and 5.17 seconds), the second store step (4.64 seconds), the `s1`
+save (4.15 seconds), and the first store (4.09 seconds).
 This is roughly 110 source lines per locally composed instruction, although shared definitions and
 handoff structures make that ratio only an effort indicator.
 
