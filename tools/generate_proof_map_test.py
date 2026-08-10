@@ -31,6 +31,9 @@ class ProofMapTests(unittest.TestCase):
         self.manifests = {
             "schemaVersion": 1, "ownerInstructionCount": 172,
             "formalCoverage": {"localPcCount": 1, "level4PcCount": 0, "rootPcCount": 0},
+            "phases": [{"id": "entry", "label": "entry", "pcs": self.pcs[:60]},
+                       {"id": "specialized", "label": "specialized", "pcs": self.pcs[60:120]},
+                       {"id": "cleanup", "label": "cleanup", "pcs": self.pcs[120:]}],
             "manifests": [{"id": "m", "pcs": [self.pcs[0]]}],
         }
         self.authoring = {"schemaVersion": 1, "regions": [{
@@ -58,6 +61,11 @@ class ProofMapTests(unittest.TestCase):
     def test_rejects_coverage_count_drift(self):
         self.manifests["formalCoverage"]["localPcCount"] = 2
         with self.assertRaisesRegex(ValueError, "exact manifest union"):
+            self.run_generate()
+
+    def test_rejects_phase_partition_gap(self):
+        self.manifests["phases"][2]["pcs"].pop()
+        with self.assertRaisesRegex(ValueError, "do not partition"):
             self.run_generate()
 
     def test_rejects_absent_boundary_annotation(self):

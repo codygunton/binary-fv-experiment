@@ -8,7 +8,8 @@
  body{margin:0;background:var(--bg);color:var(--fg);height:100vh;overflow:hidden;
       font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
  #wrap{display:grid;grid-template-columns:1fr 540px;height:100vh}
- #left{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)}
+ #left{display:flex;flex-direction:column;min-width:0;min-height:0;height:100vh;overflow:hidden;
+       border-right:1px solid var(--line)}
  header{padding:9px 14px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
  h1{font-size:13px;margin:0;font-weight:600}
  .muted{color:var(--dim)} .pill{background:#1b2028;border:1px solid var(--line);border-radius:99px;padding:2px 9px;font-size:11px}
@@ -18,7 +19,7 @@
           padding:4px 9px;text-decoration:none}
  #chart{flex:1;overflow-x:auto;overflow-y:auto;padding:6px 14px 6px 82px;min-height:0;
         cursor:grab;position:relative}
- #proof-map{flex:1;overflow:auto;padding:14px;min-height:0;display:none}
+ #proof-map{flex:1;height:0;overflow-x:hidden;overflow-y:scroll;padding:14px;min-height:0;display:none}
  #proof-map.active{display:block} #chart.proof-hidden{display:none}
  .proof-summary{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:10px;margin-bottom:14px}
  .proof-stat,.author-card,.proof-block{background:#171c24;border:1px solid var(--line);border-radius:6px}
@@ -31,6 +32,18 @@
  .author-card.blocked{border-left-color:#d95757}.author-card:hover,.proof-block:hover{background:#1d232d}
  .author-card b,.proof-block b{display:block}.author-card small{color:var(--dim)}
  .proof-block{padding:7px;cursor:pointer}.proof-block .edge{font-size:10px;color:var(--dim);margin-top:5px}
+ .cfg-phase{margin:12px 0 20px;border-left:2px solid #364052;padding-left:18px;position:relative}
+ .cfg-phase>h3{position:sticky;top:-14px;z-index:3;margin:0 0 8px -20px;padding:8px 10px;
+               background:#11151b;border-bottom:1px solid var(--line);font-size:12px}
+ .cfg-phase>h3 small{color:var(--dim);font-weight:400;margin-left:8px}
+ .cfg-flow{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px 18px}
+ .cfg-node{padding:8px 9px;cursor:pointer;position:relative;background:#171c24;border:1px solid var(--line);border-radius:6px}
+ .cfg-node:before{content:'→';position:absolute;left:-17px;top:9px;color:#596579}
+ .cfg-node:hover{background:#1d232d}.cfg-node.next{border-color:#e5b84b;box-shadow:0 0 0 1px #6b5726}
+ .cfg-node .node-head{display:flex;justify-content:space-between;gap:8px}.cfg-node .node-state{font-size:10px;color:var(--dim)}
+ .cfg-edge{margin-top:6px;padding-top:5px;border-top:1px solid #252c35;font-size:10px;color:var(--dim)}
+ .cfg-edge b{display:inline;color:#9eabc0}.dependency{display:inline-block;margin:3px 3px 0 0;padding:1px 5px;
+             border-radius:10px;background:#272230;color:#d2b6ff;border:1px solid #4b3a62}
  .pc-cells{display:flex;gap:3px;flex-wrap:wrap;margin-top:6px}
  .pc-cell{width:13px;height:13px;border-radius:2px;background:#3b424e;border:1px solid #687385;
           position:relative}.pc-cell.local{background:#3ddc84}.pc-cell.level4{background:#41a9ff}
@@ -321,13 +334,28 @@ function renderProofMap(){
       <small>${esc(region.authoringState)} · ${(region.pcs||[]).length||region.boundaryInstructionCount||0} instructions</small>
       <div>${esc(region.blocker)}</div></div>`).join('');
   const instructionByPc=new Map(PROOF_MAP.instructions.map(row=>[row.pc,row]));
-  const blocks=PROOF_MAP.blocks.map(block=>{
+  const blockByEntry=new Map(PROOF_MAP.blocks.map(block=>[block.entryPc,block]));
+  const blocksByPhase=new Map(PROOF_MAP.phases.map(phase=>[phase.id,[]]));
+  PROOF_MAP.blocks.forEach(block=>blocksByPhase.get(block.phase).push(block));
+  const blockHtml=block=>{
     const cells=block.pcs.map(pc=>{const row=instructionByPc.get(pc),connection=proofConnection(row);
       return `<i class="pc-cell ${connection} ${authoringPcs.has(pc)?'authoring':''}" title="0x${pc.toString(16)} ${esc(row.mnemonic)}"></i>`;}).join('');
-    return `<div class="proof-block" data-pc="${block.entryPc}"><b>0x${block.entryPc.toString(16)}</b>
-      <span>${block.pcs.length} instruction${block.pcs.length===1?'':'s'}</span><div class="pc-cells">${cells}</div>
-      <div class="edge">→ ${block.successors.map(pc=>'0x'+pc.toString(16)).join(', ')||'terminal'}</div></div>`;
-  }).join('');
+    const parentEdges=block.successors.filter(pc=>blockByEntry.has(pc)).map(pc=>
+      `<span class="dependency">parent 0x${pc.toString(16)}</span>`).join('');
+    const childEdges=(block.childCalls||[]).map(child=>
+      `<span class="dependency">call ${esc(child.qualified)} @ 0x${child.entryPc.toString(16)}</span>`).join('');
+    const returns=(block.childReturns||[]).map(child=>
+      `<span class="dependency">return from ${esc(child.qualified)}</span>`).join('');
+    const state=block.pcs.every(pc=>instructionByPc.get(pc).formalManifests.length)?'proved locally':
+      block.pcs.some(pc=>authoringPcs.has(pc))?'active authoring':'ELF validated';
+    return `<div class="cfg-node ${block.pcs.some(pc=>authoringPcs.has(pc))?'next':''}" data-pc="${block.entryPc}">
+      <div class="node-head"><b>0x${block.entryPc.toString(16)} · ${block.pcs.length} instruction${block.pcs.length===1?'':'s'}</b>
+      <span class="node-state">${state}</span></div><div class="pc-cells">${cells}</div>
+      <div class="cfg-edge"><b>execution:</b> ${parentEdges||'leaves parent phase'} ${childEdges}${returns}</div></div>`;
+  };
+  const flow=PROOF_MAP.phases.map((phase,index)=>`<section class="cfg-phase"><h3>${index+1}. ${esc(phase.label)}
+    <small>${phase.pcCount} parent instructions · execution edges and selected children</small></h3>
+    <div class="cfg-flow">${blocksByPhase.get(phase.id).map(blockHtml).join('')}</div></section>`).join('');
   $('#proof-map').innerHTML=`<div class="proof-summary">
       ${stat('kernel-linked local PCs',coverage.localPcCount,'#3ddc84')}
       ${stat('connected into Level 4',coverage.level4PcCount,'#41a9ff')}
@@ -338,9 +366,9 @@ function renderProofMap(){
       <span>LLVM IR: ${esc(PROOF_MAP.compilerProvenance.state)}</span></div>
     <div class="proof-tools"><b>authoring regions</b>
       ${['all','ready','blocked'].map(value=>`<button data-filter="${value}" ${PROOF_FILTER===value?'disabled':''}>${value}</button>`).join('')}</div>
-    <div class="proof-grid">${regions}</div><div class="proof-tools"><b>parent-owned CFG blocks</b>
-      <span class="muted">click a block for instructions, successors, effects, and manifests</span></div>
-    <div class="proof-grid">${blocks}</div>`;
+    <div class="proof-grid">${regions}</div><div class="proof-tools"><b>ordered parent CFG and child dependencies</b>
+      <span class="muted">phase order is the recommended authoring order; chips are actual CFG/call/return relationships</span></div>
+    ${flow}`;
   $('#proof-map').querySelectorAll('[data-filter]').forEach(button=>button.onclick=()=>{
     PROOF_FILTER=button.dataset.filter; renderProofMap();
   });

@@ -114,6 +114,14 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
     formal = manifests["formalCoverage"]
     if formal["localPcCount"] != len(manifest_pcs):
         raise ValueError("formal local coverage count does not equal the exact manifest union")
+    phase_by_pc: dict[int, str] = {}
+    for phase in manifests.get("phases", []):
+        for pc in phase["pcs"]:
+            if pc in phase_by_pc or pc not in owned:
+                raise ValueError(f"invalid Level 4 phase PC 0x{pc:x}")
+            phase_by_pc[pc] = phase["id"]
+    if set(phase_by_pc) != owned:
+        raise ValueError("Level 4 phases do not partition the 172 parent PCs")
 
     boundary_by_qualified: dict[str, list[dict]] = {}
     for boundary in boundaries["boundaries"]:
@@ -170,6 +178,19 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
             "artifact": "optimized LLVM IR",
             "sha256": hashlib.sha256(llvm_ir.read_bytes()).hexdigest(),
         }
+    blocks = basic_blocks(machine["instructions"], owned)
+    boundary_entries = {row["entryPc"]: row for row in boundaries["boundaries"]}
+    boundary_returns: dict[int, list[dict]] = {}
+    for boundary in boundaries["boundaries"]:
+        for edge in boundary.get("exits", []):
+            boundary_returns.setdefault(edge["target"], []).append(boundary)
+    for block in blocks:
+        block["phase"] = phase_by_pc[block["entryPc"]]
+        block["childCalls"] = [{"id": boundary_entries[pc]["id"],
+                                "qualified": boundary_entries[pc]["qualified"], "entryPc": pc}
+                               for pc in block["successors"] if pc in boundary_entries]
+        block["childReturns"] = [{"id": row["id"], "qualified": row["qualified"]}
+                                 for row in boundary_returns.get(block["entryPc"], [])]
     return {
         "schemaVersion": 1,
         "owner": {"id": owner["id"], "qualified": owner["qualified"], "entryPc": owner["entryPc"]},
@@ -177,10 +198,13 @@ def generate(machine: dict, boundaries: dict, manifests: dict, authoring: dict,
         "compilerProvenance": compiler_provenance,
         "formalCoverage": formal,
         "instructions": instructions,
-        "blocks": basic_blocks(machine["instructions"], owned),
+        "phases": [{"id": row["id"], "label": row["label"], "pcCount": len(row["pcs"])}
+                   for row in manifests.get("phases", [])],
+        "blocks": blocks,
         "manifests": manifests["manifests"],
         "boundaries": [{"id": row["id"], "qualified": row["qualified"],
-                        "entryPc": row["entryPc"], "instructionCount": len(row["instructionPcs"])}
+                        "entryPc": row["entryPc"], "instructionCount": len(row["instructionPcs"]),
+                        "exits": row.get("exits", [])}
                        for row in boundaries["boundaries"]],
         "authoringRegions": regions,
     }
