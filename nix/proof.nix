@@ -488,9 +488,11 @@ COMPAT
     generate ../run2
     cmp -s ../run1/proof-map.json ../run2/proof-map.json \
       || { echo "PROOF MAP GENERATOR NON-DETERMINISTIC" >&2; exit 1; }
-    jq -e '.schemaVersion == 1 and (.instructions | length) == 172 and
-      .formalCoverage.localPcCount == 32 and .compilerProvenance.state == "explanatory-only"' \
-      ../run1/proof-map.json >/dev/null
+    expectedLocal=$(jq -r '.formalCoverage.localPcCount' \
+      ${binaryFvLean}/level4-machine-proof-manifests.json)
+    jq -e --argjson expectedLocal "$expectedLocal" '.schemaVersion == 1 and
+      (.instructions | length) == 172 and .formalCoverage.localPcCount == $expectedLocal and
+      .compilerProvenance.state == "explanatory-only"' ../run1/proof-map.json >/dev/null
     cp ../run1/proof-map.json "$out/"
   '';
 
