@@ -3,6 +3,7 @@ let
   checks = {
     inherit (packages) binaryFvLean binaryFvEvmSailCombinedImport evmSailLeanExtraction zesuRv64Object
       zesuSszDecodeRv64Object zesuSszDecodeRv64Elf zesuSszDecodeSmoke zesuCfgUi;
+    zesuSszDecodeSourceProbe = packages.zesuSszDecodeSourceProbe;
     default = packages.binaryFvLean;
   };
 

@@ -36,10 +36,10 @@ let
       cmp "$out/flame.json" "$TMPDIR/repeated/flame.json"
       cmp "$out/proof-map.json" "$TMPDIR/repeated/proof-map.json"
     '';
-  zesuCfg = makeCfg "zesu-rv64-cfg-c36bb99" zesuRv64Object "obj/zesu.o";
-  zesuSszDecodeCfg = makeCfg "zesu-ssz-decode-rv64-cfg-c36bb99" zesuSszDecodeRv64Elf "bin/zesu-ssz-decode";
+  zesuCfg = makeCfg "zesu-rv64-cfg-e5f8c13" zesuRv64Object "obj/zesu.o";
+  zesuSszDecodeCfg = makeCfg "zesu-ssz-decode-rv64-cfg-e5f8c13" zesuSszDecodeRv64Elf "bin/zesu-ssz-decode";
 
-  zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-c36bb99" { } ''
+  zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-e5f8c13" { } ''
     cp -R ${../tools/binary-regions-ui} "$out"
     chmod -R u+w "$out"
     cp ${zesuSszDecodeCfg}/zesu-cfg.json "$out/zesu-cfg.json"

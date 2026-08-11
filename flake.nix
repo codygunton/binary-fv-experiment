@@ -7,7 +7,7 @@
     # Target and audit sources are pinned independently of the proof stack.
     # Preserve the unmodified upstream source for the production baseline.
     zesu = {
-      url = "github:codygunton/zesu/c36bb999627ef3818dee3f0e076ea63924760c2e";
+      url = "github:codygunton/zesu/e5f8c13a691b61f8a6e67d7e7c646638c8bdf467";
       flake = false;
     };
 

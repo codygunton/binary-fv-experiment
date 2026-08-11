@@ -97,17 +97,17 @@
     "zesu": {
       "flake": false,
       "locked": {
-        "lastModified": 1786474650,
-        "narHash": "sha256-gCenRk1wQyHLsnEw4WKudaKte3C81HpIxQTpera8eQg=",
+        "lastModified": 1786481954,
+        "narHash": "sha256-9JjJM2zK37S94sGKi3o4AwOAlk3gqYAySHGH7J8IYrQ=",
         "owner": "codygunton",
         "repo": "zesu",
-        "rev": "c36bb999627ef3818dee3f0e076ea63924760c2e",
+        "rev": "e5f8c13a691b61f8a6e67d7e7c646638c8bdf467",
         "type": "github"
       },
       "original": {
         "owner": "codygunton",
         "repo": "zesu",
-        "rev": "c36bb999627ef3818dee3f0e076ea63924760c2e",
+        "rev": "e5f8c13a691b61f8a6e67d7e7c646638c8bdf467",
         "type": "github"
       }
     }
