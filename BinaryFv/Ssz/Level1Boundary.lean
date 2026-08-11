@@ -56,4 +56,15 @@ def strictDecodeContract (stepBound : DecodeBoundaryArgs → Nat) :
     exit := fun _ outcome _ after => DecodeBoundaryExit outcome after
     stepBound }
 
+def DecodeExecutionPc : BitVec 64 → Prop :=
+  pcInRanges Generated.sszDecodeExecutionPcRanges
+
+def DecodeExitPc (pc : BitVec 64) : Prop :=
+  pc = BitVec.ofNat 64 Generated.writeSuccessEntry ∨
+    pc = BitVec.ofNat 64 Generated.writeFailureEntry
+
+/-- The exact strict implementation obligation at the generated production boundary. -/
+abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : Prop :=
+  (strictDecodeContract stepBound).Implements DecodeExecutionPc DecodeExitPc
+
 end BinaryFv.Ssz
