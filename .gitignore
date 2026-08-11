@@ -12,6 +12,7 @@
 /docs/ai/
 /.ai-coord/
 /.claude/
+/.playwright-mcp/
 __pycache__/
 *.o
 *.a
