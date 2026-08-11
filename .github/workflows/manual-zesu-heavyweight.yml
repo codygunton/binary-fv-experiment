@@ -1,0 +1,91 @@
+name: Manual heavyweight Zesu validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-heavyweight-zesu-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  production-evidence-extended:
+    name: Full proof build and production-execution checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      # Extended tier: rebuild the full theorem graph (including the production-binary diagnostics) and
+      # re-capture the blob-schedule and all-141-function-instance observations and the static classification from the
+      # UNCHANGED ELF, drift-checking every committed artifact. A deeper, independent gate than the
+      # required-lightweight run.
+      - name: Full Lean proof with production-binary diagnostics
+        run: nix build --max-jobs 1 --print-build-logs --no-link .#binary-fv-lean
+      - name: Production execution checks, coverage, and classification drift
+        run: |
+          nix build --print-build-logs --no-link \
+            .#ssz-binary-evidence \
+            .#ssz-scale-evidence
+
+  preservation-and-boundaries:
+    name: Zesu preservation suites and extended boundaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Run both 23,822-case native/zkeVM suites
+        run: nix build --print-build-logs --no-link .#zesu-native-suite
+      - name: Build the host SSZ value formatter
+        run: |
+          nix build --print-build-logs \
+            --out-link "$RUNNER_TEMP/zesu-ssz-value" \
+            .#zesu-value
+      - name: Build the Lean oracle and run extended boundaries
+        shell: bash
+        run: |
+          nix shell --inputs-from . \
+            nixpkgs#elan \
+            nixpkgs#uv \
+            nixpkgs#jq \
+            nixpkgs#pkg-config \
+            nixpkgs#openssl.dev \
+            nixpkgs#gcc \
+            -c bash -euo pipefail <<'EOF'
+              export ELAN_HOME="$RUNNER_TEMP/elan"
+              export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
+              elan toolchain install "$(tr -d "\\r\\n" < tools/ssz-oracle/lean-toolchain)"
+
+              openssl_dev="$(nix build --inputs-from . --no-link --print-out-paths nixpkgs#openssl.dev)"
+              export PKG_CONFIG_PATH="$openssl_dev/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+              export LD_LIBRARY_PATH="$openssl_dev/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+              cd tools/ssz-oracle
+              lake update
+              git diff --exit-code -- lake-manifest.json
+              lake build repl
+              lake build ssz_oracle ssz_oracle_test
+              lake exe ssz_oracle_test
+              cd "$GITHUB_WORKSPACE"
+
+              reference_source="$(nix flake archive --json | jq -r ".inputs.executionSpecs.path")"
+              test "$reference_source" != null
+              test -d "$reference_source"
+              reference_root="$RUNNER_TEMP/execution-specs"
+              cp -a "$reference_source" "$reference_root"
+              chmod -R u+w "$reference_root"
+              (
+                cd "$reference_root"
+                uv sync --locked --no-dev
+              )
+              reference_python="$reference_root/.venv/bin/python"
+              test -x "$reference_python"
+
+              "$reference_python" -B verification-target/zesu/tests/ssz_boundary_audit.py --extended \
+                --reference-python "$reference_python" \
+                --zesu-value-binary "$RUNNER_TEMP/zesu-ssz-value/bin/zesu-ssz-value" \
+                --lean-binary tools/ssz-oracle/.lake/build/bin/ssz_oracle
+          EOF

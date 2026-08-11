@@ -46,7 +46,7 @@ ABI_REGISTERS = {
 # Registers whose identity a lemma cannot abstract over: the ABI pins their meaning.
 PINNED_REGISTERS = {"zero", "ra", "sp", "gp", "tp"}
 
-# Instruction classes used by target-specific RISC-V machine-step libraries.
+# Instruction classes as implemented in BinaryFv/Zesu/MachineExecution/InstructionClassSteps.lean.
 # MULDIV has no class lemma there yet; it is named so the gap shows up in the report instead of
 # being silently folded into RTYPE.
 CLASS_OF_MNEMONIC = {

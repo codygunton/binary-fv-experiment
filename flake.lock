@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "etheorem": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1783532102,
+        "narHash": "sha256-ipM9VTRNJx5GKSZ2QXMjN1jGVSWTAS+rzSPyMU24paM=",
+        "owner": "etheorem",
+        "repo": "etheorem",
+        "rev": "032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "etheorem",
+        "repo": "etheorem",
+        "rev": "032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0",
+        "type": "github"
+      }
+    },
     "evmSail": {
       "flake": false,
       "locked": {
@@ -31,6 +48,23 @@
         "owner": "frisitano",
         "repo": "sail",
         "rev": "25cc260d9940d65d2e5da427fe4b5d402809a50c",
+        "type": "github"
+      }
+    },
+    "executionSpecs": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1782749897,
+        "narHash": "sha256-M07KTlSrwaRTTQWT1Q67TJoEarIomvHTTPswHzK2YnQ=",
+        "owner": "ethereum",
+        "repo": "execution-specs",
+        "rev": "bd8c673552d957dbe9c9f3f2656b87201f5ae646",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ethereum",
+        "repo": "execution-specs",
+        "rev": "bd8c673552d957dbe9c9f3f2656b87201f5ae646",
         "type": "github"
       }
     },
@@ -69,12 +103,15 @@
     },
     "root": {
       "inputs": {
+        "etheorem": "etheorem",
         "evmSail": "evmSail",
         "evmSailCompiler": "evmSailCompiler",
+        "executionSpecs": "executionSpecs",
         "leanSail": "leanSail",
         "nixpkgs": "nixpkgs",
         "sailRiscv": "sailRiscv",
-        "zesu": "zesu"
+        "zesu": "zesu",
+        "zesuRepaired": "zesuRepaired"
       }
     },
     "sailRiscv": {
@@ -108,6 +145,23 @@
         "owner": "Consensys",
         "repo": "zesu",
         "rev": "d8071c422f0faf2c52d85b401192fdffc31fd5ac",
+        "type": "github"
+      }
+    },
+    "zesuRepaired": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784003015,
+        "narHash": "sha256-rGSzr98y2iOMzKMpEuTA4scGr7x/e5luKiqhJ7Fv0UA=",
+        "owner": "codygunton",
+        "repo": "zesu",
+        "rev": "96f1621468ba54755d653f19cbc9704e789be001",
+        "type": "github"
+      },
+      "original": {
+        "owner": "codygunton",
+        "repo": "zesu",
+        "rev": "96f1621468ba54755d653f19cbc9704e789be001",
         "type": "github"
       }
     }

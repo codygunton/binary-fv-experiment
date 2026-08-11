@@ -1,0 +1,385 @@
+import BinaryFv.RiscV.Instruction.Execute.ShiftOr
+import BinaryFv.RiscV.Instruction.Execute.StoreByte
+import BinaryFv.RiscV.Logic.BlockStep
+import BinaryFv.RiscV.Instruction.Execute.RegisterOp
+import BinaryFv.RiscV.Proof.ImageFetch
+import BinaryFv.RiscV.Elfling.FunctionTrace
+import BinaryFv.RiscV.Elfling.SentinelBridge
+import BinaryFv.Zesu.Artifacts.PrimitiveReadInventory
+import BinaryFv.Zesu.ControlFlow.Decode
+import BinaryFv.Zesu.MachineExecution.DecodeTactic
+
+namespace BinaryFv.Zesu.MachineExecution
+
+open BinaryFv BinaryFv.RiscV
+open BinaryFv.Binary.ProgramImage
+open PreSail LeanRV64DExecutable.Functions Register
+
+theorem raw_error_auipc_execute (state sFinal : State) (pcVal : BitVec 64)
+    (hpc : Runs (readReg PC) state state pcVal)
+    (hwrite : Runs (wX_bits (.Regidx 10#5)
+      (pcVal + sign_extend (m := 64) (0x4202#20 ++ 0x000#12))) state sFinal ()) :
+    Runs (execute_UTYPE 0x4202#20 (.Regidx 10#5) .AUIPC) state sFinal
+      (.Retire_Success ()) := by
+  exact execute_UTYPE_auipc_run state sFinal 0x4202#20 (.Regidx 10#5) pcVal hpc hwrite
+
+theorem raw_error_auipc_value :
+    BitVec.ofNat 64 0x13780 + sign_extend (m := 64) (0x4202#20 ++ 0x000#12) =
+      BitVec.ofNat 64 0x4215780 := by
+  native_decide
+
+theorem raw_error_auipc_execute_exact (state : State)
+    (hpc : state.regs.get? PC = some (BitVec.ofNat 64 0x13780)) :
+    Runs (execute (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC))) state
+      { state with regs := state.regs.insert x10 (BitVec.ofNat 64 0x4215780) }
+      (.Retire_Success ()) := by
+  rw [← raw_error_auipc_value]
+  exact raw_error_auipc_execute state _ _
+    (readReg_run state PC _ hpc) (wX_bits_run_x10 _ _)
+
+theorem raw_error_load_execute (state sFinal : State) (data : BitVec 32)
+    (hread : Runs (vmem_read (.Regidx 10#5) (sign_extend (m := 64) 0x8a4#12) 4
+      (MemoryAccessType.Load mem_payload.Data) false false false) state state (.Ok data))
+    (hwrite : Runs (wX_bits (.Regidx 10#5) (extend_value false data)) state sFinal ()) :
+    Runs (execute_LOAD 0x8a4#12 (.Regidx 10#5) (.Regidx 10#5) false 4) state sFinal
+      (.Retire_Success ()) := by
+  exact execute_LOAD_lw_run state sFinal 0x8a4#12 (.Regidx 10#5) (.Regidx 10#5) data hread hwrite
+
+theorem raw_error_prefix_runs (state afterAuipc afterLoad : State) (pcVal : BitVec 64)
+    (data : BitVec 32)
+    (hpc : Runs (readReg PC) state state pcVal)
+    (hAuipc : Runs (wX_bits (.Regidx 10#5)
+      (pcVal + sign_extend (m := 64) (0x4202#20 ++ 0x000#12))) state afterAuipc ())
+    (hread : Runs (vmem_read (.Regidx 10#5) (sign_extend (m := 64) 0x8a4#12) 4
+      (MemoryAccessType.Load mem_payload.Data) false false false)
+      afterAuipc afterAuipc (.Ok data))
+    (hLoad : Runs (wX_bits (.Regidx 10#5) (extend_value false data)) afterAuipc afterLoad ()) :
+    Runs (execute_UTYPE 0x4202#20 (.Regidx 10#5) .AUIPC >>= fun _ =>
+      execute_LOAD 0x8a4#12 (.Regidx 10#5) (.Regidx 10#5) false 4)
+      state afterLoad (.Retire_Success ()) := by
+  apply Runs.bind (raw_error_auipc_execute state afterAuipc pcVal hpc hAuipc)
+  exact raw_error_load_execute afterAuipc afterLoad data hread hLoad
+
+theorem raw_error_ret_execute (state sFinal : State) (linkVal rs1Val : BitVec 64)
+    (helpElp : Runs (update_elp_state (.Regidx 1#5)) state state ())
+    (hlink : Runs (get_next_pc ()) state state linkVal)
+    (hrs1 : Runs (rX_bits (.Regidx 1#5)) state state rs1Val)
+    (hbit1 : Sail.BitVec.access (rs1Val + sign_extend (m := 64) 0#12) 1 = 0#1)
+    (zcaEnabled : Bool)
+    (hzca : Runs (currentlyEnabled extension.Ext_Zca) state state zcaEnabled)
+    (hwrite : Runs (wX_bits (.Regidx 0#5) linkVal)
+      { state with regs := (state.regs.insert nextPC
+          (Sail.BitVec.update (rs1Val + sign_extend (m := 64) 0#12) 0 0#1)) } sFinal ()) :
+    Runs (execute_JALR 0#12 (.Regidx 1#5) (.Regidx 0#5)) state sFinal
+      (.Retire_Success ()) := by
+  exact execute_JALR_run state sFinal 0#12 (.Regidx 1#5) (.Regidx 0#5)
+    linkVal rs1Val helpElp hlink hrs1 hbit1 zcaEnabled hzca hwrite
+
+theorem raw_error_body_runs (state afterAuipc afterLoad final : State) (pcVal : BitVec 64)
+    (data : BitVec 32) (linkVal rs1Val : BitVec 64)
+    (hpc : Runs (readReg PC) state state pcVal)
+    (hAuipc : Runs (wX_bits (.Regidx 10#5)
+      (pcVal + sign_extend (m := 64) (0x4202#20 ++ 0x000#12))) state afterAuipc ())
+    (hread : Runs (vmem_read (.Regidx 10#5) (sign_extend (m := 64) 0x8a4#12) 4
+      (MemoryAccessType.Load mem_payload.Data) false false false)
+      afterAuipc afterAuipc (.Ok data))
+    (hLoad : Runs (wX_bits (.Regidx 10#5) (extend_value false data)) afterAuipc afterLoad ())
+    (helpElp : Runs (update_elp_state (.Regidx 1#5)) afterLoad afterLoad ())
+    (hlink : Runs (get_next_pc ()) afterLoad afterLoad linkVal)
+    (hrs1 : Runs (rX_bits (.Regidx 1#5)) afterLoad afterLoad rs1Val)
+    (hbit1 : Sail.BitVec.access (rs1Val + sign_extend (m := 64) 0#12) 1 = 0#1)
+    (zcaEnabled : Bool)
+    (hzca : Runs (currentlyEnabled extension.Ext_Zca) afterLoad afterLoad zcaEnabled)
+    (hwrite : Runs (wX_bits (.Regidx 0#5) linkVal)
+      { afterLoad with regs := (afterLoad.regs.insert nextPC
+          (Sail.BitVec.update (rs1Val + sign_extend (m := 64) 0#12) 0 0#1)) } final ()) :
+    Runs (execute_UTYPE 0x4202#20 (.Regidx 10#5) .AUIPC >>= fun _ =>
+      execute_LOAD 0x8a4#12 (.Regidx 10#5) (.Regidx 10#5) false 4 >>= fun _ =>
+      execute_JALR 0#12 (.Regidx 1#5) (.Regidx 0#5))
+      state final (.Retire_Success ()) := by
+  exact Runs.bind (raw_error_auipc_execute state afterAuipc pcVal hpc hAuipc)
+    (Runs.bind (raw_error_load_execute afterAuipc afterLoad data hread hLoad)
+      (raw_error_ret_execute afterLoad final linkVal rs1Val helpElp hlink hrs1 hbit1 zcaEnabled hzca
+        hwrite))
+
+theorem raw_error_auipc_image_bytes :
+    Artifacts.programImage.readFileByte? 0x13780 = some 0x17 ∧
+      Artifacts.programImage.readFileByte? 0x13781 = some 0x25 ∧
+        Artifacts.programImage.readFileByte? 0x13782 = some 0x20 ∧
+          Artifacts.programImage.readFileByte? 0x13783 = some 0x04 := by
+  native_decide
+
+theorem raw_error_auipc_fetch (state : State)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x13780)
+      0x17#8 0x25#8 0x20#8 0x04#8 := by
+  rcases raw_error_auipc_image_bytes with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifacts.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  exact fetchBytesAt_of_file_bytes Artifacts.programImage
+    (tryStepControlFlowAfterIncrement state) 0x13780 (by omega)
+    afterIncrement 0x17 0x25 0x20 0x04 read0 read1 read2 read3
+
+theorem raw_error_auipc_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x17#8 0x25#8 0x20#8 0x04#8)) state state
+      (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC)) := by
+  unfold Runs
+  rw [extDecode_eq]
+  simp [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
+    PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get, EStateM.pure,
+    EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+    MonadState.get, MonadStateOf.get, fetchWord, encdec_reg_backwards,
+    encdec_uop_backwards, encdec_reg_backwards_matches, encdec_uop_backwards_matches,
+    LeanRV64DExecutable.Functions.base_E_enabled, LeanRV64DExecutable.Functions.not,
+    Sail.BitVec.access, Sail.BitVec.extractLsb,
+    LeanRV64DExecutable.Functions.regidx_bit_width, privilege, mseccfg]
+
+theorem raw_error_load_image_bytes :
+    Artifacts.programImage.readFileByte? 0x13784 = some 0x03 ∧
+      Artifacts.programImage.readFileByte? 0x13785 = some 0x25 ∧
+        Artifacts.programImage.readFileByte? 0x13786 = some 0x45 ∧
+          Artifacts.programImage.readFileByte? 0x13787 = some 0x8a := by
+  native_decide
+
+theorem raw_error_load_fetch (state : State)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x13784)
+      0x03#8 0x25#8 0x45#8 0x8a#8 := by
+  rcases raw_error_load_image_bytes with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifacts.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  exact fetchBytesAt_of_file_bytes Artifacts.programImage
+    (tryStepControlFlowAfterIncrement state) 0x13784 (by omega)
+    afterIncrement 0x03 0x25 0x45 0x8a read0 read1 read2 read3
+
+theorem raw_error_load_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x03#8 0x25#8 0x45#8 0x8a#8)) state state
+      (.LOAD (0x8a4#12, .Regidx 10#5, .Regidx 10#5, false, 4)) := by
+  decode_run
+
+theorem raw_error_ret_image_bytes :
+    Artifacts.programImage.readFileByte? 0x13788 = some 0x67 ∧
+      Artifacts.programImage.readFileByte? 0x13789 = some 0x80 ∧
+        Artifacts.programImage.readFileByte? 0x1378a = some 0x00 ∧
+          Artifacts.programImage.readFileByte? 0x1378b = some 0x00 := by
+  native_decide
+
+theorem raw_error_ret_decode (state : State)
+    (privilege : state.regs.get? cur_privilege = some Privilege.Machine)
+    (mseccfgBits : BitVec 64) (mseccfg : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord 0x67#8 0x80#8 0x00#8 0x00#8)) state state
+      (.JALR (0#12, .Regidx 1#5, .Regidx 0#5)) := by
+  decode_run
+
+/-! The fixed-byte control-flow bridge for the final instruction.  All environmental facts remain
+explicit: this theorem does not hide fetch, interrupt, counter, or extension premises. -/
+theorem raw_error_ret_try_step (stepNo : Nat) (state : State)
+    (pc retired linkVal rs1Val : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64)
+    (zcaEnabled : Bool)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
+    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
+    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
+      0x67#8 0x80#8 0x00#8 0x00#8)
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (base : BaseInstructionEncoding 0x67#8)
+    (decode : Runs (ext_decode (fetchWord 0x67#8 0x80#8 0x00#8 0x00#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.JALR (0#12, .Regidx 1#5, zreg)))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (helpElp : Runs (update_elp_state (.Regidx 1#5))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) ())
+    (hlink : Runs (get_next_pc ())
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) linkVal)
+    (hrs1 : Runs (rX_bits (.Regidx 1#5))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) rs1Val)
+    (hbit1 : Sail.BitVec.access rs1Val 1 = 0#1)
+    (hzca : Runs (currentlyEnabled extension.Ext_Zca)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) zcaEnabled)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+          (Sail.BitVec.update rs1Val 0 0#1))
+        (Sail.BitVec.update rs1Val 0 0#1) retired) false := by
+  exact tryStepRetRetires stepNo state pc retired (.Regidx 1#5) linkVal rs1Val inhibit config
+    0x67#8 0x80#8 0x00#8 0x00#8 zcaEnabled platform noMMIO bytes interrupts base decode
+    notExpected helpElp hlink hrs1 hbit1 hzca hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+theorem raw_error_ret_fetch (state : State)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    FetchBytesAt (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 0x13788)
+      0x67#8 0x80#8 0x00#8 0x00#8 := by
+  rcases raw_error_ret_image_bytes with ⟨read0, read1, read2, read3⟩
+  have afterIncrement : Artifacts.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  exact fetchBytesAt_of_file_bytes Artifacts.programImage
+    (tryStepControlFlowAfterIncrement state) 0x13788 (by omega)
+    afterIncrement 0x67 0x80 0x00 0x00 read0 read1 read2 read3
+
+theorem raw_error_auipc_try_step (stepNo : Nat) (state : State)
+    (pc retired : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64)
+    (value : BitVec 64)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
+    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
+    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
+      0x17#8 0x25#8 0x20#8 0x04#8)
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (base : BaseInstructionEncoding 0x17#8)
+    (decode : Runs (ext_decode (fetchWord 0x17#8 0x25#8 0x20#8 0x04#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC)))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (exec : Runs (execute (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
+          x10 value } (.Retire_Success ()))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+          regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
+            x10 value }
+        (Sail.BitVec.addInt pc 4) retired) false := by
+  exact tryStepFallThroughWriteRegRetires stepNo state pc retired inhibit config
+    0x17#8 0x25#8 0x20#8 0x04#8
+    (.UTYPE (0x4202#20, .Regidx 10#5, .AUIPC)) x10 value
+    platform noMMIO bytes interrupts base decode notExpected exec (by decide) (by decide)
+    (by decide) (by decide) hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+
+theorem raw_error_load_try_step (stepNo : Nat) (state : State)
+    (pc retired : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64)
+    (value : BitVec 64)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
+    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
+    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc
+      0x03#8 0x25#8 0x45#8 0x8a#8)
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (base : BaseInstructionEncoding 0x03#8)
+    (decode : Runs (ext_decode (fetchWord 0x03#8 0x25#8 0x45#8 0x8a#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (0x8a4#12, .Regidx 10#5, .Regidx 10#5, false, 4)))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (exec : Runs (execute (.LOAD (0x8a4#12, .Regidx 10#5, .Regidx 10#5, false, 4)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
+          x10 value } (.Retire_Success ()))
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
+          regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
+            x10 value }
+        (Sail.BitVec.addInt pc 4) retired) false := by
+  exact tryStepFallThroughWriteRegRetires stepNo state pc retired inhibit config
+    0x03#8 0x25#8 0x45#8 0x8a#8
+    (.LOAD (0x8a4#12, .Regidx 10#5, .Regidx 10#5, false, 4)) x10 value
+    platform noMMIO bytes interrupts base decode notExpected exec (by decide) (by decide)
+    (by decide) (by decide) hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+
+theorem raw_error_function_trace_of_three_steps
+    {region exit : BitVec 64 → Prop} {fromStep : Nat}
+    {s0 s1 s2 s3 : State} {pc0 pc1 pc2 pc3 : BitVec 64}
+    (hpc0 : s0.regs.get? PC = some pc0) (hin0 : region pc0) (hnot0 : ¬ exit pc0)
+    (hstep0 : Runs (try_step fromStep false) s0 s1 false)
+    (hpc1 : s1.regs.get? PC = some pc1) (hin1 : region pc1) (hnot1 : ¬ exit pc1)
+    (hstep1 : Runs (try_step (fromStep + 1) false) s1 s2 false)
+    (hpc2 : s2.regs.get? PC = some pc2) (hin2 : region pc2) (hnot2 : ¬ exit pc2)
+    (hstep2 : Runs (try_step (fromStep + 2) false) s2 s3 false)
+    (hpc3 : s3.regs.get? PC = some pc3) (hexit3 : exit pc3) :
+    BinaryFv.RiscV.Elfling.FunctionTrace region exit fromStep 3 s0 s3 := by
+  refine BinaryFv.RiscV.Elfling.FunctionTrace.step fromStep 2 pc0 s0 s1 s3 ?_ ?_ ?_ hstep0 ?_
+  · exact hpc0
+  · exact hin0
+  · exact hnot0
+  refine BinaryFv.RiscV.Elfling.FunctionTrace.step (fromStep + 1) 1 pc1 s1 s2 s3 ?_ ?_ ?_ hstep1 ?_
+  · exact hpc1
+  · exact hin1
+  · exact hnot1
+  refine BinaryFv.RiscV.Elfling.FunctionTrace.step (fromStep + 2) 0 pc2 s2 s3 s3 ?_ ?_ ?_ hstep2 ?_
+  · exact hpc2
+  · exact hin2
+  · exact hnot2
+  exact BinaryFv.RiscV.Elfling.FunctionTrace.exitAt (fromStep + 3) s3 pc3 hpc3 hexit3
+
+theorem raw_error_function_trace_of_two_steps
+    {region exit : BitVec 64 → Prop} {fromStep : Nat}
+    {s0 s1 s2 : State} {pc0 pc1 pc2 : BitVec 64}
+    (hpc0 : s0.regs.get? PC = some pc0) (hin0 : region pc0) (hnot0 : ¬ exit pc0)
+    (hstep0 : Runs (try_step fromStep false) s0 s1 false)
+    (hpc1 : s1.regs.get? PC = some pc1) (hin1 : region pc1) (hnot1 : ¬ exit pc1)
+    (hstep1 : Runs (try_step (fromStep + 1) false) s1 s2 false)
+    (hpc2 : s2.regs.get? PC = some pc2) (hexit2 : exit pc2) :
+    BinaryFv.RiscV.Elfling.FunctionTrace region exit fromStep 2 s0 s2 := by
+  refine BinaryFv.RiscV.Elfling.FunctionTrace.step fromStep 1 pc0 s0 s1 s2
+    hpc0 hin0 hnot0 hstep0 ?_
+  exact BinaryFv.RiscV.Elfling.FunctionTrace.step (fromStep + 1) 0 pc1 s1 s2 s2
+    hpc1 hin1 hnot1 hstep1
+    (BinaryFv.RiscV.Elfling.FunctionTrace.exitAt (fromStep + 2) s2 pc2 hpc2 hexit2)
+
+/-! The contract-facing form of the same trace.  Keeping the entry facts explicit prevents this
+bridge from being mistaken for a zero-step implementation argument. -/
+
+theorem raw_error_entered_function_trace_of_two_steps
+    {region exit : BitVec 64 → Prop} {fromStep : Nat}
+    {s0 s1 s2 : State} {entry pc1 pc2 : BitVec 64}
+    (hentry : s0.regs.get? PC = some entry)
+    (hentryRegion : region entry) (hentryNotExit : ¬ exit entry)
+    (hpc1 : s1.regs.get? PC = some pc1) (hin1 : region pc1) (hnot1 : ¬ exit pc1)
+    (hstep0 : Runs (try_step fromStep false) s0 s1 false)
+    (hstep1 : Runs (try_step (fromStep + 1) false) s1 s2 false)
+    (hpc2 : s2.regs.get? PC = some pc2) (hexit2 : exit pc2) :
+    BinaryFv.RiscV.Elfling.EnteredFunctionTrace region exit entry fromStep 2 s0 s2 := by
+  refine ⟨hentry, hentryRegion, hentryNotExit, ?_⟩
+  exact raw_error_function_trace_of_two_steps hentry hentryRegion hentryNotExit hstep0
+    hpc1 hin1 hnot1 hstep1 hpc2 hexit2
+
+theorem raw_error_trace_to_sentinel_of_two_steps
+    {region exit : BitVec 64 → Prop} {fromStep : Nat}
+    {s0 atExit : State} {pc : BitVec 64} {sentinel rs1Val retired : BitVec 64}
+    (regionAvoidsSentinel : ∀ pc, region pc → pc ≠ sentinel)
+    (exitAvoidsSentinel : ∀ pc, exit pc → pc ≠ sentinel)
+    (run : BinaryFv.RiscV.Elfling.FunctionTrace region exit fromStep 2 s0 atExit)
+    (linkIsSentinel : Sail.BitVec.update rs1Val 0 0#1 = sentinel)
+    (ret : Runs (try_step (fromStep + 2) false) atExit
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement atExit) pc
+          (Sail.BitVec.update rs1Val 0 0#1))
+        (Sail.BitVec.update rs1Val 0 0#1) retired) false) :
+    TraceToSentinel sentinel fromStep 3 s0
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement atExit) pc
+          (Sail.BitVec.update rs1Val 0 0#1))
+        (Sail.BitVec.update rs1Val 0 0#1) retired) := by
+  exact BinaryFv.RiscV.Elfling.traceToSentinel_of_functionTrace_ret
+    regionAvoidsSentinel exitAvoidsSentinel run linkIsSentinel ret
+
+end BinaryFv.Zesu.MachineExecution
