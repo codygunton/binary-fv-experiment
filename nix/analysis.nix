@@ -28,6 +28,13 @@ let
         --object ${object}/obj/${filename} --output "$out/zesu-cfg.json" \
         --flame "$out/flame.json" --proof-map "$out/proof-map.json"
       python ${../tools/test_zesu_cfg.py} "$out/zesu-cfg.json"
+      mkdir "$TMPDIR/repeated"
+      python ${../tools/generate_zesu_cfg.py} \
+        --object ${object}/obj/${filename} --output "$TMPDIR/repeated/zesu-cfg.json" \
+        --flame "$TMPDIR/repeated/flame.json" --proof-map "$TMPDIR/repeated/proof-map.json"
+      cmp "$out/zesu-cfg.json" "$TMPDIR/repeated/zesu-cfg.json"
+      cmp "$out/flame.json" "$TMPDIR/repeated/flame.json"
+      cmp "$out/proof-map.json" "$TMPDIR/repeated/proof-map.json"
     '';
   zesuCfg = makeCfg "zesu-rv64-cfg-6acdbd9" zesuRv64Object "zesu.o";
   zesuSszDecodeCfg = makeCfg "zesu-ssz-decode-rv64-cfg-6acdbd9" zesuSszDecodeRv64Object "zesu-ssz-decode.o";
