@@ -1,0 +1,627 @@
+#!/usr/bin/env python3
+"""Generate a deterministic function/basic-block CFG from the authentic Zesu RV64 object."""
+
+from __future__ import annotations
+
+import argparse
+import bisect
+import hashlib
+import json
+from collections import defaultdict, deque
+from pathlib import Path
+
+from capstone import CS_ARCH_RISCV, CS_MODE_RISCV64, Cs
+from elftools.common.exceptions import ELFRelocationError
+from elftools.common.utils import struct_parse
+from elftools.dwarf.ranges import BaseAddressEntry, RangeEntry
+from elftools.elf.elffile import ELFFile
+from elftools.elf.relocation import RelocationHandler
+
+
+COND = {"beq", "bne", "blt", "bge", "bltu", "bgeu", "beqz", "bnez", "bltz", "bgez", "blez", "bgtz"}
+UNCOND = {"j"}
+RET = {"ret", "jr"}
+_SOURCE_KEYS: dict[int, list[int]] = {}
+
+
+def enable_riscv_debug_relocations() -> None:
+    """Teach pyelftools the five fixed-width RISC-V relocations Zig emits in DWARF."""
+    original = RelocationHandler._do_apply_relocation
+
+    def apply(handler, stream, relocation, symbols):
+        if handler.elffile.get_machine_arch() != "RISC-V":
+            return original(handler, stream, relocation, symbols)
+        kind = relocation["r_info_type"]
+        sizes = {1: 4, 2: 8, 34: 2, 38: 2, 57: 4}  # 32, 64, ADD16, SUB16, 32_PCREL
+        if kind not in sizes:
+            raise ELFRelocationError(f"unsupported RISC-V DWARF relocation type: {kind}")
+        size = sizes[kind]
+        value_type = {
+            2: handler.elffile.structs.Elf_half(""),
+            4: handler.elffile.structs.Elf_word(""),
+            8: handler.elffile.structs.Elf_word64(""),
+        }[size]
+        value = struct_parse(value_type, stream, stream_pos=relocation["r_offset"])
+        symbol = symbols.get_symbol(relocation["r_info_sym"])["st_value"]
+        addend = relocation["r_addend"]
+        if kind in {1, 2}:
+            relocated = symbol + addend
+        elif kind == 34:
+            relocated = value + symbol + addend
+        elif kind == 38:
+            relocated = value - symbol - addend
+        else:
+            relocated = symbol + addend - relocation["r_offset"]
+        stream.seek(relocation["r_offset"])
+        value_type.build_stream(relocated % (1 << (size * 8)), stream)
+
+    RelocationHandler._do_apply_relocation = apply
+
+
+enable_riscv_debug_relocations()
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def normalize_source(source: str) -> str:
+    marker = "/deps/zesu/"
+    if marker in source:
+        return "deps/zesu/" + source.split(marker, 1)[1]
+    if source.startswith("/build/source/"):
+        return "deps/zesu/" + source.removeprefix("/build/source/")
+    return source
+
+
+def dwarf_info(elf: ELFFile):
+    return elf.get_dwarf_info(relocate_dwarf_sections=True)
+
+
+def cu_directories(cu, program) -> list[bytes]:
+    comp_dir = cu.get_top_DIE().attributes.get("DW_AT_comp_dir")
+    return [comp_dir.value if comp_dir is not None else b"."] + list(program["include_directory"])
+
+
+def line_map(elf: ELFFile) -> dict[int, tuple[str, int]]:
+    result: dict[int, tuple[str, int]] = {}
+    dwarf = dwarf_info(elf)
+    for cu in dwarf.iter_CUs():
+        program = dwarf.line_program_for_CU(cu)
+        if program is None:
+            continue
+        dirs = cu_directories(cu, program)
+        files = program["file_entry"]
+        for entry in program.get_entries():
+            state = entry.state
+            if state is None or state.end_sequence or state.file == 0:
+                continue
+            file = files[state.file - 1]
+            directory = dirs[file.dir_index] if file.dir_index < len(dirs) else b"."
+            name = file.name.decode(errors="replace")
+            source = str(Path(directory.decode(errors="replace")) / name)
+            result[state.address] = (normalize_source(source), state.line or 0)
+    return result
+
+
+def die_text(die, attribute: str) -> str | None:
+    current = die
+    seen = set()
+    while current is not None and current.offset not in seen:
+        seen.add(current.offset)
+        value = current.attributes.get(attribute)
+        if value is not None:
+            raw = value.value
+            return raw.decode(errors="replace") if isinstance(raw, bytes) else str(raw)
+        reference = current.attributes.get("DW_AT_abstract_origin") or current.attributes.get("DW_AT_specification")
+        current = current.get_DIE_from_attribute(reference.name) if reference is not None else None
+    return None
+
+
+def die_source(die, attribute: str) -> tuple[str | None, int | None]:
+    current = die
+    seen = set()
+    while current is not None and current.offset not in seen:
+        seen.add(current.offset)
+        file_attribute = current.attributes.get(attribute)
+        if file_attribute is not None:
+            program = current.dwarfinfo.line_program_for_CU(current.cu)
+            files = program["file_entry"]
+            directories = cu_directories(current.cu, program)
+            index = file_attribute.value
+            if index and index <= len(files):
+                file = files[index - 1]
+                directory = directories[file.dir_index] if file.dir_index < len(directories) else b"."
+                path = Path(directory.decode(errors="replace")) / file.name.decode(errors="replace")
+                line_name = "DW_AT_call_line" if attribute == "DW_AT_call_file" else "DW_AT_decl_line"
+                line = current.attributes.get(line_name)
+                return normalize_source(str(path)), line.value if line is not None else None
+        reference = current.attributes.get("DW_AT_abstract_origin") or current.attributes.get("DW_AT_specification")
+        current = current.get_DIE_from_attribute(reference.name) if reference is not None else None
+    return None, None
+
+
+def die_ranges(die) -> list[tuple[int, int]]:
+    attributes = die.attributes
+    if "DW_AT_low_pc" in attributes:
+        start = attributes["DW_AT_low_pc"].value
+        high = attributes["DW_AT_high_pc"]
+        end = high.value if high.form == "DW_FORM_addr" else start + high.value
+        return [(start, end)] if start < end else []
+    if "DW_AT_ranges" not in attributes:
+        return []
+    base = die.cu.get_top_DIE().attributes.get("DW_AT_low_pc")
+    base_address = base.value if base is not None else 0
+    result = []
+    entries = die.dwarfinfo.range_lists().get_range_list_at_offset(attributes["DW_AT_ranges"].value, die.cu)
+    for entry in entries:
+        if isinstance(entry, BaseAddressEntry):
+            base_address = entry.base_address
+        elif isinstance(entry, RangeEntry):
+            start = entry.begin_offset if entry.is_absolute else base_address + entry.begin_offset
+            end = entry.end_offset if entry.is_absolute else base_address + entry.end_offset
+            if start < end:
+                result.append((start, end))
+    return result
+
+
+def function_instances(elf: ELFFile, instructions: dict[int, dict]) -> list[dict]:
+    """Extract every concrete and inlined function instance with machine-code coverage."""
+    dwarf = dwarf_info(elf)
+    instances = []
+    instruction_pcs = sorted(instructions)
+    die_to_id = {}
+    dies = {}
+    for cu_index, cu in enumerate(dwarf.iter_CUs()):
+        for die in cu.iter_DIEs():
+            dies[die.offset] = die
+            if die.tag not in {"DW_TAG_subprogram", "DW_TAG_inlined_subroutine"}:
+                continue
+            ranges = die_ranges(die)
+            pcs = []
+            for start, end in ranges:
+                left = bisect.bisect_left(instruction_pcs, start)
+                right = bisect.bisect_left(instruction_pcs, end)
+                pcs.extend(instruction_pcs[left:right])
+            pcs = sorted(set(pcs))
+            if not pcs:
+                continue
+            kind = "inlined" if die.tag == "DW_TAG_inlined_subroutine" else "concrete"
+            instance_id = f"fi:{cu_index}:{die.offset:x}"
+            die_to_id[die.offset] = instance_id
+            name = die_text(die, "DW_AT_linkage_name") or die_text(die, "DW_AT_name") or "<anonymous>"
+            source_file, decl_line = die_source(die, "DW_AT_decl_file")
+            call_file, call_line = die_source(die, "DW_AT_call_file") if kind == "inlined" else (None, None)
+            instances.append({
+                "id": instance_id, "name": name, "kind": kind,
+                "ranges": [{"start": start, "end": end} for start, end in ranges],
+                "pcs": pcs, "entryPc": min(pcs), "instructionCount": len(pcs),
+                "sourceFile": source_file, "declLine": decl_line,
+                "callFile": call_file, "callLine": call_line,
+                "dieOffset": die.offset, "parent": None,
+            })
+    for instance in instances:
+        # DWARF nesting passes through lexical blocks; choose the nearest function-instance ancestor.
+        die = dies[instance["dieOffset"]]
+        parent = die.get_parent()
+        while parent is not None and parent.offset not in die_to_id:
+            parent = parent.get_parent()
+        instance["parent"] = die_to_id.get(parent.offset) if parent is not None else None
+    return sorted(instances, key=lambda row: (row["entryPc"], row["kind"] != "concrete", row["dieOffset"]))
+
+
+def nearest_source(address: int, rows: dict[int, tuple[str, int]]) -> tuple[str | None, int | None]:
+    keys = _SOURCE_KEYS.setdefault(id(rows), sorted(rows))
+    index = bisect.bisect_right(keys, address)
+    if not index:
+        return None, None
+    return rows[keys[index - 1]]
+
+
+def decode_text(elf: ELFFile) -> dict[int, dict]:
+    text = elf.get_section_by_name(".text")
+    decoder = Cs(CS_ARCH_RISCV, CS_MODE_RISCV64)
+    result = {}
+    for insn in decoder.disasm(text.data(), text["sh_addr"]):
+        result[insn.address] = {
+            "pc": insn.address,
+            "size": insn.size,
+            "mnemonic": insn.mnemonic,
+            "operands": insn.op_str,
+            "bytes": insn.bytes.hex(),
+        }
+    return result
+
+
+def functions(elf: ELFFile) -> list[dict]:
+    symtab = elf.get_section_by_name(".symtab")
+    rows = []
+    for symbol in symtab.iter_symbols():
+        if symbol["st_info"]["type"] != "STT_FUNC" or symbol["st_size"] == 0:
+            continue
+        rows.append({"name": symbol.name, "start": symbol["st_value"], "size": symbol["st_size"]})
+    return sorted(rows, key=lambda item: (item["start"], item["name"]))
+
+
+def immediate_target(insn: dict) -> int | None:
+    operand = insn["operands"].split(",")[-1].strip()
+    try:
+        # Capstone prints RISC-V control-flow immediates as signed PC-relative displacements.
+        return insn["pc"] + int(operand, 0)
+    except ValueError:
+        return None
+
+
+def make_blocks(fn: dict, instructions: dict[int, dict], sources: dict[int, tuple[str, int]],
+                instruction_pcs: list[int] | None = None) -> list[dict]:
+    start, end = fn["start"], fn["start"] + fn["size"]
+    all_pcs = instruction_pcs or sorted(instructions)
+    pcs = all_pcs[bisect.bisect_left(all_pcs, start):bisect.bisect_left(all_pcs, end)]
+    if not pcs:
+        return []
+    leaders = {pcs[0]}
+    for index, pc in enumerate(pcs):
+        insn = instructions[pc]
+        mnemonic = insn["mnemonic"]
+        if mnemonic in COND | UNCOND:
+            target = immediate_target(insn)
+            if target is not None and start <= target < end:
+                leaders.add(target)
+        if mnemonic in COND | UNCOND | RET | {"jal", "jalr"} and index + 1 < len(pcs):
+            leaders.add(pcs[index + 1])
+    ordered = sorted(leaders)
+    blocks = []
+    for index, first in enumerate(ordered):
+        stop = ordered[index + 1] if index + 1 < len(ordered) else end
+        body = [instructions[pc] for pc in pcs if first <= pc < stop]
+        if not body:
+            continue
+        source_file, source_line = nearest_source(first, sources)
+        blocks.append({
+            "id": f"0x{first:x}", "start": first, "end": body[-1]["pc"] + body[-1]["size"],
+            "instructionCount": len(body), "sourceFile": source_file, "sourceLine": source_line,
+            "instructions": body, "successors": [],
+        })
+    by_pc = {block["start"]: block for block in blocks}
+    for index, block in enumerate(blocks):
+        tail = block["instructions"][-1]
+        mnemonic = tail["mnemonic"]
+        target = immediate_target(tail) if mnemonic in COND | UNCOND else None
+        if target in by_pc:
+            block["successors"].append(f"0x{target:x}")
+        if mnemonic not in UNCOND | RET and index + 1 < len(blocks):
+            block["successors"].append(blocks[index + 1]["id"])
+        block["successors"] = list(dict.fromkeys(block["successors"]))
+    return blocks
+
+
+def semantic_group(name: str, source: str | None) -> str:
+    text = f"{name} {source or ''}".lower()
+    for group in ("ssz", "stateless", "zkvm", "evm", "rlp", "trie", "crypto", "allocator"):
+        if group in text:
+            return group
+    return "support"
+
+
+def assigned_pcs(function_rows: list[dict], instructions: dict[int, dict]) -> dict[str, list[int]]:
+    """Assign overlapping symbol ranges once, preferring the narrowest concrete function."""
+    result: dict[str, list[int]] = {fn["name"]: [] for fn in function_rows}
+    owners = {}
+    instruction_pcs = sorted(instructions)
+    for fn in function_rows:
+        left = bisect.bisect_left(instruction_pcs, fn["start"])
+        right = bisect.bisect_left(instruction_pcs, fn["start"] + fn["size"])
+        for pc in instruction_pcs[left:right]:
+            current = owners.get(pc)
+            if current is None or (fn["size"], fn["name"]) < (current["size"], current["name"]):
+                owners[pc] = fn
+    for pc, owner in owners.items():
+        result[owner["name"]].append(pc)
+    return result
+
+
+def direct_calls(elf: ELFFile, function_rows: list[dict], instructions: dict[int, dict]) -> list[dict]:
+    by_entry = {fn["start"]: fn["name"] for fn in function_rows}
+    owner_at = {}
+    for fn in function_rows:
+        for pc in range(fn["start"], fn["start"] + fn["size"], 4):
+            owner_at.setdefault(pc, fn["name"])
+    calls = []
+    relocation_calls = {}
+    relocations = elf.get_section_by_name(".rela.text")
+    if relocations is not None:
+        symbols = elf.get_section(relocations["sh_link"])
+        for relocation in relocations.iter_relocations():
+            symbol = symbols.get_symbol(relocation["r_info_sym"])
+            # Zig emits direct function calls as AUIPC/JALR pairs with a relocation on AUIPC.
+            if symbol.name in by_entry.values():
+                relocation_calls[relocation["r_offset"]] = symbol.name
+    pcs = sorted(instructions)
+    for index, pc in enumerate(pcs):
+        row = instructions[pc]
+        target = None
+        relocated_callee = relocation_calls.get(pc)
+        if relocated_callee:
+            caller = owner_at.get(pc)
+            if caller and caller != relocated_callee:
+                calls.append({"caller": caller, "callee": relocated_callee, "source": pc,
+                              "target": next(fn["start"] for fn in function_rows if fn["name"] == relocated_callee),
+                              "kind": "call"})
+            continue
+        if row["mnemonic"] == "jal":
+            target = immediate_target(row)
+        elif row["mnemonic"] == "jalr" and index and pcs[index - 1] + 4 == pc:
+            high = instructions[pcs[index - 1]]
+            if high["mnemonic"] == "auipc":
+                high_parts, low_parts = [x.strip() for x in high["operands"].split(",")], [x.strip() for x in row["operands"].split(",")]
+                if len(high_parts) == 2 and len(low_parts) == 3 and high_parts[0] == low_parts[1]:
+                    upper = int(high_parts[1], 0)
+                    if upper & (1 << 19):
+                        upper -= 1 << 20
+                    target = high["pc"] + upper * 4096 + int(low_parts[2], 0)
+        caller, callee = owner_at.get(pc), by_entry.get(target)
+        if caller and callee and caller != callee:
+            calls.append({"caller": caller, "callee": callee, "source": pc, "target": target, "kind": "call"})
+    unique = {(row["caller"], row["callee"], row["source"]): row for row in calls}
+    return [unique[key] for key in sorted(unique)]
+
+
+def dominator_parents(root: str, names: set[str], calls: list[dict]) -> tuple[dict[str, str], set[str]]:
+    successors: dict[str, set[str]] = defaultdict(set)
+    predecessors: dict[str, set[str]] = defaultdict(set)
+    for call in calls:
+        successors[call["caller"]].add(call["callee"])
+        predecessors[call["callee"]].add(call["caller"])
+    reachable, todo = set(), [root]
+    while todo:
+        node = todo.pop()
+        if node in reachable:
+            continue
+        reachable.add(node); todo.extend(successors[node] - reachable)
+    dom = {node: ({root} if node == root else set(reachable)) for node in reachable}
+    changed = True
+    while changed:
+        changed = False
+        for node in sorted(reachable - {root}):
+            incoming = predecessors[node] & reachable
+            value = {node} | (set.intersection(*(dom[p] for p in incoming)) if incoming else set())
+            if value != dom[node]: dom[node] = value; changed = True
+    parents = {}
+    for node in reachable - {root}:
+        strict = dom[node] - {node}
+        parents[node] = max(strict, key=lambda candidate: len(dom[candidate])) if strict else root
+    return parents, reachable
+
+
+def build_flame(function_rows: list[dict], instances: list[dict], instructions: dict[int, dict], calls: list[dict]) -> dict:
+    symbol_ownership = assigned_pcs(function_rows, instructions)
+    concrete_by_id = {row["id"]: row for row in instances if row["kind"] == "concrete"}
+    inline_by_id = {row["id"]: row for row in instances if row["kind"] == "inlined"}
+    concrete_symbol = {}
+    for instance_id, instance in concrete_by_id.items():
+        candidates = [fn for fn in function_rows if fn["start"] <= instance["entryPc"] < fn["start"] + fn["size"]]
+        if candidates:
+            concrete_symbol[instance_id] = min(candidates, key=lambda fn: (fn["size"], fn["name"]))["name"]
+    concrete_for_name = {name: instance_id for instance_id, name in concrete_symbol.items()}
+    inline_children: dict[str, list[str]] = defaultdict(list)
+    for row in inline_by_id.values():
+        if row["parent"]:
+            inline_children[row["parent"]].append(row["id"])
+    for rows in inline_children.values():
+        rows.sort(key=lambda item: (inline_by_id[item]["entryPc"], item))
+
+    # Each instruction is owned by its deepest lexical inline instance, or by its emitted function.
+    inline_ownership: dict[str, set[int]] = {key: set() for key in inline_by_id}
+    concrete_self: dict[str, set[int]] = {}
+    inline_at_pc: dict[int, str] = {}
+    inline_pc_sets = {key: set(row["pcs"]) for key, row in inline_by_id.items()}
+    inline_symbol = {}
+    for instance_id, row in inline_by_id.items():
+        ancestor = row["parent"]
+        while ancestor in inline_by_id:
+            ancestor = inline_by_id[ancestor]["parent"]
+        inline_symbol[instance_id] = concrete_symbol.get(ancestor)
+    for name, pcs in symbol_ownership.items():
+        candidates = [row for instance_id, row in inline_by_id.items() if inline_symbol[instance_id] == name]
+        own = set(pcs)
+        for pc in pcs:
+            containing = [row for row in candidates if pc in inline_pc_sets[row["id"]]]
+            if containing:
+                # Nested DIE depth is represented by the smallest machine range, then DIE offset.
+                owner = min(containing, key=lambda row: (row["instructionCount"], -row["dieOffset"]))
+                inline_ownership[owner["id"]].add(pc)
+                inline_at_pc[pc] = owner["id"]
+                own.discard(pc)
+        concrete_self[name] = own
+
+    ownership = symbol_ownership
+    known = {fn["name"] for fn in function_rows if ownership[fn["name"]]}
+    root = "main" if "main" in known else min(known)
+    parents, reachable = dominator_parents(root, known, calls)
+    starts = {fn["name"]: fn["start"] for fn in function_rows}
+    fn_by_name = {fn["name"]: fn for fn in function_rows}
+    meta = {}
+    callers, callees = defaultdict(list), defaultdict(list)
+    for call in calls: callers[call["callee"]].append(call); callees[call["caller"]].append(call)
+
+    def inline_chain(instance_id: str) -> list[str]:
+        chain = []
+        current = instance_id
+        while current in inline_by_id:
+            chain.append(current)
+            current = inline_by_id[current]["parent"]
+        return list(reversed(chain))
+
+    def common_inline_ancestor(call_rows: list[dict]) -> str | None:
+        chains = [inline_chain(inline_at_pc[row["source"]]) for row in call_rows if row["source"] in inline_at_pc]
+        if len(chains) != len(call_rows) or not chains:
+            return None
+        common = []
+        for entries in zip(*chains):
+            if len(set(entries)) != 1:
+                break
+            common.append(entries[0])
+        return common[-1] if common else None
+
+    # A concrete callee remains in the emitted-function dominator tree, but is displayed beneath
+    # the deepest inline instance common to every actual callsite from its dominator parent.
+    anchored_children: dict[str, list[str]] = defaultdict(list)
+    concrete_placement = {}
+    for child, parent in parents.items():
+        relevant = [row for row in calls if row["caller"] == parent and row["callee"] == child]
+        anchor = common_inline_ancestor(relevant) or parent
+        anchored_children[anchor].append(child)
+        concrete_placement[child] = {"anchor": anchor, "callsites": [row["source"] for row in relevant]}
+    for rows in anchored_children.values():
+        rows.sort(key=lambda name: (starts.get(name, -2), name))
+
+    def inline_node(instance_id: str, parent_key: str) -> tuple[dict, set[int]]:
+        instance = inline_by_id[instance_id]
+        label = f"{instance['name']} [{instance_id}]"
+        key = f"{parent_key}|{label}"
+        own = inline_ownership[instance_id]
+        child_nodes, subtree = [], set(own)
+        for child_id in inline_children[instance_id]:
+            child_node, child_pcs = inline_node(child_id, key)
+            child_nodes.append(child_node); subtree |= child_pcs
+        for child in anchored_children[instance_id]:
+            child_node, child_pcs = node(child, key)
+            child_nodes.append(child_node); subtree |= child_pcs
+        meta[key] = {
+            "owner": instance_id, "qualified": instance["name"], "kind": "inlinedFunctionInstance",
+            "hierarchy": "dwarfInlineNesting", "runs": instance["ranges"], "frags": len(instance["ranges"]),
+            "machineInstructionCount": instance["instructionCount"], "value": len(subtree), "self": len(own),
+            "file": instance["sourceFile"],
+            "line": instance["declLine"] or 0, "callFile": instance["callFile"],
+            "callLine": instance["callLine"] or 0, "entries": [instance["entryPc"]], "exits": [],
+            "loopSccs": [], "callers": [], "callees": [], "tailDependencies": [],
+            "fragmentHandoffs": [], "parentReentryEdges": [], "carrierRoutes": [],
+            "activeCalleeFrames": [], "src": None,
+        }
+        return {"name": label, "value": len(subtree), "self": len(own), "children": child_nodes, "key": key}, subtree
+
+    def node(name: str, parent_key: str | None) -> tuple[dict, set[int]]:
+        label = f"{name} [fn:0x{fn_by_name[name]['start']:x}]"
+        key = label if parent_key is None else f"{parent_key}|{label}"
+        own = concrete_self[name]
+        child_nodes, subtree = [], set(own)
+        concrete_id = concrete_for_name.get(name)
+        if concrete_id is not None:
+            for inline_id in inline_children[concrete_id]:
+                child_node, child_pcs = inline_node(inline_id, key)
+                child_nodes.append(child_node); subtree |= child_pcs
+        for child in anchored_children[name]:
+            child_node, child_pcs = node(child, key); child_nodes.append(child_node); subtree |= child_pcs
+        fn = fn_by_name.get(name, {})
+        placement = concrete_placement.get(name, {"anchor": None, "callsites": []})
+        anchor_name = inline_by_id[placement["anchor"]]["name"] if placement["anchor"] in inline_by_id else placement["anchor"]
+        meta[key] = {"owner": concrete_id or name, "qualified": name, "kind": "concreteFunctionInstance",
+                     "hierarchy": "callDominatorAnchoredAtDeepestCommonInlineCallsite", "runs": [], "frags": 1,
+                     "machineInstructionCount": len(ownership[name]), "value": len(subtree), "self": len(own),
+                     "displayAnchor": placement["anchor"], "displayAnchorName": anchor_name,
+                     "displayCallsites": placement["callsites"],
+                     "file": fn.get("sourceFile"), "line": fn.get("sourceLine", 0), "entries": [fn["start"]],
+                     "exits": [], "loopSccs": [], "callers": callers[name], "callees": callees[name], "tailDependencies": [],
+                     "fragmentHandoffs": [], "parentReentryEdges": [], "carrierRoutes": [], "activeCalleeFrames": [], "src": None}
+        return {"name": label, "value": len(subtree), "self": len(own), "children": child_nodes, "key": key}, subtree
+
+    tree, covered = node(root, None)
+    reachable_pcs = set().union(*(set(ownership[name]) for name in reachable))
+    if covered != reachable_pcs:
+        raise ValueError("displayed call hierarchy does not cover the main-reachable inventory")
+    displayed_instances = {row["owner"] for row in meta.values()}
+    expected_instances = {instance_id for instance_id, name in concrete_symbol.items() if name in reachable}
+    expected_instances |= {instance_id for instance_id, name in inline_symbol.items() if name in reachable}
+    if displayed_instances != expected_instances:
+        raise ValueError("displayed call hierarchy does not contain every main-reachable DWARF function instance")
+    if sum(row["self"] for row in meta.values()) != len(reachable_pcs):
+        raise ValueError("deepest function-instance instruction ownership is not unique")
+    return {"schemaVersion": 3, "machineRegionInputs": {"target": "upstream-zesu-d8071c4-release-small",
+                                                         "functionInstances": "relocated same-object DWARF"},
+            "total": len(instructions), "programTotal": len(reachable_pcs),
+            "loAddr": min(instructions), "tree": tree, "meta": meta,
+            "suggest": {"cap": 0, "coverage": len(covered), "units": [], "residual": {}, "needsSubFunctionSplit": []}}
+
+
+def build_proof_map(functions_output: list[dict], formal_total: int) -> dict:
+    target = next(fn for fn in functions_output if fn["name"] == "ssz.decodeByteListList")
+    instructions = []
+    for block in target["blocks"]:
+        for row in block["instructions"]:
+            instructions.append({"pc": row["pc"], "mnemonic": row["mnemonic"], "operands": row["operands"],
+                                 "successors": block["successors"], "reads": [], "writes": [], "memory": [],
+                                 "owner": target["name"], "sourceFile": block["sourceFile"], "sourceLine": block["sourceLine"],
+                                 "formalManifests": [], "artifactState": "same-object-release-small"})
+    blocks = [{"id": b["id"], "entryPc": b["start"], "pcs": [i["pc"] for i in b["instructions"]],
+               "successors": [int(s, 16) for s in b["successors"]], "phase": "ssz-helper", "instructionCount": b["instructionCount"],
+               "parentInstructionCount": b["instructionCount"], "provedParentInstructionCount": 0,
+               "sourceMappings": [{"ownerId": target["name"], "qualified": target["name"], "sourceFile": b["sourceFile"],
+                                   "declLine": b["sourceLine"], "inlineStack": [], "pcStart": b["start"], "pcEnd": b["end"] - 4,
+                                   "instructionCount": b["instructionCount"], "basis": "same-object DWARF line table"}]}
+              for b in target["blocks"]]
+    pcs = [row["pc"] for row in instructions]
+    return {"schemaVersion": 1, "target": "upstream-zesu-d8071c4", "instructions": instructions, "blocks": blocks,
+            "boundaries": [], "manifests": [], "formalCoverage": {"localPcCount": 0, "level4PcCount": 0, "rootPcCount": 0},
+            "compilerProvenance": {"state": "same-object-dwarf"},
+            "phases": [{"id": "ssz-helper", "label": "ssz.decodeByteListList", "pcs": pcs}],
+            "authoringRegions": [{"id": "ssz-byte-list-list", "label": "ssz.decodeByteListList machine proof",
+                                  "authoringState": "blocked", "blocker": "No kernel-backed machine theorem exists for this authentic target.",
+                                  "scope": "parent", "pcs": pcs, "evidence": "ReleaseSmall object structure and same-object DWARF only",
+                                  "preparation": {"liveRegisters": [], "protectedMemory": [], "prerequisites": ["state a target contract against EVM-Sail"],
+                                                  "sourceIdentity": "deps/zesu/src/stateless/stateless/ssz.zig:67"}}],
+            "refinementGraph": {"nodes": [
+                {"id": "spec", "label": "EVM-Sail decode_stateless_input", "kind": "level4Contract", "column": 0, "status": "artifact", "boundaryId": "none", "instructionCount": 0, "source": "deps/evm-sail"},
+                {"id": "target", "label": "Zesu SSZ machine regions", "kind": "parentGlue", "column": 1, "status": "blocked", "phase": "ssz-helper", "instructionCount": len(pcs), "provedInstructionCount": 0},
+                {"id": "conversion", "label": "future Zesu/EVM-Sail refinement", "kind": "conversion", "column": 2, "status": "blocked"},
+                {"id": "root", "label": "root_compliance", "kind": "parent", "column": 3, "status": "blocked"}],
+                "edges": [{"source": "spec", "target": "conversion", "kind": "dependency"}, {"source": "target", "target": "conversion", "kind": "dependency"}, {"source": "conversion", "target": "root", "kind": "dependency"}]}}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--object", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--flame", type=Path)
+    parser.add_argument("--proof-map", type=Path)
+    args = parser.parse_args()
+    with args.object.open("rb") as stream:
+        elf = ELFFile(stream)
+        source_rows = line_map(elf)
+        instruction_rows = decode_text(elf)
+        function_rows = functions(elf)
+        instance_rows = function_instances(elf, instruction_rows)
+        call_rows = direct_calls(elf, function_rows, instruction_rows)
+        output_functions = []
+        instruction_pcs = sorted(instruction_rows)
+        for fn in function_rows:
+            source_file, source_line = nearest_source(fn["start"], source_rows)
+            blocks = make_blocks(fn, instruction_rows, source_rows, instruction_pcs)
+            output_functions.append({
+                **fn, "instructionCount": sum(b["instructionCount"] for b in blocks),
+                "blockCount": len(blocks), "sourceFile": source_file, "sourceLine": source_line,
+                "semanticGroup": semantic_group(fn["name"], source_file), "blocks": blocks,
+                "proofStatus": "not_started",
+            })
+    payload = {
+        "schemaVersion": 1,
+        "artifact": {"kind": "ELF64 RISC-V relocatable object", "sha256": digest(args.object)},
+        "sourceMapping": {"kind": "DWARF from the same ReleaseSmall object", "confidence": "exact-line-table"},
+        "formalStatus": "No kernel-backed target proof manifest is present.",
+        "functions": output_functions,
+        "functionInstances": instance_rows,
+        "totals": {"functions": len(output_functions), "instructions": len(instruction_rows),
+                   "functionInstances": len(instance_rows),
+                   "inlinedFunctionInstances": sum(row["kind"] == "inlined" for row in instance_rows),
+                   "symbolInstructionReferences": sum(fn["instructionCount"] for fn in output_functions),
+                   "blocks": sum(fn["blockCount"] for fn in output_functions)},
+    }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+    if args.flame:
+        args.flame.write_text(json.dumps(build_flame(output_functions, instance_rows, instruction_rows, call_rows), sort_keys=True, separators=(",", ":")) + "\n")
+    if args.proof_map:
+        args.proof_map.write_text(json.dumps(build_proof_map(output_functions, len(instruction_rows)), sort_keys=True, separators=(",", ":")) + "\n")
+
+
+if __name__ == "__main__":
+    main()

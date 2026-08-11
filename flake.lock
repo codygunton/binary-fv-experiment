@@ -1,36 +1,53 @@
 {
   "nodes": {
-    "etheorem": {
+    "evmSail": {
       "flake": false,
       "locked": {
-        "lastModified": 1783532102,
-        "narHash": "sha256-ipM9VTRNJx5GKSZ2QXMjN1jGVSWTAS+rzSPyMU24paM=",
-        "owner": "etheorem",
-        "repo": "etheorem",
-        "rev": "032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0",
+        "lastModified": 1786322618,
+        "narHash": "sha256-bPk8TKtbtsXH8/An3thERju18aAJZURpckQkDO1xzag=",
+        "owner": "frisitano",
+        "repo": "evm-sail",
+        "rev": "d0e4aabdde52f9158d191dbc8add444abffd9a6a",
         "type": "github"
       },
       "original": {
-        "owner": "etheorem",
-        "repo": "etheorem",
-        "rev": "032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0",
+        "owner": "frisitano",
+        "repo": "evm-sail",
+        "rev": "d0e4aabdde52f9158d191dbc8add444abffd9a6a",
         "type": "github"
       }
     },
-    "executionSpecs": {
+    "evmSailCompiler": {
       "flake": false,
       "locked": {
-        "lastModified": 1782749897,
-        "narHash": "sha256-M07KTlSrwaRTTQWT1Q67TJoEarIomvHTTPswHzK2YnQ=",
-        "owner": "ethereum",
-        "repo": "execution-specs",
-        "rev": "bd8c673552d957dbe9c9f3f2656b87201f5ae646",
+        "lastModified": 1786238299,
+        "narHash": "sha256-NYOdGg4JQvdjiE0jAiniQyeZau7ojd7V+igite5qI/4=",
+        "owner": "frisitano",
+        "repo": "sail",
+        "rev": "25cc260d9940d65d2e5da427fe4b5d402809a50c",
         "type": "github"
       },
       "original": {
-        "owner": "ethereum",
-        "repo": "execution-specs",
-        "rev": "bd8c673552d957dbe9c9f3f2656b87201f5ae646",
+        "owner": "frisitano",
+        "repo": "sail",
+        "rev": "25cc260d9940d65d2e5da427fe4b5d402809a50c",
+        "type": "github"
+      }
+    },
+    "leanSail": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1775733076,
+        "narHash": "sha256-fR/AHGfbqIsHgCzD//N9HsXVKLfmxOksPN8M7cwLfUs=",
+        "owner": "rems-project",
+        "repo": "lean-sail",
+        "rev": "79b4d08505af29d88b3918f32d29840fae1fa191",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rems-project",
+        "repo": "lean-sail",
+        "rev": "79b4d08505af29d88b3918f32d29840fae1fa191",
         "type": "github"
       }
     },
@@ -52,12 +69,12 @@
     },
     "root": {
       "inputs": {
-        "etheorem": "etheorem",
-        "executionSpecs": "executionSpecs",
+        "evmSail": "evmSail",
+        "evmSailCompiler": "evmSailCompiler",
+        "leanSail": "leanSail",
         "nixpkgs": "nixpkgs",
         "sailRiscv": "sailRiscv",
-        "zesu": "zesu",
-        "zesuRepaired": "zesuRepaired"
+        "zesu": "zesu"
       }
     },
     "sailRiscv": {
@@ -80,34 +97,17 @@
     "zesu": {
       "flake": false,
       "locked": {
-        "lastModified": 1783567548,
-        "narHash": "sha256-oB5np2ZGrCgMEHI7pnJfxDRIYHHrSUKQqHaHHGfWJ6A=",
-        "owner": "Consensys",
-        "repo": "zesu",
-        "rev": "aa6c94339987d278acb8b7fa409c864dbd3d05aa",
-        "type": "github"
-      },
-      "original": {
-        "owner": "Consensys",
-        "repo": "zesu",
-        "rev": "aa6c94339987d278acb8b7fa409c864dbd3d05aa",
-        "type": "github"
-      }
-    },
-    "zesuRepaired": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1784003015,
-        "narHash": "sha256-rGSzr98y2iOMzKMpEuTA4scGr7x/e5luKiqhJ7Fv0UA=",
+        "lastModified": 1786455290,
+        "narHash": "sha256-+6a00obMQQ+ucGGdgYSphPShDNcO1Q1f5vG7D13P5Is=",
         "owner": "codygunton",
         "repo": "zesu",
-        "rev": "96f1621468ba54755d653f19cbc9704e789be001",
+        "rev": "6acdbd90e7d9f543863bf4030d0e649553704558",
         "type": "github"
       },
       "original": {
         "owner": "codygunton",
         "repo": "zesu",
-        "rev": "96f1621468ba54755d653f19cbc9704e789be001",
+        "rev": "6acdbd90e7d9f543863bf4030d0e649553704558",
         "type": "github"
       }
     }

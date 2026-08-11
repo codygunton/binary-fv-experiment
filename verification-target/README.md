@@ -9,6 +9,6 @@ This directory does not contain dependency source or build output. Pinned extern
 through `flake.nix`; Nix places build products in the store, and optional local output links belong
 under the ignored `build/` directory.
 
-`zesu/` presents the pinned Zesu Amsterdam V4 decoder as a verification target. Reusable specifications belong in
-`BinaryFv/Specs/`; shared freestanding support belongs in `runtime/`; and generic verification
-infrastructure belongs in `BinaryFv/`.
+No active adapter is committed during the upstream pivot. The next adapter will link the authentic
+`deps/zesu` RV64 object, define its concrete entry ABI, and connect it to the extracted EVM-Sail
+stateless-input semantics. Generic verification infrastructure remains in `BinaryFv/`.

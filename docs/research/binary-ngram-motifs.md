@@ -389,7 +389,6 @@ frequency-ranked list would have put first.
 ## 11. Incidental finding
 
 21 `MULDIV` instructions (`mul`, `divu`, `remu`, `remuw`, `divuw`, …) have no class lemma in
-`BinaryFv/Zesu/MachineExecution/InstructionClassSteps.lean`. Every other mnemonic in the corpus maps
+the archived grafted target's `InstructionClassSteps.lean`. Every other mnemonic in that historical corpus maps
 to an implemented class. The tool names `MULDIV` separately rather than folding it into `RTYPE` so
 the gap is visible.
-

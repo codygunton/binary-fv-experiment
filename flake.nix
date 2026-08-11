@@ -7,13 +7,7 @@
     # Target and audit sources are pinned independently of the proof stack.
     # Preserve the unmodified upstream source for the production baseline.
     zesu = {
-      url = "github:Consensys/zesu/aa6c94339987d278acb8b7fa409c864dbd3d05aa";
-      flake = false;
-    };
-
-    # The selected lossless Amsterdam V4 decoder lives in the user's repaired fork.
-    zesuRepaired = {
-      url = "github:codygunton/zesu/96f1621468ba54755d653f19cbc9704e789be001";
+      url = "github:codygunton/zesu/6acdbd90e7d9f543863bf4030d0e649553704558";
       flake = false;
     };
 
@@ -22,25 +16,31 @@
       flake = false;
     };
 
-    etheorem = {
-      url = "github:etheorem/etheorem/032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0";
+    evmSail = {
+      url = "github:frisitano/evm-sail/d0e4aabdde52f9158d191dbc8add444abffd9a6a";
       flake = false;
     };
 
-    executionSpecs = {
-      url = "github:ethereum/execution-specs/bd8c673552d957dbe9c9f3f2656b87201f5ae646";
+    evmSailCompiler = {
+      url = "github:frisitano/sail/25cc260d9940d65d2e5da427fe4b5d402809a50c";
       flake = false;
     };
+
+    leanSail = {
+      url = "github:rems-project/lean-sail/79b4d08505af29d88b3918f32d29840fae1fa191";
+      flake = false;
+    };
+
   };
 
   outputs = {
     self,
     nixpkgs,
     zesu,
-    zesuRepaired,
     sailRiscv,
-    etheorem,
-    executionSpecs,
+    evmSail,
+    evmSailCompiler,
+    leanSail,
   }:
     let
       repo = ./.;
@@ -58,17 +58,19 @@
             inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit pkgs repo rv64 zesu zesuRepaired;
-            source = self;
+            inherit pkgs rv64 zesu;
           };
           analysis = import ./nix/analysis.nix {
-            inherit pkgs repo rv64 targets;
+            inherit pkgs rv64 targets;
           };
           proof = import ./nix/proof.nix {
-            inherit etheorem pkgs repo rv64 sailRiscv targets;
+            inherit pkgs repo rv64 sailRiscv;
+          };
+          evmSailSpec = import ./nix/evm-sail.nix {
+            inherit evmSail evmSailCompiler leanSail pkgs;
           };
         in
-        targets.public // analysis.public // proof.public;
+        targets.public // analysis.public // proof.public // evmSailSpec.public;
 
       outputsFor = system: pkgs:
         import ./nix/checks.nix {
@@ -90,11 +92,10 @@
             inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit pkgs repo rv64 zesu zesuRepaired;
-            source = self;
+            inherit pkgs rv64 zesu;
           };
           proof = import ./nix/proof.nix {
-            inherit etheorem pkgs repo rv64 sailRiscv targets;
+            inherit pkgs repo rv64 sailRiscv;
           };
         in
         {
