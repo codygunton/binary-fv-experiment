@@ -59,6 +59,16 @@ let
       python ${../tools/test_level_boundary_bindings.py} "$out/level1-boundary-bindings.json"
     '';
 
+  zesuSszDecodeLevel1Lean = pkgs.runCommand "zesu-ssz-decode-level1-lean-e5f8c13"
+    { nativeBuildInputs = [ pkgs.python3 ]; } ''
+      mkdir -p "$out/BinaryFv/Ssz/Generated"
+      python ${../tools/generate_level1_lean.py} \
+        --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
+        --output "$out/BinaryFv/Ssz/Generated/Level1.lean"
+      cmp "$out/BinaryFv/Ssz/Generated/Level1.lean" \
+        ${../BinaryFv/Ssz/Generated/Level1.lean}
+    '';
+
   zesuSszDecodeStatelessInputLayout = pkgs.runCommand
     "zesu-ssz-decode-stateless-input-layout-e5f8c13" { nativeBuildInputs = [ python ]; } ''
       mkdir -p "$out"
@@ -114,6 +124,7 @@ in
   public = {
     inherit dump stats zesuCfg zesuSszDecodeCfg zesuSszDecodeLevel1Manifest
       zesuSszDecodeLevel1BoundaryBindings
+      zesuSszDecodeLevel1Lean
       zesuSszDecodeStatelessInputLayout
       zesuSszDecodeLevel1Evidence zesuCfgUi;
     machine-regions-ui = zesuCfgUi;
