@@ -1,6 +1,7 @@
 import BinaryFv.Ssz.Relation
 import BinaryFv.Ssz.ZigRepresentation
 import BinaryFv.Ssz.Generated.Level1
+import BinaryFv.Ssz.MachineContract
 
 /-!
 # Typed boundary shared by the Level 1 decode and observation contracts
@@ -12,9 +13,6 @@ boundary. It deliberately does not claim a step bound or implementation theorem 
 namespace BinaryFv.Ssz
 
 open PreSail LeanRV64DExecutable.Functions Register
-
-private abbrev MachineState :=
-  PreSail.SequentialState RegisterType Sail.trivialChoiceSource
 
 structure DecodeBoundaryArgs where
   inputAddress : Nat
@@ -48,5 +46,14 @@ def DecodeBoundaryExit (outcome : DecodeBoundaryOutcome) (state : MachineState) 
       state.regs.get? PC = some (BitVec.ofNat 64 Generated.writeSuccessEntry) ∧
       state.regs.get? x10 = some (BitVec.ofNat 64 address) ∧
       StatelessInputRep state.mem address decoded
+
+/-- The strict contract shape. The reviewed Level 1 contract will instantiate its bound and widen
+only the fixed accept/reject domains represented by `knownBugs`. -/
+def strictDecodeContract (stepBound : DecodeBoundaryArgs → Nat) :
+    RelationalMachineContract DecodeBoundaryArgs DecodeBoundaryOutcome :=
+  { allows := StrictDecodeMeaning
+    entry := DecodeBoundaryEntry
+    exit := fun _ outcome _ after => DecodeBoundaryExit outcome after
+    stepBound }
 
 end BinaryFv.Ssz
