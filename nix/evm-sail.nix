@@ -102,7 +102,9 @@ let
       --replace-fail '@V3_INPUT@' '${zesuSszDecodeSmoke}/legacy-payload.ssz' \
       --replace-fail '@V3_SUCCESS@' '${zesuSszDecodeSmoke}/legacy-payload.out' \
       --replace-fail '@FUTURE_INPUT@' '${zesuSszDecodeSmoke}/future-activation.ssz' \
-      --replace-fail '@FUTURE_SUCCESS@' '${zesuSszDecodeSmoke}/future-activation.out'
+      --replace-fail '@FUTURE_SUCCESS@' '${zesuSszDecodeSmoke}/future-activation.out' \
+      --replace-fail '@EXTRA_INPUT@' '${zesuSszDecodeSmoke}/extra-data-33.ssz' \
+      --replace-fail '@EXTRA_SUCCESS@' '${zesuSszDecodeSmoke}/extra-data-33.out'
     lean -o compiled/BinaryFv/Ssz/Specification.olean Specification.lean
     lean -o compiled/BinaryFv/Ssz/ZesuObservation.olean ZesuObservation.lean
     lean -o compiled/BinaryFv/Ssz/Relation.olean Relation.lean

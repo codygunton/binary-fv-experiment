@@ -33,7 +33,7 @@ def main() -> None:
     parser.add_argument(
         "--mutation",
         choices=("invalid-schema", "block-number", "chain-id-zero", "legacy-requests",
-                 "legacy-payload", "future-activation"),
+                 "legacy-payload", "future-activation", "extra-data-33"),
     )
     args = parser.parse_args()
     data = minimal_input()
@@ -64,6 +64,16 @@ def main() -> None:
         del data[590:602]
     elif args.mutation == "future-activation":
         put_int(data, 658, 8, 1)
+    elif args.mutation == "extra-data-33":
+        put_int(data, 6, 4, 653)
+        put_int(data, 10, 4, 665)
+        put_int(data, 14, 4, 697)
+        put_int(data, 22, 4, 617)
+        put_int(data, 58, 4, 617)
+        put_int(data, 566, 4, 573)
+        put_int(data, 570, 4, 573)
+        put_int(data, 590, 4, 573)
+        data[602:602] = bytes(range(33))
     args.output.write_bytes(data)
 
 
