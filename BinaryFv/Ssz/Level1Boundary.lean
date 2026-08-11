@@ -1,7 +1,9 @@
 import BinaryFv.Ssz.Relation
 import BinaryFv.Ssz.ZigRepresentation
 import BinaryFv.Ssz.Generated.Level1
+import BinaryFv.Ssz.Generated.ProgramImage
 import BinaryFv.Ssz.MachineContract
+import BinaryFv.RiscV.Logic.LoadedImage
 
 /-!
 # Typed boundary shared by the Level 1 decode and observation contracts
@@ -41,6 +43,7 @@ def DecodeMeaningModuloKnownBugs (args : DecodeBoundaryArgs) : DecodeBoundaryOut
 /-- Same-ELF DWARF binds the inlined decode input pointer to `s7` and length to `s2`. -/
 def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : MachineState) : Prop :=
   state.regs.get? PC = some (BitVec.ofNat 64 Generated.sszDecodeEntry) ∧
+  Generated.programImage.fileBytesLoadedFaithfully state.mem ∧
   args.inputAddress < 2 ^ 64 ∧
   state.regs.get? x23 = some (BitVec.ofNat 64 args.inputAddress) ∧
   state.regs.get? x18 = some (BitVec.ofNat 64 args.input.size) ∧
@@ -49,13 +52,14 @@ def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : MachineState) : Pro
 /-- The source `catch` routes failure to `writeFailure`; success passes the concrete 848-byte
 `StatelessInput` address in `a0` to `writeSuccess`. -/
 def DecodeBoundaryExit (outcome : DecodeBoundaryOutcome) (state : MachineState) : Prop :=
-  match outcome with
-  | .failure => state.regs.get? PC = some (BitVec.ofNat 64 Generated.writeFailureEntry)
-  | .success decoded => ∃ address : Nat,
-      address < 2 ^ 64 ∧
-      state.regs.get? PC = some (BitVec.ofNat 64 Generated.writeSuccessEntry) ∧
-      state.regs.get? x10 = some (BitVec.ofNat 64 address) ∧
-      StatelessInputRep state.mem address decoded
+  Generated.programImage.fileBytesLoadedFaithfully state.mem ∧
+    match outcome with
+    | .failure => state.regs.get? PC = some (BitVec.ofNat 64 Generated.writeFailureEntry)
+    | .success decoded => ∃ address : Nat,
+        address < 2 ^ 64 ∧
+        state.regs.get? PC = some (BitVec.ofNat 64 Generated.writeSuccessEntry) ∧
+        state.regs.get? x10 = some (BitVec.ofNat 64 address) ∧
+        StatelessInputRep state.mem address decoded
 
 /-- The strict contract shape. The reviewed Level 1 contract will instantiate its bound and widen
 only the fixed accept/reject domains represented by `knownBugs`. -/

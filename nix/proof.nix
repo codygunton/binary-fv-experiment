@@ -1,4 +1,4 @@
-{ leanSail, pkgs, repo, rv64, sailRiscv }:
+{ leanSail, pkgs, repo, rv64, sailRiscv, zesuSszDecodeRv64Elf }:
 let
   pinnedLean = pkgs.stdenvNoCC.mkDerivation {
     pname = "lean4";
@@ -71,6 +71,16 @@ let
         '(valid_hex_bits n (String.drop str 1).toString)'
   '';
 
+  zesuSszDecodeProgramImageLean = pkgs.runCommand "zesu-ssz-decode-program-image-lean" {
+    nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.pyelftools ])) ];
+  } ''
+    mkdir -p "$out"
+    python ${repo}/tools/generate_program_image_lean.py \
+      --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      --expected-sha256 3cffe6fb6ff4fcaf2bc17e47cf36f71f226bc9032612425b390cdedb4cf4c754 \
+      --output "$out/ZesuSszDecodeProgramImage.lean"
+  '';
+
   binaryFvLean = pkgs.runCommand "binary-fv-lean" {
     nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.jq ];
   } ''
@@ -79,6 +89,7 @@ let
     cd source
     mkdir -p build .lake/packages/repl "$TMPDIR/home"
     ln -s ${sailRiscvLean} build/sail-riscv-lean
+    cp ${zesuSszDecodeProgramImageLean}/ZesuSszDecodeProgramImage.lean .
     cp -a ${replSource}/. .lake/packages/repl/
     chmod -R u+w .lake/packages/repl
     ${pkgs.jq}/bin/jq '
@@ -92,7 +103,7 @@ let
       --replace-fail 'require repl from git "https://github.com/leanprover-community/repl.git" @ "v4.29.0"' \
       'require repl from ".lake/packages/repl"'
     export HOME="$TMPDIR/home"
-    lake build Sail BinaryFv
+    lake build Sail BinaryFv BinaryFvSszGeneratedProgramImage
     mkdir -p "$out"
     cp -R .lake/build/lib/lean "$out/"
   '';
