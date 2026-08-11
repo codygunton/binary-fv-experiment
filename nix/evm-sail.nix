@@ -85,6 +85,7 @@ let
     cp ${repo}/BinaryFv/Ssz/ZesuObservation.lean ZesuObservation.lean
     cp ${repo}/BinaryFv/Ssz/ZigRepresentation.lean ZigRepresentation.lean
     cp ${repo}/BinaryFv/Ssz/Relation.lean Relation.lean
+    cp ${repo}/BinaryFv/Ssz/Level1Boundary.lean Level1Boundary.lean
     cp ${repo}/tests/evm-sail/CombinedImportSmoke.lean CombinedImportSmoke.lean
     cp ${repo}/tests/evm-sail/ObservationSmoke.lean ObservationSmoke.lean
     cp ${repo}/tests/evm-sail/DifferentialSmoke.lean DifferentialSmoke.lean
@@ -114,6 +115,7 @@ let
     lean -o compiled/BinaryFv/Ssz/ZesuObservation.olean ZesuObservation.lean
     lean -o compiled/BinaryFv/Ssz/ZigRepresentation.olean ZigRepresentation.lean
     lean -o compiled/BinaryFv/Ssz/Relation.olean Relation.lean
+    lean -o compiled/BinaryFv/Ssz/Level1Boundary.olean Level1Boundary.lean
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
     lean DifferentialSmoke.lean
