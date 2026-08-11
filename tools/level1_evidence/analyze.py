@@ -18,8 +18,11 @@ def parse_trace(path: Path) -> dict:
         try:
             if parts[0] == "E" and len(parts) == 2:
                 executed.append(int(parts[1]))
-            elif parts[0] == "R" and len(parts) == 34:
-                registers.setdefault(int(parts[1]), []).append([int(value) for value in parts[2:]])
+            elif parts[0] == "R" and len(parts) == 35:
+                registers.setdefault(int(parts[1]), []).append({
+                    "available": int(parts[2]),
+                    "values": [int(value) for value in parts[3:]],
+                })
             elif parts[0] in {"L", "S"} and len(parts) == 5:
                 record = [int(value) for value in parts[1:]]
                 (loads if parts[0] == "L" else stores).append(record)
@@ -37,6 +40,9 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
     for instance in manifest["instances"]:
         extent = set(instance["executionPcs"])
         entries = trace["registers"].get(instance["entryPc"], [])
+        for snapshot in entries:
+            if snapshot["available"] != 2 ** 32 - 1:
+                raise ValueError(f"unavailable register in snapshot for {instance['id']}")
         transitions = sorted({
             (before, after) for before, after in zip(executed, executed[1:])
             if before in extent and after not in extent

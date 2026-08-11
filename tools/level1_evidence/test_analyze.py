@@ -19,7 +19,8 @@ class EvidenceTest(unittest.TestCase):
         }
         self.trace = {
             "executed": [0, 4, 8, 12, 16],
-            "registers": {4: [[0] * 32]}, "loads": [[8, 100, 8, 7]], "stores": [],
+            "registers": {4: [{"available": 2 ** 32 - 1, "values": [0] * 32}]},
+            "loads": [[8, 100, 8, 7]], "stores": [],
         }
 
     def test_reduces_boundary(self):

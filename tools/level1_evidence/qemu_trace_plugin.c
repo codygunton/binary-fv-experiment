@@ -12,6 +12,25 @@ static GPtrArray *vcpu_registers;
 
 struct registers { struct qemu_plugin_register *x[32]; GByteArray *buf; };
 
+static int register_index(const char *name) {
+  static const char *aliases[32] = {
+    "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
+    "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5",
+    "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
+    "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6"
+  };
+  if (!name) return -1;
+  if (name[0] == 'x') {
+    char *end = NULL;
+    unsigned long index = strtoul(name + 1, &end, 10);
+    if (end && *end == '\0' && index < 32) return (int)index;
+  }
+  for (int index = 0; index < 32; ++index)
+    if (g_strcmp0(name, aliases[index]) == 0) return index;
+  if (g_strcmp0(name, "fp") == 0) return 8;
+  return -1;
+}
+
 static uint64_t memory_value(qemu_plugin_mem_value value) {
   switch (value.type) {
   case QEMU_PLUGIN_MEM_VALUE_U8: return value.data.u8;
@@ -23,6 +42,7 @@ static uint64_t memory_value(qemu_plugin_mem_value value) {
 }
 
 static bool read_register(struct registers *regs, unsigned index, uint64_t *value) {
+  if (index == 0) { *value = 0; return true; }
   if (!regs || !regs->x[index]) return false;
   g_byte_array_set_size(regs->buf, 0);
   if (!qemu_plugin_read_register(regs->x[index], regs->buf)) return false;
@@ -46,11 +66,8 @@ static void vcpu_init(qemu_plugin_id_t id, unsigned vcpu) {
   for (guint i = 0; descriptors && i < descriptors->len; ++i) {
     qemu_plugin_reg_descriptor *descriptor =
       &g_array_index(descriptors, qemu_plugin_reg_descriptor, i);
-    if (descriptor->name && descriptor->name[0] == 'x') {
-      char *end = NULL;
-      unsigned long index = strtoul(descriptor->name + 1, &end, 10);
-      if (end && *end == '\0' && index < 32) regs->x[index] = descriptor->handle;
-    }
+    int index = register_index(descriptor->name);
+    if (index >= 0) regs->x[index] = descriptor->handle;
   }
   if (descriptors) g_array_free(descriptors, TRUE);
   regs->buf = g_byte_array_new();
@@ -69,12 +86,14 @@ static void execute(unsigned vcpu, void *data) {
   fprintf(out, "E %" PRIu64 "\n", pc);
   if (!g_hash_table_contains(snapshot_pcs, &pc)) return;
   struct registers *regs = registers_for(vcpu);
-  fprintf(out, "R %" PRIu64, pc);
+  uint32_t available = 0;
+  uint64_t values[32];
   for (unsigned i = 0; i < 32; ++i) {
-    uint64_t value = 0;
-    if (!read_register(regs, i, &value)) value = UINT64_MAX;
-    fprintf(out, " %" PRIu64, value);
+    values[i] = 0;
+    if (read_register(regs, i, &values[i])) available |= UINT32_C(1) << i;
   }
+  fprintf(out, "R %" PRIu64 " %" PRIu32, pc, available);
+  for (unsigned i = 0; i < 32; ++i) fprintf(out, " %" PRIu64, values[i]);
   fputc('\n', out);
 }
 
