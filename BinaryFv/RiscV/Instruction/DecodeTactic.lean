@@ -6,11 +6,8 @@ import BinaryFv.RiscV.Logic.BlockStep
 `decode_run` discharges "this generated Sail decode step runs and retires" by unfolding `Runs`,
 rewriting through the generated extension decoder, and reducing the `EStateM` plumbing.
 
-It lives in its own module because sibling machine-execution modules each need it and Lean rejects
-two identical `macro` declarations of the same name in one environment. Duplicating it made
-`BinaryFv.Zesu` — which imports both siblings — fail to elaborate. Keeping it here also preserves the
-rule that sibling function modules avoid umbrella imports, so Lake can still compile them
-concurrently: they depend on this leaf, not on each other.
+It lives in its own module because sibling target modules otherwise duplicate the same macro and
+Lean rejects duplicate declarations in one environment.
 -/
 
 namespace BinaryFv.RiscV

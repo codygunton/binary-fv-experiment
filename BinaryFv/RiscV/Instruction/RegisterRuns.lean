@@ -6,10 +6,8 @@ import BinaryFv.RiscV.Logic.BlockStep
 `rX_x<n>_run` and `wX_x<n>_run` say that the generated Sail register read/write actions run and
 retire with the obvious result. Every machine-execution module needs the same handful of them.
 
-They live here for the same reason `decode_run` does: two sibling modules each declared the
-`gen_rx_run`/`gen_wx_run` `macro`s, and Lean rejects duplicate macro declarations in one
-environment, so `BinaryFv.Zesu` — which imports both siblings — failed to elaborate. The generated
-theorems themselves did not collide only because one module happened to mark them `private`.
+They live here for the same reason `decode_run` does: sibling target modules otherwise duplicate the
+same macros and generated theorems.
 
 Declaring the macros once and instantiating the union of the indices the siblings need removes both
 the macro collision and roughly forty duplicated proofs, and keeps the siblings independent of each

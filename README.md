@@ -32,6 +32,7 @@ integration step.
 - `nix/evm-sail.nix`: reproducible Sail-to-Lean extraction and executable smoke test.
 - `tools/`: retained ELF/DWARF/CFG, profiling, proof-template retrieval, and n-gram tooling.
 - `docs/research/evm-sail-ssz-feasibility.md`: extraction assessment and candidate divergences.
+- `docs/research/grafted-zesu-deletion-audit.md`: per-subsystem recovery and deletion rationale.
 
 The future public theorem will compare the authentic Zesu binary with the extracted EVM-Sail
 decoder, with a typed `hKnownBugs` only for exact, tested divergences. Until the target adapter and
