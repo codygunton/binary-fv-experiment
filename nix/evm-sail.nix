@@ -83,6 +83,7 @@ let
     export LEAN_PATH=$PWD/compiled:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
     cp ${repo}/BinaryFv/Ssz/Specification.lean Specification.lean
     cp ${repo}/BinaryFv/Ssz/ZesuObservation.lean ZesuObservation.lean
+    cp ${repo}/BinaryFv/Ssz/ZigRepresentation.lean ZigRepresentation.lean
     cp ${repo}/BinaryFv/Ssz/Relation.lean Relation.lean
     cp ${repo}/tests/evm-sail/CombinedImportSmoke.lean CombinedImportSmoke.lean
     cp ${repo}/tests/evm-sail/ObservationSmoke.lean ObservationSmoke.lean
@@ -111,6 +112,7 @@ let
       --replace-fail '@HASHES_SUCCESS@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.out'
     lean -o compiled/BinaryFv/Ssz/Specification.olean Specification.lean
     lean -o compiled/BinaryFv/Ssz/ZesuObservation.olean ZesuObservation.lean
+    lean -o compiled/BinaryFv/Ssz/ZigRepresentation.olean ZigRepresentation.lean
     lean -o compiled/BinaryFv/Ssz/Relation.olean Relation.lean
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
