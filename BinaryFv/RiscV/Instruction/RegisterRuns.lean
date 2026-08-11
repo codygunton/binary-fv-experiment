@@ -16,7 +16,7 @@ the macro collision and roughly forty duplicated proofs, and keeps the siblings 
 other so Lake can still compile them concurrently.
 -/
 
-namespace BinaryFv.Zesu.MachineExecution
+namespace BinaryFv.RiscV
 
 open BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
@@ -98,4 +98,4 @@ gen_wx_run 28 ↦ x28, wX_x28_run
 gen_wx_run 29 ↦ x29, wX_x29_run
 gen_wx_run 30 ↦ x30, wX_x30_run
 
-end BinaryFv.Zesu.MachineExecution
+end BinaryFv.RiscV

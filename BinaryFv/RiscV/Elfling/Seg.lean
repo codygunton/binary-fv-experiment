@@ -1,6 +1,6 @@
 import BinaryFv.RiscV.Elfling.SequentialSplice
-import BinaryFv.Zesu.Contracts.Environment
-import BinaryFv.Zesu.MachineExecution.RegisterWriteStep
+import BinaryFv.RiscV.Logic.MemoryWriteFrame
+import BinaryFv.RiscV.Step.RegisterWrite
 
 /-!
 # `Seg`: one accumulator for a straight-line run of retired instructions
@@ -27,7 +27,7 @@ caller would have re-derived by unfolding is instead read off the fields.
 * `trace` and `confined` are the two obligations a Level 2 composition has to produce anyway.
 * `writes` is the register frame (`WritesOnlyRegs`): "this segment touched nothing outside `W`",
   which answers every *preservation* question by one membership check (`Seg.get`).
-* `mem` is the memory frame (`Contracts.WritesOnlyWithin` over a `Region`). It is **not**
+* `mem` is the memory frame (`WritesOnlyWithin` over a `Region`). It is **not**
   `cur.mem = base.mem`: about eight of the composed instructions in this tree are stores, and the
   equality form is false of every one of them. `Seg.memEq` recovers the equality for the
   register-only case, where the region is empty.
@@ -37,7 +37,7 @@ caller would have re-derived by unfolding is instead read off the fields.
 
 ## Why the frames compose at a *fixed* `W` and `M`
 
-`WritesOnlyRegs.trans_same` and `Contracts.Ownership.writesOnlyWithin_trans` both compose at one
+`WritesOnlyRegs.trans_same` and `WritesOnlyWithin.trans_same` both compose at one
 fixed set, and each step widens into it first (`Seg.stepOf`'s `widen`). Letting the set grow one
 `Or` per instruction makes the `Decidable` instance for a membership goal exceed
 `synthInstance.maxSize` at roughly eight steps -- i.e. exactly where a segment combinator starts to
@@ -51,10 +51,6 @@ open LeanRV64DExecutable.Functions
 open Register
 open BinaryFv.Binary.Elfling (FunctionInstanceId)
 open BinaryFv.RiscV.Elfling (ConfinedPrefix)
-open BinaryFv.Zesu.Contracts (Region WritesOnlyWithin)
-open BinaryFv.Zesu.Contracts.Ownership (writesOnlyWithin_trans)
-open BinaryFv.Zesu.MachineExecution.RegisterWriteStep (afterRegisterWrite afterRegisterWrite_writes
-  afterRegisterWrite_mem afterRegisterWrite_retired_present afterRegisterWrite_pc)
 
 /-! ## The positive register accumulator -/
 
@@ -258,7 +254,7 @@ theorem stepOf {V : RegSet} {kv' : List RegVal} {nextPc : BitVec 64}
     { trace := seg.trace.snoc run
       confined := seg.confined.trans (ConfinedPrefix.ownStep seg.atPc inRegion notExit run)
       writes := seg.writes.trans_same ((stepWrites retired).mono widen)
-      mem := writesOnlyWithin_trans seg.mem (stepMem retired)
+      mem := WritesOnlyWithin.trans_same seg.mem (stepMem retired)
       retired := stepRetired retired
       atPc := stepPc retired
       regs := (learn retired).append (seg.regs.through (stepWrites retired) keep) }⟩
@@ -398,7 +394,7 @@ theorem stepWitness (seg : Seg own exit childSummary W M kv a n base cur pc)
       confined := seg.confined.trans (ConfinedPrefix.ownStep seg.atPc inRegion notExit hrun)
       writes := seg.writes.trans_same ((afterRegisterWrite_writes cur pc retired dest value).mono
         (fun r hr => hr.elim (bookkeeping r) (fun h => h ▸ destination)))
-      mem := writesOnlyWithin_trans seg.mem
+      mem := WritesOnlyWithin.trans_same seg.mem
         (writesOnlyWithin_of_mem_eq (afterRegisterWrite_mem cur pc retired dest value))
       retired := afterRegisterWrite_retired_present cur pc retired dest value
       atPc := advance ▸ afterRegisterWrite_pc cur pc retired dest value
@@ -507,7 +503,7 @@ theorem stepStoreWitness {width : Nat} (seg : Seg own exit childSummary W M kv a
       confined := seg.confined.trans (ConfinedPrefix.ownStep seg.atPc inRegion notExit hrun)
       writes := seg.writes.trans_same ((storeRetirement_writes cur pc (Sail.BitVec.addInt pc 4)
         retired address value).mono bookkeeping)
-      mem := writesOnlyWithin_trans seg.mem (fun other outside =>
+      mem := WritesOnlyWithin.trans_same seg.mem (fun other outside =>
         storeRetirement_mem_writes cur pc (Sail.BitVec.addInt pc 4) retired address value other
           (fun written => outside (inside other written.1 written.2)))
       retired := ⟨Sail.BitVec.addInt retired 1, by

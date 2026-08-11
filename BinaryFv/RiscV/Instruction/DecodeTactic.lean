@@ -13,7 +13,7 @@ rule that sibling function modules avoid umbrella imports, so Lake can still com
 concurrently: they depend on this leaf, not on each other.
 -/
 
-namespace BinaryFv.Zesu.MachineExecution
+namespace BinaryFv.RiscV
 
 open BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
@@ -28,4 +28,4 @@ macro "decode_run" : tactic =>
        MonadState.get, MonadStateOf.get, *]
      rfl))
 
-end BinaryFv.Zesu.MachineExecution
+end BinaryFv.RiscV
