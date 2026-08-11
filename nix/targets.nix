@@ -4,7 +4,7 @@ let
 
   zesuRv64Object = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-rv64im-object";
-    version = "d8071c4";
+    version = "6acdbd9";
     src = zesu;
     nativeBuildInputs = [ pkgs.zig riscvBinutils ];
     dontConfigure = true;
@@ -18,6 +18,10 @@ let
         --replace-fail \
           'rv64_obj.root_module.code_model = .medium;' \
           $'rv64_obj.root_module.code_model = .medium;\n        rv64_obj.root_module.strip = false;'
+      substituteInPlace build.zig \
+        --replace-fail \
+          'decode_obj.root_module.code_model = .medium;' \
+          $'decode_obj.root_module.code_model = .medium;\n        decode_obj.root_module.strip = false;'
     '';
 
     buildPhase = ''
@@ -37,16 +41,28 @@ let
       ${riscvReadelf} -A "$out/obj/zesu.o" > "$out/meta/elf-attributes.txt"
       ${riscvNm} -u "$out/obj/zesu.o" > "$out/meta/undefined-symbols.txt"
       printf '%s\n' \
-        'zesu=Consensys/zesu@d8071c422f0faf2c52d85b401192fdffc31fd5ac' \
+        'zesu=codygunton/zesu@6acdbd90e7d9f543863bf4030d0e649553704558' \
+        'upstream-base=Consensys/zesu@d8071c422f0faf2c52d85b401192fdffc31fd5ac' \
         'optimize=ReleaseSmall; debug-metadata=retained-in-analyzed-object' \
         "zig=$(zig version)" > "$out/meta/provenance.txt"
       runHook postInstall
     '';
   };
+
+  zesuSszDecodeRv64Object = zesuRv64Object.overrideAttrs (old: {
+    pname = "zesu-ssz-decode-rv64im-object";
+    buildPhase = builtins.replaceStrings
+      [ "zig build rv64im-object" ] [ "zig build rv64im-ssz-decode-object" ] old.buildPhase;
+    installPhase = builtins.replaceStrings
+      [ "zig-out/lib/zesu.o" "$out/obj/zesu.o" ]
+      [ "zig-out/lib/zesu-ssz-decode.o" "$out/obj/zesu-ssz-decode.o" ]
+      old.installPhase;
+  });
 in
 {
   public = {
-    inherit zesuRv64Object;
+    inherit zesuRv64Object zesuSszDecodeRv64Object;
     zesu-rv64-object = zesuRv64Object;
+    zesu-ssz-decode-rv64-object = zesuSszDecodeRv64Object;
   };
 }
