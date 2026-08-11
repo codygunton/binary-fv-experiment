@@ -100,17 +100,18 @@ def SailDecode (input : Array UInt8) (decoded : SailDecoded) : Prop :=
 /-- Reviewed divergence classes between the pinned Zesu and EVM-Sail revisions. -/
 inductive KnownBug where
   | chainIdZeroNormalization
-  | requestTableArity
-  | legacyPayloadAndForkActivation
-  | protocolListBounds
+  | legacyRequestTableArity
+  | legacyPayloadSize
+  | futureForkActivation
+  | extraDataLength
   | publicKeyCount
-  | transactionAndBlobLimits
+  | versionedHashCount
   deriving DecidableEq, Repr
 
 /-- The fixed exception set.  Callers of `root_compliance` cannot add exceptions. -/
 def knownBugs : List KnownBug :=
-  [.chainIdZeroNormalization, .requestTableArity, .legacyPayloadAndForkActivation,
-    .protocolListBounds, .publicKeyCount, .transactionAndBlobLimits]
+  [.chainIdZeroNormalization, .legacyRequestTableArity, .legacyPayloadSize,
+    .futureForkActivation, .extraDataLength, .publicKeyCount, .versionedHashCount]
 
 theorem mem_knownBugs (bug : KnownBug) : bug ∈ knownBugs := by
   cases bug <;> decide

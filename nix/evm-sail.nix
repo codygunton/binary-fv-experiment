@@ -104,7 +104,11 @@ let
       --replace-fail '@FUTURE_INPUT@' '${zesuSszDecodeSmoke}/future-activation.ssz' \
       --replace-fail '@FUTURE_SUCCESS@' '${zesuSszDecodeSmoke}/future-activation.out' \
       --replace-fail '@EXTRA_INPUT@' '${zesuSszDecodeSmoke}/extra-data-33.ssz' \
-      --replace-fail '@EXTRA_SUCCESS@' '${zesuSszDecodeSmoke}/extra-data-33.out'
+      --replace-fail '@EXTRA_SUCCESS@' '${zesuSszDecodeSmoke}/extra-data-33.out' \
+      --replace-fail '@KEYS_INPUT@' '${zesuSszDecodeSmoke}/public-key-overflow.ssz' \
+      --replace-fail '@KEYS_SUCCESS@' '${zesuSszDecodeSmoke}/public-key-overflow.out' \
+      --replace-fail '@HASHES_INPUT@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.ssz' \
+      --replace-fail '@HASHES_SUCCESS@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.out'
     lean -o compiled/BinaryFv/Ssz/Specification.olean Specification.lean
     lean -o compiled/BinaryFv/Ssz/ZesuObservation.olean ZesuObservation.lean
     lean -o compiled/BinaryFv/Ssz/Relation.olean Relation.lean

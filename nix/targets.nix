@@ -129,6 +129,8 @@ let
     python ${repo}/tools/make_minimal_ssz.py legacy-payload.ssz --mutation legacy-payload
     python ${repo}/tools/make_minimal_ssz.py future-activation.ssz --mutation future-activation
     python ${repo}/tools/make_minimal_ssz.py extra-data-33.ssz --mutation extra-data-33
+    python ${repo}/tools/make_minimal_ssz.py public-key-overflow.ssz --mutation public-key-overflow
+    python ${repo}/tools/make_minimal_ssz.py versioned-hash-overflow.ssz --mutation versioned-hash-overflow
 
     ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
       < minimal.ssz > success.out
@@ -148,6 +150,10 @@ let
       < future-activation.ssz > future-activation.out
     ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
       < extra-data-33.ssz > extra-data-33.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      < public-key-overflow.ssz > public-key-overflow.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      < versioned-hash-overflow.ssz > versioned-hash-overflow.out
 
     test "$(od -An -tx1 -N6 success.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 changed.out | tr -d ' \n')" = 5a53535a0101
@@ -160,10 +166,13 @@ let
     test "$(od -An -tx1 -N6 legacy-payload.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 future-activation.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 extra-data-33.out | tr -d ' \n')" = 5a53535a0101
+    test "$(od -An -tx1 -N6 public-key-overflow.out | tr -d ' \n')" = 5a53535a0101
+    test "$(od -An -tx1 -N6 versioned-hash-overflow.out | tr -d ' \n')" = 5a53535a0101
     cp minimal.ssz invalid.ssz block-number.ssz chain-id-zero.ssz legacy-requests.ssz \
-      legacy-payload.ssz future-activation.ssz extra-data-33.ssz success.out rejected.out changed.out \
+      legacy-payload.ssz future-activation.ssz extra-data-33.ssz public-key-overflow.ssz \
+      versioned-hash-overflow.ssz success.out rejected.out changed.out \
       chain-id-zero.out legacy-requests.out legacy-payload.out future-activation.out \
-      extra-data-33.out "$out/"
+      extra-data-33.out public-key-overflow.out versioned-hash-overflow.out "$out/"
   '';
 
   zesuSszDecodeSourceProbe = pkgs.stdenv.mkDerivation {
@@ -199,6 +208,10 @@ let
       cmp native-future.out ${zesuSszDecodeSmoke}/future-activation.out
       "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/extra-data-33.ssz > native-extra.out
       cmp native-extra.out ${zesuSszDecodeSmoke}/extra-data-33.out
+      "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/public-key-overflow.ssz > native-keys.out
+      cmp native-keys.out ${zesuSszDecodeSmoke}/public-key-overflow.out
+      "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/versioned-hash-overflow.ssz > native-hashes.out
+      cmp native-hashes.out ${zesuSszDecodeSmoke}/versioned-hash-overflow.out
     '';
   };
 in

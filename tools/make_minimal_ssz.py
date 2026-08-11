@@ -33,7 +33,8 @@ def main() -> None:
     parser.add_argument(
         "--mutation",
         choices=("invalid-schema", "block-number", "chain-id-zero", "legacy-requests",
-                 "legacy-payload", "future-activation", "extra-data-33"),
+                 "legacy-payload", "future-activation", "extra-data-33",
+                 "public-key-overflow", "versioned-hash-overflow"),
     )
     args = parser.parse_args()
     data = minimal_input()
@@ -74,6 +75,15 @@ def main() -> None:
         put_int(data, 570, 4, 573)
         put_int(data, 590, 4, 573)
         data[602:602] = bytes(range(33))
+    elif args.mutation == "public-key-overflow":
+        data.extend((b"\x04" + bytes(64)) * (2 ** 15 + 1))
+    elif args.mutation == "versioned-hash-overflow":
+        added = 32 * (2 ** 12 + 1)
+        put_int(data, 6, 4, 620 + added)
+        put_int(data, 10, 4, 632 + added)
+        put_int(data, 14, 4, 664 + added)
+        put_int(data, 58, 4, 584 + added)
+        data[602:602] = bytes(added)
     args.output.write_bytes(data)
 
 

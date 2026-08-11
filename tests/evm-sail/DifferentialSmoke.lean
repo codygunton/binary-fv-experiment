@@ -56,3 +56,5 @@ private def assertAcceptanceDivergence (inputPath observationPath : System.FileP
 #eval assertAcceptanceDivergence "@V3_INPUT@" "@V3_SUCCESS@"
 #eval assertAcceptanceDivergence "@FUTURE_INPUT@" "@FUTURE_SUCCESS@"
 #eval assertAcceptanceDivergence "@EXTRA_INPUT@" "@EXTRA_SUCCESS@"
+#eval assertAcceptanceDivergence "@KEYS_INPUT@" "@KEYS_SUCCESS@"
+#eval assertAcceptanceDivergence "@HASHES_INPUT@" "@HASHES_SUCCESS@"
