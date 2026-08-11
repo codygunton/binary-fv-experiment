@@ -98,7 +98,11 @@ let
       --replace-fail '@ZERO_INPUT@' '${zesuSszDecodeSmoke}/chain-id-zero.ssz' \
       --replace-fail '@ZERO_SUCCESS@' '${zesuSszDecodeSmoke}/chain-id-zero.out' \
       --replace-fail '@LEGACY_INPUT@' '${zesuSszDecodeSmoke}/legacy-requests.ssz' \
-      --replace-fail '@LEGACY_SUCCESS@' '${zesuSszDecodeSmoke}/legacy-requests.out'
+      --replace-fail '@LEGACY_SUCCESS@' '${zesuSszDecodeSmoke}/legacy-requests.out' \
+      --replace-fail '@V3_INPUT@' '${zesuSszDecodeSmoke}/legacy-payload.ssz' \
+      --replace-fail '@V3_SUCCESS@' '${zesuSszDecodeSmoke}/legacy-payload.out' \
+      --replace-fail '@FUTURE_INPUT@' '${zesuSszDecodeSmoke}/future-activation.ssz' \
+      --replace-fail '@FUTURE_SUCCESS@' '${zesuSszDecodeSmoke}/future-activation.out'
     lean -o compiled/BinaryFv/Ssz/Specification.olean Specification.lean
     lean -o compiled/BinaryFv/Ssz/ZesuObservation.olean ZesuObservation.lean
     lean -o compiled/BinaryFv/Ssz/Relation.olean Relation.lean

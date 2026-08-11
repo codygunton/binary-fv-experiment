@@ -32,7 +32,8 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument(
         "--mutation",
-        choices=("invalid-schema", "block-number", "chain-id-zero", "legacy-requests"),
+        choices=("invalid-schema", "block-number", "chain-id-zero", "legacy-requests",
+                 "legacy-payload", "future-activation"),
     )
     args = parser.parse_args()
     data = minimal_input()
@@ -51,6 +52,18 @@ def main() -> None:
         for offset in (602, 606, 610):
             put_int(data, offset, 4, 12)
         del data[614:622]
+    elif args.mutation == "legacy-payload":
+        # Remove Amsterdam's block-access-list offset and slot number from the payload fixed region.
+        put_int(data, 6, 4, 608)
+        put_int(data, 10, 4, 620)
+        put_int(data, 14, 4, 652)
+        put_int(data, 22, 4, 572)
+        put_int(data, 58, 4, 572)
+        for offset in (498, 566, 570):
+            put_int(data, offset, 4, 528)
+        del data[590:602]
+    elif args.mutation == "future-activation":
+        put_int(data, 658, 8, 1)
     args.output.write_bytes(data)
 
 

@@ -43,6 +43,15 @@ def differentialSmokeMain (arguments : List String) : IO Unit := do
   unless (tryRunSail legacyInput).isNone do
     throw (IO.userError "EVM-Sail accepted the legacy three-request table")
 
+private def assertAcceptanceDivergence (inputPath observationPath : System.FilePath) : IO Unit := do
+  let input := (← IO.FS.readBinFile inputPath).data
+  let _ ← readSuccess observationPath
+  unless (tryRunSail input).isNone do
+    throw (IO.userError s!"EVM-Sail accepted divergence fixture {inputPath}")
+
 #eval differentialSmokeMain
   ["@INPUT@", "@SUCCESS@", "@CHANGED@", "@ZERO_INPUT@", "@ZERO_SUCCESS@",
     "@LEGACY_INPUT@", "@LEGACY_SUCCESS@"]
+
+#eval assertAcceptanceDivergence "@V3_INPUT@" "@V3_SUCCESS@"
+#eval assertAcceptanceDivergence "@FUTURE_INPUT@" "@FUTURE_SUCCESS@"

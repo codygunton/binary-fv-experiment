@@ -126,6 +126,8 @@ let
     python ${repo}/tools/make_minimal_ssz.py block-number.ssz --mutation block-number
     python ${repo}/tools/make_minimal_ssz.py chain-id-zero.ssz --mutation chain-id-zero
     python ${repo}/tools/make_minimal_ssz.py legacy-requests.ssz --mutation legacy-requests
+    python ${repo}/tools/make_minimal_ssz.py legacy-payload.ssz --mutation legacy-payload
+    python ${repo}/tools/make_minimal_ssz.py future-activation.ssz --mutation future-activation
 
     ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
       < minimal.ssz > success.out
@@ -139,6 +141,10 @@ let
       < chain-id-zero.ssz > chain-id-zero.out
     ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
       < legacy-requests.ssz > legacy-requests.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      < legacy-payload.ssz > legacy-payload.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      < future-activation.ssz > future-activation.out
 
     test "$(od -An -tx1 -N6 success.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 changed.out | tr -d ' \n')" = 5a53535a0101
@@ -148,8 +154,11 @@ let
     ! cmp -s success.out changed.out
     mkdir -p "$out"
     test "$(od -An -tx1 -N6 legacy-requests.out | tr -d ' \n')" = 5a53535a0101
+    test "$(od -An -tx1 -N6 legacy-payload.out | tr -d ' \n')" = 5a53535a0101
+    test "$(od -An -tx1 -N6 future-activation.out | tr -d ' \n')" = 5a53535a0101
     cp minimal.ssz invalid.ssz block-number.ssz chain-id-zero.ssz legacy-requests.ssz \
-      success.out rejected.out changed.out chain-id-zero.out legacy-requests.out "$out/"
+      legacy-payload.ssz future-activation.ssz success.out rejected.out changed.out \
+      chain-id-zero.out legacy-requests.out legacy-payload.out future-activation.out "$out/"
   '';
 
   zesuSszDecodeSourceProbe = pkgs.stdenv.mkDerivation {
@@ -179,6 +188,10 @@ let
       cmp native-zero.out ${zesuSszDecodeSmoke}/chain-id-zero.out
       "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/legacy-requests.ssz > native-legacy.out
       cmp native-legacy.out ${zesuSszDecodeSmoke}/legacy-requests.out
+      "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/legacy-payload.ssz > native-v3.out
+      cmp native-v3.out ${zesuSszDecodeSmoke}/legacy-payload.out
+      "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/future-activation.ssz > native-future.out
+      cmp native-future.out ${zesuSszDecodeSmoke}/future-activation.out
     '';
   };
 in
