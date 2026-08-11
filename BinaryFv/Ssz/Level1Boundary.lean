@@ -28,6 +28,16 @@ def StrictDecodeMeaning (args : DecodeBoundaryArgs) : DecodeBoundaryOutcome → 
   | .success zesu => ∃ sail, SailDecode args.input sail ∧
       decodedResultRelModuloKnownBugs args.input zesu sail
 
+/-- The fixed compatibility policy: ordinary results match EVM-Sail; only a classified rejected
+reference input may use one of the six reviewed domain exceptions. -/
+def DecodeMeaningModuloKnownBugs (args : DecodeBoundaryArgs) : DecodeBoundaryOutcome → Prop
+  | .failure => ¬∃ decoded, SailDecode args.input decoded
+  | .success zesu =>
+      (∃ sail, SailDecode args.input sail ∧
+        decodedResultRelModuloKnownBugs args.input zesu sail) ∨
+      ((¬∃ sail, SailDecode args.input sail) ∧
+        ∃ bug ∈ knownBugs, KnownBugApplies args.input zesu bug)
+
 /-- Same-ELF DWARF binds the inlined decode input pointer to `s7` and length to `s2`. -/
 def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : MachineState) : Prop :=
   state.regs.get? PC = some (BitVec.ofNat 64 Generated.sszDecodeEntry) ∧
@@ -56,6 +66,14 @@ def strictDecodeContract (stepBound : DecodeBoundaryArgs → Nat) :
     exit := fun _ outcome _ after => DecodeBoundaryExit outcome after
     stepBound }
 
+/-- The actual Level 1 semantic contract shape, still parameterized by its reviewed machine bound. -/
+def decodeContractModuloKnownBugs (stepBound : DecodeBoundaryArgs → Nat) :
+    RelationalMachineContract DecodeBoundaryArgs DecodeBoundaryOutcome :=
+  { allows := DecodeMeaningModuloKnownBugs
+    entry := DecodeBoundaryEntry
+    exit := fun _ outcome _ after => DecodeBoundaryExit outcome after
+    stepBound }
+
 def DecodeExecutionPc : BitVec 64 → Prop :=
   pcInRanges Generated.sszDecodeExecutionPcRanges
 
@@ -66,5 +84,8 @@ def DecodeExitPc (pc : BitVec 64) : Prop :=
 /-- The exact strict implementation obligation at the generated production boundary. -/
 abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : Prop :=
   (strictDecodeContract stepBound).Implements DecodeExecutionPc DecodeExitPc
+
+abbrev DecodeInstanceContractModuloKnownBugs (stepBound : DecodeBoundaryArgs → Nat) : Prop :=
+  (decodeContractModuloKnownBugs stepBound).Implements DecodeExecutionPc DecodeExitPc
 
 end BinaryFv.Ssz

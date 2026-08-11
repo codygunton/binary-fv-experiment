@@ -117,6 +117,49 @@ def decodedResultRelModuloKnownBugs (source : Array UInt8) (zesu : ZesuDecodedRe
   (zesu.chainConfig.chainId = sail.input.chain_config.chain_id ∨
     (sail.input.chain_config.chain_id = 0 ∧ zesu.chainConfig.chainId = 1))
 
+private def readU32LEAt (input : Array UInt8) (offset : Nat) : Option Nat := do
+  let byte0 ← input[offset]?
+  let byte1 ← input[offset + 1]?
+  let byte2 ← input[offset + 2]?
+  let byte3 ← input[offset + 3]?
+  pure (byte0.toNat + 256 * byte1.toNat + 65536 * byte2.toNat +
+    16777216 * byte3.toNat)
+
+private def semanticPayload (source : Array UInt8) : Array UInt8 :=
+  (stripErePrefix source).getD source
+
+/-- The request-table arity encoded by Zesu's reviewed v0.4.1 outer layout. -/
+def encodedRequestTypeCount (source : Array UInt8) : Option Nat := do
+  let payload := semanticPayload source
+  let newPayloadOffset ← readU32LEAt payload 2
+  let requestsOffset ← readU32LEAt payload (2 + newPayloadOffset + 40)
+  let fixedSize ← readU32LEAt payload (2 + newPayloadOffset + requestsOffset)
+  if fixedSize % 4 = 0 then some (fixedSize / 4) else none
+
+/--
+The exact reviewed input/result condition for each compatibility exception.
+
+The five result-shaped clauses use fields emitted by the injective observation. The legacy request
+clause additionally reads only the three offsets needed to identify the old fixed table; it is not a
+second SSZ decoder. Chain-id normalization is handled by `decodedResultRelModuloKnownBugs` and is
+therefore not an accept/reject-domain exception.
+-/
+def KnownBugApplies (source : Array UInt8) (zesu : ZesuDecodedResult) : KnownBug → Prop
+  | .chainIdZeroNormalization => False
+  | .legacyRequestTableArity => encodedRequestTypeCount source = some 3
+  | .legacyPayloadSize => zesu.payload.slotNumber = none
+  | .futureForkActivation =>
+      match zesu.chainConfig.activationBlock with
+      | some activation => zesu.payload.blockNumber < activation
+      | none => False
+  | .extraDataLength => 32 < zesu.payload.extraData.size
+  | .publicKeyCount => 32768 < zesu.publicKeys.size
+  | .versionedHashCount => 4096 < zesu.versionedHashes.size
+
+instance (source : Array UInt8) (zesu : ZesuDecodedResult) (bug : KnownBug) :
+    Decidable (KnownBugApplies source zesu bug) := by
+  cases bug <;> simp only [KnownBugApplies] <;> infer_instance
+
 instance (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) :
     Decidable (decodedResultRel source zesu sail) := by
   unfold decodedResultRel decodedResultRelExceptChainId payloadRel transactionMatches recipientMatches
