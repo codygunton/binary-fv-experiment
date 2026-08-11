@@ -350,7 +350,7 @@ function renderProofMap(){
       <div>${esc(region.blocker)}</div></div>`).join('');
   $('#proof-map').innerHTML=`<div class="proof-summary">
       ${stat('kernel-linked local PCs',coverage.localPcCount,'#3ddc84')}
-      ${stat('connected into selected level',coverage.level4PcCount,'#41a9ff')}
+      ${stat('connected into selected level',coverage.level1PcCount??0,'#41a9ff')}
       ${stat('reachable from root_compliance',coverage.rootPcCount,'#b26cff')}</div>
     <div class="trust-legend"><span><i style="background:#3ddc84"></i>formal local</span>
       <span><i style="background:#3b424e;border:1px solid #687385"></i>production ELF only</span>
@@ -380,7 +380,7 @@ function renderProofCfg(){
   const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],ready:['#473b1e','#e5b84b'],
     blocked:['#472327','#d95757'],contract:['#30263b','#9c78c2']};
   const short=s=>s.length>34?s.slice(0,32)+'…':s;
-  const titles=['specification boundary','target machine regions','refinement theorem','compliance theorem'];
+  const titles=['reference semantics','Level 1 contracts + Level 0 glue','refinement theorem','compliance theorem'];
   const columns=titles.map((title,i)=>`<rect class="cfg-column" x="${i*laneW+4}" y="4" width="${laneW-8}" height="${height-8}" rx="6"/>
     <text class="cfg-column-title" x="${i*laneW+16}" y="25">${i+1}. ${esc(title)}</text>`).join('');
   const edges=graph.edges.map(edge=>{const a=positions.get(edge.source),b=positions.get(edge.target);if(!a||!b)return'';
@@ -388,7 +388,7 @@ function renderProofCfg(){
     return `<path class="cfg-link ${edge.kind}" marker-end="url(#cfg-arrow)" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"><title>${edge.kind}</title></path>`;}).join('');
   const nodes=[...positions.values()].map(({x,y,w,h,node})=>{const [fill,stroke]=colors[node.status]||colors.artifact;
     const sub=node.kind==='parentGlue'?`${node.provedInstructionCount}/${node.instructionCount} glue instructions proved`:
-      node.kind==='level4Contract'?`${node.instructionCount} child instructions · ${node.status}`:
+      node.kind==='level1Contract'?`${node.instructionCount} child instructions · ${node.status}`:
       node.kind==='conversion'?'must consume all contracts + glue':'Level 3 contract required by root proof';
     return `<g data-graph-id="${esc(node.id)}"><rect class="cfg-node-rect" x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="${stroke}"><title>${esc(node.label)}</title></rect>
       <text class="cfg-node-label" x="${x+7}" y="${y+16}">${esc(short(node.label))}</text><text class="cfg-node-sub" x="${x+7}" y="${y+31}">${esc(sub)}</text></g>`;}).join('');
@@ -399,7 +399,7 @@ function renderProofCfg(){
 }
 
 function showRefinementNode(node){
-  if(node.kind==='level4Contract')return showProofBoundary(node.boundaryId);
+  if(node.kind==='level1Contract')return showProofBoundary(node.boundaryId);
   $('#dname').textContent=node.label; $('#dsub').textContent=node.kind; setCopy(node.id);
   if(node.kind==='parentGlue'){
     const phase=PROOF_MAP.phases.find(row=>row.id===node.phase);
@@ -410,8 +410,8 @@ function showRefinementNode(node){
     return;
   }
   const text=node.kind==='conversion'?
-    'This named theorem must consume every Level4ContractAssumptions field and the three parent-glue proofs to derive the Level 3 compiledDecodeRawContract assumption. It is not yet complete.':
-    'This is the compiledDecodeRawContract required by the existing Level 3 refinement edge and ultimately root_compliance.';
+    'This theorem must consume every Level1ContractAssumptions field and prove main-owned instructions to derive ExportedContractAssumptions.':
+    'This is the single public compliance theorem, currently conditional on Level1ContractAssumptions.';
   $('#rbody').innerHTML=`<div class="kv"><span>status</span><span>${esc(node.status)}</span><span>role</span><span>${esc(text)}</span></div>`;
 }
 

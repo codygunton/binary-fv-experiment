@@ -68,11 +68,18 @@ let
     python tools/analyze.py --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode --trace minimal=minimal.trace --trace invalid=invalid.trace --output "$out/level1-evidence.json"
   '';
 
-  zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-e5f8c13" { } ''
+  zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-e5f8c13"
+    { nativeBuildInputs = [ pkgs.python3 ]; } ''
     cp -R ${../tools/binary-regions-ui} "$out"
     chmod -R u+w "$out"
     cp ${zesuSszDecodeCfg}/zesu-cfg.json "$out/zesu-cfg.json"
-    cp ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeCfg}/proof-map.json "$out/"
+    cp ${zesuSszDecodeCfg}/flame.json "$out/"
+    cp ${zesuSszDecodeLevel1Manifest}/level1-manifest.json "$out/"
+    cp ${zesuSszDecodeLevel1Evidence}/level1-evidence.json "$out/"
+    cp ${../tools/build_ssz_proof_map.py} build_ssz_proof_map.py
+    cp ${../tools/test_ssz_proof_map.py} test_ssz_proof_map.py
+    python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --output "$out/proof-map.json"
+    python test_ssz_proof_map.py ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeLevel1Manifest}/level1-manifest.json ${zesuSszDecodeLevel1Evidence}/level1-evidence.json
     cp ${zesuCfg}/flame.json "$out/flame-full.json"
   '';
 in
