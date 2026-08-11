@@ -1,15 +1,5 @@
-# Dependency source
+# Dependency sources
 
-This directory provides browsable working copies of external source that reviewers need beside the
-verification code. Initialize them with:
-
-```sh
-git submodule update --init
-```
-
-`zesu/` is the repaired source used to build the decoder under verification. `zesu-upstream/` is the
-unchanged production baseline. Their gitlinks match the revisions pinned independently in `flake.nix`
-and `nix/targets.nix`.
-
-The submodules are not build-output directories and are not an alternative build system. Nix fetches
-the pinned revisions and owns all compilation and generated artifacts.
+`zesu/` is authentic Consensys Zesu at zkevm v0.6.2. `evm-sail/` is the version-matched executable
+EVM/SSZ model whose Sail Lean extraction is the candidate specification. Initialize both with
+`git submodule update --init`; Nix independently fetches the same revisions and owns all builds.
