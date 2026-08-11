@@ -55,6 +55,34 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
             raise ValueError(f"subtree instruction count drift for {node['name']}")
         return result
 
+    def source_declaration(identifier: str) -> dict:
+        row = rows[identifier]
+        return {"file": row["sourceFile"], "qualifiedName": row["name"]}
+
+    def stable_identity(identifier: str) -> dict:
+        row = rows[identifier]
+        sites = []
+        current = row
+        while current["parent"] is not None:
+            parent = rows[current["parent"]]
+            sites.append({
+                "caller": source_declaration(parent["id"]),
+                "callSite": {
+                    "file": current["callFile"],
+                    "line": current["callLine"],
+                    "column": 0,
+                },
+            })
+            current = parent
+        sites.reverse()
+        return {
+            "function": {
+                "declaration": source_declaration(identifier),
+                "specialization": [],
+            },
+            "inlineStack": sites,
+        }
+
     selected = []
     for node in root["children"]:
         match = INSTANCE.fullmatch(node["name"])
@@ -72,6 +100,7 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
             "id": identifier,
             "qualified": match.group("qualified"),
             "kind": row["kind"],
+            "functionInstanceIdentity": stable_identity(identifier),
             "sourceFile": row["sourceFile"],
             "declLine": row["declLine"],
             "entryPc": row["entryPc"],

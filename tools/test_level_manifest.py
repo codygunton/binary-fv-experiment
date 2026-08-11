@@ -31,6 +31,9 @@ def main() -> int:
     assert {row["qualified"] for row in rows} == EXPECTED
     assert len({row["id"] for row in rows}) == len(rows)
     for row in rows:
+        identity = row["functionInstanceIdentity"]
+        assert identity["function"]["declaration"]["qualifiedName"] == row["qualified"]
+        assert not identity["function"]["declaration"]["file"].startswith("/nix/store/")
         assert row["ownedInstructionCount"] == len(row["instructionPcs"])
         assert row["subtreeInstructionCount"] >= row["ownedInstructionCount"]
         assert row["subtreeInstructionCount"] == len(row["executionPcs"])

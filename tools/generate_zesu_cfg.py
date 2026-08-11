@@ -74,6 +74,12 @@ def normalize_source(source: str) -> str:
     runtime_marker = "-source/runtime/"
     if runtime_marker in source:
         return "runtime/" + source.split(runtime_marker, 1)[1]
+    isolated_runtime = "-binary-fv-riscv64-runtime/"
+    if isolated_runtime in source:
+        return "runtime/riscv64/" + source.split(isolated_runtime, 1)[1]
+    zig_std = "/lib/zig/std/"
+    if zig_std in source:
+        return "zig/std/" + source.split(zig_std, 1)[1]
     return source
 
 
