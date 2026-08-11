@@ -37,6 +37,16 @@ def main() -> int:
         assert row["subtreeInstructionCount"] == len(row["executionPcs"])
         assert set(row["instructionPcs"]) <= set(row["executionPcs"])
         assert row["entryPc"] in row["executionPcs"]
+    by_name = {row["qualified"]: row for row in rows}
+    allocator = by_name["alt_fl_alloc.get"]
+    assert len(allocator["absorbedInstructionPcs"]) == 3
+    assert allocator["exitPcs"] == [74208]
+    decode = by_name["ssz.decode"]
+    assert len(decode["absorbedInstructionPcs"]) == 50
+    assert decode["exitPcs"] == [74688, 83360]
+    assert by_name["zkvm_exit"]["exitPcs"] == [66000]
+    assert by_name["ssz_decode_observation.writeSuccess"]["exitPcs"] == [83720]
+    assert by_name["ssz_decode_observation.writeFailure"]["exitPcs"] == [74696]
     return 0
 
 

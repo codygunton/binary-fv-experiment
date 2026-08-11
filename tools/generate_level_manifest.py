@@ -17,6 +17,19 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
     if level != 1:
         raise ValueError("the SSZ spike currently freezes only Level 1")
     rows = {row["id"]: row for row in cfg["functionInstances"]}
+    source_at_pc = {}
+    instruction_at_pc = {}
+    successors: dict[int, set[int]] = defaultdict(set)
+    for function in cfg["functions"]:
+        for block in function["blocks"]:
+            instructions = block["instructions"]
+            for instruction in instructions:
+                source_at_pc[instruction["pc"]] = (block["sourceFile"], block["sourceLine"])
+                instruction_at_pc[instruction["pc"]] = instruction
+            for before, after in zip(instructions, instructions[1:]):
+                successors[before["pc"]].add(after["pc"])
+            if instructions:
+                successors[instructions[-1]["pc"]].update(int(pc, 16) for pc in block["successors"])
     children: dict[str, list[str]] = {}
     for row in rows.values():
         if row["parent"] is not None:
@@ -126,11 +139,36 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
         return set().union(*(local_pcs(current) for current in reachable))
 
     selected = []
+    claimed_inline_pcs = set().union(*(set(candidate["pcs"]) for candidate in inline_rows))
     for identifier in sorted((identifier for identifier, depth in depths.items() if depth == level),
                              key=lambda identifier: (rows[identifier]["entryPc"], identifier)):
         row = rows[identifier]
         owned_pcs = sorted(set(row["pcs"]) - inline_descendant_pcs(identifier))
-        subtree_pcs = sorted(execution_pcs(identifier))
+        absorbed_pcs = []
+        if row["kind"] == "inlined":
+            absorbed_pcs = sorted(
+                pc for pc, (source_file, source_line) in source_at_pc.items()
+                if pc not in claimed_inline_pcs and source_file == row["sourceFile"] and
+                source_line >= row["declLine"]
+            )
+        subtree = execution_pcs(identifier) | set(absorbed_pcs)
+        exit_pcs = {
+            target for pc in subtree for target in successors.get(pc, set()) if target not in subtree
+        }
+        for call in cfg.get("calls", []):
+            call_instruction = instruction_at_pc[call["source"]]
+            links = call_instruction["mnemonic"] in {"jal", "jalr"} and \
+                call_instruction["operands"].startswith("ra,")
+            if call["source"] in subtree and links and call["source"] + 4 not in subtree:
+                exit_pcs.add(call["source"] + 4)
+            if row["kind"] == "concrete" and row["name"] != "zkvm_exit" and \
+                    call["callee"] == row["name"]:
+                exit_pcs.add(call["source"] + 4)
+        if row["name"] == "zkvm_exit":
+            exit_pcs = {
+                pc for pc in subtree if instruction_at_pc[pc]["mnemonic"] == "ecall"
+            }
+        subtree_pcs = sorted(subtree)
         selected.append({
             "id": identifier,
             "qualified": row["name"],
@@ -140,7 +178,9 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
             "declLine": row["declLine"],
             "entryPc": row["entryPc"],
             "instructionPcs": owned_pcs,
+            "absorbedInstructionPcs": absorbed_pcs,
             "executionPcs": subtree_pcs,
+            "exitPcs": sorted(exit_pcs),
             "ownedInstructionCount": len(owned_pcs),
             "subtreeInstructionCount": len(subtree_pcs),
         })

@@ -8,6 +8,7 @@ def artifactSha256 : String := "3cffe6fb6ff4fcaf2bc17e47cf36f71f226bc9032612425b
 
 def readInputEntry : Nat := 0x10140
 def readInputOwnedInstructionCount : Nat := 15
+def readInputAbsorbedInstructionCount : Nat := 0
 def readInputExecutionInstructionCount : Nat := 20
 def readInputOwnedPcRanges : List PcRange := [
   (0x10140, 0x10158),
@@ -16,28 +17,21 @@ def readInputOwnedPcRanges : List PcRange := [
 def readInputExecutionPcRanges : List PcRange := [
   (0x10140, 0x10190)
 ]
-
-def writeOutputEntry : Nat := 0x10190
-def writeOutputOwnedInstructionCount : Nat := 8
-def writeOutputExecutionInstructionCount : Nat := 13
-def writeOutputOwnedPcRanges : List PcRange := [
-  (0x10190, 0x101a4),
-  (0x101b8, 0x101c4)
-]
-def writeOutputExecutionPcRanges : List PcRange := [
-  (0x10190, 0x101c4)
-]
+def readInputExitPcs : List Nat := [0x121bc]
 
 def zkvmExitEntry : Nat := 0x101c4
 def zkvmExitOwnedInstructionCount : Nat := 0
+def zkvmExitAbsorbedInstructionCount : Nat := 0
 def zkvmExitExecutionInstructionCount : Nat := 4
 def zkvmExitOwnedPcRanges : List PcRange := []
 def zkvmExitExecutionPcRanges : List PcRange := [
   (0x101c4, 0x101d4)
 ]
+def zkvmExitExitPcs : List Nat := [0x101d0]
 
 def memcpyEntry : Nat := 0x101d4
 def memcpyOwnedInstructionCount : Nat := 9
+def memcpyAbsorbedInstructionCount : Nat := 0
 def memcpyExecutionInstructionCount : Nat := 9
 def memcpyOwnedPcRanges : List PcRange := [
   (0x101d4, 0x101f8)
@@ -45,24 +39,26 @@ def memcpyOwnedPcRanges : List PcRange := [
 def memcpyExecutionPcRanges : List PcRange := [
   (0x101d4, 0x101f8)
 ]
+def memcpyExitPcs : List Nat := [0x10950, 0x10a0c, 0x11374, 0x11e78, 0x12040, 0x120bc, 0x12120, 0x12884, 0x1317c, 0x13cb0, 0x13cf0, 0x13d14, 0x14424, 0x145a0, 0x145b4, 0x145c8, 0x145dc, 0x145f0, 0x146cc, 0x146f0, 0x1475c, 0x14804, 0x14bdc, 0x14f80, 0x15084, 0x1607c, 0x163e0, 0x16424, 0x1653c, 0x1666c, 0x166a8, 0x168c4, 0x16ba8]
 
 def allocatorGetEntry : Nat := 0x121bc
 def allocatorGetOwnedInstructionCount : Nat := 6
-def allocatorGetExecutionInstructionCount : Nat := 6
+def allocatorGetAbsorbedInstructionCount : Nat := 3
+def allocatorGetExecutionInstructionCount : Nat := 9
 def allocatorGetOwnedPcRanges : List PcRange := [
   (0x121bc, 0x121c4),
   (0x121c8, 0x121d0),
   (0x121d8, 0x121e0)
 ]
 def allocatorGetExecutionPcRanges : List PcRange := [
-  (0x121bc, 0x121c4),
-  (0x121c8, 0x121d0),
-  (0x121d8, 0x121e0)
+  (0x121bc, 0x121e0)
 ]
+def allocatorGetExitPcs : List Nat := [0x121e0]
 
 def sszDecodeEntry : Nat := 0x121e0
 def sszDecodeOwnedInstructionCount : Nat := 1426
-def sszDecodeExecutionInstructionCount : Nat := 5235
+def sszDecodeAbsorbedInstructionCount : Nat := 50
+def sszDecodeExecutionInstructionCount : Nat := 5320
 def sszDecodeOwnedPcRanges : List PcRange := [
   (0x121e0, 0x121e4),
   (0x1220c, 0x1223c),
@@ -113,21 +109,17 @@ def sszDecodeOwnedPcRanges : List PcRange := [
   (0x14538, 0x14548)
 ]
 def sszDecodeExecutionPcRanges : List PcRange := [
-  (0x101f8, 0x12168),
+  (0x101d4, 0x12168),
   (0x121e0, 0x123c0),
-  (0x123d4, 0x14458),
-  (0x14474, 0x144a8),
-  (0x144c4, 0x144e0),
-  (0x144fc, 0x1450c),
-  (0x1451c, 0x1452c),
-  (0x14538, 0x14548),
-  (0x15bf4, 0x162a8),
-  (0x16310, 0x16bd4)
+  (0x123d4, 0x145a0),
+  (0x15bf4, 0x16bd4)
 ]
+def sszDecodeExitPcs : List Nat := [0x123c0, 0x145a0]
 
 def writeSuccessEntry : Nat := 0x1470c
 def writeSuccessOwnedInstructionCount : Nat := 190
-def writeSuccessExecutionInstructionCount : Nat := 928
+def writeSuccessAbsorbedInstructionCount : Nat := 0
+def writeSuccessExecutionInstructionCount : Nat := 950
 def writeSuccessOwnedPcRanges : List PcRange := [
   (0x1470c, 0x147dc),
   (0x147f0, 0x14808),
@@ -144,28 +136,26 @@ def writeSuccessOwnedPcRanges : List PcRange := [
   (0x152bc, 0x153f0)
 ]
 def writeSuccessExecutionPcRanges : List PcRange := [
+  (0x10190, 0x101c4),
+  (0x101d4, 0x101f8),
   (0x1470c, 0x153f0),
   (0x15578, 0x15714)
 ]
+def writeSuccessExitPcs : List Nat := [0x14708]
 
 def writeFailureEntry : Nat := 0x15b9c
 def writeFailureOwnedInstructionCount : Nat := 0
-def writeFailureExecutionInstructionCount : Nat := 5
+def writeFailureAbsorbedInstructionCount : Nat := 0
+def writeFailureExecutionInstructionCount : Nat := 18
 def writeFailureOwnedPcRanges : List PcRange := []
 def writeFailureExecutionPcRanges : List PcRange := [
+  (0x10190, 0x101c4),
   (0x15b9c, 0x15bb0)
 ]
+def writeFailureExitPcs : List Nat := [0x123c8]
 
-def allocatorAllocBytesEntry : Nat := 0x162a8
-def allocatorAllocBytesOwnedInstructionCount : Nat := 22
-def allocatorAllocBytesExecutionInstructionCount : Nat := 26
-def allocatorAllocBytesOwnedPcRanges : List PcRange := [
-  (0x162a8, 0x162c4),
-  (0x162d4, 0x16310)
-]
-def allocatorAllocBytesExecutionPcRanges : List PcRange := [
-  (0x162a8, 0x16310)
-]
+def sszDecodeFailureContinuation : Nat := 0x123c0
+def sszDecodeSuccessContinuation : Nat := 0x145a0
 
 def readInputEcallPc : Nat := 0x10168
 def writeOutputEcallPc : Nat := 0x101b4

@@ -81,6 +81,9 @@ let
     chmod -R u+w compiled
     mkdir -p compiled/BinaryFv/Ssz
     mkdir -p compiled/BinaryFv/Ssz/Generated
+    mkdir -p compiled/BinaryFv/RiscV/Logic
+    mkdir -p compiled/BinaryFv/RiscV/Model
+    mkdir -p compiled/BinaryFv/Binary
     export LEAN_PATH=$PWD/compiled:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
     cp ${repo}/BinaryFv/Ssz/Specification.lean Specification.lean
     cp ${repo}/BinaryFv/Ssz/ZesuObservation.lean ZesuObservation.lean
@@ -90,6 +93,12 @@ let
     cp ${repo}/BinaryFv/Ssz/Generated/Level1.lean Level1Generated.lean
     cp ${repo}/BinaryFv/Ssz/MachineContract.lean MachineContract.lean
     cp ${repo}/BinaryFv/Ssz/HostExecution.lean HostExecution.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/MemoryWriteFrame.lean MemoryWriteFrame.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/RegisterAgree.lean RegisterAgree.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/LoadedImage.lean LoadedImage.lean
+    cp ${repo}/BinaryFv/Binary/Address.lean BinaryAddress.lean
+    cp ${repo}/BinaryFv/RiscV/Model/Address.lean RiscVAddress.lean
+    cp ${repo}/BinaryFv/RiscV/Model/State.lean RiscVState.lean
     cp ${repo}/tests/evm-sail/CombinedImportSmoke.lean CombinedImportSmoke.lean
     cp ${repo}/tests/evm-sail/ObservationSmoke.lean ObservationSmoke.lean
     cp ${repo}/tests/evm-sail/DifferentialSmoke.lean DifferentialSmoke.lean
@@ -121,6 +130,12 @@ let
     lean -o compiled/BinaryFv/Ssz/Relation.olean Relation.lean
     lean -o compiled/BinaryFv/Ssz/Generated/Level1.olean Level1Generated.lean
     lean -o compiled/BinaryFv/Ssz/MachineContract.olean MachineContract.lean
+    lean -o compiled/BinaryFv/Binary/Address.olean BinaryAddress.lean
+    lean -o compiled/BinaryFv/RiscV/Model/Address.olean RiscVAddress.lean
+    lean -o compiled/BinaryFv/RiscV/Model/State.olean RiscVState.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/LoadedImage.olean LoadedImage.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/MemoryWriteFrame.olean MemoryWriteFrame.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/RegisterAgree.olean RegisterAgree.lean
     lean -o compiled/BinaryFv/Ssz/HostExecution.olean HostExecution.lean
     lean -o compiled/BinaryFv/Ssz/Level1Boundary.olean Level1Boundary.lean
     lean CombinedImportSmoke.lean

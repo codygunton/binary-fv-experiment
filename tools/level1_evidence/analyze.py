@@ -42,29 +42,46 @@ def parse_trace(path: Path) -> dict:
 
 
 def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
-    executed = trace["executed"]
-    observed = set(executed)
     result = []
     for instance in manifest["instances"]:
         extent = set(instance["executionPcs"])
+        exits_expected = set(instance["exitPcs"])
         entries = trace["registers"].get(instance["entryPc"], [])
         for snapshot in entries:
             if snapshot["available"] != 2 ** 32 - 1:
                 raise ValueError(f"unavailable register in snapshot for {instance['id']}")
-        transitions = sorted({
-            (before, after) for before, after in zip(executed, executed[1:])
-            if before in extent and after not in extent
-        })
-        exits = []
-        for before, after in zip(trace["executions"], trace["executions"][1:]):
-            if before["pc"] not in extent or after["pc"] in extent:
+        observed_owned, observed_extent = set(), set()
+        transitions, exits = [], []
+        active = False
+        executions = trace["executions"]
+        for index, current in enumerate(executions):
+            if not active and current["pc"] == instance["entryPc"] and current["registers"] is not None:
+                active = True
+            if not active:
                 continue
+            if current["pc"] not in extent:
+                raise ValueError(f"active occurrence left extent for {instance['id']}")
+            observed_extent.add(current["pc"])
+            if current["pc"] in instance["instructionPcs"]:
+                observed_owned.add(current["pc"])
+            if index + 1 == len(executions):
+                if current["pc"] not in exits_expected:
+                    raise ValueError(f"unterminated occurrence for {instance['id']}")
+                active = False
+                continue
+            after = executions[index + 1]
+            if after["pc"] in extent:
+                continue
+            if after["pc"] not in exits_expected:
+                raise ValueError(
+                    f"unexpected exit {current['pc']} -> {after['pc']} for {instance['id']}")
             snapshot = after["registers"]
-            if entries and (snapshot is None or snapshot["available"] != 2 ** 32 - 1):
+            if snapshot is None or snapshot["available"] != 2 ** 32 - 1:
                 raise ValueError(f"missing exit register snapshot for {instance['id']}")
-            if snapshot is not None:
-                exits.append({"beforePc": before["pc"], "afterPc": after["pc"],
-                              "afterRegisters": snapshot})
+            transitions.append((current["pc"], after["pc"]))
+            exits.append({"beforePc": current["pc"], "afterPc": after["pc"],
+                          "afterRegisters": snapshot})
+            active = False
         memory = [
             {"kind": kind, "pc": record[0], "address": record[1],
              "width": record[2], "value": record[3]}
@@ -76,9 +93,9 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             "qualified": instance["qualified"],
             "entryReached": bool(entries),
             "entryRegisters": entries,
-            "executedOwnedPcs": sorted(observed & set(instance["instructionPcs"])),
-            "executedExtentPcs": sorted(observed & extent),
-            "observedExitTransitions": [list(pair) for pair in transitions],
+            "executedOwnedPcs": sorted(observed_owned),
+            "executedExtentPcs": sorted(observed_extent),
+            "observedExitTransitions": [list(pair) for pair in sorted(set(transitions))],
             "observedExits": exits,
             "memoryAccesses": memory,
         })

@@ -158,7 +158,8 @@ def KnownBugApplies (source : Array UInt8) (zesu : ZesuDecodedResult) : KnownBug
 
 instance (source : Array UInt8) (zesu : ZesuDecodedResult) (bug : KnownBug) :
     Decidable (KnownBugApplies source zesu bug) := by
-  cases bug <;> simp only [KnownBugApplies] <;> infer_instance
+  cases bug <;> simp only [KnownBugApplies] <;> try infer_instance
+  cases zesu.chainConfig.activationBlock <;> infer_instance
 
 instance (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) :
     Decidable (decodedResultRel source zesu sail) := by

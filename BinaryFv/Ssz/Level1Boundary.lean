@@ -50,15 +50,18 @@ def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Pr
   state.machine.regs.get? x18 = some (BitVec.ofNat 64 args.input.size) ∧
   BytesRep state.machine.mem args.inputAddress args.input
 
-/-- The source `catch` routes failure to `writeFailure`; success passes the concrete 848-byte
-`StatelessInput` address in `a0` to `writeSuccess`. -/
+/-- The inlined decoder stops at the two exact parent continuations. Failure precedes the parent's
+call to `writeFailure`; success has just materialized the concrete 848-byte result in `a0`, before
+the parent copies it and calls `writeSuccess`. -/
 def DecodeBoundaryExit (outcome : DecodeBoundaryOutcome) (state : EndpointState) : Prop :=
   Generated.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
     match outcome with
-    | .failure => state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.writeFailureEntry)
+    | .failure => state.machine.regs.get? PC =
+        some (BitVec.ofNat 64 Generated.sszDecodeFailureContinuation)
     | .success decoded => ∃ address : Nat,
         address < 2 ^ 64 ∧
-        state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.writeSuccessEntry) ∧
+        state.machine.regs.get? PC =
+          some (BitVec.ofNat 64 Generated.sszDecodeSuccessContinuation) ∧
         state.machine.regs.get? x10 = some (BitVec.ofNat 64 address) ∧
         StatelessInputRep state.machine.mem address decoded
 
@@ -84,8 +87,8 @@ def DecodeExecutionPc : BitVec 64 → Prop :=
   pcInRanges Generated.sszDecodeExecutionPcRanges
 
 def DecodeExitPc (pc : BitVec 64) : Prop :=
-  pc = BitVec.ofNat 64 Generated.writeSuccessEntry ∨
-    pc = BitVec.ofNat 64 Generated.writeFailureEntry
+  pc = BitVec.ofNat 64 Generated.sszDecodeFailureContinuation ∨
+    pc = BitVec.ofNat 64 Generated.sszDecodeSuccessContinuation
 
 /-- The exact strict implementation obligation at the generated production boundary. -/
 abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : Prop :=

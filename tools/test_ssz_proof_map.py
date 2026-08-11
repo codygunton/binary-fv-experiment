@@ -40,6 +40,8 @@ class ProofMapTest(unittest.TestCase):
                     if node["kind"] == "parentGlue")
         self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),
                          ("not_started", 0))
+        self.assertEqual(glue["instructionCount"], 117)
+        self.assertEqual(glue["absorbedInlineInstructionCount"], 53)
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)

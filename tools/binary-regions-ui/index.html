@@ -408,6 +408,7 @@ function showRefinementNode(node){
     $('#rbody').innerHTML=`<div class="kv"><span>obligation</span><span>prove parent-owned machine instructions while consuming selected child contracts</span>
       <span>proof status</span><span>${esc(node.proofStatus.replaceAll('_',' '))}</span>
       <span>progress</span><span>${node.provedInstructionCount}/${node.instructionCount} instructions kernel-linked</span>
+      <span>inline attribution</span><span>${node.absorbedInlineInstructionCount} DWARF-unclaimed instructions reviewed into inline Level 1 contracts</span>
       <span>phase</span><span>${esc(phase.label)}</span></div><pre>${pcs.map(row=>`0x${row.pc.toString(16)}  ${row.mnemonic.padEnd(7)} ${row.operands}`).join('\n')}</pre>`;
     return;
   }

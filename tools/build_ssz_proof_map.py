@@ -19,8 +19,9 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
                 if row["kind"] == "concrete" and row["entryPc"] == root_entry)
     selected_extent = {pc for row in manifest["instances"] for pc in row["executionPcs"]}
     glue_pcs = sorted(set(main["pcs"]) - selected_extent)
-    if len(glue_pcs) != root["self"]:
-        raise ValueError("Level 0 glue count disagrees with the flame hierarchy")
+    absorbed = sum(len(row["absorbedInstructionPcs"]) for row in manifest["instances"])
+    if len(glue_pcs) + absorbed != root["self"]:
+        raise ValueError("Level 0 glue plus reviewed inline absorption disagrees with flame ownership")
 
     instruction_by_pc = {}
     block_by_pc = {}
@@ -109,6 +110,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         {"id": "glue", "label": "main parent-owned glue", "kind": "parentGlue", "column": 1,
          "status": "proof_not_started", "proofStatus": "not_started",
          "phase": "level0-glue", "instructionCount": len(glue_pcs),
+         "absorbedInlineInstructionCount": absorbed,
          "provedInstructionCount": 0},
         {"id": "conversion", "label": "exportedContracts_of_level1", "kind": "conversion",
          "column": 2, "status": "not_started", "proofStatus": "not_started"},

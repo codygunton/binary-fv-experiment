@@ -18,15 +18,25 @@ def fixture() -> tuple[dict, dict]:
             "qualified": qualified,
             "entryPc": entry,
             "instructionPcs": [entry],
+            "absorbedInstructionPcs": [],
             "executionPcs": [entry],
+            "exitPcs": [entry + 4],
         })
         instruction = {"pc": entry, "mnemonic": "addi", "bytes": "13000000"}
         if qualified in ("read_input", "write_output", "zkvm_exit"):
             instruction = {"pc": entry, "mnemonic": "ecall", "bytes": "73000000"}
         functions.append({
+            "name": qualified,
             "start": entry,
             "blocks": [{"instructions": [instruction]}],
         })
+    functions.append({
+        "name": "write_output",
+        "start": 0x2000,
+        "blocks": [{"instructions": [{
+            "pc": 0x2000, "mnemonic": "ecall", "bytes": "73000000",
+        }]}],
+    })
     return (
         {"artifact": {"sha256": SHA}, "instances": instances},
         {"artifact": {"sha256": SHA}, "functions": functions},
@@ -38,8 +48,8 @@ class GenerateLevel1LeanTests(unittest.TestCase):
         manifest, cfg = fixture()
         output = generate(manifest, cfg)
         self.assertIn("def readInputEcallPc : Nat := 0x1000", output)
-        self.assertIn("def writeOutputEcallPc : Nat := 0x1020", output)
-        self.assertIn("def zkvmExitEcallPc : Nat := 0x1040", output)
+        self.assertIn("def writeOutputEcallPc : Nat := 0x2000", output)
+        self.assertIn("def zkvmExitEcallPc : Nat := 0x1020", output)
 
     def test_rejects_noncanonical_ecall(self):
         manifest, cfg = fixture()

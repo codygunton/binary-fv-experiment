@@ -45,6 +45,10 @@ def lean_ranges(values: list[int]) -> str:
     return "[\n" + ",\n".join(rows) + "\n]"
 
 
+def lean_nats(values: list[int]) -> str:
+    return "[" + ", ".join(hex(value) for value in values) + "]"
+
+
 def syscall_pcs(cfg: dict, manifest: dict) -> dict[str, int]:
     functions = {row["name"]: row for row in cfg["functions"]}
     result: dict[str, int] = {}
@@ -83,11 +87,21 @@ def generate(manifest: dict, cfg: dict) -> str:
         lines.extend([
             f"def {lean_name}Entry : Nat := {hex(row['entryPc'])}",
             f"def {lean_name}OwnedInstructionCount : Nat := {len(row['instructionPcs'])}",
+            f"def {lean_name}AbsorbedInstructionCount : Nat := {len(row['absorbedInstructionPcs'])}",
             f"def {lean_name}ExecutionInstructionCount : Nat := {len(row['executionPcs'])}",
             f"def {lean_name}OwnedPcRanges : List PcRange := {lean_ranges(row['instructionPcs'])}",
             f"def {lean_name}ExecutionPcRanges : List PcRange := {lean_ranges(row['executionPcs'])}",
+            f"def {lean_name}ExitPcs : List Nat := {lean_nats(row['exitPcs'])}",
             "",
         ])
+    decode_exits = rows["ssz.decode"]["exitPcs"]
+    if len(decode_exits) != 2:
+        raise ValueError("ssz.decode requires exact failure and success continuation PCs")
+    lines.extend([
+        f"def sszDecodeFailureContinuation : Nat := {decode_exits[0]:#x}",
+        f"def sszDecodeSuccessContinuation : Nat := {decode_exits[1]:#x}",
+        "",
+    ])
     ecalls = syscall_pcs(cfg, manifest)
     lines.extend([
         f"def readInputEcallPc : Nat := {ecalls['read_input']:#x}",

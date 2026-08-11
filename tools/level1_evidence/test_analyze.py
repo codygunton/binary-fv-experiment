@@ -14,7 +14,7 @@ class EvidenceTest(unittest.TestCase):
             "artifact": {"kind": "ELF", "sha256": hashlib.sha256(b"elf").hexdigest()},
             "instances": [{
                 "id": "fi:1", "qualified": "child", "entryPc": 4,
-                "instructionPcs": [4, 8], "executionPcs": [4, 8, 12],
+                "instructionPcs": [4, 8], "executionPcs": [4, 8, 12], "exitPcs": [16],
             }],
         }
         self.trace = {
