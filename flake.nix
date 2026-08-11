@@ -83,7 +83,7 @@
             inherit pkgs repo rv64 targets;
           };
           proof = import ./nix/proof.nix {
-            inherit etheorem pkgs repo rv64 sailRiscv targets;
+            inherit etheorem executionSpecs pkgs repo rv64 sailRiscv targets;
           };
           evmSailSpec = import ./nix/evm-sail.nix {
             inherit evmSail evmSailCompiler leanSail pkgs;
@@ -115,7 +115,7 @@
             source = self;
           };
           proof = import ./nix/proof.nix {
-            inherit etheorem pkgs repo rv64 sailRiscv targets;
+            inherit etheorem executionSpecs pkgs repo rv64 sailRiscv targets;
           };
         in
         {

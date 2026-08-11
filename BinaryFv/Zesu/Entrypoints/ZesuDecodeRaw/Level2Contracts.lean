@@ -51,6 +51,15 @@ structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
   savedS0AtEntry : ∃ value, state.regs.get? Register.x8 = some value
   savedS1AtEntry : ∃ value, state.regs.get? Register.x9 = some value
   savedS2AtEntry : ∃ value, state.regs.get? Register.x18 = some value
+  savedS3AtEntry : ∃ value, state.regs.get? Register.x19 = some value
+  savedS4AtEntry : ∃ value, state.regs.get? Register.x20 = some value
+  savedS5AtEntry : ∃ value, state.regs.get? Register.x21 = some value
+  savedS6AtEntry : ∃ value, state.regs.get? Register.x22 = some value
+  savedS7AtEntry : ∃ value, state.regs.get? Register.x23 = some value
+  savedS8AtEntry : ∃ value, state.regs.get? Register.x24 = some value
+  savedS9AtEntry : ∃ value, state.regs.get? Register.x25 = some value
+  savedS10AtEntry : ∃ value, state.regs.get? Register.x26 = some value
+  savedS11AtEntry : ∃ value, state.regs.get? Register.x27 = some value
   stackAtEntry : state.regs.get? Register.x2 = some (BitVec.ofNat 64 (stackBase + 0xa20))
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64
   inputBound : args.bytes.size < 2 * 1024 * 1024
@@ -85,6 +94,20 @@ structure ZesuDecodeRawMachinePre (args : ZesuDecodeRawArgs) (stackBase : Nat)
   stackAvoidsStatusGlobals : stackBase + 0xa20 ≤ 0x4215020 ∨ 0x4215028 ≤ stackBase
   stackFrameWritable : ∀ index, index < 0xa20 →
     canonicalContractParams.env.stack (stackBase + index)
+  /-- The raw decoder's own frame lies below the inline caller's stack pointer after its
+  `0xe80` decrement.  This exact interval covers the later `sp + 0x2a0` parent slot. -/
+  rawFrameWritable : ∀ index, index < 0x7f0 →
+    canonicalContractParams.env.stack (stackBase - 0xe80 + index)
+  /-- The raw decoder's complete prologue frame includes the thirteen saved words through
+  `postStack + 0xe78`; this interval is distinct from the later 0x7f0-byte temporary frame. -/
+  rawPrologueFrameWritable : ∀ index, index < 0xe80 →
+    canonicalContractParams.env.stack (stackBase - 0xe80 + index)
+  /-- The selected `RawNewPayloadRequest.deinit` child saves three registers in this 0x50-byte
+  frame immediately below the raw decoder's post-prologue `sp`. -/
+  nestedCallFrameWritable : ∀ index, index < 0x50 →
+    canonicalContractParams.env.stack (stackBase - 0xed0 + index)
+  /-- The child-call frame subtraction is valid for the concrete canonical caller stack. -/
+  nestedCallFrameFits : 0xed0 ≤ stackBase
   stackObjectsFit : stackBase + 0x6b0 + canonicalContractParams.env.record.entryResult ≤
     2 ^ 64
   stackObjectsReadable : ∀ index,

@@ -287,8 +287,10 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
       compiledZesuDecodeRawContract.binding.entry
         ⟨canonicalRunnerLayout.inputBase, input⟩ state := by
   obtain ⟨state, built, source, link, stack, normal, fetchPresent, fetchPinned, loadPinned,
-    entrySymbol, entrySymbolFound, entryPc, nextPc, pma, savedS0, savedS1, savedS2⟩ :=
+    entrySymbol, entrySymbolFound, entryPc, nextPc, pma, savedS0, savedS1, savedS2, savedCallee⟩ :=
     buildZesuEntryState_entry_binding_abi input
+  rcases savedCallee with ⟨savedS3, savedS4, savedS5, savedS6, savedS7, savedS8, savedS9,
+    savedS10, savedS11⟩
   refine ⟨state, built, source, ?_⟩
   refine ⟨canonicalZesuDecodeRawStackBase, ?_⟩
   refine {
@@ -297,6 +299,15 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
     savedS0AtEntry := savedS0
     savedS1AtEntry := savedS1
     savedS2AtEntry := savedS2
+    savedS3AtEntry := savedS3
+    savedS4AtEntry := savedS4
+    savedS5AtEntry := savedS5
+    savedS6AtEntry := savedS6
+    savedS7AtEntry := savedS7
+    savedS8AtEntry := savedS8
+    savedS9AtEntry := savedS9
+    savedS10AtEntry := savedS10
+    savedS11AtEntry := savedS11
     stackAtEntry := ?_
     inputFits := ?_
     inputBound := inputBound
@@ -310,6 +321,10 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
     stackFrameFits := ?_
     stackAvoidsStatusGlobals := ?_
     stackFrameWritable := ?_
+    rawFrameWritable := ?_
+    rawPrologueFrameWritable := ?_
+    nestedCallFrameWritable := ?_
+    nestedCallFrameFits := ?_
     stackObjectsFit := ?_
     stackObjectsReadable := ?_
     machine := ?_ }
@@ -385,6 +400,47 @@ theorem buildZesuEntryState_compiled_entry (input : ByteArray)
       rw [stackBasePinned, stackStartPinned, stackSizePinned]
       omega
     exact ⟨lower, upper⟩
+  · intro index indexBound
+    simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]
+    have stackBasePinned : canonicalZesuDecodeRawStackBase = 0x3000000ff5e0 := by native_decide
+    have stackStartPinned : canonicalRunnerLayout.stackBase = 0x300000000000 := by native_decide
+    have stackSizePinned : canonicalRunnerLayout.stackSize = 1024 * 1024 := by native_decide
+    have lower : canonicalRunnerLayout.stackBase ≤ canonicalZesuDecodeRawStackBase - 0xe80 + index := by
+      rw [stackBasePinned, stackStartPinned]
+      omega
+    have upper : canonicalZesuDecodeRawStackBase - 0xe80 + index <
+        canonicalRunnerLayout.stackBase + canonicalRunnerLayout.stackSize := by
+      rw [stackBasePinned, stackStartPinned, stackSizePinned]
+      omega
+    exact ⟨lower, upper⟩
+  · intro index indexBound
+    simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]
+    have stackBasePinned : canonicalZesuDecodeRawStackBase = 0x3000000ff5e0 := by native_decide
+    have stackStartPinned : canonicalRunnerLayout.stackBase = 0x300000000000 := by native_decide
+    have stackSizePinned : canonicalRunnerLayout.stackSize = 1024 * 1024 := by native_decide
+    have lower : canonicalRunnerLayout.stackBase ≤ canonicalZesuDecodeRawStackBase - 0xe80 + index := by
+      rw [stackBasePinned, stackStartPinned]
+      omega
+    have upper : canonicalZesuDecodeRawStackBase - 0xe80 + index <
+        canonicalRunnerLayout.stackBase + canonicalRunnerLayout.stackSize := by
+      rw [stackBasePinned, stackStartPinned, stackSizePinned]
+      omega
+    exact ⟨lower, upper⟩
+  · intro index indexBound
+    simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]
+    have stackBasePinned : canonicalZesuDecodeRawStackBase = 0x3000000ff5e0 := by native_decide
+    have stackStartPinned : canonicalRunnerLayout.stackBase = 0x300000000000 := by native_decide
+    have stackSizePinned : canonicalRunnerLayout.stackSize = 1024 * 1024 := by native_decide
+    have lower : canonicalRunnerLayout.stackBase ≤ canonicalZesuDecodeRawStackBase - 0xed0 + index := by
+      rw [stackBasePinned, stackStartPinned]
+      omega
+    have upper : canonicalZesuDecodeRawStackBase - 0xed0 + index <
+        canonicalRunnerLayout.stackBase + canonicalRunnerLayout.stackSize := by
+      rw [stackBasePinned, stackStartPinned, stackSizePinned]
+      omega
+    exact ⟨lower, upper⟩
+  · change 0xed0 ≤ canonicalZesuDecodeRawStackBase
+    native_decide
   · native_decide
   · intro index indexBound
     simp only [canonicalContractParams, canonicalEnvironment, canonicalStack, range]

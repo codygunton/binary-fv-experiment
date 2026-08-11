@@ -25,10 +25,11 @@ def entryMachineArgs (args : EntryArgs) : DecoderMachineArgs where
 
 /-- Registers the emitted `decodeRaw` function must return to its inlined caller. Besides the
 machine-platform frame, the caller immediately reuses `sp`, `s0`, `s1`, and the wrapper's live
-global-object base in `s2`. This is a checked contract clause for this concrete call boundary,
-not a general RISC-V ABI claim. -/
+global-object base in `s2`, plus the wrapper values held in `s3` through `s11`. This is a checked
+contract clause for this concrete call boundary, not a general RISC-V ABI claim. -/
 def decodeRawCallerPreserved (register : Register) : Prop :=
-  platformPreserved register ∨ register = x2 ∨ register = x8 ∨ register = x9 ∨ register = x18
+  platformPreserved register ∨ register = x2 ∨ register = x8 ∨ register = x9 ∨ register = x18 ∨
+    decodeRawCalleeSaved register
 
 /-- The caller copies the first 832 bytes of the result object on every retry outcome, so the
 compiled child boundary must expose that those bytes are initialized. -/
@@ -78,6 +79,8 @@ def compiledDecodeRawContract : FunctionInstanceContract
     binding :=
       { entry := fun args state => source.binding.entry args state ∧
           state.regs.get? PC = some (BitVec.ofNat 64 0x10444) ∧
+          DecodeRawEntryFrame state ∧
+          DecodeRawReturnLinkPre state ∧
           DecoderMachinePre
             (functionInstanceExecutionPcs generatedProgram functionInstance_ssz_raw_decodeRaw)
             (entryMachineArgs args) state
@@ -248,6 +251,7 @@ they are not source-ABI assumptions for the inlined helper. -/
 structure HasExactErePrefixInlineFrame (args : HasExactErePrefixInlineArgs)
     (before after : State) : Prop where
   agree : Agree decoderPreserved before after
+  callerFrame : Agree decodeRawCalleeSaved before after
   retiredCounter : RetiredCounterPresent after
   stackPointer : after.regs.get? x2 = before.regs.get? x2
   inputPointer : after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase)

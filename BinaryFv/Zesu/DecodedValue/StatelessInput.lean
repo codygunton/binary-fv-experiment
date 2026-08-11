@@ -1,4 +1,5 @@
 import BinaryFv.RiscV.Execution.MemoryIo
+import BinaryFv.RiscV.Logic.SepLogic
 import BinaryFv.RiscV.Logic.LoadedImage
 import BinaryFv.Zesu.Artifacts.AbiManifest
 import BinaryFv.Specs.SSZ.AmsterdamV4
@@ -79,6 +80,19 @@ theorem FixedByteVectorRep.rebase {length : Nat} {before after : State} {source 
 def BitVectorLERep {width : Nat} (state : State) (base : Nat) (value : BitVec width) : Prop :=
   ∀ index (h : index < width / 8),
     state.mem.get? (base + index) = some (BitVec.ofNat 8 ((value.toNat / 256 ^ index) % 256))
+
+/-- A byte represented by `BitVectorLERep` is the corresponding byte in Sail's little-endian
+encoding.  Machine load proofs consume this form directly. -/
+theorem BitVectorLERep.leBytes {n : Nat} {state : State} {base : Nat} {value : BitVec (8 * n)}
+    (representation : BitVectorLERep state base value) (index : Nat) (bound : index < n) :
+    state.mem.get? (base + index) =
+      some (getElem (BinaryFv.RiscV.Sep.leBytes n value) index (by
+        simpa only [BinaryFv.RiscV.Sep.leBytes_length] using bound)) := by
+  rw [representation index (by omega)]
+  congr 1
+  apply BitVec.eq_of_toNat_eq
+  simp [BinaryFv.RiscV.Sep.leBytes, Nat.shiftRight_eq_div_pow]
+  rw [show 256 = 2 ^ 8 by decide, ← Nat.pow_mul]
 
 /-- Rebase an inline little-endian bit vector along a bytewise relocation. -/
 theorem BitVectorLERep.rebase {width : Nat} {before after : State} {source destination : Nat}

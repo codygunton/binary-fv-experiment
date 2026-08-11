@@ -317,10 +317,13 @@ let
       python3 ${machineRegionsGenerator} \
         --elf ${zesuSsz}/bin/zesu-ssz \
         --program-json ${elflingProgram}/program.json \
+        --source-root ${zesuRepaired} \
         --llvm-objdump ${pkgs.llvm}/bin/llvm-objdump \
         --out "$1/machine-regions.json" \
         --out-lean "$1/GeneratedMachineRegions.lean" \
-        --out-flame "$1/flame.json"
+        --out-flame "$1/flame.json" \
+        --out-level4-boundaries "$1/level4-boundaries.json" \
+        --out-level4-attribution-lean "$1/GeneratedLevel4Attribution.lean"
     }
     gen run1
     gen run2
@@ -330,9 +333,14 @@ let
       || { echo "MACHINE-REGION LEAN EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
     cmp -s run1/flame.json run2/flame.json \
       || { echo "MACHINE-REGION UI EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
-    cp run1/machine-regions.json run1/GeneratedMachineRegions.lean run1/flame.json "$out/"
+    cmp -s run1/level4-boundaries.json run2/level4-boundaries.json \
+      || { echo "LEVEL 4 BOUNDARY INVENTORY NON-DETERMINISTIC" >&2; exit 1; }
+    cmp -s run1/GeneratedLevel4Attribution.lean run2/GeneratedLevel4Attribution.lean \
+      || { echo "LEVEL 4 ATTRIBUTION LEAN EXTRACTOR NON-DETERMINISTIC" >&2; exit 1; }
+    cp run1/machine-regions.json run1/GeneratedMachineRegions.lean run1/flame.json \
+      run1/level4-boundaries.json run1/GeneratedLevel4Attribution.lean "$out/"
     printf '%s\n' \
-      "unit tests and corruption probes passed; two independent runs produced byte-identical machine-regions.json" \
+      "unit tests and corruption probes passed; two independent runs produced byte-identical machine-regions.json and level4-boundaries.json" \
       > "$out/determinism.txt"
   '';
 
@@ -875,6 +883,23 @@ let
     '';
   };
 
+  # Unit/corruption gate for the Level 4 production-evidence runner.  The runner's actual ELF
+  # invocation takes the hierarchy stream's reviewed 18-boundary inventory as an explicit input;
+  # this target keeps its schema and mutation checks independently executable until that generated
+  # inventory is integrated.
+  level4EvidenceTests = pkgs.runCommand "zesu-level4-contract-evidence-tests" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    cp -R ${builtins.path {
+      path = repo + "/verification-target/zesu/tests";
+      name = "zesu-level4-contract-evidence-tests";
+    }} tests
+    chmod -R u+w tests
+    python3 tests/level4_contract_evidence_test.py
+    mkdir -p "$out"
+    printf '%s\n' passed > "$out/passed"
+  '';
+
   zesuSszRun = pkgs.writeShellApplication {
     name = "zesu-ssz";
     runtimeInputs = [ pkgs.qemu-user ];
@@ -899,6 +924,7 @@ in
       elflingGeneratorDefectsCheck
       sszBinaryEvidence
       sszScaleEvidence
+      level4EvidenceTests
       zesuAbiManifest
       zesuSinkObservability
       zesuSsz
@@ -917,6 +943,7 @@ in
     elfling-generator-defects-check = elflingGeneratorDefectsCheck;
     ssz-binary-evidence = sszBinaryEvidence;
     ssz-scale-evidence = sszScaleEvidence;
+    ssz-level4-contract-evidence-tests = level4EvidenceTests;
     zesu-abi-manifest = zesuAbiManifest;
     zesu-sink-observability = zesuSinkObservability;
     zesu-native-suite = zesuNativeSuite;

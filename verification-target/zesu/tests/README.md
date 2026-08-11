@@ -15,6 +15,14 @@ the Lean refinement from `BinaryFv/Specs/SSZ` through Zesu's contracts to machin
 specialization, and full inline call path, and that generation fails if two instances would receive
 the same name.
 
+`level4_contract_evidence.py` is the admission-evidence runner for the reviewed 18 Level 4 local
+boundaries from 15 function families. It consumes the hierarchy stream's JSON inventory, compares
+accepted and rejected inputs with execution-specs, executable Lean SSZ, and an independently built
+source probe, then observes entry/exit PCs and writes in the unchanged RV64 ELF. Its report names
+the argument/result/frame/universal-bound clauses the trace cannot measure; passing it is evidence,
+not a proof premise. `level4_contract_evidence_test.py` rejects stale 4+4 inventory data and mutates
+every currently measurable observation.
+
 `lean/ZesuVerification/` contains Lean checks tied to the production binary. The occurrence checks
 compare extracted instructions, call boundaries, and source bindings with committed execution
 observations. The scaled checks attempt those tests for all 141 compiled function instances under

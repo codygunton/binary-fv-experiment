@@ -225,6 +225,7 @@ theorem hasExactErePrefix_length_segment (fromStep : Nat)
         fromStep 1 state after ∧
       Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost args after ∧
       Agree Entrypoints.ZesuDecodeRaw.decoderPreserved state after ∧
+      Agree Entrypoints.ZesuDecodeRaw.decodeRawCalleeSaved state after ∧
       RetiredCounterPresent after ∧
       after.regs.get? x2 = state.regs.get? x2 ∧
       after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
@@ -293,7 +294,13 @@ theorem hasExactErePrefix_length_segment (fromStep : Nat)
     simp [after, result, afterRegisterWrite, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
       Std.ExtDHashMap.get?_insert]
+  have callerFrame : Agree decodeRawCalleeSaved state after :=
+    afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved])
   exact ⟨after, trace, post, agree,
+    callerFrame,
     afterRegisterWrite_retired_present state (BitVec.ofNat 64 0x10390) retired x12 result,
     stackFrame, inputPointer, inputLength, globals, x11, rfl⟩
 
@@ -918,6 +925,7 @@ theorem hasExactErePrefix_prefix_segment (fromStep : Nat)
         fromStep 10 state after ∧
       Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost args after ∧
       Agree Entrypoints.ZesuDecodeRaw.decoderPreserved state after ∧
+      Agree Entrypoints.ZesuDecodeRaw.decodeRawCalleeSaved state after ∧
       RetiredCounterPresent after ∧
       after.regs.get? x2 = state.regs.get? x2 ∧
       after.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase) ∧
@@ -1134,7 +1142,57 @@ theorem hasExactErePrefix_prefix_segment (fromStep : Nat)
     simp [s10, s9, s8, s7, s6, s5, s4, s3, s2, s1, afterRegisterWrite,
       tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, coreControlFlowNextState,
       tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert]
-  refine ⟨s10, trace, ?_, agree10, counter10, stackFrame10, inputPointer10, inputLength10,
+  have callerFrame1 : Agree decodeRawCalleeSaved state s1 :=
+    afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved])
+  have callerFrame2 : Agree decodeRawCalleeSaved state s2 :=
+    callerFrame1.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
+  have callerFrame3 : Agree decodeRawCalleeSaved state s3 :=
+    callerFrame2.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
+  have callerFrame4 : Agree decodeRawCalleeSaved state s4 :=
+    callerFrame3.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
+  have callerFrame5 : Agree decodeRawCalleeSaved state s5 :=
+    callerFrame4.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
+  have callerFrame6 : Agree decodeRawCalleeSaved state s6 :=
+    callerFrame5.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
+  have callerFrame7 : Agree decodeRawCalleeSaved state s7 :=
+    callerFrame6.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
+  have callerFrame8 : Agree decodeRawCalleeSaved state s8 :=
+    callerFrame7.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
+  have callerFrame9 : Agree decodeRawCalleeSaved state s9 :=
+    callerFrame8.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
+  have callerFrame10 : Agree decodeRawCalleeSaved state s10 :=
+    callerFrame9.trans (afterRegisterWrite_agree_of
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]))
+  refine ⟨s10, trace, ?_, agree10, callerFrame10, counter10, stackFrame10, inputPointer10, inputLength10,
     globals10, status10, rfl⟩
   simp only [Entrypoints.ZesuDecodeRaw.HasExactErePrefixInlinePost, phase]
   refine ⟨pc10, ?_, ?_, ?_⟩
@@ -1206,18 +1264,18 @@ theorem hasExactErePrefixInlineContract_proved :
   intro args fromStep before pre
   cases phaseEq : args.phase with
   | lengthGate =>
-      obtain ⟨after, trace, post, _agree, _counter, _stack, _inputPointer, _inputLength, _globals,
+      obtain ⟨after, trace, post, _agree, _callerFrame, _counter, _stack, _inputPointer, _inputLength, _globals,
         _status, memory⟩ :=
         hasExactErePrefix_length_segment fromStep args before pre phaseEq
       exact ⟨1, after, by simp [Entrypoints.ZesuDecodeRaw.hasExactErePrefixInlineStepBound],
-        trace, post, ⟨_agree, _counter, _stack, _inputPointer, _inputLength, _globals, _status,
+        trace, post, ⟨_agree, _callerFrame, _counter, _stack, _inputPointer, _inputLength, _globals, _status,
           memory⟩⟩
   | prefixBytes =>
-      obtain ⟨after, trace, post, _agree, _counter, _stack, _inputPointer, _inputLength, _globals,
+      obtain ⟨after, trace, post, _agree, _callerFrame, _counter, _stack, _inputPointer, _inputLength, _globals,
         _status, memory⟩ :=
         hasExactErePrefix_prefix_segment fromStep args before pre phaseEq
       exact ⟨10, after, by simp [Entrypoints.ZesuDecodeRaw.hasExactErePrefixInlineStepBound],
-        trace, post, ⟨_agree, _counter, _stack, _inputPointer, _inputLength, _globals, _status,
+        trace, post, ⟨_agree, _callerFrame, _counter, _stack, _inputPointer, _inputLength, _globals, _status,
           memory⟩⟩
 
 end BinaryFv.Zesu.MachineExecution

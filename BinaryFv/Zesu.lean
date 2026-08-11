@@ -32,6 +32,7 @@ import BinaryFv.Zesu.MachineExecution.HasExactErePrefixProof
 import BinaryFv.Zesu.MachineExecution.DecodeInlineRetryPrefix
 import BinaryFv.Zesu.MachineExecution.DecodeInlineProof
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Boundaries
+import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level4BoundaryInventory
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level2Contracts
 import BinaryFv.Zesu.Entrypoints.ZesuDecodeRaw.Level3Contracts
 import BinaryFv.Zesu.DecodedValue.StatelessInput

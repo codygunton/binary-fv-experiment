@@ -6,7 +6,9 @@
  *
  *   - every executed instruction PC (`E <pc>`), from which executed CFG edges are reconstructed; and
  *   - every load  `(pc, address, width, value)`      (`L <pc> <addr> <width> <value>`); and
- *   - every store `(pc, address, width, value, sp)`  (`S <pc> <addr> <width> <value> <sp>`).
+ *   - every store `(pc, address, width, value, sp)`  (`S <pc> <addr> <width> <value> <sp>`); and
+ *   - the `x2`, `x19`, and `x24` register snapshot at the reviewed fi:16 parent
+ *     producer PC (`R <pc> <x2> <x19> <x24>`).
  *
  * The stack pointer is read (via the plugin register API) at the moment of every store so that write
  * classification (stack vs heap vs input vs code vs …) is exact and self-contained: the scaled
@@ -34,57 +36,88 @@ static FILE *trace_out;
 static uint64_t pc_lo;               /* inclusive  */
 static uint64_t pc_hi = UINT64_MAX;  /* exclusive  */
 
-/* Handle to the stack-pointer register, resolved once per vCPU at init. */
-static struct qemu_plugin_register *sp_handle;
-static GByteArray *sp_buf;           /* reused scratch for register reads */
+/* The fi:16 branch target whose producer values feed r7's stack-word loads. */
+static uint64_t snapshot_pc = UINT64_C(0x10740);
+
+/* Register handles are vCPU-local: QEMU resolves them in each vCPU init callback. */
+struct register_handles {
+    struct qemu_plugin_register *sp;
+    struct qemu_plugin_register *x19;
+    struct qemu_plugin_register *x24;
+    GByteArray *buf;                 /* reused scratch for register reads */
+};
+static GPtrArray *vcpu_registers;
 
 static inline int in_window(uint64_t pc)
 {
     return pc >= pc_lo && pc < pc_hi;
 }
 
-/* Current stack pointer, read from the vCPU register file (0 if unavailable). */
-static uint64_t read_sp(void)
+static struct register_handles *registers_for_vcpu(unsigned int vcpu_index)
 {
-    if (!sp_handle || !sp_buf) {
-        return 0;
+    if (!vcpu_registers || vcpu_index >= vcpu_registers->len) {
+        return NULL;
     }
-    g_byte_array_set_size(sp_buf, 0);
-    if (!qemu_plugin_read_register(sp_handle, sp_buf) || sp_buf->len == 0) {
-        return 0;
-    }
-    uint64_t sp = 0;
-    /* target byte order is little-endian for RV64 */
-    for (guint i = 0; i < sp_buf->len && i < 8; i++) {
-        sp |= (uint64_t)sp_buf->data[i] << (8 * i);
-    }
-    return sp;
+    return g_ptr_array_index(vcpu_registers, vcpu_index);
 }
 
-/* Resolve the sp register handle in vCPU context (required by the plugin API). */
+/* Read one RV64 integer register in callback context (0 if unavailable). */
+static bool read_register(struct register_handles *registers,
+                          struct qemu_plugin_register *handle, uint64_t *out)
+{
+    if (!registers || !handle || !registers->buf) {
+        return false;
+    }
+    g_byte_array_set_size(registers->buf, 0);
+    if (!qemu_plugin_read_register(handle, registers->buf) || registers->buf->len == 0) {
+        return false;
+    }
+    *out = 0;
+    /* target byte order is little-endian for RV64 */
+    for (guint i = 0; i < registers->buf->len && i < 8; i++) {
+        *out |= (uint64_t)registers->buf->data[i] << (8 * i);
+    }
+    return true;
+}
+
+static void free_register_handles(gpointer data)
+{
+    struct register_handles *handles = data;
+    if (handles) {
+        if (handles->buf) g_byte_array_free(handles->buf, TRUE);
+        g_free(handles);
+    }
+}
+
+static bool named(const char *name, const char *canonical, const char *abi)
+{
+    return name && (g_strcmp0(name, canonical) == 0 || g_strcmp0(name, abi) == 0);
+}
+
+/* Resolve RV64 register handles in vCPU context (required by the plugin API). */
 static void vcpu_init(qemu_plugin_id_t id, unsigned int vcpu_index)
 {
     (void)id;
-    (void)vcpu_index;
-    if (sp_handle) {
-        return;
-    }
+    struct register_handles *handles = g_new0(struct register_handles, 1);
     GArray *regs = qemu_plugin_get_registers();
     if (!regs) {
+        g_free(handles);
         return;
     }
     for (guint i = 0; i < regs->len; i++) {
         qemu_plugin_reg_descriptor *d =
             &g_array_index(regs, qemu_plugin_reg_descriptor, i);
-        if (d->name && g_strcmp0(d->name, "sp") == 0) {
-            sp_handle = d->handle;
-            break;
-        }
+        if (named(d->name, "x2", "sp")) handles->sp = d->handle;
+        if (named(d->name, "x19", "s3")) handles->x19 = d->handle;
+        if (named(d->name, "x24", "s8")) handles->x24 = d->handle;
     }
     g_array_free(regs, TRUE);
-    if (!sp_buf) {
-        sp_buf = g_byte_array_new();
+    handles->buf = g_byte_array_new();
+    if (!vcpu_registers) {
+        vcpu_registers = g_ptr_array_new_with_free_func(free_register_handles);
     }
+    g_ptr_array_set_size(vcpu_registers, MAX(vcpu_registers->len, vcpu_index + 1));
+    g_ptr_array_index(vcpu_registers, vcpu_index) = handles;
 }
 
 /* Extract the concrete integer value of a load/store from the plugin's tagged union. */
@@ -107,9 +140,18 @@ static uint64_t mem_value_u64(qemu_plugin_mem_value v)
 static void insn_exec(unsigned int vcpu_index, void *userdata)
 {
     uint64_t pc = (uint64_t)(uintptr_t)userdata;
-    (void)vcpu_index;
     if (in_window(pc)) {
         fprintf(trace_out, "E %" PRIu64 "\n", pc);
+    }
+    if (pc == snapshot_pc) {
+        struct register_handles *registers = registers_for_vcpu(vcpu_index);
+        uint64_t x2, x19, x24;
+        if (read_register(registers, registers ? registers->sp : NULL, &x2)
+            && read_register(registers, registers ? registers->x19 : NULL, &x19)
+            && read_register(registers, registers ? registers->x24 : NULL, &x24)) {
+            fprintf(trace_out, "R %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64 "\n",
+                    pc, x2, x19, x24);
+        }
     }
 }
 
@@ -117,7 +159,6 @@ static void mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
                        uint64_t vaddr, void *userdata)
 {
     uint64_t pc = (uint64_t)(uintptr_t)userdata;
-    (void)vcpu_index;
     if (!in_window(pc)) {
         return;
     }
@@ -125,9 +166,12 @@ static void mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
     int is_store = qemu_plugin_mem_is_store(info);
     uint64_t value = mem_value_u64(qemu_plugin_mem_get_value(info));
     if (is_store) {
+        struct register_handles *registers = registers_for_vcpu(vcpu_index);
+        uint64_t sp = 0;
         /* Stores carry the stack pointer so writes can be classified without GDB. */
+        (void)read_register(registers, registers ? registers->sp : NULL, &sp);
         fprintf(trace_out, "S %" PRIu64 " %" PRIu64 " %u %" PRIu64 " %" PRIu64 "\n",
-                pc, vaddr, width, value, read_sp());
+                pc, vaddr, width, value, sp);
     } else {
         fprintf(trace_out, "L %" PRIu64 " %" PRIu64 " %u %" PRIu64 "\n",
                 pc, vaddr, width, value);
@@ -142,7 +186,7 @@ static void tb_translate(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
         void *pc = (void *)(uintptr_t)qemu_plugin_insn_vaddr(insn);
         qemu_plugin_register_vcpu_insn_exec_cb(insn, insn_exec,
-                                               QEMU_PLUGIN_CB_NO_REGS, pc);
+                                               QEMU_PLUGIN_CB_R_REGS, pc);
         /* CB_R_REGS: the store branch reads sp via qemu_plugin_read_register. */
         qemu_plugin_register_vcpu_mem_cb(insn, mem_access,
                                          QEMU_PLUGIN_CB_R_REGS,
@@ -159,6 +203,10 @@ static void plugin_exit(qemu_plugin_id_t id, void *userdata)
         fclose(trace_out);
         trace_out = NULL;
     }
+    if (vcpu_registers) {
+        g_ptr_array_free(vcpu_registers, TRUE);
+        vcpu_registers = NULL;
+    }
 }
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
@@ -174,6 +222,8 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
             pc_lo = g_ascii_strtoull(argv[i] + 3, NULL, 0);
         } else if (g_str_has_prefix(argv[i], "hi=")) {
             pc_hi = g_ascii_strtoull(argv[i] + 3, NULL, 0);
+        } else if (g_str_has_prefix(argv[i], "snapshot-pc=")) {
+            snapshot_pc = g_ascii_strtoull(argv[i] + 12, NULL, 0);
         }
     }
     trace_out = path ? fopen(path, "w") : stderr;

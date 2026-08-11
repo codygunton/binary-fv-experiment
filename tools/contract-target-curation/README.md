@@ -14,13 +14,23 @@ interface, actual callers/callees, source location, and supporting theorem or co
 button beside its qualified name copies that name. Click a Level label to list every qualified
 function name at that depth; its copy button produces a ` | `-separated list.
 
+The **Level 4 proof map** button opens the instruction-level authoring view for
+`ssz_raw.decodeRaw`. Its summary distinguishes locally kernel-checked PCs, PCs composed into the
+Level 4 conversion, and PCs reachable from `root_compliance`. Blocks show the exact parent-owned CFG;
+click one for instructions, effects, successors, and manifests. Authoring cards show blockers and
+deterministic template candidates, but never contribute to formal totals.
+
 ## Rules for reading the graph
 
 The graph is an exclusive instruction-ownership hierarchy. A child owns its displayed machine
 instructions; space in a parent not covered by children is inline machine logic owned by that parent.
 The synthetic `binary` and `program` rows orient the graph but do not count as proof levels. Visible
-labels therefore start at Level 1 for the runner's immediate calls; Level N+1 contains exactly the
-immediate selected calls used to resolve a Level N function.
+labels therefore start at Level 1 for the runner's immediate calls. The display parent is the
+immediate dominator in the production call DAG, while the details pane lists actual calls and the
+generated `FunctionInstance.children` relation preserves source-inline parents. A displayed row is
+therefore not, by itself, permission to treat a dominated descendant as a function-contract child.
+An excluded row still needs a contract, but it must be an inline-region contract rather than a
+`FunctionInstanceContract`.
 
 `proof-progress.json` records reviewed formal progress by unique source-qualified function name.
 Green means an unconditional proof. Green/yellow stripes mean the function's owned machine
@@ -50,8 +60,33 @@ identity. `value` is the frame subtree's instruction count; `self` is the inline
 displayed children are removed.
 
 Depth is the proof-refinement level: Level 1 is the runner's immediate calls, Level 2 resolves
-`zesu_decode_raw`, Level 3 resolves its inlined `decode`, and Level 4 resolves emitted `decodeRaw`.
-Generation rejects drift at those four reviewed boundaries.
+`zesu_decode_raw`, Level 3 resolves its inlined `decode`, and Level 4 displays the local boundaries
+under emitted `decodeRaw`. The production Level 4 inventory has 172 parent-owned PCs, fourteen
+`FunctionInstance` rows, and four separately typed excluded rows; its four direct `readOffset`
+occurrences remain distinct. Generation rejects drift at those reviewed boundaries.
 
 The vendored D3 files are MIT-licensed and keep the review UI offline. Generated data is not committed;
-`.#machine-regions-ui` packages fresh `flame.json` and `machine-regions.json` files with the viewer.
+`.#machine-regions-ui` packages fresh `flame.json`, `machine-regions.json`,
+`level4-machine-proof-manifests.json`, and `proof-map.json` files with the viewer. A manifest is
+exported only after Lean accepts both its exact-PC predicate equivalence and concrete composition
+claim. The proof map then joins those records to production geometry, empirical evidence, hashed
+optimized LLVM-IR provenance, and explicitly untrusted authoring annotations.
+
+The four tracks stay separate: formal proof connection, production-artifact validation, empirical
+evidence, and authoring suggestions. A yellow authoring outline, runtime capture, or LLVM match can
+guide work but cannot make an instruction green or increase a proof-coverage total.
+
+The Level 4 control-flow view is a conventional hierarchical CFG. Rectangles are actual parent basic
+blocks or collapsed selected-child source regions; solid, purple-dashed, and blue-dashed arrows are
+parent control flow, calls, and returns. The three columns are the kernel-exported 45/67/60-PC parent
+phase partition. Node color is status, while clicking exposes instructions, source identity, contracts,
+and authoring blockers; proof suggestions never change the nodes or edges.
+
+`.#machine-regions/level4-boundaries.json` is the deterministic evidence-loader manifest for the
+eighteen Level 4 rows. Every row has `id`, `kind`, `qualified`, `entryPc`, nonempty
+`instructionPcs`, `exits`, and `parent`; `FunctionInstance` rows also carry their source identity,
+while cleanup/stdlib rows intentionally have no such identity and require inline-region contracts.
+Known statically resolved calls use concrete `sourcePc` and `targetPc`. Dynamic stores are omitted:
+the machine inventory establishes instruction width, not the runtime address and value an evidence
+clause requires. `instructionPcs` uses the full generated execution regions, so the four zero-self
+`readOffset` rows retain the PCs their nested readers own.

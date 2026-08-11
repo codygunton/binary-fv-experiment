@@ -45,7 +45,7 @@ Fourteen classes in four groups.
 * Six that fall through and write a register — `ITYPE`, `SHIFTIOP`, `RTYPE`, `AUIPC`, `LUI`, and a
   `LOAD` of any width and signedness. `decoderLhuStep` survives as the `unsigned`/`2` instance of
   the generic load rather than as a sibling proof.
-* Three stores — widths 1, 4 and 8 — which fall through but write memory instead of a register, so
+* Four stores — widths 1, 2, 4 and 8 — which fall through but write memory instead of a register, so
   they retire through `tryStepFallThroughRetires`. They are generated from a table because only the
   delivered `execute_STORE_*_run` differs per width; see the store section.
 * One not-taken branch, which falls through and writes nothing, so it has no register-writing
@@ -1192,9 +1192,12 @@ macro "gen_store_step" width:num " ↦ " storedData:ident ", " payload:term ", "
         privilege mprvDisabled readData addressRun aligned physical noMMIO
         (writeBytes_run_exact _ target.toNat $payload)))
 
--- `sb`, `sw` and `sd`: one retired store each, at the three widths the tree emits.
+-- `sb`, `sh`, `sw` and `sd`: one retired store each, at the widths the tree emits.
 gen_store_step 1 ↦ data, (Sail.BitVec.extractLsb data 7 0), execute_STORE_byte_aligned_run,
   decoderStoreByteStep
+
+gen_store_step 2 ↦ data, (Sail.BitVec.extractLsb data 15 0), execute_STORE_half_aligned_run,
+  decoderStoreHalfStep
 
 gen_store_step 4 ↦ data, (Sail.BitVec.extractLsb data 31 0), execute_STORE_word_aligned_run,
   decoderStoreWordStep

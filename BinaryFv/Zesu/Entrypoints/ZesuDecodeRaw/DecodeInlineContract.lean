@@ -280,6 +280,96 @@ abbrev DecodeInlineMachinePre (args : DecodeInlineArgs) (state : State) : Prop :
       functionInstance_ssz_raw_decode_in_raw_decoder_root_zesu_decode_raw_at_112_31)
     args.machineArgs state
 
+/-- The wrapper values live across the emitted `decodeRaw` child which are not part of the
+platform register frame. -/
+def decodeRawCalleeSaved (register : Register) : Prop :=
+  register = x19 ∨ register = x20 ∨ register = x21 ∨ register = x22 ∨ register = x23 ∨
+    register = x24 ∨ register = x25 ∨ register = x26 ∨ register = x27
+
+/-- The retirement bookkeeping does not touch the wrapper values live across `decodeRaw`. -/
+theorem decodeRawCalleeSaved_disjoint : RegSet.Disjoint decodeRawCalleeSaved stepBookkeeping := by
+  rintro _ (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;> decide
+
+/-- The optimized entry shape at the emitted `decodeRaw` boundary. These are live wrapper values,
+not a source-level RISC-V ABI premise. -/
+def DecodeRawEntryFrame (state : State) : Prop :=
+  ∃ stackPointer savedS0 savedS1 savedS2 savedS3 savedS4 savedS5 savedS6 savedS7 savedS8
+      savedS9 savedS10 savedS11,
+    state.regs.get? x2 = some stackPointer ∧
+    state.regs.get? x8 = some savedS0 ∧
+    state.regs.get? x9 = some savedS1 ∧
+    state.regs.get? x18 = some savedS2 ∧
+    state.regs.get? x19 = some savedS3 ∧
+    state.regs.get? x20 = some savedS4 ∧
+    state.regs.get? x21 = some savedS5 ∧
+    state.regs.get? x22 = some savedS6 ∧
+    state.regs.get? x23 = some savedS7 ∧
+    state.regs.get? x24 = some savedS8 ∧
+    state.regs.get? x25 = some savedS9 ∧
+    state.regs.get? x26 = some savedS10 ∧
+    state.regs.get? x27 = some savedS11
+
+/-- The emitted `ret` at `0x10530` reads the caller-provided link.  The compiled raw-decoder
+entry therefore requires the two alignment facts which Sail checks for that return; both concrete
+inline `jalr` callers derive them from their literal return PCs. -/
+def DecodeRawReturnLinkPre (state : State) : Prop :=
+  ∃ link, state.regs.get? x1 = some link ∧
+    Sail.BitVec.update link 0 0#1 = link ∧ Sail.BitVec.access link 1 = 0#1
+
+/-- The low-bit condition consumed by the generated Sail `ret`, recovered for the caller's
+concrete link register rather than supplied as a route-local instruction premise. -/
+theorem DecodeRawReturnLinkPre.update_low_bit
+    (pre : DecodeRawReturnLinkPre state) (linkAt : state.regs.get? x1 = some link) :
+    Sail.BitVec.update link 0 0#1 = link := by
+  rcases pre with ⟨entryLink, entryLinkAt, updateLowBit, -⟩
+  have entryLinkEq : entryLink = link := by
+    simpa only [Option.some.injEq] using entryLinkAt.symm.trans linkAt
+  simpa only [entryLinkEq] using updateLowBit
+
+/-- The access-bit condition consumed by the generated Sail `ret`, recovered from the compiled
+raw-decoder entry rather than supplied by a parent return route. -/
+theorem DecodeRawReturnLinkPre.access_bit_one_zero
+    (pre : DecodeRawReturnLinkPre state) (linkAt : state.regs.get? x1 = some link) :
+    Sail.BitVec.access link 1 = 0#1 := by
+  rcases pre with ⟨entryLink, entryLinkAt, -, accessBitOne⟩
+  have entryLinkEq : entryLink = link := by
+    simpa only [Option.some.injEq] using entryLinkAt.symm.trans linkAt
+  simpa only [entryLinkEq] using accessBitOne
+
+/-- The concrete raw-call frame is needed only on inline phases that execute an emitted
+`decodeRaw` call.  The propagated-error phase exits before either call site. -/
+def DecodeInlineRawCallFrame (args : DecodeInlineArgs) (state : State) : Prop :=
+  match args.phase with
+  | .first | .retryAfterInvalidSsz => DecodeRawEntryFrame state
+  | .propagateError _ => True
+
+/-- Transport the stable `s3`–`s11` part of an emitted `decodeRaw` entry frame while the wrapper
+sets its concrete call arguments and link. -/
+theorem DecodeRawEntryFrame.of_calleeSaved_agree {before after : State}
+    (frame : DecodeRawEntryFrame before)
+    (calleeSaved : Agree decodeRawCalleeSaved before after)
+    {stackPointer savedS0 savedS1 savedS2 : BitVec 64}
+    (stack : after.regs.get? x2 = some stackPointer)
+    (savedS0AtEntry : after.regs.get? x8 = some savedS0)
+    (savedS1AtEntry : after.regs.get? x9 = some savedS1)
+    (savedS2AtEntry : after.regs.get? x18 = some savedS2) :
+    DecodeRawEntryFrame after := by
+  rcases frame with ⟨_, _, _, _, savedS3, savedS4, savedS5, savedS6, savedS7, savedS8,
+    savedS9, savedS10, savedS11, _, _, _, _, savedS3Before, savedS4Before, savedS5Before,
+    savedS6Before, savedS7Before, savedS8Before, savedS9Before, savedS10Before, savedS11Before⟩
+  exact ⟨stackPointer, savedS0, savedS1, savedS2, savedS3, savedS4, savedS5, savedS6,
+    savedS7, savedS8, savedS9, savedS10, savedS11, stack, savedS0AtEntry,
+    savedS1AtEntry, savedS2AtEntry,
+    (calleeSaved x19 (by simp [decodeRawCalleeSaved])).trans savedS3Before,
+    (calleeSaved x20 (by simp [decodeRawCalleeSaved])).trans savedS4Before,
+    (calleeSaved x21 (by simp [decodeRawCalleeSaved])).trans savedS5Before,
+    (calleeSaved x22 (by simp [decodeRawCalleeSaved])).trans savedS6Before,
+    (calleeSaved x23 (by simp [decodeRawCalleeSaved])).trans savedS7Before,
+    (calleeSaved x24 (by simp [decodeRawCalleeSaved])).trans savedS8Before,
+    (calleeSaved x25 (by simp [decodeRawCalleeSaved])).trans savedS9Before,
+    (calleeSaved x26 (by simp [decodeRawCalleeSaved])).trans savedS10Before,
+    (calleeSaved x27 (by simp [decodeRawCalleeSaved])).trans savedS11Before⟩
+
 /-- Machine and source facts at either real inline entry. `s0`, `s1`, `s2`, and `sp` are live
 values of the surrounding wrapper, not an invented callee ABI. -/
 structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
@@ -288,6 +378,7 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   inputValue : state.regs.get? x8 = some (BitVec.ofNat 64 args.inputBase)
   lengthValue : state.regs.get? x9 = some (BitVec.ofNat 64 args.bytes.size)
   globalsValue : state.regs.get? x18 = some (BitVec.ofNat 64 0x4215020)
+  rawCallFrame : DecodeInlineRawCallFrame args state
   inputMemory : MemoryBytes state args.inputBase args.bytes
   code : canonicalContractParams.env.CodeIntact state
   inputFits : args.inputBase + args.bytes.size ≤ 2 ^ 64
@@ -298,6 +389,29 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
   stackObjectsReadable : ∀ index,
     index < 0x6b0 + canonicalContractParams.env.record.entryResult →
       canonicalContractParams.env.stack (args.stackBase + index)
+  /-- The two inline callers inherit the exported input/stack separation.  The Level 4 raw-entry
+  adapter narrows this canonical-stack fact to its thirteen saved-register stores. -/
+  inputAvoidsCanonicalStack : ∀ address, canonicalContractParams.env.stack address →
+    args.inputBase + args.bytes.size ≤ address ∨ address < args.inputBase
+  /-- The real wrapper's complete writable frame, retained for parent-owned raw-decoder slots
+  that lie outside the thirteen saved-register words. -/
+  stackFrameWritable : ∀ index, index < 0xa20 →
+    canonicalContractParams.env.stack (args.stackBase + index)
+  rawFrameWritable : ∀ index, index < 0x7f0 →
+    canonicalContractParams.env.stack (args.stackBase - 0xe80 + index)
+  rawPrologueFrameWritable : ∀ index, index < 0xe80 →
+    canonicalContractParams.env.stack (args.stackBase - 0xe80 + index)
+  /-- The 0x50-byte child-call frame below the raw decoder's post-prologue `sp`, derived from
+  the original canonical caller layout. -/
+  nestedCallFrameWritable : ∀ index, index < 0x50 →
+    canonicalContractParams.env.stack (args.stackBase - 0xed0 + index)
+  nestedCallFrameFits : 0xed0 ≤ args.stackBase
+  /-- The enclosing emitted raw-decoder machine premise is retained at each inline entry.  The
+  actual `jalr` call narrows it to the raw-entry prologue scope; it is caller context rather than
+  a Level 4 contract premise. -/
+  decodeRawMachine : DecoderMachinePre
+    (functionInstanceExecutionPcs generatedProgram functionInstance_raw_decoder_root_zesu_decode_raw)
+    args.machineArgs state
   machine : DecodeInlineMachinePre args state
   retryReason : args.phase = .retryAfterInvalidSsz →
     meaningDecodeRaw args.bytes = .error .invalidSsz ∧
@@ -309,6 +423,77 @@ structure DecodeInlinePre (args : DecodeInlineArgs) (state : State) : Prop where
       state.regs.get? x10 =
         some (BitVec.ofNat 64 (decodeInternalResultTag (.error error))) ∧
       state.regs.get? x11 = some (BitVec.ofNat 64 2)
+
+/-- Narrow the caller's canonical input/stack separation to the raw decoder's thirteen saved
+register words.  This is the adapter used when the actual inline call constructs its Level 4 raw
+entry context; it is not a selected Level 4 contract premise. -/
+theorem DecodeInlinePre.inputStackSeparated_of_saveArea
+    (pre : DecodeInlinePre args state) (stack : Nat)
+    (saveAreaWritable : ∀ index, index < 104 →
+      canonicalContractParams.env.stack (stack + 0x788 + index))
+    (address : Nat) (lower : stack + 0x788 ≤ address) (upper : address < stack + 0x7f0) :
+    args.inputBase + args.bytes.size ≤ address ∨ address < args.inputBase := by
+  apply pre.inputAvoidsCanonicalStack address
+  rw [show address = stack + 0x788 + (address - (stack + 0x788)) by omega]
+  exact saveAreaWritable _ (by omega)
+
+/-- Rebase the Level 2 caller-frame permission at the raw prologue's entry stack value.  The
+prologue later exposes this unchanged to parent phases that access post-`sp` temporary slots. -/
+theorem DecodeInlinePre.stackFrameWritable_of_entryStack
+    (pre : DecodeInlinePre args state) (stack : Nat)
+    (entryStack : args.stackBase = stack + 0x7f0) (index : Nat) (indexBound : index < 0xa20) :
+    canonicalContractParams.env.stack (stack + 0x7f0 + index) := by
+  rw [← entryStack]
+  exact pre.stackFrameWritable index indexBound
+
+theorem DecodeInlinePre.rawFrameWritable_of_postStack
+    (pre : DecodeInlinePre args state) (postStack : Nat)
+    (entryStack : args.stackBase = postStack + 0xe80) (index : Nat) (indexBound : index < 0x7f0) :
+    canonicalContractParams.env.stack (postStack + index) := by
+  have writable := pre.rawFrameWritable index indexBound
+  rw [entryStack] at writable
+  simpa using writable
+
+/-- The borrowed input is also outside every byte of the raw decoder's temporary frame.  This
+narrows the existing canonical-stack separation through the caller-derived raw-frame permission. -/
+theorem DecodeInlinePre.rawFrameInputSeparated_of_postStack
+    (pre : DecodeInlinePre args state) (postStack : Nat)
+    (entryStack : args.stackBase = postStack + 0xe80) (address : Nat)
+    (lower : postStack ≤ address) (upper : address < postStack + 0x7f0) :
+    args.inputBase + args.bytes.size ≤ address ∨ address < args.inputBase := by
+  apply pre.inputAvoidsCanonicalStack address
+  rw [show address = postStack + (address - postStack) by omega]
+  exact pre.rawFrameWritable_of_postStack postStack entryStack _ (by omega)
+
+/-- The raw post-prologue stack pointer preserves the wrapper's 16-byte alignment. -/
+theorem DecodeInlinePre.postStackAligned
+    (pre : DecodeInlinePre args state) (postStack : Nat)
+    (entryStack : args.stackBase = postStack + 0xe80) :
+    postStack % 16 = 0 := by
+  have aligned := pre.stackAligned
+  rw [entryStack] at aligned
+  omega
+
+/-- Regression for the parent store at `0x1063c`: this slot is below the raw-entry stack pointer,
+so the ordinary caller-frame permission alone must not be used in its Sail store proof. -/
+theorem DecodeInlinePre.rawFrameWritable_store_0x1063c
+    (pre : DecodeInlinePre args state) (postStack : Nat)
+    (entryStack : args.stackBase = postStack + 0xe80) :
+    canonicalContractParams.env.stack (postStack + 0x2a0) :=
+  pre.rawFrameWritable_of_postStack postStack entryStack 0x2a0 (by omega)
+
+/-- The `0x1063c` store slot is outside borrowed input as well as writable.  A later store proof
+uses this to retain `MemoryBytes`; writable stack membership alone would be insufficient. -/
+theorem DecodeInlinePre.rawFrameInputSeparated_store_0x1063c
+    (pre : DecodeInlinePre args state) (postStack : Nat)
+    (entryStack : args.stackBase = postStack + 0xe80) :
+    args.inputBase + args.bytes.size ≤ postStack + 0x2a0 ∨ postStack + 0x2a0 < args.inputBase :=
+  pre.rawFrameInputSeparated_of_postStack postStack entryStack (postStack + 0x2a0) (by omega)
+    (by omega)
+
+theorem rawPrologueSaveArea_outside_rawFrame : ¬ 0x690 + 0x788 < 0x7f0 := by decide
+
+theorem rawPrologueFrame_last_saved_byte : 0x690 + 0x7e8 + 7 = 0xe7f := by decide
 
 /-- On success, the complete result representation records that every descriptor-selected heap
 range lies in the allocator interval consumed by this `decodeRaw` invocation. Error outcomes have
@@ -454,6 +639,7 @@ execution, not premises supplied by the wrapper. They are exactly the facts need
 outgoing instruction owned by Level 2. -/
 structure DecodeInlineMachinePost (before after : State) : Prop where
   agree : Agree decoderPreserved before after
+  callerFrame : Agree decodeRawCalleeSaved before after
   retiredCounter : RetiredCounterPresent after
   code : canonicalContractParams.env.CodeIntact after
   globalsValue : after.regs.get? x18 = before.regs.get? x18

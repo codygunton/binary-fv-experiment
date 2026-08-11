@@ -69,3 +69,20 @@ python3 -m http.server 8420 --bind 127.0.0.1
 
 The remaining non-LLVM facts are deliberately explicit: targets loaded at runtime through vtables,
 and semantic contracts describing the SSZ value computed by a region.
+
+## Machine-proof corridor retrieval prototype
+
+[`analyze_machine_proof_corridors.py`](analyze_machine_proof_corridors.py) joins named Lean
+`...Pcs` inventories to the pinned `machine-regions.json`, normalizes operand-register roles across
+the full corridor, immediates, memory width/effect, and CFG transfer kind. Queries come directly
+from the machine map. Retrieval returns only source-level *composition-backed* candidates: a theorem
+must name the PC list and invoke an execution composition combinator. This does not establish that
+the theorem compiled or discharged every listed instruction. Run its unit test with
+`python3 -m unittest tools/analyze_machine_proof_corridors_test.py`.
+
+Manual usefulness means a composition-backed result whose source theorem supplies a concrete reusable
+instruction/proof shape; mnemonic overlap alone does not count. The recorded `sub; li` and fi:16
+six-store checks must be re-run against the current composition-backed index before quoting a ratio.
+This is useful for proof-template retrieval (instruction wrapper, frame, and `Seg` shape), not
+automation that synthesizes a proof: semantic tokens, access ranges, and preservation obligations
+remain explicitly reviewed.

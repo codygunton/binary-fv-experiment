@@ -129,6 +129,16 @@ theorem first_invalid_to_retry_decode_entry
     (branchWrites.get x18 (by decide)).trans stateGlobals
   have secondGlobals : secondState.regs.get? x18 = some (BitVec.ofNat 64 0x4215020) :=
     (secondWrites.get x18 (by decide)).trans branchGlobals
+  have initialRawFrame : DecodeRawEntryFrame before := by
+    simpa [DecodeInlineRawCallFrame, phase] using pre.rawCallFrame
+  have secondCalleeSaved : Agree decodeRawCalleeSaved before secondState :=
+    frame.callerFrame.trans
+      ((branchWrites.agree decodeRawCalleeSaved_disjoint).trans
+        (secondWrites.agree (decodeRawCalleeSaved_disjoint.union
+          (RegSet.Disjoint.only (by simp [decodeRawCalleeSaved])))))
+  have secondRawFrame : DecodeRawEntryFrame secondState :=
+    DecodeRawEntryFrame.of_calleeSaved_agree initialRawFrame secondCalleeSaved secondStack
+      secondInput secondLength secondGlobals
   have secondMemory : DecodedValue.MemoryBytes secondState args.inputBase args.bytes := by
     apply inputMemory.of_mem_eq
     simp [secondState, branchState, afterRegisterWrite_mem, wrapperAfterDecodeFirstErrorBranch,
@@ -160,6 +170,7 @@ theorem first_invalid_to_retry_decode_entry
       inputValue := by simpa [secondArgs] using secondInput
       lengthValue := by simpa [secondArgs] using secondLength
       globalsValue := by simpa [secondArgs] using secondGlobals
+      rawCallFrame := by simpa [DecodeInlineRawCallFrame, secondArgs] using secondRawFrame
       inputMemory := by simpa [secondArgs] using secondMemory
       code := secondCode
       inputFits := pre.inputFits
@@ -167,6 +178,17 @@ theorem first_invalid_to_retry_decode_entry
       stackAligned := pre.stackAligned
       stackObjectsFit := pre.stackObjectsFit
       stackObjectsReadable := pre.stackObjectsReadable
+      inputAvoidsCanonicalStack := pre.inputAvoidsCanonicalStack
+      stackFrameWritable := pre.stackFrameWritable
+      rawFrameWritable := pre.rawFrameWritable
+      rawPrologueFrameWritable := pre.rawPrologueFrameWritable
+      nestedCallFrameWritable := pre.nestedCallFrameWritable
+      nestedCallFrameFits := pre.nestedCallFrameFits
+      decodeRawMachine := by
+        simpa [secondArgs, DecodeInlineArgs.machineArgs] using
+          pre.decodeRawMachine.mono secondAgree
+            (afterRegisterWrite_retired_present branchState (BitVec.ofNat 64 0x1037c) retryRetired x11
+              (BitVec.ofNat 64 2))
       machine := by simpa [secondArgs] using secondMachine
       retryReason := by
         intro _
@@ -200,6 +222,17 @@ theorem wrapper_second_propagate_decode_entry
     (stackObjectsReadable : ∀ index,
       index < 0x6b0 + canonicalContractParams.env.record.entryResult →
         canonicalContractParams.env.stack (args.stackBase + index))
+    (inputAvoidsCanonicalStack : ∀ address, canonicalContractParams.env.stack address →
+      args.inputBase + args.bytes.size ≤ address ∨ address < args.inputBase)
+    (stackFrameWritable : ∀ index, index < 0xa20 →
+      canonicalContractParams.env.stack (args.stackBase + index))
+    (rawFrameWritable : ∀ index, index < 0x7f0 →
+      canonicalContractParams.env.stack (args.stackBase - 0xe80 + index))
+    (rawPrologueFrameWritable : ∀ index, index < 0xe80 →
+      canonicalContractParams.env.stack (args.stackBase - 0xe80 + index))
+    (nestedCallFrameWritable : ∀ index, index < 0x50 →
+      canonicalContractParams.env.stack (args.stackBase - 0xed0 + index))
+    (nestedCallFrameFits : 0xed0 ≤ args.stackBase)
     (error : Contracts.DecodeError) (notInvalid : error ≠ .invalidSsz)
     (rawResult : Contracts.meaningDecodeRaw args.bytes = .error error)
     (tagRead : branchState.regs.get? x10 =
@@ -268,6 +301,7 @@ theorem wrapper_second_propagate_decode_entry
       inputValue := by simpa [secondArgs] using secondInput
       lengthValue := by simpa [secondArgs] using secondLength
       globalsValue := by simpa [secondArgs] using secondGlobals
+      rawCallFrame := by simp [DecodeInlineRawCallFrame, secondArgs]
       inputMemory := by simpa [secondArgs] using secondMemory
       code := secondCode
       inputFits := inputFits
@@ -275,6 +309,23 @@ theorem wrapper_second_propagate_decode_entry
       stackAligned := stackAligned
       stackObjectsFit := stackObjectsFit
       stackObjectsReadable := stackObjectsReadable
+      inputAvoidsCanonicalStack := inputAvoidsCanonicalStack
+      stackFrameWritable := stackFrameWritable
+      rawFrameWritable := rawFrameWritable
+      rawPrologueFrameWritable := rawPrologueFrameWritable
+      nestedCallFrameWritable := nestedCallFrameWritable
+      nestedCallFrameFits := nestedCallFrameFits
+      decodeRawMachine := by
+        simpa [secondArgs, DecodeInlineArgs.machineArgs] using
+          wrapperMachine.mono
+            (afterRegisterWrite_agree_of
+              (by simp [decoderPreserved, platformPreserved])
+              (by simp [decoderPreserved, platformPreserved])
+              (by simp [decoderPreserved, platformPreserved])
+              (by simp [decoderPreserved, platformPreserved])
+              (by simp [decoderPreserved, platformPreserved]))
+            (afterRegisterWrite_retired_present branchState (BitVec.ofNat 64 0x1037c) retryRetired x11
+              (BitVec.ofNat 64 2))
       machine := by simpa [secondArgs] using secondMachine
       retryReason := by intro impossible; simp [secondArgs] at impossible
       propagateReason := by

@@ -40,10 +40,11 @@ theorem decodeInline_retry_success_reaches_post
       DecodeInlineCallerSaveArea args state after ∧
       DecodeInlineRetrySuccessAllocationFrame args state after ∧
       used ≤ 16384 + 512 * args.retryRawArgs.bytes.size + 6765 := by
-  obtain ⟨lengthUsed, prefixUsed, rawUsed, rawCall, decoded,
+  obtain ⟨lengthUsed, prefixUsed, rawUsed, rawCall, _rawEntry, decoded,
     lengthBound, prefixBound, rawBound, prefixToRawCall, ⟨rawTransfer⟩, decodedPost,
-    decodedAgree, decodedCounter, decodedStack, decodedGlobals, decodedPayload, decodedCode,
-    decodedSaveArea, decodedAllocation, decodedProvenance⟩ :=
+    decodedAgree, decodedCallerFrame, decodedCounter, decodedStack, _decodedInputBase, _decodedInputLength,
+    decodedGlobals, decodedPayload, decodedCode,
+    decodedSaveArea, decodedAllocation, decodedProvenance, _rawPrologue⟩ :=
     decodeInline_retry_call_transfer contract prefixContract fromStep args state pre phase exactPrefix
   let copyStart := fromStep + (13 + lengthUsed + prefixUsed + rawUsed)
   have decodedPc : decoded.regs.get? PC = some (BitVec.ofNat 64 0x103dc) := by
@@ -53,8 +54,8 @@ theorem decodeInline_retry_success_reaches_post
     simpa [returnPcEq] using rawTransfer.atResume
   obtain ⟨contents, memcpyCall, contentsSize, copySetup, memcpyAtCall, memcpyCallBase,
     memcpyDestination, memcpySource, memcpyLength, memcpyStack, memcpyGlobals, sourceMemory, memcpyCallAgree,
-    memcpyCallCounter, memcpyCallCode, memcpyCallMemory⟩ :=
-    decodeInline_retry_copy_setup copyStart args state decoded pre phase exactPrefix decodedAgree
+    memcpyCallCallerFrame, memcpyCallCounter, memcpyCallCode, memcpyCallMemory⟩ :=
+    decodeInline_retry_copy_setup copyStart args state decoded pre phase exactPrefix decodedAgree decodedCallerFrame
       decodedCounter decodedStack decodedGlobals decodedCode decodedPc
       decodedPayload
   obtain ⟨callRetired, memcpyUsed, childEntry, childExit, childEntryEq, childEntryPreservesGlobals, callRun, childPre,
@@ -89,15 +90,27 @@ theorem decodeInline_retry_success_reaches_post
     exact Agree.trans memcpyCallAgree (by
       apply jalrCallAfterRetired_agree_of
       all_goals simp [decoderPreserved, platformPreserved])
+  have childEntryCallerFrame : Agree decodeRawCalleeSaved state childEntry := by
+    subst childEntry
+    exact memcpyCallCallerFrame.trans (by
+      apply jalrCallAfterRetired_agree_of
+      all_goals simp [decodeRawCalleeSaved])
   have childExitAgree : Agree decoderPreserved state childExit := Agree.trans childEntryAgree
     (Agree.weaken (fun register preserved => by
       rcases preserved with ⟨notLink, platform⟩
       rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl | rfl | rfl | rfl | rfl
       all_goals simp_all [NonW]) machinePost.frame)
+  have childExitCallerFrame : Agree decodeRawCalleeSaved state childExit :=
+    childEntryCallerFrame.trans (Agree.weaken (by
+      intro register saved
+      rcases saved with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> simp [NonW])
+      machinePost.frame)
   have returnedAgree : Agree decoderPreserved state returned :=
     Agree.trans childExitAgree (Agree.weaken (fun _ preserved => preserved.2)
       ((jumpRetirement_writes _ _ _ _).agree platformPreserved_disjoint))
+  have returnedCallerFrame : Agree decodeRawCalleeSaved state returned :=
+    childExitCallerFrame.trans ((jumpRetirement_writes _ _ _ _).agree decodeRawCalleeSaved_disjoint)
   have returnedCounter : RetiredCounterPresent returned := ⟨Sail.BitVec.addInt returnRetired 1, by
     simp [returned, memcpyReturnAfter, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick]⟩
@@ -126,6 +139,9 @@ theorem decodeInline_retry_success_reaches_post
     (afterRegisterWrite_agree_of (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]) (by simp [decoderPreserved, platformPreserved]))
+  have pageCallerFrame : Agree decodeRawCalleeSaved state pageState := returnedCallerFrame.trans
+    (afterRegisterWrite_agree_of (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved]))
   have pagePc : pageState.regs.get? PC = some (BitVec.ofNat 64 0x103f4) := by
     simpa [pageState] using afterRegisterWrite_pc returned (BitVec.ofNat 64 0x103f0)
       pageRetired x10 (BitVec.ofNat 64 0x1000)
@@ -252,6 +268,9 @@ theorem decodeInline_retry_success_reaches_post
       (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved])
       (by simp [decoderPreserved, platformPreserved]))
+  have afterCallerFrame : Agree decodeRawCalleeSaved state after := pageCallerFrame.trans
+    (afterRegisterWrite_agree_of (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved])
+      (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved]) (by simp [decodeRawCalleeSaved]))
   have afterCounter : RetiredCounterPresent after :=
     afterRegisterWrite_retired_present pageState (BitVec.ofNat 64 0x103f4) pointerRetired x10
       (BitVec.ofNat 64 (args.stackBase + 0x1000))
@@ -278,7 +297,7 @@ theorem decodeInline_retry_success_reaches_post
       simpa [DecodeInlineArgs.retryRawArgs, meaningEq] using high
   refine ⟨19 + lengthUsed + prefixUsed + rawUsed + memcpyUsed + 1 + 1,
     after, ?_, ?_, retryPost,
-    ⟨afterAgree, afterCounter, codeFinal, afterGlobals.trans pre.globalsValue.symm⟩, ?_,
+    ⟨afterAgree, afterCallerFrame, afterCounter, codeFinal, afterGlobals.trans pre.globalsValue.symm⟩, ?_,
     afterSaveArea, allocationFrame, ?_⟩
   · unfold decodeInlineStepBound
     have lengthBoundValue : lengthUsed ≤ 12 := by
@@ -354,7 +373,7 @@ theorem decodeInline_propagate_error_reaches_post (fromStep : Nat) (args : Decod
     simp [DecodeInlineExit, phase]
   refine ⟨0, before, by simp, ScopedTrace.exitAt fromStep before
     (BitVec.ofNat 64 0x10380) atExit selectedExit, ?_,
-    ⟨Agree.refl before, pre.machine.retiredCounter, pre.code, rfl⟩, ?_, rfl⟩
+    ⟨Agree.refl before, Agree.refl before, pre.machine.retiredCounter, pre.code, rfl⟩, ?_, rfl⟩
   · simp [DecodeInlinePost, phase, notInvalid, rawResult, result, atExit]
   · simp [DecodeInlineOutgoingFrame, phase, tagA0, tagA1]
 
