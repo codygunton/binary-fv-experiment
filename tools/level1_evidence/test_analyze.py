@@ -19,6 +19,11 @@ class EvidenceTest(unittest.TestCase):
         }
         self.trace = {
             "executed": [0, 4, 8, 12, 16],
+            "executions": [
+                {"pc": pc, "registers": ({"available": 2 ** 32 - 1, "values": [0] * 32}
+                                           if pc in {4, 16} else None)}
+                for pc in [0, 4, 8, 12, 16]
+            ],
             "registers": {4: [{"available": 2 ** 32 - 1, "values": [0] * 32}]},
             "loads": [[8, 100, 8, 7]], "stores": [],
         }
@@ -28,6 +33,7 @@ class EvidenceTest(unittest.TestCase):
         self.assertTrue(row["entryReached"])
         self.assertEqual(row["executedOwnedPcs"], [4, 8])
         self.assertEqual(row["observedExitTransitions"], [[12, 16]])
+        self.assertEqual(row["observedExits"][0]["afterPc"], 16)
 
     def test_missing_entry_is_not_inferred(self):
         trace = copy.deepcopy(self.trace)
@@ -56,6 +62,12 @@ class EvidenceTest(unittest.TestCase):
             trace.write_text("R 4 0\n")
             with self.assertRaisesRegex(ValueError, "malformed"):
                 parse_trace(trace)
+
+    def test_rejects_missing_exit_snapshot(self):
+        trace = copy.deepcopy(self.trace)
+        trace["executions"][-1]["registers"] = None
+        with self.assertRaisesRegex(ValueError, "missing exit register snapshot"):
+            reduce_trace(self.manifest, trace, "missing-exit")
 
     def test_rejects_forged_decode_input_size(self):
         from analyze import validate_bindings

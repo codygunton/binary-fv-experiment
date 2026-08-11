@@ -10,19 +10,26 @@ from pathlib import Path
 
 
 def parse_trace(path: Path) -> dict:
-    executed, registers, loads, stores = [], {}, [], []
+    executed, executions, registers, loads, stores = [], [], {}, [], []
     for number, line in enumerate(path.read_text().splitlines(), 1):
         parts = line.split()
         if not parts:
             continue
         try:
             if parts[0] == "E" and len(parts) == 2:
-                executed.append(int(parts[1]))
+                pc = int(parts[1])
+                executed.append(pc)
+                executions.append({"pc": pc, "registers": None})
             elif parts[0] == "R" and len(parts) == 35:
-                registers.setdefault(int(parts[1]), []).append({
+                pc = int(parts[1])
+                snapshot = {
                     "available": int(parts[2]),
                     "values": [int(value) for value in parts[3:]],
-                })
+                }
+                if not executions or executions[-1]["pc"] != pc or executions[-1]["registers"] is not None:
+                    raise ValueError
+                executions[-1]["registers"] = snapshot
+                registers.setdefault(pc, []).append(snapshot)
             elif parts[0] in {"L", "S"} and len(parts) == 5:
                 record = [int(value) for value in parts[1:]]
                 (loads if parts[0] == "L" else stores).append(record)
@@ -30,7 +37,8 @@ def parse_trace(path: Path) -> dict:
                 raise ValueError
         except ValueError as error:
             raise ValueError(f"{path}:{number}: malformed trace record") from error
-    return {"executed": executed, "registers": registers, "loads": loads, "stores": stores}
+    return {"executed": executed, "executions": executions, "registers": registers,
+            "loads": loads, "stores": stores}
 
 
 def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
@@ -47,6 +55,16 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             (before, after) for before, after in zip(executed, executed[1:])
             if before in extent and after not in extent
         })
+        exits = []
+        for before, after in zip(trace["executions"], trace["executions"][1:]):
+            if before["pc"] not in extent or after["pc"] in extent:
+                continue
+            snapshot = after["registers"]
+            if entries and (snapshot is None or snapshot["available"] != 2 ** 32 - 1):
+                raise ValueError(f"missing exit register snapshot for {instance['id']}")
+            if snapshot is not None:
+                exits.append({"beforePc": before["pc"], "afterPc": after["pc"],
+                              "afterRegisters": snapshot})
         memory = [
             {"kind": kind, "pc": record[0], "address": record[1],
              "width": record[2], "value": record[3]}
@@ -61,6 +79,7 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             "executedOwnedPcs": sorted(observed & set(instance["instructionPcs"])),
             "executedExtentPcs": sorted(observed & extent),
             "observedExitTransitions": [list(pair) for pair in transitions],
+            "observedExits": exits,
             "memoryAccesses": memory,
         })
     return {"label": label, "instances": result}
