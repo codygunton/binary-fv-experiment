@@ -357,7 +357,7 @@ function renderProofMap(){
       <span><i style="background:#e5b84b"></i>authoring suggestion</span>
       <span>LLVM IR: ${esc(PROOF_MAP.compilerProvenance.state)}</span></div>
     <div class="proof-tools"><b>authoring regions</b>
-      ${['all','ready','blocked'].map(value=>`<button data-filter="${value}" ${PROOF_FILTER===value?'disabled':''}>${value}</button>`).join('')}</div>
+      ${['all',...new Set(PROOF_MAP.authoringRegions.map(row=>row.authoringState))].map(value=>`<button data-filter="${value}" ${PROOF_FILTER===value?'disabled':''}>${value.replaceAll('_',' ')}</button>`).join('')}</div>
     <div class="proof-grid">${regions}</div><div class="proof-tools"><b>Refinement dependency graph</b>
       <span class="muted">selected contracts + parent-owned glue instructions → parent contract</span></div>
     <div class="cfg-canvas" id="proof-cfg"></div>`;
@@ -377,8 +377,9 @@ function renderProofCfg(){
     const offset=(height-top-nodes.length*gap)/2;
     nodes.forEach((node,row)=>positions.set(node.id,{x:column*laneW+24,y:top+offset+row*gap,w:nodeW,h:nodeH,node}));
   }
-  const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],ready:['#473b1e','#e5b84b'],
-    blocked:['#472327','#d95757'],contract:['#30263b','#9c78c2']};
+  const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],
+    contract_preliminary_shape:['#473b1e','#e5b84b'],contract_not_specified:['#472327','#d95757'],
+    proof_not_started:['#202631','#687385'],not_started:['#202631','#687385']};
   const short=s=>s.length>34?s.slice(0,32)+'…':s;
   const titles=['reference semantics','Level 1 contracts + Level 0 glue','refinement theorem','compliance theorem'];
   const columns=titles.map((title,i)=>`<rect class="cfg-column" x="${i*laneW+4}" y="4" width="${laneW-8}" height="${height-8}" rx="6"/>
@@ -388,8 +389,8 @@ function renderProofCfg(){
     return `<path class="cfg-link ${edge.kind}" marker-end="url(#cfg-arrow)" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"><title>${edge.kind}</title></path>`;}).join('');
   const nodes=[...positions.values()].map(({x,y,w,h,node})=>{const [fill,stroke]=colors[node.status]||colors.artifact;
     const sub=node.kind==='parentGlue'?`${node.provedInstructionCount}/${node.instructionCount} glue instructions proved`:
-      node.kind==='level1Contract'?`${node.instructionCount} child instructions · ${node.status}`:
-      node.kind==='conversion'?'must consume all contracts + glue':'Level 3 contract required by root proof';
+      node.kind==='level1Contract'?`${node.instructionCount} instructions · contract ${node.contractStatus.replaceAll('_',' ')}`:
+      node.kind==='conversion'?`proof ${node.proofStatus.replaceAll('_',' ')}`:`proof ${node.proofStatus.replaceAll('_',' ')}`;
     return `<g data-graph-id="${esc(node.id)}"><rect class="cfg-node-rect" x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="${stroke}"><title>${esc(node.label)}</title></rect>
       <text class="cfg-node-label" x="${x+7}" y="${y+16}">${esc(short(node.label))}</text><text class="cfg-node-sub" x="${x+7}" y="${y+31}">${esc(sub)}</text></g>`;}).join('');
   $('#proof-cfg').innerHTML=`<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}"><defs><marker id="cfg-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#657287"/></marker></defs>${columns}${edges}${nodes}</svg>`;
@@ -405,6 +406,7 @@ function showRefinementNode(node){
     const phase=PROOF_MAP.phases.find(row=>row.id===node.phase);
     const phasePcs=new Set(phase.pcs),pcs=PROOF_MAP.instructions.filter(row=>phasePcs.has(row.pc));
     $('#rbody').innerHTML=`<div class="kv"><span>obligation</span><span>prove parent-owned machine instructions while consuming selected child contracts</span>
+      <span>proof status</span><span>${esc(node.proofStatus.replaceAll('_',' '))}</span>
       <span>progress</span><span>${node.provedInstructionCount}/${node.instructionCount} instructions kernel-linked</span>
       <span>phase</span><span>${esc(phase.label)}</span></div><pre>${pcs.map(row=>`0x${row.pc.toString(16)}  ${row.mnemonic.padEnd(7)} ${row.operands}`).join('\n')}</pre>`;
     return;
@@ -457,12 +459,15 @@ function showProofBoundary(id){
   const boundary=PROOF_MAP.boundaries.find(row=>row.id===id);if(!boundary)return;
   const node=PROOF_MAP.refinementGraph.nodes.find(row=>row.id===`contract-${id}`);
   const annotation=PROOF_MAP.authoringRegions.find(row=>(row.boundaryIds||[]).includes(id));
-  $('#dname').textContent=boundary.qualified;$('#dsub').textContent=`selected child · ${node.status}`;setCopy(id);
+  $('#dname').textContent=boundary.qualified;$('#dsub').textContent='selected Level 1 instance';setCopy(id);
   $('#rbody').innerHTML=`<div class="kv"><span>source region</span><span>${esc(node.source)}</span>
     <span>entry</span><span>0x${boundary.entryPc.toString(16)}</span>
-    <span>instructions</span><span>${boundary.instructionCount}</span>
-    <span>returns</span><span>${esc((boundary.exits||[]).map(edge=>`0x${edge.source.toString(16)} → 0x${edge.target.toString(16)}`).join(', ')||'none')}</span>
-    <span>proof status</span><span>${esc(node.status)}</span>
+    <span>instructions</span><span>${boundary.ownedInstructionCount} owned; ${boundary.subtreeInstructionCount} execution closure</span>
+    <span>observed vectors</span><span>${esc(boundary.observedVectors.join(', ')||'none')}</span>
+    <span>observed exits</span><span>${esc(boundary.observedExitTransitions.map(edge=>`0x${edge[0].toString(16)} → 0x${edge[1].toString(16)}`).join(', ')||'none')}</span>
+    <span>evidence</span><span>${esc(boundary.evidenceStatus)}</span>
+    <span>contract</span><span>${esc(boundary.contractStatus.replaceAll('_',' '))}</span>
+    <span>machine proof</span><span>${esc(boundary.proofStatus.replaceAll('_',' '))}</span>
     <span>authoring blocker</span><span>${esc(annotation?.blocker||'no focused authoring annotation')}</span></div>`;
 }
 

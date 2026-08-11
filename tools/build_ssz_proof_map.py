@@ -53,6 +53,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         boundary_bindings = bindings_by_id[row["id"]]
         boundary_id = "level1-" + row["id"].replace(":", "-")
         source = row["functionInstanceIdentity"]["function"]["declaration"]
+        contract_status = "preliminary_shape" if row["qualified"] == "ssz.decode" else "not_specified"
         boundaries.append({
             "id": boundary_id, "instanceId": row["id"], "qualified": row["qualified"],
             "entryPc": row["entryPc"], "instructionPcs": row["instructionPcs"],
@@ -63,11 +64,15 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             "observedExtentInstructionCount": len(capture["extent"]),
             "observedExitTransitions": [list(edge) for edge in sorted(capture["exits"])],
             "dwarfBindings": boundary_bindings,
-            "evidenceStatus": "captured", "kernelStatus": "not_started",
+            "evidenceStatus": "captured", "contractStatus": contract_status,
+            "proofStatus": "not_started", "kernelStatus": "not_started",
         })
         regions.append({
-            "id": boundary_id, "label": row["qualified"], "authoringState": "blocked",
-            "blocker": "Review the typed entry/result binding before stating this Level 1 contract.",
+            "id": boundary_id, "label": row["qualified"],
+            "authoringState": "contract_" + contract_status,
+            "blocker": ("Complete and review this preliminary contract shape."
+                        if contract_status == "preliminary_shape" else
+                        "Specify and review the typed contract from the captured boundary evidence."),
             "scope": "selected-child", "pcs": row["executionPcs"], "boundaryIds": [boundary_id],
             "evidence": "production entry registers, PCs, memory accesses, and exits captured",
             "preparation": {
@@ -82,7 +87,9 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         node_id = "contract-" + boundary_id
         nodes.append({
             "id": node_id, "label": row["qualified"], "kind": "level1Contract",
-            "column": 1, "status": "evidence", "boundaryId": boundary_id,
+            "column": 1, "status": "contract_" + contract_status,
+            "evidenceStatus": "captured", "contractStatus": contract_status,
+            "proofStatus": "not_started", "boundaryId": boundary_id,
             "instructionCount": row["subtreeInstructionCount"],
             "source": source["file"],
         })
@@ -90,7 +97,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         edges.append({"source": node_id, "target": "conversion", "kind": "dependency"})
 
     regions.append({
-        "id": "level0-glue", "label": "main parent-owned glue", "authoringState": "ready",
+        "id": "level0-glue", "label": "main parent-owned glue", "authoringState": "proof_not_started",
         "blocker": "Prove these instructions while composing all selected Level 1 contracts.",
         "scope": "parent", "pcs": glue_pcs, "boundaryIds": [],
         "evidence": "production ELF structure and endpoint differential fixtures",
@@ -100,12 +107,13 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
     })
     nodes.extend([
         {"id": "glue", "label": "main parent-owned glue", "kind": "parentGlue", "column": 1,
-         "status": "ready", "phase": "level0-glue", "instructionCount": len(glue_pcs),
+         "status": "proof_not_started", "proofStatus": "not_started",
+         "phase": "level0-glue", "instructionCount": len(glue_pcs),
          "provedInstructionCount": 0},
         {"id": "conversion", "label": "exportedContracts_of_level1", "kind": "conversion",
-         "column": 2, "status": "blocked"},
+         "column": 2, "status": "not_started", "proofStatus": "not_started"},
         {"id": "root", "label": "root_compliance", "kind": "parent", "column": 3,
-         "status": "blocked"},
+         "status": "not_started", "proofStatus": "not_started"},
     ])
     edges.extend([
         {"source": "glue", "target": "conversion", "kind": "dependency"},

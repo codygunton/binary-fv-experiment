@@ -31,6 +31,15 @@ class ProofMapTest(unittest.TestCase):
         decode = next(row for row in result["boundaries"] if row["qualified"] == "ssz.decode")
         direct = {row["name"]: row["machineRegister"] for row in decode["dwarfBindings"]}
         self.assertEqual((direct["input_ptr"], direct["input_size"]), (23, 18))
+        self.assertEqual(decode["contractStatus"], "preliminary_shape")
+        self.assertTrue(all(row["evidenceStatus"] == "captured"
+                            for row in result["boundaries"]))
+        self.assertEqual(sum(row["contractStatus"] == "preliminary_shape"
+                             for row in result["boundaries"]), 1)
+        glue = next(node for node in result["refinementGraph"]["nodes"]
+                    if node["kind"] == "parentGlue")
+        self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),
+                         ("not_started", 0))
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
