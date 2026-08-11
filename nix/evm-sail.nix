@@ -77,8 +77,14 @@ let
   combinedImport = pkgs.runCommand "binary-fv-evm-sail-combined-import" {
     nativeBuildInputs = [ lean429 ];
   } ''
-    export LEAN_PATH=${binaryFvLean}/lean:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
-    lean ${repo}/tests/evm-sail/CombinedImportSmoke.lean
+    cp -R ${binaryFvLean}/lean compiled
+    chmod -R u+w compiled
+    mkdir -p compiled/BinaryFv/Ssz
+    export LEAN_PATH=$PWD/compiled:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
+    cp ${repo}/BinaryFv/Ssz/Specification.lean Specification.lean
+    cp ${repo}/tests/evm-sail/CombinedImportSmoke.lean CombinedImportSmoke.lean
+    lean -o compiled/BinaryFv/Ssz/Specification.olean Specification.lean
+    lean CombinedImportSmoke.lean
     touch "$out"
   '';
 in
