@@ -25,23 +25,66 @@ ownership in the old database. That yields 134 distinct owners.
 
 ## 2. The endpoint is mostly not SSZ
 
-| group | instructions | share |
+Attribution matters here. The artifact's function-level `semanticGroup` assigns a whole function to
+one group, so it credits all 1007 instructions of `main` to `ssz` even though most of them are
+inlined code from elsewhere. Attributing each instruction to its **innermost inline instance**, and
+that instance to its source file, gives the real composition:
+
+| source | instructions | share |
 |---|---|---|
-| `stateless` (RLP decoding) | 2305 | **52.0%** |
-| `ssz` | 1108 | 25.0% |
-| `allocator` | 468 | 10.6% |
-| `zkvm` | 407 | 9.2% |
-| `support` | 147 | 3.3% |
+| `rlp_decode.zig` | 2028 | **45.7%** |
+| **`ssz.zig`** | **603** | **13.6%** |
+| `Allocator.zig` | 483 | 10.9% |
+| `alt_fl_alloc.zig` | 411 | 9.3% |
+| `array_list.zig` | 366 | 8.3% |
+| `mem.zig` | 331 | 7.5% |
+| `rlp.zig` | 137 | 3.1% |
+| `ssz_decode_root.zig` | 36 | 0.8% |
 
-And the `ssz` share is almost all harness. The actual decoder is:
+**RLP decoding is 48.8% of the endpoint; SSZ decoding is 13.6%.** The harness proper is 36
+instructions. Allocation and standard-library support together are 36%.
 
-| instructions | function |
-|---|---|
-| 1007 | `ssz_decode_root.main` (`zkvm/ssz_decode_root.zig:23`) — the entry harness |
-| **101** | **`ssz.decodeByteListList`** (`stateless/stateless/ssz.zig:67`) — the decoder |
+Within the SSZ share:
 
-**The function the verification targets is 101 instructions, 2.3% of the endpoint.** Any plan that
-budgets effort proportionally to "the SSZ endpoint" is budgeting mostly for RLP and allocation.
+| instructions | instance | kind |
+|---|---|---|
+| 432 | `ssz.decode` | inlined into `main` |
+| 81 | `ssz.decodeByteListList` | concrete |
+| 57 | `ssz.decodeWithdrawal` | inlined |
+| 33 | small struct decoders, `forkNameFromSchemaByte` | inlined |
+| 0 | every `ssz.readU32` instance | fully absorbed |
+
+Any plan that budgets effort proportionally to "the SSZ endpoint" is budgeting mostly for RLP,
+allocation, and the Zig standard library.
+
+## 2a. Why RLP and SSZ are interleaved at all
+
+SSZ is the outer envelope; RLP is the payload. The mechanism is
+`stateless/stateless/ssz.zig:320-324`:
+
+```zig
+// transactions: List[ByteList, N] — offset-table format
+const txs_raw = try decodeByteListList(alloc, ep_data[off_transactions..off_withdrawals]);
+const transactions = try alloc.alloc(input_mod.Transaction, txs_raw.len);
+for (txs_raw, 0..) |raw_tx, i| {
+    transactions[i] = try rlp_decode.decodeSingleTx(alloc, raw_tx);
+}
+```
+
+The whole `StatelessInput` is SSZ-encoded. Inside it, `execution_payload.transactions` is an SSZ
+`List[ByteList, N]` — a list of **opaque** byte strings. Each of those byte strings is an
+RLP-encoded Ethereum transaction. SSZ never looks inside them; it splits the offset table into
+slices and hands each slice to the RLP decoder.
+
+This mirrors Ethereum's real layering. Consensus-layer and stateless-witness formats are SSZ, but
+transactions inside an execution payload stay RLP-encoded for execution-layer compatibility, so an
+SSZ container carrying them must treat them as opaque bytes.
+
+That layering is also why the instruction counts are so lopsided. `decodeByteListList` reads a
+`u32` offset table and returns **zero-copy slices into the input** — 81 instructions, no parsing
+and no copying. Parsing a transaction is the opposite: typed envelopes, and separate decoders for
+field lists (940), access lists (310), authorization lists (222), hash lists (175) and addresses
+(63).
 
 ## 3. Geometry: less inlined, so long motifs are worth less
 
