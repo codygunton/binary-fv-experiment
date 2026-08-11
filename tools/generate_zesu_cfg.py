@@ -486,6 +486,36 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
     for rows in anchored_children.values():
         rows.sort(key=lambda name: (starts.get(name, -2), name))
 
+    # Proof refinement levels follow actual call/inlining edges, not the unique display placement
+    # required by the flame tree for shared emitted functions.
+    proof_edges: dict[str, set[str]] = defaultdict(set)
+    inline_ids_by_name: dict[str, list[str]] = defaultdict(list)
+    for instance_id, instance in inline_by_id.items():
+        inline_ids_by_name[instance["name"]].append(instance_id)
+        parent = instance["parent"]
+        proof_parent = parent if parent in inline_by_id else concrete_symbol.get(parent)
+        if proof_parent is not None:
+            proof_edges[proof_parent].add(instance_id)
+    for call in calls:
+        if call["source"] in inline_at_pc:
+            proof_callers = [inline_at_pc[call["source"]]]
+        elif call["caller"] in concrete_for_name:
+            proof_callers = [call["caller"]]
+        else:
+            proof_callers = inline_ids_by_name.get(call["caller"], [])
+        if call["callee"] in concrete_for_name:
+            for proof_caller in proof_callers:
+                proof_edges[proof_caller].add(call["callee"])
+    proof_depths = {root: 0}
+    pending = deque([root])
+    while pending:
+        proof_parent = pending.popleft()
+        for proof_child in proof_edges[proof_parent]:
+            candidate = proof_depths[proof_parent] + 1
+            if proof_child not in proof_depths or candidate < proof_depths[proof_child]:
+                proof_depths[proof_child] = candidate
+                pending.append(proof_child)
+
     def inline_node(instance_id: str, parent_key: str, level: int) -> tuple[dict, set[int]]:
         instance = inline_by_id[instance_id]
         label = f"{instance['name']} [{instance_id}]"
@@ -500,7 +530,8 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
             child_nodes.append(child_node); subtree |= child_pcs
         meta[key] = {
             "owner": instance_id, "qualified": instance["name"], "kind": "inlinedFunctionInstance",
-            "refinementLevel": level,
+            "refinementLevel": proof_depths.get(instance_id, level),
+            "displayTreeLevel": level,
             "hierarchy": "dwarfInlineNesting", "runs": instance["ranges"], "frags": len(instance["ranges"]),
             "machineInstructionCount": instance["instructionCount"], "value": len(subtree), "self": len(own),
             "file": instance["sourceFile"],
@@ -528,7 +559,8 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
         placement = concrete_placement.get(name, {"anchor": None, "callsites": []})
         anchor_name = inline_by_id[placement["anchor"]]["name"] if placement["anchor"] in inline_by_id else placement["anchor"]
         meta[key] = {"owner": concrete_id or name, "qualified": name, "kind": "concreteFunctionInstance",
-                     "refinementLevel": level,
+                     "refinementLevel": proof_depths.get(name, level),
+                     "displayTreeLevel": level,
                      "hierarchy": "callDominatorAnchoredAtDeepestCommonInlineCallsite", "runs": [], "frags": 1,
                      "machineInstructionCount": len(ownership[name]), "value": len(subtree), "self": len(own),
                      "displayAnchor": placement["anchor"], "displayAnchorName": anchor_name,
@@ -632,6 +664,7 @@ def main() -> None:
         "formalStatus": "No kernel-backed target proof manifest is present.",
         "functions": output_functions,
         "functionInstances": instance_rows,
+        "calls": call_rows,
         "totals": {"functions": len(output_functions), "instructions": len(instruction_rows),
                    "functionInstances": len(instance_rows),
                    "inlinedFunctionInstances": sum(row["kind"] == "inlined" for row in instance_rows),

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict, deque
 import json
 import re
 from pathlib import Path
@@ -15,7 +16,6 @@ INSTANCE = re.compile(r"^(?P<qualified>.+) \[(?P<id>(?:fi|fn):[^]]+)\]$")
 def generate(cfg: dict, flame: dict, level: int) -> dict:
     if level != 1:
         raise ValueError("the SSZ spike currently freezes only Level 1")
-    root = flame["tree"]
     rows = {row["id"]: row for row in cfg["functionInstances"]}
     children: dict[str, list[str]] = {}
     for row in rows.values():
@@ -43,17 +43,6 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
 
     def local_pcs(identifier: str) -> set[int]:
         return set(rows[identifier]["pcs"]) - inline_descendant_pcs(identifier)
-
-    def execution_pcs(node: dict) -> set[int]:
-        match = INSTANCE.fullmatch(node["name"])
-        if match is None:
-            raise ValueError(f"node lacks a generated identity: {node['name']}")
-        result = local_pcs(resolve(match.group("id")))
-        for child in node["children"]:
-            result.update(execution_pcs(child))
-        if len(result) != node["value"]:
-            raise ValueError(f"subtree instruction count drift for {node['name']}")
-        return result
 
     def source_declaration(identifier: str) -> dict:
         row = rows[identifier]
@@ -83,38 +72,83 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
             "inlineStack": sites,
         }
 
+    concrete_by_entry: dict[int, list[str]] = defaultdict(list)
+    for row in rows.values():
+        if row["kind"] == "concrete":
+            concrete_by_entry[row["entryPc"]].append(row["id"])
+    concrete_by_name: dict[str, str] = {}
+    for function in cfg["functions"]:
+        candidates = concrete_by_entry.get(function["start"], [])
+        if len(candidates) == 1:
+            concrete_by_name[function["name"]] = candidates[0]
+    if "main" not in concrete_by_name:
+        raise ValueError("main concrete function instance is absent")
+
+    inline_rows = [row for row in rows.values() if row["kind"] == "inlined"]
+
+    def call_owner(call: dict) -> str:
+        containing = [row for row in inline_rows if call["source"] in row["pcs"]]
+        if containing:
+            return min(containing, key=lambda row: (row["instructionCount"], -row["dieOffset"]))["id"]
+        if call["caller"] not in concrete_by_name:
+            raise ValueError(f"call source has no concrete or inline owner: {call}")
+        return concrete_by_name[call["caller"]]
+
+    edges: dict[str, set[str]] = defaultdict(set)
+    for row in rows.values():
+        if row["parent"] is not None:
+            edges[row["parent"]].add(row["id"])
+    for call in cfg.get("calls", []):
+        target = concrete_by_name.get(call["callee"])
+        if target is None:
+            raise ValueError(f"call target has no concrete DWARF instance: {call}")
+        edges[call_owner(call)].add(target)
+
+    root_identifier = concrete_by_name["main"]
+    depths = {root_identifier: 0}
+    pending = deque([root_identifier])
+    while pending:
+        parent = pending.popleft()
+        for child in edges[parent]:
+            if child not in depths or depths[child] > depths[parent] + 1:
+                depths[child] = depths[parent] + 1
+                pending.append(child)
+
+    def execution_pcs(identifier: str) -> set[int]:
+        reachable: set[str] = set()
+        pending = [identifier]
+        while pending:
+            current = pending.pop()
+            if current in reachable:
+                continue
+            reachable.add(current)
+            pending.extend(edges[current])
+        return set().union(*(local_pcs(current) for current in reachable))
+
     selected = []
-    for node in root["children"]:
-        match = INSTANCE.fullmatch(node["name"])
-        if match is None:
-            raise ValueError(f"Level 1 node lacks a generated identity: {node['name']}")
-        display_identifier = match.group("id")
-        identifier = resolve(display_identifier)
-        if identifier not in rows:
-            raise ValueError(f"Level 1 identity is absent from CFG: {identifier}")
+    for identifier in sorted((identifier for identifier, depth in depths.items() if depth == level),
+                             key=lambda identifier: (rows[identifier]["entryPc"], identifier)):
         row = rows[identifier]
         owned_pcs = sorted(set(row["pcs"]) - inline_descendant_pcs(identifier))
-        if len(owned_pcs) != node["self"]:
-            raise ValueError(f"owned instruction count drift for {identifier}")
+        subtree_pcs = sorted(execution_pcs(identifier))
         selected.append({
             "id": identifier,
-            "qualified": match.group("qualified"),
+            "qualified": row["name"],
             "kind": row["kind"],
             "functionInstanceIdentity": stable_identity(identifier),
             "sourceFile": row["sourceFile"],
             "declLine": row["declLine"],
             "entryPc": row["entryPc"],
             "instructionPcs": owned_pcs,
-            "executionPcs": sorted(execution_pcs(node)),
-            "ownedInstructionCount": node["self"],
-            "subtreeInstructionCount": node["value"],
+            "executionPcs": subtree_pcs,
+            "ownedInstructionCount": len(owned_pcs),
+            "subtreeInstructionCount": len(subtree_pcs),
         })
-    selected.sort(key=lambda row: (row["entryPc"], row["id"]))
     return {
         "schemaVersion": 1,
         "artifact": cfg["artifact"],
         "level": level,
-        "parent": root["name"],
+        "parent": flame["tree"]["name"],
         "instances": selected,
     }
 

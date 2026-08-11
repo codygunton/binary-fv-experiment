@@ -14,11 +14,10 @@ def register_map(instance: dict) -> dict[str, int | None]:
 
 def validate(report: dict) -> None:
     rows = {row["qualified"]: row for row in report["instances"]}
-    if len(rows) != 9:
-        raise ValueError("boundary report must contain the exact nine Level 1 instances")
+    if len(rows) != 7:
+        raise ValueError("boundary report must contain the exact seven Level 1 instances")
     expected = {
         "read_input": {"buffer": 10, "size": 11},
-        "write_output": {"buffer": 10, "size": 11},
         "zkvm_exit": {"code": 10},
         "memcpy": {"dst": 10, "src": 11, "n": 12},
     }

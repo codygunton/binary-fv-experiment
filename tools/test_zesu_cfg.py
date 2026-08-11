@@ -140,21 +140,27 @@ def validate_flame(data: dict, flame: dict) -> None:
             assert row["displayAnchor"] in instances
             anchor_pcs = set(instances[row["displayAnchor"]]["pcs"])
             assert row["displayCallsites"] and set(row["displayCallsites"]) <= anchor_pcs
-    assert all(flame["meta"][key]["refinementLevel"] == level for key, level in seen_levels.items())
+    assert all(flame["meta"][key]["displayTreeLevel"] == level for key, level in seen_levels.items())
     assert flame["meta"][flame["tree"]["key"]]["refinementLevel"] == 0
     if len(data["functions"]) < 100:
-        level_one = Counter(flame["meta"][child["key"]]["qualified"] for child in flame["tree"]["children"])
+        level_one = Counter(row["qualified"] for row in flame["meta"].values()
+                            if row["refinementLevel"] == 1)
         assert level_one == Counter({
             "alt_fl_alloc.get": 1,
             "ssz.decode": 1,
             "ssz_decode_observation.writeSuccess": 1,
             "ssz_decode_observation.writeFailure": 1,
-            "mem.Allocator.allocBytesWithAlignment__anon_2076": 1,
             "read_input": 1,
-            "write_output": 1,
             "zkvm_exit": 1,
             "memcpy": 1,
         })
+        write_output = next(row for row in flame["meta"].values()
+                            if row["qualified"] == "write_output")
+        assert write_output["refinementLevel"] == 4, write_output["refinementLevel"]
+        allocator_leaf = next(row for row in flame["meta"].values()
+                              if row["qualified"] ==
+                              "mem.Allocator.allocBytesWithAlignment__anon_2076")
+        assert allocator_leaf["refinementLevel"] > 1
         observations = [row for row in flame["meta"].values()
                         if row["qualified"].startswith("ssz_decode_observation.")]
         assert observations

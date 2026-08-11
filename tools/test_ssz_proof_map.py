@@ -24,7 +24,7 @@ class ProofMapTest(unittest.TestCase):
         result = self.module.build(*self.documents)
         contracts = [node for node in result["refinementGraph"]["nodes"]
                      if node["kind"] == "level1Contract"]
-        self.assertEqual(len(contracts), 9)
+        self.assertEqual(len(contracts), 7)
         self.assertEqual(sum(region["scope"] == "parent"
                              for region in result["authoringRegions"]), 1)
         self.assertEqual(result["phases"][0]["label"], "main parent-owned glue")

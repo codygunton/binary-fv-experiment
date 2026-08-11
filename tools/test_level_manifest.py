@@ -12,12 +12,10 @@ EXPECTED = {
     "alt_fl_alloc.get",
     "ssz.decode",
     "read_input",
-    "write_output",
     "zkvm_exit",
     "memcpy",
     "ssz_decode_observation.writeSuccess",
     "ssz_decode_observation.writeFailure",
-    "mem.Allocator.allocBytesWithAlignment__anon_2076",
 }
 
 
