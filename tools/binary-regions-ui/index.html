@@ -85,8 +85,9 @@
 <div id="wrap">
  <div id="left">
   <header>
-    <h1>production call hierarchy</h1>
+    <h1>authentic Zesu production call hierarchy</h1>
     <span class="pill" id="zoominfo">full</span>
+    <button id="scope-toggle">full program</button>
     <button id="reset">reset zoom</button>
     <button id="proof-toggle" hidden>proof map</button>
     <a class="button" href="README.md" target="_blank">graph rules</a>
@@ -116,7 +117,11 @@ let copyText='';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
-Promise.all([fetch('flame.json').then(r=>r.json()),fetch('proof-progress.json').then(r=>r.json()),
+const FULL_VIEW=new URLSearchParams(location.search).get('scope')==='full';
+const FLAME_FILE=FULL_VIEW?'flame-full.json':'flame.json';
+document.querySelector('h1').textContent=FULL_VIEW?'authentic Zesu full-program call hierarchy':'Zesu SSZ-decode call hierarchy';
+$('#scope-toggle').textContent=FULL_VIEW?'SSZ decode':'full program';
+Promise.all([fetch(FLAME_FILE).then(r=>r.json()),fetch('proof-progress.json').then(r=>r.json()),
   fetch('proof-map.json').then(r=>r.ok?r.json():null)]).then(([d,p,proofMap])=>{
   D=d.tree; META=d.meta; TOTAL=d.total; PROGRAM_TOTAL=d.programTotal;
   PROOF_MAP=proofMap;
@@ -371,7 +376,7 @@ function renderProofCfg(){
   const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],ready:['#473b1e','#e5b84b'],
     blocked:['#472327','#d95757'],contract:['#30263b','#9c78c2']};
   const short=s=>s.length>34?s.slice(0,32)+'…':s;
-  const titles=['selected contracts','parent-owned glue','conversion theorem','parent target'];
+  const titles=['specification boundary','target machine regions','refinement theorem','compliance theorem'];
   const columns=titles.map((title,i)=>`<rect class="cfg-column" x="${i*laneW+4}" y="4" width="${laneW-8}" height="${height-8}" rx="6"/>
     <text class="cfg-column-title" x="${i*laneW+16}" y="25">${i+1}. ${esc(title)}</text>`).join('');
   const edges=graph.edges.map(edge=>{const a=positions.get(edge.source),b=positions.get(edge.target);if(!a||!b)return'';
@@ -465,6 +470,7 @@ function toggleProofMap(){
 }
 
 $('#reset').onclick=()=>setZoom(1);
+$('#scope-toggle').onclick=()=>{location.search=FULL_VIEW?'':'?scope=full'};
 $('#proof-toggle').onclick=toggleProofMap;
 $('#copy-name').onclick=copyCurrent;
 window.addEventListener('resize',()=>{ if(fg){ baseW=$('#chart').clientWidth-100; setZoom(Z); } });
