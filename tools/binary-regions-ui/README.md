@@ -11,4 +11,6 @@ connection, and untrusted authoring suggestions. Nix will package fresh JSON bes
 `0.0.0.0`. The flamegraph keeps its original zoom, pan, call-hierarchy details, proof coloring, and
 proof-map views. All frames start red: the new target has no kernel-backed manifest yet. Machine
 structure and source lines come from the same ReleaseSmall object; EVM-Sail appears only as a future
-refinement dependency, not as established correspondence.
+refinement dependency, not as established correspondence. The displayed hierarchy has `main` as its
+bottom frame;
+the JSON retains the full-object instruction total without rendering unreachable object material.

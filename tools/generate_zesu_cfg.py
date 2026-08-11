@@ -230,10 +230,7 @@ def build_flame(function_rows: list[dict], instructions: dict[int, dict], calls:
     root = "main" if "main" in known else min(known)
     parents, reachable = dominator_parents(root, known, calls)
     children: dict[str, list[str]] = defaultdict(list)
-    children["program"].append(root)
-    children["binary"].extend(["program", "not-called-by-program"])
     for child, parent in parents.items(): children[parent].append(child)
-    for name in known - reachable: children["not-called-by-program"].append(name)
     starts = {fn["name"]: fn["start"] for fn in function_rows}
     for rows in children.values(): rows.sort(key=lambda name: (starts.get(name, -2), name))
     fn_by_name = {fn["name"]: fn for fn in function_rows}
@@ -242,7 +239,7 @@ def build_flame(function_rows: list[dict], instructions: dict[int, dict], calls:
     for call in calls: callers[call["callee"]].append(call); callees[call["caller"]].append(call)
 
     def node(name: str, parent_key: str | None) -> tuple[dict, set[int]]:
-        synthetic = name in {"binary", "program", "not-called-by-program"}
+        synthetic = False
         label = name if synthetic else f"{name} [fn:0x{fn_by_name[name]['start']:x}]"
         key = label if parent_key is None else f"{parent_key}|{label}"
         own = set() if synthetic else set(ownership[name])
@@ -257,11 +254,12 @@ def build_flame(function_rows: list[dict], instructions: dict[int, dict], calls:
                      "fragmentHandoffs": [], "parentReentryEdges": [], "carrierRoutes": [], "activeCalleeFrames": [], "src": None}
         return {"name": label, "value": len(subtree), "self": len(own), "children": child_nodes, "key": key}, subtree
 
-    tree, covered = node("binary", None)
-    if covered != set().union(*(set(pcs) for name, pcs in ownership.items() if name in known)):
-        raise ValueError("call hierarchy does not cover the symbol-owned instruction inventory")
+    tree, covered = node(root, None)
+    reachable_pcs = set().union(*(set(ownership[name]) for name in reachable))
+    if covered != reachable_pcs:
+        raise ValueError("displayed call hierarchy does not cover the main-reachable inventory")
     return {"schemaVersion": 2, "machineRegionInputs": {"target": "upstream-zesu-d8071c4-release-small"},
-            "total": len(instructions), "programTotal": len(set().union(*(set(ownership[name]) for name in reachable))),
+            "total": len(instructions), "programTotal": len(reachable_pcs),
             "loAddr": min(instructions), "tree": tree, "meta": meta,
             "suggest": {"cap": 0, "coverage": len(covered), "units": [], "residual": {}, "needsSubFunctionSplit": []}}
 

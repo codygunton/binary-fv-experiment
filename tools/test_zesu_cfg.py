@@ -31,7 +31,7 @@ def validate(path: Path) -> None:
     flame = json.loads(path.with_name("flame.json").read_text())
     assert flame["total"] == data["totals"]["instructions"]
     assert flame["programTotal"] > flame["total"] * 3 // 4
-    assert {node["name"] for node in flame["tree"]["children"]} == {"program", "not-called-by-program"}
+    assert flame["tree"]["name"].startswith("main [fn:")
 
     proof = json.loads(path.with_name("proof-map.json").read_text())
     validate_proof(proof)
